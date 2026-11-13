@@ -140,7 +140,7 @@
   opacity: 0.6;
 }
 
-.weq-group-quick-card .weq-group-quick-name-editor {
+.weq-group-card .weq-group-quick-name-editor {
   display: flex;
   align-items: center;
   gap: 6px;

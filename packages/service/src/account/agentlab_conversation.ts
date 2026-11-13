@@ -5,13 +5,16 @@
  * 也为未来导出 bot client 持续积累。按 agentId（personaId 或 'assistant'）分桶。
  */
 
-import type { AssistantStep } from './assistant';
+import type { AssistantProcessStep } from './assistant';
 import type { AiImageRef, AiImageOutcome } from '@weq/agentlab';
 import { createHash, randomUUID } from 'node:crypto';
 import { JsonStore } from '../common/json_store';
 import { hasCloneMessageIdCollision, uniqueCloneMessageIds } from './clone_message_identity';
 
 export interface ConversationTurn {
+  taskId?: string;
+  status?: 'running' | 'complete' | 'stopped' | 'failed';
+  sendMode?: 'interrupt' | 'boundary' | 'queue';
   images?: AiImageRef[];
   imageOutcomes?: AiImageOutcome[];
   /** 历史数据可缺省；通过 ConversationStore 读取后始终有稳定身份。 */
@@ -26,7 +29,7 @@ export interface ConversationTurn {
   /** assistant 回合用到的工具名（WeQ 助手）。 */
   toolsUsed?: string[];
   /** assistant 回合的多轮思考/工具调用过程（WeQ 助手），用于刷新后回放折叠历史。 */
-  steps?: AssistantStep[];
+  steps?: AssistantProcessStep[];
 }
 
 /** 单个 agent 最多保留的回合数（防文件无限增长）。 */
@@ -159,6 +162,26 @@ export class ConversationStore {
       offset === index ? { ...turn, imageOutcomes: outcomes } : turn,
     );
     this.store.save();
+  }
+
+  upsert(agentId: string, turn: ConversationTurn & { id: string }): void {
+    const current = this.get(agentId);
+    const index = current.findIndex((row) => row.id === turn.id);
+    if (index < 0) current.push(turn);
+    else current[index] = { ...current[index], ...turn };
+    this.store.replace({
+      ...this.store.data,
+      [agentId]:
+        !this.unbounded.has(agentId) && current.length > MAX_CONVERSATION_TURNS
+          ? current.slice(-MAX_CONVERSATION_TURNS)
+          : current,
+    });
+  }
+  removeTurn(agentId: string, id: string): void {
+    this.store.replace({
+      ...this.store.data,
+      [agentId]: this.get(agentId).filter((turn) => turn.id !== id),
+    });
   }
 
   /**

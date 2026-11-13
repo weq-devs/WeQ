@@ -33,6 +33,7 @@ export interface GeneratedSearchSources {
 }
 
 export interface GeneratedMessage {
+  status?: 'running' | 'complete' | 'stopped' | 'failed';
   id?: string;
   text: string;
   ts: number;

@@ -278,6 +278,12 @@
   border-top: 1px solid var(--weq-border-subtle);
 }
 
+.weq-contact-card .weq-contact-sections {
+  /* 吸底操作条会盖住滚动区末尾：给正文留出与操作条等高的余量，
+     最后一行能完整滚到条上方，而不是被切掉半行。 */
+  padding-bottom: 8px;
+}
+
 .weq-contact-card .weq-profile-section-head > .weq-profile-subtitle {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -331,8 +337,8 @@
   gap: 2px;
 }
 
-.weq-contact-signature > p,
-.weq-contact-signature > .weq-contact-signature-text {
+.weq-contact-signature-value {
+  display: block;
   /* 截断用高度而不是 line-clamp：避免「…」和「展开」同时出现。 */
   max-height: calc(3 * 1.6em);
   margin: 0;
@@ -342,8 +348,7 @@
   line-height: 1.6;
 }
 
-.weq-contact-signature.is-open > p,
-.weq-contact-signature.is-open > .weq-contact-signature-text {
+.weq-contact-signature.is-open .weq-contact-signature-value {
   max-height: none;
 }
 
@@ -445,6 +450,34 @@
   border-radius: 0 0 14px 14px;
 }
 
+/*
+ * 快速名片（联系人 / 群）改为「正文滚动 + 操作条 footer」：
+ * 卡片本身不再滚动，操作条不浮在正文上，正文在它上方结束，滚到哪都不会露出半截字段行。
+ */
+.weq-member-pop.weq-contact-card:not(.weq-group-page) {
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+.weq-member-pop.weq-contact-card:not(.weq-group-page) > .weq-contact-card-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 10px;
+}
+
+.weq-member-pop.weq-contact-card:not(.weq-group-page) > .weq-profile-card-actions {
+  position: static;
+  flex: 0 0 auto;
+  margin: 0 -16px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--weq-border-subtle);
+  border-radius: 0 0 14px 14px;
+  background: var(--weq-bg-surface);
+}
+
 .weq-contact-actions button {
   font-size: 13px;
 }
@@ -463,7 +496,7 @@
   border: 1px solid transparent;
   border-radius: 6px;
   background: var(--weq-accent-effective);
-  color: #fff;
+  color: var(--weq-accent-ink, #fff);
   font-weight: 500;
   cursor: pointer;
 }
@@ -535,6 +568,16 @@ html[data-theme='dark'] .weq-profile-dialog.weq-contact-profile-v2 {
   box-shadow: none;
 }
 
+/* 打开资料页/名片时焦点落在面板容器本身（不再落在右上角图标按钮）；
+   容器不需要焦点框，避免整页边缘出现一圈蓝框。内部按钮的焦点框保留。 */
+.weq-member-pop-scrim:focus-visible,
+.weq-profile-layer:focus-visible,
+.weq-member-pop:focus-visible,
+.weq-contact-profile-v2:focus-visible,
+.weq-group-page:focus-visible {
+  outline: none;
+}
+
 .weq-profile-page-toolbar,
 .weq-contact-page-toolbar {
   display: flex;
@@ -544,6 +587,13 @@ html[data-theme='dark'] .weq-profile-dialog.weq-contact-profile-v2 {
   padding: 10px 24px;
   border-bottom: 1px solid var(--weq-border-subtle);
   font-size: 13px;
+}
+
+.weq-profile-page-toolbar > strong,
+.weq-contact-page-toolbar > strong {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 .weq-profile-page-header,
@@ -564,6 +614,17 @@ html[data-theme='dark'] .weq-profile-dialog.weq-contact-profile-v2 {
   margin: 10px 0 0;
   padding: 0;
   border-top: 0;
+}
+
+/* 页头设置按钮复用 header 图标按钮的尺寸，但颜色必须走语义 token：
+   group-header-info-action 自带 #444444，在深色主题下几乎看不见。 */
+.weq-profile-page-toolbar .weq-profile-page-settings {
+  flex: 0 0 auto;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-profile-page-toolbar .weq-profile-page-settings:hover {
+  color: var(--weq-fg-primary);
 }
 
 .weq-profile-page-close {
@@ -720,6 +781,13 @@ html[data-theme='dark'] .weq-profile-dialog.weq-contact-profile-v2 {
   opacity: 0.5;
 }
 
+/* 不可排序分区的占位块：只占宽度，不显示、不影响行高 */
+.weq-contact-sort-handle.is-placeholder {
+  visibility: hidden;
+  pointer-events: none;
+  cursor: default;
+}
+
 .weq-contact-sort-item:hover .weq-contact-sort-handle,
 .weq-contact-sort-handle:focus-visible {
   color: var(--weq-fg-secondary);
@@ -735,7 +803,8 @@ html[data-theme='dark'] .weq-profile-dialog.weq-contact-profile-v2 {
   flex: 1 1 auto;
   min-width: 0;
   color: var(--weq-fg-primary);
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 500;
   overflow-wrap: anywhere;
 }
 

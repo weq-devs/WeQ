@@ -7,7 +7,6 @@
 /* 全局隐私遮罩（只写在 WeQ 侧，挂钩模板稳定 class）。放在模板样式之后以覆盖。 */
 @import './privacy.css';
 /* ARK Feed 公众号/服务号消息流样式 */
-@import './ark-feed.css';
 /* streamdown（WeQ 助手流式 Markdown）的样式入口。注意：v2 起这里面**只有**流式动画关键帧
  * （sd-fadeIn / blurIn / slideUp 等），正文与控件（表格复制/下载/全屏、代码块头）全靠 Tailwind
  * 工具类排版，必须靠下面的 @source 把它的编译产物纳入扫描，否则那些类一个都不会生成。 */
@@ -4946,16 +4945,16 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 .weq-settings-preset-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
-  gap: 10px;
+  gap: 12px;
 }
 
 .weq-settings-preset-card {
   display: grid;
   gap: 8px;
   padding: 12px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 12px;
-  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
   text-align: left;
   cursor: pointer;
   transition:
@@ -4988,20 +4987,20 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 .weq-settings-preset-card strong {
   font-size: 13px;
   font-weight: 600;
-  color: #1f2933;
+  color: var(--weq-fg-primary);
 }
 
 .weq-settings-preset-card small {
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.5;
-  color: #7f8b99;
+  color: var(--weq-fg-secondary);
 }
 
 .weq-settings-preset-preview {
   display: block;
   width: 100%;
   height: 52px;
-  border-radius: 10px;
+  border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.38);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
@@ -5240,7 +5239,7 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 
 .weq-settings-section {
   display: grid;
-  gap: 10px;
+  gap: 12px;
   color: #1f1f1f;
 }
 
@@ -5267,7 +5266,7 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 .weq-set {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 16px;
+  gap: 12px;
   color: #1f1f1f;
 }
 
@@ -5686,33 +5685,32 @@ html[data-theme] .weq-set-note.weq-set-note-multiline.weq-set-note-warn {
  * （旧版把确认条放在卡片底部，点级别 1 的开关却在级别 3 下面出现确认，位置与操作
  * 对象对不上）。
  */
+/* 级别按连续行呈现（卡片内不再套一张带边框的卡片），行与行之间用 hairline 分隔。 */
 .weq-set-levels {
   display: grid;
-  gap: 8px;
+  gap: 0;
   min-width: 0;
 }
 
 .weq-set-level {
   display: grid;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: 6px;
+  padding: 10px 0;
   min-width: 0;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 9px;
-  background: #ffffff;
-  transition:
-    border-color 140ms ease,
-    background-color 140ms ease;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
-.weq-set-level.is-active {
-  border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
-  background: color-mix(in srgb, var(--weq-accent-effective) 5%, #ffffff);
+.weq-set-level + .weq-set-level {
+  border-top: 1px solid var(--weq-border-subtle);
 }
 
 .weq-set-level.is-confirming {
-  border-color: var(--weq-warn-border);
+  border-radius: 8px;
   background: var(--weq-warn-bg);
+  box-shadow: inset 0 0 0 1px var(--weq-warn-border);
+  padding-inline: 10px;
 }
 
 .weq-set-level-head {
@@ -5733,9 +5731,9 @@ html[data-theme] .weq-set-note.weq-set-note-multiline.weq-set-note-warn {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #374151;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--weq-fg-primary);
 }
 
 .weq-set-level-tag {
@@ -5750,7 +5748,7 @@ html[data-theme] .weq-set-note.weq-set-note-multiline.weq-set-note-warn {
 .weq-set-level-desc {
   font-size: 12px;
   line-height: 1.6;
-  color: #8a929c;
+  color: var(--weq-fg-secondary);
 }
 
 /* 级别的「生效范围」很长，收进可展开块：列表先做到一行一个级别。 */
@@ -5815,23 +5813,6 @@ html[data-theme] .weq-set-note.weq-set-note-multiline.weq-set-note-warn {
   display: inline-flex;
   flex: none;
   gap: 6px;
-}
-
-html[data-theme='dark'] .weq-set-level {
-  border-color: rgba(255, 255, 255, 0.1);
-  background: #171c23;
-}
-
-html[data-theme='dark'] .weq-set-level.is-active {
-  background: color-mix(in srgb, var(--weq-accent-effective) 12%, #171c23);
-}
-
-html[data-theme='dark'] .weq-set-level-title {
-  color: #edf2f7;
-}
-
-html[data-theme='dark'] .weq-set-level-desc {
-  color: #99a7b8;
 }
 
 html[data-theme='dark'] .weq-set-ledger {
@@ -5940,7 +5921,7 @@ html[data-theme='dark'] .weq-set-mono {
   flex: none;
   min-width: 46px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
   color: color-mix(in srgb, var(--weq-accent-effective) 82%, #0f2d4c);
   letter-spacing: 0.02em;
@@ -5950,7 +5931,7 @@ html[data-theme='dark'] .weq-set-mono {
   flex: 1;
   min-width: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12.5px;
+  font-size: 12px;
   color: #2b3440;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6430,7 +6411,7 @@ html[data-theme='dark'] .weq-set-cache-item svg {
   border-radius: 7px;
   background: #ffffff;
   color: #4b5563;
-  font-size: 12.5px;
+  font-size: 12px;
   cursor: pointer;
   transition:
     border-color 140ms ease,
@@ -6493,7 +6474,7 @@ html[data-theme='dark'] .weq-set-cache-item svg {
   gap: 5px;
   padding: 6px 2px 4px;
   color: var(--weq-accent-effective);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   user-select: none;
@@ -6517,7 +6498,7 @@ html[data-theme='dark'] .weq-set-cache-item svg {
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.035);
   color: #4b5563;
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.75;
 }
 
@@ -6888,7 +6869,7 @@ html[data-theme='dark'] .weq-settings-preset-preview.is-style-soon {
   margin: 0;
   padding: 2px 16px 14px 30px;
   color: #6a7280;
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.7;
 }
 
@@ -8319,7 +8300,7 @@ html[data-theme='dark'] .chat-empty-logo {
   background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
 }
 
-/* 结果行之间不加分割线：分组标题已有分隔，逐行画线会让密集结果区发花。 */
+/* 结果行之间不加分割线：分组标题已有分隔，再逐行画线会让密集结果区发花。 */
 
 .weq-search-avatar {
   flex: 0 0 auto;
@@ -10432,8 +10413,7 @@ html[data-theme='dark'] .weq-forward-bubble {
 
 .weq-agentlab-field select,
 .weq-agentlab-field input,
-.weq-agentlab-field textarea,
-.weq-agentlab-composer textarea {
+.weq-agentlab-field textarea {
   width: 100%;
   border: 1px solid var(--weq-border-subtle);
   border-radius: 10px;
@@ -10456,8 +10436,7 @@ html[data-theme='dark'] .weq-forward-bubble {
 /* 选中输入框：边框统一走主题色（聊天 composer / 各配置面板 / 克隆体设置）。 */
 .weq-agentlab-field select:focus,
 .weq-agentlab-field input:focus,
-.weq-agentlab-field textarea:focus,
-.weq-agentlab-composer textarea:focus {
+.weq-agentlab-field textarea:focus {
   outline: none;
   border-color: var(--weq-accent-effective);
 }
@@ -10466,17 +10445,6 @@ html[data-theme='dark'] .weq-forward-bubble {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.weq-agentlab-transcript {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  display: grid;
-  grid-auto-rows: max-content;
-  align-content: start;
-  gap: 14px;
-  padding: 18px 20px;
 }
 
 /* 克隆体发的自定义表情包图片（气泡内，限制最大尺寸）。 */
@@ -10601,20 +10569,7 @@ html[data-theme='dark'] .weq-forward-bubble {
   color: var(--weq-fg-primary);
 }
 
-.weq-agentlab-composer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 12px;
-  padding: 14px 20px 16px;
-  border-top: 1px solid var(--weq-border-subtle);
-}
-
 /* 发送按钮固定一行高度，不随输入框自动增高而被拉长。 */
-.weq-agentlab-composer > .weq-set-btn {
-  height: 40px;
-  align-self: end;
-}
 
 /* ───────────────────────── WeQ 助手：过程 + Markdown ───────────────────── */
 
@@ -11153,15 +11108,6 @@ html[data-theme='dark'] .weq-forward-bubble {
   border-radius: 4px;
   font-size: 11px;
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
-}
-
-.weq-agentlab-composer textarea {
-  min-height: 40px;
-  max-height: 140px;
-  padding: 9px 14px;
-  line-height: 1.5;
-  resize: none;
-  overflow-y: auto;
 }
 
 /* ── AgentLab 重写：会话列表 + 主区 布局 ──────────────────────────────────── */
@@ -13616,9 +13562,6 @@ html[data-theme='dark'] .weq-provider-modal {
 }
 
 /* @ 成员浮层：贴在输入框上方 */
-.weq-agentlab-composer {
-  position: relative;
-}
 .weq-mention-pop {
   position: absolute;
   left: 20px;
@@ -16330,7 +16273,7 @@ html[data-theme='dark'] .weq-wtools-odev-pid {
   background: #fff;
   color: #1a1a1a;
   font-family: ui-monospace, SFMono-Regular, Consolas, 'Courier New', monospace;
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.6;
   resize: vertical;
 }
@@ -16507,7 +16450,7 @@ html[data-theme='dark'] .weq-wtools-odev-pid {
   border-radius: 5px;
   background: transparent;
   color: #6b7a8a;
-  font-size: 10.5px;
+  font-size: 11px;
   line-height: 1.5;
   cursor: pointer;
   transition:
@@ -16528,7 +16471,7 @@ html[data-theme='dark'] .weq-wtools-odev-pid {
 .weq-wtools-rv-tag {
   margin-right: 6px;
   color: #8b98a5;
-  font-size: 10.5px;
+  font-size: 11px;
 }
 .weq-wtools-rv-fold {
   padding: 0;
@@ -16575,7 +16518,7 @@ html[data-theme='dark'] .weq-wtools-odev-pid {
   border: 1px dashed rgba(0, 0, 0, 0.12);
   border-radius: 12px;
   color: #7c8a99;
-  font-size: 12.5px;
+  font-size: 12px;
   text-align: center;
 }
 html[data-theme='dark'] .weq-wtools-rv-input {
@@ -19013,22 +18956,8 @@ html[data-theme='dark'] .weq-rp-lb {
 /* ───────────────────────── WeQ 助手：composer 工具条 + 空状态预设 ────────── */
 
 /* 外层：工具条（模型/思考等级）+ 输入行，共享一条顶部分隔线。 */
-.weq-asst-composer {
-  border-top: 1px solid var(--weq-border-subtle);
-}
-
-.weq-asst-composer-tools {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 20px 0;
-}
 
 /* 内层输入行复用 .weq-agentlab-composer 网格，但分隔线由外层负责。 */
-.weq-asst-composer .weq-agentlab-composer {
-  border-top: none;
-  padding-top: 10px;
-}
 
 /* ────────────────────────────────────────────────────────────────────────
  * 输入框上方的自定义下拉（模型 / 思考等级）。触发器是胶囊，点开在其上方弹出
@@ -20942,7 +20871,7 @@ html[data-theme='dark'] .weq-search-avatar-fallback {
   gap: 7px;
   padding: 7px 10px;
   border-radius: 8px;
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.5;
   color: #92400e;
   background: color-mix(in srgb, #f59e0b 14%, transparent);
@@ -20966,7 +20895,7 @@ html[data-theme='dark'] .weq-help-log-debug-warn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: #8a93a0;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -21065,7 +20994,7 @@ html[data-theme='dark'] .weq-help-log-debug-warn {
   color: var(--weq-log-fg);
   padding: 6px 0;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.6;
   scrollbar-gutter: stable;
 }
@@ -21259,7 +21188,7 @@ html[data-theme='dark'] .weq-help-log-debug-warn {
   gap: 8px;
   padding: 30px 0;
   color: #9aa3ad;
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
 .weq-help-faq-body {
@@ -21271,7 +21200,7 @@ html[data-theme='dark'] .weq-help-log-debug-warn {
 
 /* Markdown 通用排版（FAQ / 反馈预览共用） */
 .weq-help-md {
-  font-size: 13.5px;
+  font-size: 13px;
   line-height: 1.7;
   word-break: break-word;
   white-space: normal;
@@ -21505,7 +21434,7 @@ html[data-theme='dark'] .weq-help-log-debug-warn {
   display: flex;
   align-items: flex-start;
   gap: 7px;
-  font-size: 12.5px;
+  font-size: 12px;
   color: #4b5563;
   line-height: 1.6;
 }
@@ -21518,7 +21447,7 @@ html[data-theme='dark'] .weq-help-log-debug-warn {
 
 .weq-help-bug-tips code {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11.5px;
+  font-size: 12px;
   padding: 0 4px;
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.06);
@@ -21530,6 +21459,7 @@ html[data-theme='dark'] .weq-help-log-debug-warn {
   background: none;
   color: var(--weq-accent-effective);
   font: inherit;
+  font-size: 12px;
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -21556,7 +21486,7 @@ html[data-theme='dark'] .weq-help-log-debug-warn {
   padding: 6px 10px;
   background: rgba(0, 0, 0, 0.045);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11.5px;
+  font-size: 12px;
   color: #6b7280;
 }
 
@@ -21568,7 +21498,7 @@ html[data-theme='dark'] .weq-help-log-debug-warn {
   background: #10141d;
   color: #9fd8a8;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.6;
 }
 
@@ -21655,7 +21585,7 @@ html[data-theme='dark'] .weq-help-log-debug-warn {
   background: transparent;
   color: inherit;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.65;
   resize: vertical;
   outline: none;
@@ -21738,7 +21668,7 @@ html[data-theme='dark'] .weq-help-log-debug-warn {
 }
 
 .weq-help-bug-action small {
-  font-size: 11.5px;
+  font-size: 12px;
   color: #8a93a0;
   line-height: 1.5;
 }
@@ -21748,7 +21678,7 @@ html[data-theme='dark'] .weq-help-log-debug-warn {
   align-items: center;
   gap: 5px;
   margin: 0;
-  font-size: 11.5px;
+  font-size: 12px;
   color: #9aa3ad;
   line-height: 1.5;
 }
@@ -22169,7 +22099,7 @@ html[data-theme='dark'] .weq-help-bug-foot {
   border: 1px solid rgba(224, 161, 33, 0.35);
   background: rgba(247, 181, 50, 0.1);
   color: #8a5a00;
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.55;
 }
 
@@ -22237,9 +22167,9 @@ html[data-theme='dark'] .weq-help-bug-foot {
 }
 
 .weq-applock-method-main strong {
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 600;
-  color: #1f2933;
+  color: var(--weq-fg-primary);
 }
 
 .weq-applock-method-main small {
@@ -22771,8 +22701,7 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   background: color-mix(in srgb, var(--weq-accent-effective) 11%, transparent);
 }
 
-.weq-guild-direct-item > .avatar,
-.weq-guild-direct-chat-head > .avatar {
+.weq-guild-direct-item > .avatar {
   width: 38px;
   height: 38px;
   flex: 0 0 auto;
@@ -22845,80 +22774,8 @@ html[data-theme='dark'] .weq-applock-bind-success small {
 }
 
 /* ---- 右列：聊天 ---- */
-.weq-guild-direct-chat {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  flex-direction: column;
-  background: var(--weq-bg-surface);
-}
-
-.weq-guild-direct-chat-head {
-  display: flex;
-  flex: 0 0 auto;
-  gap: 10px;
-  align-items: center;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--weq-border-subtle);
-}
-
-.weq-guild-direct-chat-title {
-  min-width: 0;
-}
-
-.weq-guild-direct-chat-namewrap {
-  display: flex;
-  min-width: 0;
-  gap: 8px;
-  align-items: center;
-}
-
-.weq-guild-direct-chat-namewrap strong {
-  overflow: hidden;
-  font-size: 14px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.weq-guild-direct-chat-guild {
-  display: inline-flex;
-  flex: 0 1 auto;
-  min-width: 0;
-  gap: 4px;
-  align-items: center;
-  font-size: 11px;
-  color: var(--weq-accent-effective);
-}
-
-.weq-guild-direct-chat-guild-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.weq-guild-direct-topbar {
-  display: flex;
-  flex: 0 0 24px;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  color: var(--weq-fg-muted);
-  user-select: none;
-}
 
 /* 复用主聊天滚动容器；用 flex 撑满右列而不是固定高度。 */
-.weq-guild-direct-msgs {
-  flex: 1;
-  height: auto;
-  min-height: 0;
-}
-
-.weq-guild-direct-msg {
-  display: flex;
-  flex-direction: column;
-}
 
 .weq-guild-direct-empty {
   display: flex;
@@ -22939,14 +22796,6 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   line-height: 1.6;
   color: var(--weq-fg-muted);
   overflow-wrap: anywhere;
-}
-
-.weq-guild-direct-pick-hint {
-  gap: 10px;
-}
-
-.weq-guild-direct-pick-hint > svg {
-  opacity: 0.55;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────

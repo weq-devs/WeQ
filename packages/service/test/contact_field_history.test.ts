@@ -420,3 +420,50 @@ it('合并 UID 与 QQ 号后重新建立项目索引，不漏掉较早的记录'
   await h.link('u_alias', '10001');
   expect((await h.fieldSummary('friend:u_alias')).fields).toEqual(['nick']);
 });
+
+it('群基础资料跨接口去重，未返回不清空，零人数与明确清空保留历史', async () => {
+  const h = await open();
+  const entity = 'group:12345';
+  for (const [at, category, source, value] of [
+    [100, 'groupInfo.getGroupDetail', 'local', { groupName: 'A', remark: '备注', memberCount: 2 }],
+    [110, 'joinProfile', 'online', { name: '云端名', memberCount: null }],
+    [120, 'groupInfo.listAllGroups', 'local', { groupName: 'A', remark: null }],
+    [130, 'groupInfo.getGroupDetail', 'local', { groupName: 'B', remark: '', memberCount: 0 }],
+  ] as const) await h.observe({ entity, category, source, value, at });
+  expect((await h.fieldSummary(entity)).fields.sort()).toEqual(['groupName', 'memberCount', 'remark']);
+  expect((await h.fieldVersions(entity, 'remark')).rows.map((row) => row.value)).toEqual(['', '备注']);
+  expect((await h.fieldVersions(entity, 'memberCount')).rows.map((row) => row.value)).toEqual([0, 2]);
+  expect((await h.fieldSummary('group:54321')).fields).toEqual([]);
+  expect((await h.fieldSummary(entity, 'u_peer')).fields).toEqual([]);
+});
+
+it('群标签规范顺序，部分返回保留另一类标签；扩展零值不遗漏且不投影头像元数据', async () => {
+  const h = await open();
+  const entity = 'group:12345';
+  await h.observe({ entity, category: 'getGroupDetail', source: 'local', value: { labels: 'B A', customLabels: [{ content: '音乐' }] }, at: 100 });
+  await h.observe({ entity, category: 'getGroupDetail', source: 'local', value: { labels: 'A B' }, at: 110 });
+  expect((await h.fieldSummary(entity)).fields).toEqual([]);
+  await h.observe({ entity, category: 'getGroupDetail', source: 'local', value: { customLabels: [] }, at: 120 });
+  expect((await h.fieldSummary(entity)).fields).toEqual(['labels']);
+  expect((await h.fieldVersions(entity, 'labels')).rows[0].value).toEqual({ labels: ['A', 'B'], customLabels: [] });
+  expect(projectContactHistoryFields('extendedProfile', { grade: 0, activeMemberCount: 0, freezeState: 0, joinedAt: null, portraitSequence: 6, portrait: { count: 1 } }, '', '12345')).toEqual([
+    ['grade', 0], ['activeMemberCount', 0], ['freezeState', 0],
+  ]);
+});
+
+it('升级群字段索引后读取已有历史，原始观察及个人和成员历史均保留', async () => {
+  const h = await open();
+  for (const [at, groupName] of [[100, 'A'], [110, 'B']] as const)
+    await h.observe({ entity: 'group:12345', category: 'getGroupDetail', source: 'local', value: { groupName }, at });
+  await h.fieldSummary('group:12345');
+  const entry = opened.at(-1)!;
+  await h.dispose();
+  const db = new DatabaseSync(join(entry.root, 'history.sqlite'));
+  db.exec("UPDATE field_index_meta SET version=4 WHERE key='format'; DELETE FROM field_versions; DELETE FROM field_changed;");
+  db.close();
+  entry.history = new ContactHistoryService(entry.root);
+  await entry.history.migration;
+  expect((await entry.history.fieldSummary('group:12345')).fields).toEqual(['groupName']);
+  expect((await entry.history.fieldVersions('group:12345', 'groupName')).rows.map((row) => row.value)).toEqual(['B', 'A']);
+  expect((await entry.history.list('group:12345')).rows).toHaveLength(2);
+});

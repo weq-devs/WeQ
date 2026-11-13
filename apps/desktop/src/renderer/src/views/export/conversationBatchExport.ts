@@ -145,6 +145,8 @@ export async function startConversationBatchExport({
           },
         );
         const common = {
+          messageIds: target.messageIds,
+          forwardTarget: target.forwardTarget,
           ...frozen.binding,
           savePolicy: frozen.savePolicy,
           name: target.name,
@@ -175,7 +177,7 @@ export async function startConversationBatchExport({
             completeAvatar: frozen.options.completeAvatar,
             kind: target.kind,
             conv: target.ownerId ?? target.id,
-            total: 0,
+            total: target.messageIds?.length ?? 0,
           });
         } else throw new Error('不支持的会话来源，请重新选择。');
       }

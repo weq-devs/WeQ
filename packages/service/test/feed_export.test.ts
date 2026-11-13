@@ -35,7 +35,7 @@ function fixture(kind: 'official' | 'service') {
     sendTime: BigInt(1000 + id),
     elements:
       id === 1
-        ? [{ type: 'text', data: { textContent: '不属于订阅消息流的普通行' } }]
+        ? [{ type: 'text', data: { textContent: '合成普通文本消息' } }]
         : [
             {
               type: 'ark',
@@ -109,9 +109,9 @@ it.each(['official', 'service'] as const)(
     );
     const task = manager.getTask(id)!;
     expect(task.kind).toBe(kind);
-    expect(task.current).toBe(2);
-    expect(task.total).toBe(2);
-    expect(Object.values(task.formatCounts!)).toEqual([2, 2, 2, 2, 2, 2, 2]);
+    expect(task.current).toBe(3);
+    expect(task.total).toBe(3);
+    expect(Object.values(task.formatCounts!)).toEqual([3, 3, 3, 3, 3, 3, 3]);
     expect(task.stages.some((stage) => stage.key === 'backfill')).toBe(false);
     expect(backfill).not.toHaveBeenCalled();
     expect(fetchBackfill).not.toHaveBeenCalled();
@@ -120,7 +120,8 @@ it.each(['official', 'service'] as const)(
     for (const format of ['json', 'jsonl', 'jsonl.gz'] as const) {
       const path = join(directory, `${baseName}.${format}`);
       const { archive } = await readArchiveFile(path, format);
-      expect(archive.records).toHaveLength(2);
+      expect(archive.records).toHaveLength(3);
+      expect(JSON.stringify(archive.records)).toContain('合成普通文本消息');
       expect(
         archive.records.every((record) => object(record.data.conversation).kind === kind),
       ).toBe(true);
@@ -132,7 +133,7 @@ it.each(['official', 'service'] as const)(
     expect(html).toContain(`${kind === 'official' ? '公众号' : '服务号'} · 导出于`);
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(join(directory, `${baseName}.xlsx`));
-    expect(workbook.worksheets[0]?.rowCount).toBe(3);
+    expect(workbook.worksheets[0]?.rowCount).toBe(4);
     expect(
       f.exportSourceStamp.mock.calls.every(
         ([sourceKind, conv]) => sourceKind === kind && conv === f.conv,
@@ -180,11 +181,11 @@ it.each(['official', 'service'] as const)(
     for (const format of ['csv', 'xlsx'] as const) {
       const path = join(f.root, `legacy.${format}`);
       const result = await legacy.exportMessagesOne(task, format, path, undefined, false, () => {});
-      expect(result.messageCount).toBe(2);
+      expect(result.messageCount).toBe(3);
       if (format === 'xlsx') {
         const workbook = new ExcelJS.Workbook();
         await workbook.xlsx.readFile(path);
-        expect(workbook.worksheets[0]?.rowCount).toBe(3);
+        expect(workbook.worksheets[0]?.rowCount).toBe(4);
       }
     }
     if (kind === 'service') expect(f.getC2cAfter).not.toHaveBeenCalled();
@@ -214,16 +215,17 @@ it.each(['official', 'service'] as const)(
   },
 );
 
-it('服务号媒体扫描不借用私聊源，遵守同一 ARK 选区', async () => {
+it('服务号媒体扫描不借用私聊源，普通消息和 Ark 中的图片都保留', async () => {
   const f = fixture('service');
   f.rows[1]!.elements.push({ type: 'pic', data: { fileName: 'aabbcc.png', md5HexStr: 'aabbcc' } });
+  f.rows[0]!.elements.push({ type: 'pic', data: { fileName: 'ddeeff.png', md5HexStr: 'ddeeff' } });
   const result = await scanConvMedia(
     f.source,
     'service',
     f.conv,
     mediaDirsFromNtDataDir(join(f.root, 'media')),
   );
-  expect(result.totalRefs).toBe(1);
+  expect(result.totalRefs).toBe(2);
   expect(f.getC2cAfter).not.toHaveBeenCalled();
   expect(f.getServiceAfter).toHaveBeenCalled();
 });

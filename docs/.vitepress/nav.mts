@@ -229,6 +229,7 @@ export const developSidebar = [
       { text: '统一联系人名片与资料页', link: '/develop/contact-profile' },
       { text: '群资料页与成员预览', link: '/develop/group-profile-workspace' },
       { text: '统一媒体预览', link: '/develop/media-preview' },
+      { text: '统一会话页与助手运行', link: '/develop/conversation-page' },
       { text: '未读计数来源', link: '/develop/unread-count-sources' },
       { text: '本地文字识别模型', link: '/develop/ocr-models' },
     ],

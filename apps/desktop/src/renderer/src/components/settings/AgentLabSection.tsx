@@ -42,6 +42,8 @@ const CAPABILITIES: { value: Capability; label: string }[] = [
 ];
 
 type ModelForm = {
+  reasoningEfforts?: string[];
+  reasoningEffortsText?: string;
   id: string;
   label: string;
   capabilities: Capability[];
@@ -148,7 +150,12 @@ export function AgentLabSection(): ReactElement {
       vendor: string;
       baseUrl: string;
       apiKey: string;
-      models: Array<{ id: string; label?: string | null; capabilities: string[] }>;
+      models: Array<{
+        id: string;
+        label?: string | null;
+        capabilities: string[];
+        reasoningEfforts?: string[];
+      }>;
     }) => {
       const entry = catalogRef.current?.find((c) => c.vendor === item.vendor);
       const presetIds = new Set((entry?.models ?? []).map((m) => m.id));
@@ -170,6 +177,7 @@ export function AgentLabSection(): ReactElement {
           id: m.id,
           label: m.label ?? '',
           capabilities: m.capabilities as Capability[],
+          reasoningEfforts: m.reasoningEfforts,
         })),
       };
       setForm(next);
@@ -413,6 +421,21 @@ export function AgentLabSection(): ReactElement {
         id: m.id.trim(),
         label: m.label.trim() || undefined,
         capabilities: m.capabilities,
+        reasoningEfforts: m.reasoningEfforts,
+        ...(m.reasoningEffortsText === undefined
+          ? {}
+          : {
+              reasoningEfforts: m.reasoningEffortsText.trim()
+                ? [
+                    ...new Set(
+                      m.reasoningEffortsText
+                        .split(',')
+                        .map((item) => item.trim())
+                        .filter(Boolean),
+                    ),
+                  ]
+                : undefined,
+            }),
       }))
       .filter((m) => m.id);
     if (models.length === 0) {
@@ -810,6 +833,20 @@ export function AgentLabSection(): ReactElement {
                           onChange={(capabilities) => updateModel(index, { capabilities })}
                         />
                       </div>
+                      <input
+                        className="weq-set-input"
+                        style={{ gridColumn: '1 / -1' }}
+                        aria-label={`模型 ${index + 1} 思考档位`}
+                        placeholder="可选思考档位，逗号分隔；留空使用低、中、高"
+                        value={
+                          model.reasoningEffortsText ?? model.reasoningEfforts?.join(', ') ?? ''
+                        }
+                        onChange={(event) =>
+                          updateModel(index, {
+                            reasoningEffortsText: event.target.value,
+                          })
+                        }
+                      />
                       <button
                         type="button"
                         className="weq-set-btn weq-set-btn-soft weq-set-btn-sm weq-provider-model-detect"

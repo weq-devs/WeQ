@@ -248,31 +248,35 @@ export function CloneChatPanel({
           void onSend(parseAiImageDraft(input).text).catch(() => {});
         }}
       >
-        <ChatPane
-          loadError={conversation.isError ? '记录加载失败' : undefined}
-          user={user}
-          conversation={chatConversation}
-          messages={messages}
-          messageRenderers={renderers}
-          loading={Boolean(conversation.isFetching && !history.length)}
-          preference={undefined}
-          draft={parseAiImageDraft(input).text}
-          onDraftChange={(_id, value) =>
-            setInput((current) => changeAiImageDraftText(current, value))
-          }
-          onDraftClear={() => setInput('')}
-          onSend={onSend}
-          onBack={onBack}
-          sendAvailable={!legacy && !chat.isLoading && !animating && !imageUploading}
-          readOnly={legacy}
-          sendBlockedReason={
-            legacy ? '旧版对话（只读）' : imageUploading ? '正在准备图片' : '克隆体正在回复'
-          }
-          settingsLabel="克隆体设置"
-          onOpenConversationSettings={onOpenSettings}
-          onSearchChatRecords={() => setSearchOpen(true)}
-          jumpRequest={jumpRequest}
-        />
+        {(attachments) => (
+          <ChatPane
+            composerAttachments={attachments}
+            hasExternalAttachments={parseAiImageDraft(input).images.length > 0}
+            loadError={conversation.isError ? '记录加载失败' : undefined}
+            user={user}
+            conversation={chatConversation}
+            messages={messages}
+            messageRenderers={renderers}
+            loading={Boolean(conversation.isFetching && !history.length)}
+            preference={undefined}
+            draft={parseAiImageDraft(input).text}
+            onDraftChange={(_id, value) =>
+              setInput((current) => changeAiImageDraftText(current, value))
+            }
+            onDraftClear={() => setInput('')}
+            onSend={onSend}
+            onBack={onBack}
+            sendAvailable={!legacy && !chat.isLoading && !animating && !imageUploading}
+            readOnly={legacy}
+            sendBlockedReason={
+              legacy ? '旧版对话（只读）' : imageUploading ? '正在准备图片' : '克隆体正在回复'
+            }
+            settingsLabel="克隆体设置"
+            onOpenConversationSettings={onOpenSettings}
+            onSearchChatRecords={() => setSearchOpen(true)}
+            jumpRequest={jumpRequest}
+          />
+        )}
       </AiImageComposer>
       {searchOpen ? (
         <ChatRecordsModal

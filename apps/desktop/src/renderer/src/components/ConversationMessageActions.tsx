@@ -17,6 +17,7 @@ import {
   conversationAnalysisTarget,
   conversationExportSelection,
   conversationRoamingTarget,
+  conversationSourceLabel,
 } from '../lib/conversationActions';
 import { ConversationDirectoryContext } from '../lib/conversationDirectory';
 import { useRequestContentExport } from '../state/contentSelection';
@@ -44,8 +45,9 @@ export function ConversationMessageActions({
 }) {
   const directory = useContext(ConversationDirectoryContext);
   const requestExport = useRequestContentExport();
-  const generated = Boolean(conversation.generated);
-  const unsupported = generated ? '克隆会话暂不支持此功能' : undefined;
+  const sourceLabel = conversationSourceLabel(conversation);
+  const generated = Boolean(sourceLabel);
+  const unsupported = sourceLabel ? `${sourceLabel}暂不支持此功能` : undefined;
   const exportSelection = conversationExportSelection(conversation);
   const target = conversationRoamingTarget(conversation);
   const active = useTabActive();

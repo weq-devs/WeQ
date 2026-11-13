@@ -59,7 +59,11 @@ import { ensureDefaultTweets, tweetsStorePath } from '../weq_assistant/tweets';
 import { assistantToolSpecs, runAssistantTool } from '../mcp/openai_tools';
 import { bindAccountTools, invalidateAccountTools } from '../mcp/account_scope';
 import { cancelAssistantRuns } from '../mcp/assistant_bus';
-import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
+import {
+  configureExternalMcp,
+  disposeExternalMcp,
+  withExternalMcpConfiguration,
+} from '../mcp/external';
 import { sampleHitokoto } from '../hitokoto';
 import { getQqProtocolExe } from './qq_protocol_cache';
 import { searchAccountContent } from '../search_content';
@@ -1870,11 +1874,15 @@ export function initAppContext(fileRoot?: string): AppContext {
           {
             // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
             specs: assistantToolSpecs,
+            withConfig: (config, run) =>
+              withExternalMcpConfiguration(config.mcpServers, () =>
+                withImageTaskConfiguration(run),
+              ),
             images: createAccountImagePort(session),
             // 内置 / 外部工具的路由统一在 runAssistantTool 里（run_js 沙箱的 callTool 也走它）。
             run: bindAccountTools(session, () => this.account, runAssistantTool),
             // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
-            syncExternalMcp: (raw) => getExternalMcpHub().configure(raw),
+            syncExternalMcp: configureExternalMcp,
             // 写报告时随机抽一批「一言」候选，供模型挑一句做主题大字（多元化）。
             sampleHitokoto,
           },
@@ -2754,11 +2762,15 @@ export function initAppContext(fileRoot?: string): AppContext {
           {
             // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
             specs: assistantToolSpecs,
+            withConfig: (config, run) =>
+              withExternalMcpConfiguration(config.mcpServers, () =>
+                withImageTaskConfiguration(run),
+              ),
             images: createAccountImagePort(session),
             // 内置 / 外部工具的路由统一在 runAssistantTool 里（run_js 沙箱的 callTool 也走它）。
             run: bindAccountTools(session, () => this.account, runAssistantTool),
             // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
-            syncExternalMcp: (raw) => getExternalMcpHub().configure(raw),
+            syncExternalMcp: configureExternalMcp,
             // 写报告时随机抽一批「一言」候选，供模型挑一句做主题大字（多元化）。
             sampleHitokoto,
           },
@@ -3569,5 +3581,4 @@ export async function rescanSigner(): Promise<SignerWarmupResult | null> {
   );
   return signerWarmup;
 }
-
-import { createAccountImagePort } from '../ai_images';
+import { createAccountImagePort, withImageTaskConfiguration } from '../ai_images';

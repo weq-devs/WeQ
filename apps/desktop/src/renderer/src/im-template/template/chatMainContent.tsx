@@ -118,6 +118,10 @@ export function ChatMainContent({
   unreadDock,
   missingJumpSeq,
   resolvedGapIds,
+  onLoadOlder,
+  onLoadNewer,
+  hasOlder,
+  onTimelineElement,
 }: Pick<
   ChatPaneProps,
   | 'user'
@@ -191,6 +195,10 @@ export function ChatMainContent({
   | 'unreadDock'
   | 'missingJumpSeq'
   | 'resolvedGapIds'
+  | 'onLoadOlder'
+  | 'onLoadNewer'
+  | 'hasOlder'
+  | 'onTimelineElement'
 > & {
   view: MainView;
   contactTab?: ContactTab;
@@ -361,6 +369,10 @@ export function ChatMainContent({
       unreadDock={unreadDock}
       missingJumpSeq={missingJumpSeq}
       resolvedGapIds={resolvedGapIds}
+      onLoadOlder={onLoadOlder}
+      onLoadNewer={onLoadNewer}
+      hasOlder={hasOlder}
+      onTimelineElement={onTimelineElement}
     />
   );
 }

@@ -90,7 +90,7 @@ function objectToParameters(obj: z.ZodObject<z.ZodRawShape>): Record<string, unk
 export function aiToolSpecs(options: ToolExecutionOptions = {}): OpenAiToolSpec[] {
   const unrestricted =
     options.permissionMode === 'unrestricted' &&
-    getAppContext().services?.assistant.getConfig().permissionMode === 'unrestricted';
+    getAppContext().services?.assistant.getExecutionConfig().permissionMode === 'unrestricted';
   return AI_TOOLS.filter((t) => unrestricted || isSandboxTool(t.name)).map((t) => ({
     type: 'function',
     function: { name: t.name, description: t.description, parameters: objectToParameters(t.input) },
@@ -105,7 +105,7 @@ export async function assistantToolSpecs(
   const specs = aiToolSpecs(options);
   if (
     options.permissionMode !== 'unrestricted' ||
-    getAppContext().services?.assistant.getConfig().permissionMode !== 'unrestricted'
+    getAppContext().services?.assistant.getExecutionConfig().permissionMode !== 'unrestricted'
   )
     return specs;
   const external = await getExternalMcpHub().specs();
@@ -161,7 +161,7 @@ export async function runAssistantTool(
   options.signal?.throwIfAborted();
   const unrestricted =
     options.permissionMode === 'unrestricted' &&
-    getAppContext().services?.assistant.getConfig().permissionMode === 'unrestricted';
+    getAppContext().services?.assistant.getExecutionConfig().permissionMode === 'unrestricted';
   if (!unrestricted && !isSandboxTool(name))
     throw new Error(`沙箱模式不允许工具 ${name}；需要在助手设置中明确启用任意权限。`);
   if (name.startsWith('mcp__')) return getExternalMcpHub().run(name, args, options.signal);

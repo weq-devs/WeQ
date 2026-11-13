@@ -50,10 +50,10 @@ export function contactHistoryWorker(
   if (
     Number(
       db.prepare("SELECT version FROM field_index_meta WHERE key='format'").get()?.version ?? 0,
-    ) !== 4
+    ) !== 5
   ) {
     db.exec(
-      "BEGIN IMMEDIATE; DELETE FROM field_progress; DELETE FROM field_versions; DELETE FROM field_changed; INSERT OR REPLACE INTO field_index_meta VALUES('format',4); COMMIT;",
+      "BEGIN IMMEDIATE; DELETE FROM field_progress; DELETE FROM field_versions; DELETE FROM field_changed; INSERT OR REPLACE INTO field_index_meta VALUES('format',5); COMMIT;",
     );
   }
   if (
@@ -357,7 +357,7 @@ export function contactHistoryWorker(
           }
           const old = previous.get(key, uid, field, stream);
           const text = canonical(
-            old && ['birthday', 'region'].includes(field)
+            old && (['birthday', 'region'].includes(field) || (field === 'labels' && key.startsWith('group:')))
               ? merge(JSON.parse(String(old.value)), value)
               : value,
           );

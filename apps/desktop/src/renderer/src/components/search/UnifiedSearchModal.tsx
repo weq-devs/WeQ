@@ -73,7 +73,7 @@ export function SearchMoreResults({
   const selectedFocusKey = useRef<string | null>(restored.current?.focusKey ?? null);
   const restoredRequest = useRef(
     restored.current
-      ? JSON.stringify([category, restored.current.keyword, conversationScope, sources])
+      ? JSON.stringify([category, restored.current.keyword, sources ?? conversationScope])
       : null,
   );
 
@@ -91,8 +91,8 @@ export function SearchMoreResults({
           keyword: pageKeyword,
           offset,
           limit: 30,
-          conversationScope,
-          sources: sources ? [...sources] : undefined,
+          conversationScope: sources ? 'all' : conversationScope,
+          ...(sources ? { sources: [...sources] } : {}),
         })) as MoreSearchResult;
         if (run !== runRef.current) return;
         nextOffset.current = offset + result.items.length;
@@ -128,7 +128,7 @@ export function SearchMoreResults({
   // Reset + fetch first page when the keyword settles.
   useLayoutEffect(() => {
     if (
-      restoredRequest.current === JSON.stringify([category, keyword, conversationScope, sources])
+      restoredRequest.current === JSON.stringify([category, keyword, sources ?? conversationScope])
     ) {
       return () => {
         ++runRef.current;

@@ -320,9 +320,11 @@ export function TagRing({
  */
 export function CardBackdrop({ imageUrl, videoUrl }: { imageUrl: string; videoUrl: string }) {
   const [videoFailed, setVideoFailed] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
 
   const useVideo = Boolean(videoUrl) && !videoFailed;
-  if (!useVideo && !imageUrl) return null;
+  // 图/视频都取不到时整块不渲染：否则会留下破图占位和一层压暗，把首页变成灰底。
+  if (!useVideo && (!imageUrl || imageFailed)) return null;
 
   return (
     <div className="weq-chathome-backdrop" aria-hidden>
@@ -337,7 +339,13 @@ export function CardBackdrop({ imageUrl, videoUrl }: { imageUrl: string; videoUr
           onError={() => setVideoFailed(true)}
         />
       ) : (
-        <img className="weq-chathome-backdrop-media" src={imageUrl} alt="" draggable={false} />
+        <img
+          className="weq-chathome-backdrop-media"
+          src={imageUrl}
+          alt=""
+          draggable={false}
+          onError={() => setImageFailed(true)}
+        />
       )}
       {/* 压暗一层，保证文字在任何名片上都读得清 */}
       <div className="weq-chathome-backdrop-scrim" />

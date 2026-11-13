@@ -30,6 +30,7 @@ export function useMessageSelectionFlow({
   messages,
   selection,
   onLoad,
+  sequenceGaps = true,
   missingJumpSeq,
   active,
 }: {
@@ -37,6 +38,7 @@ export function useMessageSelectionFlow({
   messages: readonly Message[];
   selection: ReturnType<typeof useContentMultiSelect>;
   onLoad?: LoadSelectionMessages;
+  sequenceGaps?: boolean;
   missingJumpSeq?: string | null;
   active: boolean;
 }) {
@@ -64,9 +66,12 @@ export function useMessageSelectionFlow({
   useEffect(() => {
     if (!active) request.current?.abort();
   }, [active]);
-  const items = useMemo(
-    () => messageSelectionItems(messages, selection.selectionMode, missingJumpSeq),
-    [messages, selection.selectionMode, missingJumpSeq],
+  const items = useMemo<ReturnType<typeof messageSelectionItems>>(
+    () =>
+      sequenceGaps
+        ? messageSelectionItems(messages, selection.selectionMode, missingJumpSeq)
+        : messages.map((message) => ({ id: message.id, message })),
+    [messages, selection.selectionMode, missingJumpSeq, sequenceGaps],
   );
   const order = useMemo(() => items.map((item) => item.id), [items]);
   const itemsById = useMemo(() => {

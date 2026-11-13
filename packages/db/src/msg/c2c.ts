@@ -222,15 +222,17 @@ export class C2cMsgDb {
       max: bigint;
       descending: boolean;
       limit: number;
+      includeSeqless?: boolean;
     },
   ): Promise<C2cMsg[]> {
     const { clause, value } = partitionWhere(part);
     const cursor = nativeHistoryCursor(options.cursor, options.descending);
     const direction = options.descending ? 'DESC' : 'ASC';
+    const sequence = options.includeSeqless ? 'COALESCE("40003",0)' : '"40003"';
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM ${this.table} WHERE ${clause} AND "40003" BETWEEN ? AND ?
-       ${cursor ? `AND ("40003","40050","40001") ${options.descending ? '<' : '>'} (?,?,?)` : ''}
-       ORDER BY "40003" ${direction}, "40050" ${direction}, "40001" ${direction} LIMIT ?`,
+      `SELECT ${SELECT_COLUMNS} FROM ${this.table} WHERE ${clause} AND ${sequence} BETWEEN ? AND ?
+       ${cursor ? `AND (${sequence},"40050","40001") ${options.descending ? '<' : '>'} (?,?,?)` : ''}
+       ORDER BY ${sequence} ${direction}, "40050" ${direction}, "40001" ${direction} LIMIT ?`,
       [
         value,
         options.min,

@@ -15,10 +15,10 @@ import React, {
   useMemo,
   useRef,
   useState,
-  type PointerEvent as ReactPointerEvent,
   type ReactElement,
 } from 'react';
 import { z } from 'zod';
+import { OverlayScrollbar } from '../components/OverlayScrollbar';
 import { trpc } from '../trpc/client';
 import { IS_WEB } from '../lib/target';
 import { isSingleColumnLayout } from '../lib/responsiveLayout';
@@ -198,7 +198,7 @@ import {
   conversationWindowKey,
   restorableConversationWindow,
 } from '../lib/conversationWindowCache';
-import { isConversationPagingVisible, observeConversationPaging } from '../lib/conversationPaging';
+import { isConversationPagingVisible } from '../lib/conversationPaging';
 import { loadConversationEntry } from '../lib/conversationEntry';
 import {
   ConversationFirstPage,
@@ -276,7 +276,11 @@ import {
 import { ContactNoticeDialog, GroupNoticeDialog } from '../components/ContactNoticeDialogs';
 import type { GroupInfoDetail, GroupSidebarFeature } from '../im-template/template/groupInfoPanel';
 import { ConversationSettingsDialog } from '../components/ConversationSettingsDialog';
-import { ConversationSettingsNavigationContext, GroupResourceNavigationContext, type ConversationSettingsRequest } from '../lib/conversationSettingsNavigation';
+import {
+  ConversationSettingsNavigationContext,
+  GroupResourceNavigationContext,
+  type ConversationSettingsRequest,
+} from '../lib/conversationSettingsNavigation';
 import { QQRemarkDialog } from '../components/QQRemarkDialog';
 import { FriendDirectoryControls } from '../components/FriendDirectoryControls';
 import { RelationshipDirectoryContext } from '../lib/contactRelationship';
@@ -395,7 +399,7 @@ import {
 } from '../lib/chatNavigation';
 import { readProfilePreviewPage, type ProfilePreviewCursor } from '../lib/profileMessagePreview';
 import { MailWorkspace } from './MailView';
-import { RetainedTabs, useTabActive } from '../components/RetainedTabs';
+import { RetainedTabs } from '../components/RetainedTabs';
 import { PageSnapshots, usePageState } from '../components/PageSnapshots';
 import { pageValue } from '../lib/pageSnapshots';
 import { useConversationRecoveryPosition } from '../hooks/useConversationRecoveryPosition';
@@ -476,7 +480,7 @@ import {
 import type { SetEmojiItem } from '@weq/codec';
 import { MsgElementEditor } from '../components/MsgElementEditor';
 import { flashTransferTitle } from '../components/QqFlashTransfer';
-import { ArkFeedView } from '../components/ArkFeedView';
+import { OfficialConversationPane } from '../components/OfficialConversationPane';
 import {
   DatabaseDamagedDialog,
   type DatabaseDamagedEvent,
@@ -947,30 +951,6 @@ type PendingScrollRestore = {
   conversationId: string;
   position: ConversationReadingPosition;
 };
-
-type OverlayScrollbarState = {
-  top: number;
-  left: number;
-  height: number;
-  thumbTop: number;
-  thumbHeight: number;
-  visible: boolean;
-  canScroll: boolean;
-};
-
-const overlayScrollbarInitialState: OverlayScrollbarState = {
-  top: 0,
-  left: 0,
-  height: 0,
-  thumbTop: 0,
-  thumbHeight: 0,
-  visible: false,
-  canScroll: false,
-};
-
-const OVERLAY_SCROLLBAR_WIDTH = 10;
-const OVERLAY_SCROLLBAR_INSET = 8;
-const OVERLAY_SCROLLBAR_MIN_THUMB = 34;
 
 const fallbackPreference: ConversationPreference = {
   pinned: false,
@@ -2210,176 +2190,6 @@ function arkPreview(raw: string): string {
   }
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
-
-function OverlayScrollbar({
-  targetSelector,
-  className,
-  refreshKey,
-}: {
-  targetSelector: string;
-  className: string;
-  refreshKey: string;
-}): ReactElement | null {
-  const [state, setState] = useState<OverlayScrollbarState>(overlayScrollbarInitialState);
-  const tabActive = useTabActive();
-  const targetRef = useRef<HTMLElement | null>(null);
-  const hoverRef = useRef(false);
-  const draggingRef = useRef(false);
-  const frameRef = useRef<number | null>(null);
-
-  const updateScrollbar = useCallback(() => {
-    frameRef.current = null;
-
-    const target = targetRef.current;
-    if (!target) {
-      setState(overlayScrollbarInitialState);
-      return;
-    }
-
-    const rect = target.getBoundingClientRect();
-    const maxScrollTop = target.scrollHeight - target.clientHeight;
-    const canScroll = maxScrollTop > 1 && rect.height > 0 && rect.width > 0;
-    if (!canScroll) {
-      setState((current) => ({ ...current, visible: false, canScroll: false }));
-      return;
-    }
-
-    const trackHeight = Math.max(0, rect.height - OVERLAY_SCROLLBAR_INSET * 2);
-    const proportionalHeight = (target.clientHeight / target.scrollHeight) * trackHeight;
-    const thumbHeight = clamp(proportionalHeight, OVERLAY_SCROLLBAR_MIN_THUMB, trackHeight);
-    const maxThumbTop = Math.max(0, trackHeight - thumbHeight);
-    const thumbTop = OVERLAY_SCROLLBAR_INSET + (target.scrollTop / maxScrollTop) * maxThumbTop;
-
-    setState({
-      top: rect.top,
-      left: rect.right - OVERLAY_SCROLLBAR_WIDTH - 2,
-      height: rect.height,
-      thumbTop,
-      thumbHeight,
-      visible: hoverRef.current || draggingRef.current,
-      canScroll,
-    });
-  }, []);
-
-  const scheduleUpdate = useCallback(() => {
-    if (frameRef.current !== null) return;
-    frameRef.current = window.requestAnimationFrame(updateScrollbar);
-  }, [updateScrollbar]);
-
-  useEffect(() => {
-    if (!tabActive) return undefined;
-    const target = [...document.querySelectorAll<HTMLElement>(targetSelector)].find(
-      (element) => element.getClientRects().length > 0,
-    );
-    targetRef.current = target ?? null;
-    hoverRef.current = false;
-    draggingRef.current = false;
-
-    if (!target) {
-      setState(overlayScrollbarInitialState);
-      return undefined;
-    }
-
-    function showScrollbar(): void {
-      hoverRef.current = true;
-      scheduleUpdate();
-    }
-
-    function hideScrollbar(): void {
-      hoverRef.current = false;
-      scheduleUpdate();
-    }
-
-    target.addEventListener('scroll', scheduleUpdate, { passive: true });
-    target.addEventListener('mouseenter', showScrollbar);
-    target.addEventListener('mouseleave', hideScrollbar);
-    window.addEventListener('resize', scheduleUpdate);
-
-    const resizeObserver = new ResizeObserver(scheduleUpdate);
-    resizeObserver.observe(target);
-    if (target.firstElementChild) resizeObserver.observe(target.firstElementChild);
-
-    const mutationObserver = new MutationObserver(scheduleUpdate);
-    mutationObserver.observe(target, { childList: true, subtree: true });
-
-    scheduleUpdate();
-
-    return () => {
-      target.removeEventListener('scroll', scheduleUpdate);
-      target.removeEventListener('mouseenter', showScrollbar);
-      target.removeEventListener('mouseleave', hideScrollbar);
-      window.removeEventListener('resize', scheduleUpdate);
-      resizeObserver.disconnect();
-      mutationObserver.disconnect();
-      if (frameRef.current !== null) {
-        window.cancelAnimationFrame(frameRef.current);
-        frameRef.current = null;
-      }
-    };
-  }, [tabActive, refreshKey, scheduleUpdate, targetSelector]);
-
-  function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
-    const target = targetRef.current;
-    if (!target) return;
-    const scrollTarget = target;
-    timelineViewport(scrollTarget)?.cancelScroll?.();
-
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    draggingRef.current = true;
-    hoverRef.current = true;
-
-    const startY = event.clientY;
-    const startScrollTop = scrollTarget.scrollTop;
-    const maxScrollTop = scrollTarget.scrollHeight - scrollTarget.clientHeight;
-    const trackHeight = Math.max(
-      0,
-      scrollTarget.getBoundingClientRect().height - OVERLAY_SCROLLBAR_INSET * 2,
-    );
-    const maxThumbTravel = Math.max(1, trackHeight - state.thumbHeight);
-
-    function handlePointerMove(moveEvent: PointerEvent): void {
-      const delta = moveEvent.clientY - startY;
-      scrollTarget.scrollTop = clamp(
-        startScrollTop + (delta / maxThumbTravel) * maxScrollTop,
-        0,
-        maxScrollTop,
-      );
-      scheduleUpdate();
-    }
-
-    function handlePointerUp(): void {
-      draggingRef.current = false;
-      hoverRef.current = scrollTarget.matches(':hover');
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-      scheduleUpdate();
-    }
-
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-    scheduleUpdate();
-  }
-
-  if (!tabActive || !state.canScroll) return null;
-
-  return (
-    <div
-      className={`weq-custom-scrollbar ${className}${state.visible ? ' is-visible' : ''}`}
-      style={{ top: state.top, left: state.left, height: state.height }}
-    >
-      <div
-        className="weq-custom-scrollbar-thumb"
-        onPointerDown={handlePointerDown}
-        style={{ height: state.thumbHeight, transform: `translateY(${state.thumbTop}px)` }}
-      />
-    </div>
-  );
-}
-
 function isMobileShell(): boolean {
   return isSingleColumnLayout();
 }
@@ -2821,12 +2631,16 @@ function MainWorkspace(): ReactElement {
     },
     [],
   );
+  const nativeMessageScrollRef = useRef<HTMLDivElement | null>(null);
+  const captureNativeTimeline = useCallback((element: HTMLDivElement | null) => {
+    nativeMessageScrollRef.current = element;
+  }, []);
   const pendingMessageCommit = useRef<number | null>(null);
   useEffect(() => installMessagePerformanceProbe(), [messageScope]);
   useLayoutEffect(() => {
     const intent = entryScrollIntentRef.current;
     if (intent?.revision === null) {
-      const scroll = document.querySelector<HTMLElement>('.weq-readonly-chat .message-scroll');
+      const scroll = nativeMessageScrollRef.current;
       intent.revision = scroll ? timelineViewport(scroll)?.scrollRevision?.() : undefined;
     }
     if (pendingMessageCommit.current === null) return;
@@ -3011,7 +2825,7 @@ function MainWorkspace(): ReactElement {
             page.map(toMessageWire).reverse(),
             win.minSeq === null ? PAGE_SIZE : REFRESH_CAP,
           );
-          const scroll = document.querySelector<HTMLElement>('.weq-readonly-chat .message-scroll');
+          const scroll = nativeMessageScrollRef.current;
           if (
             rows !== loadedRef.current &&
             scroll &&
@@ -3464,11 +3278,16 @@ function MainWorkspace(): ReactElement {
   } | null>(null);
   /** 防撤回面板（「更多 → 防撤回」）：弹窗，不是视图。 */
   /** 会话设置（头部顶栏的设置按钮）：群聊 / 私聊各一份。 */
-  const [convSettings, setConvSettings] = useState<(ConversationSettingsRequest & { ownerKey: string }) | null>(null);
+  const [convSettings, setConvSettings] = useState<
+    (ConversationSettingsRequest & { ownerKey: string }) | null
+  >(null);
   useEffect(() => setConvSettings(null), [messageScope]);
-  const openProfileConversationSettings = useCallback((request: ConversationSettingsRequest) => {
-    setConvSettings({ ...request, ownerKey: messageScope });
-  }, [messageScope]);
+  const openProfileConversationSettings = useCallback(
+    (request: ConversationSettingsRequest) => {
+      setConvSettings({ ...request, ownerKey: messageScope });
+    },
+    [messageScope],
+  );
   const [remarkTarget, setRemarkTarget] = useState<RoamingTarget | null>(null);
   const [groupBugDialog, setGroupBugDialog] = useState<{
     groupCode: string;
@@ -5990,7 +5809,7 @@ function MainWorkspace(): ReactElement {
       old?.id === trackedConversationId &&
       (!messagesLoading || loaded.length > 0)
     ) {
-      const scroll = document.querySelector<HTMLElement>('.weq-readonly-chat .message-scroll');
+      const scroll = nativeMessageScrollRef.current;
       const position = scroll ? captureReadingPosition(scroll) : undefined;
       const anchorIndex = loaded.findIndex((row) => timelineRowKey(row) === position?.anchorId);
       if (position && anchorIndex >= 0) {
@@ -6079,7 +5898,7 @@ function MainWorkspace(): ReactElement {
   useLayoutEffect(() => {
     const restore = cachedScrollRef.current;
     if (!restore || restore.id !== selectedUid || !messagesTabActive) return;
-    const scroll = document.querySelector<HTMLElement>('.weq-readonly-chat .message-scroll');
+    const scroll = nativeMessageScrollRef.current;
     if (scroll) {
       restoreReadingPosition(scroll, restore.position);
       cachedScrollRef.current = null;
@@ -8055,7 +7874,7 @@ function MainWorkspace(): ReactElement {
     `${messageScope}:${shell.view}:${selectedUid ?? ''}`,
   );
   const scrollToMsgId = useCallback((msgId: string): boolean => {
-    const scroll = document.querySelector<HTMLElement>('.weq-readonly-chat .message-scroll');
+    const scroll = nativeMessageScrollRef.current;
     return scroll ? revealTimelineMessage(scroll, msgId, true) : false;
   }, []);
 
@@ -8953,9 +8772,7 @@ function MainWorkspace(): ReactElement {
                 },
               );
             } else if (!first) {
-              const scroll = document.querySelector<HTMLElement>(
-                '.weq-readonly-chat .message-scroll',
-              );
+              const scroll = nativeMessageScrollRef.current;
               const intent = entryScrollIntentRef.current;
               const interacted =
                 intent?.selection === selection &&
@@ -9166,26 +8983,12 @@ function MainWorkspace(): ReactElement {
     [selectedConversation, hasNewer, loaded],
   );
 
-  useEffect(() => {
-    if (!messagesTabActive || !selectedConversation) return undefined;
-
-    const scroll = document.querySelector<HTMLElement>('.weq-readonly-chat .message-scroll');
-    if (!scroll) return undefined;
-    return observeConversationPaging(scroll, requestOlderMessages, requestNewerMessages);
-  }, [
-    messagesTabActive,
-    requestOlderMessages,
-    requestNewerMessages,
-    selectedConversation,
-    templateMessages.length,
-  ]);
-
   useLayoutEffect(() => {
     if (!messagesTabActive) return undefined;
     const restore = pendingScrollRestoreRef.current;
     if (!restore || restore.conversationId !== selectedConversation?.id) return undefined;
 
-    const scroll = document.querySelector<HTMLElement>('.weq-readonly-chat .message-scroll');
+    const scroll = nativeMessageScrollRef.current;
     if (!scroll) return undefined;
 
     // 只跟随锚点上方的变化，底部追加和图片展开不能计入向上翻页补偿。
@@ -12222,7 +12025,8 @@ function MainWorkspace(): ReactElement {
                       }}
                     />
                   ) : shell.view === 'messages' && arkFeedState ? (
-                    <ArkFeedView
+                    <OfficialConversationPane
+                      user={user}
                       conversationId={arkFeedState.conversationId}
                       anchorId={arkFeedState.anchorId}
                       title={arkFeedState.title}
@@ -12329,27 +12133,15 @@ function MainWorkspace(): ReactElement {
                     <Suspense fallback={workspaceLoading}>
                       <AnnualReportView />
                     </Suspense>
-                  ) : shell.view === 'messages' && activeConversation?.type === 'merged' ? (
-                    <ArkFeedView
-                      conversationId={activeConversation.id}
-                      title={activeConversation.title}
-                      onBack={shell.backConversation}
-                      onEditMessage={async (msgId: string) => {
-                        try {
-                          const result = await client.account.getRawElements.query({ msgId });
-                          if (result) {
-                            setEditorState({ msgId, elements: result.elements });
-                          }
-                        } catch (e) {
-                          console.error('[MainView] Failed to fetch raw elements:', e);
-                        }
-                      }}
-                    />
                   ) : (
                     <div className="weq-template-main-wrap">
                       <div className="weq-readonly-chat">
                         <ChatMainContent
                           key={messageScope}
+                          onLoadOlder={requestOlderMessages}
+                          onLoadNewer={requestNewerMessages}
+                          hasOlder={hasOlder}
+                          onTimelineElement={captureNativeTimeline}
                           user={user}
                           view={shell.view}
                           contactTab={shell.contactTab}
@@ -12370,7 +12162,9 @@ function MainWorkspace(): ReactElement {
                           onContactWorkspaceTabChange={shell.setContactWorkspaceTab}
                           selectedGroupConversation={selectedGroupConversationForDetail}
                           groupWorkspaceLocation={groupWorkspaceLocation ?? undefined}
-                          activeConversation={activeConversation}
+                          activeConversation={
+                            activeConversation?.type === 'merged' ? undefined : activeConversation
+                          }
                           messages={templateMessages}
                           messageRenderers={messageRenderers}
                           loadingMessages={loadingInitialMessages}
@@ -12550,16 +12344,6 @@ function MainWorkspace(): ReactElement {
                           resolvedGapIds={resolvedGaps}
                         />
                       </div>
-                      <OverlayScrollbar
-                        targetSelector=".weq-readonly-chat .message-scroll"
-                        className="weq-message-scrollbar"
-                        refreshKey={`messages:${selectedConversation?.id ?? 'none'}`}
-                      />
-                      <OverlayScrollbar
-                        targetSelector=".weq-readonly-chat .group-info-member-list"
-                        className="weq-group-members-scrollbar"
-                        refreshKey={`group-members:${selectedConversation?.id ?? 'none'}`}
-                      />
                     </div>
                   )}
                 </RetainedTabs>
@@ -13146,340 +12930,362 @@ function MainWorkspace(): ReactElement {
   >((member, anchor, group) => setMemberCard({ member, anchor, groupContext: group ?? null }), []);
   return (
     <ConversationSettingsNavigationContext.Provider value={openProfileConversationSettings}>
-    <GroupResourceNavigationContext.Provider value={openGroupResourceWindow}>
-    <CalendarNavigationContext.Provider value={locateCalendarMessage}>
-    <ContactWorkspaceNavigationContext.Provider
-      value={(target) =>
-        settingsNavigation.navigate(() => {
-          if (shell.view === 'messages') flushAllDirtyDrafts();
-          setMemberCard(null);
-          setPrivatePreview(null);
-          if (target.kind === 'person') {
-            const contact = profileContacts.find(
-              (person) =>
-                person.id === target.contact.id ||
-                (person.identityLabel === 'QQ' &&
-                  person.identityValue === target.contact.identityValue),
-            );
-            shell.openContactDetails(
-              {
-                ...target.contact,
-                ...contact,
-                profileContext: target.group
-                  ? {
-                      groupCode: target.group.code,
-                      groupName: target.group.name,
-                      member: target.contact.profileContext?.member,
-                    }
-                  : target.contact.profileContext,
-              },
-              target.tab,
-            );
-          } else {
-            setGroupWorkspaceLocation({
-              code: target.conversation.id,
-              section: target.section ?? 'profile',
-              albumId: target.albumId,
-              folderId: target.folderId,
-              fileId: target.fileId,
-            });
-            const known = contactDirectoryConversations.find(
-              (conversation) =>
-                conversation.type === 'group' && conversation.id === target.conversation.id,
-            );
-            shell.openGroupDetails(known?.type === 'group' ? known : target.conversation);
-          }
-        })
-      }
-    >
-      <ProfileNavigationGuardContext.Provider value={settingsNavigation.register}>
-        <ProfileNavigationContext.Provider value={profileNavigation}>
-          <QzoneNavigationContext.Provider
-            value={(uin, nickname) => {
-              if (!/^[1-9]\d{4,19}$/.test(uin)) return;
-              if (shell.view === 'messages') flushAllDirtyDrafts();
-              setArkFeedState(null);
-              setQzoneSpaceRequest({
-                accountUin: user.identityValue,
-                uin,
-                nickname,
-                revision: crypto.randomUUID(),
-              });
-              shell.switchView('qzone');
-            }}
-          >
-            <QzoneProfileContext.Provider
-              value={(uin, nickname, anchor) => {
-                const contact = buddyContacts.find((person) => person.identityValue === uin);
-                const profile = [...profileByUid.values()].find((person) => person.uin === uin);
-                const conversation = [
-                  ...conversations,
-                  ...hiddenConversationsById.values(),
-                  ...deletedConversationsById.values(),
-                ].find((conv) => conv.type === 'direct' && conv.otherUser.identityValue === uin);
-                const peer = conversation?.type === 'direct' ? conversation.otherUser : null;
-                setMemberCard({
-                  member: contact ??
-                    peer ?? {
-                      id: profile?.uid || '',
-                      identityLabel: 'QQ',
-                      identityValue: uin,
-                      username: profile?.uid || uin,
-                      displayName: profile?.nick || nickname || uin,
-                      avatarUrl: senderAvatarSrc(uin) || null,
-                    },
-                  anchor,
-                  fromSpace: true,
-                });
-              }}
-            >
-              <ChatNavigationContext.Provider
-                value={(target) => {
-                  void openProfileChat(target).catch(() =>
-                    pushToast({
-                      tone: 'info',
-                      durationKind: 'failure',
-                      title: '暂时无法打开会话，请稍后重试',
-                    }),
+      <GroupResourceNavigationContext.Provider value={openGroupResourceWindow}>
+        <CalendarNavigationContext.Provider value={locateCalendarMessage}>
+          <ContactWorkspaceNavigationContext.Provider
+            value={(target) =>
+              settingsNavigation.navigate(() => {
+                if (shell.view === 'messages') flushAllDirtyDrafts();
+                setMemberCard(null);
+                setPrivatePreview(null);
+                if (target.kind === 'person') {
+                  const contact = profileContacts.find(
+                    (person) =>
+                      person.id === target.contact.id ||
+                      (person.identityLabel === 'QQ' &&
+                        person.identityValue === target.contact.identityValue),
                   );
-                }}
-              >
-                <QzoneCardNavigationContext.Provider
-                  value={(target) => {
-                    flushAllDirtyDrafts();
+                  shell.openContactDetails(
+                    {
+                      ...target.contact,
+                      ...contact,
+                      profileContext: target.group
+                        ? {
+                            groupCode: target.group.code,
+                            groupName: target.group.name,
+                            member: target.contact.profileContext?.member,
+                          }
+                        : target.contact.profileContext,
+                    },
+                    target.tab,
+                  );
+                } else {
+                  setGroupWorkspaceLocation({
+                    code: target.conversation.id,
+                    section: target.section ?? 'profile',
+                    albumId: target.albumId,
+                    folderId: target.folderId,
+                    fileId: target.fileId,
+                  });
+                  const known = contactDirectoryConversations.find(
+                    (conversation) =>
+                      conversation.type === 'group' && conversation.id === target.conversation.id,
+                  );
+                  shell.openGroupDetails(known?.type === 'group' ? known : target.conversation);
+                }
+              })
+            }
+          >
+            <ProfileNavigationGuardContext.Provider value={settingsNavigation.register}>
+              <ProfileNavigationContext.Provider value={profileNavigation}>
+                <QzoneNavigationContext.Provider
+                  value={(uin, nickname) => {
+                    if (!/^[1-9]\d{4,19}$/.test(uin)) return;
+                    if (shell.view === 'messages') flushAllDirtyDrafts();
                     setArkFeedState(null);
                     setQzoneSpaceRequest({
                       accountUin: user.identityValue,
-                      uin: target.uin,
-                      target,
+                      uin,
+                      nickname,
                       revision: crypto.randomUUID(),
                     });
                     shell.switchView('qzone');
                   }}
                 >
-                  <ConversationDirectoryContext.Provider
-                    value={useEventContextValue<
-                      NonNullable<React.ContextType<typeof ConversationDirectoryContext>>
-                    >({
-                      real: conversations,
-                      profileConversationExists: (person) => {
-                        const id = person.uid || person.id;
-                        return (
-                          conversations.some(
-                            (item) =>
-                              item.id === id ||
-                              (item.type === 'direct' &&
-                                item.otherUser.identityValue === person.identityValue),
-                          ) ||
-                          hiddenConversationsById.has(id) ||
-                          deletedConversationsById.has(id) ||
-                          Boolean(temporaryConversations[id])
-                        );
-                      },
-                      guild: guildConversationRows,
-                      view: conversationView,
-                      views: conversationViews,
-                      rows: currentViewRows,
-                      returnToRegular,
-                      onViewChange: changeConversationView,
-                      onReturnToRegular: () => changeConversationView('regular'),
-                      onAssistant: (id) => openAssistantConversation(id),
-                      onCreateAssistant: () => void createAssistantConversation(),
-                      onDelete: deleteAiConversations,
-                      deleteBusy: deletingAi,
-                      onRetry: () => {
-                        for (const query of currentViewQueries) void query.refetch();
-                      },
-                      onExportBatch: exportConversationRows,
-                      preferences: currentViewPreferences,
-                      showContactUnreadCount: displaySettings.data?.showContactUnreadCount ?? false,
-                      groupAssistantIds,
-                      showGroupAssistantMessageCount:
-                        displaySettings.data?.showGroupAssistantMessageCount ?? false,
-                      loadingError: currentViewError,
-                      virtual: virtualRows,
-                      locate: conversationLocate,
-                      onAnalyze: handleAnalyzeConversation,
-                      onPin: (conversation, pinned) => {
-                        if (
-                          conversationView === 'groupAssistant' &&
-                          conversation.type === 'group'
-                        ) {
-                          const next = { ...groupAssistantPins, [conversation.id]: pinned };
-                          try {
-                            saveGroupAssistantPins(user.identityValue, next);
-                            setGroupAssistantPins(next);
-                          } catch (error) {
-                            pushToast({
-                              tone: 'error',
-                              title: '群助手置顶保存失败',
-                              detail: error instanceof Error ? error.message : String(error),
-                            });
-                          }
-                        } else updateConversationPreference(conversation.id, 'pinned', pinned);
-                      },
-                      onEditRemark: (conversation) => {
-                        const target = conversationRoamingTarget(conversation);
-                        if (target) setRemarkTarget(target);
-                      },
-                      onAnalyzeMember: (conversation, member) => {
-                        setAnalysisRequest((previous) => ({
-                          target: {
-                            kind: 'member',
-                            groupCode: conversation.group.id,
-                            memberUid: member.id.startsWith('u_') ? member.id : '',
-                            memberUin: member.identityValue || undefined,
+                  <QzoneProfileContext.Provider
+                    value={(uin, nickname, anchor) => {
+                      const contact = buddyContacts.find((person) => person.identityValue === uin);
+                      const profile = [...profileByUid.values()].find(
+                        (person) => person.uin === uin,
+                      );
+                      const conversation = [
+                        ...conversations,
+                        ...hiddenConversationsById.values(),
+                        ...deletedConversationsById.values(),
+                      ].find(
+                        (conv) => conv.type === 'direct' && conv.otherUser.identityValue === uin,
+                      );
+                      const peer = conversation?.type === 'direct' ? conversation.otherUser : null;
+                      setMemberCard({
+                        member: contact ??
+                          peer ?? {
+                            id: profile?.uid || '',
+                            identityLabel: 'QQ',
+                            identityValue: uin,
+                            username: profile?.uid || uin,
+                            displayName: profile?.nick || nickname || uin,
+                            avatarUrl: senderAvatarSrc(uin) || null,
                           },
-                          revision: (previous?.revision ?? 0) + 1,
-                        }));
-                      },
-                      onRoaming: handleRoamingTargets,
-                      onReadState: (rows, unread) => void changeConversationReadState(rows, unread),
-                      readStateBusy,
-                      onVisibleConversations: (rows) =>
-                        prefetchVisible(
-                          rows.filter(
-                            (row) =>
-                              row.type !== 'merged' &&
-                              !row.generated &&
-                              (!row.directoryKind || row.directoryKind === 'qq'),
-                          ),
-                        ),
-                      onConversationIntent: (row) => {
-                        if (!row.generated && (!row.directoryKind || row.directoryKind === 'qq'))
-                          prefetchIntent(row);
-                      },
-                      onCalendar: (query) => setOverviewCalendar({ query }),
-                      onVirtual: (item) => {
-                        flushAllDirtyDrafts();
-                        setMobileConversationList(false);
-                        setCloneSearchTarget(null);
-                        setVirtualOpen({ kind: item.kind, id: item.ownerId, revision: Date.now() });
-                        setSpecialChat(null);
-                        setArkFeedState(null);
-                        shell.switchView('agentlab');
-                      },
-                      onCreate: handleCreateClone,
-                      onCreateGroup: () => {
-                        flushAllDirtyDrafts();
-                        setMobileConversationList(false);
-                        setCloneGroupRequest((current) => current + 1);
-                        changeConversationView('clone', conversationView === 'regular');
-                        setSpecialChat(null);
-                        shell.switchView('agentlab');
-                      },
-                    })}
+                        anchor,
+                        fromSpace: true,
+                      });
+                    }}
                   >
-                    <FriendDirectoryControls>
-                      <ContactDirectoryContext.Provider value={contactDirectoryValue}>
-                        <WorkspacePages
-                          suspended={shell.profileReturnPending}
-                          navigationKey={`${shell.view}:${shell.activeConversationId ?? ''}:${shell.selectedContactId ?? ''}:${shell.selectedGroupConversationId ?? ''}:${surfaceNavigation}`}
-                          onNavigate={() => {
-                            setSettingsOpen(false);
-                            setConvSettings(null);
-                            setRemarkTarget(null);
-                          }}
+                    <ChatNavigationContext.Provider
+                      value={(target) => {
+                        void openProfileChat(target).catch(() =>
+                          pushToast({
+                            tone: 'info',
+                            durationKind: 'failure',
+                            title: '暂时无法打开会话，请稍后重试',
+                          }),
+                        );
+                      }}
+                    >
+                      <QzoneCardNavigationContext.Provider
+                        value={(target) => {
+                          flushAllDirtyDrafts();
+                          setArkFeedState(null);
+                          setQzoneSpaceRequest({
+                            accountUin: user.identityValue,
+                            uin: target.uin,
+                            target,
+                            revision: crypto.randomUUID(),
+                          });
+                          shell.switchView('qzone');
+                        }}
+                      >
+                        <ConversationDirectoryContext.Provider
+                          value={useEventContextValue<
+                            NonNullable<React.ContextType<typeof ConversationDirectoryContext>>
+                          >({
+                            real: conversations,
+                            profileConversationExists: (person) => {
+                              const id = person.uid || person.id;
+                              return (
+                                conversations.some(
+                                  (item) =>
+                                    item.id === id ||
+                                    (item.type === 'direct' &&
+                                      item.otherUser.identityValue === person.identityValue),
+                                ) ||
+                                hiddenConversationsById.has(id) ||
+                                deletedConversationsById.has(id) ||
+                                Boolean(temporaryConversations[id])
+                              );
+                            },
+                            guild: guildConversationRows,
+                            view: conversationView,
+                            views: conversationViews,
+                            rows: currentViewRows,
+                            returnToRegular,
+                            onViewChange: changeConversationView,
+                            onReturnToRegular: () => changeConversationView('regular'),
+                            onAssistant: (id) => openAssistantConversation(id),
+                            onCreateAssistant: () => void createAssistantConversation(),
+                            onDelete: deleteAiConversations,
+                            deleteBusy: deletingAi,
+                            onRetry: () => {
+                              for (const query of currentViewQueries) void query.refetch();
+                            },
+                            onExportBatch: exportConversationRows,
+                            preferences: currentViewPreferences,
+                            showContactUnreadCount:
+                              displaySettings.data?.showContactUnreadCount ?? false,
+                            groupAssistantIds,
+                            showGroupAssistantMessageCount:
+                              displaySettings.data?.showGroupAssistantMessageCount ?? false,
+                            loadingError: currentViewError,
+                            virtual: virtualRows,
+                            locate: conversationLocate,
+                            onAnalyze: handleAnalyzeConversation,
+                            onPin: (conversation, pinned) => {
+                              if (
+                                conversationView === 'groupAssistant' &&
+                                conversation.type === 'group'
+                              ) {
+                                const next = { ...groupAssistantPins, [conversation.id]: pinned };
+                                try {
+                                  saveGroupAssistantPins(user.identityValue, next);
+                                  setGroupAssistantPins(next);
+                                } catch (error) {
+                                  pushToast({
+                                    tone: 'error',
+                                    title: '群助手置顶保存失败',
+                                    detail: error instanceof Error ? error.message : String(error),
+                                  });
+                                }
+                              } else
+                                updateConversationPreference(conversation.id, 'pinned', pinned);
+                            },
+                            onEditRemark: (conversation) => {
+                              const target = conversationRoamingTarget(conversation);
+                              if (target) setRemarkTarget(target);
+                            },
+                            onAnalyzeMember: (conversation, member) => {
+                              setAnalysisRequest((previous) => ({
+                                target: {
+                                  kind: 'member',
+                                  groupCode: conversation.group.id,
+                                  memberUid: member.id.startsWith('u_') ? member.id : '',
+                                  memberUin: member.identityValue || undefined,
+                                },
+                                revision: (previous?.revision ?? 0) + 1,
+                              }));
+                            },
+                            onRoaming: handleRoamingTargets,
+                            onReadState: (rows, unread) =>
+                              void changeConversationReadState(rows, unread),
+                            readStateBusy,
+                            onVisibleConversations: (rows) =>
+                              prefetchVisible(
+                                rows.filter(
+                                  (row) =>
+                                    row.type !== 'merged' &&
+                                    !row.generated &&
+                                    (!row.directoryKind || row.directoryKind === 'qq'),
+                                ),
+                              ),
+                            onConversationIntent: (row) => {
+                              if (
+                                !row.generated &&
+                                (!row.directoryKind || row.directoryKind === 'qq')
+                              )
+                                prefetchIntent(row);
+                            },
+                            onCalendar: (query) => setOverviewCalendar({ query }),
+                            onVirtual: (item) => {
+                              flushAllDirtyDrafts();
+                              setMobileConversationList(false);
+                              setCloneSearchTarget(null);
+                              setVirtualOpen({
+                                kind: item.kind,
+                                id: item.ownerId,
+                                revision: Date.now(),
+                              });
+                              setSpecialChat(null);
+                              setArkFeedState(null);
+                              shell.switchView('agentlab');
+                            },
+                            onCreate: handleCreateClone,
+                            onCreateGroup: () => {
+                              flushAllDirtyDrafts();
+                              setMobileConversationList(false);
+                              setCloneGroupRequest((current) => current + 1);
+                              changeConversationView('clone', conversationView === 'regular');
+                              setSpecialChat(null);
+                              shell.switchView('agentlab');
+                            },
+                          })}
                         >
-                          <RendererRecoveryNotice
-                            ready={
-                              Boolean(messageScope) &&
-                              !loadingInitialMessages &&
-                              (!shell.activeConversationId ||
-                                (Boolean(selectedConversation) &&
-                                  (loaded.length > 0 || windowVerifiedAtRef.current > 0)))
-                            }
-                          />
-                          <GroupAlbumCardNavigationProvider binding={pinSession.binding}>
-                            <RelationshipDirectoryContext.Provider value={relationshipDirectory}>
-                              <GroupMessagePreviewContext.Provider
-                                value={useEventContextValue<
-                                  NonNullable<React.ContextType<typeof GroupMessagePreviewContext>>
-                                >({
-                                  open: (conversation) =>
-                                    void previewConversation(conversation, 'group-profile'),
-                                  close: () => {
-                                    previewRequest.current++;
-                                    setPrivatePreview(null);
-                                  },
-                                  conversationId:
-                                    privatePreview?.source === 'group-profile'
-                                      ? privatePreview.conversation.id
-                                      : null,
-                                  content:
-                                    privatePreview?.source === 'group-profile'
-                                      ? conversationPreviewContent
-                                      : null,
-                                })}
+                          <FriendDirectoryControls>
+                            <ContactDirectoryContext.Provider value={contactDirectoryValue}>
+                              <WorkspacePages
+                                suspended={shell.profileReturnPending}
+                                navigationKey={`${shell.view}:${shell.activeConversationId ?? ''}:${shell.selectedContactId ?? ''}:${shell.selectedGroupConversationId ?? ''}:${surfaceNavigation}`}
+                                onNavigate={() => {
+                                  setSettingsOpen(false);
+                                  setConvSettings(null);
+                                  setRemarkTarget(null);
+                                }}
                               >
-                                <GroupSpeechPreviewContext.Provider
-                                  value={useEventContextValue<
-                                    NonNullable<React.ContextType<typeof GroupSpeechPreviewContext>>
-                                  >({
-                                    open: (person, source) => {
-                                      const group = person.profileContext;
-                                      if (!group) return;
-                                      const known = conversations.find(
-                                        (item) =>
-                                          item.type === 'group' && item.id === group.groupCode,
-                                      );
-                                      const conversation =
-                                        known?.type === 'group'
-                                          ? known
-                                          : sharedGroupConversation({
-                                              code: group.groupCode,
-                                              name: group.groupName || group.groupCode,
-                                              avatar: avatarFromGroupCode(group.groupCode) ?? '',
-                                            });
-                                      void previewConversation(
-                                        {
-                                          ...conversation,
-                                          members: [
-                                            ...conversation.members.filter(
-                                              (member) => member.id !== person.id,
-                                            ),
-                                            {
-                                              ...person,
-                                              nick: person.nick ?? undefined,
-                                              remark: person.remark ?? undefined,
-                                              role: group.member?.role ?? 'member',
-                                              joinedAt: group.member?.joinedAt ?? '',
-                                              card: group.member?.card,
-                                            },
-                                          ],
+                                <RendererRecoveryNotice
+                                  ready={
+                                    Boolean(messageScope) &&
+                                    !loadingInitialMessages &&
+                                    (!shell.activeConversationId ||
+                                      (Boolean(selectedConversation) &&
+                                        (loaded.length > 0 || windowVerifiedAtRef.current > 0)))
+                                  }
+                                />
+                                <GroupAlbumCardNavigationProvider binding={pinSession.binding}>
+                                  <RelationshipDirectoryContext.Provider
+                                    value={relationshipDirectory}
+                                  >
+                                    <GroupMessagePreviewContext.Provider
+                                      value={useEventContextValue<
+                                        NonNullable<
+                                          React.ContextType<typeof GroupMessagePreviewContext>
+                                        >
+                                      >({
+                                        open: (conversation) =>
+                                          void previewConversation(conversation, 'group-profile'),
+                                        close: () => {
+                                          previewRequest.current++;
+                                          setPrivatePreview(null);
                                         },
-                                        source === 'contact' ? 'contact' : 'speech',
-                                        person.uid || person.id,
-                                      );
-                                    },
-                                    close: () => {
-                                      previewRequest.current++;
-                                      setPrivatePreview(null);
-                                    },
-                                  })}
-                                >
-                                  {chatContent}
-                                </GroupSpeechPreviewContext.Provider>
-                              </GroupMessagePreviewContext.Provider>
-                            </RelationshipDirectoryContext.Provider>
-                          </GroupAlbumCardNavigationProvider>
-                        </WorkspacePages>
-                      </ContactDirectoryContext.Provider>
-                    </FriendDirectoryControls>
-                  </ConversationDirectoryContext.Provider>
-                </QzoneCardNavigationContext.Provider>
-              </ChatNavigationContext.Provider>
-            </QzoneProfileContext.Provider>
-          </QzoneNavigationContext.Provider>
-          {/* 通话窗口盖在最上层：它是一次性的模态浮层，与主界面的浮层栈无关。 */}
-          {activeCall ? (
-            <CallWindow initial={activeCall} onClose={() => setActiveCall(null)} />
-          ) : null}
-        </ProfileNavigationContext.Provider>
-      </ProfileNavigationGuardContext.Provider>
-    </ContactWorkspaceNavigationContext.Provider>
-    </CalendarNavigationContext.Provider>
-    </GroupResourceNavigationContext.Provider>
+                                        conversationId:
+                                          privatePreview?.source === 'group-profile'
+                                            ? privatePreview.conversation.id
+                                            : null,
+                                        content:
+                                          privatePreview?.source === 'group-profile'
+                                            ? conversationPreviewContent
+                                            : null,
+                                      })}
+                                    >
+                                      <GroupSpeechPreviewContext.Provider
+                                        value={useEventContextValue<
+                                          NonNullable<
+                                            React.ContextType<typeof GroupSpeechPreviewContext>
+                                          >
+                                        >({
+                                          open: (person, source) => {
+                                            const group = person.profileContext;
+                                            if (!group) return;
+                                            const known = conversations.find(
+                                              (item) =>
+                                                item.type === 'group' &&
+                                                item.id === group.groupCode,
+                                            );
+                                            const conversation =
+                                              known?.type === 'group'
+                                                ? known
+                                                : sharedGroupConversation({
+                                                    code: group.groupCode,
+                                                    name: group.groupName || group.groupCode,
+                                                    avatar:
+                                                      avatarFromGroupCode(group.groupCode) ?? '',
+                                                  });
+                                            void previewConversation(
+                                              {
+                                                ...conversation,
+                                                members: [
+                                                  ...conversation.members.filter(
+                                                    (member) => member.id !== person.id,
+                                                  ),
+                                                  {
+                                                    ...person,
+                                                    nick: person.nick ?? undefined,
+                                                    remark: person.remark ?? undefined,
+                                                    role: group.member?.role ?? 'member',
+                                                    joinedAt: group.member?.joinedAt ?? '',
+                                                    card: group.member?.card,
+                                                  },
+                                                ],
+                                              },
+                                              source === 'contact' ? 'contact' : 'speech',
+                                              person.uid || person.id,
+                                            );
+                                          },
+                                          close: () => {
+                                            previewRequest.current++;
+                                            setPrivatePreview(null);
+                                          },
+                                        })}
+                                      >
+                                        {chatContent}
+                                      </GroupSpeechPreviewContext.Provider>
+                                    </GroupMessagePreviewContext.Provider>
+                                  </RelationshipDirectoryContext.Provider>
+                                </GroupAlbumCardNavigationProvider>
+                              </WorkspacePages>
+                            </ContactDirectoryContext.Provider>
+                          </FriendDirectoryControls>
+                        </ConversationDirectoryContext.Provider>
+                      </QzoneCardNavigationContext.Provider>
+                    </ChatNavigationContext.Provider>
+                  </QzoneProfileContext.Provider>
+                </QzoneNavigationContext.Provider>
+                {/* 通话窗口盖在最上层：它是一次性的模态浮层，与主界面的浮层栈无关。 */}
+                {activeCall ? (
+                  <CallWindow initial={activeCall} onClose={() => setActiveCall(null)} />
+                ) : null}
+              </ProfileNavigationContext.Provider>
+            </ProfileNavigationGuardContext.Provider>
+          </ContactWorkspaceNavigationContext.Provider>
+        </CalendarNavigationContext.Provider>
+      </GroupResourceNavigationContext.Provider>
     </ConversationSettingsNavigationContext.Provider>
   );
 }

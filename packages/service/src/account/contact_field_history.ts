@@ -14,7 +14,8 @@ export function projectContactHistoryFields(
     /^(getProfile|getBuddy|getBotProfile|exactProfile|nickname|profilesByUids|listProfiles|listBuddies|listFriendsByIntimacy|listExportFriends|editableSelfProfile|details|getFriendRemark|commonRelationships|friendClue|personalityLabels|educationHistory|getQqLevel|getLikeCount|getPeerStats|energy|getFriendMutualMark|getQqShow|fetchShow|getFriendDress|getSelfDress|anonymousQuestions|getOnlineStatus|fetchOnlineStatus)$/.test(
       name,
     );
-  if (memberUid ? !memberCategory : !personCategory && !category.startsWith('metric.')) return [];
+  const groupCategory = /^(getGroupDetail|listAllGroups|listGroupDirectory|listExportGroups|listAnalysisGroups|getJoinInfo|joinProfile|extendedProfile|getGroupExt|listAllGroupsExt)$/.test(name);
+  if (memberUid ? !memberCategory : !personCategory && !groupCategory && !category.startsWith('metric.')) return [];
   // 无关的大名单和照片正文不解压，按批索引只投影当前对象实际需要的资料。
   if (typeof value === 'function') value = value();
   const entries: Array<[string, unknown]> = [];
@@ -101,6 +102,31 @@ export function projectContactHistoryFields(
       muteUntil: 'muteUntil',
     }))
       add(field, member[source]);
+    return entries;
+  }
+  if (groupCategory) {
+    const addReturned = (field: string, input: unknown) => {
+      if (input !== null) add(field, input);
+    };
+    addReturned('groupName', row.groupName ?? row.name);
+    for (const field of ['remark', 'description', 'memberCount', 'maxMemberCount', 'activityScore'])
+      addReturned(field, row[field]);
+    for (const field of ['createTime', 'joinedAt']) {
+      if (typeof row[field] === 'number' && row[field] > 1) add(field, row[field]);
+    }
+    const labels: Record<string, unknown> = {};
+    if (typeof row.labels === 'string') labels.labels = [...new Set(row.labels.split(/[,，、;；\s]+/).filter(Boolean))].sort();
+    if (Array.isArray(row.customLabels)) labels.customLabels = [...new Set(row.customLabels.flatMap((label) => {
+      const content = typeof label === 'string' ? label : object(label).content;
+      return typeof content === 'string' && content.trim() ? [content.trim()] : [];
+    }))].sort();
+    if (Object.keys(labels).length) add('labels', labels);
+    addReturned('entranceQ', row.entranceQ ?? (row.questionState === 'unavailable' ? undefined : row.question));
+    addReturned('addressName', row.addressName ?? object(row.address).name);
+    addReturned('avatar', row.avatarUrl);
+    const profile = name === 'joinProfile' || name === 'getJoinInfo' ? object(row.extensions) : row;
+    for (const field of ['grade', 'activeMemberCount', 'freezeState']) addReturned(field, profile[field]);
+    if (typeof profile.joinedAt === 'number' && profile.joinedAt > 1) add('joinedAt', profile.joinedAt);
     return entries;
   }
   if (

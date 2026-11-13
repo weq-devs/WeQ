@@ -12,6 +12,7 @@
  */
 
 import { z } from 'zod';
+import { plainContentText } from '@weq/service/message-plain-text';
 import { setReactionWithRecent } from '../../recent_reactions';
 import { deduplicateAlbumResources } from '../../album_resource_dedup';
 import {
@@ -450,6 +451,25 @@ const generatedAccountInput = z.object({
   expectedAccountUin: z.string().min(1),
   expectedAccountConfigId: z.string().min(1),
 });
+
+function assistantRuntime(binding: {
+  expectedAccountUin: string;
+  expectedAccountConfigId: string;
+}) {
+  const assistant = requireExpectedAccount(
+    binding.expectedAccountUin,
+    binding.expectedAccountConfigId,
+  ).assistant;
+  const accountConfigId = binding.expectedAccountConfigId;
+  assistant.bindRuntime(
+    (event) => assistantBus.emit('step', { ...event, accountConfigId }),
+    (id, controller) => {
+      if (controller) activeAssistantRuns.set(id, controller);
+      else activeAssistantRuns.delete(id);
+    },
+  );
+  return assistant;
+}
 
 const convInput = z.object({
   kind: z.enum(['c2c', 'group']),
@@ -2221,9 +2241,9 @@ export const accountRouter = router({
       return requireServices().agentLab.chat({
         personaId: input.personaId,
         text: input.text,
-        images: input.images,
         history: input.history,
         sessionId: input.sessionId,
+        images: input.images,
       });
     }),
 
@@ -2789,11 +2809,16 @@ export const accountRouter = router({
   }),
 
   /** 新建一个空会话，返回会话元数据（标题首轮对话后自动总结）。 */
-  createAssistantSession: procedure.mutation(() => {
-    const result = requireServices().assistant.createSession();
-    currentDraftState().announceDrafts();
-    return result;
-  }),
+  createAssistantSession: procedure
+    .input(exportAccountBindingInput.optional())
+    .mutation(({ input }) => {
+      const result = requireExpectedAccount(
+        input?.expectedAccountUin,
+        input?.expectedAccountConfigId,
+      ).assistant.createSession();
+      currentDraftState().announceDrafts();
+      return result;
+    }),
 
   /** 删除一个会话（含其对话内容）。 */
   deleteAssistantSession: procedure
@@ -2845,15 +2870,21 @@ export const accountRouter = router({
     }),
 
   getAssistantConversation: procedure
-    .input(z.object({ sessionId: z.string().min(1) }))
+    .input(z.object({ sessionId: z.string().min(1), ...exportAccountBindingInput.shape }))
     .query(({ input }) => {
-      return requireServices().assistant.getConversation(input.sessionId);
+      return requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).assistant.getConversation(input.sessionId);
     }),
 
   clearAssistantConversation: procedure
-    .input(z.object({ sessionId: z.string().min(1) }))
-    .mutation(({ input }) => {
-      requireServices().assistant.clearConversation(input.sessionId);
+    .input(z.object({ sessionId: z.string().min(1), ...exportAccountBindingInput.shape }))
+    .mutation(async ({ input }) => {
+      await requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).assistant.clearConversation(input.sessionId);
       currentDraftState().announceDrafts();
       return true;
     }),
@@ -2863,6 +2894,68 @@ export const accountRouter = router({
    * 通过 `onAssistantEvent` 流式推送（镜像 update.download / onProgress）。
    * chat() 内部已把异常先 emit 成 `error` step 再抛出，故这里吞掉 rejection。
    */
+  submitAssistantMessage: procedure
+    .input(
+      generatedAccountInput.extend({
+        sessionId: z.string().min(1),
+        requestId: z.string().uuid(),
+        text: z.string(),
+        mode: z.enum(['interrupt', 'boundary', 'queue']).optional(),
+        images: z
+          .array(
+            z
+              .object({
+                id: z.string().min(1),
+                path: z.string().min(1),
+                name: z.string().optional(),
+              })
+              .strict(),
+          )
+          .max(32)
+          .optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      const assistant = assistantRuntime(input);
+      return assistant.submitMessage(input);
+    }),
+
+  assistantQueue: procedure
+    .input(generatedAccountInput.extend({ sessionId: z.string().min(1) }))
+    .query(({ input }) => assistantRuntime(input).getQueue(input.sessionId)),
+  editAssistantQueue: procedure
+    .input(
+      generatedAccountInput.extend({
+        sessionId: z.string().min(1),
+        requestId: z.string().min(1),
+        text: z.string().optional(),
+        beforeId: z.string().optional(),
+        cancel: z.boolean().optional(),
+      }),
+    )
+    .mutation(({ input }) =>
+      assistantRuntime(input).editQueue(input.sessionId, input.requestId, input),
+    ),
+  controlAssistantQueue: procedure
+    .input(
+      generatedAccountInput.extend({
+        sessionId: z.string().min(1),
+        action: z.enum(['stop', 'continue', 'next']),
+      }),
+    )
+    .mutation(({ input }) => {
+      const assistant = assistantRuntime(input);
+      if (input.action === 'stop') {
+        assistant.stopSession(input.sessionId);
+        return { runId: '' };
+      }
+      if (input.action === 'next') {
+        assistant.skipToNext(input.sessionId);
+        return { runId: '' };
+      }
+      return assistant.continueSession(input.sessionId);
+    }),
+
   chatWithAssistant: procedure
     .input(
       z.object({
@@ -2894,7 +2987,12 @@ export const accountRouter = router({
         .chat(
           input.sessionId,
           input.text,
-          (step) => assistantBus.emit('step', { runId, step } satisfies AssistantStreamEvent),
+          (step) =>
+            assistantBus.emit('step', {
+              runId,
+              sessionId: input.sessionId,
+              step,
+            } satisfies AssistantStreamEvent),
           ac.signal,
           input.images,
         )
@@ -2919,9 +3017,12 @@ export const accountRouter = router({
    * 也覆盖进程重启后恢复的场景——快照在磁盘上，重启不丢。
    */
   getAssistantResumeState: procedure
-    .input(z.object({ sessionId: z.string().min(1) }))
+    .input(z.object({ sessionId: z.string().min(1), ...exportAccountBindingInput.shape }))
     .query(({ input }) => {
-      return requireServices().assistant.getResumeState(input.sessionId);
+      return requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).assistant.getResumeState(input.sessionId);
     }),
 
   /**
@@ -2938,7 +3039,12 @@ export const accountRouter = router({
       void assistant
         .resumeAssistantRun(
           input.sessionId,
-          (step) => assistantBus.emit('step', { runId, step } satisfies AssistantStreamEvent),
+          (step) =>
+            assistantBus.emit('step', {
+              runId,
+              sessionId: input.sessionId,
+              step,
+            } satisfies AssistantStreamEvent),
           ac.signal,
         )
         .catch(() => {})
@@ -3241,7 +3347,7 @@ export const accountRouter = router({
   }),
 
   /**
-   * 官方号会话列表（chatType=103）—— 仅 ARK 消息,按最新消息时间排序。
+   * 官方号会话列表（chatType=103），保留全部消息类型的预览。
    */
   listOfficialAccounts: procedure.query(async () => {
     const summaries = await requireServices().officialAccount.listAccounts();
@@ -3249,13 +3355,129 @@ export const accountRouter = router({
   }),
 
   /**
-   * 服务号会话列表（chatType=118，service_assistant_contact 表）—— 仅 ARK 消息，
+   * 服务号会话列表（chatType=118，service_assistant_contact 表），
    * 按最新消息时间排序。
    */
   listServiceAccounts: procedure.query(async () => {
     const summaries = await requireServices().serviceAccount.listAccounts();
     return summaries.map(serviceAccountSummaryToWire);
   }),
+
+  readonlyConversationPage: procedure
+    .input(
+      z.object({
+        ...exportAccountBindingInput.shape,
+        direction: z.enum(['older', 'newer']).optional(),
+        target: z.discriminatedUnion('kind', [
+          z.object({ kind: z.literal('official'), peerUid: z.string().min(1) }),
+          z.object({ kind: z.literal('service'), appId: z.string().regex(/^\d+$/) }),
+        ]),
+        cursor: z
+          .object({
+            msgSeq: z.string().regex(/^-?\d+$/),
+            sendTime: z.string().regex(/^-?\d+$/),
+            msgId: z.string().regex(/^-?\d+$/),
+          })
+          .optional(),
+        anchorId: z
+          .string()
+          .regex(/^-?\d+$/)
+          .optional(),
+        limit: z.number().int().min(1).max(200).default(50),
+      }),
+    )
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const page =
+        input.target.kind === 'official'
+          ? await services.officialAccount.listMessages(input.target.peerUid, input)
+          : await services.serviceAccount.listMessages(input.target.appId, input);
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号数据源已切换');
+      return {
+        ...page,
+        items: withMessageBubbles(page.items.map(c2cMsgToWire), services.dressInstall),
+      };
+    }),
+
+  searchReadonlyConversation: procedure
+    .input(
+      z.object({
+        ...exportAccountBindingInput.shape,
+        target: z.discriminatedUnion('kind', [
+          z.object({ kind: z.literal('official'), peerUid: z.string().min(1) }),
+          z.object({ kind: z.literal('service'), appId: z.string().regex(/^\d+$/) }),
+          z.object({ kind: z.literal('guild'), nodeId: z.string().min(1) }),
+        ]),
+        keyword: z.string().trim().min(1),
+        offset: z.number().int().min(0).default(0),
+        limit: z.number().int().min(1).max(100).default(30),
+      }),
+    )
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const needle = input.keyword.toLocaleLowerCase();
+      const hits: Array<{ msgId: string; msgSeq: string; sendTime: string; elements: unknown[] }> =
+        [];
+      let cursor: { msgSeq: string; sendTime: string; msgId: string } | undefined;
+      let guildCursor: Parameters<typeof services.guildDirect.getStablePage>[1];
+      for (;;) {
+        if (
+          requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+          services
+        )
+          throw new Error('账号数据源已切换');
+        if (input.target.kind === 'guild') {
+          const page = await services.guildDirect.getStablePage(
+            input.target.nodeId,
+            guildCursor,
+            200,
+          );
+          for (const row of page.items) {
+            const wire = guildDirectMsgToWire(row);
+            if (plainContentText(row.elements).toLocaleLowerCase().includes(needle))
+              hits.push(wire);
+          }
+          guildCursor = page.cursor ?? undefined;
+          if (!page.cursor) break;
+        } else {
+          const page =
+            input.target.kind === 'official'
+              ? await services.officialAccount.listMessages(input.target.peerUid, {
+                  cursor,
+                  limit: 200,
+                })
+              : await services.serviceAccount.listMessages(input.target.appId, {
+                  cursor,
+                  limit: 200,
+                });
+          for (const row of page.items) {
+            const wire = c2cMsgToWire(row);
+            if (plainContentText(row.elements).toLocaleLowerCase().includes(needle))
+              hits.push(wire);
+          }
+          cursor = page.nextCursor ?? undefined;
+          if (!page.hasMore) break;
+        }
+        if (hits.length > input.offset + input.limit) break;
+      }
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号数据源已切换');
+      return {
+        items: hits.slice(input.offset, input.offset + input.limit),
+        hasMore: hits.length > input.offset + input.limit,
+      };
+    }),
 
   /** 公众号单个会话 ARK 消息流（最近 limit 条）。 */
   listOfficialAccountArkFeed: procedure
@@ -3866,7 +4088,7 @@ export const accountRouter = router({
       const msgs = await (input.stablePaging
         ? guild.getStableLatest(input.nodeId, input.limit)
         : guild.getLatest(input.nodeId, input.limit));
-      return msgs.map(guildDirectMsgToWire);
+      return withMessageBubbles(msgs.map(guildDirectMsgToWire), requireServices().dressInstall);
     }),
 
   guildDirectAround: procedure
@@ -3880,7 +4102,13 @@ export const accountRouter = router({
     .query(async ({ input }) => {
       const guild = requireServices().guildDirect;
       const result = await guild.aroundMessage(input.nodeId, input.msgId);
-      return { ...result, items: result.items.map(guildDirectMsgToWire) };
+      return {
+        ...result,
+        items: withMessageBubbles(
+          result.items.map(guildDirectMsgToWire),
+          requireServices().dressInstall,
+        ),
+      };
     }),
 
   /** 比 beforeSeq 更旧的一页频道私聊消息（向上滚动），返回仍为 seq 大到小。 */
@@ -3901,7 +4129,35 @@ export const accountRouter = router({
       const msgs = await (input.beforeMsgId !== undefined
         ? guild.getBeforeMessage(input.nodeId, input.beforeMsgId, input.limit)
         : guild.getBefore(input.nodeId, BigInt(input.beforeSeq), input.limit));
-      return msgs.map(guildDirectMsgToWire);
+      return withMessageBubbles(msgs.map(guildDirectMsgToWire), requireServices().dressInstall);
+    }),
+
+  guildDirectAfter: procedure
+    .input(
+      z.object({
+        nodeId: z.string().min(1),
+        cursor: z.object({
+          msgSeq: z.string().regex(/^-?\d+$/),
+          sendTime: z.string().regex(/^-?\d+$/),
+          msgId: z.string().regex(/^-?\d+$/),
+        }),
+        limit: z.number().int().min(1).max(200).default(50),
+      }),
+    )
+    .query(async ({ input }) => {
+      const page = await requireServices().guildDirect.getStablePage(
+        input.nodeId,
+        {
+          seq: BigInt(input.cursor.msgSeq),
+          time: BigInt(input.cursor.sendTime),
+          id: BigInt(input.cursor.msgId),
+        },
+        input.limit,
+      );
+      return withMessageBubbles(
+        page.items.map(guildDirectMsgToWire).reverse(),
+        requireServices().dressInstall,
+      );
     }),
 
   /** 生成记录读取与导出均绑定账号及数据源，不将旧草稿用于新账号。 */
@@ -9139,5 +9395,4 @@ function latestGeneratedActivity(
   };
 }
 import { CLONE_GENERATION, type CloneGenerationKey } from '@weq/agentlab';
-
 import { retainAiImage } from '../../ai_images';

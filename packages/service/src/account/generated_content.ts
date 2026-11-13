@@ -80,7 +80,9 @@ export function captureGeneratedContent(
   if (target.kind === 'assistant') {
     const session = sources.assistant.listSessions().find((item) => item.id === target.sessionId);
     if (target.ownerId !== 'assistant' || !session) throw new Error('助手会话不存在或已删除。');
-    messages = sources.assistant.getConversation(session.id);
+    messages = sources.assistant
+      .getConversation(session.id)
+      .filter((message) => message.status !== 'running');
     title = 'WeQ 助手';
     sessionTitle = session.title;
   } else {

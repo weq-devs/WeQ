@@ -37,6 +37,37 @@ function mount(text = 'u_fixture') {
 }
 
 describe('统一复制反馈', () => {
+  it('只读文字和数字默认点击复制，有编辑动作时优先编辑', async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    close = () => {
+      act(() => root.unmount());
+      host.remove();
+    };
+    const edit = vi.fn();
+    act(() =>
+      root.render(
+        h(
+          'div',
+          null,
+          h(ContactRow, { label: '公司', value: '合成公司' }),
+          h(ContactRow, { label: '等级', value: 42 }),
+          h(ContactRow, { label: '备注', value: '旧备注', copyValue: '旧备注', onActivate: edit }),
+        ),
+      ),
+    );
+    const buttons = host.querySelectorAll('button');
+    expect(buttons).toHaveLength(3);
+    expect(host.querySelector('svg')).toBeNull();
+    await act(async () => buttons[0].click());
+    expect(writeText).toHaveBeenLastCalledWith('合成公司');
+    await act(async () => buttons[1].click());
+    expect(writeText).toHaveBeenLastCalledWith('42');
+    await act(async () => buttons[2].click());
+    expect(edit).toHaveBeenCalledOnce();
+    expect(writeText).toHaveBeenCalledTimes(2);
+  });
   it('等待写入成功后提示，并自动退场；连续点击重新计时', async () => {
     let resolve!: () => void;
     writeText.mockImplementationOnce(() => new Promise<void>((done) => (resolve = done)));

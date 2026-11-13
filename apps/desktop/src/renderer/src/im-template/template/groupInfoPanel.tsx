@@ -28,6 +28,7 @@ import type { GroupConversationView } from './conversationDetailsTypes';
 import { useEventContextValue } from '../../hooks/useEventContextValue';
 import { displayUserName } from './user';
 import { cn } from './classNames';
+import { OverlayScrollbar } from '../../components/OverlayScrollbar';
 import { formatShortDate } from './format';
 import { GroupMessageBadge } from '../../components/GroupMessageBadge';
 import { GroupProfileMetrics } from '../../components/GroupProfileMetrics';
@@ -548,6 +549,11 @@ export function GroupInfoPanel({
           </div>
         ) : null}
       </div>
+      <OverlayScrollbar
+        scrollRef={memberListRef}
+        className="weq-group-members-scrollbar"
+        refreshKey={`members:${conversation.id}:${rows.length}`}
+      />
     </section>
   );
 

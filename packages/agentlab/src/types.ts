@@ -3,6 +3,7 @@
 export type AgentLabModelCapability = 'chat' | 'embedding' | 'vision';
 
 export interface AgentLabProviderModel {
+  reasoningEfforts?: string[];
   /** 发给 API 的模型 id */
   id: string;
   /** 展示名（可选，默认用 id） */
@@ -89,6 +90,7 @@ export interface AgentLabModelOutput {
 }
 
 export interface AgentLabEndpoint {
+  reasoningEfforts?: string[];
   baseUrl: string;
   apiKey: string;
   model: string;

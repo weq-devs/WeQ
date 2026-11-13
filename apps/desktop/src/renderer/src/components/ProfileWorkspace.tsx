@@ -19,6 +19,7 @@ export function ProfileWorkspace<K extends string>({
   onSelect,
   render,
   showTitle = true,
+  navigation = 'directory',
   scrollTarget,
 }: {
   label: string;
@@ -27,6 +28,7 @@ export function ProfileWorkspace<K extends string>({
   onSelect: (key: K) => void;
   render: (key: K) => ReactNode;
   showTitle?: boolean;
+  navigation?: 'directory' | 'tabs';
   scrollTarget?: string;
 }) {
   const [visited, setVisited] = useState<Set<K>>(() => new Set([selected]));
@@ -97,7 +99,7 @@ export function ProfileWorkspace<K extends string>({
   const visible = sections.filter(([key]) => visited.has(key) || key === selected);
   return (
     <DraftCloseContext.Provider value={closing.drafts}>
-      <div className="weq-profile-workspace weq-contact-workspace weq-contact-workspace-v2">
+      <div className={`weq-profile-workspace weq-contact-workspace weq-contact-workspace-v2${navigation === 'tabs' ? ' weq-profile-workspace--tabs' : ''}`}>
         <nav className="weq-profile-directory" aria-label={label}>
           {sections.map(([key, title]) => (
             <button

@@ -417,6 +417,8 @@ export {
 } from './account/weq_assistant';
 export type { WeqTweetCard } from './account/weq_assistant';
 export { AssistantService, ASSISTANT_AGENT_ID, mergeAssistantConfig } from './account/assistant';
+export { ASSISTANT_PARAMETER_DEFAULTS } from './account/assistant_config';
+export type { AssistantSendMode, AssistantParameters } from './account/assistant_config';
 export type {
   AssistantConfig,
   AssistantReasoningEffort,
@@ -424,6 +426,8 @@ export type {
   AssistantTools,
   AssistantToolSpec,
   AssistantStep,
+  AssistantProcessStep,
+  AssistantTaskEvent,
   AssistantArtifact,
   AssistantPlanStep,
   AssistantInvestigationPlan,

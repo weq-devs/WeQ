@@ -17,6 +17,7 @@ export type ContentKind =
   | 'assistant-messages';
 
 export interface ContentOwner {
+  conversationTarget?: ConversationBatchTarget;
   kind: ContentKind;
   /** 内容层级的稳定身份，如会话、相册或收藏集合；不能只用内容种类区分。 */
   container: string;
@@ -31,6 +32,8 @@ export interface GeneratedContentIdentity {
 }
 
 export interface ConversationBatchTarget {
+  messageIds?: string[];
+  forwardTarget?: { elementIndex: number; resId: string };
   /** 统一目录中的行身份，与同批其他来源不能冲突。 */
   id: string;
   name: string;
@@ -95,6 +98,24 @@ export function conversationBatchSelection(
 }
 
 export function conversationBatchTargets(selection: ContentSelection): ConversationBatchTarget[] {
+  if (selection.owner.conversationTarget) {
+    if (selection.scope.type !== 'all' && selection.scope.type !== 'items')
+      throw new Error('此来源的消息导出选区无效');
+    const [target] = parseConversationBatchTargets([selection.owner.conversationTarget]);
+    return target
+      ? [
+          {
+            ...target,
+            ...(selection.scope.type === 'items'
+              ? { messageIds: [...new Set(selection.scope.ids)] }
+              : {}),
+            ...(selection.owner.forwardTarget
+              ? { forwardTarget: { ...selection.owner.forwardTarget } }
+              : {}),
+          },
+        ]
+      : [];
+  }
   if (selection.owner.kind !== 'conversation-batch') return [];
   let raw: unknown;
   try {

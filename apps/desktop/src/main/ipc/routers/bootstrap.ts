@@ -2177,6 +2177,7 @@ export const bootstrapRouter = router({
               id: z.string().min(1),
               label: z.string().optional(),
               capabilities: z.array(z.enum(['chat', 'embedding', 'vision'])),
+              reasoningEfforts: z.array(z.string().min(1).max(64)).max(32).optional(),
             }),
           )
           .default([]),

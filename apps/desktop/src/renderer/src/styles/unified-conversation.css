@@ -1,0 +1,123 @@
+.chat-pane.without-composer {
+  grid-template-rows: var(--chat-header-height) minmax(0, 1fr);
+}
+
+.composer.has-extensions {
+  grid-template-rows: auto 42px minmax(0, 1fr);
+}
+
+.composer-extensions {
+  grid-row: 1;
+  grid-column: 1 / -1;
+  min-width: 0;
+  max-height: var(--composer-extensions-max-height, 240px);
+  overflow: auto;
+}
+
+.composer.has-extensions > .composer-tools {
+  grid-row: 2;
+}
+.composer.has-extensions > .composer-editor {
+  grid-row: 3;
+}
+
+html[data-weq-layout='single'] .chat-pane.has-composer-extensions {
+  --composer-height: calc(
+    var(--mobile-composer-editor-height, 42px) +
+    62px +
+    var(--mobile-composer-safe-bottom, 0px) +
+    var(--composer-extensions-height, 0px)
+  ) !important;
+}
+
+html[data-weq-layout='single'] .composer.has-extensions {
+  grid-template-rows: auto var(--mobile-composer-editor-height, 42px) 48px;
+}
+html[data-weq-layout='single'] .composer.has-extensions > .composer-editor,
+html[data-weq-layout='single'] .composer.has-extensions > .mobile-composer-expand-button {
+  grid-row: 2;
+}
+html[data-weq-layout='single'] .composer.has-extensions > .composer-tools {
+  grid-row: 3;
+}
+html[data-weq-layout='single']
+  .chat-pane.has-composer-extensions:has(.composer > :is(.emoji-panel, .composer-plus-panel)) {
+  --composer-height: 336px !important;
+}
+html[data-weq-layout='single']
+  .composer.has-extensions:has(> :is(.emoji-panel, .composer-plus-panel)) {
+  grid-template-rows: var(--mobile-composer-editor-height, 42px) 48px minmax(0, 1fr);
+}
+html[data-weq-layout='single']
+  .composer.has-extensions:has(> :is(.emoji-panel, .composer-plus-panel))
+  > .composer-extensions {
+  display: none;
+}
+html[data-weq-layout='single']
+  .composer.has-extensions:has(> :is(.emoji-panel, .composer-plus-panel))
+  > .composer-editor,
+html[data-weq-layout='single']
+  .composer.has-extensions:has(> :is(.emoji-panel, .composer-plus-panel))
+  > .mobile-composer-expand-button {
+  grid-row: 1;
+}
+html[data-weq-layout='single']
+  .composer.has-extensions:has(> :is(.emoji-panel, .composer-plus-panel))
+  > .composer-tools {
+  grid-row: 2;
+}
+html[data-weq-layout='single'] .composer.has-extensions > :is(.emoji-panel, .composer-plus-panel) {
+  grid-row: 3;
+}
+html[data-weq-layout='single'] .chat-pane.without-composer {
+  grid-template-rows: var(--chat-header-height) minmax(0, 1fr);
+}
+
+.weq-conversation-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.weq-conversation-notice {
+  padding: 8px 14px;
+  color: var(--weq-fg-secondary);
+}
+
+.composer > .weq-conversation-tools,
+.composer > .weq-ai-attachments,
+.composer > .weq-assistant-queue,
+.composer > [role='alert'] {
+  grid-column: 1 / -1;
+}
+
+.weq-assistant-queue {
+  max-height: 180px;
+  overflow: auto;
+  min-width: 0;
+}
+
+.weq-assistant-queue > div {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.weq-assistant-queue textarea {
+  flex: 1;
+  min-width: 0;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+  border: 1px solid var(--weq-border-subtle);
+  resize: vertical;
+}
+
+.weq-asst-step-json {
+  max-width: 100%;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

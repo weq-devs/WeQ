@@ -465,7 +465,7 @@ async function* pageC2cBySeqlessRowId(
 
 /**
  * Yield every official account (chatType 103) message with a peer, oldest-first,
- * ARK-only filtered.
+ * 保留全部消息元素类型。
  */
 export async function* iterateOfficialMessages(
   msgs: MsgService,
@@ -483,7 +483,7 @@ export async function* iterateOfficialMessages(
 
 /**
  * Yield every service account (chatType 118) message for a given appId,
- * oldest-first, ARK-only filtered.
+ * oldest-first，保留全部消息元素类型。
  */
 export async function* iterateServiceMessages(
   msgs: MsgService,
@@ -506,13 +506,7 @@ async function* selectFeedMessages(
   kind: 'official' | 'service',
 ): AsyncGenerator<RenderC2cMsg> {
   const filter = compileMessageFilter(msgs.exportFilter);
-  const selected = selectMessages(
-    source,
-    msgs,
-    range,
-    (message) => hasArkElement(message) && filter(message),
-    kind,
-  );
+  const selected = selectMessages(source, msgs, range, filter, kind);
   yield* msgs.exportJournal
     ? msgs.exportJournal.capture(selected, async (row) =>
         expandForwards(msgs, kind, toExportedMessage(row)),
@@ -558,11 +552,6 @@ async function* pageServiceBySeqlessRowId(
     cursor = page[page.length - 1]!.rowId;
     if (page.length < pageSize) break;
   }
-}
-
-/** Check if a message contains at least one ARK element. */
-function hasArkElement(m: RenderC2cMsg | RenderGroupMsg): boolean {
-  return m.elements.some((el) => el.type === 'ark');
 }
 
 /** Normalize a render message into the export record (bigints → strings). */

@@ -26,6 +26,7 @@ export function AssistantMenuWorkspace({
   searchTarget?: GeneratedSearchHit | null;
 }) {
   const active = useTabActive();
+  const closeWorkspaceMenu = useWorkspaceMenu((state) => state.close);
   const { enabled: resultVisible } = useQQReadActivity(true, { onlineOnly: false });
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
@@ -271,6 +272,7 @@ export function AssistantMenuWorkspace({
                 );
               }}
               onBack={newSession}
+              onBackToDirectory={closeWorkspaceMenu}
               onSessionCreated={(id) => {
                 keys.current.set(id, selection.key);
                 if (currentSelection.current.key !== selection.key) return;
