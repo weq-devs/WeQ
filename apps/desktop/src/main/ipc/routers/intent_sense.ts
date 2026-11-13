@@ -16,6 +16,7 @@ import { OperationError } from '@weq/service';
 
 import { z } from 'zod';
 import { backgroundTasks } from '../../background_tasks';
+import { startEnhancementDownloads } from '../../enhancements/tasks';
 import { agentLabModelSelectionSchema } from '../../../shared/agentlab_model_selection';
 import { observable } from '@trpc/server/observable';
 import {
@@ -54,7 +55,9 @@ const progressListeners = new Set<(p: IntentSenseModelProgress) => void>();
 let downloading = false;
 
 export function isIntentModelDownloading(): boolean {
-  return downloading;
+  return (
+    downloading || getAppContext().bootstrap?.enhancements?.packs.isPreparing('intent') === true
+  );
 }
 
 const kindSchema = z.enum(['c2c', 'group']);
@@ -356,7 +359,7 @@ export const intentSenseModelProcedures = {
       engineReady: engine?.ready ?? false,
       modelDir: engine?.modelDir() ?? '',
       models: engine?.listModels?.() ?? [],
-      downloading,
+      downloading: isIntentModelDownloading(),
     };
   }),
 
@@ -374,6 +377,20 @@ export const intentSenseModelProcedures = {
     .mutation(async ({ input }) => {
       const engine = getActiveIntentSenseLocalEngine();
       if (!engine) return { ok: false, error: '本地引擎仅桌面版可用', alreadyRunning: false };
+      const packs = requireBootstrap().enhancements?.packs;
+      if (packs) {
+        if (input.modelId === 'QWeQ-NineBird-v1')
+          return {
+            ok: false,
+            error: 'QWeQ-NineBird-v1 仅使用已有本地模型，不支持在线下载',
+            alreadyRunning: false,
+          };
+        if (packs.isPreparing('intent')) return { ok: true, alreadyRunning: true };
+        await startEnhancementDownloads(packs, ['intent']);
+        await packs.waitFor('intent');
+        const pack = (await packs.list()).find((pack) => pack.id === 'intent');
+        return { ok: !!pack?.ready, error: pack?.operation?.error, alreadyRunning: false };
+      }
       if (downloading) return { ok: true, alreadyRunning: true };
       downloading = true;
       const taskId = backgroundTasks.start({

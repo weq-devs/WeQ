@@ -342,7 +342,7 @@ it.each(['local', 'api'] as const)('%s 模式只保留一份全局意图资源�
   const resources = f.host.querySelectorAll('[data-setting-id="intent-model-resources"]');
   expect(resources).toHaveLength(engine === 'local' ? 1 : 0);
   if (engine === 'local') {
-    expect(resources[0]?.textContent).toContain('意图模型资源（全局）');
+    expect(resources[0]?.textContent).toContain('本地模型资源');
     expect(
       resources[0]?.closest('.weq-set-card')?.querySelector('.weq-set-card-title')?.textContent,
     ).toBe('功能与模型');

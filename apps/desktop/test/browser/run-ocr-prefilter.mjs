@@ -76,8 +76,7 @@ try {
         await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
         true,
       );
-      const group = page.getByRole('region', { name: '筛图模型' });
-      assert.equal(await group.getByRole('switch').count(), 1);
+      assert.equal(await page.locator('.weq-set-card').first().getByRole('switch').count(), 1);
       if (output)
         await page.screenshot({ path: resolve(output, `${theme}-${width}.png`), fullPage: true });
       cases++;

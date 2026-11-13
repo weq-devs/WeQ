@@ -17,7 +17,6 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { configureDressIndexResources } from '@weq/service';
-import { installDressIndexTasks } from './dress_index_tasks';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 
@@ -80,7 +79,6 @@ export function configureNativeDressResources(): void {
       manifest: JSON.parse(readFileSync(manifest, 'utf8')),
       legacyDirectory: process.env.NT_HELPER_DRESS_DIR ?? resolveResource('dress') ?? undefined,
     });
-    installDressIndexTasks();
   }
   if (process.env.NT_HELPER_DRESS_DIR || process.env.WEQ_NATIVE_DIR) return;
   const directory = resolveResource('dress');

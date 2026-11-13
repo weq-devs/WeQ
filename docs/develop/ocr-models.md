@@ -249,19 +249,8 @@ body 压成 zlib，native 层原先解不开就把整帧丢掉 —— 表现为�
 
 ### 打包（按平台 × 架构各留一份二进制）
 
-- `extraResources`：`out/main/ocrWorker.mjs` 拷到 `<resources>/out/main/`（fork 出去的
-  子进程读不了 asar 里的文件，语音那条线同理），运行时依赖 `onnxruntime-common` 整份
-  拷到 `<resources>/node_modules/` —— worker 从 `<resources>/out/main/` 起，模块解析
-  正好能顺着往上找到它们。注意这条链**不会**拐进 `app.asar.unpacked/`，所以引擎必须
-  落在 `<resources>/node_modules/` 里。
-- **`onnxruntime-node` 只拷本次构建的那一份**（`electron-builder.yml` 的 win / mac /
-  linux 段各自 `filter` 出 `bin/napi-v6/<platform>/${arch}/**`）：这个 npm 包一个
-  288 MB，装的是三个平台 × 两个架构的 CPU 二进制（win32 134 MB / darwin 86 MB /
-  linux 69 MB，darwin 还自带一份重复的 dylib），整包拷等于把安装包凭空撑大一倍 ——
-  v2.0.5 的 Windows `setup.exe` 就是这么从 201 MB 涨到 363 MB 的。
-- 同一个包也从 asar 里剔掉（`files: "!node_modules/onnxruntime-node/**"`）：它是原生
-  模块，留在 asar 里会被 electron-builder 的 smartUnpack **再整包解一份**到
-  `app.asar.unpacked/`，而那一份运行时谁也读不到。
+- `extraResources` 只把 `out/main/ocrWorker.mjs` 拷到实体目录；子进程不能读取 asar。运行时由 `WEQ_ENHANCEMENT_RUNTIME` 定位已经安装的增强包引擎，`onnxruntime-node` 与 `onnxruntime-common` 不再随基础应用复制。
+- 引擎资产只收集目标平台／架构的 CPU 二进制，并与文字识别、意图／画像共用。全部文件校验及实际加载通过后才发布就绪回执。开发态可以复用冻结版本的现有依赖；正式打包与用户目录加载见[增强包专用引擎](native-artifacts.md#增强包专用引擎)。
 - worker 是**自包含单文件**（rollup 已把管线打进去，没有相对 import）。为此主进程侧
   只允许**类型**引用 `pipeline.ts`，否则 rollup 会抽出一个共享 chunk，拷出去就少了文件。
 - CI 里要按平台 × 架构验一遍（历史上 arm64 装错 binding 出过事，见 `release.yml`）。

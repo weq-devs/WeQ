@@ -26,6 +26,7 @@ import {
   statSync,
 } from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
+import { clearDressSharedFiles } from './storage_cleanup';
 import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
 import {
@@ -2496,19 +2497,19 @@ export class UserConfigService {
           const previews = await listDressPreviewFiles(dir);
           if (previews.incomplete) throw new Error('装扮预览目录读取不完整，未清理');
           for (const file of previews.files) await rm(file, { force: true });
+        } else if (item.cleanupKind === 'dress-shared') {
+          await clearDressSharedFiles(dir);
         } else {
           await rm(dir, { recursive: true, force: true });
           await mkdir(dir, { recursive: true });
-          // 共享装扮服务持有这三个下载目录；保留当前会话继续下载所需的结构。
-          if (item.cleanupKind === 'dress-shared') {
-            for (const name of ['bubbles', 'fonts', 'pendants'])
-              await mkdir(join(dir, name), { recursive: true });
-          }
         }
         const remaining =
           item.cleanupKind === 'dress-previews'
             ? await listDressPreviewFiles(dir)
-            : await measureStorage(dir);
+            : await measureStorage(
+                dir,
+                new Set(item.cleanupKind === 'dress-shared' ? [join(dir, 'index')] : []),
+              );
         freedBytes += Math.max(0, item.bytes - remaining.bytes);
         cleared.push(id);
       } catch (error) {

@@ -8,7 +8,7 @@ import {
   symlinkSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, sep } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import {
   executeStorageCleanup,
@@ -222,20 +222,21 @@ it('未知 ID、空选择、只读和不完整项目不能进入退出清除计�
   expect(selectStorageCleanupTargets(items, ['ocr', 'ocr'])).toHaveLength(1);
 });
 
-it('配置文件、模型和诊断也可明确选择清除，未选原件保留', async () => {
+it('配置文件和诊断可明确选择清除，模型留给增强包管理，未选原件保留', async () => {
   const f = fixture();
   const selected = [
     f.file('config.json'),
-    f.file('models/model.bin'),
     f.file('config/accounts/key.json'),
     f.file('diagnostics/report.json'),
   ];
+  const model = f.file('models/model.bin');
   const original = f.file('personal-original.bin');
   const items = await f.service.listStorageUsage();
   const targets = items.filter((item) =>
     selected.some((path) => path === item.path || path.startsWith(`${item.path}${sep}`)),
   );
-  expect(targets).toHaveLength(4);
+  expect(targets).toHaveLength(3);
+  expect(items.find((item) => item.path === dirname(model))?.clearable).toBe(false);
   expect(targets.every((item) => item.requiresExit && item.confirmation)).toBe(true);
   const result = await executeStorageCleanup({
     targets,
@@ -245,6 +246,7 @@ it('配置文件、模型和诊断也可明确选择清除，未选原件保留'
   expect(result.failed).toEqual([]);
   for (const path of selected) expect(existsSync(path)).toBe(false);
   expect(existsSync(original)).toBe(true);
+  expect(existsSync(model)).toBe(true);
 });
 
 it('装扮旧配置与预览可独立清除，大小统计不重复', async () => {

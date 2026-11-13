@@ -1,17 +1,13 @@
-import { useEffect, useRef, useState, type ReactElement } from 'react';
-import { Download, Play } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
-import { QueryError, Row, Toggle } from './controls';
+import { QueryError, Row } from './controls';
+import { EnhancementPacksLink } from './RecognitionSettingsSection';
 
-/** 全局资源管理与按账号的意图功能开关分开，未打开账号也可以下载。 */
-export function IntentModelsSection(): ReactElement {
+export function IntentModelsSection() {
   const active = useTabActive();
-  const activity = useRef(active);
-  activity.current = active;
   const utils = trpc.useUtils();
-  const showError = useDialog((s) => s.showError);
+  const showError = useDialog((state) => state.showError);
   const resources = trpc.bootstrap.localModelResources.useQuery(undefined, { enabled: active });
   const engine = trpc.bootstrap.getLocalEngine.useQuery(undefined, {
     enabled: active,
@@ -19,81 +15,35 @@ export function IntentModelsSection(): ReactElement {
     refetchOnMount: 'always',
   });
   const select = trpc.bootstrap.setLocalModelResource.useMutation();
-  const download = trpc.bootstrap.downloadLocalModel.useMutation();
-  const start = trpc.bootstrap.startLocalEngine.useMutation();
-  const [mirror, setMirror] = useState(true);
-  const [progress, setProgress] = useState<string | null>(null);
-  useEffect(() => {
-    if (!active) setProgress(null);
-  }, [active]);
-  trpc.bootstrap.onModelDownloadProgress.useSubscription(undefined, {
-    enabled: active,
-    onData: (p) => {
-      if (!activity.current) return;
-      setProgress(
-        p.done
-          ? null
-          : `${p.filesDone}/${p.filesTotal} · ${(p.received / 1024 / 1024).toFixed(0)} MB`,
-      );
-      if (p.done) void utils.bootstrap.getLocalEngine.invalidate();
-    },
-  });
-  const busy =
-    !active ||
-    resources.isLoading ||
-    engine.isLoading ||
-    !!resources.error ||
-    !!engine.error ||
-    select.isLoading ||
-    download.isLoading ||
-    engine.isFetching ||
-    engine.data?.downloading ||
-    !!progress;
   const selected = resources.data?.selected.intent ?? 'auto';
-  const downloadable = engine.data?.models.find((m) => m.id === selected)?.downloadable;
-
-  async function refresh(): Promise<void> {
-    await utils.bootstrap.localModelResources.invalidate();
-    await utils.bootstrap.getLocalEngine.invalidate();
-    await utils.bootstrap.getSettings.invalidate();
-    await utils.account.intentSense.getLocalEngine.invalidate();
-    await utils.account.intentSense.getStatus.invalidate();
-  }
-
-  async function choose(modelId: string): Promise<void> {
+  async function choose(modelId: string) {
     try {
       await select.mutateAsync({ kind: 'intent', modelId });
-      await refresh();
+      await Promise.all([
+        utils.bootstrap.localModelResources.invalidate(),
+        utils.bootstrap.getLocalEngine.invalidate(),
+        utils.bootstrap.getSettings.invalidate(),
+        utils.account.intentSense.getStatus.invalidate(),
+      ]);
     } catch (error) {
       showError('选择模型失败', String(error));
     }
   }
-
-  async function run(action: 'download' | 'start'): Promise<void> {
-    try {
-      const result =
-        action === 'download' ? await download.mutateAsync({ mirror }) : await start.mutateAsync();
-      if (!result.ok) throw new Error(result.error ?? '操作失败');
-    } catch (error) {
-      showError(action === 'download' ? '模型下载失败' : '引擎启动失败', String(error));
-    } finally {
-      setProgress(null);
-      await refresh();
-    }
-  }
-
   return (
     <>
       <Row
         settingId="intent-model-resources"
-        label="意图模型资源（全局）"
+        label="本地模型资源"
         control={
           <select
             className="weq-set-input"
             aria-label="意图模型资源"
             value={selected}
             disabled={
-              busy || !engine.data?.available || !engine.data.models.length || !resources.data
+              select.isLoading ||
+              !resources.data ||
+              !engine.data?.available ||
+              !engine.data.models.length
             }
             onChange={(event) => void choose(event.target.value)}
           >
@@ -105,55 +55,13 @@ export function IntentModelsSection(): ReactElement {
             {(engine.data?.models ?? []).map((model) => (
               <option key={model.id} value={model.id}>
                 {model.name}
-                {model.downloaded ? ' · 已就绪' : ''}
+                {model.downloaded ? ' · 已下载' : ''}
               </option>
             ))}
           </select>
         }
       />
-      {engine.data ? (
-        <Row
-          label="状态"
-          desc={
-            !engine.data?.available
-              ? '本地引擎仅桌面版可用'
-              : engine.data.modelDownloaded
-                ? `模型已就绪 · ${engine.data.modelDir.includes('QWeQ-NineBird') ? 'QWeQ-NineBird-v1' : 'Laya 多语言 ONNX'}`
-                : '模型尚未就绪'
-          }
-          control={null}
-        />
-      ) : null}
-      {engine.data?.available && !engine.data.modelDownloaded && downloadable ? (
-        <>
-          <Row
-            label="hf-mirror.com 镜像"
-            control={
-              <Toggle label="使用下载镜像" checked={mirror} disabled={busy} onChange={setMirror} />
-            }
-          />
-          <button
-            type="button"
-            className="weq-set-btn weq-set-btn-soft"
-            disabled={busy}
-            onClick={() => void run('download')}
-          >
-            <Download size={14} />
-            {busy ? (progress ?? '下载中…') : '下载模型'}
-          </button>
-        </>
-      ) : null}
-      {engine.data?.modelDownloaded ? (
-        <button
-          type="button"
-          className="weq-set-btn weq-set-btn-soft"
-          disabled={busy || start.isLoading || engine.data.engineReady}
-          onClick={() => void run('start')}
-        >
-          <Play size={14} />
-          {engine.data.engineReady ? '引擎已就绪' : '启动引擎'}
-        </button>
-      ) : null}
+      <Row label="本地增强资源" control={<EnhancementPacksLink />} />
       {resources.error || engine.error ? (
         <QueryError
           message={(resources.error ?? engine.error)!.message}

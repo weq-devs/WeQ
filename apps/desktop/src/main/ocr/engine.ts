@@ -16,6 +16,11 @@ import { fileURLToPath } from 'node:url';
 import type { OcrBlock } from '@weq/protocol';
 import { localOcrBlocker } from '@weq/service';
 import { resolveChildWorkerPath } from '../worker_path';
+import {
+  enhancementEngineAvailable,
+  enhancementEngineEnvironment,
+  withEnhancementEngine,
+} from '../enhancements/engine_environment';
 // 只引**类型**：管线本体（`pipeline.ts`）由 worker 独享，主进程这边带上它的运行时
 // 会让 rollup 把两端共用的模块抽成一个独立 chunk，而 worker 是 fork 出去单独运行的
 // 文件（打包时被拷出 asar）—— 多一个相对 import 就多一处「打包后找不到模块」的坑。
@@ -86,6 +91,10 @@ function toBlock(line: OcrWorkerLine): OcrBlock {
  * 让调用方（router）自己决定怎么回退。
  */
 export function runOcrEngine(request: OcrEngineRequest): Promise<OcrEngineResult> {
+  return withEnhancementEngine('onnx', () => executeOcrEngine(request));
+}
+
+function executeOcrEngine(request: OcrEngineRequest): Promise<OcrEngineResult> {
   const started = Date.now();
   const { image, paths, mode = 'ocr' } = request;
   return new Promise((resolve) => {
@@ -108,7 +117,9 @@ export function runOcrEngine(request: OcrEngineRequest): Promise<OcrEngineResult
     // 二进制）时不必 fork 出去再等一句 MODULE_NOT_FOUND，直接给原因 —— 调用方
     // （灯箱 / 导出 / MCP）拿到的都是同一句话。上层 `local.ts` 已经按它做了可用性
     // 判定，这里兜的是「绕过判定直接调引擎」的调用者。
-    const blocker = localOcrBlocker();
+    const blocker =
+      localOcrBlocker() ??
+      (!enhancementEngineAvailable('onnx') ? '请先在「增强包」准备本地文字识别' : null);
     if (blocker) {
       done(fail(blocker));
       return;
@@ -127,6 +138,7 @@ export function runOcrEngine(request: OcrEngineRequest): Promise<OcrEngineResult
       worker = fork(workerPath, [], {
         stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
         serialization: 'advanced',
+        env: enhancementEngineEnvironment('onnx'),
       });
     } catch (error) {
       done(fail(`本地识别引擎启动失败：${String(error)}`));

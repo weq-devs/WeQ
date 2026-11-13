@@ -69,6 +69,7 @@ import { getQqProtocolExe } from './qq_protocol_cache';
 import { searchAccountContent } from '../search_content';
 import { createSourceSearchQuery } from '../source_search';
 import { createLocalModelResources } from './local_model_resources';
+import { createEnhancementResources } from '../enhancements/resources';
 import { createSearchIndexRetirement } from '../source_search_retirement';
 import type { VoiceTagDisplay } from '../transcribe/tags';
 import { onlineTranscriber } from '../online_transcribe';
@@ -410,6 +411,8 @@ export interface IntentSenseModelProgress {
  *（`intentSense.localAvailable === false`，UI 相应隐藏本地引擎入口）。
  */
 export interface IntentSenseLocalEngineControl extends IntentLocalEnginePort {
+  validateModel?(modelId: string): Promise<void>;
+  isBusy?(): boolean;
   listModels?(): Array<{ id: string; name: string; downloaded: boolean; downloadable: boolean }>;
   modelDir(): string;
   isModelDownloaded(): boolean;
@@ -857,6 +860,7 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
 }
 
 export interface BootstrapServices {
+  enhancements: ReturnType<typeof createEnhancementResources>;
   apiUsage: TokenUsageStore;
   detect: Win32DetectService;
   keys: KeyService;
@@ -1359,6 +1363,7 @@ export function initAppContext(fileRoot?: string): AppContext {
   const linkPreview = new LinkPreviewService(userConfig);
   bootstrapCacheRoot = userConfig.cacheBaseDir();
   const apiUsage = new TokenUsageStore(join(userConfig.cacheDir('api_usage'), 'global.json'));
+  const localModels = createLocalModelResources(platform, userConfig);
 
   const bootstrap: BootstrapServices = {
     apiUsage,
@@ -1375,7 +1380,13 @@ export function initAppContext(fileRoot?: string): AppContext {
         scope: 'connection-test',
       }),
     ),
-    ...createLocalModelResources(platform, userConfig),
+    ...localModels,
+    enhancements: createEnhancementResources(
+      platform,
+      userConfig,
+      localModels,
+      getActiveIntentSenseLocalEngine,
+    ),
     tts: new TtsService((u) =>
       apiUsage.record({ ...u, ts: u.startedAt ?? Date.now(), scope: 'tts' }),
     ),
@@ -1388,7 +1399,7 @@ export function initAppContext(fileRoot?: string): AppContext {
   // change between 进入 and 使用 is honoured). Factored here to avoid duplication.
   const transcribeSilk = async (silkPath: string): Promise<TranscribeSilkResult> => {
     const modelId = userConfig.getLocalModelId('voice');
-    if (!modelId) return { ok: false, error: '请先下载本地语音模型' };
+    if (!modelId) return { ok: false, error: '请先到「设置 → 增强功能 → 增强包」准备本地语音转写' };
     const model = getVoiceModel(modelId);
     if (!model) return { ok: false, error: '转录模型不存在' };
     const status = bootstrap.voiceTranscribe.getModelStatus(modelId);

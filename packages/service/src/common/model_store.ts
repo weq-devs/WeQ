@@ -20,8 +20,10 @@
 
 import { EventEmitter } from 'node:events';
 import { ManagedDownload } from './managed_download';
-import { existsSync, mkdirSync, statSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { createReadStream, existsSync, mkdirSync, statSync, rmSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 
 /** One downloadable file within a model (the on-disk name + its source URL). */
 export interface ModelFile {
@@ -33,6 +35,9 @@ export interface ModelFile {
   url: string;
   /** Fraction of the total download this file represents (weights sum to 1). */
   weight: number;
+  /** 固定模型文件的完整性契约；旧注册项未提供时仍检查非空普通文件。 */
+  sizeBytes?: number;
+  sha256?: string;
 }
 
 /** The minimum a registry entry must expose for {@link ModelStore} to manage it. */
@@ -127,13 +132,16 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
     let sizeOnDisk = 0;
     for (const f of model.files) {
       const p = join(dir, f.name);
-      if (existsSync(p)) {
-        try {
-          sizeOnDisk += statSync(p).size;
-        } catch {
-          /* ignore */
-        }
-      } else {
+      try {
+        const info = statSync(p);
+        sizeOnDisk += info.size;
+        if (
+          !info.isFile() ||
+          !info.size ||
+          (f.sizeBytes !== undefined && info.size !== f.sizeBytes)
+        )
+          downloaded = false;
+      } catch {
         downloaded = false;
       }
     }
@@ -147,6 +155,7 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
 
   /** Delete a downloaded model's directory. No-op if absent or downloading. */
   deleteModel(id: string): boolean {
+    if (!this.getModel(id)) return false;
     if (this.downloadTasks.has(id)) return false;
     const dir = this.resolveModelDir(id);
     try {
@@ -160,6 +169,36 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
   /** Whether a download for `id` is currently in flight. */
   isDownloading(id: string): boolean {
     return this.downloadTasks.has(id);
+  }
+
+  private async validFile(path: string, file: ModelFile): Promise<boolean> {
+    try {
+      const info = statSync(path);
+      if (
+        !info.isFile() ||
+        !info.size ||
+        (file.sizeBytes !== undefined && info.size !== file.sizeBytes)
+      )
+        return false;
+      if (file.sha256) {
+        const hash = createHash('sha256');
+        for await (const chunk of createReadStream(path)) hash.update(chunk);
+        if (hash.digest('hex') !== file.sha256) return false;
+      }
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw error;
+    }
+  }
+
+  /** 只校验现有文件，不修复或发起网络请求。 */
+  async verifyModel(id: string): Promise<boolean> {
+    const model = this.getModel(id);
+    if (!model) return false;
+    for (const file of model.files)
+      if (!(await this.validFile(join(this.resolveModelDir(id), file.name), file))) return false;
+    return true;
   }
 
   /**
@@ -183,6 +222,13 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
       const transfer = new ManagedDownload({
         batch: true,
         total: model.sizeBytes,
+        validate: async (path, _response, bytes) => {
+          const file = model.files.find((entry) => `${join(dir, entry.name)}.part` === path);
+          if (!file || !bytes || !(await this.validFile(path, file))) {
+            await rm(path, { force: true });
+            throw new Error('模型文件长度或哈希校验失败，请重试');
+          }
+        },
         state: (state) => {
           this.emitProgress({
             id,
@@ -211,10 +257,11 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
         let baseWeight = 0;
         for (const f of model.files) {
           const target = join(dir, f.name);
-          if (existsSync(target)) {
+          if (await this.validFile(target, f)) {
             baseWeight += f.weight;
             continue;
           }
+          mkdirSync(dirname(target), { recursive: true });
           await this.downloadToFile(
             f.url,
             target,
@@ -224,7 +271,14 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
               this.emitProgress({
                 id,
                 percent,
-                downloadedBytes: this.bytesOnDisk(dir, model),
+                downloadedBytes:
+                  model.files.slice(0, model.files.indexOf(f)).reduce((sum, completed) => {
+                    try {
+                      return sum + statSync(join(dir, completed.name)).size;
+                    } catch {
+                      return sum;
+                    }
+                  }, 0) + downloaded,
                 totalBytes: model.sizeBytes,
                 speed,
               });

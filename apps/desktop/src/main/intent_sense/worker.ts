@@ -21,7 +21,11 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { prioritizeCurrentMessageTokens } from './token_budget';
 
-const requireFn = createRequire(__filename);
+const requireFn = createRequire(
+  process.env.WEQ_ENHANCEMENT_RUNTIME
+    ? join(process.env.WEQ_ENHANCEMENT_RUNTIME, 'package.json')
+    : __filename,
+);
 
 /** 与 @weq/service 的 INTENT_LABELS / EMOTION_LABELS 键保持一致。 */
 const INTENT_CRITERIA: Record<string, string> = {
@@ -374,7 +378,7 @@ async function createQWeQ(modelDir: string): Promise<CommonEngine> {
 }
 
 async function createLaya(modelDir: string): Promise<LayaLike> {
-  const layaMod = (await import('@receptron/laya')) as unknown as {
+  const layaMod = requireFn('@receptron/laya') as {
     Laya: abstract new (...args: unknown[]) => LayaLike;
   };
   const { Laya } = layaMod;

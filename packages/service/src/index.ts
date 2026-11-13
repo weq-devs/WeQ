@@ -222,6 +222,7 @@ export {
 export { migrateDressData } from './account/dress_migrate';
 export {
   configureDressIndexResources,
+  getDressIndexStore,
   subscribeDressIndexResources,
   parseDressIndexManifest,
   DRESS_INDEX_KINDS,

@@ -1033,9 +1033,9 @@ export class DressSharedCache {
     const local = await this.resourceUrl('bubble', itemId, 'config.json');
     let url = local?.url ?? null;
     if (!url) {
-      const pid = this.resolvePid();
-      if (!pid) return null;
       try {
+        const pid = this.resolvePid();
+        if (!pid) return null;
         const res = await getBubbleResources(this.nt, pid, itemId);
         url = res.config?.ok ? res.config.url : null;
       } catch {
@@ -1069,9 +1069,9 @@ export class DressSharedCache {
     const local = await this.resourceUrl('widget', itemId, 'aio_50.png');
     let url = local?.url ?? null;
     if (!url) {
-      const pid = this.resolvePid();
-      if (!pid) return null;
       try {
+        const pid = this.resolvePid();
+        if (!pid) return null;
         const res = await getPendantResources(this.nt, pid, itemId);
         url = res.image?.ok ? res.image.url : null;
       } catch {

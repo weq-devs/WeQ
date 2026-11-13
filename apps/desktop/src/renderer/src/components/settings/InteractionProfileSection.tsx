@@ -1,10 +1,9 @@
-import { Download } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { SegmentedControl } from '../SegmentedControl';
 import { Row, Toggle, QueryError } from './controls';
 import { ApiModelRow } from './ApiModelSelect';
 import { IntentTuningPanel } from './IntentTuningPanel';
-import { useDialog } from '../Dialog';
+import { EnhancementPacksLink } from './RecognitionSettingsSection';
 import { AiFeatureSettingsLayout } from './AiFeatureSettingsLayout';
 import { useAiFeatureSettings } from './useAiFeatureSettings';
 
@@ -15,22 +14,6 @@ export function InteractionProfileSection() {
     enabled: active && status.data?.profileEngine === 'local',
     refetchOnWindowFocus: false,
   });
-  const download = trpc.bootstrap.downloadLocalModel.useMutation();
-  const utils = trpc.useUtils();
-  const showError = useDialog((s) => s.showError);
-  async function downloadModel() {
-    try {
-      const result = await download.mutateAsync({
-        mirror: status.data?.hfMirror ?? true,
-        modelId: status.data?.profileLocalModelId ?? 'auto',
-      });
-      if (!result.ok) throw new Error(result.error ?? '下载失败');
-      await utils.bootstrap.getLocalEngine.invalidate();
-      await utils.account.intentSense.getStatus.invalidate();
-    } catch (error) {
-      showError('画像模型下载失败', String(error));
-    }
-  }
   return (
     <AiFeatureSettingsLayout
       imageFeature="profile"
@@ -123,12 +106,7 @@ export function InteractionProfileSection() {
                   className="weq-set-input"
                   aria-label="互动画像本地模型资源"
                   value={status.data.profileLocalModelId ?? 'auto'}
-                  disabled={
-                    disabled ||
-                    download.isLoading ||
-                    !local.data?.available ||
-                    !local.data.models.length
-                  }
+                  disabled={disabled || !local.data?.available || !local.data.models.length}
                   onChange={(event) => {
                     const id = event.target.value;
                     if (id === 'auto' || id === 'laya-multilingual' || id === 'QWeQ-NineBird-v1')
@@ -148,27 +126,15 @@ export function InteractionProfileSection() {
                   {(local.data?.models ?? []).map((model) => (
                     <option key={model.id} value={model.id}>
                       {model.name}
-                      {model.downloaded ? ' · 已就绪' : ' · 未就绪'}
+                      {model.downloaded ? ' · 已下载' : ' · 未下载'}
                     </option>
                   ))}
                 </select>
               }
             />
           ) : null}
-          {status.data?.profileEngine === 'local' &&
-          local.data?.models.find((model) => model.id === status.data?.profileLocalModelId)
-            ?.downloadable &&
-          !local.data?.models.find((model) => model.id === status.data?.profileLocalModelId)
-            ?.downloaded ? (
-            <button
-              type="button"
-              className="weq-set-btn weq-set-btn-soft"
-              disabled={disabled || download.isLoading || local.data?.downloading}
-              onClick={() => void downloadModel()}
-            >
-              <Download size={14} />
-              {download.isLoading ? '下载中…' : '下载画像模型'}
-            </button>
+          {status.data?.profileEngine === 'local' ? (
+            <Row label="本地增强资源" control={<EnhancementPacksLink />} />
           ) : null}
           {status.data?.profileEngine === 'local' && local.error ? (
             <QueryError

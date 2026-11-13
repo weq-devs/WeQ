@@ -74,8 +74,9 @@ import { AgentLabSection } from './settings/AgentLabSection';
 import { IntentSenseSection } from './settings/IntentSenseSection';
 import { InteractionProfileSection } from './settings/InteractionProfileSection';
 import { ReplySuggestionsSection } from './settings/ReplySuggestionsSection';
-import { VoiceTranscribeSection, TtsProvidersCard } from './settings/VoiceTranscribeSection';
-import { OcrModelsSection } from './settings/OcrModelsSection';
+import { TtsProvidersCard } from './settings/VoiceTranscribeSection';
+import { RecognitionSettingsSection } from './settings/RecognitionSettingsSection';
+import { EnhancementPacksSection } from './settings/EnhancementPacksSection';
 import { McpServerSection } from './settings/McpServerSection';
 import { OneBotSection } from './settings/OneBotSection';
 import { RemoteSection } from './settings/RemoteSection';
@@ -262,10 +263,10 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <ResourceManagementSection />,
   },
   {
-    id: 'voice',
-    label: '语音识别',
-    icon: <AudioLines size={16} strokeWidth={1.8} />,
-    render: () => <VoiceTranscribeSection />,
+    id: 'enhancement-packs',
+    label: '增强包',
+    icon: <Package size={16} strokeWidth={1.8} />,
+    render: () => <EnhancementPacksSection />,
   },
   {
     id: 'resource-loading',
@@ -327,10 +328,10 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <ModelUsageSection />,
   },
   {
-    id: 'ocr',
-    label: '图片识别',
+    id: 'recognition',
+    label: '识别与转写',
     icon: <ScanText size={16} strokeWidth={1.8} />,
-    render: () => <OcrModelsSection />,
+    render: () => <RecognitionSettingsSection />,
   },
   {
     id: 'agentlab',

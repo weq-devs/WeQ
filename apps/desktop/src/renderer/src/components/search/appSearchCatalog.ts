@@ -43,6 +43,16 @@ export interface AppSearchEntry {
 
 // 这里只保存公开的界面名称与入口，不读取设置值、账号资料或凭据。
 const PAGE_ALIASES: Partial<Record<SettingsPageId, string[]>> = {
+  'enhancement-packs': [
+    'AI 功能',
+    '增强功能',
+    '本地模型',
+    '下载全部',
+    '模型下载',
+    '推理引擎',
+    '装扮索引',
+  ],
+  recognition: ['图片识别', '语音识别', '语音转写', 'OCR', 'ASR'],
   global: ['窗口行为', '通知', '应用内横幅提醒'],
   startup: ['启动', '开机启动', '系统登录项'],
   version: ['软件更新', '检查更新', '更新日志'],

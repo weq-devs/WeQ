@@ -69,6 +69,7 @@ describe('WeQ 存储管理', () => {
     f.file('cache/collection/preview.jpg', 11);
     f.file('cache/qqshow/preview.png', 12);
     f.file('cache/dress_shared/fonts/font.ttf', 13);
+    const index = f.file('cache/dress_shared/index/dress-test/bubble.dat', 20);
     const config = f.file('config/accounts/synthetic/dress.json', 14);
     const items = await f.service.listStorageUsage();
     for (const id of ['collection', 'qqshow', 'dress_shared']) {
@@ -83,6 +84,7 @@ describe('WeQ 存储管理', () => {
       expect.arrayContaining(['collection', 'qqshow', 'dress_shared']),
     );
     expect(existsSync(config)).toBe(true);
+    expect(existsSync(index)).toBe(true);
     expect(existsSync(join(f.root, 'cache/dress_shared/fonts/font.ttf'))).toBe(false);
     for (const name of ['bubbles', 'fonts', 'pendants']) {
       expect(existsSync(join(f.root, 'cache/dress_shared', name))).toBe(true);
@@ -157,7 +159,7 @@ describe('WeQ 存储管理', () => {
       ['cache/ocr', 13, true],
       ['cache/agentlab', 14, true],
       ['cache/search-index', 15, true],
-      ['models', 16, true],
+      ['models', 16, false],
       ['merge-forward', 17, true],
       ['unknown.bin', 18, false],
     ] as const) {

@@ -785,19 +785,21 @@ describe('设置归位后的实际页面', () => {
   it('API 用量保留模型与识别一级入口，识别、克隆与画像入口完整', () => {
     const f = mount('model-usage');
     try {
-      expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe('AI 功能');
+      expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
+        '增强功能',
+      );
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map(
           (button) => button.textContent,
         ),
       ).toEqual([
+        '增强包',
+        '识别与转写',
         'API 配置',
         'API 用量',
         '推荐回复',
         '意图感知',
         '互动画像',
-        '语音识别',
-        '图片识别',
       ]);
       expect(f.host.querySelector('.weq-settings-scope')?.textContent).toBe('当前账号');
       expect(f.body().querySelector('.weq-set-head-title .weq-settings-scope')).not.toBeNull();
@@ -810,7 +812,9 @@ describe('设置归位后的实际页面', () => {
   it('意图感知落在模型与识别，不再标记为当前账号设置', () => {
     const f = mount('intent-sense');
     try {
-      expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe('AI 功能');
+      expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
+        '增强功能',
+      );
       expect(f.body().querySelector('.weq-set-head-title .weq-settings-scope')).toBeNull();
       expect(f.body().textContent).toContain('启用意图感知');
     } finally {

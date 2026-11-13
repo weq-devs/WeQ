@@ -32,7 +32,7 @@ describe('设置重构的规范目标与旧入口分流', () => {
     expect(SETTINGS_GROUPS.map((group) => group.label)).toEqual([
       '常规',
       '基础功能',
-      'AI 功能',
+      '增强功能',
       '凭据与账号',
       '数据库与资源',
       'WeQ 服务',
@@ -172,8 +172,8 @@ describe('设置重构的规范目标与旧入口分流', () => {
     { section: 'daemon', target: 'version', settingId: 'builtin-components' },
     { section: 'assistant', target: 'assistant' },
     { section: 'tts', target: 'agentlab' },
-    { section: 'local-models', target: 'voice' },
-    { section: 'intent-models', target: 'intent-sense' },
+    { section: 'local-models', target: 'enhancement-packs' },
+    { section: 'intent-models', target: 'enhancement-packs', settingId: 'enhancement-intent' },
     { section: 'help', target: 'faq' },
     { section: 'updates', target: 'version' },
   ])('$section / $item → $target', ({ section, item, target, settingId }) => {

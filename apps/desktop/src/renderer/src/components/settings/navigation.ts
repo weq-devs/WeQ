@@ -18,8 +18,8 @@ export const SETTINGS_PAGE_LABELS = {
   'intent-sense': '意图感知',
   'interaction-profile': '互动画像',
   'reply-suggestions': '推荐回复',
-  voice: '语音识别',
-  ocr: '图片识别',
+  'enhancement-packs': '增强包',
+  recognition: '识别与转写',
   account: '监听与读取',
   credentials: '凭据管理',
   accounts: 'WeQ 账号管理',
@@ -59,6 +59,8 @@ export type SectionId =
   | 'maintenance'
   | 'local-models'
   | 'intent-models'
+  | 'voice'
+  | 'ocr'
   | 'tts'
   | 'help'
   | 'updates'
@@ -85,15 +87,15 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
   },
   {
     id: 'models',
-    label: 'AI 功能',
+    label: '增强功能',
     sections: [
+      'enhancement-packs',
+      'recognition',
       'agentlab',
       'model-usage',
       'reply-suggestions',
       'intent-sense',
       'interaction-profile',
-      'voice',
-      'ocr',
     ],
   },
   {
@@ -181,6 +183,35 @@ interface ItemRedirect {
 }
 
 export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
+  ...(
+    [
+      ['enhancement-text', '本地文字识别', ['识别模型', '筛图模型', '图片识别模型', 'OCR 模型']],
+      ['enhancement-voice', '本地语音转写', ['本地语音模型', 'SenseVoice', 'ASR']],
+      ['enhancement-intent', '本地意图与画像', ['Laya 模型下载', '画像模型下载']],
+      ['enhancement-dress', '装扮离线索引', ['气泡索引', '字体索引', '挂件索引']],
+    ] as const
+  ).map(
+    ([id, label, aliases]): ItemRedirect => ({
+      id,
+      label,
+      aliases,
+      section: 'enhancement-packs',
+      from: ['enhancement-packs', 'voice', 'ocr', 'local-models', 'intent-models'],
+    }),
+  ),
+  ...(
+    [
+      ['ocr-online-concurrency', '识别并发'],
+      ['voice-online-concurrency', '转录并发'],
+    ] as const
+  ).map(
+    ([id, label]): ItemRedirect => ({
+      id,
+      label,
+      section: 'recognition',
+      from: ['recognition', 'voice', 'ocr'],
+    }),
+  ),
   ...[...CONTACT_CARD_FIELDS, ...CONTACT_GROUP_FIELDS].map(
     ([key, label]): ItemRedirect => ({
       id: `contact-card-${key}`,
@@ -207,10 +238,10 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   ),
   {
     id: 'ocr-prefilter-enabled',
-    section: 'ocr',
+    section: 'recognition',
     label: 'OCR 前先筛图',
     aliases: ['筛图开关', '自动 OCR 筛图'],
-    from: ['ocr'],
+    from: ['ocr', 'recognition'],
   },
   {
     id: 'llm-providers',
@@ -706,8 +737,10 @@ const SECTION_REDIRECTS: Partial<
   database: { section: 'database-tolerance' },
   'database-status': { section: 'database-tolerance', settingId: 'tolerance-records' },
   maintenance: { section: 'database-management' },
-  'local-models': { section: 'voice' },
-  'intent-models': { section: 'intent-sense', settingId: 'intent-model-resources' },
+  'local-models': { section: 'enhancement-packs' },
+  'intent-models': { section: 'enhancement-packs', settingId: 'enhancement-intent' },
+  voice: { section: 'recognition' },
+  ocr: { section: 'recognition' },
   tts: { section: 'agentlab', settingId: 'tts-providers' },
   help: { section: 'faq' },
   updates: { section: 'version' },

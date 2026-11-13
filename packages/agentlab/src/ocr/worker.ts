@@ -13,6 +13,7 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { availableParallelism } from 'node:os';
 import {
   assignParagraphs,
@@ -23,7 +24,11 @@ import {
   type TextLine,
 } from './pipeline';
 
-const requireFn = createRequire(fileURLToPath(import.meta.url));
+const requireFn = createRequire(
+  process.env.WEQ_ENHANCEMENT_RUNTIME
+    ? join(process.env.WEQ_ENHANCEMENT_RUNTIME, 'package.json')
+    : fileURLToPath(import.meta.url),
+);
 
 export interface OcrWorkerParams {
   /** `ocr` = 出文字；`detect` = 只要框（筛图模式，不加载识别模型）。 */
@@ -124,7 +129,7 @@ async function run(params: OcrWorkerParams): Promise<void> {
     const wantText = params.mode === 'ocr';
     if (wantText && (!params.rec || !params.dict)) {
       throw new Error(
-        '识别模型文件不全（缺 rec / dict），请到「设置 → 模型与识别 → 图片识别」重新下载',
+        '识别模型文件不全（缺 rec / dict），请到「设置 → 增强功能 → 增强包」重新准备',
       );
     }
 

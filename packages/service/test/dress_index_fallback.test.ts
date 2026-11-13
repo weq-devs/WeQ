@@ -82,10 +82,11 @@ describe('索引与装扮素材缓存分开处理', () => {
     expect(protocol.bubble).not.toHaveBeenCalled();
   });
 
-  it('索引下载失败后仍使用现有QQ协议补全，不把静态分发变成在线功能前置', async () => {
+  it('显式索引下载失败后仍使用 QQ 协议补全，普通浏览不自动下载索引', async () => {
     const { cache } = await fixture();
     const fetch = vi.fn(async () => new Response(null, { status: 404 }));
     vi.stubGlobal('fetch', fetch);
+    expect(await cache.retryIndex('bubble')).toBe(false);
     expect(await cache.installBubble(8)).toBeNull();
     expect(protocol.bubble).toHaveBeenCalledWith(expect.anything(), 42, 8);
     await vi.waitFor(() => expect(cache.indexResources()[0]?.status).toBe('failed'));
@@ -100,6 +101,7 @@ describe('索引与装扮素材缓存分开处理', () => {
     });
     const fetch = vi.fn(() => pending);
     vi.stubGlobal('fetch', fetch);
+    const indexWork = cache.retryIndex('bubble');
     try {
       const completed = cache.installBubble(10);
       expect(
@@ -113,7 +115,7 @@ describe('索引与装扮素材缓存分开处理', () => {
       expect(cache.indexResources()[0]?.status).toBe('downloading');
     } finally {
       finish(new Response(bytes));
-      await vi.waitFor(() => expect(cache.indexResources()[0]?.status).toBe('ready'));
+      expect(await indexWork).toBe(true);
     }
   });
 
@@ -138,6 +140,7 @@ describe('索引与装扮素材缓存分开处理', () => {
     const unsubscribe = subscribeDressIndexResources(({ state }) => {
       if (state.status === 'ready') ready();
     });
+    const indexWork = cache.retryIndex('bubble');
     try {
       expect(
         await Promise.race([
@@ -154,12 +157,12 @@ describe('索引与装扮素材缓存分开处理', () => {
       expect(protocol.bubble).toHaveBeenCalledTimes(1);
     } finally {
       finish(new Response(bytes));
-      await vi.waitFor(() => expect(cache.indexResources()[0]?.status).toBe('ready'));
+      expect(await indexWork).toBe(true);
       unsubscribe();
     }
   });
 
-  it('没有在线QQ时等待索引完成换链，不提前返回失败或调用协议', async () => {
+  it('QQ 离线且未安装索引时不下载；显式准备后按索引取素材，不调用 QQ 协议', async () => {
     const { cache, native, bytes, root } = await fixture(() => {
       throw new Error('QQ account is not online.');
     });
@@ -168,30 +171,26 @@ describe('索引与装扮素材缓存分开处理', () => {
       finish = resolve;
     });
     const config = Buffer.from('{"fixture":"offline-index"}');
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((url: string) =>
-        url.endsWith('.dat') ? pending : Promise.resolve(new Response(config)),
-      ),
+    const fetcher = vi.fn((url: string) =>
+      url.endsWith('.dat') ? pending : Promise.resolve(new Response(config)),
     );
+    vi.stubGlobal('fetch', fetcher);
     native.queryDressResourceUrl = (_kind, _item, part) =>
       part === 'config.json' &&
       process.env.NT_HELPER_DRESS_DIR === join(root, 'index', 'dress-fallback') &&
       existsSync(join(process.env.NT_HELPER_DRESS_DIR, 'bubble.dat'))
         ? { url: 'https://cdn.invalid/config.json', size: config.length }
         : null;
-    const work = cache.bubbleConfigFile(12);
-    let completed = false;
-    void work.then(() => {
-      completed = true;
-    });
+    expect(await cache.bubbleConfigFile(12)).toBeNull();
+    expect(fetcher).not.toHaveBeenCalled();
+    const work = cache.retryIndex('bubble');
     try {
       await vi.waitFor(() => expect(cache.indexResources()[0]?.status).toBe('downloading'));
-      expect(completed).toBe(false);
       expect(protocol.bubble).not.toHaveBeenCalled();
     } finally {
       finish(new Response(bytes));
-      expect(await work).toEqual(config);
+      expect(await work).toBe(true);
+      expect(await cache.bubbleConfigFile(12)).toEqual(config);
       expect(protocol.bubble).not.toHaveBeenCalled();
     }
   });

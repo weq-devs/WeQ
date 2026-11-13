@@ -1,6 +1,6 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { constants, createReadStream, existsSync } from 'node:fs';
-import { copyFile, lstat, mkdir, rename, rm } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { NtHelperBinding } from '@weq/native';
 import { getHost, type HostBridge } from '../common/host';
@@ -83,8 +83,8 @@ export function subscribeDressIndexResources(listener: (event: DressIndexEvent) 
   return () => listeners.delete(listener);
 }
 
-export function getDressIndexStore(sharedDirectory: string, native: NtHelperBinding) {
-  if (!configured || native.getBuildInfo?.().isDev === true) return null;
+export function getDressIndexStore(sharedDirectory: string, native?: NtHelperBinding) {
+  if (!configured || native?.getBuildInfo?.().isDev === true) return null;
   const key = `${resolve(sharedDirectory)}:${configured.manifest.tag}`;
   let store = stores.get(key);
   if (!store) {
@@ -106,6 +106,7 @@ interface DressIndexOptions {
 export class DressIndexStore {
   readonly directory: string;
   private readonly pending = new Map<DressIndexKind, Promise<boolean>>();
+  private readonly localPending = new Set<DressIndexKind>();
   private readonly verified = new Set<DressIndexKind>();
   private readonly legacyChecked = new Set<DressIndexKind>();
   private readonly failedAt = new Map<DressIndexKind, number>();
@@ -169,9 +170,9 @@ export class DressIndexStore {
       return legacy;
     }
     if (!this.verified.has(kind) || !existsSync(join(this.directory, `${kind}.dat`))) {
-      const prepared = this.ensure(kind);
+      const prepared = this.ensure(kind, false, false);
       if (options.background) {
-        // 在线协议无需等待静态下载；就绪事件会让失败的消息装扮重新解析。
+        // 仅检查、复用已经安装的索引；普通浏览不触发整类下载。
         void prepared.catch(() => false);
         return null;
       }
@@ -194,21 +195,48 @@ export class DressIndexStore {
     const source = join(this.options.legacyDirectory, `${kind}.dat`);
     // 命中的旧索引后台迁入用户目录；校验不符的未知文件不触发下载或覆盖。
     void this.matches(source, kind)
-      .then((matches) => (matches ? this.ensure(kind) : false))
+      .then((matches) => (matches ? this.ensure(kind, false, false) : false))
       .catch(() => false);
   }
 
-  ensure(kind: DressIndexKind, retry = false): Promise<boolean> {
+  ensure(kind: DressIndexKind, retry = false, allowDownload = true): Promise<boolean> {
     const pending = this.pending.get(kind);
-    if (pending) return pending;
+    if (pending)
+      return allowDownload && this.localPending.has(kind)
+        ? pending.then((ready) => ready || this.ensure(kind, retry, true))
+        : pending;
     if (this.verified.has(kind) && existsSync(join(this.directory, `${kind}.dat`)))
       return Promise.resolve(true);
     const now = this.options.now ?? Date.now;
-    if (!retry && now() - (this.failedAt.get(kind) ?? -Infinity) < 60_000)
+    if (allowDownload && !retry && now() - (this.failedAt.get(kind) ?? -Infinity) < 60_000)
       return Promise.resolve(false);
-    const task = this.prepare(kind).finally(() => this.pending.delete(kind));
+    if (!allowDownload) this.localPending.add(kind);
+    const task = this.prepare(kind, allowDownload).finally(() => {
+      this.pending.delete(kind);
+      this.localPending.delete(kind);
+    });
     this.pending.set(kind, task);
     return task;
+  }
+
+  /** 读取与旧版本迁移都不访问网络，供增强包页恢复真实安装状态。 */
+  async inspect(): Promise<DressIndexState[]> {
+    await Promise.all(DRESS_INDEX_KINDS.map((kind) => this.ensure(kind, false, false)));
+    return this.snapshot();
+  }
+
+  async remove(): Promise<void> {
+    if (this.pending.size) throw new Error('装扮索引正在准备，请稍后删除');
+    for (const kind of DRESS_INDEX_KINDS) {
+      for (const suffix of ['', '.incoming', '.incoming.part', '.incoming.resume.json'])
+        await rm(join(this.directory, `${kind}.dat${suffix}`), { force: true });
+    }
+    this.verified.clear();
+    this.states.clear();
+    this.failedAt.clear();
+    await mkdir(this.directory, { recursive: true });
+    await writeFile(join(this.directory, 'removed.json'), JSON.stringify({ at: Date.now() }));
+    this.revision += 1;
   }
 
   private async matches(path: string, kind: DressIndexKind): Promise<boolean> {
@@ -225,18 +253,21 @@ export class DressIndexStore {
     }
   }
 
-  private async prepare(kind: DressIndexKind): Promise<boolean> {
+  private async prepare(kind: DressIndexKind, allowDownload: boolean): Promise<boolean> {
     const target = join(this.directory, `${kind}.dat`);
-    const incoming = `${target}.${randomUUID()}.incoming`;
+    const incoming = `${target}.incoming`;
     const part = this.manifest.parts[kind];
     try {
       await mkdir(this.directory, { recursive: true });
       if (!(await this.matches(target, kind))) {
         const legacy =
-          this.options.legacyDirectory && join(this.options.legacyDirectory, `${kind}.dat`);
+          this.options.legacyDirectory &&
+          (allowDownload || !existsSync(join(this.directory, 'removed.json'))) &&
+          join(this.options.legacyDirectory, `${kind}.dat`);
         if (legacy && (await this.matches(legacy, kind))) {
           await copyFile(legacy, incoming, constants.COPYFILE_FICLONE);
         } else {
+          if (!allowDownload) return false;
           this.update(kind, { status: 'downloading', downloadedBytes: 0, error: undefined });
           let fetcher: HostBridge['fetchMedia'];
           try {
@@ -271,6 +302,8 @@ export class DressIndexStore {
       this.failedAt.delete(kind);
       this.revision += 1;
       this.update(kind, { status: 'ready', downloadedBytes: part.size, error: undefined });
+      if (DRESS_INDEX_KINDS.every((kind) => this.verified.has(kind)))
+        await rm(join(this.directory, 'removed.json'), { force: true });
       return true;
     } catch (error) {
       this.failedAt.set(kind, (this.options.now ?? Date.now)());

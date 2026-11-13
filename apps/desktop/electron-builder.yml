@@ -9,7 +9,7 @@ copyright: Copyright © 2026 weQ contributors
 directories:
   output: release/${version}
   buildResources: build
-beforePack: ../../scripts/package-remote-network.mjs
+beforePack: ../../scripts/prepare-desktop-package.mjs
 afterPack: ../../scripts/trim-desktop-package.mjs
 afterSign: ../../scripts/verify-desktop-authorization.mjs
 files:
@@ -29,13 +29,12 @@ files:
   - "!node_modules/**/*.map"
   - "!node_modules/**/*.d.{ts,cts,mts}"
   - "!node_modules/exceljs/dist/**"
-  # onnxruntime-node 是原生模块：留在 asar 里会被 electron-builder 的 smartUnpack
-  # **整包**解出一份到 app.asar.unpacked/（288 MB 的包体，2.0.5 的 Windows 安装包
-  # 因此直接翻倍）。运行时真正加载的是下面 extraResources 拷到 <resources>/node_modules/
-  # 的那份 —— fork 出去的 ocrWorker.mjs 从 <resources>/out/main/ 起跑，node 的模块解析
-  # 只会顺着目录往上撞到 <resources>/node_modules，永远拐不进 app.asar.unpacked。
-  # 所以整包从 asar 里剔掉。
+  # 专用引擎单独生成增强资产，基础应用只带固定清单。
   - "!node_modules/onnxruntime-node/**"
+  - "!node_modules/onnxruntime-common/**"
+  - "!node_modules/sherpa-onnx-*/**"
+  - "!node_modules/@receptron/laya/**"
+  - "!node_modules/@huggingface/tokenizers/**"
 extraResources:
   - from: out/main/analysisReportsWorker.mjs
     to: out/main/analysisReportsWorker.mjs
@@ -97,21 +96,7 @@ extraResources:
   - from: out/main/ocrWorker.mjs
     to: out/main/ocrWorker.mjs
 
-  # 意图感知本地引擎（Laya ONNX）在 fork 的子进程里 require 这些包。
-  - from: node_modules/@receptron/laya
-    to: node_modules/@receptron/laya
-  # adm-zip / global-agent 仅供 ONNX 的安装脚本使用，不是推理运行依赖。
-  - from: node_modules/@huggingface/tokenizers
-    to: node_modules/@huggingface/tokenizers
-
-  # onnxruntime-common 是纯 JS（~1 MB）且三个平台一样，留在这里一份就够。
-  # onnxruntime-node 按平台架构在 win/mac/linux extraResources 分开拷贝。
-  - from: node_modules/onnxruntime-common
-    to: node_modules/onnxruntime-common
-
 asarUnpack:
-  # 转写 Node 子进程从实体目录加载 JS 包，平台原生绑定由 smartUnpack 放在同级。
-  - "**/node_modules/sherpa-onnx-node/**/*"
   - node_modules/sharp/**/*
   # sharp 的 libvips 动态库必须显式解包：smartUnpack 只认 `.so` / `.dll` / `.dylib`
   # / `.node` 结尾的文件，而 Linux 的库是带版本号的 `libvips-cpp.so.8.18.7`，
@@ -122,9 +107,6 @@ asarUnpack:
   - "**/node_modules/@img/**/*"
   # resvg 原生绑定在 asar 外加载；afterPack 移除非目标 Darwin 架构。
   - node_modules/@resvg/**/*
-  # # The voice-transcription worker is forked as a child process (can't run from
-  # # inside the asar) and loads the native sherpa-onnx binding from node_modules.
-  # - out/main/transcribeWorker.mjs
 
 win:
   icon: ../../resources/brand/logo.png
@@ -139,17 +121,9 @@ win:
       to: LICENSE
     - from: ../../native/win32/x64
       to: native/win32/x64
-  # 本地 OCR 的推理引擎：只带本次构建的架构那一份（见顶部 extraResources 的说明）。
-  # `script/` 只在 postinstall 用得上，不带。
   extraResources:
-    - from: node_modules/onnxruntime-node
-      to: node_modules/onnxruntime-node
-      filter:
-        - package.json
-        - README.md
-        - dist/**
-        - lib/**
-        - bin/napi-v6/win32/${arch}/**
+    - from: .artifacts/enhancements/win32-${arch}/manifest.json
+      to: enhancements/manifest.json
   target:
     - target: nsis
       arch:
@@ -193,15 +167,8 @@ linux:
   extraResources:
     - from: ../../resources/assistant/fonts
       to: resources/assistant/fonts
-    # 本地 OCR 的推理引擎：只带 linux/${arch} 那份（见顶部 extraResources 的说明）。
-    - from: node_modules/onnxruntime-node
-      to: node_modules/onnxruntime-node
-      filter:
-        - package.json
-        - README.md
-        - dist/**
-        - lib/**
-        - bin/napi-v6/linux/${arch}/**
+    - from: .artifacts/enhancements/linux-${arch}/manifest.json
+      to: enhancements/manifest.json
   extraFiles:
     - from: ../../LICENSE
       to: LICENSE
@@ -244,18 +211,8 @@ mac:
       to: native/darwin/${arch}
     - from: ../../resources/assistant/fonts
       to: resources/assistant/fonts
-    # 本地 OCR 的推理引擎：只带 darwin/${arch} 那份（见顶部 extraResources 的说明）。
-    # ⚠️ 上游**没有** darwin/x64（Intel Mac）的二进制，所以 mac-x64 这个 filter 一个文件
-    # 都匹配不到 —— 那台机器上本地识别本来就跑不起来，`localOcrBlocker()` 会在
-    # 设置页 / 灯箱 / MCP 三处如实说明，不再引导用户去下一个用不了的模型。
-    - from: node_modules/onnxruntime-node
-      to: node_modules/onnxruntime-node
-      filter:
-        - package.json
-        - README.md
-        - dist/**
-        - lib/**
-        - bin/napi-v6/darwin/${arch}/**
+    - from: .artifacts/enhancements/darwin-${arch}/manifest.json
+      to: enhancements/manifest.json
   target:
     - target: dmg
     - target: zip

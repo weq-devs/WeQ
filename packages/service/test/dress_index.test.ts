@@ -102,6 +102,27 @@ describe('装扮索引独立按需分发', () => {
     expect(await readFile(join(store.directory, 'widget.dat'))).toEqual(bytes);
   });
 
+  it('显式删除后重启不从旧资源自动恢复，重新准备仍可复用旧完整索引', async () => {
+    const { root, download } = await fixture();
+    const legacy = join(root, 'legacy-removed');
+    await mkdir(legacy);
+    await writeFile(join(legacy, 'widget.dat'), bytes);
+    const store = new DressIndexStore(join(root, 'removed'), manifest, {
+      download,
+      legacyDirectory: legacy,
+    });
+    expect(await store.ensure('widget')).toBe(true);
+    await store.remove();
+    const restarted = new DressIndexStore(join(root, 'removed'), manifest, {
+      download,
+      legacyDirectory: legacy,
+    });
+    expect((await restarted.inspect()).every((state) => state.status !== 'ready')).toBe(true);
+    expect(download).not.toHaveBeenCalled();
+    expect(await restarted.ensure('widget', true)).toBe(true);
+    expect(download).not.toHaveBeenCalled();
+  });
+
   it('已有 legacy native 查询命中时不下载；新索引查询临时目录不污染环境', async () => {
     const { store, download } = await fixture();
     const previous = process.env.NT_HELPER_DRESS_DIR;
@@ -116,12 +137,27 @@ describe('装扮索引独立按需分发', () => {
           ? { url: 'https://example.invalid/downloaded.zip', size: 11 }
           : (null as unknown as ReturnType<typeof query>),
       );
+      expect(await store.resolve(native, 'bubble', '2', 'static.zip')).toBeNull();
+      expect(download).not.toHaveBeenCalled();
+      expect(await store.ensure('bubble')).toBe(true);
       expect(await store.resolve(native, 'bubble', '2', 'static.zip')).toMatchObject({ size: 11 });
       expect(process.env.NT_HELPER_DRESS_DIR).toBe('/custom/legacy');
     } finally {
       if (previous === undefined) delete process.env.NT_HELPER_DRESS_DIR;
       else process.env.NT_HELPER_DRESS_DIR = previous;
     }
+  });
+
+  it('普通在线或离线浏览均不隐式下载整类索引，显式准备后仍可查询', async () => {
+    const { store, download } = await fixture();
+    const native = { queryDressResourceUrl: vi.fn(() => null) } as unknown as NtHelperBinding;
+    expect(await store.resolve(native, 'font', '1', 'font.zip')).toBeNull();
+    expect(await store.resolve(native, 'widget', '2', 'main.zip', { background: true })).toBeNull();
+    await store.inspect();
+    expect(download).not.toHaveBeenCalled();
+    expect(await store.ensure('font')).toBe(true);
+    await store.remove();
+    expect(store.snapshot().every((state) => state.status === 'idle')).toBe(true);
   });
 
   it('校验清单格式、类别资产名、体积和源 native 身份', () => {

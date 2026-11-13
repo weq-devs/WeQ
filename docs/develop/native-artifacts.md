@@ -19,7 +19,7 @@ native 从 [`weq-devs/nt_helper_release`](https://github.com/weq-devs/nt_helper_
 | `native/<platform>/<arch>/nt_helper.node` | 否 | `weq-devs/nt_helper` 的 Rust 构建 | `pnpm native:fetch` |
 | `native/<platform>/<arch>/weq-authorization-helper[.exe]` | 否 | 同一私有仓的独立 Rust target | 清单包含助手时由 `pnpm native:fetch` 获取 |
 | `resources/dress/index-manifest.json` | 是 | 已验证的独立资源 Release | 同步更新资源版本、native commit、体积及哈希 |
-| `cache/dress_shared/index/<资源 tag>/{bubble,widget,font}.dat` | 否 | `weq-devs/dress-resources` Release | 首次需要时按类别自动获取 |
+| `cache/dress_shared/index/<资源 tag>/{bubble,widget,font}.dat` | 否 | `weq-devs/dress-resources` Release | 通过增强包显式准备，普通浏览不触发下载 |
 | `resources/dress/screen/**`、`ranking-*.json` | 是 | 手工整理的静态素材 | 正常提交 |
 | `resources/dress/*_resources` | 否 | `scripts/fetch_dress_resources.ts` 抓取 | 本地生成，喂给 native 构建 |
 
@@ -78,7 +78,7 @@ pnpm native:fetch --version <tag> --require-fresh --require-authorization --veri
 
 ## dev 用法
 
-普通开发直接运行 `pnpm dev`：发布版模式准备并验证 native，不预下载大索引；应用实际需要装扮时按类别获取。已完整安装的 native 可离线复用。本地源码模式仍编译并验证配套三类资源，不尝试用发布版密钥索引补齐本地构建。切换来源、源码指纹和失败恢复见[一行命令开发启动](dev-startup.md)。
+普通开发直接运行 `pnpm dev`：发布版模式准备并验证 native，不预下载大索引；装扮索引通过增强包准备。已完整安装的 native 可离线复用。本地源码模式仍编译并验证配套三类资源，不尝试用发布版密钥索引补齐本地构建。切换来源、源码指纹和失败恢复见[一行命令开发启动](dev-startup.md)。
 
 ```bash
 pnpm native:fetch                 # 本机平台 native（锚定的 tag）
@@ -114,7 +114,7 @@ manifest 与每个资产都按「整次尝试」重试：5xx / 429 / 408 / 网�
 
 ## 装扮索引按需获取
 
-宿主读取随应用发布的固定清单，首次需要未缓存的气泡、字体或挂件时获取对应类别。
+宿主读取随应用发布的固定清单，增强包页显式准备三类索引；普通按款查询仅复用已经安装的索引和在线协议结果。
 同宿主各账号、桌面、Web 和 Remote 共用一份文件与下载任务，不跟随远端 latest。
 下载先验证体积和 SHA-256，再原子安装；进度和失败显示在任务列表，失败可重试。
 
@@ -313,3 +313,29 @@ node scripts/fetch-native.mjs --verify                    # 取最新产物并�
   废弃的先删，要留的（stash）先导成 patch。
 - `LICENSE` 一个字节都别改：它的 sha256 烘在 `.node` 里，改了所有构建都会报
   「组件已损坏或被篡改」。
+
+## 增强包专用引擎
+
+本地文字识别、语音转写及意图／画像的专用运行时不属于基础应用内置资源。Sharp、resvg 等日常依赖仍内置；增强包使用独立引擎目录，既不依赖用户机器编译，也不通过全局安装 Node 包加载。
+
+- `scripts/prepare-enhancement-engines.mjs` 从目标构建机的冻结依赖准备 CPU 运行时，只收集匹配平台的 JS 加载文件、原生绑定、动态库及必要许可证；输出位于 `apps/desktop/.artifacts/enhancements/<平台>-<架构>/`。
+- 构建前钩子生成该目标的 `manifest.json`，基础应用仅带这份清单。独立压缩资产按兼容配方及内容身份命名，发布流程在实际加载检查通过后单独上传；本地生成不代表已经发布。
+- 文字识别与意图／画像共用 ONNX 1.30.0；语音使用 Sherpa 1.13.3 及其配套运行库，不强行共用另一个 ONNX 版本。Laya 与分词组件随 ONNX 配方准备。平台矩阵按固定依赖包的实际二进制目录确定，而不是照抄上游通用说明。
+- 运行时下载到 `enhancements/engines/`，校验完整压缩包哈希、每个文件的长度和哈希，拒绝归档中的未知文件及链接条目。匹配动态库的兼容别名通过本地硬链接复原，只计一次实际文件占用。
+- macOS 原生文件在构建机完成 ad-hoc 签名后才计算哈希；不会在用户机器签名、编译或全局移除隔离属性。正常流式下载不从浏览器复制文件属性，下载后的实际加载仍由独立进程确认。
+- OCR、语音和意图 worker 通过 `WEQ_ENHANCEMENT_RUNTIME` 定位专用模块。引擎的基础检查执行真实 ONNX CPU Identity 推理；能力包准备还加载所属模型并执行一次实际推理，最后才原子写入就绪回执。
+- 已有完整能力在应用升级后自动协调兼容引擎更新，新引擎完整校验和加载前保留旧兼容版本；失败可重试。删除能力包保留其他能力或已有 QWeQ 模型正在使用的共享引擎；在途下载与推理不会被删除。
+
+模型仍使用原来的 `models/<模型 ID>/` 目录。OCR、语音与 Laya 共用 `ModelStore` 的受控下载、Range 身份检查与续传，完整文件按固定长度及哈希复用。旧 Laya 的 `.tmp` 不再仅凭 HTTP 416 被发布为成功文件。装扮索引继续复用原目录，但只由增强包显式准备；三个下载阶段更新同一个任务，不创建并列类别任务。具体装扮素材的缓存清理保留索引。
+
+本地打包由 `scripts/package-desktop.mjs` 复用发布流程的精简 manifest，在临时 appDir 中仅克隆构建产物，不替换开发目录的 `package.json`，也不复制整个工作区或依赖树。`pnpm --filter @weq/desktop build:unpack` 使用同一路径。
+
+可以分别验证资产和完整模型：
+
+```bash
+node scripts/prepare-enhancement-engines.mjs
+node scripts/verify-enhancement-engines.mjs
+node scripts/verify-enhancement-engines.mjs --models-root "$MODEL_ROOT"
+```
+
+验证脚本在临时用户目录走真实流式下载、安装及子进程推理，模型仅从指定目录读取，不访问 QQ 数据库。它关闭自己创建的 HTTP 服务和 worker，并清理临时安装。平台、Node 与 Electron 版本随回执输出；未运行过的平台不据此视为验证通过。

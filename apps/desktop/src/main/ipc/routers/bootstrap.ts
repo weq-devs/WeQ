@@ -15,7 +15,6 @@
 import { OperationError } from '@weq/service';
 
 import { observable } from '@trpc/server/observable';
-import { trackModelDownload } from '../../model_download_task';
 import { reconcileLocalModelResources } from '../../context/local_model_resources';
 import { z } from 'zod';
 import { assertAccountBinding, optionalAccountBinding } from '../account_binding';
@@ -105,6 +104,8 @@ import {
 } from '../../static_backup';
 import { normalizeQqDataRoot } from '@weq/platform';
 import { intentSenseModelProcedures, isIntentModelDownloading } from './intent_sense';
+import { enhancementProcedures } from './enhancements';
+import { startEnhancementDownloads } from '../../enhancements/tasks';
 import { assertRuntimeFilesIdle, runtimeFileBusyPaths } from '../../context/runtime_files';
 import { runtimeMaintenance } from '../../runtime_maintenance';
 import { resolveSignerWrapper } from '../../context/signer_target';
@@ -283,6 +284,7 @@ const storageRestartCandidates = new Map<string, string>();
 export const bootstrapRouter = router({
   ...backupProcedures,
   ...intentSenseModelProcedures,
+  ...enhancementProcedures,
 
   /** 共享资源目录：只引用现有下载器，不另建模型副本。 */
   localModelResources: procedure.query(() => {
@@ -1983,14 +1985,14 @@ export const bootstrapRouter = router({
    * `onVoiceModelProgress` subscription; returns immediately so the renderer's
    * mutation doesn't block on a 245 MB download.
    */
-  downloadVoiceModel: procedure.input(z.object({ id: z.string().min(1) })).mutation(({ input }) => {
-    // Don't await — the subscription drives the UI. Swallow rejections here;
-    // the terminal 'progress' event already carries the error.
-    void trackModelDownload(requireBootstrap().voiceTranscribe, input.id, '语音转写模型').catch(
-      () => {},
-    );
-    return true;
-  }),
+  downloadVoiceModel: procedure
+    .input(z.object({ id: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const boot = requireBootstrap();
+      if (!boot.voiceTranscribe.getModel(input.id)) throw new Error('未知语音模型');
+      await startEnhancementDownloads(boot.enhancements.packs, ['voice']);
+      return true;
+    }),
 
   /** Subscribe to voice-model download progress (all models share one stream). */
   onVoiceModelProgress: procedure.subscription(() => {
@@ -2005,12 +2007,15 @@ export const bootstrapRouter = router({
   }),
 
   /** Delete a downloaded model's files. No-op while a download is in flight. */
-  deleteVoiceModel: procedure.input(z.object({ id: z.string().min(1) })).mutation(({ input }) => {
-    const boot = requireBootstrap();
-    const removed = boot.voiceTranscribe.deleteModel(input.id);
-    if (removed) reconcileLocalModelResources(boot);
-    return removed;
-  }),
+  deleteVoiceModel: procedure
+    .input(z.object({ id: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const boot = requireBootstrap();
+      if (!boot.voiceTranscribe.getModel(input.id)) return false;
+      await boot.enhancements.packs.remove('voice');
+      reconcileLocalModelResources(boot);
+      return true;
+    }),
 
   /** Set (or clear with '') the selected transcription model id. */
   setVoiceModel: procedure.input(z.object({ modelId: z.string() })).mutation(({ input }) => {
@@ -2049,12 +2054,14 @@ export const bootstrapRouter = router({
    * Start downloading an OCR model (fire-and-forget). Progress is delivered via
    * the `onOcrModelProgress` subscription; returns immediately.
    */
-  downloadOcrModel: procedure.input(z.object({ id: z.string().min(1) })).mutation(({ input }) => {
-    // Don't await — the subscription drives the UI. Swallow rejections here;
-    // the terminal 'progress' event already carries the error.
-    void trackModelDownload(requireBootstrap().ocrModels, input.id, '图片识别模型').catch(() => {});
-    return true;
-  }),
+  downloadOcrModel: procedure
+    .input(z.object({ id: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const boot = requireBootstrap();
+      if (!boot.ocrModels.getModel(input.id)) throw new Error('未知文字识别模型');
+      await startEnhancementDownloads(boot.enhancements.packs, ['text']);
+      return true;
+    }),
 
   /** Subscribe to OCR-model download progress (all models share one stream). */
   onOcrModelProgress: procedure.subscription(() => {
@@ -2069,12 +2076,15 @@ export const bootstrapRouter = router({
   }),
 
   /** Delete a downloaded OCR model's files. No-op while a download is in flight. */
-  deleteOcrModel: procedure.input(z.object({ id: z.string().min(1) })).mutation(({ input }) => {
-    const boot = requireBootstrap();
-    const removed = boot.ocrModels.deleteModel(input.id);
-    if (removed) reconcileLocalModelResources(boot);
-    return removed;
-  }),
+  deleteOcrModel: procedure
+    .input(z.object({ id: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const boot = requireBootstrap();
+      if (!boot.ocrModels.getModel(input.id)) return false;
+      await boot.enhancements.packs.remove('text');
+      reconcileLocalModelResources(boot);
+      return true;
+    }),
 
   /**
    * Set (or clear with '') the selected model for one purpose. `kind` picks the

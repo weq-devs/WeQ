@@ -1,9 +1,14 @@
 // @vitest-environment node
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, truncateSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Platform } from '@weq/platform';
-import { UserConfigService, type ModelDownloadProgress } from '@weq/service';
+import {
+  UserConfigService,
+  type ModelDownloadProgress,
+  type ModelStore,
+  type ModelEntry,
+} from '@weq/service';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createLocalModelResources,
@@ -32,7 +37,18 @@ function stubDownloads(store: unknown) {
       'downloadToFile',
     )
     .mockImplementation(async (_url, target) => {
-      writeFileSync(target, 'offline model fixture');
+      const modelStore = store as ModelStore<ModelEntry>;
+      const file = modelStore
+        .listModels()
+        .flatMap((model) =>
+          model.files.map((file) => ({
+            file,
+            path: join(modelStore.resolveModelDir(model.id), file.name),
+          })),
+        )
+        .find((file) => file.path === target)!.file;
+      writeFileSync(target, '');
+      truncateSync(target, file.sizeBytes ?? 16);
     });
 }
 

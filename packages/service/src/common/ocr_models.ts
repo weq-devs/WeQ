@@ -46,6 +46,7 @@ interface OcrFileSpec {
   path: string;
   /** 上游文件字节数（用来算下载权重，也用来算总体积）。 */
   bytes: number;
+  sha256: string;
 }
 
 /** A downloadable OCR model the user can pick in settings. */
@@ -91,6 +92,8 @@ function buildFiles(specs: readonly OcrFileSpec[]): ModelFile[] {
     name: s.name,
     url: `${RAPIDOCR_ROOT}/${s.path}`,
     weight: total > 0 ? s.bytes / total : 0,
+    sizeBytes: s.bytes,
+    sha256: s.sha256,
   }));
 }
 
@@ -114,24 +117,28 @@ const PPOCR_V5_MOBILE: readonly OcrFileSpec[] = [
     name: 'ch_PP-OCRv5_det_mobile.onnx',
     path: 'onnx/PP-OCRv5/det/ch_PP-OCRv5_det_mobile.onnx',
     bytes: 4_819_576,
+    sha256: '4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae',
   },
   {
     key: 'rec',
     name: 'ch_PP-OCRv5_rec_mobile.onnx',
     path: 'onnx/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile.onnx',
     bytes: 16_631_306,
+    sha256: '5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5',
   },
   {
     key: 'cls',
     name: 'ch_PP-LCNet_x0_25_textline_ori_cls_mobile.onnx',
     path: 'onnx/PP-OCRv5/cls/ch_PP-LCNet_x0_25_textline_ori_cls_mobile.onnx',
     bytes: 1_018_508,
+    sha256: '54379ae5174d026780215fc748a7f31910dee36818e63d49e17dc598ecc82df7',
   },
   {
     key: 'dict',
     name: 'ppocrv5_dict.txt',
     path: 'paddle/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile/ppocrv5_dict.txt',
     bytes: 74_012,
+    sha256: 'd1979e9f794c464c0d2e0b70a7fe14dd978e9dc644c0e71f14158cdf8342af1b',
   },
 ];
 
@@ -145,6 +152,7 @@ const PPOCR_V6_DET_TINY: readonly OcrFileSpec[] = [
     name: 'PP-OCRv6_det_tiny.onnx',
     path: 'onnx/PP-OCRv6/det/PP-OCRv6_det_tiny.onnx',
     bytes: 1_829_618,
+    sha256: 'f42c0fbd294d95eac1a550e131b277dac97462c8025fa4b6c3cec1b7894bd3d5',
   },
 ];
 

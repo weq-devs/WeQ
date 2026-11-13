@@ -48,25 +48,25 @@ describe('设置的两级导航', () => {
     expect(SETTINGS_GROUPS.map((group) => group.label)).toEqual([
       '常规',
       '基础功能',
-      'AI 功能',
+      '增强功能',
       '凭据与账号',
       '数据库与资源',
       'WeQ 服务',
       '关于 WeQ',
     ]);
     expect(settingsGroupFor('model-usage').sections).toEqual([
+      'enhancement-packs',
+      'recognition',
       'agentlab',
       'model-usage',
       'reply-suggestions',
       'intent-sense',
       'interaction-profile',
-      'voice',
-      'ocr',
     ]);
-    expect(settingsSectionFor('voice')).toBe('voice');
-    expect(settingsSectionFor('ocr')).toBe('ocr');
-    expect(settingsSectionFor('local-models')).toBe('voice');
-    expect(settingsSectionFor('intent-models')).toBe('intent-sense');
+    expect(settingsSectionFor('voice')).toBe('recognition');
+    expect(settingsSectionFor('ocr')).toBe('recognition');
+    expect(settingsSectionFor('local-models')).toBe('enhancement-packs');
+    expect(settingsSectionFor('intent-models')).toBe('enhancement-packs');
     expect(settingsSectionFor('tts')).toBe('agentlab');
     expect(settingsGroupFor('credentials').id).toBe('account');
     expect(settingsGroupFor('startup').id).toBe('general');
@@ -128,7 +128,7 @@ describe('设置的两级导航', () => {
     ['QQ 账号管理', 'QQ 登录记录管理', '凭据与账号'],
     ['数据库宽容', '数据库容错', '数据库与资源'],
     ['资源目录管理', 'QQ 资源管理', '数据库与资源'],
-    ['已保存的 provider', '已保存的服务商', 'AI 功能'],
+    ['已保存的 provider', '已保存的服务商', '增强功能'],
     ['优先使用 CDN', '优先直连 QQ 加载图片', '数据库与资源'],
     ['媒体来源', '媒体来源', '数据库与资源'],
     ['性能监视', '性能监视', '关于 WeQ'],

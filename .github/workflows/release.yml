@@ -159,6 +159,14 @@ jobs:
           # 保留它好让下一次失败（asar / filter / publish）自解释。
           DEBUG: electron-builder
 
+      - name: Verify enhancement engines
+        run: node scripts/verify-enhancement-engines.mjs
+
+      - name: Upload enhancement engines
+        run: node scripts/upload-enhancement-engines.mjs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Restore dev manifest
         if: always()
         shell: pwsh
@@ -264,8 +272,17 @@ jobs:
           APP_DIR="$(ls -d apps/desktop/release/${VERSION#v}/linux*-unpacked | head -1)"
           echo "checking $APP_DIR"
           test -d "$APP_DIR/resources/app.asar.unpacked/node_modules/@resvg/resvg-js-linux-x64-gnu"
-          test -d "$APP_DIR/resources/app.asar.unpacked/node_modules/sherpa-onnx-linux-x64"
+          test ! -e "$APP_DIR/resources/app.asar.unpacked/node_modules/sherpa-onnx-linux-x64"
+          test -f "$APP_DIR/resources/enhancements/manifest.json"
           test ! -e "$APP_DIR/resources/resources/daemon"
+
+      - name: Verify enhancement engines
+        run: node scripts/verify-enhancement-engines.mjs
+
+      - name: Upload enhancement engines
+        run: node scripts/upload-enhancement-engines.mjs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Restore dev manifest
         if: always()
@@ -356,8 +373,17 @@ jobs:
           APP_DIR="$(ls -d apps/desktop/release/${VERSION#v}/linux*-unpacked | head -1)"
           echo "checking $APP_DIR"
           test -d "$APP_DIR/resources/app.asar.unpacked/node_modules/@resvg/resvg-js-linux-arm64-gnu"
-          test -d "$APP_DIR/resources/app.asar.unpacked/node_modules/sherpa-onnx-linux-arm64"
+          test ! -e "$APP_DIR/resources/app.asar.unpacked/node_modules/sherpa-onnx-linux-arm64"
+          test -f "$APP_DIR/resources/enhancements/manifest.json"
           test ! -e "$APP_DIR/resources/resources/daemon"
+
+      - name: Verify enhancement engines
+        run: node scripts/verify-enhancement-engines.mjs
+
+      - name: Upload enhancement engines
+        run: node scripts/upload-enhancement-engines.mjs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Restore dev manifest
         if: always()
@@ -470,6 +496,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify enhancement engines
+        run: node scripts/verify-enhancement-engines.mjs
+
+      - name: Upload enhancement engines
+        run: node scripts/upload-enhancement-engines.mjs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Restore dev manifest
         if: always()
         run: |
@@ -577,6 +611,14 @@ jobs:
           test -f "$MANIFEST" || { echo "missing $MANIFEST"; exit 1; }
           cp "$MANIFEST" /tmp/latest-mac-arm64.yml
           gh release upload "${VERSION}" /tmp/latest-mac-arm64.yml --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify enhancement engines
+        run: node scripts/verify-enhancement-engines.mjs
+
+      - name: Upload enhancement engines
+        run: node scripts/upload-enhancement-engines.mjs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
