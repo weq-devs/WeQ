@@ -29,10 +29,25 @@ const AssistantPanel = lazy(() =>
     default: module.AssistantPanel,
   })),
 );
+const NewCloneModal = lazy(() =>
+  import('../../src/renderer/src/views/agentlab/NewCloneModal').then((module) => ({
+    default: module.NewCloneModal,
+  })),
+);
 Object.assign(window, { imageRequests: () => imageRequests });
 const surface = new URLSearchParams(location.search).get('surface') ?? 'assistant';
 const noop = () => {};
 function Page() {
+  if (surface === 'new-clone')
+    return (
+      <NewCloneModal
+        buddies={[{ uid: 'peer', uin: '10001', label: '合成好友' }]}
+        initialSelectedUids={['peer']}
+        flatModels={{ chat: [], embedding: [], vision: [] }}
+        onClose={noop}
+        onStart={(args) => imageRequests.push({ name: 'startClone', input: args.params })}
+      />
+    );
   if (surface === 'settings')
     return (
       <main className="weq-set" style={{ maxWidth: 800, padding: 16, margin: 'auto' }}>

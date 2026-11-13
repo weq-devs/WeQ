@@ -1,7 +1,7 @@
 /**
  * 新建好友克隆弹窗（灯箱）：
  *   step 1 选好友（带头像/昵称的列表，可搜索，支持多选）
- *   step 2 配置模型 / 是否分析表情 / 语料来源(private·group) / 名称 / 额外提示
+ *   step 2 配置模型 / 图片处理偏好 / 语料来源(private·group) / 名称 / 额外提示
  *
  * 多选时逐个好友各起一个克隆任务；名称、额外提示在多个目标下只作为公共配置，
  * 展示名仍以好友昵称为准（可在任务列表里再改）。
@@ -10,7 +10,7 @@
  * 父级关闭配置弹窗，任务 store 自动打开统一任务列表，构建在后台继续。
  *
  * 语料来源：group = 私聊为主、不足时群补采风格；private = 纯私聊、不回退。
- * 「分析表情」需选一个视觉模型；不选则不解读表情包。
+ * 图片与自定义表情统一遵循克隆训练的图片处理偏好。
  */
 
 import { EmptyState } from '../../components/EmptyState';
@@ -94,8 +94,6 @@ export function NewCloneModal({
   const [name, setName] = useState('');
   const [chatSel, setChatSel] = useState<AgentLabModelSelection | null>({ useDefault: true });
   const [embSel, setEmbSel] = useState<AgentLabModelSelection | null>(null);
-  const [analyzeStickers, setAnalyzeStickers] = useState(false);
-  const [visSel, setVisSel] = useState<AgentLabModelSelection | null>({ useDefault: true });
   const [mode, setMode] = useState<CloneMode>('group');
   const [autoName, setAutoName] = useState(false);
   const [customPrompt, setCustomPrompt] = useState('');
@@ -104,8 +102,6 @@ export function NewCloneModal({
     name,
     chatSel,
     embSel,
-    analyzeStickers,
-    visSel,
     mode,
     autoName,
     customPrompt,
@@ -132,7 +128,6 @@ export function NewCloneModal({
       return;
     }
     const embRef = embSel;
-    const visRef = analyzeStickers ? visSel : undefined;
     const sharedName = name.trim() || undefined;
     // 多选时逐个好友各起一个克隆任务；personaId 带时间戳与 uid，互不覆盖。
     for (const [index, target] of targets.entries()) {
@@ -145,7 +140,6 @@ export function NewCloneModal({
           models: {
             chat: chatRef,
             ...(embRef ? { embedding: embRef } : {}),
-            ...(visRef ? { vision: visRef } : {}),
           },
           customPrompt: customPrompt.trim() || undefined,
           targetUid: target.uid,
@@ -323,35 +317,6 @@ export function NewCloneModal({
                 emptyLabel="不使用向量"
               />
             </label>
-
-            <div className={`weq-clone-toggle-card${analyzeStickers ? ' is-on' : ''}`}>
-              <label className="weq-clone-check weq-clone-toggle-main">
-                <input
-                  type="checkbox"
-                  checked={analyzeStickers}
-                  onChange={(e) => setAnalyzeStickers(e.target.checked)}
-                />
-                <span className="weq-clone-toggle-text">
-                  <strong>分析 TA 的自定义表情包</strong>
-                  <small>逐张让视觉模型解读，克隆体聊天时会带上 TA 常用的表情</small>
-                </span>
-              </label>
-              {analyzeStickers ? (
-                <div className="weq-clone-toggle-extra">
-                  <label className="weq-agentlab-field">
-                    <span>视觉模型</span>
-                    <ApiModelSelect
-                      allowDefault
-                      label="克隆视觉模型"
-                      capability="vision"
-                      value={visSel}
-                      onChange={setVisSel}
-                      emptyLabel="请选择视觉模型"
-                    />
-                  </label>
-                </div>
-              ) : null}
-            </div>
 
             <div className="weq-agentlab-field">
               <span>语料来源</span>

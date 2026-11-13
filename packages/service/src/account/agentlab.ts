@@ -14,7 +14,6 @@ import {
   AgentLabStore,
   AgentRuntime,
   buildPersonaArtifacts,
-  describeSticker,
   distillMemories,
   embedTexts,
   extractExpressions,
@@ -181,7 +180,7 @@ export interface BuildFromC2cInput {
   autoName?: boolean;
 }
 
-/** 高频表情包累计：扫描期收集，之后再下载 + vision 解读。 */
+/** 高频表情包累计：扫描期收集，之后缓存资产并复用语料图片解读。 */
 interface StickerAccum {
   md5: string;
   fileName: string;
@@ -189,7 +188,7 @@ interface StickerAccum {
   originalUrl: string;
   ts: number;
   count: number;
-  /** TA 发这张前最近的真实对话短句（≤3 条，去重）：喂 vision 判断场景 + 存进 ref。 */
+  /** TA 发这张前最近的真实对话短句（≤3 条，去重），保留供聊天时匹配场景。 */
   contexts: string[];
 }
 
@@ -278,21 +277,6 @@ function profileName(profile: UserProfile | null, fallback: string): string {
 /** 给没有 md5 的素材生成稳定缓存名。 */
 function hashKey(text: string): string {
   return createHash('sha1').update(text).digest('hex');
-}
-
-/** 读本地图片 → data URL（按文件头猜 mime），失败返回 null。 */
-function imageToDataUrl(path: string): string | null {
-  try {
-    const buf = readFileSync(path);
-    if (buf.length < 4) return null;
-    let mime = 'image/png';
-    if (buf[0] === 0xff && buf[1] === 0xd8) mime = 'image/jpeg';
-    else if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) mime = 'image/gif';
-    else if (buf[0] === 0x89 && buf[1] === 0x50) mime = 'image/png';
-    return `data:${mime};base64,${buf.toString('base64')}`;
-  } catch {
-    return null;
-  }
 }
 
 /** 一次导出产物的 WebUI 访问信息（存 bot_exports.json，供设置页查密钥 / 打开控制台）。 */
@@ -1522,6 +1506,7 @@ export class AgentLabService extends EventEmitter {
     voiceClips: VoiceClipCandidate[],
     personaId?: string,
     signal?: AbortSignal,
+    stickerOutcomes = new Map<string, AiImageOutcome>(),
   ): Promise<AgentLabMessage[]> {
     const canTranscribe = !!this.media?.transcribe && (this.media.voiceReady?.() ?? false);
     let transcribed = 0;
@@ -1541,14 +1526,29 @@ export class AgentLabService extends EventEmitter {
           ts,
         );
         text = textFromElements(msg.elements.filter((element) => element.kind !== 'pic'));
-        const prepared = await this.media.images.prepare({
-          feature: 'cloneTraining',
-          personaId,
-          text,
-          images,
-          signal,
-        });
-        text = trainingImageText(text, prepared.outcomes);
+        const outcomes: AiImageOutcome[] = [];
+        for (const image of images) {
+          signal?.throwIfAborted();
+          const md5 = image.media?.emoji ? image.media.md5 : undefined;
+          const cached = md5 ? stickerOutcomes.get(md5) : undefined;
+          if (cached) {
+            outcomes.push({ ...cached, id: image.id });
+            continue;
+          }
+          const prepared = await this.media.images.prepare({
+            feature: 'cloneTraining',
+            personaId,
+            text,
+            images: [image],
+            signal,
+          });
+          const outcome = prepared.outcomes[0];
+          if (outcome) {
+            outcomes.push(outcome);
+            if (md5) stickerOutcomes.set(md5, outcome);
+          }
+        }
+        text = trainingImageText(text, outcomes);
       }
       if (modality === 'voice' && canTranscribe && transcribed < VOICE_TRANSCRIBE_CAP) {
         const res = await this.transcribePtt(msg.elements, ts);
@@ -1686,24 +1686,15 @@ export class AgentLabService extends EventEmitter {
     return { stickers, faces };
   }
 
-  /** Top 高频表情包 → 本地缓存 + （有 vision 时）解读内容/场景。 */
+  /** Top 高频表情包 → 本地缓存 + 复用本轮语料的图片识别结果，不再单独请求模型。 */
   private async buildStickerRefs(
     accums: StickerAccum[],
-    visionRef: AgentLabModelSelection | undefined,
-    chatFriendName: string,
+    outcomes: ReadonlyMap<string, AiImageOutcome>,
     personaId: string,
   ): Promise<AgentLabStickerRef[]> {
     const media = this.media;
     if (!media) return [];
     const top = [...accums].sort((a, b) => b.count - a.count).slice(0, STICKER_CAP);
-    let visionEndpoint: AgentLabEndpoint | null = null;
-    if (visionRef) {
-      try {
-        visionEndpoint = this.resolveWithUsage(visionRef, 'vision', { personaId, scope: 'build' });
-      } catch {
-        visionEndpoint = null;
-      }
-    }
     const out: AgentLabStickerRef[] = [];
     for (const s of top) {
       this.buildControllers.get(personaId)?.signal.throwIfAborted();
@@ -1717,30 +1708,15 @@ export class AgentLabService extends EventEmitter {
       }
       this.buildControllers.get(personaId)?.signal.throwIfAborted();
       const localPath = found ? this.cacheStickerFile(found, s.md5) : undefined;
-      let description = '';
-      let scenario = '';
-      if (localPath && visionEndpoint) {
-        const dataUrl = imageToDataUrl(localPath);
-        if (dataUrl) {
-          // 用这张表情专属的使用情境作 hint（比全局语料切片精准）。
-          const d = await describeSticker(
-            visionEndpoint,
-            chatFriendName,
-            dataUrl,
-            s.contexts.join('\n'),
-          );
-          description = d.description;
-          scenario = d.scenario;
-        }
-      }
+      const outcome = outcomes.get(s.md5);
       out.push({
         md5: s.md5,
         fileName: s.fileName,
         localPath,
         cdnToken: s.fileToken,
         count: s.count,
-        description,
-        scenario,
+        description: outcome?.status === 'read' ? (outcome.text ?? '') : '',
+        scenario: '',
         contexts: s.contexts,
       });
     }
@@ -2010,6 +1986,7 @@ export class AgentLabService extends EventEmitter {
     // 2) 映射成语料（顺手把语音转录成文本，并收集 TA 的干净语音做克隆参考）。
     this.emitProgress(input.personaId, '整理语料 / 图片分析 / 转录语音', 28);
     const voiceClips: VoiceClipCandidate[] = [];
+    const stickerOutcomes = new Map<string, AiImageOutcome>();
     const messages = await this.mapC2cMessages(
       rawMsgs,
       selfUin,
@@ -2018,6 +1995,7 @@ export class AgentLabService extends EventEmitter {
       voiceClips,
       input.personaId,
       chatEndpoint.signal,
+      stickerOutcomes,
     );
     chatEndpoint.signal?.throwIfAborted();
 
@@ -2192,18 +2170,13 @@ export class AgentLabService extends EventEmitter {
       }
     }
 
-    // 表情包：本地缓存 +（有 vision 模型时）解读内容/场景。无 media/vision 时降级为空。
-    if (this.media && stickerAccum.size > 0 && input.models.vision) {
-      this.emitProgress(input.personaId, '解读表情包', 88);
+    // 表情包内容已按图片偏好在整理语料时处理；这里只缓存高频表情资产。
+    if (this.media && stickerAccum.size > 0) {
+      this.emitProgress(input.personaId, '整理常用表情', 88);
     }
     const stickers =
       this.media && stickerAccum.size > 0
-        ? await this.buildStickerRefs(
-            [...stickerAccum.values()],
-            input.models.vision,
-            trainingName,
-            input.personaId,
-          )
+        ? await this.buildStickerRefs([...stickerAccum.values()], stickerOutcomes, input.personaId)
         : [];
 
     // 语音画像：使用场景（chat 模型总结）+ 克隆参考音频（按质量挑 Top-K，已排除变声）。
@@ -2321,5 +2294,5 @@ export class AgentLabService extends EventEmitter {
     return sortNo !== undefined ? { sortNo } : { uid: targetUid };
   }
 }
-import type { AiImagePort, AiImageRef } from '@weq/agentlab';
+import type { AiImagePort, AiImageRef, AiImageOutcome } from '@weq/agentlab';
 import { messageImageRefs, trainingImageText } from '../common/ai_message_images';

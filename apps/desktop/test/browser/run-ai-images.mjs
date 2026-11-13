@@ -80,7 +80,7 @@ try {
     : [1280, 390, 320];
   const surfaces = process.env.WEQ_AI_SURFACES
     ? process.env.WEQ_AI_SURFACES.split(',')
-    : ['settings', 'assistant', 'clone', 'group'];
+    : ['settings', 'assistant', 'clone', 'group', 'new-clone'];
   for (const width of widths)
     for (const theme of ['light', 'dark'])
       for (const surface of surfaces) {
@@ -115,7 +115,9 @@ try {
             );
             await group.getByRole('radio', { name: 'OCR', exact: true }).click();
             assert.equal(
-              await group.getByRole('radio', { name: 'OCR', exact: true }).getAttribute('aria-checked'),
+              await group
+                .getByRole('radio', { name: 'OCR', exact: true })
+                .getAttribute('aria-checked'),
               'true',
             );
             await group.getByRole('radio', { name: '视觉模型', exact: true }).click();
@@ -126,6 +128,30 @@ try {
               'true',
             );
           }
+        } else if (surface === 'new-clone') {
+          await page.getByRole('button', { name: /下一步/ }).click();
+          const preference = page.getByRole('radiogroup', { name: '克隆训练 图片处理偏好' });
+          await preference.waitFor();
+          assert.equal(await page.getByText('分析 TA 的自定义表情包').count(), 0);
+          assert.equal(await page.getByLabel('克隆视觉模型', { exact: true }).count(), 0);
+          for (const label of ['OCR', '视觉模型', '文字占位']) {
+            await preference.getByRole('radio', { name: label, exact: true }).click();
+            assert.equal(
+              await preference
+                .getByRole('radio', { name: label, exact: true })
+                .getAttribute('aria-checked'),
+              'true',
+            );
+          }
+          await page.getByRole('button', { name: /开始克隆/ }).click();
+          assert.deepEqual(
+            await page.evaluate(
+              () =>
+                window.imageRequests().find((request) => request.name === 'startClone')?.input
+                  .models,
+            ),
+            { chat: { useDefault: true } },
+          );
         } else {
           const file = page.locator('.weq-ai-attachments > input[type="file"]');
           await file.waitFor({ state: 'attached' });
