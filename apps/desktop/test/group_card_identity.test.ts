@@ -60,14 +60,20 @@ async function render(role = 'member', listed = true) {
   };
   await act(async () => root.render(h(GroupCardIdentity, { conversation, metrics: null })));
 }
-it.each([true, false])('群名点击复制，群成员身份 %s 不影响复制', async (listed) => {
+it.each([true, false])('只读群名保持纯文本，群成员身份 %s 不影响阅读', async (listed) => {
   await render('member', listed);
-  const title = host.querySelector<HTMLButtonElement>('.weq-profile-name')!;
-  expect(title.disabled).toBe(false);
-  expect(title.getAttribute('aria-label')).toBe('复制群名');
+  const title = host.querySelector<HTMLElement>('.weq-profile-name')!;
+  expect(title.tagName).toBe('SPAN');
+  expect(title.textContent).toBe('合成群名');
   await act(async () => title.click());
-  expect(copyTextToClipboard).toHaveBeenLastCalledWith('合成群名', document);
-  expect(title.textContent).toContain('已复制');
+  expect(copyTextToClipboard).not.toHaveBeenCalled();
+});
+it('群号点击复制，标签不包含在复制热区内', async () => {
+  await render();
+  const value = host.querySelector<HTMLButtonElement>('[aria-label="复制 群号"]')!;
+  expect(value.textContent).toBe('20001');
+  await act(async () => value.click());
+  expect(copyTextToClipboard).toHaveBeenLastCalledWith('20001', document);
 });
 it('拖选群名后不触发复制', async () => {
   await render();

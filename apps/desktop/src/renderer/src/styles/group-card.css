@@ -48,29 +48,6 @@
   text-overflow: clip;
 }
 
-/* 群名不可原地编辑时是点值复制按钮：去掉按钮外观，保持标题排版。 */
-.weq-profile-name-copy {
-  max-width: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: start;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  cursor: copy;
-}
-
-.weq-profile-name-copy:hover {
-  color: var(--weq-accent-effective);
-}
-
-.weq-profile-name-copy:focus-visible {
-  outline: 2px solid var(--weq-accent-effective);
-  outline-offset: 2px;
-}
-
 /* 点名字进完整资料：与联系人名片同名按钮同一套 hover/focus 语言。 */
 .weq-group-name-link {
   padding: 0;

@@ -155,13 +155,15 @@ try {
             }
             layouts.push(result);
             if (kind === 'friend' || surface === 'popover') {
-              const title = page.getByRole('button', {
-                name: kind === 'friend' ? '复制昵称' : '复制群名',
-                exact: true,
-              });
+              const title = page.locator('.weq-profile-name').first();
+              assert.equal(await title.evaluate((node) => node.tagName), 'SPAN');
+              assert.equal(
+                await title.evaluate((node) => getComputedStyle(node).userSelect),
+                'text',
+              );
               await title.click();
-              await title.getByRole('status').waitFor();
-              assert.equal(await title.getByRole('status').textContent(), '已复制');
+              assert.equal(await title.getByRole('status').count(), 0);
+              assert.equal(await title.getAttribute('title'), null);
               assert.equal(await page.getByRole('dialog').count(), surface === 'popover' ? 1 : 0);
             }
             await page

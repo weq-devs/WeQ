@@ -240,11 +240,34 @@ try {
       }),
     );
     await card.locator('.weq-copy-feedback').waitFor({ state: 'detached' });
-    // 用户规则：不可编辑字段点值即复制，不额外渲染复制图标按钮。
+    // 仅标识和联系方式显式复制，其余只读资料可选择文本。
+    const name = card.locator('.weq-profile-name').first();
+    assert.equal(await name.evaluate((node) => node.tagName), 'SPAN');
+    assert.equal(await name.evaluate((node) => getComputedStyle(node).userSelect), 'text');
+    const beforeName = await page.evaluate(() => navigator.clipboard.readText());
+    await name.click();
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), beforeName);
+    for (const field of ['company', 'description']) {
+      const value = card.locator(`[data-profile-field="${field}"] .weq-profile-data-value`);
+      assert.equal(await value.locator('.weq-copy-target').count(), 0);
+      assert.equal(await value.evaluate((node) => getComputedStyle(node).userSelect), 'text');
+      await value.click();
+      assert.equal(await page.evaluate(() => navigator.clipboard.readText()), beforeName);
+    }
     const email = card.locator('[data-profile-field="email"] .weq-profile-data-value');
     assert.equal(await email.innerText(), 'sample@example.invalid');
     assert.equal(await email.locator('button').count(), 1);
     assert.equal(await email.locator('button svg').count(), 0);
+    await email.evaluate((node) => {
+      const range = document.createRange();
+      range.selectNodeContents(node.querySelector('button'));
+      const selection = document.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+    await email.locator('button').evaluate((node) => node.click());
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), beforeName);
+    await page.evaluate(() => document.getSelection().removeAllRanges());
     await email.locator('button').click();
     assert.equal(
       await page.evaluate(() => navigator.clipboard.readText()),

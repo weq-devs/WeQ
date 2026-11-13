@@ -104,19 +104,9 @@ export function ContactIdentity({
   const title = person.clone
     ? person.displayName
     : names?.name || person.nick?.trim() || person.identityValue || person.username;
-  const renderName = (value: ReactNode, editable = false) =>
-    editable ? (
-      <span className="weq-profile-name weq-contact-name">{value}</span>
-    ) : (
-      <CopyButton
-        text={typeof value === 'string' ? value : title}
-        className="weq-profile-name weq-contact-name weq-profile-name-copy"
-        title="复制昵称"
-        aria-label="复制昵称"
-      >
-        {value}
-      </CopyButton>
-    );
+  const renderName = (value: ReactNode) => (
+    <span className="weq-profile-name weq-contact-name">{value}</span>
+  );
   const identity = person.clone ? person.id.replace(/^virtual:/, '') : person.identityValue;
   const identityLabel = person.clone ? 'ID' : person.identityLabel;
   const editableRemark =
@@ -313,14 +303,17 @@ function IdentityNumber({ label, value }: { label: string; value: string }) {
       </span>
     );
   return (
-    <CopyButton
-      text={value}
-      className="weq-contact-number"
-      title={`复制 ${label}`}
-      aria-label={['ID', 'QID', 'UID'].includes(label) ? `复制 ${label}` : `复制 ${label} 号码`}
-    >
-      {label} <span className="weq-number">{value}</span>
-    </CopyButton>
+    <span className="weq-contact-number">
+      {label}{' '}
+      <CopyButton
+        text={value}
+        className="weq-contact-value weq-number"
+        title={`复制 ${label}`}
+        aria-label={['ID', 'QID', 'UID'].includes(label) ? `复制 ${label}` : `复制 ${label} 号码`}
+      >
+        {value}
+      </CopyButton>
+    </span>
   );
 }
 
@@ -431,7 +424,7 @@ function ExtraField({
   if (field === 'company') return <ContactRow label="公司" value={data?.company} />;
   if (field === 'description')
     return <ContactRow label="个人说明" value={data?.personalDescription} />;
-  return <ContactRow label="邮箱" value={data?.email} />;
+  return <ContactRow label="邮箱" value={data?.email} copyValue={data?.email ?? undefined} />;
 }
 
 function EnergyRow({ person }: { person: ProfilePerson }) {

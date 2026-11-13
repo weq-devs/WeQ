@@ -47,7 +47,7 @@ export function ContactRow({
   onActivate?: (anchor: HTMLButtonElement) => void;
   activateTitle?: string;
   valueClassName?: string;
-  /** 仅 QQ、QID、UID 使用点值复制，成功后就地提示。 */
+  /** 标识、联系方式显式启用点值复制；普通资料保持可选择文本。 */
   copyValue?: string;
   /** 同名字段可指向不同项目，例如普通添加来源与来源群。 */
   historyField?: string;
@@ -55,12 +55,7 @@ export function ContactRow({
   const hasHistory = useContactFieldHistoryAvailable(label, historyField);
   const blank = empty ?? isBlank(children ?? value);
   const content = blank ? '暂无当前资料' : (children ?? value);
-  // 用户规则：字段不显示复制/编辑按钮；可编辑时点值进入编辑，不可编辑时点值复制。
-  // 纯文本/数字值一律可点复制（结构化内容如标签、图片、按钮不复制）。
-  const text = blank
-    ? undefined
-    : (copyValue ??
-      (typeof content === 'string' || typeof content === 'number' ? String(content) : undefined));
+  const text = !blank && copyValue?.trim() ? copyValue : undefined;
   if (blank && !hasHistory) return null;
   const className = `weq-profile-data-row${valueClassName ? ` ${valueClassName}` : ''}`;
   return (

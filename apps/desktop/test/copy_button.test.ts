@@ -37,7 +37,7 @@ function mount(text = 'u_fixture') {
 }
 
 describe('统一复制反馈', () => {
-  it('只读文字和数字默认点击复制，有编辑动作时优先编辑', async () => {
+  it('只读文字和数字不自动复制，有编辑动作时优先编辑', async () => {
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);
@@ -58,15 +58,12 @@ describe('统一复制反馈', () => {
       ),
     );
     const buttons = host.querySelectorAll('button');
-    expect(buttons).toHaveLength(3);
+    expect(buttons).toHaveLength(1);
     expect(host.querySelector('svg')).toBeNull();
     await act(async () => buttons[0].click());
-    expect(writeText).toHaveBeenLastCalledWith('合成公司');
-    await act(async () => buttons[1].click());
-    expect(writeText).toHaveBeenLastCalledWith('42');
-    await act(async () => buttons[2].click());
     expect(edit).toHaveBeenCalledOnce();
-    expect(writeText).toHaveBeenCalledTimes(2);
+    expect(writeText).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('公司合成公司等级42');
   });
   it('等待写入成功后提示，并自动退场；连续点击重新计时', async () => {
     let resolve!: () => void;

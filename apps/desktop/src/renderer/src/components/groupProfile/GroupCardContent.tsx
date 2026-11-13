@@ -3,7 +3,6 @@ import type { GroupConversation, GroupMember } from '../../im-template/template/
 import { Avatar } from '../../im-template/template/primitives';
 import { RelationshipDirectoryContext, useGroupRelationship } from '../../lib/contactRelationship';
 import type { useGroupProfile } from '../../hooks/useGroupProfile';
-import { CopyButton } from '../CopyButton';
 import { ContactRow, ContactSection } from '../contactProfile/ContactRow';
 import { GroupRelationshipStatus } from '../RelationshipStatus';
 import { QQProfileField } from '../QQProfileField';
@@ -85,15 +84,7 @@ export function GroupCardIdentity({
                 <QQProfileField field="groupName" target={conversation.id} initial={name} inline />
               </div>
             ) : (
-              /* 不可原地改群名时，点群名即复制（用户规则：不额外放复制按钮）。 */
-              <CopyButton
-                text={name}
-                className="weq-profile-name weq-contact-name weq-profile-name-copy"
-                title="复制群名"
-                aria-label="复制群名"
-              >
-                {name}
-              </CopyButton>
+              <span className="weq-profile-name weq-contact-name">{name}</span>
             )}
             <ContactFieldHistoryButton label="群名称" field="groupName" />
           </div>
@@ -119,7 +110,7 @@ export function GroupCardIdentity({
             valueClassName="weq-profile-identity-remark"
           />
         )}
-        <ContactRow label={generated ? 'ID' : '群号'} value={identity} />
+        <ContactRow label={generated ? 'ID' : '群号'} value={identity} copyValue={identity} />
       </div>
     </>
   );

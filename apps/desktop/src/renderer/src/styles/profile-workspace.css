@@ -274,6 +274,10 @@ html[data-theme='dark'] .weq-profile-directory-tab[aria-selected='true'] {
   user-select: text;
 }
 
+.weq-contact-identity .weq-profile-name {
+  user-select: text;
+}
+
 .weq-profile-data-value.is-mono {
   font-family: var(--weq-font-mono, ui-monospace, SFMono-Regular, monospace);
   font-size: 12px;

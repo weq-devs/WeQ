@@ -331,12 +331,14 @@ describe('群成员资料卡浮层', () => {
       expect(row.textContent).toContain(text);
       expect(row.closest('section')?.querySelector('h3')?.textContent).toBe('个人资料');
     }
-    // 不再有「查看详细资料」的跳转入口；点值只做复制（用户规则：不额外放复制按钮）。
+    // 描述保持纯文本，邮箱显式提供点击复制，不新增图标。
     for (const field of ['company', 'description', 'email']) {
       const scope = layer().querySelector(`[data-profile-field="${field}"]`)!;
       const actions = [...scope.querySelectorAll('button')];
       expect(actions.some((el) => /查看|详细资料/.test(el.textContent ?? ''))).toBe(false);
-      expect(actions.some((el) => el.getAttribute('aria-label')?.startsWith('复制'))).toBe(true);
+      expect(actions.some((el) => el.getAttribute('aria-label')?.startsWith('复制'))).toBe(
+        field === 'email',
+      );
     }
     expect(layer().querySelector('.weq-contact-clamp')).toBeNull();
     expect(
@@ -427,7 +429,7 @@ describe('群成员资料卡浮层', () => {
     expect(contactCardFieldGroup(field)).toBe(group);
   });
   it.each([false, true])(
-    '昵称在名片正文 %s 中点击复制，不复制备注或打开编辑器',
+    '昵称在名片正文 %s 中保持可阅读文本，不复制或打开编辑器',
     async (cardBody) => {
       const host = document.createElement('div');
       document.body.appendChild(host);
@@ -446,13 +448,14 @@ describe('群成员资料卡浮层', () => {
           ),
         ),
       );
-      const name = host.querySelector<HTMLButtonElement>('[aria-label="复制昵称"]');
+      const name = host.querySelector<HTMLElement>('.weq-profile-name');
       expect(name).not.toBeNull();
-      expect(name?.getAttribute('title')).toBe('复制昵称');
+      expect(name?.tagName).toBe('SPAN');
+      expect(name?.textContent).toBe('合成昵称');
       expect(name?.querySelector('svg, button')).toBeNull();
       await act(async () => name!.click());
-      expect(copyTextToClipboard).toHaveBeenLastCalledWith('合成昵称', document);
-      expect(name?.querySelector('[role="status"]')?.textContent).toBe('已复制');
+      expect(copyTextToClipboard).not.toHaveBeenCalled();
+      expect(name?.querySelector('[role="status"]')).toBeNull();
       expect(host.querySelector('input')).toBeNull();
     },
   );
@@ -785,14 +788,14 @@ describe('群成员资料卡浮层', () => {
     );
   });
 
-  it('他人昵称点击复制不进入详情；展开按钮仍可进入详情', async () => {
+  it('他人昵称点击不复制或进入详情；展开按钮仍可进入详情', async () => {
     await mountCard(() => {}, undefined, { ...MEMBER, nick: '合成昵称' });
     const title = layer().querySelector<HTMLElement>('.weq-profile-name')!;
     await act(async () => title.click());
-    expect(copyTextToClipboard).toHaveBeenLastCalledWith('合成昵称', document);
-    expect(title.tagName).toBe('BUTTON');
+    expect(copyTextToClipboard).not.toHaveBeenCalled();
+    expect(title.tagName).toBe('SPAN');
     expect(title.textContent).toContain('合成昵称');
-    expect(title.querySelector('[role="status"]')?.textContent).toBe('已复制');
+    expect(title.querySelector('[role="status"]')).toBeNull();
     expect(expandContact).not.toHaveBeenCalled();
     act(() => layer().querySelector<HTMLButtonElement>('[aria-label="打开完整资料页"]')!.click());
     expect(expandContact).toHaveBeenCalledOnce();

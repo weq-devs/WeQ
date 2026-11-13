@@ -39,7 +39,6 @@ export function CopyButton({
         if (!button.isConnected || revision !== pending.current) return;
         if (ok) {
           setCopied(revision);
-          button.focus({ preventScroll: true });
         } else {
           useToast
             .getState()

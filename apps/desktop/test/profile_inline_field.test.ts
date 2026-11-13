@@ -221,8 +221,7 @@ it('离线已有内容为纯文本；读取失败有重试且不写入', async (
   render();
   expect(button('编辑备注')).toBeNull();
   expect(host.textContent).toContain('旧备注');
-  // 不可编辑时点值即复制（用户规则），不再额外挂复制图标。
-  expect(button('复制 备注').textContent).toBe('旧备注');
+  expect(host.querySelector('button')).toBeNull();
   mock.online = true;
   mock.readError = true;
   render();
@@ -244,15 +243,12 @@ it('群名称拒绝空白，普通成员读回后不出现编辑框', async () =
   expect(host.querySelector('input')).toBeNull();
   expect(host.textContent).toContain('当前不能修改群名称');
 });
-it('群标题离线时点击复制，恢复在线后原地编辑且不预读', async () => {
+it('群标题离线时为纯文本，恢复在线后原地编辑且不预读', async () => {
   mock.online = false;
   render('groupName', '原群名', true);
-  const name = button('复制群名');
-  expect(name).not.toBeNull();
-  expect(name?.getAttribute('title')).toBe('复制群名');
-  await click('复制群名');
-  expect(copyTextToClipboard).toHaveBeenLastCalledWith('原群名', document);
-  expect(name.textContent).toContain('已复制');
+  expect(host.textContent).toContain('原群名');
+  expect(host.querySelector('button')).toBeNull();
+  expect(copyTextToClipboard).not.toHaveBeenCalled();
   expect(mock.reads).not.toHaveBeenCalled();
   expect(mock.writes).not.toHaveBeenCalled();
   mock.online = true;

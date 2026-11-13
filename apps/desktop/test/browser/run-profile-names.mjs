@@ -76,12 +76,25 @@ async function copy(page, label) {
   await button.getByRole('status').waitFor();
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), text);
   assert.equal(await button.getByRole('status').textContent(), '已复制');
+  await button.getByRole('status').waitFor({ state: 'detached' });
+  cases++;
+}
+async function readName(page) {
+  const title = page.locator('.weq-profile-name').first();
+  await title.waitFor();
+  assert.equal(await title.locator('button, .weq-copy-target').count(), 0);
+  assert.notEqual(await title.evaluate((node) => node.tagName), 'BUTTON');
+  assert.equal(await title.evaluate((node) => getComputedStyle(node).userSelect), 'text');
+  await page.evaluate(() => navigator.clipboard.writeText('保留剪贴板内容'));
+  await title.click();
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), '保留剪贴板内容');
+  assert.equal(await title.getByRole('status').count(), 0);
   cases++;
 }
 try {
   await checkFixture('contact-card.stub.ts', 'profile-inline.html', async (page, url) => {
     await page.goto(url);
-    await copy(page, '复制昵称');
+    await readName(page);
     await page.goto(`${url}?group`);
     await page.getByRole('button', { name: '编辑群名称', exact: true }).click();
     await page.getByRole('textbox', { name: '群名称', exact: true }).fill('统一后的群名');
@@ -102,8 +115,9 @@ try {
           window.contactCardQa.notify();
         });
       }
-      await copy(page, '复制群名');
+      await readName(page);
     }
+    await copy(page, '复制 群号');
     for (const width of [1180, 390, 320])
       for (const theme of ['light', 'dark']) {
         await page.setViewportSize({ width, height: 800 });
@@ -114,7 +128,7 @@ try {
             theme === 'dark' ? '#47bc97' : '#c64556',
           );
         }, theme);
-        await copy(page, '复制群名');
+        await readName(page);
         assert.equal(
           await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
           false,
@@ -126,7 +140,7 @@ try {
   await checkFixture('profile-display.stub.ts', 'self-profile.html', async (page, url) => {
     for (const params of ['?other', '?other&popover', '?popover']) {
       await page.goto(`${url}${params}`);
-      await copy(page, '复制昵称');
+      await readName(page);
       if (output)
         await page.screenshot({ path: resolve(output, `nickname-${params.slice(1)}.png`) });
     }
@@ -137,7 +151,7 @@ try {
     await page.getByRole('button', { name: '编辑QQ 昵称', exact: true }).waitFor();
     assert.equal(await page.locator('button button').count(), 0);
     await page.evaluate(() => window.selfProfileQa.online(false));
-    await copy(page, '复制昵称');
+    await readName(page);
     await page.evaluate(() => window.selfProfileQa.online(true));
     await page.getByRole('button', { name: '编辑QQ 昵称', exact: true }).waitFor();
     assert.equal(await page.getByRole('button', { name: '复制昵称', exact: true }).count(), 0);
