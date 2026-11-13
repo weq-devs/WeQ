@@ -39,7 +39,6 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
   const a = useQQAction(`group:${groupId}`);
   const permissions = useQQGroupPermissions(groupId, a);
   const canManage = permissions.data?.canManage === true;
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [tag, setTag] = useState('');
   const groupRefresh = useQQAutoRefresh(a.available);
   const info = trpc.account.qqActions.groupJoinSettings.useQuery(
@@ -62,24 +61,7 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
     <section className="weq-qq-actions" aria-label="更多 QQ 群操作">
       {/* 与设置页同一套 Card/Row 语言：章节标题由资料页给出，这里不再重复「群管理」。 */}
       <div className="weq-qq-action-form">
-        <Card
-          title="加群方式"
-          action={
-            <button
-              type="button"
-              className="weq-set-iconbtn"
-              title="群管理菜单"
-              aria-label="群管理菜单"
-              disabled={a.disabled}
-              onClick={(event) => {
-                const rect = event.currentTarget.getBoundingClientRect();
-                setMenu({ x: rect.left, y: rect.bottom });
-              }}
-            >
-              <MoreHorizontal size={16} />
-            </button>
-          }
-        >
+        <Card title="加群方式">
           <GroupJoinSettings key={groupId} groupId={groupId} />
         </Card>
         <Card title="分类标签">
@@ -91,7 +73,7 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
                   key={category ?? 'unknown'}
                   aria-label="群分类"
                   defaultValue={category ?? ''}
-                  disabled={a.disabled || !canManage || category === null}
+                  disabled
                 >
                   {category === null ? (
                     <option value="">{info.isFetching ? '读取分类中…' : '未取得群分类'}</option>
@@ -200,40 +182,42 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
             ) : null}
           </section>
         </Card>
+        <Card title="其他操作">
+          <Row
+            label="退出群聊"
+            control={
+              <button
+                type="button"
+                className="weq-set-btn"
+                aria-label="退出群聊"
+                disabled={a.disabled || permissions.data?.role === null}
+                onClick={() =>
+                  void a.perform(
+                    (b) =>
+                      client.account.qqActions.groupSettings.mutate({
+                        ...b,
+                        groupId,
+                        action: 'leave',
+                      }),
+                    undefined,
+                    `退出 QQ 群 ${groupId}？重新加入需要再次申请，不能自动恢复。`,
+                    {
+                      readback: async () => {
+                        const rows = await client.account.listAllGroups.query();
+                        return !rows.some((row) => String(row.groupCode) === String(groupId));
+                      },
+                    },
+                  )
+                }
+              >
+                <LogOut size={16} />
+                退出群聊
+              </button>
+            }
+          />
+        </Card>
         <ActionFeedback action={a} />
       </div>
-      {menu && (
-        <ConversationActionsMenu
-          x={menu.x}
-          y={menu.y}
-          label="群管理菜单"
-          onClose={() => setMenu(null)}
-          actions={[
-            {
-              label: '退出 QQ 群',
-              icon: <LogOut size={16} />,
-              disabled: a.disabled,
-              action: () =>
-                void a.perform(
-                  (b) =>
-                    client.account.qqActions.groupSettings.mutate({
-                      ...b,
-                      groupId,
-                      action: 'leave',
-                    }),
-                  undefined,
-                  `退出 QQ 群 ${groupId}？重新加入需要再次申请，不能自动恢复。`,
-                  {
-                    readback: async () => {
-                      const rows = await client.account.listAllGroups.query();
-                      return !rows.some((row) => String(row.groupCode) === String(groupId));
-                    },
-                  },
-                ),
-            },
-          ]}
-        />
-      )}
     </section>
   );
 }
@@ -245,6 +229,8 @@ function GroupTodosBody({
   onJumpToMessage,
   popoverOpen,
   onPopoverOpenChange,
+  popoverAnchor,
+  showSummary = true,
 }: {
   groupId: number;
   groupName?: string;
@@ -252,6 +238,8 @@ function GroupTodosBody({
   onJumpToMessage?: (sequence: string) => void;
   popoverOpen?: boolean;
   onPopoverOpenChange?: (open: boolean, anchor: HTMLElement | null) => void;
+  popoverAnchor?: HTMLElement | null;
+  showSummary?: boolean;
 }) {
   const a = useQQAction(`todos:${groupId}`);
   const [opened, setOpened] = useState(false);
@@ -509,33 +497,40 @@ function GroupTodosBody({
   };
   return (
     <>
-      <section className="weq-group-summary weq-group-todos" aria-label="群待办">
-        <button
-          type="button"
-          onClick={(event) => changeOpen(!visible, event.currentTarget)}
-          title="查看群待办"
-          aria-label="查看群待办"
-          aria-expanded={visible}
-        >
-          <strong>待办</strong>
-          <span className="weq-todo-summary" aria-label="待办内容">
-            {latest
-              ? `${latest.completed ? '已完成 · ' : ''}${latest.text || `消息 ${latest.sequence}`}`
-              : hasRead
-                ? '暂无待办'
-                : reading
-                  ? '读取中…'
-                  : readError
-                    ? '读取失败'
-                    : localTodos.data === undefined
-                      ? '尚未读取'
-                      : '暂无待办'}
-          </span>
-          <ChevronRight size={14} aria-hidden />
-        </button>
-      </section>
+      {showSummary ? (
+        <section className="weq-group-summary weq-group-todos" aria-label="群待办">
+          <button
+            type="button"
+            onClick={(event) => changeOpen(!visible, event.currentTarget)}
+            title="查看群待办"
+            aria-label="查看群待办"
+            aria-expanded={visible}
+          >
+            <strong>待办</strong>
+            <span className="weq-todo-summary" aria-label="待办内容">
+              {latest
+                ? `${latest.completed ? '已完成 · ' : ''}${latest.text || `消息 ${latest.sequence}`}`
+                : hasRead
+                  ? '暂无待办'
+                  : reading
+                    ? '读取中…'
+                    : readError
+                      ? '读取失败'
+                      : localTodos.data === undefined
+                        ? '尚未读取'
+                        : '暂无待办'}
+            </span>
+            <ChevronRight size={14} aria-hidden />
+          </button>
+        </section>
+      ) : null}
       {visible && (
-        <GroupFeatureSurface presentation="popover" anchor={anchor} title="群待办" onClose={close}>
+        <GroupFeatureSurface
+          presentation="popover"
+          anchor={popoverAnchor ?? anchor}
+          title="群待办"
+          onClose={close}
+        >
           <section
             className="group-announcements-dialog"
             role="region"

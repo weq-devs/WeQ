@@ -1,0 +1,8 @@
+.weq-profile-page-toolbar > strong {
+  flex: 1;
+}
+
+.weq-profile-page-toolbar > button {
+  flex: 0 0 auto;
+  margin-inline-start: 0;
+}

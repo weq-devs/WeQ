@@ -64,6 +64,8 @@ export type GroupWorkspaceTab =
   | 'profile'
   | 'details'
   | 'members'
+  | 'content'
+  | 'todos'
   | 'announcements'
   | 'albums'
   | 'files'

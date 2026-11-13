@@ -276,6 +276,7 @@ import {
 import { ContactNoticeDialog, GroupNoticeDialog } from '../components/ContactNoticeDialogs';
 import type { GroupInfoDetail, GroupSidebarFeature } from '../im-template/template/groupInfoPanel';
 import { ConversationSettingsDialog } from '../components/ConversationSettingsDialog';
+import { ConversationSettingsNavigationContext, GroupResourceNavigationContext, type ConversationSettingsRequest } from '../lib/conversationSettingsNavigation';
 import { QQRemarkDialog } from '../components/QQRemarkDialog';
 import { FriendDirectoryControls } from '../components/FriendDirectoryControls';
 import { RelationshipDirectoryContext } from '../lib/contactRelationship';
@@ -3463,12 +3464,11 @@ function MainWorkspace(): ReactElement {
   } | null>(null);
   /** 防撤回面板（「更多 → 防撤回」）：弹窗，不是视图。 */
   /** 会话设置（头部顶栏的设置按钮）：群聊 / 私聊各一份。 */
-  const [convSettings, setConvSettings] = useState<{
-    kind: 'c2c' | 'group' | 'dataline';
-    conv: string;
-    title: string;
-    anchor?: HTMLElement;
-  } | null>(null);
+  const [convSettings, setConvSettings] = useState<(ConversationSettingsRequest & { ownerKey: string }) | null>(null);
+  useEffect(() => setConvSettings(null), [messageScope]);
+  const openProfileConversationSettings = useCallback((request: ConversationSettingsRequest) => {
+    setConvSettings({ ...request, ownerKey: messageScope });
+  }, [messageScope]);
   const [remarkTarget, setRemarkTarget] = useState<RoamingTarget | null>(null);
   const [groupBugDialog, setGroupBugDialog] = useState<{
     groupCode: string;
@@ -3845,9 +3845,11 @@ function MainWorkspace(): ReactElement {
         conv,
         title,
         anchor,
+        ownerKey: messageScope,
+        ...(conversation.type === 'group' ? { groupConversation: conversation } : {}),
       });
     },
-    [convFetchKey],
+    [convFetchKey, messageScope],
   );
 
   const handleOpenGroupLeftMembers = useCallback(
@@ -12785,13 +12787,18 @@ function MainWorkspace(): ReactElement {
               onClose={() => setGroupSidebarPopover(null)}
             />
           ) : null}
-          {convSettings ? (
+          {convSettings && convSettings.ownerKey === messageScope ? (
             <ConversationSettingsDialog
+              key={`${convSettings.ownerKey}:${convSettings.kind}:${convSettings.conv}:${convSettings.initialSection ?? 'qq'}`}
+              initialSection={convSettings.initialSection}
+              groupConversation={convSettings.groupConversation}
+              contact={convSettings.contact}
+              onOpenProfile={convSettings.onOpenProfile}
               kind={convSettings.kind}
               conv={convSettings.conv}
               title={convSettings.title}
               anchor={convSettings.anchor}
-              members={currentGroupMembers.map((m) => ({
+              members={(convSettings.groupConversation?.members ?? []).map((m) => ({
                 uid: m.id,
                 displayName: m.displayName,
                 avatarUrl: m.avatarUrl ?? null,
@@ -13133,6 +13140,8 @@ function MainWorkspace(): ReactElement {
     NonNullable<React.ContextType<typeof ProfileNavigationContext>>
   >((member, anchor, group) => setMemberCard({ member, anchor, groupContext: group ?? null }), []);
   return (
+    <ConversationSettingsNavigationContext.Provider value={openProfileConversationSettings}>
+    <GroupResourceNavigationContext.Provider value={openGroupResourceWindow}>
     <CalendarNavigationContext.Provider value={locateCalendarMessage}>
     <ContactWorkspaceNavigationContext.Provider
       value={(target) =>
@@ -13465,5 +13474,7 @@ function MainWorkspace(): ReactElement {
       </ProfileNavigationGuardContext.Provider>
     </ContactWorkspaceNavigationContext.Provider>
     </CalendarNavigationContext.Provider>
+    </GroupResourceNavigationContext.Provider>
+    </ConversationSettingsNavigationContext.Provider>
   );
 }

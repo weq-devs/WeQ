@@ -54,6 +54,20 @@ function App() {
     });
   }, []);
   const [full, setFull] = useState(false);
+  useLayoutEffect(() => {
+    if (full)
+      requestAnimationFrame(() =>
+        Object.assign(window, {
+          groupFullFirstPaint: {
+            name: document.querySelector('.weq-group-page .weq-profile-name')?.textContent,
+            hasInformation: Boolean(document.querySelector('.weq-group-profile-information')),
+            members: document.querySelectorAll('.weq-group-profile-members .group-info-member-row')
+              .length,
+          },
+        }),
+      );
+  }, [full]);
+  const [previewed, setPreviewed] = useState(false);
   const [code, setCode] = useState('12345');
   const [long, setLong] = useState(false);
   const [short, setShort] = useState(false);
@@ -96,7 +110,16 @@ function App() {
         >
           <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column' }}>
             <GroupMessagePreviewContext.Provider
-              value={{ open: () => {}, close: () => {}, conversationId: null, content: null }}
+              value={{
+                open: () => setPreviewed(true),
+                close: () => setPreviewed(false),
+                conversationId: previewed ? code : null,
+                content: previewed ? (
+                  <button type="button" onClick={() => setPreviewed(false)}>
+                    返回群资料
+                  </button>
+                ) : null,
+              }}
             >
               <GroupProfileSurface
                 conversation={{

@@ -66,6 +66,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       getProfile: { query: async () => null },
       getProfileByUin: { query: async () => null },
       getGroupDetail: { query: async () => null },
+      listGroupMembers: { query: async () => [] },
+      getGroupExtendedProfile: { query: async () => null },
       getCardDisplayNames: { query: async () => ({ name: '', remark: '' }) },
       dressup: { peerQqShow: { query: async () => null }, peerHome: { query: async () => null } },
     },
@@ -79,6 +81,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     account: {
       getOnlineStatus: { useQuery: () => ({ data: undefined }) },
       groupMemberPreview: { useQuery: () => ({ data: undefined }) },
+      listGroupLeftMembers: { useQuery: () => ({ data: [], isFetching: false }) },
       qqActions: {
         groupPermissions: { useQuery: () => ({ data: undefined }) },
         todoList: { useQuery: () => ({ data: [] }) },
@@ -128,6 +131,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         useQuery: () => ({ data: { qqOnline: true }, isLoading: false }),
       },
       qqWrite: {
+        memberDetails: { useQuery: () => ({ data: undefined, refetch: vi.fn() }) },
+        groupMemberMute: { useMutation: () => ({ mutateAsync: vi.fn() }) },
         friendClue: { useQuery: () => ({ data: undefined, isFetching: false }) },
         commonRelationships: {
           useQuery: () => ({
@@ -427,9 +432,11 @@ it.each(['friend', 'group'] as const)(
         act(() => sectionButton(host, '与我的关系').click());
         expect(host.querySelector('[aria-label="与我的关系"]')?.textContent).toContain('亲密度');
       } else {
-        expect(host.querySelectorAll('.weq-group-preview-avatars button')).toHaveLength(8);
-        expect(sectionButton(host, '成员')).toBeDefined();
-        expect(sectionButton(host, '文件')).toBeDefined();
+        expect(host.querySelectorAll('.weq-group-preview-avatars button')).toHaveLength(0);
+        expect(host.querySelector('.weq-group-profile-information')).not.toBeNull();
+        expect(host.querySelector('.weq-group-profile-members')).not.toBeNull();
+        expect(host.querySelector('[aria-label="查看群文件"]')).not.toBeNull();
+        expect(host.querySelector('.weq-profile-directory')).toBeNull();
       }
       // 联系人与群的页头共用 ProfilePageHeader，关闭按钮 aria-label 为「关闭资料 / 关闭群资料」。
       const entry = host.querySelector<HTMLButtonElement>('button[aria-label^="关闭"]')!;
@@ -624,7 +631,7 @@ it.each([true, false])('群资料 embedded=%s 提供统一消息操作并原位�
     expect(close).not.toHaveBeenCalled();
     act(() => button('返回资料').click());
     expect(document.querySelector('.is-previewing-chat')).toBeNull();
-    if (embedded) expect(host.querySelector('[aria-label="概览"]')).not.toBeNull();
+    if (embedded) expect(host.querySelector('.weq-group-profile-columns')).not.toBeNull();
     act(() => button('查看消息').click());
     expect(open).toHaveBeenCalledWith({ kind: 'group', conversation: groupFixture });
     expect(close).toHaveBeenCalledTimes(embedded ? 0 : 1);

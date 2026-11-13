@@ -1,4 +1,4 @@
-import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
+import { preciseTimeFormatter as eventTimeFormatter, eventTimeFormatter as groupTimeFormatter } from '@weq/time';
 import { useContext, useId, useRef, useState, type ReactNode } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { History, X } from 'lucide-react';
@@ -57,6 +57,18 @@ export const contactHistoryFieldForLabel: Record<string, string> = {
   入群时间: 'joinedAt',
   最后群发言: 'lastSpeakAt',
   禁言截止: 'muteUntil',
+  群名称: 'groupName',
+  简介: 'description',
+  创建时间: 'createTime',
+  我的入群时间: 'joinedAt',
+  群地点: 'addressName',
+  入群问题: 'entranceQ',
+  群容量: 'maxMemberCount',
+  群成员数: 'memberCount',
+  群内好友数: 'friendCount',
+  活跃度: 'activityScore',
+  活跃成员: 'activeMemberCount',
+  冻结状态: 'freezeState',
 };
 
 export function useContactFieldHistoryAvailable(label: string, field?: string) {
@@ -217,7 +229,7 @@ function FieldHistoryDialog({
                   {field === 'avatar' ? (
                     <ContactHistoryAvatar value={row.value} />
                   ) : (
-                    <HistoryValue value={row.value} />
+                    <HistoryValue value={groupFieldHistoryValue(entity, memberUid, field, row.value)} />
                   )}
                 </li>
               ))}
@@ -236,4 +248,36 @@ function FieldHistoryDialog({
       </div>
     </Modal>
   );
+}
+
+/** 群字段的历史沿用当前资料的业务单位，不向弹窗暴露 Unix 秒或标签内部字段。 */
+export function groupFieldHistoryValue(
+  entity: string,
+  memberUid: string | undefined,
+  field: string,
+  value: unknown,
+): unknown {
+  if (!entity.startsWith('group:') || memberUid) return value;
+  if (['createTime', 'joinedAt'].includes(field) && typeof value === 'number' && value > 1)
+    return groupTimeFormatter.format(value * 1000);
+  if (
+    ['memberCount', 'maxMemberCount', 'friendCount', 'activeMemberCount'].includes(field) &&
+    typeof value === 'number'
+  )
+    return `${value} 人`;
+  if (field === 'freezeState' && typeof value === 'number')
+    return value === 0 ? '正常' : value === 1 ? '已冻结' : `状态码 ${value}`;
+  if (field === 'labels' && value && typeof value === 'object' && !Array.isArray(value)) {
+    const labels = value as { labels?: unknown; customLabels?: unknown };
+    return [
+      ...new Set(
+        [labels.labels, labels.customLabels].flatMap((list) =>
+          Array.isArray(list)
+            ? list.filter((item): item is string => typeof item === 'string')
+            : [],
+        ),
+      ),
+    ];
+  }
+  return value;
 }

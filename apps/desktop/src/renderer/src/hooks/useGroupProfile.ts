@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useRef } from 'react';
 import { client, trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useTabActive } from '../components/RetainedTabs';
@@ -78,14 +79,19 @@ export function useGroupProfile(conversation: GroupConversation, previewMembers 
     ...PROFILE_QUERY_OPTIONS,
     enabled,
   });
+  const forceExtended = useRef(false);
   const extended = useQuery({
     queryKey: ['group-profile-joined-at', key, conversation.id],
-    queryFn: () =>
-      client.account.getGroupExtendedProfile.query({
+    queryFn: () => {
+      const force = forceExtended.current;
+      forceExtended.current = false;
+      return client.account.getGroupExtendedProfile.query({
         ...binding!,
         groupId: Number(conversation.id),
         refresh: true,
-      }),
+        ...(force ? { force: true } : {}),
+      });
+    },
     enabled,
     ...PROFILE_QUERY_OPTIONS,
     staleTime: 5 * 60_000,
@@ -118,7 +124,7 @@ export function useGroupProfile(conversation: GroupConversation, previewMembers 
         name: displayName,
         remark: local.remark || null,
         description: local.description || conversation.group.description,
-        memberCount: local.memberCount > 0 ? local.memberCount : conversation.group.memberCount,
+        memberCount: local.memberCount >= 0 ? local.memberCount : conversation.group.memberCount,
         maxMemberCount: local.maxMemberCount || conversation.group.maxMemberCount,
         createTime: iso(local.createTime) || conversation.group.createTime,
         labels: local.labels || conversation.group.labels,
@@ -128,11 +134,22 @@ export function useGroupProfile(conversation: GroupConversation, previewMembers 
           .map((label) => label.content)
           .filter((value): value is string => Boolean(value)),
         customLabelRecords: local.customLabels,
+        addressName: local.address?.locationName ?? conversation.group.addressName,
       }
     : { ...conversation.group, name: displayName };
   return {
     conversation: { ...conversation, group },
     ownerUid: local?.ownerUid,
+    memberCountKnown: Boolean(local),
+    extended:
+      enabled && extended.data?.groupId === Number(conversation.id) ? extended.data : undefined,
+    extendedRefreshing: extended.isFetching,
+    extendedError: extended.error ? '群扩展资料读取失败，保留已有内容' : extended.data?.error,
+    refreshExtended: () => {
+      if (!enabled || extended.isFetching) return;
+      forceExtended.current = true;
+      void extended.refetch();
+    },
     joinedAt: joinedAt ?? (typeof cachedJoin === 'number' && cachedJoin > 1 ? cachedJoin : null),
     binding,
     scope: key,

@@ -1,33 +1,26 @@
 import { useState } from 'react';
 import {
   BellOff,
-  ImageUp,
-  MessagesSquare,
   MessageSquareText,
   Pin,
   Sparkles,
   RefreshCw,
   Star,
-  UserPen,
   UserRound,
   UserRoundCog,
-  UsersRound,
   Wifi,
   WifiOff,
 } from 'lucide-react';
 import { trpc } from '../trpc/client';
-import { pickAccountFile } from '../lib/accountFilePicker';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { useFriendSpecialCare } from '../hooks/useFriendSpecialCare';
-import { refreshGroupAvatar } from '../hooks/useAvatarUrl';
 import { groupMemberEditing } from '../lib/groupMemberEditing';
 import { Card } from './settings/controls';
 import { useDialog } from './Dialog';
 import { GroupActions } from './qq-actions/GroupActions';
 import { QzoneFriendPermissions } from './qq-actions/QzoneFriendPermissions';
 import {
-  QQWriteActionRow,
   QQWriteResult,
   QQWriteSelectRow,
   QQWriteTextRow,
@@ -93,22 +86,17 @@ export function QQConversationControls({
       refetchOnWindowFocus: false,
     },
   );
-  const groupRemark = trpc.account.qqWrite.groupRemark.useMutation();
   const pin = trpc.account.qqWrite.pin.useMutation();
   const disturb = trpc.account.qqWrite.friendDisturb.useMutation();
   const policy = trpc.account.qqWrite.groupMessagePolicy.useMutation();
-  const groupName = trpc.account.qqWrite.groupName.useMutation();
   const card = trpc.account.qqWrite.groupMemberCard.useMutation();
   const title = trpc.account.qqWrite.groupSpecialTitle.useMutation();
-  const avatar = trpc.account.qqWrite.groupAvatar.useMutation();
   const confirm = useDialog((state) => state.confirm);
   const [revision, setRevision] = useState(0);
-  const [picking, setPicking] = useState(false);
-  const [pickerError, setPickerError] = useState('');
   const state = snapshot.data;
   const specialCare = useFriendSpecialCare(kind === 'c2c' && state?.friend ? conv : undefined);
   const ownEditing = groupMemberEditing(state?.role, state?.role, true);
-  const disabled = session.busy || !session.available || !state || picking;
+  const disabled = session.busy || !session.available || !state;
   const friendDisabled = disabled || !state?.friend;
   async function refresh(includePolicy = false) {
     const result = await snapshot.refetch();
@@ -122,7 +110,6 @@ export function QQConversationControls({
       if (disturbResult.error) throw disturbResult.error;
     }
   }
-  const act = (action: Parameters<typeof session.run>[0]) => session.run(action, refresh);
   function changePeerToggle(field: 'pinned' | 'friendDisturb', enabled: boolean) {
     return session.run(
       (binding) =>
@@ -185,23 +172,6 @@ export function QQConversationControls({
       },
     );
   }
-  async function pickAvatar() {
-    setPicking(true);
-    setPickerError('');
-    try {
-      const file = await pickAccountFile('image', session.binding ?? undefined);
-      if (file) {
-        const saved = await act((binding) =>
-          avatar.mutateAsync({ ...binding, groupId: Number(conv), source: file.path }),
-        );
-        if (saved) refreshGroupAvatar(conv);
-      }
-    } catch (error) {
-      setPickerError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setPicking(false);
-    }
-  }
   return (
     <div
       className="weq-qq-write-panel"
@@ -227,7 +197,6 @@ export function QQConversationControls({
             aria-label="重试读取 QQ 会话设置"
             disabled={
               session.busy ||
-              picking ||
               snapshot.isFetching ||
               (kind === 'c2c' && disturbSnapshot.isFetching) ||
               (kind === 'group' && policySnapshot.isFetching)
@@ -256,7 +225,6 @@ export function QQConversationControls({
         policySnapshot.data.policy !== state.notifyLevel && (
           <p role="status">服务端与本机消息策略尚未同步</p>
         )}
-      {pickerError && <p role="alert">{pickerError}</p>}
       <QQWriteResult result={session.result} />
       {state && (
         <div key={`${kind}:${conv}:${revision}`}>
@@ -265,33 +233,6 @@ export function QQConversationControls({
               title={kind === 'group' ? '群会话' : '好友会话'}
               icon={<MessageSquareText size={15} strokeWidth={1.9} />}
             >
-              {kind === 'group' && (
-                <QQWriteTextRow
-                  label="群备注"
-                  icon={<UserPen size={14} strokeWidth={1.8} />}
-                  initial={state.remark}
-                  disabled={disabled}
-                  onSave={(value) =>
-                    session.run(
-                      (binding) =>
-                        groupRemark.mutateAsync({
-                          ...binding,
-                          groupId: Number(conv),
-                          remark: value,
-                        }),
-                      undefined,
-                      {
-                        readbackSuccessText: value ? '备注已保存' : '备注已清空',
-                        readback: async () => {
-                          const updated = await snapshot.refetch();
-                          if (updated.error) throw updated.error;
-                          return updated.data?.remark === value;
-                        },
-                      },
-                    )
-                  }
-                />
-              )}
               <QQWriteToggleRow
                 label="置顶会话"
                 icon={<Pin size={14} strokeWidth={1.8} />}
@@ -400,40 +341,6 @@ export function QQConversationControls({
                     },
                   )
                 }
-              />
-            </Card>
-          )}
-          {management && (
-            <Card title="群资料" icon={<UsersRound size={15} strokeWidth={1.9} />}>
-              <QQWriteTextRow
-                label="群名称"
-                icon={<MessagesSquare size={14} strokeWidth={1.8} />}
-                allowEmpty={false}
-                initial={state.groupName}
-                disabled={disabled}
-                onSave={(value) =>
-                  session.run(
-                    (binding) =>
-                      groupName.mutateAsync({ ...binding, groupId: Number(conv), name: value }),
-                    undefined,
-                    {
-                      readbackSuccessText: '群名称已修改',
-                      readback: async () => {
-                        const result = await snapshot.refetch();
-                        if (result.error) throw result.error;
-                        return result.data?.groupName === value;
-                      },
-                    },
-                  )
-                }
-              />
-              <QQWriteActionRow
-                label="更换群头像"
-                disabled={disabled}
-                icon={<ImageUp size={15} />}
-                onClick={() => {
-                  void pickAvatar();
-                }}
               />
             </Card>
           )}

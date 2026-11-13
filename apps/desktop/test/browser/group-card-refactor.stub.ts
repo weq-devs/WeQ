@@ -83,12 +83,18 @@ async function reply(path: string, input) {
       updatedAt: 1794380000000,
       error: null,
     };
-  if (path === 'account.listGroupMembers')
+  if (path === 'account.listGroupMembers') {
+    if (input.limit === 50 && input.offset === 0)
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     return Array.from(
       { length: Math.max(0, Math.min(input.limit ?? 100, 110 - input.offset)) },
       (_, i) => row(input.offset + i + 1),
     );
-  if (path === 'account.searchGroupMembers') return { members: [row(3)], total: 1 };
+  }
+  if (path === 'account.searchGroupMembers')
+    return input.keyword === '没有匹配'
+      ? { members: [], total: 0 }
+      : { members: [row(3)], total: 1 };
   if (path === 'account.getGroupEssencePageWithContent') return { complete: true, messages: [] };
   if (path === 'account.qqActions.groupReadTools')
     return { signed: [], atAll: { canAtAll: false, remainCountForUin: 0, remainCountForGroup: 0 } };

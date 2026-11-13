@@ -1,4 +1,181 @@
-/*
- * 群快速名片改用共用浮层外壳（.weq-member-pop .weq-contact-card），
- * 原来的 .weq-profile-dialog 宽度补丁已失效，删除以免误导。
- */
+.weq-group-page .weq-profile-page-header .weq-group-quick-identity {
+  align-items: flex-start;
+}
+
+.weq-group-page .weq-group-tags {
+  padding: 0;
+  border: 0;
+}
+
+.weq-group-avatar-tools {
+  position: relative;
+  flex: 0 0 64px;
+  width: 64px;
+}
+
+.weq-group-avatar-tools > .weq-group-avatar-edit,
+.weq-group-avatar-tools > .weq-profile-field-history {
+  position: absolute;
+  inset-block-end: -4px;
+  inset-inline-end: -4px;
+  background: var(--weq-bg-surface);
+  border-radius: 4px;
+}
+
+.weq-group-quick-name-editor:has([data-qq-action]) > .weq-profile-field-history {
+  display: none;
+}
+
+.weq-group-card .weq-contact-title-line {
+  width: 100%;
+}
+
+.weq-group-avatar-tools > .weq-profile-field-history {
+  inset-inline-start: -4px;
+  inset-inline-end: auto;
+}
+
+.weq-group-page
+  .weq-profile-section-block:not(:has(.weq-profile-data-row, [role='status'], [role='alert'])) {
+  display: none;
+}
+
+.weq-group-profile-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.weq-group-profile-information {
+  min-width: 0;
+  min-height: 0;
+  padding: 20px 24px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.weq-group-profile-members {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  padding: 12px 16px;
+  border-inline-start: 1px solid var(--weq-border-subtle);
+}
+
+.weq-group-profile-members > .group-info-panel {
+  display: flex;
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.weq-group-page .weq-group-profile-members > .group-info-panel,
+html[data-theme='dark'] .weq-group-page .weq-group-profile-members > .group-info-panel {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.weq-group-profile-members .member-list-section {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  margin: 0;
+}
+
+.weq-group-profile-members .group-info-member-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.weq-group-profile-features {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.weq-group-profile-operation-area {
+  min-width: 0;
+}
+.weq-group-profile-features > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px;
+  font-size: 12px;
+}
+
+.weq-group-page .weq-profile-page-header--split {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+}
+
+@container profile-page (max-width: 759px) {
+  .weq-group-page .weq-group-page-content:not([hidden]) {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    overflow: auto;
+  }
+  .weq-group-page .weq-profile-page-header--split {
+    grid-template-columns: minmax(0, 1fr);
+    max-height: none;
+    overflow: visible;
+    flex-shrink: 0;
+  }
+  .weq-group-profile-columns {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+  .weq-group-profile-information {
+    padding: 16px 14px;
+    overflow: visible;
+  }
+  .weq-group-profile-members {
+    height: min(560px, 70dvh);
+    min-height: 280px;
+    padding: 12px 14px;
+    border-inline-start: 0;
+    border-top: 1px solid var(--weq-border-subtle);
+  }
+  .weq-group-page .weq-profile-page-actions .weq-contact-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .weq-group-profile-features {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.weq-group-state-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.weq-group-page.is-previewing-chat > .weq-contact-chat-preview {
+  padding: 0;
+  overflow: auto;
+}
+.weq-group-page-content:not([hidden]) {
+  display: contents;
+}

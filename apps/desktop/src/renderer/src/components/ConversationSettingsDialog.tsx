@@ -11,7 +11,9 @@
  * 启用范围 / 通知总开关仍在「更多 → 防撤回」面板里，这里只做单会话的粒度。
  */
 
-import { useContext, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import type { Contact, GroupConversation } from '../im-template/template/types';
+import { sharedGroupConversation } from './ark/groupShareCard';
 import { accountBinding } from '../lib/clientPreferences';
 import { ContactWorkspaceNavigationContext, profileTargetUser } from '../lib/profileNavigation';
 import { BellRing, BrainCircuit, Settings2, ShieldCheck, UsersRound } from 'lucide-react';
@@ -42,6 +44,10 @@ export function ConversationSettingsDialog({
   members = [],
   onClose,
   anchor,
+  initialSection,
+  groupConversation,
+  contact,
+  onOpenProfile,
 }: {
   /** 与后端 AntiRecallKind 对齐（数据线单独一张表，不能并到私聊）。 */
   kind: 'c2c' | 'group' | 'dataline';
@@ -53,21 +59,39 @@ export function ConversationSettingsDialog({
   members?: KeywordMember[];
   onClose: () => void;
   anchor?: HTMLElement;
+  initialSection?: 'qq' | 'group-management';
+  groupConversation?: GroupConversation;
+  contact?: Contact;
+  onOpenProfile?: () => void;
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
   const openWorkspace = useContext(ContactWorkspaceNavigationContext);
   const profileUser = kind === 'c2c' ? profileTargetUser({ identity: conv, name: title }) : null;
   const utils = trpc.useUtils();
   const source = useRef(accountBinding());
-  const [section, setSection] = useState<SectionId>(kind === 'dataline' ? 'antirecall' : 'qq');
+  const [section, setSection] = useState<SectionId>(
+    kind === 'dataline' ? 'antirecall' : (initialSection ?? 'qq'),
+  );
   /** 关键词编辑器的保存状态 —— 由内嵌的 editor 外抛（灯箱那套同一份实现）。 */
-  const [keywordSave, setKeywordSave] = useState({ saving: false, savedAt: 0 });
+  const [keywordSave, setKeywordSave] = useState({ saving: false, savedAt: 0, error: '' });
+  const [checkingProtection, setCheckingProtection] = useState(false);
+  const verification = useRef(0);
+  const mounted = useRef(true);
 
   const status = trpc.account.antiRecall.getStatus.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
   });
+  const [observed, setObserved] = useState<typeof status.data>();
+  const actualStatus = observed ?? status.data;
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      verification.current++;
+    };
+  }, []);
 
   const setScope = trpc.account.antiRecall.setScope.useMutation();
   const setTargets = trpc.account.antiRecall.setTargets.useMutation();
@@ -99,7 +123,19 @@ export function ConversationSettingsDialog({
 
   /** 写操作的返回值（期望状态）直接落进缓存：点击即生效，不转圈。 */
   function applyStatus(next: Awaited<ReturnType<typeof setTargets.mutateAsync>>): void {
-    utils.account.antiRecall.getStatus.setData(undefined, next);
+    if (mounted.current) utils.account.antiRecall.getStatus.setData(undefined, next);
+  }
+  async function verifyProtection(): Promise<void> {
+    if (!mounted.current) return;
+    const request = ++verification.current;
+    setCheckingProtection(true);
+    try {
+      // 写接口返回期望触发器；仅独立查询结果可以作为安装状态。
+      const actual = await status.refetch();
+      if (request === verification.current) setObserved(actual.error ? undefined : actual.data);
+    } finally {
+      if (request === verification.current) setCheckingProtection(false);
+    }
   }
 
   async function onToggleProtect(next: boolean): Promise<void> {
@@ -118,6 +154,8 @@ export function ConversationSettingsDialog({
     } catch (e) {
       void status.refetch();
       showError(next ? '开启失败' : '关闭失败', errMsg(e));
+    } finally {
+      await verifyProtection();
     }
   }
 
@@ -131,7 +169,7 @@ export function ConversationSettingsDialog({
         enabled: next ? null : false,
       });
       // 返回值直接写共享缓存：点击即生效。
-      utils.account.intentSense.getStatus.setData(undefined, updated);
+      if (mounted.current) utils.account.intentSense.getStatus.setData(undefined, updated);
     } catch (e) {
       void intentStatus.refetch();
       showError('意图感知设置失败', errMsg(e));
@@ -154,17 +192,31 @@ export function ConversationSettingsDialog({
     <ConversationSettingsFrame<SectionId>
       title="会话设置"
       subtitle={title}
+      profileKind={kind === 'group' ? 'group' : 'person'}
       anchor={anchor}
       onClose={onClose}
       onOpenProfile={
-        openWorkspace && profileUser
+        kind !== 'dataline' &&
+        (onOpenProfile || (openWorkspace && (profileUser || kind === 'group')))
           ? () => {
               onClose();
-              openWorkspace({
-                kind: 'person',
-                contact: { ...profileUser, createdAt: '' },
-                tab: 'profile',
-              });
+              if (onOpenProfile) {
+                onOpenProfile();
+                return;
+              }
+              if (kind === 'group') {
+                openWorkspace?.({
+                  kind: 'group',
+                  conversation:
+                    groupConversation ??
+                    sharedGroupConversation({ code: conv, name: title, avatar: '' }),
+                });
+              } else if (profileUser)
+                openWorkspace?.({
+                  kind: 'person',
+                  contact: contact ?? { ...profileUser, createdAt: '' },
+                  tab: 'profile',
+                });
             }
           : undefined
       }
@@ -201,9 +253,9 @@ export function ConversationSettingsDialog({
             <strong>{section === 'group-management' ? '群管理' : '会话偏好'}</strong>
             <span>
               {section === 'group-management'
-                ? '群名称、群头像与成员管理'
+                ? '加群方式与分类标签'
                 : kind === 'group'
-                  ? '备注、置顶、消息接收与本群身份'
+                  ? '置顶、消息接收与本群身份'
                   : '置顶、免打扰与特别关心'}
             </span>
           </div>
@@ -234,19 +286,7 @@ export function ConversationSettingsDialog({
                     跟随应用设置
                   </span>
                 }
-                desc={
-                  intentStatus.error
-                    ? '读取失败，重新打开此窗格可重试。'
-                    : !intentData
-                      ? '正在读取…'
-                      : intentOverride === false
-                        ? '已在此会话关闭'
-                        : !intentData.enabled
-                          ? '未生效：应用意图感知已关闭'
-                          : !intentEngineOk
-                            ? '未生效：引擎未就绪'
-                            : '已在此会话生效'
-                }
+                desc={'本会话的启用选择'}
                 control={
                   <Toggle
                     checked={intentOverride !== false}
@@ -261,6 +301,24 @@ export function ConversationSettingsDialog({
                   />
                 }
               />
+              <Row
+                label="实际生效状态"
+                control={
+                  <span role="status">
+                    {intentStatus.error
+                      ? '读取失败，重新打开此窗格可重试。'
+                      : !intentData
+                        ? '正在读取…'
+                        : intentOverride === false
+                          ? '已在此会话关闭'
+                          : !intentData.enabled
+                            ? '未生效：应用意图感知已关闭'
+                            : !intentEngineOk
+                              ? '未生效：引擎未就绪'
+                              : '已在此会话生效'}
+                  </span>
+                }
+              />
             </Card>
           </div>
         </>
@@ -273,7 +331,13 @@ export function ConversationSettingsDialog({
             <strong>群关键词</strong>
             <span>命中即提醒；每个词可单独限定发言人</span>
             <span className="weq-cvs-body-state">
-              {keywordSave.saving ? '保存中…' : keywordSave.savedAt ? '已保存' : ''}
+              {keywordSave.saving
+                ? '保存中…'
+                : keywordSave.error
+                  ? '保存失败'
+                  : keywordSave.savedAt
+                    ? '已保存'
+                    : ''}
             </span>
           </div>
           <div className="weq-cvs-body-scroll">
@@ -311,7 +375,7 @@ export function ConversationSettingsDialog({
                 control={
                   <Toggle
                     checked={protectedHere}
-                    disabled={busy || status.isLoading || allProtected}
+                    disabled={busy || status.isLoading || Boolean(status.error) || allProtected}
                     onChange={(next) => void onToggleProtect(next)}
                     label="保护此会话"
                   />
@@ -332,10 +396,30 @@ export function ConversationSettingsDialog({
                 control={
                   <Toggle
                     checked={notifyHere}
-                    disabled={busy || status.isLoading || !notifyEnabled}
+                    disabled={busy || status.isLoading || Boolean(status.error) || !notifyEnabled}
                     onChange={(next) => void onToggleNotify(next)}
                     label="撤回时通知我"
                   />
+                }
+              />
+              <Row
+                label="实际保护状态"
+                control={
+                  <span role="status">
+                    {checkingProtection || status.isFetching
+                      ? '正在核实安装状态…'
+                      : status.error || !actualStatus
+                        ? '尚未核实保护状态'
+                        : !enabled || !protectedHere
+                          ? '此会话未启用保护'
+                          : !actualStatus.installed?.some(
+                                (trigger) => trigger.name === `weq_anti_recall_${kind}`,
+                              )
+                            ? '触发器尚未安装'
+                            : actualStatus.qqRunning
+                              ? '触发器已安装；QQ 运行中，可能需要重启 QQ 后生效'
+                              : '触发器已安装'}
+                  </span>
                 }
               />
             </Card>

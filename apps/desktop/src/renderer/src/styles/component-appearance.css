@@ -151,7 +151,7 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
     .weq-directory-scope-menu,
     .weq-merged-popover,
     .conversation-details,
-    .group-info-panel:not(:where(.weq-contact-profile-content > *)),
+    .group-info-panel:not(:where(.weq-contact-profile-content > *, .weq-group-profile-members > *)),
     .weq-select,
     .weq-provider-modal
   ) {

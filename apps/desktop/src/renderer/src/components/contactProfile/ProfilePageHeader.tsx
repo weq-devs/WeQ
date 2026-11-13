@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 import { X } from 'lucide-react';
+import type { ConversationSettingsRequest } from '../../lib/conversationSettingsNavigation';
+import { ProfileConversationSettingsButton } from '../ConversationSettingsButton';
 
 /**
  * 资料页页头契约（联系人与群共用）：
@@ -27,6 +29,7 @@ export function ProfilePageHeader({
   onClose,
   closeLabel = '关闭资料',
   layout = 'stacked',
+  conversationSettings,
 }: {
   title: string;
   identity: ReactNode;
@@ -34,11 +37,15 @@ export function ProfilePageHeader({
   onClose: () => void;
   closeLabel?: string;
   layout?: 'stacked' | 'split';
+  conversationSettings?: ConversationSettingsRequest;
 }) {
   return (
     <>
       <div className="weq-profile-page-toolbar">
         <strong>{title}</strong>
+        {conversationSettings ? (
+          <ProfileConversationSettingsButton request={conversationSettings} />
+        ) : null}
         <button
           type="button"
           className="weq-profile-page-close"

@@ -9,6 +9,7 @@ import {
   conversationAnalysisTarget,
 } from '../../lib/conversationActions';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
+import { ConversationSettingsButton } from '../../components/ConversationSettingsButton';
 import { GroupCallComingSoon } from '../../components/GroupCallComingSoon';
 import { GiftMallPanel } from '../../components/gift/GiftMallPanel';
 import { GroupGiftPanel } from '../../components/gift/GroupGiftPanel';
@@ -5709,15 +5710,7 @@ export function ChatPane({
             {!compactHeader &&
             onOpenConversationSettings &&
             (conversation.type === 'group' || conversation.type === 'direct') ? (
-              <button
-                className={cn('icon-button', 'group-header-info-action')}
-                type="button"
-                title={settingsLabel}
-                aria-label={settingsLabel}
-                onClick={(event) => onOpenConversationSettings?.(conversation, event.currentTarget)}
-              >
-                <Settings2 size={18} />
-              </button>
+              <ConversationSettingsButton label={settingsLabel} onClick={(anchor) => onOpenConversationSettings?.(conversation, anchor)} />
             ) : null}
             {headerActions}
           </>

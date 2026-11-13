@@ -50,6 +50,7 @@ export function GroupEssenceDialog({
   onClose,
   onJumpToMessage,
   initialMsgSeq,
+  loadMore,
 }: {
   embedded?: boolean;
   anchor?: HTMLElement | null;
@@ -63,6 +64,7 @@ export function GroupEssenceDialog({
   onClose: () => void;
   onJumpToMessage?: (seq: number) => void;
   initialMsgSeq?: number;
+  loadMore?: { loading: boolean; onLoad: () => void };
 }): ReactElement {
   const root = useRef<HTMLElement>(null);
   const session = useQQWriteSession(`essence-list:${groupCode}`);
@@ -234,6 +236,16 @@ export function GroupEssenceDialog({
                 : '还没有群精华。本地与当前联网页都未找到记录。'}
             </ContactEmptyState>
           )}
+          {loadMore ? (
+            <button
+              type="button"
+              className="weq-group-text-action"
+              disabled={loadMore.loading}
+              onClick={loadMore.onLoad}
+            >
+              加载更多精华
+            </button>
+          ) : null}
         </div>
       </section>
     </GroupFeatureSurface>

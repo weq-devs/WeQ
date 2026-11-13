@@ -93,6 +93,16 @@ function ContactProfilePage({
             {!previewContent ? (
               <ProfilePageHeader
                 title="联系人资料"
+                conversationSettings={
+                  !person.clone && /^u_/.test(person.uid || person.id)
+                    ? {
+                        kind: 'c2c',
+                        conv: person.uid || person.id,
+                        title: person.nick || person.displayName,
+                        contact: person,
+                      }
+                    : undefined
+                }
                 onClose={closing.requestClose}
                 layout="split"
                 identity={

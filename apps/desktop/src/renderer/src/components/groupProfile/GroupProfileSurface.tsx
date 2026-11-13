@@ -6,15 +6,8 @@ import { ChatNavigationContext, GroupMessagePreviewContext } from '../../lib/cha
 import { OverlayLayer } from '../OverlayLayer';
 import { MemberProfileCard } from '../MemberProfileCard';
 import { useGroupProfile } from '../../hooks/useGroupProfile';
-import {
-  GroupDescription,
-  GroupFacts,
-  GroupFreezeNotice,
-  GroupIdentity,
-  GroupMemberPreview,
-  GroupTags,
-} from './GroupContent';
 import { GroupWorkspace } from './GroupWorkspace';
+import { GroupProfileFeatures } from './GroupProfileFeatures';
 import { GroupCardContent, GroupCardIdentity } from './GroupCardContent';
 import type { GroupWorkspaceTab } from '../../lib/profileNavigation';
 import {
@@ -23,11 +16,15 @@ import {
 } from '../../lib/profileNavigation';
 import { ContactInlineError } from '../contactProfile/ContactRow';
 import { ProfilePageHeader } from '../contactProfile/ProfilePageHeader';
+import { ContactFieldHistoryProvider } from '../contactProfile/ContactFieldHistory';
 import '../../styles/contact-card.css';
 import '../../styles/profile-workspace.css';
 import '../../styles/group-card.css';
+import '../../styles/contact-workspace.css';
+import '../../styles/group-profile.css';
 import { DraftCloseContext, useDraftClose } from '../../lib/draftClose';
 import { useSurfaceEscape } from '../../lib/surfaceEscape';
+import { TabActivity } from '../RetainedTabs';
 
 export interface GroupProfileSurfaceProps {
   conversation: GroupConversation | undefined;
@@ -58,7 +55,7 @@ function GroupProfileBody({
   onOpenMember,
   ...location
 }: GroupProfileSurfaceProps & { conversation: GroupConversation }) {
-  const data = useGroupProfile(initial, Boolean(embedded));
+  const data = useGroupProfile(initial, false);
   const { conversation } = data;
   const openChat = useContext(ChatNavigationContext);
   const openWorkspace = useContext(ContactWorkspaceNavigationContext);
@@ -75,7 +72,12 @@ function GroupProfileBody({
   };
   const closing = useDraftClose(close, null);
   const page = useRef<HTMLElement>(null);
-  useSurfaceEscape(page, closing.requestClose, Boolean(embedded), false);
+  useSurfaceEscape(
+    page,
+    previewContent ? () => preview?.close() : closing.requestClose,
+    Boolean(embedded),
+    false,
+  );
   const register = useContext(ProfileNavigationGuardContext);
   const leave = useRef(closing.confirmLeave);
   leave.current = closing.confirmLeave;
@@ -88,18 +90,10 @@ function GroupProfileBody({
         : undefined,
     [embedded, register],
   );
-  const members = (
-    <GroupMemberPreview
-      members={data.members}
-      loading={data.previewLoading}
-      error={data.previewError}
-      onRetry={data.retryPreview}
-      onOpen={(value, at) => {
-        if (conversation.generated && onOpenMember) onOpenMember(value, at);
-        else setMember({ value, anchor: at, scope: data.scope });
-      }}
-    />
-  );
+  const openMember = (value: GroupMember, at: { x: number; y: number }) => {
+    if (conversation.generated && onOpenMember) onOpenMember(value, at);
+    else setMember({ value, anchor: at, scope: data.scope });
+  };
   const canChat = Boolean(onOpenChat || openChat);
   const canPreview = Boolean(preview) && !conversation.generated;
   const canOpenWorkspace = !embedded && Boolean(openWorkspace) && !conversation.generated;
@@ -112,7 +106,7 @@ function GroupProfileBody({
   const chatAction = canChat ? (
     <button
       type="button"
-      className={embedded ? 'weq-profile-perhome weq-contact-primary' : 'weq-contact-secondary'}
+      className="weq-contact-secondary"
       onClick={() => {
         if (!embedded) close();
         if (onOpenChat) onOpenChat();
@@ -133,13 +127,17 @@ function GroupProfileBody({
       预览消息
     </button>
   ) : null;
-  const pageActions =
-    embedded && (chatAction || previewAction) ? (
+  const pageActions = embedded ? (
+    <div className="weq-group-profile-operation-area">
       <nav className="weq-group-card-actions weq-contact-actions" aria-label="群操作">
         {chatAction}
         {previewAction}
       </nav>
-    ) : null;
+      {!conversation.generated ? (
+        <GroupProfileFeatures conversation={conversation} scope={data.scope} {...location} />
+      ) : null}
+    </div>
+  ) : null;
   const content = (
     <>
       <section
@@ -149,79 +147,87 @@ function GroupProfileBody({
         role={embedded ? 'region' : 'dialog'}
         aria-label="群资料"
       >
-        {embedded && previewContent ? null : embedded ? (
-          <ProfilePageHeader
-            title="群资料"
-            closeLabel="关闭群资料"
-            onClose={closing.requestClose}
-            identity={<GroupIdentity conversation={conversation} full />}
-            actions={pageActions}
-          />
-        ) : (
-          <>
-            <ProfileCardControls
-              onExpand={openFullProfile}
-              onClose={closing.requestClose}
-              expandLabel="打开完整群资料"
-              closeLabel="关闭群资料"
-            />
-            <GroupCardIdentity conversation={conversation} metrics={data.metrics} />
-          </>
-        )}
-        {data.profileError && !previewContent ? (
-          <ContactInlineError
-            message={data.profileError}
-            retrying={data.profileRefreshing}
-            onRetry={() => void data.retryProfile()}
-          />
-        ) : null}
-        {previewContent ? (
-          <div className="weq-contact-chat-preview">{previewContent}</div>
-        ) : embedded ? (
-          <GroupWorkspace
-            key={`${data.scope}:${conversation.id}`}
-            {...location}
-            conversation={conversation}
-            ownerUid={data.ownerUid}
-            summary={
+        <TabActivity active={!previewContent}>
+          <div className="weq-group-page-content" hidden={Boolean(previewContent)}>
+            {embedded ? (
+              <ProfilePageHeader
+                title="群资料"
+                conversationSettings={
+                  !conversation.generated
+                    ? {
+                        kind: 'group',
+                        conv: conversation.id,
+                        title: conversation.group.name,
+                        groupConversation: conversation,
+                      }
+                    : undefined
+                }
+                closeLabel="关闭群资料"
+                onClose={closing.requestClose}
+                layout="split"
+                identity={
+                  <GroupCardIdentity
+                    conversation={conversation}
+                    metrics={data.metrics}
+                    extended={data.extended}
+                  />
+                }
+                actions={pageActions}
+              />
+            ) : (
               <>
-                <GroupDescription text={conversation.group.description} />
-                <GroupTags group={conversation.group} />
-                <GroupFacts
+                <ProfileCardControls
+                  onExpand={openFullProfile}
+                  onClose={closing.requestClose}
+                  expandLabel="打开完整群资料"
+                  closeLabel="关闭群资料"
+                />
+                <GroupCardIdentity
                   conversation={conversation}
                   metrics={data.metrics}
-                  joinedAt={data.joinedAt}
+                  extended={data.extended}
                 />
-                <GroupFreezeNotice metrics={data.metrics} />
               </>
-            }
-            members={members}
-            onOpenMember={(value, at) => setMember({ value, anchor: at, scope: data.scope })}
-          />
-        ) : (
-          <GroupCardContent
-            key={`${data.scope}:${conversation.id}`}
-            conversation={conversation}
-            metrics={data.metrics}
-            joinedAt={data.joinedAt}
-            ownerUid={data.ownerUid}
-            onOpenMember={(value, at) => {
-              if (conversation.generated && onOpenMember) onOpenMember(value, at);
-              else setMember({ value, anchor: at, scope: data.scope });
-            }}
-          />
-        )}
-        {/* 完整资料页的操作已在页头渲染；这里再来一条会重复操作，并因吸底样式
+            )}
+            {data.profileError && !previewContent ? (
+              <ContactInlineError
+                message={data.profileError}
+                retrying={data.profileRefreshing}
+                onRetry={() => void data.retryProfile()}
+              />
+            ) : null}
+            {embedded ? (
+              <GroupWorkspace
+                key={`${data.scope}:${conversation.id}`}
+                {...location}
+                data={data}
+                onOpenMember={openMember}
+              />
+            ) : (
+              <GroupCardContent
+                key={`${data.scope}:${conversation.id}`}
+                conversation={conversation}
+                metrics={data.metrics}
+                joinedAt={data.joinedAt}
+                ownerUid={data.ownerUid}
+                memberCountKnown={data.memberCountKnown}
+                onOpenMember={openMember}
+              />
+            )}
+            {/* 完整资料页的操作已在页头渲染；这里再来一条会重复操作，并因吸底样式
             压在正文与视口边缘上，所以只在快速名片里保留底部操作行。 */}
-        {!embedded && (canChat || canPreview) ? (
-          <nav
-            className="weq-profile-actions weq-contact-actions weq-profile-card-actions"
-            aria-label="群操作"
-          >
-            {chatAction}
-            {previewAction}
-          </nav>
-        ) : null}
+            {!embedded && (canChat || canPreview) ? (
+              <nav
+                className="weq-profile-actions weq-contact-actions weq-profile-card-actions"
+                aria-label="群操作"
+              >
+                {chatAction}
+                {previewAction}
+              </nav>
+            ) : null}
+          </div>
+        </TabActivity>
+        {previewContent ? <div className="weq-contact-chat-preview">{previewContent}</div> : null}
       </section>
       {member && member.scope === data.scope ? (
         <MemberProfileCard
@@ -236,7 +242,15 @@ function GroupProfileBody({
     </>
   );
   return embedded ? (
-    <DraftCloseContext.Provider value={closing.drafts}>{content}</DraftCloseContext.Provider>
+    <DraftCloseContext.Provider value={closing.drafts}>
+      {conversation.generated ? (
+        content
+      ) : (
+        <ContactFieldHistoryProvider key={data.scope} entity={`group:${conversation.id}`}>
+          {content}
+        </ContactFieldHistoryProvider>
+      )}
+    </DraftCloseContext.Provider>
   ) : (
     <OverlayLayer
       anchor={anchor}

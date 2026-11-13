@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * 群关键词提醒 —— 关键词编辑逻辑。
  *
@@ -17,7 +16,8 @@
  * 编辑器一卸载（会话设置关窗）就落盘，否则「加完词立刻关闭」会落在防抖窗口里被丢掉。
  */
 
-import { Crown, Search, ShieldCheck, Trash2, UserRound, Users, X } from 'lucide-react';
+import { Crown, RefreshCw, Search, ShieldCheck, Trash2, UserRound, Users, X } from 'lucide-react';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { client } from '../trpc/client';
 import { accountBinding } from '../lib/clientPreferences';
@@ -25,6 +25,7 @@ import { useMultiSelection } from '../hooks/useMultiSelection';
 import { Avatar } from '../im-template/template/primitives';
 import { cn } from '../im-template/template/classNames';
 import { ProfileAvatar } from './ProfileAvatar';
+import { previewMemberView } from '../hooks/useGroupProfile';
 
 export interface KeywordMember {
   uid: string;
@@ -50,7 +51,7 @@ export function GroupKeywordEditor({
 }: {
   groupId: string;
   members: KeywordMember[];
-  onSaveState?: (state: { saving: boolean; savedAt: number }) => void;
+  onSaveState?: (state: { saving: boolean; savedAt: number; error: string }) => void;
 }): ReactElement {
   const [entries, setEntries] = useState<KeywordEntry[]>([]);
   const [draft, setDraft] = useState('');
@@ -59,6 +60,49 @@ export function GroupKeywordEditor({
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState(0);
   const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState('');
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [roleLoading, setRoleLoading] = useState(false);
+  const inFlight = useRef(false);
+  const flushLatest = useRef<() => void>(() => {});
+  const [needle, setNeedle] = useState('');
+  const source = useRef(accountBinding());
+  useEffect(() => {
+    const timer = window.setTimeout(() => setNeedle(memberQuery.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [memberQuery]);
+  const candidates = useInfiniteQuery({
+    queryKey: ['keyword-members', source.current, groupId, needle],
+    enabled: editingIndex !== null && Boolean(needle) && needle === memberQuery.trim(),
+    queryFn: ({ pageParam = 0 }) =>
+      client.account.searchGroupMembers.query({
+        ...source.current,
+        groupCode: groupId,
+        keyword: needle,
+        limit: 30,
+        offset: pageParam,
+      }),
+    getNextPageParam: (last, pages) =>
+      pages.reduce((n, page) => n + page.members.length, 0) < last.total
+        ? pages.reduce((n, page) => n + page.members.length, 0)
+        : undefined,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+  const scopedMembers = useMemo(() => {
+    const rows = new Map(members.map((member) => [member.uid, member]));
+    for (const row of candidates.data?.pages.flatMap((page) => page.members) ?? []) {
+      const member = previewMemberView(row, members.find((item) => item.role === 'owner')?.uid);
+      rows.set(row.uid, {
+        uid: row.uid,
+        displayName: member.displayName,
+        avatarUrl: member.avatarUrl ?? null,
+        uin: row.uin,
+        role: member.role,
+      });
+    }
+    return [...rows.values()];
+  }, [members, candidates.data]);
   const rulesRef = useRef<RuleMap>({});
   const dirtyRef = useRef(false);
   const timerRef = useRef<number | null>(null);
@@ -69,14 +113,14 @@ export function GroupKeywordEditor({
 
   const memberByUid = useMemo(() => {
     const map = new Map<string, KeywordMember>();
-    for (const m of members) map.set(m.uid, m);
+    for (const m of scopedMembers) map.set(m.uid, m);
     return map;
-  }, [members]);
+  }, [scopedMembers]);
 
   // 状态外抛给载体（灯箱页脚 / 会话设置页头）。
   useEffect(() => {
-    onSaveState?.({ saving, savedAt });
-  }, [saving, savedAt, onSaveState]);
+    onSaveState?.({ saving, savedAt, error });
+  }, [saving, savedAt, error, onSaveState]);
 
   // 读当前账号的全部规则（保留其它群的），取本群那份作为草稿。
   useEffect(() => {
@@ -91,17 +135,21 @@ export function GroupKeywordEditor({
         setEntries(mine);
         entriesRef.current = mine;
         setLoaded(true);
+        setError('');
       })
-      .catch(() => setLoaded(true));
+      .catch((error) => {
+        if (!cancelled)
+          setError(`读取关键词失败：${error instanceof Error ? error.message : String(error)}`);
+      });
     return () => {
       cancelled = true;
     };
-  }, [groupId]);
+  }, [groupId, loadAttempt]);
 
   // 把当前草稿整体写回主进程（按群号 keyed，其余群原样保留）。幂等。
-  const source = useRef(accountBinding());
   const flush = useCallback((): void => {
-    if (!dirtyRef.current) return;
+    if (!dirtyRef.current || inFlight.current) return;
+    inFlight.current = true;
     dirtyRef.current = false;
     const nextRules: RuleMap = { ...rulesRef.current };
     const keywords = entriesRef.current
@@ -114,12 +162,25 @@ export function GroupKeywordEditor({
     else nextRules[groupId] = { keywords };
     rulesRef.current = nextRules;
     setSaving(true);
+    setError('');
+    let succeeded = false;
     client.bootstrap.setGroupKeywordRules
       .mutate({ rules: nextRules, groupId, ...source.current })
-      .then(() => setSavedAt(Date.now()))
-      .catch(() => undefined)
-      .finally(() => setSaving(false));
+      .then(() => {
+        succeeded = true;
+        setSavedAt(Date.now());
+      })
+      .catch((error) => {
+        dirtyRef.current = true;
+        setError(`保存失败：${error instanceof Error ? error.message : String(error)}`);
+      })
+      .finally(() => {
+        inFlight.current = false;
+        setSaving(false);
+        if (succeeded && dirtyRef.current) flushLatest.current();
+      });
   }, [groupId]);
+  flushLatest.current = flush;
 
   // 改动后防抖写回；先同步镜像草稿，好让 flush（卸载时）总能拿到最新值。
   useEffect(() => {
@@ -161,6 +222,7 @@ export function GroupKeywordEditor({
 
   function applyEntries(next: KeywordEntry[]) {
     dirtyRef.current = true;
+    setSavedAt(0);
     entriesRef.current = next;
     setEntries(next);
   }
@@ -191,26 +253,47 @@ export function GroupKeywordEditor({
     );
   }
 
-  function selectRole(index: number, role: 'owner' | 'admin') {
-    const uids =
-      role === 'owner'
-        ? members.filter((m) => m.role === 'owner').map((m) => m.uid)
-        : members.filter((m) => m.role === 'admin' || m.role === 'owner').map((m) => m.uid);
-    const prev = entriesRef.current[index]?.memberUids ?? [];
-    setEntryMembers(index, [...new Set([...prev, ...uids])]);
+  async function selectRole(index: number, role: 'owner' | 'admin') {
+    const keyword = entriesRef.current[index]?.keyword;
+    setRoleLoading(true);
+    try {
+      const detail = await client.account.getGroupDetail.query({
+        ...source.current,
+        groupCode: groupId,
+      });
+      const uids = new Set<string>();
+      for (let offset = 0; ; offset += 300) {
+        const page = await client.account.listGroupMembers.query({
+          ...source.current,
+          groupCode: groupId,
+          limit: 300,
+          offset,
+        });
+        for (const member of page)
+          if (member.uid === detail?.ownerUid || (role === 'admin' && member.adminFlag > 0))
+            uids.add(member.uid);
+        if (page.length < 300) break;
+      }
+      if (entriesRef.current[index]?.keyword === keyword)
+        setEntryMembers(index, [
+          ...new Set([...(entriesRef.current[index]?.memberUids ?? []), ...uids]),
+        ]);
+    } catch (error) {
+      setError(`成员读取失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setRoleLoading(false);
+    }
   }
 
-  const ownerCount = members.filter((m) => m.role === 'owner').length;
-  const adminCount = members.filter((m) => m.role === 'admin').length;
   const searchResults = useMemo(() => {
     const q = memberQuery.trim().toLowerCase();
     if (!q || editingIndex === null) return [];
     const selected = new Set(entries[editingIndex]?.memberUids ?? []);
-    return members
+    if (memberQuery.trim() !== needle) return [];
+    return scopedMembers
       .filter((m) => !selected.has(m.uid))
-      .filter((m) => `${m.displayName} ${m.uin ?? ''}`.toLowerCase().includes(q))
-      .slice(0, 20);
-  }, [memberQuery, members, entries, editingIndex]);
+      .filter((m) => `${m.displayName} ${m.uin ?? ''}`.toLowerCase().includes(q));
+  }, [memberQuery, needle, scopedMembers, entries, editingIndex]);
   const memberIds = editingIndex === null ? [] : (entries[editingIndex]?.memberUids ?? []);
   const memberMulti = useMultiSelection({
     ids: [...new Set([...memberIds, ...searchResults.map((member) => member.uid)])],
@@ -230,6 +313,21 @@ export function GroupKeywordEditor({
 
   return (
     <div className="group-keyword-editor">
+      {error ? (
+        <p role="alert">
+          {error}
+          <button
+            type="button"
+            className="weq-set-iconbtn"
+            title="重试关键词保存或读取"
+            aria-label="重试关键词保存或读取"
+            disabled={saving || roleLoading}
+            onClick={() => (loaded ? flush() : setLoadAttempt((value) => value + 1))}
+          >
+            <RefreshCw size={14} />
+          </button>
+        </p>
+      ) : null}
       <section className="group-keyword-section">
         <div className="group-keyword-label-row">
           <span className="group-keyword-label">关键词</span>
@@ -239,6 +337,7 @@ export function GroupKeywordEditor({
           <input
             className="group-keyword-input"
             value={draft}
+            disabled={!loaded}
             placeholder="输入关键词后回车"
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
@@ -251,7 +350,11 @@ export function GroupKeywordEditor({
         </div>
       </section>
 
-      {entries.length === 0 ? (
+      {!loaded ? (
+        error ? null : (
+          <p role="status">正在读取关键词…</p>
+        )
+      ) : entries.length === 0 ? (
         <div className="group-keyword-empty-card">未设置关键词，此群不会提醒</div>
       ) : (
         <ul className="group-keyword-list">
@@ -324,8 +427,8 @@ export function GroupKeywordEditor({
                       <button
                         type="button"
                         className="group-keyword-quick-btn"
-                        disabled={ownerCount === 0}
-                        onClick={() => selectRole(index, 'owner')}
+                        disabled={roleLoading}
+                        onClick={() => void selectRole(index, 'owner')}
                       >
                         <Crown size={13} />
                         群主
@@ -333,8 +436,8 @@ export function GroupKeywordEditor({
                       <button
                         type="button"
                         className="group-keyword-quick-btn"
-                        disabled={adminCount === 0}
-                        onClick={() => selectRole(index, 'admin')}
+                        disabled={roleLoading}
+                        onClick={() => void selectRole(index, 'admin')}
                       >
                         <ShieldCheck size={13} />
                         全部管理员
@@ -384,7 +487,20 @@ export function GroupKeywordEditor({
                     </div>
                     {memberQuery.trim() ? (
                       <div className="group-keyword-results">
-                        {searchResults.length === 0 ? (
+                        {candidates.error ? (
+                          <p role="alert">
+                            成员读取失败
+                            <button type="button" onClick={() => void candidates.refetch()}>
+                              重试
+                            </button>
+                          </p>
+                        ) : null}
+                        {memberQuery.trim() !== needle || candidates.isFetching ? (
+                          <p role="status">正在读取成员…</p>
+                        ) : null}
+                        {searchResults.length === 0 &&
+                        !candidates.isFetching &&
+                        memberQuery.trim() === needle ? (
                           <div className="group-keyword-empty">没有匹配的成员</div>
                         ) : (
                           searchResults.map((m) => (
@@ -401,6 +517,15 @@ export function GroupKeywordEditor({
                             </button>
                           ))
                         )}
+                        {candidates.hasNextPage ? (
+                          <button
+                            type="button"
+                            disabled={candidates.isFetching}
+                            onClick={() => void candidates.fetchNextPage()}
+                          >
+                            加载更多成员
+                          </button>
+                        ) : null}
                       </div>
                     ) : (
                       <div className="group-keyword-scope-hint">

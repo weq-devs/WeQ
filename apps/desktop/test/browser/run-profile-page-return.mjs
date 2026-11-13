@@ -61,6 +61,21 @@ try {
         );
         const box = await close.boundingBox();
         assert.ok(box && box.x >= 0 && box.x + box.width <= width && box.y >= 0);
+        const settings = page.getByRole('button', { name: '会话设置', exact: true });
+        const settingsBox = await settings.boundingBox();
+        assert.ok(settingsBox && settingsBox.x + settingsBox.width <= box.x);
+        await settings.click();
+        const pane = page.locator('.weq-conversation-settings-pane');
+        await pane.waitFor();
+        assert.equal(await page.evaluate(() => window.profileIdentityQa.closes), 0);
+        await pane
+          .getByRole('button', {
+            name: kind === 'friend' ? '查看联系人资料' : '查看群资料',
+            exact: true,
+          })
+          .click();
+        await pane.waitFor({ state: 'detached' });
+        assert.equal(await page.evaluate(() => window.profileIdentityQa.closes), 0);
         await page.keyboard.press('Escape');
         assert.equal(await page.evaluate(() => window.profileIdentityQa.closes), 1);
         await close.click();
