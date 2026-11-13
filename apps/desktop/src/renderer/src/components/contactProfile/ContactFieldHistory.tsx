@@ -1,4 +1,4 @@
-import { preciseTimeFormatter as eventTimeFormatter, eventTimeFormatter as groupTimeFormatter } from '@weq/time';
+import { eventTimeFormatter as groupTimeFormatter } from '@weq/time';
 import { useContext, useId, useRef, useState, type ReactNode } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { History, X } from 'lucide-react';
@@ -6,9 +6,9 @@ import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { client } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { Modal } from '../Dialog';
-import { HistoryValue } from '../ContactHistory';
-import { ContactHistoryAvatar } from './ContactHistoryAvatar';
+import { FieldHistoryContent } from './FieldHistoryContent';
 import { ContactFieldHistoryContext as Context } from '../../lib/contactFieldHistoryContext';
+import { fieldPhotoHistoryValue } from '../../lib/contactFieldPresentation';
 
 export const contactHistoryFieldForLabel: Record<string, string> = {
   昵称: 'nick',
@@ -171,21 +171,42 @@ function FieldHistoryDialog({
   const session = useQQWriteSession(`field-versions:${entity}:${field}`, true);
   const query = useInfiniteQuery({
     queryKey: ['contact-field-versions', session.binding, entity, memberUid, field],
-    queryFn: ({ pageParam }) =>
-      client.account.contactMetrics.history.fieldVersions.query({
+    queryFn: async ({ pageParam }) => {
+      const page = await client.account.contactMetrics.history.fieldVersions.query({
         ...session.binding!,
         entity,
         memberUid,
         field,
         before: pageParam,
         limit: 30,
-      }),
+      });
+      if (field !== 'photos') return page;
+      // 旧索引只有照片编号；按原始版本补回已有媒体引用，不拿当前相册覆盖历史。
+      for (let offset = 0; offset < page.rows.length; offset += 4) {
+        await Promise.all(
+          page.rows.slice(offset, offset + 4).map(async (row) => {
+            try {
+              const version = await client.account.contactMetrics.history.version.query({
+                ...session.binding!,
+                entity,
+                id: row.id,
+              });
+              row.value = fieldPhotoHistoryValue(row.value, version.observedValue ?? version.value);
+            } catch {
+              // 原始媒体不可用时仍展示已保存的照片引用。
+            }
+          }),
+        );
+      }
+      return page;
+    },
     getNextPageParam: (page) => page.nextBefore ?? undefined,
     enabled: active && Boolean(session.binding),
     retry: false,
     staleTime: 30000,
     refetchOnWindowFocus: false,
   });
+  const rows = query.data?.pages.flatMap((page) => page.rows) ?? [];
   return (
     <Modal
       presentation="popover"
@@ -212,7 +233,7 @@ function FieldHistoryDialog({
       <div className="weq-field-history-body">
         {query.isLoading ? (
           <p role="status">正在读取历史…</p>
-        ) : query.error ? (
+        ) : query.error && !rows.length ? (
           <p role="alert">
             历史读取失败
             <button type="button" onClick={() => void query.refetch()}>
@@ -220,21 +241,14 @@ function FieldHistoryDialog({
             </button>
           </p>
         ) : (
-          <ol>
-            {query.data?.pages
-              .flatMap((page) => page.rows)
-              .map((row) => (
-                <li key={row.id}>
-                  <time>观察于 {eventTimeFormatter.format(new Date(row.first_at))}</time>
-                  {field === 'avatar' ? (
-                    <ContactHistoryAvatar value={row.value} />
-                  ) : (
-                    <HistoryValue value={groupFieldHistoryValue(entity, memberUid, field, row.value)} />
-                  )}
-                </li>
-              ))}
-          </ol>
+          <FieldHistoryContent
+            field={field}
+            label={label}
+            rows={rows}
+            hasOlder={query.hasNextPage}
+          />
         )}
+        {query.error && rows.length ? <p role="alert">后续历史读取失败，已加载记录保留。</p> : null}
         {query.hasNextPage ? (
           <button
             type="button"
@@ -242,7 +256,7 @@ function FieldHistoryDialog({
             disabled={query.isFetching}
             onClick={() => void query.fetchNextPage()}
           >
-            加载更多
+            {query.isFetchingNextPage ? '正在读取…' : query.error ? '重试加载' : '加载更多'}
           </button>
         ) : null}
       </div>

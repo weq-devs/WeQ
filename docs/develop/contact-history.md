@@ -41,6 +41,6 @@
 
 迁入原有 `metrics.json`、`group-profiles/*.json`、`group-members/*.json`，保留已有字段、状态与时间。逐项回读校验、记录文件内容指纹后移除对应旧文件；中断后可重试。异常文件、校验失败文件及迁移期间更新的文件保留原件并报告。旧格式原本已经覆盖掉的数据无法从当前缓存恢复。
 
-`account.contactMetrics.history` 提供账号绑定的 `list`、`categories`、`version`、`diff`、`status`。版本查询同时校验实体归属；`value` 是该次观察对应的有效资料，部分回包有差异时另带 `observedValue`。历史页面只查询本地存储，不触发联网。历史目录在空间统计中单列，不属于普通可再生缓存。
+`account.contactMetrics.history` 提供账号绑定的 `list`、`categories`、`version`、`diff`、`status`。版本查询同时校验实体归属；`value` 是该次观察对应的有效资料，部分回包有差异时另带 `observedValue`。历史记录查询只读本地存储，不刷新 QQ 资料；历史图片复用现有媒体缓存与下载链路，链接失效时保留引用并提示不可用。历史目录在空间统计中单列，不属于普通可再生缓存。
 
 针对性测试：`pnpm --filter @weq/service exec vitest run test/contact_history.test.ts test/contact_metrics.test.ts test/group_profile.test.ts`。浏览器夹具为 `apps/desktop/test/browser/run-contact-history.mjs`；可通过 `WEQ_PLAYWRIGHT_IMPORT`、`WEQ_BROWSER_EXECUTABLE` 和 `WEQ_CONTACT_HISTORY_ARTIFACTS` 复用本机 Playwright、浏览器及截图目录。
