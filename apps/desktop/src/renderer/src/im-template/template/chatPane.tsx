@@ -6643,10 +6643,6 @@ export function ChatPane({
           />
           <ComposerDropVeil visible={dropActive} />
           <div className={cn('composer-tools')}>
-            {composerParameters ? (
-              <div className="weq-assistant-parameters">{composerParameters}</div>
-            ) : null}
-            {composerToolbar}
             <button
               ref={emojiButtonRef}
               type="button"
@@ -6658,6 +6654,7 @@ export function ChatPane({
             >
               <Smile size={21} strokeWidth={1.5} />
             </button>
+            {composerToolbar}
             {/* 红包 / 礼物：点一下先出两项菜单（与通话按钮同款）。红包群聊三档 / 私聊两档，
               下单后弹二维码灯箱；礼物私聊打开商城，群聊打开只读的群礼物面板。 */}
             {!restrictedSource ? (
@@ -6819,6 +6816,9 @@ export function ChatPane({
                 editors={[composerEditorRef, expandedComposerEditorRef]}
               />
             )}
+            {composerParameters ? (
+              <div className="weq-assistant-parameters">{composerParameters}</div>
+            ) : null}
           </div>
           {locationMenu && tabActive ? (
             <ConversationActionsMenu
