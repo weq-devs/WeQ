@@ -10,6 +10,7 @@ import { useUpdateStore } from '../src/renderer/src/state/update';
 import { useViewState } from '../src/renderer/src/state/view';
 import { SETTINGS_ITEM_TARGETS } from '../src/renderer/src/components/settings/navigation';
 import { SETTINGS_RESET_CARDS } from '../src/shared/settings_reset';
+import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const queryData = (name: string) => {
@@ -333,6 +334,8 @@ describe('设置归位后的实际页面', () => {
         '自动跟随最新消息',
         '发送消息后定位到最新消息',
         '向下滚动时显示定位到底部按钮',
+        '查看时自动拉取缺失的消息',
+        '定位到缺失消息时自动拉取上下文',
       ]);
       const readReportRow = f.body().querySelector('[data-setting-id="read-sync"]');
       expect(
@@ -413,6 +416,16 @@ describe('设置归位后的实际页面', () => {
   it('聊天设置目录中每个条目都能切换到实际分类并定位', () => {
     const f = mount('chat-messages');
     try {
+      act(() =>
+        acceptPreferences(
+          {
+            revision: 1,
+            records: {},
+            values: { autoFetchMissingMessages: false, autoFetchMissingContext: true },
+          },
+          false,
+        ),
+      );
       let revision = 0;
       for (const item of SETTINGS_ITEM_TARGETS.filter((item) =>
         ['chat-messages', 'message-display', 'chat-interaction', 'anti-recall'].includes(
@@ -430,6 +443,7 @@ describe('设置归位后的实际页面', () => {
       }
     } finally {
       f.close();
+      acceptPreferences({ revision: 2, records: {}, values: {} }, false);
     }
   });
   it.each([

@@ -672,10 +672,10 @@ export function AccountBasicsSection({
             </Card>
           )}
           <Card
-          title="自动进入完整模式"
-          icon={<Zap size={15} strokeWidth={1.8} />}
-          resetId="attach"
-        >
+            title="自动进入完整模式"
+            icon={<Zap size={15} strokeWidth={1.8} />}
+            resetId="attach"
+          >
             <Row
               settingId="auto-full-mode"
               label={

@@ -78,7 +78,7 @@ describe('搜索范围选择工具栏', () => {
         expect(document.querySelector('.weq-app-search')).toBeNull();
         expect(document.querySelector('.weq-search-section')).toBeNull();
         expect(document.querySelector('.weq-search-index-hint')).toBeNull();
-        expect(document.querySelector('.weq-search-empty')).toBeNull();
+        expect(document.querySelector('.weq-empty-state')).toBeNull();
       }
       f.render('合成');
       expect(document.querySelector('[aria-label="搜索结果"]')).not.toBeNull();
@@ -135,10 +135,10 @@ describe('搜索范围选择工具栏', () => {
       expect(all.getAttribute('aria-pressed')).toBe('true');
       act(() => all.click());
       expect(all.getAttribute('aria-pressed')).toBe('false');
-      expect(document.querySelector('.weq-search-empty')).toBeNull();
+      expect(document.querySelector('.weq-empty-state')).toBeNull();
       f.render('合成');
-      expect(document.querySelectorAll('.weq-search-empty')).toHaveLength(1);
-      expect(document.querySelector('.weq-search-empty')?.textContent).toContain('未选择搜索范围');
+      expect(document.querySelectorAll('.weq-empty-state')).toHaveLength(1);
+      expect(document.querySelector('.weq-empty-state-title')?.textContent).toBe('未选择搜索范围');
       expect(document.body.textContent).not.toContain('没有找到相关内容');
       expect(document.querySelector('.weq-app-search')).toBeNull();
       act(() => all.click());

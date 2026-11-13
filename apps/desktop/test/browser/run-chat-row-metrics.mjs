@@ -98,7 +98,8 @@ try {
       first,
       withUnread: withUnread ? sample(withUnread) : null,
       rowCount: document.querySelectorAll('.conversation-row').length,
-      horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      horizontalOverflow:
+        document.documentElement.scrollWidth - document.documentElement.clientWidth,
     };
   });
   console.log(JSON.stringify({ metrics, errors }, null, 2));

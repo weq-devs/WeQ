@@ -307,6 +307,9 @@ test('真实 pnpm run 为带空格路径完整传递构建参数，元数据留�
     name: 'fixture',
     scripts: { 'build:bot': 'node "fixture build.cjs"' },
   });
+  // 真实 pnpm 子进程使用有效、无依赖的清单，不继承外层 workspace 的检查设置。
+  await writeFile(join(root, 'pnpm-workspace.yaml'), 'packages: []\nverifyDepsBeforeRun: false\n');
+  await writeFile(join(root, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\nimporters:\n  .: {}\n");
   await writeFile(join(root, 'entry.js'), 'source');
   await writeFile(
     join(root, 'fixture build.cjs'),
@@ -322,7 +325,15 @@ fs.writeFileSync('resources/bot-runtime/bot.mjs', 'fixture');
 fs.writeFileSync(arg, JSON.stringify({ inputs: { 'entry.js': {} } }));
 `,
   );
-  await prepareBot(root, { env: { ...process.env, npm_execpath: actualPnpm() }, log: silent });
+  const output = [];
+  try {
+    await prepareBot(root, {
+      env: { ...process.env, npm_execpath: actualPnpm() },
+      log: (message) => output.push(message),
+    });
+  } catch (error) {
+    throw new Error(output.join('\n'), { cause: error });
+  }
   assert.equal(await exists(join(root, '.weq-dev/bot-build.json')), true);
   assert.equal(await exists(join(root, 'resources/bot-runtime/meta.json')), false);
 });

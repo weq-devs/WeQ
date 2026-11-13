@@ -92,7 +92,14 @@ const data: Record<string, unknown> = {
     tags: [],
   },
 };
-const wireRows: Array<{ msgId: string; msgSeq: string; sendTime: string; senderUid: string; sendType: string; elements: Array<{ type: string; data: Record<string, unknown> }> }> = [1, 2, 3].map((id) => ({
+const wireRows: Array<{
+  msgId: string;
+  msgSeq: string;
+  sendTime: string;
+  senderUid: string;
+  sendType: string;
+  elements: Array<{ type: string; data: Record<string, unknown> }>;
+}> = [1, 2, 3].map((id) => ({
   msgId: String(id),
   msgSeq: String(id),
   sendTime: String(time / 1000 + id),
@@ -101,10 +108,55 @@ const wireRows: Array<{ msgId: string; msgSeq: string; sendTime: string; senderU
   elements: [{ type: 'text', data: { textContent: `合成消息 ${id}` } }],
 }));
 for (const [id, elements] of [
-  [4, [{ type: 'ark', data: { arkData: JSON.stringify({ app: 'com.tencent.structmsg', view: 'news', meta: { news: { title: '合成图文消息', desc: '没有 prompt 的卡片也保留', preview: '/_media/fixture-preview', jumpUrl: 'https://fixture.invalid' } } }) } }]],
-  [5, [{ type: 'text', data: { textContent: '合成图片消息' } }, { type: 'pic', data: { fileName: 'fixture.png', md5HexStr: 'a'.repeat(32), originalUrl: '/_media/fixture-image', imgWidth: 240, imgHeight: 160, fileSize: 1024 } }]],
+  [
+    4,
+    [
+      {
+        type: 'ark',
+        data: {
+          arkData: JSON.stringify({
+            app: 'com.tencent.structmsg',
+            view: 'news',
+            meta: {
+              news: {
+                title: '合成图文消息',
+                desc: '没有 prompt 的卡片也保留',
+                preview: '/_media/fixture-preview',
+                jumpUrl: 'https://fixture.invalid',
+              },
+            },
+          }),
+        },
+      },
+    ],
+  ],
+  [
+    5,
+    [
+      { type: 'text', data: { textContent: '合成图片消息' } },
+      {
+        type: 'pic',
+        data: {
+          fileName: 'fixture.png',
+          md5HexStr: 'a'.repeat(32),
+          originalUrl: '/_media/fixture-image',
+          imgWidth: 240,
+          imgHeight: 160,
+          fileSize: 1024,
+        },
+      },
+    ],
+  ],
   [6, [{ type: 'unknown', data: { rawType: 9999 } }]],
-] as Array<[number, Array<{ type: string; data: Record<string, unknown> }>]>) wireRows.push({ msgId: String(id), msgSeq: String(id), sendTime: String(time / 1000 + id), senderUid: 'u_peer', sendType: '0', elements });
+] as Array<[number, Array<{ type: string; data: Record<string, unknown> }>]>)
+  wireRows.push({
+    msgId: String(id),
+    msgSeq: String(id),
+    sendTime: String(time / 1000 + id),
+    senderUid: 'u_peer',
+    sendType: '0',
+    elements,
+  });
 export function emitStep(step: AssistantStep) {
   for (const listener of events)
     listener({ sessionId: 'session', runId: 'runtime', messageId: 'running-answer', step });

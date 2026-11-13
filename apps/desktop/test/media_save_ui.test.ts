@@ -527,7 +527,7 @@ it('图片灯箱选择器取消后仍保留原图和缩放状态，不关闭浏�
     expect(document.querySelector('.weq-lightbox-frame')).toBe(frame);
     expect(frame.style.transform).toBe(transform);
     expect(document.querySelector<HTMLImageElement>('.weq-lightbox-image')?.src).toBe(
-      'weq-media://pic?name=photo.jpg',
+      'weq-media://pic?name=photo.jpg&intent=interactive',
     );
     expect(state.toast).not.toHaveBeenCalled();
   } finally {

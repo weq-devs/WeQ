@@ -62,16 +62,8 @@ export function MailSettingsSection() {
 
   return (
     <div className="weq-set">
-      <SectionHeader
-        icon={<Mail size={16} strokeWidth={1.8} />}
-        title="QQ 邮箱"
-        badge="自动保存"
-      />
-      <Card
-        title="邮箱同步与提醒"
-        icon={<BellRing size={15} strokeWidth={1.8} />}
-        resetId="mail"
-      >
+      <SectionHeader icon={<Mail size={16} strokeWidth={1.8} />} title="QQ 邮箱" badge="自动保存" />
+      <Card title="邮箱同步与提醒" icon={<BellRing size={15} strokeWidth={1.8} />} resetId="mail">
         <AutoSave
           value={minutes.trim() ? interval : ''}
           saved={savedInterval ?? DEFAULT_MAIL_POLL_INTERVAL_MINUTES}

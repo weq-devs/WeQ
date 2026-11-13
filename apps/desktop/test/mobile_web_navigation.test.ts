@@ -7,7 +7,14 @@ import { ChatHeader } from '../src/renderer/src/components/ChatHeader';
 import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 const { onlineStatusQuery } = vi.hoisted(() => ({ onlineStatusQuery: vi.fn() }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
-  trpc: { account: { getOnlineStatus: { useQuery: onlineStatusQuery } } },
+  trpc: {
+    useUtils: () => ({}),
+    account: {
+      getOnlineStatus: { useQuery: onlineStatusQuery },
+      getAccountConfig: { useQuery: () => ({ data: undefined }) },
+      getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
+    },
+  },
   client: {},
 }));
 vi.mock('../src/renderer/src/components/FaceEmoji', () => ({

@@ -25,6 +25,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         useQuery: () => ({ data: [{ id: 'p', name: '合成服务', models: [{ id: 'm' }] }] }),
       },
       getAgentLabDefaultModel: { useQuery: () => ({ data: { ref: null, available: false } }) },
+      getDefaultEmbeddingModel: { useQuery: () => ({ data: { ref: null, available: false } }) },
     },
     account: {
       roamingBackfill: {

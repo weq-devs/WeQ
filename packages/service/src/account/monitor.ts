@@ -505,11 +505,7 @@ export class AccountMonitorService {
     // 复用判据要求 secToken 也在：老物料缺它时下面会重扫一次，否则升级后
     // 需要签名的命令会一直带着空 token 发出去。能读到过期时间时，快过期的
     // token 同样不复用 —— 重扫一次比等 QQ 自己刷新更可控。
-    if (
-      stored?.pid === pid &&
-      canReuseSessionMaterial(stored) &&
-      !secTokenExpiringSoon(stored)
-    ) {
+    if (stored?.pid === pid && canReuseSessionMaterial(stored) && !secTokenExpiringSoon(stored)) {
       const registered = await this.storeSsoSession(pid, stored, generation);
       if (registered) {
         this.logger.info('registered the native sso session from stored material', {

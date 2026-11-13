@@ -77,7 +77,9 @@ export async function ensureAttached(
   say(
     `读取结果: a2=${material.a2 ? 'yes' : 'no'} d2=${material.d2 ? 'yes' : 'no'} ` +
       `d2key=${material.d2Key ? 'yes' : 'no'} secToken=${material.secToken ? 'yes' : 'no'}` +
-      (material.secTokenExpire ? ` ttl=${material.secTokenExpire - Math.floor(Date.now() / 1000)}s` : ''),
+      (material.secTokenExpire
+        ? ` ttl=${material.secTokenExpire - Math.floor(Date.now() / 1000)}s`
+        : ''),
   );
   return material;
 }

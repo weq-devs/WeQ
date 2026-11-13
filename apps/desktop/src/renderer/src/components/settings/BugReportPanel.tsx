@@ -646,8 +646,6 @@ export function BugReportPanel(): ReactElement {
           提交前请再次确认没有重复 issue，且附上了当天的日志。
         </p>
       </Card>
-
-
     </div>
   );
 }

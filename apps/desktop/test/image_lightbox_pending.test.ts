@@ -6,6 +6,7 @@ import {
   openMediaPreview,
 } from '../src/renderer/src/components/mediaPreviewStore';
 import { QqImage } from '../src/renderer/src/components/QqMedia';
+import { interactiveMediaUrl } from '../src/renderer/src/lib/resourceUrl';
 import {
   releaseAttachment,
   type ComposerAttachment,
@@ -76,9 +77,9 @@ it('原图尚未就绪时回退到气泡缩略图', async () => {
   await act(async () => host.querySelector('img')!.click());
   expect(new URL(preview().src).searchParams.has('v')).toBe(false);
   await act(async () => preview().dispatchEvent(new Event('error')));
-  expect(preview().src).toBe(thumbnail);
+  expect(preview().src).toBe(interactiveMediaUrl(thumbnail));
   await act(async () => preview().dispatchEvent(new Event('load')));
-  expect(preview().src).toBe(thumbnail);
+  expect(preview().src).toBe(interactiveMediaUrl(thumbnail));
 });
 
 it('发送完成或切换会话释放附件时，已打开的预览保留 Blob 到关闭', async () => {

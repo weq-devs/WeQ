@@ -80,14 +80,12 @@ export function OverlayScrollbar({
 
     const parent = scrollbarRef.current?.offsetParent as HTMLElement | null;
     const parentRect = parent?.getBoundingClientRect();
-    const scaleX =
-      parent?.offsetWidth
-        ? (parentRect?.width ?? parent.offsetWidth) / parent.offsetWidth || 1
-        : 1;
-    const scaleY =
-      parent?.offsetHeight
-        ? (parentRect?.height ?? parent.offsetHeight) / parent.offsetHeight || 1
-        : 1;
+    const scaleX = parent?.offsetWidth
+      ? (parentRect?.width ?? parent.offsetWidth) / parent.offsetWidth || 1
+      : 1;
+    const scaleY = parent?.offsetHeight
+      ? (parentRect?.height ?? parent.offsetHeight) / parent.offsetHeight || 1
+      : 1;
     const height = rect.height / scaleY;
     const trackHeight = Math.max(0, height - OVERLAY_SCROLLBAR_INSET * 2);
     const proportionalHeight = (target.clientHeight / target.scrollHeight) * trackHeight;

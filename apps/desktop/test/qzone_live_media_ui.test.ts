@@ -31,7 +31,10 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
     isCurrent: () => true,
   }),
 }));
-vi.mock('../src/renderer/src/lib/resourceUrl', () => ({ albumMediaUrl: (url: string) => url }));
+vi.mock('../src/renderer/src/lib/resourceUrl', async (original) => ({
+  ...(await original<typeof import('../src/renderer/src/lib/resourceUrl')>()),
+  albumMediaUrl: (url: string) => url,
+}));
 import {
   QzoneMediaGrid,
   QzonePageContext,

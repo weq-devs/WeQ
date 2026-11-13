@@ -357,7 +357,9 @@ export function contactHistoryWorker(
           }
           const old = previous.get(key, uid, field, stream);
           const text = canonical(
-            old && (['birthday', 'region'].includes(field) || (field === 'labels' && key.startsWith('group:')))
+            old &&
+              (['birthday', 'region'].includes(field) ||
+                (field === 'labels' && key.startsWith('group:')))
               ? merge(JSON.parse(String(old.value)), value)
               : value,
           );

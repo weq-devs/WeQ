@@ -7,7 +7,7 @@ import {
   type GroupAlbumWire,
 } from '../src/renderer/src/components/GroupAlbumDialog';
 import { useViewState } from '../src/renderer/src/state/view';
-import { albumMediaUrl } from '../src/renderer/src/lib/resourceUrl';
+import { albumMediaUrl, interactiveMediaUrl } from '../src/renderer/src/lib/resourceUrl';
 import { makeSolidPng } from '@weq/protocol';
 import { MediaPreview } from '../src/renderer/src/components/MediaPreview';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -362,7 +362,7 @@ it('连续预览只挂载当前媒体操作和公共保存，视频传本体而�
   });
   await act(async () => button('下一项媒体').click());
   expect(document.querySelector('.weq-lightbox-stage video')?.getAttribute('src')).toBe(
-    albumMediaUrl('https://example.invalid/video-b.mp4'),
+    interactiveMediaUrl(albumMediaUrl('https://example.invalid/video-b.mp4')),
   );
   expect(button('下一项媒体').disabled).toBe(true);
   await act(async () => button('保存视频').click());
@@ -481,10 +481,10 @@ it('原图失败保留预览图并可重试，保存仍定位原图', async () =
   await openFirst();
   await act(async () => button('预览 raw-photo.jpg').click());
   const image = document.querySelector<HTMLImageElement>('.weq-lightbox-stage img')!;
-  expect(image.src).toBe(albumMediaUrl(item.originalUrl));
+  expect(image.src).toBe(interactiveMediaUrl(albumMediaUrl(item.originalUrl)));
   act(() => image.dispatchEvent(new Event('error')));
   expect(document.querySelector<HTMLImageElement>('.weq-lightbox-stage img')!.src).toBe(
-    albumMediaUrl(item.previewUrl),
+    interactiveMediaUrl(albumMediaUrl(item.previewUrl)),
   );
   expect(button('重试读取原图')).not.toBeNull();
   await act(async () => button('重试读取原图').click());

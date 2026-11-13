@@ -129,12 +129,7 @@ export function IntentModelsSection(): ReactElement {
           <Row
             label="hf-mirror.com 镜像"
             control={
-              <Toggle
-                label="使用下载镜像"
-                checked={mirror}
-                disabled={busy}
-                onChange={setMirror}
-              />
+              <Toggle label="使用下载镜像" checked={mirror} disabled={busy} onChange={setMirror} />
             }
           />
           <button

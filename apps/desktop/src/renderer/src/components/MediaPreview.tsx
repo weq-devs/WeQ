@@ -233,9 +233,13 @@ function MediaPreviewItem({
   const [sourceIndex, setSourceIndex] = useState(0);
   const [status, setStatus] = useState<MediaLoadState>('loading');
   const current = resolved?.key === item.key ? resolved : item;
-  const sources = [...new Set([current.src, ...(item.fallbackSources ?? [])].filter(Boolean))];
+  const sources = [
+    ...new Set(
+      [current.src, ...(item.fallbackSources ?? [])].filter(Boolean).map(interactiveMediaUrl),
+    ),
+  ];
   const source = sources[sourceIndex] ?? '';
-  const src = resourceForRenderDocument(interactiveMediaUrl(source), ownerDocument);
+  const src = resourceForRenderDocument(source, ownerDocument);
   const zoom = useZoomPan(`${item.key}:${attempt}`, {
     clickZoom: current.kind === 'image',
   });

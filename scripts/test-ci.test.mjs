@@ -319,13 +319,20 @@ test('大包分片连续无缺口，其他包和 Web 仍完整运行，全部结
     'macos-latest',
   ]);
   assert(!bootstrap.steps.some((step) => /pnpm install/.test(step.run ?? '')));
-  assert(
-    bootstrap.steps.some((step) =>
-      /pnpm exec node --test scripts\/dev.test.mjs scripts\/dev-native.test.mjs/.test(
-        step.run ?? '',
-      ),
-    ),
+  const bootstrapTest = bootstrap.steps.find(
+    (step) => step.name === 'Test dependency-free development bootstrap',
   );
+  assert.deepEqual(bootstrapTest.run.trim().split(/\s+/), [
+    'pnpm',
+    'exec',
+    'node',
+    '--test',
+    'scripts/dev.test.mjs',
+    'scripts/dev-web.test.mjs',
+    'scripts/dev-native.test.mjs',
+    'scripts/prepare-remote-network.test.mjs',
+    'scripts/prepare-dev-electron.test.mjs',
+  ]);
   assert.equal(workflow.jobs.test.steps[0].env.DEV_RESULT, `\${{ needs.dev-bootstrap.result }}`);
   assert.equal(
     workflow.jobs.test.steps[0].run,

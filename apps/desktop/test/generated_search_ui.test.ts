@@ -627,7 +627,7 @@ describe('生成内容搜索定位', () => {
     const onOpenAssistant = vi.fn();
     const trigger = document.createElement('button');
     document.body.append(trigger);
-    useWorkspaceMenu.setState({ anchor: trigger });
+    act(() => useWorkspaceMenu.setState({ anchor: trigger }));
     const props = (extra: Record<string, unknown>) =>
       createElement(WorkspaceTools, {
         accountScope: '10000/fixture-config',
@@ -640,12 +640,12 @@ describe('生成内容搜索定位', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(50);
       });
-      // 工作菜单已改名「任务」。
       const workspace = document.querySelector('.weq-workspace-menu');
-      expect(workspace?.querySelector('#weq-workspace-menu-title')?.textContent).toBe('任务');
-      // 浮动菜单是 popover 对话框（role/aria-labelledby），不叠加 aria-modal。
+      expect(workspace?.classList.contains('is-compact')).toBe(true);
+      expect(workspace?.querySelector('#weq-workspace-menu-title')).toBeNull();
       expect(workspace?.getAttribute('role')).toBe('dialog');
-      expect(workspace?.getAttribute('aria-labelledby')).toBe('weq-workspace-menu-title');
+      expect(workspace?.hasAttribute('aria-labelledby')).toBe(false);
+      expect(workspace?.hasAttribute('aria-modal')).toBe(false);
       expect(workspace?.closest('[hidden], [inert]')).toBeNull();
       // 助手搜索不在菜单里铺结果：交给助手宿主打开，并收起任务菜单。
       act(() =>
@@ -659,7 +659,7 @@ describe('生成内容搜索定位', () => {
       expect(useWorkspaceMenu.getState().anchor).toBeNull();
       expect(fixture.mutate).not.toHaveBeenCalled();
     } finally {
-      useWorkspaceMenu.setState({ anchor: null });
+      act(() => useWorkspaceMenu.setState({ anchor: null }));
       trigger.remove();
       f.close();
     }
