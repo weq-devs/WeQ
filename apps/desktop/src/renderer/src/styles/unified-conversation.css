@@ -147,12 +147,16 @@ html[data-weq-layout='single'] .composer:has(.weq-assistant-parameters) > .compo
   grid-template-rows: auto auto minmax(0, 1fr);
 }
 @container (max-width: 620px) {
+  .composer:has(.weq-assistant-parameters) > .composer-tools {
+    flex-wrap: wrap;
+  }
   .weq-assistant-parameters {
-    flex: 0 1 240px;
-    max-width: 240px;
+    flex: 0 0 100%;
+    max-width: 100%;
+    padding-block: 4px;
   }
   .composer-tools .weq-assistant-parameters .weq-assistant-parameter > span {
-    display: none;
+    display: inline;
   }
   .weq-assistant-parameters .weq-api-model-field {
     max-width: 128px;

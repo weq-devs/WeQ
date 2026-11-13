@@ -61,7 +61,7 @@ const REPORT_THROTTLE_MS = 900;
 
 export type LocationSharePhase = 'idle' | 'starting' | 'active';
 
-interface LocationSharePanelProps {
+export interface LocationSharePanelProps {
   /** 浮层根节点（外部点击判定用，与其余 composer 面板同构）。 */
   panelRef?: React.RefObject<HTMLDivElement | null>;
   /** c2c = 私聊，group = 群聊。 */
