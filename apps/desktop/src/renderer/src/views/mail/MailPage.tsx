@@ -218,13 +218,19 @@ export function MailPage({
   const [downloading, setDownloading] = useState<string | null>(null);
   const download = useRef<AbortController | null>(null),
     mounted = useRef(true),
-    visible = useRef(active),
     composeVisible = useRef(showCompose);
   const loadSequence = useRef(0),
     readSequence = useRef(0);
+  // 仅记录成功读取的请求；恢复窗口时复用内容，中断或失败的请求仍可重试。
+  const loadedList = useRef<{ api: MailApi; key: string } | null>(null);
+  const loadedFolders = useRef<{ api: MailApi; revision: number } | null>(null);
+  const loadedRead = useRef<{
+    api: MailApi;
+    id: string;
+    revision: number;
+  } | null>(null);
   const openRequested = useRef(onOpenRequested);
   openRequested.current = onOpenRequested;
-  visible.current = activity.enabled;
   composeVisible.current = showCompose;
   const ready = status.state === 'ready';
   const multi = useMultiSelection({
@@ -239,6 +245,7 @@ export function MailPage({
   const selection = checked.length ? checked : selectedId ? [selectedId] : [];
   const chooseFolder = useCallback(
     (id: number): void => {
+      loadedRead.current = null;
       setThreadRoot(null);
       setPage(emptyPage);
       setFolderId(id);
@@ -311,7 +318,7 @@ export function MailPage({
         }
       }
       if (event.type === 'status' && event.status) setStatus(event.status);
-      if (event.type !== 'status' && visible.current) setRevision((current) => current + 1);
+      if (event.type !== 'status') setRevision((current) => current + 1);
       if (event.type === 'new-mail' && event.notice)
         useToast.getState().push({
           tone: 'info',
@@ -344,7 +351,13 @@ export function MailPage({
   }, [onUnreadChange, status.unread]);
 
   useEffect(() => {
+    if (!ready) loadedList.current = null;
     if (!ready || !activity.enabled) return;
+    const key = JSON.stringify([folderId, pageNumber, unreadOnly, keyword, revision]);
+    if (loadedList.current?.api === api && loadedList.current.key === key) {
+      setLoading(false);
+      return;
+    }
     const controller = new AbortController(),
       sequence = ++loadSequence.current;
     setLoading(true);
@@ -359,6 +372,7 @@ export function MailPage({
     )
       .then((value) => {
         if (!controller.signal.aborted && sequence === loadSequence.current) {
+          loadedList.current = { api, key };
           setPage(value);
           const ids = new Set(value.items.map((item) => item.id));
           setChecked((current) => current.filter((id) => ids.has(id)));
@@ -386,22 +400,35 @@ export function MailPage({
     revision,
   ]);
   useEffect(() => {
+    if (!ready) loadedFolders.current = null;
     if (!ready || !activity.enabled) return;
+    if (loadedFolders.current?.api === api && loadedFolders.current.revision === revision) return;
     const controller = new AbortController();
     void readWithRetry(() => api.folders(controller.signal), controller.signal)
       .then((value) => {
-        if (!controller.signal.aborted) setFolders(value);
+        if (!controller.signal.aborted) {
+          loadedFolders.current = { api, revision };
+          setFolders(value);
+        }
       })
       .catch(() => {});
     return () => controller.abort();
   }, [api, ready, activity.enabled, activity.revision, revision]);
   useEffect(() => {
+    if (!selectedId || !ready) loadedRead.current = null;
     if (!selectedId || !ready || !activity.enabled) {
       setReading(false);
       return;
     }
+    if (
+      loadedRead.current?.api === api &&
+      loadedRead.current.id === selectedId &&
+      loadedRead.current.revision === searchReadRevision
+    )
+      return;
     const controller = new AbortController(),
       sequence = ++readSequence.current;
+    loadedRead.current = null;
     setReading(true);
     setDetail((current) => (current?.id === selectedId ? current : null));
     setError('');
@@ -409,6 +436,7 @@ export function MailPage({
       .read(selectedId, controller.signal)
       .then((value) => {
         if (controller.signal.aborted || sequence !== readSequence.current) return;
+        loadedRead.current = { api, id: selectedId, revision: searchReadRevision };
         setDetail(value);
         setPage((current) => ({
           ...current,
