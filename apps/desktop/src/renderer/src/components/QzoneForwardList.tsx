@@ -17,12 +17,16 @@ export function QzoneForwardList({
   onSpace,
   renderContent,
   paused = false,
+  enabled = true,
+  open = true,
 }: {
   target: QzoneForwardTarget;
   onCount: (count: number | null) => void;
   onSpace?: (uin: string, nickname?: string) => void;
   renderContent?: (content: string) => ReactNode;
   paused?: boolean;
+  enabled?: boolean;
+  open?: boolean;
 }) {
   const { selfUin, hostUin, tid } = target;
   const [page, setPage] = useState<QzoneForwardPage | null>(null);
@@ -31,23 +35,26 @@ export function QzoneForwardList({
   const [error, setError] = useState('');
   const busy = useRef(false);
   const generation = useRef(0);
+  const firstRead = useRef(false);
   const { run, cancel } = useQzoneRequests();
   const load = useCallback(
-    async (cursor: QzoneForwardPage['nextCursor']) => {
+    async (cursor: QzoneForwardPage['nextCursor'], background = false) => {
       if (busy.current || paused) return;
       busy.current = true;
       const request = ++generation.current;
       setLoading(true);
       setError('');
       try {
-        const result = await run((requestId) =>
-          client.account.qzone.forwards.query({
-            selfUin,
-            hostUin,
-            tid,
-            cursor,
-            requestId,
-          }),
+        const result = await run(
+          (requestId) =>
+            client.account.qzone.forwards.query({
+              selfUin,
+              hostUin,
+              tid,
+              cursor,
+              requestId,
+            }),
+          background,
         );
         if (request !== generation.current) return;
         setRows((previous) => {
@@ -56,6 +63,7 @@ export function QzoneForwardList({
           return [...merged.values()];
         });
         setPage(result);
+        firstRead.current = true;
         onCount(result.reportedTotal);
       } catch (reason) {
         if (request === generation.current)
@@ -70,13 +78,15 @@ export function QzoneForwardList({
     [selfUin, hostUin, tid, paused, onCount, run],
   );
   useEffect(() => {
-    void load(null);
+    if (enabled && !paused && !firstRead.current) void load(null, true);
+    else setLoading(false);
     return () => {
       generation.current++;
       busy.current = false;
       cancel();
     };
-  }, [load, cancel]);
+  }, [load, cancel, enabled, paused]);
+  if (!open) return null;
   const people = new Set(rows.map((row) => row.uin)).size;
   return (
     <div className="weq-qzn-forward-list">

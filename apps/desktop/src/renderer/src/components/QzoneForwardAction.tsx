@@ -1,5 +1,5 @@
 import { useCallback, useState, type ReactNode } from 'react';
-import { Repeat2, UsersRound } from 'lucide-react';
+import { Repeat2 } from 'lucide-react';
 import { QzoneLikesPopover } from './QzoneLikesPopover';
 import { QzoneForwardList, type QzoneForwardTarget } from './QzoneForwardList';
 
@@ -11,6 +11,7 @@ export function QzoneForwardAction({
   onSpace,
   renderContent,
   paused,
+  autoRead = true,
 }: {
   onClick: () => void;
   count?: number | null;
@@ -19,6 +20,7 @@ export function QzoneForwardAction({
   onSpace?: (uin: string, nickname?: string) => void;
   renderContent?: (content: string) => ReactNode;
   paused?: boolean;
+  autoRead?: boolean;
 }) {
   const targetId = target ? `${target.selfUin}:${target.hostUin}:${target.tid}` : '';
   const [observed, setObserved] = useState<{ targetId: string; total: number | null } | null>(null);
@@ -30,35 +32,27 @@ export function QzoneForwardAction({
   return (
     <QzoneLikesPopover
       label="转发列表"
-      openOnClick={Boolean(target)}
+      keepMounted={Boolean(target)}
       trigger={
-        <>
-          <button type="button" title="转发" aria-label="转发" onClick={onClick}>
-            <Repeat2 size={16} />
-            转发 {displayed ?? '?'}
-          </button>
-          {target ? (
-            <button
-              className="weq-qzn-forward-people"
-              type="button"
-              title="查看转发者"
-              aria-label="查看转发者"
-            >
-              <UsersRound size={14} />
-            </button>
-          ) : null}
-        </>
+        <button type="button" title="转发" aria-label="转发" onClick={onClick}>
+          <Repeat2 size={16} />
+          转发 {displayed ?? '?'}
+        </button>
       }
     >
       {target ? (
-        <QzoneForwardList
-          key={targetId}
-          target={target}
-          onCount={onCount}
-          onSpace={onSpace}
-          renderContent={renderContent}
-          paused={paused}
-        />
+        (open: boolean) => (
+          <QzoneForwardList
+            key={targetId}
+            target={target}
+            onCount={onCount}
+            onSpace={onSpace}
+            renderContent={renderContent}
+            paused={paused}
+            enabled={autoRead || open}
+            open={open}
+          />
+        )
       ) : (
         <p className="weq-qzn-status">{message}</p>
       )}

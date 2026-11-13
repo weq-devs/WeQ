@@ -25,12 +25,6 @@
   display: inline-flex;
   align-items: center;
 }
-.weq-qzn-forward-people {
-  padding: 4px;
-  min-width: 32px;
-  min-height: 32px;
-  justify-content: center;
-}
 .weq-qzn-forward-row {
   padding: 8px 2px;
 }

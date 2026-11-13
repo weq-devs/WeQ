@@ -9,12 +9,12 @@ export function QzoneLikesPopover({
   trigger,
   children,
   label = '点赞列表',
-  openOnClick = false,
+  keepMounted = false,
 }: {
   trigger: ReactNode;
-  children?: ReactNode;
+  children?: ReactNode | ((open: boolean) => ReactNode);
   label?: string;
-  openOnClick?: boolean;
+  keepMounted?: boolean;
 }) {
   const document = useRenderDocument();
   const anchor = useRef<HTMLDivElement>(null);
@@ -80,17 +80,17 @@ export function QzoneLikesPopover({
         onMouseEnter={show}
         onMouseLeave={leave}
         onFocus={show}
-        onClick={openOnClick ? show : undefined}
         onBlur={(event) => blur(event.relatedTarget)}
       >
         {trigger}
       </div>
-      {open
+      {open || keepMounted
         ? createPortal(
             <div
               ref={layer}
               className="weq-qzn-like-layer"
               data-weq-surface
+              hidden={!open}
               style={{ ...placement.position, zIndex }}
             >
               <div
@@ -102,7 +102,7 @@ export function QzoneLikesPopover({
                 onFocus={cancelClose}
                 onBlur={(event) => blur(event.relatedTarget)}
               >
-                {children}
+                {typeof children === 'function' ? children(open) : children}
               </div>
             </div>,
             document.body,

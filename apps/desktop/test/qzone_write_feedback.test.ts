@@ -577,15 +577,16 @@ it('转发弹窗上方预填引用并将光标定位开头，下方保留原动�
   expect(await state.readback!()).toBe(true);
 });
 
-it('转发悬停读取真实名单并校准数量，不沿用旧 Web 计数或发起转发', async () => {
+it('可见动态自动读取转发数量，悬停复用名单而不发起转发', async () => {
   const view = await mount();
   const button = view.host.querySelector<HTMLButtonElement>('[title="转发"]')!;
-  expect(button.textContent).toContain('转发 ?');
+  expect(button.textContent).toContain('转发 3');
   expect(button.textContent).not.toContain('37');
-  expect(state.forwards).not.toHaveBeenCalled();
+  expect(state.forwards).toHaveBeenCalledOnce();
   await act(async () => button.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
   expect(document.querySelector('[aria-label="转发列表"]')?.textContent).toContain('合成转发语0');
   expect(button.textContent).toContain('转发 3');
+  expect(state.forwards).toHaveBeenCalledOnce();
   expect(state.forwards).toHaveBeenCalledWith(
     expect.objectContaining({ selfUin: '10001', hostUin: '10001', tid: 'post-a', cursor: null }),
   );

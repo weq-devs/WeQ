@@ -1867,6 +1867,7 @@ function PostActionsBody({
           key={`${selfUin}:${hostUin}:${post.tid}:${refresh}`}
           onClick={() => setForwardOpen(true)}
           target={{ selfUin, hostUin, tid: post.tid }}
+          autoRead={visible}
           onSpace={onSpace}
           paused={readsPaused}
           renderContent={(content) => <QzoneText content={content} onSpace={onSpace} />}

@@ -56,7 +56,12 @@ try {
       await page.goto(
         `http://127.0.0.1:${server.httpServer.address().port}/test/browser/qzone-forwards.html?theme=${theme}`,
       );
-      await page.getByRole('button', { name: '查看转发者', exact: true }).click();
+      await page.waitForFunction(() =>
+        document.querySelector('[aria-label="转发"]')?.textContent?.includes('1288'),
+      );
+      assert.equal(await page.getByRole('region', { name: '转发列表' }).count(), 0);
+      await page.getByRole('button', { name: '转发', exact: true }).hover();
+      assert.equal(await page.getByRole('button', { name: '查看转发者', exact: true }).count(), 0);
       const panel = page.getByRole('region', { name: '转发列表' });
       await panel.getByText('合成转发者', { exact: true }).waitFor();
       assert.equal(await page.getByLabel('转发操作次数').textContent(), '0');
@@ -77,6 +82,9 @@ try {
       await panel.getByRole('button', { name: '进入 合成转发者 的空间', exact: true }).click();
       assert.equal(await page.getByLabel('当前用户').textContent(), '合成转发者');
       await page.keyboard.press('Escape');
+      await page.getByRole('button', { name: '转发', exact: true }).focus();
+      await page.getByRole('region', { name: '转发列表' }).getByText('已到可读取末页').waitFor();
+      await page.keyboard.press('Escape');
       await page.getByRole('button', { name: '转发', exact: true }).click();
       assert.equal(await page.getByLabel('转发操作次数').textContent(), '1');
       scenes++;
@@ -88,7 +96,7 @@ try {
     await page.goto(
       `http://127.0.0.1:${server.httpServer.address().port}/test/browser/qzone-forwards.html?mode=${mode}`,
     );
-    await page.getByRole('button', { name: '查看转发者', exact: true }).click();
+    await page.getByRole('button', { name: '转发', exact: true }).focus();
     const panel = page.getByRole('region', { name: '转发列表' });
     if (mode === 'empty') await panel.getByText('暂无可读取的转发记录').waitFor();
     else {
