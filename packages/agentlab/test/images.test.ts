@@ -3,6 +3,7 @@ import {
   AiImageProcessor,
   normalizeImagePreferences,
   type AiImageProcessorDeps,
+  type AiImageProgress,
 } from '../src/images';
 
 const endpoint = { baseUrl: 'https://fixture.invalid/v1', apiKey: 'fixture-key', model: 'vision' };
@@ -27,6 +28,103 @@ function fixture(mode: 'placeholder' | 'ocr' | 'vision' = 'vision') {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('共用 AI 图片处理', () => {
+  it('视觉阶段按真实取图、缓存、模型等待及完成上报，缓存命中不冒充模型请求', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        await gate;
+        return new Response(JSON.stringify({ choices: [{ message: { content: '合成画面' } }] }));
+      }),
+    );
+    const f = fixture();
+    const events: AiImageProgress[] = [];
+    const onProgress = (progress: AiImageProgress) => {
+      events.push(progress);
+    };
+    const input = { feature: 'suggestions' as const, text: '', images: [image], onProgress };
+    const pending = f.processor.prepare(input);
+    try {
+      await vi.waitFor(() =>
+        expect(events.map((event) => event.stage)).toEqual(['load', 'cache', 'vision']),
+      );
+      expect(events.at(-1)?.text).toContain(endpoint.model);
+    } finally {
+      release();
+      await pending;
+    }
+    expect(events.at(-1)).toMatchObject({
+      stage: 'complete',
+      outcome: { status: 'read', mode: 'vision' },
+    });
+    events.length = 0;
+    await f.processor.prepare(input);
+    expect(events.map((event) => event.stage)).toEqual(['load', 'cache', 'cache', 'complete']);
+    expect(events.some((event) => event.text.includes('命中'))).toBe(true);
+    expect(JSON.stringify(events)).not.toContain('base64');
+  });
+  it('视觉失败的进度先说明回退再进入 OCR，失败与筛图跳过分别记录', async () => {
+    const f = fixture();
+    f.deps.vision.mockReturnValue(null);
+    f.deps.ocr.mockRejectedValueOnce(new Error('合成 OCR 失败'));
+    const events: AiImageProgress[] = [];
+    await f.processor.prepare({
+      feature: 'suggestions',
+      text: '',
+      images: [image],
+      onProgress: (progress) => {
+        events.push(progress);
+      },
+    });
+    expect(events.map((event) => event.stage)).toEqual(['fallback', 'ocr', 'complete']);
+    expect(events[0]?.text).toContain('未配置默认视觉模型');
+    expect(events.at(-1)).toMatchObject({ outcome: { status: 'failed' } });
+    f.deps.ocr.mockResolvedValueOnce({ text: '', skipped: true });
+    events.length = 0;
+    await f.processor.prepare({
+      feature: 'suggestions',
+      text: '',
+      images: [image],
+      onProgress: (progress) => {
+        events.push(progress);
+      },
+    });
+    expect(events.at(-1)).toMatchObject({ outcome: { status: 'skipped', mode: 'ocr' } });
+  });
+  it('图片并发已满时上报排队，取消排队不报告完成', async () => {
+    const f = fixture('ocr');
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    f.deps.ocr.mockImplementation(async () => {
+      await gate;
+      return { text: '合成文字', notes: [] };
+    });
+    const input = { feature: 'suggestions' as const, text: '', images: [image] };
+    const active = Array.from({ length: 4 }, () => f.processor.prepare(input));
+    const events: AiImageProgress[] = [];
+    const controller = new AbortController();
+    const queued = f.processor.prepare({
+      ...input,
+      signal: controller.signal,
+      onProgress: (progress) => {
+        events.push(progress);
+      },
+    });
+    try {
+      expect(events.map((event) => event.stage)).toEqual(['queued']);
+      controller.abort();
+      await expect(queued).rejects.toThrow();
+      expect(events.map((event) => event.stage)).toEqual(['queued']);
+    } finally {
+      release();
+      await Promise.all(active);
+    }
+  });
   it('各功能缺省值与不允许占位的功能一致，未知值不变成新能力', () => {
     expect(
       normalizeImagePreferences({ assistant: 'placeholder', cloneChat: 'bad', profile: 'ocr' }),

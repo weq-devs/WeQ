@@ -48,6 +48,12 @@ export interface AiPreparedInput {
   content: string | AiContentPart[];
   outcomes: AiImageOutcome[];
 }
+export interface AiImageProgress {
+  imageId?: string;
+  stage: 'queued' | 'load' | 'cache' | 'vision' | 'ocr' | 'fallback' | 'complete';
+  text: string;
+  outcome?: AiImageOutcome;
+}
 export interface AiImagePort {
   prepare(input: {
     feature: AiImageFeature;
@@ -59,6 +65,7 @@ export interface AiImagePort {
     signal?: AbortSignal;
     forceOcr?: boolean;
     question?: string;
+    onProgress?(progress: AiImageProgress): void;
   }): Promise<AiPreparedInput>;
   revision?(feature?: AiImageFeature): string;
 }
@@ -137,7 +144,8 @@ export class AiImageProcessor implements AiImagePort {
   }
   async prepare(input: Parameters<AiImagePort['prepare']>[0]): Promise<AiPreparedInput> {
     input.signal?.throwIfAborted();
-    if (this.active >= 4)
+    if (this.active >= 4) {
+      input.onProgress?.({ stage: 'queued', text: '等待图片处理空位' });
       await new Promise<void>((resolve, reject) => {
         const release = () => {
           input.signal?.removeEventListener('abort', abort);
@@ -151,7 +159,7 @@ export class AiImageProcessor implements AiImagePort {
         this.waiting.push(release);
         input.signal?.addEventListener('abort', abort, { once: true });
       });
-    else this.active++;
+    } else this.active++;
     try {
       return await this.run(input);
     } finally {
@@ -170,8 +178,27 @@ export class AiImageProcessor implements AiImagePort {
       input.signal?.throwIfAborted();
       const outcome: AiImageOutcome = { id: image.id, mode, status: 'skipped', notes: [] };
       outcomes.push(outcome);
+      const report = (stage: AiImageProgress['stage'], text: string) =>
+        input.onProgress?.({ imageId: image.id, stage, text });
+      const complete = () =>
+        input.onProgress?.({
+          imageId: image.id,
+          stage: 'complete',
+          text:
+            outcome.status === 'failed'
+              ? '图片读取失败，保留图片占位'
+              : outcome.status === 'direct'
+                ? '图片已准备好，将随主请求发送'
+                : mode === 'placeholder'
+                  ? '按设置保留图片占位，不读取图片'
+                  : outcome.status === 'skipped'
+                    ? '筛图未检测到文字，保留图片占位'
+                    : `${outcome.mode === 'ocr' ? 'OCR 识别' : '视觉分析'}完成，得到 ${outcome.text?.length ?? 0} 字`,
+          outcome,
+        });
       if (mode === 'placeholder') {
         annotations.push('[图片]');
+        complete();
         continue;
       }
       if (mode === 'vision') {
@@ -180,6 +207,7 @@ export class AiImageProcessor implements AiImagePort {
           const endpoint = this.deps.vision(input);
           if (!endpoint) throw new Error('未配置默认视觉模型');
           visionKey = endpoint.apiKey;
+          report('load', '正在读取图片（必要时下载）');
           const loaded = await this.deps.load(image, input.signal);
           input.signal?.throwIfAborted();
           const same =
@@ -193,6 +221,7 @@ export class AiImageProcessor implements AiImagePort {
               { type: 'image_url', image_url: { url: loaded.dataUrl } },
             );
             outcome.status = 'direct';
+            complete();
             continue;
           }
           // 通用描述不含用户问题，问题相关答案不得污染内容缓存。
@@ -201,6 +230,7 @@ export class AiImageProcessor implements AiImagePort {
             endpoint.modelIdentity ?? endpoint.model,
             endpoint.baseUrl,
           ]);
+          report('cache', '正在检查图片解读缓存');
           let description = input.question
             ? null
             : (this.descriptions.get(key) ?? (await this.deps.cached?.(key).catch(() => null)));
@@ -212,6 +242,10 @@ export class AiImageProcessor implements AiImagePort {
             }
             const requestKey = JSON.stringify([key, signalKey, input.question]);
             let pending = this.inFlight.get(requestKey);
+            report(
+              'vision',
+              `${pending ? '正在等待同图分析' : '正在请求视觉模型'} ${endpoint.model} 返回`,
+            );
             if (!pending) {
               pending = visionImageCompletion(
                 { ...endpoint, signal: input.signal, feature: `${input.feature}-image` },
@@ -233,10 +267,11 @@ export class AiImageProcessor implements AiImagePort {
               this.descriptions.set(key, description);
               await this.deps.cache?.(key, description).catch(() => undefined);
             }
-          }
+          } else report('cache', '已命中图片解读缓存，无需请求视觉模型');
           outcome.status = 'read';
           outcome.text = description;
           annotations.push(`[图片 ${image.id} · 视觉解读]\n${description}`);
+          complete();
           continue;
         } catch (error) {
           input.signal?.throwIfAborted();
@@ -245,9 +280,11 @@ export class AiImageProcessor implements AiImagePort {
           outcome.notes.push(
             `视觉未成功，回退 OCR：${visionKey ? reason.split(visionKey).join('[已隐藏]') : reason}`,
           );
+          report('fallback', outcome.notes.at(-1)!);
         }
       }
       try {
+        report('ocr', '正在进行 OCR 文字识别（含取图、缓存检查与筛图）');
         const result = await this.deps.ocr(image, input.signal);
         input.signal?.throwIfAborted();
         outcome.mode = 'ocr';
@@ -264,6 +301,7 @@ export class AiImageProcessor implements AiImagePort {
         outcome.notes.push(errorText(error));
         annotations.push(`[图片 ${image.id} · 未能读取：${errorText(error)}]`);
       }
+      complete();
     }
     const text = [input.text, ...annotations].filter(Boolean).join('\n');
     parts[0] = { type: 'text', text };

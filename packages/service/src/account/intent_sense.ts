@@ -1867,6 +1867,9 @@ export class IntentSenseService {
         undefined,
         'suggestions',
         controller.signal,
+        (text, level) => {
+          if (current()) log('图片处理', text, level);
+        },
       );
       if (!current()) return [];
       if (rows.length === 0) return [];
@@ -2211,11 +2214,29 @@ export class IntentSenseService {
     conv: string,
     feature: AiImageFeature,
     signal?: AbortSignal,
+    onImageLog?: (text: string, level?: 'info' | 'warn') => void,
   ): Promise<SenseRow[]> {
     if (!this.opts.images) return rows;
+    const selected = rows.map((row) => ({
+      row,
+      images: messageImageRefs(row.elementsRaw, kind, conv, row.msgId, row.sendTime * 1000),
+    }));
+    const total = selected.reduce((sum, item) => sum + item.images.length, 0);
+    let completed = 0;
+    let offset = 0;
+    const report = (text: string, level: 'info' | 'warn' = 'info') => {
+      const filled = Math.floor((completed / total) * 10);
+      onImageLog?.(
+        `[${'#'.repeat(filled)}${'-'.repeat(10 - filled)}] ${completed}/${total} ${text}`,
+        level,
+      );
+    };
+    if (total) report(`发现 ${total} 张图片，正在准备图片上下文。`);
     const prepared: SenseRow[] = [];
-    for (const row of rows) {
-      const images = messageImageRefs(row.elementsRaw, kind, conv, row.msgId, row.sendTime * 1000);
+    for (const { row, images } of selected) {
+      signal?.throwIfAborted();
+      const finished = new Set<string>();
+      const started = new Map<string, number>();
       prepared.push(
         images.length
           ? {
@@ -2230,11 +2251,42 @@ export class IntentSenseService {
                   ),
                   images,
                   signal,
+                  onProgress: onImageLog
+                    ? (progress) => {
+                        if (signal?.aborted) return;
+                        const index = images.findIndex((image) => image.id === progress.imageId);
+                        const label = index < 0 ? '' : `第 ${offset + index + 1}/${total} 张：`;
+                        let elapsed = '';
+                        if (progress.imageId) {
+                          if (!started.has(progress.imageId))
+                            started.set(progress.imageId, Date.now());
+                          if (progress.stage === 'complete' && !finished.has(progress.imageId)) {
+                            finished.add(progress.imageId);
+                            completed++;
+                            elapsed = `（耗时 ${((Date.now() - started.get(progress.imageId)!) / 1000).toFixed(1)} 秒）`;
+                          }
+                        }
+                        report(
+                          `${label}${progress.text}${elapsed}`,
+                          progress.stage === 'fallback' || progress.outcome?.status === 'failed'
+                            ? 'warn'
+                            : 'info',
+                        );
+                      }
+                    : undefined,
                 })
               ).text,
             }
           : row,
       );
+      // 兼容未提供细分进度的图片处理端口，仍按实际返回结果推进总进度。
+      for (const image of images) {
+        if (!finished.has(image.id)) {
+          completed++;
+          report(`第 ${offset + images.indexOf(image) + 1}/${total} 张：图片处理完成。`);
+        }
+      }
+      offset += images.length;
     }
     return prepared;
   }
@@ -2248,9 +2300,10 @@ export class IntentSenseService {
     beforeSeq?: bigint,
     feature?: AiImageFeature,
     signal?: AbortSignal,
+    onImageLog?: (text: string, level?: 'info' | 'warn') => void,
   ): Promise<SenseRow[]> {
     const prepareRows = async (rows: SenseRow[]) => {
-      return feature ? this.prepareImageRows(rows, kind, conv, feature, signal) : rows;
+      return feature ? this.prepareImageRows(rows, kind, conv, feature, signal, onImageLog) : rows;
     };
     const toRow = (m: C2cMsg | GroupMsg): SenseRow => {
       const mine =

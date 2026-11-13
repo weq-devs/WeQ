@@ -222,3 +222,125 @@ it.each(['pic', 'mface'])('%s 消息进入意图分析；更换图片策略后�
   expect((await service.ensureAnalysis('c2c', 'peer', 1)).analyzed).toBe(1);
   expect(analyze).toHaveBeenCalledTimes(3);
 });
+
+it.each([
+  { mode: 'ocr', split: true },
+  { mode: 'vision', split: true },
+  { mode: 'ocr', split: false },
+  { mode: 'vision', split: false },
+] as const)(
+  '推荐回复在 $mode 图片处理期间记录字符进度（跨消息：$split），完成后保存日志',
+  async ({ mode, split }) => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const processor = new AiImageProcessor({
+      mode: () => mode,
+      vision: () => endpoint,
+      load: async () => ({ dataUrl: 'data:image/png;base64,synthetic', key: 'synthetic' }),
+      ocr: async () => {
+        await gate;
+        return { text: '合成文字' };
+      },
+    });
+    const fetchMock = vi.fn(async () => {
+      await gate;
+      return new Response(JSON.stringify({ choices: [{ message: { content: '合成画面' } }] }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const message = (id: bigint) => ({
+      msgId: id,
+      msgSeq: id,
+      senderUid: 'peer',
+      senderUin: 10001n,
+      sendTime: 1700000000n + id,
+      elements: [{ kind: 'pic', fileName: 'fixture.png' }],
+    });
+    const session = {
+      context: { uin: 10000n },
+      uidMap: { sortNoByUid: () => undefined },
+      c2cMsgs: {
+        listLatest: async () =>
+          split
+            ? [message(2n), message(1n)]
+            : [{ ...message(1n), elements: [...message(1n).elements, ...message(1n).elements] }],
+      },
+    } as unknown as AccountSession;
+    const root = directory();
+    const service = new IntentSenseService(session, root, { images: processor });
+    await service.setConfig({ suggestionsEnabled: true });
+    const pending = service.getSuggestions('c2c', 'peer');
+    try {
+      await vi.waitFor(() => {
+        const details = service.getSuggestionDetails('c2c', 'peer');
+        expect(details?.progress?.stage).toBe('图片处理');
+        expect(details?.trace?.logs?.at(-1)?.text).toContain('[----------] 0/2');
+        expect(details?.trace?.logs?.at(-1)?.text).toContain(mode === 'ocr' ? 'OCR' : 'visual');
+      });
+    } finally {
+      release();
+      await pending;
+    }
+    const details = service.getSuggestionDetails('c2c', 'peer');
+    const logs = details?.trace?.logs ?? [];
+    expect(logs.some((line) => line.text.includes('[#####-----] 1/2'))).toBe(true);
+    expect(logs.some((line) => line.text.includes('[##########] 2/2'))).toBe(true);
+    expect(logs.some((line) => line.text.includes('耗时'))).toBe(true);
+    expect(logs.map((line) => line.seq)).toEqual(logs.map((_, index) => index + 1));
+    expect(JSON.stringify(logs)).not.toContain('base64');
+    expect(
+      new IntentSenseService(session, root).getSuggestionDetails('c2c', 'peer', details?.entry?.id)
+        ?.trace?.logs,
+    ).toEqual(logs);
+  },
+);
+
+it('停止图片 OCR 后，迟到结果不再推进字符进度或覆盖已停止状态', async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const ocr = vi.fn(async () => {
+    await gate;
+    return { text: '迟到文字' };
+  });
+  const processor = new AiImageProcessor({
+    mode: () => 'ocr',
+    vision: () => null,
+    load: async () => {
+      throw new Error('不应读取视觉图片');
+    },
+    ocr,
+  });
+  const session = {
+    context: { uin: 10000n },
+    uidMap: { sortNoByUid: () => undefined },
+    c2cMsgs: {
+      listLatest: async () => [
+        {
+          msgId: 1n,
+          msgSeq: 1n,
+          senderUid: 'peer',
+          senderUin: 10001n,
+          sendTime: 1700000000n,
+          elements: [{ kind: 'pic', fileName: 'fixture.png' }],
+        },
+      ],
+    },
+  } as unknown as AccountSession;
+  const service = new IntentSenseService(session, directory(), { images: processor });
+  await service.setConfig({ suggestionsEnabled: true });
+  const pending = service.getSuggestions('c2c', 'peer');
+  try {
+    await vi.waitFor(() => expect(ocr).toHaveBeenCalledOnce());
+    expect(service.stopSuggestions('c2c', 'peer')).toBe(true);
+  } finally {
+    release();
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+  }
+  const details = service.getSuggestionDetails('c2c', 'peer');
+  expect(details?.progress?.status).toBe('stopped');
+  expect(details?.trace?.logs?.at(-1)?.stage).toBe('已停止');
+  expect(details?.trace?.logs?.some((line) => line.text.includes('[##########]'))).toBe(false);
+});
