@@ -5,6 +5,26 @@ const fixture = (likedata?: unknown) =>
   JSON.stringify({ code: 0, data: [{ current: { likedata } }] });
 
 describe('structured Qzone likes coverage', () => {
+  it.each([0, 1])('本人点赞标记 %s 独立于名单完整性', (ilike) => {
+    expect(
+      parseQzoneLikesResult(fixture({ cnt: 47, ilike, list: [[10002, 'other', 0]] })),
+    ).toMatchObject({ selfLiked: ilike === 1, coverage: 'observed', reportedTotal: 47 });
+  });
+  it('没有名单时仍保留明确的本人点赞标记', () => {
+    expect(parseQzoneLikesResult(fixture({ cnt: 47, ilike: 1 }))).toMatchObject({
+      selfLiked: true,
+      likes: [],
+      coverage: 'unobserved',
+    });
+  });
+  it.each([undefined, null, -1, 2, '1', true])('不猜测非法本人标记 %s', (ilike) => {
+    expect(parseQzoneLikesResult(fixture({ cnt: 0, ilike }))).toMatchObject({ selfLiked: null });
+  });
+  it('没有成功业务码时不接受本人点赞标记', () => {
+    expect(
+      parseQzoneLikesResult(JSON.stringify({ data: [{ current: { likedata: { ilike: 1 } } }] })),
+    ).toMatchObject({ selfLiked: null });
+  });
   it('verifies the reported count against unique valid accounts', () => {
     expect(
       parseQzoneLikesResult(

@@ -25,6 +25,7 @@ const state = vi.hoisted(() => ({
   detail: vi.fn(),
   posts: vi.fn(),
   forwards: vi.fn(),
+  likes: vi.fn(),
   summary: vi.fn(async (_input: unknown) => ({
     likes: {
       likes: [] as { uin: string; nickname: string }[],
@@ -98,6 +99,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         stats: { query: async () => ({ postCount: 1, photoCount: 0 }) },
         people: { query: async () => ({}) },
         summary: { query: state.summary },
+        likes: { query: state.likes },
         forwards: { query: state.forwards },
         interactions: { query: state.interactions },
         nativeDetail: { query: state.nativeDetail },
@@ -144,6 +146,7 @@ beforeEach(() => {
   state.pickImage.mockClear();
   state.nativeDetail.mockClear();
   state.detail.mockReset();
+  state.likes.mockReset().mockResolvedValue({ likes: [], coverage: 'observed', selfLiked: null });
   state.posts.mockReset().mockResolvedValue({
     total: 1,
     nickname: '合成空间',
@@ -521,6 +524,45 @@ it('读取时已经点赞，直接呈现已赞样式，点击执行取消点赞'
   expect(view.button('取消说说点赞').getAttribute('aria-pressed')).toBe('true');
   await act(async () => view.button('取消说说点赞').click());
   expect(state.write).toHaveBeenCalledWith(expect.objectContaining({ action: 'unlike' }));
+});
+
+it.each([true, false])('本人标记为 %s 时，名单缺少本人仍正确展示及确认', async (selfLiked) => {
+  const likes = {
+    likes: [{ uin: '10002', nickname: '合成好友' }],
+    reportedTotal: 47,
+    reportedViewCount: 8,
+    coverage: 'observed',
+    selfLiked,
+  };
+  state.summary.mockResolvedValue({ likes, commentCount: 2 });
+  state.likes.mockResolvedValue({ ...likes, selfLiked: !selfLiked });
+  const view = await mount();
+  const label = selfLiked ? '取消说说点赞' : '点赞说说';
+  expect(view.button(label).getAttribute('aria-pressed')).toBe(String(selfLiked));
+  await act(async () => view.button(label).click());
+  expect(state.write).toHaveBeenCalledWith(
+    expect.objectContaining({ action: selfLiked ? 'unlike' : 'like' }),
+  );
+  expect(await state.readback!()).toBe(true);
+  expect(state.likes).toHaveBeenCalledWith(
+    expect.objectContaining({ selfUin: '10001', hostUin: '10001', tid: 'post-a' }),
+  );
+  expect(state.write).toHaveBeenCalledOnce();
+});
+
+it('缺少本人标记的部分名单不能确认取消点赞', async () => {
+  state.summary.mockResolvedValue({
+    likes: {
+      likes: [{ uin: '10001', nickname: '合成自己' }],
+      reportedTotal: 47,
+      reportedViewCount: 8,
+      coverage: 'observed',
+    },
+    commentCount: 2,
+  });
+  const view = await mount();
+  await act(async () => view.button('取消说说点赞').click());
+  expect(await state.readback!()).toBe(false);
 });
 
 it('转发弹窗上方预填引用并将光标定位开头，下方保留原动态', async () => {

@@ -4,7 +4,7 @@ import type { QQWriteBinding, QQWriteOutcome } from '../../hooks/useQQWriteSessi
 import { client, trpc } from '../../trpc/client';
 import { localFileUrl } from '../../lib/resourceUrl';
 import { useDraftProtection } from '../../lib/draftClose';
-import type { QzoneReplyTarget } from '../../lib/qzoneActions';
+import { qzoneSelfLiked, type QzoneReplyTarget } from '../../lib/qzoneActions';
 import { qzoneReplyPresentation } from '../../lib/qzoneReplyPresentation';
 import type { QzoneInteraction } from '../../views/qzone_types';
 import {
@@ -487,8 +487,7 @@ function QzoneWriteActionsBody({
               tid,
               requestId: crypto.randomUUID(),
             });
-            const found = result.likes.some((entry) => entry.uin === a.binding!.expectedAccountUin);
-            return enabled ? found : !found && result.coverage === 'complete';
+            return qzoneSelfLiked(result, a.binding!.expectedAccountUin) === enabled;
           }}
           submit={(b, enabled) =>
             client.account.qqActions.qzone.mutate({

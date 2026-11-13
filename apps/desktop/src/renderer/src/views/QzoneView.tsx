@@ -93,7 +93,7 @@ import { QzoneForwardAction } from '../components/QzoneForwardAction';
 import { ContentReferenceToolbar } from '../components/ContentReferenceToolbar';
 import { contentReferenceKey, type ContentReference } from '../../../shared/content_selection';
 import { QzoneLikesPopover } from '../components/QzoneLikesPopover';
-import { QzoneRelatedRound, type QzoneReplyTarget } from '../lib/qzoneActions';
+import { QzoneRelatedRound, qzoneSelfLiked, type QzoneReplyTarget } from '../lib/qzoneActions';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { completeQzonePostText, qzoneImageCompletionScope } from '../lib/qzoneCompletion';
@@ -1814,13 +1814,7 @@ function PostActionsBody({
               tid={post.tid}
               time={post.time}
               likeCount={likeCount}
-              initialLiked={
-                likes?.likes.some((person) => person.uin === selfUin)
-                  ? true
-                  : likes?.coverage === 'complete'
-                    ? false
-                    : null
-              }
+              initialLiked={qzoneSelfLiked(likes, selfUin)}
               likeRevision={likeRevision}
               onLikeChange={(change) => {
                 summaryGeneration.current++;

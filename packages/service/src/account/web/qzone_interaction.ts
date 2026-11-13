@@ -1002,6 +1002,7 @@ interface RawOpCntData {
       newdata?: { CS?: number; CP?: number; LIKE?: number; PRD?: number };
       likedata?: {
         cnt?: number;
+        ilike?: number;
         list?: Array<[string | number, string, string | number]>;
       };
     };
@@ -1010,6 +1011,8 @@ interface RawOpCntData {
 
 export interface QzoneLikesResult {
   likes: QzoneLike[];
+  /** 当前读取账号的点赞状态；名单可能不包含本人，缺失标记时为 null。 */
+  selfLiked?: boolean | null;
   reportedTotal: number | null;
   reportedCommentCount?: number | null;
   /** Server-reported reads, not unique visitors or the liker list length. */
@@ -1029,6 +1032,8 @@ export function parseQzoneLikesResult(text: string): QzoneLikesResult {
   if (typeof data.code === 'number' && data.code !== 0)
     throw qzoneCodeError('qzone qz_opcnt2 likes', data.code, data.message);
   const value = data.data?.[0]?.current?.likedata;
+  const selfLiked =
+    data.code === 0 && (value?.ilike === 0 || value?.ilike === 1) ? value.ilike === 1 : null;
   const cs = data.data?.[0]?.current?.newdata?.CS;
   const reportedCommentCount =
     data.code === 0 && typeof cs === 'number' && Number.isSafeInteger(cs) && cs >= 0 ? cs : null;
@@ -1044,6 +1049,7 @@ export function parseQzoneLikesResult(text: string): QzoneLikesResult {
   if (!Array.isArray(list) && reportedTotal !== 0)
     return {
       likes: [],
+      selfLiked,
       reportedTotal,
       reportedCommentCount,
       reportedViewCount,
@@ -1066,6 +1072,7 @@ export function parseQzoneLikesResult(text: string): QzoneLikesResult {
   const complete = data.code === 0 && reportedTotal !== null && reportedTotal === likes.length;
   return {
     likes,
+    selfLiked,
     reportedTotal,
     reportedCommentCount,
     reportedViewCount,
