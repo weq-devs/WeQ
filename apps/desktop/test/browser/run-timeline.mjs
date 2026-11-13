@@ -56,6 +56,14 @@ try {
       : route.abort(),
   );
   await page.goto(`http://127.0.0.1:${port}/test/browser/timeline.html`);
+  await page.evaluate(async () => {
+    const { installDevelopmentErrors } = await import('/src/renderer/src/lib/developmentErrors.ts');
+    window.timelineWindowErrors = [];
+    window.timelineErrorReports = [];
+    window.stopTimelineErrors = installDevelopmentErrors(window, true, (level, message, context) =>
+      window.timelineErrorReports.push({ level, message, context }),
+    );
+  });
   await page.waitForSelector('.weq-virtual-timeline-row');
   const assert = (condition, message) => {
     if (!condition) throw new Error(message);
@@ -438,6 +446,27 @@ try {
     }
   }
   assert(errors.length === 0, `Browser errors: ${errors.join('; ')}`);
+  const { windowErrors, errorReports } = await page.evaluate(() => {
+    window.stopTimelineErrors();
+    return { windowErrors: window.timelineWindowErrors, errorReports: window.timelineErrorReports };
+  });
+  assert(
+    windowErrors.every(
+      (message) => message === 'ResizeObserver loop completed with undelivered notifications.',
+    ),
+    `Unexpected window errors: ${JSON.stringify(windowErrors)}`,
+  );
+  assert(
+    errorReports.every(
+      (report) =>
+        report.level === 'warn' && report.context.event === 'renderer-resize-observer-loop',
+    ),
+    `Layout notifications misclassified: ${JSON.stringify(errorReports)}`,
+  );
+  assert(
+    errorReports.reduce((count, report) => count + report.context.count, 0) === windowErrors.length,
+    'Aggregated warnings lost occurrences',
+  );
   const report = {
     logicalMessages: Number(
       await page.locator('[data-total-items]').getAttribute('data-total-items'),
@@ -461,7 +490,8 @@ try {
     resizeFrames: resizeFrames.length,
     gap: Boolean(gapId),
     screenshots,
-    windowErrors: await page.evaluate(() => window.timelineWindowErrors),
+    windowErrors,
+    errorReports,
     errors,
   };
   if (output)
