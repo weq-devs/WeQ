@@ -3,6 +3,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { tsImport } from 'tsx/esm/api';
+import { webChunkBudget } from './scripts/chunk-budget.ts';
 
 const developmentViteLogging: typeof import('../desktop/src/main/development_vite').developmentViteLogging =
   process.env.WEQ_DEV_CONSOLE === '1' && process.env.WEQ_LOG_LEVEL !== 'debug'
@@ -21,13 +22,14 @@ const developmentViteLogging: typeof import('../desktop/src/main/development_vit
 
 const RENDERER = resolve(import.meta.dirname, '../desktop/src/renderer');
 const logging = developmentViteLogging('web');
+const chunkBudget = webChunkBudget();
 
 export default defineConfig({
   ...logging.config,
   clearScreen: false,
   root: RENDERER,
   cacheDir: resolve(import.meta.dirname, 'node_modules/.vite-web'),
-  plugins: [...logging.plugins, react(), tailwindcss()],
+  plugins: [...logging.plugins, chunkBudget.plugin, react(), tailwindcss()],
   define: {
     'import.meta.env.VITE_WEQ_TARGET': JSON.stringify('web'),
   },
@@ -42,6 +44,7 @@ export default defineConfig({
     outDir: resolve(process.env.WEQ_WEB_DIST ?? resolve(import.meta.dirname, 'dist'), 'public'),
     emptyOutDir: true,
     rollupOptions: {
+      ...chunkBudget.options,
       input: { index: resolve(RENDERER, 'index.html') },
       output: {
         // 聊天模板与业务状态存在交叉引用，分包后仍按源码顺序初始化。
