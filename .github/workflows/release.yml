@@ -813,7 +813,7 @@ jobs:
   # ======================= Release 说明（中文）=======================
   # 等所有产物上传到草稿后，用「中文说明头 + GitHub 自动
   # 生成的 commit/PR 变更列表」覆写 Release 正文，并标注 aarch64 未实测、
-  # macOS 使用 ad-hoc 签名、未公证。
+  # macOS 使用固定自签证书签名、未公证。
   notes:
     permissions:
       contents: write
@@ -914,8 +914,8 @@ jobs:
           - **Linux x64**: \`weQ-${TAG#v}-linux-x86_64.AppImage\` / \`.tar.gz\`
           - **Linux arm64（未实测）**: \`weQ-${TAG#v}-linux-arm64.AppImage\` / \`.tar.gz\`
           - **Arch Linux (AUR)**: \`paru -S weq-bin\`（或 \`yay -S weq-bin\`，预编译包）
-          - **macOS Intel (x64)**: \`weQ-${TAG#v}-mac-x64.dmg\`（ad-hoc 签名，未公证）
-          - **macOS Apple Silicon (arm64)**: \`weQ-${TAG#v}-mac-arm64.dmg\`（ad-hoc 签名，未公证）
+          - **macOS Intel (x64)**: \`weQ-${TAG#v}-mac-x64.dmg\`（固定自签证书签名，未公证）
+          - **macOS Apple Silicon (arm64)**: \`weQ-${TAG#v}-mac-arm64.dmg\`（固定自签证书签名，未公证）
           - **浏览器版 Web**（需自备 Node ≥22，每平台一个压缩包，按运行机器选）：
             - Windows x64: \`weq-web-${TAG#v}-win32-x64.tar.gz\`
             - Linux x64: \`weq-web-${TAG#v}-linux-x64.tar.gz\`

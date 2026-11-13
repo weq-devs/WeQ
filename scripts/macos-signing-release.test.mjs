@@ -65,6 +65,20 @@ test('两个 macOS release job 显式准备固定身份、校验 ZIP，并总是
   }
 });
 
+test('macOS 发布说明与固定自签证书构建一致并保留未公证状态', async () => {
+  const workflow = load(
+    await readFile(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8'),
+  );
+  const notes = workflow.jobs.notes.steps.find(
+    (step) => step.name === '生成并写入中文 Release 说明',
+  ).run;
+  for (const arch of ['x64', 'arm64']) {
+    const download = notes.split('\n').find((line) => line.includes(`-mac-${arch}.dmg`));
+    assert.match(download, /固定自签证书签名，未公证/);
+    assert.doesNotMatch(download, /ad-hoc/);
+  }
+});
+
 test('缺失正式签名 secret 时立即拒绝，不创建钥匙串', {
   skip: process.platform !== 'darwin',
 }, async () => {
