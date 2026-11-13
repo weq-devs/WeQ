@@ -21,6 +21,7 @@ import type {
  * the one exception: it keeps its own local keyword filter.
  */
 export function ChatSidebarContent({
+  active = true,
   user,
   view,
   contactTab,
@@ -46,6 +47,7 @@ export function ChatSidebarContent({
   activateToolsOnSelect,
   onSelectTool,
 }: {
+  active?: boolean;
   user?: User;
   view: MainView;
   contactTab: ContactTab;
@@ -74,6 +76,7 @@ export function ChatSidebarContent({
   if (view === 'messages') {
     return (
       <ConversationList
+        active={active}
         conversations={conversations}
         activeConversationId={activeConversationId}
         preferences={conversationPrefs}

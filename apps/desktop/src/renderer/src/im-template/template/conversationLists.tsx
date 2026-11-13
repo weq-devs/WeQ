@@ -72,6 +72,8 @@ import { formatConversationTime } from '../../lib/conversationTime';
 export { formatConversationTime } from '../../lib/conversationTime';
 import { useConversationClickTarget } from '../../hooks/useConversationClickTarget';
 import { useConversationHoverOrder } from '../../hooks/useConversationHoverOrder';
+import { useMobileBack } from '../../hooks/useMobileNavigation';
+import { useMobileWebLayout } from '../../hooks/useMobileWebViewport';
 import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
 import { useViewState } from '../../state/view';
 import {
@@ -222,6 +224,7 @@ function ConversationListLoadMore({
 }
 
 export function ConversationList({
+  active = true,
   conversations,
   activeConversationId,
   preferences,
@@ -233,6 +236,7 @@ export function ConversationList({
   hasMore,
   loadingMore,
 }: {
+  active?: boolean;
   conversations: Conversation[];
   activeConversationId: string | null;
   preferences: ConversationPreferences;
@@ -245,6 +249,14 @@ export function ConversationList({
   loadingMore?: boolean;
 }) {
   const directory = useContext(ConversationDirectoryContext);
+  const directoryRef = useRef<HTMLDivElement>(null);
+  const mobile = useMobileWebLayout();
+  useMobileBack(
+    mobile && active && Boolean(directory?.returnToRegular),
+    () => directory?.onReturnToRegular?.(),
+    5,
+    () => directoryRef.current,
+  );
   const requestExport = useRequestContentExport();
   const batch = useConversationBatchActions(conversations);
   const [actionMenu, setActionMenu] = useState<{
@@ -501,6 +513,10 @@ export function ConversationList({
     <div
       className="list-stack weq-conversation-directory"
       {...multi.rootProps}
+      ref={(element) => {
+        directoryRef.current = element;
+        multi.rootProps.ref(element);
+      }}
       onPointerOverCapture={(event) => {
         if (event.pointerType === 'mouse')
           setPointerInside(event.currentTarget.contains(event.target));

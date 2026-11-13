@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ConversationList } from '../../src/renderer/src/im-template/template/conversationLists';
 import type { Conversation } from '../../src/renderer/src/im-template/template/types';
@@ -28,6 +28,7 @@ import { conversationBatchSelection } from '../../src/shared/content_selection';
 import { useViewState } from '../../src/renderer/src/state/view';
 import { groupAssistantPreferences } from '../../src/renderer/src/lib/groupAssistant';
 import { createTemplateDemoData } from '../support/templateDemoData';
+import { MobileNavigationRuntime } from '../../src/renderer/src/components/MobileNavigationRuntime';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/rail-navigation.css';
 import '../../src/renderer/src/styles/mobile-web.css';
@@ -122,6 +123,7 @@ function SelectionProbe() {
   );
 }
 function Fixture() {
+  const root = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<ConversationView>('regular');
   const [back, setBack] = useState(false);
   const [chat, setChat] = useState('原先打开的 QQ 聊天');
@@ -195,7 +197,8 @@ function Fixture() {
       .fixture-current-chat{padding:20px;color:var(--weq-fg-primary)}
       @media(max-width:720px){.views-fixture.app-shell{grid-template-columns:minmax(0,1fr)}.views-fixture .fixture-main{display:none}.views-fixture.is-assistant .sidebar{display:none}.views-fixture.is-assistant .fixture-main{display:flex;grid-column:1}}
     `}</style>
-        <div className="app-shell-root weq-web-shell">
+        <div ref={root} className="app-shell-root weq-web-shell">
+          <MobileNavigationRuntime root={root} />
           <div
             className={`views-fixture app-shell${chat.startsWith('assistant:') && !listShown ? ' is-assistant' : ''}`}
           >

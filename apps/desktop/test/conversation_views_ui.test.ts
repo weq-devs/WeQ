@@ -23,6 +23,11 @@ import {
 } from '../src/renderer/src/state/contentSelection';
 import { createTemplateDemoData } from './support/templateDemoData';
 import {
+  mobileBack,
+  mobileBackTarget,
+  registerMobileBack,
+} from '../src/renderer/src/hooks/useMobileNavigation';
+import {
   useChatShellController,
   noopChatShellHistoryAdapter,
 } from '../src/renderer/src/im-template/template/shellController';
@@ -87,12 +92,19 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 function Probe() {
   return h('output', { 'data-selection': '' }, JSON.stringify(useCurrentContentSelection()));
 }
-function Fixture({ initialView = 'regular' }: { initialView?: ConversationView }) {
+function Fixture({
+  initialView = 'regular',
+  active = true,
+}: {
+  initialView?: ConversationView;
+  active?: boolean;
+}) {
   const [view, setView] = useState(initialView);
   const [back, setBack] = useState(false);
   const [chat, setChat] = useState('原先打开的聊天');
@@ -134,6 +146,7 @@ function Fixture({ initialView = 'regular' }: { initialView?: ConversationView }
       ConversationDirectoryContext.Provider,
       { value },
       h(ConversationList, {
+        active,
         conversations: rows,
         activeConversationId: null,
         preferences: {},
@@ -171,6 +184,54 @@ it('聚合入口不进入全选或反选，点击只切列表且保留右侧聊�
   click('[aria-label="返回常规视图"]');
   expect(host.querySelector('[data-conversation-id="merged:group-assistant"]')).not.toBeNull();
   expect(host.querySelector('[aria-label="会话视图"]')).not.toBeNull();
+});
+it.each(['groupAssistant', 'clone', 'assistant'] as const)(
+  '移动端从常规进入 %s 后可逐层返回，切换标签时不保留后台返回入口',
+  (view) => {
+    vi.spyOn(window, 'matchMedia').mockImplementation(
+      (media) => Object.assign(new EventTarget(), { matches: true, media }) as MediaQueryList,
+    );
+    act(() => root.render(h(Fixture)));
+    expect(mobileBack()).toBe(false);
+    const entry = directory.regular.find(
+      (row) => row.type === 'merged' && row.mergedKind === view,
+    )!;
+    click(`[data-conversation-id="${entry.id}"]`);
+    expect(mobileBackTarget()).toBe(host.querySelector('.weq-conversation-directory'));
+    const backChat = vi.fn();
+    const removeChat = registerMobileBack({ id: 'fixture-chat', priority: 10, back: backChat });
+    try {
+      act(() => expect(mobileBack()).toBe(true));
+      expect(backChat).toHaveBeenCalledOnce();
+      expect(host.querySelector('[aria-label="返回常规视图"]')).not.toBeNull();
+    } finally {
+      removeChat();
+    }
+    act(() => root.render(h(Fixture, { active: false })));
+    expect(mobileBack()).toBe(false);
+    act(() => root.render(h(Fixture, { active: true })));
+    act(() => expect(mobileBack()).toBe(true));
+    expect(host.querySelector(`[data-conversation-id="${entry.id}"]`)).not.toBeNull();
+    expect(host.querySelector('[data-chat]')!.textContent).toBe('原先打开的聊天');
+    expect(mobileBack()).toBe(false);
+    click(`[data-conversation-id="${entry.id}"]`);
+    click('[aria-label="返回常规视图"]');
+    expect(mobileBack()).toBe(false);
+  },
+);
+it('移动端直接从视图菜单进入分类不新增返回常规层级', () => {
+  vi.spyOn(window, 'matchMedia').mockImplementation(
+    (media) => Object.assign(new EventTarget(), { matches: true, media }) as MediaQueryList,
+  );
+  act(() => root.render(h(Fixture)));
+  click('[aria-label="会话视图"]');
+  act(() =>
+    [...host.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')]
+      .find((node) => node.textContent === '群助手')!
+      .click(),
+  );
+  expect(host.querySelector('[data-conversation-id="12345"]')).not.toBeNull();
+  expect(mobileBack()).toBe(false);
 });
 it('菜单直接切换保留视图菜单，所有视图的新建菜单固定五项', () => {
   act(() => root.render(h(Fixture)));

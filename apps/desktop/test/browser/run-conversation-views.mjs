@@ -43,13 +43,40 @@ try {
       ? { executablePath: process.env.WEQ_BROWSER_EXECUTABLE }
       : {}),
   });
-  const page = await browser.newPage({ reducedMotion: 'reduce' });
+  const page = await browser.newPage({ reducedMotion: 'reduce', hasTouch: true });
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.route('**/*', (route) =>
     new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
   );
   if (output) await mkdir(output, { recursive: true });
+  const swipe = async ({ x = 4, dx = 160, dy = 0, cancel = false } = {}) => {
+    const transform = await page.locator('.weq-conversation-directory').evaluate(
+      async (target, { x, dx, dy, cancel }) => {
+        const y = target.getBoundingClientRect().top + 160;
+        const dispatch = (type, clientX, clientY, end = false) => {
+          const touch = new Touch({ identifier: 1, target, clientX, clientY });
+          target.dispatchEvent(
+            new TouchEvent(type, {
+              bubbles: true,
+              cancelable: true,
+              touches: end ? [] : [touch],
+              changedTouches: [touch],
+            }),
+          );
+        };
+        dispatch('touchstart', x, y);
+        dispatch('touchmove', x + dx, y + dy);
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        const transform = target.style.transform;
+        dispatch(cancel ? 'touchcancel' : 'touchend', x + dx, y + dy, true);
+        return transform;
+      },
+      { x, dx, dy, cancel },
+    );
+    await page.waitForFunction(() => !document.querySelector('[data-mobile-swiping]'));
+    return transform;
+  };
   const results = [];
   for (const width of [1280, 390]) {
     for (const theme of ['light', 'dark']) {
@@ -103,7 +130,20 @@ try {
         await page.screenshot({
           path: resolve(output, `${width}-${theme}-group-assistant-unread.png`),
         });
-      await page.getByRole('button', { name: '返回常规视图', exact: true }).click();
+      if (width <= 720) {
+        for (const gesture of [
+          { dx: 20 },
+          { dx: 20, dy: 80 },
+          { dx: -80 },
+          { x: 80 },
+          { cancel: true },
+        ]) {
+          await swipe(gesture);
+          assert.ok(await page.getByRole('button', { name: '返回常规视图' }).isVisible());
+        }
+        await swipe();
+        await page.locator('[data-conversation-id="merged:group-assistant"]').waitFor();
+      } else await page.getByRole('button', { name: '返回常规视图', exact: true }).click();
       assert.equal(
         await page.getByRole('textbox', { name: '搜索会话名称或号码' }).inputValue(),
         '群',
@@ -115,6 +155,20 @@ try {
         ) < 2,
       );
       await page.getByRole('button', { name: '退出搜索会话', exact: true }).click();
+      if (width <= 720) {
+        assert.equal(await page.evaluate(() => window.weqMobileNavigation.back()), false);
+        for (const id of ['merged:clone', 'merged:assistant']) {
+          await page.locator(`[data-conversation-id="${id}"]`).click();
+          await page.getByRole('button', { name: '返回常规视图', exact: true }).waitFor();
+          await swipe();
+          await page.locator(`[data-conversation-id="${id}"]`).waitFor();
+          assert.equal(await page.evaluate(() => window.weqMobileNavigation.back()), false);
+        }
+        await page.locator('[data-conversation-id="merged:group-assistant"]').click();
+        assert.equal(await page.evaluate(() => window.weqMobileNavigation.back()), true);
+        await page.locator('[data-conversation-id="merged:group-assistant"]').waitFor();
+        assert.equal(await page.evaluate(() => window.weqMobileNavigation.back()), false);
+      }
       await page.getByRole('button', { name: '多选会话', exact: true }).click();
       await page.getByRole('button', { name: '全选当前结果', exact: true }).click();
       assert.equal(
@@ -210,11 +264,48 @@ try {
         aggregateExcluded: true,
         assistantInMain: true,
         overflow,
+        swipeReturn: width <= 720,
       });
     }
   }
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.setViewportSize({ width: 360, height: 800 });
+  for (const theme of ['light', 'dark']) {
+    await page.goto(
+      `http://127.0.0.1:${server.httpServer.address().port}/test/browser/conversation-views.html`,
+    );
+    await page.locator('.conversation-row').first().waitFor();
+    await page.evaluate((theme) => {
+      window.conversationViewsQa.store.getState().setPreference(theme);
+    }, theme);
+    for (const [id, keyword] of [
+      ['merged:group-assistant', '群助手'],
+      ['merged:clone', '克隆'],
+      ['merged:assistant', '助手'],
+    ]) {
+      await page.getByRole('button', { name: '搜索会话', exact: true }).click();
+      await page.getByRole('textbox', { name: '搜索会话名称或号码' }).fill(keyword);
+      await page.locator(`[data-conversation-id="${id}"]`).click();
+      await page.getByRole('button', { name: '返回常规视图', exact: true }).waitFor();
+      await swipe({ cancel: true });
+      assert.ok(await page.getByRole('button', { name: '返回常规视图' }).isVisible());
+      assert.equal(await swipe(), 'translateX(160px)');
+      await page.locator(`[data-conversation-id="${id}"]`).waitFor();
+      assert.equal(
+        await page.locator('.weq-conversation-directory').evaluate((node) => node.style.transform),
+        '',
+      );
+      assert.equal(await page.evaluate(() => window.weqMobileNavigation.back()), false);
+      assert.equal(
+        await page.getByRole('textbox', { name: '搜索会话名称或号码' }).inputValue(),
+        keyword,
+      );
+      await page.getByRole('button', { name: '退出搜索会话', exact: true }).click();
+    }
+    if (output) await page.screenshot({ path: resolve(output, `360-${theme}-swipe-return.png`) });
+  }
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ cases: results, errors }, null, 2));
+  console.log(JSON.stringify({ cases: results, normalMotionSwipeCases: 6, errors }, null, 2));
 } finally {
   await browser?.close();
   await server.close();

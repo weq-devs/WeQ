@@ -11966,6 +11966,7 @@ function MainWorkspace(): ReactElement {
                   view === 'messages' || view === 'contacts' || !fullBleedView ? (
                     <>
                       <ChatSidebarContent
+                        active={view === sidebarView}
                         user={user}
                         view={view}
                         contactTab={shell.contactTab}
