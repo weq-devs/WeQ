@@ -475,8 +475,6 @@ function formatMuteDuration(seconds: number): string {
 export type ChatPaneProps = {
   composerVisible?: boolean;
   composerTools?: React.ReactNode;
-  composerParameters?: React.ReactNode;
-  composerToolbar?: React.ReactNode;
   composerAttachments?: React.ReactNode;
   hasExternalAttachments?: boolean;
   timelineNotice?: React.ReactNode;
@@ -777,8 +775,6 @@ export function ChatPane({
   loadError,
   composerVisible = true,
   composerTools,
-  composerParameters,
-  composerToolbar,
   composerAttachments,
   hasExternalAttachments = false,
   timelineNotice,
@@ -1332,7 +1328,6 @@ export function ChatPane({
   selectionCancelRef.current = selectionFlow.cancel;
   const selectionOrder = selectionFlow.order;
   const hasComposerExtensions = Boolean(composerTools || composerAttachments);
-  const hasComposerParameters = Boolean(composerParameters);
   useLayoutEffect(() => {
     const element = composerExtensionsRef.current;
     if (!element || !hasComposerExtensions || selectionMode) {
@@ -1340,7 +1335,6 @@ export function ChatPane({
       return;
     }
     const pane = element.closest<HTMLElement>('.chat-pane');
-    const toolbar = element.parentElement?.querySelector<HTMLElement>(':scope > .composer-tools');
     const measure = () => {
       // 网格会按旧高度压缩本行，读取内容高度才能打破零高度的反馈循环。
       const maximum =
@@ -1348,9 +1342,7 @@ export function ChatPane({
           ? Math.min(240, Math.max(40, pane.clientHeight * 0.3))
           : Number.parseFloat(getComputedStyle(element).maxHeight);
       const height = Math.min(element.scrollHeight, Number.isFinite(maximum) ? maximum : Infinity);
-      const toolbarExtra =
-        hasComposerParameters && toolbar ? Math.max(0, toolbar.scrollHeight - 42) : 0;
-      setComposerExtensionsHeight(Math.ceil(height + toolbarExtra));
+      setComposerExtensionsHeight(Math.ceil(height));
       if (pane && pane.clientHeight > 0) setComposerPaneHeight(pane.clientHeight);
     };
     const observer = new ResizeObserver(measure);
@@ -1358,7 +1350,6 @@ export function ChatPane({
       observer.disconnect();
       observer.observe(element);
       if (pane) observer.observe(pane);
-      if (toolbar) observer.observe(toolbar);
       for (const child of element.children) observer.observe(child);
       measure();
     };
@@ -1371,7 +1362,6 @@ export function ChatPane({
     };
   }, [
     hasComposerExtensions,
-    hasComposerParameters,
     selectionMode,
     conversation?.id,
     composerCollapsed,
@@ -6443,7 +6433,7 @@ export function ChatPane({
                   <BrainCircuit size={17} />
                 </button>
               ) : null}
-              {requestAnalysis && conversationAnalysisTarget(conversation) && !restrictedSource ? (
+              {(requestAnalysis && conversationAnalysisTarget(conversation)) || restrictedSource ? (
                 <button
                   type="button"
                   className="selection-action"
@@ -6469,7 +6459,7 @@ export function ChatPane({
                   <Download size={17} />
                 </button>
               ) : null}
-              {onAddToComposition && !restrictedSource ? (
+              {onAddToComposition || restrictedSource ? (
                 <button
                   type="button"
                   className="selection-action"
@@ -6483,33 +6473,31 @@ export function ChatPane({
                   <ListPlus size={17} />
                 </button>
               ) : null}
-              {!restrictedSource ? (
-                <button
-                  type="button"
-                  className={cn('selection-action')}
-                  aria-label="转发"
-                  title={
-                    selectionUnavailable ||
-                    selectionBlockedReason ||
-                    (!sendAvailable
-                      ? '受限模式下无法转发消息'
-                      : sendGateReason
-                        ? `${sendGateReason}，暂不可发送`
-                        : '转发')
-                  }
-                  aria-haspopup="menu"
-                  aria-expanded={selectionMenu?.kind === 'forward'}
-                  disabled={
-                    restrictedSource ||
-                    Boolean(selectionBlockedReason) ||
-                    Boolean(sendGateReason) ||
-                    !selectedIds.size
-                  }
-                  onClick={(event) => openSelectionMenu('forward', event.currentTarget)}
-                >
-                  <Share2 size={17} />
-                </button>
-              ) : null}
+              <button
+                type="button"
+                className={cn('selection-action')}
+                aria-label="转发"
+                title={
+                  selectionUnavailable ||
+                  selectionBlockedReason ||
+                  (!sendAvailable
+                    ? '受限模式下无法转发消息'
+                    : sendGateReason
+                      ? `${sendGateReason}，暂不可发送`
+                      : '转发')
+                }
+                aria-haspopup="menu"
+                aria-expanded={selectionMenu?.kind === 'forward'}
+                disabled={
+                  restrictedSource ||
+                  Boolean(selectionBlockedReason) ||
+                  Boolean(sendGateReason) ||
+                  !selectedIds.size
+                }
+                onClick={(event) => openSelectionMenu('forward', event.currentTarget)}
+              >
+                <Share2 size={17} />
+              </button>
               <button
                 type="button"
                 className="selection-action"
@@ -6522,20 +6510,18 @@ export function ChatPane({
               >
                 <Copy size={17} />
               </button>
-              {!restrictedSource ? (
-                <button
-                  type="button"
-                  className={cn('selection-action')}
-                  aria-label="撤回所选消息"
-                  title={selectionUnavailable || selectionRecallBlockedReason || '撤回所选消息'}
-                  disabled={
-                    restrictedSource || Boolean(selectionRecallBlockedReason) || !selectedIds.size
-                  }
-                  onClick={() => requestBatchAction('recall')}
-                >
-                  <RotateCcw size={17} />
-                </button>
-              ) : null}
+              <button
+                type="button"
+                className={cn('selection-action')}
+                aria-label="撤回所选消息"
+                title={selectionUnavailable || selectionRecallBlockedReason || '撤回所选消息'}
+                disabled={
+                  restrictedSource || Boolean(selectionRecallBlockedReason) || !selectedIds.size
+                }
+                onClick={() => requestBatchAction('recall')}
+              >
+                <RotateCcw size={17} />
+              </button>
               <button
                 type="button"
                 className={cn('selection-action')}
@@ -6643,10 +6629,6 @@ export function ChatPane({
           />
           <ComposerDropVeil visible={dropActive} />
           <div className={cn('composer-tools')}>
-            {composerParameters ? (
-              <div className="weq-assistant-parameters">{composerParameters}</div>
-            ) : null}
-            {composerToolbar}
             <button
               ref={emojiButtonRef}
               type="button"
@@ -6660,28 +6642,25 @@ export function ChatPane({
             </button>
             {/* 红包 / 礼物：点一下先出两项菜单（与通话按钮同款）。红包群聊三档 / 私聊两档，
               下单后弹二维码灯箱；礼物私聊打开商城，群聊打开只读的群礼物面板。 */}
-            {!restrictedSource ? (
-              <button
-                ref={redPacketButtonRef}
-                type="button"
-                className={cn(
-                  'composer-tool',
-                  (redPacketOpen || giftOpen || redPacketMenu) && 'active',
-                )}
-                title={qqUnavailable || (hasSingleSend ? singleSendHint : '红包 / 礼物')}
-                aria-label="发红包"
-                aria-haspopup="menu"
-                aria-expanded={redPacketMenu !== null}
-                disabled={readOnly || restrictedSource || currentPreference.blocked}
-                onClick={openRedPacketMenu}
-              >
-                <AiOutlineRedEnvelope size={21} />
-              </button>
-            ) : null}
+            <button
+              ref={redPacketButtonRef}
+              type="button"
+              className={cn(
+                'composer-tool',
+                (redPacketOpen || giftOpen || redPacketMenu) && 'active',
+              )}
+              title={qqUnavailable || (hasSingleSend ? singleSendHint : '红包 / 礼物')}
+              aria-label="发红包"
+              aria-haspopup="menu"
+              aria-expanded={redPacketMenu !== null}
+              disabled={readOnly || restrictedSource || currentPreference.blocked}
+              onClick={openRedPacketMenu}
+            >
+              <AiOutlineRedEnvelope size={21} />
+            </button>
             {/* 通话：私聊走真实链路；群聊的协议还在收尾，先给「敬请期待」面板。 */}
             {(conversation?.type === 'direct' || conversation?.type === 'group') &&
-            onStartCall &&
-            !restrictedSource ? (
+            (onStartCall || restrictedSource) ? (
               <button
                 ref={callButtonRef}
                 type="button"
@@ -6701,84 +6680,74 @@ export function ChatPane({
                 <PhoneCall size={21} strokeWidth={1.5} />
               </button>
             ) : null}
-            {!restrictedSource ? (
-              <button
-                ref={voiceButtonRef}
-                type="button"
-                className={cn(
-                  'composer-tool',
-                  'composer-desktop-tool',
-                  (voiceOpen || aiVoiceOpen) && 'active',
-                )}
-                title={qqUnavailable || (hasSingleSend ? singleSendHint : '语音')}
-                aria-label="语音"
-                aria-expanded={voiceOpen || aiVoiceOpen}
-                disabled={
-                  readOnly || restrictedSource || currentPreference.blocked || hasSingleSend
-                }
-                onClick={toggleVoicePanel}
-              >
-                <Mic size={21} strokeWidth={1.5} />
-              </button>
-            ) : null}
-            {!restrictedSource ? (
-              <button
-                ref={flashButtonRef}
-                type="button"
-                className={cn(
-                  'composer-tool',
-                  'composer-desktop-tool',
-                  (flashOpen || composerMenu?.kind === 'file') && 'active',
-                )}
-                title={qqUnavailable || '发送图片或文件'}
-                aria-label="发送图片或文件"
-                aria-haspopup="menu"
-                aria-expanded={composerMenu?.kind === 'file'}
-                disabled={readOnly || restrictedSource || currentPreference.blocked || sending}
-                onClick={(event) => openComposerMenu('file', event)}
-              >
-                <FolderOpen size={21} strokeWidth={1.5} />
-              </button>
-            ) : null}
-            {!restrictedSource ? (
-              <button
-                ref={arkButtonRef}
-                type="button"
-                className={cn('composer-tool', 'composer-desktop-tool', arkOpen && 'active')}
-                title={qqUnavailable || (hasSingleSend ? singleSendHint : '发送 Ark 卡片')}
-                aria-label="发送 Ark 卡片"
-                disabled={
-                  readOnly ||
-                  restrictedSource ||
-                  currentPreference.blocked ||
-                  sending ||
-                  hasSingleSend
-                }
-                onClick={toggleArkPanel}
-              >
-                <Link2 size={21} strokeWidth={1.5} />
-              </button>
-            ) : null}
+            <button
+              ref={voiceButtonRef}
+              type="button"
+              className={cn(
+                'composer-tool',
+                'composer-desktop-tool',
+                (voiceOpen || aiVoiceOpen) && 'active',
+              )}
+              title={qqUnavailable || (hasSingleSend ? singleSendHint : '语音')}
+              aria-label="语音"
+              aria-expanded={voiceOpen || aiVoiceOpen}
+              disabled={readOnly || restrictedSource || currentPreference.blocked || hasSingleSend}
+              onClick={toggleVoicePanel}
+            >
+              <Mic size={21} strokeWidth={1.5} />
+            </button>
+            <button
+              ref={flashButtonRef}
+              type="button"
+              className={cn(
+                'composer-tool',
+                'composer-desktop-tool',
+                (flashOpen || composerMenu?.kind === 'file') && 'active',
+              )}
+              title={qqUnavailable || '发送图片或文件'}
+              aria-label="发送图片或文件"
+              aria-haspopup="menu"
+              aria-expanded={composerMenu?.kind === 'file'}
+              disabled={readOnly || restrictedSource || currentPreference.blocked || sending}
+              onClick={(event) => openComposerMenu('file', event)}
+            >
+              <FolderOpen size={21} strokeWidth={1.5} />
+            </button>
+            <button
+              ref={arkButtonRef}
+              type="button"
+              className={cn('composer-tool', 'composer-desktop-tool', arkOpen && 'active')}
+              title={qqUnavailable || (hasSingleSend ? singleSendHint : '发送 Ark 卡片')}
+              aria-label="发送 Ark 卡片"
+              disabled={
+                readOnly ||
+                restrictedSource ||
+                currentPreference.blocked ||
+                sending ||
+                hasSingleSend
+              }
+              onClick={toggleArkPanel}
+            >
+              <Link2 size={21} strokeWidth={1.5} />
+            </button>
             {/* 位置：点开两项 —— 发送位置（静态卡片）/ 共享位置（实时、房间靠上报续命）。 */}
-            {!restrictedSource ? (
-              <button
-                ref={locationMenuButtonRef}
-                type="button"
-                className={cn(
-                  'composer-tool',
-                  'composer-desktop-tool',
-                  (locationMenu || locationCardOpen || locationShareOpen) && 'active',
-                )}
-                title={qqUnavailable || '位置'}
-                aria-label="位置"
-                aria-haspopup="menu"
-                aria-expanded={locationMenu !== null}
-                disabled={readOnly || restrictedSource || currentPreference.blocked || sending}
-                onClick={openLocationMenu}
-              >
-                <MapPin size={21} strokeWidth={1.5} />
-              </button>
-            ) : null}
+            <button
+              ref={locationMenuButtonRef}
+              type="button"
+              className={cn(
+                'composer-tool',
+                'composer-desktop-tool',
+                (locationMenu || locationCardOpen || locationShareOpen) && 'active',
+              )}
+              title={qqUnavailable || '位置'}
+              aria-label="位置"
+              aria-haspopup="menu"
+              aria-expanded={locationMenu !== null}
+              disabled={readOnly || restrictedSource || currentPreference.blocked || sending}
+              onClick={openLocationMenu}
+            >
+              <MapPin size={21} strokeWidth={1.5} />
+            </button>
             {composerActionRegistry.desktopToolbar.map((action) => (
               <ComposerToolbarActionButton
                 key={action.id}
@@ -7165,17 +7134,15 @@ export function ChatPane({
               >
                 <Smile size={22} strokeWidth={1.5} />
               </button>
-              {!restrictedSource ? (
-                <button
-                  type="button"
-                  title="发红包"
-                  className={cn(redPacketOpen && 'active')}
-                  disabled={restrictedSource || currentPreference.blocked}
-                  onClick={toggleRedPacketPanel}
-                >
-                  <AiOutlineRedEnvelope size={22} />
-                </button>
-              ) : null}
+              <button
+                type="button"
+                title="发红包"
+                className={cn(redPacketOpen && 'active')}
+                disabled={restrictedSource || currentPreference.blocked}
+                onClick={toggleRedPacketPanel}
+              >
+                <AiOutlineRedEnvelope size={22} />
+              </button>
               <span />
               <button
                 type="button"

@@ -148,7 +148,6 @@ export function SearchDropdown({
   onSourcesChange?: (sources: SearchSource[]) => void;
 }): ReactElement {
   const hasKeyword = keyword.trim().length > 0;
-  const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [localSources, setLocalSources] = useState<SearchSource[]>(['qq', 'clone', 'assistant']);
   const activeSources = useMemo(
     () => sources ?? (appSearchEnabled ? [...localSources, 'app' as const] : localSources),
@@ -319,9 +318,6 @@ export function SearchDropdown({
         (category === 'qzone' && Boolean(slow?.failedCategories?.some(isQzoneSearchCategory)))
       : (categoryStates?.[category]?.error ?? quickError);
   const appSectionEnabled = appEnabled && Boolean(onSelectAppEntry);
-  const hasScope =
-    activeSources.length > 0 &&
-    (visibleCategories.some((category) => categories.includes(category)) || appEnabled);
   const orderedCategories = useMemo(() => {
     const bestRank = (category: SearchCategory | 'app') =>
       category === 'app'
@@ -352,24 +348,7 @@ export function SearchDropdown({
 
   return (
     <div className="weq-search-dropdown" ref={attachRoot}>
-      <button
-        type="button"
-        className="weq-search-filter-toggle"
-        aria-expanded={filtersExpanded}
-        onClick={() => setFiltersExpanded((value) => !value)}
-      >
-        <Settings2 size={14} />
-        <span>
-          来源 {activeSources.length} · 类型{' '}
-          {visibleCategories.filter((category) => categories.includes(category)).length}
-        </span>
-        <span>{filtersExpanded ? '收起筛选' : '筛选'}</span>
-      </button>
-      <div
-        className={`weq-search-filters${filtersExpanded ? ' is-expanded' : ''}`}
-        role="group"
-        aria-label="搜索范围"
-      >
+      <div className="weq-search-filters" role="group" aria-label="搜索范围">
         <div className="weq-search-scope" role="group" aria-label="搜索来源">
           <span className="weq-search-filter-label">来源</span>
           <button
@@ -391,9 +370,7 @@ export function SearchDropdown({
             }
           >
             <Layers size={14} aria-hidden />
-            {DEFAULT_SEARCH_SOURCES.every((source) => activeSources.includes(source))
-              ? '清空'
-              : '全部'}
+            全部
           </button>
           {sourceOptions.map((option) => (
             <button
@@ -443,9 +420,7 @@ export function SearchDropdown({
               }
             >
               <Layers size={14} aria-hidden />
-              {visibleCategories.every((category) => categories.includes(category))
-                ? '清空'
-                : '全部'}
+              全部
             </button>
             {visibleOptions.map((option) => (
               <button
@@ -469,23 +444,12 @@ export function SearchDropdown({
             </div>
           ) : null}
           <div role="listbox" aria-label="搜索结果" aria-busy={quickLoading || slowLoading}>
-            {!hasScope ? (
-              <div className="weq-search-empty">
-                未选择搜索范围
-                <button
-                  type="button"
-                  className="weq-set-btn weq-set-btn-soft"
-                  onClick={() => {
-                    changeSources([...DEFAULT_SEARCH_SOURCES]);
-                    onCategoriesChange([...SEARCH_CATEGORY_ORDER]);
-                  }}
-                >
-                  恢复全部范围
-                </button>
-              </div>
+            {!activeSources.length ||
+            (!visibleCategories.some((category) => categories.includes(category)) &&
+              !appEnabled) ? (
+              <div className="weq-search-empty">未选择搜索范围</div>
             ) : null}
-            {hasScope &&
-            !quickLoading &&
+            {!quickLoading &&
             !slowLoading &&
             !(lookupEnabled && isLookupNumber(numberLookupKeyword)) &&
             !orderedCategories.some((category) =>

@@ -465,10 +465,9 @@ export function GroupChatPanel({
           void onSend(parseAiImageDraft(input).text).catch(() => {});
         }}
       >
-        {(attachments, imageButton) => (
+        {(attachments) => (
           <ChatPane
             composerAttachments={attachments}
-            composerToolbar={imageButton}
             hasExternalAttachments={parseAiImageDraft(input).images.length > 0}
             loadError={conversation.isError ? '记录加载失败' : undefined}
             user={user}

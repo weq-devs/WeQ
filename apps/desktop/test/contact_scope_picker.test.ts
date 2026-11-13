@@ -52,18 +52,10 @@ describe('联系人精确范围选择器', () => {
       expect(f.host.querySelectorAll('.weq-exp-row').length).toBeLessThan(40);
       expect(f.selected).toBeUndefined();
       expect(f.host.textContent).toContain('全部好友');
-      act(() =>
-        [...f.host.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
-          .find((button) => button.textContent === '精确选择')!
-          .click(),
-      );
+      act(() => f.host.querySelector<HTMLInputElement>('[aria-label="精确选择联系人"]')!.click());
       expect(f.selected).toEqual([]);
       expect(f.host.textContent).toContain('已选 0 位联系人');
-      act(() =>
-        [...f.host.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
-          .find((button) => button.textContent === '按条件')!
-          .click(),
-      );
+      act(() => f.host.querySelector<HTMLInputElement>('[aria-label="精确选择联系人"]')!.click());
       expect(f.selected).toBeUndefined();
     } finally {
       f.close();

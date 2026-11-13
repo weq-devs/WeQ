@@ -118,7 +118,7 @@ export function ContactActions({
           <button
             type="button"
             /* 主操作（打开/发起会话）是填充按钮，其余次操作保持描边，权重一眼可分。 */
-            className="weq-contact-primary weq-set-btn"
+            className="weq-contact-primary"
             onClick={() =>
               navigate(() => {
                 if (onOpenChat) onOpenChat();

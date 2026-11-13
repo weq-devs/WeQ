@@ -1,12 +1,6 @@
 import { formatDateTime } from '@weq/time';
 import { TimeLabel } from '../../components/TimeLabel';
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import {
-  preferenceValue,
-  changePreference,
-  useClientPreferences,
-} from '../../lib/clientPreferences';
-import { MailListResizeHandle } from './MailListResizeHandle';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { usePageState } from '../../components/PageSnapshots';
 import { pageValue } from '../../lib/pageSnapshots';
@@ -117,27 +111,6 @@ export function MailPage({
   const requestExport = useRequestContentExport();
   const activity = useQQReadActivity(active);
   const [status, setStatus] = useState(initialStatus);
-  useClientPreferences((state) => state.tick);
-  const savedWidth = preferenceValue('mailListWidth');
-  const [dragWidth, setDragWidth] = useState<number | null>(null);
-  const layout = useRef<HTMLDivElement>(null);
-  const [maxListWidth, setMaxListWidth] = useState(560);
-  useEffect(() => {
-    const element = layout.current;
-    if (!element || typeof ResizeObserver === 'undefined') return;
-    const measure = () => {
-      const width = element.getBoundingClientRect().width;
-      const folders = element.querySelector('.weq-mail-folders')?.getBoundingClientRect();
-      const folderWidth = folders && folders.width < width - 10 ? folders.width : 0;
-      setMaxListWidth(Math.max(280, Math.min(560, width - folderWidth - 366)));
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [status.state]);
-  useEffect(() => setDragWidth(null), [savedWidth]);
-  const listWidth = Math.min(dragWidth ?? savedWidth, maxListWidth);
   const [folders, setFolders] = useState<MailFolder[]>([...SYSTEM_MAIL_FOLDERS]);
   const [folderId, setFolderId] = usePageState('folder', 1, pageValue.number),
     [pageNumber, setPageNumber] = usePageState('page', 0, pageValue.number);
@@ -714,11 +687,7 @@ export function MailPage({
           </button>
         </div>
       ) : (
-        <div
-          className="weq-mail-layout"
-          ref={layout}
-          style={{ '--mail-list-width': `${listWidth}px` } as CSSProperties}
-        >
+        <div className="weq-mail-layout">
           <nav className="weq-mail-folders" aria-label="邮箱文件夹">
             {folders.map((folder) => {
               const Icon = folderIcon(folder.id);
@@ -937,15 +906,6 @@ export function MailPage({
               </button>
             </footer>
           </section>
-          <MailListResizeHandle
-            width={listWidth}
-            max={maxListWidth}
-            onChange={setDragWidth}
-            onCommit={(width) => {
-              setDragWidth(null);
-              void changePreference('mailListWidth', width);
-            }}
-          />
           <div ref={reader} className="weq-mail-reader-shell">
             {draft ? (
               <MailComposer

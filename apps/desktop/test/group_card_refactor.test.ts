@@ -246,8 +246,7 @@ it('快速名片底部只显示消息操作，预览不关闭名片，打开消�
   const actions = bar.querySelectorAll('button');
   expect([...actions].map((button) => button.textContent)).toEqual(['查看消息', '预览消息']);
   // 主操作（查看消息）是填充按钮，其余次操作是描边按钮。
-  expect(actions[0].classList.contains('weq-contact-primary')).toBe(true);
-  expect(actions[0].classList.contains('weq-set-btn')).toBe(true);
+  expect(actions[0].className).toBe('weq-contact-primary');
   expect(
     [...actions].slice(1).every((button) => button.className === 'weq-contact-secondary'),
   ).toBe(true);

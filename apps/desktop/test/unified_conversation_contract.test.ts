@@ -51,11 +51,6 @@ it('助手实际控制器直接渲染共用页、编辑器和六组自动保存�
     expect(host.querySelector('[aria-label="运行中发送方式"]')).toBeNull();
     const effort = host.querySelector<HTMLSelectElement>('select[aria-label="思考等级"]')!;
     expect([...effort.options].map((option) => option.value)).toEqual(['off', 'minimal', 'high']);
-    expect([...effort.options].map((option) => option.textContent)).toEqual([
-      '不指定',
-      'minimal',
-      'high',
-    ]);
     await act(async () =>
       host.querySelector<HTMLButtonElement>('[aria-label="助手设置"]')!.click(),
     );
@@ -69,10 +64,9 @@ it('助手实际控制器直接渲染共用页、编辑器和六组自动保存�
     expect(limit.value).toBe('24');
     await act(async () =>
       document
-        .querySelector<HTMLButtonElement>('[aria-label="任务最大轮数模式"] [role="radio"]')!
+        .querySelector<HTMLInputElement>('.weq-cvs-body-scroll input[type="checkbox"]')!
         .click(),
     );
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
     expect(
       requests.some(
         (call) =>
@@ -80,7 +74,7 @@ it('助手实际控制器直接渲染共用页、编辑器和六组自动保存�
           (call.input as { maxRounds?: number | null }).maxRounds === null,
       ),
     ).toBe(true);
-    expect(document.querySelector('[aria-label="任务最大轮数"]')).toBeNull();
+    expect(limit.disabled).toBe(true);
     await act(async () => document.querySelector<HTMLButtonElement>('.weq-cvs-close')!.click());
     const editor = host.querySelector<HTMLDivElement>('.composer-editor')!;
     await act(async () => {

@@ -1,7 +1,5 @@
-import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
-import { z } from 'zod';
-import { usePageState } from '../PageSnapshots';
-import { pageValue } from '../../lib/pageSnapshots';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { usePageSnapshotReset } from '../PageSnapshots';
 import type { CapabilityProbeResult } from '@weq/agentlab';
 import {
   Boxes,
@@ -99,27 +97,16 @@ export function AgentLabSection(): ReactElement {
   const deleteProvider = trpc.bootstrap.deleteAgentLabProvider.useMutation();
   const fetchModels = trpc.bootstrap.fetchAgentLabModels.useMutation();
 
-  const [selectedId, setSelectedId] = usePageState('provider:selected', '', pageValue.string);
-  const [open, setOpen] = usePageState('provider:open', false, pageValue.boolean, true);
-  const [form, setForm] = usePageState<ProviderForm>(
-    'provider:form',
-    emptyForm,
-    z.object({
-      id: z.string(),
-      name: z.string(),
-      vendor: z.string(),
-      baseUrl: z.string(),
-      apiKey: z.string(),
-      models: z.array(
-        z.object({
-          id: z.string(),
-          label: z.string(),
-          capabilities: z.array(z.enum(['chat', 'embedding', 'vision'])),
-        }),
-      ),
-    }),
-    true,
-  );
+  const [selectedId, setSelectedId] = useState('');
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState<ProviderForm>(emptyForm);
+  const legacyOpen = usePageSnapshotReset('provider:open');
+  const legacyForm = usePageSnapshotReset('provider:form');
+  useEffect(() => {
+    // 编辑器由自身的关闭确认保护，不再将打开、载入与关闭动作登记为页面草稿。
+    legacyOpen.reset();
+    legacyForm.reset();
+  }, [legacyOpen, legacyForm]);
   const formRef = useRef(form);
   formRef.current = form;
   const [detectingModel, setDetectingModel] = useState<number | null>(null);

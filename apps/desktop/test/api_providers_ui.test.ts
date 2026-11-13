@@ -1,5 +1,6 @@
 import { act, createElement, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
 import { AgentLabSection } from '../src/renderer/src/components/settings/AgentLabSection';
@@ -7,6 +8,8 @@ import { ApiModelSelect } from '../src/renderer/src/components/settings/ApiModel
 import { TtsProvidersCard } from '../src/renderer/src/components/settings/VoiceTranscribeSection';
 import { providerDisplayLabels } from '../src/renderer/src/lib/providerDisplayLabels';
 import { useToast } from '../src/renderer/src/components/Toast';
+import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
+import { pageSnapshots } from '../src/renderer/src/lib/pageSnapshots';
 
 const state = vi.hoisted(() => ({
   queryMode: 'ready',
@@ -141,6 +144,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
 });
 const cleanups: Array<() => void> = [];
 beforeEach(() => {
+  vi.stubGlobal('localStorage', new Storage());
   state.queryMode = 'ready';
   state.catalogError = false;
   state.refetch.mockClear();
@@ -202,7 +206,15 @@ function mount(tts = false) {
   document.body.append(host);
   const root = createRoot(host);
   const render = () =>
-    act(() => root.render(createElement(tts ? TtsProvidersCard : AgentLabSection)));
+    act(() =>
+      root.render(
+        createElement(
+          PageSnapshots,
+          { scope: 'provider-settings-test' },
+          createElement(tts ? TtsProvidersCard : AgentLabSection),
+        ),
+      ),
+    );
   render();
   let closed = false;
   const close = () => {
@@ -225,6 +237,61 @@ function mount(tts = false) {
   return { host, render, button, set, close };
 }
 describe('多 API provider 配置', () => {
+  it.each([false, true])('%s 未修改或改回原值时关闭不确认，也不留下页面草稿', async (tts) => {
+    const f = mount(tts);
+    act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
+    expect(pageSnapshots.hasDrafts('provider-settings-test')).toBe(false);
+    await act(async () => f.host.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click());
+    expect(state.confirm).not.toHaveBeenCalled();
+    expect(pageSnapshots.hasDrafts('provider-settings-test')).toBe(false);
+    act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
+    const original = f.host.querySelector<HTMLInputElement>('input[type="password"]')!.value;
+    f.set('input[type="password"]', 'synthetic-edit');
+    f.set('input[type="password"]', original);
+    await act(async () => f.host.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click());
+    expect(state.confirm).not.toHaveBeenCalled();
+    expect(f.host.querySelector('.weq-provider-modal')).toBeNull();
+  });
+  it.each([false, true])('%s 修改仅在关闭编辑器时确认，取消保留，放弃后不遗留草稿', async (tts) => {
+    const f = mount(tts);
+    act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
+    f.set('input[type="password"]', 'synthetic-edit');
+    expect(state.confirm).not.toHaveBeenCalled();
+    state.confirm.mockResolvedValueOnce(false);
+    await act(async () => f.host.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click());
+    expect(state.confirm).toHaveBeenCalledWith(
+      '放弃未保存的修改？',
+      expect.any(String),
+      expect.anything(),
+    );
+    expect(f.host.querySelector<HTMLInputElement>('input[type="password"]')!.value).toBe(
+      'synthetic-edit',
+    );
+    await act(async () => f.host.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click());
+    expect(f.host.querySelector('.weq-provider-modal')).toBeNull();
+    expect(pageSnapshots.hasDrafts('provider-settings-test')).toBe(false);
+    act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
+    expect(f.host.querySelector<HTMLInputElement>('input[type="password"]')!.value).not.toBe(
+      'synthetic-edit',
+    );
+  });
+  it.each([false, true])('%s 保存后关闭不确认且不遗留页面草稿', async (tts) => {
+    const f = mount(tts);
+    act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
+    f.set('input[type="password"]', 'synthetic-edit');
+    await act(async () => f.button(tts ? '保存' : '保存服务商').click());
+    await act(async () => f.host.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click());
+    expect(state.confirm).not.toHaveBeenCalled();
+    expect(pageSnapshots.hasDrafts('provider-settings-test')).toBe(false);
+  });
+  it.each([false, true])('%s 清除旧编辑器遗留标记，不恢复已关闭的编辑框', (tts) => {
+    const prefix = tts ? 'tts' : 'provider';
+    pageSnapshots.write(JSON.stringify(['provider-settings-test', `${prefix}:open`]), false, true);
+    pageSnapshots.write(JSON.stringify(['provider-settings-test', `${prefix}:form`]), {}, true);
+    const f = mount(tts);
+    expect(f.host.querySelector('.weq-provider-modal')).toBeNull();
+    expect(pageSnapshots.hasDrafts('provider-settings-test')).toBe(false);
+  });
   it('能力检测回填已验证与不支持项，未知项保留原选择且不自动保存', async () => {
     state.providers[0]!.models[0]!.capabilities = ['embedding', 'vision'];
     state.detectCapabilities.mockResolvedValue([

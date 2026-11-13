@@ -92,7 +92,7 @@ export function AiImageComposer({
   onBusyChange?: (busy: boolean) => void;
   onSendImages?: () => void;
   fill?: boolean;
-  children: ReactNode | ((controls: ReactNode, imageButton: ReactNode) => ReactNode);
+  children: ReactNode | ((controls: ReactNode) => ReactNode);
 }) {
   const picker = useRef<HTMLInputElement>(null);
   const activeUploads = useRef(0);
@@ -145,8 +145,8 @@ export function AiImageComposer({
       onBusyChange?.(pending);
     }
   }
-  const imageButton = (
-    <>
+  const controls = (
+    <div className="weq-ai-attachments">
       <button
         type="button"
         className="weq-set-iconbtn"
@@ -168,31 +168,26 @@ export function AiImageComposer({
           event.target.value = '';
         }}
       />
-    </>
+      <AiImageGallery
+        variant="draft"
+        images={draft.images}
+        onRemove={
+          disabled
+            ? undefined
+            : (id) =>
+                setValue((current) => {
+                  const draft = parseAiImageDraft(current);
+                  return aiImageDraft(
+                    draft.text,
+                    draft.images.filter((image) => image.id !== id),
+                  );
+                })
+        }
+      />
+      {busy ? <span role="status">正在准备图片…</span> : null}
+      {error ? <span role="alert">{error}</span> : null}
+    </div>
   );
-  const controls =
-    draft.images.length || busy || error ? (
-      <div className="weq-ai-attachments">
-        <AiImageGallery
-          variant="draft"
-          images={draft.images}
-          onRemove={
-            disabled
-              ? undefined
-              : (id) =>
-                  setValue((current) => {
-                    const draft = parseAiImageDraft(current);
-                    return aiImageDraft(
-                      draft.text,
-                      draft.images.filter((image) => image.id !== id),
-                    );
-                  })
-          }
-        />
-        {busy ? <span role="status">正在准备图片…</span> : null}
-        {error ? <span role="alert">{error}</span> : null}
-      </div>
-    ) : null;
   return (
     <div
       className={`weq-ai-composer${fill ? ' is-fill' : ''}`}
@@ -238,11 +233,10 @@ export function AiImageComposer({
       }}
     >
       {typeof children === 'function' ? (
-        children(controls, imageButton)
+        children(controls)
       ) : (
         <>
           {children}
-          {imageButton}
           {controls}
           {onSendImages && draft.images.length && !draft.text.trim() ? (
             <button

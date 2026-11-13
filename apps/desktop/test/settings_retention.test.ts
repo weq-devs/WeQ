@@ -169,6 +169,28 @@ function chooseNavigation(label: string) {
 }
 
 describe('设置二级页现场与活动生命周期', () => {
+  it.each([0, 1])('服务商编辑器 %s 关闭后离开 API 配置页不误报未保存', async (index) => {
+    const f = mount('agentlab');
+    try {
+      const create = [...f.body().querySelectorAll<HTMLButtonElement>('button')].filter(
+        (button) => button.textContent?.trim() === '新建',
+      )[index]!;
+      act(() => create.click());
+      expect(document.querySelector('.weq-provider-modal')).not.toBeNull();
+      await act(async () =>
+        document
+          .querySelector<HTMLButtonElement>('.weq-provider-modal [aria-label="关闭"]')!
+          .click(),
+      );
+      expect(document.querySelector('.weq-provider-modal')).toBeNull();
+      const navigate = vi.fn();
+      f.navigate(navigate);
+      expect(navigate).toHaveBeenCalledOnce();
+      expect(document.body.textContent).not.toContain('当前设置尚未保存');
+    } finally {
+      f.dispose();
+    }
+  });
   it('没有未保存内容时直接执行主页面导航', () => {
     fixture.mcpPort = 48765;
     const f = mount('mcp');

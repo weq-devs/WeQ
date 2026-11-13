@@ -113,8 +113,7 @@ it('全部适用操作直接常驻，打开会话、预览、空间和分析仍�
       '聊天分析',
     ]);
     // 主操作（打开会话）是填充按钮，其余是描边按钮，权重分层。
-    expect(buttons[0]!.classList.contains('weq-contact-primary')).toBe(true);
-    expect(buttons[0]!.classList.contains('weq-set-btn')).toBe(true);
+    expect(buttons[0]!.className).toBe('weq-contact-primary');
     expect(buttons.slice(1).every((button) => button.className === 'weq-contact-secondary')).toBe(
       true,
     );
@@ -162,7 +161,7 @@ it('没有历史会话时仍显示发起会话，不额外展示不适用操作'
       expect(host.textContent).toBe('发起会话');
     });
     expect(host.querySelectorAll('button')).toHaveLength(1);
-    expect(host.querySelector('button')?.classList.contains('weq-contact-primary')).toBe(true);
+    expect(host.querySelector('button')?.className).toBe('weq-contact-primary');
   } finally {
     act(() => root.unmount());
   }
