@@ -524,7 +524,7 @@ export function validateWeqApiSettings(
       api.agentLab,
       'api.agentLab',
       ['providers'],
-      ['defaultModel', 'defaultVisionModel'],
+      ['defaultModel', 'defaultVisionModel', 'defaultEmbeddingModel'],
     );
     if (agent.defaultVisionModel !== undefined && agent.defaultVisionModel !== null) {
       const ref = fields(agent.defaultVisionModel, 'api.agentLab.defaultVisionModel', [
@@ -538,6 +538,12 @@ export function validateWeqApiSettings(
       const ref = fields(agent.defaultModel, 'api.agentLab.defaultModel', ['providerId', 'model']);
       string(ref.providerId, 'api.agentLab.defaultModel.providerId', true);
       string(ref.model, 'api.agentLab.defaultModel.model', true);
+    }
+    if (agent.defaultEmbeddingModel !== undefined && agent.defaultEmbeddingModel !== null) {
+      const path = 'api.agentLab.defaultEmbeddingModel';
+      const ref = fields(agent.defaultEmbeddingModel, path, ['providerId', 'model']);
+      string(ref.providerId, `${path}.providerId`, true);
+      string(ref.model, `${path}.model`, true);
     }
     list(agent.providers, 'api.agentLab.providers', (row, path) => {
       fields(row, path, [

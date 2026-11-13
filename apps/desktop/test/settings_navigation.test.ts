@@ -9,6 +9,15 @@ import {
 } from '../src/renderer/src/components/settings/navigation';
 
 describe('设置的两级导航', () => {
+  it.each([
+    ['默认聊天模型', 'llm-default-model'],
+    ['默认视觉模型', 'llm-default-vision-model'],
+    ['默认向量模型', 'llm-default-embedding-model'],
+    ['嵌入模型', 'llm-default-embedding-model'],
+  ])('%s 搜索直达对应默认模型设置', (keyword, settingId) => {
+    const entry = searchAppEntries(keyword)[0];
+    expect(entry?.target).toMatchObject({ kind: 'setting', section: 'agentlab', settingId });
+  });
   it('常规首项合并为启动与主页，旧主页入口仍能定位', () => {
     expect(settingsGroupFor('startup').sections).toEqual([
       'startup',

@@ -53,6 +53,22 @@ try {
           `http://127.0.0.1:${server.httpServer.address().port}/test/browser/ai-model-settings.html`,
         );
         await page.getByRole('button', { name: 'API 配置', exact: true }).click();
+        const defaults = page.locator('select[aria-label^="默认"]');
+        await defaults.first().waitFor();
+        assert.deepEqual(
+          await defaults.evaluateAll((nodes) =>
+            nodes.map((node) => node.getAttribute('aria-label')),
+          ),
+          ['默认聊天模型', '默认视觉模型', '默认向量模型'],
+        );
+        for (const [index, label] of ['聊天', '视觉', '向量'].entries()) {
+          const field = defaults.nth(index);
+          assert.equal(
+            await field.locator('option[value=""]').textContent(),
+            `未设置默认${label}模型`,
+          );
+          assert.equal(await field.locator('option[value="default"]').count(), 0);
+        }
         await page.evaluate(
           ({ theme, style }) => {
             const store = window.aiSettingsTheme.getState();
@@ -128,6 +144,11 @@ try {
         );
         assert.equal(await capabilities.getByRole('checkbox').count(), 0);
         assert.equal(await capabilities.getByRole('button').count(), 3);
+        assert.deepEqual(await capabilities.getByRole('button').allTextContents(), [
+          '聊天',
+          '视觉',
+          '向量',
+        ]);
         const chat = capabilities.getByRole('button', { name: '聊天', exact: true });
         const vision = capabilities.getByRole('button', { name: '视觉', exact: true });
         assert.equal(await chat.getAttribute('aria-pressed'), 'true');

@@ -694,6 +694,7 @@ export interface AgentLabSettings {
   providers: AgentLabProviderConfig[];
   defaultModel: AgentLabModelRef | null;
   defaultVisionModel: AgentLabModelRef | null;
+  defaultEmbeddingModel: AgentLabModelRef | null;
 }
 
 /**
@@ -1174,7 +1175,12 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   },
   // 20000+ 不常用端口；若被占用，宿主内的助手资源服务自动向上探测。
   weqAssistant: { enabled: false, port: DEFAULT_SERVICE_PORTS['weq-assistant'] },
-  agentLab: { providers: [], defaultModel: null, defaultVisionModel: null },
+  agentLab: {
+    providers: [],
+    defaultModel: null,
+    defaultVisionModel: null,
+    defaultEmbeddingModel: null,
+  },
   aiImages: normalizeImagePreferences(null),
   windowCloseBehavior: 'tray',
   windowsStyleControls: false,
@@ -2046,6 +2052,7 @@ export class UserConfigService {
         providers: normalizeAgentLabProviders(s?.agentLab?.providers) ?? d.agentLab.providers,
         defaultModel: normalizeAgentLabDefaultModel(s?.agentLab?.defaultModel),
         defaultVisionModel: normalizeAgentLabDefaultModel(s?.agentLab?.defaultVisionModel),
+        defaultEmbeddingModel: normalizeAgentLabDefaultModel(s?.agentLab?.defaultEmbeddingModel),
       },
       aiImages: normalizeImagePreferences(s?.aiImages),
     };
@@ -2249,6 +2256,10 @@ export class UserConfigService {
           patch.agentLab?.defaultVisionModel !== undefined
             ? normalizeAgentLabDefaultModel(patch.agentLab.defaultVisionModel)
             : current.agentLab.defaultVisionModel,
+        defaultEmbeddingModel:
+          patch.agentLab?.defaultEmbeddingModel !== undefined
+            ? normalizeAgentLabDefaultModel(patch.agentLab.defaultEmbeddingModel)
+            : current.agentLab.defaultEmbeddingModel,
       },
       aiImages: normalizeImagePreferences({ ...current.aiImages, ...patch.aiImages }),
     };

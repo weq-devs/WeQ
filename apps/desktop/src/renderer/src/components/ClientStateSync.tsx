@@ -27,6 +27,9 @@ export function ClientStateSync() {
         if (active) useClientPreferences.setState({ error: `共享设置读取失败：${String(error)}` });
       });
       void utils.bootstrap.getSettings.invalidate();
+      void utils.bootstrap.getAgentLabDefaultModel.invalidate();
+      void utils.bootstrap.getDefaultVisionModel.invalidate();
+      void utils.bootstrap.getDefaultEmbeddingModel.invalidate();
     };
     refresh();
     const sub = client.clientState.changed.subscribe(undefined, {
@@ -39,7 +42,9 @@ export function ClientStateSync() {
           })
           .catch(() => {});
         void utils.bootstrap.getSettings.invalidate();
+        void utils.bootstrap.getAgentLabDefaultModel.invalidate();
         void utils.bootstrap.getDefaultVisionModel.invalidate();
+        void utils.bootstrap.getDefaultEmbeddingModel.invalidate();
         void utils.settings.invalidate();
         void utils.account.intentSense.getStatus.invalidate();
         void utils.account.antiRecall.getStatus.invalidate();

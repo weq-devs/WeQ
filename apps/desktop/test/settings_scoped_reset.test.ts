@@ -97,6 +97,23 @@ beforeEach(() => {
 });
 const caller = () => settingsResetRouter.createCaller({});
 describe('分级恢复默认', () => {
+  it('API 默认模型预览与重置按聊天、视觉、向量排列，分别清空而不改服务商', async () => {
+    state.settings.agentLab.defaultModel = { providerId: 'p', model: 'chat' };
+    state.settings.agentLab.defaultVisionModel = { providerId: 'p', model: 'vision' };
+    state.settings.agentLab.defaultEmbeddingModel = { providerId: 'p', model: 'embedding' };
+    const preview = await caller().preview({ page: 'agentlab', card: 'api-default' });
+    expect(preview.items.map((item) => item.label)).toEqual([
+      '默认聊天模型',
+      '默认视觉模型',
+      '默认向量模型',
+    ]);
+    await caller().restore({ page: 'agentlab', card: 'api-default', source: null });
+    expect(state.calls).toEqual([
+      ['setAgentLabDefaultModel', { ref: null }],
+      ['setDefaultVisionModel', { ref: null }],
+      ['setDefaultEmbeddingModel', { ref: null }],
+    ]);
+  });
   it('阅读定位恢复预览包含条件隐藏的上下文配置', async () => {
     state.settings.sharedPreferences.client = {
       autoFetchMissingMessages: true,

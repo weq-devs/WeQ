@@ -43,11 +43,11 @@ import { DefaultVisionModelRow } from './AiImageSettings';
 import '../../styles/search-scope.css';
 import '../../styles/provider-settings.css';
 
-type Capability = 'chat' | 'embedding' | 'vision';
+type Capability = 'chat' | 'vision' | 'embedding';
 const CAPABILITIES: { value: Capability; label: string; Icon: LucideIcon }[] = [
   { value: 'chat', label: '聊天', Icon: MessageSquare },
-  { value: 'embedding', label: '向量', Icon: Layers },
   { value: 'vision', label: '视觉', Icon: Image },
+  { value: 'embedding', label: '向量', Icon: Layers },
 ];
 
 type ModelForm = {
@@ -621,7 +621,9 @@ export function AgentLabSection(): ReactElement {
       .map((m) => ({
         id: m.id.trim(),
         label: m.label.trim() || undefined,
-        capabilities: m.capabilities,
+        capabilities: CAPABILITIES.filter(({ value }) => m.capabilities.includes(value)).map(
+          ({ value }) => value,
+        ),
         metadata: m.metadata,
         overrides: m.overrides,
         reasoningEfforts: m.reasoningEfforts,
@@ -659,6 +661,8 @@ export function AgentLabSection(): ReactElement {
       setOpen(true);
       await utils.bootstrap.listAgentLabProviders.invalidate();
       await utils.bootstrap.getAgentLabDefaultModel.invalidate();
+      await utils.bootstrap.getDefaultVisionModel.invalidate();
+      await utils.bootstrap.getDefaultEmbeddingModel.invalidate();
       await utils.account.intentSense.getStatus.invalidate();
       dialog.success('已保存', `服务商「${form.name.trim() || id}」配置已更新`);
     } catch (error) {
@@ -724,6 +728,8 @@ export function AgentLabSection(): ReactElement {
       setOpen(false);
       await utils.bootstrap.listAgentLabProviders.invalidate();
       await utils.bootstrap.getAgentLabDefaultModel.invalidate();
+      await utils.bootstrap.getDefaultVisionModel.invalidate();
+      await utils.bootstrap.getDefaultEmbeddingModel.invalidate();
       await utils.account.intentSense.getStatus.invalidate();
       dialog.success('已删除', `服务商「${removed}」已移除`);
     } catch (error) {
@@ -753,6 +759,7 @@ export function AgentLabSection(): ReactElement {
       >
         <DefaultApiModelRow />
         <DefaultVisionModelRow />
+        <DefaultApiModelRow capability="embedding" />
         <div className="weq-set-card-title">已保存的服务商</div>
         {providers.error ? (
           <QueryError
@@ -1096,7 +1103,9 @@ export function AgentLabSection(): ReactElement {
                             ({ value, label }) =>
                               `${label}：${model.metadata?.capabilities[value] === 'supported' ? '服务商声明支持或已验证' : model.metadata?.capabilities[value] === 'unsupported' ? '不支持' : '未知'}`,
                           ),
-                          ...(model.probe ?? []).map(
+                          ...CAPABILITIES.flatMap(({ value }) =>
+                            (model.probe ?? []).filter((result) => result.capability === value),
+                          ).map(
                             (result) =>
                               `${CAPABILITIES.find((item) => item.value === result.capability)?.label}：${result.status === 'supported' ? '已验证' : result.status === 'unsupported' ? '不支持' : '未确定'}；${result.detail}`,
                           ),

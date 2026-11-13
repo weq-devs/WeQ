@@ -628,6 +628,12 @@ function configPlan(
       const defaultVisionModel = preserveVision
         ? previous.defaultVisionModel
         : value.agentLab.defaultVisionModel;
+      const preserveEmbedding =
+        value.agentLab.defaultEmbeddingModel === undefined ||
+        (choice.conflict === 'skip' && previous.defaultEmbeddingModel !== undefined);
+      const defaultEmbeddingModel = preserveEmbedding
+        ? previous.defaultEmbeddingModel
+        : value.agentLab.defaultEmbeddingModel;
       settings.agentLab = {
         providers: mergeRows(
           previous.providers,
@@ -638,11 +644,14 @@ function configPlan(
         ),
         ...(defaultModel !== undefined ? { defaultModel } : {}),
         ...(defaultVisionModel !== undefined ? { defaultVisionModel } : {}),
+        ...(defaultEmbeddingModel !== undefined ? { defaultEmbeddingModel } : {}),
       };
       if (value.agentLab.defaultModel !== undefined && preserveDefault)
         skipped.push('api:llm-default');
       if (value.agentLab.defaultVisionModel !== undefined && preserveVision)
         skipped.push('api:llm-default-vision');
+      if (value.agentLab.defaultEmbeddingModel !== undefined && preserveEmbedding)
+        skipped.push('api:llm-default-embedding');
     }
     if (value.ttsProviders !== undefined) {
       settings.voiceTranscribe = merge(base.voiceTranscribe, {

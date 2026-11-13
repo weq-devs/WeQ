@@ -63,6 +63,8 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           listAgentLabProviders: { invalidate: vi.fn(async () => undefined) },
           listTtsProviders: { invalidate: vi.fn(async () => undefined) },
           getAgentLabDefaultModel: { invalidate: vi.fn(async () => undefined), setData: vi.fn() },
+          getDefaultVisionModel: { invalidate: vi.fn(async () => undefined), setData: vi.fn() },
+          getDefaultEmbeddingModel: { invalidate: vi.fn(async () => undefined), setData: vi.fn() },
           getSettings: { invalidate: vi.fn(async () => undefined) },
         },
       }),
@@ -71,6 +73,12 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           useQuery: () => ({ data: { ref: null, available: false, error: null } }),
         },
         setDefaultVisionModel: { useMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }) },
+        getDefaultEmbeddingModel: {
+          useQuery: () => ({ data: { ref: null, available: false, error: null } }),
+        },
+        setDefaultEmbeddingModel: {
+          useMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }),
+        },
         getAgentLabDefaultModel: {
           useQuery: () => ({
             data: { ref: null, available: false, error: null },
@@ -421,8 +429,8 @@ describe('多 API provider 配置', () => {
     ];
     expect(buttons.map((button) => button.getAttribute('aria-pressed'))).toEqual([
       'false',
-      'false',
       'true',
+      'false',
     ]);
     await act(async () => f.button('保存服务商').click());
     expect(state.save.mock.calls[0]![0].models[0]).toMatchObject({
@@ -439,7 +447,7 @@ describe('多 API provider 配置', () => {
     expect(group.getAttribute('role')).toBe('group');
     expect(group.querySelector('[role="checkbox"]')).toBeNull();
     const buttons = [...group.querySelectorAll<HTMLButtonElement>('button')];
-    expect(buttons.map((button) => button.textContent?.trim())).toEqual(['聊天', '向量', '视觉']);
+    expect(buttons.map((button) => button.textContent?.trim())).toEqual(['聊天', '视觉', '向量']);
     expect(buttons.map((button) => button.getAttribute('aria-pressed'))).toEqual([
       'true',
       'false',
@@ -540,7 +548,7 @@ describe('多 API provider 配置', () => {
       baseUrl: state.providers[0]!.baseUrl,
       apiKey: state.providers[0]!.apiKey,
       model: 'shared-model',
-      capabilities: ['chat', 'embedding', 'vision'],
+      capabilities: ['chat', 'vision', 'embedding'],
       reasoning: true,
     });
     const title = f.host.querySelector('.weq-provider-model-detect')!.getAttribute('title');

@@ -2118,6 +2118,21 @@ export const bootstrapRouter = router({
         .strict(),
     )
     .mutation(({ input }) => requireBootstrap().agentLabConfig.setDefaultVisionModel(input.ref)),
+  getDefaultEmbeddingModel: procedure.query(() =>
+    requireBootstrap().agentLabConfig.getDefaultEmbeddingModelStatus(),
+  ),
+  setDefaultEmbeddingModel: procedure
+    .input(
+      z
+        .object({
+          ref: z
+            .object({ providerId: z.string().trim().min(1), model: z.string().trim().min(1) })
+            .strict()
+            .nullable(),
+        })
+        .strict(),
+    )
+    .mutation(({ input }) => requireBootstrap().agentLabConfig.setDefaultEmbeddingModel(input.ref)),
   setAiImagePreference: procedure
     .input(
       z

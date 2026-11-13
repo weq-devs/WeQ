@@ -21,6 +21,17 @@ import {
 } from '@weq/agentlab';
 import type { UserConfigService } from './user_config';
 
+const DEFAULT_MODEL_FIELDS = {
+  chat: 'defaultModel',
+  vision: 'defaultVisionModel',
+  embedding: 'defaultEmbeddingModel',
+} as const;
+const DEFAULT_MODEL_LABELS = {
+  chat: '默认聊天模型',
+  vision: '默认视觉模型',
+  embedding: '默认向量模型',
+} as const;
+
 export class AgentLabConfigService {
   constructor(
     private readonly userConfig: UserConfigService,
@@ -41,87 +52,70 @@ export class AgentLabConfigService {
     return this.listProviders().find((item) => item.id === providerId) ?? null;
   }
 
-  getDefaultModel(): AgentLabModelRef | null {
-    return this.userConfig.getSettings().agentLab.defaultModel;
+  getDefaultModel(capability: AgentLabModelCapability = 'chat'): AgentLabModelRef | null {
+    return this.userConfig.getSettings().agentLab[DEFAULT_MODEL_FIELDS[capability]];
   }
 
   getDefaultVisionModelStatus() {
-    const ref = this.userConfig.getSettings().agentLab.defaultVisionModel;
-    if (!ref) return { ref: null, available: false, error: null };
-    try {
-      this.resolveVisionEndpoint();
-      return { ref, available: true, error: null };
-    } catch (error) {
-      return {
-        ref,
-        available: false,
-        error: error instanceof Error ? error.message : '视觉模型不可用',
-      };
-    }
+    return this.getDefaultModelStatus('vision');
   }
 
   resolveVisionEndpoint(): AgentLabEndpoint | null {
-    const ref = this.userConfig.getSettings().agentLab.defaultVisionModel;
-    if (!ref) return null;
-    const provider = this.getProvider(ref.providerId);
-    const model = provider?.models.find((model) => model.id === ref.model);
-    if (!provider || !model || model.capabilities?.includes('vision') === false)
-      throw new Error('默认视觉模型不可用或不支持图片');
-    validateProviderConfig(provider);
-    return this.resolveEndpoint(ref, 'vision');
+    const ref = this.getDefaultModel('vision');
+    return ref ? this.resolveDefaultEndpoint(ref, 'vision') : null;
   }
 
   setDefaultVisionModel(ref: AgentLabModelRef | null) {
-    if (ref) {
-      const provider = this.getProvider(ref.providerId);
-      const model = provider?.models.find((model) => model.id === ref.model);
-      if (!model || model.capabilities?.includes('vision') === false)
-        throw new Error('请选择支持视觉能力的模型');
-    }
-    this.userConfig.setSettings({ agentLab: { defaultVisionModel: ref } });
-    return this.getDefaultVisionModelStatus();
+    return this.setDefaultModel(ref, 'vision');
   }
 
-  getDefaultModelStatus() {
-    const ref = this.getDefaultModel();
+  getDefaultEmbeddingModelStatus() {
+    return this.getDefaultModelStatus('embedding');
+  }
+
+  setDefaultEmbeddingModel(ref: AgentLabModelRef | null) {
+    return this.setDefaultModel(ref, 'embedding');
+  }
+
+  getDefaultModelStatus(capability: AgentLabModelCapability = 'chat') {
+    const ref = this.getDefaultModel(capability);
     if (!ref) return { ref: null, available: false, error: null };
     try {
-      this.resolveDefaultEndpoint(ref);
+      this.resolveDefaultEndpoint(ref, capability);
       return { ref, available: true, error: null };
     } catch (error) {
       return {
         ref,
         available: false,
-        error: error instanceof Error ? error.message : '默认文本模型不可用',
+        error: error instanceof Error ? error.message : `${DEFAULT_MODEL_LABELS[capability]}不可用`,
       };
     }
   }
 
-  setDefaultModel(ref: AgentLabModelRef | null) {
+  setDefaultModel(ref: AgentLabModelRef | null, capability: AgentLabModelCapability = 'chat') {
     const next = ref ? { providerId: ref.providerId.trim(), model: ref.model.trim() } : null;
     if (next && (next.providerId.includes('\0') || next.model.includes('\0')))
-      throw new Error('默认文本模型引用无效');
-    if (next) this.resolveDefaultEndpoint(next);
-    this.userConfig.setSettings({ agentLab: { defaultModel: next } });
-    return this.getDefaultModelStatus();
+      throw new Error(`${DEFAULT_MODEL_LABELS[capability]}引用无效`);
+    if (next) this.resolveDefaultEndpoint(next, capability);
+    this.userConfig.setSettings({ agentLab: { [DEFAULT_MODEL_FIELDS[capability]]: next } });
+    return this.getDefaultModelStatus(capability);
   }
 
   resolveDefaultEndpoint(
-    ref = this.getDefaultModel(),
+    ref: AgentLabModelRef | null | undefined = undefined,
     capability: AgentLabModelCapability = 'chat',
   ): AgentLabEndpoint {
-    if (!ref) throw new Error('未设置默认文本模型');
+    if (ref === undefined) ref = this.getDefaultModel(capability);
+    const label = DEFAULT_MODEL_LABELS[capability];
+    if (!ref) throw new Error(`未设置${label}`);
     const provider = this.getProvider(ref.providerId);
-    if (!provider) throw new Error(`默认文本模型的 provider 不可用：${ref.providerId}`);
+    if (!provider) throw new Error(`${label}的服务商不可用：${ref.providerId}`);
     const model = provider.models.find(
-      (item) =>
-        item.id === ref.model &&
-        item.capabilities?.includes('chat') !== false &&
-        item.capabilities?.includes(capability) !== false,
+      (item) => item.id === ref.model && item.capabilities?.includes(capability) !== false,
     );
-    if (!model) throw new Error(`默认文本模型不存在或不支持 ${capability}：${ref.model}`);
+    if (!model) throw new Error(`${label}不存在或不支持对应能力：${ref.model}`);
     validateProviderConfig(provider);
-    return this.resolveEndpoint(ref);
+    return this.resolveEndpoint(ref, capability);
   }
 
   /** 按 id 取 TTS provider 配置（供导出 bot 打包语音配置）。 */
@@ -138,19 +132,19 @@ export class AgentLabConfigService {
     capability: AgentLabModelCapability = 'chat',
   ): AgentLabModelRef {
     if (!isDefaultModelSelection(ref)) return { ...ref };
-    const current = this.getDefaultModel();
+    const current = this.getDefaultModel(capability);
     this.resolveDefaultEndpoint(current, capability);
-    if (!current) throw new Error('未设置默认文本模型');
+    if (!current) throw new Error(`未设置${DEFAULT_MODEL_LABELS[capability]}`);
     return { ...current };
   }
 
   resolveModels(models: AgentLabModels) {
     return {
       chat: this.resolveModelRef(models.chat),
+      ...(models.vision ? { vision: this.resolveModelRef(models.vision, 'vision') } : {}),
       ...(models.embedding
         ? { embedding: this.resolveModelRef(models.embedding, 'embedding') }
         : {}),
-      ...(models.vision ? { vision: this.resolveModelRef(models.vision, 'vision') } : {}),
       ...(models.voiceClone ? { voiceClone: this.resolveModelRef(models.voiceClone) } : {}),
     };
   }

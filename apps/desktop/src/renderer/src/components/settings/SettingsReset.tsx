@@ -239,7 +239,11 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
         refresh.push(utils.bootstrap.getAutostartStatus.invalidate());
       if (cards.has('auto-enter')) refresh.push(utils.bootstrap.getAutoEnter.invalidate());
       if (cards.has('api-default'))
-        refresh.push(utils.bootstrap.getAgentLabDefaultModel.invalidate());
+        refresh.push(
+          utils.bootstrap.getAgentLabDefaultModel.invalidate(),
+          utils.bootstrap.getDefaultVisionModel.invalidate(),
+          utils.bootstrap.getDefaultEmbeddingModel.invalidate(),
+        );
       if (cards.has('typing')) refresh.push(utils.bootstrap.getTypingStatusSettings.invalidate());
       if ([...cards].some((card) => /^(intent|suggestion|profile)-/.test(card)))
         refresh.push(

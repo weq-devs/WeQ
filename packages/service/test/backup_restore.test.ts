@@ -385,6 +385,8 @@ it.each([
   ['overwrite', 'defaultModel'],
   ['skip', 'defaultVisionModel'],
   ['overwrite', 'defaultVisionModel'],
+  ['skip', 'defaultEmbeddingModel'],
+  ['overwrite', 'defaultEmbeddingModel'],
 ] as const)('默认模型恢复兼容旧备份、明确清空及本机冲突（%s/%s）', (conflict, field) => {
   const localRef = { providerId: 'local', model: 'local-chat' };
   const importedRef = { providerId: 'imported', model: 'imported-chat' };

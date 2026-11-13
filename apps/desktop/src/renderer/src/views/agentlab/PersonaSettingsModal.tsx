@@ -678,11 +678,11 @@ export function ExportTab({
 
       <label className="weq-agentlab-field">
         <span>
-          <ImageIcon size={13} /> 图像模型（可选，解析上传的新表情）
+          <ImageIcon size={13} /> 视觉模型（可选，解析上传的新表情）
         </span>
         <ApiModelSelect
           allowDefault
-          label="导出图像模型"
+          label="导出视觉模型"
           capability="vision"
           value={visionModel}
           onChange={setVisionModel}

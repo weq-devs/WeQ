@@ -28,7 +28,10 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
               id: 'synthetic',
               name: '合成服务',
               baseUrl: 'https://synthetic.invalid',
-              models: [{ id: 'chat', capabilities: ['chat', 'vision', 'embedding'] }],
+              models: [
+                { id: 'chat', capabilities: ['chat'] },
+                { id: 'embedding', capabilities: ['embedding'] },
+              ],
             },
           ],
           isLoading: false,
@@ -37,6 +40,15 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       getAgentLabDefaultModel: {
         useQuery: () => ({
           data: { ref: { providerId: 'synthetic', model: 'chat' }, available: true, error: null },
+        }),
+      },
+      getDefaultEmbeddingModel: {
+        useQuery: () => ({
+          data: {
+            ref: { providerId: 'synthetic', model: 'embedding' },
+            available: true,
+            error: null,
+          },
         }),
       },
     },
@@ -94,20 +106,15 @@ it.each([false, true])('新建克隆预选默认聊天模型，不受模型列�
     expect(button('开始克隆').disabled).toBe(false);
     act(() => button('开始克隆').click());
     expect(start.mock.calls[0]![0].params.models).toEqual({ chat: { useDefault: true } });
+    expect(
+      host.querySelector<HTMLSelectElement>('[aria-label="克隆向量模型"]')!.options[1]!.textContent,
+    ).toBe('默认（当前：embedding）');
     choose('克隆向量模型');
-    const checkbox = [...host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].find(
-      (value) => value.closest('label')?.textContent?.includes('分析 TA'),
-    )!;
-    act(() => checkbox.click());
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="克隆视觉模型"]')!.value).toBe(
-      DEFAULT_MODEL_SELECTION_KEY,
-    );
-    expect(host.querySelector('[aria-label="克隆视觉模型"] option[value=""]')).toBeNull();
+    expect(host.querySelector('[aria-label="克隆视觉模型"]')).toBeNull();
     act(() => button('开始克隆').click());
     expect(start.mock.calls[1]![0].params.models).toEqual({
       chat: { useDefault: true },
       embedding: { useDefault: true },
-      vision: { useDefault: true },
     });
   } finally {
     act(() => root.unmount());

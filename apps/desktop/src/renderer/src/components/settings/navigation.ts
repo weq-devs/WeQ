@@ -219,12 +219,19 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     aliases: ['已保存的 provider'],
     from: ['agentlab'],
   },
-  { id: 'llm-default-model', section: 'agentlab', label: '默认文本模型', from: ['agentlab'] },
+  { id: 'llm-default-model', section: 'agentlab', label: '默认聊天模型', from: ['agentlab'] },
   {
     id: 'llm-default-vision-model',
     section: 'agentlab',
     label: '默认视觉模型',
     aliases: ['图片分析模型'],
+    from: ['agentlab'],
+  },
+  {
+    id: 'llm-default-embedding-model',
+    section: 'agentlab',
+    label: '默认向量模型',
+    aliases: ['嵌入模型', 'Embedding 模型'],
     from: ['agentlab'],
   },
   {

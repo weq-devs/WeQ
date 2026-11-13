@@ -592,6 +592,8 @@ export function AgentLabView({
 
   // 克隆体头部副标题：provider · 模型 · 样本 N 条 · 画像更新时间。
   const selectionLabel = useModelSelectionLabel();
+  const visionSelectionLabel = useModelSelectionLabel('vision');
+  const embeddingSelectionLabel = useModelSelectionLabel('embedding');
   const personaModelLabel = useMemo(() => {
     if (!activePersona) return '加载中…';
     const ref = activePersona.models?.chat;
@@ -864,11 +866,11 @@ export function AgentLabView({
           }
           profileContent={
             <>
-              <Row label="训练检索模型">
-                {selectionLabel(settingsPersona.models?.embedding, '未使用')}
-              </Row>
               <Row label="训练视觉模型">
-                {selectionLabel(settingsPersona.models?.vision, '未使用')}
+                {visionSelectionLabel(settingsPersona.models?.vision, '未使用')}
+              </Row>
+              <Row label="训练向量模型">
+                {embeddingSelectionLabel(settingsPersona.models?.embedding, '未使用')}
               </Row>
               <PersonaParamsPanel
                 loading={personaDetail.isLoading}

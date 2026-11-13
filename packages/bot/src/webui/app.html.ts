@@ -713,9 +713,9 @@ const JS = `
 
       // 模型绑定
       html += '<div class="section-h">' + ic('cpu', 15) + ' 模型绑定</div><div class="card"><div class="rows">';
-      html += row('brain', '对话模型', o.models.chat || '—');
-      if (o.models.embedding) html += row('hash', '向量模型', o.models.embedding);
+      html += row('brain', '聊天模型', o.models.chat || '—');
       if (o.models.vision) html += row('grid', '视觉模型', o.models.vision);
+      if (o.models.embedding) html += row('hash', '向量模型', o.models.embedding);
       html += '</div></div>';
 
       // 发言意愿 + 语音
@@ -1006,8 +1006,8 @@ const JS = `
         '<span class="sh-spacer"></span>' +
         '<button id="stkUp" class="sh-btn">' + ic('upload', 13) + ' 上传表情</button></div>';
       var hint = r.canDescribe
-        ? '本机已配图像模型：上传后会自动解析表情内容，克隆体按语义精准挑选发送。'
-        : '未配置图像模型：新上传的表情没有文字说明，克隆体只能在想活跃气氛时“随机发”。可在导出时选一个图像模型来启用精准解析。';
+        ? '本机已配视觉模型：上传后会自动解析表情内容，克隆体按语义精准挑选发送。'
+        : '未配置视觉模型：新上传的表情没有文字说明，克隆体只能在想活跃气氛时“随机发”。可在导出时选一个视觉模型来启用精准解析。';
       var grid;
       if (list.length === 0) {
         grid = '<div class="card"><div class="muted-empty">还没有自定义表情，点右上角「上传表情」添加。</div></div>';

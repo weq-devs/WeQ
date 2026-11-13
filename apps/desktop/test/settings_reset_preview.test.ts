@@ -15,6 +15,11 @@ const item = (id: string, current: unknown, defaultValue: unknown): SettingsRese
 });
 
 describe('恢复默认设置的可读预览', () => {
+  it('三类默认模型清空时显示对应能力，不混用聊天文案', () => {
+    expect(formatResetValue(null, 'api-default:model')).toBe('未设置默认聊天模型');
+    expect(formatResetValue(null, 'api-default:vision-model')).toBe('未设置默认视觉模型');
+    expect(formatResetValue(null, 'api-default:embedding-model')).toBe('未设置默认向量模型');
+  });
   it('省流量卡片按中文设置名展示实际变化，不输出内部字段', () => {
     const defaults = {
       dataSaverMode: 'auto',

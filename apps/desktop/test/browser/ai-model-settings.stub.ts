@@ -34,6 +34,7 @@ const data: Record<string, unknown> = {
     { vendor: 'custom', label: 'OpenAI 兼容（自定义）', baseUrl: '', models: [] },
   ],
   'bootstrap.getDefaultVisionModel': { ref: null, available: false },
+  'bootstrap.getDefaultEmbeddingModel': { ref: null, available: false },
   'bootstrap.localModelResources': { selected: { intent: 'auto' } },
   'bootstrap.getLocalEngine': { available: false, models: [] },
 };

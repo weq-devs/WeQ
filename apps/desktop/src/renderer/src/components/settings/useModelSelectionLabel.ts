@@ -1,15 +1,11 @@
 import { useCallback } from 'react';
+import type { AgentLabModelCapability } from '@weq/agentlab';
 import type { AgentLabModelSelection } from '@weq/agentlab/model-selection';
 import { isDefaultModelSelection } from '@weq/agentlab/model-selection';
-import { trpc } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
+import { useDefaultApiModel } from './useDefaultApiModel';
 
-export function useModelSelectionLabel() {
-  const active = useTabActive();
-  const current = trpc.bootstrap.getAgentLabDefaultModel.useQuery(undefined, {
-    enabled: active,
-    refetchOnWindowFocus: false,
-  });
+export function useModelSelectionLabel(capability: AgentLabModelCapability = 'chat') {
+  const current = useDefaultApiModel(capability);
   return useCallback(
     (value: AgentLabModelSelection | null | undefined, empty?: string) => {
       if (!value && empty !== undefined) return empty;

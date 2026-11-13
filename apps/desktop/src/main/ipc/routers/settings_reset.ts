@@ -250,10 +250,26 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   add(
     'api-default',
     'model',
-    '默认文本模型',
+    '默认聊天模型',
     current.agentLab.defaultModel,
     defaults.agentLab.defaultModel,
     () => b.setAgentLabDefaultModel({ ref: defaults.agentLab.defaultModel }),
+  );
+  add(
+    'api-default',
+    'vision-model',
+    '默认视觉模型',
+    current.agentLab.defaultVisionModel,
+    defaults.agentLab.defaultVisionModel,
+    () => b.setDefaultVisionModel({ ref: defaults.agentLab.defaultVisionModel }),
+  );
+  add(
+    'api-default',
+    'embedding-model',
+    '默认向量模型',
+    current.agentLab.defaultEmbeddingModel,
+    defaults.agentLab.defaultEmbeddingModel,
+    () => b.setDefaultEmbeddingModel({ ref: defaults.agentLab.defaultEmbeddingModel }),
   );
   for (const kind of ['voice', 'ocr'] as const) {
     const concurrency =

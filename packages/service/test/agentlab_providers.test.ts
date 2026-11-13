@@ -153,6 +153,63 @@ describe('多 provider 持久化与调用隔离', () => {
       expect(f.reload().resolveEndpoint(ref).timeoutMs).toBe(600_000);
     }
   });
+  it('聊天、视觉、向量默认独立解析，纯向量模型无需聊天能力且跨重启保留', () => {
+    const f = fixture();
+    f.service.saveProvider({
+      id: 'separate',
+      name: '合成服务',
+      vendor: 'custom',
+      baseUrl: 'https://synthetic.invalid/v1',
+      apiKey: 'synthetic',
+      models: [
+        { id: 'chat', capabilities: ['chat'] },
+        { id: 'vision', capabilities: ['vision'] },
+        { id: 'embedding', capabilities: ['embedding'] },
+      ],
+    });
+    const chat = { providerId: 'separate', model: 'chat' };
+    const vision = { providerId: 'separate', model: 'vision' };
+    const embedding = { providerId: 'separate', model: 'embedding' };
+    f.service.setDefaultModel(chat);
+    expect(() => f.service.resolveEndpoint({ useDefault: true }, 'embedding')).toThrow(
+      '未设置默认向量模型',
+    );
+    expect(() => f.service.resolveEndpoint({ useDefault: true }, 'vision')).toThrow(
+      '未设置默认视觉模型',
+    );
+    expect(f.service.setDefaultEmbeddingModel(embedding)).toEqual({
+      ref: embedding,
+      available: true,
+      error: null,
+    });
+    f.service.setDefaultVisionModel(vision);
+    expect(
+      f.reload().resolveModels({
+        chat: { useDefault: true },
+        vision: { useDefault: true },
+        embedding: { useDefault: true },
+      }),
+    ).toEqual({ chat, vision, embedding });
+    expect(f.reload().resolveEndpoint({ useDefault: true }, 'embedding').model).toBe('embedding');
+    expect(() => f.service.setDefaultEmbeddingModel(chat)).toThrow('向量');
+    expect(f.reload().getDefaultEmbeddingModelStatus().ref).toEqual(embedding);
+    f.service.saveProvider({
+      ...f.service.getProvider('separate')!,
+      models: [{ id: 'chat', capabilities: ['chat'] }],
+    });
+    expect(f.reload().getDefaultEmbeddingModelStatus()).toMatchObject({
+      ref: embedding,
+      available: false,
+    });
+    expect(f.service.setDefaultEmbeddingModel(null)).toEqual({
+      ref: null,
+      available: false,
+      error: null,
+    });
+    expect(f.reload().getDefaultEmbeddingModelStatus().ref).toBeNull();
+    expect(f.reload().getDefaultModel()).toEqual(chat);
+  });
+
   it('显式默认按调用时的全局选择解析，旧显式模型不跟随修改', () => {
     const f = fixture();
     f.service.saveProvider({
@@ -168,6 +225,8 @@ describe('多 provider 持久化与调用隔离', () => {
     });
     const first = { providerId: 'synthetic', model: 'first' };
     f.service.setDefaultModel(first);
+    f.service.setDefaultVisionModel(first);
+    f.service.setDefaultEmbeddingModel(first);
     expect(f.service.resolveEndpoint({ useDefault: true }, 'embedding').model).toBe('first');
     expect(f.service.resolveEndpoint({ useDefault: true }, 'vision').model).toBe('first');
     const exportSnapshot = f.service.resolveModels({
@@ -184,13 +243,13 @@ describe('多 provider 持久化与调用隔离', () => {
       model: 'second',
     });
     expect(f.service.resolveEndpoint(first).model).toBe('first');
-    expect(() => f.service.resolveEndpoint({ useDefault: true }, 'embedding')).toThrow('支持');
-    expect(() => f.service.resolveEndpoint({ useDefault: true }, 'vision')).toThrow('支持');
+    expect(f.service.resolveEndpoint({ useDefault: true }, 'embedding').model).toBe('first');
+    expect(f.service.resolveEndpoint({ useDefault: true }, 'vision').model).toBe('first');
     f.service.setDefaultModel(null);
-    expect(() => f.service.resolveEndpoint({ useDefault: true })).toThrow('未设置默认文本模型');
+    expect(() => f.service.resolveEndpoint({ useDefault: true })).toThrow('未设置默认聊天模型');
     expect(f.service.resolveEndpoint(first).model).toBe('first');
   });
-  it('默认文本模型显式保存，跨重启和 provider 编辑保留；清空不自动选择其他模型', () => {
+  it('默认聊天模型显式保存，跨重启和 provider 编辑保留；清空不自动选择其他模型', () => {
     const f = fixture();
     expect(f.service.getDefaultModelStatus()).toEqual({ ref: null, available: false, error: null });
     const provider = {
@@ -219,7 +278,7 @@ describe('多 provider 持久化与调用隔离', () => {
       available: false,
       error: null,
     });
-    expect(() => f.reload().resolveDefaultEndpoint()).toThrow('未设置默认文本模型');
+    expect(() => f.reload().resolveDefaultEndpoint()).toThrow('未设置默认聊天模型');
   });
 
   it('拒绝无效默认选择；已选模型被删除时保留引用并明确不可用，不扩大为其他端点', () => {
@@ -251,7 +310,7 @@ describe('多 provider 持久化与调用隔离', () => {
     expect(() => f.reload().resolveDefaultEndpoint()).toThrow('模型');
     f.service.deleteProvider(provider.id);
     expect(f.reload().getDefaultModelStatus()).toMatchObject({ ref, available: false });
-    expect(() => f.reload().resolveDefaultEndpoint()).toThrow('provider');
+    expect(() => f.reload().resolveDefaultEndpoint()).toThrow('服务商');
     expect(f.service.setDefaultModel(null).ref).toBeNull();
   });
   it('同名、同厂商、同模型的不同端点和密钥重启后仍按 providerId 分别解析', () => {

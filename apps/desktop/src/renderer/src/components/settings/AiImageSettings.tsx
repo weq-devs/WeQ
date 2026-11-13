@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import type { AiImageFeature, AiImageMode } from '@weq/agentlab';
-import { isDefaultModelSelection } from '@weq/agentlab/model-selection';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { Row } from './controls';
-import { ApiModelSelect } from './ApiModelSelect';
+import { DefaultApiModelRow } from './DefaultApiModelRow';
 import { SegmentedControl } from '../SegmentedControl';
 
 const featureLabels: Record<AiImageFeature, string> = {
@@ -51,7 +50,13 @@ export function AiImagePreferenceSetting({ feature }: { feature: AiImageFeature 
             options={[
               ...(required
                 ? []
-                : [{ value: 'placeholder' as const, label: '文字占位', title: '不识别图片内容，只显示占位文字' }]),
+                : [
+                    {
+                      value: 'placeholder' as const,
+                      label: '文字占位',
+                      title: '不识别图片内容，只显示占位文字',
+                    },
+                  ]),
               { value: 'ocr' as const, label: 'OCR', title: '识别图片里的文字' },
               { value: 'vision' as const, label: '视觉模型', title: '交给视觉模型理解图片' },
             ]}
@@ -64,47 +69,5 @@ export function AiImagePreferenceSetting({ feature }: { feature: AiImageFeature 
 }
 
 export function DefaultVisionModelRow() {
-  const active = useTabActive();
-  const status = trpc.bootstrap.getDefaultVisionModel.useQuery(undefined, {
-    enabled: active,
-    staleTime: 0,
-  });
-  const save = trpc.bootstrap.setDefaultVisionModel.useMutation();
-  const utils = trpc.useUtils();
-  const [error, setError] = useState('');
-  return (
-    <>
-      <Row
-        settingId="llm-default-vision-model"
-        label="默认视觉模型"
-        control={
-          <ApiModelSelect
-            capability="vision"
-            label="默认视觉模型"
-            allowDefault={false}
-            allowEmpty
-            value={status.data?.ref ?? null}
-            disabled={!status.data || save.isLoading}
-            onChange={async (ref) => {
-              if (isDefaultModelSelection(ref)) return;
-              setError('');
-              try {
-                await save.mutateAsync({ ref });
-                await Promise.all([
-                  utils.bootstrap.getDefaultVisionModel.invalidate(),
-                  utils.bootstrap.getSettings.invalidate(),
-                  utils.account.intentSense.getStatus.invalidate(),
-                ]);
-              } catch (error) {
-                setError(error instanceof Error ? error.message : String(error));
-              }
-            }}
-          />
-        }
-      />
-      {error || status.error || status.data?.error ? (
-        <p role="alert">{error || status.error?.message || status.data?.error}</p>
-      ) : null}
-    </>
-  );
+  return <DefaultApiModelRow capability="vision" />;
 }

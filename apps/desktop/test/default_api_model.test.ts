@@ -13,6 +13,14 @@ const f = vi.hoisted(() => ({
     error: null as string | null,
   },
   queryError: null as Error | null,
+  visionStatus: { ref: { providerId: 'synthetic', model: 'vision' }, available: true, error: null },
+  embeddingStatus: {
+    ref: { providerId: 'synthetic', model: 'embedding' },
+    available: true,
+    error: null,
+  },
+  saveVision: vi.fn(),
+  saveEmbedding: vi.fn(),
   save: vi.fn(),
   refetch: vi.fn(),
   invalidate: vi.fn(),
@@ -22,6 +30,16 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     useUtils: () => ({
       account: { intentSense: { getStatus: { invalidate: f.invalidate } } },
       bootstrap: {
+        getDefaultVisionModel: {
+          setData: (_: undefined, value: typeof f.visionStatus) => {
+            f.visionStatus = value;
+          },
+        },
+        getDefaultEmbeddingModel: {
+          setData: (_: undefined, value: typeof f.embeddingStatus) => {
+            f.embeddingStatus = value;
+          },
+        },
         getAgentLabDefaultModel: {
           setData: (_: undefined, value: typeof f.status) => {
             f.status = value;
@@ -31,6 +49,18 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
     }),
     bootstrap: {
+      getDefaultVisionModel: {
+        useQuery: () => ({ data: f.visionStatus, error: f.queryError, refetch: f.refetch }),
+      },
+      getDefaultEmbeddingModel: {
+        useQuery: () => ({ data: f.embeddingStatus, error: f.queryError, refetch: f.refetch }),
+      },
+      setDefaultVisionModel: {
+        useMutation: () => ({ mutateAsync: f.saveVision, isLoading: false }),
+      },
+      setDefaultEmbeddingModel: {
+        useMutation: () => ({ mutateAsync: f.saveEmbedding, isLoading: false }),
+      },
       getAgentLabDefaultModel: {
         useQuery: () => ({ data: f.status, error: f.queryError, refetch: f.refetch }),
       },
@@ -44,6 +74,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
               baseUrl: 'https://synthetic.invalid',
               models: [
                 { id: 'chat', capabilities: ['chat'] },
+                { id: 'vision', capabilities: ['vision'] },
                 { id: 'embedding', capabilities: ['embedding'] },
               ],
             },
@@ -59,6 +90,20 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   f.status = { ref: null, available: false, error: null };
   f.queryError = null;
+  f.visionStatus = {
+    ref: { providerId: 'synthetic', model: 'vision' },
+    available: true,
+    error: null,
+  };
+  f.embeddingStatus = {
+    ref: { providerId: 'synthetic', model: 'embedding' },
+    available: true,
+    error: null,
+  };
+  for (const save of [f.saveVision, f.saveEmbedding]) {
+    save.mockReset();
+    save.mockImplementation(async ({ ref }) => ({ ref, available: !!ref, error: null }));
+  }
   f.save.mockReset();
   f.save.mockImplementation(async ({ ref }) => ({ ref, available: !!ref, error: null }));
 });
@@ -77,8 +122,74 @@ function mount(content: () => ReactElement = () => createElement(DefaultApiModel
   };
 }
 
-describe('LLM 默认文本模型设置', () => {
-  it('助手等入口统一默认文本模型文案，旧资料中未使用的可选模型仍保留原提示', () => {
+describe('LLM 默认聊天模型设置', () => {
+  it.each(['vision', 'embedding'] as const)(
+    '默认 %s 只列对应能力，支持保存、清空、读取重试且不改聊天默认',
+    async (capability) => {
+      const name = capability === 'vision' ? '视觉' : '向量';
+      const save = capability === 'vision' ? f.saveVision : f.saveEmbedding;
+      const page = mount(() => createElement(DefaultApiModelRow, { capability }));
+      try {
+        expect(page.select().getAttribute('aria-label')).toBe(`默认${name}模型`);
+        expect([...page.select().options].map((option) => option.textContent)).toEqual([
+          `未设置默认${name}模型`,
+          capability,
+        ]);
+        await act(async () => {
+          page.select().value = JSON.stringify(['synthetic', capability]);
+          page.select().dispatchEvent(new Event('change', { bubbles: true }));
+        });
+        expect(save).toHaveBeenLastCalledWith({
+          ref: { providerId: 'synthetic', model: capability },
+        });
+        await act(async () => {
+          page.select().value = '';
+          page.select().dispatchEvent(new Event('change', { bubbles: true }));
+        });
+        page.render();
+        expect(save).toHaveBeenLastCalledWith({ ref: null });
+        expect(page.select().value).toBe('');
+        expect(f.save).not.toHaveBeenCalled();
+        f.queryError = new Error('合成读取失败');
+        page.render();
+        expect(page.select().disabled).toBe(true);
+        expect(page.host.textContent).toContain(`默认${name}模型读取失败`);
+        act(() => page.host.querySelector<HTMLButtonElement>('button')!.click());
+        expect(f.refetch).toHaveBeenCalled();
+      } finally {
+        page.close();
+      }
+    },
+  );
+
+  it.each(['chat', 'vision', 'embedding'] as const)(
+    '%s 消费入口和显示标签继承对应默认模型',
+    (capability) => {
+      f.status = { ref: { providerId: 'synthetic', model: 'chat' }, available: true, error: null };
+      function Content() {
+        const label = useModelSelectionLabel(capability);
+        return createElement(
+          'div',
+          null,
+          createElement('span', null, label({ useDefault: true })),
+          createElement(ApiModelSelect, {
+            capability,
+            label: '模型',
+            value: { useDefault: true },
+            onChange: vi.fn(),
+          }),
+        );
+      }
+      const page = mount(() => createElement(Content));
+      try {
+        expect(page.select().selectedOptions[0]?.textContent).toBe(`默认（当前：${capability}）`);
+        expect(page.host.querySelector('span')?.textContent).toBe(`默认（当前：${capability}）`);
+      } finally {
+        page.close();
+      }
+    },
+  );
+  it('助手等入口统一默认聊天模型文案，旧资料中未使用的可选模型仍保留原提示', () => {
     function Labels() {
       const label = useModelSelectionLabel();
       return createElement(
@@ -155,9 +266,9 @@ describe('LLM 默认文本模型设置', () => {
   it('不自动选择首项，只列聊天模型；显式选择及清空提交真实引用', async () => {
     const page = mount();
     try {
-      expect(page.host.textContent).toContain('默认文本模型');
-      expect(page.select().getAttribute('aria-label')).toBe('默认文本模型');
-      expect(page.select().selectedOptions[0]?.textContent).toBe('未设置默认文本模型');
+      expect(page.host.textContent).toContain('默认聊天模型');
+      expect(page.select().getAttribute('aria-label')).toBe('默认聊天模型');
+      expect(page.select().selectedOptions[0]?.textContent).toBe('未设置默认聊天模型');
       expect(page.select().value).toBe('');
       expect([...page.select().options].map((option) => option.textContent)).not.toContain(
         'embedding',
@@ -183,7 +294,7 @@ describe('LLM 默认文本模型设置', () => {
 
   it('失效引用保留并显示原因，保存失败不改变已存选择', async () => {
     const saved = { providerId: 'removed', model: 'missing-chat' };
-    f.status = { ref: saved, available: false, error: '默认文本模型的 provider 不可用：removed' };
+    f.status = { ref: saved, available: false, error: '默认聊天模型的 provider 不可用：removed' };
     f.save.mockRejectedValueOnce(new Error('合成写入失败'));
     const page = mount();
     try {
@@ -206,7 +317,7 @@ describe('LLM 默认文本模型设置', () => {
     const page = mount();
     try {
       expect(page.select().disabled).toBe(true);
-      expect(page.host.textContent).toContain('默认文本模型读取失败');
+      expect(page.host.textContent).toContain('默认聊天模型读取失败');
       act(() => page.host.querySelector<HTMLButtonElement>('button')!.click());
       expect(f.refetch).toHaveBeenCalled();
       expect(f.save).not.toHaveBeenCalled();

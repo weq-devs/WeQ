@@ -34,7 +34,7 @@ export interface AgentLabProviderModel {
   id: string;
   /** 展示名（可选，默认用 id） */
   label?: string;
-  /** 这个模型能干哪些活：聊天 / 向量 / 视觉 */
+  /** 这个模型能干哪些活：聊天 / 视觉 / 向量 */
   capabilities: AgentLabModelCapability[];
 }
 
@@ -70,7 +70,7 @@ export interface AgentLabModelRef {
   model: string;
 }
 
-/** 显式继承全局默认文本模型；缺失或 null 仍表示未选择。 */
+/** 显式继承对应能力的全局默认模型；缺失或 null 仍表示未选择。 */
 export interface AgentLabDefaultModelRef {
   useDefault: true;
 }
