@@ -190,7 +190,15 @@ beforeEach(() => {
     return { ok: true, reason: '' };
   });
 });
-afterEach(() => {
+afterEach(async () => {
+  // 生成完成不代表自动保存完成；清空 mock 和删除目录前必须等全部文件写入收尾。
+  await vi.waitFor(() => {
+    for (const task of manager.listTasks()) {
+      expect(task.status).not.toMatch(/^(pending|running)$/);
+      expect(task.save?.status).not.toBe('saving');
+      if (task.status === 'completed') expect(task.save?.status).toBe('saved');
+    }
+  });
   vi.clearAllMocks();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
@@ -585,8 +593,8 @@ it('同名相册各自保留目录，不因名称相同覆盖其他相册文件'
     ],
     savePolicy: { mode: 'before', directory: roots[0]! },
   });
-  await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
-  const directory = join(manager.getTask(id)!.bundleDir!, 'files');
+  await vi.waitFor(() => expect(manager.getTask(id)?.save?.status).toBe('saved'));
+  const directory = join(manager.getTask(id)!.save!.path!, 'files');
   expect(readdirSync(directory).sort()).toEqual(['同名', '同名-2']);
   for (const name of readdirSync(directory))
     expect(readFileSync(join(directory, name, 'same.jpg'), 'utf8')).toBe('synthetic');
