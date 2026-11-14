@@ -93,6 +93,8 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   return {
     client: {
       account: {
+        getGroupDetail: { query: async () => null },
+        getGroupExtendedProfile: { query: async () => null },
         listGroupAlbums: { query: async () => albums() },
         qqActions: {
           albumManagement: { mutate: (input: unknown) => state.writes('album', input) },
@@ -127,6 +129,19 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         },
         getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: state.config } }) },
         qqActions: {
+          albumPermissions: {
+            useQuery: () => ({
+              data: {
+                create: true,
+                modify: false,
+                upload: false,
+                deleteMedia: false,
+                top: false,
+                deleteAlbum: false,
+              },
+              error: null,
+            }),
+          },
           groupPermissions: {
             useQuery: () => ({ data: { canManage: false, selfUin: '10001' }, error: null }),
           },
@@ -220,6 +235,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   for (const dispose of cleanup.splice(0)) dispose();
+  queryClient.clear();
   useViewState.setState({ openedUin: null });
   vi.unstubAllGlobals();
 });

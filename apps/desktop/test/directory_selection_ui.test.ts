@@ -294,7 +294,8 @@ it.each(['friends', 'groups'] as const)(
         const messageBadge = host.querySelector('[data-source="messages"] .row-unread')!;
         const contactBadge = host.querySelector('[data-source="contacts"] .row-unread')!;
         expect(contactBadge.textContent).toBe(messageBadge.textContent);
-        expect(contactBadge.classList.contains('muted')).toBe(expected);
+        expect(contactBadge.getAttribute('data-tone')).toBe(expected ? 'muted' : 'notice');
+        expect(contactBadge.getAttribute('data-tone')).toBe(messageBadge.getAttribute('data-tone'));
         expect(contactBadge.className).toBe(messageBadge.className);
       }
     } finally {

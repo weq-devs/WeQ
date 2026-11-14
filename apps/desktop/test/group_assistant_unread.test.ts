@@ -96,10 +96,10 @@ it.each([null, mutedGroup.id])(
     try {
       act(() => root.render(h(Fixture)));
       const unread = () => host.querySelector('.row-unread');
-      expect(unread()?.classList.contains('muted')).toBe(true);
+      expect(unread()?.getAttribute('data-tone')).toBe('muted');
       expect(unread()?.textContent).toBe('7');
       act(() => host.querySelector<HTMLButtonElement>('[data-toggle-pin]')!.click());
-      expect(unread()?.classList.contains('muted')).toBe(true);
+      expect(unread()?.getAttribute('data-tone')).toBe('muted');
       expect(unread()?.textContent).toBe('7');
     } finally {
       act(() => root.unmount());
