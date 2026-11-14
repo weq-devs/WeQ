@@ -89,6 +89,26 @@ jobs:
           })), 15000);
           try {
             const { prepareEnhancementEngines } = await import('./scripts/prepare-enhancement-engines.mjs');
+            const { tsImport } = await import('tsx/esm/api');
+            const parent = new URL('./scripts/prepare-enhancement-engines.mjs', import.meta.url).href;
+            for (const path of [
+              '../apps/desktop/src/main/enhancements/release_catalog.ts',
+              '../packages/service/src/common/ocr_models.ts',
+              '../packages/service/src/common/voice_transcribe.ts',
+              '../apps/desktop/src/main/intent_sense/model_files.ts',
+            ]) {
+              console.log('[probe] importing', path);
+              let timeout;
+              try {
+                await Promise.race([
+                  tsImport(path, parent),
+                  new Promise((_, reject) => {
+                    timeout = setTimeout(() => reject(new Error('Metadata import timed out: ' + path)), 30000);
+                  }),
+                ]);
+              } finally { clearTimeout(timeout); }
+              console.log('[probe] imported', path);
+            }
             await prepareEnhancementEngines();
           } finally { clearInterval(timer); }
           JS
