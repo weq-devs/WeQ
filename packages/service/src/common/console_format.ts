@@ -1,6 +1,25 @@
 import type { LoggerContext, LogLevel } from './logger';
 import { formatConsoleHeader, levelColors } from './console_header.mjs';
 
+export const consoleTimingLabels = {
+  durationMs: '耗时',
+  elapsedMs: '耗时',
+  jsQueueWaitMs: '排队',
+  nativePromiseAwaitMs: '原生等待',
+} as const;
+export interface ConsoleTimingStats {
+  count: number;
+  min: number;
+  max: number;
+  total: number;
+  last: number;
+}
+export interface ConsoleSummary {
+  count: number;
+  windowMs: number;
+  timings: Partial<Record<keyof typeof consoleTimingLabels, ConsoleTimingStats>>;
+}
+
 const labels: Record<string, string> = {
   version: '版本',
   mode: '模式',
@@ -18,10 +37,7 @@ const labels: Record<string, string> = {
   exitCode: '退出码',
   port: '端口',
   reason: '原因',
-  durationMs: '耗时',
-  elapsedMs: '耗时',
-  jsQueueWaitMs: '排队',
-  nativePromiseAwaitMs: '原生等待',
+  ...consoleTimingLabels,
   count: '共',
   artifactCount: '产物数',
   groupCount: '群数',
@@ -54,8 +70,6 @@ const hidden = new Set([
   'timestamp',
   'errorStack',
   'stack',
-  'originalMessage',
-  'repeated',
   'path',
   'platform',
   'arch',
@@ -102,11 +116,32 @@ const eventTitles: Record<string, Record<string, string>> = {
     'account-online': '账号已上线',
     'account-offline': '账号已离线',
     'sso-session-reused': '已复用本机 SSO 会话',
+    'online-probe-failed': 'QQ 在线检测暂不可用',
   },
   'mcp-server': { 'mcp-start': 'MCP 服务已启动', 'mcp-stop': 'MCP 服务已停止' },
 };
 const duration = (value: number) =>
   value < 1000 ? `${Math.round(value)}ms` : `${Number((value / 1000).toFixed(2))}s`;
+function formatSummary(summary: ConsoleSummary): string[] {
+  const period =
+    summary.windowMs < 1000 ? '本轮' : `近 ${Number((summary.windowMs / 1000).toFixed(2))} 秒`;
+  const metrics: string[] = [];
+  for (const [key, label] of Object.entries(consoleTimingLabels)) {
+    const stats = summary.timings[key as keyof typeof consoleTimingLabels];
+    if (!stats?.count) continue;
+    const divisor = stats.max < 1000 ? 1 : 1000;
+    const unit = divisor === 1 ? '毫秒' : '秒';
+    const value = (ms: number) => Number((ms / divisor).toFixed(2));
+    let text = `${label} ${value(stats.min)}`;
+    if (stats.min !== stats.max)
+      text += `～${value(stats.max)} ${unit}，平均 ${value(stats.total / stats.count)} ${unit}，最近 ${value(stats.last)} ${unit}`;
+    else text += ` ${unit}`;
+    if (stats.count < summary.count) text += `（${stats.count} 次有记录）`;
+    metrics.push(text);
+  }
+  const [first, ...rest] = metrics;
+  return [`${period} ${summary.count} 次${first ? `，${first}` : ''}`, ...rest];
+}
 function bytes(value: number): string {
   if (value < 1024) return `${value}B`;
   if (value < 1024 * 1024) return `${Number((value / 1024).toFixed(1))}KB`;
@@ -118,7 +153,13 @@ export function formatConsoleRecord(
   level: LogLevel,
   message: string,
   context: LoggerContext,
-  options: { now: number; color: boolean; details: boolean },
+  options: {
+    now: number;
+    color: boolean;
+    details: boolean;
+    stackRepeated?: boolean;
+    summary?: ConsoleSummary;
+  },
 ): string {
   const paint = (code: number, text: string) =>
     options.color ? `\x1b[${code}m${text}\x1b[0m` : text;
@@ -131,104 +172,113 @@ export function formatConsoleRecord(
       context = { ...context, errorMessage: firstLine };
   }
   const scope = typeof context.scope === 'string' ? plain(context.scope) : 'app';
-  const repeated = typeof context.repeated === 'number' && context.repeated > 0;
-  let title =
-    eventTitles[scope]?.[String(context.event)] ??
-    (repeated && typeof context.originalMessage === 'string'
-      ? plain(context.originalMessage)
-      : plain(message));
+  let title = eventTitles[scope]?.[String(context.event)] ?? plain(message);
   if (context.event === 'request-slow') title = '慢请求';
   if (context.event === 'request-failed')
     title = context.outcome === 'cancelled' ? '请求已取消' : '请求失败';
   const parts: string[] = [];
   if (typeof context.path === 'string') parts.push(paint(36, plain(context.path)));
-  if (repeated) parts.push(paint(levelColors[level], `另有 ${context.repeated} 次相同记录`));
-  else {
-    if (typeof context.platform === 'string')
-      parts.push(
-        paint(
-          90,
-          `${plain(context.platform)}${typeof context.arch === 'string' ? `/${plain(context.arch)}` : ''}`,
-        ),
-      );
-    const add = (key: string, value: unknown, label = labels[key] ?? key) => {
-      if (value === undefined || value === null || typeof value === 'object') return;
-      if (typeof value === 'string' && (!value || placeholders.has(value))) return;
-      if (key === 'outcome' && (value === 'ok' || value === 'failed' || value === 'cancelled'))
-        return;
-      let text = typeof value === 'boolean' ? (value ? '是' : '否') : plain(String(value));
-      if (key === 'operationId' || key === 'requestId') text = `#${text.slice(0, 8)}`;
-      else if (typeof value === 'number' && key.endsWith('Ms')) text = duration(value);
-      else if (typeof value === 'number' && key === 'size') text = bytes(value);
-      else text = values[text] ?? text;
-      const maxLength = options.details ? 400 : 160;
-      if (text.length > maxLength) text = `${text.slice(0, maxLength - 1)}…`;
-      const tone =
-        typeof value === 'number' && key.endsWith('Ms')
-          ? value >= 1000
-            ? 33
-            : 36
-          : key === 'errorMessage' || key === 'errorValue' || key === 'reason'
-            ? levelColors[level]
-            : key === 'failed' && value !== 0
-              ? 31
-              : key === 'count' || key === 'artifactCount' || key === 'version'
-                ? 32
-                : 36;
-      parts.push(`${paint(37, label)} ${paint(tone, text)}`);
-    };
-    // 常见诊断字段优先，其他标量仅在 DEBUG 中展示，避免对象转储占满屏幕。
-    for (const key of new Set([
-      'errorMessage',
-      'errorValue',
-      'error',
-      'reason',
-      'code',
-      'exitCode',
-      ...Object.keys(labels),
-    ])) {
-      if (key === 'logDir' && scope === 'app-context' && context.event === 'init-app-context')
-        continue;
-      if (key === 'port' && typeof (context.address ?? context.url) === 'string') {
-        try {
-          if (new URL(String(context.address ?? context.url)).port === String(context.port))
-            continue;
-        } catch {
-          // 非 URL 的地址仍需展示端口。
-        }
+  if (typeof context.platform === 'string')
+    parts.push(
+      paint(
+        90,
+        `${plain(context.platform)}${typeof context.arch === 'string' ? `/${plain(context.arch)}` : ''}`,
+      ),
+    );
+  const add = (key: string, value: unknown, label = labels[key] ?? key) => {
+    if (value === undefined || value === null || typeof value === 'object') return;
+    if (typeof value === 'string' && (!value || placeholders.has(value))) return;
+    if (key === 'outcome' && (value === 'ok' || value === 'failed' || value === 'cancelled'))
+      return;
+    let text = typeof value === 'boolean' ? (value ? '是' : '否') : plain(String(value));
+    if (key === 'operationId' || key === 'requestId') text = `#${text.slice(0, 8)}`;
+    else if (typeof value === 'number' && key.endsWith('Ms')) text = duration(value);
+    else if (typeof value === 'number' && key === 'size') text = bytes(value);
+    else text = values[text] ?? text;
+    const maxLength = options.details ? 400 : 160;
+    if (text.length > maxLength) text = `${text.slice(0, maxLength - 1)}…`;
+    const tone =
+      typeof value === 'number' && key.endsWith('Ms')
+        ? value >= 1000
+          ? 33
+          : 36
+        : key === 'errorMessage' || key === 'errorValue' || key === 'reason'
+          ? levelColors[level]
+          : key === 'failed' && value !== 0
+            ? 31
+            : key === 'count' || key === 'artifactCount' || key === 'version'
+              ? 32
+              : 36;
+    parts.push(`${paint(37, label)} ${paint(tone, text)}`);
+  };
+  // 常见诊断字段优先，其他标量仅在 DEBUG 中展示，避免对象转储占满屏幕。
+  for (const key of new Set([
+    'errorMessage',
+    'errorValue',
+    'error',
+    'reason',
+    'code',
+    'exitCode',
+    ...Object.keys(labels),
+  ])) {
+    if (key === 'logDir' && scope === 'app-context' && context.event === 'init-app-context')
+      continue;
+    if (key === 'port' && typeof (context.address ?? context.url) === 'string') {
+      try {
+        if (new URL(String(context.address ?? context.url)).port === String(context.port)) continue;
+      } catch {
+        // 非 URL 的地址仍需展示端口。
       }
-      if (debugOnly.has(key) && !options.details) continue;
-      if (key === 'failed' && context[key] === 0) continue;
-      add(key, context[key]);
     }
-    const failures = context.failures;
-    if (failures && typeof failures === 'object' && !Array.isArray(failures)) {
-      const summary = Object.entries(failures)
-        .slice(0, 4)
-        .filter(([, value]) => typeof value === 'number' && value > 0)
-        .map(([stage, count]) => `${plain(stage)} ×${count}`)
-        .join('，');
-      if (summary) parts.push(`${paint(90, '失败')} ${paint(33, summary)}`);
-    }
-    if (options.details) {
-      for (const [key, value] of Object.entries(context)) {
-        if (hidden.has(key) || key in labels || key === 'failures') continue;
-        if (value && typeof value === 'object' && !Array.isArray(value)) {
-          for (const [child, scalar] of Object.entries(value).slice(0, 4))
-            add(`${key}.${child}`, scalar);
-        } else if (Array.isArray(value)) {
-          const scalars = value
-            .filter((item) => typeof item === 'string' || typeof item === 'number')
-            .slice(0, 4);
-          if (scalars.length) add(key, scalars.join(' / '));
-        } else add(key, value);
-      }
+    if (
+      debugOnly.has(key) &&
+      !options.details &&
+      !(context.event === 'database-slow' && (key === 'fingerprint' || key === 'caller'))
+    )
+      continue;
+    if (options.summary && key in consoleTimingLabels) continue;
+    if (key === 'failed' && context[key] === 0) continue;
+    add(key, context[key]);
+  }
+  const failures = context.failures;
+  if (failures && typeof failures === 'object' && !Array.isArray(failures)) {
+    const summary = Object.entries(failures)
+      .slice(0, 4)
+      .filter(([, value]) => typeof value === 'number' && value > 0)
+      .map(([stage, count]) => `${plain(stage)} ×${count}`)
+      .join('，');
+    if (summary) parts.push(`${paint(90, '失败')} ${paint(33, summary)}`);
+  }
+  if (options.details) {
+    for (const [key, value] of Object.entries(context)) {
+      if (hidden.has(key) || key in labels || key === 'failures') continue;
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        for (const [child, scalar] of Object.entries(value).slice(0, 4))
+          add(`${key}.${child}`, scalar);
+      } else if (Array.isArray(value)) {
+        const scalars = value
+          .filter((item) => typeof item === 'string' || typeof item === 'number')
+          .slice(0, 4);
+        if (scalars.length) add(key, scalars.join(' / '));
+      } else add(key, value);
     }
   }
+  if (options.stackRepeated && !options.summary) parts.push(paint(90, '堆栈同前'));
   const limit = options.details ? 12 : 7;
   const header = formatConsoleHeader(level, title, scope, options);
   let output = `${header}${parts.length ? `  ${parts.slice(0, limit).join('  ')}` : ''}\n`;
-  if (!repeated && typeof stack === 'string' && (level === 'error' || options.details)) {
+  for (let i = limit; i < parts.length; i += limit)
+    output += `         ${parts.slice(i, i + limit).join('  ')}\n`;
+  if (options.summary)
+    output += formatSummary(options.summary)
+      .map((line) => `         ${paint(levelColors[level], line)}\n`)
+      .join('');
+  if (
+    !options.summary &&
+    !options.stackRepeated &&
+    typeof stack === 'string' &&
+    (level === 'error' || level === 'warn' || options.details)
+  ) {
     const lines = stack.split('\n').filter((line) => line.trim());
     const frames = lines[0]?.trim().startsWith('at ') ? lines : lines.slice(1);
     const stackLimit = options.details ? 20 : 6;

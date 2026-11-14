@@ -184,21 +184,101 @@ describe('终端可读排版', () => {
     ])
       expect(detailed).not.toContain(noise);
   });
-  it('重复汇总只保留原事件、定位方法及新增次数，不重复旧耗时与堆栈', () => {
+  it('轮询汇总精炼展示次数和耗时范围，不拿首条耗时充当本次耗时', () => {
     const line = formatConsoleRecord(
       'warn',
-      '重复日志汇总',
+      'QQ 在线检测暂不可用',
       {
-        scope: 'trpc',
-        event: 'request-slow',
-        originalMessage: '请求完成',
-        repeated: 11,
-        path: 'account.getUnreadInfos',
+        scope: 'account-monitor',
+        event: 'online-probe-failed',
+        errorMessage: '连接超时',
         durationMs: 2000,
-        errorStack: 'old-stack',
+        errorStack: 'Error: 连接超时\n    at probe (fixture.ts:12)',
+      },
+      {
+        ...options,
+        summary: {
+          count: 12,
+          windowMs: 30000,
+          timings: {
+            durationMs: { count: 12, min: 1100, max: 8600, total: 27600, last: 1400 },
+          },
+        },
+      },
+    );
+    expect(line).toBe(
+      '00:00:00 WARN  account-monitor  QQ 在线检测暂不可用  原因 连接超时\n' +
+        '         近 30 秒 12 次，耗时 1.1～8.6 秒，平均 2.3 秒，最近 1.4 秒\n',
+    );
+    expect(line).not.toContain('at probe');
+  });
+  it('多种指标各自统计，缺样本时标出实际样本数，不把缺失当作零', () => {
+    const line = formatConsoleRecord(
+      'warn',
+      '检测失败',
+      {},
+      {
+        ...options,
+        summary: {
+          count: 3,
+          windowMs: 1500,
+          timings: {
+            durationMs: { count: 3, min: 100, max: 900, total: 1500, last: 500 },
+            jsQueueWaitMs: { count: 1, min: 100, max: 100, total: 100, last: 100 },
+          },
+        },
+      },
+    );
+    expect(line).toContain('近 1.5 秒 3 次，耗时 100～900 毫秒，平均 500 毫秒，最近 500 毫秒');
+    expect(line).toContain('排队 100 毫秒（1 次有记录）');
+  });
+  it('收起堆栈仍保留错误原因、错误码和耗时，且不修改上下文', () => {
+    const context = {
+      errorStack: 'Error: timeout\n    at probe (fixture.ts:12)',
+      code: 'TIMEOUT',
+      durationMs: 8600,
+    };
+    const line = formatConsoleRecord('error', '失败', context, {
+      ...options,
+      stackRepeated: true,
+    });
+    expect(line).toContain('原因 Error: timeout');
+    expect(line).toContain('错误码 TIMEOUT');
+    expect(line).toContain('耗时 8.6s');
+    expect(line).toContain('堆栈同前');
+    expect(line).not.toContain('at probe');
+    expect(context.errorStack).toContain('at probe');
+  });
+  it('字段较多时换行，不再因单行字段上限丢失诊断信息', () => {
+    const line = formatConsoleRecord(
+      'error',
+      '失败',
+      {
+        errorMessage: 'timeout',
+        reason: 'network',
+        code: 'TIMEOUT',
+        errorCode: 42,
+        retCode: 43,
+        httpStatus: 504,
+        statusCode: 504,
+        exitCode: 1,
+        accountUin: 'fixture-account',
+        mediaId: 'fixture-media',
+        taskId: 'fixture-task',
+        durationMs: 8600,
+        jsQueueWaitMs: 1200,
+        nativePromiseAwaitMs: 7400,
       },
       options,
     );
-    expect(line).toBe('00:00:00 WARN  trpc  慢请求  account.getUnreadInfos  另有 11 次相同记录\n');
+    expect(line).toContain('\n         ');
+    for (const value of [
+      '耗时 8.6s',
+      '排队 1.2s',
+      '原生等待 7.4s',
+      'fixture-account',
+      'fixture-task',
+    ])
+      expect(line).toContain(value);
   });
 });

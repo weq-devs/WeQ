@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 import { createConsoleLogger, projectConsoleContext } from '../src/common/console_logger';
 import { configureConsoleLogger, getLogger, initLogger } from '../src/common/logger';
 
@@ -141,31 +142,214 @@ describe('开发终端', () => {
     );
     expect(JSON.stringify(projectConsoleContext(wide)).length).toBeLessThan(25000);
   });
-  it('首次完整错误、30 秒汇总、退出刷新和 512 项上限', () => {
+  it('慢请求和数据库慢操作逐条保留本次耗时及定位信息', () => {
+    const f = fixture();
+    for (const durationMs of [1200, 8600, 1400]) {
+      f.logger.write('warn', '请求完成', {
+        scope: 'trpc',
+        event: 'request-slow',
+        path: 'account.getUnreadInfos',
+        durationMs,
+      });
+      f.logger.write('warn', '数据库等待超过阈值', {
+        scope: 'database',
+        event: 'database-slow',
+        jsQueueWaitMs: durationMs,
+        nativePromiseAwaitMs: durationMs + 100,
+        fingerprint: 'query-fixture',
+        caller: 'fixture.ts:12',
+      });
+    }
+    const lines = f.lines.map(stripVTControlCharacters);
+    expect(lines).toHaveLength(6);
+    expect(lines[2]).toContain('耗时 8.6s');
+    expect(lines[4]).toContain('耗时 1.4s');
+    expect(lines[3]).toContain('排队 8.6s');
+    expect(lines[3]).toContain('原生等待 8.7s');
+    expect(lines[3]).toContain('指纹 query-fixture');
+    expect(lines[3]).toContain('调用点 fixture.ts:12');
+    f.logger.flush();
+    expect(f.lines).toHaveLength(6);
+  });
+  it.each(['errorStack', 'error'] as const)(
+    '每次错误保留详情，30 秒内仅收起相同 %s 堆栈',
+    (field) => {
+      const f = fixture();
+      const error = new Error('fixture-timeout');
+      error.stack = 'Error: fixture-timeout\n    at probe (fixture.ts:12)';
+      const context = {
+        scope: 'trpc',
+        event: 'request-failed',
+        path: 'account.open',
+        code: 'TIMEOUT',
+        errorMessage: error.message,
+        [field]: field === 'error' ? error : error.stack,
+      };
+      f.logger.write('error', '请求未完成', {
+        ...context,
+        durationMs: 1200,
+        operationId: 'first',
+      });
+      f.logger.write('error', '请求未完成', {
+        ...context,
+        durationMs: 8600,
+        operationId: 'second',
+      });
+      const lines = f.lines.map(stripVTControlCharacters);
+      expect(lines).toHaveLength(2);
+      expect(lines[0]).toContain('at probe (fixture.ts:12)');
+      expect(lines[1]).toContain('原因 fixture-timeout');
+      expect(lines[1]).toContain('错误码 TIMEOUT');
+      expect(lines[1]).toContain('耗时 8.6s');
+      expect(lines[1]).toContain('堆栈同前');
+      expect(lines[1]).not.toContain('at probe');
+      f.advance(30_000);
+      f.logger.write('error', '请求未完成', context);
+      expect(f.lines[2]).toContain('at probe (fixture.ts:12)');
+      f.logger.dispose();
+      expect(f.lines).toHaveLength(3);
+    },
+  );
+  it.each([
+    { code: 'OTHER' },
+    { errorCode: 42 },
+    { errorMessage: 'another failure' },
+    { reason: 'another reason' },
+    { path: 'account.other' },
+    { caller: 'other.ts:12' },
+    { fingerprint: 'other-query' },
+    { errorStack: 'Error: failure\n    at other (other.ts:12)' },
+  ])('错误、对象或调用位置变化时重新展开堆栈：%j', (change) => {
+    const f = fixture();
+    const context = {
+      scope: 'fixture',
+      event: 'failed',
+      path: 'account.open',
+      code: 'TIMEOUT',
+      errorMessage: 'failure',
+      errorStack: 'Error: failure\n    at probe (fixture.ts:12)',
+    };
+    f.logger.write('warn', '失败', context);
+    f.logger.write('warn', '失败', { ...context, ...change });
+    expect(f.lines[1]).toContain('at ');
+    expect(f.lines[1]).not.toContain('堆栈同前');
+  });
+  it('相同内容但无堆栈的警告和错误也逐次输出', () => {
+    const f = fixture();
+    for (const level of ['warn', 'error'] as const) {
+      f.logger.write(level, 'failed', { event: 'failed', durationMs: 1200 });
+      f.logger.write(level, 'failed', { event: 'failed', durationMs: 8600 });
+    }
+    expect(f.lines).toHaveLength(4);
+    expect(f.lines[1]).toContain('8.6s');
+    expect(f.lines[3]).toContain('8.6s');
+  });
+  it('堆栈缓存最多 512 项，淘汰后再次出现仍展开', () => {
+    const f = fixture();
+    const context = { errorStack: 'Error: failure\n    at probe (fixture.ts:12)' };
+    for (let i = 0; i < 513; i++)
+      f.logger.write('error', 'unique', { ...context, event: `event-${i}` });
+    f.logger.write('error', 'unique', { ...context, event: 'event-0' });
+    expect(f.lines.at(-1)).toContain('at probe');
+    f.logger.write('error', 'unique', { ...context, event: 'event-0' });
+    expect(f.lines.at(-1)).toContain('堆栈同前');
+  });
+  it('仅指定的轮询告警汇总，包含首条并统计各次真实耗时', () => {
     vi.useFakeTimers();
     const f = fixture();
-    f.logger.write('error', 'failed', {
-      event: 'failed',
-      errorStack: 'stack',
-      operationId: 'first',
-    });
-    f.logger.write('error', 'failed', {
-      event: 'failed',
-      errorStack: 'stack',
-      operationId: 'second',
-    });
+    for (const durationMs of [1100, 8600, 1400])
+      f.logger.write('warn', 'QQ 在线检测暂不可用', {
+        scope: 'account-monitor',
+        event: 'online-probe-failed',
+        accountUin: 'fixture-account',
+        errorMessage: 'probe unavailable',
+        durationMs,
+      });
     expect(f.lines).toHaveLength(1);
     f.advance(30_000);
     vi.advanceTimersByTime(30_000);
-    expect(f.lines).toHaveLength(2);
-    expect(f.lines[1]).toContain('另有 1 次相同记录');
-    for (let i = 0; i < 513; i++) f.logger.write('warn', 'unique', { event: `event-${i}` });
-    const before = f.lines.length;
-    f.logger.write('warn', 'unique', { event: 'event-0' });
-    expect(f.lines.length).toBe(before + 1);
-    f.logger.write('warn', 'unique', { event: 'event-0' });
+    const summary = stripVTControlCharacters(f.lines[1]!);
+    expect(summary).toContain('QQ 在线检测暂不可用');
+    expect(summary).toContain('原因 probe unavailable');
+    expect(summary).toContain('近 30 秒 3 次');
+    expect(summary).toContain('耗时 1.1～8.6 秒，平均 3.7 秒，最近 1.4 秒');
+    expect(summary).not.toContain('耗时 1.1s');
     f.logger.dispose();
-    expect(f.lines.at(-1)).toContain('另有 1 次相同记录');
+    expect(f.lines).toHaveLength(2);
+  });
+  it('轮询告警按原因、错误码和位置独立统计，退出按实际时长汇总', () => {
+    const f = fixture();
+    const context = {
+      scope: 'account-monitor',
+      event: 'online-probe-failed',
+      errorMessage: 'unavailable',
+      code: 'TIMEOUT',
+      caller: 'fixture.ts:12',
+    };
+    f.logger.write('warn', '检测失败', context);
+    f.logger.write('warn', '检测失败', { ...context, errorMessage: 'another failure' });
+    f.logger.write('warn', '检测失败', { ...context, code: 'OTHER' });
+    f.logger.write('warn', '检测失败', { ...context, caller: 'other.ts:12' });
+    expect(f.lines).toHaveLength(4);
+    f.advance(4500);
+    f.logger.write('warn', '检测失败', context);
+    f.logger.dispose();
+    expect(f.lines).toHaveLength(5);
+    expect(stripVTControlCharacters(f.lines[4]!)).toContain('近 4.5 秒 2 次');
+  });
+  it('窗口到期的新轮询先结清旧统计，单次事件不生成多余汇总', () => {
+    const f = fixture();
+    const context = { scope: 'account-monitor', event: 'online-probe-failed' };
+    f.logger.write('warn', '检测失败', { ...context, durationMs: 1200 });
+    f.logger.write('warn', '检测失败', { ...context, durationMs: 8600 });
+    f.advance(30_000);
+    f.logger.write('warn', '检测失败', { ...context, durationMs: 1400 });
+    expect(f.lines).toHaveLength(3);
+    expect(stripVTControlCharacters(f.lines[1]!)).toContain('近 30 秒 2 次');
+    expect(stripVTControlCharacters(f.lines[1]!)).toContain('耗时 1.2～8.6 秒');
+    expect(stripVTControlCharacters(f.lines[2]!)).toContain('耗时 1.4s');
+    f.logger.flush();
+    expect(f.lines).toHaveLength(3);
+  });
+  it('汇总只统计真实有限非负耗时，缺失与异常值不作为零参与平均', () => {
+    const f = fixture();
+    const context = { scope: 'account-monitor', event: 'online-probe-failed' };
+    for (const durationMs of [undefined, Number.NaN, Number.POSITIVE_INFINITY, -1, 1200, 3600])
+      f.logger.write('warn', '检测失败', { ...context, durationMs });
+    f.advance(30_000);
+    f.logger.flush();
+    const summary = stripVTControlCharacters(f.lines[1]!);
+    expect(summary).toContain('近 30 秒 6 次');
+    expect(summary).toContain('耗时 1.2～3.6 秒，平均 2.4 秒，最近 3.6 秒（2 次有记录）');
+  });
+  it('轮询统计最多 512 项，淘汰前输出已有汇总，ERROR 级别不参与合并', () => {
+    const f = fixture();
+    const context = { scope: 'account-monitor', event: 'online-probe-failed' };
+    f.logger.write('warn', '检测失败', { ...context, accountUin: 'fixture-0' });
+    f.logger.write('warn', '检测失败', { ...context, accountUin: 'fixture-0' });
+    for (let i = 1; i < 513; i++)
+      f.logger.write('warn', '检测失败', { ...context, accountUin: `fixture-${i}` });
+    expect(f.lines).toHaveLength(514);
+    expect(stripVTControlCharacters(f.lines[512]!)).toContain('本轮 2 次');
+    expect(stripVTControlCharacters(f.lines[512]!)).toContain('账号 fixture-0');
+    f.logger.write('error', '检测失败', context);
+    f.logger.write('error', '检测失败', context);
+    expect(f.lines).toHaveLength(516);
+    f.logger.dispose();
+    expect(f.lines).toHaveLength(516);
+  });
+  it('DEBUG 不汇总轮询告警，也不收起重复堆栈', () => {
+    const f = fixture({ WEQ_LOG_LEVEL: 'debug' });
+    const context = {
+      scope: 'account-monitor',
+      event: 'online-probe-failed',
+      errorStack: 'Error: failure\n    at probe (fixture.ts:12)',
+    };
+    for (let i = 0; i < 3; i++) f.logger.write('warn', '检测失败', context);
+    expect(f.lines).toHaveLength(3);
+    for (const line of f.lines) expect(line).toContain('at probe');
+    f.logger.flush();
+    expect(f.lines).toHaveLength(3);
   });
   it('文件目录未就绪、目录创建失败及循环上下文不会阻断终端', () => {
     const sink = vi.fn();
@@ -188,7 +372,7 @@ describe('开发终端', () => {
     broken.dispose();
     configureConsoleLogger({ development: false, processName: 'test', env: {} });
   });
-  it('终端过滤及聚合不影响 JSON 文件格式或文件记录数', () => {
+  it('终端过滤及堆栈收起不影响 JSON 文件格式或文件记录数', () => {
     const directory = mkdtempSync(join(tmpdir(), 'weq-log-test-'));
     const sink = vi.fn();
     configureConsoleLogger({
@@ -200,9 +384,16 @@ describe('开发终端', () => {
     try {
       initLogger(directory);
       getLogger().info('file-only', { event: 'fixture' });
-      getLogger().error('duplicate', { scope: 'fixture', event: 'duplicate' });
-      getLogger().error('duplicate', { scope: 'fixture', event: 'duplicate' });
-      expect(sink).toHaveBeenCalledTimes(1);
+      const context = {
+        scope: 'fixture',
+        event: 'duplicate',
+        errorStack: 'Error: failure\n    at probe (fixture.ts:12)',
+      };
+      getLogger().error('duplicate', context);
+      getLogger().error('duplicate', context);
+      expect(sink).toHaveBeenCalledTimes(2);
+      expect(sink.mock.calls[0]![0]).toContain('at probe');
+      expect(sink.mock.calls[1]![0]).not.toContain('at probe');
       const path = join(directory, 'logs', readdirSync(join(directory, 'logs'))[0]!);
       const lines = readFileSync(path, 'utf8')
         .trim()
@@ -215,6 +406,8 @@ describe('开发终端', () => {
         message: 'file-only',
         context: { event: 'fixture' },
       });
+      expect(lines[2].context.errorStack).toBe(context.errorStack);
+      expect(lines[3].context.errorStack).toBe(context.errorStack);
     } finally {
       configureConsoleLogger({ development: false, processName: 'test', env: {} });
       rmSync(directory, { recursive: true, force: true });
