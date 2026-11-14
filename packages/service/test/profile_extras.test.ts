@@ -79,6 +79,45 @@ const readers = {
   getEducationHistory,
 };
 const nt = { sendPacket: vi.fn() };
+it('勋章和共同点分别按账号与目标去重，进程切换拒绝迟到结果', async () => {
+  let release!: () => void;
+  let pid = 5;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const medal = vi.fn(async (_nt, _pid, self: string, targetUin: string) => {
+    expect(self).toBe('10001');
+    await pending;
+    return {
+      targetUin,
+      count: 0,
+      openFlag: null,
+      newCount: null,
+      upgradeCount: null,
+      detailsUrl: 'https://ti.qq.com/qqmedal2/index.html',
+    };
+  });
+  const similarity = vi.fn(async (_nt, _pid, self: string, targetUin: string) => {
+    expect(self).toBe('10001');
+    await pending;
+    return { targetUin, items: [] };
+  });
+  const service = new ProfileExtrasService(nt, '10001', () => pid, {
+    ...readers,
+    getProfileMedalWall: medal,
+    getProfileSimilarity: similarity,
+  });
+  const results = Promise.allSettled([
+    service.medalWall('10002'),
+    service.medalWall('10002'),
+    service.similarity('10002'),
+  ]);
+  expect(medal).toHaveBeenCalledOnce();
+  expect(similarity).toHaveBeenCalledOnce();
+  pid = 6;
+  release();
+  expect((await results).every((result) => result.status === 'rejected')).toBe(true);
+});
 it('同一目标和游标共享在途查询，不对不同目标复用结果', async () => {
   let release!: () => void;
   const wait = new Promise<void>((resolve) => {

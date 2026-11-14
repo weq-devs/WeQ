@@ -6,17 +6,19 @@ import {
   contactWorkspaceSection,
 } from '../src/renderer/src/lib/contactWorkspace';
 
-describe('联系人四页结构', () => {
+describe('联系人资料章节', () => {
   it('目录只有内容页，不再把历史、画像、问答或编辑作为一级页', () => {
     expect(CONTACT_WORKSPACE_SECTIONS.map(([, title]) => title)).toEqual([
       '个人资料',
       '与我的关系',
       '群内资料',
       '个性展示',
+      '勋章墙',
     ]);
   });
   it.each([
     ['giftwall', 'giftwall'],
+    ['medals', 'medals'],
     ['details', 'profile'],
     ['signatures', 'profile'],
     ['history', 'profile'],
@@ -27,11 +29,12 @@ describe('联系人四页结构', () => {
   ] as const)('旧入口 %s 进入 %s', (input, expected) =>
     expect(contactWorkspaceSection(input)).toBe(expected),
   );
-  it('本人页按资料、群内资料、展示、礼物墙排列，不含与自己的关系', () => {
+  it('本人独立勋章页保留礼物墙在最后，不含与自己的关系', () => {
     expect(SELF_WORKSPACE_SECTIONS.map(([, title]) => title)).toEqual([
       '个人资料',
       '群内资料',
       '个性展示',
+      '勋章墙',
       '礼物墙',
     ]);
   });

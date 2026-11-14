@@ -402,7 +402,7 @@ function ExtraField({
   field,
 }: {
   person: ProfilePerson;
-  field: 'company' | 'description' | 'email';
+  field: 'company' | 'description' | 'email' | 'hometown';
 }) {
   const session = useQQWriteSession(`contact-details:${person.id}`, true);
   const query = trpc.account.profileExtras.details.useQuery(
@@ -414,6 +414,8 @@ function ExtraField({
     { ...PROFILE_QUERY_OPTIONS, enabled: session.available },
   );
   const data = query.data?.targetUin === person.identityValue ? query.data : null;
+  if (field === 'hometown')
+    return <ContactRow label="家乡" value={data?.errors.hometown ?? data?.hometownText} />;
   if (field === 'company') return <ContactRow label="公司" value={data?.company} />;
   if (field === 'description')
     return <ContactRow label="个人说明" value={data?.personalDescription} />;
@@ -908,7 +910,9 @@ export function ContactContent({
             />
           }
         </SelfProfileSlot>
-        <SelfProfileSlot field="hometown" />
+        <SelfProfileSlot field="hometown">
+          {personal ? <ExtraField person={person} field="hometown" /> : null}
+        </SelfProfileSlot>
       </>
     ),
     school: (

@@ -113,6 +113,8 @@ export const DEFAULT_OIDB_CASES: readonly string[] = [
 /** 现有 raw trpc / 服务命令候选（不套 OIDB 信封）；包括待确认的常量入口。 */
 export const DEFAULT_RAW_CASES: readonly string[] = [
   'MQUpdateSvc_com_qq_ti.web.OidbSvc.0xeb1_1',
+  'SummaryCard.ReqSummaryCard',
+  'MQUpdateSvc_com_qq_ti.web.OidbSvcTrpcJsapiTcp.0x9072_0',
   'MessageSvc.PbSendMsg',
   'trpc.msg.msg_svc.MsgService.SsoReadedReport',
   'trpc.msg.msg_svc.MsgService.SsoGroupRecallMsg',

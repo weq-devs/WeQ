@@ -1,4 +1,7 @@
 import regionRows from './qq-regions.json';
+import type { QqRegion } from '../../profile-regions';
+export { formatQqRegion } from '../../profile-regions';
+export type { QqRegion } from '../../profile-regions';
 import { encode, message } from '../../protobuf';
 import { sendOidb, type PacketNative } from '../../transport';
 import { requireUin } from '../write-validation';
@@ -7,11 +10,6 @@ import { invokeLegacyOidb } from '../legacy';
 import { QQ_PROFESSIONS } from '../../profile-values';
 export { QQ_PROFESSIONS } from '../../profile-values';
 
-export interface QqRegion {
-  code: string;
-  name: string;
-  children: QqRegion[];
-}
 export const QQ_REGIONS: QqRegion[] = [];
 for (const row of regionRows) {
   let siblings = QQ_REGIONS;
@@ -27,15 +25,13 @@ for (const row of regionRows) {
   }
 }
 function addUnrestrictedRegions(nodes: QqRegion[], depth: number): void {
-  if (!nodes.some((node) => node.code === '0')) {
+  if (!nodes.some((node) => node.code === '0'))
     nodes.unshift({ code: '0', name: '不限', children: [] });
-  }
-  if (depth < 3) {
-    for (const node of nodes) addUnrestrictedRegions(node.children, depth + 1);
-  }
+  if (depth < 3) for (const node of nodes) addUnrestrictedRegions(node.children, depth + 1);
 }
 // 官方目录中的空层级可能仍有城市，不能把它们当成终止节点。
 addUnrestrictedRegions(QQ_REGIONS, 0);
+
 export type EditableProfilePatch = {
   birthday?: string;
   region?: string[];
@@ -75,7 +71,8 @@ export function encodeQqRegion(path: string[], layers: 3 | 4) {
   });
   return bytes;
 }
-function decodeRegion(bytes: Uint8Array | undefined, district?: Uint8Array) {
+export function decodeQqRegion(bytes: Uint8Array | undefined, district?: Uint8Array) {
+  if (bytes?.length === 0 && (!district || district.length === 0)) return [];
   if (bytes?.length !== 12 || (district && district.length !== 4)) return null;
   const buffer = district ? Buffer.concat([bytes, district]) : Buffer.from(bytes);
   let siblings = QQ_REGIONS;
@@ -192,15 +189,13 @@ export async function readEditableProfile(
   const profession = legacy.get(keys.profession);
   return {
     birthday,
-    region: decodeRegion(modern?.bytes.get(20032)),
+    region: decodeQqRegion(modern?.bytes.get(20032)),
     email: text(keys.email, 'email'),
     school: text(keys.school, 'school'),
     company: text(keys.company, 'company'),
     personalDescription: text(keys.personalDescription, 'personalDescription'),
     profession: profession?.length === 4 ? Buffer.from(profession).readUInt32BE() : null,
-    hometown: legacy.has(keys.district)
-      ? decodeRegion(legacy.get(keys.hometown), legacy.get(keys.district))
-      : null,
+    hometown: decodeQqRegion(legacy.get(keys.hometown), legacy.get(keys.district)),
     errors,
   };
 }

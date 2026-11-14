@@ -1,12 +1,18 @@
 import type { TrpcNative } from '../../transport';
 import { invokeLegacyOidb } from '../legacy';
 import { requireUin } from '../write-validation';
-import { parseLegacyProfileBody } from './editable-profile';
+import {
+  decodeQqRegion,
+  formatQqRegion,
+  QQ_REGIONS,
+  parseLegacyProfileBody,
+} from './editable-profile';
 
 export const PROFILE_DETAIL_FIELDS = {
   company: 24008,
   personalDescription: 20019,
   email: 20011,
+  hometown: 24002,
 } as const;
 export type ProfileDetailField = keyof typeof PROFILE_DETAIL_FIELDS;
 export interface ProfileDetailInfo {
@@ -14,6 +20,9 @@ export interface ProfileDetailInfo {
   company: string | null;
   personalDescription: string | null;
   email: string | null;
+  /** 兼容先前查询缓存没有此字段的情况。 */
+  hometown?: string[] | null;
+  hometownText?: string | null;
   errors: Partial<Record<ProfileDetailField, string>>;
 }
 const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -26,7 +35,8 @@ export async function getProfileDetails(
 ): Promise<ProfileDetailInfo> {
   const uin = requireUin(targetUin);
   if (uin > 0xffffffffn) throw new Error('详细资料目标 QQ 号超出支持范围');
-  const keys = Object.values(PROFILE_DETAIL_FIELDS);
+  const district = 20043;
+  const keys = [...Object.values(PROFILE_DETAIL_FIELDS), district];
   const request = Buffer.alloc(7 + keys.length * 2);
   request.writeUInt32BE(Number(uin));
   request.writeUInt16BE(keys.length, 5);
@@ -38,7 +48,7 @@ export async function getProfileDetails(
     targetUin,
   );
   const errors: ProfileDetailInfo['errors'] = {};
-  const read = (field: ProfileDetailField) => {
+  const read = (field: Exclude<ProfileDetailField, 'hometown'>) => {
     const bytes = values.get(PROFILE_DETAIL_FIELDS[field]);
     if (bytes === undefined) return null;
     try {
@@ -48,11 +58,15 @@ export async function getProfileDetails(
       return null;
     }
   };
+  const hometown = decodeQqRegion(values.get(PROFILE_DETAIL_FIELDS.hometown), values.get(district));
+  if (values.has(PROFILE_DETAIL_FIELDS.hometown) && !hometown) errors.hometown = '地区格式无法识别';
   return {
     targetUin,
     company: read('company'),
     personalDescription: read('personalDescription'),
     email: read('email'),
+    hometown,
+    hometownText: formatQqRegion(hometown, QQ_REGIONS),
     errors,
   };
 }

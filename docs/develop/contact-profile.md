@@ -26,9 +26,9 @@
 - `ProfileExtrasContent` 和 `ProfileDetailsContent` 支持页内承接，`ProfileExtraDialog` 复用相同内容与查询。原有签名、问答、照片互动不另建协议或写入通道。
 - 私聊存在性优先使用完整目录和隐藏、历史及临时会话状态；必要时只读取会话边界。本群发言复用 `browseConversation` 的发送者过滤和游标分页。空间预览按点击延迟加载，复用空间读取和媒体网格，不预取评论或续页。
 
-资料页章节采用共享目录容器，保留同一对象的章节、分页和滚动位置。`lib/contactWorkspace.ts` 定义四个内容页及旧导航映射：`details/signatures/history/edit` 归入 `profile`，`portrait` 归入 `marks`，`questions` 归入 `personality`。旧教育、签名、历史章节只定位个人资料，不恢复已移除的独立入口；学校、签名、项目历史在实际触发点旁打开详情。本人编辑及对外展示设置与名片偏好分开。
+资料页章节采用共享目录容器，保留同一对象的章节、分页和滚动位置。`lib/contactWorkspace.ts` 定义基础内容页、独立勋章页及旧导航映射：`details/signatures/history/edit` 归入 `profile`，`portrait` 归入 `marks`，`questions` 归入 `personality`，`medals` 直接进入勋章墙。旧教育、签名、历史章节只定位个人资料，不恢复已移除的独立入口；学校、签名、项目历史在实际触发点旁打开详情。本人编辑及对外展示设置与名片偏好分开。
 
-本人身份复用 `usePersonRelationship` 判断，页头和区域名称为「我的资料」；目录使用 `SELF_WORKSPACE_SECTIONS`，依次为个人资料、群内资料、个性展示、礼物墙，不显示「与我的关系」。礼物墙复用 `GiftWall` 的收发切换与游标分页，首次选中才挂载，不在个性装扮中保留入口；全局搜索通过 `self-profile` 目标和 `giftwall` 标签直达本人资料。他人资料仍使用原四页结构，不展示本人的礼物；不适用的旧标签回到个人资料。本人浏览器回归 `run-self-profile.mjs` 同时覆盖礼物墙的深浅主题、宽窄屏及收发切换。
+本人身份复用 `usePersonRelationship` 判断，页头和区域名称为「我的资料」；目录使用 `SELF_WORKSPACE_SECTIONS`，依次为个人资料、群内资料、个性展示、勋章墙、礼物墙，不显示「与我的关系」。礼物墙复用 `GiftWall` 的收发切换与游标分页，首次选中才挂载，不在个性装扮中保留入口；全局搜索通过 `self-profile` 目标和 `giftwall` 标签直达本人资料。他人资料另有「与我的关系」，不展示本人的礼物；不适用的旧标签回到个人资料。本人浏览器回归 `run-self-profile.mjs` 同时覆盖礼物墙的深浅主题、宽窄屏及收发切换。
 
 `ProfileDisclosure` 仅用于问答、本人编辑等仍需折叠的内容，收起保留现场并通过 `TabActivity` 暂停读取。互动画像随关系页直接挂载，不再折叠。`ProfileExtraDialog` 的教育和签名、共同群名单、项目历史使用显式锚点及 `presentation=popover`、`anchorPlacement=side`；QQ 秀展柜与本人头像历史同样支持锚点，保留原分页、互动与关闭行为。`ContactDressRow` 仅输出真实装扮素材，不复用带头像和 QQ 秀的个性主页舞台。
 
@@ -53,6 +53,18 @@ UID 仅在开启该字段时进入身份区。`styles/contact-workspace.css` 承
 `ContactGroupWorkspace` 通过绑定账号和数据源的 `listUserGroups` 分页读取本地成员记录，合并来源群，不遍历所有群成员；群名优先使用当前群资料、来源群和已有会话目录，缺失时显示群号。切群重新构造 `profileContext`，不改联系人及当前会话；成员行与本群发言、聊天分析共用该上下文。选择记忆按账号、数据源和 UID 隔离，内存有界；来源群优先于记忆。`listUserGroups` 保留旧调用，同时使用已有 `scopedGroupRead` 拒绝跨账号、跨数据源及迟到响应。
 
 ## 定向验证
+
+### 家乡、勋章墙与共同点
+
+- `profileExtras.details` 在现有三项文本外请求家乡 24002 与区县 20043，复用 `decodeQqRegion`；三层地区可独立返回，明确空值、未返回与损坏值分别处理。`profile-regions` 子入口只输出浏览器可用的类型及 `formatQqRegion`，不引入传输、Node 模块或整份地区目录。本人使用已有地区目录查询，其他人的 `hometownText` 在服务端用同一个函数生成。
+- `medals` 是普通 QQ 账号的独立资料章节，本人与他人均可进入；本人礼物墙仍在最后，机器人、企业和克隆对象不增加勋章章节。`ProfileSummary` 复用 `ContactRow`、查询缓存和活动章节状态。
+- `ProfileExtrasService.medalWall/similarity` 通过原路由绑定账号配置、目标及进程，按业务和目标在途去重；所有结果再次检查来源及目标，不修改名称缓存或 QQ 数据库。
+- `card-summary.ts` 使用 JCE UniPacket 的 `SummaryCard.ReqSummaryCard`，只请求所需业务。勋章位于响应 tag 80，结构 tag 0/1/2/3 分别是开启标志、数量、新获、升级；**开启标志 1 映射 Android 的 medalSwitchDisable=true，即关闭，不是开启**。未知值不推断状态。
+- 共同点使用聚合业务 22，0x28/0x29 帧内的 comm 与业务 protobuf 分开解析，校验长度、目标与错误码。仅对已确认非好友挂载，普通共同好友／共同群和互动画像不受影响。
+- 勋章聚合缺失或拒绝时，可走当前官方 H5 的独立读取：`MQUpdateSvc_com_qq_ti.web.OidbSvcTrpcJsapiTcp.0x9072_0`，WebSsoRequestBody type=0、data=`{"uin":目标数字QQ号}`；只接收有效 JSON 的 `achieved_count`，不从该接口猜测未返回的开关、新获和升级状态。页面及 9.3.85 WebSSO 桥接均有静态依据，**不等于已通过桌面登录态真实读取**；此前聚合 151 未因离线测试通过而变成已解决。
+- 本轮使用现有中央签名策略，不更换登录身份或伪装 Android；JCE 适配只复用历史编解码原型，不恢复已撤下的好友扩展备注接口。
+
+针对性协议用例在 `profile_card_summary.test.ts`、`profile_details.test.ts`；账号绑定和在途检查沿 `profile_extras.test.ts` 与 `profile_extras_router.test.ts`；界面／路由回归为 `profile_summary_ui.test.ts`、`contact_workspace_sections.test.ts` 和 `contact_workspace_model.test.ts`。浏览器入口 `run-profile-summary.mjs` 使用既有 Playwright／浏览器环境变量，以 `WEQ_PROFILE_APPROVED_QA` 保存证据，覆盖本人／他人格式一致、独立勋章页、非好友共同点、空态与失败重试，退出时关闭自身服务器及浏览器。
 
 服务测试覆盖字段默认、归一化、排序、持久化、备份恢复及等级与获赞的实际读取选择；渲染测试覆盖名片浮层、头像补全、来源隔离、备注及群资料编辑和既有互动能力。
 

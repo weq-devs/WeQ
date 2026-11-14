@@ -237,7 +237,10 @@ export type {
 export * from './call';
 export * from './oidb/profile/extras';
 export { getProfileDetails, PROFILE_DETAIL_FIELDS } from './oidb/profile/details';
+export { decodeQqRegion, formatQqRegion } from './oidb/profile/editable-profile';
 export type { ProfileDetailInfo, ProfileDetailField } from './oidb/profile/details';
+export { getProfileMedalWall, getProfileSimilarity } from './oidb/profile/card-summary';
+export type { ProfileMedalWall, ProfileSimilarity } from './oidb/profile/card-summary';
 export { getEducationHistory } from './oidb/profile/education';
 export * from './oidb/profile/display-settings';
 export { LegacyOidbRejectedError } from './oidb/legacy';

@@ -23,6 +23,12 @@ export function createProfileExtrasRouter(
     return result;
   }
   return router({
+    medalWall: procedure
+      .input(target)
+      .query(({ input }) => read(input, (s) => s.medalWall(input.uin))),
+    similarity: procedure
+      .input(target)
+      .query(({ input }) => read(input, (s) => s.similarity(input.uin))),
     details: procedure.input(target).query(({ input }) => read(input, (s) => s.details(input.uin))),
     avatarHistory: procedure
       .input(

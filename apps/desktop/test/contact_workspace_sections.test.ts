@@ -10,6 +10,10 @@ import { RelationshipDirectoryContext } from '../src/renderer/src/lib/contactRel
 vi.mock('../src/renderer/src/components/gift/GiftWall', () => ({
   GiftWall: () => h(Activity, { name: '礼物墙内容' }),
 }));
+vi.mock('../src/renderer/src/components/ProfileSummary', () => ({
+  MedalWall: () => h(Activity, { name: '勋章墙内容' }),
+  ProfileCommonPoints: () => h(Activity, { name: '共同点内容' }),
+}));
 
 vi.mock('../src/renderer/src/components/contactProfile/ContactContent', () => ({
   ContactContent: () => h('p', null, '当前资料'),
@@ -82,7 +86,7 @@ afterEach(() => {
   roots.length = 0;
   document.body.innerHTML = '';
 });
-function render(tab?: ContactWorkspaceTab, self = false) {
+function render(tab?: ContactWorkspaceTab, self = false, overrides: Partial<Contact> = {}) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -100,7 +104,7 @@ function render(tab?: ContactWorkspaceTab, self = false) {
           },
         },
         h(ContactWorkspace, {
-          contact,
+          contact: { ...contact, ...overrides },
           tab,
           personalityProfile: {
             name: '测试',
@@ -131,11 +135,12 @@ it('画像入口定位到画像分区，普通关系页不强制滚动', () => {
     bounds.mockRestore();
   }
 });
-it('默认显示四页，不提前挂载历史、问答或画像', () => {
+it('独立勋章页不提前挂载，原有章节保持不变', () => {
   const host = render();
   expect(
     [...host.querySelectorAll('.weq-profile-directory button')].map((node) => node.textContent),
-  ).toEqual(['个人资料', '与我的关系', '群内资料', '个性展示']);
+  ).toEqual(['个人资料', '与我的关系', '群内资料', '个性展示', '勋章墙']);
+  expect(host.textContent).not.toContain('勋章墙内容');
   expect(host.textContent).not.toContain('画像内容');
   expect(host.textContent).not.toContain('历史-profile');
   expect(host.textContent).not.toContain('questions');
@@ -149,6 +154,7 @@ it('本人资料移除关系页，礼物墙位于最后且点击前不挂载', (
     '个人资料',
     '群内资料',
     '个性展示',
+    '勋章墙',
     '礼物墙',
   ]);
   expect(host.textContent).not.toContain('礼物墙内容');
@@ -156,6 +162,22 @@ it('本人资料移除关系页，礼物墙位于最后且点击前不挂载', (
   expect(host.querySelector('[aria-current="page"]')?.textContent).toBe('礼物墙');
   expect(host.querySelector('[data-active]')?.getAttribute('data-active')).toBe('true');
   expect(host.textContent).not.toContain('与我的关系');
+});
+it('勋章墙本人和他人均可直达，非个人对象不显示', () => {
+  for (const self of [true, false]) {
+    const host = render('medals', self);
+    expect(host.querySelector('[aria-current="page"]')?.textContent).toBe('勋章墙');
+    expect(host.textContent).toContain('勋章墙内容');
+  }
+  const bot = render('medals', false, { kind: 'bot' });
+  expect(bot.textContent).not.toContain('勋章墙');
+});
+it('共同点只在已确认非好友的关系页读取，不挂载到好友或未知关系', () => {
+  expect(render('marks', false, { isFriend: false }).textContent).toContain('共同点内容');
+  expect(render('marks').textContent).not.toContain('共同点内容');
+  expect(
+    render('marks', false, { isFriend: false, friendshipKnown: false }).textContent,
+  ).not.toContain('共同点内容');
 });
 it.each(['marks', 'portrait'] as const)('本人旧入口 %s 不恢复关系页或画像', (tab) => {
   const host = render(tab, true);

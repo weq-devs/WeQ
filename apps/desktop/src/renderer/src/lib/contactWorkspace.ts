@@ -5,11 +5,13 @@ export const CONTACT_WORKSPACE_SECTIONS = [
   ['marks', '与我的关系'],
   ['group', '群内资料'],
   ['personality', '个性展示'],
+  ['medals', '勋章墙'],
 ] as const;
 export const SELF_WORKSPACE_SECTIONS = [
   CONTACT_WORKSPACE_SECTIONS[0],
   CONTACT_WORKSPACE_SECTIONS[2],
   CONTACT_WORKSPACE_SECTIONS[3],
+  CONTACT_WORKSPACE_SECTIONS[4],
   ['giftwall', '礼物墙'],
 ] as const;
 export type ContactWorkspaceSection =
@@ -20,11 +22,21 @@ export type ContactWorkspaceSection =
 export function contactWorkspaceSection(tab: ContactWorkspaceTab): ContactWorkspaceSection {
   if (tab === 'portrait') return 'marks';
   if (tab === 'questions') return 'personality';
-  if (tab === 'marks' || tab === 'group' || tab === 'personality' || tab === 'giftwall') return tab;
+  if (
+    tab === 'marks' ||
+    tab === 'group' ||
+    tab === 'personality' ||
+    tab === 'giftwall' ||
+    tab === 'medals'
+  )
+    return tab;
   return 'profile';
 }
 
-export type ContactHistorySection = Exclude<ContactWorkspaceSection, 'group' | 'giftwall'>;
+export type ContactHistorySection = Exclude<
+  ContactWorkspaceSection,
+  'group' | 'giftwall' | 'medals'
+>;
 export function contactHistorySection(category: string): ContactHistorySection | 'group' {
   const name = category.split('.').at(-1) ?? category;
   if (/^(listUserGroups|getMemberInfo|getMembersByUids|getMembersByUins)$/.test(name))

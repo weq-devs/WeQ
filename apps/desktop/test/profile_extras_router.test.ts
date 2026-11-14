@@ -33,6 +33,15 @@ function fixture() {
     getAnonymousQuestions,
     getEducationHistory: vi.fn(async (_nt, _pid, targetUin) => ({ targetUin, items: [] })),
     getProfileDetails: details,
+    getProfileMedalWall: async (_nt, _pid, _self, targetUin) => ({
+      targetUin,
+      count: 0,
+      openFlag: 0,
+      newCount: 0,
+      upgradeCount: null,
+      detailsUrl: 'https://ti.qq.com/qqmedal2/index.html',
+    }),
+    getProfileSimilarity: async (_nt, _pid, _self, targetUin) => ({ targetUin, items: [] }),
   });
   let active = { profileExtras: service };
   const routes = createProfileExtrasRouter((input) => {
@@ -55,6 +64,21 @@ function fixture() {
 it('只读路由保留零值并绑定目标', async () => {
   const { caller } = fixture();
   expect(await caller.energy(binding)).toMatchObject({ targetUin: '10002', score: 0 });
+});
+it('勋章与共同点入口沿用账号来源绑定，零勋章与空共同点有效', async () => {
+  const { caller } = fixture();
+  expect(await caller.medalWall(binding)).toMatchObject({
+    targetUin: binding.uin,
+    count: 0,
+    openFlag: 0,
+  });
+  expect(await caller.similarity(binding)).toEqual({ targetUin: binding.uin, items: [] });
+  await expect(caller.medalWall({ ...binding, expectedAccountConfigId: 'other' })).rejects.toThrow(
+    '账号',
+  );
+  await expect(caller.similarity({ ...binding, expectedAccountUin: '10009' })).rejects.toThrow(
+    '账号',
+  );
 });
 it('错误账号与数据源在发包前拒绝', async () => {
   const { caller, energy } = fixture();
