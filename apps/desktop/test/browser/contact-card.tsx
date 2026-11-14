@@ -29,6 +29,8 @@ import type {
   Message,
 } from '../../src/renderer/src/im-template/template/types';
 import { fixturePrivileges, qa, useFixture } from './contact-card.stub';
+import { useDataSaver } from '../../src/renderer/src/lib/dataSaver';
+import { MediaPreviewHost } from '../../src/renderer/src/components/mediaPreviewStore';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/im-template/styles.css';
 import '../../src/renderer/src/styles/contact-profile.css';
@@ -89,6 +91,14 @@ const sample: Contact = {
   },
 };
 const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+if (new URLSearchParams(location.search).has('data-saver')) {
+  useDataSaver.setState({ enabled: true });
+  Object.assign(window, {
+    mediaPlaceholderQa: {
+      setEnabled: (enabled: boolean) => useDataSaver.setState({ enabled }),
+    },
+  });
+}
 const grayTip = new URLSearchParams(location.search).has('gray-tip');
 Object.assign(window, { contactCardQa: qa });
 function Fixture() {
@@ -321,6 +331,7 @@ function Fixture() {
                           <ContactCardSettings />
                         ) : null}
                       </div>
+                      <MediaPreviewHost />
                     </main>
                   </GroupSpeechPreviewContext.Provider>
                 </ContactWorkspaceNavigationContext.Provider>

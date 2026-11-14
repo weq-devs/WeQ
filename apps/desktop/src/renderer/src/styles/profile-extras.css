@@ -199,6 +199,7 @@
   gap: 6px;
 }
 .weq-extras-photos button {
+  position: relative;
   padding: 0;
   border: 0;
   border-radius: 4px;

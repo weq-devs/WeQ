@@ -36,6 +36,7 @@ import { Modal } from './Dialog';
 import type { QzoneAlbumRequest } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { albumMediaUrl } from '../lib/resourceUrl';
+import { ShimmerImage } from './ShimmerImage';
 import { MediaPreview, type PreviewMedia } from './MediaPreview';
 import { useDebouncedLoading } from '../hooks/useDebouncedLoading';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
@@ -718,11 +719,11 @@ export function AlbumGridView({
               onClick={() => onOpen(album)}
               title={album.name || '未命名相册'}
             >
-              <span className="weq-qzal-album-cover">
+              <span className="weq-qzal-album-cover weq-media-frame">
                 {album.coverUrl ? (
-                  <img
+                  <ShimmerImage
                     src={albumMediaUrl(album.coverUrl)}
-                    alt=""
+                    alt="相册封面"
                     loading="lazy"
                     referrerPolicy="no-referrer"
                   />
@@ -1018,7 +1019,7 @@ export function MediaView({
           <div className="weq-qzal-media-grid" {...rootProps}>
             {photos.map((photo, index) => {
               const row = rowKey(index);
-              const proxied = albumMediaUrl(photo.url || photo.thumbUrl);
+              const proxied = albumMediaUrl(photo.thumbUrl || photo.url);
               const checked = selected.has(row);
               const detail = details[row];
               return (
@@ -1042,8 +1043,13 @@ export function MediaView({
                     className="weq-qzal-media-body"
                     onClick={() => void openMedia(photo, row)}
                   >
-                    <span className="weq-qzal-media-thumb">
-                      <img src={proxied} alt="" loading="lazy" referrerPolicy="no-referrer" />
+                    <span className="weq-qzal-media-thumb weq-media-frame">
+                      <ShimmerImage
+                        src={proxied}
+                        alt="相册媒体"
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                      />
                       {photo.isVideo ? (
                         <span className="weq-qzal-media-play" aria-hidden>
                           {videoResolving === row ? (

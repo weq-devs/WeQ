@@ -1,3 +1,30 @@
+.weq-media-frame {
+  position: relative;
+}
+
+.weq-media-inline {
+  position: relative;
+  display: inline-grid;
+  min-width: min(120px, 100%);
+  min-height: 96px;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 6px;
+}
+
+.weq-media-icon-frame {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  width: 22px;
+  height: 22px;
+}
+
+.weq-media-icon-frame .weq-image-placeholder > svg {
+  max-width: 80%;
+  max-height: 80%;
+}
+
 .weq-image-placeholder {
   position: absolute;
   inset: 0;

@@ -30,6 +30,7 @@ import { ContactInlineError, ContactRow, ContactSection } from './contactProfile
 import { useTabActive } from './RetainedTabs';
 import { trpc } from '../trpc/client';
 import { albumMediaUrl } from '../lib/resourceUrl';
+import { ShimmerImage } from './ShimmerImage';
 import { extrasPageWarning, mergeExtrasPages, nextExtrasCursor } from '../lib/profileExtrasPages';
 import { educationDegree, educationRows, educationYears } from '../lib/profileEducation';
 import '../styles/profile-extras.css';
@@ -640,11 +641,10 @@ export function ProfileLabelAlbum({
   );
 }
 function ProfilePhoto({ src, alt }: { src: string; alt: string }) {
-  const [failed, setFailed] = useState(false);
-  return failed || !src ? (
+  return !src ? (
     <span className="weq-extras-photo-error">图片暂不可用</span>
   ) : (
-    <img src={albumMediaUrl(src)} alt={alt} loading="lazy" onError={() => setFailed(true)} />
+    <ShimmerImage src={albumMediaUrl(src)} alt={alt} loading="lazy" />
   );
 }
 function Photos({

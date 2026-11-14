@@ -2,6 +2,7 @@ import { useRef, type ReactNode, type MouseEvent } from 'react';
 import { useSearchTargetFocus } from '../hooks/useSearchTargetFocus';
 import { Avatar } from '../im-template/template/primitives';
 import { albumMediaUrl } from '../lib/resourceUrl';
+import { ShimmerImage } from './ShimmerImage';
 import type { GroupNoticeEntry } from '../lib/groupNotices';
 import { ProfileAvatar } from './ProfileAvatar';
 
@@ -66,12 +67,13 @@ export function GroupBulletinList({
                 {entry.images.length > 0 && (
                   <div className="group-bulletin-images">
                     {entry.images.map((image) => (
-                      <img
-                        key={image.id}
-                        src={albumMediaUrl(`https://gdynamic.qpic.cn/gdynamic/${image.id}/628`)}
-                        alt="公告图片"
-                        loading="lazy"
-                      />
+                      <span key={image.id} className="weq-media-inline">
+                        <ShimmerImage
+                          src={albumMediaUrl(`https://gdynamic.qpic.cn/gdynamic/${image.id}/628`)}
+                          alt="公告图片"
+                          loading="lazy"
+                        />
+                      </span>
                     ))}
                   </div>
                 )}

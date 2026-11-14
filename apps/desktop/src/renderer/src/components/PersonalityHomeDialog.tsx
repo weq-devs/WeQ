@@ -23,6 +23,7 @@ import { EmptyState } from './EmptyState';
 import { Loader2, MapPin, Sparkles, Star, UserRound, WifiOff, X } from 'lucide-react';
 import { AvatarOrb, CardBackdrop, ScreenRain, TagRing } from './dressPieces';
 import { openMediaPreview } from './mediaPreviewStore';
+import { ShimmerImage } from './ShimmerImage';
 import {
   albumMediaUrl,
   collectionImageUrl,
@@ -307,7 +308,7 @@ export function PersonalityHomeDialog({
                 // biome-ignore lint/suspicious/noArrayIndexKey: 同一张图可能多次出现,位置才是稳定键
                 key={`${photo.thumb}:${index}`}
                 type="button"
-                className="weq-perhome-photo"
+                className="weq-perhome-photo weq-media-frame"
                 title="精选图片"
                 onClick={() =>
                   openMediaPreview({
@@ -322,7 +323,7 @@ export function PersonalityHomeDialog({
                   })
                 }
               >
-                <img src={albumMediaUrl(photo.thumb)} alt="" loading="lazy" />
+                <ShimmerImage src={albumMediaUrl(photo.thumb)} alt="精选图片" loading="lazy" />
               </button>
             ))}
           </div>

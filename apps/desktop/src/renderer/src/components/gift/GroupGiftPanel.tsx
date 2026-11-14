@@ -16,6 +16,7 @@ import { client } from '../../trpc/client';
 import { OverlayLayer } from '../OverlayLayer';
 import { useToast } from '../Toast';
 import { giftImageUrl } from '../../lib/resourceUrl';
+import { ShimmerImage } from '../ShimmerImage';
 import { cn } from '../../im-template/template/classNames';
 import { GROUP_GIFT_FALLBACK } from './groupGiftFallback';
 import '../../styles/gift-mall.css';
@@ -208,9 +209,15 @@ function GroupGiftCard({ gift, onOpen }: { gift: GroupGiftItem; onOpen: () => vo
   const src = giftImageUrl(gift.images.staticUrl);
   return (
     <button type="button" className="weq-gift-card" onClick={onOpen}>
-      <span className="weq-gift-card-media" style={tintStyle(gift)}>
+      <span className="weq-gift-card-media weq-media-frame" style={tintStyle(gift)}>
         {src ? (
-          <img src={src} alt={gift.name} loading="lazy" decoding="async" draggable={false} />
+          <ShimmerImage
+            src={src}
+            alt={gift.name}
+            loading="lazy"
+            decoding="async"
+            draggable={false}
+          />
         ) : (
           <span className="weq-gift-card-fallback">
             <GiftIcon size={26} strokeWidth={1.5} />
@@ -256,9 +263,9 @@ function GroupGiftDetail({
           <ArrowLeft size={13} strokeWidth={2.2} />
           返回礼物列表
         </button>
-        <div className="weq-gift-detail-stage" style={tintStyle(gift)}>
+        <div className="weq-gift-detail-stage weq-media-frame" style={tintStyle(gift)}>
           {src ? (
-            <img src={src} alt={gift.name} draggable={false} />
+            <ShimmerImage src={src} alt={gift.name} draggable={false} />
           ) : (
             <span className="weq-gift-card-fallback">
               <GiftIcon size={30} strokeWidth={1.4} />

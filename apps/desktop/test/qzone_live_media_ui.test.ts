@@ -40,6 +40,7 @@ import {
   QzonePageContext,
   QzoneReadPauseContext,
 } from '../src/renderer/src/views/qzoneShared';
+import { useDataSaver } from '../src/renderer/src/lib/dataSaver';
 
 let root: Root;
 let host: HTMLDivElement;
@@ -90,6 +91,31 @@ afterEach(async () => {
 });
 
 describe('空间实况展示', () => {
+  it('省流量暂缓图片后保留占位和预览入口，而不是替换成不可点击的错误文本', async () => {
+    const policy = useDataSaver.getState();
+    useDataSaver.setState({ enabled: true });
+    try {
+      await act(async () =>
+        root.render(h(QzoneMediaGrid, { images: ['https://a.qpic.cn/still.jpg'] })),
+      );
+      const thumbnail = host.querySelector('img')!;
+      await act(async () => thumbnail.dispatchEvent(new Event('error')));
+      expect(thumbnail.style.opacity).toBe('0');
+      expect(host.querySelector('.weq-shimmer-block')).toBeNull();
+      expect(host.querySelector('.weq-image-placeholder')?.getAttribute('aria-label')).toBe(
+        '空间图片 1未加载（省流量模式）',
+      );
+      const open = host.querySelector<HTMLButtonElement>('[aria-label="查看空间图片 1"]')!;
+      expect(open.disabled).toBe(false);
+      await act(async () => open.click());
+      expect(document.querySelector('.weq-lightbox-stage img')).not.toBeNull();
+      await act(async () =>
+        document.querySelector<HTMLButtonElement>('[aria-label="关闭预览"]')!.click(),
+      );
+    } finally {
+      await act(async () => useDataSaver.setState(policy));
+    }
+  });
   it('实况按钮在小图内静音播放，点击照片才打开预览', async () => {
     mocks.query.mockResolvedValue([
       { videoId: 'normal', isLivePhoto: false },

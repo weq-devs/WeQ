@@ -25,6 +25,7 @@ import { useTabActive } from './RetainedTabs';
 import { ChatImageCacheContext } from './ChatImageCacheProvider';
 import '../styles/chat-image-preview.css';
 import { useDataSaver } from '../lib/dataSaver';
+import { thumbnailPolicyRequest } from '../lib/resourceUrl';
 
 const noSubscription = () => () => {};
 
@@ -37,6 +38,8 @@ export function ShimmerImage({
   ...rest
 }: ImgHTMLAttributes<HTMLImageElement> & { suspendOffscreen?: boolean }): ReactElement {
   const [loaded, setLoaded] = useState(false);
+  const limited = useDataSaver((state) => state.enabled);
+  useDataSaver((state) => (state.enabled ? state.behavior : null));
   const noPrefetch = useDataSaver((state) => state.enabled && !state.behavior.dataSaverPrefetch);
   const [failed, setFailed] = useState(false);
   const [image, setImage] = useState<HTMLImageElement | null>(null);
@@ -45,7 +48,9 @@ export function ShimmerImage({
   const [visible, setVisible] = useState(false);
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
   const avatarSrc = useAvatarUrl(rest.src, false);
-  const src = avatarSrc ? resourceForRenderDocument(avatarSrc, ownerDocument) : rest.src;
+  const source = avatarSrc ?? rest.src;
+  const request = source ? thumbnailPolicyRequest(source) : { src: source, policyKey: '' };
+  const src = request.src ? resourceForRenderDocument(request.src, ownerDocument) : request.src;
   const cache = useContext(ChatImageCacheContext);
   const cacheKey = JSON.stringify([src, rest.srcSet]);
   const retained = useSyncExternalStore(
@@ -109,13 +114,19 @@ export function ShimmerImage({
     if (image?.complete && image.naturalWidth > 0) {
       setLoaded(true);
     }
-  }, [src, image]);
+  }, [src, image, rest.srcSet]);
 
   return (
     <>
       {!enabled || !loaded ? (
-        <span className="weq-image-placeholder" role="img" aria-label={alt || '图片'}>
-          {enabled && !failed ? (
+        <span
+          className="weq-image-placeholder"
+          role="img"
+          aria-label={
+            failed ? `${alt || '图片'}未加载${limited ? '（省流量模式）' : ''}` : alt || '图片'
+          }
+        >
+          {enabled && src && !failed ? (
             <span ref={observePlaceholderAnimation} className="weq-shimmer-block" aria-hidden />
           ) : null}
           <ImageIcon size={28} strokeWidth={1.5} aria-hidden />
@@ -123,7 +134,7 @@ export function ShimmerImage({
       ) : null}
       <img
         // 暂停和换源使用独立节点，旧请求（含移除 src）的迟到事件不能触发当前回退。
-        key={JSON.stringify(enabled ? [src, rest.srcSet] : null)}
+        key={JSON.stringify(enabled ? [src, rest.srcSet, request.policyKey] : null)}
         ref={setImage}
         className={className}
         alt={alt}

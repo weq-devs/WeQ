@@ -203,6 +203,10 @@
   max-height: 420px;
   aspect-ratio: auto;
 }
+.weq-qzn-pictures[data-media-count='1'] > :only-child:has(.weq-image-placeholder) {
+  min-width: min(160px, 100%);
+  min-height: 120px;
+}
 .weq-qzn-pictures[data-media-count='1'] img {
   width: auto;
   height: auto;

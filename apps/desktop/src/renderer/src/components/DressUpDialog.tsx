@@ -69,6 +69,7 @@ import { WorkspacePage } from './WorkspacePages';
 import { MarketEmojiBrowserLightbox } from '../views/export/MarketEmojiBrowserLightbox';
 import { RedPackSkinWall } from './gift/RedPackSkinWall';
 import '../styles/dressup.css';
+import { ShimmerImage } from './ShimmerImage';
 
 export type DressKind =
   | 'usage'
@@ -217,7 +218,10 @@ function DressCardPreview({
   // 在视口内还要抢到播放名额才播 —— 一屏可能摆下二十多张卡片。
   const showVideo = useVideoPlaybackSlot(slotKey, Boolean(videoSrc) && near);
   return (
-    <div className={`weq-dress-card-preview${videoSrc ? ' is-video' : ''}`} ref={ref}>
+    <div
+      className={`weq-dress-card-preview weq-media-frame${videoSrc ? ' is-video' : ''}`}
+      ref={ref}
+    >
       {children ? (
         children
       ) : showVideo ? (
@@ -226,7 +230,7 @@ function DressCardPreview({
         <video src={videoSrc} poster={imageSrc || undefined} autoPlay loop muted playsInline />
       ) : imageSrc && entered ? (
         // 有视频但离屏时同样走这张封面 —— 它本来就是这支视频的首帧。
-        <img src={imageSrc} alt={alt} loading="lazy" decoding="async" />
+        <ShimmerImage src={imageSrc} alt={alt} loading="lazy" decoding="async" />
       ) : imageSrc ? (
         // 还没滚到:连 src 都不给,免得一进页就把几十张封面一起拉下来。
         <span className="weq-dress-card-pending" aria-hidden />
@@ -934,14 +938,14 @@ export function DressUpDialog({
                 title={o.hint}
                 onClick={() => void chooseBackground(o.id)}
               >
-                <div className="weq-dress-bg-preview">
+                <div className="weq-dress-bg-preview weq-media-frame">
                   {o.preview ? (
                     o.video ? (
                       // muted + autoPlay + loop:预览与聊天里看到的都是循环播放的效果,
                       // 否则视频背景在选之前只是个静止的第一帧。
                       <video src={o.preview} autoPlay loop muted playsInline preload="metadata" />
                     ) : (
-                      <img src={o.preview} alt={o.label} loading="lazy" />
+                      <ShimmerImage src={o.preview} alt={o.label} loading="lazy" />
                     )
                   ) : (
                     <span className="weq-dress-bg-none">{o.id === 'none' ? '无' : '未设置'}</span>

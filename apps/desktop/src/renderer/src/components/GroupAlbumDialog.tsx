@@ -28,6 +28,7 @@ import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../shared/router';
 import { client } from '../trpc/client';
 import { albumMediaUrl } from '../lib/resourceUrl';
+import { ShimmerImage } from './ShimmerImage';
 import { MediaPreview, type PreviewMedia } from './MediaPreview';
 import { ContactEmptyState } from './contactProfile/ContactRow';
 import { ProfileDetailSurface } from './ProfileDetailSurface';
@@ -853,30 +854,27 @@ function MediaThumbnail({
   selected?: boolean;
 }): ReactElement {
   const document = useRenderDocument();
-  const [broken, setBroken] = useState(false);
   const src = item.previewUrl || (item.kind === 'image' ? item.originalUrl : '');
-  useEffect(() => setBroken(false), [src]);
   return (
     <button
       type="button"
       {...selectionProps}
-      className={`group-album-media-card${item.kind === 'video' ? ' is-video' : ''}${selected ? ' is-selected' : ''}`}
+      className={`group-album-media-card weq-media-frame${item.kind === 'video' ? ' is-video' : ''}${selected ? ' is-selected' : ''}`}
       onClick={onOpen}
       aria-label={`预览 ${item.fileName || (item.kind === 'video' ? '视频' : '图片')}`}
       title={item.fileName || '未命名媒体'}
     >
-      {src && !broken ? (
-        <img
+      {src ? (
+        <ShimmerImage
           src={resourceForRenderDocument(albumMediaUrl(src), document)}
-          alt=""
+          alt="相册媒体"
           loading="lazy"
           referrerPolicy="no-referrer"
-          onError={() => setBroken(true)}
         />
       ) : (
         <span className="group-album-thumbnail-fallback">
           <Image size={24} />
-          <small>{broken ? '预览加载失败' : '暂无封面'}</small>
+          <small>暂无封面</small>
         </span>
       )}
       {item.kind === 'video' && item.isLivePhoto === true ? (

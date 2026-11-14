@@ -3,6 +3,7 @@ import { useRef, type ReactElement } from 'react';
 import { useSearchTargetFocus } from '../hooks/useSearchTargetFocus';
 import { FileText, RefreshCw, X } from 'lucide-react';
 import { albumMediaUrl } from '../lib/resourceUrl';
+import { ShimmerImage } from './ShimmerImage';
 import { GroupFeatureSurface, type GroupFeaturePresentation } from './GroupFeatureSurface';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { useQQGroupPermissions } from './qq-actions/shared';
@@ -184,12 +185,14 @@ export function GroupEssenceDialog({
                                 ) : element.type === 2 && element.faceIndex !== undefined ? (
                                   <span className="essence-face">[表情{element.faceIndex}]</span>
                                 ) : element.type === 3 && element.imageUrl ? (
-                                  <img
-                                    src={albumMediaUrl(element.imageUrl)}
-                                    alt="精华消息图片"
-                                    className="essence-image"
-                                    loading="lazy"
-                                  />
+                                  <span className="weq-media-inline">
+                                    <ShimmerImage
+                                      src={albumMediaUrl(element.imageUrl)}
+                                      alt="精华消息图片"
+                                      className="essence-image"
+                                      loading="lazy"
+                                    />
+                                  </span>
                                 ) : element.type === 5 && element.fileName ? (
                                   <div className="essence-file">
                                     <FileText size={14} aria-hidden /> {element.fileName}
