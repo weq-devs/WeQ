@@ -57,7 +57,7 @@ it('实际应用只在名片导航上下文内挂载转发宿主', () => {
   expect(hosts[0]).toContain('ContactWorkspaceNavigationContext.Provider');
 });
 
-it('真实缓存序列化后 QQ 号为字符串，头像和昵称在 Portal 中打开同一人物的名片', async () => {
+it('真实缓存序列化后 QQ 号为字符串，仅头像打开名片，昵称与时间保持普通文本', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
   useForwardStore.setState({ windows: [], seq: 0, zTop: 1000 });
@@ -90,30 +90,32 @@ it('真实缓存序列化后 QQ 号为字符串，头像和昵称在 Portal 中�
     await act(async () => vi.dynamicImportSettled());
     const author = document.querySelector<HTMLElement>('.weq-forward-author')!;
     expect(author.tagName).toBe('HEADER');
-    expect(author.querySelectorAll('button')).toHaveLength(2);
+    expect(author.querySelectorAll('button')).toHaveLength(1);
+    const name = author.querySelector<HTMLElement>('.weq-forward-row-name')!;
+    expect(name.classList.contains('message-name')).toBe(true);
+    expect(name.closest('button')).toBeNull();
     const time = author.querySelector('time')!;
     expect(time).not.toBeNull();
     expect(time.closest('button')).toBeNull();
-    expect(time.parentElement).toBe(
-      author.querySelector('.weq-forward-row-name')!.parentElement!.parentElement,
+    expect(time.parentElement).toBe(name.parentElement);
+    act(() => {
+      name.click();
+      time.click();
+    });
+    expect(open).not.toHaveBeenCalled();
+    act(() =>
+      author
+        .querySelector('.weq-forward-avatar')!
+        .dispatchEvent(
+          new MouseEvent('click', { bubbles: true, clientX: 40, clientY: 60, detail: 1 }),
+        ),
     );
-    for (const selector of ['.weq-forward-avatar', '.weq-forward-row-name']) {
-      act(() =>
-        author
-          .querySelector(selector)!
-          .dispatchEvent(
-            new MouseEvent('click', { bubbles: true, clientX: 40, clientY: 60, detail: 1 }),
-          ),
-      );
-      expect(open).toHaveBeenLastCalledWith(
-        expect.objectContaining({ id: '', identityValue: '10002', displayName: '本地昵称' }),
-        { x: 40, y: 60 },
-        undefined,
-      );
-    }
-    expect(open).toHaveBeenCalledTimes(2);
-    act(() => time.click());
-    expect(open).toHaveBeenCalledTimes(2);
+    expect(open).toHaveBeenCalledOnce();
+    expect(open).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: '', identityValue: '10002', displayName: '本地昵称' }),
+      { x: 40, y: 60 },
+      undefined,
+    );
     expect(useForwardStore.getState().windows).toHaveLength(1);
   } finally {
     act(() => root.unmount());

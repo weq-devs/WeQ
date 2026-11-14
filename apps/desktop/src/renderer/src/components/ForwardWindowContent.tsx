@@ -452,9 +452,7 @@ function ForwardRow({
           </div>
         </ProfileAvatar>
         <div className="weq-forward-row-meta">
-          <ProfileAvatar className="weq-forward-name-link" target={profileTarget}>
-            <span className="weq-forward-row-name">{displayName}</span>
-          </ProfileAvatar>
+          <span className="message-name weq-forward-row-name">{displayName}</span>
           {time ? <time className="weq-forward-row-time">{time}</time> : null}
         </div>
       </header>

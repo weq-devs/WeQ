@@ -29,21 +29,15 @@
   min-width: 0;
 }
 
-.weq-forward-author .weq-forward-name-link {
-  display: inline-flex;
+.weq-forward-author .weq-forward-row-meta > .weq-forward-row-name {
+  display: block;
   min-width: 0;
   max-width: 100%;
-  font-size: 13px;
   line-height: 1.4;
   text-align: left;
-}
-
-.weq-forward-author .weq-forward-name-link .weq-forward-row-name {
-  max-width: none;
-  color: var(--weq-accent-ink, var(--weq-accent-effective));
-  font-size: 13px;
   white-space: normal;
   overflow-wrap: anywhere;
+  user-select: text;
 }
 
 .weq-forward-author .weq-forward-row-meta > .weq-forward-row-time {

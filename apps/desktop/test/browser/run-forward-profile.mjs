@@ -79,6 +79,19 @@ try {
           const time = element.querySelector('time').getBoundingClientRect();
           const meta = element.querySelector('.weq-forward-row-meta').getBoundingClientRect();
           const body = element.nextElementSibling.getBoundingClientRect();
+          const nameElement = element.querySelector('.weq-forward-row-name');
+          const nameStyle = getComputedStyle(nameElement);
+          const regularName = document.createElement('span');
+          regularName.className = 'message-name';
+          regularName.hidden = true;
+          document.body.append(regularName);
+          const regularStyle = getComputedStyle(regularName);
+          const regularAppearance = [
+            regularStyle.color,
+            regularStyle.fontSize,
+            regularStyle.fontWeight,
+          ];
+          regularName.remove();
           return {
             centerOffset: Math.abs(avatar.y + avatar.height / 2 - meta.y - meta.height / 2),
             nameLeft: name.x,
@@ -89,8 +102,10 @@ try {
             bodyTop: body.y,
             bodyLeft: body.x,
             right: element.getBoundingClientRect().right,
-            nameAlignment: getComputedStyle(element.querySelector('.weq-forward-row-name'))
-              .textAlign,
+            nameAlignment: nameStyle.textAlign,
+            nameAppearance: [nameStyle.color, nameStyle.fontSize, nameStyle.fontWeight],
+            regularAppearance,
+            nameIsInteractive: Boolean(nameElement.closest('button, a, [role="button"]')),
             timeIsInteractive: Boolean(element.querySelector('time').closest('button')),
           };
         });
@@ -101,12 +116,17 @@ try {
         assert(layout.bodyTop > layout.metaBottom, '正文不能挤占身份区');
         assert(layout.right <= width, '长昵称不能撑出窗口');
         assert.equal(layout.nameAlignment, 'left', '长昵称换行后仍须保持左对齐');
+        assert.deepEqual(layout.nameAppearance, layout.regularAppearance, '昵称应复用常规消息样式');
+        assert.equal(layout.nameIsInteractive, false);
         assert.equal(layout.timeIsInteractive, false);
         await author.locator('time').click();
         assert.equal(await page.getByRole('dialog', { name: '用户资料', exact: true }).count(), 0);
+        await author.locator('.weq-forward-row-name').click();
+        assert.equal(await page.getByRole('dialog', { name: '用户资料', exact: true }).count(), 0);
+        cases++;
         if (output) await page.screenshot({ path: resolve(output, `${capture}-forward.png`) });
-        for (const selector of ['.weq-forward-avatar', '.weq-forward-row-name']) {
-          await author.locator(selector).click();
+        {
+          await author.locator('.weq-forward-avatar').click();
           const card = page.getByRole('dialog', { name: '用户资料', exact: true });
           await card.waitFor();
           assert((await card.textContent()).includes('10002'));
@@ -118,7 +138,7 @@ try {
           assert(visible, '名片必须位于转发窗口上方且没有超出屏幕');
           if (output)
             await page.screenshot({
-              path: resolve(output, `${capture}-${selector.slice(1)}.png`),
+              path: resolve(output, `${capture}-avatar-card.png`),
             });
           await card.getByRole('button', { name: '关闭', exact: true }).click();
           await card.waitFor({ state: 'detached' });
@@ -139,6 +159,8 @@ try {
         await forward.getByTitle('查看合并转发', { exact: true }).click();
         const child = page.getByRole('dialog', { name: '嵌套聊天记录', exact: true });
         await child.locator('.weq-forward-row-name').click();
+        assert.equal(await card.count(), 0);
+        await child.locator('.weq-forward-avatar').click();
         await card.waitFor();
         assert((await card.textContent()).includes('10002'));
         await card.getByRole('button', { name: '关闭', exact: true }).click();

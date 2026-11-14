@@ -10151,7 +10151,7 @@ html[data-theme='dark'] .weq-decoration-card-preview {
   flex-wrap: wrap;
 }
 
-.weq-forward-row-name {
+.weq-forward-row-name:where(:not(.message-name)) {
   font-size: 12.5px;
   font-weight: 600;
   color: #374151;
@@ -10297,7 +10297,7 @@ html[data-theme='dark'] .weq-forward-avatar {
   background: rgba(255, 255, 255, 0.1);
   color: var(--weq-fg-secondary);
 }
-html[data-theme='dark'] .weq-forward-row-name {
+html[data-theme='dark'] .weq-forward-row-name:where(:not(.message-name)) {
   color: var(--weq-fg-primary);
 }
 html[data-theme='dark'] .weq-forward-row-time {
