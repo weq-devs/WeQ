@@ -2,6 +2,8 @@ import {
   act,
   createElement as h,
   StrictMode,
+  Fragment,
+  startTransition,
   useLayoutEffect,
   useContext,
   useState,
@@ -108,6 +110,7 @@ const f = vi.hoisted(() => ({
     | { uid: string; uin: string; card: string; nick: string; adminFlag: number; joinTime: string }
     | undefined,
   messages: [] as ComponentProps<typeof ChatMainContent>['messages'],
+  messageCommits: [] as Array<{ id?: string; rows: string[] }>,
   atLatest: true as ComponentProps<typeof ChatMainContent>['atLatest'],
   commit: undefined as (() => void) | undefined,
   reads: [] as { conv: string; show: (stage: MessagePageStage<TestMessage>) => void }[],
@@ -301,6 +304,12 @@ vi.mock('../src/renderer/src/im-template/template/chatMainContent', async (impor
         f.commit?.();
         f.commit = undefined;
       }, [props.activeConversation?.id]);
+      useLayoutEffect(() => {
+        f.messageCommits.push({
+          id: props.activeConversation?.id,
+          rows: props.messages.map((row) => row.id),
+        });
+      }, [props.activeConversation?.id, props.messages]);
       return h(
         'div',
         null,
@@ -398,6 +407,7 @@ afterEach(() => {
   f.bots = [];
   f.memberDetails = undefined;
   f.messages = [];
+  f.messageCommits = [];
   f.atLatest = true;
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -1562,6 +1572,95 @@ it('全目录一次获取共享结果，不在前端轮询精算，服务快照�
     host.remove();
   }
 });
+
+it.each([
+  { from: '10001', to: '10002', deferred: false, strict: false },
+  { from: '10001', to: '10002', deferred: true, strict: false },
+  { from: '10001', to: '10002', deferred: true, strict: true },
+  { from: 'u_peer', to: '10002', deferred: true, strict: false },
+])(
+  '$from 切到 $to 不串正文、摘要或缓存：deferred=$deferred / strict=$strict',
+  async ({ from, to, deferred, strict }) => {
+    vi.useFakeTimers();
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    useViewState.getState().setOpenedUin('90001');
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const select = (id: string) =>
+      act(async () =>
+        [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+          .find((button) => button.textContent === id)!
+          .click(),
+      );
+    const conversation = (id: string) =>
+      JSON.parse(host.querySelector('[data-previews]')!.textContent!).find(
+        (row: { id: string }) => row.id === id,
+      );
+    const preview = (id: string) => conversation(id).lastMessage.body;
+    const message = (id: string, sendTime: string): TestMessage => ({
+      msgId: id,
+      msgSeq: '2',
+      sendTime,
+      senderUid: 'u_peer',
+      senderUin: '20001',
+      elements: [{ type: 'text', data: { textContent: id } }],
+    });
+    try {
+      await act(async () =>
+        root.render(
+          h(
+            strict ? StrictMode : Fragment,
+            null,
+            h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+          ),
+        ),
+      );
+      await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+      await select(from);
+      await act(async () =>
+        f.reads.at(-1)!.show({ complete: false, rows: [message('group-a', '1794200100')] }),
+      );
+      await act(async () => {
+        const update = () =>
+          f.reads.at(-1)!.show({ complete: false, rows: [message('group-a-next', '1794200200')] });
+        if (deferred) startTransition(update);
+        else update();
+        flushSync(() =>
+          [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+            .find((button) => button.textContent === to)!
+            .click(),
+        );
+      });
+      expect(preview(to)).toBe('旧预览');
+      await act(async () =>
+        f.reads.at(-1)!.show({ complete: true, rows: [message('group-b', '1794200060')] }),
+      );
+      expect(f.messages.map((row) => row.id)).toEqual(['group-b']);
+      expect(preview(from)).toMatch(/^group-a/);
+      expect(preview(to)).toBe('group-b');
+      expect(Date.parse(conversation(to).updatedAt)).toBe(1794200060000);
+      await select(from);
+      expect(f.messages).toHaveLength(1);
+      expect(f.messages[0]!.id).toMatch(/^group-a/);
+      expect(preview(to)).toBe('group-b');
+      await select(to);
+      expect(f.messages.map((row) => row.id)).toEqual(['group-b']);
+      expect(Date.parse(conversation(to).updatedAt)).toBe(1794200060000);
+      for (const commit of f.messageCommits) {
+        if (commit.id === to) expect(commit.rows.every((id) => id === 'group-b')).toBe(true);
+        if (commit.id === from)
+          expect(commit.rows.every((id) => id.startsWith('group-a'))).toBe(true);
+      }
+    } finally {
+      act(() => root.unmount());
+      client.clear();
+      host.remove();
+    }
+  },
+);
 
 it('切换会话立即更新目标并启动对应消息读取，返回时立即恢复窗口', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
