@@ -76,7 +76,7 @@ try {
   const errors = [],
     requests = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.route('**/*', (route) => {
+  const mediaRoute = (route) => {
     const url = new URL(route.request().url());
     if (url.hostname !== '127.0.0.1') return route.abort();
     if (!url.pathname.startsWith('/_media/')) return route.continue();
@@ -90,7 +90,8 @@ try {
     if (url.pathname === '/_media/video' && url.searchParams.get('v') !== 'thumb')
       return route.fulfill({ contentType: 'video/webm', body: clip });
     return route.fulfill({ contentType: 'image/png', body: picture });
-  });
+  };
+  await page.route('**/*', mediaRoute);
   const output = process.env.WEQ_MEDIA_PREVIEW_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
   const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/media-preview.html`;
@@ -131,6 +132,93 @@ try {
       assert.ok(valid, JSON.stringify(box));
     }
   };
+  const mousePage = await browser.newPage({ reducedMotion: 'reduce' });
+  mousePage.on('pageerror', (error) => errors.push(error.message));
+  await mousePage.route('**/*', mediaRoute);
+  let inlineVideoCases = 0;
+  try {
+    for (const width of [1280, 390]) {
+      await mousePage.setViewportSize({ width, height: 844 });
+      for (const theme of ['light', 'dark']) {
+        await mousePage.goto(url, { waitUntil: 'networkidle' });
+        await mousePage.evaluate(
+          (value) => window.mediaTheme.getState().setPreference(value),
+          theme,
+        );
+        const video = mousePage.locator('.weq-video-preview-wrap');
+        const expand = video.getByRole('button', { name: '放大预览视频', exact: true });
+        const hidden = () =>
+          mousePage.waitForFunction(() => {
+            const button = document.querySelector('.weq-video-expand');
+            const style = getComputedStyle(button);
+            return style.opacity === '0' && style.pointerEvents === 'none';
+          });
+        const shown = () =>
+          mousePage.waitForFunction(() => {
+            const button = document.querySelector('.weq-video-expand');
+            const style = getComputedStyle(button);
+            return style.opacity === '1' && style.pointerEvents === 'auto';
+          });
+        await video.scrollIntoViewIfNeeded();
+        await mousePage.mouse.move(0, 0);
+        await hidden();
+        const bounds = await video.boundingBox();
+        await video.hover();
+        await shown();
+        await expand.hover();
+        await shown();
+        assert.deepEqual(await video.boundingBox(), bounds);
+        if (output)
+          await video.screenshot({ path: resolve(output, `${theme}-${width}-inline-hover.png`) });
+        await mousePage.mouse.move(0, 0);
+        await hidden();
+        if (output)
+          await video.screenshot({ path: resolve(output, `${theme}-${width}-inline-idle.png`) });
+        const play = video.getByRole('button', { name: '播放视频：video.webm', exact: true });
+        await play.focus();
+        await mousePage.keyboard.press('Tab');
+        assert.equal(await expand.evaluate((el) => document.activeElement === el), true);
+        await shown();
+        await mousePage.keyboard.press('Shift+Tab');
+        await shown();
+        await mousePage.keyboard.press('Enter');
+        await mousePage.waitForFunction(
+          () => document.querySelector('.qq-media-video-player')?.readyState >= 2,
+        );
+        await shown();
+        await mousePage.getByRole('button', { name: '背景按钮', exact: true }).click();
+        await hidden();
+        await video.hover();
+        await shown();
+        await expand.click();
+        await mousePage.locator('.weq-lightbox-stage[data-media-state="ready"]').waitFor();
+        assert.equal(await mousePage.locator('.weq-unified-preview video').count(), 1);
+        await mousePage.keyboard.press('Escape');
+        await mousePage.getByRole('dialog').waitFor({ state: 'detached' });
+        inlineVideoCases++;
+      }
+    }
+  } finally {
+    await mousePage.close();
+  }
+  await page.bringToFront();
+  let inlineVideoTouchCases = 0;
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const theme of ['light', 'dark']) {
+      await page.goto(url, { waitUntil: 'networkidle' });
+      await page.evaluate((value) => window.mediaTheme.getState().setPreference(value), theme);
+      const expand = page.getByRole('button', { name: '放大预览视频', exact: true });
+      assert.equal(await expand.evaluate((el) => getComputedStyle(el).opacity), '1');
+      await expand.tap();
+      await page.locator('.weq-lightbox-stage[data-media-state="ready"]').waitFor();
+      assert.equal(await page.locator('.weq-unified-preview video').count(), 1);
+      await close();
+      inlineVideoTouchCases++;
+    }
+  }
+  assert.deepEqual(errors, []);
+  console.log(JSON.stringify({ inlineVideoCases, inlineVideoTouchCases }));
   for (const width of [1280, 390, 320]) {
     await page.setViewportSize({ width, height: 844 });
     for (const theme of ['light', 'dark']) {
@@ -321,7 +409,16 @@ try {
   const touchCases = await runMediaPreviewTouch(page, output);
   assert.deepEqual(errors, []);
   assert.ok(requests.some((value) => value.includes('_weq_retry=1')));
-  console.log(JSON.stringify({ cases, touchCases, errors, mediaRequests: requests.length }));
+  console.log(
+    JSON.stringify({
+      cases,
+      inlineVideoCases,
+      inlineVideoTouchCases,
+      touchCases,
+      errors,
+      mediaRequests: requests.length,
+    }),
+  );
 } finally {
   await browser?.close();
   await server.close();
