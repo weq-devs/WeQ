@@ -160,6 +160,8 @@ html:where([data-weq-layout='single'])[data-component-style][data-theme]
 }
 
 :where(html[data-weq-layout='single']) .weq-mobile-header .weq-titlebar-search.is-expanded {
+  /* 展开后填满可用宽度，避免右侧留白让静止光标反复离开和进入搜索区。 */
+  max-width: 100%;
   min-width: 0;
   flex: 1;
 }
