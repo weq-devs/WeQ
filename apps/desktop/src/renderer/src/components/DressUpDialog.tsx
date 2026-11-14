@@ -1,13 +1,9 @@
 /**
  * 个性装扮整页，保留分类与商城浏览现场。
  *
- * 布局是「一栏到底」:头部一行放类别切换 + 搜索框 + 作用范围开关,下面直接是卡片
- * 网格。搜索**不单独分页** —— 回车后过滤当前列表来源:有关键词时打商城搜索接口,清空
- * 关键词就回到排行榜。这样用户不必在「排行/搜索/我的」之间跳来跳去。
+ * 「使用」集中管理当前装扮与渲染范围，其他类别保留商城浏览、搜索与已装筛选。
  *
- * 前三栏(气泡 / 字体 / 头像挂件)走商城,第四栏(聊天背景 + 浮屏挂件)完全是本地的,
- * 所以搜索框、「已装」筛子、渲染范围那几个控件在它上面都会隐藏 —— 留着禁用的控件
- * 只会让人以为坏了。
+ * 气泡、字体、头像挂件和通话背景走商城；使用页与聊天背景不显示商城搜索和筛选。
  *
  * 在线要求其实只剩搜索这一档,其余一律离线可用:
  *  - **浏览排行 / 安装(气泡 / 字体 / 挂件)**:离线可用 —— 资源先走本地离线 bundle(QQ 自带
@@ -45,11 +41,18 @@ import {
   Trophy,
   X,
   Store,
+  ChevronRight,
 } from 'lucide-react';
 import type { BubbleSkin, DressBackgroundSource, DressMallItem, DressScope } from '@weq/service';
 import { trpc } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
-import { dressBackgroundUrl, dressFontUrl, dressUrl, isVideoBackground } from '../lib/resourceUrl';
+import {
+  dressBackgroundUrl,
+  dressFontUrl,
+  dressPendantFrameUrl,
+  dressUrl,
+  isVideoBackground,
+} from '../lib/resourceUrl';
 import { bubblePreviewCss } from '../lib/dressSkin';
 import { syncDressSkin, syncDressSkinPreloaded } from '../hooks/useDressSkin';
 import { useNearViewport } from '../hooks/useNearViewport';
@@ -68,6 +71,7 @@ import { RedPackSkinWall } from './gift/RedPackSkinWall';
 import '../styles/dressup.css';
 
 export type DressKind =
+  | 'usage'
   | 'bubble'
   | 'font'
   | 'widget'
@@ -77,6 +81,7 @@ export type DressKind =
   | 'redpack';
 
 const KINDS: Array<{ id: DressKind; label: string; icon: ReactElement }> = [
+  { id: 'usage', label: '使用', icon: <Check size={14} /> },
   { id: 'bubble', label: '聊天气泡', icon: <Palette size={14} /> },
   { id: 'font', label: '聊天字体', icon: <Type size={14} /> },
   { id: 'widget', label: '头像挂件', icon: <Gem size={14} /> },
@@ -94,8 +99,9 @@ type MallKind = 'bubble' | 'font' | 'widget' | 'callbg';
 const isCallBg = (kind: MallKind): boolean => kind === 'callbg';
 
 const SCOPES: Array<{ id: DressScope; label: string; hint: string }> = [
-  { id: 'mine', label: '仅自己', hint: '只渲染我发出的消息(与手机 QQ 一致)' },
-  { id: 'all', label: '所有人', hint: '连对方的消息也套上我的气泡和字体' },
+  { id: 'mine', label: '仅自己', hint: '仅覆盖自己发出的消息' },
+  { id: 'fallback', label: '替代无装扮', hint: '仅替代原本没有对应装扮的消息，保留已有装扮' },
+  { id: 'all', label: '覆盖全部', hint: '覆盖自己和他人消息的对应装扮' },
 ];
 
 /** 排行 / 搜索首屏的骨架卡片数 —— 与一屏可见的卡片量相当,不用撑满整份列表。 */
@@ -258,7 +264,7 @@ function DressListSkeleton(): ReactElement {
 
 export function DressUpDialog({
   onClose,
-  initialKind = 'bubble',
+  initialKind = 'usage',
   initialEmojiPackId,
   initialEmojiPackName,
 }: {
@@ -335,12 +341,13 @@ export function DressUpDialog({
     const release: (() => void)[] = [];
     for (const b of manifest.bubbles) {
       // local-only:能进清单的款本地九宫格必在,直接画本体当预览。
-      if (!b.previewUrl) release.push(injectBubblePreviewCss(b));
+      if (!b.previewUrl || (kind === 'usage' && b.itemId === manifest.activeBubble))
+        release.push(injectBubblePreviewCss(b));
     }
     return () => {
       for (const dispose of release) dispose();
     };
-  }, [manifest]);
+  }, [manifest, kind]);
 
   // 清单里的清晰度是权威值,同步进滑块(切账号 / 外部改动都跟得上)。
   const savedOpacity = manifest?.backgroundOpacity;
@@ -432,26 +439,29 @@ export function DressUpDialog({
   );
 
   /** 取消当前生效的装扮,回到默认外观。 */
-  const clear = useCallback(async (): Promise<void> => {
-    setClearing(true);
-    try {
-      if (isCallBg(mallKind)) {
-        await setCallBackground.mutateAsync({ itemId: 0 });
+  const clear = useCallback(
+    async (target: MallKind): Promise<void> => {
+      setClearing(true);
+      try {
+        if (isCallBg(target)) {
+          await setCallBackground.mutateAsync({ itemId: 0 });
+          await refresh();
+          return;
+        }
+        const manifest = await setActive.mutateAsync({
+          kind: target as Exclude<MallKind, 'callbg'>,
+          itemId: 0,
+        });
+        await syncDressSkinPreloaded(manifest);
         await refresh();
-        return;
+      } catch (e) {
+        dialog.error('取消失败', e instanceof Error ? e.message : String(e));
+      } finally {
+        setClearing(false);
       }
-      const manifest = await setActive.mutateAsync({
-        kind: mallKind as Exclude<MallKind, 'callbg'>,
-        itemId: 0,
-      });
-      await syncDressSkinPreloaded(manifest);
-      await refresh();
-    } catch (e) {
-      dialog.error('取消失败', e instanceof Error ? e.message : String(e));
-    } finally {
-      setClearing(false);
-    }
-  }, [mallKind, setActive, refresh, dialog, setCallBackground.mutateAsync]);
+    },
+    [setActive, refresh, dialog, setCallBackground.mutateAsync],
+  );
 
   const changeScope = useCallback(
     async (next: DressScope): Promise<void> => {
@@ -734,6 +744,130 @@ export function DressUpDialog({
     );
   }
 
+  function renderUsage(): ReactElement {
+    if (state.isInitialLoading) return <DressListSkeleton />;
+    const bubble = manifest?.bubbles.find((item) => item.itemId === manifest.activeBubble);
+    const font = manifest?.fonts.find((item) => item.itemId === manifest.activeFont);
+    const widget = manifest?.widgets.find((item) => item.itemId === manifest.activeWidget);
+    const current: Array<{
+      kind: MallKind;
+      label: string;
+      itemId: number;
+      name?: string;
+      preview?: ReactElement;
+      imageSrc?: string;
+    }> = [
+      {
+        kind: 'bubble',
+        label: '聊天气泡',
+        itemId: manifest?.activeBubble ?? 0,
+        name: bubble?.name,
+        preview: bubble ? <BubbleLocalPreview itemId={bubble.itemId} /> : undefined,
+      },
+      {
+        kind: 'font',
+        label: '聊天字体',
+        itemId: manifest?.activeFont ?? 0,
+        name: font?.name,
+        preview: font ? <FontLocalPreview itemId={font.itemId} /> : undefined,
+      },
+      {
+        kind: 'widget',
+        label: '头像挂件',
+        itemId: manifest?.activeWidget ?? 0,
+        name: widget?.name,
+        imageSrc: widget ? dressPendantFrameUrl(widget.itemId, 1) : '',
+      },
+      {
+        kind: 'callbg',
+        label: '通话背景',
+        itemId: state.data?.own.callBgId ?? 0,
+        name: state.data?.own.callBgName,
+        imageSrc: dressUrl(state.data?.own.callBgUrl ?? ''),
+      },
+    ];
+    return (
+      <div className="weq-dress-usage">
+        <section aria-labelledby="weq-dress-current-title">
+          <h3 id="weq-dress-current-title">使用中的装扮</h3>
+          <div className="weq-dress-current-list">
+            {current.map((item) => (
+              <div className="weq-dress-current" key={item.kind}>
+                <DressCardPreview
+                  slotKey={`current:${item.kind}`}
+                  imageSrc={item.itemId ? (item.imageSrc ?? '') : ''}
+                  alt={item.name || item.label}
+                >
+                  {item.itemId ? (
+                    item.preview
+                  ) : (
+                    <span className="weq-dress-current-empty" aria-hidden>
+                      {KINDS.find((entry) => entry.id === item.kind)?.icon}
+                    </span>
+                  )}
+                </DressCardPreview>
+                <div className="weq-dress-current-info">
+                  <span>{item.label}</span>
+                  <strong>
+                    {item.itemId ? item.name || `${item.label} ${item.itemId}` : '未使用'}
+                  </strong>
+                  {!item.itemId && item.kind !== 'callbg' ? <small>按消息记录还原</small> : null}
+                </div>
+                <div className="weq-dress-current-actions">
+                  {item.itemId ? (
+                    <button
+                      type="button"
+                      className="weq-dress-current-action"
+                      disabled={applying}
+                      title={`取消使用${item.label}`}
+                      aria-label={`取消使用${item.label}`}
+                      onClick={() => void clear(item.kind)}
+                    >
+                      <X size={16} />
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="weq-dress-current-action"
+                    disabled={applying}
+                    title={`选择${item.label}`}
+                    aria-label={`选择${item.label}`}
+                    onClick={() => setKind(item.kind)}
+                  >
+                    <ChevronRight size={18} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+        <section className="weq-dress-usage-scope" aria-labelledby="weq-dress-scope-title">
+          <h3 id="weq-dress-scope-title">渲染范围</h3>
+          <div className="weq-dress-scope" role="radiogroup" aria-label="装扮渲染范围">
+            {SCOPES.map((option) => (
+              <label
+                key={option.id}
+                className={`weq-dress-scope-btn${scope === option.id ? ' is-active' : ''}`}
+                title={option.hint}
+              >
+                <input
+                  type="radio"
+                  name="dress-scope"
+                  value={option.id}
+                  checked={scope === option.id}
+                  disabled={applying || !manifest}
+                  onChange={() => void changeScope(option.id)}
+                />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </div>
+          <p className="weq-dress-local-note">“使用”仅影响 WeQ 本地显示，不影响实际发送。</p>
+        </section>
+      </div>
+    );
+  }
+
   /** 聊天背景 + 浮屏挂件。与商城那两栏形状完全不同,所以单独一套 UI。 */
   function renderBackground(): ReactElement {
     const source = manifest?.background ?? 'none';
@@ -874,6 +1008,7 @@ export function DressUpDialog({
   }
 
   function renderList(): ReactElement {
+    if (kind === 'usage') return renderUsage();
     if (kind === 'redpack') return <RedPackSkinWall />;
     if (kind === 'background') return renderBackground();
     if (kind === 'emoji')
@@ -1008,6 +1143,8 @@ export function DressUpDialog({
                 key={k.id}
                 type="button"
                 role="tab"
+                id={`weq-dress-tab-${k.id}`}
+                aria-controls="weq-dress-panel"
                 aria-selected={kind === k.id}
                 className={`weq-dress-kind${kind === k.id ? ' is-active' : ''}`}
                 onClick={() => setKind(k.id)}
@@ -1089,45 +1226,6 @@ export function DressUpDialog({
             {!mineOnly && !searching && rank.data?.source === 'static' ? (
               <span className="weq-dress-hint">离线目录</span>
             ) : null}
-
-            <div className="weq-dress-toolbar-right">
-              <span className="weq-dress-scope-label">渲染范围</span>
-              <div className="weq-dress-scope" role="radiogroup" aria-label="装扮渲染范围">
-                {SCOPES.map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={scope === s.id}
-                    className={`weq-dress-scope-btn${scope === s.id ? ' is-active' : ''}`}
-                    title={s.hint}
-                    disabled={applying}
-                    onClick={() => void changeScope(s.id)}
-                  >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
-              {activeId ? (
-                <button
-                  type="button"
-                  className="weq-dress-clear"
-                  disabled={applying}
-                  onClick={() => void clear()}
-                >
-                  取消当前
-                  {mallKind === 'bubble' ? '气泡' : mallKind === 'font' ? '字体' : '挂件'}
-                </button>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
-
-        {isMall ? (
-          <div className="weq-dress-notice is-info">
-            <span>
-              “使用”仅影响 WeQ 本地显示，不影响实际发送。默认不覆盖消息装扮，按消息记录还原。
-            </span>
           </div>
         ) : null}
 
@@ -1153,7 +1251,12 @@ export function DressUpDialog({
           </div>
         ) : null}
 
-        <div className={`weq-dress-body${kind === 'emoji' ? ' is-embedded-market' : ''}`}>
+        <div
+          id="weq-dress-panel"
+          role="tabpanel"
+          aria-labelledby={`weq-dress-tab-${kind}`}
+          className={`weq-dress-body${kind === 'emoji' ? ' is-embedded-market' : ''}`}
+        >
           {renderList()}
         </div>
 

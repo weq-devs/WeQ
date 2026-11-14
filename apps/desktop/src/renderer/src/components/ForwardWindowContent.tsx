@@ -26,6 +26,7 @@ import {
 import { GrayTipLine, grayTipOf } from '../im-template/template/messageRow';
 import { useMsgDecoration } from '../hooks/useMsgDecoration';
 import { useActiveWidget } from '../hooks/useActiveWidget';
+import { localDressApplies } from '../lib/dressSkin';
 import { useBubbleFontFx } from '../hooks/useBubbleFontFx';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import type { ResolvedWidget } from '@weq/service';
@@ -375,9 +376,11 @@ function ForwardRow({
 }): ReactElement {
   const rowRef = useRef<HTMLDivElement | null>(null);
   const decorationEnabled = useContext(MsgDecorationEnabledContext);
-  // 转发行都是「对方」样式,生效挂件只在作用范围 all 时叠上来。
+  // 转发行都是「对方」样式，替代无装扮仍依据原始 ID 判断。
   const { widget: activeWidget, scope: activeScope } = useActiveWidget();
-  const localWidget = activeScope === 'all' ? activeWidget : null;
+  const localWidget = localDressApplies(activeScope, false, Boolean(record.decoration?.widgetId))
+    ? activeWidget
+    : null;
   const msgDec = useMsgDecoration(
     localWidget && record.decoration ? { ...record.decoration, widgetId: 0 } : record.decoration,
     rowRef,
@@ -428,6 +431,7 @@ function ForwardRow({
       data-font={msgDec.fontId || undefined}
       data-fontfx={fontFxAttr}
       data-widget={widget?.animated ? widget.itemId : undefined}
+      data-record-widget={record.decoration?.widgetId || undefined}
     >
       <ProfileAvatar
         className="weq-identity-link weq-forward-author"

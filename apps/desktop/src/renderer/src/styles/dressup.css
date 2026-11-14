@@ -144,8 +144,7 @@
 
 .weq-workspace-page .weq-dress-head,
 .weq-workspace-page .weq-dress-kinds,
-.weq-workspace-page .weq-dress-toolbar,
-.weq-workspace-page .weq-dress-toolbar-right {
+.weq-workspace-page .weq-dress-toolbar {
   flex-wrap: wrap;
   min-width: 0;
 }
@@ -166,11 +165,7 @@
   width: 0;
 }
 
-.weq-workspace-page .weq-dress-toolbar-right {
-  margin-left: 0;
-}
-
-/* ===== 工具栏：已装筛选 + 渲染范围 + 取消当前 ===== */
+/* ===== 工具栏：已装筛选 ===== */
 .weq-dress-toolbar {
   display: flex;
   align-items: center;
@@ -208,21 +203,11 @@
   opacity: 0.75;
 }
 
-.weq-dress-toolbar-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-}
-
-.weq-dress-scope-label {
-  color: var(--weq-fg-muted);
-  font-size: 12px;
-}
-
-/* 两段式开关：仅自己 / 所有人。 */
+/* 三档共用同一行，原生单选保留方向键与焦点行为。 */
 .weq-dress-scope {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: min(100%, 390px);
   padding: 2px;
   border: 1px solid var(--weq-border-strong);
   border-radius: 8px;
@@ -230,7 +215,12 @@
 }
 
 .weq-dress-scope-btn {
-  padding: 3px 10px;
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 34px;
+  place-items: center;
+  padding: 6px 8px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -240,6 +230,25 @@
   transition:
     background 0.15s,
     color 0.15s;
+}
+
+.weq-dress-scope-btn input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.weq-dress-scope-btn:has(input:focus-visible),
+.weq-dress-current-action:focus-visible,
+.weq-dress-kind:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-dress-scope-btn:has(input:disabled) {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .weq-dress-scope-btn.is-active {
@@ -254,21 +263,6 @@
   background: var(--weq-warn-bg);
   color: var(--weq-warn-fg);
   font-size: 11px;
-}
-
-.weq-dress-clear {
-  padding: 4px 10px;
-  border: 1px solid var(--weq-border-strong);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--weq-fg-secondary);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.weq-dress-clear:hover {
-  border-color: var(--destructive);
-  color: var(--destructive);
 }
 
 /* 离线提示条：只影响搜索与字体下载，文案要说清楚，别让用户以为整页坏了。 */
@@ -317,6 +311,116 @@
   flex-direction: column;
   overflow: hidden;
   padding: 0;
+}
+
+/* ===== 当前使用：不与商城筛选混排 ===== */
+.weq-dress-usage {
+  max-width: 900px;
+  padding: 4px 0 16px;
+}
+
+.weq-dress-usage h3 {
+  margin: 0 0 14px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.weq-dress-current-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 28px;
+}
+
+.weq-dress-current {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.weq-dress-current .weq-dress-card-preview {
+  flex: 0 0 112px;
+  height: 80px;
+  border-radius: 6px;
+}
+
+.weq-dress-current-info {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+  overflow-wrap: anywhere;
+}
+
+.weq-dress-current-empty {
+  display: grid;
+  place-items: center;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-dress-current-info > span,
+.weq-dress-current-info > small,
+.weq-dress-local-note {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.weq-dress-current-info > strong {
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 500;
+}
+
+.weq-dress-current-actions {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+
+.weq-dress-current-action {
+  display: grid;
+  width: 30px;
+  height: 34px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+
+.weq-dress-current-action:hover:not(:disabled) {
+  background: var(--weq-bg-hover);
+  color: var(--weq-fg-primary);
+}
+
+.weq-dress-current-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.weq-dress-usage-scope {
+  margin-top: 28px;
+}
+
+.weq-dress-local-note {
+  margin: 12px 0 0;
+}
+
+@media (max-width: 700px) {
+  .weq-dress-current-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 360px) {
+  .weq-dress-current .weq-dress-card-preview {
+    flex-basis: 84px;
+  }
 }
 
 .weq-dress-grid {

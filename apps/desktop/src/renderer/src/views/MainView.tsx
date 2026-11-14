@@ -3210,7 +3210,7 @@ function MainWorkspace(): ReactElement {
   const [currentQzoneUin, setCurrentQzoneUin] = useState<string | null>(null);
   /** 频道私聊当前打开的 nodeId（浮动工具按当前位置导出）。 */
   const [activeGuildNodeId, setActiveGuildNodeId] = useState<string | null>(null);
-  const [dressUpSearchKind, setDressUpSearchKind] = useState<DressKind>('bubble');
+  const [dressUpSearchKind, setDressUpSearchKind] = useState<DressKind>('usage');
   const [dressUpEmojiTarget, setDressUpEmojiTarget] = useState<{
     packId: string;
     name: string;
@@ -11607,7 +11607,7 @@ function MainWorkspace(): ReactElement {
     } else if (target.kind === 'composition') compositionWindow.open();
     else if (target.kind === 'dressup') {
       setDressUpEmojiTarget(null);
-      setDressUpSearchKind(target.dressKind ?? 'bubble');
+      setDressUpSearchKind(target.dressKind ?? 'usage');
       setDressUpOpen(true);
     } else {
       if (shell.view === 'messages' && target.view !== 'messages') flushAllDirtyDrafts();
@@ -11821,7 +11821,7 @@ function MainWorkspace(): ReactElement {
               settingsNavigation.navigate(() => {
                 setSettingsOpen(false);
                 setDressUpEmojiTarget(null);
-                setDressUpSearchKind('bubble');
+                setDressUpSearchKind('usage');
                 setDressUpOpen(true);
               })
             }

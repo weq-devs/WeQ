@@ -13,6 +13,7 @@ const fixture = vi.hoisted(() => ({
   bubbleActive: false,
   widgetActive: false,
   scope: 'all',
+  unresolved: false,
 }));
 vi.mock('../src/renderer/src/trpc/client', () => {
   const resolved = new Map<string, object>();
@@ -22,6 +23,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         key === 'useQuery'
           ? (input?: { fontId?: number; bubbleId?: number; widgetId?: number }) => {
               if (path.at(-1) === 'resolveMsgDecoration') {
+                if (fixture.unresolved) return { data: undefined };
                 const id = input?.fontId ?? 0;
                 fixture.ids.push(id);
                 const key = JSON.stringify(input);
@@ -81,7 +83,13 @@ it('发送气泡按请求字体显示，读回可换款或清除，本地使用�
   document.body.append(host);
   const root = createRoot(host);
   let enabled = { bubble: true, font: true, widget: true };
-  const render = (fontId: number, sending: boolean, mine = true, bubbleId: number | null = 21001) =>
+  const render = (
+    fontId: number,
+    sending: boolean,
+    mine = true,
+    bubbleId: number | null = 21001,
+    widgetId = 10001,
+  ) =>
     act(async () =>
       root.render(
         createElement(
@@ -95,7 +103,7 @@ it('发送气泡按请求字体显示，读回可换款或清除，本地使用�
               body: '实际字体',
               createdAt: new Date(0).toISOString(),
               qqElements: [{ type: 'text', data: { textContent: '实际字体' } }],
-              ...(bubbleId === null ? {} : { decoration: { bubbleId, widgetId: 10001, fontId } }),
+              ...(bubbleId === null ? {} : { decoration: { bubbleId, widgetId, fontId } }),
               ...(sending ? { optimistic: 'sending' as const } : {}),
             },
             conversation: demo.conversations[0]!,
@@ -166,6 +174,37 @@ it('发送气泡按请求字体显示，读回可换款或清除，本地使用�
     fixture.scope = 'mine';
     await render(32002, false, false);
     expect(host.querySelector('.message-line')?.getAttribute('data-font')).toBe('32002');
+
+    fixture.scope = 'fallback';
+    fixture.bubbleActive = fixture.widgetActive = true;
+    for (const mine of [true, false]) {
+      await render(32002, false, mine);
+      expect(host.querySelector('.message-line')?.getAttribute('data-font')).toBe('32002');
+      expect(host.querySelector('.message-line')?.getAttribute('data-bubble')).toBe('21001');
+      expect(host.querySelector('.weq-avatar-pendant-img')?.getAttribute('src')).toBe(
+        'https://example.test/widget.png',
+      );
+      fixture.unresolved = true;
+      await render(32002, false, mine);
+      const line = host.querySelector('.message-line')!;
+      expect(line.getAttribute('data-record-bubble')).toBe('21001');
+      expect(line.getAttribute('data-record-font')).toBe('32002');
+      expect(line.hasAttribute('data-record-widget')).toBe(true);
+      expect(line.hasAttribute('data-bubble')).toBe(false);
+      expect(line.hasAttribute('data-font')).toBe(false);
+      expect(host.querySelector('[src="https://example.test/local-widget.png"]')).toBeNull();
+      fixture.unresolved = false;
+    }
+    await render(32002, false, false, 0, 0);
+    expect(host.querySelector('.message-line')?.hasAttribute('data-record-bubble')).toBe(false);
+    expect(host.querySelector('.message-line')?.getAttribute('data-font')).toBe('32002');
+    expect(host.querySelector('.weq-avatar-pendant-img')?.getAttribute('src')).toBe(
+      'https://example.test/local-widget.png',
+    );
+    await render(0, false, true, 0, 0);
+    expect(host.querySelector('[src="https://example.test/local-widget.png"]')).toBeNull();
+    expect(host.querySelector('.message-line')?.hasAttribute('data-record-widget')).toBe(true);
+    fixture.scope = 'mine';
     fixture.fontActive = false;
     fixture.bubbleActive = false;
     await render(31001, false);
@@ -175,6 +214,7 @@ it('发送气泡按请求字体显示，读回可换款或清除，本地使用�
     fixture.bubbleActive = false;
     fixture.widgetActive = false;
     fixture.scope = 'all';
+    fixture.unresolved = false;
     await act(async () => root.unmount());
     host.remove();
   }

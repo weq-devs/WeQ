@@ -2,18 +2,37 @@ import { act, createElement } from 'react';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createRoot } from 'react-dom/client';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import type { DressManifest } from '@weq/service';
 import { DressUpDialog } from '../src/renderer/src/components/DressUpDialog';
 
 const fixture = vi.hoisted(() => ({
   activate: vi.fn(),
   download: vi.fn(),
   mediaDownload: vi.fn(),
+  invalidate: vi.fn(),
+  manifest: {
+    bubbles: [],
+    fonts: [],
+    widgets: [],
+    activeBubble: 0,
+    activeFont: 0,
+    activeWidget: 0,
+    scope: 'mine',
+    background: 'none',
+    widgetId: '',
+    backgroundOpacity: 1,
+  } as DressManifest,
+}));
+
+vi.mock('../src/renderer/src/hooks/useDressSkin', () => ({
+  syncDressSkin: vi.fn(),
+  syncDressSkinPreloaded: vi.fn(async () => {}),
 }));
 
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
-    useUtils: () => ({}),
+    useUtils: () => ({ account: { dressup: { getState: { invalidate: fixture.invalidate } } } }),
     account: {
       dressup: {
         getState: {
@@ -32,7 +51,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
                 callBgUrl: 'https://example.test/call-background.jpg',
                 callBgVideoUrl: 'https://example.test/call-background.mp4',
               },
-              manifest: { bubbles: [], fonts: [], widgets: [] },
+              manifest: fixture.manifest,
             },
           }),
         },
@@ -69,6 +88,79 @@ vi.mock('../src/renderer/src/views/export/MarketEmojiBrowserLightbox', () => ({
 }));
 
 afterEach(() => vi.unstubAllGlobals());
+beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  fixture.manifest = {
+    bubbles: [],
+    fonts: [],
+    widgets: [],
+    activeBubble: 0,
+    activeFont: 0,
+    activeWidget: 0,
+    scope: 'mine',
+    background: 'none',
+    widgetId: '',
+    backgroundOpacity: 1,
+  } as DressManifest;
+  fixture.activate
+    .mockReset()
+    .mockImplementation(
+      async (input: { scope?: DressManifest['scope']; kind?: string; itemId?: number }) => {
+        if (input.scope) fixture.manifest = { ...fixture.manifest, scope: input.scope };
+        if (input.kind === 'bubble')
+          fixture.manifest = { ...fixture.manifest, activeBubble: input.itemId ?? 0 };
+        return fixture.manifest;
+      },
+    );
+});
+
+it('默认打开使用页，三档范围保存并可取消当前气泡，商城入口不重复显示设置和说明', async () => {
+  fixture.manifest.bubbles = [
+    {
+      itemId: 11,
+      name: '本地气泡',
+      slice: { left: 4, right: 4, top: 4, bottom: 4 },
+      imageSize: { w: 40, h: 40 },
+      textColor: '#222222',
+    },
+  ];
+  fixture.manifest.activeBubble = 11;
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(createElement(DressUpDialog, { onClose: () => {} })));
+    expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('使用');
+    expect(host.textContent).toContain('本地气泡');
+    expect(host.querySelector('[data-bubble-preview="11"]')).not.toBeNull();
+    expect(host.querySelector('.weq-dress-search')).toBeNull();
+    expect(host.querySelector('.weq-dress-toolbar')).toBeNull();
+    expect(
+      Array.from(
+        host.querySelectorAll('input[type="radio"]'),
+        (node) => (node as HTMLInputElement).value,
+      ),
+    ).toEqual(['mine', 'fallback', 'all']);
+    await act(async () => host.querySelector<HTMLInputElement>('input[value="fallback"]')!.click());
+    expect(fixture.activate).toHaveBeenLastCalledWith({ scope: 'fallback' });
+    expect(host.querySelector<HTMLInputElement>('input[value="fallback"]')?.checked).toBe(true);
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="取消使用聊天气泡"]')!.click(),
+    );
+    expect(fixture.activate).toHaveBeenLastCalledWith({ kind: 'bubble', itemId: 0 });
+    expect(host.querySelector('[aria-label="取消使用聊天气泡"]')).toBeNull();
+    expect(host.textContent).toContain('按消息记录还原');
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="选择聊天气泡"]')!.click(),
+    );
+    expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('聊天气泡');
+    expect(host.querySelector('[role="radiogroup"]')).toBeNull();
+    expect(host.querySelector('.weq-dress-local-note')).toBeNull();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
 
 it('通话背景的单个下载按钮保存原视频，不把背景 ID 当作气泡或字体资源', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -120,7 +212,7 @@ it.each([
       expect(installed.textContent).toContain('1');
       await act(async () => installed.click());
       expect(host.textContent).toContain(name);
-      expect(host.textContent).toContain('“使用”仅影响 WeQ 本地显示，不影响实际发送');
+      expect(host.textContent).not.toContain('“使用”仅影响 WeQ 本地显示，不影响实际发送');
       const use = host.querySelector<HTMLButtonElement>('.weq-dress-use')!;
       expect(use.textContent).toBe('使用');
       expect(use.title).toBe('仅影响 WeQ 本地显示，不影响实际发送');

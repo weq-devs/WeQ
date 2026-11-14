@@ -14,6 +14,7 @@ import { useSelfBubble, useSelfPendant } from '../../hooks/useSelfPendant';
 import { useActiveFontFx, useActiveWidget } from '../../hooks/useActiveWidget';
 import { useBubbleFontFx } from '../../hooks/useBubbleFontFx';
 import { useMsgDecoration } from '../../hooks/useMsgDecoration';
+import { localDressApplies } from '../../lib/dressSkin';
 import { MsgDecorationEnabledContext } from '../../components/QqMessageContent';
 import { MessageProvenance } from '../../components/MessageProvenance';
 import '../../styles/message-deletion.css';
@@ -218,9 +219,13 @@ export function MessageBubble({
   // 本地生效装扮按作用范围覆盖消息记录，未覆盖的种类仍使用记录里的装扮。
   const { widget: activeWidget, scope: activeScope, fontActive, bubbleActive } = useActiveWidget();
   const activeFontFx = useActiveFontFx();
-  const localFontOverride = fontActive && (mine || activeScope === 'all');
-  const localBubbleOverride = bubbleActive && (mine || activeScope === 'all');
-  const localWidget = activeWidget && (mine || activeScope === 'all') ? activeWidget : null;
+  const recordWidget = Boolean(decoration?.widgetId || (mine && pendantUrl));
+  const localFontOverride =
+    fontActive && localDressApplies(activeScope, mine, Boolean(decoration?.fontId));
+  const localBubbleOverride =
+    bubbleActive && localDressApplies(activeScope, mine, Boolean(decoration?.bubbleId));
+  const localWidget =
+    activeWidget && localDressApplies(activeScope, mine, recordWidget) ? activeWidget : null;
   const msgDec = useMsgDecoration(
     decoration
       ? {
@@ -236,9 +241,7 @@ export function MessageBubble({
   const msgBubbleId = msgDec.bubbleId;
   const msgFontId = msgDec.fontId;
   // 本地生效字体优先，普通款也要清除原消息的炫彩；未覆盖时使用消息字体。
-  const lineFontFx = localFontOverride
-    ? activeFontFx
-    : (msgDec.fontFx ?? (mine || activeScope === 'all' ? activeFontFx : null));
+  const lineFontFx = localFontOverride ? activeFontFx : msgDec.fontFx;
   // 量完气泡尺寸才知道放不放、放哪一段（见 useBubbleFontFx）。
   const fontFxAttr = useBubbleFontFx(lineFontFx, bubbleRef);
   const lineWidget = decorationEnabled.widget ? (localWidget ?? msgWidget) : null;
@@ -443,6 +446,9 @@ export function MessageBubble({
       }
       data-bubble={msgBubbleId || undefined}
       data-font={msgFontId || undefined}
+      data-record-bubble={decoration?.bubbleId || undefined}
+      data-record-font={decoration?.fontId || undefined}
+      data-record-widget={recordWidget || undefined}
       data-fontfx={fontFxAttr}
       data-widget={lineWidget?.animated ? lineWidget.itemId : undefined}
     >
