@@ -36,9 +36,6 @@
 .app-shell .weq-contact-directory .row-unread {
   right: 13px;
   bottom: 10px;
-  min-width: 15px;
-  height: 15px;
-  font-size: 9.5px;
 }
 :is(.app-shell, .weq-conversation-list) .conversation-row .row-muted {
   right: 13px;

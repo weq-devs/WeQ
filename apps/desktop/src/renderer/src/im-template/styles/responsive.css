@@ -314,7 +314,7 @@
   gap: 0;
 }
 
-:where(html[data-weq-layout='single']) .rail-nav button,
+:where(html[data-weq-layout='single']) .rail-nav button:not(.weq-reminder-count),
 :where(html[data-weq-layout='single']) .rail-nav button.rail-mobile-tool {
   display: grid;
   width: 100%;
@@ -335,16 +335,16 @@
   display: grid;
 }
 
-:where(html[data-weq-layout='single']) .rail-nav button:hover,
-:where(html[data-weq-layout='single']) .rail-nav button:active,
-:where(html[data-weq-layout='single']) .rail-nav button:focus,
-:where(html[data-weq-layout='single']) .rail-nav button:focus-visible,
-:where(html[data-weq-layout='single']) .rail-nav button.active {
+:where(html[data-weq-layout='single']) .rail-nav button:not(.weq-reminder-count):hover,
+:where(html[data-weq-layout='single']) .rail-nav button:not(.weq-reminder-count):active,
+:where(html[data-weq-layout='single']) .rail-nav button:not(.weq-reminder-count):focus,
+:where(html[data-weq-layout='single']) .rail-nav button:not(.weq-reminder-count):focus-visible,
+:where(html[data-weq-layout='single']) .rail-nav button:not(.weq-reminder-count).active {
   background: transparent;
   outline: 0;
 }
 
-:where(html[data-weq-layout='single']) .rail-nav button.active {
+:where(html[data-weq-layout='single']) .rail-nav button:not(.weq-reminder-count).active {
   color: #4096f5;
 }
 
@@ -440,16 +440,6 @@
   font-size: 9px;
   font-weight: 500;
   line-height: 1.05;
-}
-
-:where(html[data-weq-layout='single']) .rail-badge {
-  top: -2px;
-  right: calc(50% - 24px);
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border: 2px solid #fafbff;
-  font-size: 10px;
 }
 
 :where(html[data-weq-layout='single']) .sidebar-resize {
@@ -682,25 +672,6 @@
   bottom: auto;
   left: 57px;
   top: 8px;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 5px;
-  background: #f2543d;
-  font-size: 12px;
-}
-
-:where(html[data-weq-layout='single']) .conversation-row.active .row-unread {
-  background: #f2543d;
-  color: var(--weq-unread-foreground);
-}
-
-:where(html[data-weq-layout='single']) .row-unread.muted {
-  background: var(--weq-unread-muted-background);
-}
-
-:where(html[data-weq-layout='single']) .conversation-row.active .row-unread.muted {
-  background: var(--weq-unread-muted-background);
-  color: var(--weq-fg-primary);
 }
 
 :where(html[data-weq-layout='single']) .row-muted {
@@ -1745,10 +1716,6 @@ html:where([data-weq-layout='single'])[data-theme='dark'] .app-rail {
   --mobile-tabbar-bg: #1c1e20;
   border-top-color: #25272b;
   background: rgba(28, 30, 32, 0.97);
-}
-
-html:where([data-weq-layout='single'])[data-theme='dark'] .rail-badge {
-  border-color: #1c1e20;
 }
 
 html:where([data-weq-layout='single'])[data-theme='dark'] .mobile-sidebar-top,

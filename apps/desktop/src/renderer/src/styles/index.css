@@ -108,17 +108,12 @@ html[data-theme='light'] {
   --weq-chat-bubble-mine: var(--weq-accent-solid, var(--weq-accent-effective));
   --weq-chat-bubble-active: rgba(225, 232, 240, 0.96);
   --weq-fg-primary: var(--foreground);
-  --weq-unread-foreground: #000000;
   --weq-danger-solid-background: #a91727;
   --weq-danger-solid-foreground: #ffffff;
   --weq-danger-solid-hover: color-mix(in srgb, var(--weq-danger-solid-background) 92%, #000000);
-  --weq-unread-muted-background: #c9cbd0;
-  --weq-rail-badge-background: var(--weq-danger-solid-background);
-  --weq-rail-badge-foreground: #ffffff;
   --weq-list-alert-ink: #a61d2b;
   --weq-list-info-ink: #205bb5;
   --weq-list-attention-ink: #805500;
-  --weq-rail-badge-border: var(--weq-bg-surface);
   --weq-list-selected-background: color-mix(
     in srgb,
     var(--weq-accent-effective) 14%,
@@ -148,8 +143,6 @@ html[data-theme='light'] {
 
 html[data-theme='dark'],
 .dark {
-  --weq-unread-muted-background: #4a4a52;
-  --weq-rail-badge-border: color-mix(in srgb, var(--weq-fg-primary) 70%, var(--weq-bg-surface));
   --weq-list-selected-background: color-mix(
     in srgb,
     var(--weq-accent-effective) 18%,
@@ -4118,8 +4111,8 @@ html[data-theme='dark'] .app-title-bar-signature {
 }
 
 .app-shell .rail-avatar,
-.app-shell .rail-nav button,
-.app-shell .rail-footer button {
+.app-shell .rail-nav button:not(.weq-reminder-count),
+.app-shell .rail-footer button:not(.weq-reminder-count) {
   width: 38px;
   height: 38px;
   border-radius: 6px;
@@ -17528,17 +17521,6 @@ html[data-theme='dark'] .weq-rp-body {
   border-color: var(--weq-warn-border);
   background: var(--weq-warn-bg);
   color: var(--weq-warn-fg);
-}
-
-/* 有修复记录时那枚小圆点：一个像素级的「这里还有东西」提示，不占版面。 */
-.weq-rp-dot {
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  width: 5px;
-  height: 5px;
-  border-radius: 999px;
-  background: var(--weq-accent-effective);
 }
 
 /* ── 流程条：两页，当前段高亮 ───────────────────────────────────────

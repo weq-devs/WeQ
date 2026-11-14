@@ -369,14 +369,8 @@ html[data-theme='dark'] .weq-mail-workspace {
 }
 /* 未读除了字重，再给一个圆点标记，扫一眼就能分辨读过的邮件。 */
 .weq-mail-unread-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
   margin-right: 6px;
   vertical-align: 1px;
-  border-radius: 50%;
-  background: var(--weq-accent-effective);
-  flex: none;
 }
 .weq-mail-row.is-unread .weq-mail-row-subject {
   color: var(--weq-fg-primary);

@@ -1,4 +1,5 @@
 import { TimeLabel } from '../TimeLabel';
+import { ReminderCount } from '../ReminderBadge';
 import { formatConversationTime, formatConversationTimestamp } from '../../lib/conversationTime';
 import { conversationActivityTime } from '@weq/service/conversation-order';
 import {
@@ -783,12 +784,12 @@ export function MergedSessionPanel({
                           <TimeLabel value={conv.updatedAt}>{time}</TimeLabel>
                         </span>
                         {unreadCount > 0 ? (
-                          <span
-                            className={`row-unread${conv.preference?.muted ? ' muted' : ''}`}
+                          <ReminderCount
+                            count={unreadCount}
+                            tone={conv.preference?.muted ? 'muted' : 'notice'}
+                            className="row-unread"
                             aria-label={`${unreadCount} 条未读消息`}
-                          >
-                            {unreadCount > 99 ? '99+' : unreadCount}
-                          </span>
+                          />
                         ) : null}
                       </span>
                     </>

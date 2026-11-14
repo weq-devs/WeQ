@@ -60,8 +60,8 @@
   align-self: end;
 }
 
-.rail-nav button,
-.rail-footer button {
+.rail-nav button:not(.weq-reminder-count),
+.rail-footer button:not(.weq-reminder-count) {
   position: relative;
   display: grid;
   width: 54px;
@@ -157,60 +157,18 @@
   opacity: 0;
 }
 
-.rail-nav button:hover,
-.rail-nav button.active {
+.rail-nav button:not(.weq-reminder-count):hover,
+.rail-nav button:not(.weq-reminder-count).active {
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
 }
 
-.rail-nav button.active,
-.rail-footer button:hover {
+.rail-nav button:not(.weq-reminder-count).active,
+.rail-footer button:not(.weq-reminder-count):hover {
   color: var(--weq-accent-effective, #0099f7);
 }
 
 .rail-label {
   display: none;
-}
-
-.rail-badge {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  display: grid;
-  min-width: 17px;
-  height: 17px;
-  place-items: center;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: #ff4638;
-  color: #ffffff;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
-}
-
-/*
- * 不同入口保留各自的角标定位，数字尺寸与配色由 rail-navigation.css 统一。
- */
-.app-shell .rail-nav .rail-badge-mail {
-  top: 2px;
-  right: 2px;
-}
-
-/* 移动端 rail 按钮铺满格子、带文字标签，沿用通用气泡的居上定位。 */
-
-:where(html[data-weq-layout='single']) .app-shell .rail-nav .rail-badge-mail {
-  top: 0;
-  right: calc(50% - 24px);
-}
-
-/* 更新提示：只点一个小红点，不显示「新」字。 */
-.rail-badge-dot {
-  top: 6px;
-  right: 12px;
-  min-width: 9px;
-  width: 9px;
-  height: 9px;
-  padding: 0;
 }
 
 .profile-popover {

@@ -1493,7 +1493,6 @@ export function DbRepairPanel({
             }}
           >
             <History size={14} strokeWidth={1.9} aria-hidden />
-            {history.length > 0 ? <span className="weq-rp-dot" aria-hidden /> : null}
           </button>
           {(statusQuery.error ||
             preflightQuery.error ||

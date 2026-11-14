@@ -20,6 +20,7 @@ import {
   FileStack,
 } from 'lucide-react';
 import { Avatar } from '../im-template/template/primitives';
+import { ReminderCount } from './ReminderBadge';
 import { SelfProfileAvatar } from './SelfProfileAvatar';
 import type { ProfileGroup } from '../lib/profileNavigation';
 import type { MainView, User } from '../im-template/template/types';
@@ -134,7 +135,7 @@ export function MobileWebNavigation({
         <button key={label} type="button" onClick={action}>
           <Icon size={22} aria-hidden />
           <span>{label}</span>
-          {badge ? <MobileBadge count={badge} /> : null}
+          {badge ? <ReminderCount count={badge} className="weq-mobile-badge" /> : null}
           <ChevronRight size={18} aria-hidden />
         </button>
       ))}
@@ -197,7 +198,9 @@ export function MobileWebNavigation({
           >
             <span className="weq-mobile-tab-icon">
               <Icon size={24} aria-hidden />
-              {badge > 0 ? <MobileBadge count={badge} /> : null}
+              {badge > 0 ? (
+                <ReminderCount count={badge} overlay className="weq-mobile-badge" />
+              ) : null}
             </span>
             <span>{label}</span>
           </button>
@@ -205,8 +208,4 @@ export function MobileWebNavigation({
       </nav>
     </div>
   );
-}
-
-function MobileBadge({ count }: { count: number }) {
-  return <span className="weq-mobile-badge">{count > 99 ? '99+' : count}</span>;
 }

@@ -141,8 +141,8 @@ html[data-theme='dark'] .rail-avatar span {
   border-color: #343638;
 }
 
-html[data-theme='dark'] .rail-nav button,
-html[data-theme='dark'] .rail-footer button,
+html[data-theme='dark'] .rail-nav button:not(.weq-reminder-count),
+html[data-theme='dark'] .rail-footer button:not(.weq-reminder-count),
 html[data-theme='dark'] .icon-button,
 html[data-theme='dark'] .bot-list-row,
 html[data-theme='dark'] .chat-title strong,
@@ -165,8 +165,8 @@ html[data-theme='dark'] .bot-detail-head strong {
   color: #eef0f3;
 }
 
-html[data-theme='dark'] .rail-nav button:hover,
-html[data-theme='dark'] .rail-nav button.active,
+html[data-theme='dark'] .rail-nav button:not(.weq-reminder-count):hover,
+html[data-theme='dark'] .rail-nav button:not(.weq-reminder-count).active,
 html[data-theme='dark'] .icon-button:hover,
 html[data-theme='dark'] .icon-button.active,
 html[data-theme='dark'] .sidebar-add:hover,
@@ -204,8 +204,8 @@ html[data-theme='dark'] .sidebar-add.active {
   color: #f2f4f7;
 }
 
-html[data-theme='dark'] .rail-nav button.active,
-html[data-theme='dark'] .rail-footer button:hover {
+html[data-theme='dark'] .rail-nav button:not(.weq-reminder-count).active,
+html[data-theme='dark'] .rail-footer button:not(.weq-reminder-count):hover {
   color: #26a8ff;
 }
 
@@ -877,16 +877,24 @@ html:where([data-weq-layout='single'])[data-theme='dark'] .sidebar-body {
 }
 
 html:where([data-weq-layout='single'])[data-theme='dark'] .mobile-sidebar-title strong,
-html:where([data-weq-layout='single'])[data-theme='dark'] .rail-nav button {
+html:where([data-weq-layout='single'])[data-theme='dark']
+  .rail-nav
+  button:not(.weq-reminder-count) {
   color: #eef0f3;
 }
 
-html:where([data-weq-layout='single'])[data-theme='dark'] .rail-nav button:hover,
-html:where([data-weq-layout='single'])[data-theme='dark'] .rail-nav button.active {
+html:where([data-weq-layout='single'])[data-theme='dark']
+  .rail-nav
+  button:not(.weq-reminder-count):hover,
+html:where([data-weq-layout='single'])[data-theme='dark']
+  .rail-nav
+  button:not(.weq-reminder-count).active {
   background: transparent;
 }
 
-html:where([data-weq-layout='single'])[data-theme='dark'] .rail-nav button.active {
+html:where([data-weq-layout='single'])[data-theme='dark']
+  .rail-nav
+  button:not(.weq-reminder-count).active {
   color: #4096f5;
 }
 

@@ -1,5 +1,6 @@
 import { formatDateTime } from '@weq/time';
 import { TimeLabel } from '../../components/TimeLabel';
+import { ReminderDot } from '../../components/ReminderBadge';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   preferenceValue,
@@ -900,7 +901,11 @@ export function MailPage({
                       <div>
                         <strong data-privacy-sensitive>
                           {item.unread ? (
-                            <span className="weq-mail-unread-dot" aria-label="未读" role="img" />
+                            <ReminderDot
+                              className="weq-mail-unread-dot"
+                              aria-label="未读"
+                              role="img"
+                            />
                           ) : null}
                           {item.sender.name || item.sender.email || '发件人'}
                         </strong>
