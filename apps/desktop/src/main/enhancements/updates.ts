@@ -14,7 +14,6 @@ import { TransferGate, allowNetwork } from '@weq/service/data-saver';
 import { watchTransferPolicy, transferRestricted } from '@weq/service/transfer-policy';
 import { UpdateCheckScheduler } from '../update/scheduler';
 import { FILE_MIRRORS } from '../update/mirrors';
-import { backgroundTasks, runBackgroundTask } from '../background_tasks';
 import {
   ENHANCEMENT_PACK_IDS,
   parseEnhancementEngineManifest,
@@ -219,7 +218,6 @@ export class EnhancementUpdateController {
     this.gate = gate;
     if (this.forceCheck) gate.continue();
     let policyPaused = false;
-    let taskId = '';
     const updatePolicy = () => {
       const waiting =
         automatic && !allowNetwork(transferRestricted(), 'prefetch', transferBehavior());
@@ -237,30 +235,6 @@ export class EnhancementUpdateController {
           pauseReasons: gate.pauseReasons,
           error: undefined,
         });
-      if (taskId && gate.paused) {
-        backgroundTasks.finish(taskId, 'paused', {
-          statusLabel: gate.pauseReasons.includes('user')
-            ? '已暂停'
-            : gate.pauseReasons.includes('resume-required')
-              ? '等待继续'
-              : '省流量模式已暂停',
-        });
-        backgroundTasks.setActions(taskId, [
-          { id: 'continue', label: '继续检查', run: () => this.continueCheck?.() },
-        ]);
-      } else if (taskId) {
-        backgroundTasks.resume(taskId);
-        backgroundTasks.setActions(taskId, [
-          {
-            id: 'pause',
-            label: '暂停',
-            run: () => {
-              gate.pause();
-              updatePolicy();
-            },
-          },
-        ]);
-      }
     };
     this.continueCheck = () => {
       gate.continue();
@@ -268,56 +242,45 @@ export class EnhancementUpdateController {
     };
     const unwatch = watchTransferPolicy(updatePolicy);
     try {
-      await runBackgroundTask(
-        { kind: 'model', name: '检查增强包更新' },
-        async (id) => {
-          taskId = id;
-          updatePolicy();
-          await gate.wait(this.abort.signal);
-          backgroundTasks.resume(id);
-          for (const packId of ids)
-            this.states.set(packId, { ...this.state(packId), phase: 'checking', error: undefined });
-          const results = await Promise.allSettled([
-            ids.some((id) => id !== 'dress')
-              ? this.fetchCatalog('weq-devs/WeQ', `enhancement-packs-${this.target}.json`)
-              : Promise.resolve(null),
-            ids.includes('dress')
-              ? this.fetchCatalog('weq-devs/dress-resources', 'enhancement-pack.json')
-              : Promise.resolve(null),
-          ]);
-          const errors: string[] = [];
-          for (const packId of ids) {
-            const result = results[packId === 'dress' ? 1 : 0]!;
-            const entry =
-              result.status === 'fulfilled'
-                ? result.value?.packs.find((entry) => entry.id === packId)
-                : undefined;
-            if (!entry) {
-              const error =
-                result.status === 'rejected'
-                  ? String(result.reason instanceof Error ? result.reason.message : result.reason)
-                  : '发布清单未包含此增强包';
-              this.states.set(packId, { ...this.state(packId), phase: 'failed', error });
-              errors.push(error);
-              continue;
-            }
-            if (
-              !entry.unavailable &&
-              entry.contentVersion !== releaseContentVersion(entry.components)
-            )
-              throw new Error('增强包内容版本与文件清单不一致');
-            this.latest.set(packId, entry);
-            this.fresh.add(packId);
-            this.apply(entry);
-            this.states.set(packId, { phase: 'checked', checkedAt: Date.now() });
-          }
-          await this.save();
-          this.abort.signal.throwIfAborted();
-          await this.installKnown(ids);
-          if (errors.length) throw new Error([...new Set(errors)].join('；'));
-        },
-        () => ({ note: '增强包检查完成' }),
-      );
+      updatePolicy();
+      await gate.wait(this.abort.signal);
+      for (const packId of ids)
+        this.states.set(packId, { ...this.state(packId), phase: 'checking', error: undefined });
+      const results = await Promise.allSettled([
+        ids.some((id) => id !== 'dress')
+          ? this.fetchCatalog('weq-devs/WeQ', `enhancement-packs-${this.target}.json`)
+          : Promise.resolve(null),
+        ids.includes('dress')
+          ? this.fetchCatalog('weq-devs/dress-resources', 'enhancement-pack.json')
+          : Promise.resolve(null),
+      ]);
+      const errors: string[] = [];
+      for (const packId of ids) {
+        const result = results[packId === 'dress' ? 1 : 0]!;
+        const entry =
+          result.status === 'fulfilled'
+            ? result.value?.packs.find((entry) => entry.id === packId)
+            : undefined;
+        if (!entry) {
+          const error =
+            result.status === 'rejected'
+              ? String(result.reason instanceof Error ? result.reason.message : result.reason)
+              : '发布清单未包含此增强包';
+          this.states.set(packId, { ...this.state(packId), phase: 'failed', error });
+          errors.push(error);
+          continue;
+        }
+        if (!entry.unavailable && entry.contentVersion !== releaseContentVersion(entry.components))
+          throw new Error('增强包内容版本与文件清单不一致');
+        this.latest.set(packId, entry);
+        this.fresh.add(packId);
+        this.apply(entry);
+        this.states.set(packId, { phase: 'checked', checkedAt: Date.now() });
+      }
+      await this.save();
+      this.abort.signal.throwIfAborted();
+      await this.installKnown(ids);
+      if (errors.length) throw new Error([...new Set(errors)].join('；'));
     } catch (error) {
       for (const id of ids)
         if (this.state(id).phase === 'checking' || this.state(id).phase === 'waiting-network')
@@ -326,19 +289,10 @@ export class EnhancementUpdateController {
             phase: 'failed',
             error: error instanceof Error ? error.message : String(error),
           });
-      if (taskId && !this.abort.signal.aborted)
-        backgroundTasks.setActions(taskId, [
-          { id: 'retry', label: '重试检查', run: () => this.check(ids) },
-        ]);
       if (!this.abort.signal.aborted) await this.save().catch(() => {});
       throw error;
     } finally {
       unwatch();
-      if (
-        taskId &&
-        backgroundTasks.snapshot().find((task) => task.id === taskId)?.status !== 'failed'
-      )
-        backgroundTasks.setActions(taskId, []);
     }
   }
   private async fetchJson(url: string) {

@@ -446,13 +446,59 @@ it('默认只自动检查，发现更新不安装；列表查询不触发下载�
   });
   expect(f.ensure).not.toHaveBeenCalled();
 });
+it.each([false, true])(
+  '更新检查不登记任务，合并在途请求并保留结果（自动：%s）',
+  async (automatic) => {
+    const f = await fixture();
+    const fetch = f.fetcher.getMockImplementation()!;
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    f.fetcher.mockImplementationOnce(async (url) => {
+      await waiting;
+      return fetch(url);
+    });
+    const checking = f.controller.check(['dress'], automatic);
+    const repeated = f.controller.check(['dress'], automatic);
+    expect(repeated).toBe(checking);
+    try {
+      await vi.waitFor(() => expect(f.fetcher).toHaveBeenCalledOnce());
+      expect(f.controller.state('dress').phase).toBe('checking');
+      expect(backgroundTasks.snapshot()).toEqual([]);
+    } finally {
+      release();
+      await checking;
+    }
+    expect(f.controller.state('dress')).toMatchObject({
+      phase: 'checked',
+      checkedAt: expect.any(Number),
+    });
+    expect((await f.packs.list())[0]?.updateAvailable).toBe(true);
+    expect(backgroundTasks.snapshot()).toEqual([]);
+  },
+);
+it.each([false, true])(
+  '更新检查失败不登记任务，保留错误并允许原位重试（自动：%s）',
+  async (automatic) => {
+    const f = await fixture();
+    f.fetcher.mockRejectedValueOnce(new Error('offline'));
+    await expect(f.controller.check(['dress'], automatic)).rejects.toThrow('offline');
+    expect(f.controller.state('dress')).toMatchObject({ phase: 'failed', error: 'offline' });
+    expect(backgroundTasks.snapshot()).toEqual([]);
+    await f.controller.check(['dress'], automatic);
+    expect(f.controller.state('dress').phase).toBe('checked');
+    expect(f.controller.state('dress').error).toBeUndefined();
+    expect(backgroundTasks.snapshot()).toEqual([]);
+  },
+);
 it('自动安装已安装的更新，登记任务，未安装或明确删除的包不自动安装', async () => {
   const f = await fixture();
   f.config.setSettings({ enhancementUpdates: { autoInstall: true } });
   await f.controller.check(['dress'], true);
   await f.packs.wait();
   expect(f.ensure).toHaveBeenCalledTimes(1);
-  expect(backgroundTasks.snapshot().some((task) => task.name === '装扮')).toBe(true);
+  expect(backgroundTasks.snapshot().map((task) => task.name)).toEqual(['装扮']);
   const empty = await fixture(false);
   empty.config.setSettings({ enhancementUpdates: { autoInstall: true } });
   await empty.controller.check(['dress'], true);
@@ -563,9 +609,12 @@ it('省流量暂停后台检查；手动继续解除本次暂停而不改全局�
   const task = f.controller.check(['dress'], true);
   await vi.waitFor(() => expect(f.controller.state('dress').phase).toBe('waiting-network'));
   expect(f.fetcher).not.toHaveBeenCalled();
+  expect(backgroundTasks.snapshot()).toEqual([]);
   await f.controller.check(['dress']);
   await task;
   expect(f.fetcher).toHaveBeenCalled();
+  expect(f.controller.state('dress').phase).toBe('checked');
+  expect(backgroundTasks.snapshot()).toEqual([]);
   expect(f.config.getSettings().enhancementUpdates.autoInstall).toBe(false);
 });
 it('自动检查跟随软件更新频率，永不与关闭开关停止定时检查', async () => {
