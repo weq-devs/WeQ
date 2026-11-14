@@ -4,6 +4,7 @@ import { dirname, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hashEnhancementFile } from './prepare-enhancement-engines.mjs';
 import { tsImport } from 'tsx/esm/api';
+import { findReleaseByTag } from './release-control.mjs';
 
 const directory = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -13,10 +14,15 @@ const directory = join(
 const manifest = JSON.parse(await readFile(join(directory, 'manifest.json'), 'utf8'));
 const tag = process.env.GITHUB_REF_NAME;
 if (!tag?.startsWith('v')) throw new Error('缺少增强引擎发布标签');
-const release = JSON.parse(
-  execFileSync('gh', ['api', `repos/weq-devs/WeQ/releases/tags/${tag}`], { encoding: 'utf8' }),
+const release = await findReleaseByTag(tag, async (_method, path) =>
+  JSON.parse(
+    execFileSync('gh', ['api', `repos/weq-devs/WeQ${path}`, '--jq', 'map({id,tag_name,draft})'], {
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
+    }),
+  ),
 );
-if (!release.draft) throw new Error('只允许向发布草稿上传增强包，不改写已发布版本');
+if (release?.draft !== true) throw new Error('只允许向发布草稿上传增强包，不改写已发布版本');
 const { parseEnhancementCatalog } = await tsImport(
   '../apps/desktop/src/shared/enhancement_release.ts',
   import.meta.url,

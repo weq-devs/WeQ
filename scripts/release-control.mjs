@@ -61,12 +61,9 @@ async function pages(api, path) {
 
 export async function prepareRelease(plan, api) {
   await assertRemoteTag(plan, api);
-  const matches = (await pages(api, '/releases')).filter(
-    (release) => release.tag_name === plan.tag,
-  );
-  if (matches.length > 1) throw new Error('同标签存在多个 Release，需人工核对');
+  const existing = await findReleaseByTag(plan.tag, api);
   const release =
-    matches[0] ??
+    existing ??
     (await api('POST', '/releases', {
       tag_name: plan.tag,
       target_commitish: plan.commit,
@@ -77,6 +74,12 @@ export async function prepareRelease(plan, api) {
     }));
   assertDraft(release, plan);
   return release;
+}
+
+export async function findReleaseByTag(tag, api) {
+  const matches = (await pages(api, '/releases')).filter((release) => release.tag_name === tag);
+  if (matches.length > 1) throw new Error('同标签存在多个 Release，需人工核对');
+  return matches[0];
 }
 
 export function requiredAssets(version) {
