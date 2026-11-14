@@ -141,8 +141,8 @@ html[data-theme='dark'] .rail-avatar span {
   border-color: #343638;
 }
 
-html[data-theme='dark'] .rail-nav button,
-html[data-theme='dark'] .rail-footer button,
+html[data-theme='dark'] .rail-nav button:not(.weq-reminder-count),
+html[data-theme='dark'] .rail-footer button:not(.weq-reminder-count),
 html[data-theme='dark'] .icon-button,
 html[data-theme='dark'] .bot-list-row,
 html[data-theme='dark'] .chat-title strong,
@@ -165,16 +165,14 @@ html[data-theme='dark'] .bot-detail-head strong {
   color: #eef0f3;
 }
 
-html[data-theme='dark'] .rail-nav button:hover,
-html[data-theme='dark'] .rail-nav button.active,
+html[data-theme='dark'] .rail-nav button:not(.weq-reminder-count):hover,
+html[data-theme='dark'] .rail-nav button:not(.weq-reminder-count).active,
 html[data-theme='dark'] .icon-button:hover,
 html[data-theme='dark'] .icon-button.active,
 html[data-theme='dark'] .sidebar-add:hover,
 html[data-theme='dark'] .sidebar-add.active,
 html[data-theme='dark'] .contact-tools > button:hover,
 html[data-theme='dark'] .contact-tools > button.active,
-html[data-theme='dark'] .conversation-row:hover,
-html[data-theme='dark'] .contact-row:hover,
 html[data-theme='dark'] .message-context-menu button:hover,
 html[data-theme='dark'] .reaction-picker-cell:hover,
 html[data-theme='dark'] .rail-menu-popover button:hover,
@@ -188,6 +186,13 @@ html[data-theme='dark'] .bot-list-row.active {
   background: #3f4144;
 }
 
+@media (hover: hover) and (pointer: fine) {
+  html[data-theme='dark'] .conversation-row:hover,
+  html[data-theme='dark'] .contact-row:hover {
+    background: #3f4144;
+  }
+}
+
 html[data-theme='dark'] .sidebar-add {
   background: #242629;
   color: #c9cdd4;
@@ -199,8 +204,8 @@ html[data-theme='dark'] .sidebar-add.active {
   color: #f2f4f7;
 }
 
-html[data-theme='dark'] .rail-nav button.active,
-html[data-theme='dark'] .rail-footer button:hover {
+html[data-theme='dark'] .rail-nav button:not(.weq-reminder-count).active,
+html[data-theme='dark'] .rail-footer button:not(.weq-reminder-count):hover {
   color: #26a8ff;
 }
 
@@ -687,12 +692,13 @@ html[data-theme='dark'] .contact-tab-switch button.active {
   color: #0877d8;
 }
 
-html[data-theme='dark'] .contact-row:hover {
-  background: #222324;
+@media (hover: hover) and (pointer: fine) {
+  html[data-theme='dark'] .contact-row:hover {
+    background: #222324;
+  }
 }
 
-html[data-theme='dark'] .contact-row.active,
-html[data-theme='dark'] .contact-row.active:hover {
+html[data-theme='dark'] .contact-row.active {
   background: var(--weq-list-selected-background);
   color: var(--weq-fg-primary);
 }
@@ -871,16 +877,24 @@ html:where([data-weq-layout='single'])[data-theme='dark'] .sidebar-body {
 }
 
 html:where([data-weq-layout='single'])[data-theme='dark'] .mobile-sidebar-title strong,
-html:where([data-weq-layout='single'])[data-theme='dark'] .rail-nav button {
+html:where([data-weq-layout='single'])[data-theme='dark']
+  .rail-nav
+  button:not(.weq-reminder-count) {
   color: #eef0f3;
 }
 
-html:where([data-weq-layout='single'])[data-theme='dark'] .rail-nav button:hover,
-html:where([data-weq-layout='single'])[data-theme='dark'] .rail-nav button.active {
+html:where([data-weq-layout='single'])[data-theme='dark']
+  .rail-nav
+  button:not(.weq-reminder-count):hover,
+html:where([data-weq-layout='single'])[data-theme='dark']
+  .rail-nav
+  button:not(.weq-reminder-count).active {
   background: transparent;
 }
 
-html:where([data-weq-layout='single'])[data-theme='dark'] .rail-nav button.active {
+html:where([data-weq-layout='single'])[data-theme='dark']
+  .rail-nav
+  button:not(.weq-reminder-count).active {
   color: #4096f5;
 }
 

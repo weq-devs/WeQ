@@ -16,6 +16,7 @@ import { displayUserName } from '../../im-template/template/user';
 import { CopyButton } from '../CopyButton';
 import { contactBirth } from '../../lib/contactBirth';
 import { albumMediaUrl, collectionImageUrl, dressUrl, qqShowUrl } from '../../lib/resourceUrl';
+import { ShimmerImage } from '../ShimmerImage';
 import {
   ContactWorkspaceNavigationContext,
   type ContactWorkspaceTab,
@@ -61,6 +62,12 @@ import { SelfProfileSlot, useSelfProfileFields } from '../SelfProfileFields';
 import { ProfileDisplayEntry } from '../ProfileDisplaySettings';
 import { SelfAvatarHistory } from '../SelfAvatarHistory';
 import { SelfOnlineStatus } from '../SelfOnlineStatus';
+import {
+  ContactOnlineOccupation,
+  ContactOnlineRegion,
+  ContactOnlineSchool,
+} from './ContactOnlineFields';
+import { useTabActive } from '../RetainedTabs';
 
 export { contactCardFieldGroup, type ContactCardGroup } from '../../lib/contactCardSections';
 
@@ -336,29 +343,21 @@ function QqShowRow({ person }: { person: ProfilePerson }) {
   const hasHistory = useContactFieldHistoryAvailable('QQ 秀');
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
-  const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const query = useContactQqShow(person.identityValue);
   const url = query.data?.hasShow ? query.data.url : null;
-  if (!url || failedUrl === url)
-    return hasHistory ? (
-      <ContactRow label="QQ 秀" value={url && failedUrl === url ? '图片读取失败' : null} />
-    ) : null;
+  if (!url) return hasHistory ? <ContactRow label="QQ 秀" value={null} /> : null;
   return (
     <>
       <ContactRow label="QQ 秀">
         <button
           type="button"
-          className="weq-contact-qqshow"
+          className="weq-contact-qqshow weq-media-frame"
           ref={anchor}
           title="查看 QQ 秀展柜"
           aria-label="查看 QQ 秀展柜"
           onClick={() => setOpen((value) => !value)}
         >
-          <img
-            src={qqShowUrl(url, query.data?.expiresAt)}
-            alt="当前 QQ 秀"
-            onError={() => setFailedUrl(url)}
-          />
+          <ShimmerImage src={qqShowUrl(url, query.data?.expiresAt)} alt="当前 QQ 秀" />
         </button>
       </ContactRow>
       {open ? (
@@ -409,18 +408,21 @@ function ExtraField({
   field,
 }: {
   person: ProfilePerson;
-  field: 'company' | 'description' | 'email';
+  field: 'company' | 'description' | 'email' | 'hometown';
 }) {
   const session = useQQWriteSession(`contact-details:${person.id}`, true);
+  const active = useTabActive();
   const query = trpc.account.profileExtras.details.useQuery(
     {
       expectedAccountUin: session.binding?.expectedAccountUin ?? '',
       expectedAccountConfigId: session.binding?.expectedAccountConfigId ?? '',
       uin: person.identityValue,
     },
-    { ...PROFILE_QUERY_OPTIONS, enabled: session.available },
+    { ...PROFILE_QUERY_OPTIONS, enabled: active && session.available },
   );
   const data = query.data?.targetUin === person.identityValue ? query.data : null;
+  if (field === 'hometown')
+    return <ContactRow label="家乡" value={data?.errors.hometown ?? data?.hometownText} />;
   if (field === 'company') return <ContactRow label="公司" value={data?.company} />;
   if (field === 'description')
     return <ContactRow label="个人说明" value={data?.personalDescription} />;
@@ -529,7 +531,14 @@ function MarksRow({ person, onOpen }: { person: ProfilePerson; onOpen: () => voi
             onClick={onOpen}
           >
             {mark.icon ? (
-              <img width={18} height={18} src={collectionImageUrl(mark.icon)} alt="" />
+              <span className="weq-media-icon-frame" style={{ width: 18, height: 18 }}>
+                <ShimmerImage
+                  width={18}
+                  height={18}
+                  src={collectionImageUrl(mark.icon)}
+                  alt="互动标识"
+                />
+              </span>
             ) : null}
             {mark.text}
           </button>
@@ -837,6 +846,14 @@ export function ContactContent({
   const hasQQ =
     ['QQ', 'UIN'].includes(person.identityLabel) && /^[1-9]\d{4,19}$/.test(person.identityValue);
   const personal = !person.clone && person.kind !== 'bot' && !ext?.isEnterprise && hasQQ;
+  const onlineFallback = personal && !localOnly && !preview;
+  const occupation = occupationText(ext?.occupation);
+  const region = [
+    ...new Set(
+      [ext?.country, ext?.province, ext?.city].map((part) => part?.trim()).filter(Boolean),
+    ),
+  ].join(' · ');
+  const school = [ext?.school?.trim(), ext?.degree?.trim()].filter(Boolean).join(' · ');
   const relationIds = [
     ...new Set([person.extRelation?.displayId, ...(person.extRelation?.preselectedIds ?? [])]),
   ].filter((id): id is number => id !== undefined);
@@ -893,22 +910,25 @@ export function ContactContent({
     bloodType: <ContactRow label="血型" value={bloodTypeText(ext?.bloodType)} />,
     occupation: (
       <SelfProfileSlot field="profession">
-        <ContactRow label="职业" value={occupationText(ext?.occupation)} />
+        {occupation || !onlineFallback ? (
+          <ContactRow label="职业" value={occupation} />
+        ) : (
+          <ContactOnlineOccupation uin={person.identityValue} />
+        )}
       </SelfProfileSlot>
     ),
     region: (
       <>
         <SelfProfileSlot field="region">
-          {
-            <ContactRow
-              label="所在地"
-              value={[...new Set([ext?.country, ext?.province, ext?.city].filter(Boolean))].join(
-                ' · ',
-              )}
-            />
-          }
+          {region || !onlineFallback ? (
+            <ContactRow label="所在地" value={region} />
+          ) : (
+            <ContactOnlineRegion uin={person.identityValue} />
+          )}
         </SelfProfileSlot>
-        <SelfProfileSlot field="hometown" />
+        <SelfProfileSlot field="hometown">
+          {onlineFallback ? <ExtraField person={person} field="hometown" /> : null}
+        </SelfProfileSlot>
       </>
     ),
     school: (
@@ -926,14 +946,20 @@ export function ContactContent({
           </button>
         )}
       >
-        {
+        {ext?.school?.trim() || !onlineFallback ? (
           <ContactRow
             label="学校"
-            value={[ext?.school, ext?.degree].filter(Boolean).join(' · ')}
+            value={school}
             onActivate={(anchor) => open('education', anchor)}
             activateTitle="查看教育经历"
           />
-        }
+        ) : (
+          <ContactOnlineSchool
+            uin={person.identityValue}
+            cachedDegree={ext?.degree}
+            onOpen={(anchor) => open('education', anchor)}
+          />
+        )}
       </SelfProfileSlot>
     ),
     labels: personal ? (
@@ -950,7 +976,7 @@ export function ContactContent({
               <button
                 type="button"
                 key={photo.photoId ?? index}
-                className="weq-profile-photo"
+                className="weq-profile-photo weq-media-frame"
                 title="查看精选图片"
                 aria-label="查看精选图片"
                 onClick={() =>
@@ -966,7 +992,7 @@ export function ContactContent({
                   })
                 }
               >
-                <img src={albumMediaUrl(url)} alt="精选图片" loading="lazy" />
+                <ShimmerImage src={albumMediaUrl(url)} alt="精选图片" loading="lazy" />
               </button>
             ) : null;
           })}
@@ -1014,14 +1040,18 @@ export function ContactContent({
       <ContactRow label="已开通特权">
         <div className="weq-profile-privileges">
           {privileges.map((item) => (
-            <img
+            <span
               key={`${item.bizId}:${item.iconUrl}:${item.level}`}
-              className="weq-profile-privilege"
-              src={collectionImageUrl(item.iconUrl!)}
-              alt={`特权 ${item.bizId ?? ''}`}
-              title={`特权 ${item.bizId ?? ''}${item.level ? ` · ${item.level} 级` : ''}`}
-              loading="lazy"
-            />
+              className="weq-media-icon-frame"
+            >
+              <ShimmerImage
+                className="weq-profile-privilege"
+                src={collectionImageUrl(item.iconUrl!)}
+                alt={`特权 ${item.bizId ?? ''}`}
+                title={`特权 ${item.bizId ?? ''}${item.level ? ` · ${item.level} 级` : ''}`}
+                loading="lazy"
+              />
+            </span>
           ))}
         </div>
       </ContactRow>

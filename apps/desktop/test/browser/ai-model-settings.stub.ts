@@ -2,6 +2,13 @@ import {
   DEFAULT_INTENT_TUNING,
   DEFAULT_SUGGESTION_FALLBACK_TEXTS,
 } from '@weq/service/intent-context';
+import { useSyncExternalStore } from 'react';
+
+const listeners = new Set<() => void>();
+const subscribe = (listener: () => void) => {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+};
 
 const data: Record<string, unknown> = {
   'settings.intent.getStatus': {
@@ -38,13 +45,19 @@ const data: Record<string, unknown> = {
   'bootstrap.localModelResources': { selected: { intent: 'auto' } },
   'bootstrap.getLocalEngine': { available: false, models: [] },
 };
+Object.assign(window, { aiSettingsStatus: () => data['settings.intent.getStatus'] });
 const proxy = (path = ''): unknown =>
   new Proxy(() => undefined, {
     get(_target, key) {
       if (key === 'useUtils') return () => proxy('utils');
+      if (key === 'setData')
+        return (_input: unknown, next: unknown) => {
+          data[path.replace(/^utils\./, '')] = next;
+          for (const listener of listeners) listener();
+        };
       if (key === 'useQuery')
         return () => ({
-          data: data[path],
+          data: useSyncExternalStore(subscribe, () => data[path]),
           isLoading: false,
           refetch: async () => ({ data: data[path] }),
         });
@@ -52,23 +65,25 @@ const proxy = (path = ''): unknown =>
         return () => ({
           isLoading: false,
           mutateAsync: async (input: { modelIds?: string[] }) =>
-            path === 'bootstrap.fetchAgentLabModels'
-              ? (input.modelIds ?? []).map((id) => ({
-                  id,
-                  capabilities: ['chat'],
-                  metadata: {
-                    capabilities: {
-                      chat: 'supported',
-                      embedding: 'unsupported',
-                      vision: 'unsupported',
+            path === 'settings.intent.setConfig'
+              ? { ...(data['settings.intent.getStatus'] as object), ...input }
+              : path === 'bootstrap.fetchAgentLabModels'
+                ? (input.modelIds ?? []).map((id) => ({
+                    id,
+                    capabilities: ['chat'],
+                    metadata: {
+                      capabilities: {
+                        chat: 'supported',
+                        embedding: 'unsupported',
+                        vision: 'unsupported',
+                      },
+                      reasoning: { supported: false, controls: [] },
+                      raw: {},
+                      source: 'fixture',
+                      fetchedAt: 1,
                     },
-                    reasoning: { supported: false, controls: [] },
-                    raw: {},
-                    source: 'fixture',
-                    fetchedAt: 1,
-                  },
-                }))
-              : undefined,
+                  }))
+                : undefined,
         });
       if (key === 'useSubscription') return () => {};
       return proxy(path ? `${path}.${String(key)}` : String(key));

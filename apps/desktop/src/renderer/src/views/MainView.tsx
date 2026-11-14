@@ -97,6 +97,7 @@ import { useToast } from '../components/Toast';
 import { useMessageLocateFeedback } from '../hooks/useMessageLocateFeedback';
 import { onOpenSettingsRequest } from '../lib/callSettingsBridge';
 import { useDialog } from '../components/Dialog';
+import { ForwardWindowHost } from '../components/ForwardWindow';
 import { Undo2 } from 'lucide-react';
 import { useReadStateUndo } from '../hooks/useReadStateUndo';
 import { useAccountNoticeUnread } from '../hooks/useAccountNoticeUnread';
@@ -215,6 +216,7 @@ import { applyReplyMedia, needsReplyMedia } from '../lib/replyMedia';
 import { messageTemplateContext } from '../lib/messageTemplateContext';
 import { reconcileConversationRows, sortConversationRows } from '../lib/conversationListOrder';
 import { useRecentContactHeadRefresh } from '../hooks/useRecentContactHeadRefresh';
+import { useRecentContactTargets } from '../hooks/useRecentContactTargets';
 import { createConversationProjection } from '../lib/conversationProjection';
 import type { MessageReadWindow } from '../../../shared/message_read';
 import { mergeRefreshedWindow } from '../lib/conversationRefresh';
@@ -2303,6 +2305,12 @@ function MainWorkspace(): ReactElement {
     pinSession.binding,
     messageActivity.enabled,
   );
+  const [visibleConversationIds, setVisibleConversationIds] = useState<readonly string[]>([]);
+  const refreshRecentTargets = useRecentContactTargets(
+    pinSession.binding,
+    messageActivity.enabled,
+    visibleConversationIds,
+  );
   const firstContactsReady = Boolean(contacts.data) || contacts.isError;
   const conversationDraftTimes = trpc.account.listConversationDraftTimes.useQuery(
     pinSession.binding ?? undefined,
@@ -2385,7 +2393,10 @@ function MainWorkspace(): ReactElement {
   const refreshRecentHead = useRecentContactHeadRefresh(recentHead.refetch, messageScope);
   useEffect(() => {
     const refresh = () => {
-      if (messageScopeRef.current && document.visibilityState !== 'hidden') refreshRecentHead();
+      if (messageScopeRef.current && document.visibilityState !== 'hidden') {
+        refreshRecentHead();
+        refreshRecentTargets();
+      }
     };
     window.addEventListener('focus', refresh);
     window.addEventListener('online', refresh);
@@ -2395,7 +2406,7 @@ function MainWorkspace(): ReactElement {
       window.removeEventListener('online', refresh);
       document.removeEventListener('visibilitychange', refresh);
     };
-  }, [refreshRecentHead]);
+  }, [refreshRecentHead, refreshRecentTargets]);
 
   // Flatten the paginated recent-contact pages into one list for the memos
   // below (the sidebar can scroll-load more pages past the first window).
@@ -2601,7 +2612,11 @@ function MainWorkspace(): ReactElement {
   // Seq-window message model: a single ASC (oldest→newest) list for the open
   // conversation, plus whether it still reaches the latest message and whether
   // older history remains. `loaded[0].msgSeq` is the window's lower cursor.
-  const [loaded, setLoaded] = useState<MessageWire[]>([]);
+  const [loadedWindow, setLoadedWindow] = useState<{ key: string; rows: MessageWire[] }>({
+    key: '',
+    rows: [],
+  });
+  const loaded = loadedWindow.rows;
   /**
    * 闪照补拉到的真元素，按**本地** `msgId` 存（补拉那条的 msgId 与本地行不同，
    * 只有 seq 相同）。不能直接写进 `loaded`：`refreshWindow` 会在消息活动 / SSO
@@ -2657,6 +2672,22 @@ function MainWorkspace(): ReactElement {
     kind: 'direct' | 'group';
     readWindow: MessageReadWindow;
   } | null>(null);
+  const setLoaded = useCallback((update: React.SetStateAction<MessageWire[]>) => {
+    const scope = messageScopeRef.current;
+    const selection = selectionRef.current;
+    if (!scope || !selection) return;
+    const key = conversationWindowKey(
+      scope,
+      selection.kind === 'group' ? 'group' : 'c2c',
+      selection.id,
+    );
+    setLoadedWindow((current) => {
+      // 低优先级更新可能在切会话后才重放，提交时仍须核对正文所属窗口。
+      if (current.key !== key) return current;
+      const rows = typeof update === 'function' ? update(current.rows) : update;
+      return rows === current.rows ? current : { key, rows };
+    });
+  }, []);
   const entryScrollIntentRef = useRef<{
     selection: object | null;
     revision: number | undefined | null;
@@ -2729,7 +2760,6 @@ function MainWorkspace(): ReactElement {
     });
   }, [messageScope, conversationWindows]);
   useEffect(() => () => firstPages.dispose(), [firstPages]);
-  const [visibleConversationIds, setVisibleConversationIds] = useState<readonly string[]>([]);
   const prefetchVisible = useCallback(
     (rows: readonly Conversation[]) => {
       const ids = rows.map((row) => row.id);
@@ -2840,7 +2870,7 @@ function MainWorkspace(): ReactElement {
           console.error('[live] refreshWindow failed', err);
         }
       }),
-    [],
+    [setLoaded],
   );
 
   useEffect(() => {
@@ -2862,6 +2892,7 @@ function MainWorkspace(): ReactElement {
         );
         // WeQ 发送缓存不会改 QQ 库，也就不会触发 onDbChanged。
         refreshRecentHead();
+        refreshRecentTargets([change.conv]);
         const selection = selectionRef.current;
         if (
           !selection ||
@@ -2879,7 +2910,14 @@ function MainWorkspace(): ReactElement {
       },
     });
     return () => sub.unsubscribe();
-  }, [utils, messageScope, conversationWindows, refreshRecentHead]);
+  }, [
+    utils,
+    messageScope,
+    conversationWindows,
+    refreshRecentHead,
+    refreshRecentTargets,
+    setLoaded,
+  ]);
 
   // Subscribe once to the debounced "db changed" ping: refresh recent contacts
   // and re-read the open conversation's window. (onNewMessages stays a backend
@@ -2905,6 +2943,7 @@ function MainWorkspace(): ReactElement {
     const unknownRefresh = createUnreadRefresh(async () => {
       if (messageScopeRef.current !== messageScope) return true;
       refreshRecentHead();
+      refreshRecentTargets();
       return true;
     }, 1000);
     const sub = client.account.onDbChanged.subscribe(binding, {
@@ -2928,7 +2967,14 @@ function MainWorkspace(): ReactElement {
       unknownRefresh.dispose();
       sub.unsubscribe();
     };
-  }, [utils, refreshWindow, messageScope, conversationWindows, refreshRecentHead]);
+  }, [
+    utils,
+    refreshWindow,
+    messageScope,
+    conversationWindows,
+    refreshRecentHead,
+    refreshRecentTargets,
+  ]);
 
   useEffect(() => {
     const sub = client.bootstrap.onAccountForcedClosed.subscribe(undefined, {
@@ -3192,7 +3238,7 @@ function MainWorkspace(): ReactElement {
   const [currentQzoneUin, setCurrentQzoneUin] = useState<string | null>(null);
   /** 频道私聊当前打开的 nodeId（浮动工具按当前位置导出）。 */
   const [activeGuildNodeId, setActiveGuildNodeId] = useState<string | null>(null);
-  const [dressUpSearchKind, setDressUpSearchKind] = useState<DressKind>('bubble');
+  const [dressUpSearchKind, setDressUpSearchKind] = useState<DressKind>('usage');
   const [dressUpEmojiTarget, setDressUpEmojiTarget] = useState<{
     packId: string;
     name: string;
@@ -3860,7 +3906,7 @@ function MainWorkspace(): ReactElement {
           gapFetchCursors.current.delete(gapFetchCursors.current.keys().next().value!);
       }
     },
-    [convFetchKey, pushToast],
+    [convFetchKey, pushToast, setLoaded],
   );
 
   const handleRestoreMessage = useCallback(
@@ -5140,6 +5186,11 @@ function MainWorkspace(): ReactElement {
   messagesTabActiveRef.current = messagesTabActive;
   const isGroup = selectedConversation?.type === 'group';
   const isDirect = selectedConversation?.type === 'direct';
+  const selectedMessageWindowKey = conversationWindowKey(
+    messageScope,
+    isGroup ? 'group' : 'c2c',
+    selectedUid,
+  );
   useEffect(() => {
     if (IS_WEB && !firstPageStreamReady) firstPages.interrupt();
     const key =
@@ -5524,7 +5575,7 @@ function MainWorkspace(): ReactElement {
     setDrafts((current) => {
       const next = { ...current };
       for (const [id, text] of Object.entries(pendingDraftsRef.current)) {
-        if (text.trim()) next[id] = text;
+        if (text.length) next[id] = text;
         else delete next[id];
       }
       return next;
@@ -5748,6 +5799,7 @@ function MainWorkspace(): ReactElement {
                 void refreshWindow();
             }
             refreshRecentHead();
+            refreshRecentTargets(targets.map((target) => target.uid));
             liveRefresh.request(
               targets.flatMap((target) => {
                 const chatType = unreadChatType(target.chatType);
@@ -5776,17 +5828,25 @@ function MainWorkspace(): ReactElement {
       document.removeEventListener('visibilitychange', onVisible);
       requestUnreadRefreshRef.current = null;
     };
-  }, [openedUin, messageScope, conversationWindows, refreshRecentHead, refreshWindow]);
+  }, [
+    openedUin,
+    messageScope,
+    conversationWindows,
+    refreshRecentHead,
+    refreshRecentTargets,
+    refreshWindow,
+  ]);
   useEffect(() => {
     if (!IS_WEB) return;
     return useWebConnection.subscribe((state, previous) => {
       if (state.recovery === previous.recovery) return;
       conversationWindows.markDirty();
       refreshRecentHead();
+      refreshRecentTargets();
       requestUnreadRefreshRef.current?.();
       void refreshWindow();
     });
-  }, [conversationWindows, refreshRecentHead, refreshWindow]);
+  }, [conversationWindows, refreshRecentHead, refreshRecentTargets, refreshWindow]);
   const unreadDirectoryKey = useMemo(
     () =>
       recentContactsData
@@ -5813,6 +5873,8 @@ function MainWorkspace(): ReactElement {
       trackedMessageScope &&
       trackedMessageScope === messageScope &&
       old?.id === trackedConversationId &&
+      loadedWindow.key ===
+        conversationWindowKey(messageScope, old.kind === 'group' ? 'group' : 'c2c', old.id) &&
       (!messagesLoading || loaded.length > 0)
     ) {
       const scroll = nativeMessageScrollRef.current;
@@ -5879,7 +5941,10 @@ function MainWorkspace(): ReactElement {
     };
     setTrackedMessageScope(messageScope);
     setTrackedConversationId(shell.activeConversationId);
-    setLoaded(restored?.rows ?? []);
+    setLoadedWindow({
+      key: selectedMessageWindowKey,
+      rows: restored?.rows ?? [],
+    });
     loadedRef.current = restored?.rows ?? [];
     verifiedWindowRowsRef.current = restored?.rows ?? null;
     setAnchoredToLatest(restored?.anchored ?? true);
@@ -5899,6 +5964,12 @@ function MainWorkspace(): ReactElement {
     loadingOlderRef.current = false;
     loadingNewerRef.current = false;
     pendingScrollRestoreRef.current = null;
+  } else if (loadedWindow.key !== selectedMessageWindowKey) {
+    // 并发重放可能带回旧状态，恢复当前窗口，不能把它缓存或提交到新会话。
+    setLoadedWindow({
+      key: selectedMessageWindowKey,
+      rows: loadedRef.current,
+    });
   }
 
   useLayoutEffect(() => {
@@ -6687,7 +6758,7 @@ function MainWorkspace(): ReactElement {
         }
       }
     },
-    [convFetchKey, user, botUids, profileByUid],
+    [convFetchKey, user, botUids, profileByUid, setLoaded],
   );
 
   const forwardMatches = useMemo(
@@ -8049,7 +8120,7 @@ function MainWorkspace(): ReactElement {
         }
         return Boolean(target);
       }),
-    [scrollToMsgId, pushToast, runMessageLocate],
+    [scrollToMsgId, pushToast, runMessageLocate, setLoaded],
   );
 
   // Scroll the loaded message list to a reply target, then briefly flash it. The
@@ -8890,6 +8961,7 @@ function MainWorkspace(): ReactElement {
     readRecoveryPosition,
     recoveryPositionApplied,
     firstPages,
+    setLoaded,
   ]);
 
   const requestOlderMessages = useCallback(
@@ -8966,7 +9038,7 @@ function MainWorkspace(): ReactElement {
           console.error('[msgs] listBefore failed', err);
         });
     },
-    [selectedConversation, hasOlder, loaded, messagesLoading],
+    [selectedConversation, hasOlder, loaded, messagesLoading, setLoaded],
   );
 
   // Scroll-down paging for a detached "jump context" window: append the page of
@@ -9036,7 +9108,7 @@ function MainWorkspace(): ReactElement {
           console.error('[msgs] listAfter failed', err);
         });
     },
-    [selectedConversation, hasNewer, loaded],
+    [selectedConversation, hasNewer, loaded, setLoaded],
   );
 
   useLayoutEffect(() => {
@@ -9170,7 +9242,7 @@ function MainWorkspace(): ReactElement {
         draftVersionsRef.current.set(row.targetUid, row.version);
       // 行键里的 targetUid 就是会话 id（c2c 是 uid、群是群号）。
       const text = elementsToComposerText(row.elements ?? []);
-      if (text.trim()) next[row.targetUid] = text;
+      if (text.length) next[row.targetUid] = text;
     }
     // 不覆盖本次会话里已经改过、还没落库的那几条 —— 以 pendingDraftsRef 为准
     // （state 里的副本可能还没跟上）。
@@ -9283,7 +9355,7 @@ function MainWorkspace(): ReactElement {
       }
       setDrafts((current) => {
         const next = { ...current };
-        if (savedText.trim()) next[conversationId] = savedText;
+        if (savedText.length) next[conversationId] = savedText;
         else delete next[conversationId];
         return next;
       });
@@ -11580,7 +11652,7 @@ function MainWorkspace(): ReactElement {
     } else if (target.kind === 'composition') compositionWindow.open();
     else if (target.kind === 'dressup') {
       setDressUpEmojiTarget(null);
-      setDressUpSearchKind(target.dressKind ?? 'bubble');
+      setDressUpSearchKind(target.dressKind ?? 'usage');
       setDressUpOpen(true);
     } else {
       if (shell.view === 'messages' && target.view !== 'messages') flushAllDirtyDrafts();
@@ -11794,7 +11866,7 @@ function MainWorkspace(): ReactElement {
               settingsNavigation.navigate(() => {
                 setSettingsOpen(false);
                 setDressUpEmojiTarget(null);
-                setDressUpSearchKind('bubble');
+                setDressUpSearchKind('usage');
                 setDressUpOpen(true);
               })
             }
@@ -13336,6 +13408,7 @@ function MainWorkspace(): ReactElement {
                           </FriendDirectoryControls>
                         </ConversationDirectoryContext.Provider>
                       </QzoneCardNavigationContext.Provider>
+                      <ForwardWindowHost />
                     </ChatNavigationContext.Provider>
                   </QzoneProfileContext.Provider>
                 </QzoneNavigationContext.Provider>

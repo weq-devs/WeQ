@@ -1214,10 +1214,48 @@ describe('MessageSendService.sendText（离线集成）', () => {
   it('空文本当场报错，不发包', async () => {
     const native = fakeNative();
     const svc = new MessageSendService(native as never, fakeSession(), () => 1);
-    await expect(svc.sendText({ peerType: 'c2c', targetId: '20002', text: '   ' })).rejects.toThrow(
+    await expect(svc.sendText({ peerType: 'c2c', targetId: '20002', text: '' })).rejects.toThrow(
       /文本不能为空/,
     );
     expect(native.calls).toHaveLength(0);
+  });
+
+  it.each(['c2c', 'group'] as const)(
+    '%s 文本原样编码空白，只有引用自动补空格',
+    async (peerType) => {
+      const native = fakeNative();
+      const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+      for (const text of [' ', '\n', '\n\n', ' \t\r\n ', '\n 正文 \n']) {
+        await svc.sendText({ peerType, targetId: '20002', text });
+        const body = decode(SEND_MESSAGE_REQUEST, native.calls.at(-1)!.body);
+        expect(body.messageBody.richText.elems).toEqual([{ text: { str: text } }]);
+      }
+      await svc.sendText({ peerType, targetId: '20002', text: '', replyToMsgSeq: 7 });
+      const body = decode(SEND_MESSAGE_REQUEST, native.calls.at(-1)!.body);
+      expect(body.messageBody.richText.elems).toMatchObject([
+        { replyElement: { origMsgSeq: [7] } },
+        { text: { str: ' ' } },
+      ]);
+    },
+  );
+
+  it('元素接口仅引用补空格，不修改入参；引用加表情不补空格', async () => {
+    const native = fakeNative();
+    const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+    const elements = [{ kind: 'reply' as const, origMsgSeq: 7 }];
+    await svc.sendElements({ peerType: 'c2c', targetId: '20002', elements });
+    expect(elements).toEqual([{ kind: 'reply', origMsgSeq: 7 }]);
+    expect(
+      decode(SEND_MESSAGE_REQUEST, native.calls.at(-1)!.body).messageBody.richText.elems,
+    ).toMatchObject([{ replyElement: { origMsgSeq: [7] } }, { text: { str: ' ' } }]);
+    await svc.sendElements({
+      peerType: 'c2c',
+      targetId: '20002',
+      elements: [...elements, { kind: 'face', faceId: 14 }],
+    });
+    expect(
+      decode(SEND_MESSAGE_REQUEST, native.calls.at(-1)!.body).messageBody.richText.elems,
+    ).toHaveLength(2);
   });
 
   // ⚠️ 装扮是服务端不收的实验开关（真机实测落库全 0，见 @weq/protocol 的 SendDress）：

@@ -3,6 +3,7 @@ import { Plus, Search, UserPlus, UsersRound, Download, Users, UserRound } from '
 import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { ContactDirectoryContext } from '../../lib/conversationDirectory';
 import { ContactRefreshButton } from '../../components/ContactRefreshButton';
+import { ReminderDot } from '../../components/ReminderBadge';
 import { FriendGroupCreateMenu } from '../../components/FriendGroupCreateMenu';
 import { QQExactLookup, type QQExactLookupKind } from '../../components/QQExactLookup';
 import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
@@ -283,7 +284,11 @@ export function SidebarHeader({
                 <span className={cn('desktop-notice-label')}>好友通知</span>
                 <span className={cn('mobile-notice-label')}>新朋友</span>
                 {friendNoticeCount > 0 && (
-                  <span className="notice-entry-dot" role="status" aria-label="有新的好友通知" />
+                  <ReminderDot
+                    className="notice-entry-dot"
+                    role="status"
+                    aria-label="有新的好友通知"
+                  />
                 )}
               </span>
             </button>
@@ -298,7 +303,11 @@ export function SidebarHeader({
                 <UsersRound size={15} aria-hidden />
                 群通知
                 {groupNoticeCount > 0 && (
-                  <span className="notice-entry-dot" role="status" aria-label="有新的群通知" />
+                  <ReminderDot
+                    className="notice-entry-dot"
+                    role="status"
+                    aria-label="有新的群通知"
+                  />
                 )}
               </span>
             </button>

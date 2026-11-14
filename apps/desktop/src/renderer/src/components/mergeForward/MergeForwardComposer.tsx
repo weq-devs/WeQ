@@ -65,6 +65,7 @@ import { QqAvatar } from '../QqAvatar';
 import { useToast } from '../Toast';
 import { useMsgDecoration } from '../../hooks/useMsgDecoration';
 import { useActiveWidget } from '../../hooks/useActiveWidget';
+import { localDressApplies } from '../../lib/dressSkin';
 import { useBubbleFontFx } from '../../hooks/useBubbleFontFx';
 import { useOverlayLayer } from '../../lib/overlayStack';
 import { localFileUrl } from '../../lib/resourceUrl';
@@ -586,7 +587,11 @@ function PreviewRow({
   const msgDec = useMsgDecoration(node.decoration, rowRef);
   const { widget: activeWidget, scope: activeScope } = useActiveWidget();
   const fontFxAttr = useBubbleFontFx(msgDec.fontFx, rowRef);
-  const widget = msgDec.widget ?? (activeScope === 'all' ? activeWidget : null);
+  const widget =
+    msgDec.widget ??
+    (localDressApplies(activeScope, false, Boolean(node.decoration?.widgetId))
+      ? activeWidget
+      : null);
   const name = node.sender?.name || node.sender?.uin || '未知用户';
   return (
     <div
@@ -596,6 +601,7 @@ function PreviewRow({
       data-font={msgDec.fontId || undefined}
       data-fontfx={fontFxAttr}
       data-widget={widget?.animated ? widget.itemId : undefined}
+      data-record-widget={node.decoration?.widgetId || undefined}
       onContextMenu={(event) => {
         event.preventDefault();
         onContextMenu(event.clientX, event.clientY);

@@ -3218,6 +3218,28 @@ export const accountRouter = router({
       return { items: items.map(recentContactToWire), total, nextCursor: next };
     }),
 
+  /** 可见旧会话与实时变更的摘要，按目标批量读取，不受最新页大小限制。 */
+  listRecentContactTargets: procedure
+    .input(
+      z
+        .object({ targetUids: z.array(z.string().min(1).max(256)).max(256) })
+        .merge(exportAccountBindingInput),
+    )
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const rows = await withDatabasePriority('interactive', () =>
+        services.recentContacts.getByTargetUids(input.targetUids),
+      );
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换');
+      return rows.map(recentContactToWire);
+    }),
+
   /** 置顶会话（recent_contact_top_table），最近置顶的在前。 */
   listTopContacts: procedure
     .input(exportAccountBindingInput.optional())

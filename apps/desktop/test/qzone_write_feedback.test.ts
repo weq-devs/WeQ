@@ -1,4 +1,4 @@
-import { act, createElement as h } from 'react';
+import { act, createElement as h, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { QzoneView } from '../src/renderer/src/views/QzoneView';
@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
   refreshWait: null as Promise<void> | null,
   readback: undefined as (() => Promise<boolean>) | undefined,
   autoReadback: false,
+  writeOptions: null as { feedback?: string } | null,
   write: vi.fn(async (_input: unknown): Promise<QQWriteOutcome> => ({ state: 'accepted' })),
   forward: vi.fn(async (_input: unknown): Promise<QQWriteOutcome> => ({ state: 'accepted' })),
   pickImage: vi.fn(async () => ({ path: '/synthetic/image.png', fileName: '合成图片.png' })),
@@ -43,6 +44,8 @@ const state = vi.hoisted(() => ({
   })),
   settings: vi.fn(async () => ({ qzoneForwardQuotePrevious: true })),
   related: vi.fn(),
+  uploadImage: vi.fn(async (_input: unknown) => ({ richval: 'synthetic-richval' })),
+  publish: vi.fn(async (_input: unknown) => {}),
 }));
 vi.mock('../src/renderer/src/components/QqAvatar', () => ({
   QqAvatar: ({ size }: { size: number }) =>
@@ -64,8 +67,9 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
     run: async (
       action: (binding: QQWriteBinding) => Promise<QQWriteOutcome>,
       refresh?: () => Promise<unknown>,
-      options?: { readback?: () => Promise<boolean> },
+      options?: { feedback?: string; readback?: () => Promise<boolean> },
     ) => {
+      state.writeOptions = options ?? null;
       state.readback = options?.readback;
       const configId = state.configId;
       try {
@@ -92,6 +96,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     account: {
       qqActions: { qzone: { mutate: state.write }, qzoneForward: { mutate: state.forward } },
       qzone: {
+        uploadImage: { mutate: state.uploadImage },
+        publish: { mutate: state.publish },
         related: { query: state.related },
         posts: {
           query: state.posts,
@@ -127,6 +133,7 @@ beforeEach(() => {
   state.refreshWait = null;
   state.readback = undefined;
   state.autoReadback = false;
+  state.writeOptions = null;
   state.write.mockReset().mockResolvedValue({ state: 'accepted' });
   state.forward.mockReset().mockResolvedValue({ state: 'accepted' });
   state.forwards.mockReset().mockResolvedValue({
@@ -144,6 +151,8 @@ beforeEach(() => {
     stopReason: 'complete',
   });
   state.pickImage.mockClear();
+  state.uploadImage.mockClear();
+  state.publish.mockClear();
   state.nativeDetail.mockClear();
   state.detail.mockReset();
   state.likes.mockReset().mockResolvedValue({ likes: [], coverage: 'observed', selfLiked: null });
@@ -177,23 +186,24 @@ beforeEach(() => {
 afterEach(() => {
   close?.();
   close = undefined;
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
-async function mount() {
+async function mount(strict = false) {
   let active = true;
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const update = () =>
-    root.render(
-      h(QzoneView, {
-        selfUin: '10001',
-        nickname: '合成自己',
-        active,
-        spaceRequest: { accountUin: '10001', uin: '10001', revision: 'fixture' },
-      }),
-    );
+  const update = () => {
+    const view = h(QzoneView, {
+      selfUin: '10001',
+      nickname: '合成自己',
+      active,
+      spaceRequest: { accountUin: '10001', uin: '10001', revision: 'fixture' },
+    });
+    root.render(strict ? h(StrictMode, null, view) : view);
+  };
   close = () => {
     act(() => root.unmount());
     host.remove();
@@ -248,6 +258,98 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
+async function openComposer(strict: boolean) {
+  const view = await mount(strict);
+  const compose = [...view.host.querySelectorAll<HTMLButtonElement>('button')].find(
+    (button) => button.textContent === '写说说',
+  )!;
+  await act(async () => compose.click());
+  const dialog = document.querySelector<HTMLElement>('.weq-qzn-composer')!;
+  const input = dialog.querySelector<HTMLInputElement>('input[type="file"]')!;
+  const submit = dialog.querySelector<HTMLButtonElement>('.weq-qzn-primary')!;
+  return { dialog, input, submit };
+}
+function chooseImage(input: HTMLInputElement) {
+  const base64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aYZkAAAAASUVORK5CYII=';
+  const file = new File([Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))], '合成.png', {
+    type: 'image/png',
+  });
+  Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  return base64;
+}
+function trackImageRead() {
+  const completed = deferred<void>();
+  const read = FileReader.prototype.readAsDataURL;
+  vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementationOnce(function (
+    this: FileReader,
+    file,
+  ) {
+    this.addEventListener('loadend', () => completed.resolve(), { once: true });
+    read.call(this, file);
+  });
+  return completed.promise;
+}
+it.each([false, true])('选图完成后恢复发表并可提交，严格模式=%s', async (strict) => {
+  const { dialog, input, submit } = await openComposer(strict);
+  const content = dialog.querySelector<HTMLTextAreaElement>('textarea')!;
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
+      content,
+      '合成图文说说',
+    );
+    content.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  let base64 = '';
+  const completed = trackImageRead();
+  await act(async () => {
+    base64 = chooseImage(input);
+    await completed;
+  });
+  expect(dialog.querySelector<HTMLImageElement>('.weq-qzn-draft-images img')?.src).toBe(
+    `data:image/png;base64,${base64}`,
+  );
+  expect(submit.textContent).toBe('发表');
+  expect(submit.disabled).toBe(false);
+  expect(input.disabled).toBe(false);
+  expect(state.uploadImage).not.toHaveBeenCalled();
+  expect(state.publish).not.toHaveBeenCalled();
+  await act(async () => submit.click());
+  expect(state.uploadImage).toHaveBeenCalledOnce();
+  expect(state.uploadImage).toHaveBeenCalledWith({ selfUin: '10001', base64 });
+  expect(state.publish).toHaveBeenCalledOnce();
+  expect(state.publish).toHaveBeenCalledWith({
+    selfUin: '10001',
+    content: '合成图文说说',
+    richvals: ['synthetic-richval'],
+    visibility: 1,
+  });
+  expect(document.querySelector('.weq-qzn-composer')).toBeNull();
+});
+it('严格模式选图失败后显示错误并允许重新选图', async () => {
+  const read = vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementationOnce(function (
+    this: FileReader,
+  ) {
+    this.dispatchEvent(new ProgressEvent('error'));
+  });
+  const { dialog, input, submit } = await openComposer(true);
+  await act(async () => {
+    chooseImage(input);
+  });
+  expect(dialog.querySelector('[role="alert"]')?.textContent).toBe('图片读取失败');
+  expect(submit.textContent).toBe('发表');
+  expect(input.disabled).toBe(false);
+  read.mockRestore();
+  const completed = trackImageRead();
+  await act(async () => {
+    chooseImage(input);
+    await completed;
+  });
+  expect(dialog.querySelector('.weq-qzn-draft-images img')).not.toBeNull();
+  expect(dialog.querySelector('[role="alert"]')).toBeNull();
+  expect(input.disabled).toBe(false);
+});
 function capture(host: HTMLElement, name = 'feedback') {
   const directory = process.env.WEQ_QZONE_FEEDBACK_LAYOUT;
   if (!directory) return;
@@ -340,7 +442,10 @@ it('点赞立即高亮并更新数量，受理后即使远端仍为原值也重�
   const pending = deferred<QQWriteOutcome>();
   state.write.mockReturnValueOnce(pending.promise);
   act(() => view.button('点赞说说').click());
+  expect(state.writeOptions?.feedback).toBe('failure-only');
   expect(view.button('取消说说点赞').disabled).toBe(true);
+  expect(view.button('取消说说点赞').getAttribute('aria-busy')).toBe('true');
+  capture(view.host, 'like-pending');
   expect(view.count()).toContain('赞 5');
   await act(async () => pending.resolve({ state: 'accepted' }));
   await act(async () => {
@@ -387,6 +492,7 @@ it('评论未确认保留草稿，受理后不关闭互动区并刷新评论，�
   enter(view.host, '原评论草稿');
   state.write.mockResolvedValueOnce({ state: 'unconfirmed' });
   await act(async () => view.button('发送说说评论').click());
+  expect(state.writeOptions?.feedback).toBe('failure-only');
   expect(view.host.querySelector<HTMLInputElement>('[aria-label="说说评论"]')!.value).toBe(
     '原评论草稿',
   );
@@ -398,6 +504,7 @@ it('评论未确认保留草稿，受理后不关闭互动区并刷新评论，�
   act(() => view.button('发送说说评论').click());
   expect(view.host.querySelector('[aria-label="正在发送评论"]')).not.toBeNull();
   expect(view.button('发送说说评论').disabled).toBe(true);
+  capture(view.host, 'comment-pending');
   act(() => view.button('发送说说评论').click());
   expect(state.write).toHaveBeenCalledTimes(2);
   enter(view.host, '下一条草稿');
@@ -415,6 +522,7 @@ it('评论未确认保留草稿，受理后不关闭互动区并刷新评论，�
     }),
   );
   expect(view.count()).toContain('评论 6');
+  capture(view.host, 'comment-success');
 });
 it('连续操作期间校准失败，数量以当前即时状态为基准，失败恢复上一笔结果', async () => {
   const view = await mount();
@@ -591,6 +699,7 @@ it('转发弹窗上方预填引用并将光标定位开头，下方保留原动�
       reason: '//：合成说说',
     }),
   );
+  expect(state.writeOptions?.feedback).toBe('failure-only');
   expect(document.querySelector('.weq-qzn-forward-dialog')).toBeNull();
   expect(await state.readback!()).toBe(false);
   state.posts.mockResolvedValueOnce({

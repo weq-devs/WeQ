@@ -112,6 +112,7 @@ import { AiOutlineRedEnvelope } from 'react-icons/ai';
 import { dressUrl, resourceUrl } from '../../lib/resourceUrl';
 import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
 import { groupMemberEditing } from '../../lib/groupMemberEditing';
+import { groupPermission, recallPermission } from '@weq/service/qq-permissions';
 import { canDiscardFailedMessage, isUnpositionedFailure } from '../../lib/localOutgoing';
 import {
   messageBatchBlockReason,
@@ -260,6 +261,7 @@ import { composerSubmission, type ComposerSubmitOptions } from './composerSubmis
 import { prepareReeditDraft } from './composerReedit';
 import {
   ComposerResizeHandle,
+  createComposerLineBreak,
   focusComposerEnd,
   getActiveComposerMentionTrigger,
   insertComposerNode,
@@ -324,7 +326,6 @@ import type {
   Conversation,
   ConversationPreference,
   GroupMember,
-  GroupMemberRole,
   Message,
   MessageAction,
   UnreadDock,
@@ -1075,7 +1076,9 @@ export function ChatPane({
     anchorRef: selectionAnchor,
   } = selection;
   const recallAccount = trpc.account.getAccountConfig.useQuery(undefined, {
-    enabled: (selectionMode || Boolean(contextMenu)) && !restrictedSource,
+    enabled:
+      (conversation?.type === 'group' || selectionMode || Boolean(contextMenu)) &&
+      !restrictedSource,
     staleTime: 0,
     refetchOnMount: 'always',
   });
@@ -1086,6 +1089,36 @@ export function ChatPane({
           expectedAccountConfigId: recallAccount.data.configId,
         }
       : null;
+  const groupOperations = trpc.account.qqActions.groupPermissions.useQuery(
+    { ...recallBinding!, groupId: Number(conversation?.id) || 0 },
+    {
+      enabled:
+        conversation?.type === 'group' && Boolean(recallBinding) && sendAvailable && tabActive,
+      staleTime: 15_000,
+      refetchInterval: tabActive ? 15_000 : false,
+      retry: false,
+    },
+  );
+  const [permissionClock, updatePermissionClock] = useState(0);
+  const muteUntil = groupOperations.data?.muteUntil;
+  useEffect(() => {
+    if (!tabActive || !muteUntil || muteUntil * 1000 <= Date.now()) return;
+    const timer = setTimeout(
+      () => updatePermissionClock((value) => value + 1),
+      Math.min(muteUntil * 1000 - Date.now() + 10, 2_147_483_647),
+    );
+    return () => clearTimeout(timer);
+  }, [tabActive, muteUntil, permissionClock]);
+  const groupSpeechBlocked =
+    conversation?.type === 'group' &&
+    !groupPermission('speak', {
+      ...groupOperations.data,
+      role: groupOperations.data ? groupOperations.data.role : conversation.group.role,
+    });
+  const groupSpeechReason =
+    muteUntil && muteUntil > Date.now() / 1000
+      ? '你在此群被禁言，暂时无法发送消息'
+      : '此群已开启全员禁言，暂时无法发送消息';
   const selectionCancelRef = useRef<(() => void) | null>(null);
   const recentReactions = trpc.account.emojiPanel.recentReactions.useQuery(
     { ...recallBinding },
@@ -1437,6 +1470,13 @@ export function ChatPane({
     messageScrollRef.current = element;
     onTimelineElement?.(element);
   });
+  const captureTimelineContent = useCallback(
+    (element: HTMLDivElement | null) => {
+      timelineContentRef.current = element;
+      timeline.containerRef(element);
+    },
+    [timelineContentRef, timeline.containerRef],
+  );
   const pagingOlder = useStableCallback((element: HTMLElement) => {
     if (hasOlder && !loading && !loadingOlder) void onLoadOlder?.(element);
   });
@@ -2891,7 +2931,11 @@ export function ChatPane({
     if (conversation?.type !== 'group') {
       return null;
     }
-    const myRole = conversation.group.roleKnown === false ? null : conversation.group.role;
+    const myRole = groupOperations.data
+      ? groupOperations.data.role
+      : conversation.group.roleKnown === false
+        ? null
+        : conversation.group.role;
     const targetUid = groupTargetUid(sender);
     const targetMember = conversation.members.find((member) =>
       selfIdentityValues(member).some((identity) => selfIdentityValues(sender).includes(identity)),
@@ -2914,15 +2958,17 @@ export function ChatPane({
         showUnsetAdmin: false,
       };
     }
-    if (myRole !== 'owner' && myRole !== 'admin') {
-      return null;
-    }
-    const rank: Record<GroupMemberRole, number> = { owner: 2, admin: 1, member: 0 };
-    const canModerate = targetRole != null && rank[myRole] > rank[targetRole];
+    const operationContext = {
+      ...groupOperations.data,
+      role: myRole,
+      targetRole,
+      isSelf: isSelfAvatar(sender),
+    };
+    const canModerate = groupPermission('mute', { role: myRole, targetRole });
     return {
       showChangeCard: editing.card && validUid,
       showChangeTitle: editing.title && validUid,
-      showKick: canModerate,
+      showKick: groupPermission('kick', operationContext),
       showMute: canModerate,
       showSetAdmin: canModerate && myRole === 'owner' && targetRole === 'member',
       showUnsetAdmin: canModerate && myRole === 'owner' && targetRole === 'admin',
@@ -2940,8 +2986,15 @@ export function ChatPane({
       return { show: false, reason: null };
     }
     const mine = isSelfIdentity(new Set(selfIdentityValues(user)), message.senderId);
+    const role =
+      conversation.type === 'group'
+        ? groupOperations.data
+          ? groupOperations.data.role
+          : conversation.group.role
+        : null;
     const elevated =
-      conversation.type === 'group' && ['owner', 'admin'].includes(conversation.group.role);
+      conversation.type === 'group' &&
+      (role === 'owner' || role === 'admin' || groupOperations.data?.temporaryRecall === true);
     if (!mine && !elevated) {
       return { show: false, reason: null };
     }
@@ -2974,14 +3027,32 @@ export function ChatPane({
         return { show: true, reason: '这条私聊消息缺少完整定位信息，等待 QQ 同步后重试' };
       }
     }
-    if (elevated) {
-      return { show: true, reason: null };
-    }
+    const target =
+      conversation.type === 'group'
+        ? conversation.members.find((member) =>
+            selfIdentityValues(member).includes(message.senderId),
+          )
+        : undefined;
+    const senderRole = message.sender && 'role' in message.sender ? message.sender.role : undefined;
+    const targetRole =
+      target?.role ??
+      (senderRole === 'owner' || senderRole === 'admin' || senderRole === 'member'
+        ? senderRole
+        : undefined);
     const sentAt = Date.parse(message.createdAt);
-    if (Number.isFinite(sentAt) && Date.now() - sentAt > 120_000) {
-      return { show: true, reason: '超过 2 分钟的消息无法撤回' };
-    }
-    return { show: true, reason: null };
+    return {
+      show: true,
+      reason: recallPermission({
+        kind: conversation.type === 'group' ? 'group' : 'c2c',
+        mine,
+        role,
+        recallAllowed: groupOperations.data?.recallAllowed,
+        temporaryRecall: groupOperations.data?.temporaryRecall,
+        targetRole,
+        file: message.qqElements?.some((element) => element.type === 'file') === true,
+        ageMs: Number.isFinite(sentAt) ? Date.now() - sentAt : undefined,
+      }),
+    };
   }
 
   /** 撤回一条消息。不做乐观渲染，只把结果 toast 出来，等 QQ 同步翻新会话。 */
@@ -3167,6 +3238,7 @@ export function ChatPane({
         onKickGroupMember(conversation, sender, sender.id);
       return;
     }
+    if (!avatarModerationFlags(sender)?.showKick) return;
     const targetUid = groupTargetUid(sender);
     if (!targetUid) {
       pushToast({ tone: 'warning', message: '拿不到该成员的 uid，无法踢出' });
@@ -3238,7 +3310,11 @@ export function ChatPane({
       return;
     }
 
-    insertComposerNode(editor, document.createElement('br'), composerSelectionRef.current);
+    if (!serializeComposer(editor)) {
+      editor.replaceChildren();
+      composerSelectionRef.current = null;
+    }
+    insertComposerNode(editor, createComposerLineBreak(), composerSelectionRef.current);
     insertComposerNode(editor, document.createTextNode('\u200b'), null);
     syncComposerBody(editor);
   }
@@ -3459,6 +3535,7 @@ export function ChatPane({
       !conversation ||
       (empty && stagedMedia.length === 0 && !hasExternalAttachments) ||
       !sendAvailable ||
+      groupSpeechBlocked ||
       readOnly ||
       currentPreference.blocked ||
       sending ||
@@ -3574,7 +3651,7 @@ export function ChatPane({
       if (isCurrentComposer() && readAfterSend) requestReadAtBottom();
     } catch (error) {
       // 失败通过原消息重试，不回填或覆盖下一条草稿。
-      if (restrictedSource && clearsBody && isCurrentComposer() && !bodyRef.current.trim()) {
+      if (restrictedSource && clearsBody && isCurrentComposer() && !bodyRef.current) {
         setComposerBody(draftBody);
         const editor = composerEditorRef.current;
         if (editor) restoreComposer(editor, draftBody);
@@ -3979,11 +4056,11 @@ export function ChatPane({
       }
     }
 
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (event.key === 'Enter') {
       event.preventDefault();
       // 移动端长文展开、以及 QQ 未注入（发送按钮灰着）时，回车只当换行用，
       // 不能落到 submitMessage 上去。
-      if (mobileComposerExpanded || !sendAvailable) {
+      if (event.shiftKey || mobileComposerExpanded || !sendAvailable) {
         insertComposerLineBreak();
         return;
       }
@@ -4877,7 +4954,7 @@ export function ChatPane({
     const editor = currentComposerEditor();
     const previous = editor ? serializeComposer(editor) : bodyRef.current;
     const attachment = mediaAttachmentRef.current;
-    if (previous.trim() || attachment.length || pendingSuperEmoji || pendingQuote) {
+    if (previous || attachment.length || pendingSuperEmoji || pendingQuote) {
       const replace = await useDialog
         .getState()
         .confirm('替换当前草稿？', '输入框已有内容，重新编辑将替换当前草稿。', {
@@ -4985,7 +5062,7 @@ export function ChatPane({
       const paddingBottom = Number.parseFloat(styles.paddingBottom) || 0;
       const minHeight = Math.ceil(lineHeight + paddingTop + paddingBottom);
       const maxHeight = Math.ceil(lineHeight * mobileComposerMaxLines + paddingTop + paddingBottom);
-      const contentHeight = serializeComposer(editor).trim()
+      const contentHeight = serializeComposer(editor)
         ? measureComposerContentHeight(editor)
         : minHeight;
       const nextHeight = Math.min(Math.max(contentHeight, minHeight), maxHeight);
@@ -5421,37 +5498,43 @@ export function ChatPane({
     restoringDraftMedia ||
     preparingMedia ||
     !sendAvailable ||
+    groupSpeechBlocked ||
     currentPreference.blocked ||
     sending ||
-    (body.trim().length === 0 && !hasSingleSend && !hasQuote && !hasExternalAttachments);
-  const sendTitle = sendAvailable ? '发送' : sendBlockedReason || '受限模式下无法发送消息';
+    (body.length === 0 && !hasSingleSend && !hasQuote && !hasExternalAttachments);
+  const sendTitle = !sendAvailable
+    ? sendBlockedReason || '受限模式下无法发送消息'
+    : groupSpeechBlocked
+      ? groupSpeechReason
+      : '发送';
   // 所有「发包类」操作（戳一戳 / 贴表情 / 撤回 / 群管理）与发送按钮共用同一套硬限制：
   // QQ 在线且未完全离线 + 会话未被屏蔽 + 当前没有消息正在发送。渲染层不再各自放一套
   // 宽松判断，避免「戳一戳能点、发送键却灰着」这类不一致。
-  const sendGateReason = !sendAvailable
+  const actionGateReason = !sendAvailable
     ? sendBlockedReason || '受限模式下无法发送消息'
     : currentPreference.blocked
       ? '当前会话已被屏蔽'
       : sending
         ? '消息发送中，请稍候'
         : null;
+  const sendGateReason = actionGateReason || (groupSpeechBlocked ? groupSpeechReason : null);
   const pokeBlockedReason = !sendAvailable
     ? '受限模式下无法戳一戳'
-    : sendGateReason
-      ? `${sendGateReason}，暂不可戳一戳`
+    : actionGateReason
+      ? `${actionGateReason}，暂不可戳一戳`
       : null;
   const reactionBlockedReason =
     conversation.type !== 'group'
       ? '仅群消息支持贴表情'
       : !sendAvailable
         ? '受限模式下无法贴表情'
-        : sendGateReason
-          ? `${sendGateReason}，暂不可贴表情`
+        : actionGateReason
+          ? `${actionGateReason}，暂不可贴表情`
           : null;
   const moderationBlockedReason = !sendAvailable
     ? '受限模式下无法撤回消息或执行群管理操作'
-    : sendGateReason
-      ? `${sendGateReason}，暂不可执行该操作`
+    : actionGateReason
+      ? `${actionGateReason}，暂不可执行该操作`
       : null;
   // 头像菜单里群管理操作的可见性（按我的身份 vs 目标身份算），以及右键消息的撤回可用性。
   const avatarMenuFlags = avatarMenu ? avatarModerationFlags(avatarMenu.sender) : null;
@@ -6213,9 +6296,6 @@ export function ChatPane({
                       key={message.id}
                       data-index={index}
                       ref={timeline.measure}
-                      style={
-                        timeline.enabled ? { top: virtualRow.start - timeline.margin } : undefined
-                      }
                     >
                       {children}
                     </div>,
@@ -6224,12 +6304,11 @@ export function ChatPane({
               });
               return (
                 <div
-                  ref={timelineContentRef}
+                  ref={captureTimelineContent}
                   className={cn('weq-virtual-timeline', timeline.enabled && 'is-windowed')}
                   role="list"
                   aria-label="聊天消息"
                   data-total-items={visibleMessages.length}
-                  style={timeline.enabled ? { height: timeline.totalSize } : undefined}
                 >
                   {out}
                 </div>
@@ -6254,7 +6333,7 @@ export function ChatPane({
       <OverlayScrollbar
         scrollRef={messageScrollRef}
         className="weq-message-scrollbar"
-        refreshKey={`${conversation.id}:${visibleMessages.length}`}
+        refreshKey={`${conversation.id}:${visibleMessages.length}:${timeline.enabled}`}
       />
 
       {newMessagePill > 0 ||

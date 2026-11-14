@@ -54,6 +54,30 @@ const feed = message([
   },
   { name: 'comments', tag: 7, type: message([{ name: 'count', tag: 1, type: 'uint32' }]) },
   { name: 'likes', tag: 8, type: message([{ name: 'count', tag: 1, type: 'uint32' }]) },
+  {
+    name: 'upvote',
+    tag: 37,
+    type: message([
+      { name: 'upvoted', tag: 1, type: 'bool' },
+      { name: 'count', tag: 2, type: 'int32' },
+      {
+        name: 'users',
+        tag: 3,
+        repeated: true,
+        type: message([
+          {
+            name: 'user',
+            tag: 1,
+            type: message([
+              { name: 'uid', tag: 1, type: 'string' },
+              { name: 'nickname', tag: 2, type: 'string' },
+              { name: 'uin', tag: 13, type: 'string' },
+            ]),
+          },
+        ]),
+      },
+    ]),
+  },
 ]);
 const businessResponse = message([
   { name: 'body', tag: 2, type: message([{ name: 'feed', tag: 1, type: feed }]) },
@@ -79,6 +103,19 @@ export interface QzoneNativeDetail {
   content?: string;
   commentCount?: number;
   likeCount?: number;
+  /** 仅服务端预览，缺少 cell 不代表零人推。 */
+  upvote?: QzoneUpvotePreview;
+}
+export interface QzoneUpvoteUser {
+  uin: string;
+  uid: string;
+  nickname: string;
+  portrait?: string;
+}
+export interface QzoneUpvotePreview {
+  count: number | null;
+  upvoted: boolean | null;
+  users: QzoneUpvoteUser[];
 }
 
 /** Android QQ 9.3.85 V4 详情；已用 macOS QQ 会话实测。 */
@@ -184,11 +221,30 @@ export namespace GetQzoneFeedMediaDetail {
       : undefined;
     const count = (value: unknown) =>
       typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+    const upvote = detail.upvote ? object(detail.upvote) : undefined;
+    const users = array(upvote?.users).map((entry) => object(object(entry).user));
+    if (users.length > 256) throw new Error('空间推预览条目过多。');
+    const string = (value: unknown) => (typeof value === 'string' ? value : '');
     return {
       mediaTypes: [...values].map(([videoId, isLivePhoto]) => ({ videoId, isLivePhoto })),
       content,
       commentCount: count(object(detail.comments).count),
       likeCount: count(object(detail.likes).count),
+      ...(upvote
+        ? {
+            upvote: {
+              count: count(upvote.count) ?? null,
+              upvoted: typeof upvote.upvoted === 'boolean' ? upvote.upvoted : null,
+              users: users
+                .map((user) => ({
+                  uin: /^[1-9]\d{4,19}$/.test(string(user.uin)) ? string(user.uin) : '',
+                  uid: string(user.uid),
+                  nickname: string(user.nickname),
+                }))
+                .filter((user) => user.uin || user.uid || user.nickname),
+            },
+          }
+        : {}),
     };
   }
   export async function invoke(

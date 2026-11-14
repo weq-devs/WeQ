@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Star, ListTodo, BrainCircuit, SmilePlus, FolderSearch } from 'lucide-react';
 import { MessageMenuButton } from '../../src/renderer/src/components/MessageMenuButton';
@@ -9,6 +9,7 @@ import {
   type MessageContextMenuState,
 } from '../../src/renderer/src/im-template/template/messageContextMenu';
 import { HoverTooltip } from '../../src/renderer/src/components/HoverTooltip';
+import { OverlayScrollbar } from '../../src/renderer/src/components/OverlayScrollbar';
 import { ReactionPicker } from '../../src/renderer/src/im-template/template/reactionPicker';
 import { createTemplateDemoData } from '../support/templateDemoData';
 import { installTouchContextMenu } from '../../src/renderer/src/lib/touchContextMenu';
@@ -54,6 +55,7 @@ declare global {
 }
 window.menuActions = [];
 function Fixture() {
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<MessageContextMenuState | null>(null);
   const [more, setMore] = useState(false);
   const [mode, setMode] = useState('full');
@@ -102,6 +104,18 @@ function Fixture() {
   };
   return (
     <>
+      <div
+        ref={scrollRef}
+        className="menu-fixture-scroll"
+        style={{ position: 'absolute', inset: '40px 16px', overflow: 'auto' }}
+      >
+        <div style={{ height: 10000 }} />
+      </div>
+      <OverlayScrollbar
+        scrollRef={scrollRef}
+        className="weq-message-scrollbar"
+        refreshKey="menu-fixture"
+      />
       <span hidden data-menu-fixture-mode={mode} />
       <button type="button" id="origin">
         消息

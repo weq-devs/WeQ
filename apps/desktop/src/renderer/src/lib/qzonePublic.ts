@@ -11,6 +11,7 @@
  *   cell_comment     评论数 + 首屏评论
  *   cell_foward_info 转发数
  *   cell_visitor     浏览数
+ *   cell_upvote      推人数 / 本人是否已推 / 用户预览
  *   cell_adv         广告标记
  *
  * 这里只**读**字段，从不改写：互动接口要求把原始 feed 整体回传（见
@@ -20,6 +21,8 @@
  * 形状防御是本模块的重点：上游 cell 会随 qua 变化、也可能整块缺失，任何一处
  * 都必须退化成「不显示」而不是抛错，否则一条畸形动态会毁掉整页。
  */
+
+import type { QzoneUpvotePreview } from '@weq/protocol';
 
 export type PublicJson = Record<string, unknown>;
 
@@ -111,6 +114,7 @@ export interface PublicFeedView {
   liked: boolean;
   /** 「推」过没有（`cell_upvote` 存在且标记为已推）。 */
   upvoted: boolean;
+  upvote: QzoneUpvotePreview | null;
   advertisement: boolean;
   /** 缺少 union_id 的动态无法互动，只能展示。 */
   actionable: boolean;
@@ -245,7 +249,7 @@ export function projectPublicFeed(feed: unknown, index = 0): PublicFeedView | nu
   const comment = asObject(raw.cell_comment) ?? {};
   const forward = asObject(raw.cell_foward_info) ?? {};
   const visitor = asObject(raw.cell_visitor) ?? {};
-  const upvote = asObject(raw.cell_upvote);
+  const upvote = projectPublicUpvote(raw.cell_upvote);
 
   return {
     key,
@@ -259,10 +263,45 @@ export function projectPublicFeed(feed: unknown, index = 0): PublicFeedView | nu
     forwardCount: asNumber(forward.retweet_count),
     viewCount: asNumber(visitor.view_num),
     liked: asBool(like.liked),
-    upvoted: Boolean(upvote && asBool(upvote.liked)),
+    upvoted: upvote?.upvoted === true,
+    upvote,
     // `feed_type === 3` 是广告；旧空间导出链也把广告单独标出来。
     advertisement: asNumber(common.feed_type) === 3,
     actionable: Boolean(union && Object.keys(union).length > 0),
+  };
+}
+
+/** 腾讯 pc-qzone 的 num / upvoted / upvote_mans，与普通赞的 liked 不同。 */
+export function projectPublicUpvote(value: unknown): QzoneUpvotePreview | null {
+  const cell = asObject(value);
+  if (!cell) return null;
+  const count = asNumber(cell.num);
+  return {
+    count: count !== null && Number.isSafeInteger(count) && count >= 0 ? count : null,
+    upvoted:
+      cell.upvoted === true || cell.upvoted === 1
+        ? true
+        : cell.upvoted === false || cell.upvoted === 0
+          ? false
+          : null,
+    users: asArray(cell.upvote_mans)
+      .slice(0, 256)
+      .flatMap((entry) => {
+        const source = asObject(asObject(entry)?.user);
+        if (!source) return [];
+        const uin = asString(source.uin);
+        const uid = asString(source.uid);
+        const nickname = asString(source.nick);
+        if (!uin && !uid && !nickname) return [];
+        return [
+          {
+            uin: /^[1-9]\d{4,19}$/.test(uin) ? uin : '',
+            uid,
+            nickname,
+            portrait: publicMediaSource(source.portrait) ?? undefined,
+          },
+        ];
+      }),
   };
 }
 

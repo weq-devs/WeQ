@@ -95,6 +95,11 @@ export function observeRemoteWindowLayout(doc: Document): () => void {
   let frame = 0;
   let stopped = false;
   const targets = new Set<HTMLElement>();
+  // WKWebView 首次显示时安全区可晚于桥接值到达，且标题栏外框尺寸不一定改变。
+  const safeArea = doc.createElement('div');
+  safeArea.dataset.weqWindowSafeArea = '';
+  safeArea.style.cssText =
+    'position:fixed;top:0;left:0;width:1px;height:var(--weq-window-safe-top, 0px);visibility:hidden;pointer-events:none;';
   const write = (node: HTMLElement, property: string, value: number) => {
     const next = `${Math.ceil(value)}px`;
     if (node.style.getPropertyValue(property) !== next) node.style.setProperty(property, next);
@@ -124,11 +129,14 @@ export function observeRemoteWindowLayout(doc: Document): () => void {
     if (!corners.length) {
       mutation.disconnect();
       resize?.disconnect();
+      safeArea.remove();
       for (const node of targets) clear(node);
       targets.clear();
       doc.documentElement.style.removeProperty('--weq-window-header-top');
       return;
     }
+    if (!safeArea.isConnected) doc.body.append(safeArea);
+    resize?.observe(safeArea);
     mutation.observe(doc.body, {
       childList: true,
       subtree: true,
@@ -212,6 +220,7 @@ export function observeRemoteWindowLayout(doc: Document): () => void {
     win.cancelAnimationFrame(frame);
     resize?.disconnect();
     mutation.disconnect();
+    safeArea.remove();
     win.removeEventListener('weq-remote-window-layout', update);
     win.removeEventListener('resize', schedule);
     win.visualViewport?.removeEventListener('resize', schedule);

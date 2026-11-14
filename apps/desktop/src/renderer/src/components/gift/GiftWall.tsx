@@ -13,6 +13,7 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'r
 import { Gift as GiftIcon, Loader2, WifiOff } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { giftImageUrl } from '../../lib/resourceUrl';
+import { ShimmerImage } from '../ShimmerImage';
 import { RelationshipDirectoryContext } from '../../lib/contactRelationship';
 import { profileTargetUser, type ProfileTarget } from '../../lib/profileNavigation';
 import { ProfileAvatar } from '../ProfileAvatar';
@@ -203,9 +204,15 @@ function WallCard({
   const src = giftImageUrl(item.staticPic ?? '');
   return (
     <div className="weq-gift-wall-card">
-      <div className="weq-gift-wall-media">
+      <div className="weq-gift-wall-media weq-media-frame">
         {src ? (
-          <img src={src} alt={item.giftName} loading="lazy" decoding="async" draggable={false} />
+          <ShimmerImage
+            src={src}
+            alt={item.giftName}
+            loading="lazy"
+            decoding="async"
+            draggable={false}
+          />
         ) : (
           <span className="weq-gift-wall-fallback">
             <GiftIcon size={24} strokeWidth={1.5} />

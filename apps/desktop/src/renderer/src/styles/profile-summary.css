@@ -1,0 +1,10 @@
+.weq-profile-common-points .weq-profile-data-label img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+.weq-profile-common-points p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

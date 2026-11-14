@@ -20,7 +20,7 @@ import { createHash } from 'node:crypto';
 import { extname } from 'node:path';
 
 /** 装扮作用范围。 */
-export type DressScope = 'mine' | 'all';
+export type DressScope = 'mine' | 'fallback' | 'all';
 
 /** 背景来源。 */
 export type DressBackgroundSource = 'none' | 'qq' | 'custom';
@@ -65,7 +65,7 @@ export interface DressConfig {
   activeFont: number;
   /** 当前激活的挂件 itemId（0 = 不用）。 */
   activeWidget: number;
-  /** 作用范围（mine = 只我发的消息，all = 全部消息）。 */
+  /** 作用范围（mine = 仅自己，fallback = 替代无装扮，all = 覆盖全部）。 */
   scope: DressScope;
   /** 背景来源（none = 无背景，qq = QQ 同款，custom = 自定义）。 */
   background: DressBackgroundSource;
@@ -95,7 +95,7 @@ export function normalizeDressConfig(raw: Partial<DressConfig>): DressConfig {
     activeBubble: explicitLocalAppearance ? Number(raw.activeBubble ?? 0) : 0,
     activeFont: explicitLocalAppearance ? Number(raw.activeFont ?? 0) : 0,
     activeWidget: explicitLocalAppearance ? Number(raw.activeWidget ?? 0) : 0,
-    scope: raw.scope === 'all' ? 'all' : 'mine',
+    scope: raw.scope === 'all' || raw.scope === 'fallback' ? raw.scope : 'mine',
     background: ['none', 'qq', 'custom'].includes(raw.background as string)
       ? (raw.background as DressBackgroundSource)
       : 'none',

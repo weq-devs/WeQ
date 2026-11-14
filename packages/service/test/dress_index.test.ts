@@ -31,6 +31,22 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
+it('成套加载失败不改变活动目录；成功重载后失败提交可以恢复原目录', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'weq-dress-activate-'));
+  directories.push(root);
+  const original = new DressIndexStore(root, manifest);
+  const next = original.candidate({ ...manifest, tag: 'dress-next' });
+  const reload = vi.fn(async () => false);
+  const native = { reloadDressResourceIndexes: reload } as unknown as NtHelperBinding;
+  await expect(original.adopt(next, native)).rejects.toThrow('加载失败');
+  expect(original.manifest.tag).toBe(manifest.tag);
+  reload.mockResolvedValue(true);
+  const undo = await original.adopt(next, native);
+  expect(original.manifest.tag).toBe('dress-next');
+  await undo();
+  expect(original.manifest.tag).toBe(manifest.tag);
+});
+
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'weq-dress-index-'));
   directories.push(root);
@@ -121,6 +137,20 @@ describe('装扮索引独立按需分发', () => {
     expect(download).not.toHaveBeenCalled();
     expect(await restarted.ensure('widget', true)).toBe(true);
     expect(download).not.toHaveBeenCalled();
+  });
+
+  it('候选状态检查不迁入旧资源、不创建缺失目录；已有部分目标仍逐类校验', async () => {
+    const { store, download } = await fixture();
+    await store.ensure('bubble');
+    const next = store.candidate({ ...manifest, tag: 'dress-candidate' });
+    expect((await next.inspectStored()).every((state) => state.status === 'idle')).toBe(true);
+    await expect(readdir(next.directory)).rejects.toMatchObject({ code: 'ENOENT' });
+    await mkdir(next.directory);
+    await writeFile(join(next.directory, 'font.dat'), bytes);
+    const states = await next.inspectStored();
+    expect(states.find((state) => state.kind === 'font')?.status).toBe('ready');
+    expect(states.find((state) => state.kind === 'bubble')?.status).toBe('idle');
+    expect(download).toHaveBeenCalledOnce();
   });
 
   it('已有 legacy native 查询命中时不下载；新索引查询临时目录不污染环境', async () => {

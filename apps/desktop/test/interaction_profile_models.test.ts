@@ -15,6 +15,7 @@ vi.mock('node:fs', () => ({ existsSync: () => true, default: { existsSync: () =>
 vi.mock('../src/main/intent_sense/model_files', () => ({
   isLayaBundleReady: () => true,
   downloadLayaBundle: vi.fn(),
+  layaBundleStore: (dir: string) => ({ resolveModelDir: () => dir }),
 }));
 vi.mock('node:child_process', async () => {
   const { EventEmitter } = await import('node:events');

@@ -10,7 +10,7 @@ it('正文、引用和额外 token 按原有顺序交接，保留原始输入快
     options: { extraTokens: ['语音'] },
   };
   expect(composerSubmission(input)).toEqual({
-    payloadBody: '正文引用语音',
+    payloadBody: ' 正文 引用语音',
     empty: false,
     clearsBody: true,
   });
@@ -33,7 +33,44 @@ it('单独发送附件保留正文；独立命令可以排除引用并保留草�
   ).toEqual({ payloadBody: '独立命令', empty: false, clearsBody: false });
 });
 
-it('空白正文不可提交，只有引用或额外 token 仍是有效内容', () => {
-  expect(composerSubmission({ body: ' \n', singleToken: null, quoteToken: null }).empty).toBe(true);
-  expect(composerSubmission({ body: '', singleToken: null, quoteToken: '引用' }).empty).toBe(false);
+it.each([' ', '\n', '\n\n', ' \t\r\n', '\n 正文 \n'])('正文 %j 原样提交，不裁剪空白', (body) => {
+  expect(composerSubmission({ body, singleToken: null, quoteToken: null })).toEqual({
+    payloadBody: body,
+    empty: false,
+    clearsBody: true,
+  });
+});
+
+it('只有引用补一个普通空格，真正空消息不可提交', () => {
+  expect(composerSubmission({ body: '', singleToken: null, quoteToken: null }).empty).toBe(true);
+  expect(composerSubmission({ body: '', singleToken: null, quoteToken: '引用' })).toEqual({
+    payloadBody: ' 引用',
+    empty: false,
+    clearsBody: true,
+  });
+  expect(
+    composerSubmission({ body: '\n ', singleToken: null, quoteToken: '引用' }).payloadBody,
+  ).toBe('\n 引用');
+});
+
+it('引用带附件或额外元素时不补空格，忽略引用的独立操作仍不可空发', () => {
+  expect(
+    composerSubmission({ body: '', singleToken: '附件', quoteToken: '引用' }).payloadBody,
+  ).toBe('引用附件');
+  expect(
+    composerSubmission({
+      body: '',
+      singleToken: null,
+      quoteToken: '引用',
+      options: { extraTokens: ['元素'] },
+    }).payloadBody,
+  ).toBe('引用元素');
+  expect(
+    composerSubmission({
+      body: '',
+      singleToken: null,
+      quoteToken: '引用',
+      options: { omitQuote: true },
+    }).empty,
+  ).toBe(true);
 });

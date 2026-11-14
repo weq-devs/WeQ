@@ -19,6 +19,7 @@ import {
   type HistoryItem,
 } from '../../lib/contactFieldPresentation';
 import { albumMediaUrl, qqShowUrl } from '../../lib/resourceUrl';
+import { ShimmerImage } from '../ShimmerImage';
 import { ContactHistoryAvatar } from './ContactHistoryAvatar';
 import { MediaPreview } from '../MediaPreview';
 import '../../styles/field-history.css';
@@ -278,26 +279,25 @@ function FieldGallery({ field, value }: { field: string; value: unknown }) {
   );
 }
 function HistoryPhoto({ item, show }: { item: HistoryItem; show: boolean }) {
-  const [failed, setFailed] = useState(false);
   const [preview, setPreview] = useState(false);
   const src = item.image ? (show ? qqShowUrl(item.image) : albumMediaUrl(item.image)) : '';
-  if (!src || failed)
+  if (!src)
     return (
       <span className="weq-field-photo-unavailable">
         {item.title}
-        <small>{failed ? '图片暂不可用' : item.detail}</small>
+        <small>{item.detail}</small>
       </span>
     );
   return (
     <>
       <button
         type="button"
-        className={`weq-field-photo${show ? ' is-show' : ''}`}
+        className={`weq-field-photo weq-media-frame${show ? ' is-show' : ''}`}
         title={`查看${item.title}`}
         aria-label={`查看${item.title}`}
         onClick={() => setPreview(true)}
       >
-        <img src={src} alt={item.title} loading="lazy" onError={() => setFailed(true)} />
+        <ShimmerImage src={src} alt={item.title} loading="lazy" />
       </button>
       {preview ? (
         <MediaPreview

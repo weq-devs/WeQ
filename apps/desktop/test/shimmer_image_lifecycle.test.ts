@@ -3,8 +3,106 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ShimmerImage } from '../src/renderer/src/components/ShimmerImage';
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
+import { useDataSaver } from '../src/renderer/src/lib/dataSaver';
+import { thumbnailPolicyRequest } from '../src/renderer/src/lib/resourceUrl';
 
-afterEach(() => vi.unstubAllGlobals());
+const initialPolicy = useDataSaver.getState();
+afterEach(() => {
+  useDataSaver.setState(initialPolicy);
+  vi.unstubAllGlobals();
+});
+
+it('无关下载设置不重挂缩略图，聊天参数、外站 URL 和主动意图保持原样', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  useDataSaver.setState({ enabled: true });
+  for (const src of [
+    'weq-media://pic?recv=1&cacheOnly=1&v=thumb&intent=interactive',
+    'https://other.invalid/_media/album?ds=1&src=fixture',
+    'data:image/png;base64,fixture',
+  ])
+    expect(thumbnailPolicyRequest(src)).toEqual({ src, policyKey: '' });
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  try {
+    act(() => root.render(h(ShimmerImage, { src: 'weq-media://album?src=fixture' })));
+    const image = host.querySelector('img')!;
+    act(() => image.dispatchEvent(new Event('load')));
+    act(() =>
+      useDataSaver.setState({
+        behavior: { ...useDataSaver.getState().behavior, dataSaverLargeMiB: 50 },
+      }),
+    );
+    expect(host.querySelector('img')).toBe(image);
+    expect(host.querySelector('.weq-image-placeholder')).toBeNull();
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
+it('省流量下未加载的相册图保留静态占位，解除限制后恢复请求且旧事件不串源', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  useDataSaver.setState({ enabled: true });
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const error = vi.fn();
+  try {
+    act(() =>
+      root.render(
+        h(ShimmerImage, {
+          src: 'weq-media://album?src=https%3A%2F%2Fugc.qpic.cn%2Ffixture&ds=1',
+          alt: '精选图片',
+          onError: error,
+        }),
+      ),
+    );
+    const deferred = host.querySelector('img')!;
+    act(() => deferred.dispatchEvent(new Event('error')));
+    expect(deferred.style.opacity).toBe('0');
+    expect(host.querySelector('.weq-shimmer-block')).toBeNull();
+    expect(host.querySelector('.weq-image-placeholder')?.getAttribute('aria-label')).toBe(
+      '精选图片未加载（省流量模式）',
+    );
+    act(() => useDataSaver.setState({ enabled: false }));
+    const current = host.querySelector('img')!;
+    expect(new URL(current.src).searchParams.has('ds')).toBe(false);
+    expect(current).not.toBe(deferred);
+    act(() => deferred.dispatchEvent(new Event('error')));
+    expect(error).toHaveBeenCalledOnce();
+    act(() => current.dispatchEvent(new Event('load')));
+    expect(host.querySelector('.weq-image-placeholder')).toBeNull();
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
+it('省流量允许装扮后重试失败图片，不把主动预览降回自动请求', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  useDataSaver.setState({ enabled: true });
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        h(ShimmerImage, {
+          src: 'weq-media://dress?src=https%3A%2F%2Ftianquan.gtimg.cn%2Ffixture&ds=1&intent=interactive',
+        }),
+      ),
+    );
+    const previous = host.querySelector('img')!;
+    act(() => previous.dispatchEvent(new Event('error')));
+    act(() =>
+      useDataSaver.setState({
+        behavior: { ...useDataSaver.getState().behavior, dataSaverDress: true },
+      }),
+    );
+    const current = host.querySelector('img')!;
+    expect(current).not.toBe(previous);
+    expect(new URL(current.src).searchParams.get('intent')).toBe('interactive');
+    expect(host.querySelector('.weq-shimmer-block')).not.toBeNull();
+  } finally {
+    act(() => root.unmount());
+  }
+});
 
 it('快速离屏再恢复后，旧加载的迟到事件不能污染当前图片', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

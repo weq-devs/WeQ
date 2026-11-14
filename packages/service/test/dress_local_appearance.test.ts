@@ -21,6 +21,16 @@ afterEach(() => {
 });
 
 describe('本地装扮默认不覆盖消息', () => {
+  it.each(['mine', 'fallback', 'all'] as const)(
+    '渲染范围 %s 保存后重开仍保留，不改变激活项',
+    (scope) => {
+      const { dir, config } = configFixture();
+      config.setActive('bubble', 11);
+      config.setScope(scope);
+      expect(new DressConfigService(dir).read()).toMatchObject({ scope, activeBubble: 11 });
+    },
+  );
+
   it('新账号不启用气泡、字体、挂件和 QQ 背景', () => {
     const { config } = configFixture();
     expect(config.read()).toMatchObject({

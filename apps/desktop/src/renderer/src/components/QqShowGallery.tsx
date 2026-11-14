@@ -18,6 +18,7 @@ import { ImageOff, Loader2, Maximize2, RefreshCw, Sparkles, X } from 'lucide-rea
 import { client } from '../trpc/client';
 import { openMediaPreview } from './mediaPreviewStore';
 import { qqShowUrl } from '../lib/resourceUrl';
+import { ShimmerImage } from './ShimmerImage';
 import { OverlayLayer } from './OverlayLayer';
 import '../styles/qqshow-gallery.css';
 
@@ -226,8 +227,8 @@ export function QqShowGallery({
                   onClick={() => open(item)}
                   title={`查看大图 · #${item.revision}`}
                 >
-                  <span className="weq-qqshow-gallery-media">
-                    <img
+                  <span className="weq-qqshow-gallery-media weq-media-frame">
+                    <ShimmerImage
                       src={qqShowUrl(item.url, item.revision)}
                       alt={`${name} 的 QQ 秀 #${item.revision}`}
                       loading="lazy"

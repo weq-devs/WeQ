@@ -30,6 +30,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   },
 }));
 vi.mock('../src/renderer/src/components/qq-actions/shared', () => ({
+  useQQAlbumPermissions: () => ({ data: { upload: true }, error: null }),
   withQQAccountScope: (component: unknown) => component,
   ActionIcon: ({
     label,

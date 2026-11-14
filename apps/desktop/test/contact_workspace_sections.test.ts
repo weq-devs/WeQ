@@ -10,6 +10,9 @@ import { RelationshipDirectoryContext } from '../src/renderer/src/lib/contactRel
 vi.mock('../src/renderer/src/components/gift/GiftWall', () => ({
   GiftWall: () => h(Activity, { name: '礼物墙内容' }),
 }));
+vi.mock('../src/renderer/src/components/ProfileSummary', () => ({
+  ProfileCommonPoints: () => h(Activity, { name: '共同点内容' }),
+}));
 
 vi.mock('../src/renderer/src/components/contactProfile/ContactContent', () => ({
   ContactContent: () => h('p', null, '当前资料'),
@@ -82,7 +85,7 @@ afterEach(() => {
   roots.length = 0;
   document.body.innerHTML = '';
 });
-function render(tab?: ContactWorkspaceTab, self = false) {
+function render(tab?: ContactWorkspaceTab, self = false, overrides: Partial<Contact> = {}) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -94,13 +97,14 @@ function render(tab?: ContactWorkspaceTab, self = false) {
         {
           value: {
             selfUid: self ? contact.uid : 'u_self',
+            selfUin: '10001',
             friends: new Map(),
             friendsComplete: false,
             groups: new Map(),
           },
         },
         h(ContactWorkspace, {
-          contact,
+          contact: { ...contact, ...overrides },
           tab,
           personalityProfile: {
             name: '测试',
@@ -131,11 +135,12 @@ it('画像入口定位到画像分区，普通关系页不强制滚动', () => {
     bounds.mockRestore();
   }
 });
-it('默认显示四页，不提前挂载历史、问答或画像', () => {
+it('撤下勋章墙后原有章节保持不变', () => {
   const host = render();
   expect(
     [...host.querySelectorAll('.weq-profile-directory button')].map((node) => node.textContent),
   ).toEqual(['个人资料', '与我的关系', '群内资料', '个性展示']);
+  expect(host.textContent).not.toContain('勋章墙');
   expect(host.textContent).not.toContain('画像内容');
   expect(host.textContent).not.toContain('历史-profile');
   expect(host.textContent).not.toContain('questions');
@@ -156,6 +161,33 @@ it('本人资料移除关系页，礼物墙位于最后且点击前不挂载', (
   expect(host.querySelector('[aria-current="page"]')?.textContent).toBe('礼物墙');
   expect(host.querySelector('[data-active]')?.getAttribute('data-active')).toBe('true');
   expect(host.textContent).not.toContain('与我的关系');
+});
+it('本人和他人遗留勋章墙页签均返回个人资料', () => {
+  for (const self of [true, false]) {
+    const host = render('medals' as ContactWorkspaceTab, self);
+    expect(host.querySelector('[aria-current="page"]')?.textContent).toBe('个人资料');
+    expect(host.textContent).not.toContain('勋章墙');
+  }
+});
+it.each<[string, Partial<Contact>]>([
+  ['好友', {}],
+  ['非好友', { isFriend: false }],
+  ['关系未确认', { isFriend: false, friendshipKnown: false }],
+  ['没有好友标记', { isFriend: undefined }],
+  ['机器人账号', { kind: 'bot' }],
+  ['企业账号', { extInfo: { isEnterprise: true } }],
+])('资料对比向所有有 QQ 号的他人联系人开放：%s', (_name, overrides) => {
+  expect(render('marks', false, overrides).textContent).toContain('共同点内容');
+});
+it.each<[string, boolean, Partial<Contact>]>([
+  ['本人 UID', true, {}],
+  ['本人 QQ 号', false, { identityValue: '10001' }],
+  ['本人身份前缀', false, { id: 'self:10002' }],
+  ['没有 QQ 号', false, { identityValue: '' }],
+  ['只有 UID', false, { identityLabel: 'UID', identityValue: 'u_unknown' }],
+  ['本地克隆', false, { clone: true, identityLabel: '虚拟', identityValue: '' }],
+])('资料对比不查询本人或无法定位 QQ 账号的对象：%s', (_name, self, overrides) => {
+  expect(render('marks', self, overrides).textContent).not.toContain('共同点内容');
 });
 it.each(['marks', 'portrait'] as const)('本人旧入口 %s 不恢复关系页或画像', (tab) => {
   const host = render(tab, true);

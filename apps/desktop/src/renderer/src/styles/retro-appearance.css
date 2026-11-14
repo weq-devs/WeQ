@@ -261,11 +261,8 @@ html[data-component-style='retro'][data-theme]
     .contact-row,
     .message-name,
     .message-time-divider,
-    .row-unread,
-    .rail-message-badge,
-    .rail-badge-mail,
-    .weq-settings-scope,
-    .weq-workspace-status-count
+    .weq-reminder-count,
+    .weq-settings-scope
   ) {
   border-radius: 0;
 }

@@ -356,10 +356,12 @@ export const dressupRouter = router({
       return requireServices().dressInstall.setActive(input.kind, input.itemId);
     }),
 
-  /** 切换作用范围:`mine` 只渲染自己的消息,`all` 连对方的一起渲染。 */
-  setScope: procedure.input(z.object({ scope: z.enum(['mine', 'all']) })).mutation(({ input }) => {
-    return requireServices().dressInstall.setScope(input.scope);
-  }),
+  /** 切换作用范围：仅自己、替代无装扮或覆盖全部。 */
+  setScope: procedure
+    .input(z.object({ scope: z.enum(['mine', 'fallback', 'all']) }))
+    .mutation(({ input }) => {
+      return requireServices().dressInstall.setScope(input.scope);
+    }),
 
   /**
    * 选一张本地图 / 一段本地视频当聊天背景 —— 打系统文件框,选中后拷进本账号的装扮目录

@@ -1,8 +1,10 @@
 import { eventTimeFormatter } from '@weq/time';
+import { groupPermission, qqResourceOwnedBy } from '@weq/service/qq-permissions';
 import { useRef, type ReactElement } from 'react';
 import { useSearchTargetFocus } from '../hooks/useSearchTargetFocus';
 import { FileText, RefreshCw, X } from 'lucide-react';
 import { albumMediaUrl } from '../lib/resourceUrl';
+import { ShimmerImage } from './ShimmerImage';
 import { GroupFeatureSurface, type GroupFeaturePresentation } from './GroupFeatureSurface';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { useQQGroupPermissions } from './qq-actions/shared';
@@ -23,6 +25,7 @@ export interface GroupEssenceWire {
   msgSeq: number;
   msgRandom?: number;
   senderName: string;
+  senderUin?: string;
   operatorName: string;
   createdAt: string;
   active: boolean;
@@ -184,12 +187,14 @@ export function GroupEssenceDialog({
                                 ) : element.type === 2 && element.faceIndex !== undefined ? (
                                   <span className="essence-face">[表情{element.faceIndex}]</span>
                                 ) : element.type === 3 && element.imageUrl ? (
-                                  <img
-                                    src={albumMediaUrl(element.imageUrl)}
-                                    alt="精华消息图片"
-                                    className="essence-image"
-                                    loading="lazy"
-                                  />
+                                  <span className="weq-media-inline">
+                                    <ShimmerImage
+                                      src={albumMediaUrl(element.imageUrl)}
+                                      alt="精华消息图片"
+                                      className="essence-image"
+                                      loading="lazy"
+                                    />
+                                  </span>
                                 ) : element.type === 5 && element.fileName ? (
                                   <div className="essence-file">
                                     <FileText size={14} aria-hidden /> {element.fileName}
@@ -218,10 +223,16 @@ export function GroupEssenceDialog({
                           item.msgRandom === undefined ? undefined : String(item.msgRandom),
                         )}
                         initialActive
-                        allowed={
-                          item.canRemove === true ||
-                          (item.canRemove === undefined && Boolean(permissions.data?.canManage))
-                        }
+                        allowed={groupPermission('essenceRemove', {
+                          ...permissions.data,
+                          role:
+                            permissions.data?.role ??
+                            (permissions.data?.canManage ? 'admin' : null),
+                          canRemove: item.canRemove,
+                          isSelf: qqResourceOwnedBy(item.senderUin, {
+                            uin: session.binding?.expectedAccountUin,
+                          }),
+                        })}
                         iconOnly
                       />
                     </div>

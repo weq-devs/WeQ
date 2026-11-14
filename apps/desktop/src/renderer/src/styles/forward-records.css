@@ -1,0 +1,52 @@
+.weq-forward-row:has(> .weq-forward-author) {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 6px 8px;
+}
+
+.weq-forward-row > .weq-forward-author {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.weq-forward-author > .weq-forward-avatar-link {
+  display: inline-flex;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+}
+
+.weq-forward-author > .weq-forward-row-meta {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+.weq-forward-author .weq-forward-row-meta > .weq-forward-row-name {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  line-height: 1.4;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.weq-forward-author .weq-forward-row-meta > .weq-forward-row-time {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-forward-row > .weq-forward-row-main {
+  grid-column: 2;
+}

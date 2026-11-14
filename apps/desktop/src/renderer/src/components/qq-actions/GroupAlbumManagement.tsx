@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Plus, Pencil, Trash2, Save, X } from 'lucide-react';
-import { client, trpc } from '../../trpc/client';
+import { client } from '../../trpc/client';
 import { Modal } from '../Dialog';
-import { ActionIcon, useQQAction, withQQAccountScope } from './shared';
+import { ActionIcon, useQQAction, useQQAlbumPermissions, withQQAccountScope } from './shared';
 import type { GroupAlbumWire } from '../GroupAlbumDialog';
 import '../../styles/friend-directory.css';
 
@@ -16,18 +16,10 @@ function GroupAlbumManagementBody({
   onChanged: () => void;
 }) {
   const a = useQQAction(`album-management:${groupCode}:${album?.id ?? ''}`);
-  const permissions = trpc.account.qqActions.groupPermissions.useQuery(
-    { ...a.binding!, groupId: Number(groupCode) },
-    { enabled: a.available && Boolean(album), staleTime: 30_000, retry: false },
-  );
-  const canManage = Boolean(
-    permissions.data &&
-      !permissions.error &&
-      (permissions.data.canManage ||
-        (permissions.data.selfUin &&
-          album &&
-          String(album.createUin) === permissions.data.selfUin)),
-  );
+  const permissions = useQQAlbumPermissions(Number(groupCode), album?.id, a);
+  const canEdit =
+    !permissions.error && (album ? permissions.data?.modify : permissions.data?.create) === true;
+  const canDelete = !permissions.error && permissions.data?.deleteAlbum === true;
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -39,6 +31,7 @@ function GroupAlbumManagementBody({
     };
   }, []);
   async function submit(action: 'create' | 'modify' | 'delete') {
+    if (action === 'delete' ? !canDelete : !canEdit) return;
     let oldIds: string[] = [];
     let matched = false;
     const ok = await a.perform(
@@ -83,17 +76,17 @@ function GroupAlbumManagementBody({
     );
     if (ok && live.current) setEditing(false);
   }
-  if (album && !canManage) return null;
+  if (album && !canEdit && !canDelete) return null;
   return (
     <div className="weq-qq-action-bar">
       {/* 带文字的入口：资料页里一个孤零零的「+」看不出是新建相册。 */}
-      {(!album || canManage) && (
+      {(!album || canEdit) && (
         <button
           type="button"
           className="weq-set-btn"
           aria-label={album ? '编辑相册' : '新建相册'}
           title={album ? '编辑相册' : '新建相册'}
-          disabled={a.disabled}
+          disabled={a.disabled || !canEdit}
           onClick={() => {
             setTitle(album?.title ?? '');
             setDescription(album?.desc.trim() ?? '');
@@ -104,7 +97,7 @@ function GroupAlbumManagementBody({
           {album ? '编辑相册' : '新建相册'}
         </button>
       )}
-      {album && canManage && (
+      {album && canDelete && (
         <ActionIcon
           label="删除相册"
           disabled={a.disabled}
@@ -115,7 +108,7 @@ function GroupAlbumManagementBody({
           <Trash2 size={16} />
         </ActionIcon>
       )}
-      {editing && (!album || canManage) && (
+      {editing && (
         <Modal
           centered
           width={440}
@@ -165,7 +158,7 @@ function GroupAlbumManagementBody({
               />
             </label>
             <footer>
-              <button type="submit" disabled={a.disabled || !title.trim()}>
+              <button type="submit" disabled={a.disabled || !canEdit || !title.trim()}>
                 <Save size={16} />
                 保存
               </button>

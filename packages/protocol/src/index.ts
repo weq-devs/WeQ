@@ -28,7 +28,12 @@
 export { encode, decode, message } from './protobuf';
 export type { ProtoMessage, ProtoField, ScalarType } from './protobuf';
 export { GetQzoneFeedMediaDetail } from './qzone/feed-media-detail';
-export type { QzoneMediaType, QzoneNativeDetail } from './qzone/feed-media-detail';
+export type {
+  QzoneMediaType,
+  QzoneNativeDetail,
+  QzoneUpvotePreview,
+  QzoneUpvoteUser,
+} from './qzone/feed-media-detail';
 
 export { sendOidb, sendPacket } from './transport';
 /**
@@ -236,8 +241,11 @@ export type {
 
 export * from './call';
 export * from './oidb/profile/extras';
-export { getProfileDetails, PROFILE_DETAIL_FIELDS } from './oidb/profile/details';
-export type { ProfileDetailInfo, ProfileDetailField } from './oidb/profile/details';
+export { getProfileDetails, getProfileRegion, PROFILE_DETAIL_FIELDS } from './oidb/profile/details';
+export { decodeQqRegion, formatQqRegion } from './oidb/profile/editable-profile';
+export type { ProfileDetailInfo, ProfileDetailField, ProfileRegion } from './oidb/profile/details';
+export { getProfileSimilarity } from './oidb/profile/similarity';
+export type { ProfileSimilarity } from './oidb/profile/similarity';
 export { getEducationHistory } from './oidb/profile/education';
 export * from './oidb/profile/display-settings';
 export { LegacyOidbRejectedError } from './oidb/legacy';
@@ -256,3 +264,7 @@ export type { ProfileEducationRecord, ProfileEducationHistory } from './oidb/pro
  * 用法：`import { groupCall } from '@weq/protocol'` → `groupCall.GroupRelayCmd`。
  */
 export * as groupCall from './group-call';
+export {
+  GetGroupOperationInfo,
+  type GroupOperationInfo,
+} from './oidb/group-admin/get-group-operation-info';

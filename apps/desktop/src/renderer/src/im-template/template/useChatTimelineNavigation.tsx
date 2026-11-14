@@ -358,7 +358,7 @@ export function useChatTimelineNavigation({
     // 意图标签、图片及建议回复异步改变内容或视口高度时，延续原来的下沿位置。
     // 新消息是否跟随仍由上面的 effect 决定；阅读历史和恢复锚点时不接管。
     let frame: number | undefined;
-    const observer = new ResizeObserver(() => {
+    const schedule = () => {
       if (frame !== undefined) return;
       const viewport = timelineViewport(scroll);
       const revision = viewport?.scrollRevision?.();
@@ -375,14 +375,20 @@ export function useChatTimelineNavigation({
         )
           scrollMessagesToBottomRef.current();
       });
-    });
+    };
+    const observer = new ResizeObserver(schedule);
     observer.observe(scroll);
-    observer.observe(content);
+    // 虚拟行在 RO 内更新父容器高度；父层改用样式通知，避免向上反馈尺寸交付。
+    const mutation = new MutationObserver(schedule);
+    if (timeline.enabled)
+      mutation.observe(content, { attributes: true, attributeFilter: ['style'] });
+    else observer.observe(content);
     return () => {
       observer.disconnect();
+      mutation.disconnect();
       if (frame !== undefined) window.cancelAnimationFrame(frame);
     };
-  }, [tabActive, loading, conversation?.id, visibleMessages.length]);
+  }, [tabActive, loading, conversation?.id, visibleMessages.length, timeline.enabled]);
 
   // 历史窗口不追加实时消息；沿用服务端已排除自己的入站未读数，不用序号差猜条数。
   useEffect(() => {

@@ -1,5 +1,20 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import { useVirtualizer, type Range, type Virtualizer } from '@tanstack/react-virtual';
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react';
+import { flushSync } from 'react-dom';
+import {
+  observeElementOffset,
+  observeElementRect,
+  useVirtualizer,
+  type Range,
+  type Virtualizer,
+} from '@tanstack/react-virtual';
 import {
   messageElement,
   registerTimelineViewport,
@@ -17,6 +32,11 @@ import { timelineViewportRange } from '../lib/timelinePreload';
 export const TIMELINE_VIRTUAL_THRESHOLD = 40;
 export const TIMELINE_OVERSCAN = 6;
 const keepNativeScroll = () => false;
+const observeTimelineRect: typeof observeElementRect = (instance, callback) =>
+  observeElementRect(instance, (rect) => {
+    // 隐藏视口的零尺寸不回灌范围；重新显示时继续交付真实宽高。
+    if (rect.width > 0 && rect.height > 0) callback(rect);
+  });
 export function useVirtualTimeline({
   ids,
   scrollRef,
@@ -32,6 +52,25 @@ export function useVirtualTimeline({
 }) {
   const mobileWeb = useMobileWebLayout();
   const enabled = ids.length > TIMELINE_VIRTUAL_THRESHOLD;
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const deliveringOffset = useRef(false);
+  const committingScroll = useRef(false);
+  const renderedRange = useRef({ start: -1, end: -1, scrolling: false });
+  const [, commitScrollRange] = useReducer((version: number) => version + 1, 0);
+  const observeTimelineOffset: typeof observeElementOffset = useCallback(
+    (instance, callback) =>
+      observeElementOffset(instance, (offset, scrolling) => {
+        if (!activeRef.current) return;
+        deliveringOffset.current = true;
+        try {
+          callback(offset, scrolling);
+        } finally {
+          deliveringOffset.current = false;
+        }
+      }),
+    [],
+  );
   const previousMode = useRef({ scope, active });
   const suspendedAnchor = useRef<ConversationReadingPosition | undefined>(undefined);
   // 页面隐藏前只采集已挂载 DOM；阈值切换沿用同一份测量，不重建阅读位置。
@@ -84,8 +123,32 @@ export function useVirtualTimeline({
     count: ids.length,
     enabled: ids.length > 0,
     getScrollElement: () => scrollRef.current,
-    // 手机键盘连续改变视口时，避免在 ResizeObserver 同一轮里反复测量与改写布局。
+    observeElementRect: observeTimelineRect,
+    observeElementOffset: observeTimelineOffset,
+    // 桌面行高与位置在绘制前直接交付，不在尺寸回调里同步挂载新行。
+    directDomUpdates: true,
+    directDomUpdatesMode: 'position',
+    useFlushSync: false,
     useAnimationFrameWithResizeObserver: mobileWeb,
+    onChange: (instance, sync) => {
+      const previous = renderedRange.current;
+      // 滚动范围必须同帧挂载；行高通知只直接更新几何，不在 RO 中提交新行。
+      if (
+        sync &&
+        deliveringOffset.current &&
+        !committingScroll.current &&
+        (previous.start !== instance.range?.startIndex ||
+          previous.end !== instance.range?.endIndex ||
+          previous.scrolling !== instance.isScrolling)
+      ) {
+        committingScroll.current = true;
+        try {
+          flushSync(commitScrollRange);
+        } finally {
+          committingScroll.current = false;
+        }
+      }
+    },
     estimateSize: () => 96,
     // 保留子像素高度；逐行取整会在短列表切入虚拟布局时积累数像素误差。
     measureElement: (element, entry, instance) => {
@@ -115,6 +178,11 @@ export function useVirtualTimeline({
     rangeExtractor,
   });
   instanceRef.current = virtualizer;
+  renderedRange.current = {
+    start: virtualizer.range?.startIndex ?? -1,
+    end: virtualizer.range?.endIndex ?? -1,
+    scrolling: virtualizer.isScrolling,
+  };
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = enabled ? undefined : keepNativeScroll;
   const context = useRef({ ids, index, orderedIds, virtualizer, scope, active, windowed: enabled });
   context.current = { ids, index, orderedIds, virtualizer, scope, active, windowed: enabled };
@@ -290,6 +358,19 @@ export function useVirtualTimeline({
     }
   }, [active, scope, scrollRef, virtualizer]);
 
+  const containerRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      virtualizer.containerRef(enabled ? node : null);
+      if (node && !enabled) {
+        node.style.height = '';
+        for (const row of node.children) {
+          if (row instanceof HTMLElement) row.style.top = '';
+        }
+      }
+    },
+    [enabled, virtualizer],
+  );
+
   return {
     enabled,
     virtualizer,
@@ -299,5 +380,6 @@ export function useVirtualTimeline({
       : ids.map((id, index) => ({ key: id, index, start: 0 })),
     totalSize: enabled ? virtualizer.getTotalSize() : 0,
     measure: virtualizer.measureElement,
+    containerRef,
   };
 }

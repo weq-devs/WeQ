@@ -411,7 +411,7 @@ export interface IntentSenseModelProgress {
  *（`intentSense.localAvailable === false`，UI 相应隐藏本地引擎入口）。
  */
 export interface IntentSenseLocalEngineControl extends IntentLocalEnginePort {
-  validateModel?(modelId: string): Promise<void>;
+  validateModel?(modelId: string, directory?: string): Promise<void>;
   isBusy?(): boolean;
   listModels?(): Array<{ id: string; name: string; downloaded: boolean; downloadable: boolean }>;
   modelDir(): string;
@@ -423,6 +423,9 @@ export interface IntentSenseLocalEngineControl extends IntentLocalEnginePort {
   }): Promise<void>;
   start(): Promise<void>;
   stop(): Promise<void>;
+  runningModels?(): string[];
+  startModel?(modelId: string): Promise<void>;
+  stopModel?(modelId: string, directory?: string): Promise<void>;
 }
 
 let intentSenseLocalEngine: IntentSenseLocalEngineControl | null = null;
@@ -430,6 +433,13 @@ let intentSenseLocalEngine: IntentSenseLocalEngineControl | null = null;
 /** app 层注入意图感知本地引擎控制面（桌面版启动时调用一次）。 */
 export function setIntentSenseLocalEngine(engine: IntentSenseLocalEngineControl | null): void {
   intentSenseLocalEngine = engine;
+  if (engine)
+    void cached?.bootstrap?.enhancements.packs.reconcileExisting().catch((error: unknown) =>
+      getLogger().warn('enhancement local validation failed', {
+        event: 'enhancement-local-check-failed',
+        error: String(error),
+      }),
+    );
 }
 
 /** 当前注入的本地引擎控制面（未注入 = web / 未初始化）。 */
@@ -1609,6 +1619,9 @@ export function initAppContext(fileRoot?: string): AppContext {
         resolvePid: resolveOnlinePid,
       });
       groupInfo.setWebQueryService(webQuery);
+      groupInfo.setOperationGuard(() => {
+        if (this.account !== session) throw new Error('账号或数据源已切换，请重新操作');
+      });
       const profile = new ProfileService(session, {
         nt: platform.native.ntHelper,
         resolvePid: resolveOnlinePid,
@@ -2151,7 +2164,12 @@ export function initAppContext(fileRoot?: string): AppContext {
           resolveOnlinePid,
         ),
         gapHistory,
-        groupFile: new GroupFileService(platform.native.ntHelper, session, resolveOnlinePid),
+        groupFile: new GroupFileService(
+          platform.native.ntHelper,
+          session,
+          resolveOnlinePid,
+          (groupId) => groupInfo.operationContext(groupId),
+        ),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, resolveOnlinePid),
         profileExtras: new ProfileExtrasService(
           platform.native.ntHelper,
@@ -2214,9 +2232,15 @@ export function initAppContext(fileRoot?: string): AppContext {
           () => userConfig.getSettings().sendWithQqFont,
           () => accountConfig.getRecord()?.homeDress?.bubbleId,
           mediaDownload,
+          (groupId, uploadFile) => groupInfo.assertCanSend(groupId, uploadFile),
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, resolveOnlinePid),
-        groupModeration: new GroupModerationService(platform.native.ntHelper, resolveOnlinePid),
+        groupModeration: new GroupModerationService(
+          platform.native.ntHelper,
+          resolveOnlinePid,
+          (action, groupId, uid, sequence) =>
+            groupInfo.assertOperation(action, groupId, uid, sequence),
+        ),
         groupGift: new GroupGiftService(platform.native.ntHelper, resolveOnlinePid),
         locationShare: new LocationShareService(platform.native.ntHelper, resolveOnlinePid),
         accountWrite: new AccountWriteService(
@@ -2548,6 +2572,9 @@ export function initAppContext(fileRoot?: string): AppContext {
       // 静态账号默认离线：在线写操作会通过 `livePid` 抛错，读路径回退本地库。
       const groupInfo = new GroupInfoService(session);
       groupInfo.setWebQueryService(webQuery);
+      groupInfo.setOperationGuard(() => {
+        if (this.account !== session) throw new Error('账号或数据源已切换，请重新操作');
+      });
       const profile = new ProfileService(session);
       // 收藏服务：离线时拿不到 p_skey → 自动回退 collection.db。
       const collectionSvc = new CollectionService(
@@ -3010,7 +3037,9 @@ export function initAppContext(fileRoot?: string): AppContext {
         ),
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, livePid),
         gapHistory,
-        groupFile: new GroupFileService(platform.native.ntHelper, session, livePid),
+        groupFile: new GroupFileService(platform.native.ntHelper, session, livePid, (groupId) =>
+          groupInfo.operationContext(groupId),
+        ),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, livePid),
         profileExtras: new ProfileExtrasService(
           platform.native.ntHelper,
@@ -3066,9 +3095,15 @@ export function initAppContext(fileRoot?: string): AppContext {
           () => userConfig.getSettings().sendWithQqFont,
           () => accountConfig.getRecord()?.homeDress?.bubbleId,
           mediaDownload,
+          (groupId, uploadFile) => groupInfo.assertCanSend(groupId, uploadFile),
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, livePid),
-        groupModeration: new GroupModerationService(platform.native.ntHelper, livePid),
+        groupModeration: new GroupModerationService(
+          platform.native.ntHelper,
+          livePid,
+          (action, groupId, uid, sequence) =>
+            groupInfo.assertOperation(action, groupId, uid, sequence),
+        ),
         groupGift: new GroupGiftService(platform.native.ntHelper, livePid),
         locationShare: new LocationShareService(platform.native.ntHelper, livePid),
         accountWrite: new AccountWriteService(

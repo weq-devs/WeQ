@@ -31,8 +31,8 @@ NineBird 注入链与 `packages/ninebird` 已移除，不再构建或同步 `nin
 装扮资源 `.dat` 是用 AES 加密的，密钥由构建 commit 派生（`DRESS_KEY_SEED`）并**烘焙进
 `.node`**。跨版本混用 → 装扮离线查询直接返回 `null`（退化到在线协议兜底，离线环境就没了）。
 现阶段仍必须匹配密钥来源，但不再默认一起下载或打包。
-应用按 `resources/dress/index-manifest.json` 从独立资源仓的明确 Release 按类别下载索引到全局缓存；
-清单的 `nativeCommit` 与 `pinned.json` 一致。`pnpm native:fetch --with-dress` 可显式取旧配套资源。
+应用以内置 `resources/dress/index-manifest.json` 为基础，通过增强包统一检查和更新，从独立资源仓的明确 Release 获取索引；
+最低 WeQ 版本与 `nativeCommit` 均需匹配。新管理入口还要求 native 支持异步校验、重载和缓存清除；正式发布前的原生接口检查会拒绝旧模块。`pnpm native:fetch --with-dress` 可显式取旧配套资源。
 `native/.installed.json` 记录安装文件，默认 `native:check` 不检查已改为可选的旧索引。
 
 ## 版本锚（`native/pinned.json`）

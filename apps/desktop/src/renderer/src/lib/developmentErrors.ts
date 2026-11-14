@@ -1,3 +1,5 @@
+import { traceDevelopmentResizeObservers } from './developmentResizeObserver';
+
 let uninstall: (() => void) | undefined;
 
 /** 仅上报主应用异常，不镜像 console；重装先清除旧监听。 */
@@ -8,6 +10,7 @@ export function installDevelopmentErrors(
 ): () => void {
   uninstall?.();
   if (!enabled) return () => {};
+  const resizeTrace = traceDevelopmentResizeObservers(target);
   const send = (level: 'error' | 'warn', message: string, context: object) => {
     try {
       report(level, message, context);
@@ -17,11 +20,17 @@ export function installDevelopmentErrors(
   };
   let resizeTimer: ReturnType<typeof setTimeout> | undefined;
   let resizeCount = 0;
+  let resizeCallbacks: ReturnType<typeof resizeTrace.snapshot> = [];
   const reportResize = (count: number) =>
     send('warn', '界面尺寸监听循环，部分通知延后交付', {
       scope: 'renderer',
       event: 'renderer-resize-observer-loop',
       count,
+      resizeCallbacks,
+      caller: resizeCallbacks.flatMap(({ targets }) => targets).join(' / '),
+      stack: resizeCallbacks
+        .map(({ sourceStack }) => sourceStack.split('\n').slice(1).join('\n'))
+        .join('\n'),
     });
   const record = (kind: string, error: unknown, source: object = {}) =>
     send('error', '前端未处理异常', {
@@ -45,6 +54,7 @@ export function installDevelopmentErrors(
       (event.message === 'ResizeObserver loop completed with undelivered notifications.' ||
         event.message === 'ResizeObserver loop limit exceeded')
     ) {
+      resizeCallbacks = resizeTrace.snapshot();
       if (resizeTimer === undefined) {
         resizeTimer = setTimeout(() => {
           resizeTimer = undefined;
@@ -71,6 +81,7 @@ export function installDevelopmentErrors(
     resizeTimer = undefined;
     if (resizeCount) reportResize(resizeCount);
     resizeCount = 0;
+    resizeTrace.dispose();
     target.removeEventListener('error', onError);
     target.removeEventListener('unhandledrejection', onRejection);
     if (uninstall === dispose) uninstall = undefined;

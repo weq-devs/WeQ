@@ -219,6 +219,12 @@ describe('协议入口、探测清单与策略双向覆盖', () => {
     }
   });
 
+  it('已撤下资料卡聚合不再保留策略或默认探测入口', () => {
+    const retired = 'SummaryCard.ReqSummaryCard';
+    expect(cases.has(retired)).toBe(false);
+    expect(accounted.has(retired)).toBe(false);
+  });
+
   it('真实导出的静态 spec 与动态子命令不能漏登记', () => {
     const dynamic = new Map<object, Record<string, unknown>[]>([
       [protocol.SetPeerPin, [{ target: { kind: 'group' } }, { target: { kind: 'c2c' } }]],

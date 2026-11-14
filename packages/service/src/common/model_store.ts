@@ -21,9 +21,10 @@
 import { EventEmitter } from 'node:events';
 import { ManagedDownload } from './managed_download';
 import { createHash } from 'node:crypto';
-import { createReadStream, existsSync, mkdirSync, statSync, rmSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { createReadStream, existsSync, mkdirSync, statSync, rmSync, readFileSync } from 'node:fs';
+import { rm, mkdir, copyFile, constants, lstat } from 'node:fs/promises';
+import { dirname, join, sep } from 'node:path';
+import { writeFileAtomicSync } from './atomic_write';
 
 /** One downloadable file within a model (the on-disk name + its source URL). */
 export interface ModelFile {
@@ -44,6 +45,7 @@ export interface ModelFile {
 export interface ModelEntry {
   /** Stable id, also the on-disk directory name and the config value. */
   id: string;
+  minWeqVersion?: string;
   /** Total download size in bytes (approximate, for the UI). */
   sizeBytes: number;
   /** Files that make up the model. */
@@ -85,7 +87,9 @@ const COMMON_HEADERS = {
 } as const;
 
 export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
+  private readonly active = new Map<string, { model: T; directory: string; removed?: boolean }>();
   private readonly transfers = new Map<string, ManagedDownload>();
+  private readonly verifiedFiles = new Map<string, { signature: string; valid: boolean }>();
   pauseDownload(id: string) {
     this.transfers.get(id)?.pause();
   }
@@ -101,16 +105,211 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
     super();
     this.modelsRoot = modelsRoot;
     this.entries = entries;
+    for (const original of entries) {
+      try {
+        const saved = JSON.parse(readFileSync(this.receiptPath(original.id), 'utf8'));
+        if (saved.removed === true) {
+          this.restoreRevision(original.id, { removed: true, revision: null });
+          continue;
+        }
+        if (
+          !/^[a-f0-9]{64}$/.test(saved.revision) ||
+          saved.model?.id !== original.id ||
+          !Array.isArray(saved.model.files)
+        )
+          continue;
+        const directory = join(modelsRoot, '.versions', saved.revision, original.id);
+        if (
+          saved.model.files.some(
+            (file: ModelFile) =>
+              !file.name ||
+              file.name.split(/[\\/]/).some((part) => !part || part === '.' || part === '..'),
+          )
+        )
+          continue;
+        this.active.set(original.id, { model: { ...original, ...saved.model }, directory });
+      } catch {
+        /* 未迁移的模型仍从原目录读取。 */
+      }
+    }
   }
 
   /** Look up a registry entry by id. */
   getModel(id: string): T | undefined {
-    return this.entries.find((m) => m.id === id);
+    return this.active.get(id)?.model ?? this.entries.find((m) => m.id === id);
+  }
+  registeredModel(id: string): T | undefined {
+    return this.entries.find((model) => model.id === id);
+  }
+  installedRevision(id: string): string | null {
+    if (this.isRemoved(id)) return null;
+    const directory = this.active.get(id)?.directory;
+    return directory ? (directory.split(sep).at(-2) ?? null) : null;
+  }
+  isRemoved(id: string): boolean {
+    return this.active.get(id)?.removed === true;
+  }
+  restoreRevision(id: string, snapshot: unknown): void {
+    const original = this.registeredModel(id);
+    if (!original || !snapshot || typeof snapshot !== 'object') return;
+    const saved = snapshot as { revision?: unknown; model?: unknown; removed?: unknown };
+    if (saved.removed === true) {
+      this.active.set(id, {
+        model: original,
+        directory: join(this.modelsRoot, '.removed', id),
+        removed: true,
+      });
+      return;
+    }
+    if (saved.revision === null) {
+      this.active.delete(id);
+      return;
+    }
+    if (
+      typeof saved.revision !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(saved.revision) ||
+      !saved.model ||
+      typeof saved.model !== 'object'
+    )
+      throw new Error('模型安装记录无效');
+    const model = saved.model as ModelEntry;
+    if (
+      model.id !== id ||
+      !Array.isArray(model.files) ||
+      model.files.some(
+        (file) =>
+          !file ||
+          typeof file.name !== 'string' ||
+          file.name.split(/[\\/]/).some((part) => !part || part === '.' || part === '..') ||
+          typeof file.url !== 'string' ||
+          !file.sizeBytes ||
+          !/^[a-f0-9]{64}$/.test(file.sha256 ?? ''),
+      )
+    )
+      throw new Error('模型安装文件记录无效');
+    this.active.set(id, {
+      model: { ...original, ...model },
+      directory: join(this.modelsRoot, '.versions', saved.revision, id),
+    });
   }
 
   /** Absolute directory for a model's files (not created here). */
   resolveModelDir(id: string): string {
-    return join(this.modelsRoot, id);
+    return this.active.get(id)?.directory ?? join(this.modelsRoot, id);
+  }
+
+  private receiptPath(id: string) {
+    return join(this.modelsRoot, `.active-${id}.json`);
+  }
+
+  /** 更新候选与活动模型隔离；相同内容的文件通过 clone 复用，不复制整套模型。 */
+  revisionStore(model: T, revision: string): ModelStore<T> {
+    if (!/^[a-f0-9]{64}$/.test(revision) || !this.entries.some((entry) => entry.id === model.id))
+      throw new Error('模型版本身份无效');
+    class Candidate extends ModelStore<T> {}
+    return new Candidate(join(this.modelsRoot, '.versions', revision), [model]);
+  }
+
+  async reuseInto(candidate: ModelStore<T>, id: string): Promise<void> {
+    const original = this.getModel(id);
+    const next = candidate.getModel(id);
+    if (!original || !next) return;
+    for (const file of next.files) {
+      const same = original.files.find(
+        (entry) =>
+          entry.sha256 && entry.sha256 === file.sha256 && entry.sizeBytes === file.sizeBytes,
+      );
+      const to = join(candidate.resolveModelDir(id), file.name);
+      if (await candidate.validFile(to, file)) continue;
+      const sources = [
+        ...new Set([
+          ...(same ? [join(this.resolveModelDir(id), same.name)] : []),
+          join(this.modelsRoot, id, file.name),
+        ]),
+      ];
+      let from: string | undefined;
+      for (const source of sources)
+        if (source !== to && (await this.validFile(source, file))) {
+          from = source;
+          break;
+        }
+      if (!from) continue;
+      await mkdir(dirname(to), { recursive: true });
+      await copyFile(from, to, constants.COPYFILE_FICLONE);
+    }
+  }
+
+  /** 统计通过校验的候选及旧资源，不把同长度坏文件算作可复用。 */
+  async reusableFiles(candidate: ModelStore<T>, id: string): Promise<Set<string>> {
+    const result = new Set<string>();
+    const original = this.getModel(id);
+    for (const file of candidate.getModel(id)?.files ?? []) {
+      const same = original?.files.find(
+        (entry) =>
+          entry.sha256 && entry.sha256 === file.sha256 && entry.sizeBytes === file.sizeBytes,
+      );
+      const sources = new Set([
+        join(candidate.resolveModelDir(id), file.name),
+        ...(same ? [join(this.resolveModelDir(id), same.name)] : []),
+        join(this.modelsRoot, id, file.name),
+      ]);
+      for (const source of sources) {
+        if (await this.validFile(source, file)) {
+          result.add(file.key);
+          break;
+        }
+      }
+    }
+    return result;
+  }
+
+  activateRevision(candidate: ModelStore<T>, id: string, revision: string): () => void {
+    const model = candidate.getModel(id);
+    if (
+      !model ||
+      candidate.resolveModelDir(id) !== join(this.modelsRoot, '.versions', revision, id)
+    )
+      throw new Error('模型候选目录无效');
+    const previous = this.active.get(id);
+    const previousReceipt = existsSync(this.receiptPath(id))
+      ? readFileSync(this.receiptPath(id), 'utf8')
+      : undefined;
+    writeFileAtomicSync(this.receiptPath(id), JSON.stringify({ revision, model }));
+    this.active.set(id, { model, directory: candidate.resolveModelDir(id) });
+    return () => {
+      if (previous) this.active.set(id, previous);
+      else this.active.delete(id);
+      if (previousReceipt) writeFileAtomicSync(this.receiptPath(id), previousReceipt);
+      else rmSync(this.receiptPath(id), { force: true });
+    };
+  }
+
+  async cleanPreviousRevision(
+    id: string,
+    directory: string,
+    legacyModel?: ModelEntry,
+  ): Promise<void> {
+    if (
+      legacyModel &&
+      directory !== this.resolveModelDir(id) &&
+      directory.startsWith(`${join(this.modelsRoot, '.versions')}${sep}`)
+    ) {
+      for (const file of legacyModel.files) {
+        const path = join(directory, file.name);
+        if ((await lstat(path).catch(() => null))?.isFile() && (await this.validFile(path, file)))
+          await rm(path, { force: true });
+      }
+      const record = join(directory, 'model-files.json');
+      try {
+        if (
+          JSON.stringify(JSON.parse(readFileSync(record, 'utf8'))) ===
+          JSON.stringify(legacyModel.files)
+        )
+          await rm(record, { force: true });
+      } catch {
+        /* 未知附加文件保留。 */
+      }
+    }
   }
 
   /** Absolute paths to every file of a model, keyed by file key. */
@@ -127,6 +326,8 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
   getModelStatus(id: string): (T & ModelDiskState) | undefined {
     const model = this.getModel(id);
     if (!model) return undefined;
+    if (this.isRemoved(id))
+      return { ...model, downloaded: false, sizeOnDisk: 0, downloading: false };
     const dir = this.resolveModelDir(id);
     let downloaded = true;
     let sizeOnDisk = 0;
@@ -154,12 +355,20 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
   }
 
   /** Delete a downloaded model's directory. No-op if absent or downloading. */
-  deleteModel(id: string): boolean {
+  deleteModel(id: string, rememberRemoval = true): boolean {
     if (!this.getModel(id)) return false;
     if (this.downloadTasks.has(id)) return false;
+    if (this.isRemoved(id) && rememberRemoval) return true;
     const dir = this.resolveModelDir(id);
     try {
       if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+      if (rememberRemoval) {
+        writeFileAtomicSync(this.receiptPath(id), JSON.stringify({ removed: true }));
+        this.restoreRevision(id, { removed: true, revision: null });
+      } else {
+        rmSync(this.receiptPath(id), { force: true });
+        this.active.delete(id);
+      }
       return true;
     } catch {
       return false;
@@ -181,9 +390,26 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
       )
         return false;
       if (file.sha256) {
+        const signature = `${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}:${info.ctimeMs}:${file.sha256}`;
+        const previous = this.verifiedFiles.get(path);
+        if (previous?.signature === signature) return previous.valid;
         const hash = createHash('sha256');
         for await (const chunk of createReadStream(path)) hash.update(chunk);
-        if (hash.digest('hex') !== file.sha256) return false;
+        const valid = hash.digest('hex') === file.sha256;
+        const latest = statSync(path);
+        if (
+          latest.ino !== info.ino ||
+          latest.size !== info.size ||
+          latest.mtimeMs !== info.mtimeMs ||
+          latest.ctimeMs !== info.ctimeMs
+        )
+          return false;
+        if (this.verifiedFiles.size >= 256) {
+          const oldest = this.verifiedFiles.keys().next().value;
+          if (oldest) this.verifiedFiles.delete(oldest);
+        }
+        this.verifiedFiles.set(path, { signature, valid });
+        if (!valid) return false;
       }
       return true;
     } catch (error) {
@@ -194,6 +420,7 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
 
   /** 只校验现有文件，不修复或发起网络请求。 */
   async verifyModel(id: string): Promise<boolean> {
+    if (this.isRemoved(id)) return false;
     const model = this.getModel(id);
     if (!model) return false;
     for (const file of model.files)
@@ -206,7 +433,14 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
    * id. Emits `'progress'` throughout, and a terminal `'progress'` with either
    * `done:true` or `error`. Returns the terminal result.
    */
-  downloadModel(id: string): Promise<{ success: boolean; error?: string }> {
+  downloadModel(
+    id: string,
+    sourceOverrides: Readonly<Record<string, string>> = {},
+  ): Promise<{ success: boolean; error?: string }> {
+    if (this.isRemoved(id))
+      return Promise.resolve({ success: false, error: '模型已删除，请通过增强包重新下载' });
+    if (this.isRemoved(id))
+      return Promise.resolve({ success: false, error: '模型已删除，请通过增强包重新下载' });
     const pending = this.downloadTasks.get(id);
     if (pending) return pending;
 
@@ -276,7 +510,7 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
           fileDownloading = true;
           try {
             await this.downloadToFile(
-              f.url,
+              sourceOverrides[f.key] ?? f.url,
               target,
               (downloaded, _total, speed) => report(completedBytes + downloaded, { speed }),
               transfer,

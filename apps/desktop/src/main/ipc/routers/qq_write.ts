@@ -55,7 +55,12 @@ export interface QQWriteServices {
   >;
   groupInfo: Pick<
     AccountServices['groupInfo'],
-    'getGroupDetail' | 'listGroupDirectory' | 'getMemberInfo' | 'getMessagePolicy'
+    | 'getGroupDetail'
+    | 'listGroupDirectory'
+    | 'getMemberInfo'
+    | 'getMessagePolicy'
+    | 'essenceOperationPermission'
+    | 'operationContext'
   >;
   recentContacts: Pick<AccountServices['recentContacts'], 'getTopContacts' | 'getByTargetUids'>;
   onlineStatus: Pick<AccountServices['onlineStatus'], 'getOnlineStatus' | 'editableStatuses'>;
@@ -372,6 +377,10 @@ export function createQQWriteRouter(
           target.kind === 'group' && identity.uid
             ? await services.groupInfo.getMemberInfo(BigInt(target.groupId), identity.uid)
             : null;
+        const operation =
+          target.kind === 'group'
+            ? await services.groupInfo.operationContext(target.groupId)
+            : null;
         if (read(input) !== services) throw new Error('账号已切换，请重新读取会话设置');
         if (
           target.kind === 'c2c' &&
@@ -402,6 +411,7 @@ export function createQQWriteRouter(
           selfCard: member?.card ?? null,
           selfTitle: member?.customTitle ?? null,
           role: cachedGroupRole(identity.uid, group?.ownerUid, entry?.role ?? null),
+          memberCanRename: operation?.memberCanRename,
         };
       }),
     friendRemark: procedure
@@ -501,6 +511,17 @@ export function createQQWriteRouter(
         if (role !== 'owner') throw new Error('仅群主可以修改专属头衔');
         await services.groupModeration.setSpecialTitle(input);
         return { state: 'accepted' as const };
+      }),
+    groupEssencePermission: procedure
+      .input(binding.extend({ groupId, sequence: uint32.positive() }))
+      .query(async ({ input }) => {
+        const services = resolve(input);
+        const result = await services.groupInfo.essenceOperationPermission(
+          input.groupId,
+          input.sequence,
+        );
+        if (resolve(input) !== services) throw new Error('账号已切换，请重新读取精华权限');
+        return result;
       }),
     groupEssence: procedure
       .input(

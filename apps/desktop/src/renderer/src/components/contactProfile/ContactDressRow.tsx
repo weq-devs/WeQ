@@ -4,6 +4,7 @@ import { dressUrl } from '../../lib/resourceUrl';
 import { ContactRow } from './ContactRow';
 import { openMediaPreview } from '../mediaPreviewStore';
 import { Film } from 'lucide-react';
+import { ShimmerImage } from '../ShimmerImage';
 
 /** 仅展示真实装扮素材，不再把头像或 QQ 秀重复嵌入装扮预览。 */
 export function ContactDressRow({ person }: { person: ProfilePerson }) {
@@ -22,6 +23,7 @@ export function ContactDressRow({ person }: { person: ProfilePerson }) {
           <button
             type="button"
             key={item.label}
+            className="weq-media-frame"
             title={`查看${item.label}`}
             aria-label={`查看${item.label}`}
             onClick={() =>
@@ -32,7 +34,7 @@ export function ContactDressRow({ person }: { person: ProfilePerson }) {
               })
             }
           >
-            <img src={dressUrl(item.url)} alt={item.label} loading="lazy" />
+            <ShimmerImage src={dressUrl(item.url)} alt={item.label} loading="lazy" />
           </button>
         ))}
         {video ? (

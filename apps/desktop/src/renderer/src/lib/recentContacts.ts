@@ -99,6 +99,22 @@ export function latestContactPreviewMessage<T extends ContactPreviewMessage>(
 
 const number = (value: string | undefined) => (value && /^\d+$/.test(value) ? BigInt(value) : 0n);
 
+/** 定向校准也接受同水位灰条变化，但迟到结果不能盖住更晚的摘要。 */
+export function patchRecentContactRows<T extends RecentContactSnapshot & ContactPreviewMessage>(
+  rows: T[],
+  updates: readonly T[],
+): T[] {
+  const byId = new Map(updates.map((row) => [row.targetUid, row]));
+  let changed = false;
+  const next = rows.map((row) => {
+    const update = byId.get(row.targetUid);
+    if (!update || recentContactPreviewIsBehind(update, row)) return row;
+    changed = true;
+    return update;
+  });
+  return changed ? next : rows;
+}
+
 /** 最新页和分页目录可能短暂重叠；不能让后面的旧副本把新消息时间覆盖回去。 */
 export function mergeRecentContactPages<T extends RecentContactSnapshot>(
   pages: readonly (readonly T[])[],

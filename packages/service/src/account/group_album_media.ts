@@ -6,6 +6,7 @@
  */
 import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
+import { albumCapabilities, type QQAlbumCapabilities } from '../common/qq_permissions';
 import {
   CommentGroupAlbumMedia,
   DeleteGroupAlbumMedia,
@@ -62,6 +63,7 @@ export interface AlbumMediaPage {
   albumName: string;
   mediaList: AlbumMedia[];
   nextAttachInfo: string;
+  capabilities: QQAlbumCapabilities | null;
 }
 
 // ─── decode helpers ───
@@ -181,18 +183,29 @@ export class GroupAlbumMediaService {
       attachInfo,
     });
 
-    const retCode = resp.field1;
+    const retCode = resp.result;
     if (typeof retCode === 'number' && retCode !== 0)
       throw new Error(`getMediaList error: retCode ${retCode}`);
 
     const data = (resp.data ?? {}) as Rec;
     const albumInfo = (data.albumInfo ?? {}) as Rec;
+    const returnedAlbumId = str(albumInfo.albumId);
+    if (returnedAlbumId && returnedAlbumId !== albumId)
+      throw new Error('相册权限返回与目标相册不一致');
 
     return {
-      albumId: str(albumInfo.albumId) || albumId,
+      albumId: returnedAlbumId || albumId,
       albumName: str(albumInfo.name),
       mediaList: (Array.isArray(data.mediaList) ? data.mediaList : []).map(mapMedia),
       nextAttachInfo: str(data.nextAttachInfo),
+      capabilities:
+        data.right && typeof data.right === 'object'
+          ? albumCapabilities(
+              Array.isArray((data.right as Rec).operations)
+                ? (data.right as { operations: number[] }).operations
+                : [],
+            )
+          : null,
     };
   }
 }

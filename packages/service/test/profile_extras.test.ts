@@ -79,6 +79,51 @@ const readers = {
   getEducationHistory,
 };
 const nt = { sendPacket: vi.fn() };
+it('所在地来源单独去重，沿用进程切换校验，不需要重复读取其他详细资料', async () => {
+  let release!: () => void;
+  let pid = 5;
+  const wait = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const region = vi.fn(async (_nt, _pid, targetUin: string) => {
+    await wait;
+    return { targetUin, region: null, regionText: null };
+  });
+  const service = new ProfileExtrasService({ ...nt, sendOidbPacket: vi.fn() }, '10001', () => pid, {
+    ...readers,
+    getProfileRegion: region,
+  });
+  const results = Promise.allSettled([service.region('10002'), service.region('10002')]);
+  expect(region).toHaveBeenCalledOnce();
+  pid = 6;
+  release();
+  expect((await results).every((result) => result.status === 'rejected')).toBe(true);
+});
+it('共同点按账号与目标去重，进程切换拒绝迟到结果', async () => {
+  let release!: () => void;
+  let pid = 5;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const similarity = vi.fn(async (_nt, _pid, self: string, targetUin: string) => {
+    expect(self).toBe('10001');
+    await pending;
+    return { targetUin, items: [] };
+  });
+  const service = new ProfileExtrasService(nt, '10001', () => pid, {
+    ...readers,
+    getProfileSimilarity: similarity,
+  });
+  const results = Promise.allSettled([
+    service.similarity('10002'),
+    service.similarity('10002'),
+    service.similarity('10003'),
+  ]);
+  expect(similarity).toHaveBeenCalledTimes(2);
+  pid = 6;
+  release();
+  expect((await results).every((result) => result.status === 'rejected')).toBe(true);
+});
 it('同一目标和游标共享在途查询，不对不同目标复用结果', async () => {
   let release!: () => void;
   const wait = new Promise<void>((resolve) => {

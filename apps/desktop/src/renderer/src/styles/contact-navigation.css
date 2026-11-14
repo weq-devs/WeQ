@@ -1,13 +1,3 @@
-/* 通知入口属于联系人目录，背景沿用侧栏，不再单独绘制一块色板。 */
-.notice-entry-dot {
-  display: inline-block;
-  flex: 0 0 7px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--destructive);
-}
-
 /* 整列共用底色与对齐线，避免不同外观各自叠加边距。 */
 html[data-theme] body .sidebar:has(.sidebar-header-contacts) {
   --weq-contact-directory-gutter: 12px;

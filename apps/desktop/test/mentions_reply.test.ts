@@ -7,9 +7,14 @@ import { mentionText } from '../src/renderer/src/im-template/template/mentions';
 import {
   getActiveComposerMentionTrigger,
   focusComposerEnd,
+  insertComposerNode,
+  replaceComposerTextRange,
+  restoreComposer,
+  serializeComposer,
 } from '../src/renderer/src/im-template/template/composer';
 
 afterEach(() => {
+  window.getSelection()?.removeAllRanges();
   document.body.replaceChildren();
 });
 
@@ -61,6 +66,75 @@ describe('提及输入与草稿往返', () => {
     document.body.append(editor);
     focusComposerEnd(editor);
     expect(getActiveComposerMentionTrigger(editor, null)).toBeNull();
+  });
+  it.each([false, true])('连续提及多人只替换当前触发词，保留真实目标；使用保存选区=%s', (saved) => {
+    const editor = document.createElement('div');
+    editor.contentEditable = 'true';
+    document.body.append(editor);
+    const mentions = [
+      { kind: 'at', atTargetUid: 'u_first', textContent: '@第一位成员' },
+      { kind: 'at', atTargetUid: 'u_second', textContent: '@第二位成员' },
+      { kind: 'at', atTargetUid: 'all', all: true, textContent: '@全体成员' },
+    ];
+    const expected = [];
+    for (const [index, mention] of mentions.entries()) {
+      insertComposerNode(editor, document.createTextNode(index === 1 ? '@第二' : '@'), null);
+      const savedRange = window.getSelection()!.getRangeAt(0).cloneRange();
+      if (saved) window.getSelection()!.removeAllRanges();
+      const trigger = getActiveComposerMentionTrigger(editor, savedRange)!;
+      expect(trigger).not.toBeNull();
+      const holder = document.createElement('div');
+      restoreComposer(holder, elementsToComposerText([mention]));
+      replaceComposerTextRange(editor, trigger.start, trigger.end, [
+        ...holder.childNodes,
+        document.createTextNode(' '),
+      ]);
+      expected.push(mention, { kind: 'text', textContent: ' ' });
+      expect(editor.textContent).toBe(
+        mentions
+          .slice(0, index + 1)
+          .map((item) => `${item.textContent} `)
+          .join(''),
+      );
+      expect(
+        buildComposerSendPlan({
+          body: serializeComposer(editor),
+          locals: [],
+          superStickers: new Map(),
+        }),
+      ).toEqual({ kind: 'elements', elements: expected });
+    }
+  });
+  it.each([
+    { kind: 'at', atTargetUid: 'u_first', textContent: '@第一位成员' },
+    { kind: 'file', fileName: 'fixture.txt', fileUuid: 'synthetic-file' },
+    { kind: 'pic', fileName: 'fixture.png', localPreviewUrl: 'data:image/png;base64,AA==' },
+  ])('在 $kind 元素之后的正文中插入提及，不残留 @ 或删除前后文', (prefix) => {
+    const editor = document.createElement('div');
+    editor.contentEditable = 'true';
+    document.body.append(editor);
+    restoreComposer(
+      editor,
+      elementsToComposerText([prefix, { kind: 'text', textContent: ' 前文 @查 后文' }]),
+    );
+    const range = document.createRange();
+    range.setStart(editor.lastChild!, ' 前文 @查'.length);
+    range.collapse(true);
+    window.getSelection()!.addRange(range);
+    const trigger = getActiveComposerMentionTrigger(editor, null)!;
+    expect(trigger?.query).toBe('查');
+    const mention = { kind: 'at', atTargetUid: 'u_next', textContent: '@下一位成员' };
+    const holder = document.createElement('div');
+    restoreComposer(holder, elementsToComposerText([mention]));
+    replaceComposerTextRange(editor, trigger.start, trigger.end, [...holder.childNodes]);
+    expect(serializeComposer(editor)).toBe(
+      elementsToComposerText([
+        prefix,
+        { kind: 'text', textContent: ' 前文 ' },
+        mention,
+        { kind: 'text', textContent: ' 后文' },
+      ]),
+    );
   });
 });
 

@@ -1,7 +1,7 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ContactFieldHistoryProvider } from '../src/renderer/src/components/contactProfile/ContactFieldHistory';
 import { ContactRow } from '../src/renderer/src/components/contactProfile/ContactRow';
 import { Modal } from '../src/renderer/src/components/Dialog';
@@ -35,6 +35,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   },
 }));
 const opened: Array<{ root: ReturnType<typeof createRoot>; cache: QueryClient }> = [];
+beforeEach(() => vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true));
 afterEach(() => {
   for (const { root, cache } of opened.splice(0)) {
     act(() => root.unmount());
@@ -42,6 +43,7 @@ afterEach(() => {
   }
   document.body.innerHTML = '';
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 it('仅变化项目旁显示历史，未打开不读版本，弹窗只显示该项目', async () => {
   const host = document.createElement('div');
@@ -175,7 +177,11 @@ it('头像历史显示缓存图片，保留历史地址并修复空尺寸，点�
   await act(async () => {
     images[1]!.dispatchEvent(new Event('error'));
   });
-  expect(document.querySelector('.weq-field-history-body')?.textContent).toContain('图片暂不可用');
+  const failed = document.querySelectorAll('.weq-field-history-body .weq-field-records > li')[1]!;
+  expect(failed.querySelector('[role="img"][aria-label="历史头像未加载"]')).not.toBeNull();
+  expect(failed.querySelector('.weq-shimmer-block')).toBeNull();
+  expect(failed.querySelector('[aria-label="查看历史头像"]')).not.toBeNull();
+  expect(failed.textContent).toContain('观察于');
 });
 it.each(['modal', 'overlay'] as const)('嵌套 %s 中的其他对象不继承宿主历史按钮', async (kind) => {
   const host = document.createElement('div');

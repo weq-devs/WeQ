@@ -169,6 +169,22 @@ html[data-theme='dark'] .weq-lightbox-layer.weq-unified-preview {
   background: var(--weq-bg-surface);
   color: var(--weq-fg-primary);
   cursor: pointer;
+  transition: opacity 120ms ease-out;
+}
+.weq-video-expand:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .weq-video-expand {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .weq-video-preview-wrap:hover .weq-video-expand,
+  .weq-video-preview-wrap:has(:focus-visible) .weq-video-expand {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 @media (max-width: 600px) {
   .weq-unified-preview {
@@ -198,7 +214,8 @@ html[data-theme='dark'] .weq-lightbox-layer.weq-unified-preview {
 }
 @media (prefers-reduced-motion: reduce) {
   .weq-unified-preview .weq-lightbox-frame,
-  .weq-unified-preview video {
+  .weq-unified-preview video,
+  .weq-video-expand {
     transition: none !important;
   }
 }

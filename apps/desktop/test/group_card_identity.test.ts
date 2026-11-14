@@ -8,9 +8,18 @@ import { copyTextToClipboard } from '../src/renderer/src/im-template/template/cl
 vi.mock('../src/renderer/src/im-template/template/clipboard', () => ({
   copyTextToClipboard: vi.fn(async () => true),
 }));
-vi.mock('../src/renderer/src/components/QQProfileField', () => ({
-  QQProfileField: ({ field, initial }: { field: string; initial: string }) =>
-    h('button', { 'data-edit-field': field }, initial),
+vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
+  useQQWriteSession: () => ({
+    binding: { expectedAccountUin: '10001', expectedAccountConfigId: 'source' },
+    available: true,
+  }),
+}));
+vi.mock('../src/renderer/src/trpc/client', () => ({
+  trpc: {
+    account: {
+      qqActions: { groupPermissions: { useQuery: () => ({ data: undefined }) } },
+    },
+  },
 }));
 vi.mock('../src/renderer/src/components/groupProfile/GroupProfileAvatarEditor', () => ({
   GroupProfileAvatarEditor: () => h('button', { 'data-avatar-edit': '' }, '更换群头像'),
@@ -63,7 +72,7 @@ async function render(role = 'member', listed = true) {
 it.each([true, false])('只读群名保持纯文本，群成员身份 %s 不影响阅读', async (listed) => {
   await render('member', listed);
   const title = host.querySelector<HTMLElement>('.weq-profile-name')!;
-  expect(title.tagName).toBe('SPAN');
+  expect(title.querySelector('button')).toBeNull();
   expect(title.textContent).toBe('合成群名');
   await act(async () => title.click());
   expect(copyTextToClipboard).not.toHaveBeenCalled();
@@ -89,6 +98,6 @@ it('拖选群名后不触发复制', async () => {
 });
 it.each(['owner', 'admin'])('%s 保留群名原地编辑入口', async (role) => {
   await render(role);
-  expect(host.querySelector('[data-edit-field="groupName"]')?.textContent).toBe('合成群名');
+  expect(host.querySelector('[aria-label="编辑群名称"]')?.textContent).toBe('合成群名');
   expect(host.querySelector('[aria-label="复制群名"]')).toBeNull();
 });

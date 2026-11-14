@@ -26,6 +26,7 @@ import {
 import { GrayTipLine, grayTipOf } from '../im-template/template/messageRow';
 import { useMsgDecoration } from '../hooks/useMsgDecoration';
 import { useActiveWidget } from '../hooks/useActiveWidget';
+import { localDressApplies } from '../lib/dressSkin';
 import { useBubbleFontFx } from '../hooks/useBubbleFontFx';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import type { ResolvedWidget } from '@weq/service';
@@ -42,6 +43,7 @@ import {
   type ForwardWindowState,
   type ForwardRecordWire,
 } from '../state/forwardWindow';
+import '../styles/forward-records.css';
 
 // ---- helpers -------------------------------------------------------------
 
@@ -210,7 +212,7 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
   // 占位和正文共用 left/top 布局，正文就绪后不重新播放入场动画或改变位置。
   const style: CSSProperties = useMemo(() => forwardWindowStyle(win, viewport), [win, viewport]);
 
-  // 转发窗口挂在 App 根部、MainView 之外，拿不到聊天区那两个 provider——
+  // 转发窗口不在聊天区的消息 provider 内——
   // 这里补上，否则窗口里的视频/文件下载既不知道群号也不知道自己是转发内容。
   const carrier = useMemo(
     (): { msgId: string; kind: 'c2c' | 'group' } => ({ msgId: win.rootMsgId, kind: win.kind }),
@@ -375,9 +377,11 @@ function ForwardRow({
 }): ReactElement {
   const rowRef = useRef<HTMLDivElement | null>(null);
   const decorationEnabled = useContext(MsgDecorationEnabledContext);
-  // 转发行都是「对方」样式,生效挂件只在作用范围 all 时叠上来。
+  // 转发行都是「对方」样式，替代无装扮仍依据原始 ID 判断。
   const { widget: activeWidget, scope: activeScope } = useActiveWidget();
-  const localWidget = activeScope === 'all' ? activeWidget : null;
+  const localWidget = localDressApplies(activeScope, false, Boolean(record.decoration?.widgetId))
+    ? activeWidget
+    : null;
   const msgDec = useMsgDecoration(
     localWidget && record.decoration ? { ...record.decoration, widgetId: 0 } : record.decoration,
     rowRef,
@@ -391,6 +395,12 @@ function ForwardRow({
   const time = formatForwardTime(record.sendTime);
   const sendTimeMs = (Number(record.sendTime) || 0) * 1000;
   const widget = decorationEnabled.widget ? (localWidget ?? msgDec.widget) : null;
+  const profileTarget = {
+    identity: record.senderUid || record.senderUin || '',
+    uin: record.senderUin,
+    name: displayName,
+    avatarUrl: avatar,
+  };
 
   // 灰条判定：放在所有 hook 之后（规则要求 hook 顺序稳定），命中就直接画成**居中
   // 一行** —— 与主面板一样没有头像 / 昵称 / 气泡，而不是把这些消息硬套进转发行。
@@ -428,30 +438,25 @@ function ForwardRow({
       data-font={msgDec.fontId || undefined}
       data-fontfx={fontFxAttr}
       data-widget={widget?.animated ? widget.itemId : undefined}
+      data-record-widget={record.decoration?.widgetId || undefined}
     >
-      <ProfileAvatar
-        className="weq-identity-link weq-forward-author"
-        target={{
-          identity: record.senderUid || record.senderUin || '',
-          uin: record.senderUin,
-          name: displayName,
-          avatarUrl: avatar,
-        }}
-      >
-        <div className="weq-forward-avatar">
-          {avatar ? (
-            <img src={avatar} alt="" loading="lazy" />
-          ) : (
-            <span className="weq-forward-avatar-fallback">{displayName.slice(0, 1)}</span>
-          )}
-          {widget ? <PendantLayer widget={widget} /> : null}
-        </div>
-        <span className="weq-forward-row-name">{displayName}</span>
-      </ProfileAvatar>
-      <div className="weq-forward-row-main">
+      <header className="weq-forward-author">
+        <ProfileAvatar className="weq-forward-avatar-link" target={profileTarget}>
+          <div className="weq-forward-avatar">
+            {avatar ? (
+              <img src={avatar} alt="" loading="lazy" />
+            ) : (
+              <span className="weq-forward-avatar-fallback">{displayName.slice(0, 1)}</span>
+            )}
+            {widget ? <PendantLayer widget={widget} /> : null}
+          </div>
+        </ProfileAvatar>
         <div className="weq-forward-row-meta">
-          {time ? <span className="weq-forward-row-time">{time}</span> : null}
+          <span className="message-name weq-forward-row-name">{displayName}</span>
+          {time ? <time className="weq-forward-row-time">{time}</time> : null}
         </div>
+      </header>
+      <div className="weq-forward-row-main">
         <ForwardBubble record={record} kind={kind} sendTimeMs={sendTimeMs} />
       </div>
     </div>

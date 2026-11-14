@@ -15,6 +15,7 @@ const mock = vi.hoisted(() => ({
   online: true,
   friend: true,
   role: 'owner',
+  permissionRole: 'owner',
   remark: '旧备注',
   groupName: '原群名',
   categoryId: 1,
@@ -43,6 +44,7 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => {
   const data = (name: string) => {
+    if (name === 'groupPermissions') return { role: mock.permissionRole, memberCanRename: false };
     if (name === 'peerState')
       return {
         friend: mock.friend,
@@ -88,6 +90,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     trpc: {
       useUtils: () => ({ account: { listCategories: { invalidate: mock.invalidate } } }),
       account: {
+        qqActions: { groupPermissions: query('groupPermissions') },
         qqWrite: {
           peerState: query('peerState'),
           friendRemarkState: query('friendRemarkState'),
@@ -143,6 +146,7 @@ beforeEach(() => {
     online: true,
     friend: true,
     role: 'owner',
+    permissionRole: 'owner',
     remark: '旧备注',
     groupName: '原群名',
     categoryId: 1,
@@ -233,7 +237,7 @@ it('离线已有内容为纯文本；读取失败有重试且不写入', async (
   expect(host.querySelector('input')).toBeNull();
   expect(mock.writes).not.toHaveBeenCalled();
 });
-it('群名称拒绝空白，普通成员读回后不出现编辑框', async () => {
+it('群名称拒绝空白，权限缓存仍允许时以读回的普通成员身份阻止编辑', async () => {
   render('groupName', '原群名');
   await click('编辑群名称');
   await fill('   ');
@@ -246,7 +250,7 @@ it('群名称拒绝空白，普通成员读回后不出现编辑框', async () =
   expect(host.querySelector('input')).toBeNull();
   expect(host.textContent).toContain('当前不能修改群名称');
 });
-it('群标题离线时为纯文本，恢复在线后原地编辑且不预读', async () => {
+it('群标题离线时为纯文本，恢复在线只预读权限，点击后再读编辑值', async () => {
   mock.online = false;
   render('groupName', '原群名', true);
   expect(host.textContent).toContain('原群名');
@@ -257,9 +261,22 @@ it('群标题离线时为纯文本，恢复在线后原地编辑且不预读', a
   mock.online = true;
   render('groupName', '原群名', true);
   expect(button('复制群名')).toBeNull();
-  expect(mock.reads).not.toHaveBeenCalled();
+  expect(mock.reads.mock.calls).toEqual([
+    ['groupPermissions', { ...mock.binding, groupId: 20001 }],
+  ]);
   await click('编辑群名称');
   expect(host.querySelector('input')?.value).toBe('原群名');
+});
+it('权限确认普通成员不能改名时直接显示群名，不打开编辑器', () => {
+  mock.permissionRole = 'member';
+  mock.role = 'member';
+  render('groupName', '原群名', true);
+  expect(host.textContent).toBe('原群名');
+  expect(host.querySelector('button, input')).toBeNull();
+  expect(mock.reads.mock.calls).toEqual([
+    ['groupPermissions', { ...mock.binding, groupId: 20001 }],
+  ]);
+  expect(mock.writes).not.toHaveBeenCalled();
 });
 it('好友分组原行下拉选择并核对所选分组', async () => {
   render('friendCategory', '朋友');

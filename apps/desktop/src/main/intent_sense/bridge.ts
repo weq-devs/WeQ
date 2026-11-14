@@ -23,18 +23,25 @@ import type {
   MbtiDim,
 } from '@weq/service';
 import { getLogger } from '@weq/service';
-import { downloadLayaBundle, isLayaBundleReady, type BundleProgress } from './model_files';
+import {
+  downloadLayaBundle,
+  isLayaBundleReady,
+  layaBundleStore,
+  type BundleProgress,
+} from './model_files';
 import { getAppContext } from '../context/app_context';
 import {
   enhancementEngineAvailable,
   enhancementEngineEnvironment,
+  withEnhancementEngine,
 } from '../enhancements/engine_environment';
+import { resolveChildWorkerPath } from '../worker_path';
 
 const logger = getLogger().child({ scope: 'intent-sense' });
 
 /** 本地引擎对 app_context 暴露的控制面（electron 侧实现，web 恒为 null）。 */
 export interface IntentSenseLocalEngine extends IntentLocalEnginePort {
-  validateModel(modelId: string): Promise<void>;
+  validateModel(modelId: string, directory?: string): Promise<void>;
   listModels(): Array<{ id: string; name: string; downloaded: boolean; downloadable: boolean }>;
   /** 模型 bundle 落盘目录（weq 用户数据目录下）。 */
   modelDir(): string;
@@ -46,6 +53,9 @@ export interface IntentSenseLocalEngine extends IntentLocalEnginePort {
   }): Promise<void>;
   start(): Promise<void>;
   stop(): Promise<void>;
+  runningModels(): string[];
+  startModel(modelId: string): Promise<void>;
+  stopModel(modelId: string, directory?: string): Promise<void>;
   isBusy(): boolean;
 }
 
@@ -71,7 +81,9 @@ function weqAppDataRoot(): string {
 
 /** Laya bundle 的落盘位置。 */
 export function layaModelDir(): string {
-  return join(weqAppDataRoot(), 'models', 'laya-multilingual');
+  return layaBundleStore(join(weqAppDataRoot(), 'models', 'laya-multilingual')).resolveModelDir(
+    'laya-multilingual',
+  );
 }
 
 /** QWeQ-NineBird 本地模型候选目录（自研微调模型优先）。 */
@@ -388,14 +400,8 @@ class LocalEngineBridge implements IntentLocalEnginePort {
   }
 
   private resolveWorkerPath(): string {
-    // 不用裸 __dirname（Electron 主进程 ESM 下该 banner 依赖 import.meta.dirname，
-    // 不可靠 —— captureWorker 的同款函数也是 fileURLToPath 写法）。
     const here = dirname(fileURLToPath(import.meta.url));
-    const candidates = [
-      join(here, 'intentSenseWorker.mjs'),
-      join(here, '..', 'intentSenseWorker.mjs'),
-    ];
-    return candidates.find((p) => existsSync(p)) ?? candidates[0]!;
+    return resolveChildWorkerPath('intentSenseWorker.mjs', here);
   }
 }
 
@@ -452,6 +458,27 @@ function normalizeEmotion(v: unknown): EmotionKind {
 // ── 单例门面（electron 入口 index.ts 注入给 app_context；web 永不注入）──
 
 const bridges = new Map<string, LocalEngineBridge>();
+const modelPorts = new Map<string, IntentLocalEnginePort>();
+function modelPort(modelId: string): IntentLocalEnginePort {
+  let port = modelPorts.get(modelId);
+  if (!port) {
+    port = {
+      get ready() {
+        return ensureBridge(findAvailableModelDir(modelId)).ready;
+      },
+      analyze: (text, options) =>
+        withEnhancementEngine('onnx', () =>
+          ensureBridge(findAvailableModelDir(modelId)).analyze(text, options),
+        ),
+      inferMbti: (samples) =>
+        withEnhancementEngine('onnx', () =>
+          ensureBridge(findAvailableModelDir(modelId)).inferMbti(samples),
+        ),
+    };
+    modelPorts.set(modelId, port);
+  }
+  return port;
+}
 
 function ensureBridge(dir = findAvailableModelDir()): LocalEngineBridge {
   let bridge = bridges.get(dir);
@@ -473,10 +500,11 @@ export function getIntentSenseLocalEngine(): IntentSenseLocalEngine {
     get ready() {
       return ensureBridge().ready;
     },
-    forModel: (modelId) => ensureBridge(findAvailableModelDir(modelId)),
+    forModel: modelPort,
     analyze: (text: string, options?: IntentLocalAnalyzeOptions) =>
-      ensureBridge().analyze(text, options),
-    inferMbti: (samples: string[]) => ensureBridge().inferMbti(samples),
+      withEnhancementEngine('onnx', () => ensureBridge().analyze(text, options)),
+    inferMbti: (samples: string[]) =>
+      withEnhancementEngine('onnx', () => ensureBridge().inferMbti(samples)),
     modelDir: () => findAvailableModelDir(),
     listModels: () => [
       {
@@ -530,12 +558,41 @@ export function getIntentSenseLocalEngine(): IntentSenseLocalEngine {
     stop: async () => {
       await Promise.all([...bridges.values()].map((bridge) => bridge.stop()));
     },
+    runningModels: () =>
+      ['laya-multilingual', 'QWeQ-NineBird-v1'].filter(
+        (id) => bridges.get(findAvailableModelDir(id))?.workerRunning,
+      ),
+    startModel: async (id) => {
+      const dir = findAvailableModelDir(id);
+      if (!isAnyModelReady(dir)) throw new Error('本地模型尚未就绪');
+      await ensureBridge(dir).start(dir);
+    },
+    stopModel: async (id, directory) => {
+      const dir = directory ?? findAvailableModelDir(id);
+      const bridge = bridges.get(dir);
+      await bridge?.stop();
+      bridges.delete(dir);
+    },
     isBusy: () => [...bridges.values()].some((bridge) => bridge.isBusy()),
-    validateModel: async (modelId) => {
+    validateModel: async (modelId, candidateDirectory) => {
+      if (candidateDirectory) {
+        const candidate = new LocalEngineBridge(candidateDirectory);
+        try {
+          await candidate.start(candidateDirectory);
+          if (!(await candidate.analyze('你好'))) throw new Error('意图模型实际推理失败');
+        } finally {
+          await candidate.stop();
+        }
+        return;
+      }
       const dir = findAvailableModelDir(modelId);
-      const bridge = ensureBridge(dir);
-      await bridge.start(dir);
-      if (!(await bridge.analyze('你好'))) throw new Error('意图与画像模型实际推理失败');
+      const bridge = new LocalEngineBridge(dir);
+      try {
+        await bridge.start(dir);
+        if (!(await bridge.analyze('你好'))) throw new Error('意图与画像模型实际推理失败');
+      } finally {
+        await bridge.stop();
+      }
     },
   };
 }

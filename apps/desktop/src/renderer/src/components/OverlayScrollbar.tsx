@@ -151,12 +151,17 @@ export function OverlayScrollbar({
 
     const resizeObserver = new ResizeObserver(scheduleUpdate);
     resizeObserver.observe(target);
-    if (target.firstElementChild) resizeObserver.observe(target.firstElementChild);
+    const content = target.firstElementChild;
+    const windowed = content?.matches('.weq-virtual-timeline.is-windowed');
+    if (content && !windowed) resizeObserver.observe(content);
 
     const mutationObserver = new MutationObserver(() => {
       if (hoverRef.current || draggingRef.current) scheduleUpdate();
     });
     mutationObserver.observe(target, { childList: true, subtree: true });
+    // 时间线总高由虚拟列表直接写入，不再从父层 RO 反向订阅行高变化。
+    if (content && windowed)
+      mutationObserver.observe(content, { attributes: true, attributeFilter: ['style'] });
 
     scheduleUpdate();
 

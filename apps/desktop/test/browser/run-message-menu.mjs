@@ -57,6 +57,7 @@ try {
   };
   await context.route('**/*', routes);
   const page = await context.newPage();
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   page.on('pageerror', (error) => errors.push(error.message));
   const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/message-menu.html`;
   await page.goto(url);
@@ -83,6 +84,62 @@ try {
       mode,
     );
   };
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const theme of ['light', 'dark']) {
+      const scroll = page.locator('.menu-fixture-scroll');
+      const thumb = page.locator('.weq-message-scrollbar .weq-custom-scrollbar-thumb');
+      await scroll.evaluate((element) => {
+        element.scrollTop = 0;
+      });
+      await scroll.hover();
+      await page.locator('.weq-message-scrollbar.is-visible').waitFor();
+      await page.waitForFunction(() => {
+        const scroll = document.querySelector('.menu-fixture-scroll');
+        const thumb = document.querySelector('.weq-message-scrollbar .weq-custom-scrollbar-thumb');
+        return (
+          scroll.scrollTop === 0 &&
+          Math.abs(thumb.getBoundingClientRect().top - scroll.getBoundingClientRect().top - 8) < 1
+        );
+      });
+      await open(width, 0, width < 760, theme);
+      const bounds = await thumb.boundingBox();
+      const point = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+      const overlap = await page.getByRole('menu').evaluate((menu, point) => {
+        const hit = document.elementFromPoint(point.x, point.y);
+        const rect = menu.getBoundingClientRect();
+        return {
+          covered:
+            point.x > rect.left &&
+            point.x < rect.right &&
+            point.y > rect.top &&
+            point.y < rect.bottom &&
+            menu.contains(hit),
+          point,
+          menu: rect.toJSON(),
+          hit: hit?.className || hit?.tagName,
+          zIndex: getComputedStyle(menu).zIndex,
+        };
+      }, point);
+      assert.equal(
+        overlap.covered,
+        true,
+        `右键菜单必须盖住消息滚动条，且重叠处点击不能穿透：${width}/${theme} ${JSON.stringify(overlap)}`,
+      );
+      if (output)
+        await page.screenshot({ path: resolve(output, `scrollbar-${width}-${theme}.png`) });
+      await page.keyboard.press('Escape');
+      await scroll.hover();
+      await thumb.hover();
+      await page.mouse.down();
+      await page.mouse.move(point.x, point.y + 80);
+      await page.mouse.up();
+      assert.ok(
+        await scroll.evaluate((element) => element.scrollTop > 0),
+        '关闭菜单后滚动条仍可拖动',
+      );
+    }
+  }
   for (const [width, height] of [
     [1280, 900],
     [390, 844],
@@ -380,7 +437,7 @@ try {
   await touch.close();
   assert.deepEqual(errors, []);
   console.log(
-    'PASS: 两列图文、统一图标、适用项过滤、保存与定位并存、记录专属导出、四尺寸深浅主题四角避让、禁用键盘提示、Tab方向、回应取消及真实触屏长按。',
+    'PASS: 菜单盖住消息滚动条且关闭后仍可拖动、两列图文、统一图标、适用项过滤、保存与定位并存、记录专属导出、四尺寸深浅主题四角避让、禁用键盘提示、Tab方向、回应取消及真实触屏长按。',
   );
 } finally {
   await browser?.close();

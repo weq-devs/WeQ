@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { TimeLabel } from '../../components/TimeLabel';
+import { ReminderCount } from '../../components/ReminderBadge';
 import { occupationText } from '@weq/protocol/profile-values';
 import {
   BellOff,
@@ -962,7 +963,11 @@ export function ConversationList({
                   {unreadCount &&
                   (conversation.mergedKind !== 'groupAssistant' ||
                     directory?.showGroupAssistantMessageCount) ? (
-                    <span className={cn(unreadClass(muted))}>{formatBadgeCount(unreadCount)}</span>
+                    <ReminderCount
+                      count={unreadCount}
+                      tone={muted ? 'muted' : 'notice'}
+                      className="row-unread"
+                    />
                   ) : null}
                 </span>
               </button>
@@ -1589,16 +1594,16 @@ function GroupNotificationSection({
                 </span>
                 {conversationDirectory?.showContactUnreadCount &&
                 (conversation.unreadCount ?? 0) > 0 ? (
-                  <span
-                    className={unreadClass(
-                      Boolean(
-                        conversationDirectory?.preferences?.[conversation.id]?.muted ??
-                          conversation.preference?.muted,
-                      ),
-                    )}
-                  >
-                    {formatBadgeCount(conversation.unreadCount)}
-                  </span>
+                  <ReminderCount
+                    count={conversation.unreadCount}
+                    className="row-unread"
+                    tone={
+                      (conversationDirectory?.preferences?.[conversation.id]?.muted ??
+                      conversation.preference?.muted)
+                        ? 'muted'
+                        : 'notice'
+                    }
+                  />
                 ) : null}
               </button>
             );
@@ -1736,7 +1741,11 @@ const ContactDirectoryRow = memo(function ContactDirectoryRow({
           </span>
         </span>
         {unreadCount > 0 ? (
-          <span className={unreadClass(muted)}>{formatBadgeCount(unreadCount)}</span>
+          <ReminderCount
+            count={unreadCount}
+            tone={muted ? 'muted' : 'notice'}
+            className="row-unread"
+          />
         ) : null}
       </button>
       {own && !detail && contact.onlineStatusObj && contact.onlineStatusObj.typeName !== '未知' ? (
@@ -2554,18 +2563,10 @@ function formatDraftPreview(value: string | undefined) {
     .trim();
 }
 
-function formatBadgeCount(value: number) {
-  return value > 99 ? '99+' : String(value);
-}
-
 function isPinned(conversation: Conversation, preferences: ConversationPreferences): boolean {
   return conversationPinned(conversation, preferences);
 }
 
 function listRowClass(active: boolean, semanticClass: 'conversation-row' | 'contact-row') {
   return cn(semanticClass, active && 'active');
-}
-
-function unreadClass(muted: boolean) {
-  return cn('row-unread', muted && 'muted');
 }

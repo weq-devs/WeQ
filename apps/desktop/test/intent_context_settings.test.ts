@@ -46,7 +46,8 @@ const fixture = vi.hoisted(() => ({
   statusError: null as Error | null,
   retry: vi.fn(),
 }));
-vi.mock('../src/renderer/src/components/Dialog', () => ({
+vi.mock('../src/renderer/src/components/Dialog', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/src/components/Dialog')>()),
   useDialog: (select: (state: { showError: typeof fixture.error }) => unknown) =>
     select({ showError: fixture.error }),
 }));

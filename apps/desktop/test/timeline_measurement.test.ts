@@ -10,12 +10,14 @@ it('时间线使用现成行高，不重复读取布局，隐藏时仍保留已�
   const root = createRoot(host);
   let timeline: ReturnType<typeof useVirtualTimeline> | undefined;
   const ids = ['fixture'];
+  let active = true;
   function Fixture() {
     timeline = useVirtualTimeline({
       ids,
       orderedIds: ids,
       scope: 'fixture',
       scrollRef: useRef<HTMLDivElement>(null),
+      active,
     });
     return null;
   }
@@ -43,6 +45,60 @@ it('时间线使用现成行高，不重复读取布局，隐藏时仍保留已�
     rects.mockReturnValue(Object.assign(one, { item: (index: number) => one[index]! }));
     expect(measure()).toBe(51.75);
     expect(bounds).not.toHaveBeenCalled();
+
+    const viewport = document.createElement('div');
+    let width = 600;
+    let height = 400;
+    Object.defineProperties(viewport, {
+      clientWidth: { get: () => width },
+      clientHeight: { get: () => height },
+    });
+    let notify: ResizeObserverCallback | undefined;
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          notify = callback;
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    instance.scrollElement = viewport;
+    instance.targetWindow = window;
+    const resized = vi.fn();
+    const cleanup = instance.options.observeElementRect(instance, resized);
+    expect(resized).toHaveBeenLastCalledWith({ width, height });
+    width = height = 0;
+    notify!([], {} as ResizeObserver);
+    expect(resized).toHaveBeenCalledTimes(1);
+    width = 500;
+    height = 300;
+    notify!([], {} as ResizeObserver);
+    expect(resized).toHaveBeenLastCalledWith({ width, height });
+    cleanup?.();
+
+    viewport.scrollTop = 120;
+    const offsets = vi.fn();
+    const stopOffsets = instance.options.observeElementOffset(instance, offsets);
+    viewport.dispatchEvent(new Event('scroll'));
+    expect(offsets).toHaveBeenLastCalledWith(120, true);
+    act(() => {
+      active = false;
+      root.render(createElement(Fixture));
+    });
+    viewport.scrollTop = 0;
+    viewport.dispatchEvent(new Event('scroll'));
+    expect(offsets).toHaveBeenCalledTimes(1);
+    act(() => {
+      active = true;
+      root.render(createElement(Fixture));
+    });
+    viewport.scrollTop = 180;
+    viewport.dispatchEvent(new Event('scroll'));
+    expect(offsets).toHaveBeenLastCalledWith(180, true);
+    stopOffsets?.();
 
     const fragments = [new DOMRect(0, 0, 100, 20), new DOMRect(0, 20, 100, 30)];
     rects.mockReturnValue(Object.assign(fragments, { item: (index: number) => fragments[index]! }));

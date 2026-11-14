@@ -403,6 +403,8 @@ Linux 宿主**总是先试免密直连**：`yama ptrace_scope=0`（或 `CAP_SYS_
 | `signPacketWithToken(wrapperPath, cmd, src, tokenHex, extraHex, mode?)` | + 外部传入的 token / extra | `SignOutput` | 已有 `SecToken` / `SecExtra` 时直接签名（不需要自己算）。 |
 | `signRedBagRequest(signInput)` | 待签字节 | `Buffer` | 红包请求的专用签名，与主签名链分开。 |
 
+原生发包按 PID 复用连接。已开始发送的请求超过 30 秒仍未收到应答时，回收该连接并唤醒其余等待者；凭据登记保留，后续请求懒建新连接，不自动重发旧请求。超时仍返回 `sso_request_outcome_unknown_timeout`，表示无法确认本次动作是否已生效；正常收到的业务拒绝不因此断线。该恢复行为需要包含此修复的 native，只有更新 WeQ 的 TypeScript 代码或刷新页面不会替换已加载的原生产物。
+
 ::: warning `needSign` 只收当前平台的值
 
 QQ 的签名集合**按平台不同**（Linux / Windows / macOS），`@weq/protocol` 的 `sign-policy.ts`

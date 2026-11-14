@@ -141,6 +141,25 @@ it('每种必需产物及更新清单均检查完成状态，临时未完成上�
   ).toThrow();
 });
 
+it('正式发布要求五个平台的统一增强包描述，不能仅凭旧引擎清单公开', () => {
+  const f = fixture(true);
+  const names = ['win32-x64', 'linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64'].map(
+    (target) => `enhancement-packs-${target}.json`,
+  );
+  f.assets = f.assets.filter((asset) => !names.includes(asset.name));
+  f.assets.push(...names.map((name) => ({ name, state: 'uploaded', size: 10 })));
+  expect(() => assertReady(f.plan, f.needs, f.release, f.assets)).not.toThrow();
+  for (const name of names)
+    expect(() =>
+      assertReady(
+        f.plan,
+        f.needs,
+        f.release,
+        f.assets.filter((asset) => asset.name !== name),
+      ),
+    ).toThrow(name);
+});
+
 it.each([false, true])(
   '最终公开 stable=%s 只改一次公开状态，回执丢失后的重跑只核验',
   async (stable) => {

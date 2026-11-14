@@ -26,9 +26,9 @@
 - `ProfileExtrasContent` 和 `ProfileDetailsContent` 支持页内承接，`ProfileExtraDialog` 复用相同内容与查询。原有签名、问答、照片互动不另建协议或写入通道。
 - 私聊存在性优先使用完整目录和隐藏、历史及临时会话状态；必要时只读取会话边界。本群发言复用 `browseConversation` 的发送者过滤和游标分页。空间预览按点击延迟加载，复用空间读取和媒体网格，不预取评论或续页。
 
-资料页章节采用共享目录容器，保留同一对象的章节、分页和滚动位置。`lib/contactWorkspace.ts` 定义四个内容页及旧导航映射：`details/signatures/history/edit` 归入 `profile`，`portrait` 归入 `marks`，`questions` 归入 `personality`。旧教育、签名、历史章节只定位个人资料，不恢复已移除的独立入口；学校、签名、项目历史在实际触发点旁打开详情。本人编辑及对外展示设置与名片偏好分开。
+资料页章节采用共享目录容器，保留同一对象的章节、分页和滚动位置。`lib/contactWorkspace.ts` 定义基础内容页及旧导航映射：`details/signatures/history/edit` 归入 `profile`，`portrait` 归入 `marks`，`questions` 归入 `personality`。勋章墙章节及专用读取已撤下，不保留隐藏入口；遗留未知页签回到个人资料。旧教育、签名、历史章节只定位个人资料，不恢复已移除的独立入口；学校、签名、项目历史在实际触发点旁打开详情。本人编辑及对外展示设置与名片偏好分开。
 
-本人身份复用 `usePersonRelationship` 判断，页头和区域名称为「我的资料」；目录使用 `SELF_WORKSPACE_SECTIONS`，依次为个人资料、群内资料、个性展示、礼物墙，不显示「与我的关系」。礼物墙复用 `GiftWall` 的收发切换与游标分页，首次选中才挂载，不在个性装扮中保留入口；全局搜索通过 `self-profile` 目标和 `giftwall` 标签直达本人资料。他人资料仍使用原四页结构，不展示本人的礼物；不适用的旧标签回到个人资料。本人浏览器回归 `run-self-profile.mjs` 同时覆盖礼物墙的深浅主题、宽窄屏及收发切换。
+本人身份复用 `usePersonRelationship` 判断，页头和区域名称为「我的资料」；目录使用 `SELF_WORKSPACE_SECTIONS`，依次为个人资料、群内资料、个性展示、礼物墙，不显示「与我的关系」。礼物墙复用 `GiftWall` 的收发切换与游标分页，首次选中才挂载，不在个性装扮中保留入口；全局搜索通过 `self-profile` 目标和 `giftwall` 标签直达本人资料。他人资料另有「与我的关系」，不展示本人的礼物；不适用的旧标签回到个人资料。本人浏览器回归 `run-self-profile.mjs` 同时覆盖礼物墙的深浅主题、宽窄屏及收发切换。
 
 `ProfileDisclosure` 仅用于问答、本人编辑等仍需折叠的内容，收起保留现场并通过 `TabActivity` 暂停读取。互动画像随关系页直接挂载，不再折叠。`ProfileExtraDialog` 的教育和签名、共同群名单、项目历史使用显式锚点及 `presentation=popover`、`anchorPlacement=side`；QQ 秀展柜与本人头像历史同样支持锚点，保留原分页、互动与关闭行为。`ContactDressRow` 仅输出真实装扮素材，不复用带头像和 QQ 秀的个性主页舞台。
 
@@ -53,6 +53,21 @@ UID 仅在开启该字段时进入身份区。`styles/contact-workspace.css` 承
 `ContactGroupWorkspace` 通过绑定账号和数据源的 `listUserGroups` 分页读取本地成员记录，合并来源群，不遍历所有群成员；群名优先使用当前群资料、来源群和已有会话目录，缺失时显示群号。切群重新构造 `profileContext`，不改联系人及当前会话；成员行与本群发言、聊天分析共用该上下文。选择记忆按账号、数据源和 UID 隔离，内存有界；来源群优先于记忆。`listUserGroups` 保留旧调用，同时使用已有 `scopedGroupRead` 拒绝跨账号、跨数据源及迟到响应。
 
 ## 定向验证
+
+`ProfileSummary` 的属性对照直接衔接前面的关系字段，不创建独立分区、小标题或分割线。保留服务器标题和文案，无标题时使用「资料对比」，不将不同属性描述为共同点。`profile_summary_ui.test.ts` 与 `run-profile-summary.mjs` 覆盖该命名、原文保留及桌面／窄屏深浅主题下的连续排列。
+
+### 家乡与共同点
+
+- `profileExtras.details` 在公司、说明、邮箱、家乡 24002 与区县 20043 之外，请求旧学校文字 **20021** 与职业 **27037**（四字节大端整数）；数值学校 ID 不作学校名称。所在地通过独立 `profileExtras.region` 复用 `getCloudProfile` 的 **0xfe1_2 / bytes 20032**，不与家乡混用。两条查询都复用既有账号、进程及目标校验。
+- `profile-regions` 子入口只输出浏览器可用的类型及 `formatQqRegion`，不引入传输、Node 模块或整份地区目录。零／空地区代码继续遍历下级，但不显示「不限」；全部未选返回 null，未返回与损坏值不伪造为有效资料。本人使用已有地区目录查询，其他人的 `hometownText / regionText` 在服务端用同一个函数生成。
+- `ContactOnlineFields` 仅在相应字段缺少本地内容时挂载在线补全，已有值立即显示。职业、学校和其他详细资料共享查询；所在地单独读取，学校文字缺失或旧资料失败时，独立读取 `educationHistory` 并跳过他人的隐藏经历。本地仅有学历时仍先显示，不等待学校补全。字段隐藏、预览、本地模式或离开章节时不新增对应读取。
+- `ProfileSummary` 复用 `ContactRow`、查询缓存和活动章节状态。`ProfileExtrasService.similarity` 通过原路由绑定账号配置、目标及进程，按业务和目标在途去重；所有结果再次检查来源及目标，不修改名称缓存或 QQ 数据库。
+- 共同点由 `profile/similarity` **直接请求 OidbSvc.0xcf4**，不先请求资料卡聚合，也不在失败后切换到聚合。请求 from@1、to@2、qzone@4=true、newDna@6=false；响应 from@1／to@2 必须匹配双方，从 **DnaInfo@14 的 wording@3** 读取严格 UTF-8 主文案，`source=dna`。不推断相同属性，不使用新 DNA 的聊天小结或友谊时间线。该独立路径已在 macOS 当前真实登录态读取到非空文案；成功空列表、业务拒绝、错目标和损坏响应分别处理，不用空结果掩盖错误。
+- 资料卡聚合的请求／解析、专用 JCE 编解码、待确认签名登记及默认探测候选均已移出产品；没有隐藏开关或聚合回退。
+- 资料对比向所有有有效 QQ 号的他人联系人挂载，不按好友／非好友／关系未知或机器人／企业账号筛选；本人通过共享身份目录识别并排除，没有 QQ 身份的本地对象不发请求。当前 macOS 真实好友查询已通过正式服务返回非空文案。普通共同好友／共同群和互动画像不受影响；所有补全只读，均不写 QQ 原库或会话名称缓存。
+- 读取使用现有中央签名策略，不更换登录身份或伪装 Android，不恢复已撤下的好友扩展备注接口。
+
+针对性协议用例在 `profile_similarity.test.ts`、`profile_details.test.ts`；`sign_policy.test.ts` 保证已撤下聚合不保留策略或默认探测入口。账号绑定和在途检查沿 `profile_extras.test.ts` 与 `profile_extras_router.test.ts`；界面／路由回归为 `profile_summary_ui.test.ts`、`contact_workspace_sections.test.ts` 和 `contact_workspace_model.test.ts`，包含已撤下勋章墙的导航和路由不存在、旧页签回退检查。浏览器入口 `run-profile-summary.mjs` 使用既有 Playwright／浏览器环境变量，以 `WEQ_PROFILE_APPROVED_QA` 保存证据，覆盖本人／他人格式一致、无勋章入口或查询、所有他人联系人的资料对比与本人排除、空态及失败重试，退出时关闭自身服务器及浏览器。
 
 服务测试覆盖字段默认、归一化、排序、持久化、备份恢复及等级与获赞的实际读取选择；渲染测试覆盖名片浮层、头像补全、来源隔离、备注及群资料编辑和既有互动能力。
 

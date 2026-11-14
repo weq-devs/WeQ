@@ -94,6 +94,13 @@ export function serializeComposer(editor: HTMLElement) {
     .join('');
 }
 
+/** 标记真实换行，区别于浏览器删空 contenteditable 后留下的占位 br。 */
+export function createComposerLineBreak() {
+  const lineBreak = document.createElement('br');
+  lineBreak.dataset.weqLineBreak = 'true';
+  return lineBreak;
+}
+
 export function getActiveComposerMentionTrigger(
   editor: HTMLElement,
   savedRange: Range | null,
@@ -251,13 +258,27 @@ function appendEmojiToken(editor: HTMLElement, part: { item: EmojiItem; raw: str
   editor.append(image);
 }
 
+function serializeComposerChildren(node: Node): string {
+  const block = (child: Node | undefined) =>
+    child instanceof HTMLElement &&
+    !child.dataset.chatToken &&
+    (child.tagName === 'DIV' || child.tagName === 'P');
+  return Array.from(node.childNodes)
+    .map((child, index, children) => {
+      // 原生编辑／听写也会生成块级行；相邻空行不能因占位 br 被忽略而合并。
+      const separator = index > 0 && (block(child) || block(children[index - 1])) ? '\n' : '';
+      return separator + serializeComposerNode(child);
+    })
+    .join('');
+}
+
 function serializeComposerNode(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) {
     return node.textContent ?? '';
   }
 
   if (node instanceof DocumentFragment) {
-    return Array.from(node.childNodes).map(serializeComposerNode).join('');
+    return serializeComposerChildren(node);
   }
 
   if (node instanceof HTMLImageElement) {
@@ -265,6 +286,7 @@ function serializeComposerNode(node: Node): string {
   }
 
   if (node instanceof HTMLBRElement) {
+    if (!node.dataset.weqLineBreak && node.parentNode?.lastChild === node) return '';
     return '\n';
   }
 
@@ -282,7 +304,7 @@ function serializeComposerNode(node: Node): string {
     return node.dataset.chatMention;
   }
 
-  return Array.from(node.childNodes).map(serializeComposerNode).join('');
+  return serializeComposerChildren(node);
 }
 
 function getReadableComposerRange(editor: HTMLElement, savedRange: Range | null) {
@@ -357,6 +379,10 @@ function resolveComposerTextOffset(editor: HTMLElement, offset: number) {
 }
 
 function composerAtomicText(node: Node) {
+  // 触发词偏移来自序列化正文，提及和其他元素必须按完整 token 计长。
+  if (node instanceof HTMLElement && node.dataset.chatToken) {
+    return node.dataset.chatToken;
+  }
   if (node instanceof HTMLImageElement) {
     return node.dataset.chatToken ?? '';
   }
@@ -389,7 +415,7 @@ function appendText(editor: HTMLElement, value: string) {
   const lines = value.split('\n');
   lines.forEach((line, index) => {
     if (index > 0) {
-      editor.append(document.createElement('br'));
+      editor.append(createComposerLineBreak());
     }
     if (line) {
       editor.append(document.createTextNode(line));

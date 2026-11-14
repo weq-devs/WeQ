@@ -1,6 +1,6 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { FieldHistoryContent } from '../src/renderer/src/components/contactProfile/FieldHistoryContent';
 import {
   fieldHistoryItems,
@@ -14,9 +14,11 @@ vi.mock('../src/renderer/src/components/MediaSaveControls', () => ({
   MediaSourceSave: () => null,
 }));
 const roots: ReturnType<typeof createRoot>[] = [];
+beforeEach(() => vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true));
 afterEach(() => {
   for (const root of roots.splice(0)) act(() => root.unmount());
   document.body.innerHTML = '';
+  vi.unstubAllGlobals();
 });
 
 it.each([
@@ -254,5 +256,9 @@ it('空记录明确显示，单一有效数值不画趋势，图片失败保留�
   ]);
   expect(photo.querySelector('img')?.src).toContain('album');
   await act(async () => photo.querySelector('img')!.dispatchEvent(new Event('error')));
-  expect(photo.textContent).toContain('图片暂不可用');
+  expect(photo.querySelector('[role="img"][aria-label$="未加载"]')).not.toBeNull();
+  expect(photo.querySelector('.weq-shimmer-block')).toBeNull();
+  expect(photo.querySelector('.weq-field-photo img')?.getAttribute('aria-hidden')).toBe('true');
+  expect(photo.querySelectorAll('.weq-field-records > li')).toHaveLength(1);
+  expect(photo.textContent).toContain('最早记录');
 });

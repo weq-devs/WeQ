@@ -21,6 +21,7 @@ import { useUpdateStore } from '../../state/update';
 import '../../styles/rail-navigation.css';
 import { useWorkspaceActiveTitle } from '../../components/WorkspacePages';
 import { preloadWorkspace } from '../../components/lazyWorkspaces';
+import { ReminderCount, ReminderDot } from '../../components/ReminderBadge';
 
 export function AppRail({
   user,
@@ -93,7 +94,7 @@ export function AppRail({
       <Settings size={22} strokeWidth={1.75} aria-hidden />
       {mobile ? <span className="rail-label">设置</span> : null}
       {updateAvailable ? (
-        <span className="rail-badge rail-badge-dot" aria-label="有新版本可更新" />
+        <ReminderDot overlay className="rail-badge rail-badge-dot" aria-label="有新版本可更新" />
       ) : null}
     </button>
   );
@@ -199,8 +200,10 @@ export function AppRail({
               <span className={cn('rail-label')}>消息</span>
             </button>
             {messageBadgeCount > 0 ? (
-              <button
-                type="button"
+              <ReminderCount
+                as="button"
+                count={messageBadgeCount}
+                overlay
                 className={cn('rail-badge rail-message-badge')}
                 title="定位首条未读会话"
                 aria-label={`定位首条未读会话，共 ${messageBadgeCount} 条未读消息`}
@@ -209,9 +212,7 @@ export function AppRail({
                   if (onMessageBadgeClick) onMessageBadgeClick();
                   else selectView('messages');
                 }}
-              >
-                {formatBadgeCount(messageBadgeCount)}
-              </button>
+              />
             ) : null}
           </div>
           <button
@@ -225,7 +226,8 @@ export function AppRail({
             </span>
             <span className={cn('rail-label')}>联系人</span>
             {contactBadgeCount > 0 ? (
-              <span
+              <ReminderDot
+                overlay
                 className={cn('rail-badge rail-badge-dot')}
                 role="status"
                 aria-label="有新的好友或群通知"
@@ -272,14 +274,14 @@ export function AppRail({
             </span>
             <span className={cn('rail-label')}>QQ邮箱</span>
             {mailBadgeCount > 0 ? (
-              <span
+              <ReminderCount
+                count={mailBadgeCount}
+                overlay
                 className="rail-badge rail-badge-mail"
                 role="status"
                 aria-label={`${mailBadgeCount} 封未读邮件`}
                 title={`${mailBadgeCount} 封未读邮件`}
-              >
-                {formatBadgeCount(mailBadgeCount)}
-              </span>
+              />
             ) : null}
           </button>
           {contentItems.map((item) => (
@@ -345,10 +347,6 @@ export function AppRail({
       </div>
     </aside>
   );
-}
-
-function formatBadgeCount(value: number) {
-  return value > 99 ? '99+' : String(value);
 }
 
 function railButtonClass(active: boolean) {

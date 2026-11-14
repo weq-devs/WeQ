@@ -1,6 +1,7 @@
 export const ENHANCEMENT_ENGINE_RECIPES = {
   onnx: {
     revision: 1,
+    minWeqVersion: '2.7.0',
     packages: {
       'onnxruntime-node': '1.30.0',
       'onnxruntime-common': '1.30.0',
@@ -11,12 +12,20 @@ export const ENHANCEMENT_ENGINE_RECIPES = {
   },
   sherpa: {
     revision: 1,
+    minWeqVersion: '2.7.0',
     packages: { 'sherpa-onnx-node': '1.13.3' },
     targets: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64', 'win32-x64'],
   },
 } as const;
 
 export type EnhancementEngineKind = keyof typeof ENHANCEMENT_ENGINE_RECIPES;
+// 运行接口基线不跟随构建配方或 WeQ 发布版本递增。
+export const ENHANCEMENT_RUNTIME_BASELINE = '2.7.0';
+export const ENHANCEMENT_RUNTIME = { onnx: 'onnx-v1', sherpa: 'sherpa-v1' } as const;
+export const LEGACY_ENHANCEMENT_RUNTIME = {
+  onnx: { runtime: 'onnx-v1', compatibility: 'r1-1.30.0-1.30.0-0.1.2-0.2.0' },
+  sherpa: { runtime: 'sherpa-v1', compatibility: 'r1-1.13.3' },
+} as const;
 export const ENHANCEMENT_PACK_IDS = ['text', 'voice', 'intent', 'dress'] as const;
 export type EnhancementPackId = (typeof ENHANCEMENT_PACK_IDS)[number];
 
@@ -32,6 +41,8 @@ export interface EnhancementEngineArtifact {
   kind: EnhancementEngineKind;
   id: string;
   compatibility: string;
+  runtime?: string;
+  minWeqVersion?: string;
   target: string;
   url: string;
   sha256: string;
@@ -74,7 +85,14 @@ export function parseEnhancementEngineManifest(value: unknown): EnhancementEngin
       !artifact ||
       !Object.hasOwn(ENHANCEMENT_ENGINE_RECIPES, artifact.kind) ||
       kinds.has(artifact.kind) ||
-      artifact.compatibility !== enhancementEngineCompatibility(artifact.kind) ||
+      (artifact.runtime
+        ? artifact.runtime !== ENHANCEMENT_RUNTIME[artifact.kind]
+        : artifact.compatibility !== enhancementEngineCompatibility(artifact.kind) &&
+          !(
+            ENHANCEMENT_RUNTIME[artifact.kind] ===
+              LEGACY_ENHANCEMENT_RUNTIME[artifact.kind].runtime &&
+            artifact.compatibility === LEGACY_ENHANCEMENT_RUNTIME[artifact.kind].compatibility
+          )) ||
       artifact.target !== manifest.target ||
       typeof artifact.id !== 'string' ||
       !/^[a-zA-Z0-9._-]+$/.test(artifact.id) ||

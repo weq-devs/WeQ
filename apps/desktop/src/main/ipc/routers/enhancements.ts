@@ -11,14 +11,27 @@ export const enhancementProcedures = {
   enhancementPacks: procedure.query(async () => {
     const resources = requireBootstrap().enhancements;
     await resources.inspected;
-    await resources.packs.reconcileExisting();
+    await resources.updates.ready();
     const packs = await resources.packs.list();
     return {
-      packs,
+      packs: packs.map((pack) => ({ ...pack, check: resources.updates.state(pack.id) })),
+      preferences: requireBootstrap().userConfig.getSettings().enhancementUpdates,
       all: resources.packs.plan(
         packs.filter((pack) => !pack.downloaded && !pack.blocker).map((pack) => pack.id),
       ),
     };
+  }),
+  setEnhancementUpdates: procedure
+    .input(
+      z.object({ autoCheck: z.boolean().optional(), autoInstall: z.boolean().optional() }).strict(),
+    )
+    .mutation(
+      ({ input }) =>
+        requireBootstrap().userConfig.setSettings({ enhancementUpdates: input }).enhancementUpdates,
+    ),
+  checkEnhancementUpdates: procedure.input(selection).mutation(async ({ input }) => {
+    await requireBootstrap().enhancements.updates.check(input.ids);
+    return true;
   }),
   enhancementPlan: procedure
     .input(selection)

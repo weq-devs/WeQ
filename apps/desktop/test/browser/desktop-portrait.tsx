@@ -62,6 +62,7 @@ function DesktopFixture() {
     Object.assign(window, { openWindowLayoutPreview: () => setPreview(true) });
   }, []);
   const shell = useChatShellController({
+    initialView: new URLSearchParams(location.search).has('home') ? 'home' : 'messages',
     conversations,
     contacts: [peer],
     conversationPrefs: {},

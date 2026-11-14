@@ -109,11 +109,11 @@ try {
       assert.equal(await page.locator('[data-conversation-id]').count(), 1);
       const helperUnread = page.locator('[data-conversation-id="20001"] .row-unread');
       assert.equal(await helperUnread.textContent(), '7');
-      assert.equal(await helperUnread.evaluate((node) => node.classList.contains('muted')), true);
+      assert.equal(await helperUnread.getAttribute('data-tone'), 'muted');
       const helperColor = await helperUnread.evaluate((node) => {
         const probe = document.createElement('span');
-        probe.style.background = 'var(--weq-qqnt-unread-muted)';
-        probe.style.color = 'var(--weq-qqnt-unread-muted-ink)';
+        probe.style.background = 'var(--weq-reminder-muted-background)';
+        probe.style.color = 'var(--weq-reminder-muted-foreground)';
         document.body.append(probe);
         const result = {
           actual: getComputedStyle(node).backgroundColor,

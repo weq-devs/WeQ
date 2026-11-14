@@ -4,12 +4,13 @@ const ids = ['text', 'voice', 'intent', 'dress'] as const;
 const names = ['本地文字识别', '本地语音转写', '本地意图与画像', '装扮离线索引'];
 const sizes = [63.45, 266.84, 693.12, 39.32];
 const descriptions = [
-  '图片文字识别与文字筛图',
-  'SenseVoice 多语言转写与匹配引擎',
-  '意图感知和互动画像共用的本地模型',
-  'QQ 不在线时查询装扮地址，具体素材仍需联网获取',
+  '在本机识别图片文字，并跳过无文字图片。',
+  '在本机将语音转为文字，支持中、英、日、韩、粤语。',
+  '在本机分析消息意图、情绪与互动画像。',
+  'QQ 不在线时也能查询装扮地址；下载具体素材仍需网络。',
 ];
 let downloaded = new Set(['text', 'intent']);
+let preferences = { autoCheck: true, autoInstall: false };
 const state = new URLSearchParams(location.search).get('state');
 if (state === 'empty') downloaded = new Set();
 if (state === 'installed') downloaded = new Set(ids);
@@ -24,12 +25,22 @@ const snapshot = () => {
     id,
     name: names[index],
     description: descriptions[index],
-    downloaded: downloaded.has(id),
-    ready: downloaded.has(id),
+    downloaded: downloaded.has(id) && !(state === 'partial' && id === 'text'),
+    ready: downloaded.has(id) && !(state === 'partial' && id === 'text'),
     installed: downloaded.has(id),
+    needsRepair: state === 'partial' && id === 'text',
+    missingComponents: state === 'partial' && id === 'text' ? ['文字筛图模型'] : [],
     busy: state === 'busy' && id === 'voice',
-    blocker: null,
-    downloadBytes: downloaded.has(id) ? 0 : sizes[index]! * 1048576,
+    blocker: state === 'incompatible' && id === 'text' ? '需先更新 WeQ 至 v3.0.0' : null,
+    requiresWeqUpdate: state === 'incompatible' && id === 'text',
+    updateAvailable: (state === 'update' || state === 'partial') && id === 'text',
+    sharedBytes: 0,
+    downloadBytes:
+      state === 'partial' && id === 'text'
+        ? 1048576
+        : downloaded.has(id)
+          ? 0
+          : sizes[index]! * 1048576,
     deleteBytes: sizes[index]! * 1048576,
     sizeOnDisk: downloaded.has(id) ? sizes[index]! * 1048576 : 0,
     operation:
@@ -46,6 +57,7 @@ const snapshot = () => {
   }));
   return {
     packs,
+    preferences,
     all: {
       downloadBytes: packs.reduce((sum, pack) => sum + pack.downloadBytes, 0),
       sizeOnDisk: packs.reduce((sum, pack) => sum + pack.sizeOnDisk, 0),
@@ -82,10 +94,17 @@ const proxy = (path = ''): unknown =>
       if (key === 'useMutation')
         return () => ({
           isLoading: false,
-          mutateAsync: async (input: { ids?: string[]; id?: string }) => {
+          mutateAsync: async (input: {
+            ids?: string[];
+            id?: string;
+            autoCheck?: boolean;
+            autoInstall?: boolean;
+          }) => {
             if (path === 'bootstrap.prepareEnhancementPacks')
               for (const id of input.ids ?? []) downloaded.add(id);
             if (path === 'bootstrap.deleteEnhancementPack') downloaded.delete(input.id!);
+            if (path === 'bootstrap.setEnhancementUpdates')
+              preferences = { ...preferences, ...input };
           },
         });
       return proxy(path ? `${path}.${String(key)}` : String(key));

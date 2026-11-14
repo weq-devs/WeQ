@@ -1,0 +1,73 @@
+:root,
+html[data-theme='light'] {
+  --weq-reminder-background: #c6283c;
+  --weq-reminder-foreground: #ffffff;
+  --weq-reminder-muted-background: #c9cbd0;
+  --weq-reminder-muted-foreground: #242424;
+  --weq-reminder-running-background: #1769cf;
+}
+
+html[data-theme='dark'] {
+  --weq-reminder-background: #d6384c;
+  --weq-reminder-muted-background: #53535c;
+  --weq-reminder-muted-foreground: #ffffff;
+  --weq-reminder-running-background: #286dd1;
+}
+
+html .weq-reminder {
+  box-sizing: border-box;
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--weq-reminder-background);
+  color: var(--weq-reminder-foreground);
+  vertical-align: middle;
+  letter-spacing: 0;
+}
+
+html .weq-reminder-dot {
+  width: 8px;
+  min-width: 8px;
+  height: 8px;
+}
+
+html .weq-reminder-count {
+  width: max-content;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+html .weq-reminder-count[data-tone='muted'] {
+  background: var(--weq-reminder-muted-background);
+  color: var(--weq-reminder-muted-foreground);
+}
+
+html .weq-reminder-count[data-tone='running'] {
+  background: var(--weq-reminder-running-background);
+}
+
+html button.weq-reminder-count {
+  cursor: pointer;
+}
+
+/* 图标叠角内收并与背景分隔；行内提醒不增加描边。 */
+html .weq-reminder-overlay {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  border: 1px solid var(--weq-reminder-separator, var(--weq-bg-surface));
+}
+
+html .weq-reminder-overlay:not(button) {
+  pointer-events: none;
+}

@@ -17,6 +17,11 @@ import { AlbumVideoStaging } from './album_video_staging';
 import { backgroundTasks, taskError } from '../../background_tasks';
 import { updateFavoriteImportTask } from '../../favorite_import_task';
 import { readFavoriteEmojiMedia } from './favorite_emoji_media';
+import {
+  albumMediaDeleteAllowed,
+  groupPermission,
+  qqResourceOwnedBy,
+} from '@weq/service/qq-permissions';
 
 const binding = z.object({
   expectedAccountUin: z.string().min(1),
@@ -133,18 +138,32 @@ export function createQQActionsRouter(
     return result;
   };
   async function groupPermissions(s: QQActionServices, g: number) {
-    const rows = await s.groupInfo.listGroupDirectory();
-    const role = rows.find((row) => row.groupCode === String(g))?.role ?? null;
+    const context = await s.groupInfo.operationContext(g);
+    const role = context.role ?? null;
     return {
+      ...context,
       role,
       canManage: role === 'owner' || role === 'admin',
       selfUin: s.accountWrite.selfIdentity().uin,
+      selfUid: s.accountWrite.selfIdentity().uid,
     };
   }
   async function manager(s: QQActionServices, g: number, current: () => void) {
     const permissions = await groupPermissions(s, g);
     current();
     if (!permissions.canManage) throw new Error('此操作需要群主或管理员权限');
+  }
+  async function albumPermission(
+    s: QQActionServices,
+    groupId: number,
+    albumId: string,
+    operation: 'modify' | 'upload' | 'deleteAlbum',
+    current: () => void,
+  ) {
+    const page = await s.groupAlbumMedia.getMediaList(String(groupId), albumId);
+    current();
+    if (!page.capabilities?.[operation])
+      throw new Error('当前账号没有此相册操作权限，请刷新相册后重试');
   }
   return router({
     signatureLike: procedure
@@ -277,9 +296,7 @@ export function createQQActionsRouter(
           const albums = await s.webQuery.getGroupAlbumList(String(i.groupId), current);
           const selected = albums.find((row) => row.id === i.albumId);
           if (!selected) throw new Error('目标相册不存在或不可见');
-          const permission = await s.webQuery.getGroupAlbumUploadPermission(String(i.groupId));
-          current();
-          if (!permission.allowed) throw new Error('当前账号无权上传到群相册');
+          await albumPermission(s, i.groupId, i.albumId, 'upload', current);
           for (const value of [i.coverBase64])
             if (Buffer.from(value, 'base64').toString('base64') !== value)
               throw new Error('媒体编码无效');
@@ -354,10 +371,13 @@ export function createQQActionsRouter(
           } else {
             const album = albums.find((row) => row.id === i.albumId);
             if (!album) throw new Error('相册已不存在或当前账号不可见');
-            const permissions = await groupPermissions(s, i.groupId);
-            current();
-            if (String(album.createUin) !== permissions.selfUin && !permissions.canManage)
-              throw new Error('只有相册创建者或群管理员可以管理此相册');
+            await albumPermission(
+              s,
+              i.groupId,
+              album.id,
+              i.action === 'delete' ? 'deleteAlbum' : 'modify',
+              current,
+            );
             if (i.action === 'delete')
               await s.webQuery.deleteGroupAlbum({
                 groupId: g,
@@ -397,6 +417,24 @@ export function createQQActionsRouter(
         });
         return { state };
       }),
+    albumPermissions: procedure
+      .input(group.extend({ albumId: id.optional() }))
+      .query(({ input: i }) =>
+        read(i, async (s) => {
+          if (i.albumId)
+            return (await s.groupAlbumMedia.getMediaList(String(i.groupId), i.albumId))
+              .capabilities;
+          const permission = await s.webQuery.getGroupAlbumUploadPermission(String(i.groupId));
+          return {
+            create: permission.allowed,
+            modify: false,
+            upload: false,
+            deleteMedia: false,
+            top: false,
+            deleteAlbum: false,
+          };
+        }),
+      ),
     atAllMention: procedure.input(group).query(({ input: i }) =>
       read(i, async (s) => {
         const permissions = await groupPermissions(s, i.groupId);
@@ -426,6 +464,10 @@ export function createQQActionsRouter(
       .mutation(async ({ input: i }) => {
         let state: 'accepted' | 'unconfirmed' = 'unconfirmed';
         await write(i, async (s, current) => {
+          const permission = await s.groupInfo.operationContext(i.groupId, undefined, true);
+          current();
+          if (!groupPermission('fileUpload', permission))
+            throw new Error('此群不允许当前成员上传文件');
           const path = await s.fileResource.resolveLocalFile(i.path);
           current();
           if (!path) throw new Error('文件未授权，请重新选择');
@@ -485,17 +527,27 @@ export function createQQActionsRouter(
           const permissions = await groupPermissions(s, i.groupId);
           current();
           if (!permissions.canManage) {
+            if (i.action === 'move') throw new Error('移动群文件需要群主或管理员权限');
             if (['createFolder', 'deleteFolder', 'renameFolder'].includes(i.action))
               throw new Error('管理文件夹需要群主或管理员权限');
             const listing = await s.groupFile.list(i.groupId, i.directory);
             current();
             const file = listing.files.find((file) => file.fileId === i.id);
-            if (!file || !permissions.selfUin || String(file.uploaderUin) !== permissions.selfUin)
+            if (
+              !file ||
+              !groupPermission(i.action === 'rename' ? 'fileRename' : 'fileDelete', {
+                role: permissions.role,
+                owned: qqResourceOwnedBy(file.uploaderUin, {
+                  uin: permissions.selfUin,
+                  uid: permissions.selfUid,
+                }),
+              })
+            )
               throw new Error('普通成员只能管理自己上传的文件，或文件已不存在');
           }
           switch (i.action) {
             case 'delete':
-              return s.groupFile.deleteFile(i.groupId, i.id!);
+              return s.groupFile.deleteFile(i.groupId, i.id!, i.directory);
             case 'rename':
               return s.groupFile.renameFile(i.groupId, i.id!, i.directory, i.name!);
             case 'move':
@@ -563,6 +615,7 @@ export function createQQActionsRouter(
       .input(album.extend({ albumName: id, path: id }))
       .mutation(({ input: i }) =>
         write(i, async (s, current) => {
+          await albumPermission(s, i.groupId, i.albumId, 'upload', current);
           const bytes = await image(s, i.path, current);
           return s.webQuery.uploadGroupAlbumImage({
             groupId: String(i.groupId),
@@ -590,12 +643,16 @@ export function createQQActionsRouter(
           if (i.action === 'delete') {
             const permissions = await groupPermissions(s, i.groupId);
             current();
-            if (!permissions.canManage) {
+            const first = await s.groupAlbumMedia.getMediaList(g, i.albumId);
+            current();
+            if (!albumMediaDeleteAllowed(first.capabilities, false)) {
               let cursor = '';
               const seen = new Set<string>();
               let owner = '';
               for (let page = 0; page < 100; page++) {
-                const result = await s.groupAlbumMedia.getMediaList(g, i.albumId, cursor);
+                const result = cursor
+                  ? await s.groupAlbumMedia.getMediaList(g, i.albumId, cursor)
+                  : first;
                 current();
                 const item = result.mediaList.find(
                   (row) =>
@@ -615,7 +672,7 @@ export function createQQActionsRouter(
                 seen.add(result.nextAttachInfo);
                 cursor = result.nextAttachInfo;
               }
-              if (!owner || owner !== permissions.selfUin)
+              if (!qqResourceOwnedBy(owner, { uid: permissions.selfUid, uin: permissions.selfUin }))
                 throw new Error('只有上传者或群管理员可以删除这项媒体。');
             }
             return s.groupAlbumMedia.deleteMedia(g, i.albumId, i.mediaId, i.batchId);

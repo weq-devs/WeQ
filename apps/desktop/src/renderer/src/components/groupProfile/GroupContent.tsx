@@ -100,12 +100,13 @@ export function GroupIdentity({
           ) : null}
         </div>
       </div>
-      {editable && (role === 'owner' || role === 'admin') ? (
+      {editable ? (
         <QQProfileField
           key={`name:${conversation.id}`}
           field="groupName"
           target={conversation.id}
           initial={name}
+          groupRole={role}
         />
       ) : null}
       {editable ? (

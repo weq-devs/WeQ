@@ -88,6 +88,55 @@ it('普通顶部安全区已经覆盖占位时不重复内缩', () => {
   expect(resolveWindowChrome(wide, corners, 32)).toEqual({ left: 0, right: 0, top: 0 });
 });
 
+it('安全区晚于首屏就绪时单独触发重算，即使标题栏尺寸没有变化', () => {
+  const root = document.createElement('div');
+  root.className = 'weq-web-shell';
+  const header = document.createElement('header');
+  header.className = 'weq-mobile-header';
+  root.append(header);
+  document.body.append(root);
+  const observed = new Map<Element, () => void>();
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(private changed: () => void) {}
+      observe(node: Element) {
+        observed.set(node, this.changed);
+      }
+      unobserve(node: Element) {
+        observed.delete(node);
+      }
+      disconnect() {
+        observed.clear();
+      }
+    },
+  );
+  vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(1000);
+  vi.spyOn(header, 'getBoundingClientRect').mockReturnValue({
+    ...wide,
+    width: 1000,
+    height: 56,
+  } as DOMRect);
+  window.weqRemoteWindowLayout = layout;
+  const stop = observeRemoteWindowLayout(document);
+  try {
+    expect(header.style.getPropertyValue('--weq-window-chrome-left')).toBe('108px');
+    const probe = [...observed.keys()].find((node) => node !== header);
+    expect(probe).toBeDefined();
+    header.style.setProperty('--weq-window-safe-top', '59px');
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    observed.get(probe!)!();
+    expect(header.hasAttribute('data-weq-window-chrome')).toBe(false);
+  } finally {
+    stop();
+    expect(observed.size).toBe(0);
+    expect(document.querySelector('[data-weq-window-safe-area]')).toBeNull();
+  }
+});
+
 it('同时处理两侧角部并按网页布局像素换算', () => {
   const scaled = windowCornerRects({ ...layout, topRight: { width: 20, height: 24 } }, 500);
   expect(scaled).toEqual([

@@ -29,6 +29,8 @@ import type {
   Message,
 } from '../../src/renderer/src/im-template/template/types';
 import { fixturePrivileges, qa, useFixture } from './contact-card.stub';
+import { useDataSaver } from '../../src/renderer/src/lib/dataSaver';
+import { MediaPreviewHost } from '../../src/renderer/src/components/mediaPreviewStore';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/im-template/styles.css';
 import '../../src/renderer/src/styles/contact-profile.css';
@@ -89,6 +91,24 @@ const sample: Contact = {
   },
 };
 const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+if (new URLSearchParams(location.search).has('empty-basics') && sample.extInfo) {
+  Object.assign(sample.extInfo, {
+    school: undefined,
+    degree: undefined,
+    occupation: undefined,
+    country: undefined,
+    province: undefined,
+    city: undefined,
+  });
+}
+if (new URLSearchParams(location.search).has('data-saver')) {
+  useDataSaver.setState({ enabled: true });
+  Object.assign(window, {
+    mediaPlaceholderQa: {
+      setEnabled: (enabled: boolean) => useDataSaver.setState({ enabled }),
+    },
+  });
+}
 const grayTip = new URLSearchParams(location.search).has('gray-tip');
 Object.assign(window, { contactCardQa: qa });
 function Fixture() {
@@ -187,7 +207,8 @@ function Fixture() {
         : {
             ...person,
             kind: qa.mode === 'bot' ? 'bot' : 'human',
-            isFriend: qa.mode !== 'nonfriend',
+            isFriend: qa.mode === 'unknown' ? undefined : qa.mode !== 'nonfriend',
+            friendshipKnown: qa.mode === 'unknown' ? false : undefined,
             extInfo: person.extInfo
               ? { ...person.extInfo, isEnterprise: qa.mode === 'enterprise' }
               : undefined,
@@ -214,7 +235,7 @@ function Fixture() {
             selfUin: qa.account,
             selfUid: 'u_self',
             friends: new Map(qa.mode === 'friend' ? [[target.id, {}]] : []),
-            friendsComplete: true,
+            friendsComplete: qa.mode !== 'unknown',
             groups: new Map([['10003', { listed: qa.inGroup, role: qa.role }]]),
           }}
         >
@@ -321,6 +342,7 @@ function Fixture() {
                           <ContactCardSettings />
                         ) : null}
                       </div>
+                      <MediaPreviewHost />
                     </main>
                   </GroupSpeechPreviewContext.Provider>
                 </ContactWorkspaceNavigationContext.Provider>

@@ -1,13 +1,55 @@
 import type { LoggerContext, LogLevel } from './logger';
 import { stripVTControlCharacters } from 'node:util';
 import { writeSync } from 'node:fs';
-import { formatConsoleRecord } from './console_format';
+import { createHash } from 'node:crypto';
+import { consoleTimingLabels, formatConsoleRecord, type ConsoleSummary } from './console_format';
 
 const levels: LogLevel[] = ['debug', 'info', 'warn', 'error'];
 const secret =
   /cookie|authorization|password|secret|token|rkey|(?:^|_)a2$|(?:^|_)d2(?:key)?$|skey|credential|(?:api|access|private|encryption|client|db|database|decrypt)[_-]?key/i;
 const omitted =
   /^(?:body|text|content|payload|response|raw|data|bytes|buffer|message|messages|messageText|plainText|markdown|html|prompt|completion|input|output|args|params)$/i;
+const windowMs = 30_000;
+const maxEntries = 512;
+// 仅固定轮询告警合并次数；慢请求、数据库慢操作和普通错误始终逐条输出。
+const summaryEvents = new Set(['account-monitor:online-probe-failed']);
+const volatileFields = new Set(['operationId', 'requestId', 'ts', 'timestamp']);
+
+interface PendingSummary {
+  at: number;
+  level: LogLevel;
+  message: string;
+  context: LoggerContext;
+  summary: ConsoleSummary;
+}
+
+function updateSummary(entry: PendingSummary, context: LoggerContext): void {
+  entry.context = context;
+  entry.summary.count++;
+  for (const key of Object.keys(consoleTimingLabels) as Array<keyof typeof consoleTimingLabels>) {
+    const value = context[key];
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) continue;
+    const stats = entry.summary.timings[key];
+    if (stats) {
+      stats.count++;
+      stats.min = Math.min(stats.min, value);
+      stats.max = Math.max(stats.max, value);
+      stats.total += value;
+      stats.last = value;
+    } else
+      entry.summary.timings[key] = { count: 1, min: value, max: value, total: value, last: value };
+  }
+}
+
+/** 忽略每次请求的关联与计时，保留错误、对象、调用位置和堆栈的差异。 */
+function recordKey(level: LogLevel, message: string, context: LoggerContext): string {
+  const stable = Object.entries(context)
+    .filter(([key]) => !volatileFields.has(key) && !(key in consoleTimingLabels))
+    .sort(([a], [b]) => a.localeCompare(b));
+  return createHash('sha256')
+    .update(JSON.stringify([level, message, stable]))
+    .digest('hex');
+}
 
 function safeText(value: string, limit = 1000): string {
   return stripVTControlCharacters(value.slice(0, limit * 2))
@@ -111,49 +153,50 @@ export function createConsoleLogger(options: ConsoleLoggerOptions) {
         ? process.stderr.isTTY
         : env.WEQ_DEV_STDERR_TTY === '1')) &&
     env.NO_COLOR === undefined;
-  const pending = new Map<
-    string,
-    { at: number; count: number; level: LogLevel; message: string; context: LoggerContext }
-  >();
-  const output = (level: LogLevel, message: string, context: LoggerContext) => {
+  const pending = new Map<string, PendingSummary>();
+  const stacks = new Map<string, number>();
+  const details = minimum === 'debug';
+  const output = (
+    level: LogLevel,
+    message: string,
+    context: LoggerContext,
+    extra: { stackRepeated?: boolean; summary?: ConsoleSummary } = {},
+  ) => {
     try {
       sink(
-        formatConsoleRecord(
-          level,
-          safeText(message),
-          projectConsoleContext(context) as LoggerContext,
-          { now: now(), color: Boolean(color), details: minimum === 'debug' },
-        ),
+        formatConsoleRecord(level, safeText(message), context, {
+          now: now(),
+          color: Boolean(color),
+          details,
+          ...extra,
+        }),
       );
     } catch {
       // 终端断开或展示对象不可读不能影响业务。
     }
   };
-  const flush = () => {
-    for (const entry of pending.values()) {
-      if (entry.count)
-        output(entry.level, '重复日志汇总', {
-          ...entry.context,
-          repeated: entry.count,
-          originalMessage: entry.message,
-        });
-    }
-    pending.clear();
+  const outputSummary = (entry: PendingSummary) => {
+    if (entry.summary.count > 1)
+      output(entry.level, entry.message, entry.context, {
+        summary: { ...entry.summary, windowMs: Math.max(0, now() - entry.at) },
+      });
   };
-  const timer = enabled
-    ? setInterval(() => {
-        for (const [key, entry] of pending) {
-          if (now() - entry.at < 30_000) continue;
-          if (entry.count)
-            output(entry.level, '重复日志汇总', {
-              ...entry.context,
-              repeated: entry.count,
-              originalMessage: entry.message,
-            });
-          pending.delete(key);
-        }
-      }, 30_000)
-    : null;
+  const flush = () => {
+    for (const entry of pending.values()) outputSummary(entry);
+    pending.clear();
+    stacks.clear();
+  };
+  const timer =
+    enabled && !details
+      ? setInterval(() => {
+          for (const [key, entry] of pending) {
+            if (now() - entry.at < windowMs) continue;
+            outputSummary(entry);
+            pending.delete(key);
+          }
+          for (const [key, at] of stacks) if (now() - at >= windowMs) stacks.delete(key);
+        }, windowMs)
+      : null;
   timer?.unref();
   const invalid =
     !validScopes ||
@@ -181,54 +224,57 @@ export function createConsoleLogger(options: ConsoleLoggerOptions) {
         !options.infoScopes.has(context.scope ?? 'app')
       )
         return;
-      if (level === 'warn' || level === 'error') {
-        const key = JSON.stringify(
-          projectConsoleContext({
+      const projected = projectConsoleContext(context) as LoggerContext;
+      let stackRepeated = false;
+      if (!details && (level === 'warn' || level === 'error')) {
+        const nestedError = projected.error;
+        const errorContext =
+          nestedError && typeof nestedError === 'object'
+            ? { ...nestedError, ...projected }
+            : projected;
+        const hasStack = typeof (errorContext.errorStack ?? errorContext.stack) === 'string';
+        const summarize =
+          level === 'warn' && summaryEvents.has(`${context.scope}:${context.event}`);
+        const key = hasStack || summarize ? recordKey(level, safeText(message), projected) : '';
+        if (summarize) {
+          const old = pending.get(key);
+          if (old && now() - old.at < windowMs) {
+            updateSummary(old, projected);
+            return;
+          }
+          if (old) outputSummary(old);
+          pending.delete(key);
+          if (pending.size >= maxEntries) {
+            const first = pending.entries().next().value;
+            if (first) {
+              outputSummary(first[1]);
+              pending.delete(first[0]);
+            }
+          }
+          const entry: PendingSummary = {
+            at: now(),
             level,
-            scope: context.scope,
-            event: context.event ?? message,
-            accountUin: context.accountUin,
-            mediaId: context.mediaId,
-            path: context.path,
-            code: context.code,
-            errorName: context.errorName,
-            errorMessage: context.errorMessage,
-            taskId: context.taskId,
-            pid: context.pid,
-            reason: context.reason,
-          }),
-        );
-        const old = pending.get(key);
-        if (old && now() - old.at < 30_000) {
-          old.count++;
-          return;
+            message: safeText(message),
+            context: projected,
+            summary: { count: 0, windowMs: 0, timings: {} },
+          };
+          updateSummary(entry, projected);
+          pending.set(key, entry);
         }
-        if (old?.count)
-          output(old.level, '重复日志汇总', {
-            ...old.context,
-            repeated: old.count,
-            originalMessage: old.message,
-          });
-        if (pending.size >= 512) {
-          const first = pending.entries().next().value;
-          if (first) {
-            if (first[1].count)
-              output(first[1].level, '重复日志汇总', {
-                ...first[1].context,
-                repeated: first[1].count,
-              });
-            pending.delete(first[0]);
+        if (hasStack) {
+          const previous = stacks.get(key);
+          stackRepeated = previous !== undefined && now() - previous < windowMs;
+          if (!stackRepeated) {
+            stacks.delete(key);
+            if (stacks.size >= maxEntries) {
+              const first = stacks.keys().next().value;
+              if (first !== undefined) stacks.delete(first);
+            }
+            stacks.set(key, now());
           }
         }
-        pending.set(key, {
-          at: now(),
-          count: 0,
-          level,
-          message: safeText(message),
-          context: projectConsoleContext(context) as LoggerContext,
-        });
       }
-      output(level, message, context);
+      output(level, message, projected, { stackRepeated });
     },
     dispose() {
       if (timer) clearInterval(timer);

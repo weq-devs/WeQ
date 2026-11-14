@@ -84,6 +84,19 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     add(card, key, label, current[key], defaults[key], () => write(defaults[key]));
   }
   app('home', 'home', '主页显示与屏蔽词', (value) => b.setHomeSettings(value));
+  for (const [key, label] of [
+    ['autoCheck', '自动检查增强包更新'],
+    ['autoInstall', '自动安装增强包更新'],
+  ] as const) {
+    add(
+      'enhancement-updates',
+      key,
+      label,
+      current.enhancementUpdates[key],
+      defaults.enhancementUpdates[key],
+      () => b.setEnhancementUpdates({ [key]: defaults.enhancementUpdates[key] }),
+    );
+  }
   app('contact-card', 'contactCard', '名片显示与顺序', (value) => b.setContactCard(value));
   app('startup-page', 'startupPage', '启动时进入', (page) => b.setStartupPage({ page }));
   app('startup-system', 'showWindowOnAutostart', '自启时显示窗口', (enabled) =>

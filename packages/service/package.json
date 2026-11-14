@@ -1,9 +1,10 @@
 {
   "name": "@weq/service",
-  "version": "2.7.0",
+  "version": "2.7.1",
   "private": true,
   "type": "module",
   "exports": {
+    "./qq-permissions": "./src/common/qq_permissions.ts",
     "./data-saver": "./src/common/data_saver.ts",
     "./network-scope": "./src/common/network_scope.ts",
     "./transfer-policy": "./src/common/transfer_policy.ts",

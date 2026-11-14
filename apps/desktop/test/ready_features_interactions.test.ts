@@ -35,6 +35,7 @@ const state = vi.hoisted(() => ({
   config: 'source-a',
   permissionFailure: false,
   albumConfirmed: false,
+  writeFeedback: undefined as string | undefined,
   permissions: {
     blocked: [] as Array<{ uin: string; name: string }>,
     hidden: [] as Array<{ uin: string; name: string }>,
@@ -70,8 +71,9 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
     run: async (
       action: (b: QQWriteBinding) => Promise<QQWriteOutcome>,
       refresh?: () => Promise<unknown>,
-      options?: { readback?: () => Promise<boolean> },
+      options?: { feedback?: string; readback?: () => Promise<boolean> },
     ) => {
+      state.writeFeedback = options?.feedback;
       try {
         await action({ expectedAccountUin: '10001', expectedAccountConfigId: state.config });
         const confirmed = options?.readback ? await options.readback() : false;
@@ -91,6 +93,8 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   return {
     client: {
       account: {
+        getGroupDetail: { query: async () => null },
+        getGroupExtendedProfile: { query: async () => null },
         listGroupAlbums: { query: async () => albums() },
         qqActions: {
           albumManagement: { mutate: (input: unknown) => state.writes('album', input) },
@@ -125,6 +129,19 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         },
         getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: state.config } }) },
         qqActions: {
+          albumPermissions: {
+            useQuery: () => ({
+              data: {
+                create: true,
+                modify: false,
+                upload: false,
+                deleteMedia: false,
+                top: false,
+                deleteAlbum: false,
+              },
+              error: null,
+            }),
+          },
           groupPermissions: {
             useQuery: () => ({ data: { canManage: false, selfUin: '10001' }, error: null }),
           },
@@ -208,6 +225,7 @@ beforeEach(() => {
   state.permissionFailure = false;
   state.confirm = true;
   state.albumConfirmed = false;
+  state.writeFeedback = undefined;
   state.permissions = { blocked: [], hidden: [] };
   state.profiles = [];
   state.errors = {};
@@ -217,6 +235,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   for (const dispose of cleanup.splice(0)) dispose();
+  queryClient.clear();
   useViewState.setState({ openedUin: null });
   vi.unstubAllGlobals();
 });
@@ -293,6 +312,7 @@ describe('可接入功能交互回归', () => {
       return { state: 'unconfirmed' };
     });
     await act(async () => remove.click());
+    expect(state.writeFeedback).toBe('failure-only');
     expect(state.writes).toHaveBeenCalledWith('permission', {
       expectedAccountUin: '10001',
       expectedAccountConfigId: 'source-a',

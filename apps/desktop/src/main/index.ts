@@ -809,7 +809,10 @@ void app.whenReady().then(async () => {
   if (isQuitting) return;
   initAppContext();
   void import('./data_saver')
-    .then(({ refreshTransferPolicy }) => refreshTransferPolicy())
+    .then(async ({ refreshTransferPolicy }) => {
+      await refreshTransferPolicy();
+      getAppContext().bootstrap?.enhancements.updates.start();
+    })
     .catch(() => undefined);
   const userConfig = getAppContext().bootstrap?.userConfig;
   installUpdateActions({
@@ -1075,6 +1078,7 @@ app.on('will-quit', (event) => {
   if (hasSingleInstanceLock) {
     try {
       const ctx = getAppContext();
+      ctx.bootstrap?.enhancements.updates.stop();
       ctx.bootstrap?.userConfig.setSkipAutoEnterOnce(!ctx.account);
     } catch (error) {
       logger.warn('failed to save login exit state', {

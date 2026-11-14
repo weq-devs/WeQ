@@ -529,6 +529,97 @@ describe('QQ 写操作账号与生命周期', () => {
     });
     expect(banner.host.querySelector('[aria-label="加载中"]')).toBeNull();
   });
+  it.each(['accepted', 'confirmed', 'unconfirmed'] as const)(
+    '仅异常反馈在提交与读回期间保持静默，核对成功后仍刷新缓存：%s',
+    async (state) => {
+      const f = harness();
+      let finish!: (value: boolean) => void;
+      let pending!: Promise<boolean>;
+      const refresh = vi.fn(async () => undefined);
+      await act(async () => {
+        pending = f.session().run(async () => ({ state }), refresh, {
+          feedback: 'failure-only',
+          readback: () => new Promise<boolean>((resolve) => (finish = resolve)),
+        });
+      });
+      expect(f.session().busy).toBe(true);
+      expect(useToast.getState().toasts).toHaveLength(0);
+      await act(async () => {
+        finish(true);
+        expect(await pending).toBe(true);
+      });
+      expect(f.session().busy).toBe(false);
+      expect(refresh).toHaveBeenCalledOnce();
+      expect(mocked.invalidateStatus).toHaveBeenCalledOnce();
+      expect(useToast.getState().toasts).toHaveLength(0);
+    },
+  );
+  it('仅异常反馈不为无变化回执显示横幅，但仍显示真实写入失败', async () => {
+    const f = harness();
+    await act(async () => {
+      expect(
+        await f.session().run(async () => ({ state: 'unchanged' }), undefined, {
+          feedback: 'failure-only',
+        }),
+      ).toBe(true);
+    });
+    expect(useToast.getState().toasts).toHaveLength(0);
+    await act(async () => {
+      expect(
+        await f.session().run(
+          async () => {
+            throw new Error('合成写入失败');
+          },
+          undefined,
+          { feedback: 'failure-only' },
+        ),
+      ).toBe(false);
+    });
+    expect(useToast.getState().toasts).toHaveLength(1);
+    expect(useToast.getState().toasts[0]).toMatchObject({
+      title: '合成写入失败',
+      tone: 'error',
+      durationKind: 'failure',
+    });
+  });
+  it.each(['unconfirmed', 'read-error', 'timeout'])(
+    '仅异常反馈在核对失败时才出现警告，不重发写入：%s',
+    async (kind) => {
+      vi.useFakeTimers();
+      try {
+        const f = harness();
+        const action = vi.fn(async (): Promise<QQWriteOutcome> => ({ state: 'unconfirmed' }));
+        const readback = vi.fn(async () => {
+          if (kind === 'read-error') throw new Error('合成读回失败');
+          if (kind === 'timeout') return new Promise<boolean>(() => {});
+          return false;
+        });
+        let pending!: Promise<boolean>;
+        await act(async () => {
+          pending = f.session().run(action, undefined, {
+            feedback: 'failure-only',
+            requireReadback: true,
+            readback,
+          });
+        });
+        expect(useToast.getState().toasts).toHaveLength(0);
+        await act(async () => {
+          await vi.runAllTimersAsync();
+          expect(await pending).toBe(false);
+        });
+        expect(f.session().busy).toBe(false);
+        expect(action).toHaveBeenCalledOnce();
+        expect(useToast.getState().toasts).toHaveLength(1);
+        expect(useToast.getState().toasts[0]).toMatchObject({
+          title: '确认超时，请稍后重新读取操作结果',
+          tone: 'warning',
+          durationKind: 'failure',
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
   it('普通读取一直不返回时，十五秒内在原横幅提示超时，迟到成功不覆盖它', async () => {
     vi.useFakeTimers();
     try {

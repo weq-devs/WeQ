@@ -23,6 +23,7 @@ interface LocalEssence {
   operatorNick: string;
   timestamp: number;
   setStatus: number;
+  senderUin?: string | number | bigint;
 }
 interface OnlineEssence {
   msgSeq: number;
@@ -32,6 +33,7 @@ interface OnlineEssence {
   senderTime?: number;
   content?: GroupEssenceWire['content'];
   canRemove?: boolean;
+  senderUin?: string | number | bigint;
 }
 
 function isoTime(seconds?: number): string {
@@ -54,6 +56,7 @@ export function projectGroupEssence(
       msgSeq: item.msgSeq,
       msgRandom: item.msgRandom ?? web?.msgRandom,
       senderName: item.senderNick,
+      senderUin: String(item.senderUin ?? web?.senderUin ?? ''),
       operatorName: item.operatorNick,
       createdAt: isoTime(item.timestamp),
       active: onlineComplete ? web !== undefined : item.setStatus === 1,
@@ -69,6 +72,7 @@ export function projectGroupEssence(
       msgSeq: web.msgSeq,
       msgRandom: web.msgRandom,
       senderName: web.senderNick,
+      senderUin: String(web.senderUin ?? ''),
       operatorName: web.operatorNick,
       createdAt: isoTime(web.senderTime),
       active: true,

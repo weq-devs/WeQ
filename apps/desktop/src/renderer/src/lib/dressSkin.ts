@@ -78,7 +78,7 @@
  * 又不会糊住字。节奏不跟 QQ 的时间轴（见 {@link FONT_FX_FRAME_MS}）。
  */
 
-import type { FontFx, ResolvedWidget } from '@weq/service';
+import type { DressScope, FontFx, ResolvedWidget } from '@weq/service';
 import { fontFaces, type FontLease } from './fontFaces';
 import { manageDecorationAnimation, validDecorationFrames } from './decorationResources';
 import {
@@ -128,13 +128,26 @@ export interface FontSkinCss {
 
 /** 生效的挂件在消息头像上的叠加层选择器。 */
 function pendantSelector(scope: DressScope): string {
-  return scope === 'all'
-    ? '.message-line .weq-avatar-pendant-img, .weq-forward-row .weq-avatar-pendant-img'
+  const filter = scopeFilter(scope, 'widget');
+  return scope !== 'mine'
+    ? `.message-line${filter} .weq-avatar-pendant-img, .weq-forward-row${filter} .weq-avatar-pendant-img`
     : '.message-line.mine .weq-avatar-pendant-img';
 }
 
-/** 装扮作用范围。与 service 的 DressScope 同构。 */
-export type DressScope = 'mine' | 'all';
+export type { DressScope } from '@weq/service';
+
+/** 依据原始记录判断，不能把尚未就绪或加载失败的装扮误当成没有装扮。 */
+export function localDressApplies(
+  scope: DressScope,
+  mine: boolean,
+  hasDecoration: boolean,
+): boolean {
+  return scope === 'all' || (scope === 'mine' ? mine : !hasDecoration);
+}
+
+function scopeFilter(scope: DressScope, kind: 'bubble' | 'font' | 'widget'): string {
+  return scope === 'fallback' ? `:not([data-record-${kind}])` : '';
+}
 
 /** 素材是 2x,网页按半尺寸贴才是正常观感。 */
 const BUBBLE_SCALE = 0.5;
@@ -173,8 +186,8 @@ const BUBBLE_CONTENT = `.message-content${BUBBLE_CONTENT_EXCLUSIONS}`;
  * 渲染侧的 `data-fontfx` 就挂在这种行元素上:伪元素层的位置已经被气泡占着,炫彩要
  * 画在行内部的 `.message-content` 上,所以 CSS 得先选中行、再往下取内容层。
  */
-function bubbleLineSelector(scope: DressScope): string {
-  return scope === 'all' ? '.message-line' : '.message-line.mine';
+function bubbleLineSelector(scope: DressScope, kind: 'bubble' | 'font' = 'bubble'): string {
+  return scope === 'mine' ? '.message-line.mine' : `.message-line${scopeFilter(scope, kind)}`;
 }
 
 /**
@@ -187,25 +200,14 @@ function bubbleSelector(scope: DressScope): string {
 }
 
 /**
- * 挂了炫彩帧的**我方**行（帧图层在 `::before`，见 {@link fontFxRules}）。
- *
- * 带上 `[data-fontfx]` 是有意的：九宫格遮罩（{@link fxClipMaskCss}）靠它只作用在真的有
- * 帧的那些行上，没挂帧的消息一个字节也不多注入。
- */
-const FX_MINE_LINE = '.message-line.mine[data-fontfx]';
-
-/** 挂了炫彩帧的**对方**行 + 转发行（帧图层在 `::after`，见 {@link fontFxRules}）。 */
-const FX_THEIRS_LINE = '.message-line.theirs[data-fontfx], .weq-forward-row[data-fontfx]';
-
-/**
  * 对方消息的气泡选择器。
  *
  * QQ 的九宫格素材按「自己的右侧气泡」绘制(尖角/装饰朝左);放在左侧的对方消息上
  * 必须左右镜像,尖角才朝右指向会话中心。所以 scope=all 时对 `.message-line.theirs`
  * 额外注入一组镜像规则。
  */
-function theirsBubbleSelector(): string {
-  return `.message-line.theirs ${BUBBLE_CONTENT}`;
+function theirsBubbleSelector(scope: DressScope): string {
+  return `.message-line.theirs${scopeFilter(scope, 'bubble')} ${BUBBLE_CONTENT}`;
 }
 
 /** 四舍五入到 2 位小数,避免 0.5 缩放产生一长串浮点尾巴。 */
@@ -644,7 +646,7 @@ function ninePatchLayer(
 
 function bubbleRules(skin: BubbleSkinCss, scope: DressScope, animated = true): string {
   const sel = bubbleSelector(scope);
-  const theirsSel = scope === 'all' ? theirsBubbleSelector() : null;
+  const theirsSel = scope !== 'mine' ? theirsBubbleSelector(scope) : null;
   const m = bubbleMetrics(skin);
 
   const rules = [m.frameAnim?.keyframes ?? '', baseBubbleRule(skin, m, sel)];
@@ -652,11 +654,14 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope, animated = true): s
   // 炫彩帧的裁形（见 fxClipMaskCss）：帧画在伪元素上，用同几何的九宫格遮罩把超出
   // 气泡形状的部分裁掉。我方帧在 `::before`，对方的帧在 `::after`（遮罩跟着那层镜像）。
   rules.push(
-    fxClipMaskCss(`${FX_MINE_LINE} ${BUBBLE_CONTENT}::before`, {
-      imageUrl: m.imageUrl,
-      slice: m.slice,
-      width: m.width,
-    }),
+    fxClipMaskCss(
+      `.message-line.mine${scopeFilter(scope, 'bubble')}[data-fontfx] ${BUBBLE_CONTENT}::before`,
+      {
+        imageUrl: m.imageUrl,
+        slice: m.slice,
+        width: m.width,
+      },
+    ),
   );
   // 对方的帧与气泡动效叠加层**共用** `::after`：叠加层是贴在气泡外面的装饰，遮罩
   // 会连它一起裁掉（而 `data-fontfx` 是一直挂在行上的，裁掉就不是一闪而过），所以
@@ -664,11 +669,14 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope, animated = true): s
   // 露出一小条，代价比永久削掉气泡装饰小。
   if (theirsSel && !m.frameAnim) {
     rules.push(
-      fxClipMaskCss(`${FX_THEIRS_LINE} ${BUBBLE_CONTENT}::after`, {
-        imageUrl: m.imageUrl,
-        slice: m.slice,
-        width: m.width,
-      }),
+      fxClipMaskCss(
+        `.message-line.theirs${scopeFilter(scope, 'bubble')}[data-fontfx] ${BUBBLE_CONTENT}::after`,
+        {
+          imageUrl: m.imageUrl,
+          slice: m.slice,
+          width: m.width,
+        },
+      ),
     );
   }
 
@@ -720,7 +728,7 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope, animated = true): s
   }
 
   // 右键选中:贴图盖住了 background,改用 outline 提示。
-  const activeLine = scope === 'all' ? '.message-line' : '.message-line.mine';
+  const activeLine = bubbleLineSelector(scope);
   rules.push(
     `${activeLine} .message-bubble.context-active .message-content {`,
     `  background: transparent;`,
@@ -814,7 +822,7 @@ export function fontRules(font: FontSkinCss, scope: DressScope, animated = true)
     // fallback 必须留着 —— QQ 的装扮字体多是子集化的,缺字要能回退到正文字体。
     // 这里**不能**用 `inherit`:CSS 不允许 inherit 出现在逗号列表里,整条声明会被
     // 浏览器整体丢弃(字体因此永远不生效,且控制台不报错)。要写成真实的字体族名。
-    `${bubbleSelector(scope)} {`,
+    `${bubbleLineSelector(scope, 'font')} ${BUBBLE_CONTENT} {`,
     `  font-family: "${fontFamilyFor(font.itemId)}", var(--im-font-body, Inter), ui-sans-serif, system-ui, sans-serif;`,
     `}`,
     // 炫彩帧:属性挂在**行**上(渲染侧量完气泡尺寸才挂)。帧图层按我方/对方挑不同的
@@ -822,8 +830,10 @@ export function fontRules(font: FontSkinCss, scope: DressScope, animated = true)
     // 行根本没换上这款字,不用给。
     fxSkin && animated
       ? fontFxRules(fxSkin, {
-          mine: '.message-line.mine',
-          ...(scope === 'all' ? { theirs: '.message-line.theirs' } : {}),
+          mine: `.message-line.mine${scopeFilter(scope, 'font')}`,
+          ...(scope !== 'mine'
+            ? { theirs: `.message-line.theirs${scopeFilter(scope, 'font')}` }
+            : {}),
         })
       : '',
   ]

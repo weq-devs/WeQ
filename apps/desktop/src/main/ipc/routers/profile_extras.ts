@@ -23,6 +23,10 @@ export function createProfileExtrasRouter(
     return result;
   }
   return router({
+    region: procedure.input(target).query(({ input }) => read(input, (s) => s.region(input.uin))),
+    similarity: procedure
+      .input(target)
+      .query(({ input }) => read(input, (s) => s.similarity(input.uin))),
     details: procedure.input(target).query(({ input }) => read(input, (s) => s.details(input.uin))),
     avatarHistory: procedure
       .input(

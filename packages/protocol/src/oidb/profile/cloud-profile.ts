@@ -1,6 +1,6 @@
 import { encode, decode, message } from '../../protobuf';
 import { GetUserQqLevel } from './get-user-qq-level';
-import { sendOidb, type PacketNative } from '../../transport';
+import { sendOidb, type PacketNative, type OidbNative } from '../../transport';
 import { requireUin, responseObject } from '../write-validation';
 import { invokeLegacyOidb } from '../legacy';
 
@@ -38,7 +38,7 @@ export const cloudProfileResponse = message([
     ]),
   },
 ]);
-export async function getCloudProfile(nt: PacketNative, pid: number, uin: string, keys: number[]) {
+export async function getCloudProfile(nt: OidbNative, pid: number, uin: string, keys: number[]) {
   const uidForm = /^u_[A-Za-z0-9_-]+$/.test(uin);
   const number = uidForm ? null : requireUin(uin);
   if (number !== null && number > 0xffffffffn) throw new Error('QQ 号超出支持范围');

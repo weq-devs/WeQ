@@ -93,7 +93,7 @@ export interface CallConv {
  * 这是 WeQ 自己的 feature，不是 QQ 的语义——QQ 原生只有 markdownElement 才是 Markdown。
  * 走 context 而不是在本组件里 useQuery：QqMessageContent 是纯组件、每条气泡一个实例，
  * 挂几百个订阅会在缓存失效时全量重渲。provider 在 App.tsx（必须在那一层——
- * ForwardWindowHost 挂在 MainView 之外，转发窗口里的气泡也要拿到这个值）。
+ * 转发窗口里的气泡也要拿到这个值）。
  * 默认 true，与 DEFAULT_APP_SETTINGS 一致，settings 还没加载完时不会闪成关。
  */
 export { TextMarkdownContext } from '../state/textMarkdown';

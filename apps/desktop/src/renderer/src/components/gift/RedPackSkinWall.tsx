@@ -17,6 +17,7 @@ import { useCallback, useMemo, useState, type ReactElement } from 'react';
 import { Gift as GiftIcon, Search, Wallet, X } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { redPackSkinUrl } from '../../lib/resourceUrl';
+import { ShimmerImage } from '../ShimmerImage';
 import { openMediaPreview } from '../mediaPreviewStore';
 import '../../styles/redpack-wall.css';
 
@@ -161,9 +162,9 @@ export function RedPackSkinWall(): ReactElement {
                   disabled={!clickable}
                   title={clickable ? `${skin.name} · 点击看大图` : `${skin.name}（无大图）`}
                 >
-                  <span className="weq-redpack-wall-media">
+                  <span className="weq-redpack-wall-media weq-media-frame">
                     {variant ? (
-                      <img
+                      <ShimmerImage
                         src={redPackSkinUrl(skin.id, variant)}
                         alt={`${skin.name} 红包封面`}
                         loading="lazy"

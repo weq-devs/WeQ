@@ -5,8 +5,14 @@ import {
   contactHistorySection,
   contactWorkspaceSection,
 } from '../src/renderer/src/lib/contactWorkspace';
+import { contactWorkspaceTabSchema } from '../src/renderer/src/lib/profileNavigation';
 
-describe('联系人四页结构', () => {
+describe('联系人资料章节', () => {
+  it('已撤下的勋章墙不再接受导航或出现在本人和他人目录', () => {
+    expect(contactWorkspaceTabSchema.safeParse('medals').success).toBe(false);
+    for (const sections of [CONTACT_WORKSPACE_SECTIONS, SELF_WORKSPACE_SECTIONS])
+      expect(sections.map(([key]) => key)).not.toContain('medals');
+  });
   it('目录只有内容页，不再把历史、画像、问答或编辑作为一级页', () => {
     expect(CONTACT_WORKSPACE_SECTIONS.map(([, title]) => title)).toEqual([
       '个人资料',
@@ -27,7 +33,7 @@ describe('联系人四页结构', () => {
   ] as const)('旧入口 %s 进入 %s', (input, expected) =>
     expect(contactWorkspaceSection(input)).toBe(expected),
   );
-  it('本人页按资料、群内资料、展示、礼物墙排列，不含与自己的关系', () => {
+  it('本人保留礼物墙在最后，不含与自己的关系', () => {
     expect(SELF_WORKSPACE_SECTIONS.map(([, title]) => title)).toEqual([
       '个人资料',
       '群内资料',

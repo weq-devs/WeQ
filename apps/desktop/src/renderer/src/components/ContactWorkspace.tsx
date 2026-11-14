@@ -23,6 +23,7 @@ import { ProfileDisplayEntry, ProfileDisplaySettingField } from './ProfileDispla
 import { ProfileWorkspace } from './ProfileWorkspace';
 import { ContactDressRow } from './contactProfile/ContactDressRow';
 import { GiftWall } from './gift/GiftWall';
+import { ProfileCommonPoints } from './ProfileSummary';
 import '../styles/contact-card.css';
 import '../styles/contact-workspace.css';
 
@@ -109,6 +110,9 @@ export function ContactWorkspace({
       return (
         <>
           {content(['common', 'intimacy', 'relations', 'friendClue'])}
+          {hasQQ && !isSelf ? (
+            <ProfileCommonPoints key={contact.identityValue} uin={contact.identityValue} />
+          ) : null}
           {human && relationship === 'friend' ? (
             <ContactSection title="互动标识" prominent>
               <MutualMarkDialog

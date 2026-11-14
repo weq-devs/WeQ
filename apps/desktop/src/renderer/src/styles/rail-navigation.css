@@ -77,7 +77,7 @@ html .app-shell .app-rail .weq-rail-button .rail-tab-icon::after {
 }
 
 /* 所有角标统一内收，避免被侧栏滚动容器裁切。 */
-html .app-shell .app-rail :is(.weq-rail-button, .rail-message-entry) > .rail-badge {
+html .app-shell .app-rail :is(.weq-rail-button, .rail-message-entry) > .weq-reminder-overlay {
   top: 4px;
   right: 4px;
 }
@@ -120,49 +120,6 @@ html[data-theme='dark']
 .app-shell .rail-nav .rail-message-entry > .rail-message-badge {
   position: absolute;
   z-index: 1;
-}
-
-html .app-shell .rail-nav :is(.rail-message-badge, .rail-badge-mail),
-html :is(.app-shell, .weq-conversation-list) .conversation-row .row-unread {
-  box-sizing: border-box;
-  display: inline-grid;
-  place-items: center;
-  width: max-content;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 4px;
-  grid-template-rows: 1fr;
-  gap: 0;
-  border: 1px solid var(--weq-rail-badge-border);
-  border-radius: 999px;
-  background: var(--weq-rail-badge-background);
-  color: var(--weq-rail-badge-foreground);
-  font-family: inherit;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 0;
-  font-variant-numeric: tabular-nums;
-}
-
-html :is(.app-shell, .weq-conversation-list) .conversation-row .row-unread.muted {
-  background: var(--weq-unread-muted-background);
-  color: var(--weq-fg-primary);
-}
-
-html .app-shell .conversation-row .row-unread-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--weq-fg-muted);
-}
-
-html .app-shell .rail-nav .rail-badge-dot {
-  min-width: 9px;
-  width: 9px;
-  height: 9px;
-  padding: 0;
-  border: 0;
 }
 
 .app-shell .rail-nav .rail-message-entry > .rail-message-badge:focus-visible {
@@ -215,7 +172,7 @@ html:where([data-weq-layout='single'])
   .app-rail
   .rail-nav
   :is(.weq-rail-button, .rail-message-entry)
-  > .rail-badge {
+  > .weq-reminder-overlay {
   top: 2px;
   right: calc(50% - 20px);
 }

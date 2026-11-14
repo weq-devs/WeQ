@@ -3,9 +3,10 @@
  * one message, by msgId. Group and c2c are separate methods because they hit
  * different tables (group_msg_table / c2c_msg_table).
  *
- * Returns the raw repeated `MsgCacheRecord[]` from tag 40900 — each record a
+ * Returns the repeated `MsgCacheRecord[]` from tag 40900 — each record a
  * full cached message snapshot, possibly nesting its own 40900 list (deep
- * forwards). Callers serialize at the IPC/JSON boundary (bigint + bytes).
+ * forwards), with local sender names filled in. Callers serialize at the
+ * IPC/JSON boundary (bigint + bytes).
  *
  * When the 40900 cache is empty (gap messages pulled by seq never live in the
  * local DB), `fetchRemote` falls back to the protocol's SsoRecvLongMsg
@@ -15,6 +16,7 @@
 
 import type { AccountSession } from '@weq/account';
 import type { MsgCacheRecord } from '@weq/codec';
+import type { UserProfile } from '@weq/db';
 import type { NtHelperBinding } from '@weq/native';
 import { decodeMessage, encode, fetchForwardRaw, PUSH_MSG_BODY } from '@weq/protocol';
 import { renderDecodedElements } from './gap_history';
@@ -41,13 +43,17 @@ export class ForwardMsgService {
   ) {}
 
   /** Forward/reply cache for a c2c message. */
-  getC2cForward(msgId: bigint): Promise<MsgCacheRecord[]> {
-    return this.session.forwardMsgs.listC2cForward(msgId);
+  async getC2cForward(msgId: bigint): Promise<MsgCacheRecord[]> {
+    const records = await this.session.forwardMsgs.listC2cForward(msgId);
+    await this.resolveSenders(records);
+    return records;
   }
 
   /** Forward/reply cache for a group message. */
-  getGroupForward(msgId: bigint): Promise<MsgCacheRecord[]> {
-    return this.session.forwardMsgs.listGroupForward(msgId);
+  async getGroupForward(msgId: bigint): Promise<MsgCacheRecord[]> {
+    const records = await this.session.forwardMsgs.listGroupForward(msgId);
+    await this.resolveSenders(records);
+    return records;
   }
 
   /**
@@ -67,7 +73,78 @@ export class ForwardMsgService {
     if (res.error) {
       throw new Error(`fetch merged forward failed: ${res.error}`);
     }
-    return res.messages.map(toFetchedForwardRecord);
+    const records = res.messages.map(toFetchedForwardRecord);
+    await this.resolveSenders(records);
+    return records;
+  }
+
+  /** 转发快照常常没有昵称；本地资料优先，缺项仍保留快照，不为显示名称联网。 */
+  private async resolveSenders(
+    records: Array<MsgCacheRecord | FetchedForwardRecord>,
+  ): Promise<void> {
+    const senders: Array<MsgCacheRecord | FetchedForwardRecord> = [];
+    const collect = (rows: typeof records) => {
+      for (const row of rows) {
+        senders.push(row);
+        if ('subMsgs' in row && Array.isArray(row.subMsgs))
+          collect(row.subMsgs as MsgCacheRecord[]);
+      }
+    };
+    collect(records);
+    const uinOf = (row: (typeof records)[number]) => {
+      const value = String(row.senderUin ?? '');
+      return /^[1-9]\d*$/.test(value) ? value : '';
+    };
+    const uidOf = (row: (typeof records)[number]) => {
+      if (row.senderUid && /^u_[A-Za-z0-9_-]+$/.test(row.senderUid)) return row.senderUid;
+      const uin = uinOf(row);
+      return (uin ? this.session.uidMap.uidByUin(BigInt(uin)) : '') || '';
+    };
+    const uids = [...new Set(senders.map(uidOf).filter(Boolean))];
+    const byUid = new Map<string, UserProfile>();
+    const byUin = new Map<string, UserProfile>();
+    const remember = (profile: UserProfile) => {
+      byUid.set(profile.uid, profile);
+      if (profile.uin > 0n) byUin.set(String(profile.uin), profile);
+    };
+    for (let offset = 0; offset < uids.length; offset += 200) {
+      try {
+        for (const profile of await this.session.profileInfo.profilesByUids(
+          uids.slice(offset, offset + 200),
+        ))
+          remember(profile);
+      } catch {
+        /* 资料缺失不阻断正文。 */
+      }
+    }
+    const missingUins = new Set(
+      senders
+        .filter((row) => !byUid.has(uidOf(row)))
+        .map(uinOf)
+        .filter(Boolean),
+    );
+    for (const uin of missingUins) {
+      if (byUin.has(uin)) continue;
+      try {
+        const profile = await this.session.profileInfo.getProfileByUin(BigInt(uin));
+        if (profile) remember(profile);
+      } catch {
+        /* 仅 QQ 号的旧记录仍可按原昵称阅读。 */
+      }
+    }
+    for (const row of senders) {
+      const uid = uidOf(row);
+      const uin = uinOf(row);
+      const profile = byUid.get(uid) ?? byUin.get(uin);
+      if (
+        !profile ||
+        (uid && profile.uid !== uid) ||
+        (uin && profile.uin > 0n && String(profile.uin) !== uin)
+      )
+        continue;
+      row.senderUid = uid || profile.uid;
+      row.sendNick = profile.remark?.trim() || profile.nick?.trim() || row.sendNick;
+    }
   }
 }
 

@@ -339,12 +339,21 @@ const ALBUM_RSP_DATA = message([
   { name: 'mediaList', tag: 3, type: ALBUM_MEDIA_INFO, repeated: true },
   { name: 'prevAttachInfo', tag: 4, type: 'string' },
   { name: 'nextAttachInfo', tag: 5, type: 'string' },
+  // Android 9.3.85 libkernel: 0x2dd07d8 -> 0x2dcd744。
+  {
+    name: 'right',
+    tag: 9,
+    type: message([
+      { name: 'operations', tag: 1, type: 'uint32', repeated: true },
+      { name: 'normalUpload', tag: 2, type: 'bool' },
+    ]),
+  },
 ]);
 
 export const GET_MEDIA_LIST_RESPONSE = message([
   { name: 'field1', tag: 1, type: 'int32' },
-  { name: 'field2', tag: 2, type: 'bytes' },
-  { name: 'field3', tag: 3, type: 'bytes' },
+  { name: 'result', tag: 2, type: 'int32' },
+  { name: 'errorMessage', tag: 3, type: 'string' },
   { name: 'data', tag: 4, type: ALBUM_RSP_DATA },
 ]);
 

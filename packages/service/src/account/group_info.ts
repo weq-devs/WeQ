@@ -3,6 +3,12 @@
  */
 
 import type { AccountSession } from '@weq/account';
+import {
+  groupPermission,
+  qqResourceOwnedBy,
+  type QQGroupOperation,
+  type QQGroupPermissionContext,
+} from '../common/qq_permissions';
 import type { ContactMetricsService } from './contact_metrics';
 import type { ContactHistoryService } from './contact_history';
 import { GroupMemberRosterCache } from './group_member_roster';
@@ -13,6 +19,8 @@ import {
   FetchGroupMemberListPage,
   GetGroupJoinInfo,
   GetGroupMessagePolicies,
+  GetGroupOperationInfo,
+  type GroupOperationInfo,
   type GroupMemberListItem,
   type GroupMessagePolicySnapshot,
 } from '@weq/protocol';
@@ -354,6 +362,16 @@ export class GroupInfoService {
   private memberRosterCache?: GroupMemberRosterCache;
   /** Optional Web query service for fetching essence message content. */
   private webQueryService?: GroupEssenceWebQuery;
+  private operationGuard?: () => void;
+  private operationStates = new Map<
+    string,
+    { at: number; pid: number; value: GroupOperationInfo | null }
+  >();
+  private operationReads = new Map<string, Promise<GroupOperationInfo | null>>();
+
+  setOperationGuard(guard: () => void): void {
+    this.operationGuard = guard;
+  }
 
   /** 在线群成员缓存：groupId → { at, members }。 */
   private onlineMembersCache = new Map<
@@ -860,6 +878,151 @@ export class GroupInfoService {
    */
   async listGroupDirectory() {
     return this.session.groupDetail.listDirectory();
+  }
+
+  private async operationState(
+    groupId: string | number,
+    refresh: boolean,
+  ): Promise<GroupOperationInfo | null> {
+    if (!this.online) return null;
+    let pid: number;
+    try {
+      pid = this.online.resolvePid();
+    } catch {
+      return null;
+    }
+    const key = String(groupId);
+    const cached = this.operationStates.get(key);
+    if (!refresh && cached?.pid === pid && Date.now() - cached.at < 15_000) return cached.value;
+    const readKey = `${pid}:${key}`;
+    const previous = this.operationReads.get(readKey);
+    if (previous) return previous;
+    const task = GetGroupOperationInfo.invoke(this.online.nt, pid, { groupId: Number(groupId) })
+      .catch(() => null)
+      .then((value) => {
+        this.operationGuard?.();
+        if (this.online!.resolvePid() !== pid) throw new Error('QQ 运行时已切换');
+        this.operationStates.set(key, { pid, value, at: Date.now() });
+        if (this.operationStates.size > 64)
+          this.operationStates.delete(this.operationStates.keys().next().value!);
+        return value;
+      })
+      .finally(() => this.operationReads.delete(readKey));
+    this.operationReads.set(readKey, task);
+    return task;
+  }
+
+  async operationContext(
+    groupId: string | number,
+    targetUid?: string,
+    refresh = false,
+  ): Promise<QQGroupPermissionContext> {
+    this.operationGuard?.();
+    const code = String(groupId);
+    const [directory, detail, member, state] = await Promise.all([
+      this.listGroupDirectory(),
+      this.getGroupDetail(BigInt(code)),
+      targetUid ? this.getMemberInfo(BigInt(code), targetUid) : Promise.resolve(null),
+      this.operationState(groupId, refresh),
+    ]);
+    const role = directory.find((row) => row.groupCode === code)?.role ?? null;
+    this.operationGuard?.();
+    return {
+      ...state,
+      role,
+      isSelf:
+        targetUid !== undefined &&
+        qqResourceOwnedBy(targetUid, { uid: this.session.selfUid, uin: this.session.context.uin }),
+      targetRole:
+        targetUid && detail?.ownerUid === targetUid
+          ? 'owner'
+          : member && !member.memberFlag
+            ? member.adminFlag > 0
+              ? 'admin'
+              : 'member'
+            : null,
+    };
+  }
+
+  async essenceOperationPermission(
+    groupId: string | number,
+    sequence: number,
+  ): Promise<{ canRemove?: boolean; isSelf?: boolean }> {
+    this.operationGuard?.();
+    if (!this.webQueryService) return {};
+    for (let page = 0; page < 10; page++) {
+      const pageResult = this.webQueryService.getGroupEssencePage
+        ? await this.webQueryService.getGroupEssencePage(String(groupId), page, 100)
+        : {
+            messages: await this.webQueryService.getGroupEssence(String(groupId), page, 100),
+            complete: false,
+          };
+      const result = pageResult.messages;
+      this.operationGuard?.();
+      const row = result.find(
+        (value) =>
+          value &&
+          typeof value === 'object' &&
+          'msg_seq' in value &&
+          Number(value.msg_seq) === sequence,
+      );
+      if (
+        row &&
+        typeof row === 'object' &&
+        'can_be_removed' in row &&
+        typeof row.can_be_removed === 'boolean'
+      )
+        return {
+          canRemove: row.can_be_removed,
+          isSelf:
+            'sender_uin' in row &&
+            qqResourceOwnedBy(String(row.sender_uin), {
+              uin: this.session.context.uin,
+              uid: this.session.selfUid,
+            }),
+        };
+      if (pageResult.complete || result.length === 0) break;
+    }
+    return {};
+  }
+
+  async assertCanSend(groupId: number, uploadFile: boolean): Promise<void> {
+    const context = await this.operationContext(groupId, undefined, true);
+    if (!groupPermission('speak', context))
+      throw new Error('当前账号在此群被禁言，暂时无法发送消息');
+    if (uploadFile && !groupPermission('fileUpload', context))
+      throw new Error('此群不允许当前成员上传文件');
+    this.operationGuard?.();
+  }
+
+  /** 读取当前账号及目标，不接受调用者传入的角色作为写入依据。 */
+  async assertOperation(
+    action: QQGroupOperation,
+    groupId: string | number,
+    targetUid?: string,
+    sequence?: number,
+  ): Promise<void> {
+    this.operationGuard?.();
+    let uid = targetUid;
+    if (sequence !== undefined) {
+      const rows = await this.session.groupMsgs.listBySeqsInPartition(String(groupId), [
+        BigInt(sequence),
+      ]);
+      const row = rows[0];
+      if (row)
+        uid =
+          row.senderUid ||
+          (String(row.senderUin) === String(this.session.context.uin)
+            ? this.session.selfUid
+            : undefined);
+    }
+    const context = await this.operationContext(groupId, uid, true);
+    if (action === 'recall' && context.isSelf) return;
+    if (action === 'essenceRemove' && sequence !== undefined)
+      Object.assign(context, await this.essenceOperationPermission(groupId, sequence));
+    this.operationGuard?.();
+    if (!groupPermission(action, context))
+      throw new Error('当前账号无权执行此群操作，或目标身份尚未确认');
   }
 
   async listAllGroups(limit = 100, offset = 0): Promise<GroupDetail[]> {

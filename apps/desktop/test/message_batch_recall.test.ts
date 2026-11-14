@@ -58,17 +58,28 @@ function mount({
   kind = 'direct',
   role = 'member',
   online = true,
+  targetRole,
   overrides = [],
 }: {
   kind?: 'direct' | 'group';
   role?: 'owner' | 'admin' | 'member';
   online?: boolean;
+  targetRole?: 'owner' | 'admin' | 'member';
   overrides?: Array<Partial<Message>>;
 } = {}) {
   const demo = createTemplateDemoData();
   const user = { ...demo.user, id: 'self:10001', uid: 'u_self', identityValue: '10001' };
   const base = demo.conversations.find((row) => row.type === kind)!;
-  const conversation = base.type === 'group' ? { ...base, group: { ...base.group, role } } : base;
+  const conversation =
+    base.type === 'group'
+      ? {
+          ...base,
+          group: { ...base.group, role },
+          members: targetRole
+            ? [...base.members, { ...base.members[0]!, id: 'u_peer', role: targetRole }]
+            : base.members,
+        }
+      : base;
   const messages: Message[] = (overrides.length ? overrides : [{}, {}]).map((patch, index) => ({
     id: String(index + 1),
     conversationId: conversation.id,
@@ -156,6 +167,23 @@ async function clickText(text: string) {
 }
 
 describe('消息多选撤回', () => {
+  it('已确认的私聊文件三分钟后仍可撤回，不把文件占位文字当成真实文件', async () => {
+    const sentAt = new Date(Date.now() - 180_000).toISOString();
+    const f = mount({
+      overrides: [
+        {
+          createdAt: sentAt,
+          qqElements: [{ type: 'file', data: { fileName: 'synthetic.zip' } }],
+        },
+      ],
+    });
+    await act(async () => f.button().click());
+    expect(rpc.recall).toHaveBeenCalledOnce();
+    rpc.recall.mockClear();
+    const text = mount({ overrides: [{ createdAt: sentAt, body: '[文件] synthetic.zip' }] });
+    await act(async () => text.button().click());
+    expect(rpc.recall).not.toHaveBeenCalled();
+  });
   it('多选时右键撤回只撤回被右键的那条，批量撤回留在选区工具栏', async () => {
     const f = mount();
     act(() =>
@@ -304,12 +332,23 @@ describe('消息多选撤回', () => {
       const f = mount({
         kind: 'group',
         role,
+        targetRole: 'member',
         overrides: [{ senderId: 'u_peer', createdAt: new Date(Date.now() - 180000).toISOString() }],
       });
       await act(async () => f.button().click());
       expect(rpc.recall).toHaveBeenCalledTimes(role === 'member' ? 0 : 1);
     },
   );
+  it.each(['owner', 'admin'] as const)('管理员批量撤回不提交 %s 的消息', async (targetRole) => {
+    const f = mount({
+      kind: 'group',
+      role: 'admin',
+      targetRole,
+      overrides: [{ senderId: 'u_peer' }],
+    });
+    await act(async () => f.button().click());
+    expect(rpc.recall).not.toHaveBeenCalled();
+  });
   it('群身份缺失时不能猜作管理员', async () => {
     const f = mount({ kind: 'group', overrides: [{ senderId: 'u_peer' }] });
     if (f.conversation.type === 'group') Object.assign(f.conversation.group, { role: undefined });

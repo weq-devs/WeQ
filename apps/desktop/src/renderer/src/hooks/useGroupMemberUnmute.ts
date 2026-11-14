@@ -6,18 +6,18 @@ import { useDialog } from '../components/Dialog';
 import type { GroupMemberRole } from '../im-template/template/types';
 import { useTabActive } from '../components/RetainedTabs';
 import { PROFILE_QUERY_OPTIONS } from '../lib/profileQuery';
+import { groupPermission } from '@weq/service/qq-permissions';
 
 export function canModerateMember(
   role?: string | null,
   targetRole?: GroupMemberRole | null,
   isSelf = false,
 ) {
-  return (
-    !isSelf &&
-    (role === 'owner'
-      ? targetRole === 'admin' || targetRole === 'member'
-      : role === 'admin' && targetRole === 'member')
-  );
+  return groupPermission('mute', {
+    role: role === 'owner' || role === 'admin' || role === 'member' ? role : null,
+    targetRole,
+    isSelf,
+  });
 }
 
 /** 名片与右键菜单共用绑定账号、确认弹窗及操作后的成员读回。 */

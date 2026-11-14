@@ -23,6 +23,7 @@ test.each([
   'attachWorker.mjs',
   'backupProbeWorker.mjs',
   'transcribeWorker.mjs',
+  'intentSenseWorker.mjs',
   'dbCheckupWorker.mjs',
   'analysisReportsWorker.mjs',
 ])('packaged %s resolves the physical extraResource rather than asar', (name) => {

@@ -84,6 +84,46 @@ export function interactiveMediaUrl(src: string): string {
   }
 }
 
+/** 长驻缩略图也要跟随当前策略；不改聊天图片自行管理的缩图、原图与缓存参数。 */
+export function thumbnailPolicyRequest(src: string): { src: string; policyKey: string } {
+  const unchanged = { src, policyKey: '' };
+  try {
+    const base = typeof location === 'undefined' ? 'https://weq.invalid' : location.href;
+    const url = new URL(src, base);
+    const localPath = url.origin === new URL(base).origin;
+    const kind =
+      url.protocol === 'weq-media:'
+        ? url.hostname
+        : localPath && url.pathname.startsWith('/_media/')
+          ? url.pathname.slice('/_media/'.length)
+          : null;
+    const avatar =
+      url.protocol === 'weq-avatar:' || (localPath && url.pathname.startsWith('/_avatar/'));
+    if (!avatar && !['album', 'dress', 'gift', 'qqshow', 'redbag'].includes(kind ?? ''))
+      return unchanged;
+    const limited = dataSaverActive();
+    const behavior = useDataSaver.getState().behavior;
+    if (limited) {
+      url.searchParams.set('ds', '1');
+      if (avatar) url.searchParams.set('auto', behavior.dataSaverAvatars ? '1' : '0');
+    } else {
+      url.searchParams.delete('ds');
+      if (avatar) url.searchParams.delete('auto');
+    }
+    const allowed = avatar
+      ? behavior.dataSaverAvatars
+      : ['dress', 'qqshow', 'redbag'].includes(kind ?? '')
+        ? behavior.dataSaverDress
+        : behavior.dataSaverPrefetch;
+    return {
+      src: src.startsWith('/') ? `${url.pathname}${url.search}` : url.href,
+      policyKey: limited ? `limited:${allowed}` : '',
+    };
+  } catch {
+    return unchanged;
+  }
+}
+
 /** Proxy a remote QQ album image through the main process so Qzone referer is attached. */
 export function albumMediaUrl(src: string): string {
   return mediaUrl('album', { src });

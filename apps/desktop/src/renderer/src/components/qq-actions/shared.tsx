@@ -7,6 +7,7 @@ import {
   useQQWriteSession,
   type QQWriteBinding,
   type QQWriteOutcome,
+  type QQWriteFeedback,
 } from '../../hooks/useQQWriteSession';
 import { useViewState } from '../../state/view';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
@@ -34,6 +35,7 @@ export function ActionIcon({
   text,
   children,
   disabled,
+  title,
   onClick,
 }: {
   label: string;
@@ -41,6 +43,7 @@ export function ActionIcon({
   text?: string;
   children: ReactNode;
   disabled?: boolean;
+  title?: string;
   onClick: () => void;
 }) {
   return (
@@ -48,7 +51,7 @@ export function ActionIcon({
       type="button"
       data-qq-action
       className={`weq-set-iconbtn${text ? ' has-label' : ''}`}
-      title={label}
+      title={title ?? label}
       aria-label={label}
       disabled={disabled}
       onClick={onClick}
@@ -58,7 +61,7 @@ export function ActionIcon({
     </button>
   );
 }
-export function useQQAction(scope: string) {
+export function useQQAction(scope: string, feedback: QQWriteFeedback = 'all') {
   const ownerDocument = useRenderDocument();
   const session = useQQWriteSession(`actions:${scope}`);
   const confirm = useDialog((s) => s.confirm);
@@ -88,7 +91,7 @@ export function useQQAction(scope: string) {
     try {
       if (warning && !(await confirm('确认 QQ 操作', warning, { ownerDocument }))) return false;
       if (!mounted.current || latest.current !== identity) return false;
-      return await session.run(action, refresh, options);
+      return await session.run(action, refresh, { feedback, ...options });
     } finally {
       busy.current = false;
       if (mounted.current) setPending(false);
@@ -142,6 +145,17 @@ export function useQQGroupPermissions(
       ...autoRefresh,
       staleTime: 15_000,
     },
+  );
+}
+
+export function useQQAlbumPermissions(
+  groupId: number,
+  albumId: string | undefined,
+  action: Pick<ReturnType<typeof useQQAction>, 'available' | 'binding'>,
+) {
+  return trpc.account.qqActions.albumPermissions.useQuery(
+    { ...action.binding!, groupId, albumId },
+    { enabled: action.available && groupId > 0, staleTime: 15_000, retry: false },
   );
 }
 export function SaveAction({

@@ -42,7 +42,6 @@ import { MediaPreviewHost } from './components/mediaPreviewStore';
 import { RedBagDetailHost } from './components/RedBagDetailDialog';
 import { RedBagQrcodeHost } from './components/RedBagQrcodeDialog';
 import { MarketFaceLightbox } from './components/MarketFaceLightbox';
-import { ForwardWindowHost } from './components/ForwardWindow';
 import { AppLockOverlay } from './components/AppLockOverlay';
 import {
   TextMarkdownContext,
@@ -80,7 +79,7 @@ const MainView = lazy(loadMainWorkspace);
  * 把两个「气泡渲染」开关广播给所有消息气泡：纯文本 Markdown、链接预览卡片。
  *
  * 查询只在这一层做一次——QqMessageContent 每条消息一个实例，让它们各自 useQuery 会挂
- * 几百个订阅。必须包住 ForwardWindowHost（它在 MainView 之外，转发窗口里的气泡同样
+ * 几百个订阅。必须包住 ForwardWindowHost（转发窗口里的气泡同样
  * 复用 QqMessageContent）。`?? true` 与 DEFAULT_APP_SETTINGS 一致，settings 还在加载时
  * 不会先闪成关再跳开。
  */
@@ -279,7 +278,6 @@ export default function App(): ReactElement {
             <RedBagDetailHost />
             <RedBagQrcodeHost />
             <MarketFaceLightbox />
-            <ForwardWindowHost />
           </ActiveWidgetProvider>
         </SelfPendantProvider>
       </TextMarkdownProvider>

@@ -51,6 +51,30 @@ const fixture = message([
                 type: message([{ name: 'count', tag: 1, type: 'uint32', force: true }]),
               },
               {
+                name: 'upvote',
+                tag: 37,
+                type: message([
+                  { name: 'upvoted', tag: 1, type: 'bool', force: true },
+                  { name: 'count', tag: 2, type: 'int32', force: true },
+                  {
+                    name: 'preview',
+                    tag: 3,
+                    repeated: true,
+                    type: message([
+                      {
+                        name: 'user',
+                        tag: 1,
+                        type: message([
+                          { name: 'uid', tag: 1, type: 'string' },
+                          { name: 'nick', tag: 2, type: 'string' },
+                          { name: 'uin', tag: 13, type: 'string' },
+                        ]),
+                      },
+                    ]),
+                  },
+                ]),
+              },
+              {
                 name: 'comm',
                 tag: 1,
                 type: message([
@@ -116,6 +140,46 @@ const response = (
   });
 
 describe('空间 V4 媒体详情', () => {
+  it('按独立 SDK tag 读取推人数和用户预览，不借用赞数', () => {
+    expect(
+      GetQzoneFeedMediaDetail.parseDetail(
+        response([], '10001', 'fixture-post', 311n, {
+          likes: { count: 888 },
+          upvote: {
+            count: 199,
+            upvoted: false,
+            preview: [
+              { user: { uin: '10002', nick: '合成推用户', uid: 'public-user' } },
+              { user: { uid: 'anonymous', nick: '匿名空间用户' } },
+            ],
+          },
+        }),
+        params,
+      ).upvote,
+    ).toEqual({
+      count: 199,
+      upvoted: false,
+      users: [
+        { uin: '10002', nickname: '合成推用户', uid: 'public-user' },
+        { uin: '', nickname: '匿名空间用户', uid: 'anonymous' },
+      ],
+    });
+  });
+  it('区分零人、缺字段和缺 cell，负数人数不伪装成零', () => {
+    const parse = (upvote?: Record<string, unknown>) =>
+      GetQzoneFeedMediaDetail.parseDetail(
+        response([], '10001', 'fixture-post', 311n, upvote ? { upvote } : {}),
+        params,
+      ).upvote;
+    expect(parse()).toBeUndefined();
+    expect(parse({ count: 0, upvoted: true })).toEqual({ count: 0, upvoted: true, users: [] });
+    expect(parse({ count: -1 })).toEqual({ count: null, upvoted: null, users: [] });
+    expect(parse({ preview: [{}, { user: { uin: 'bad', nick: '合成' } }] })).toEqual({
+      count: null,
+      upvoted: null,
+      users: [{ uin: '', uid: '', nickname: '合成' }],
+    });
+  });
   it('正文来自 tag 4 而非另一文本 cell，保留 @ 和真实零计数', () => {
     expect(
       GetQzoneFeedMediaDetail.parseDetail(

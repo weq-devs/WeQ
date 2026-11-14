@@ -64,6 +64,8 @@ describe('左栏统一按钮', () => {
       expect(navigate).toHaveBeenCalledWith('contacts');
       const badge = host.querySelector<HTMLButtonElement>('.rail-message-badge')!;
       expect(badge.classList.contains('weq-rail-button')).toBe(false);
+      expect(badge.classList.contains('weq-reminder-count')).toBe(true);
+      expect(badge.dataset.tone).toBe('notice');
       act(() => badge.click());
       expect(unread).toHaveBeenCalledOnce();
       expect(navigate).toHaveBeenCalledTimes(1);
@@ -71,6 +73,8 @@ describe('左栏统一按钮', () => {
       expect(menu.classList.contains('weq-rail-button')).toBe(true);
       expect(menu.classList.contains('weq-rail-control')).toBe(false);
       expect(menu.querySelector('.weq-workspace-dot')).not.toBeNull();
+      expect(menu.querySelector<HTMLElement>('.weq-reminder-count')?.dataset.tone).toBe('running');
+      expect(contacts.querySelector('.weq-reminder-dot')).not.toBeNull();
       expect(menu.querySelector('.weq-workspace-status-count.is-running')?.textContent).toBe('2');
       act(() => menu.click());
       expect(menu.getAttribute('aria-expanded')).toBe('true');

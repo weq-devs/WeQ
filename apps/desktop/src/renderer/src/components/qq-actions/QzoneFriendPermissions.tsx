@@ -269,7 +269,7 @@ function PermissionAdder({
   );
 }
 function QzoneFriendPermissionsBody({ targetUin }: { targetUin?: string }) {
-  const action = useQQAction(`space-permissions:${targetUin ?? 'lists'}`);
+  const action = useQQAction(`space-permissions:${targetUin ?? 'lists'}`, 'failure-only');
   return (
     <>
       <PermissionKind

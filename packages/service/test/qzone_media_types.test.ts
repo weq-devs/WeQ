@@ -12,6 +12,23 @@ afterEach(() => {
 const create = (resolvePid = () => 1) =>
   new QzoneMediaTypesService({ sendPacket: vi.fn() }, resolvePid);
 describe('空间媒体按需补全', () => {
+  it('推预览与媒体共用同一详情缓存，调用方不能改写缓存中的用户', async () => {
+    const upvote = {
+      count: 199,
+      upvoted: false,
+      users: [{ uin: '10002', uid: '', nickname: '合成' }],
+    };
+    const read = vi
+      .spyOn(GetQzoneFeedMediaDetail, 'invokeDetail')
+      .mockResolvedValue({ ...detail, upvote });
+    const service = create();
+    await service.read(target);
+    const first = await service.readDetail(target);
+    first.upvote!.users[0]!.nickname = 'changed';
+    first.upvote!.users.length = 0;
+    expect((await service.readDetail(target)).upvote).toEqual(upvote);
+    expect(read).toHaveBeenCalledOnce();
+  });
   it('相同内容共用在途请求和短期缓存，返回值不可污染缓存', async () => {
     const read = vi.spyOn(GetQzoneFeedMediaDetail, 'invokeDetail').mockResolvedValue(detail);
     const service = create();

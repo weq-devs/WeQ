@@ -259,8 +259,10 @@
 }
 
 :is(.weq-contact-profile-v2, .weq-group-page)
-  .weq-profile-section-block
-  + .weq-profile-section-block {
+  .weq-profile-section-block:not(
+    .weq-profile-section-block--fields:not(:has(.weq-profile-row-slot > *))
+  )
+  ~ .weq-profile-section-block {
   margin-top: 24px;
   padding-top: 18px;
   border-top: 1px solid var(--weq-border-subtle);

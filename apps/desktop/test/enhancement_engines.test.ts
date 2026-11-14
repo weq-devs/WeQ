@@ -70,6 +70,27 @@ async function fixture() {
 }
 
 describe('增强引擎分发与就绪状态', () => {
+  it('已校验的候选不能被业务或重启后的发现过程提前接管，只有显式切换才生效', async () => {
+    const f = await fixture();
+    const candidate = new EnhancementEngineStore(f.root, f.manifest, {
+      target: f.manifest.target,
+      fetcher: f.fetcher,
+      probe: f.probe,
+      stagingOnly: true,
+    });
+    await candidate.ensure('onnx');
+    expect(candidate.directory('onnx')).not.toBeNull();
+    expect(f.store.directory('onnx')).toBeNull();
+    const restarted = new EnhancementEngineStore(f.root, f.manifest, {
+      target: f.manifest.target,
+      probe: f.probe,
+    });
+    expect(restarted.directory('onnx')).toBeNull();
+    const undo = f.store.adopt(candidate, 'onnx');
+    expect(f.store.directory('onnx')).toBe(candidate.directory('onnx'));
+    undo();
+    expect(f.store.directory('onnx')).toBeNull();
+  });
   it('去重并发请求，校验后实际加载，动态库别名只占一份空间且重启不重下', async () => {
     const f = await fixture();
     const paths = await Promise.all([f.store.ensure('onnx'), f.store.ensure('onnx')]);
@@ -105,7 +126,50 @@ describe('增强引擎分发与就绪状态', () => {
     await expect(f.store.ensure('onnx')).rejects.toThrow('native load failed');
     expect(f.store.state('onnx').ready).toBe(false);
     await expect(f.store.ensure('onnx')).resolves.toContain('onnx-fixture');
-    expect(await readdir(f.store.root)).toEqual(['onnx-fixture']);
+    expect((await readdir(f.store.root)).sort()).toEqual(['active.json', 'onnx-fixture']);
+  });
+
+  it('已发现的引擎丢失文件后不再算完整，仍统计残留文件并允许显式修复', async () => {
+    const f = await fixture();
+    const directory = await f.store.ensure('onnx');
+    await rm(join(directory, 'node_modules/runtime/b.js'));
+    expect(f.store.state('onnx')).toMatchObject({ ready: false, installedBytes: 14 });
+    await writeFile(join(directory, 'original.txt'), 'preserved');
+    // 缺失别名从已校验的相同内容恢复，不重新下载整个引擎。
+    await expect(f.store.ensure('onnx')).resolves.toBe(directory);
+    expect(f.fetcher).toHaveBeenCalledOnce();
+    expect(f.store.state('onnx')).toMatchObject({ ready: true, installedBytes: 14 });
+    expect(await readFile(join(directory, 'original.txt'), 'utf8')).toBe('preserved');
+    expect(await readFile(join(directory, 'node_modules/runtime/a.js'), 'utf8')).toBe(
+      'fixture engine',
+    );
+  });
+
+  it('没有就绪回执的引擎部分文件和下载分段仍计入占用', async () => {
+    const f = await fixture();
+    const directory = join(f.store.root, f.manifest.engines[0]!.id, 'node_modules/runtime');
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, 'a.js'), 'fixture engine');
+    await writeFile(join(f.store.root, `${f.manifest.engines[0]!.id}.tar.gz.part`), 'part');
+    expect(f.store.state('onnx')).toMatchObject({ ready: false, installedBytes: 18 });
+    expect(f.fetcher).not.toHaveBeenCalled();
+  });
+
+  it('同长度坏引擎不能被复用，重新下载失败仍统计旧文件且保留附加原件', async () => {
+    const f = await fixture();
+    const directory = await f.store.ensure('onnx');
+    await writeFile(join(directory, 'node_modules/runtime/a.js'), 'invalid engine');
+    await writeFile(join(directory, 'original.txt'), 'preserved');
+    f.fetcher.mockRejectedValueOnce(new Error('offline'));
+    await expect(f.store.ensure('onnx')).rejects.toThrow('offline');
+    expect(f.store.state('onnx')).toMatchObject({ ready: false, installedBytes: 14 });
+    expect(await readFile(join(directory, 'original.txt'), 'utf8')).toBe('preserved');
+    await f.store.ensure('onnx');
+    expect(f.fetcher).toHaveBeenCalledTimes(3);
+    expect(await readFile(join(directory, 'node_modules/runtime/a.js'), 'utf8')).toBe(
+      'fixture engine',
+    );
+    expect(await readFile(join(directory, 'original.txt'), 'utf8')).toBe('preserved');
   });
 
   it('更新加载失败保留旧兼容引擎，不把下载完成当作更新完成', async () => {

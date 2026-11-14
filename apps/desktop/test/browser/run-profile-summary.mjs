@@ -1,0 +1,303 @@
+import { createServer } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwind from '@tailwindcss/vite';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { mkdir, writeFile } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
+const output = process.env.WEQ_PROFILE_APPROVED_QA;
+const server = await createServer({
+  configFile: false,
+  root,
+  cacheDir: resolve(root, 'node_modules/.vite-profile-summary'),
+  plugins: [react(), tailwind()],
+  define: { 'import.meta.env.VITE_WEQ_TARGET': JSON.stringify('web') },
+  resolve: {
+    alias: [
+      {
+        find: /^.*\/trpc\/client$/,
+        replacement: resolve(root, 'test/browser/profile-summary.stub.ts'),
+      },
+      {
+        find: /^.*\/hooks\/useQQWriteSession$/,
+        replacement: resolve(root, 'test/browser/profile-summary.stub.ts'),
+      },
+      { find: '@renderer', replacement: resolve(root, 'src/renderer/src') },
+      { find: '@resources', replacement: resolve(root, '../../resources') },
+      { find: '@transport', replacement: resolve(root, 'test/support/transport.stub.ts') },
+    ],
+  },
+  server: {
+    host: '127.0.0.1',
+    port: 0,
+    hmr: false,
+    watch: null,
+    fs: { allow: [resolve(root, '../..')] },
+  },
+});
+let browser;
+const checks = [],
+  errors = [];
+try {
+  await server.listen();
+  browser = await chromium.launch({
+    headless: true,
+    ...(process.env.WEQ_BROWSER_EXECUTABLE
+      ? { executablePath: process.env.WEQ_BROWSER_EXECUTABLE }
+      : {}),
+  });
+  const page = await browser.newPage();
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.route('**/*', (route) =>
+    new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
+  );
+  if (output) await mkdir(output, { recursive: true });
+  await page.goto(
+    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/profile-summary.html?empty-basics`,
+  );
+  await page.getByRole('button', { name: '打开完整资料页', exact: true }).click();
+  await page.getByText('家乡', { exact: true }).waitFor();
+  const otherHometown = await page
+    .locator('.weq-profile-data-row')
+    .filter({ has: page.getByText('家乡', { exact: true }) })
+    .locator('.weq-profile-data-value')
+    .innerText();
+  assert.ok(otherHometown.includes('福建'));
+  await page.getByText('计算机／互联网／通信', { exact: true }).waitFor();
+  await page.getByText('中国 · 四川 · 成都', { exact: true }).waitFor();
+  await page.getByRole('button', { name: '合成大学', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: '教育经历', exact: true })
+    .getByText('合成院系', { exact: true })
+    .waitFor();
+  await page
+    .getByRole('dialog', { name: '教育经历', exact: true })
+    .getByRole('button', { name: '关闭资料详情' })
+    .click();
+  checks.push({ view: 'online-basics', emptyLocalCache: true, educationOpened: true });
+  await page.evaluate(() => {
+    window.profileApprovedQa.unrestrictedHome = true;
+    window.contactCardQa.notify();
+  });
+  await page.getByText('家乡', { exact: true }).waitFor({ state: 'detached' });
+  assert.equal(await page.getByText('家乡', { exact: true }).count(), 0);
+  await page.evaluate(() => {
+    window.profileApprovedQa.unrestrictedHome = false;
+    window.profileApprovedQa.legacySchoolEmpty = true;
+    window.contactCardQa.notify();
+  });
+  await page.getByRole('button', { name: '合成大学 · 本科', exact: true }).waitFor();
+  checks.push({
+    view: 'hometown-and-education',
+    unrestrictedHidden: true,
+    structuredFallback: true,
+  });
+  await page.evaluate(() => {
+    window.profileApprovedQa.legacySchoolEmpty = false;
+    window.contactCardQa.notify();
+  });
+  assert.equal(
+    await page.evaluate(() =>
+      window.profileApprovedQa.calls.includes('account.profileExtras.medalWall'),
+    ),
+    false,
+  );
+  for (const width of [1180, 390, 320])
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width, height: 850 });
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      assert.equal(await page.getByText('勋章墙', { exact: true }).count(), 0);
+      const overflow = await page.evaluate(() =>
+        [...document.querySelectorAll('.weq-profile-data-row')].some(
+          (node) => node.scrollWidth > node.clientWidth + 2,
+        ),
+      );
+      assert.equal(overflow, false);
+      if (width <= 720) {
+        const nav = await page.locator('.weq-profile-directory-tabs').evaluate((node) => {
+          const style = getComputedStyle(node);
+          return {
+            height: node.clientHeight,
+            required:
+              node.firstElementChild.getBoundingClientRect().height +
+              Number.parseFloat(style.paddingTop) +
+              Number.parseFloat(style.paddingBottom),
+          };
+        });
+        assert.ok(nav.height + 1 >= nav.required, '资料增加后章节条不能被挤压或截断');
+      }
+      if (output)
+        await page.screenshot({ path: `${output}/profile-${width}-${theme}.png`, fullPage: true });
+      checks.push({ view: 'profile', width, theme, medalsRemoved: true });
+    }
+  for (const mode of ['friend', 'unknown', 'bot', 'enterprise']) {
+    await page.evaluate((mode) => {
+      window.contactCardQa.mode = mode;
+      window.profileApprovedQa.dnaCommon = true;
+      window.profileApprovedQa.calls.length = 0;
+      window.contactCardQa.notify();
+    }, mode);
+    await page.getByRole('tab', { name: '与我的关系', exact: true }).click();
+    await page.waitForFunction(() =>
+      window.profileApprovedQa.calls.includes('account.profileExtras.similarity'),
+    );
+    await page.getByText('我们一个是射手座，另一个是摩羯座', { exact: false }).waitFor();
+    for (const width of mode === 'friend' ? [1180, 390, 320] : [320])
+      for (const theme of mode === 'friend' ? ['light', 'dark'] : ['dark']) {
+        await page.setViewportSize({ width, height: 850 });
+        await page.evaluate((theme) => {
+          document.documentElement.dataset.theme = theme;
+        }, theme);
+        const comparison = page.locator('.weq-profile-common-points');
+        assert.equal(await comparison.isVisible(), true);
+        assert.equal(await comparison.locator('button').count(), 0);
+        assert.equal(
+          await comparison.evaluate((node) => node.scrollWidth > node.clientWidth + 2),
+          false,
+        );
+        if (output)
+          await page.screenshot({
+            path: `${output}/${mode}-${width}-${theme}.png`,
+            fullPage: true,
+          });
+        checks.push({ view: 'all-contacts', mode, width, theme, comparisonVisible: true });
+      }
+    await page.getByRole('tab', { name: '个人资料', exact: true }).click();
+  }
+  await page.evaluate(() => {
+    window.contactCardQa.mode = 'nonfriend';
+    window.profileApprovedQa.dnaCommon = false;
+    window.contactCardQa.notify();
+  });
+  await page.getByRole('tab', { name: '与我的关系', exact: true }).click();
+  await page.getByText('共同兴趣', { exact: true }).waitFor();
+  await page.evaluate(() => {
+    window.profileApprovedQa.dnaCommon = true;
+    window.contactCardQa.notify();
+  });
+  await page.getByText('我们一个是射手座，另一个是摩羯座', { exact: false }).waitFor();
+  for (const width of [1180, 390, 320])
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width, height: 850 });
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.setProperty(
+          '--weq-accent-effective',
+          theme === 'light' ? '#28754b' : '#f7acb4',
+        );
+      }, theme);
+      const comparison = page.locator('.weq-profile-common-points');
+      assert.deepEqual(await comparison.locator('.weq-profile-data-label').allTextContents(), [
+        '资料对比',
+      ]);
+      assert.equal(await comparison.locator('button').count(), 0);
+      const layout = await comparison.evaluate((node) => {
+        const groupRow = [...document.querySelectorAll('.weq-profile-data-row')].find(
+          (row) => row.querySelector('.weq-profile-data-label')?.textContent === '共同群',
+        );
+        const row = node.querySelector('.weq-profile-data-row');
+        return {
+          separateSection: Boolean(node.closest('.weq-profile-section-block')),
+          gap: row.getBoundingClientRect().top - groupRow.getBoundingClientRect().bottom,
+          valueAligned:
+            row.querySelector('.weq-profile-data-value').getBoundingClientRect().left ===
+            groupRow.querySelector('.weq-profile-data-value').getBoundingClientRect().left,
+          overflow: row.scrollWidth > row.clientWidth + 2,
+        };
+      });
+      assert.equal(layout.separateSection, false);
+      assert.ok(layout.gap >= 0 && layout.gap <= 4, JSON.stringify(layout));
+      assert.equal(layout.valueAligned, true);
+      assert.equal(layout.overflow, false);
+      assert.equal(await page.getByRole('heading', { name: '共同点', exact: true }).count(), 0);
+      if (output)
+        await page.screenshot({
+          path: `${output}/comparison-${width}-${theme}.png`,
+          fullPage: true,
+        });
+      checks.push({ view: 'comparison', width, theme, ...layout });
+    }
+  await page.evaluate(() => {
+    window.profileApprovedQa.dnaCommon = false;
+    window.contactCardQa.notify();
+  });
+  assert.equal(
+    await page
+      .getByRole('region', { name: '与我的关系', exact: true })
+      .getByText('合成学校', { exact: false })
+      .count(),
+    1,
+  );
+  if (output) await page.screenshot({ path: `${output}/common-320-dark.png`, fullPage: true });
+  checks.push({ view: 'common', width: 320, theme: 'dark' });
+  await page.evaluate(() => {
+    window.profileApprovedQa.state = 'empty';
+    window.contactCardQa.notify();
+  });
+  await page.getByText('暂无可展示的资料对比', { exact: true }).waitFor();
+  await page.evaluate(() => {
+    window.profileApprovedQa.state = 'error';
+    window.contactCardQa.notify();
+  });
+  await page.getByText('刷新失败，已有内容保留。', { exact: true }).waitFor();
+  await page
+    .getByRole('region', { name: '与我的关系', exact: true })
+    .locator('.weq-profile-inline-error button')
+    .click();
+  await page.getByText('共同兴趣', { exact: true }).waitFor();
+  await page.evaluate(() => {
+    window.profileApprovedQa.calls.length = 0;
+    window.contactCardQa.mode = 'self';
+    window.contactCardQa.notify();
+  });
+  await page.getByRole('tab', { name: '个人资料', exact: true }).click();
+  await page.getByText('家乡', { exact: true }).waitFor();
+  const selfHometown = await page
+    .locator('.weq-profile-data-row')
+    .filter({ has: page.getByText('家乡', { exact: true }) })
+    .locator('.weq-self-field-value')
+    .innerText();
+  assert.equal(selfHometown.trim(), otherHometown.trim());
+  checks.push({ view: 'hometown', sameFormat: true, text: selfHometown });
+  for (const width of [1180, 390, 320])
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width, height: 850 });
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      assert.equal(await page.getByText('勋章墙', { exact: true }).count(), 0);
+      assert.equal(
+        await page
+          .getByRole(width > 760 ? 'button' : 'tab', { name: '礼物墙', exact: true })
+          .count(),
+        1,
+      );
+      if (output)
+        await page.screenshot({ path: `${output}/self-${width}-${theme}.png`, fullPage: true });
+      checks.push({ view: 'self', width, theme, medalsRemoved: true });
+    }
+  assert.equal(await page.locator('.weq-profile-common-points').count(), 0);
+  assert.equal(
+    await page.evaluate(() =>
+      window.profileApprovedQa.calls.includes('account.profileExtras.similarity'),
+    ),
+    false,
+  );
+  assert.equal(
+    await page.evaluate(() =>
+      window.profileApprovedQa.calls.includes('account.profileExtras.medalWall'),
+    ),
+    false,
+  );
+  assert.deepEqual(errors, []);
+  if (output) await writeFile(`${output}/result.json`, JSON.stringify({ checks, errors }, null, 2));
+  console.log(JSON.stringify({ checks: checks.length, errors }));
+} finally {
+  await browser?.close();
+  await server.close();
+}

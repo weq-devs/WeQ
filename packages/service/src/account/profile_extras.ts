@@ -6,12 +6,15 @@ import {
   getAnonymousQuestions,
   getEducationHistory,
   getProfileDetails,
+  getProfileRegion,
+  getProfileSimilarity,
   getSelfAvatarHistory,
   getSignatureLikes,
   getAnonymousQuestionDetail,
   getAnonymousComments,
   type SignatureTarget,
   type TrpcNative,
+  type OidbNative,
 } from '@weq/protocol';
 import type { ContactMetricsService } from './contact_metrics';
 
@@ -29,12 +32,14 @@ export class ProfileExtrasService {
   contactMetrics?: ContactMetricsService;
   private readonly inflight = new Map<string, Promise<unknown>>();
   constructor(
-    private readonly nt: TrpcNative,
+    private readonly nt: TrpcNative & Partial<OidbNative>,
     readonly selfUin: string,
     private readonly resolvePid: () => number,
     private readonly read: typeof readers & {
       getSelfAvatarHistory?: typeof getSelfAvatarHistory;
       getProfileDetails?: typeof getProfileDetails;
+      getProfileRegion?: typeof getProfileRegion;
+      getProfileSimilarity?: typeof getProfileSimilarity;
       getSignatureLikes?: typeof getSignatureLikes;
       getAnonymousQuestionDetail?: typeof getAnonymousQuestionDetail;
       getAnonymousComments?: typeof getAnonymousComments;
@@ -84,6 +89,22 @@ export class ProfileExtrasService {
   details(uin: string) {
     return this.query(`details:${uin}`, (pid) =>
       (this.read.getProfileDetails ?? getProfileDetails)(this.nt, pid, uin),
+    );
+  }
+  region(uin: string) {
+    return this.query(`region:${uin}`, (pid) => {
+      const send = this.nt.sendOidbPacket;
+      if (!send) throw new Error('当前原生模块不支持所在地读取');
+      return (this.read.getProfileRegion ?? getProfileRegion)(
+        { sendOidbPacket: send.bind(this.nt) },
+        pid,
+        uin,
+      );
+    });
+  }
+  similarity(uin: string) {
+    return this.query(`similarity:${uin}`, (pid) =>
+      (this.read.getProfileSimilarity ?? getProfileSimilarity)(this.nt, pid, this.selfUin, uin),
     );
   }
   avatarHistory(before?: number) {

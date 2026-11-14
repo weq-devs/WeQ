@@ -93,6 +93,58 @@ try {
             path: resolve(output, `${title}-${theme}-${width}.png`),
             fullPage: true,
           });
+        if (title === '推荐回复') {
+          const entry = page.getByRole('button', { name: '管理回退内容列表', exact: true });
+          assert.equal(await page.getByRole('dialog', { name: '回退内容列表' }).count(), 0);
+          assert.equal(await page.locator('main .weq-suggestion-fallback').count(), 0);
+          await entry.click();
+          const dialog = page.getByRole('dialog', { name: '回退内容列表', exact: true });
+          await dialog.waitFor();
+          assert.equal(await dialog.locator('.weq-set-card').count(), 0);
+          const box = await dialog.boundingBox();
+          assert.ok(box.x >= 0 && box.x + box.width <= width);
+          assert.ok(box.y >= 0 && box.y + box.height <= 900);
+          assert.equal(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth), true);
+          assert.equal(
+            await dialog.locator('.weq-dialog-body').evaluate((node) => {
+              node.scrollTop = node.scrollHeight;
+              return node.scrollTop > 0;
+            }),
+            true,
+          );
+          await dialog.getByLabel('添加回退内容', { exact: true }).click();
+          const inputs = dialog.getByRole('textbox');
+          const count = await inputs.count();
+          await inputs.last().fill(`新增回退内容-${theme}-${width}`);
+          await inputs.last().press('Enter');
+          await dialog.getByRole('status').filter({ hasText: '已保存' }).waitFor();
+          await inputs.first().fill(' ');
+          await inputs.first().press('Enter');
+          await dialog.getByRole('alert').first().waitFor();
+          await page.keyboard.press('Escape');
+          await dialog.waitFor({ state: 'hidden' });
+          assert.equal(await entry.evaluate((node) => node === document.activeElement), true);
+          await entry.click();
+          await dialog.waitFor();
+          assert.equal(await inputs.first().inputValue(), ' ');
+          const updated = `更新后的回退内容-${theme}-${width}`;
+          await inputs.first().fill(`  ${updated}  `);
+          await inputs.first().press('Enter');
+          await dialog.getByRole('status').filter({ hasText: '已保存' }).waitFor();
+          await page.waitForFunction(
+            (updated) => window.aiSettingsStatus().suggestionFallbackTexts[0] === updated,
+            updated,
+          );
+          await dialog.getByLabel(`删除回退内容 ${count}`, { exact: true }).click();
+          assert.equal(await inputs.count(), count - 1);
+          await dialog.getByRole('status').filter({ hasText: '已保存' }).waitFor();
+          if (output)
+            await page.screenshot({
+              path: resolve(output, `回退内容列表-${theme}-${width}.png`),
+            });
+          await dialog.getByLabel('关闭回退内容列表', { exact: true }).click();
+          await dialog.waitFor({ state: 'hidden' });
+        }
         await page
           .locator('nav')
           .getByRole('button', {
@@ -130,6 +182,47 @@ try {
         });
       cases++;
     }
+  }
+  const touchContext = await browser.newContext({
+    viewport: { width: 320, height: 640 },
+    isMobile: true,
+    hasTouch: true,
+    reducedMotion: 'reduce',
+  });
+  try {
+    const touchPage = await touchContext.newPage();
+    touchPage.on('pageerror', (error) => errors.push(error.message));
+    await touchPage.route('**/*', (route) =>
+      new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
+    );
+    for (const theme of ['light', 'dark']) {
+      await touchPage.goto(
+        `http://127.0.0.1:${server.httpServer.address().port}/test/browser/ai-model-settings.html`,
+      );
+      await touchPage.getByText('功能与模型', { exact: true }).waitFor();
+      await touchPage.evaluate(
+        (theme) => window.aiSettingsTheme.getState().setPreference(theme),
+        theme,
+      );
+      await touchPage.locator('nav').getByRole('button', { name: '推荐回复', exact: true }).tap();
+      await touchPage.getByLabel('管理回退内容列表', { exact: true }).tap();
+      const dialog = touchPage.getByRole('dialog', { name: '回退内容列表', exact: true });
+      await dialog.waitFor();
+      for (const label of ['关闭回退内容列表', '删除回退内容 1']) {
+        const bounds = await dialog.getByLabel(label, { exact: true }).boundingBox();
+        assert.ok(bounds.width >= 44 && bounds.height >= 44);
+      }
+      const bounds = await dialog.boundingBox();
+      assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 320);
+      assert.ok(bounds.y >= 0 && bounds.y + bounds.height <= 640);
+      if (output)
+        await touchPage.screenshot({ path: resolve(output, `回退内容列表-touch-${theme}.png`) });
+      await dialog.getByLabel('关闭回退内容列表', { exact: true }).tap();
+      await dialog.waitFor({ state: 'hidden' });
+      cases++;
+    }
+  } finally {
+    await touchContext.close();
   }
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ cases, errors }));

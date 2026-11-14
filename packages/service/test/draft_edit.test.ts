@@ -20,11 +20,11 @@ describe('setLocalDraft', () => {
     expect(after.u_a).toBe('');
   });
 
-  it('只填空白也算清空', () => {
-    expect(setLocalDraft({ u_a: '你好' }, 'u_a', '   \n').u_a).toBe('');
+  it('只填空白也原样保留', () => {
+    expect(setLocalDraft({ u_a: '你好' }, 'u_a', '   \n').u_a).toBe('   \n');
   });
 
-  it('保留首尾空白的原文（只在判定清空时 trim）', () => {
+  it('保留首尾空白的原文', () => {
     expect(setLocalDraft({}, 'u_a', '  你好  ').u_a).toBe('  你好  ');
   });
 
@@ -40,9 +40,9 @@ describe('setLocalDraft', () => {
 });
 
 describe('localDraftToWrite', () => {
-  it('恢复副本绕过输入记账时，纯换行仍写成清空；有正文的换行原样保留', () => {
-    expect(localDraftToWrite({ u_a: '\n' }, 'u_a')).toBe('');
-    expect(localDraftToWrite({ u_a: ' \t\n' }, 'u_a')).toBe('');
+  it('恢复快照绕过输入记账时，纯换行和混合空白仍原样保留', () => {
+    expect(localDraftToWrite({ u_a: '\n' }, 'u_a')).toBe('\n');
+    expect(localDraftToWrite({ u_a: ' \t\n' }, 'u_a')).toBe(' \t\n');
     expect(localDraftToWrite({ u_a: '\n正文\n' }, 'u_a')).toBe('\n正文\n');
   });
   it('有正文就写正文', () => {

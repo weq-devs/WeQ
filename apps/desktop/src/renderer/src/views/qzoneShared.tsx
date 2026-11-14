@@ -21,6 +21,7 @@ import {
 import { CircleDot, Loader2, Pause, Play, VideoOff, Images } from 'lucide-react';
 import { MediaPreview, type PreviewMedia } from '../components/MediaPreview';
 import { albumMediaUrl } from '../lib/resourceUrl';
+import { ShimmerImage } from '../components/ShimmerImage';
 import { qzoneMediaSource } from '../lib/qzone';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { client } from '../trpc/client';
@@ -135,7 +136,6 @@ export function QzoneVideo({
   typePending?: boolean;
   active?: boolean;
 }) {
-  const [coverFailed, setCoverFailed] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [playError, setPlayError] = useState(false);
   const player = useRef<HTMLVideoElement>(null);
@@ -164,7 +164,7 @@ export function QzoneVideo({
     <div className="weq-qzn-video">
       <button
         type="button"
-        className="weq-qzn-video-open"
+        className="weq-qzn-video-open weq-media-frame"
         disabled={!src && !cover}
         aria-label={
           live
@@ -186,16 +186,15 @@ export function QzoneVideo({
         }
         onClick={onOpen}
       >
-        {cover && !coverFailed ? (
-          <img
+        {cover ? (
+          <ShimmerImage
             src={albumMediaUrl(cover)}
             alt={`${live ? '实况照片' : typePending ? '媒体封面' : '视频封面'} ${index + 1}`}
             loading="lazy"
-            onError={() => setCoverFailed(true)}
           />
         ) : (
           <span className="weq-qzn-video-placeholder">
-            {coverFailed ? '封面暂时无法加载' : live ? '实况照片' : typePending ? '媒体' : '视频'}
+            {live ? '实况照片' : typePending ? '媒体' : '视频'}
           </span>
         )}
         {playing ? (
@@ -239,22 +238,14 @@ export function QzoneVideo({
 }
 
 function Picture({ url, index, onOpen }: { url: string; index: number; onOpen: () => void }) {
-  const [failed, setFailed] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-  return failed ? (
-    <span className="weq-qzn-image-unavailable">图片暂时无法加载</span>
-  ) : (
-    <button type="button" className="weq-qzn-picture" aria-busy={!loaded} onClick={onOpen}>
-      {!loaded ? (
-        <Loader2 size={22} className="weq-spin weq-qzn-picture-loader" aria-label="正在加载图片" />
-      ) : null}
-      <img
-        src={albumMediaUrl(url)}
-        alt={`空间图片 ${index + 1}`}
-        loading="lazy"
-        onLoad={() => setLoaded(true)}
-        onError={() => setFailed(true)}
-      />
+  return (
+    <button
+      type="button"
+      className="weq-qzn-picture weq-media-frame"
+      aria-label={`查看空间图片 ${index + 1}`}
+      onClick={onOpen}
+    >
+      <ShimmerImage src={albumMediaUrl(url)} alt={`空间图片 ${index + 1}`} loading="lazy" />
     </button>
   );
 }

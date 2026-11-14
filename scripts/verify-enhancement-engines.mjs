@@ -9,6 +9,43 @@ import { build } from 'esbuild';
 import { tsImport } from 'tsx/esm/api';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+// 正式发布先检查配套 native，避免应用已提供更新入口但仍携带旧原生模块。
+if (process.argv.includes('--native-only')) {
+  const option = (name) => {
+    const index = process.argv.indexOf(name);
+    return index < 0 ? undefined : process.argv[index + 1];
+  };
+  const addon = resolve(
+    option('--addon') ?? join(root, 'native', process.platform, process.arch, 'nt_helper.node'),
+  );
+  const index = resolve(option('--manifest') ?? join(root, 'resources/dress/index-manifest.json'));
+  execFileSync(
+    process.execPath,
+    [
+      '-e',
+      `
+    const assert=require('node:assert/strict'); const fs=require('node:fs');
+    const nt=require(process.argv[1]); const manifest=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+    assert.equal(nt.getInitStatus(),0); assert.equal(nt.getBuildInfo().isDev,false,'发布不能使用开发 native');
+    for (const name of ['getDressResourceKeyId','validateDressResourceIndexes','reloadDressResourceIndexes','clearDressResourceIndexes'])
+      assert.equal(typeof nt[name],'function','缺少 '+name+'，请先发布配套 native 并更新版本锚');
+    assert.equal(nt.getDressResourceKeyId(),manifest.nativeCommit,'native 与索引密钥身份不匹配');
+    (async()=>{
+      for (const name of ['validateDressResourceIndexes','reloadDressResourceIndexes']) {
+        const result=nt[name]('weq-native-probe-missing-'+process.pid); assert.equal(typeof result.then,'function',name+' 必须是异步接口');
+        assert.equal(await result,false);
+      }
+      nt.clearDressResourceIndexes();
+    })().catch(error=>{console.error(error);process.exitCode=1;});
+  `,
+      addon,
+      index,
+    ],
+    { cwd: root, stdio: 'pipe', timeout: 30_000 },
+  );
+  console.log('[enhancements] 装扮原生更新接口与配套密钥身份通过');
+  process.exit(0);
+}
 const artifactDirectory = join(
   root,
   'apps/desktop/.artifacts/enhancements',

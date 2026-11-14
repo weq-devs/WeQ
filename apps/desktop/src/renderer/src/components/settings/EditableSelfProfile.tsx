@@ -1,4 +1,5 @@
 import { useContext, useEffect, useRef, useState } from 'react';
+import { formatQqRegion } from '@weq/protocol/profile-regions';
 import {
   Check,
   Save,
@@ -168,20 +169,8 @@ export function useEditableSelfProfileFields() {
   const disabled = !a.available || a.busy || !profile.data || Boolean(profile.error);
   const errors = profile.data?.errors ?? {};
   const cached = local.data?.uin.toString() === a.binding?.expectedAccountUin ? local.data : null;
-  const regionText = (path: string[] | null | undefined) => {
-    if (!path) return null;
-    let nodes = directory.data?.regions ?? [];
-    return (
-      path
-        .map((code) => {
-          const node = nodes.find((node) => node.code === code);
-          nodes = node?.children ?? [];
-          return node?.name ?? (code === '0' ? '' : code);
-        })
-        .filter(Boolean)
-        .join(' · ') || '未设置'
-    );
-  };
+  const regionText = (path: string[] | null | undefined) =>
+    formatQqRegion(path, directory.data?.regions);
   const feedback = (
     <>
       {Object.entries(errors).map(([field, message]) => (

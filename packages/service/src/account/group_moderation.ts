@@ -9,9 +9,10 @@
  * 触发器时，本地库里「消息还在」与「服务端已撤回」是两回事，撤回标记只能等 QQ
  * 同步回来（SQL 触发器）才自证。调用方点完只看 toast。
  *
- * 权限（2 分钟窗口 / 群主管理员越级）由**服务端**判定；这里不预判，只如实上抛。
+ * 生产环境注入共用逐操作权限检查；QQ 服务端仍决定最终受理结果及撤回时间窗口。
  */
 import type { NtHelperBinding } from '@weq/native';
+import type { QQGroupOperation } from '../common/qq_permissions';
 import {
   AddGroupCategoryTag,
   DeleteGroupCategoryTag,
@@ -100,7 +101,25 @@ export class GroupModerationService {
   constructor(
     private readonly nt: Pick<NtHelperBinding, 'sendOidbPacket' | 'sendPacket'>,
     private readonly resolvePid: () => number,
+    private readonly authorize?: (
+      action: QQGroupOperation,
+      groupId: string | number,
+      targetUid?: string,
+      sequence?: number,
+    ) => Promise<void>,
   ) {}
+
+  private async permitted(
+    action: QQGroupOperation,
+    groupId: string | number,
+    targetUid?: string,
+    sequence?: number,
+  ) {
+    const pid = this.resolvePid();
+    await this.authorize?.(action, groupId, targetUid, sequence);
+    if (this.resolvePid() !== pid) throw new Error('QQ 运行时已改变，请重新操作');
+    return pid;
+  }
 
   /**
    * 撤回一条消息。
@@ -114,6 +133,7 @@ export class GroupModerationService {
     const pid = this.resolvePid();
     if (params.kind === 'group') {
       const groupId = Number(params.conv);
+      await this.permitted('recall', groupId, undefined, params.sequence);
       await RecallGroup.invoke(this.nt, pid, {
         groupId,
         sequence: params.sequence,
@@ -133,6 +153,7 @@ export class GroupModerationService {
 
   /** 设置群成员群名片（OIDB 0x8FC_3）。给自己改 = 改自己的群昵称。 */
   async setMemberCard(params: SetMemberCardServiceParams): Promise<void> {
+    await this.permitted('card', params.groupId, params.targetUid);
     await SetGroupMemberCard.invoke(this.nt, this.resolvePid(), {
       groupId: Number(params.groupId),
       targetUid: requireTargetUid(params.targetUid),
@@ -141,14 +162,22 @@ export class GroupModerationService {
   }
 
   async setName(params: SetGroupNameParams): Promise<void> {
+    await this.permitted('name', params.groupId);
     await SetGroupName.invoke(this.nt, this.resolvePid(), params);
   }
 
   async setSpecialTitle(params: SetGroupSpecialTitleParams): Promise<void> {
+    await this.permitted('title', params.groupId, params.targetUid);
     await SetGroupSpecialTitle.invoke(this.nt, this.resolvePid(), params);
   }
 
   async setEssence(params: SetGroupEssenceParams): Promise<void> {
+    await this.permitted(
+      params.enable ? 'essenceSet' : 'essenceRemove',
+      params.groupId,
+      undefined,
+      params.sequence,
+    );
     await SetGroupEssence.invoke(this.nt, this.resolvePid(), params);
   }
 
@@ -158,6 +187,7 @@ export class GroupModerationService {
 
   /** 踢出单个群成员（OIDB 0x8A0_1，群主 / 管理员）。 */
   async kickMember(params: KickMemberServiceParams): Promise<void> {
+    await this.permitted(params.reject ? 'kickReject' : 'kick', params.groupId, params.targetUid);
     await KickGroupMember.invoke(this.nt, this.resolvePid(), {
       groupId: Number(params.groupId),
       targetUid: requireTargetUid(params.targetUid),
@@ -168,6 +198,7 @@ export class GroupModerationService {
 
   /** 禁言单个群成员（OIDB 0x1253_1，群主 / 管理员）。`duration` 秒，0 = 解除。 */
   async muteMember(params: MuteMemberServiceParams): Promise<void> {
+    await this.permitted('mute', params.groupId, params.targetUid);
     await MuteGroupMember.invoke(this.nt, this.resolvePid(), {
       groupId: Number(params.groupId),
       targetUid: requireTargetUid(params.targetUid),
@@ -176,11 +207,13 @@ export class GroupModerationService {
   }
 
   async muteAll(params: MuteGroupAllParams): Promise<void> {
+    await this.permitted('manage', params.groupId);
     await MuteGroupAll.invoke(this.nt, this.resolvePid(), params);
   }
 
   /** 设置 / 取消群管理员（OIDB 0x1096_1，仅群主）。 */
   async setAdmin(params: SetAdminServiceParams): Promise<void> {
+    await this.permitted('admin', params.groupId, params.targetUid);
     await SetGroupAdmin.invoke(this.nt, this.resolvePid(), {
       groupId: Number(params.groupId),
       targetUid: requireTargetUid(params.targetUid),

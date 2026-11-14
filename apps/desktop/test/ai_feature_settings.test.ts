@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_INTENT_TUNING,
   DEFAULT_SUGGESTION_FALLBACK_TEXTS,
+  MAX_SUGGESTION_FALLBACK_TEXTS,
 } from '@weq/service/intent-context';
 import { IntentSenseSection } from '../src/renderer/src/components/settings/IntentSenseSection';
 import { InteractionProfileSection } from '../src/renderer/src/components/settings/InteractionProfileSection';
@@ -21,7 +22,10 @@ const state = vi.hoisted(() => ({
   refetch: vi.fn(),
   showError: vi.fn(),
 }));
-vi.mock('../src/renderer/src/components/Dialog', () => ({ useDialog: () => state.showError }));
+vi.mock('../src/renderer/src/components/Dialog', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/src/components/Dialog')>()),
+  useDialog: () => state.showError,
+}));
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (path = ''): unknown =>
     new Proxy(() => undefined, {
@@ -252,14 +256,131 @@ it('等待动画独立保存；本地统计隐藏推断参数及所有模型占�
   expect(profile.host.textContent).not.toContain('当前使用');
 });
 
-it('回退列表直接编辑、增删、去空白与重复校验，开关不清空内容', async () => {
+function fallbackDialog() {
+  return document.querySelector<HTMLElement>('.weq-suggestion-fallback-modal')!;
+}
+
+function editFallback(value: string) {
+  act(() => {
+    const node = fallbackDialog().querySelector('input')!;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(node, value);
+    node.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+
+it('设置页只保留列表按钮，列表在独立对话框内编辑，关闭后保留无效草稿', async () => {
+  const f = mount(ReplySuggestionsSection);
+  const entry = f.host.querySelector<HTMLButtonElement>('[aria-label="管理回退内容列表"]')!;
+  const dialog = fallbackDialog();
+  const layer = dialog.closest<HTMLElement>('.weq-dialog-layer')!;
+  expect(f.host.querySelector('.weq-suggestion-fallback')).toBeNull();
+  expect(entry.getAttribute('aria-haspopup')).toBe('dialog');
+  expect(layer.hidden).toBe(true);
+  act(() => {
+    entry.focus();
+    entry.click();
+  });
+  expect(layer.hidden).toBe(false);
+  expect(dialog.getAttribute('role')).toBe('dialog');
+  expect(dialog.getAttribute('aria-modal')).toBe('true');
+  expect(dialog.querySelector('h3')?.textContent).toBe('回退内容列表');
+  editFallback(' ');
+  act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+  expect(layer.hidden).toBe(true);
+  expect(document.activeElement).toBe(entry);
+  act(() => entry.click());
+  expect(dialog.querySelector('input')!.value).toBe(' ');
+  expect(dialog.querySelector('[role="alert"]')).not.toBeNull();
+  expect(state.save).not.toHaveBeenCalled();
+  act(() => dialog.querySelector<HTMLButtonElement>('[aria-label="关闭回退内容列表"]')!.click());
+  expect(layer.hidden).toBe(true);
+});
+
+it('列表关闭不取消待保存内容，重新打开保留编辑结果', async () => {
+  const f = mount(ReplySuggestionsSection);
+  const entry = f.host.querySelector<HTMLButtonElement>('[aria-label="管理回退内容列表"]')!;
+  act(() => entry.click());
+  editFallback('新的回退内容');
+  act(() =>
+    fallbackDialog().querySelector<HTMLButtonElement>('[aria-label="关闭回退内容列表"]')!.click(),
+  );
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 650));
+  });
+  expect(state.save).toHaveBeenLastCalledWith({
+    suggestionFallbackTexts: ['新的回退内容', ...DEFAULT_SUGGESTION_FALLBACK_TEXTS.slice(1)],
+  });
+  act(() => entry.click());
+  expect(fallbackDialog().querySelector('input')!.value).toBe('新的回退内容');
+});
+
+it.each(['loading', 'error', 'inactive'])('%s 时禁用回退列表入口', (kind) => {
+  state.loading = kind === 'loading';
+  state.error = kind === 'error' ? new Error('合成读取失败') : null;
+  const f = mount(ReplySuggestionsSection, kind !== 'inactive');
+  expect(f.host.querySelector<HTMLButtonElement>('[aria-label="管理回退内容列表"]')!.disabled).toBe(
+    true,
+  );
+  expect(fallbackDialog().closest<HTMLElement>('.weq-dialog-layer')!.hidden).toBe(true);
+});
+
+it('列表为空时可添加，达到条数上限时禁止继续添加', () => {
+  Object.assign(state.data['settings.intent.getStatus'] as object, { suggestionFallbackTexts: [] });
+  const empty = mount(ReplySuggestionsSection);
+  act(() =>
+    empty.host.querySelector<HTMLButtonElement>('[aria-label="管理回退内容列表"]')!.click(),
+  );
+  expect(fallbackDialog().textContent).toContain('暂无回退内容');
+  const add = fallbackDialog().querySelector<HTMLButtonElement>('[aria-label="添加回退内容"]')!;
+  expect(add.disabled).toBe(false);
+  act(() => add.click());
+  expect(fallbackDialog().querySelectorAll('input')).toHaveLength(1);
+  Object.assign(state.data['settings.intent.getStatus'] as object, {
+    suggestionFallbackTexts: Array.from({ length: MAX_SUGGESTION_FALLBACK_TEXTS }, (_, n) =>
+      String(n),
+    ),
+  });
+  const full = mount(ReplySuggestionsSection);
+  act(() => full.host.querySelector<HTMLButtonElement>('[aria-label="管理回退内容列表"]')!.click());
+  const fullDialog = [...document.querySelectorAll('.weq-suggestion-fallback-modal')].at(-1)!;
+  expect(fullDialog.querySelectorAll('input')).toHaveLength(MAX_SUGGESTION_FALLBACK_TEXTS);
+  expect(fullDialog.querySelector<HTMLButtonElement>('[aria-label="添加回退内容"]')!.disabled).toBe(
+    true,
+  );
+});
+
+it('保存失败就地保留内容，关闭重开后可以重试', async () => {
+  state.save.mockRejectedValueOnce(new Error('合成列表保存失败'));
+  const f = mount(ReplySuggestionsSection);
+  const entry = f.host.querySelector<HTMLButtonElement>('[aria-label="管理回退内容列表"]')!;
+  act(() => entry.click());
+  editFallback('待重试内容');
+  await act(async () =>
+    fallbackDialog()
+      .querySelector('input')!
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
+  );
+  expect(fallbackDialog().textContent).toContain('合成列表保存失败');
+  expect(state.showError).not.toHaveBeenCalled();
+  act(() =>
+    fallbackDialog().querySelector<HTMLButtonElement>('[aria-label="关闭回退内容列表"]')!.click(),
+  );
+  act(() => entry.click());
+  expect(fallbackDialog().querySelector('input')!.value).toBe('待重试内容');
+  await act(async () =>
+    fallbackDialog().querySelector<HTMLButtonElement>('[aria-label="重试保存"]')!.click(),
+  );
+  expect(state.save).toHaveBeenCalledTimes(2);
+  expect(fallbackDialog().textContent).toContain('已保存');
+});
+
+it('回退对话框保留增删、去空白与重复校验，开关不清空内容', async () => {
   Object.assign(state.data['settings.intent.getStatus'] as object, {
     suggestionFallbackTexts: ['A', 'B'],
   });
   const f = mount(ReplySuggestionsSection);
-  const form = f.host.querySelector<HTMLFormElement>(
-    '[data-setting-id="suggestions-fallback-texts"]',
-  )!;
+  act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="管理回退内容列表"]')!.click());
+  const form = fallbackDialog();
   expect(form.querySelector('[type="submit"]')).toBeNull();
   const flush = async () =>
     act(async () => {
@@ -267,20 +388,14 @@ it('回退列表直接编辑、增删、去空白与重复校验，开关不清�
         .querySelector('input')!
         .dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     });
-  const edit = (value: string) =>
-    act(() => {
-      const node = form.querySelector('input')!;
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(node, value);
-      node.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-  edit(' B ');
+  editFallback(' B ');
   await flush();
   expect(state.save).not.toHaveBeenCalled();
   expect(form.textContent).toContain('不能重复');
-  edit(' ');
+  editFallback(' ');
   await flush();
   expect(state.save).not.toHaveBeenCalled();
-  edit(' C ');
+  editFallback(' C ');
   await flush();
   expect(state.save).toHaveBeenLastCalledWith({ suggestionFallbackTexts: ['C', 'B'] });
   await act(async () =>

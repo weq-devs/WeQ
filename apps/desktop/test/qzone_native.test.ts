@@ -33,6 +33,14 @@ beforeEach(() => {
       getQzonePostDetail: vi.fn(async () => ({ content: 'full', contentComplete: true })),
       getQzonePostImages: vi.fn(async () => ['https://a.qpic.cn/full']),
       getQzoneMediaTypes: vi.fn(async () => [{ videoId: 'fixture', isLivePhoto: true }]),
+      getQzoneNativeDetail: vi.fn(async () => ({
+        mediaTypes: [],
+        upvote: {
+          count: 199,
+          upvoted: false,
+          users: [{ uin: '10003', uid: '', nickname: '合成' }],
+        },
+      })),
       getQzoneForwardPage: vi.fn(async () => ({
         forwards: [],
         reportedTotal: 0,
@@ -75,6 +83,39 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 describe('native Qzone boundary', () => {
+  it('推预览准确绑定当前账号和帖，刷新复用详情服务而不返回完整原件', async () => {
+    const input = {
+      selfUin,
+      hostUin,
+      tid: 'fixture',
+      time: 1700000000,
+      requestId: query.requestId,
+    };
+    expect(await api.upvotes(input)).toEqual({
+      count: 199,
+      upvoted: false,
+      users: [{ uin: '10003', uid: '', nickname: '合成' }],
+    });
+    expect(services.webQuery.getQzoneNativeDetail).toHaveBeenLastCalledWith(
+      hostUin,
+      'fixture',
+      input.time,
+      expect.any(AbortSignal),
+      false,
+    );
+    await api.upvotes({ ...input, refresh: true });
+    expect(services.webQuery.getQzoneNativeDetail).toHaveBeenLastCalledWith(
+      hostUin,
+      'fixture',
+      input.time,
+      expect.any(AbortSignal),
+      true,
+    );
+    services.webQuery.getQzoneNativeDetail!.mockResolvedValueOnce({ mediaTypes: [] });
+    expect(await api.upvotes(input)).toBeNull();
+    await expect(api.upvotes({ ...input, time: 0 })).rejects.toThrow();
+    await expect(api.upvotes({ ...input, selfUin: '10003' })).rejects.toThrow('账号已切换');
+  });
   it('按账号与帖传递不透明转发游标，拒绝无效页指纹', async () => {
     const cursor = { attachInfo: 'opaque,20', previousPageKey: 'a'.repeat(64) };
     const input = { selfUin, hostUin, tid: 'fixture', requestId: query.requestId, cursor };

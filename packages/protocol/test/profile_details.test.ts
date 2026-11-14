@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { getProfileDetails, PROFILE_DETAIL_FIELDS } from '../src/oidb/profile/details';
 import { encode, decode } from '../src/protobuf';
 import { legacyOidbEnvelope } from '../src/oidb/legacy';
+import { encodeQqRegion, formatQqRegion, QQ_REGIONS } from '../src/oidb/profile/editable-profile';
 
 function body(rows: Array<[number, string | Buffer]>, uin = 10002) {
   const head = Buffer.alloc(7);
@@ -26,7 +27,7 @@ function native(bytes: Uint8Array, result = 0, command = 0x480, serviceType = 9)
   };
 }
 describe('公司、个人说明、邮箱读取', () => {
-  it('只请求三个内容字段，保留正确的 TLV 身份与长度，不请求签名或可见性开关', async () => {
+  it('请求文本与独立家乡地区字段，不请求签名或可见性开关', async () => {
     const nt = native(body([]));
     await getProfileDetails(nt, 7, '10002');
     const call = nt.sendPacket.mock.calls[0]!;
@@ -35,7 +36,7 @@ describe('公司、个人说明、邮箱读取', () => {
     const envelope = decode(legacyOidbEnvelope, call[2]);
     expect(envelope).toMatchObject({ command: 0x480, serviceType: 9 });
     expect(Buffer.from(envelope.body as Uint8Array).toString('hex')).toBe(
-      '000027120000035dc84e334e2b',
+      '000027120000075dc84e334e2b5dc24e35699d4e4b',
     );
   });
   it('三项独立读取，保留换行与非 ASCII 文本，不作邮箱格式改写', async () => {
@@ -57,6 +58,10 @@ describe('公司、个人说明、邮箱读取', () => {
       company: '合成公司',
       personalDescription: '第一行\n第二行',
       email: 'synthetic@example.invalid',
+      hometown: null,
+      hometownText: null,
+      school: null,
+      profession: null,
       errors: {},
     });
   });
@@ -77,6 +82,10 @@ describe('公司、个人说明、邮箱读取', () => {
       company: '',
       personalDescription: null,
       email: null,
+      hometown: null,
+      hometownText: null,
+      school: null,
+      profession: null,
       errors: {},
     });
   });
@@ -125,5 +134,50 @@ describe('公司、个人说明、邮箱读取', () => {
     for (const uin of ['0', '4294967296', '-1', 'abc'])
       await expect(getProfileDetails(nt, 7, uin)).rejects.toThrow();
     expect(nt.sendPacket).not.toHaveBeenCalled();
+  });
+  it('家乡与本人共用目录解码和格式，不能把数字代码或所在地当家乡', async () => {
+    const bytes = encodeQqRegion(['1', '35', '2', '0'], 4);
+    const result = await getProfileDetails(
+      native(
+        body([
+          [PROFILE_DETAIL_FIELDS.hometown, bytes.subarray(0, 12)],
+          [20043, bytes.subarray(12)],
+          [20032, encodeQqRegion(['1', '11', '1'], 3)],
+        ]),
+      ),
+      7,
+      '10002',
+    );
+    expect(result.hometown).toEqual(['1', '35', '2', '0']);
+    expect(result.hometownText).toBe(formatQqRegion(['1', '35', '2', '0'], QQ_REGIONS));
+    expect(result.hometownText).toContain('福建');
+    expect(result.hometownText).not.toContain('北京');
+    const partial = await getProfileDetails(
+      native(body([[PROFILE_DETAIL_FIELDS.hometown, bytes.subarray(0, 12)]])),
+      7,
+      '10002',
+    );
+    expect(partial.hometown).toEqual(['1', '35', '2']);
+  });
+  it('家乡损坏只标记该字段，未返回不填成所在地或未设置', async () => {
+    const result = await getProfileDetails(
+      native(
+        body([
+          [PROFILE_DETAIL_FIELDS.hometown, Buffer.of(1, 2)],
+          [PROFILE_DETAIL_FIELDS.company, 'A'],
+        ]),
+      ),
+      7,
+      '10002',
+    );
+    expect(result).toMatchObject({
+      hometown: null,
+      company: 'A',
+      errors: { hometown: '地区格式无法识别' },
+    });
+    expect((await getProfileDetails(native(body([])), 7, '10002')).hometown).toBeNull();
+    expect(
+      await getProfileDetails(native(body([[PROFILE_DETAIL_FIELDS.hometown, '']])), 7, '10002'),
+    ).toMatchObject({ hometown: [], hometownText: null, errors: {} });
   });
 });

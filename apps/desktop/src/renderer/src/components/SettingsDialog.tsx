@@ -4,6 +4,7 @@
  * 左侧一级分类，右侧二级页；旧页面与条目入口统一解析到规范位置。
  */
 
+import { ReminderDot } from './ReminderBadge';
 import {
   useCallback,
   useEffect,
@@ -736,7 +737,10 @@ function SettingsContent({
                     <span className="weq-settings-nav-label">
                       {s.label}
                       {updateAvailable && s.sections.includes('version') ? (
-                        <span className="weq-settings-update-mark" aria-label="有新版本可更新" />
+                        <ReminderDot
+                          className="weq-settings-update-mark"
+                          aria-label="有新版本可更新"
+                        />
                       ) : null}
                     </span>
                     <ChevronRight className="weq-mobile-settings-chevron" size={18} />
@@ -760,7 +764,7 @@ function SettingsContent({
                   </span>
                   <span className="weq-settings-subnav-label">{section.label}</span>
                   {updateAvailable && section.id === 'version' ? (
-                    <span className="weq-settings-update-mark" aria-label="有新版本可更新" />
+                    <ReminderDot className="weq-settings-update-mark" aria-label="有新版本可更新" />
                   ) : null}
                 </button>
               ))}

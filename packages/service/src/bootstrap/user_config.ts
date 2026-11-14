@@ -736,6 +736,7 @@ export interface AppSettings {
   updateCheckPrerelease: boolean;
   /** 自动检查更新间隔（分钟），-1 表示永不。 */
   updateCheckIntervalMinutes: number;
+  enhancementUpdates: { autoCheck: boolean; autoInstall: boolean };
   /** 横幅完成态停留秒数，-1 表示不自动关闭。 */
   toastDurations: ToastDurations;
   exportSaveMode: import('../account/export/save_output').ExportSaveMode;
@@ -1140,6 +1141,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   contactCard: DEFAULT_CONTACT_CARD,
   updateCheckPrerelease: false,
   updateCheckIntervalMinutes: DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES,
+  enhancementUpdates: { autoCheck: true, autoInstall: false },
   toastDurations: { ...DEFAULT_TOAST_DURATIONS },
   exportSaveMode: 'before',
   realtimeEnabled: true,
@@ -1929,6 +1931,10 @@ export class UserConfigService {
       updateCheckIntervalMinutes: isUpdateCheckInterval(s?.updateCheckIntervalMinutes)
         ? s.updateCheckIntervalMinutes
         : d.updateCheckIntervalMinutes,
+      enhancementUpdates: {
+        autoCheck: s?.enhancementUpdates?.autoCheck !== false,
+        autoInstall: s?.enhancementUpdates?.autoInstall === true,
+      },
       toastDurations: normalizeToastDurations(s?.toastDurations),
       exportSaveMode:
         s?.exportSaveMode === 'before' || s?.exportSaveMode === 'preset'
@@ -2102,6 +2108,10 @@ export class UserConfigService {
       updateCheckIntervalMinutes: isUpdateCheckInterval(patch.updateCheckIntervalMinutes)
         ? patch.updateCheckIntervalMinutes
         : current.updateCheckIntervalMinutes,
+      enhancementUpdates: {
+        ...current.enhancementUpdates,
+        ...patch.enhancementUpdates,
+      },
       toastDurations: normalizeToastDurations(patch.toastDurations, current.toastDurations),
       exportSaveMode: patch.exportSaveMode ?? current.exportSaveMode,
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
@@ -2428,6 +2438,9 @@ export class UserConfigService {
   cacheBaseDir(): string {
     const o = this.read().cacheDirOverride;
     return o?.trim() ? o : this.defaultCacheBase();
+  }
+  appDataRoot(): string {
+    return this.root;
   }
 
   getCacheDirInfo(): { effective: string; override: string | null; default: string } {

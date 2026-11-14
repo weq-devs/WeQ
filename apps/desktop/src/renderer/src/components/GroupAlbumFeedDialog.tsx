@@ -8,6 +8,7 @@ import type { GroupAlbumCardTarget } from '../lib/groupAlbumNavigation';
 import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { qzoneTextParts } from '../lib/qzone';
 import { albumMediaUrl } from '../lib/resourceUrl';
+import { ShimmerImage } from './ShimmerImage';
 import { mergeGroupAlbumFeedPages } from '../lib/groupAlbumFeedState';
 import { client } from '../trpc/client';
 import { readWithRetry } from '../lib/autoRead';
@@ -87,18 +88,16 @@ function Comment({
 function MediaThumb({ item, video = false }: { item: PreviewMedia; video?: boolean }) {
   const isVideo = video || item.kind === 'video';
   const source = item.poster || (item.kind === 'image' ? item.src : '');
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [source]);
   return (
     <>
-      {source && !failed ? (
-        <img src={source} alt="" loading="lazy" onError={() => setFailed(true)} />
+      {source ? (
+        <ShimmerImage src={source} alt={isVideo ? '视频封面' : '相册照片'} loading="lazy" />
       ) : (
         <span className="group-feed-media-fallback">
           {isVideo ? <Film size={24} /> : <Images size={24} />}
         </span>
       )}
-      {isVideo && source && !failed ? <Film size={20} /> : null}
+      {isVideo && source ? <Film size={20} /> : null}
     </>
   );
 }

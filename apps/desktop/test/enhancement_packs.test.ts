@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -158,7 +158,7 @@ it('旧完整资源由程序自动检查，不自动下载；校验失败也不�
   expect(f.components.get('text-model')!.ensure).not.toHaveBeenCalled();
 });
 
-it('已安装能力的兼容引擎更新由程序协调，不把模型重新下载或新增人工更新步骤', async () => {
+it('旧协调只验证已有资源，不能绕过自动安装设置单独升级引擎', async () => {
   const f = await fixture();
   f.packs.start(['text']);
   await f.packs.wait();
@@ -166,8 +166,87 @@ it('已安装能力的兼容引擎更新由程序协调，不把模型重新下�
   f.state.get('engine:onnx')!.downloadBytes = 20;
   await f.packs.reconcileExisting();
   await f.packs.wait();
-  expect(f.components.get('engine:onnx')!.ensure).toHaveBeenCalledTimes(2);
+  expect(f.components.get('engine:onnx')!.ensure).toHaveBeenCalledTimes(1);
   expect((await f.packs.list()).find((pack) => pack.id === 'text')!.ready).toBe(true);
+});
+
+it('旧版专属模型完整但新增组件缺失时记住安装历史，重开后仍为待补齐', async () => {
+  const f = await fixture();
+  f.state.set('text-model', { ready: true, sizeOnDisk: 100, downloadBytes: 0, identity: 'old' });
+  await f.packs.reconcileExisting();
+  expect((await f.packs.list())[0]).toMatchObject({
+    installed: true,
+    downloaded: false,
+    needsRepair: true,
+    updateAvailable: true,
+    missingComponents: ['engine:onnx'],
+    sizeOnDisk: 100,
+  });
+  expect(f.components.get('engine:onnx')!.ensure).not.toHaveBeenCalled();
+  f.state.get('text-model')!.ready = false;
+  const reopened = new EnhancementPacks(f.definitions, f.components, f.root);
+  expect((await reopened.list())[0]).toMatchObject({ installed: true, needsRepair: true });
+});
+
+it('仅有共享引擎或零散文件不算装过包，但仍统计所有实际占用', async () => {
+  const f = await fixture();
+  f.state.set('engine:onnx', { ready: true, sizeOnDisk: 20, downloadBytes: 0, identity: 'engine' });
+  f.state.get('text-model')!.sizeOnDisk = 7;
+  const [text, intent] = await f.packs.list();
+  expect(text).toMatchObject({ installed: false, needsRepair: false, sizeOnDisk: 27 });
+  expect(intent).toMatchObject({ installed: false, sizeOnDisk: 20 });
+});
+
+it('旧回执在丢失组件后仍为已安装，明确删除优先于残留资源与旧回执', async () => {
+  const f = await fixture();
+  await writeFile(join(f.root, 'ready.json'), JSON.stringify({ text: 'old-full-install' }));
+  let packs = new EnhancementPacks(f.definitions, f.components, f.root);
+  expect((await packs.list())[0]).toMatchObject({ installed: true, needsRepair: true });
+  await packs.remove('text');
+  f.state.set('text-model', {
+    ready: true,
+    sizeOnDisk: 100,
+    downloadBytes: 0,
+    identity: 'leftover',
+  });
+  packs = new EnhancementPacks(f.definitions, f.components, f.root);
+  await packs.reconcileExisting();
+  expect((await packs.list())[0]).toMatchObject({
+    installed: false,
+    downloaded: false,
+    needsRepair: false,
+    updateAvailable: false,
+    sizeOnDisk: 100,
+  });
+  expect(f.components.get('text-model')!.ensure).not.toHaveBeenCalled();
+});
+
+it('候选加载失败保留旧安装，活动切换失败回滚已切换组件', async () => {
+  const f = await fixture();
+  f.packs.start(['text']);
+  await f.packs.wait();
+  const original = f.state.get('text-model')!.identity;
+  f.validate.mockRejectedValueOnce(new Error('candidate failed'));
+  f.packs.start(['text']);
+  await f.packs.wait();
+  expect((await f.packs.list())[0]).toMatchObject({
+    downloaded: true,
+    operation: { phase: 'failed' },
+  });
+  const undo = vi.fn(() => {
+    f.state.get('text-model')!.identity = original;
+  });
+  f.components.get('engine:onnx')!.activate = () => {
+    f.state.get('text-model')!.identity = 'switched';
+    return undo;
+  };
+  f.components.get('text-model')!.activate = () => {
+    throw new Error('publish failed');
+  };
+  f.packs.start(['text']);
+  await f.packs.wait();
+  expect(undo).toHaveBeenCalledOnce();
+  expect(f.state.get('text-model')!.identity).toBe(original);
 });
 
 it('组件暂停、续传与切换阶段保持固定预算和单调进度，旧回调不覆盖后续阶段', async () => {

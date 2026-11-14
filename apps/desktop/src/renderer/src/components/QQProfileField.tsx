@@ -6,6 +6,7 @@ import { ProfileInlineField } from './ProfileInlineField';
 import { ContactInlineError, ContactRow } from './contactProfile/ContactRow';
 import { QQWriteResult } from './QQWriteControls';
 import { useProfileFieldEscape } from '../hooks/useProfileFieldEscape';
+import { groupPermission } from '@weq/service/qq-permissions';
 
 type Field = 'friendRemark' | 'groupRemark' | 'groupName' | 'friendCategory';
 type Props = {
@@ -16,10 +17,41 @@ type Props = {
   nameTarget?: string;
   valueClassName?: string;
   inline?: boolean;
+  groupRole?: string | null;
 };
 
 /** 先显示名片已有值，点击后才挂载在线读取和编辑器。 */
 export function QQProfileField(props: Props) {
+  return props.field === 'groupName' ? (
+    <QQGroupNameField {...props} />
+  ) : (
+    <QQProfileFieldBody {...props} />
+  );
+}
+
+function QQGroupNameField(props: Props) {
+  const session = useQQWriteSession(`profile-name-permission:${props.target}`, true);
+  const permissions = trpc.account.qqActions.groupPermissions.useQuery(
+    { ...session.binding!, groupId: Number(props.target) },
+    {
+      enabled: session.available && /^[1-9]\d*$/.test(props.target),
+      staleTime: 15_000,
+      retry: false,
+    },
+  );
+  const role =
+    props.groupRole === 'owner' || props.groupRole === 'admin' || props.groupRole === 'member'
+      ? props.groupRole
+      : null;
+  const allowed = groupPermission('name', {
+    ...permissions.data,
+    role: permissions.data ? permissions.data.role : role,
+  });
+  if (!allowed) return props.inline ? props.initial : null;
+  return <QQProfileFieldBody {...props} />;
+}
+
+function QQProfileFieldBody(props: Props) {
   const { field, target, initial, valueClassName, inline = false } = props;
   const label =
     props.label ??
@@ -149,7 +181,11 @@ function QQProfileFieldEditor({
       (field !== 'friendCategory' || (categoryOptions && categoryId != null)),
   );
   const allowed = group
-    ? field !== 'groupName' || peer.data?.role === 'owner' || peer.data?.role === 'admin'
+    ? field !== 'groupName' ||
+      groupPermission('name', {
+        role: peer.data?.role,
+        memberCanRename: peer.data?.memberCanRename,
+      })
     : Boolean(peer.data?.friend);
   useProfileFieldEscape(editor, !ready || !allowed, onClose, session.busy);
   const initial =

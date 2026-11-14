@@ -15,6 +15,7 @@ import {
   projectPublicComment,
   projectPublicDetail,
   projectPublicFeed,
+  projectPublicUpvote,
   projectPublicRepliesPage,
   publicCapabilities,
   publicMediaSource,
@@ -115,6 +116,38 @@ const COMMENT = {
 };
 
 describe('空友 feed 投影', () => {
+  it('推使用 upvoted 而非 liked，读取独立人数和用户预览', () => {
+    const view = projectPublicFeed({
+      ...FEED,
+      cell_upvote: {
+        num: '199',
+        upvoted: true,
+        liked: false,
+        upvote_mans: [
+          { user: { uin: '10002', uid: 'public-uid', nick: '合成推用户' } },
+          { user: { uid: 'anonymous', nick: '匿名用户', portrait: COVER_URL } },
+        ],
+      },
+    })!;
+    expect(view.upvoted).toBe(true);
+    expect(view.upvote).toEqual({
+      count: 199,
+      upvoted: true,
+      users: [
+        { uin: '10002', uid: 'public-uid', nickname: '合成推用户', portrait: undefined },
+        { uin: '', uid: 'anonymous', nickname: '匿名用户', portrait: COVER_URL },
+      ],
+    });
+    expect(projectPublicUpvote(null)).toBeNull();
+    expect(projectPublicUpvote({ num: 0, upvoted: false })).toEqual({
+      count: 0,
+      upvoted: false,
+      users: [],
+    });
+    expect(projectPublicUpvote({ liked: true })?.upvoted).toBeNull();
+    for (const num of [-1, 1.5, 'bad', undefined])
+      expect(projectPublicUpvote({ num })?.count).toBeNull();
+  });
   it('转发次数保留服务端的零和非零，缺失不伪装成零', () => {
     expect(
       projectPublicFeed({ ...FEED, cell_foward_info: { retweet_count: 0 } })!.forwardCount,

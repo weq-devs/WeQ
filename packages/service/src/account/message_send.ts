@@ -513,7 +513,15 @@ export class MessageSendService {
     private readonly sendWithQqFont: () => boolean = () => true,
     private readonly currentChatBubbleId?: () => number | undefined,
     private readonly mediaDownload?: Pick<MediaDownloadService, 'download'>,
+    private readonly authorizeGroup?: (groupId: number, uploadFile: boolean) => Promise<void>,
   ) {}
+
+  private async checkGroupTarget(target: ResolvedSendTarget, uploadFile = false): Promise<void> {
+    if (target.scene !== 'group' || !this.authorizeGroup) return;
+    const pid = this.resolvePid();
+    await this.authorizeGroup(target.uin, uploadFile);
+    if (this.resolvePid() !== pid) throw new Error('账号或 QQ 运行时已改变，请重新发送');
+  }
 
   private withImageFallback(elements: SendElement[]): SendElement[] {
     return elements.map((element) => {
@@ -786,8 +794,6 @@ export class MessageSendService {
 
   /** 文本消息（可带 @ / 引用回复 / 群临时会话来源群号）。 */
   async sendText(params: SendTextParams): Promise<SendMessageOutcome> {
-    const text = params.text ?? '';
-    if (!text.trim()) throw new Error('消息文本不能为空。');
     return this.sendElements({
       peerType: params.peerType,
       targetId: params.targetId,
@@ -902,6 +908,7 @@ export class MessageSendService {
       };
     }
     const target = this.resolveTarget(params.targetId, params.peerType, params.peerType === 'c2c');
+    await this.checkGroupTarget(target, true);
     const pid = this.resolvePid();
     const selfUin = this.selfUin();
     const log = (message: string): void => logger.info(message, { event: 'file-upload' });
@@ -1052,10 +1059,15 @@ export class MessageSendService {
             targetId: groupTemp.targetId,
           }
         : this.resolveTarget(params.targetId, params.peerType, needUpload);
+    await this.checkGroupTarget(target);
     const pid = this.resolvePid();
     const previewBubbleId = device ? 0 : this.readCurrentBubbleId();
     // 商城表情：把空 encryptKey 用包密钥补上（同包只查一次）。
-    const elements = device ? params.elements : await this.fillMarketFaceKeys(params.elements);
+    // 引用本身不算消息正文；只引用时补一个普通空格，其余内容原样保留。
+    const content: SendElement[] = params.elements.every((element) => element.kind === 'reply')
+      ? [...params.elements, { kind: 'text', textContent: ' ' }]
+      : params.elements;
+    const elements = device ? content : await this.fillMarketFaceKeys(content);
 
     const useFont =
       !device &&
@@ -1250,6 +1262,7 @@ export class MessageSendService {
    */
   async sendContactCard(params: SendContactCardParams): Promise<SendContactCardOutcome> {
     const target = this.resolveTarget(params.targetId, params.peerType, false);
+    await this.checkGroupTarget(target);
     const pid = this.resolvePid();
     const phoneNumber = params.phoneNumber?.trim();
     const result = await sendContactArk(this.nt, pid, {
@@ -1301,6 +1314,7 @@ export class MessageSendService {
     const longitude = decimalCoordinate(params.longitude, 'longitude', 180);
 
     const target = this.resolveTarget(params.targetId, params.peerType, false);
+    await this.checkGroupTarget(target);
     const pid = this.resolvePid();
     const reply = await SendLocationArk.invoke(this.nt, pid, {
       targetUin: target.uin,
@@ -1347,6 +1361,7 @@ export class MessageSendService {
     }
     const needUpload = nodesNeedUpload(params.nodes);
     const target = this.resolveTarget(params.targetId, params.peerType, needUpload);
+    await this.checkGroupTarget(target);
     const pid = this.resolvePid();
     const selfUin = this.selfUin();
     // 只有私聊转发需要把自己的 uid 填进上传请求；群聊那两处用的是群号，
@@ -1600,9 +1615,11 @@ export function buildTextElements(params: SendTextParams): SendElement[] {
     );
     mentioned += 1;
   }
-  // 只在有 @ 时补一个空格：否则「@张三」会和正文粘成一个词。引用不需要空格。
+  // @ 与正文分隔；仅引用的空正文由 sendElements 统一补齐。
   if (mentioned > 0) elements.push({ kind: 'text', textContent: ' ' });
-  elements.push({ kind: 'text', textContent: params.text });
+  const text = params.text ?? '';
+  if (text.length > 0) elements.push({ kind: 'text', textContent: text });
+  if (elements.length === 0) throw new Error('消息文本不能为空。');
   return elements;
 }
 
