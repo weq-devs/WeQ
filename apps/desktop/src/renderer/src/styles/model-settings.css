@@ -19,6 +19,22 @@
   align-items: center;
   gap: 8px;
 }
+.weq-suggestion-fallback-modal :is(.weq-set-iconbtn, .weq-dialog-x) {
+  color: var(--weq-fg-secondary);
+}
+.weq-suggestion-fallback-modal :is(input, button):focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+@media (pointer: coarse) {
+  .weq-suggestion-fallback-modal :is(.weq-set-iconbtn, .weq-dialog-x) {
+    width: 44px;
+    height: 44px;
+  }
+  .weq-suggestion-fallback-modal .weq-suggestion-fallback-row {
+    grid-template-columns: minmax(0, 1fr) 44px;
+  }
+}
 .weq-intent-tuning-form {
   display: grid;
   gap: 10px;
