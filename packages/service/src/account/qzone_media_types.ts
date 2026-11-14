@@ -56,7 +56,13 @@ export class QzoneMediaTypesService {
     return this.copy(values);
   }
   private copy(value: QzoneNativeDetail): QzoneNativeDetail {
-    return { ...value, mediaTypes: value.mediaTypes.map((media) => ({ ...media })) };
+    return {
+      ...value,
+      mediaTypes: value.mediaTypes.map((media) => ({ ...media })),
+      ...(value.upvote
+        ? { upvote: { ...value.upvote, users: value.upvote.users.map((user) => ({ ...user })) } }
+        : {}),
+    };
   }
   private remember(key: string, values: QzoneNativeDetail | null, ttl: number) {
     this.cache.delete(key);

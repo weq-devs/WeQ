@@ -22,7 +22,6 @@ import {
 import {
   ChevronDown,
   Eye,
-  Heart,
   Loader2,
   MessageCircle,
   RefreshCw,
@@ -44,6 +43,7 @@ import { QzoneEmoji } from '../components/QzoneEmoji';
 import { QzoneForwardDialog } from '../components/QzoneForwardDialog';
 import { QzoneForwardAction } from '../components/QzoneForwardAction';
 import { QzoneLikesPopover } from '../components/QzoneLikesPopover';
+import { QzoneUpvoteAction } from '../components/QzoneUpvoteAction';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { qzoneTextParts } from '../lib/qzone';
 import {
@@ -639,13 +639,30 @@ function PublicFeedCard({
   async function upvote(): Promise<void> {
     if (pending || !view.actionable) return;
     const next = !view.upvoted;
+    const previous = view.upvote;
+    const users = (previous?.users ?? []).filter(
+      (user) => user.uin !== selfUin && (!identity?.publicUid || user.uid !== identity.publicUid),
+    );
+    if (next && identity)
+      users.unshift({
+        uin: selfUin,
+        uid: identity.publicUid,
+        nickname: identity.nick,
+      });
     setPending('upvote');
     setError('');
-    onPatch(view.key, { upvoted: next });
+    onPatch(view.key, {
+      upvoted: next,
+      upvote: {
+        count: previous?.count == null ? null : Math.max(0, previous.count + (next ? 1 : -1)),
+        upvoted: next,
+        users,
+      },
+    });
     try {
       await client.account.qzonePublic.upvote.mutate({ selfUin, feed: view.feed, enable: next });
     } catch (reason) {
-      onPatch(view.key, { upvoted: !next });
+      onPatch(view.key, { upvoted: !next, upvote: previous });
       setError(errorText(reason));
     } finally {
       setPending(null);
@@ -731,16 +748,12 @@ function PublicFeedCard({
           message="空友爱看当前未提供可用转发名单，暂无可信数据。"
           onClick={() => setForwardOpen(true)}
         />
-        <button
-          type="button"
-          aria-pressed={view.upvoted}
-          aria-label={view.upvoted ? '取消推' : '推'}
-          disabled={!capabilities.canUpvote || !view.actionable || pending !== null}
-          title={capabilities.canUpvote ? undefined : '当前账号不能推'}
-          onClick={() => void upvote()}
-        >
-          <Heart size={16} fill={view.upvoted ? 'currentColor' : 'none'} />推 ?
-        </button>
+        <QzoneUpvoteAction
+          value={view.upvote}
+          onClick={capabilities.canUpvote && view.actionable ? () => void upvote() : undefined}
+          pending={pending !== null}
+          onSpace={onSpace}
+        />
         <span title="浏览量（非去重访客数）">
           <Eye size={16} />
           浏览量 {countText(view.viewCount)}

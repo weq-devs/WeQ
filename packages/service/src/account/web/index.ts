@@ -544,9 +544,15 @@ export class WebQueryService {
     if (!this.mediaTypes) throw new Error('当前会话不支持空间媒体类型读取。');
     return this.mediaTypes.read({ ownerUin, tid, time }, signal);
   }
-  async getQzoneNativeDetail(ownerUin: string, tid: string, time: number, signal?: AbortSignal) {
+  async getQzoneNativeDetail(
+    ownerUin: string,
+    tid: string,
+    time: number,
+    signal?: AbortSignal,
+    refresh = false,
+  ) {
     if (!this.mediaTypes) throw new Error('当前会话不支持空间原生详情。');
-    return this.mediaTypes.readDetail({ ownerUin, tid, time }, signal);
+    return this.mediaTypes.readDetail({ ownerUin, tid, time }, signal, refresh);
   }
 
   /** 某个空间的说说列表;`pos`+`num` 可稳定深翻历史。 */

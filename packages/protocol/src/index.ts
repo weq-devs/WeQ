@@ -28,7 +28,12 @@
 export { encode, decode, message } from './protobuf';
 export type { ProtoMessage, ProtoField, ScalarType } from './protobuf';
 export { GetQzoneFeedMediaDetail } from './qzone/feed-media-detail';
-export type { QzoneMediaType, QzoneNativeDetail } from './qzone/feed-media-detail';
+export type {
+  QzoneMediaType,
+  QzoneNativeDetail,
+  QzoneUpvotePreview,
+  QzoneUpvoteUser,
+} from './qzone/feed-media-detail';
 
 export { sendOidb, sendPacket } from './transport';
 /**

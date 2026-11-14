@@ -93,6 +93,7 @@ import { QzoneForwardAction } from '../components/QzoneForwardAction';
 import { ContentReferenceToolbar } from '../components/ContentReferenceToolbar';
 import { contentReferenceKey, type ContentReference } from '../../../shared/content_selection';
 import { QzoneLikesPopover } from '../components/QzoneLikesPopover';
+import { QzonePostUpvotes } from '../components/QzoneUpvoteAction';
 import { QzoneRelatedRound, qzoneSelfLiked, type QzoneReplyTarget } from '../lib/qzoneActions';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
@@ -1867,6 +1868,16 @@ function PostActionsBody({
           onSpace={onSpace}
           paused={readsPaused}
           renderContent={(content) => <QzoneText content={content} onSpace={onSpace} />}
+        />
+        <QzonePostUpvotes
+          key={`upvotes:${selfUin}:${hostUin}:${post.tid}:${post.time}`}
+          selfUin={selfUin}
+          hostUin={hostUin}
+          tid={post.tid}
+          time={post.time}
+          enabled={visible && !readsPaused}
+          refresh={refresh}
+          onSpace={onSpace}
         />
         <span title={likeError || '浏览量（非去重访客数）'}>
           <Eye size={16} />

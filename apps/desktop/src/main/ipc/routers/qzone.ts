@@ -50,6 +50,20 @@ async function request<T>(
 }
 
 export const qzoneRouter = router({
+  upvotes: procedure
+    .input(post.extend({ time: z.number().int().positive(), refresh: z.boolean().default(false) }))
+    .query(({ input }) =>
+      request(input, async (services, signal) => {
+        const detail = await services.webQuery.getQzoneNativeDetail(
+          input.hostUin,
+          input.tid,
+          input.time,
+          signal,
+          input.refresh,
+        );
+        return detail.upvote ?? null;
+      }),
+    ),
   mediaTypes: procedure
     .input(post.extend({ time: z.number().int().positive() }))
     .query(({ input }) =>
