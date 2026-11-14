@@ -1,4 +1,4 @@
-import { act, createElement as h } from 'react';
+import { act, createElement as h, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { QzoneView } from '../src/renderer/src/views/QzoneView';
@@ -43,6 +43,8 @@ const state = vi.hoisted(() => ({
   })),
   settings: vi.fn(async () => ({ qzoneForwardQuotePrevious: true })),
   related: vi.fn(),
+  uploadImage: vi.fn(async (_input: unknown) => ({ richval: 'synthetic-richval' })),
+  publish: vi.fn(async (_input: unknown) => {}),
 }));
 vi.mock('../src/renderer/src/components/QqAvatar', () => ({
   QqAvatar: ({ size }: { size: number }) =>
@@ -92,6 +94,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     account: {
       qqActions: { qzone: { mutate: state.write }, qzoneForward: { mutate: state.forward } },
       qzone: {
+        uploadImage: { mutate: state.uploadImage },
+        publish: { mutate: state.publish },
         related: { query: state.related },
         posts: {
           query: state.posts,
@@ -144,6 +148,8 @@ beforeEach(() => {
     stopReason: 'complete',
   });
   state.pickImage.mockClear();
+  state.uploadImage.mockClear();
+  state.publish.mockClear();
   state.nativeDetail.mockClear();
   state.detail.mockReset();
   state.likes.mockReset().mockResolvedValue({ likes: [], coverage: 'observed', selfLiked: null });
@@ -177,23 +183,24 @@ beforeEach(() => {
 afterEach(() => {
   close?.();
   close = undefined;
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
-async function mount() {
+async function mount(strict = false) {
   let active = true;
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const update = () =>
-    root.render(
-      h(QzoneView, {
-        selfUin: '10001',
-        nickname: '合成自己',
-        active,
-        spaceRequest: { accountUin: '10001', uin: '10001', revision: 'fixture' },
-      }),
-    );
+  const update = () => {
+    const view = h(QzoneView, {
+      selfUin: '10001',
+      nickname: '合成自己',
+      active,
+      spaceRequest: { accountUin: '10001', uin: '10001', revision: 'fixture' },
+    });
+    root.render(strict ? h(StrictMode, null, view) : view);
+  };
   close = () => {
     act(() => root.unmount());
     host.remove();
@@ -248,6 +255,98 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
+async function openComposer(strict: boolean) {
+  const view = await mount(strict);
+  const compose = [...view.host.querySelectorAll<HTMLButtonElement>('button')].find(
+    (button) => button.textContent === '写说说',
+  )!;
+  await act(async () => compose.click());
+  const dialog = document.querySelector<HTMLElement>('.weq-qzn-composer')!;
+  const input = dialog.querySelector<HTMLInputElement>('input[type="file"]')!;
+  const submit = dialog.querySelector<HTMLButtonElement>('.weq-qzn-primary')!;
+  return { dialog, input, submit };
+}
+function chooseImage(input: HTMLInputElement) {
+  const base64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aYZkAAAAASUVORK5CYII=';
+  const file = new File([Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))], '合成.png', {
+    type: 'image/png',
+  });
+  Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  return base64;
+}
+function trackImageRead() {
+  const completed = deferred<void>();
+  const read = FileReader.prototype.readAsDataURL;
+  vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementationOnce(function (
+    this: FileReader,
+    file,
+  ) {
+    this.addEventListener('loadend', () => completed.resolve(), { once: true });
+    read.call(this, file);
+  });
+  return completed.promise;
+}
+it.each([false, true])('选图完成后恢复发表并可提交，严格模式=%s', async (strict) => {
+  const { dialog, input, submit } = await openComposer(strict);
+  const content = dialog.querySelector<HTMLTextAreaElement>('textarea')!;
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
+      content,
+      '合成图文说说',
+    );
+    content.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  let base64 = '';
+  const completed = trackImageRead();
+  await act(async () => {
+    base64 = chooseImage(input);
+    await completed;
+  });
+  expect(dialog.querySelector<HTMLImageElement>('.weq-qzn-draft-images img')?.src).toBe(
+    `data:image/png;base64,${base64}`,
+  );
+  expect(submit.textContent).toBe('发表');
+  expect(submit.disabled).toBe(false);
+  expect(input.disabled).toBe(false);
+  expect(state.uploadImage).not.toHaveBeenCalled();
+  expect(state.publish).not.toHaveBeenCalled();
+  await act(async () => submit.click());
+  expect(state.uploadImage).toHaveBeenCalledOnce();
+  expect(state.uploadImage).toHaveBeenCalledWith({ selfUin: '10001', base64 });
+  expect(state.publish).toHaveBeenCalledOnce();
+  expect(state.publish).toHaveBeenCalledWith({
+    selfUin: '10001',
+    content: '合成图文说说',
+    richvals: ['synthetic-richval'],
+    visibility: 1,
+  });
+  expect(document.querySelector('.weq-qzn-composer')).toBeNull();
+});
+it('严格模式选图失败后显示错误并允许重新选图', async () => {
+  const read = vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementationOnce(function (
+    this: FileReader,
+  ) {
+    this.dispatchEvent(new ProgressEvent('error'));
+  });
+  const { dialog, input, submit } = await openComposer(true);
+  await act(async () => {
+    chooseImage(input);
+  });
+  expect(dialog.querySelector('[role="alert"]')?.textContent).toBe('图片读取失败');
+  expect(submit.textContent).toBe('发表');
+  expect(input.disabled).toBe(false);
+  read.mockRestore();
+  const completed = trackImageRead();
+  await act(async () => {
+    chooseImage(input);
+    await completed;
+  });
+  expect(dialog.querySelector('.weq-qzn-draft-images img')).not.toBeNull();
+  expect(dialog.querySelector('[role="alert"]')).toBeNull();
+  expect(input.disabled).toBe(false);
+});
 function capture(host: HTMLElement, name = 'feedback') {
   const directory = process.env.WEQ_QZONE_FEEDBACK_LAYOUT;
   if (!directory) return;

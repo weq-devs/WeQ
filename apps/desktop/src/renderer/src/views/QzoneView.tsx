@@ -3536,12 +3536,12 @@ function Composer({
   const [uncertain, setUncertain] = useState(false);
   const active = useRef(true),
     locked = useRef(false);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    active.current = true;
+    return () => {
       active.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
   async function choose(files: FileList | null): Promise<void> {
     if (!files || locked.current || reading) return;
     const picked = Array.from(files);
