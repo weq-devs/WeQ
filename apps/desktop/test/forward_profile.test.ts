@@ -65,6 +65,7 @@ it('真实缓存序列化后 QQ 号为字符串，头像和昵称在 Portal 中�
     msgId: 1n,
     senderUin: 10002,
     sendNick: '本地昵称',
+    sendTime: 1700000000,
     subMsgs: [{ msgId: 2n, senderUin: 10003 }],
   }) as ForwardRecordWire;
   expect(record.senderUin).toBe('10002');
@@ -87,9 +88,15 @@ it('真实缓存序列化后 QQ 号为字符串，头像和昵称在 Portal 中�
       }),
     );
     await act(async () => vi.dynamicImportSettled());
-    const author = document.querySelector<HTMLButtonElement>('.weq-forward-author')!;
-    expect(author.tagName).toBe('BUTTON');
-    expect(author.textContent).toBe('本地昵称');
+    const author = document.querySelector<HTMLElement>('.weq-forward-author')!;
+    expect(author.tagName).toBe('HEADER');
+    expect(author.querySelectorAll('button')).toHaveLength(2);
+    const time = author.querySelector('time')!;
+    expect(time).not.toBeNull();
+    expect(time.closest('button')).toBeNull();
+    expect(time.parentElement).toBe(
+      author.querySelector('.weq-forward-row-name')!.parentElement!.parentElement,
+    );
     for (const selector of ['.weq-forward-avatar', '.weq-forward-row-name']) {
       act(() =>
         author
@@ -104,6 +111,8 @@ it('真实缓存序列化后 QQ 号为字符串，头像和昵称在 Portal 中�
         undefined,
       );
     }
+    expect(open).toHaveBeenCalledTimes(2);
+    act(() => time.click());
     expect(open).toHaveBeenCalledTimes(2);
     expect(useForwardStore.getState().windows).toHaveLength(1);
   } finally {

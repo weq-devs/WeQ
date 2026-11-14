@@ -133,18 +133,15 @@
 :is(.ba-hero-info, .ga-ov-hero-info) {
   grid-column: 2;
 }
-.weq-forward-row:has(> .weq-forward-author),
 .group-bulletin-layout:has(> .group-bulletin-author) {
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr);
   gap: 3px 10px;
 }
-.weq-forward-author,
 .group-bulletin-author {
   grid-column: 1 / -1;
   gap: 10px;
 }
-.weq-forward-row-main,
 .group-bulletin-main {
   grid-column: 2;
 }

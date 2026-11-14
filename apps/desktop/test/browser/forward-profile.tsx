@@ -20,6 +20,9 @@ ensureThemeInitialized();
 useViewState.setState({ openedUin: '10001' });
 Object.assign(window, { forwardProfileQa: useThemeStore });
 const text = [{ type: 'text', data: { textContent: '合成消息正文' } }];
+const name = new URLSearchParams(location.search).has('long')
+  ? '这是一个用于核对窄屏换行和头像时间对齐的很长很长的好友昵称'
+  : '本地备注';
 function Fixture() {
   const [card, setCard] = useState<{
     user: User;
@@ -37,7 +40,8 @@ function Fixture() {
           msgId: '2',
           senderUid: 'u_sample',
           senderUin: '10002',
-          sendNick: '本地备注',
+          sendNick: name,
+          sendTime: '1700000000',
           elements: text,
         },
         { msgId: '3', senderUin: '10002', sendNick: '只有 QQ 号的好友', elements: text },
@@ -53,6 +57,7 @@ function Fixture() {
               senderUid: 'u_sample',
               senderUin: '10002',
               sendNick: '嵌套好友',
+              sendTime: '1700000000',
               elements: text,
             },
           ],

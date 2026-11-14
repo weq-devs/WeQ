@@ -43,6 +43,7 @@ import {
   type ForwardWindowState,
   type ForwardRecordWire,
 } from '../state/forwardWindow';
+import '../styles/forward-records.css';
 
 // ---- helpers -------------------------------------------------------------
 
@@ -394,6 +395,12 @@ function ForwardRow({
   const time = formatForwardTime(record.sendTime);
   const sendTimeMs = (Number(record.sendTime) || 0) * 1000;
   const widget = decorationEnabled.widget ? (localWidget ?? msgDec.widget) : null;
+  const profileTarget = {
+    identity: record.senderUid || record.senderUin || '',
+    uin: record.senderUin,
+    name: displayName,
+    avatarUrl: avatar,
+  };
 
   // 灰条判定：放在所有 hook 之后（规则要求 hook 顺序稳定），命中就直接画成**居中
   // 一行** —— 与主面板一样没有头像 / 昵称 / 气泡，而不是把这些消息硬套进转发行。
@@ -433,29 +440,25 @@ function ForwardRow({
       data-widget={widget?.animated ? widget.itemId : undefined}
       data-record-widget={record.decoration?.widgetId || undefined}
     >
-      <ProfileAvatar
-        className="weq-identity-link weq-forward-author"
-        target={{
-          identity: record.senderUid || record.senderUin || '',
-          uin: record.senderUin,
-          name: displayName,
-          avatarUrl: avatar,
-        }}
-      >
-        <div className="weq-forward-avatar">
-          {avatar ? (
-            <img src={avatar} alt="" loading="lazy" />
-          ) : (
-            <span className="weq-forward-avatar-fallback">{displayName.slice(0, 1)}</span>
-          )}
-          {widget ? <PendantLayer widget={widget} /> : null}
-        </div>
-        <span className="weq-forward-row-name">{displayName}</span>
-      </ProfileAvatar>
-      <div className="weq-forward-row-main">
+      <header className="weq-forward-author">
+        <ProfileAvatar className="weq-forward-avatar-link" target={profileTarget}>
+          <div className="weq-forward-avatar">
+            {avatar ? (
+              <img src={avatar} alt="" loading="lazy" />
+            ) : (
+              <span className="weq-forward-avatar-fallback">{displayName.slice(0, 1)}</span>
+            )}
+            {widget ? <PendantLayer widget={widget} /> : null}
+          </div>
+        </ProfileAvatar>
         <div className="weq-forward-row-meta">
-          {time ? <span className="weq-forward-row-time">{time}</span> : null}
+          <ProfileAvatar className="weq-forward-name-link" target={profileTarget}>
+            <span className="weq-forward-row-name">{displayName}</span>
+          </ProfileAvatar>
+          {time ? <time className="weq-forward-row-time">{time}</time> : null}
         </div>
+      </header>
+      <div className="weq-forward-row-main">
         <ForwardBubble record={record} kind={kind} sendTimeMs={sendTimeMs} />
       </div>
     </div>
