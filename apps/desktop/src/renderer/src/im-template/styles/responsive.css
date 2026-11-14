@@ -631,9 +631,11 @@
   color: var(--weq-fg-primary);
 }
 
-:where(html[data-weq-layout='single']) .conversation-row:hover,
-:where(html[data-weq-layout='single']) .contact-row:hover {
-  background: #f2f3f6;
+@media (hover: hover) and (pointer: fine) {
+  :where(html[data-weq-layout='single']) .conversation-row:hover,
+  :where(html[data-weq-layout='single']) .contact-row:hover {
+    background: #f2f3f6;
+  }
 }
 
 :where(html[data-weq-layout='single']) .conversation-row.active,
@@ -1830,11 +1832,16 @@ html:where([data-weq-layout='single'])[data-theme='dark'] .contact-tab-switch {
   color: #eef0f3;
 }
 
-html:where([data-weq-layout='single'])[data-theme='dark'] .conversation-row:hover,
-html:where([data-weq-layout='single'])[data-theme='dark'] .contact-row:hover,
 html:where([data-weq-layout='single'])[data-theme='dark'] .contact-tools > button:hover,
 html:where([data-weq-layout='single'])[data-theme='dark'] .contact-tools > button.active {
   background: #23272a;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  html:where([data-weq-layout='single'])[data-theme='dark'] .conversation-row:hover,
+  html:where([data-weq-layout='single'])[data-theme='dark'] .contact-row:hover {
+    background: #23272a;
+  }
 }
 
 html:where([data-weq-layout='single'])[data-theme='dark'] .conversation-row.active,

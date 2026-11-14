@@ -215,6 +215,7 @@ import { applyReplyMedia, needsReplyMedia } from '../lib/replyMedia';
 import { messageTemplateContext } from '../lib/messageTemplateContext';
 import { reconcileConversationRows, sortConversationRows } from '../lib/conversationListOrder';
 import { useRecentContactHeadRefresh } from '../hooks/useRecentContactHeadRefresh';
+import { useRecentContactTargets } from '../hooks/useRecentContactTargets';
 import { createConversationProjection } from '../lib/conversationProjection';
 import type { MessageReadWindow } from '../../../shared/message_read';
 import { mergeRefreshedWindow } from '../lib/conversationRefresh';
@@ -2303,6 +2304,12 @@ function MainWorkspace(): ReactElement {
     pinSession.binding,
     messageActivity.enabled,
   );
+  const [visibleConversationIds, setVisibleConversationIds] = useState<readonly string[]>([]);
+  const refreshRecentTargets = useRecentContactTargets(
+    pinSession.binding,
+    messageActivity.enabled,
+    visibleConversationIds,
+  );
   const firstContactsReady = Boolean(contacts.data) || contacts.isError;
   const conversationDraftTimes = trpc.account.listConversationDraftTimes.useQuery(
     pinSession.binding ?? undefined,
@@ -2385,7 +2392,10 @@ function MainWorkspace(): ReactElement {
   const refreshRecentHead = useRecentContactHeadRefresh(recentHead.refetch, messageScope);
   useEffect(() => {
     const refresh = () => {
-      if (messageScopeRef.current && document.visibilityState !== 'hidden') refreshRecentHead();
+      if (messageScopeRef.current && document.visibilityState !== 'hidden') {
+        refreshRecentHead();
+        refreshRecentTargets();
+      }
     };
     window.addEventListener('focus', refresh);
     window.addEventListener('online', refresh);
@@ -2395,7 +2405,7 @@ function MainWorkspace(): ReactElement {
       window.removeEventListener('online', refresh);
       document.removeEventListener('visibilitychange', refresh);
     };
-  }, [refreshRecentHead]);
+  }, [refreshRecentHead, refreshRecentTargets]);
 
   // Flatten the paginated recent-contact pages into one list for the memos
   // below (the sidebar can scroll-load more pages past the first window).
@@ -2729,7 +2739,6 @@ function MainWorkspace(): ReactElement {
     });
   }, [messageScope, conversationWindows]);
   useEffect(() => () => firstPages.dispose(), [firstPages]);
-  const [visibleConversationIds, setVisibleConversationIds] = useState<readonly string[]>([]);
   const prefetchVisible = useCallback(
     (rows: readonly Conversation[]) => {
       const ids = rows.map((row) => row.id);
@@ -2862,6 +2871,7 @@ function MainWorkspace(): ReactElement {
         );
         // WeQ 发送缓存不会改 QQ 库，也就不会触发 onDbChanged。
         refreshRecentHead();
+        refreshRecentTargets([change.conv]);
         const selection = selectionRef.current;
         if (
           !selection ||
@@ -2879,7 +2889,7 @@ function MainWorkspace(): ReactElement {
       },
     });
     return () => sub.unsubscribe();
-  }, [utils, messageScope, conversationWindows, refreshRecentHead]);
+  }, [utils, messageScope, conversationWindows, refreshRecentHead, refreshRecentTargets]);
 
   // Subscribe once to the debounced "db changed" ping: refresh recent contacts
   // and re-read the open conversation's window. (onNewMessages stays a backend
@@ -2905,6 +2915,7 @@ function MainWorkspace(): ReactElement {
     const unknownRefresh = createUnreadRefresh(async () => {
       if (messageScopeRef.current !== messageScope) return true;
       refreshRecentHead();
+      refreshRecentTargets();
       return true;
     }, 1000);
     const sub = client.account.onDbChanged.subscribe(binding, {
@@ -2928,7 +2939,14 @@ function MainWorkspace(): ReactElement {
       unknownRefresh.dispose();
       sub.unsubscribe();
     };
-  }, [utils, refreshWindow, messageScope, conversationWindows, refreshRecentHead]);
+  }, [
+    utils,
+    refreshWindow,
+    messageScope,
+    conversationWindows,
+    refreshRecentHead,
+    refreshRecentTargets,
+  ]);
 
   useEffect(() => {
     const sub = client.bootstrap.onAccountForcedClosed.subscribe(undefined, {
@@ -5748,6 +5766,7 @@ function MainWorkspace(): ReactElement {
                 void refreshWindow();
             }
             refreshRecentHead();
+            refreshRecentTargets(targets.map((target) => target.uid));
             liveRefresh.request(
               targets.flatMap((target) => {
                 const chatType = unreadChatType(target.chatType);
@@ -5776,17 +5795,25 @@ function MainWorkspace(): ReactElement {
       document.removeEventListener('visibilitychange', onVisible);
       requestUnreadRefreshRef.current = null;
     };
-  }, [openedUin, messageScope, conversationWindows, refreshRecentHead, refreshWindow]);
+  }, [
+    openedUin,
+    messageScope,
+    conversationWindows,
+    refreshRecentHead,
+    refreshRecentTargets,
+    refreshWindow,
+  ]);
   useEffect(() => {
     if (!IS_WEB) return;
     return useWebConnection.subscribe((state, previous) => {
       if (state.recovery === previous.recovery) return;
       conversationWindows.markDirty();
       refreshRecentHead();
+      refreshRecentTargets();
       requestUnreadRefreshRef.current?.();
       void refreshWindow();
     });
-  }, [conversationWindows, refreshRecentHead, refreshWindow]);
+  }, [conversationWindows, refreshRecentHead, refreshRecentTargets, refreshWindow]);
   const unreadDirectoryKey = useMemo(
     () =>
       recentContactsData

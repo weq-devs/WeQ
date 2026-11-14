@@ -316,8 +316,10 @@
   user-select: none;
 }
 
-.contact-cat-header:hover {
-  color: var(--weq-fg-primary);
+@media (hover: hover) and (pointer: fine) {
+  .contact-cat-header:hover {
+    color: var(--weq-fg-primary);
+  }
 }
 
 .contact-cat-caret {
@@ -408,9 +410,11 @@
   cursor: pointer;
 }
 
-.conversation-row:hover,
-.contact-row:hover {
-  background: color-mix(in srgb, var(--weq-accent-effective) 5%, transparent);
+@media (hover: hover) and (pointer: fine) {
+  .conversation-row:hover,
+  .contact-row:hover {
+    background: color-mix(in srgb, var(--weq-accent-effective) 5%, transparent);
+  }
 }
 
 .conversation-row.active,
@@ -609,8 +613,10 @@ html[data-theme='dark'] .conversation-row.active .row-unread.muted {
   background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
 }
 
-.conversation-row.pinned:not(.active):hover {
-  background: color-mix(in srgb, var(--weq-accent-effective) 11%, transparent);
+@media (hover: hover) and (pointer: fine) {
+  .conversation-row.pinned:not(.active):hover {
+    background: color-mix(in srgb, var(--weq-accent-effective) 11%, transparent);
+  }
 }
 
 .conversation-row.active .row-pinned {

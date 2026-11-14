@@ -8,6 +8,7 @@ import {
   type UnreadRequest,
 } from '../src/renderer/src/lib/unreadRequests';
 import { UNREAD_BATCH_SIZE } from '../src/renderer/src/lib/unreadRefresh';
+import { queryInputBatches } from '../src/renderer/src/lib/queryInputBatches';
 
 vi.mock('@trpc/client', async (original) => ({
   ...(await original<typeof import('@trpc/client')>()),
@@ -131,4 +132,49 @@ it('IPC 保留 256 项上限，空目录不发请求，单目标过长明确报�
   const oversized = { ...input(1), expectedAccountConfigId: 'x'.repeat(HTTP_BATCH_MAX_URL_LENGTH) };
   expect(() => unreadRequestBatches(oversized, true)).toThrow('单个会话参数超过传输长度上限');
   expect(unreadRequestBatches(oversized, false)).toEqual([oversized]);
+});
+
+it('定向会话摘要通过真实 Web tRPC 分批传输，不超 URL 上限、不漏旧会话', async () => {
+  const original = input(700);
+  const requests: string[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (value: RequestInfo | URL) => {
+      const url = new URL(String(value), 'http://localhost');
+      expect(url.pathname.length + url.search.length).toBeLessThanOrEqual(
+        HTTP_BATCH_MAX_URL_LENGTH,
+      );
+      const encoded = JSON.parse(url.searchParams.get('input')!) as Record<
+        string,
+        ReturnType<typeof superjson.serialize>
+      >;
+      const results = Object.values(encoded).map((value) => {
+        const { targetUids } = superjson.deserialize<{ targetUids: string[] }>(value);
+        requests.push(...targetUids);
+        return {
+          result: { data: superjson.serialize(targetUids.map((targetUid) => ({ targetUid }))) },
+        };
+      });
+      return new Response(JSON.stringify(results));
+    }),
+  );
+  const { createLinks } = await import('../src/renderer/src/trpc/transport.web');
+  const client = createTRPCProxyClient<AppRouter>({ transformer: superjson, links: createLinks() });
+  const ids = original.targets.map((row) => row.uid);
+  const batches = queryInputBatches(
+    'account.listRecentContactTargets',
+    ids,
+    (targetUids) => ({
+      expectedAccountUin: original.expectedAccountUin,
+      expectedAccountConfigId: original.expectedAccountConfigId,
+      targetUids,
+    }),
+    true,
+    256,
+  );
+  const rows = (
+    await Promise.all(batches.map((batch) => client.account.listRecentContactTargets.query(batch)))
+  ).flat();
+  expect(rows.map((row) => row.targetUid)).toEqual(ids);
+  expect(requests).toEqual(ids);
 });

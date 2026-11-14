@@ -7,6 +7,7 @@ const fixture = vi.hoisted(() => ({
   list: vi.fn(),
   count: vi.fn(),
   draftTimes: vi.fn(),
+  targets: vi.fn(),
   configId: 'source-a',
 }));
 vi.mock('../src/main/context/app_context', () => {
@@ -16,12 +17,35 @@ vi.mock('../src/main/context/app_context', () => {
       getRecentContact: fixture.list,
       countRecentContact: fixture.count,
       listDraftTimes: fixture.draftTimes,
+      getByTargetUids: fixture.targets,
     },
   };
   return {
     accountEventBus: new EventEmitter(),
     getAppContext: () => ({ account: { context: { uin: '10001' } }, services }),
   };
+});
+
+it('定向摘要查询只读取指定目标，不查询最新前缀或完整目录，并拒绝切源的迟到结果', async () => {
+  fixture.configId = 'source-a';
+  fixture.list.mockClear();
+  fixture.count.mockClear();
+  fixture.targets.mockResolvedValue([]);
+  const api = accountRouter.createCaller({});
+  const input = {
+    expectedAccountUin: '10001',
+    expectedAccountConfigId: 'source-a',
+    targetUids: ['u_1000'],
+  };
+  expect(await api.listRecentContactTargets(input)).toEqual([]);
+  expect(fixture.targets).toHaveBeenCalledWith(['u_1000']);
+  expect(fixture.list).not.toHaveBeenCalled();
+  expect(fixture.count).not.toHaveBeenCalled();
+  fixture.targets.mockImplementationOnce(async () => {
+    fixture.configId = 'source-b';
+    return [];
+  });
+  await expect(api.listRecentContactTargets(input)).rejects.toThrow('数据源已切换');
 });
 
 it('主列表全量模式透传无上限查询，超过 500 个会话不截断且不生成下一页', async () => {
