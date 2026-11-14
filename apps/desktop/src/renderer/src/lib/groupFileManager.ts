@@ -1,4 +1,5 @@
 import type { GroupFileListing, GroupFileWire, GroupFolderWire } from './groupFile';
+import { groupPermission, qqResourceOwnedBy } from '@weq/service/qq-permissions';
 
 export const GROUP_FILE_DRAG_TYPE = 'application/x-weq-group-files';
 export const GROUP_FILE_UPLOAD_LIMIT = 100;
@@ -70,8 +71,21 @@ export function canManageGroupFile(
   row: GroupFileEntryRow,
   manager: boolean,
   selfUin?: string | null,
+  action: 'delete' | 'rename' | 'move' = 'delete',
 ): boolean {
-  return manager || (row.kind === 'file' && !!selfUin && String(row.file.uploaderUin) === selfUin);
+  return groupPermission(
+    row.kind === 'folder'
+      ? 'folder'
+      : action === 'move'
+        ? 'fileMove'
+        : action === 'rename'
+          ? 'fileRename'
+          : 'fileDelete',
+    {
+      role: manager ? 'admin' : 'member',
+      owned: row.kind === 'file' && qqResourceOwnedBy(row.file.uploaderUin, { uin: selfUin }),
+    },
+  );
 }
 export function validateGroupFileName(value: string): string {
   const name = value.trim();

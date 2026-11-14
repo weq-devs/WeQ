@@ -3,7 +3,7 @@ import { Film, Upload, X } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { useDraftProtection } from '../../lib/draftClose';
-import { ActionIcon, useQQAction, withQQAccountScope } from './shared';
+import { ActionIcon, useQQAction, useQQAlbumPermissions, withQQAccountScope } from './shared';
 import { localBackgroundTasks } from '../../state/backgroundTasks';
 
 interface VideoDraft {
@@ -79,6 +79,8 @@ function GroupAlbumVideoUploadBody({
   onChanged: () => void;
 }) {
   const a = useQQAction(`album-video:${groupId}:${albumId}`);
+  const permissions = useQQAlbumPermissions(groupId, albumId, a);
+  const uploadAllowed = permissions.data?.upload === true && !permissions.error;
   const fileInput = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState<VideoDraft | null>(null);
   const [preparing, setPreparing] = useState(false);
@@ -98,7 +100,7 @@ function GroupAlbumVideoUploadBody({
       <div className="weq-qq-action-bar">
         <ActionIcon
           label="选择视频"
-          disabled={a.disabled || preparing}
+          disabled={a.disabled || !uploadAllowed || preparing}
           onClick={() => {
             if (import.meta.env.VITE_WEQ_TARGET === 'web') {
               fileInput.current?.click();
@@ -168,7 +170,7 @@ function GroupAlbumVideoUploadBody({
           <>
             <ActionIcon
               label="上传视频"
-              disabled={a.disabled || submitted || preparing}
+              disabled={a.disabled || !uploadAllowed || submitted || preparing}
               onClick={() => {
                 let videoId: string | null = null;
                 let matched = false;

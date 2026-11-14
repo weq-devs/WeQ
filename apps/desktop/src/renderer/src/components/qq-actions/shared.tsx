@@ -34,6 +34,7 @@ export function ActionIcon({
   text,
   children,
   disabled,
+  title,
   onClick,
 }: {
   label: string;
@@ -41,6 +42,7 @@ export function ActionIcon({
   text?: string;
   children: ReactNode;
   disabled?: boolean;
+  title?: string;
   onClick: () => void;
 }) {
   return (
@@ -48,7 +50,7 @@ export function ActionIcon({
       type="button"
       data-qq-action
       className={`weq-set-iconbtn${text ? ' has-label' : ''}`}
-      title={label}
+      title={title ?? label}
       aria-label={label}
       disabled={disabled}
       onClick={onClick}
@@ -142,6 +144,17 @@ export function useQQGroupPermissions(
       ...autoRefresh,
       staleTime: 15_000,
     },
+  );
+}
+
+export function useQQAlbumPermissions(
+  groupId: number,
+  albumId: string | undefined,
+  action: Pick<ReturnType<typeof useQQAction>, 'available' | 'binding'>,
+) {
+  return trpc.account.qqActions.albumPermissions.useQuery(
+    { ...action.binding!, groupId, albumId },
+    { enabled: action.available && groupId > 0, staleTime: 15_000, retry: false },
   );
 }
 export function SaveAction({

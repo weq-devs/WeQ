@@ -43,6 +43,11 @@ function fixture() {
       ),
     },
     groupInfo: {
+      operationContext: vi.fn(async (groupId: number) => ({
+        role: (await s.groupInfo.listGroupDirectory()).find(
+          (row) => row.groupCode === String(groupId),
+        )?.role as 'owner' | 'admin' | 'member' | null,
+      })),
       getGroupTodos: vi.fn(async (_groupCode: bigint): Promise<GroupTodoView[]> => []),
       listGroupDirectory: vi.fn(async () => [{ groupCode: '123', role: 'admin' }]),
       getJoinInfo: vi.fn(

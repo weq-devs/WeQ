@@ -132,6 +132,7 @@ function fixture() {
       profilesByUids: vi.fn(async (uids: string[]) => (uids.includes(self.uid) ? [self] : [])),
     },
     groupInfo: {
+      operationContext: async () => ({ memberCanRename: null }),
       getGroupDetail: vi.fn(async () => null),
       listGroupDirectory: vi.fn(async () => []),
       getMemberInfo: vi.fn(async () => null),

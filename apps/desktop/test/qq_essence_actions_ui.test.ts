@@ -17,6 +17,8 @@ const state = vi.hoisted(() => ({
   configId: 'source-a',
   online: true,
   canManage: true,
+  role: 'owner' as 'owner' | 'admin' | 'member',
+  canRemove: undefined as boolean | undefined,
   mutate: vi.fn(async (_input: unknown): Promise<QQWriteOutcome> => ({ state: 'accepted' })),
   invalidate: vi.fn(async () => {}),
   read: vi.fn(async (): Promise<string[]> => []),
@@ -48,9 +50,14 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         }),
       },
       qqActions: {
-        groupPermissions: { useQuery: () => ({ data: { canManage: state.canManage } }) },
+        groupPermissions: {
+          useQuery: () => ({ data: { canManage: state.canManage, role: state.role } }),
+        },
       },
-      qqWrite: { groupEssence: { useMutation: () => ({ mutateAsync: state.mutate }) } },
+      qqWrite: {
+        groupEssence: { useMutation: () => ({ mutateAsync: state.mutate }) },
+        groupEssencePermission: { useQuery: () => ({ data: { canRemove: state.canRemove } }) },
+      },
     },
   },
 }));
@@ -60,6 +67,8 @@ beforeEach(() => {
   state.configId = 'source-a';
   state.online = true;
   state.canManage = true;
+  state.role = 'owner';
+  state.canRemove = undefined;
   state.mutate.mockReset().mockResolvedValue({ state: 'accepted' });
   state.invalidate.mockClear();
   state.read.mockReset().mockImplementation(async () => {
@@ -83,7 +92,7 @@ function fixture(active = true, overrides: Partial<GroupEssenceWire> = {}, onlin
   const conversation = {
     ...original,
     id: '123',
-    group: { ...original.group, role: 'owner' as const, essenceSeqs: active ? ['42'] : [] },
+    group: { ...original.group, role: state.role, essenceSeqs: active ? ['42'] : [] },
   };
   const message = {
     ...demo.messages[0]!,
@@ -144,6 +153,30 @@ function fixture(active = true, overrides: Partial<GroupEssenceWire> = {}, onlin
   return { host, render, close, jump, menu, remove };
 }
 describe('消息菜单与精华列表的同步', () => {
+  it('普通成员取得逐条取消权限时，消息菜单与列表都提供取消操作', () => {
+    state.role = 'member';
+    state.canManage = false;
+    state.canRemove = true;
+    const f = fixture(true, { canRemove: true });
+    expect(f.menu()?.textContent).toContain('取消精华');
+    expect(f.remove().disabled).toBe(false);
+  });
+  it('明确的逐条拒绝覆盖管理员身份', () => {
+    state.role = 'admin';
+    state.canRemove = false;
+    const f = fixture(true, { canRemove: false });
+    expect(f.menu()).toBeNull();
+    expect(f.remove().disabled).toBe(true);
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
+  it('本地消息作者可取消本人精华，不误用设置精华的操作者', () => {
+    state.role = 'member';
+    state.canManage = false;
+    const f = fixture(true, { senderUin: '10001' });
+    expect(f.remove().disabled).toBe(false);
+    const other = fixture(true, { senderUin: '10002', operatorName: '本人' });
+    expect(other.remove().disabled).toBe(true);
+  });
   it('联网失败明确显示本地回退，不把失败解释为已成功查空', () => {
     const f = fixture(false, {}, true);
     // 新文案：状态行说明「联网读取失败，当前仅显示本地记录」，空态说明「本地未找到 + 联网暂时不可用」。

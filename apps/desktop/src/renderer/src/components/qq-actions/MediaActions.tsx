@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { albumMediaDeleteAllowed, qqResourceOwnedBy } from '@weq/service/qq-permissions';
 import { Loader2, Send, ThumbsUp, Trash2 } from 'lucide-react';
 import type { QQWriteBinding, QQWriteOutcome } from '../../hooks/useQQWriteSession';
 import { client, trpc } from '../../trpc/client';
@@ -13,6 +14,7 @@ import {
   ImageAction,
   SaveAction,
   useQQAction,
+  useQQAlbumPermissions,
   withQQAccountScope,
 } from './shared';
 
@@ -143,13 +145,15 @@ function GroupAlbumUploadBody({
   onChanged: () => void;
 }) {
   const a = useQQAction(`album-upload:${groupId}:${albumId}`);
+  const permissions = useQQAlbumPermissions(groupId, albumId, a);
+  const uploadAllowed = permissions.data?.upload === true && !permissions.error;
   const [picture, setPicture] = useState<{ path: string; fileName: string } | null>(null);
   useDraftProtection(picture, a.busy);
   return (
     <div className="weq-qq-actions">
       <div className="weq-qq-action-bar">
         <ImageAction
-          disabled={a.disabled}
+          disabled={a.disabled || !uploadAllowed}
           onClick={() =>
             void a.pickImage().then((f) => {
               if (f) setPicture(f);
@@ -159,7 +163,7 @@ function GroupAlbumUploadBody({
         <span>{picture?.fileName}</span>
         <SaveAction
           label="上传到群相册"
-          disabled={a.disabled || !picture}
+          disabled={a.disabled || !uploadAllowed || !picture}
           onClick={() => {
             const sentAt = Math.floor(Date.now() / 1000);
             const submitted = picture;
@@ -229,11 +233,17 @@ function GroupAlbumMediaActionsBody({
     { ...a.binding!, groupId },
     { enabled: a.available, staleTime: 30_000, retry: false },
   );
+  const albumRights = useQQAlbumPermissions(groupId, albumId, a);
   const canDelete = Boolean(
     permissions.data &&
       !permissions.error &&
-      (permissions.data.canManage ||
-        (permissions.data.selfUin && uploaderUin === permissions.data.selfUin)),
+      albumMediaDeleteAllowed(
+        albumRights.error ? null : albumRights.data,
+        qqResourceOwnedBy(uploaderUin, {
+          uid: permissions.data.selfUid,
+          uin: permissions.data.selfUin,
+        }),
+      ),
   );
   return (
     <div className="weq-qq-media-actions">

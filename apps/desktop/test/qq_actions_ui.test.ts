@@ -118,6 +118,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     'todoLocalList',
     'groupReadTools',
     'groupPermissions',
+    'albumPermissions',
     'groupJoinSettings',
   ];
   return {
@@ -316,6 +317,14 @@ beforeEach(() => {
   state.data = {
     typingStatus: { mode: 'off', hidden: [] },
     groupPermissions: { canManage: true, role: 'admin', selfUin: '10001' },
+    albumPermissions: {
+      create: true,
+      modify: true,
+      upload: true,
+      deleteMedia: true,
+      top: false,
+      deleteAlbum: true,
+    },
     fileSummary: { fileCount: 1, maxCount: 100, usedSpace: 10, totalSpace: 1000 },
     folders: { folders: [{ folderId: 'folder-b', folderName: '目录 B' }] },
     notices: [],

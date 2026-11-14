@@ -287,7 +287,11 @@ export function createActions(
           ),
         };
       case 'delete_group_file':
-        await services.groupFile.deleteFile(Number(id(p.group_id)), text(p.file_id));
+        await services.groupFile.deleteFile(
+          Number(id(p.group_id)),
+          text(p.file_id),
+          text(p.parent_directory, '/'),
+        );
         return null;
       case 'rename_group_file':
         await services.groupFile.renameFile(

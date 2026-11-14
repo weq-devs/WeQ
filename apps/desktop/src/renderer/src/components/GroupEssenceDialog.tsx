@@ -1,4 +1,5 @@
 import { eventTimeFormatter } from '@weq/time';
+import { groupPermission, qqResourceOwnedBy } from '@weq/service/qq-permissions';
 import { useRef, type ReactElement } from 'react';
 import { useSearchTargetFocus } from '../hooks/useSearchTargetFocus';
 import { FileText, RefreshCw, X } from 'lucide-react';
@@ -24,6 +25,7 @@ export interface GroupEssenceWire {
   msgSeq: number;
   msgRandom?: number;
   senderName: string;
+  senderUin?: string;
   operatorName: string;
   createdAt: string;
   active: boolean;
@@ -221,10 +223,16 @@ export function GroupEssenceDialog({
                           item.msgRandom === undefined ? undefined : String(item.msgRandom),
                         )}
                         initialActive
-                        allowed={
-                          item.canRemove === true ||
-                          (item.canRemove === undefined && Boolean(permissions.data?.canManage))
-                        }
+                        allowed={groupPermission('essenceRemove', {
+                          ...permissions.data,
+                          role:
+                            permissions.data?.role ??
+                            (permissions.data?.canManage ? 'admin' : null),
+                          canRemove: item.canRemove,
+                          isSelf: qqResourceOwnedBy(item.senderUin, {
+                            uin: session.binding?.expectedAccountUin,
+                          }),
+                        })}
                         iconOnly
                       />
                     </div>

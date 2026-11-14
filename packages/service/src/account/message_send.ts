@@ -513,7 +513,15 @@ export class MessageSendService {
     private readonly sendWithQqFont: () => boolean = () => true,
     private readonly currentChatBubbleId?: () => number | undefined,
     private readonly mediaDownload?: Pick<MediaDownloadService, 'download'>,
+    private readonly authorizeGroup?: (groupId: number, uploadFile: boolean) => Promise<void>,
   ) {}
+
+  private async checkGroupTarget(target: ResolvedSendTarget, uploadFile = false): Promise<void> {
+    if (target.scene !== 'group' || !this.authorizeGroup) return;
+    const pid = this.resolvePid();
+    await this.authorizeGroup(target.uin, uploadFile);
+    if (this.resolvePid() !== pid) throw new Error('账号或 QQ 运行时已改变，请重新发送');
+  }
 
   private withImageFallback(elements: SendElement[]): SendElement[] {
     return elements.map((element) => {
@@ -900,6 +908,7 @@ export class MessageSendService {
       };
     }
     const target = this.resolveTarget(params.targetId, params.peerType, params.peerType === 'c2c');
+    await this.checkGroupTarget(target, true);
     const pid = this.resolvePid();
     const selfUin = this.selfUin();
     const log = (message: string): void => logger.info(message, { event: 'file-upload' });
@@ -1050,6 +1059,7 @@ export class MessageSendService {
             targetId: groupTemp.targetId,
           }
         : this.resolveTarget(params.targetId, params.peerType, needUpload);
+    await this.checkGroupTarget(target);
     const pid = this.resolvePid();
     const previewBubbleId = device ? 0 : this.readCurrentBubbleId();
     // 商城表情：把空 encryptKey 用包密钥补上（同包只查一次）。
@@ -1252,6 +1262,7 @@ export class MessageSendService {
    */
   async sendContactCard(params: SendContactCardParams): Promise<SendContactCardOutcome> {
     const target = this.resolveTarget(params.targetId, params.peerType, false);
+    await this.checkGroupTarget(target);
     const pid = this.resolvePid();
     const phoneNumber = params.phoneNumber?.trim();
     const result = await sendContactArk(this.nt, pid, {
@@ -1303,6 +1314,7 @@ export class MessageSendService {
     const longitude = decimalCoordinate(params.longitude, 'longitude', 180);
 
     const target = this.resolveTarget(params.targetId, params.peerType, false);
+    await this.checkGroupTarget(target);
     const pid = this.resolvePid();
     const reply = await SendLocationArk.invoke(this.nt, pid, {
       targetUin: target.uin,
@@ -1349,6 +1361,7 @@ export class MessageSendService {
     }
     const needUpload = nodesNeedUpload(params.nodes);
     const target = this.resolveTarget(params.targetId, params.peerType, needUpload);
+    await this.checkGroupTarget(target);
     const pid = this.resolvePid();
     const selfUin = this.selfUin();
     // 只有私聊转发需要把自己的 uid 填进上传请求；群聊那两处用的是群号，

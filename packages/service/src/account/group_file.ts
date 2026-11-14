@@ -7,6 +7,12 @@
 import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
 import {
+  groupPermission,
+  qqResourceOwnedBy,
+  type QQGroupOperation,
+  type QQGroupPermissionContext,
+} from '../common/qq_permissions';
+import {
   CreateGroupFolder,
   DeleteGroupFile,
   DeleteGroupFolder,
@@ -38,9 +44,37 @@ const MAX_PAGES = 200;
 export class GroupFileService {
   constructor(
     private readonly nt: Pick<NtHelperBinding, 'sendOidbPacket'>,
-    _session: AccountSession,
+    private readonly session: AccountSession,
     private readonly resolvePid: () => number,
+    private readonly permissionContext?: (groupId: number) => Promise<QQGroupPermissionContext>,
   ) {}
+
+  private async permitted(
+    action: QQGroupOperation,
+    groupId: number,
+    fileId?: string,
+    directory = '/',
+  ) {
+    if (!this.permissionContext) return;
+    const pid = this.resolvePid();
+    const context = await this.permissionContext(groupId);
+    if (
+      !groupPermission(action, context) &&
+      fileId &&
+      (action === 'fileDelete' || action === 'fileRename')
+    ) {
+      const listing = await this.list(groupId, directory);
+      const file = listing.files.find((row) => row.fileId === fileId);
+      context.owned =
+        file !== undefined &&
+        qqResourceOwnedBy(file.uploaderUin, {
+          uid: this.session.selfUid,
+          uin: this.session.context.uin,
+        });
+    }
+    if (!groupPermission(action, context)) throw new Error('当前账号无权执行此群文件操作');
+    if (this.resolvePid() !== pid) throw new Error('QQ 运行时已改变，请重新操作');
+  }
 
   /** 拉某个目录下的全部文件+子文件夹(内部翻页到 isEnd)。 */
   async list(
@@ -94,7 +128,8 @@ export class GroupFileService {
   // ───────────────────────── 文件 / 文件夹写操作 ─────────────────────────
 
   /** 删除单个群文件（OIDB 0x6D6_3）。 */
-  async deleteFile(groupId: number, fileId: string): Promise<void> {
+  async deleteFile(groupId: number, fileId: string, directory = '/'): Promise<void> {
+    await this.permitted('fileDelete', groupId, fileId, directory);
     await DeleteGroupFile.invoke(this.nt, this.resolvePid(), { groupId, fileId });
   }
 
@@ -105,6 +140,7 @@ export class GroupFileService {
     parentDirectory: string,
     newFileName: string,
   ): Promise<void> {
+    await this.permitted('fileRename', groupId, fileId, parentDirectory);
     await RenameGroupFile.invoke(this.nt, this.resolvePid(), {
       groupId,
       fileId,
@@ -120,6 +156,7 @@ export class GroupFileService {
     parentDirectory: string,
     targetDirectory: string,
   ): Promise<void> {
+    await this.permitted('fileMove', groupId);
     await MoveGroupFile.invoke(this.nt, this.resolvePid(), {
       groupId,
       fileId,
@@ -134,6 +171,7 @@ export class GroupFileService {
     parentId: string,
     folderName: string,
   ): Promise<CreatedGroupFolder> {
+    await this.permitted('folder', groupId);
     return CreateGroupFolder.invoke(this.nt, this.resolvePid(), {
       groupId,
       parentId: parentId || '/',
@@ -143,11 +181,13 @@ export class GroupFileService {
 
   /** 删除文件夹（OIDB 0x6D7_1）。 */
   async deleteFolder(groupId: number, folderId: string): Promise<void> {
+    await this.permitted('folder', groupId);
     await DeleteGroupFolder.invoke(this.nt, this.resolvePid(), { groupId, folderId });
   }
 
   /** 重命名文件夹（OIDB 0x6D7_2）。 */
   async renameFolder(groupId: number, folderId: string, newFolderName: string): Promise<void> {
+    await this.permitted('folder', groupId);
     await RenameGroupFolder.invoke(this.nt, this.resolvePid(), {
       groupId,
       folderId,

@@ -79,9 +79,15 @@ export function GroupCardIdentity({
         </div>
         <div className="weq-profile-heading" data-privacy-sensitive>
           <div className="weq-contact-title-line">
-            {editable && (role === 'owner' || role === 'admin') ? (
+            {editable ? (
               <div className="weq-profile-name weq-group-quick-name-editor">
-                <QQProfileField field="groupName" target={conversation.id} initial={name} inline />
+                <QQProfileField
+                  field="groupName"
+                  target={conversation.id}
+                  initial={name}
+                  groupRole={role}
+                  inline
+                />
               </div>
             ) : (
               <span className="weq-profile-name weq-contact-name">{name}</span>

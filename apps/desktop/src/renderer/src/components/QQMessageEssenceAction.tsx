@@ -5,6 +5,7 @@ import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { qqEssenceTarget } from '../lib/qqEssenceTarget';
 import type { Conversation, Message } from '../im-template/template/types';
 import { QQWriteResult } from './QQWriteControls';
+import { groupPermission, qqResourceOwnedBy } from '@weq/service/qq-permissions';
 import {
   essenceActive,
   essenceKey,
@@ -24,13 +25,56 @@ export function QQMessageEssenceAction({
   onClose: () => void;
   removeLabel?: string;
 }) {
-  if (conversation.type !== 'group' || !['owner', 'admin'].includes(conversation.group.role))
-    return null;
+  if (conversation.type !== 'group') return null;
+  return (
+    <QQMessageEssencePermission
+      conversation={conversation}
+      message={message}
+      onClose={onClose}
+      removeLabel={removeLabel}
+    />
+  );
+}
+
+function QQMessageEssencePermission({
+  conversation,
+  message,
+  onClose,
+  removeLabel,
+}: {
+  conversation: Extract<Conversation, { type: 'group' }>;
+  message: Message;
+  onClose: () => void;
+  removeLabel?: string;
+}) {
+  const session = useQQWriteSession(`essence-permission:${conversation.id}:${message.id}`);
+  const target = qqEssenceTarget(conversation, message);
+  const active = conversation.group.essenceSeqs?.includes(message.msgSeq ?? '') ?? false;
+  const permissions = trpc.account.qqWrite.groupEssencePermission.useQuery(
+    { ...session.binding!, groupId: target?.groupId ?? 0, sequence: target?.sequence ?? 0 },
+    { enabled: active && Boolean(target) && session.available, staleTime: 0, retry: false },
+  );
+  const groupState = trpc.account.qqActions.groupPermissions.useQuery(
+    { ...session.binding!, groupId: target?.groupId ?? 0 },
+    { enabled: Boolean(target) && session.available, staleTime: 15_000, retry: false },
+  );
+  const allowed = groupPermission(active ? 'essenceRemove' : 'essenceSet', {
+    ...groupState.data,
+    role: groupState.data ? groupState.data.role : conversation.group.role,
+    canRemove: permissions.data?.canRemove,
+    isSelf:
+      permissions.data?.isSelf ??
+      qqResourceOwnedBy(message.senderId, {
+        uid: groupState.data?.selfUid,
+        uin: session.binding?.expectedAccountUin,
+      }),
+  });
+  if (!allowed) return null;
   return (
     <QQEssenceAction
-      target={qqEssenceTarget(conversation, message)}
-      initialActive={conversation.group.essenceSeqs?.includes(message.msgSeq ?? '') ?? false}
-      allowed={conversation.group.role === 'owner' || conversation.group.role === 'admin'}
+      target={target}
+      initialActive={active}
+      allowed={allowed}
       onClose={onClose}
       removeLabel={removeLabel}
     />

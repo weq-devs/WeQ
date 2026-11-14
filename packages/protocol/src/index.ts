@@ -259,3 +259,7 @@ export type { ProfileEducationRecord, ProfileEducationHistory } from './oidb/pro
  * 用法：`import { groupCall } from '@weq/protocol'` → `groupCall.GroupRelayCmd`。
  */
 export * as groupCall from './group-call';
+export {
+  GetGroupOperationInfo,
+  type GroupOperationInfo,
+} from './oidb/group-admin/get-group-operation-info';

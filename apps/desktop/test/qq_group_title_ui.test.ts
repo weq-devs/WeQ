@@ -7,6 +7,7 @@ import { GroupCardIdentity } from '../src/renderer/src/components/groupProfile/G
 import type { GroupConversation } from '../src/renderer/src/im-template/template/types';
 import { QQGroupMemberControls } from '../src/renderer/src/components/QQGroupMemberControls';
 import { QQGroupMemberEditor } from '../src/renderer/src/components/QQGroupMemberControls';
+import { QQProfileField } from '../src/renderer/src/components/QQProfileField';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -15,6 +16,7 @@ const state = vi.hoisted(() => ({
   targetRole: 'member' as 'owner' | 'admin' | 'member' | null,
   memberUid: 'u_peer',
   available: true,
+  memberCanRename: false,
   mutate: vi.fn(async (_input: unknown) => ({ state: 'accepted' as const })),
   readTitle: '原头衔',
   readCard: '',
@@ -47,6 +49,11 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({ account: { specialCare: { invalidate: async () => {} } } }),
     account: {
+      qqActions: {
+        groupPermissions: {
+          useQuery: () => ({ data: { role: state.role, memberCanRename: state.memberCanRename } }),
+        },
+      },
       listCategories: { useQuery: () => ({}) },
       pickSendFile: { useMutation: () => ({}) },
       qqWrite: {
@@ -62,6 +69,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
           useQuery: () => ({
             data: {
               role: state.role,
+              memberCanRename: state.memberCanRename,
               selfUid: 'u_self',
               selfTitle: '原头衔',
               selfCard: '',
@@ -123,6 +131,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 }));
 const cleanups: Array<() => void> = [];
 beforeEach(() => {
+  state.memberCanRename = false;
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   state.mutate.mockClear();
   state.targetRole = 'member';
@@ -157,6 +166,27 @@ function fixture(element: ReactNode) {
   });
 }
 describe('专属头衔编辑权限', () => {
+  it.each([false, true])('普通成员改群名根据群开关开放：%s', (allowed) => {
+    state.role = 'member';
+    state.memberCanRename = allowed;
+    const host = fixture(
+      h(
+        QueryClientProvider,
+        {
+          client: new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+        },
+        h(QQProfileField, {
+          field: 'groupName',
+          target: '123',
+          initial: '测试群',
+          groupRole: 'member',
+          inline: true,
+        }),
+      ),
+    );
+    expect(Boolean(host.querySelector('[aria-label="编辑群名称"]'))).toBe(allowed);
+    expect(host.textContent).toBe('测试群');
+  });
   it('群设置不再挂载展示头衔选择、云端等级或本机显示开关', () => {
     state.role = 'owner';
     const host = fixture(h(QQConversationControls, { kind: 'group', conv: '123' }));

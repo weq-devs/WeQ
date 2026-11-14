@@ -194,9 +194,16 @@ function GroupFileManagerBody({
     [files, folders, query, sort, order],
   );
   const chosen = all.filter((row) => selected.has(row.key));
-  const manageable = (row: GroupFileEntryRow) =>
-    canManageGroupFile(row, manager, permissions.data?.selfUin);
+  const manageable = (row: GroupFileEntryRow, action: 'delete' | 'rename' | 'move' = 'delete') =>
+    canManageGroupFile(row, manager, permissions.data?.selfUin, action);
   const locked = a.disabled || loading;
+  const uploadAllowed = groupPermission('fileUpload', {
+    ...permissions.data,
+    role:
+      permissions.data?.role === null
+        ? null
+        : (permissions.data?.role ?? (manager ? 'admin' : 'member')),
+  });
   const selectedManageable = chosen.length > 0 && chosen.every((row) => manageable(row));
   const multi = useMultiSelection({
     ids: rows.map((row) => row.key),
@@ -293,7 +300,13 @@ function GroupFileManagerBody({
       if (mode === 'createFolder' && !manager) throw new Error('新建文件夹需要群主或管理员权限');
       const requested =
         mode === 'createFolder' ? [] : keys.map((key) => all.find((row) => row.key === key));
-      if (requested.some((row) => !row || !manageable(row!)))
+      if (
+        requested.some(
+          (row) =>
+            !row ||
+            !manageable(row!, mode === 'move' ? 'move' : mode === 'rename' ? 'rename' : 'delete'),
+        )
+      )
         throw new Error('选择包含无权限或已变化的项目');
       if (mode !== 'createFolder' && !requested.length) throw new Error('请先选择文件或文件夹');
       const nextName =
@@ -442,7 +455,7 @@ function GroupFileManagerBody({
     });
   }
   async function upload() {
-    if (locked || !uploads.some((item) => item.state === 'ready')) return;
+    if (locked || !uploadAllowed || !uploads.some((item) => item.state === 'ready')) return;
     stop.current = false;
     setError('');
     await a.perform(
@@ -558,7 +571,7 @@ function GroupFileManagerBody({
         );
         if (folderId === directory) throw new Error('文件已在当前目录');
         const keys = ids.map((id) => `file:${id}`);
-        if (keys.some((key) => !manageable(all.find((row) => row.key === key)!)))
+        if (keys.some((key) => !manageable(all.find((row) => row.key === key)!, 'move')))
           throw new Error('选择包含无权移动的文件');
         void openEditor('move', keys, folderId, folderName);
       } else {
@@ -650,7 +663,8 @@ function GroupFileManagerBody({
       <div className="weq-file-manager-toolbar" role="toolbar" aria-label="群文件工具栏">
         <ActionIcon
           label="选择上传文件"
-          disabled={locked}
+          title={uploadAllowed ? '选择上传文件' : '此群不允许普通成员上传文件'}
+          disabled={locked || !uploadAllowed}
           onClick={() =>
             void a.pickFile().then((file) => {
               if (file && current()) stage([file]);
@@ -740,7 +754,9 @@ function GroupFileManagerBody({
           </ActionIcon>
           <ActionIcon
             label="移动所选文件"
-            disabled={locked || !selectedManageable || chosen.some((row) => row.kind !== 'file')}
+            disabled={
+              locked || !manager || !selectedManageable || chosen.some((row) => row.kind !== 'file')
+            }
             onClick={() => void openEditor('move', [...selected])}
           >
             <FolderInput size={17} />
@@ -879,7 +895,8 @@ function GroupFileManagerBody({
             <strong>待上传文件</strong>
             <ActionIcon
               label="上传待处理文件"
-              disabled={locked || !uploads.some((item) => item.state === 'ready')}
+              title={uploadAllowed ? '上传待处理文件' : '此群不允许普通成员上传文件'}
+              disabled={locked || !uploadAllowed || !uploads.some((item) => item.state === 'ready')}
               onClick={() => void upload()}
             >
               <FileUp size={17} />
@@ -960,12 +977,12 @@ function GroupFileManagerBody({
                     : undefined,
                   dropTarget === row.key && 'is-drop-target',
                 )}
-                draggable={row.kind === 'file' && manageable(row) && !locked}
+                draggable={row.kind === 'file' && manageable(row, 'move') && !locked}
                 onDragStart={(event) => {
                   if (row.kind !== 'file' || !a.binding) return;
                   if (
                     selected.has(row.key) &&
-                    chosen.some((item) => item.kind !== 'file' || !manageable(item))
+                    chosen.some((item) => item.kind !== 'file' || !manageable(item, 'move'))
                   ) {
                     event.preventDefault();
                     setError('选择包含文件夹或无权移动的文件');
@@ -1207,7 +1224,11 @@ function GroupFileManagerBody({
             {
               label: '移动到',
               icon: <FolderInput size={16} />,
-              disabled: locked || !menuManageable || menuRows.some((row) => row.kind !== 'file'),
+              disabled:
+                locked ||
+                !manager ||
+                !menuManageable ||
+                menuRows.some((row) => row.kind !== 'file'),
               action: () => void openEditor('move', menu.keys),
             },
             {
@@ -1228,3 +1249,4 @@ export function GroupFileManager(props: Props) {
   return <Scoped key={`${props.groupId}:${props.directory}`} {...props} />;
 }
 import { SegmentedControl } from './SegmentedControl';
+import { groupPermission } from '@weq/service/qq-permissions';
