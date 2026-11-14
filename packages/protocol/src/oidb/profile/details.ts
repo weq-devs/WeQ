@@ -1,4 +1,5 @@
-import type { TrpcNative } from '../../transport';
+import type { TrpcNative, OidbNative } from '../../transport';
+import { getCloudProfile } from './cloud-profile';
 import { invokeLegacyOidb } from '../legacy';
 import { requireUin } from '../write-validation';
 import {
@@ -13,6 +14,8 @@ export const PROFILE_DETAIL_FIELDS = {
   personalDescription: 20019,
   email: 20011,
   hometown: 24002,
+  school: 20021,
+  profession: 27037,
 } as const;
 export type ProfileDetailField = keyof typeof PROFILE_DETAIL_FIELDS;
 export interface ProfileDetailInfo {
@@ -23,6 +26,8 @@ export interface ProfileDetailInfo {
   /** 兼容先前查询缓存没有此字段的情况。 */
   hometown?: string[] | null;
   hometownText?: string | null;
+  school?: string | null;
+  profession?: number | null;
   errors: Partial<Record<ProfileDetailField, string>>;
 }
 const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -48,7 +53,7 @@ export async function getProfileDetails(
     targetUin,
   );
   const errors: ProfileDetailInfo['errors'] = {};
-  const read = (field: Exclude<ProfileDetailField, 'hometown'>) => {
+  const read = (field: Exclude<ProfileDetailField, 'hometown' | 'profession'>) => {
     const bytes = values.get(PROFILE_DETAIL_FIELDS[field]);
     if (bytes === undefined) return null;
     try {
@@ -60,6 +65,10 @@ export async function getProfileDetails(
   };
   const hometown = decodeQqRegion(values.get(PROFILE_DETAIL_FIELDS.hometown), values.get(district));
   if (values.has(PROFILE_DETAIL_FIELDS.hometown) && !hometown) errors.hometown = '地区格式无法识别';
+  const occupation = values.get(PROFILE_DETAIL_FIELDS.profession);
+  const profession = occupation?.length === 4 ? Buffer.from(occupation).readUInt32BE() : null;
+  if (occupation && occupation.length !== 0 && occupation.length !== 4)
+    errors.profession = '职业格式无法识别';
   return {
     targetUin,
     company: read('company'),
@@ -67,6 +76,26 @@ export async function getProfileDetails(
     email: read('email'),
     hometown,
     hometownText: formatQqRegion(hometown, QQ_REGIONS),
+    school: read('school'),
+    profession,
     errors,
   };
+}
+
+export interface ProfileRegion {
+  targetUin: string;
+  region: string[] | null;
+  regionText: string | null;
+}
+/** 所在地使用现代资料字段 20032，与旧家乡 TLV 保持独立。 */
+export async function getProfileRegion(
+  nt: OidbNative,
+  pid: number,
+  targetUin: string,
+): Promise<ProfileRegion> {
+  const data = await getCloudProfile(nt, pid, targetUin, [20032]);
+  const bytes = data.bytes.get(20032);
+  const region = decodeQqRegion(bytes);
+  if (bytes && !region) throw new Error('所在地地区格式无法识别');
+  return { targetUin, region, regionText: formatQqRegion(region, QQ_REGIONS) };
 }

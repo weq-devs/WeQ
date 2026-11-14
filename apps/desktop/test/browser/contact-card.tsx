@@ -91,6 +91,16 @@ const sample: Contact = {
   },
 };
 const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+if (new URLSearchParams(location.search).has('empty-basics') && sample.extInfo) {
+  Object.assign(sample.extInfo, {
+    school: undefined,
+    degree: undefined,
+    occupation: undefined,
+    country: undefined,
+    province: undefined,
+    city: undefined,
+  });
+}
 if (new URLSearchParams(location.search).has('data-saver')) {
   useDataSaver.setState({ enabled: true });
   Object.assign(window, {

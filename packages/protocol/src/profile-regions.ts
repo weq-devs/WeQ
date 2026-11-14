@@ -13,11 +13,11 @@ export function formatQqRegion(
   return (
     path
       .map((code) => {
-        const node = nodes.find((row) => row.code === code);
+        const node = nodes.find((row) => row.code === (code || '0'));
         nodes = node?.children ?? [];
-        return node?.name ?? (code === '0' ? '' : code);
+        return code === '0' || code === '' ? '' : (node?.name ?? code);
       })
       .filter(Boolean)
-      .join(' · ') || '未设置'
+      .join(' · ') || null
   );
 }

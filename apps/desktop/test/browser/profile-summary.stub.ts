@@ -6,6 +6,9 @@ export { useQQWriteSession } from './contact-card.stub';
 export const summaryQa = {
   state: 'ready' as 'ready' | 'empty' | 'error' | 'loading',
   calls: [] as string[],
+  unrestrictedHome: false,
+  legacySchoolEmpty: false,
+  dnaCommon: false,
 };
 const regions = [
   {
@@ -25,29 +28,62 @@ const regions = [
 Object.assign(window, { profileApprovedQa: summaryQa });
 function value(path: string, input: { uin?: string }) {
   const targetUin = input?.uin ?? base.qa.account;
+  if (path === 'account.profileExtras.region')
+    return { targetUin, region: ['1', '51', '1'], regionText: '中国 · 四川 · 成都' };
+  if (
+    path === 'account.profileExtras.educationHistory' &&
+    new URLSearchParams(location.search).has('empty-basics')
+  )
+    return {
+      targetUin,
+      items: [
+        {
+          index: 1,
+          category: 3,
+          schoolName: '合成大学',
+          departmentName: '合成院系',
+          degree: 6,
+          enrollmentYear: 2025,
+          graduationYear: null,
+          hidden: 0,
+          verifyStatus: 0,
+        },
+      ],
+    };
   if (path === 'account.profileExtras.similarity')
     return {
       targetUin,
       items:
         summaryQa.state === 'empty'
           ? []
-          : [
-              {
-                title: '同校',
-                icon: null,
-                wordings: ['合成学校', '较长的共同点文案，用于验证窄屏换行和内容列的布局。'],
-              },
-              {
-                title: '共同兴趣',
-                icon: null,
-                wordings: ['这是 QQ 返回的合成资料，不是 AI 推断。'],
-              },
-            ],
+          : summaryQa.dnaCommon
+            ? [
+                {
+                  title: '',
+                  icon: null,
+                  wordings: [
+                    'QQ 返回的共同资料合成文案',
+                    '这是一条较长的合成资料，用于核对兼容结果在窄屏中的换行。',
+                  ],
+                },
+              ]
+            : [
+                {
+                  title: '同校',
+                  icon: null,
+                  wordings: ['合成学校', '较长的共同点文案，用于验证窄屏换行和内容列的布局。'],
+                },
+                {
+                  title: '共同兴趣',
+                  icon: null,
+                  wordings: ['这是 QQ 返回的合成资料，不是 AI 推断。'],
+                },
+              ],
     };
   if (path === 'account.qqWrite.profileRegions') return { regions, professions: QQ_PROFESSIONS };
   if (path === 'account.qqWrite.editableSelfProfile')
     return {
-      hometown: ['1', '35', '2', '0'],
+      hometown: summaryQa.unrestrictedHome ? ['0', '0', '0', '0'] : ['1', '35', '2', '0'],
       region: ['1', '35', '2'],
       birthday: '2000-02-29',
       email: 'self@example.invalid',
@@ -79,8 +115,15 @@ function wrap(source: unknown, path = ''): unknown {
                   ...result,
                   data: {
                     ...result.data,
-                    hometown: ['1', '35', '2', '0'],
-                    hometownText: formatQqRegion(['1', '35', '2', '0'], regions),
+                    hometown: summaryQa.unrestrictedHome
+                      ? ['0', '0', '0', '0']
+                      : ['1', '35', '2', '0'],
+                    hometownText: formatQqRegion(
+                      summaryQa.unrestrictedHome ? ['0', '0', '0', '0'] : ['1', '35', '2', '0'],
+                      regions,
+                    ),
+                    school: summaryQa.legacySchoolEmpty ? null : '合成大学',
+                    profession: 1,
                   },
                 }
               : result;

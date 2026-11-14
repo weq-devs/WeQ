@@ -79,6 +79,26 @@ const readers = {
   getEducationHistory,
 };
 const nt = { sendPacket: vi.fn() };
+it('所在地来源单独去重，沿用进程切换校验，不需要重复读取其他详细资料', async () => {
+  let release!: () => void;
+  let pid = 5;
+  const wait = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const region = vi.fn(async (_nt, _pid, targetUin: string) => {
+    await wait;
+    return { targetUin, region: null, regionText: null };
+  });
+  const service = new ProfileExtrasService({ ...nt, sendOidbPacket: vi.fn() }, '10001', () => pid, {
+    ...readers,
+    getProfileRegion: region,
+  });
+  const results = Promise.allSettled([service.region('10002'), service.region('10002')]);
+  expect(region).toHaveBeenCalledOnce();
+  pid = 6;
+  release();
+  expect((await results).every((result) => result.status === 'rejected')).toBe(true);
+});
 it('共同点按账号与目标去重，进程切换拒绝迟到结果', async () => {
   let release!: () => void;
   let pid = 5;

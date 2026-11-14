@@ -76,6 +76,8 @@ vi.mock('@renderer/trpc/client', () => ({
         groupMemberMute: { useMutation: () => ({ mutateAsync: vi.fn() }) },
       },
       profileExtras: {
+        region: { useQuery: () => ({ data: undefined }) },
+        educationHistory: { useQuery: () => ({ data: undefined }) },
         energy: { useQuery: () => ({ data: undefined }) },
         signatureHistory: {
           useInfiniteQuery: vi.fn((input: { uin: string }) => ({

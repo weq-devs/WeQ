@@ -36,7 +36,7 @@ describe('公司、个人说明、邮箱读取', () => {
     const envelope = decode(legacyOidbEnvelope, call[2]);
     expect(envelope).toMatchObject({ command: 0x480, serviceType: 9 });
     expect(Buffer.from(envelope.body as Uint8Array).toString('hex')).toBe(
-      '000027120000055dc84e334e2b5dc24e4b',
+      '000027120000075dc84e334e2b5dc24e35699d4e4b',
     );
   });
   it('三项独立读取，保留换行与非 ASCII 文本，不作邮箱格式改写', async () => {
@@ -60,6 +60,8 @@ describe('公司、个人说明、邮箱读取', () => {
       email: 'synthetic@example.invalid',
       hometown: null,
       hometownText: null,
+      school: null,
+      profession: null,
       errors: {},
     });
   });
@@ -82,6 +84,8 @@ describe('公司、个人说明、邮箱读取', () => {
       email: null,
       hometown: null,
       hometownText: null,
+      school: null,
+      profession: null,
       errors: {},
     });
   });
@@ -174,6 +178,6 @@ describe('公司、个人说明、邮箱读取', () => {
     expect((await getProfileDetails(native(body([])), 7, '10002')).hometown).toBeNull();
     expect(
       await getProfileDetails(native(body([[PROFILE_DETAIL_FIELDS.hometown, '']])), 7, '10002'),
-    ).toMatchObject({ hometown: [], hometownText: '未设置', errors: {} });
+    ).toMatchObject({ hometown: [], hometownText: null, errors: {} });
   });
 });

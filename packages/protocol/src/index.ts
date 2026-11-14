@@ -236,9 +236,9 @@ export type {
 
 export * from './call';
 export * from './oidb/profile/extras';
-export { getProfileDetails, PROFILE_DETAIL_FIELDS } from './oidb/profile/details';
+export { getProfileDetails, getProfileRegion, PROFILE_DETAIL_FIELDS } from './oidb/profile/details';
 export { decodeQqRegion, formatQqRegion } from './oidb/profile/editable-profile';
-export type { ProfileDetailInfo, ProfileDetailField } from './oidb/profile/details';
+export type { ProfileDetailInfo, ProfileDetailField, ProfileRegion } from './oidb/profile/details';
 export { getProfileSimilarity } from './oidb/profile/card-summary';
 export type { ProfileSimilarity } from './oidb/profile/card-summary';
 export { getEducationHistory } from './oidb/profile/education';

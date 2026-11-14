@@ -233,7 +233,7 @@ export const UNCONFIRMED_SIGN_COMMANDS: Readonly<Record<string, string>> = {
   'trpc.qqrtc.mav_appsvr.MavAppsvr.SsoEnterRoom': '旧群通话常量，当前群信令抓包记录未覆盖',
   'trpc.qqrtc.mav_appsvr.MavAppsvr.SsoDeleteUser': '旧群通话常量，当前群信令抓包记录未覆盖',
   'MQUpdateSvc_com_qq_ti.web.OidbSvc.0xeb1_1': '好友线索：研究文档明确记载签名要求未实测',
-  'SummaryCard.ReqSummaryCard': '资料卡聚合：保留默认策略，桌面真实读取及签名要求未完成验证',
+  'SummaryCard.ReqSummaryCard': '资料卡聚合：非好友来源已校正，macOS 仍返回151，未确认签名要求',
   'QzoneV4Service.trpc.qzone.feeds_reader.FeedsReader.GetFeedDetail':
     '空间 V4 详情：仅 macOS QQ 实测可用，未逐平台确认签名要求',
 };

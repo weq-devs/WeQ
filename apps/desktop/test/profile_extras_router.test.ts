@@ -25,16 +25,26 @@ function fixture() {
     display: null,
     trend: null,
   }));
-  const service = new ProfileExtrasService({ sendPacket: vi.fn() }, '10001', () => 5, {
-    getProfileEnergy: energy,
-    getSignatureHistory,
-    getPersonalityLabels,
-    getPersonalityPhotos,
-    getAnonymousQuestions,
-    getEducationHistory: vi.fn(async (_nt, _pid, targetUin) => ({ targetUin, items: [] })),
-    getProfileDetails: details,
-    getProfileSimilarity: async (_nt, _pid, _self, targetUin) => ({ targetUin, items: [] }),
-  });
+  const service = new ProfileExtrasService(
+    { sendPacket: vi.fn(), sendOidbPacket: vi.fn() },
+    '10001',
+    () => 5,
+    {
+      getProfileEnergy: energy,
+      getSignatureHistory,
+      getPersonalityLabels,
+      getPersonalityPhotos,
+      getAnonymousQuestions,
+      getEducationHistory: vi.fn(async (_nt, _pid, targetUin) => ({ targetUin, items: [] })),
+      getProfileDetails: details,
+      getProfileRegion: async (_nt, _pid, targetUin) => ({
+        targetUin,
+        region: ['1', '51', '1'],
+        regionText: '中国 · 四川 · 成都',
+      }),
+      getProfileSimilarity: async (_nt, _pid, _self, targetUin) => ({ targetUin, items: [] }),
+    },
+  );
   let active = { profileExtras: service };
   const routes = createProfileExtrasRouter((input) => {
     if (
@@ -60,6 +70,16 @@ it('已撤下的勋章墙不保留可调用路由', () => {
 it('只读路由保留零值并绑定目标', async () => {
   const { caller } = fixture();
   expect(await caller.energy(binding)).toMatchObject({ targetUin: '10002', score: 0 });
+});
+it('所在地补全也绑定账号与数据源，不把家乡作为所在地返回', async () => {
+  const { caller } = fixture();
+  expect(await caller.region(binding)).toMatchObject({
+    targetUin: binding.uin,
+    regionText: '中国 · 四川 · 成都',
+  });
+  await expect(caller.region({ ...binding, expectedAccountConfigId: 'other' })).rejects.toThrow(
+    '账号',
+  );
 });
 it('共同点入口沿用账号来源绑定，空共同点有效', async () => {
   const { caller } = fixture();

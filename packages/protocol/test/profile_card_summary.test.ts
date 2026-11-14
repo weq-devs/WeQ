@@ -8,6 +8,8 @@ import {
   type JceValue,
 } from '../src/oidb/profile/summary-jce';
 import { walkProto } from '../src/msg/dump';
+import { encode, decode } from '../src/protobuf';
+import { legacyOidbEnvelope } from '../src/oidb/legacy';
 
 function reply(extra = Buffer.alloc(0), result = 0, target = 10002, version = 3) {
   const entries = new Map<JceValue, JceValue>([
@@ -70,6 +72,9 @@ describe('名片共同点', () => {
     expect(call.slice(0, 2)).toEqual([7, PROFILE_SUMMARY_COMMAND]);
     const map = readJce(readJce(call[2]).get(7) as Buffer).get(0) as Map<JceValue, JceValue>;
     const fields = readJce(map.get('ReqSummaryCard') as Buffer).get(0) as Map<JceValue, JceValue>;
+    expect(fields.get(1)).toBe(10);
+    expect(fields.get(3)).toBe(0);
+    expect(fields.get(9)).toBe(10004);
     expect(fields.get(18)).toBe(0);
     const frames = fields.get(14) as Buffer[];
     expect(frames).toHaveLength(1);
@@ -78,6 +83,69 @@ describe('名片共同点', () => {
       walkProto(frames[0]!.subarray(9, 9 + frames[0]!.readUInt32BE(1))).find((f) => f.tag === 5)
         ?.value,
     ).toBe('22');
+  });
+  it.each([1, 151])(
+    '聚合拒绝 %i 时使用已核验的 QQ 共同资料，保留目标及服务端文案',
+    async (result) => {
+      const body = Buffer.from('08914e10924e720b1a0973616d652063697479', 'hex');
+      const binding = {
+        sendPacket: vi.fn(async (_pid: number, command: string, _body: Uint8Array) =>
+          command === PROFILE_SUMMARY_COMMAND
+            ? reply(Buffer.alloc(0), result)
+            : Buffer.from(
+                encode(legacyOidbEnvelope, { command: 0xcf4, serviceType: 0, result: 0, body }),
+              ),
+        ),
+      };
+      expect(await getProfileSimilarity(binding, 7, '10001', '10002')).toEqual({
+        targetUin: '10002',
+        source: 'dna',
+        items: [{ icon: null, title: '', wordings: ['same city'] }],
+      });
+      expect(binding.sendPacket.mock.calls.map((call) => call[1])).toEqual([
+        PROFILE_SUMMARY_COMMAND,
+        'OidbSvc.0xcf4',
+      ]);
+      const request = decode(legacyOidbEnvelope, binding.sendPacket.mock.calls[1]![2]);
+      const fields = walkProto(request.body as Uint8Array);
+      expect(fields.find((f) => f.tag === 4)?.value).toBe('1');
+      expect(fields.find((f) => f.tag === 6)?.value).toBe('0');
+    },
+  );
+  it('兼容读取成功为空、错身份和业务拒绝分别处理，不用空结果掩盖错误', async () => {
+    const binding = (body: Buffer, result = 0) => ({
+      sendPacket: vi.fn(async (_pid: number, command: string) =>
+        command === PROFILE_SUMMARY_COMMAND
+          ? reply(Buffer.alloc(0), 151)
+          : Buffer.from(
+              encode(legacyOidbEnvelope, { command: 0xcf4, serviceType: 0, result, body }),
+            ),
+      ),
+    });
+    expect(
+      await getProfileSimilarity(binding(Buffer.from('08914e10924e', 'hex')), 7, '10001', '10002'),
+    ).toEqual({ targetUin: '10002', source: 'dna', items: [] });
+    for (const body of [Buffer.from('08914e10934e', 'hex'), Buffer.from('10924e', 'hex')])
+      await expect(getProfileSimilarity(binding(body), 7, '10001', '10002')).rejects.toThrow(
+        '匹配',
+      );
+    await expect(
+      getProfileSimilarity(binding(Buffer.alloc(0), 316), 7, '10001', '10002'),
+    ).rejects.toThrow('151');
+    await expect(
+      getProfileSimilarity(binding(Buffer.alloc(0), 316), 7, '10001', '10002'),
+    ).rejects.toThrow('316');
+    await expect(
+      getProfileSimilarity(
+        binding(Buffer.from('08914e10924e72031a01ff', 'hex')),
+        7,
+        '10001',
+        '10002',
+      ),
+    ).rejects.toThrow('编码无效');
+    const unknown = nt(reply(Buffer.alloc(0), 99));
+    await expect(getProfileSimilarity(unknown, 7, '10001', '10002')).rejects.toThrow('99');
+    expect(unknown.sendPacket).toHaveBeenCalledOnce();
   });
   it('成功空共同点与未返回／聚合拒绝／业务拒绝区分', async () => {
     expect(

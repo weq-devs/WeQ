@@ -56,9 +56,13 @@ UID 仅在开启该字段时进入身份区。`styles/contact-workspace.css` 承
 
 ### 家乡与共同点
 
-- `profileExtras.details` 在现有三项文本外请求家乡 24002 与区县 20043，复用 `decodeQqRegion`；三层地区可独立返回，明确空值、未返回与损坏值分别处理。`profile-regions` 子入口只输出浏览器可用的类型及 `formatQqRegion`，不引入传输、Node 模块或整份地区目录。本人使用已有地区目录查询，其他人的 `hometownText` 在服务端用同一个函数生成。
+- `profileExtras.details` 在公司、说明、邮箱、家乡 24002 与区县 20043 之外，请求旧学校文字 **20021** 与职业 **27037**（四字节大端整数）；数值学校 ID 不作学校名称。所在地通过独立 `profileExtras.region` 复用 `getCloudProfile` 的 **0xfe1_2 / bytes 20032**，不与家乡混用。两条查询都复用既有账号、进程及目标校验。
+- `profile-regions` 子入口只输出浏览器可用的类型及 `formatQqRegion`，不引入传输、Node 模块或整份地区目录。零／空地区代码继续遍历下级，但不显示「不限」；全部未选返回 null，未返回与损坏值不伪造为有效资料。本人使用已有地区目录查询，其他人的 `hometownText / regionText` 在服务端用同一个函数生成。
+- `ContactOnlineFields` 仅在相应字段缺少本地内容时挂载在线补全，已有值立即显示。职业、学校和其他详细资料共享查询；所在地单独读取，学校文字缺失或旧资料失败时，独立读取 `educationHistory` 并跳过他人的隐藏经历。本地仅有学历时仍先显示，不等待学校补全。字段隐藏、预览、本地模式或离开章节时不新增对应读取。
 - `ProfileSummary` 复用 `ContactRow`、查询缓存和活动章节状态。`ProfileExtrasService.similarity` 通过原路由绑定账号配置、目标及进程，按业务和目标在途去重；所有结果再次检查来源及目标，不修改名称缓存或 QQ 数据库。
-- 共同点使用聚合业务 22，0x28/0x29 帧内的 comm 与业务 protobuf 分开解析，校验长度、目标与错误码。仅对已确认非好友挂载，普通共同好友／共同群和互动画像不受影响。
+- 共同点聚合业务 22 使用非好友名片来源 **eComeFrom=10、bIsFriend=0、eAddFriendSource=10004**，不能使用本人来源 0；当前服务端明确以 `SelfCard visit, but FromUin != ToUin` 拒绝错误来源。0x28/0x29 帧内的 comm 与业务 protobuf 分开解析，校验长度、目标与错误码。
+- 聚合明确返回 1／151 时，兼容 **OidbSvc.0xcf4** 的 QQ 共同资料：请求 from@1、to@2、qzone@4=true、newDna@6=false；响应 from@1／to@2 必须匹配双方，从 **DnaInfo@14 的 wording@3** 读取严格 UTF-8 主文案，`source=dna`。不推断相同属性，不使用新 DNA 的聊天小结或友谊时间线。该路径已在 macOS 当前真实登录态读取到非空文案；这不表示原聚合 151 已解决。两条路径均失败时保留两个原因；格式异常与错目标不通过切换来源掩盖。
+- 共同点仍仅对已确认非好友挂载，普通共同好友／共同群和互动画像不受影响。所有补全只读，均不写 QQ 原库或会话名称缓存。
 - 本轮使用现有中央签名策略，不更换登录身份或伪装 Android；JCE 适配只复用历史编解码原型，不恢复已撤下的好友扩展备注接口。
 
 针对性协议用例在 `profile_card_summary.test.ts`、`profile_details.test.ts`；账号绑定和在途检查沿 `profile_extras.test.ts` 与 `profile_extras_router.test.ts`；界面／路由回归为 `profile_summary_ui.test.ts`、`contact_workspace_sections.test.ts` 和 `contact_workspace_model.test.ts`，包含已撤下勋章墙的导航和路由不存在、旧页签回退检查。浏览器入口 `run-profile-summary.mjs` 使用既有 Playwright／浏览器环境变量，以 `WEQ_PROFILE_APPROVED_QA` 保存证据，覆盖本人／他人格式一致、无勋章入口或查询、非好友共同点、空态与失败重试，退出时关闭自身服务器及浏览器。

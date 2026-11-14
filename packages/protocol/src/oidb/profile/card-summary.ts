@@ -2,6 +2,7 @@ import { decode, encode, message } from '../../protobuf';
 import { walkProto } from '../../msg/dump';
 import { sendPacket, type TrpcNative } from '../../transport';
 import { requireUin } from '../write-validation';
+import { invokeLegacyOidb, LegacyOidbRejectedError } from '../legacy';
 import { jceFields, jceStruct, readJce, type JceValue } from './summary-jce';
 
 export const PROFILE_SUMMARY_COMMAND = 'SummaryCard.ReqSummaryCard';
@@ -24,6 +25,12 @@ const similarityResponse = message([
 export interface ProfileSimilarity {
   targetUin: string;
   items: Array<{ icon: string | null; title: string; wordings: string[] }>;
+  source?: 'dna';
+}
+class SummaryReadError extends Error {
+  constructor(readonly result: number | null) {
+    super(`资料卡读取失败（${result ?? '未知'}）`);
+  }
 }
 function uint(value: JceValue | undefined): number | null {
   if (value === undefined) return null;
@@ -57,14 +64,15 @@ function summaryRequest(self: string, target: string) {
           'ReqSummaryCard',
           jceStruct({
             0: to,
-            1: 0,
+            // Android 普通非好友名片来源；0 是本人名片，不能用于访问他人。
+            1: 10,
             2: 0,
-            3: 1,
+            3: 0,
             4: 0,
             5: 0,
             6: Buffer.of(0),
             8: 0,
-            9: 0,
+            9: 10004,
             10: Buffer.of(0),
             14: [frame],
             15: 0,
@@ -105,7 +113,7 @@ async function summary(nt: TrpcNative, pid: number, self: string, target: string
     return row;
   };
   const result = uint(struct('RespHead').get(1));
-  if (result !== 0) throw new Error(`资料卡读取失败（${result ?? '未知'}）`);
+  if (result !== 0) throw new SummaryReadError(result);
   const row = struct('RespSummaryCard');
   if (String(row.get(23)) !== target) throw new Error('资料卡返回目标不匹配');
   return row;
@@ -117,7 +125,25 @@ export async function getProfileSimilarity(
   targetUin: string,
 ): Promise<ProfileSimilarity> {
   if (self === targetUin) throw new Error('不查询与自己的共同点');
-  const row = await summary(nt, pid, self, targetUin);
+  let row: Map<JceValue, JceValue>;
+  try {
+    row = await summary(nt, pid, self, targetUin);
+  } catch (error) {
+    if (!(error instanceof SummaryReadError) || (error.result !== 1 && error.result !== 151))
+      throw error;
+    try {
+      return await getDnaSimilarity(nt, pid, self, targetUin);
+    } catch (compatibilityError) {
+      const reason =
+        compatibilityError instanceof LegacyOidbRejectedError
+          ? `OIDB ${compatibilityError.result}`
+          : compatibilityError instanceof Error &&
+              /匹配|截断|UTF|格式|结构|过长|超限|无效/.test(compatibilityError.message)
+            ? compatibilityError.message
+            : '传输失败';
+      throw new Error(`${error.message}；共同资料兼容读取失败（${reason}）`);
+    }
+  }
   const frames = row.get(46);
   if (!Array.isArray(frames)) throw new Error('共同点业务未返回');
   let body: Uint8Array | undefined;
@@ -151,5 +177,66 @@ export async function getProfileSimilarity(
       title: item.title ?? '',
       wordings: item.wordings ?? [],
     })),
+  };
+}
+
+const dnaRequest = message([
+  { name: 'from', tag: 1, type: 'uint64' },
+  { name: 'to', tag: 2, type: 'uint64' },
+  { name: 'qzone', tag: 4, type: 'bool', force: true },
+  { name: 'newDna', tag: 6, type: 'bool', force: true },
+]);
+const dnaResponse = message([
+  { name: 'from', tag: 1, type: 'uint64' },
+  { name: 'to', tag: 2, type: 'uint64' },
+  {
+    name: 'items',
+    tag: 14,
+    repeated: true,
+    type: message([{ name: 'wording', tag: 3, type: 'bytes' }]),
+  },
+]);
+/** 兼容 QQ 返回的逐项共同资料文案，不自行推断属性或引入聊天小结／友谊时间线。 */
+async function getDnaSimilarity(
+  nt: TrpcNative,
+  pid: number,
+  self: string,
+  targetUin: string,
+): Promise<ProfileSimilarity> {
+  const from = requireUin(self),
+    to = requireUin(targetUin);
+  const bytes = await invokeLegacyOidb(
+    nt,
+    pid,
+    0xcf4,
+    0,
+    'OidbSvc.0xcf4',
+    encode(dnaRequest, { from, to, qzone: true, newDna: false }),
+    { strict: true },
+  );
+  walkProto(bytes);
+  const data = decode(dnaResponse, bytes, { strict: true });
+  if (data.from !== from || data.to !== to) throw new Error('共同资料返回目标不匹配');
+  const records = data.items ?? [];
+  if (!Array.isArray(records) || records.length > 100) throw new Error('共同资料结构无效');
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  const wordings: string[] = [];
+  for (const record of records) {
+    const raw = record as { wording?: Uint8Array };
+    if (raw.wording === undefined) continue;
+    if (!(raw.wording instanceof Uint8Array) || raw.wording.length > 65536)
+      throw new Error('共同资料文案格式无效');
+    let text: string;
+    try {
+      text = decoder.decode(raw.wording);
+    } catch {
+      throw new Error('共同资料文案编码无效');
+    }
+    if (text.trim() && !wordings.includes(text)) wordings.push(text);
+  }
+  return {
+    targetUin,
+    source: 'dna',
+    items: wordings.length ? [{ icon: null, title: '', wordings }] : [],
   };
 }

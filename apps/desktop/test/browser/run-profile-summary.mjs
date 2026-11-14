@@ -56,7 +56,7 @@ try {
   );
   if (output) await mkdir(output, { recursive: true });
   await page.goto(
-    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/profile-summary.html`,
+    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/profile-summary.html?empty-basics`,
   );
   await page.getByRole('button', { name: '打开完整资料页', exact: true }).click();
   await page.getByText('家乡', { exact: true }).waitFor();
@@ -66,6 +66,39 @@ try {
     .locator('.weq-profile-data-value')
     .innerText();
   assert.ok(otherHometown.includes('福建'));
+  await page.getByText('计算机／互联网／通信', { exact: true }).waitFor();
+  await page.getByText('中国 · 四川 · 成都', { exact: true }).waitFor();
+  await page.getByRole('button', { name: '合成大学', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: '教育经历', exact: true })
+    .getByText('合成院系', { exact: true })
+    .waitFor();
+  await page
+    .getByRole('dialog', { name: '教育经历', exact: true })
+    .getByRole('button', { name: '关闭资料详情' })
+    .click();
+  checks.push({ view: 'online-basics', emptyLocalCache: true, educationOpened: true });
+  await page.evaluate(() => {
+    window.profileApprovedQa.unrestrictedHome = true;
+    window.contactCardQa.notify();
+  });
+  await page.getByText('家乡', { exact: true }).waitFor({ state: 'detached' });
+  assert.equal(await page.getByText('家乡', { exact: true }).count(), 0);
+  await page.evaluate(() => {
+    window.profileApprovedQa.unrestrictedHome = false;
+    window.profileApprovedQa.legacySchoolEmpty = true;
+    window.contactCardQa.notify();
+  });
+  await page.getByRole('button', { name: '合成大学 · 本科', exact: true }).waitFor();
+  checks.push({
+    view: 'hometown-and-education',
+    unrestrictedHidden: true,
+    structuredFallback: true,
+  });
+  await page.evaluate(() => {
+    window.profileApprovedQa.legacySchoolEmpty = false;
+    window.contactCardQa.notify();
+  });
   assert.equal(
     await page.evaluate(() =>
       window.profileApprovedQa.calls.includes('account.profileExtras.medalWall'),
@@ -85,6 +118,19 @@ try {
         ),
       );
       assert.equal(overflow, false);
+      if (width <= 720) {
+        const nav = await page.locator('.weq-profile-directory-tabs').evaluate((node) => {
+          const style = getComputedStyle(node);
+          return {
+            height: node.clientHeight,
+            required:
+              node.firstElementChild.getBoundingClientRect().height +
+              Number.parseFloat(style.paddingTop) +
+              Number.parseFloat(style.paddingBottom),
+          };
+        });
+        assert.ok(nav.height + 1 >= nav.required, '资料增加后章节条不能被挤压或截断');
+      }
       if (output)
         await page.screenshot({ path: `${output}/profile-${width}-${theme}.png`, fullPage: true });
       checks.push({ view: 'profile', width, theme, medalsRemoved: true });
@@ -95,6 +141,17 @@ try {
   });
   await page.getByRole('tab', { name: '与我的关系', exact: true }).click();
   await page.getByText('共同兴趣', { exact: true }).waitFor();
+  await page.evaluate(() => {
+    window.profileApprovedQa.dnaCommon = true;
+    window.contactCardQa.notify();
+  });
+  await page.getByText('QQ 返回的共同资料合成文案', { exact: false }).waitFor();
+  if (output) await page.screenshot({ path: `${output}/common-dna-320-dark.png`, fullPage: true });
+  checks.push({ view: 'common-dna', width: 320, theme: 'dark' });
+  await page.evaluate(() => {
+    window.profileApprovedQa.dnaCommon = false;
+    window.contactCardQa.notify();
+  });
   assert.equal(
     await page
       .getByRole('region', { name: '与我的关系', exact: true })

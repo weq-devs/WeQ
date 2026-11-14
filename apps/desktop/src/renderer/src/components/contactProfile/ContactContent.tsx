@@ -62,6 +62,12 @@ import { SelfProfileSlot, useSelfProfileFields } from '../SelfProfileFields';
 import { ProfileDisplayEntry } from '../ProfileDisplaySettings';
 import { SelfAvatarHistory } from '../SelfAvatarHistory';
 import { SelfOnlineStatus } from '../SelfOnlineStatus';
+import {
+  ContactOnlineOccupation,
+  ContactOnlineRegion,
+  ContactOnlineSchool,
+} from './ContactOnlineFields';
+import { useTabActive } from '../RetainedTabs';
 
 export { contactCardFieldGroup, type ContactCardGroup } from '../../lib/contactCardSections';
 
@@ -405,13 +411,14 @@ function ExtraField({
   field: 'company' | 'description' | 'email' | 'hometown';
 }) {
   const session = useQQWriteSession(`contact-details:${person.id}`, true);
+  const active = useTabActive();
   const query = trpc.account.profileExtras.details.useQuery(
     {
       expectedAccountUin: session.binding?.expectedAccountUin ?? '',
       expectedAccountConfigId: session.binding?.expectedAccountConfigId ?? '',
       uin: person.identityValue,
     },
-    { ...PROFILE_QUERY_OPTIONS, enabled: session.available },
+    { ...PROFILE_QUERY_OPTIONS, enabled: active && session.available },
   );
   const data = query.data?.targetUin === person.identityValue ? query.data : null;
   if (field === 'hometown')
@@ -839,6 +846,14 @@ export function ContactContent({
   const hasQQ =
     ['QQ', 'UIN'].includes(person.identityLabel) && /^[1-9]\d{4,19}$/.test(person.identityValue);
   const personal = !person.clone && person.kind !== 'bot' && !ext?.isEnterprise && hasQQ;
+  const onlineFallback = personal && !localOnly && !preview;
+  const occupation = occupationText(ext?.occupation);
+  const region = [
+    ...new Set(
+      [ext?.country, ext?.province, ext?.city].map((part) => part?.trim()).filter(Boolean),
+    ),
+  ].join(' · ');
+  const school = [ext?.school?.trim(), ext?.degree?.trim()].filter(Boolean).join(' · ');
   const relationIds = [
     ...new Set([person.extRelation?.displayId, ...(person.extRelation?.preselectedIds ?? [])]),
   ].filter((id): id is number => id !== undefined);
@@ -895,23 +910,24 @@ export function ContactContent({
     bloodType: <ContactRow label="血型" value={bloodTypeText(ext?.bloodType)} />,
     occupation: (
       <SelfProfileSlot field="profession">
-        <ContactRow label="职业" value={occupationText(ext?.occupation)} />
+        {occupation || !onlineFallback ? (
+          <ContactRow label="职业" value={occupation} />
+        ) : (
+          <ContactOnlineOccupation uin={person.identityValue} />
+        )}
       </SelfProfileSlot>
     ),
     region: (
       <>
         <SelfProfileSlot field="region">
-          {
-            <ContactRow
-              label="所在地"
-              value={[...new Set([ext?.country, ext?.province, ext?.city].filter(Boolean))].join(
-                ' · ',
-              )}
-            />
-          }
+          {region || !onlineFallback ? (
+            <ContactRow label="所在地" value={region} />
+          ) : (
+            <ContactOnlineRegion uin={person.identityValue} />
+          )}
         </SelfProfileSlot>
         <SelfProfileSlot field="hometown">
-          {personal ? <ExtraField person={person} field="hometown" /> : null}
+          {onlineFallback ? <ExtraField person={person} field="hometown" /> : null}
         </SelfProfileSlot>
       </>
     ),
@@ -930,14 +946,20 @@ export function ContactContent({
           </button>
         )}
       >
-        {
+        {ext?.school?.trim() || !onlineFallback ? (
           <ContactRow
             label="学校"
-            value={[ext?.school, ext?.degree].filter(Boolean).join(' · ')}
+            value={school}
             onActivate={(anchor) => open('education', anchor)}
             activateTitle="查看教育经历"
           />
-        }
+        ) : (
+          <ContactOnlineSchool
+            uin={person.identityValue}
+            cachedDegree={ext?.degree}
+            onOpen={(anchor) => open('education', anchor)}
+          />
+        )}
       </SelfProfileSlot>
     ),
     labels: personal ? (
