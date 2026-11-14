@@ -54,6 +54,8 @@ UID 仅在开启该字段时进入身份区。`styles/contact-workspace.css` 承
 
 ## 定向验证
 
+`ProfileSummary` 的属性对照直接衔接前面的关系字段，不创建独立分区、小标题或分割线。保留服务器标题和文案，无标题时使用「资料对比」，不将不同属性描述为共同点。`profile_summary_ui.test.ts` 与 `run-profile-summary.mjs` 覆盖该命名、原文保留及桌面／窄屏深浅主题下的连续排列。
+
 ### 家乡与共同点
 
 - `profileExtras.details` 在公司、说明、邮箱、家乡 24002 与区县 20043 之外，请求旧学校文字 **20021** 与职业 **27037**（四字节大端整数）；数值学校 ID 不作学校名称。所在地通过独立 `profileExtras.region` 复用 `getCloudProfile` 的 **0xfe1_2 / bytes 20032**，不与家乡混用。两条查询都复用既有账号、进程及目标校验。

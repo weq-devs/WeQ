@@ -71,7 +71,7 @@ it('共同点错目标、离线与失败不当作空结果，刷新失败保留�
   expect(host.textContent).toContain('暂不可在线读取');
   expect(state.similarity.mock.calls.at(-1)?.[1].enabled).toBe(false);
 });
-it('共同点以服务端文本显示，成功空列表独立显示，离开章节禁用查询', async () => {
+it('资料对比以服务端文本显示，成功空列表独立显示，离开章节禁用查询', async () => {
   await act(async () => root.render(h(ProfileCommonPoints, { uin: '10002' })));
   expect(host.textContent).toContain('合成学校');
   expect(host.textContent).toContain('<img src=x>');
@@ -80,6 +80,18 @@ it('共同点以服务端文本显示，成功空列表独立显示，离开章�
   await act(async () =>
     root.render(h(TabActivity, { active: false }, h(ProfileCommonPoints, { uin: '10002' }))),
   );
-  expect(host.textContent).toContain('暂无可展示的共同点');
+  expect(host.textContent).toContain('暂无可展示的资料对比');
   expect(state.similarity.mock.calls.at(-1)?.[1].enabled).toBe(false);
+});
+it('资料对比直接衔接关系字段，不带独立分区或共同点标题，保留不同属性原文', async () => {
+  const wordings = ['我们有5个共同好友', '我们一个是射手座，另一个是摩羯座'];
+  state.similarity.mockReturnValue(
+    result({ targetUin: '10002', items: [{ title: '', icon: null, wordings }] }),
+  );
+  await act(async () => root.render(h(ProfileCommonPoints, { uin: '10002' })));
+  expect(host.querySelector('section, header, h3')).toBeNull();
+  expect(host.querySelector('.weq-profile-data-label')?.textContent).toBe('资料对比');
+  expect(host.querySelector('.weq-profile-data-value')?.textContent).toBe(wordings.join('\n'));
+  expect(host.textContent).not.toContain('共同点');
+  expect(host.querySelector('button')).toBeNull();
 });

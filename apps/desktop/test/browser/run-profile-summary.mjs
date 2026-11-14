@@ -145,9 +145,48 @@ try {
     window.profileApprovedQa.dnaCommon = true;
     window.contactCardQa.notify();
   });
-  await page.getByText('QQ 返回的共同资料合成文案', { exact: false }).waitFor();
-  if (output) await page.screenshot({ path: `${output}/common-dna-320-dark.png`, fullPage: true });
-  checks.push({ view: 'common-dna', width: 320, theme: 'dark' });
+  await page.getByText('我们一个是射手座，另一个是摩羯座', { exact: false }).waitFor();
+  for (const width of [1180, 390, 320])
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width, height: 850 });
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.setProperty(
+          '--weq-accent-effective',
+          theme === 'light' ? '#28754b' : '#f7acb4',
+        );
+      }, theme);
+      const comparison = page.locator('.weq-profile-common-points');
+      assert.deepEqual(await comparison.locator('.weq-profile-data-label').allTextContents(), [
+        '资料对比',
+      ]);
+      assert.equal(await comparison.locator('button').count(), 0);
+      const layout = await comparison.evaluate((node) => {
+        const groupRow = [...document.querySelectorAll('.weq-profile-data-row')].find(
+          (row) => row.querySelector('.weq-profile-data-label')?.textContent === '共同群',
+        );
+        const row = node.querySelector('.weq-profile-data-row');
+        return {
+          separateSection: Boolean(node.closest('.weq-profile-section-block')),
+          gap: row.getBoundingClientRect().top - groupRow.getBoundingClientRect().bottom,
+          valueAligned:
+            row.querySelector('.weq-profile-data-value').getBoundingClientRect().left ===
+            groupRow.querySelector('.weq-profile-data-value').getBoundingClientRect().left,
+          overflow: row.scrollWidth > row.clientWidth + 2,
+        };
+      });
+      assert.equal(layout.separateSection, false);
+      assert.ok(layout.gap >= 0 && layout.gap <= 4, JSON.stringify(layout));
+      assert.equal(layout.valueAligned, true);
+      assert.equal(layout.overflow, false);
+      assert.equal(await page.getByRole('heading', { name: '共同点', exact: true }).count(), 0);
+      if (output)
+        await page.screenshot({
+          path: `${output}/comparison-${width}-${theme}.png`,
+          fullPage: true,
+        });
+      checks.push({ view: 'comparison', width, theme, ...layout });
+    }
   await page.evaluate(() => {
     window.profileApprovedQa.dnaCommon = false;
     window.contactCardQa.notify();
@@ -165,7 +204,7 @@ try {
     window.profileApprovedQa.state = 'empty';
     window.contactCardQa.notify();
   });
-  await page.getByText('暂无可展示的共同点', { exact: true }).waitFor();
+  await page.getByText('暂无可展示的资料对比', { exact: true }).waitFor();
   await page.evaluate(() => {
     window.profileApprovedQa.state = 'error';
     window.contactCardQa.notify();

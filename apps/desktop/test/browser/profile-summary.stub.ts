@@ -62,7 +62,9 @@ function value(path: string, input: { uin?: string }) {
                   title: '',
                   icon: null,
                   wordings: [
-                    'QQ 返回的共同资料合成文案',
+                    '我们有3个共同好友',
+                    '我们一个是射手座，另一个是摩羯座',
+                    '我在福建-厦门，好友在英格兰-伯明翰',
                     '这是一条较长的合成资料，用于核对兼容结果在窄屏中的换行。',
                   ],
                 },

@@ -2,7 +2,7 @@ import type { ProfileSimilarity } from '@weq/protocol';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { trpc } from '../trpc/client';
 import { useTabActive } from './RetainedTabs';
-import { ContactInlineError, ContactRow, ContactSection } from './contactProfile/ContactRow';
+import { ContactInlineError, ContactRow } from './contactProfile/ContactRow';
 import { collectionImageUrl } from '../lib/resourceUrl';
 import { ShimmerImage } from './ShimmerImage';
 import '../styles/profile-summary.css';
@@ -60,7 +60,7 @@ export function ProfileCommonPoints({ uin }: { uin: string }) {
   const data = query.data?.targetUin === uin ? query.data : null;
   const mismatch = query.data && !data ? new Error('资料目标不匹配') : null;
   return (
-    <ContactSection title="共同点" prominent>
+    <>
       {data ? <CommonPointRows data={data} /> : null}
       {!data || query.error || mismatch ? (
         <SummaryStatus
@@ -71,7 +71,7 @@ export function ProfileCommonPoints({ uin }: { uin: string }) {
           retry={query.refetch}
         />
       ) : null}
-    </ContactSection>
+    </>
   );
 }
 export function CommonPointRows({ data }: { data: ProfileSimilarity }) {
@@ -81,7 +81,7 @@ export function CommonPointRows({ data }: { data: ProfileSimilarity }) {
       {items.map(([key, item]) => (
         <ContactRow
           key={key}
-          label={item.title || '共同点'}
+          label={item.title || '资料对比'}
           icon={item.icon ? <ShimmerImage src={collectionImageUrl(item.icon)} alt="" /> : undefined}
         >
           <p>{item.wordings.join('\n')}</p>
@@ -90,7 +90,7 @@ export function CommonPointRows({ data }: { data: ProfileSimilarity }) {
     </div>
   ) : (
     <p role="status" className="text-muted-foreground">
-      暂无可展示的共同点
+      暂无可展示的资料对比
     </p>
   );
 }
