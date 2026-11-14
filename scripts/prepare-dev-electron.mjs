@@ -31,6 +31,12 @@ function run(command, args, { input } = {}) {
   });
 }
 const debuggerKey = 'com.apple.security.cs.debugger';
+const bundleIdentity = {
+  CFBundleIdentifier: 'app.weq.desktop.dev',
+  CFBundleName: 'WeQ Dev',
+  CFBundleDisplayName: 'WeQ Dev',
+  CFBundleIconFile: 'weq.icns',
+};
 
 /** 解析依赖包的可执行入口。Windows 上 pnpm 只有 `.CMD`，spawn 找不到，故不经过 pnpm。 */
 async function resolveBin(specifier, binName) {
@@ -90,12 +96,43 @@ async function verify(path, { deep = false } = {}) {
     throw new Error('开发 Electron 宿主缺少调试权限。');
 }
 
+async function brandDevApp(app, staging, iconPath) {
+  const plist = join(app, 'Contents/Info.plist');
+  const { stdout } = await run('/usr/bin/plutil', ['-convert', 'json', '-o', '-', plist]);
+  await writeFile(plist, JSON.stringify({ ...JSON.parse(stdout), ...bundleIdentity }));
+  await run('/usr/bin/plutil', ['-convert', 'xml1', plist]);
+  const iconset = join(staging, 'weq.iconset');
+  await mkdir(iconset);
+  for (const size of [16, 32, 128, 256, 512]) {
+    for (const scale of [1, 2]) {
+      const pixels = String(size * scale);
+      await run('/usr/bin/sips', [
+        '--resampleHeightWidth',
+        pixels,
+        pixels,
+        iconPath,
+        '--out',
+        join(iconset, `icon_${size}x${size}${scale === 2 ? '@2x' : ''}.png`),
+      ]);
+    }
+  }
+  await mkdir(join(app, 'Contents/Resources'), { recursive: true });
+  await run('/usr/bin/iconutil', [
+    '--convert',
+    'icns',
+    '--output',
+    join(app, 'Contents/Resources', bundleIdentity.CFBundleIconFile),
+    iconset,
+  ]);
+}
+
 /** 仅准备独立开发宿主，不改 node_modules 原件及渲染子进程签名。 */
 export async function prepareDevElectron({
   executable = require('electron'),
   platform = process.platform,
   directory = join(desktop, 'dist/dev-runtime'),
   entitlementPath = join(desktop, 'build/entitlements.mac.plist'),
+  iconPath = join(root, 'resources/brand/logo.png'),
 } = {}) {
   if (platform !== 'darwin') return executable;
   const source = resolve(dirname(executable), '../..');
@@ -103,10 +140,12 @@ export async function prepareDevElectron({
   const targetExec = join(target, 'Contents/MacOS/Electron');
   const markerPath = join(directory, 'weq-runtime.json');
   const fingerprint = {
-    format: 1,
+    format: 2,
     source,
     executable: await hash(executable),
+    info: await hash(join(source, 'Contents/Info.plist')),
     entitlements: await hash(entitlementPath),
+    icon: await hash(iconPath),
   };
   await mkdir(directory, { recursive: true });
   const lock = join(directory, '.prepare-lock');
@@ -131,7 +170,7 @@ export async function prepareDevElectron({
     }
     if (await exists(backup)) throw new Error(`上次准备留有恢复资产，请先检查：${backup}`);
     if (await exists(target)) {
-      if (marker?.format !== 1 || (await lstat(target)).isSymbolicLink())
+      if (![1, 2].includes(marker?.format) || (await lstat(target)).isSymbolicLink())
         throw new Error(`开发宿主位置已有非管理应用，未覆盖：${target}`);
       const { stdout } = await run('/bin/ps', ['-axo', 'comm=']);
       if (stdout.split('\n').some((line) => line.trim().startsWith(`${target}/Contents/`)))
@@ -143,6 +182,8 @@ export async function prepareDevElectron({
     // 部分平台的发行物整包未签名（zip 内没有 `_CodeSignature`），没有可继承的权限，
     // 嵌套的 Helper / Framework 也必须一并补签，否则加固运行时无法启动。
     const original = await entitlements(app);
+    // macOS 通知从应用包读取身份和图标，运行时设置 Dock 图标不能代替它。
+    await brandDevApp(app, staging, iconPath);
     const { stdout: configured } = await run('/usr/bin/plutil', [
       '-convert',
       'json',

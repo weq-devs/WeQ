@@ -10,6 +10,14 @@ import { prepareDevElectron } from './prepare-dev-electron.mjs';
 
 const run = promisify(execFile);
 
+async function bitmapPixels(path) {
+  const bitmap = `${path}.bmp`;
+  await run('/usr/bin/sips', ['--setProperty', 'format', 'bmp', path, '--out', bitmap]);
+  const data = await readFile(bitmap);
+  assert.equal(data.subarray(0, 2).toString(), 'BM');
+  return data.subarray(data.readUInt32LE(10));
+}
+
 async function fixture(t, { signed = true } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'weq-dev-electron-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -21,8 +29,15 @@ async function fixture(t, { signed = true } = {}) {
     join(source, 'Contents/Info.plist'),
     `<?xml version="1.0"?>
 <plist version="1.0"><dict><key>CFBundleExecutable</key><string>Electron</string>
+<key>CFBundleName</key><string>Electron</string>
+<key>CFBundleDisplayName</key><string>Electron</string>
+<key>CFBundleIconFile</key><string>electron.icns</string>
 <key>CFBundleIdentifier</key><string>app.weq.synthetic-dev</string></dict></plist>`,
   );
+  await mkdir(join(source, 'Contents/Resources'), { recursive: true });
+  await writeFile(join(source, 'Contents/Resources/electron.icns'), 'source icon');
+  const iconPath = join(directory, 'logo.png');
+  await copyFile(new URL('../resources/brand/logo.png', import.meta.url), iconPath);
   // 嵌套项用 .app 布局，`codesign --deep` 只对可识别的 bundle 递归签名。
   const helper = join(source, 'Contents/Frameworks/Fixture Helper.app');
   const helperExec = join(helper, 'Contents/MacOS/Fixture Helper');
@@ -45,7 +60,13 @@ async function fixture(t, { signed = true } = {}) {
       await run('/usr/bin/codesign', ['--remove-signature', path]);
     }
   }
-  return { executable, source, directory: join(directory, 'prepared'), platform: 'darwin' };
+  return {
+    executable,
+    source,
+    iconPath,
+    directory: join(directory, 'prepared'),
+    platform: 'darwin',
+  };
 }
 
 test('开发入口先准备带调试权限的宿主，保留原开发账号目录参数', async () => {
@@ -62,6 +83,100 @@ test('非 macOS 保持原宿主，不要求本机签名工具', async () => {
     await prepareDevElectron({ platform: 'linux', executable: '/fixture/electron' }),
     '/fixture/electron',
   );
+});
+
+test('开发宿主写入独立应用身份和真正的 WeQ 图标，不修改 Electron 原件', {
+  skip: process.platform !== 'darwin',
+}, async (t) => {
+  const options = await fixture(t);
+  const sourcePlist = join(options.source, 'Contents/Info.plist');
+  const original = await readFile(sourcePlist);
+  const target = await prepareDevElectron(options);
+  const app = join(options.directory, 'Electron.app');
+  const { stdout } = await run('/usr/bin/plutil', [
+    '-convert',
+    'json',
+    '-o',
+    '-',
+    join(app, 'Contents/Info.plist'),
+  ]);
+  const info = JSON.parse(stdout);
+  assert.equal(info.CFBundleIdentifier, 'app.weq.desktop.dev');
+  assert.equal(info.CFBundleName, 'WeQ Dev');
+  assert.equal(info.CFBundleDisplayName, info.CFBundleName);
+  assert.equal(target, join(app, 'Contents/MacOS', info.CFBundleExecutable));
+  assert.notEqual(info.CFBundleIconFile, 'electron.icns');
+  const icon = join(app, 'Contents/Resources', info.CFBundleIconFile);
+  assert.equal((await readFile(icon)).subarray(0, 4).toString(), 'icns');
+  const decoded = join(options.directory, 'decoded.iconset');
+  await run('/usr/bin/iconutil', ['--convert', 'iconset', '--output', decoded, icon]);
+  const { stdout: dimensions } = await run('/usr/bin/sips', [
+    '-g',
+    'pixelWidth',
+    '-g',
+    'pixelHeight',
+    join(decoded, 'icon_512x512@2x.png'),
+  ]);
+  assert.match(dimensions, /pixelWidth: 1024/);
+  assert.match(dimensions, /pixelHeight: 1024/);
+  const expected = join(options.directory, 'expected.png');
+  await run('/usr/bin/sips', [
+    '--resampleHeightWidth',
+    '1024',
+    '1024',
+    options.iconPath,
+    '--out',
+    expected,
+  ]);
+  // iconutil 会改写 PNG 色彩元数据；比较解码后的像素，且不引入 bootstrap 依赖。
+  assert.deepEqual(
+    await bitmapPixels(join(decoded, 'icon_512x512@2x.png')),
+    await bitmapPixels(expected),
+  );
+  assert.deepEqual(await readFile(sourcePlist), original);
+  assert.equal(
+    await readFile(join(options.source, 'Contents/Resources/electron.icns'), 'utf8'),
+    'source icon',
+  );
+  await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app]);
+  const { stderr: signature } = await run('/usr/bin/codesign', ['--display', '--verbose=2', app]);
+  assert.ok(signature.split('\n').includes(`Identifier=${info.CFBundleIdentifier}`));
+});
+
+test('旧开发宿主自动迁入 WeQ 身份，图标及源应用元数据变化会重建缓存', {
+  skip: process.platform !== 'darwin',
+}, async (t) => {
+  const options = await fixture(t);
+  const target = await prepareDevElectron(options);
+  const markerPath = join(options.directory, 'weq-runtime.json');
+  const current = JSON.parse(await readFile(markerPath, 'utf8'));
+  await writeFile(markerPath, JSON.stringify({ ...current, format: 1 }));
+  let before = await stat(target);
+  await prepareDevElectron(options);
+  assert.notEqual((await stat(target)).ino, before.ino);
+  before = await stat(target);
+  const resized = join(options.directory, 'resized.png');
+  await run('/usr/bin/sips', [
+    '--resampleHeightWidth',
+    '128',
+    '128',
+    options.iconPath,
+    '--out',
+    resized,
+  ]);
+  await copyFile(resized, options.iconPath);
+  await prepareDevElectron(options);
+  assert.notEqual((await stat(target)).ino, before.ino);
+  before = await stat(target);
+  await run('/usr/bin/plutil', [
+    '-insert',
+    'FixtureMetadata',
+    '-string',
+    'changed',
+    join(options.source, 'Contents/Info.plist'),
+  ]);
+  await prepareDevElectron(options);
+  assert.notEqual((await stat(target)).ino, before.ino);
 });
 
 test('真实系统签名补齐主进程权限，源文件保真，重复启动复用缓存', {
