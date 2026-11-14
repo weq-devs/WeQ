@@ -5542,7 +5542,7 @@ function MainWorkspace(): ReactElement {
     setDrafts((current) => {
       const next = { ...current };
       for (const [id, text] of Object.entries(pendingDraftsRef.current)) {
-        if (text.trim()) next[id] = text;
+        if (text.length) next[id] = text;
         else delete next[id];
       }
       return next;
@@ -9197,7 +9197,7 @@ function MainWorkspace(): ReactElement {
         draftVersionsRef.current.set(row.targetUid, row.version);
       // 行键里的 targetUid 就是会话 id（c2c 是 uid、群是群号）。
       const text = elementsToComposerText(row.elements ?? []);
-      if (text.trim()) next[row.targetUid] = text;
+      if (text.length) next[row.targetUid] = text;
     }
     // 不覆盖本次会话里已经改过、还没落库的那几条 —— 以 pendingDraftsRef 为准
     // （state 里的副本可能还没跟上）。
@@ -9310,7 +9310,7 @@ function MainWorkspace(): ReactElement {
       }
       setDrafts((current) => {
         const next = { ...current };
-        if (savedText.trim()) next[conversationId] = savedText;
+        if (savedText.length) next[conversationId] = savedText;
         else delete next[conversationId];
         return next;
       });

@@ -786,8 +786,6 @@ export class MessageSendService {
 
   /** 文本消息（可带 @ / 引用回复 / 群临时会话来源群号）。 */
   async sendText(params: SendTextParams): Promise<SendMessageOutcome> {
-    const text = params.text ?? '';
-    if (!text.trim()) throw new Error('消息文本不能为空。');
     return this.sendElements({
       peerType: params.peerType,
       targetId: params.targetId,
@@ -1055,7 +1053,11 @@ export class MessageSendService {
     const pid = this.resolvePid();
     const previewBubbleId = device ? 0 : this.readCurrentBubbleId();
     // 商城表情：把空 encryptKey 用包密钥补上（同包只查一次）。
-    const elements = device ? params.elements : await this.fillMarketFaceKeys(params.elements);
+    // 引用本身不算消息正文；只引用时补一个普通空格，其余内容原样保留。
+    const content: SendElement[] = params.elements.every((element) => element.kind === 'reply')
+      ? [...params.elements, { kind: 'text', textContent: ' ' }]
+      : params.elements;
+    const elements = device ? content : await this.fillMarketFaceKeys(content);
 
     const useFont =
       !device &&
@@ -1600,9 +1602,11 @@ export function buildTextElements(params: SendTextParams): SendElement[] {
     );
     mentioned += 1;
   }
-  // 只在有 @ 时补一个空格：否则「@张三」会和正文粘成一个词。引用不需要空格。
+  // @ 与正文分隔；仅引用的空正文由 sendElements 统一补齐。
   if (mentioned > 0) elements.push({ kind: 'text', textContent: ' ' });
-  elements.push({ kind: 'text', textContent: params.text });
+  const text = params.text ?? '';
+  if (text.length > 0) elements.push({ kind: 'text', textContent: text });
+  if (elements.length === 0) throw new Error('消息文本不能为空。');
   return elements;
 }
 

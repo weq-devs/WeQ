@@ -14,24 +14,16 @@
  */
 
 /**
- * 纯空白草稿统一表示清空；有正文时保留首尾空白和换行。
- * 输入、恢复快照和最终写回必须使用相同语义，避免重启后空行复活。
- */
-export function normalizeLocalDraft(value: string): string {
-  return value.trim() ? value : '';
-}
-
-/**
  * 记录一次输入框改动。返回值是新的内存副本（不修改入参）。
  *
- * 只填空白字符视为清空（与 composer 的 trim 语义一致），落成空串。
+ * 空白字符也是可发送正文，只有空串表示清空。
  */
 export function setLocalDraft(
   current: Readonly<Record<string, string>>,
   conversationId: string,
   value: string,
 ): Record<string, string> {
-  return { ...current, [conversationId]: normalizeLocalDraft(value) };
+  return { ...current, [conversationId]: value };
 }
 
 /**
@@ -44,5 +36,5 @@ export function localDraftToWrite(
   current: Readonly<Record<string, string>>,
   conversationId: string,
 ): string {
-  return normalizeLocalDraft(current[conversationId] ?? '');
+  return current[conversationId] ?? '';
 }

@@ -29,29 +29,31 @@ it('清空保留空串覆盖旧 QQ 草稿；迟到保存确认不能删除新的
   expect(store.load('a')).toEqual({});
 });
 
-it.each(['\n', '\n\n', '   \t\r\n'])(
-  '纯空白输入 %j 在重启前后都表示清空，不写回 QQ 换行草稿',
-  (body) => {
-    const first = createComposerDraftRecovery(localStorage);
-    first.write('a', 'peer', body);
-    const pending = setLocalDraft({}, 'peer', body);
-    const restarted = createComposerDraftRecovery(localStorage);
-    expect(restarted.load('a')).toEqual(pending);
-    expect(composerTextToElements(localDraftToWrite(restarted.load('a'), 'peer'))).toEqual([]);
-    // 正常保存确认使用内存中的空串，也必须清除恢复快照。
-    first.confirm('a', 'peer', localDraftToWrite(pending, 'peer'));
-    expect(restarted.load('a')).toEqual({});
-  },
-);
+it.each(['\n', '\n\n', '   \t\r\n'])('纯空白输入 %j 在重启前后和写回 QQ 时均原样保留', (body) => {
+  const first = createComposerDraftRecovery(localStorage);
+  first.write('a', 'peer', body);
+  const pending = setLocalDraft({}, 'peer', body);
+  expect(pending).toEqual({ peer: body });
+  const restarted = createComposerDraftRecovery(localStorage);
+  expect(restarted.load('a')).toEqual(pending);
+  expect(composerTextToElements(localDraftToWrite(restarted.load('a'), 'peer'))).toEqual([
+    { kind: 'text', textContent: body },
+  ]);
+  // 正常保存确认使用原文，也必须清除恢复快照。
+  first.confirm('a', 'peer', localDraftToWrite(pending, 'peer'));
+  expect(restarted.load('a')).toEqual({});
+});
 
-it('旧版本遗留的纯换行快照恢复为清空，确认后删除，但有正文的首尾空行不裁掉', () => {
+it('已有纯换行快照与正文首尾空行均保留，仅确认相同原文后删除', () => {
   const first = createComposerDraftRecovery(localStorage);
   first.write('a', 'peer', '临时正文');
   const key = localStorage.key(0)!;
   localStorage.setItem(key, JSON.stringify({ version: 1, body: '\n' }));
   const restarted = createComposerDraftRecovery(localStorage);
-  expect(restarted.load('a')).toEqual({ peer: '' });
+  expect(restarted.load('a')).toEqual({ peer: '\n' });
   restarted.confirm('a', 'peer', '');
+  expect(restarted.load('a')).toEqual({ peer: '\n' });
+  restarted.confirm('a', 'peer', '\n');
   expect(localStorage.getItem(key)).toBeNull();
   const body = '\n正文\n\n';
   restarted.write('a', 'peer', body);

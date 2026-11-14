@@ -18,9 +18,11 @@ export function composerSubmission(input: {
     ...(input.singleToken ? [input.singleToken] : []),
     ...(options.extraTokens ?? []),
   ];
-  const text = input.singleToken ? '' : (options.text ?? input.body).trim();
+  const text = input.singleToken ? '' : (options.text ?? input.body);
+  // QQ 接受空白正文，但只有引用时仍需一段非空文本；不回写输入框或草稿。
+  const quoteOnly = !text && !options.omitQuote && input.quoteToken && tokens.length === 1;
   return {
-    payloadBody: `${text}${tokens.join('')}`,
+    payloadBody: `${quoteOnly ? ' ' : text}${tokens.join('')}`,
     empty: !text && tokens.length === 0,
     clearsBody: !input.singleToken && !options.keepBody,
   };

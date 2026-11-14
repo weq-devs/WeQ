@@ -260,6 +260,7 @@ import { composerSubmission, type ComposerSubmitOptions } from './composerSubmis
 import { prepareReeditDraft } from './composerReedit';
 import {
   ComposerResizeHandle,
+  createComposerLineBreak,
   focusComposerEnd,
   getActiveComposerMentionTrigger,
   insertComposerNode,
@@ -3245,7 +3246,11 @@ export function ChatPane({
       return;
     }
 
-    insertComposerNode(editor, document.createElement('br'), composerSelectionRef.current);
+    if (!serializeComposer(editor)) {
+      editor.replaceChildren();
+      composerSelectionRef.current = null;
+    }
+    insertComposerNode(editor, createComposerLineBreak(), composerSelectionRef.current);
     insertComposerNode(editor, document.createTextNode('\u200b'), null);
     syncComposerBody(editor);
   }
@@ -3581,7 +3586,7 @@ export function ChatPane({
       if (isCurrentComposer() && readAfterSend) requestReadAtBottom();
     } catch (error) {
       // 失败通过原消息重试，不回填或覆盖下一条草稿。
-      if (restrictedSource && clearsBody && isCurrentComposer() && !bodyRef.current.trim()) {
+      if (restrictedSource && clearsBody && isCurrentComposer() && !bodyRef.current) {
         setComposerBody(draftBody);
         const editor = composerEditorRef.current;
         if (editor) restoreComposer(editor, draftBody);
@@ -3986,11 +3991,11 @@ export function ChatPane({
       }
     }
 
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (event.key === 'Enter') {
       event.preventDefault();
       // 移动端长文展开、以及 QQ 未注入（发送按钮灰着）时，回车只当换行用，
       // 不能落到 submitMessage 上去。
-      if (mobileComposerExpanded || !sendAvailable) {
+      if (event.shiftKey || mobileComposerExpanded || !sendAvailable) {
         insertComposerLineBreak();
         return;
       }
@@ -4884,7 +4889,7 @@ export function ChatPane({
     const editor = currentComposerEditor();
     const previous = editor ? serializeComposer(editor) : bodyRef.current;
     const attachment = mediaAttachmentRef.current;
-    if (previous.trim() || attachment.length || pendingSuperEmoji || pendingQuote) {
+    if (previous || attachment.length || pendingSuperEmoji || pendingQuote) {
       const replace = await useDialog
         .getState()
         .confirm('替换当前草稿？', '输入框已有内容，重新编辑将替换当前草稿。', {
@@ -4992,7 +4997,7 @@ export function ChatPane({
       const paddingBottom = Number.parseFloat(styles.paddingBottom) || 0;
       const minHeight = Math.ceil(lineHeight + paddingTop + paddingBottom);
       const maxHeight = Math.ceil(lineHeight * mobileComposerMaxLines + paddingTop + paddingBottom);
-      const contentHeight = serializeComposer(editor).trim()
+      const contentHeight = serializeComposer(editor)
         ? measureComposerContentHeight(editor)
         : minHeight;
       const nextHeight = Math.min(Math.max(contentHeight, minHeight), maxHeight);
@@ -5430,7 +5435,7 @@ export function ChatPane({
     !sendAvailable ||
     currentPreference.blocked ||
     sending ||
-    (body.trim().length === 0 && !hasSingleSend && !hasQuote && !hasExternalAttachments);
+    (body.length === 0 && !hasSingleSend && !hasQuote && !hasExternalAttachments);
   const sendTitle = sendAvailable ? '发送' : sendBlockedReason || '受限模式下无法发送消息';
   // 所有「发包类」操作（戳一戳 / 贴表情 / 撤回 / 群管理）与发送按钮共用同一套硬限制：
   // QQ 在线且未完全离线 + 会话未被屏蔽 + 当前没有消息正在发送。渲染层不再各自放一套

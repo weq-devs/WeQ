@@ -48,6 +48,18 @@ it('设备文件计划保留 File 句柄，不要求整个文件预读成字节'
   });
 });
 
+it.each([
+  ['<div><br></div><div><br></div>', '\n'],
+  ['<div><br></div><div><br></div><div><br></div>', '\n\n'],
+  ['前文<div>正文</div><div><br></div>', '前文\n正文\n'],
+  ['<div>前文<br></div><div>后文</div>', '前文\n后文'],
+  ['<br><br>', '\n'],
+])('原生行结构 %s 保留换行而不发送末尾占位', (html, body) => {
+  const editor = document.createElement('div');
+  editor.innerHTML = html;
+  expect(serializeComposer(editor)).toBe(body);
+});
+
 it('重发与重新编辑的表情图保留子类型和表情摘要，不变成普通大图', () => {
   for (const subType of [0, 1]) {
     const body = elementsToComposerText([
@@ -147,6 +159,108 @@ function type(editor: HTMLElement, text: string) {
 }
 
 describe('输入区发送交接', () => {
+  it.each(['click', 'enter'] as const)('%s 发送原样保留纯空白与首尾空行', async (trigger) => {
+    const f = mount();
+    try {
+      for (const body of [' ', '\n', '\n\n', ' \t\n ', '\n 正文 \n']) {
+        type(f.editor(), body);
+        expect(f.host.querySelector<HTMLButtonElement>('.composer-send')!.disabled).toBe(false);
+        act(() => {
+          if (trigger === 'click')
+            f.host.querySelector<HTMLButtonElement>('.composer-send')!.click();
+          else
+            f.editor().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        });
+        expect(f.onSend).toHaveBeenLastCalledWith(body, undefined);
+        await act(async () => f.finish());
+      }
+    } finally {
+      f.close();
+    }
+  });
+
+  it('空编辑器占位不算换行，用户输入的换行仍可发送', async () => {
+    const f = mount();
+    try {
+      for (const html of ['', '<br>', '<div><br></div>']) {
+        act(() => {
+          f.editor().innerHTML = html;
+          f.editor().dispatchEvent(new InputEvent('input', { bubbles: true }));
+        });
+        expect(serializeComposer(f.editor())).toBe('');
+        expect(f.host.querySelector<HTMLButtonElement>('.composer-send')!.disabled).toBe(true);
+        act(() =>
+          f.editor().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
+        );
+      }
+      expect(f.onSend).not.toHaveBeenCalled();
+      type(f.editor(), '');
+      act(() =>
+        f
+          .editor()
+          .dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true }),
+          ),
+      );
+      expect(serializeComposer(f.editor())).toBe('\n');
+      expect(f.host.querySelector<HTMLButtonElement>('.composer-send')!.disabled).toBe(false);
+      act(() => f.host.querySelector<HTMLButtonElement>('.composer-send')!.click());
+      expect(f.onSend).toHaveBeenCalledWith('\n', undefined);
+      await act(async () => f.finish());
+    } finally {
+      f.close();
+    }
+  });
+
+  it.each(['click', 'enter'] as const)('%s 仅引用补空格，引用带空白则保留原文', async (trigger) => {
+    const f = mount();
+    try {
+      for (const body of ['', ' \n']) {
+        f.render({
+          messages: [
+            {
+              id: 'quoted-space',
+              conversationId: f.props.conversation.id,
+              senderId: f.props.user.id,
+              body: '被引用正文',
+              msgSeq: '120',
+              clientSeq: '7',
+              createdAt: '2026-10-18T12:00:00Z',
+            },
+          ],
+        });
+        type(f.editor(), body);
+        act(() =>
+          f.host
+            .querySelector('[data-message-id="quoted-space"] .message-bubble')!
+            .dispatchEvent(
+              new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
+            ),
+        );
+        act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="引用"]')!.click());
+        expect(serializeComposer(f.editor())).toBe(body);
+        act(() => {
+          if (trigger === 'click')
+            f.host.querySelector<HTMLButtonElement>('.composer-send')!.click();
+          else
+            f.editor().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        });
+        const plan = buildComposerSendPlan({
+          body: f.onSend.mock.calls.at(-1)![0],
+          locals: [],
+          superStickers: new Map(),
+        });
+        expect(plan.kind).toBe('elements');
+        if (plan.kind !== 'elements') throw new Error('应按混排消息发送');
+        expect(plan.elements).toContainEqual({ kind: 'text', textContent: body || ' ' });
+        expect(plan.elements).toHaveLength(2);
+        await act(async () => f.finish());
+      }
+    } finally {
+      f.close();
+    }
+  });
+
   it('上一条仍在等回执时可继续提交下一条', async () => {
     const f = mount();
     try {
