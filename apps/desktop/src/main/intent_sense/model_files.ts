@@ -1,6 +1,6 @@
 import { dirname, basename, join } from 'node:path';
 import { existsSync, statSync, readFileSync } from 'node:fs';
-import { ModelStore, type ModelEntry, type ModelDownloadProgress } from '@weq/service';
+import { ModelStore, type ModelEntry, type ModelDownloadProgress } from '@weq/service/model-store';
 
 const MULTILINGUAL =
   'onnx-community/laya-multilingual-ONNX/resolve/46b77bbf5642fec5f14e540570228a8cbe8ab81f';
