@@ -7,6 +7,7 @@ import { createTemplateDemoData } from './support/templateDemoData';
 import { filterMentionMembers } from '../src/renderer/src/im-template/template/mentions';
 import {
   focusComposerEnd,
+  insertComposerNode,
   serializeComposer,
 } from '../src/renderer/src/im-template/template/composer';
 import { buildComposerSendPlan } from '../src/renderer/src/im-template/template/composerSend';
@@ -121,7 +122,7 @@ describe('全体候选真实菜单与输入区', () => {
         );
         expect(send).not.toHaveBeenCalled();
         expect(Boolean(editor.querySelector('[data-weq-at-uid="all"]'))).toBe(selectable);
-        if (selectable)
+        if (selectable) {
           expect(
             buildComposerSendPlan({
               body: serializeComposer(editor),
@@ -134,6 +135,23 @@ describe('全体候选真实菜单与输入区', () => {
               expect.objectContaining({ kind: 'at', all: true, atTargetUid: 'all' }),
             ]),
           });
+          for (const [index, method] of ['click', 'keyboard'].entries()) {
+            act(() => {
+              insertComposerNode(editor, document.createTextNode('@'), null);
+              editor.dispatchEvent(new InputEvent('input', { bubbles: true }));
+            });
+            const option = host.querySelector<HTMLButtonElement>('[role="option"]')!;
+            expect(option).not.toBeNull();
+            act(() => {
+              if (method === 'click') option.click();
+              else
+                editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+            });
+            expect(editor.textContent).toBe('@全体成员 '.repeat(index + 2));
+            expect(host.querySelector('[role="listbox"]')).toBeNull();
+            expect(send).not.toHaveBeenCalled();
+          }
+        }
       } finally {
         act(() => root.unmount());
         host.remove();

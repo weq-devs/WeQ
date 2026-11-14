@@ -379,6 +379,10 @@ function resolveComposerTextOffset(editor: HTMLElement, offset: number) {
 }
 
 function composerAtomicText(node: Node) {
+  // 触发词偏移来自序列化正文，提及和其他元素必须按完整 token 计长。
+  if (node instanceof HTMLElement && node.dataset.chatToken) {
+    return node.dataset.chatToken;
+  }
   if (node instanceof HTMLImageElement) {
     return node.dataset.chatToken ?? '';
   }
