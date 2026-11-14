@@ -23,7 +23,7 @@ const require = createRequire(import.meta.url);
 const builder = createRequire(require.resolve('electron-builder/package.json'));
 const appBuilder = createRequire(builder.resolve('app-builder-lib/package.json'));
 const { load } = appBuilder('js-yaml') as { load: (source: string) => unknown };
-type Job = { needs?: string[]; uses?: string; steps?: { run?: string }[] };
+type Job = { if?: string; needs?: string[]; uses?: string; steps?: { run?: string }[] };
 const workflow = load(readFileSync(resolve(root, '.github/workflows/release.yml'), 'utf8')) as {
   env: Record<string, string>;
   jobs: Record<string, Job>;
@@ -306,6 +306,15 @@ it('只有最后公开任务可发布，任一平台失败不会越过该任务�
     on: Record<string, unknown>;
   };
   expect(ci.on).toHaveProperty('workflow_call');
+});
+
+it('手动 Windows 定向诊断不进入发布分类，也不上传产物', () => {
+  expect(workflow.jobs.gate?.if).toBe("github.event_name == 'push'");
+  const probe = workflow.jobs['windows-preparation-probe'];
+  expect(probe?.if).toBe("github.event_name == 'workflow_dispatch'");
+  expect(probe?.steps?.map((step) => step.run ?? '').join('\n')).not.toMatch(
+    /release (?:create|upload|edit)/,
+  );
 });
 
 it('增强包上传通过 Release 列表定位草稿，不使用按标签查询已发布版本的接口', () => {
