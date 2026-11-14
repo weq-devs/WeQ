@@ -15,6 +15,7 @@ import {
   assertRemoteTag,
   requiredAssets,
   RELEASE_CHECKS,
+  findReleaseByTag,
 } from '../../../scripts/release-control.mjs';
 
 const root = resolve(__dirname, '../../..');
@@ -305,4 +306,31 @@ it('只有最后公开任务可发布，任一平台失败不会越过该任务�
     on: Record<string, unknown>;
   };
   expect(ci.on).toHaveProperty('workflow_call');
+});
+
+it('增强包上传通过 Release 列表定位草稿，不使用按标签查询已发布版本的接口', () => {
+  const uploader = readFileSync(resolve(root, 'scripts/upload-enhancement-engines.mjs'), 'utf8');
+  expect(uploader).not.toContain('/releases/tags/');
+  expect(uploader).toContain('findReleaseByTag(');
+});
+
+it('分页列表能找到尚未公开的指定草稿，重复标签拒绝猜测', async () => {
+  const f = fixture(true);
+  const first = Array.from({ length: 100 }, (_, index) => ({
+    ...f.release,
+    id: index + 1000,
+    tag_name: `v0.0.${index}`,
+    draft: false,
+  }));
+  const api = vi.fn(async (_method: string, path: string) => {
+    if (path.includes('/tags/')) throw new Error('HTTP 404: draft is not published');
+    return new URL(path, 'https://api.github.test').searchParams.get('page') === '1'
+      ? first
+      : [f.release];
+  });
+  expect(await findReleaseByTag(f.plan.tag, api)).toBe(f.release);
+  expect(api).toHaveBeenCalledTimes(2);
+  await expect(
+    findReleaseByTag(f.plan.tag, async () => [f.release, { ...f.release, id: 456 }]),
+  ).rejects.toThrow('多个 Release');
 });
