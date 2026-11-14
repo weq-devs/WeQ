@@ -20,7 +20,7 @@ import { resolveResourceRoot } from '../resource';
 import { runOcrEngine } from '../ocr/engine';
 import { transcribeWav } from '../transcribe/engine';
 import { layaBundleStore, layaModelEntry } from '../intent_sense/model_files';
-import { EnhancementEngineStore, readEnhancementEngineManifest } from './engine_store';
+import { EnhancementEngineStore } from './engine_store';
 import {
   enhancementEngineBusy,
   setEnhancementEngineStore,
@@ -29,7 +29,7 @@ import {
 } from './engine_environment';
 import { EnhancementPacks, type EnhancementComponent } from './packs';
 import { createModelComponent } from './model_component';
-import { createEnhancementCatalog, releaseContentVersion } from './release_catalog';
+import { releaseContentVersion } from './release_catalog';
 import { EnhancementUpdateController } from './updates';
 import { trackEnhancementPreparation } from './tasks';
 import type { EnhancementEngineKind } from '../../shared/enhancement_manifest';
@@ -79,21 +79,7 @@ export function createEnhancementResources(
     resourceRoot && existsSync(join(resourceRoot, '../apps/desktop/package.json'))
       ? join(resourceRoot, '../apps/desktop')
       : undefined;
-  const manifestPath = developmentDirectory
-    ? join(developmentDirectory, '.artifacts/enhancements', target, 'manifest.json')
-    : resourceRoot
-      ? join(resourceRoot, '../enhancements/manifest.json')
-      : '';
-  let manifest: ReturnType<typeof readEnhancementEngineManifest> = null;
-  try {
-    manifest = manifestPath ? readEnhancementEngineManifest(manifestPath) : null;
-  } catch (error) {
-    getLogger().warn('enhancement engine manifest unavailable', {
-      event: 'enhancement-manifest-invalid',
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-  const engines = new EnhancementEngineStore(root, manifest, { developmentDirectory });
+  const engines = new EnhancementEngineStore(root, null, { developmentDirectory });
   setEnhancementEngineStore(engines);
   const components = new Map<string, EnhancementComponent>();
   for (const kind of ['onnx', 'sherpa'] as const) {
@@ -108,11 +94,7 @@ export function createEnhancementResources(
           sizeOnDisk: state.installedBytes,
           downloadBytes: state.downloadBytes,
           updateAvailable: state.updateAvailable,
-          blocker: !state.supported
-            ? '当前平台没有此能力的兼容预编译引擎'
-            : !state.available
-              ? '增强引擎分发清单未准备，请更新应用或重新构建'
-              : undefined,
+          blocker: !state.supported ? '当前平台没有此能力的兼容预编译引擎' : undefined,
         };
       },
       ensure: async (report) => {
@@ -682,23 +664,20 @@ export function createEnhancementResources(
       /* 保留已知的配套清单。 */
     }
   }
-  const base = createEnhancementCatalog(
-    manifest ?? { schemaVersion: 1, target, engines: [] },
-    [
-      ...resources.ocrModels
-        .listModels()
-        .map((model) => resources.ocrModels.registeredModel(model.id)!),
-      ...resources.voiceTranscribe
-        .listModels()
-        .map((model) => resources.voiceTranscribe.registeredModel(model.id)!),
-      layaModelEntry(),
-    ],
-    bundledDress,
-  );
+  const legacyModels = [
+    ...resources.ocrModels
+      .listModels()
+      .map((model) => resources.ocrModels.registeredModel(model.id)!),
+    ...resources.voiceTranscribe
+      .listModels()
+      .map((model) => resources.voiceTranscribe.registeredModel(model.id)!),
+    layaModelEntry(),
+  ];
   packs.observePreparations((id, name) => {
     void trackEnhancementPreparation(packs, id, name).catch(() => {});
   });
-  const updates = new EnhancementUpdateController(packs, userConfig, base, {
+  const updates = new EnhancementUpdateController(packs, userConfig, target, {
+    legacyModels,
     currentVersion: () => getHost().appVersion(),
     nativeCommit: () =>
       platform.native.ntHelper.getDressResourceKeyId?.() ?? bundledDress?.nativeCommit,

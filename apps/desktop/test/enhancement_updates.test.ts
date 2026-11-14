@@ -1,10 +1,10 @@
 // @vitest-environment node
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import type { Platform } from '@weq/platform';
-import { UserConfigService } from '@weq/service';
+import { UserConfigService, VOICE_MODELS } from '@weq/service';
 import { afterEach, expect, it, vi } from 'vitest';
 import { EnhancementUpdateController } from '../src/main/enhancements/updates';
 import { EnhancementPacks, type EnhancementComponentState } from '../src/main/enhancements/packs';
@@ -17,6 +17,7 @@ import {
 import { backgroundTasks } from '../src/main/background_tasks';
 import { updateTransferPolicy } from '@weq/service/transfer-policy';
 import { networkCost } from '@weq/service/data-saver';
+import { enhancementEngineCompatibility } from '../src/shared/enhancement_manifest';
 
 const roots: string[] = [];
 const controllers: EnhancementUpdateController[] = [];
@@ -46,9 +47,9 @@ function release(revision: string, minWeqVersion = '2.6.1') {
     minWeqVersion,
   );
 }
-async function fixture(installed = true) {
-  const root = await mkdtemp(join(tmpdir(), 'weq-enhancement-updates-'));
-  roots.push(root);
+async function fixture(installed = true, existingRoot?: string) {
+  const root = existingRoot ?? (await mkdtemp(join(tmpdir(), 'weq-enhancement-updates-')));
+  if (!existingRoot) roots.push(root);
   const config = new UserConfigService({ appDataRoot: () => root } as unknown as Platform);
   const base = release('old');
   const next = release('new');
@@ -118,12 +119,11 @@ async function fixture(installed = true) {
         ),
       ),
   );
-  const controller = new EnhancementUpdateController(
-    packs,
-    config,
-    { schemaVersion: 1, target: 'darwin-arm64', packs: [base] },
-    { currentVersion: () => '2.7.0', nativeCommit: () => nativeCommit, fetcher },
-  );
+  const controller = new EnhancementUpdateController(packs, config, 'darwin-arm64', {
+    currentVersion: () => '2.7.0',
+    nativeCommit: () => nativeCommit,
+    fetcher,
+  });
   controllers.push(controller);
   await controller.ready();
   if (installed) {
@@ -132,10 +132,12 @@ async function fixture(installed = true) {
   }
   return {
     config,
+    root,
     state,
     packs,
     controller,
     ensure,
+    select: component.select,
     fetcher,
     next,
     setLatest: (entry: typeof next) => {
@@ -158,8 +160,162 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
+it('首次手动下载自动读取在线清单，关闭自动检查也不使用本机基线地址', async () => {
+  const f = await fixture(false);
+  f.config.setSettings({ enhancementUpdates: { autoCheck: false } });
+  f.packs.start(['dress']);
+  await f.packs.wait();
+  expect(f.fetcher).toHaveBeenCalled();
+  expect(f.ensure).toHaveBeenCalledOnce();
+  expect((await f.packs.list())[0]?.installedVersion).toBe(f.next.contentVersion);
+});
+
+it('首次没有在线清单且断网时不开始组件下载，重试可重新取清单', async () => {
+  const f = await fixture(false);
+  f.fetcher.mockRejectedValueOnce(new Error('offline'));
+  f.packs.start(['dress']);
+  await f.packs.wait();
+  expect(f.ensure).not.toHaveBeenCalled();
+  expect((await f.packs.list())[0]?.operation).toMatchObject({
+    phase: 'failed',
+    error: expect.stringContaining('offline'),
+  });
+  f.packs.start(['dress']);
+  await f.packs.wait();
+  expect(f.ensure).toHaveBeenCalledOnce();
+});
+
+it('旧在线装扮索引清单可转换，缓存保存的是线上内容而非本机基线', async () => {
+  const f = await fixture(false);
+  const part = f.next.components[0]!;
+  if (part.type !== 'dress') throw new Error('fixture');
+  part.manifest.baseUrl = 'https://github.com/weq-devs/dress-resources/releases/download/dress-new';
+  f.fetcher.mockImplementation(
+    async (url) =>
+      new Response(
+        JSON.stringify(
+          String(url).includes('api.github.com')
+            ? [
+                {
+                  tag_name: 'dress-new',
+                  draft: false,
+                  prerelease: false,
+                  published_at: '2026-11-14T00:00:00Z',
+                  assets: [
+                    'index-manifest.json',
+                    ...Object.values(part.manifest.parts).map((part) => part.asset),
+                  ].map((name) => ({ name })),
+                },
+              ]
+            : part.manifest,
+        ),
+      ),
+  );
+  await f.controller.check(['dress']);
+  expect((await f.packs.list())[0]?.latestVersion).toBe(f.next.contentVersion);
+  const cached = JSON.parse(await readFile(join(f.root, 'enhancements/checks.json'), 'utf8'));
+  expect(cached.catalog.packs[0].contentVersion).toBe(f.next.contentVersion);
+});
+
+it('重启断网时复用已校验在线缓存，损坏缓存不能用来启动下载', async () => {
+  const f = await fixture(false);
+  await f.controller.check(['dress']);
+  const restarted = await fixture(false, f.root);
+  restarted.fetcher.mockRejectedValue(new Error('offline'));
+  restarted.packs.start(['dress']);
+  await restarted.packs.wait();
+  expect(restarted.ensure).toHaveBeenCalledOnce();
+  expect((await restarted.packs.list())[0]?.installedVersion).toBe(f.next.contentVersion);
+  expect(restarted.controller.state('dress').phase).toBe('failed');
+  const path = join(f.root, 'enhancements/checks.json');
+  const cached = JSON.parse(await readFile(path, 'utf8'));
+  cached.catalog.packs[0].contentVersion = '0'.repeat(64);
+  await writeFile(path, JSON.stringify(cached));
+  const damaged = await fixture(false, f.root);
+  damaged.fetcher.mockRejectedValue(new Error('offline'));
+  damaged.packs.start(['dress']);
+  await damaged.packs.wait();
+  expect(damaged.ensure).not.toHaveBeenCalled();
+});
+
+it('已有完整资源的离线核对不读取在线清单', async () => {
+  const f = await fixture();
+  expect(f.fetcher).not.toHaveBeenCalled();
+  expect(f.select).not.toHaveBeenCalled();
+  expect((await f.packs.list())[0]?.downloaded).toBe(true);
+});
+
+it('同版统一清单存在但损坏时不改读旧格式或更旧版本', async () => {
+  const f = await fixture(false);
+  f.fetcher.mockImplementation(
+    async (url) =>
+      new Response(
+        JSON.stringify(
+          String(url).includes('api.github.com')
+            ? [
+                {
+                  tag_name: 'dress-new',
+                  draft: false,
+                  prerelease: false,
+                  published_at: '2026-11-14T00:00:00Z',
+                  assets: ['enhancement-pack.json', 'index-manifest.json'].map((name) => ({
+                    name,
+                  })),
+                },
+                {
+                  tag_name: 'dress-old',
+                  draft: false,
+                  prerelease: false,
+                  published_at: '2026-11-13T00:00:00Z',
+                  assets: [{ name: 'enhancement-pack.json' }],
+                },
+              ]
+            : { invalid: true },
+        ),
+      ),
+  );
+  await expect(f.controller.check(['dress'])).rejects.toThrow();
+  expect(
+    f.fetcher.mock.calls.every(
+      ([url]) =>
+        String(url).includes('api.github.com') ||
+        String(url).includes('dress-new/enhancement-pack.json'),
+    ),
+  ).toBe(true);
+  expect(f.ensure).not.toHaveBeenCalled();
+  expect((await f.packs.list())[0]?.latestVersion).toBeNull();
+});
+
+it('旧在线装扮清单不能指向未发布或另一个 Release 的资产', async () => {
+  const f = await fixture(false);
+  const part = f.next.components[0]!;
+  if (part.type !== 'dress') throw new Error('fixture');
+  f.fetcher.mockImplementation(
+    async (url) =>
+      new Response(
+        JSON.stringify(
+          String(url).includes('api.github.com')
+            ? [
+                {
+                  tag_name: 'dress-new',
+                  draft: false,
+                  prerelease: false,
+                  published_at: '2026-11-14T00:00:00Z',
+                  assets: [{ name: 'index-manifest.json' }],
+                },
+              ]
+            : part.manifest,
+        ),
+      ),
+  );
+  await expect(f.controller.check(['dress'])).rejects.toThrow('已发布资产');
+  expect(f.select).not.toHaveBeenCalled();
+});
+
 it('当前检查已经成功时，旧的忙碌任务结束后自动安装已确认更新，不等待下一个周期', async () => {
   const f = await fixture();
+  f.setLatest(release('old'));
+  await f.controller.check(['dress']);
   f.config.setSettings({
     enhancementUpdates: { autoInstall: true },
     updateCheckIntervalMinutes: -1,
@@ -176,12 +332,102 @@ it('当前检查已经成功时，旧的忙碌任务结束后自动安装已确�
   });
   f.packs.start(['dress']);
   await vi.waitFor(() => expect(f.ensure).toHaveBeenCalledTimes(1));
+  f.setLatest(f.next);
   await f.controller.check(['dress'], true);
   expect(f.ensure).toHaveBeenCalledTimes(1);
   finish();
   await vi.waitFor(() => expect(f.ensure).toHaveBeenCalledTimes(2));
   await f.packs.wait();
   expect((await f.packs.list())[0]?.installedVersion).toBe(f.next.contentVersion);
+});
+
+it('线上旧引擎清单可准备语音包，但拒绝清单中未实际发布的引擎文件', async () => {
+  const f = await fixture(false);
+  const target = 'darwin-arm64';
+  const engineName = 'sherpa-published.tar.gz';
+  const baseUrl = 'https://github.com/weq-devs/WeQ/releases/download/v2.7.0';
+  const manifest = {
+    schemaVersion: 1,
+    target,
+    engines: [
+      {
+        kind: 'sherpa',
+        id: 'sherpa-published',
+        compatibility: enhancementEngineCompatibility('sherpa'),
+        target,
+        url: `${baseUrl}/${engineName}`,
+        sha256: sha('archive'),
+        downloadBytes: 32,
+        installedBytes: 8,
+        files: [{ path: 'node_modules/runtime/index.js', size: 8, sha256: sha('runtime') }],
+      },
+    ],
+  };
+  const state = { ready: false, sizeOnDisk: 0, downloadBytes: 32, identity: '' };
+  const ensure = vi.fn(async () => {
+    state.ready = true;
+    state.identity = 'online';
+  });
+  const select = vi.fn();
+  const packs = new EnhancementPacks(
+    [
+      {
+        id: 'voice',
+        name: '语音',
+        description: '',
+        components: ['engine:sherpa', 'model:sensevoice'],
+        validate: async () => {},
+      },
+    ],
+    new Map(
+      ['engine:sherpa', 'model:sensevoice'].map((id) => [
+        id,
+        {
+          id,
+          state: () => state,
+          ensure,
+          select,
+          remove: async () => {},
+        },
+      ]),
+    ),
+    join(f.root, 'voice'),
+  );
+  const assetNames = [`enhancement-engines-${target}.json`, engineName];
+  const fetcher = vi.fn(
+    async (url: string | URL | Request) =>
+      new Response(
+        JSON.stringify(
+          String(url).includes('api.github.com')
+            ? [
+                {
+                  tag_name: 'v2.7.0',
+                  draft: false,
+                  prerelease: false,
+                  published_at: '2026-11-14T00:00:00Z',
+                  assets: assetNames.map((name) => ({ name })),
+                },
+              ]
+            : manifest,
+        ),
+      ),
+  );
+  const controller = new EnhancementUpdateController(packs, f.config, target, {
+    currentVersion: () => '2.7.0',
+    nativeCommit: () => nativeCommit,
+    fetcher,
+    legacyModels: VOICE_MODELS,
+  });
+  controllers.push(controller);
+  packs.start(['voice']);
+  await packs.wait();
+  expect(ensure).toHaveBeenCalledTimes(2);
+  expect(select).toHaveBeenCalledWith(
+    expect.objectContaining({ type: 'engine', artifact: manifest.engines[0] }),
+  );
+  expect((await packs.list())[0]?.ready).toBe(true);
+  assetNames.pop();
+  await expect(controller.check(['voice'])).rejects.toThrow('已发布资产');
 });
 
 it('默认只自动检查，发现更新不安装；列表查询不触发下载或检查', async () => {

@@ -2,7 +2,12 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import semver from 'semver';
 import { z } from 'zod';
-import { writeFileAtomic, type UserConfigService } from '@weq/service';
+import {
+  writeFileAtomic,
+  parseDressIndexManifest,
+  type ModelEntry,
+  type UserConfigService,
+} from '@weq/service';
 import { onSettingsChanged } from '@weq/service/settings-changes';
 import { networkScope, transferBehavior } from '@weq/service/network-scope';
 import { TransferGate, allowNetwork } from '@weq/service/data-saver';
@@ -10,14 +15,18 @@ import { watchTransferPolicy, transferRestricted } from '@weq/service/transfer-p
 import { UpdateCheckScheduler } from '../update/scheduler';
 import { FILE_MIRRORS } from '../update/mirrors';
 import { backgroundTasks, runBackgroundTask } from '../background_tasks';
-import { ENHANCEMENT_PACK_IDS, type EnhancementPackId } from '../../shared/enhancement_manifest';
+import {
+  ENHANCEMENT_PACK_IDS,
+  parseEnhancementEngineManifest,
+  type EnhancementPackId,
+} from '../../shared/enhancement_manifest';
 import {
   parseEnhancementCatalogForHost,
   enhancementReleaseBlocker,
   type EnhancementCatalog,
   type EnhancementRelease,
 } from '../../shared/enhancement_release';
-import { releaseContentVersion } from './release_catalog';
+import { createEnhancementCatalog, createRelease, releaseContentVersion } from './release_catalog';
 import { startEnhancementDownloads } from './tasks';
 import type { EnhancementPacks } from './packs';
 
@@ -59,12 +68,13 @@ export class EnhancementUpdateController {
   constructor(
     private readonly packs: EnhancementPacks,
     private readonly config: UserConfigService,
-    private readonly baseline: EnhancementCatalog,
+    private readonly target: string,
     private readonly options: {
       currentVersion: () => string;
       nativeCommit: () => string | undefined;
       fetcher?: typeof fetch;
       localDress?: () => boolean;
+      legacyModels?: ModelEntry[];
     },
   ) {
     this.path = join(config.appDataRoot(), 'enhancements/checks.json');
@@ -75,9 +85,9 @@ export class EnhancementUpdateController {
         const catalog = parseEnhancementCatalogForHost(
           cached.catalog,
           this.options.currentVersion(),
-          baseline.target,
+          target,
         );
-        if (catalog.target !== baseline.target) return;
+        if (catalog.target !== target) return;
         if (
           catalog.packs.some(
             (entry) =>
@@ -104,8 +114,22 @@ export class EnhancementUpdateController {
       })
       .catch(() => {})
       .then(() => {
-        for (const entry of baseline.packs) this.apply(this.latest.get(entry.id) ?? entry);
+        for (const entry of this.latest.values()) this.apply(entry);
       });
+    packs.setReleaseResolver(async (id) => {
+      await this.loaded;
+      if (!this.fresh.has(id)) {
+        try {
+          await this.check([id]);
+        } catch (error) {
+          // 仅复用曾从线上校验并保存的描述；首次离线不猜下载地址。
+          if (!this.latest.has(id)) throw error;
+        }
+      }
+      const entry = this.latest.get(id);
+      if (!entry) throw new Error('尚未取得此增强包的在线清单，请重试检查');
+      this.apply(entry);
+    });
   }
   private apply(entry: EnhancementRelease) {
     if (
@@ -255,7 +279,7 @@ export class EnhancementUpdateController {
             this.states.set(packId, { ...this.state(packId), phase: 'checking', error: undefined });
           const results = await Promise.allSettled([
             ids.some((id) => id !== 'dress')
-              ? this.fetchCatalog('weq-devs/WeQ', `enhancement-packs-${this.baseline.target}.json`)
+              ? this.fetchCatalog('weq-devs/WeQ', `enhancement-packs-${this.target}.json`)
               : Promise.resolve(null),
             ids.includes('dress')
               ? this.fetchCatalog('weq-devs/dress-resources', 'enhancement-pack.json')
@@ -392,12 +416,14 @@ export class EnhancementUpdateController {
       await this.fetchJson(`https://api.github.com/repos/${repository}/releases?per_page=100`),
     );
     const includePrerelease = this.config.getSettings().updateCheckPrerelease;
+    const isDress = repository.endsWith('/dress-resources');
+    const legacyAsset = isDress ? 'index-manifest.json' : `enhancement-engines-${this.target}.json`;
     const releases = data.filter(
       (release) =>
         !release.draft &&
         release.published_at &&
         (includePrerelease || (!release.prerelease && !semver.prerelease(release.tag_name))) &&
-        release.assets.some((item) => item.name === asset),
+        release.assets.some((item) => item.name === asset || item.name === legacyAsset),
     );
     releases.sort((a, b) =>
       repository.endsWith('/WeQ') && semver.valid(a.tag_name) && semver.valid(b.tag_name)
@@ -406,17 +432,44 @@ export class EnhancementUpdateController {
     );
     const latest = releases[0];
     if (!latest) throw new Error('此来源尚未发布增强包更新清单');
-    const url = `https://github.com/${repository}/releases/download/${encodeURIComponent(latest.tag_name)}/${asset}`;
+    const unified = latest.assets.some((item) => item.name === asset);
+    const baseUrl = `https://github.com/${repository}/releases/download/${encodeURIComponent(latest.tag_name)}`;
+    const url = `${baseUrl}/${unified ? asset : legacyAsset}`;
     let error: unknown;
     for (const prefix of FILE_MIRRORS.slice(0, 4)) {
       try {
-        const value = await this.fetchJson(`${prefix}${url}`);
+        let value = await this.fetchJson(`${prefix}${url}`);
+        if (!unified) {
+          if (isDress) {
+            const manifest = parseDressIndexManifest(value);
+            if (
+              manifest.baseUrl !== baseUrl ||
+              Object.values(manifest.parts).some(
+                (part) => !latest.assets.some((item) => item.name === part.asset),
+              )
+            )
+              throw new Error('在线装扮清单与已发布资产不匹配');
+            value = {
+              schemaVersion: 1,
+              target: this.target,
+              packs: [createRelease('dress', [{ type: 'dress', manifest }])],
+            };
+          } else {
+            const manifest = parseEnhancementEngineManifest(value);
+            if (manifest.target !== this.target) throw new Error('增强包清单平台与当前宿主不匹配');
+            if (
+              manifest.engines.some(
+                (engine) => !latest.assets.some((item) => engine.url === `${baseUrl}/${item.name}`),
+              )
+            )
+              throw new Error('在线引擎清单与已发布资产不匹配');
+            value = createEnhancementCatalog(manifest, this.options.legacyModels ?? []);
+          }
+        }
         return parseEnhancementCatalogForHost(
-          repository.endsWith('/dress-resources')
-            ? { ...(value as object), target: this.baseline.target }
-            : value,
+          isDress ? { ...(value as object), target: this.target } : value,
           this.options.currentVersion(),
-          this.baseline.target,
+          this.target,
         );
       } catch (failure) {
         error = failure;
@@ -431,7 +484,7 @@ export class EnhancementUpdateController {
         states: Object.fromEntries(this.states),
         catalog: {
           schemaVersion: 1,
-          target: this.baseline.target,
+          target: this.target,
           packs: [...this.latest.values()],
         },
       }),

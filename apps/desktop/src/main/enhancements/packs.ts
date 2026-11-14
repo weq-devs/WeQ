@@ -66,6 +66,10 @@ export interface PackOperation {
 
 /** 能力包只协调现有资源；共享组件按物理使用者保留，页面关闭不终止任务。 */
 export class EnhancementPacks {
+  private resolveRelease?: (id: EnhancementPackId) => Promise<void>;
+  setReleaseResolver(resolve: (id: EnhancementPackId) => Promise<void>) {
+    this.resolveRelease = resolve;
+  }
   private preparationObserver?: (id: EnhancementPackId, name: string) => void;
   private readonly settled = new Set<(id: EnhancementPackId) => void>();
   onSettled(listener: (id: EnhancementPackId) => void) {
@@ -256,9 +260,11 @@ export class EnhancementPacks {
       if (pack.components.some((component) => this.deleting.has(component)))
         throw new Error('增强包正在删除，请稍后重试');
       const blocker =
-        pack.components
-          .map((component) => this.components.get(component)!.state().blocker)
-          .find(Boolean) ?? (download ? this.releases.get(id)?.blocker : null);
+        download && this.resolveRelease
+          ? null
+          : (pack.components
+              .map((component) => this.components.get(component)!.state().blocker)
+              .find(Boolean) ?? (download ? this.releases.get(id)?.blocker : null));
       if (blocker) {
         this.operations.set(id, { phase: 'failed', received: 0, total: 0, error: blocker });
         continue;
@@ -269,9 +275,8 @@ export class EnhancementPacks {
         total: this.plan([id]).downloadBytes,
       });
       this.gates.set(id, { gate: new TransferGate(), continued: false });
-      const selected = download ? this.releases.get(id) : undefined;
       const task = this.queue
-        .then(() => this.prepare(pack, download, selected))
+        .then(() => this.prepare(pack, download))
         .catch((error: unknown) => {
           const previous = this.operations.get(id)!;
           this.operations.set(id, {
@@ -335,17 +340,27 @@ export class EnhancementPacks {
     this.start(ids, false);
   }
 
-  private async prepare(
-    pack: EnhancementPackDefinition,
-    download: boolean,
-    selected?: { release: EnhancementRelease; blocker: string | null },
-  ): Promise<void> {
+  private async prepare(pack: EnhancementPackDefinition, download: boolean): Promise<void> {
     await this.loaded;
+    if (download && this.resolveRelease) {
+      this.operations.set(pack.id, {
+        phase: 'checking',
+        received: 0,
+        total: 0,
+        note: '读取在线增强包清单',
+      });
+      await this.resolveRelease(pack.id);
+    }
+    const selected = download ? this.releases.get(pack.id) : undefined;
     const release = selected;
     if (download && release) {
       if (release.blocker) throw new Error(release.blocker);
       this.selectComponents(release.release, true);
     }
+    const blocker = pack.components
+      .map((id) => this.components.get(id)!.state().blocker)
+      .find(Boolean);
+    if (blocker) throw new Error(blocker);
     await Promise.all(pack.components.map((id) => this.components.get(id)!.inspect?.()));
     let completed = 0;
     const budgets = pack.components.map((id) => this.components.get(id)!.state().downloadBytes);
