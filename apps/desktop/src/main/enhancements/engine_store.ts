@@ -18,7 +18,7 @@ import { promisify } from 'node:util';
 import { x as extract } from 'tar';
 import { ManagedDownload } from '@weq/service/managed-download';
 import { enhancementEngineBusy } from './engine_environment';
-import { writeFileAtomicSync } from '@weq/service';
+import { writeFileAtomicSync } from '@weq/service/atomic-write';
 import {
   enhancementEngineCompatibility,
   ENHANCEMENT_ENGINE_RECIPES,
