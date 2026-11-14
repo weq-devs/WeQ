@@ -234,8 +234,6 @@ export const UNCONFIRMED_SIGN_COMMANDS: Readonly<Record<string, string>> = {
   'trpc.qqrtc.mav_appsvr.MavAppsvr.SsoDeleteUser': '旧群通话常量，当前群信令抓包记录未覆盖',
   'MQUpdateSvc_com_qq_ti.web.OidbSvc.0xeb1_1': '好友线索：研究文档明确记载签名要求未实测',
   'SummaryCard.ReqSummaryCard': '资料卡聚合：保留默认策略，桌面真实读取及签名要求未完成验证',
-  'MQUpdateSvc_com_qq_ti.web.OidbSvcTrpcJsapiTcp.0x9072_0':
-    '勋章墙独立读取：官方 H5 与 Android 桥接静态确认，桌面签名要求未实测',
   'QzoneV4Service.trpc.qzone.feeds_reader.FeedsReader.GetFeedDetail':
     '空间 V4 详情：仅 macOS QQ 实测可用，未逐平台确认签名要求',
 };

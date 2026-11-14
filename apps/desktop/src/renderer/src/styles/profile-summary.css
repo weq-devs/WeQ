@@ -1,16 +1,3 @@
-.weq-profile-medal-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 32px;
-  margin-top: 12px;
-  padding: 4px 0;
-  color: var(--weq-accent-effective);
-  text-align: left;
-}
-.weq-profile-medal-link:hover {
-  text-decoration: underline;
-}
 .weq-profile-common-points .weq-profile-data-label img {
   width: 16px;
   height: 16px;

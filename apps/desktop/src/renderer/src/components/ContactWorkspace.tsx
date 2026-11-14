@@ -23,7 +23,7 @@ import { ProfileDisplayEntry, ProfileDisplaySettingField } from './ProfileDispla
 import { ProfileWorkspace } from './ProfileWorkspace';
 import { ContactDressRow } from './contactProfile/ContactDressRow';
 import { GiftWall } from './gift/GiftWall';
-import { MedalWall, ProfileCommonPoints } from './ProfileSummary';
+import { ProfileCommonPoints } from './ProfileSummary';
 import '../styles/contact-card.css';
 import '../styles/contact-workspace.css';
 
@@ -54,8 +54,7 @@ export function ContactWorkspace({
   const isSelf = relationship === 'self';
   const sections = isSelf ? SELF_WORKSPACE_SECTIONS : CONTACT_WORKSPACE_SECTIONS;
   const options = sections.filter(
-    ([key]) =>
-      (key !== 'group' || hasUid || Boolean(contact.profileContext)) && (key !== 'medals' || human),
+    ([key]) => key !== 'group' || hasUid || Boolean(contact.profileContext),
   );
   const requested = tab ?? localTab;
   const target = contactWorkspaceSection(requested);
@@ -80,8 +79,6 @@ export function ContactWorkspace({
     );
   }
   function panel(key: ContactWorkspaceSection) {
-    if (key === 'medals')
-      return human ? <MedalWall key={contact.identityValue} uin={contact.identityValue} /> : null;
     if (key === 'giftwall') return isSelf ? <GiftWall /> : null;
     if (key === 'profile')
       return (

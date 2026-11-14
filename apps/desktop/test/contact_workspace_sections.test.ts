@@ -11,7 +11,6 @@ vi.mock('../src/renderer/src/components/gift/GiftWall', () => ({
   GiftWall: () => h(Activity, { name: '礼物墙内容' }),
 }));
 vi.mock('../src/renderer/src/components/ProfileSummary', () => ({
-  MedalWall: () => h(Activity, { name: '勋章墙内容' }),
   ProfileCommonPoints: () => h(Activity, { name: '共同点内容' }),
 }));
 
@@ -135,12 +134,12 @@ it('画像入口定位到画像分区，普通关系页不强制滚动', () => {
     bounds.mockRestore();
   }
 });
-it('独立勋章页不提前挂载，原有章节保持不变', () => {
+it('撤下勋章墙后原有章节保持不变', () => {
   const host = render();
   expect(
     [...host.querySelectorAll('.weq-profile-directory button')].map((node) => node.textContent),
-  ).toEqual(['个人资料', '与我的关系', '群内资料', '个性展示', '勋章墙']);
-  expect(host.textContent).not.toContain('勋章墙内容');
+  ).toEqual(['个人资料', '与我的关系', '群内资料', '个性展示']);
+  expect(host.textContent).not.toContain('勋章墙');
   expect(host.textContent).not.toContain('画像内容');
   expect(host.textContent).not.toContain('历史-profile');
   expect(host.textContent).not.toContain('questions');
@@ -154,7 +153,6 @@ it('本人资料移除关系页，礼物墙位于最后且点击前不挂载', (
     '个人资料',
     '群内资料',
     '个性展示',
-    '勋章墙',
     '礼物墙',
   ]);
   expect(host.textContent).not.toContain('礼物墙内容');
@@ -163,14 +161,12 @@ it('本人资料移除关系页，礼物墙位于最后且点击前不挂载', (
   expect(host.querySelector('[data-active]')?.getAttribute('data-active')).toBe('true');
   expect(host.textContent).not.toContain('与我的关系');
 });
-it('勋章墙本人和他人均可直达，非个人对象不显示', () => {
+it('本人和他人遗留勋章墙页签均返回个人资料', () => {
   for (const self of [true, false]) {
-    const host = render('medals', self);
-    expect(host.querySelector('[aria-current="page"]')?.textContent).toBe('勋章墙');
-    expect(host.textContent).toContain('勋章墙内容');
+    const host = render('medals' as ContactWorkspaceTab, self);
+    expect(host.querySelector('[aria-current="page"]')?.textContent).toBe('个人资料');
+    expect(host.textContent).not.toContain('勋章墙');
   }
-  const bot = render('medals', false, { kind: 'bot' });
-  expect(bot.textContent).not.toContain('勋章墙');
 });
 it('共同点只在已确认非好友的关系页读取，不挂载到好友或未知关系', () => {
   expect(render('marks', false, { isFriend: false }).textContent).toContain('共同点内容');

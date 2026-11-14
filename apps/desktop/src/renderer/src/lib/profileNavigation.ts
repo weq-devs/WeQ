@@ -59,7 +59,6 @@ export const contactWorkspaceTabSchema = z.enum([
   'history',
   'edit',
   'giftwall',
-  'medals',
 ]);
 export type ContactWorkspaceTab = z.infer<typeof contactWorkspaceTabSchema>;
 export type GroupWorkspaceTab =

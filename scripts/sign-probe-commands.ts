@@ -114,7 +114,6 @@ export const DEFAULT_OIDB_CASES: readonly string[] = [
 export const DEFAULT_RAW_CASES: readonly string[] = [
   'MQUpdateSvc_com_qq_ti.web.OidbSvc.0xeb1_1',
   'SummaryCard.ReqSummaryCard',
-  'MQUpdateSvc_com_qq_ti.web.OidbSvcTrpcJsapiTcp.0x9072_0',
   'MessageSvc.PbSendMsg',
   'trpc.msg.msg_svc.MsgService.SsoReadedReport',
   'trpc.msg.msg_svc.MsgService.SsoGroupRecallMsg',

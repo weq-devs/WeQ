@@ -6,7 +6,6 @@ import {
   getAnonymousQuestions,
   getEducationHistory,
   getProfileDetails,
-  getProfileMedalWall,
   getProfileSimilarity,
   getSelfAvatarHistory,
   getSignatureLikes,
@@ -37,7 +36,6 @@ export class ProfileExtrasService {
     private readonly read: typeof readers & {
       getSelfAvatarHistory?: typeof getSelfAvatarHistory;
       getProfileDetails?: typeof getProfileDetails;
-      getProfileMedalWall?: typeof getProfileMedalWall;
       getProfileSimilarity?: typeof getProfileSimilarity;
       getSignatureLikes?: typeof getSignatureLikes;
       getAnonymousQuestionDetail?: typeof getAnonymousQuestionDetail;
@@ -88,11 +86,6 @@ export class ProfileExtrasService {
   details(uin: string) {
     return this.query(`details:${uin}`, (pid) =>
       (this.read.getProfileDetails ?? getProfileDetails)(this.nt, pid, uin),
-    );
-  }
-  medalWall(uin: string) {
-    return this.query(`medals:${uin}`, (pid) =>
-      (this.read.getProfileMedalWall ?? getProfileMedalWall)(this.nt, pid, this.selfUin, uin),
     );
   }
   similarity(uin: string) {

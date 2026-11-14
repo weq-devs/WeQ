@@ -25,15 +25,6 @@ const regions = [
 Object.assign(window, { profileApprovedQa: summaryQa });
 function value(path: string, input: { uin?: string }) {
   const targetUin = input?.uin ?? base.qa.account;
-  if (path === 'account.profileExtras.medalWall')
-    return {
-      targetUin,
-      count: summaryQa.state === 'empty' ? 0 : 12,
-      openFlag: 0,
-      newCount: 1,
-      upgradeCount: 2,
-      detailsUrl: `https://ti.qq.com/qqmedal2/index.html?tuin=${targetUin}`,
-    };
   if (path === 'account.profileExtras.similarity')
     return {
       targetUin,
@@ -74,6 +65,8 @@ function wrap(source: unknown, path = ''): unknown {
       if (key === 'useQuery')
         return (input: { uin?: string }, options?: { enabled?: boolean }) => {
           base.useFixture();
+          if (path === 'account.profileExtras.medalWall')
+            throw new Error('已撤下的勋章墙不应发起查询');
           const current = value(path, input);
           if (current === undefined) {
             const query = Reflect.get(source as object, key) as (

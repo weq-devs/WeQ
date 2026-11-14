@@ -78,18 +78,16 @@ try {
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;
       }, theme);
-      await page.getByRole(width > 760 ? 'button' : 'tab', { name: '勋章墙', exact: true }).click();
-      await page.getByText('12 枚', { exact: true }).waitFor();
-      assert.equal(await page.getByText('新获勋章', { exact: true }).count(), 1);
+      assert.equal(await page.getByText('勋章墙', { exact: true }).count(), 0);
       const overflow = await page.evaluate(() =>
-        [...document.querySelectorAll('.weq-profile-data-row, .weq-profile-medal-link')].some(
+        [...document.querySelectorAll('.weq-profile-data-row')].some(
           (node) => node.scrollWidth > node.clientWidth + 2,
         ),
       );
       assert.equal(overflow, false);
       if (output)
-        await page.screenshot({ path: `${output}/medals-${width}-${theme}.png`, fullPage: true });
-      checks.push({ view: 'medals', width, theme });
+        await page.screenshot({ path: `${output}/profile-${width}-${theme}.png`, fullPage: true });
+      checks.push({ view: 'profile', width, theme, medalsRemoved: true });
     }
   await page.evaluate(() => {
     window.contactCardQa.mode = 'nonfriend';
@@ -134,6 +132,29 @@ try {
     .innerText();
   assert.equal(selfHometown.trim(), otherHometown.trim());
   checks.push({ view: 'hometown', sameFormat: true, text: selfHometown });
+  for (const width of [1180, 390, 320])
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width, height: 850 });
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      assert.equal(await page.getByText('勋章墙', { exact: true }).count(), 0);
+      assert.equal(
+        await page
+          .getByRole(width > 760 ? 'button' : 'tab', { name: '礼物墙', exact: true })
+          .count(),
+        1,
+      );
+      if (output)
+        await page.screenshot({ path: `${output}/self-${width}-${theme}.png`, fullPage: true });
+      checks.push({ view: 'self', width, theme, medalsRemoved: true });
+    }
+  assert.equal(
+    await page.evaluate(() =>
+      window.profileApprovedQa.calls.includes('account.profileExtras.medalWall'),
+    ),
+    false,
+  );
   assert.deepEqual(errors, []);
   if (output) await writeFile(`${output}/result.json`, JSON.stringify({ checks, errors }, null, 2));
   console.log(JSON.stringify({ checks: checks.length, errors }));
