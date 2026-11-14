@@ -32,6 +32,7 @@ const server = await createServer({
   server: { host: '127.0.0.1', port: 0, hmr: false, fs: { allow: [resolve(root, '../..')] } },
 });
 let browser;
+let page;
 const output = process.env.WEQ_TIMELINE_ARTIFACTS;
 try {
   await server.listen();
@@ -42,9 +43,12 @@ try {
       ? { executablePath: process.env.WEQ_BROWSER_EXECUTABLE }
       : {}),
   });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text());
+  });
   await page.addInitScript(() => {
     window.timelineWindowErrors = [];
     window.addEventListener('error', (event) => window.timelineWindowErrors.push(event.message));
@@ -55,15 +59,7 @@ try {
       ? route.continue()
       : route.abort(),
   );
-  await page.goto(`http://127.0.0.1:${port}/test/browser/timeline.html`);
-  await page.evaluate(async () => {
-    const { installDevelopmentErrors } = await import('/src/renderer/src/lib/developmentErrors.ts');
-    window.timelineWindowErrors = [];
-    window.timelineErrorReports = [];
-    window.stopTimelineErrors = installDevelopmentErrors(window, true, (level, message, context) =>
-      window.timelineErrorReports.push({ level, message, context }),
-    );
-  });
+  await page.goto(`http://127.0.0.1:${port}/test/browser/timeline.html?resize-diagnostics`);
   await page.waitForSelector('.weq-virtual-timeline-row');
   const assert = (condition, message) => {
     if (!condition) throw new Error(message);
@@ -447,26 +443,14 @@ try {
   }
   assert(errors.length === 0, `Browser errors: ${errors.join('; ')}`);
   const { windowErrors, errorReports } = await page.evaluate(() => {
-    window.stopTimelineErrors();
-    return { windowErrors: window.timelineWindowErrors, errorReports: window.timelineErrorReports };
+    window.timelineTest.stopResizeDiagnostics();
+    return {
+      windowErrors: window.timelineWindowErrors,
+      errorReports: window.timelineTest.resizeReports(),
+    };
   });
-  assert(
-    windowErrors.every(
-      (message) => message === 'ResizeObserver loop completed with undelivered notifications.',
-    ),
-    `Unexpected window errors: ${JSON.stringify(windowErrors)}`,
-  );
-  assert(
-    errorReports.every(
-      (report) =>
-        report.level === 'warn' && report.context.event === 'renderer-resize-observer-loop',
-    ),
-    `Layout notifications misclassified: ${JSON.stringify(errorReports)}`,
-  );
-  assert(
-    errorReports.reduce((count, report) => count + report.context.count, 0) === windowErrors.length,
-    'Aggregated warnings lost occurrences',
-  );
+  assert(windowErrors.length === 0, `Window errors: ${JSON.stringify(windowErrors)}`);
+  assert(errorReports.length === 0, `Layout warnings: ${JSON.stringify(errorReports)}`);
   const report = {
     logicalMessages: Number(
       await page.locator('[data-total-items]').getAttribute('data-total-items'),
@@ -497,6 +481,15 @@ try {
   if (output)
     await writeFile(resolve(output, 'timeline-report.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report));
+} catch (error) {
+  if (page && !page.isClosed())
+    console.error(
+      await page.evaluate(() => ({
+        windowErrors: window.timelineWindowErrors,
+        errorReports: window.timelineTest?.resizeReports?.(),
+      })),
+    );
+  throw error;
 } finally {
   await browser?.close();
   await server.close();

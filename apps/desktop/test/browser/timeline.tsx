@@ -20,6 +20,7 @@ import type { Message } from '../../src/renderer/src/im-template/template/types'
 import type { MessageBubbleSkin } from '@weq/service';
 import { useMobileWebViewport } from '../../src/renderer/src/hooks/useMobileWebViewport';
 import { TIMELINE_VIRTUAL_THRESHOLD } from '../../src/renderer/src/hooks/useVirtualTimeline';
+import { installDevelopmentErrors } from '../../src/renderer/src/lib/developmentErrors';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/mobile-web.css';
 
@@ -99,6 +100,15 @@ const scroll = () => document.querySelector<HTMLElement>('.message-scroll')!;
 const bridge: Record<string, unknown> = {};
 let pendingRestore: ReturnType<typeof captureReadingPosition> | undefined;
 Object.assign(window, { timelineTest: bridge });
+if (params.has('resize-diagnostics')) {
+  const reports: object[] = [];
+  const stop = installDevelopmentErrors(window, true, (level, message, context) => {
+    reports.push({ level, message, context });
+  });
+  bridge.resizeReports = () => reports;
+  bridge.stopResizeDiagnostics = stop;
+  window.addEventListener('pagehide', stop, { once: true });
+}
 
 function Fixture() {
   const rootRef = useRef<HTMLDivElement>(null);

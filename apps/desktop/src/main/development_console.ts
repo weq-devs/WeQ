@@ -39,6 +39,8 @@ function timingBoilerplate(line: string): boolean {
 
 function benignSystemInputDiagnostic(message: string): boolean {
   return (
+    // Electron 上游确认的 macOS SDK 输入法诊断；只收起完整匹配，DEBUG 保留。
+    message === 'error messaging the mach port for IMKCFRunLoopWakeUpReliable' ||
     message ===
       'TSM AdjustCapsLockLEDForKeyTransitionHandling - _ISSetPhysicalKeyboardCapsLockLED Inhibit' ||
     /^\+\[IMKClient subclass\]: chose IMKClient_(?:Modern|Legacy)$/.test(message) ||
@@ -112,7 +114,8 @@ export function createDevelopmentOutput(
       return;
     }
     const system = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ (\S+)\[\d+:\d+\] (.*)$/.exec(text);
-    if (!debug && system && benignSystemInputDiagnostic(system[2]!)) return;
+    const benignInput = Boolean(system && benignSystemInputDiagnostic(system[2]!));
+    if (!debug && benignInput) return;
     const vite = /^\s*(?:\d{1,2}:\d{2}:\d{2}(?:\s*[AP]M)?\s+)?\[vite\]\s*(.*)$/.exec(text);
     const scope = system ? 'electron-system' : vite ? 'vite' : 'dev-process';
     const lifecycle: Record<string, string> = {
@@ -127,13 +130,14 @@ export function createDevelopmentOutput(
         : (lifecycle[text.trim()] ?? text);
     if (continuation || /^\s+at\s|^\s*\^/.test(text)) sink(`         ${text}\n`);
     else {
-      const level = buildTiming
-        ? 'debug'
-        : /\b(?:error|fatal|failed)\b/i.test(message)
-          ? 'error'
-          : text.includes('[PLUGIN_TIMINGS]') || /\bwarn(?:ing)?\b/i.test(message)
-            ? 'warn'
-            : 'info';
+      const level =
+        buildTiming || benignInput
+          ? 'debug'
+          : /\b(?:error|fatal|failed)\b/i.test(message)
+            ? 'error'
+            : text.includes('[PLUGIN_TIMINGS]') || /\bwarn(?:ing)?\b/i.test(message)
+              ? 'warn'
+              : 'info';
       sink(
         developmentRecord(
           level,

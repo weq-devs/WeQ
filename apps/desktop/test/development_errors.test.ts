@@ -5,6 +5,77 @@ let stop = () => {};
 afterEach(() => {
   stop();
   vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
+it('开发尺寸诊断保留原回调与构造语义，记录有界来源且不读取布局或正文', () => {
+  let callback: ResizeObserverCallback | undefined;
+  class OriginalObserver {
+    constructor(cb: ResizeObserverCallback) {
+      callback = cb;
+    }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  vi.stubGlobal('ResizeObserver', OriginalObserver);
+  const report = vi.fn();
+  stop = installDevelopmentErrors(window, true, report);
+  const notified = vi.fn();
+  const observer = new ResizeObserver(notified);
+  expect(observer).toBeInstanceOf(OriginalObserver);
+  const element = document.createElement('div');
+  element.className = 'fixture-size';
+  element.id = 'private-id';
+  element.textContent = 'private-text';
+  const bounds = vi.spyOn(element, 'getBoundingClientRect');
+  const entries: ResizeObserverEntry[] = [
+    {
+      target: element,
+      contentRect: new DOMRect(0, 0, 200, 40),
+      borderBoxSize: [],
+      contentBoxSize: [],
+      devicePixelContentBoxSize: [],
+    },
+  ];
+  for (let repeat = 0; repeat < 20; repeat++) callback!(entries, observer);
+  expect(notified).toHaveBeenCalledTimes(20);
+  expect(notified).toHaveBeenLastCalledWith(entries, observer);
+  window.dispatchEvent(
+    new ErrorEvent('error', {
+      message: 'ResizeObserver loop completed with undelivered notifications.',
+    }),
+  );
+  const context = report.mock.calls.at(-1)![2];
+  expect(context.resizeCallbacks.length).toBeGreaterThan(0);
+  expect(context.resizeCallbacks.length).toBeLessThanOrEqual(6);
+  expect(context.resizeCallbacks.at(-1)).toMatchObject({
+    targets: ['div.fixture-size 200x40'],
+    sourceStack: expect.stringContaining('development_errors.test.ts'),
+  });
+  expect(JSON.stringify(context)).not.toContain('private-id');
+  expect(JSON.stringify(context)).not.toContain('private-text');
+  expect(bounds).not.toHaveBeenCalled();
+  stop();
+  expect(window.ResizeObserver).toBe(OriginalObserver);
+  callback!(entries, observer);
+  expect(notified).toHaveBeenCalledTimes(21);
+});
+
+it('正式模式不替换尺寸监听器，重装清理旧诊断且不恢复覆盖后的构造器', () => {
+  const OriginalObserver = window.ResizeObserver;
+  stop = installDevelopmentErrors(window, false, vi.fn());
+  expect(window.ResizeObserver).toBe(OriginalObserver);
+  const oldStop = installDevelopmentErrors(window, true, vi.fn());
+  const oldObserver = window.ResizeObserver;
+  stop = installDevelopmentErrors(window, true, vi.fn());
+  expect(window.ResizeObserver).not.toBe(oldObserver);
+  oldStop();
+  expect(window.ResizeObserver).not.toBe(OriginalObserver);
+  class LaterObserver extends OriginalObserver {}
+  vi.stubGlobal('ResizeObserver', LaterObserver);
+  stop();
+  expect(window.ResizeObserver).toBe(LaterObserver);
 });
 it('只安装一套异常监听，重装和 HMR 清理不改变原异常行为', () => {
   const old = vi.fn(),

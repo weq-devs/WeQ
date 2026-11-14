@@ -72,6 +72,10 @@ native 来源由配置明确决定：本地编译失败不会下载发布版，�
 
 设置 `WEQ_LOG_LEVEL=debug` 可查看完整构建输出、命令及导入引用链。`NO_COLOR` 禁用颜色，Ctrl+C 清理本次启动的子进程。“依赖准备完成，开始开发构建”只表示准备流程成功；“应用已就绪”在实际首屏完成绘制后记录，不以 Electron ready 或主进程打包完成代替。
 
+开发模式的尺寸监听告警仍按 WARN 限频计数，并附带最近 100ms 内最多六次回调的创建堆栈和目标尺寸；DEBUG 终端显示调用目标与堆栈，结构化日志保留有界回调记录。诊断只读取浏览器已经交付的尺寸，不额外测量布局，不改变回调调度；正式模式不安装诊断。定向浏览器回归使用 `node apps/desktop/test/browser/run-resize-observers.mjs` 与 `node apps/desktop/test/browser/run-timeline.mjs`，同时检查无尺寸告警、绘制前阅读锚点和可见行增高不重叠。
+
+已知 macOS 输入法系统诊断默认收起，DEBUG 保留原文并标为 DEBUG，包括 `error messaging the mach port for IMKCFRunLoopWakeUpReliable`。[Electron 上游记录](https://github.com/electron/electron/issues/45002)曾确认该诊断来自 macOS SDK 变化，不影响应用行为；这里仅修正日志展示，不宣称修复系统输入法。过滤只匹配完整系统诊断正文，相似异常、附加故障说明与其他错误仍正常输出。
+
 ```sh
 pnpm dev --prepare-only                 # 补齐环境和构建后退出，不启动应用
 pnpm dev -- --user-data-dir=/custom/dev # 显式覆盖本次开发数据目录

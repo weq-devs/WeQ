@@ -1437,6 +1437,13 @@ export function ChatPane({
     messageScrollRef.current = element;
     onTimelineElement?.(element);
   });
+  const captureTimelineContent = useCallback(
+    (element: HTMLDivElement | null) => {
+      timelineContentRef.current = element;
+      timeline.containerRef(element);
+    },
+    [timelineContentRef, timeline.containerRef],
+  );
   const pagingOlder = useStableCallback((element: HTMLElement) => {
     if (hasOlder && !loading && !loadingOlder) void onLoadOlder?.(element);
   });
@@ -6213,9 +6220,6 @@ export function ChatPane({
                       key={message.id}
                       data-index={index}
                       ref={timeline.measure}
-                      style={
-                        timeline.enabled ? { top: virtualRow.start - timeline.margin } : undefined
-                      }
                     >
                       {children}
                     </div>,
@@ -6224,12 +6228,11 @@ export function ChatPane({
               });
               return (
                 <div
-                  ref={timelineContentRef}
+                  ref={captureTimelineContent}
                   className={cn('weq-virtual-timeline', timeline.enabled && 'is-windowed')}
                   role="list"
                   aria-label="聊天消息"
                   data-total-items={visibleMessages.length}
-                  style={timeline.enabled ? { height: timeline.totalSize } : undefined}
                 >
                   {out}
                 </div>
@@ -6254,7 +6257,7 @@ export function ChatPane({
       <OverlayScrollbar
         scrollRef={messageScrollRef}
         className="weq-message-scrollbar"
-        refreshKey={`${conversation.id}:${visibleMessages.length}`}
+        refreshKey={`${conversation.id}:${visibleMessages.length}:${timeline.enabled}`}
       />
 
       {newMessagePill > 0 ||

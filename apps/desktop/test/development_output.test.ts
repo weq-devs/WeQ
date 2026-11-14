@@ -49,6 +49,7 @@ describe('开发进程输出', () => {
     expect(lines.at(-1)).not.toContain('52183');
   });
   const macInputDiagnostics = [
+    'error messaging the mach port for IMKCFRunLoopWakeUpReliable',
     'TSM AdjustCapsLockLEDForKeyTransitionHandling - _ISSetPhysicalKeyboardCapsLockLED Inhibit',
     '+[IMKClient subclass]: chose IMKClient_Modern',
     '+[IMKClient subclass]: chose IMKClient_Legacy',
@@ -70,6 +71,7 @@ describe('开发进程输出', () => {
     expect(lines).toHaveLength(level === 'debug' ? macInputDiagnostics.length + 1 : 1);
     if (level === 'debug') {
       for (const diagnostic of macInputDiagnostics) expect(lines.join('')).toContain(diagnostic);
+      expect(lines.slice(0, -1).every((line) => line.includes('DEBUG electron-system'))).toBe(true);
     }
     expect(lines.at(-1)).toBe('12:34:56 INFO  startup  已就绪\n');
   });
@@ -78,6 +80,7 @@ describe('开发进程输出', () => {
     onTestFinished(() => vi.unstubAllEnvs());
     const messages = [
       `${macInputDiagnostics[0]} failed`,
+      'error messaging the mach port for IMKCFRunLoopWakeUpReliable: connection invalid',
       '+[IMKClient subclass]: chose IMKClient_Unknown',
       '+[IMKInputSession subclass]: failed to initialize',
       '+[IMKClient subclass]: chose IMKInputSession_Modern',
@@ -97,6 +100,7 @@ describe('开发进程输出', () => {
     expect(lines).toHaveLength(messages.length + 1);
     for (const message of messages) expect(lines.join('')).toContain(message);
     expect(lines.at(-1)).toContain('dev-process');
+    expect(lines.at(-1)).toContain('ERROR dev-process');
     expect(lines.at(-1)).toContain(macInputDiagnostics[0]);
   });
   it('管道继承真实终端颜色，NO_COLOR 优先，已有 ANSI 在无色输出中移除', () => {
