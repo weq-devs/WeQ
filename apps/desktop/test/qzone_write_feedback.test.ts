@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
   refreshWait: null as Promise<void> | null,
   readback: undefined as (() => Promise<boolean>) | undefined,
   autoReadback: false,
+  writeOptions: null as { feedback?: string } | null,
   write: vi.fn(async (_input: unknown): Promise<QQWriteOutcome> => ({ state: 'accepted' })),
   forward: vi.fn(async (_input: unknown): Promise<QQWriteOutcome> => ({ state: 'accepted' })),
   pickImage: vi.fn(async () => ({ path: '/synthetic/image.png', fileName: '合成图片.png' })),
@@ -66,8 +67,9 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
     run: async (
       action: (binding: QQWriteBinding) => Promise<QQWriteOutcome>,
       refresh?: () => Promise<unknown>,
-      options?: { readback?: () => Promise<boolean> },
+      options?: { feedback?: string; readback?: () => Promise<boolean> },
     ) => {
+      state.writeOptions = options ?? null;
       state.readback = options?.readback;
       const configId = state.configId;
       try {
@@ -131,6 +133,7 @@ beforeEach(() => {
   state.refreshWait = null;
   state.readback = undefined;
   state.autoReadback = false;
+  state.writeOptions = null;
   state.write.mockReset().mockResolvedValue({ state: 'accepted' });
   state.forward.mockReset().mockResolvedValue({ state: 'accepted' });
   state.forwards.mockReset().mockResolvedValue({
@@ -439,7 +442,10 @@ it('点赞立即高亮并更新数量，受理后即使远端仍为原值也重�
   const pending = deferred<QQWriteOutcome>();
   state.write.mockReturnValueOnce(pending.promise);
   act(() => view.button('点赞说说').click());
+  expect(state.writeOptions?.feedback).toBe('failure-only');
   expect(view.button('取消说说点赞').disabled).toBe(true);
+  expect(view.button('取消说说点赞').getAttribute('aria-busy')).toBe('true');
+  capture(view.host, 'like-pending');
   expect(view.count()).toContain('赞 5');
   await act(async () => pending.resolve({ state: 'accepted' }));
   await act(async () => {
@@ -486,6 +492,7 @@ it('评论未确认保留草稿，受理后不关闭互动区并刷新评论，�
   enter(view.host, '原评论草稿');
   state.write.mockResolvedValueOnce({ state: 'unconfirmed' });
   await act(async () => view.button('发送说说评论').click());
+  expect(state.writeOptions?.feedback).toBe('failure-only');
   expect(view.host.querySelector<HTMLInputElement>('[aria-label="说说评论"]')!.value).toBe(
     '原评论草稿',
   );
@@ -497,6 +504,7 @@ it('评论未确认保留草稿，受理后不关闭互动区并刷新评论，�
   act(() => view.button('发送说说评论').click());
   expect(view.host.querySelector('[aria-label="正在发送评论"]')).not.toBeNull();
   expect(view.button('发送说说评论').disabled).toBe(true);
+  capture(view.host, 'comment-pending');
   act(() => view.button('发送说说评论').click());
   expect(state.write).toHaveBeenCalledTimes(2);
   enter(view.host, '下一条草稿');
@@ -514,6 +522,7 @@ it('评论未确认保留草稿，受理后不关闭互动区并刷新评论，�
     }),
   );
   expect(view.count()).toContain('评论 6');
+  capture(view.host, 'comment-success');
 });
 it('连续操作期间校准失败，数量以当前即时状态为基准，失败恢复上一笔结果', async () => {
   const view = await mount();
@@ -690,6 +699,7 @@ it('转发弹窗上方预填引用并将光标定位开头，下方保留原动�
       reason: '//：合成说说',
     }),
   );
+  expect(state.writeOptions?.feedback).toBe('failure-only');
   expect(document.querySelector('.weq-qzn-forward-dialog')).toBeNull();
   expect(await state.readback!()).toBe(false);
   state.posts.mockResolvedValueOnce({

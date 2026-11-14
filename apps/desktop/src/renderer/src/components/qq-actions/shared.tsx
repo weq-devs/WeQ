@@ -7,6 +7,7 @@ import {
   useQQWriteSession,
   type QQWriteBinding,
   type QQWriteOutcome,
+  type QQWriteFeedback,
 } from '../../hooks/useQQWriteSession';
 import { useViewState } from '../../state/view';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
@@ -60,7 +61,7 @@ export function ActionIcon({
     </button>
   );
 }
-export function useQQAction(scope: string) {
+export function useQQAction(scope: string, feedback: QQWriteFeedback = 'all') {
   const ownerDocument = useRenderDocument();
   const session = useQQWriteSession(`actions:${scope}`);
   const confirm = useDialog((s) => s.confirm);
@@ -90,7 +91,7 @@ export function useQQAction(scope: string) {
     try {
       if (warning && !(await confirm('确认 QQ 操作', warning, { ownerDocument }))) return false;
       if (!mounted.current || latest.current !== identity) return false;
-      return await session.run(action, refresh, options);
+      return await session.run(action, refresh, { feedback, ...options });
     } finally {
       busy.current = false;
       if (mounted.current) setPending(false);

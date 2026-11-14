@@ -35,6 +35,7 @@ const state = vi.hoisted(() => ({
   config: 'source-a',
   permissionFailure: false,
   albumConfirmed: false,
+  writeFeedback: undefined as string | undefined,
   permissions: {
     blocked: [] as Array<{ uin: string; name: string }>,
     hidden: [] as Array<{ uin: string; name: string }>,
@@ -70,8 +71,9 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
     run: async (
       action: (b: QQWriteBinding) => Promise<QQWriteOutcome>,
       refresh?: () => Promise<unknown>,
-      options?: { readback?: () => Promise<boolean> },
+      options?: { feedback?: string; readback?: () => Promise<boolean> },
     ) => {
+      state.writeFeedback = options?.feedback;
       try {
         await action({ expectedAccountUin: '10001', expectedAccountConfigId: state.config });
         const confirmed = options?.readback ? await options.readback() : false;
@@ -208,6 +210,7 @@ beforeEach(() => {
   state.permissionFailure = false;
   state.confirm = true;
   state.albumConfirmed = false;
+  state.writeFeedback = undefined;
   state.permissions = { blocked: [], hidden: [] };
   state.profiles = [];
   state.errors = {};
@@ -293,6 +296,7 @@ describe('可接入功能交互回归', () => {
       return { state: 'unconfirmed' };
     });
     await act(async () => remove.click());
+    expect(state.writeFeedback).toBe('failure-only');
     expect(state.writes).toHaveBeenCalledWith('permission', {
       expectedAccountUin: '10001',
       expectedAccountConfigId: 'source-a',

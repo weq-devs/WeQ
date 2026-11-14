@@ -10,6 +10,7 @@ export interface QQWriteBinding {
   expectedAccountConfigId: string;
 }
 export type QQWriteOutcome = { state: 'confirmed' | 'accepted' | 'unconfirmed' | 'unchanged' };
+export type QQWriteFeedback = 'all' | 'failure-only';
 
 export function qqWriteOutcomeText(result: QQWriteOutcome): string {
   switch (result.state) {
@@ -75,6 +76,8 @@ export function useQQWriteSession(scope: string, passive = false) {
     action: (binding: QQWriteBinding) => Promise<QQWriteOutcome>,
     refresh?: () => Promise<unknown>,
     options?: {
+      /** 已有原位反馈的操作只在失败或未确认时显示横幅，不影响读回与刷新。 */
+      feedback?: QQWriteFeedback;
       refreshCaches?: boolean;
       backgroundRefresh?: boolean;
       groupCode?: string;
@@ -105,11 +108,12 @@ export function useQQWriteSession(scope: string, passive = false) {
     const toast = useToast.getState();
     let toastId: number | undefined;
     const finish = (title: string, tone: 'success' | 'warning' | 'error' | 'info') => {
+      if (options?.feedback === 'failure-only' && (tone === 'success' || tone === 'info')) return;
       const durationKind = tone === 'success' || tone === 'info' ? 'success' : 'failure';
       if (toastId === undefined) toastId = toast.push({ title, tone, durationKind });
       else toast.update(toastId, { title, tone, durationKind, loading: false });
     };
-    if (options?.refreshCaches !== false)
+    if (options?.refreshCaches !== false && options?.feedback !== 'failure-only')
       toastId = toast.push({ title: '正在确认操作完成情况', loading: true, ttl: 0 });
     try {
       const outcome = await action(binding);

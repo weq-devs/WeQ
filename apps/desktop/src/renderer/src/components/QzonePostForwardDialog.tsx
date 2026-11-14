@@ -19,7 +19,7 @@ export function QzonePostForwardDialog({
   onClose: () => void;
   children: ReactNode;
 }) {
-  const action = useQQAction(`qzone-forward:${hostUin}:${tid}`);
+  const action = useQQAction(`qzone-forward:${hostUin}:${tid}`, 'failure-only');
   return (
     <QzoneForwardDialog
       previousContent={previousContent}

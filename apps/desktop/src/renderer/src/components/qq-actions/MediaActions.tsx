@@ -377,7 +377,7 @@ function QzoneWriteActionsBody({
   draftPicture?: { path: string; fileName: string } | null;
   onDraftPictureChange?: (picture: { path: string; fileName: string } | null) => void;
 }) {
-  const a = useQQAction(`qzone:${hostUin}:${tid}`),
+  const a = useQQAction(`qzone:${hostUin}:${tid}`, 'failure-only'),
     [localContent, setLocalContent] = useState('');
   const content = draftContent ?? localContent;
   const setContent = onDraftContentChange ?? setLocalContent;
