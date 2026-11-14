@@ -29,6 +29,7 @@ import {
   enhancementEngineAvailable,
   enhancementEngineEnvironment,
 } from '../enhancements/engine_environment';
+import { resolveChildWorkerPath } from '../worker_path';
 
 const logger = getLogger().child({ scope: 'intent-sense' });
 
@@ -388,14 +389,8 @@ class LocalEngineBridge implements IntentLocalEnginePort {
   }
 
   private resolveWorkerPath(): string {
-    // 不用裸 __dirname（Electron 主进程 ESM 下该 banner 依赖 import.meta.dirname，
-    // 不可靠 —— captureWorker 的同款函数也是 fileURLToPath 写法）。
     const here = dirname(fileURLToPath(import.meta.url));
-    const candidates = [
-      join(here, 'intentSenseWorker.mjs'),
-      join(here, '..', 'intentSenseWorker.mjs'),
-    ];
-    return candidates.find((p) => existsSync(p)) ?? candidates[0]!;
+    return resolveChildWorkerPath('intentSenseWorker.mjs', here);
   }
 }
 
