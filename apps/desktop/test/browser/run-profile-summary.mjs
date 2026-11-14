@@ -135,8 +135,43 @@ try {
         await page.screenshot({ path: `${output}/profile-${width}-${theme}.png`, fullPage: true });
       checks.push({ view: 'profile', width, theme, medalsRemoved: true });
     }
+  for (const mode of ['friend', 'unknown', 'bot', 'enterprise']) {
+    await page.evaluate((mode) => {
+      window.contactCardQa.mode = mode;
+      window.profileApprovedQa.dnaCommon = true;
+      window.profileApprovedQa.calls.length = 0;
+      window.contactCardQa.notify();
+    }, mode);
+    await page.getByRole('tab', { name: '与我的关系', exact: true }).click();
+    await page.waitForFunction(() =>
+      window.profileApprovedQa.calls.includes('account.profileExtras.similarity'),
+    );
+    await page.getByText('我们一个是射手座，另一个是摩羯座', { exact: false }).waitFor();
+    for (const width of mode === 'friend' ? [1180, 390, 320] : [320])
+      for (const theme of mode === 'friend' ? ['light', 'dark'] : ['dark']) {
+        await page.setViewportSize({ width, height: 850 });
+        await page.evaluate((theme) => {
+          document.documentElement.dataset.theme = theme;
+        }, theme);
+        const comparison = page.locator('.weq-profile-common-points');
+        assert.equal(await comparison.isVisible(), true);
+        assert.equal(await comparison.locator('button').count(), 0);
+        assert.equal(
+          await comparison.evaluate((node) => node.scrollWidth > node.clientWidth + 2),
+          false,
+        );
+        if (output)
+          await page.screenshot({
+            path: `${output}/${mode}-${width}-${theme}.png`,
+            fullPage: true,
+          });
+        checks.push({ view: 'all-contacts', mode, width, theme, comparisonVisible: true });
+      }
+    await page.getByRole('tab', { name: '个人资料', exact: true }).click();
+  }
   await page.evaluate(() => {
     window.contactCardQa.mode = 'nonfriend';
+    window.profileApprovedQa.dnaCommon = false;
     window.contactCardQa.notify();
   });
   await page.getByRole('tab', { name: '与我的关系', exact: true }).click();
@@ -216,6 +251,7 @@ try {
     .click();
   await page.getByText('共同兴趣', { exact: true }).waitFor();
   await page.evaluate(() => {
+    window.profileApprovedQa.calls.length = 0;
     window.contactCardQa.mode = 'self';
     window.contactCardQa.notify();
   });
@@ -245,6 +281,13 @@ try {
         await page.screenshot({ path: `${output}/self-${width}-${theme}.png`, fullPage: true });
       checks.push({ view: 'self', width, theme, medalsRemoved: true });
     }
+  assert.equal(await page.locator('.weq-profile-common-points').count(), 0);
+  assert.equal(
+    await page.evaluate(() =>
+      window.profileApprovedQa.calls.includes('account.profileExtras.similarity'),
+    ),
+    false,
+  );
   assert.equal(
     await page.evaluate(() =>
       window.profileApprovedQa.calls.includes('account.profileExtras.medalWall'),

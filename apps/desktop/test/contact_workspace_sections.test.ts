@@ -97,6 +97,7 @@ function render(tab?: ContactWorkspaceTab, self = false, overrides: Partial<Cont
         {
           value: {
             selfUid: self ? contact.uid : 'u_self',
+            selfUin: '10001',
             friends: new Map(),
             friendsComplete: false,
             groups: new Map(),
@@ -168,12 +169,25 @@ it('本人和他人遗留勋章墙页签均返回个人资料', () => {
     expect(host.textContent).not.toContain('勋章墙');
   }
 });
-it('共同点只在已确认非好友的关系页读取，不挂载到好友或未知关系', () => {
-  expect(render('marks', false, { isFriend: false }).textContent).toContain('共同点内容');
-  expect(render('marks').textContent).not.toContain('共同点内容');
-  expect(
-    render('marks', false, { isFriend: false, friendshipKnown: false }).textContent,
-  ).not.toContain('共同点内容');
+it.each<[string, Partial<Contact>]>([
+  ['好友', {}],
+  ['非好友', { isFriend: false }],
+  ['关系未确认', { isFriend: false, friendshipKnown: false }],
+  ['没有好友标记', { isFriend: undefined }],
+  ['机器人账号', { kind: 'bot' }],
+  ['企业账号', { extInfo: { isEnterprise: true } }],
+])('资料对比向所有有 QQ 号的他人联系人开放：%s', (_name, overrides) => {
+  expect(render('marks', false, overrides).textContent).toContain('共同点内容');
+});
+it.each<[string, boolean, Partial<Contact>]>([
+  ['本人 UID', true, {}],
+  ['本人 QQ 号', false, { identityValue: '10001' }],
+  ['本人身份前缀', false, { id: 'self:10002' }],
+  ['没有 QQ 号', false, { identityValue: '' }],
+  ['只有 UID', false, { identityLabel: 'UID', identityValue: 'u_unknown' }],
+  ['本地克隆', false, { clone: true, identityLabel: '虚拟', identityValue: '' }],
+])('资料对比不查询本人或无法定位 QQ 账号的对象：%s', (_name, self, overrides) => {
+  expect(render('marks', self, overrides).textContent).not.toContain('共同点内容');
 });
 it.each(['marks', 'portrait'] as const)('本人旧入口 %s 不恢复关系页或画像', (tab) => {
   const host = render(tab, true);

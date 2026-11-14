@@ -64,10 +64,10 @@ UID 仅在开启该字段时进入身份区。`styles/contact-workspace.css` 承
 - `ProfileSummary` 复用 `ContactRow`、查询缓存和活动章节状态。`ProfileExtrasService.similarity` 通过原路由绑定账号配置、目标及进程，按业务和目标在途去重；所有结果再次检查来源及目标，不修改名称缓存或 QQ 数据库。
 - 共同点由 `profile/similarity` **直接请求 OidbSvc.0xcf4**，不先请求资料卡聚合，也不在失败后切换到聚合。请求 from@1、to@2、qzone@4=true、newDna@6=false；响应 from@1／to@2 必须匹配双方，从 **DnaInfo@14 的 wording@3** 读取严格 UTF-8 主文案，`source=dna`。不推断相同属性，不使用新 DNA 的聊天小结或友谊时间线。该独立路径已在 macOS 当前真实登录态读取到非空文案；成功空列表、业务拒绝、错目标和损坏响应分别处理，不用空结果掩盖错误。
 - 资料卡聚合的请求／解析、专用 JCE 编解码、待确认签名登记及默认探测候选均已移出产品；没有隐藏开关或聚合回退。
-- 共同点仍仅对已确认非好友挂载，普通共同好友／共同群和互动画像不受影响。所有补全只读，均不写 QQ 原库或会话名称缓存。
+- 资料对比向所有有有效 QQ 号的他人联系人挂载，不按好友／非好友／关系未知或机器人／企业账号筛选；本人通过共享身份目录识别并排除，没有 QQ 身份的本地对象不发请求。当前 macOS 真实好友查询已通过正式服务返回非空文案。普通共同好友／共同群和互动画像不受影响；所有补全只读，均不写 QQ 原库或会话名称缓存。
 - 读取使用现有中央签名策略，不更换登录身份或伪装 Android，不恢复已撤下的好友扩展备注接口。
 
-针对性协议用例在 `profile_similarity.test.ts`、`profile_details.test.ts`；`sign_policy.test.ts` 保证已撤下聚合不保留策略或默认探测入口。账号绑定和在途检查沿 `profile_extras.test.ts` 与 `profile_extras_router.test.ts`；界面／路由回归为 `profile_summary_ui.test.ts`、`contact_workspace_sections.test.ts` 和 `contact_workspace_model.test.ts`，包含已撤下勋章墙的导航和路由不存在、旧页签回退检查。浏览器入口 `run-profile-summary.mjs` 使用既有 Playwright／浏览器环境变量，以 `WEQ_PROFILE_APPROVED_QA` 保存证据，覆盖本人／他人格式一致、无勋章入口或查询、非好友共同点、空态与失败重试，退出时关闭自身服务器及浏览器。
+针对性协议用例在 `profile_similarity.test.ts`、`profile_details.test.ts`；`sign_policy.test.ts` 保证已撤下聚合不保留策略或默认探测入口。账号绑定和在途检查沿 `profile_extras.test.ts` 与 `profile_extras_router.test.ts`；界面／路由回归为 `profile_summary_ui.test.ts`、`contact_workspace_sections.test.ts` 和 `contact_workspace_model.test.ts`，包含已撤下勋章墙的导航和路由不存在、旧页签回退检查。浏览器入口 `run-profile-summary.mjs` 使用既有 Playwright／浏览器环境变量，以 `WEQ_PROFILE_APPROVED_QA` 保存证据，覆盖本人／他人格式一致、无勋章入口或查询、所有他人联系人的资料对比与本人排除、空态及失败重试，退出时关闭自身服务器及浏览器。
 
 服务测试覆盖字段默认、归一化、排序、持久化、备份恢复及等级与获赞的实际读取选择；渲染测试覆盖名片浮层、头像补全、来源隔离、备注及群资料编辑和既有互动能力。
 

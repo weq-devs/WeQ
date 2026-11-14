@@ -110,7 +110,7 @@ export function ContactWorkspace({
       return (
         <>
           {content(['common', 'intimacy', 'relations', 'friendClue'])}
-          {human && relationship === 'nonfriend' ? (
+          {hasQQ && !isSelf ? (
             <ProfileCommonPoints key={contact.identityValue} uin={contact.identityValue} />
           ) : null}
           {human && relationship === 'friend' ? (

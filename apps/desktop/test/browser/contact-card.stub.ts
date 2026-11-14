@@ -14,7 +14,7 @@ export const qa = {
   account: '10001',
   config: 'source',
   online: true,
-  mode: 'friend' as 'friend' | 'nonfriend' | 'self' | 'bot' | 'enterprise' | 'clone',
+  mode: 'friend' as 'friend' | 'nonfriend' | 'unknown' | 'self' | 'bot' | 'enterprise' | 'clone',
   inGroup: true,
   muted: false,
   noRemark: new URLSearchParams(location.search).has('no-remark'),

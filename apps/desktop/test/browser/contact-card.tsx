@@ -207,7 +207,8 @@ function Fixture() {
         : {
             ...person,
             kind: qa.mode === 'bot' ? 'bot' : 'human',
-            isFriend: qa.mode !== 'nonfriend',
+            isFriend: qa.mode === 'unknown' ? undefined : qa.mode !== 'nonfriend',
+            friendshipKnown: qa.mode === 'unknown' ? false : undefined,
             extInfo: person.extInfo
               ? { ...person.extInfo, isEnterprise: qa.mode === 'enterprise' }
               : undefined,
@@ -234,7 +235,7 @@ function Fixture() {
             selfUin: qa.account,
             selfUid: 'u_self',
             friends: new Map(qa.mode === 'friend' ? [[target.id, {}]] : []),
-            friendsComplete: true,
+            friendsComplete: qa.mode !== 'unknown',
             groups: new Map([['10003', { listed: qa.inGroup, role: qa.role }]]),
           }}
         >
