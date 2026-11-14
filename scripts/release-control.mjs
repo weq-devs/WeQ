@@ -97,6 +97,9 @@ export function requiredAssets(version) {
     ...['win32-x64', 'linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64'].map(
       (target) => `enhancement-engines-${target}.json`,
     ),
+    ...['win32-x64', 'linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64'].map(
+      (target) => `enhancement-packs-${target}.json`,
+    ),
     'latest.yml',
     'latest-linux.yml',
     'latest-linux-arm64.yml',
