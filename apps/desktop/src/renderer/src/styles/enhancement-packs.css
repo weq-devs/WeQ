@@ -1,0 +1,127 @@
+.weq-enhancement-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.weq-enhancement-item {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) 100px 108px;
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 8px;
+  padding: 14px 0;
+  color: var(--weq-fg-primary);
+}
+.weq-enhancement-icon {
+  display: flex;
+  align-items: center;
+  color: var(--weq-fg-secondary);
+}
+.weq-enhancement-main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+.weq-enhancement-name {
+  font-size: 13px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.weq-enhancement-description {
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
+}
+.weq-enhancement-size {
+  font-size: 12px;
+  text-align: right;
+  white-space: nowrap;
+}
+.weq-enhancement-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.weq-enhancement-actions > .weq-set-btn,
+.weq-enhancement-progress > .weq-set-btn {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  padding: 0;
+  justify-content: center;
+}
+.weq-enhancement-progress {
+  grid-column: 2 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 30px;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--weq-fg-secondary);
+}
+.weq-enhancement-progress progress {
+  width: 100%;
+  height: 4px;
+  accent-color: var(--weq-accent-effective);
+}
+.weq-enhancement-phase {
+  grid-column: 1 / -1;
+  overflow-wrap: anywhere;
+}
+.weq-enhancement-status,
+.weq-enhancement-issue {
+  grid-column: 2 / -1;
+  margin: 0;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
+}
+.weq-enhancement-issue a,
+.weq-enhancement-retry {
+  color: var(--weq-accent-effective);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.weq-enhancement-retry {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.weq-enhancement-item .weq-set-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
+}
+html[data-theme='dark'] .weq-enhancement-item .weq-set-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+}
+@media (max-width: 600px) {
+  .weq-enhancement-item {
+    grid-template-columns: 22px minmax(0, 1fr) 108px;
+    column-gap: 8px;
+  }
+  .weq-enhancement-main {
+    grid-column: 2 / -1;
+  }
+  .weq-enhancement-size {
+    grid-column: 2;
+    text-align: left;
+  }
+  .weq-enhancement-actions {
+    grid-column: 3;
+  }
+  .weq-enhancement-progress {
+    grid-template-columns: minmax(0, 1fr) 30px;
+  }
+  .weq-enhancement-progress > .weq-number {
+    grid-row: 2;
+  }
+  .weq-enhancement-progress > .weq-enhancement-phase {
+    grid-column: 1;
+    grid-row: 3;
+  }
+  .weq-enhancement-progress > button {
+    grid-column: 2;
+    grid-row: 1 / 3;
+  }
+}

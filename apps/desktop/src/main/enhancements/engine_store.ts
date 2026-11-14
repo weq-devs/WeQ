@@ -1,12 +1,24 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { createReadStream, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { link, lstat, mkdir, rename, rm, stat, statfs, writeFile } from 'node:fs/promises';
+import {
+  copyFile,
+  constants,
+  link,
+  lstat,
+  mkdir,
+  rename,
+  rm,
+  stat,
+  statfs,
+  writeFile,
+} from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { x as extract } from 'tar';
 import { ManagedDownload } from '@weq/service/managed-download';
 import { enhancementEngineBusy } from './engine_environment';
+import { writeFileAtomicSync } from '@weq/service';
 import {
   enhancementEngineCompatibility,
   ENHANCEMENT_ENGINE_RECIPES,
@@ -92,10 +104,12 @@ export interface EngineTransferState {
 interface EngineReceipt {
   artifact: EnhancementEngineArtifact;
   verifiedAt: number;
+  staged?: boolean;
 }
 
 /** 引擎按兼容配方与内容身份落盘；新版本完整校验、加载成功前不覆盖旧引擎。 */
 export class EnhancementEngineStore {
+  private readonly legacyDirectories = new Set<string>();
   readonly root: string;
   readonly target: string;
   private readonly pending = new Map<EnhancementEngineKind, Promise<string>>();
@@ -108,16 +122,29 @@ export class EnhancementEngineStore {
 
   constructor(
     appDataRoot: string,
-    readonly manifest: EnhancementEngineManifest | null,
+    public manifest: EnhancementEngineManifest | null,
     private readonly options: {
       target?: string;
       probe?: typeof probeEnhancementEngine;
       fetcher?: typeof fetch;
       developmentDirectory?: string;
+      stagingOnly?: boolean;
     } = {},
   ) {
     this.root = join(appDataRoot, 'enhancements', 'engines');
     this.target = options.target ?? `${process.platform}-${process.arch}`;
+    try {
+      for (const name of readdirSync(this.root)) {
+        try {
+          if (JSON.parse(readFileSync(join(this.root, name, 'ready.json'), 'utf8')).staged !== true)
+            this.legacyDirectories.add(name);
+        } catch {
+          /* 只迁移旧版已有的就绪目录。 */
+        }
+      }
+    } catch {
+      /* 首次准备。 */
+    }
     if (manifest && manifest.target !== this.target)
       throw new Error('增强引擎清单平台与当前宿主不匹配');
   }
@@ -129,10 +156,96 @@ export class EnhancementEngineStore {
   artifact(kind: EnhancementEngineKind) {
     return this.manifest?.engines.find((artifact) => artifact.kind === kind);
   }
+  installedId(kind: EnhancementEngineKind) {
+    return this.discover(kind)?.receipt.artifact.id ?? null;
+  }
+  installedArtifact(kind: EnhancementEngineKind) {
+    return this.discover(kind)?.receipt.artifact;
+  }
+  restoreInstalled(kind: EnhancementEngineKind, id: string): void {
+    if (!/^[a-zA-Z0-9._-]+$/.test(id)) throw new Error('引擎安装记录无效');
+    const directory = join(this.root, id);
+    const receipt = JSON.parse(
+      readFileSync(join(directory, 'ready.json'), 'utf8'),
+    ) as EngineReceipt;
+    parseEnhancementEngineManifest({
+      schemaVersion: 1,
+      target: this.target,
+      engines: [receipt.artifact],
+    });
+    if (receipt.artifact.id !== id || receipt.artifact.kind !== kind)
+      throw new Error('引擎安装身份不匹配');
+    this.manifest = {
+      schemaVersion: 1,
+      target: this.target,
+      engines: [
+        ...(this.manifest?.engines.filter((entry) => entry.kind !== kind) ?? []),
+        receipt.artifact,
+      ],
+    };
+    this.locations.set(kind, { directory, receipt });
+  }
+
+  adopt(candidate: EnhancementEngineStore, kind: EnhancementEngineKind): () => void {
+    const previous = this.locations.get(kind);
+    const next = candidate.discover(kind);
+    if (!next) throw new Error('增强引擎候选未就绪');
+    const activePath = join(this.root, 'active.json');
+    let active: Record<string, string> = {};
+    try {
+      active = JSON.parse(readFileSync(activePath, 'utf8'));
+    } catch {
+      /* 首次安装。 */
+    }
+    const old = { ...active };
+    writeFileAtomicSync(
+      activePath,
+      JSON.stringify({ ...active, [kind]: next.receipt.artifact.id }),
+    );
+    this.locations.set(kind, next);
+    const previousManifest = this.manifest;
+    this.manifest = {
+      schemaVersion: 1,
+      target: this.target,
+      engines: [
+        ...(this.manifest?.engines.filter((entry) => entry.kind !== kind) ?? []),
+        next.receipt.artifact,
+      ],
+    };
+    return () => {
+      this.manifest = previousManifest;
+      writeFileAtomicSync(activePath, JSON.stringify(old));
+      if (previous) this.locations.set(kind, previous);
+      else this.locations.delete(kind);
+    };
+  }
+
+  async cleanPrevious(kind: EnhancementEngineKind, directory: string | null): Promise<void> {
+    if (!directory || directory === this.directory(kind)) return;
+    const installed = this.storedReceipts(kind).find((entry) => entry.directory === directory);
+    if (!installed) return;
+    for (const file of installed.receipt.artifact.files) {
+      const path = join(directory, file.path);
+      try {
+        if ((await lstat(path)).isFile() && (await enhancementFileHash(path)) === file.sha256)
+          await rm(path, { force: true });
+      } catch {
+        /* 改动或未知文件保留。 */
+      }
+    }
+    if (installed.receipt.artifact.files.every((file) => !existsSync(join(directory, file.path))))
+      await rm(join(directory, 'ready.json'), { force: true });
+  }
 
   private discover(kind: EnhancementEngineKind) {
     const cached = this.locations.get(kind);
-    if (cached && existsSync(cached.directory)) return cached;
+    if (
+      cached &&
+      cached.receipt.verifiedAt > 0 &&
+      cached.receipt.artifact.files.every((file) => existsSync(join(cached.directory, file.path)))
+    )
+      return cached;
+    this.locations.delete(kind);
     const expected = this.artifact(kind);
     let names: string[];
     try {
@@ -140,7 +253,19 @@ export class EnhancementEngineStore {
     } catch {
       return undefined;
     }
-    if (expected) names = [expected.id, ...names.filter((name) => name !== expected.id)];
+    let activeId: string | undefined;
+    try {
+      const active = JSON.parse(readFileSync(join(this.root, 'active.json'), 'utf8'))[kind];
+      if (typeof active === 'string') activeId = active;
+    } catch {
+      /* 旧安装按配方发现。 */
+    }
+    if (!this.options.stagingOnly)
+      names = names.filter((name) => this.legacyDirectories.has(name) || name === activeId);
+    if (expected && names.includes(expected.id))
+      names = [expected.id, ...names.filter((name) => name !== expected.id)];
+    if (activeId && !this.options.stagingOnly)
+      names = [activeId, ...names.filter((name) => name !== activeId)];
     for (const name of names) {
       if (!/^[a-zA-Z0-9._-]+$/.test(name)) continue;
       const directory = join(this.root, name);
@@ -154,7 +279,12 @@ export class EnhancementEngineStore {
           engines: [receipt.artifact],
         });
         const artifact = validated.engines[0]!;
-        if (artifact.kind !== kind || artifact.id !== name || !Number.isFinite(receipt.verifiedAt))
+        if (
+          artifact.kind !== kind ||
+          artifact.id !== name ||
+          !Number.isFinite(receipt.verifiedAt) ||
+          receipt.verifiedAt <= 0
+        )
           continue;
         if (artifact.files.some((file) => !existsSync(join(directory, file.path)))) continue;
         const result = { directory, receipt };
@@ -206,10 +336,19 @@ export class EnhancementEngineStore {
   private storedBytes(kind: EnhancementEngineKind): number {
     const seen = new Set<string>();
     let bytes = 0;
-    for (const { directory, receipt } of this.storedReceipts(kind))
-      for (const file of receipt.artifact.files) {
+    const artifacts = new Map(
+      this.storedReceipts(kind).map(({ receipt }) => [receipt.artifact.id, receipt.artifact]),
+    );
+    const expected = this.artifact(kind);
+    if (expected) artifacts.set(expected.id, expected);
+    for (const artifact of artifacts.values())
+      for (const path of [
+        ...artifact.files.map((file) => join(this.root, artifact.id, file.path)),
+        join(this.root, `${artifact.id}.tar.gz`),
+        join(this.root, `${artifact.id}.tar.gz.part`),
+      ]) {
         try {
-          const info = statSync(join(directory, file.path));
+          const info = statSync(path);
           const key = `${info.dev}:${info.ino}`;
           if (info.isFile() && !seen.has(key)) {
             seen.add(key);
@@ -316,6 +455,12 @@ export class EnhancementEngineStore {
     const artifact = this.artifact(kind) ?? current?.receipt.artifact;
     if (!artifact) throw new Error('缺少增强引擎分发清单，请重新构建或更新应用');
     const destination = join(this.root, artifact.id);
+    const stored = this.storedReceipts(kind);
+    const repair = stored.find(
+      (entry) =>
+        entry.directory === destination &&
+        JSON.stringify(entry.receipt.artifact.files) === JSON.stringify(artifact.files),
+    );
     if (current?.receipt.artifact.id === artifact.id) {
       let valid = true;
       try {
@@ -328,7 +473,14 @@ export class EnhancementEngineStore {
         valid = false;
         this.checked.delete(artifact.id);
         this.locations.delete(kind);
-        await rm(join(destination, 'ready.json'), { force: true });
+        // 保留文件归属供占用统计与修复复用，但损坏回执不再参与运行发现。
+        writeFileAtomicSync(
+          join(destination, 'ready.json'),
+          JSON.stringify({
+            ...current.receipt,
+            verifiedAt: 0,
+          }),
+        );
       }
       if (valid) return destination;
     }
@@ -359,42 +511,70 @@ export class EnhancementEngineStore {
     });
     this.transfers.set(kind, transfer);
     try {
-      if (
-        !existsSync(archive) ||
-        (await stat(archive)).size !== artifact.downloadBytes ||
-        (await enhancementFileHash(archive)) !== artifact.sha256
-      )
-        await transfer.file(artifact.url, archive);
       await mkdir(staging);
-      const allowed = new Map(
-        artifact.files.filter((file) => !file.link).map((file) => [file.path, file]),
-      );
-      const extracted = new Set<string>();
-      let archiveError: Error | undefined;
-      await extract({
-        file: archive,
-        cwd: staging,
-        strict: true,
-        preservePaths: false,
-        filter: (path, entry) => {
-          const expected = allowed.get(path);
+      const payload = artifact.files.filter((file) => !file.link);
+      const reused = new Set<string>();
+      for (const file of payload) {
+        const sources = new Set([
+          join(destination, file.path),
+          ...stored.flatMap((entry) =>
+            entry.receipt.artifact.files
+              .filter((old) => old.size === file.size && old.sha256 === file.sha256)
+              .map((old) => join(entry.directory, old.path)),
+          ),
+        ]);
+        for (const source of sources) {
+          const info = await lstat(source).catch(() => null);
           if (
-            !safeEnhancementPath(path) ||
-            !('type' in entry) ||
-            entry.type !== 'File' ||
-            !expected ||
-            entry.size !== expected.size ||
-            extracted.has(path)
-          ) {
-            archiveError = new Error(`增强引擎归档条目无效：${path}`);
-            return false;
-          }
-          extracted.add(path);
-          return true;
-        },
-      });
-      if (archiveError) throw archiveError;
-      if (extracted.size !== allowed.size) throw new Error('增强引擎归档缺少文件');
+            !info?.isFile() ||
+            info.size !== file.size ||
+            (await enhancementFileHash(source)) !== file.sha256
+          )
+            continue;
+          const target = join(staging, file.path);
+          await mkdir(dirname(target), { recursive: true });
+          await copyFile(source, target, constants.COPYFILE_FICLONE);
+          reused.add(file.path);
+          break;
+        }
+      }
+      if (reused.size !== payload.length) {
+        if (
+          !existsSync(archive) ||
+          (await stat(archive)).size !== artifact.downloadBytes ||
+          (await enhancementFileHash(archive)) !== artifact.sha256
+        )
+          await transfer.file(artifact.url, archive);
+        const allowed = new Map(
+          artifact.files.filter((file) => !file.link).map((file) => [file.path, file]),
+        );
+        const extracted = new Set<string>();
+        let archiveError: Error | undefined;
+        await extract({
+          file: archive,
+          cwd: staging,
+          strict: true,
+          preservePaths: false,
+          filter: (path, entry) => {
+            const expected = allowed.get(path);
+            if (
+              !safeEnhancementPath(path) ||
+              !('type' in entry) ||
+              entry.type !== 'File' ||
+              !expected ||
+              entry.size !== expected.size ||
+              extracted.has(path)
+            ) {
+              archiveError = new Error(`增强引擎归档条目无效：${path}`);
+              return false;
+            }
+            extracted.add(path);
+            return true;
+          },
+        });
+        if (archiveError) throw archiveError;
+        if (extracted.size !== allowed.size) throw new Error('增强引擎归档缺少文件');
+      }
       for (const file of artifact.files)
         if (file.link) {
           await mkdir(dirname(join(staging, file.path)), { recursive: true });
@@ -402,16 +582,43 @@ export class EnhancementEngineStore {
         }
       await verifyEnhancementEngine(staging, artifact);
       await (this.options.probe ?? probeEnhancementEngine)(staging, kind);
-      const receipt: EngineReceipt = { artifact, verifiedAt: Date.now() };
+      const receipt: EngineReceipt = {
+        artifact,
+        verifiedAt: Date.now(),
+        staged: this.options.stagingOnly === true,
+      };
       await writeFile(join(staging, 'ready.json'), JSON.stringify(receipt));
       // 同一进程内按 kind 去重；崩溃遗留但没有 ready 标记的目标可以清理后重试。
       if (existsSync(destination)) {
-        if (existsSync(join(destination, 'ready.json')))
-          throw new Error('增强引擎目标已存在，请刷新后重试');
-        await rm(destination, { recursive: true, force: true });
+        if (repair) {
+          // 同内容的损坏安装只替换已知文件，附加文件及仍可用的旧资源保留。
+          for (const file of payload) {
+            await mkdir(dirname(join(destination, file.path)), { recursive: true });
+            await rename(join(staging, file.path), join(destination, file.path));
+          }
+          for (const file of artifact.files.filter((entry) => entry.link)) {
+            const target = join(destination, file.path);
+            const temporary = `${target}.${randomUUID()}.repair`;
+            await mkdir(dirname(target), { recursive: true });
+            try {
+              await link(join(destination, file.link!), temporary);
+              await rename(temporary, target);
+            } finally {
+              await rm(temporary, { force: true });
+            }
+          }
+          await rename(join(staging, 'ready.json'), join(destination, 'ready.json'));
+        } else {
+          if (existsSync(join(destination, 'ready.json')))
+            throw new Error('增强引擎目标已存在，请刷新后重试');
+          await rm(destination, { recursive: true, force: true });
+          await rename(staging, destination);
+        }
+      } else {
+        await rename(staging, destination);
       }
-      await rename(staging, destination);
       this.locations.set(kind, { directory: destination, receipt });
+      if (!this.options.stagingOnly) this.adopt(this, kind);
       this.checked.add(artifact.id);
       await rm(archive, { force: true });
       return destination;
@@ -431,6 +638,15 @@ export class EnhancementEngineStore {
       for (const suffix of ['', '.tar.gz', '.tar.gz.part', '.tar.gz.resume.json'])
         await rm(join(this.root, `${id}${suffix}`), { recursive: true, force: true });
     this.locations.delete(kind);
+    try {
+      const activePath = join(this.root, 'active.json');
+      const active = JSON.parse(readFileSync(activePath, 'utf8'));
+      delete active[kind];
+      if (Object.keys(active).length) writeFileAtomicSync(activePath, JSON.stringify(active));
+      else await rm(activePath, { force: true });
+    } catch {
+      /* 旧目录没有活动记录。 */
+    }
   }
 }
 

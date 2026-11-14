@@ -1,4 +1,4 @@
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, statSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Platform } from '@weq/platform';
 import {
@@ -7,25 +7,32 @@ import {
   subscribeDressIndexResources,
   type ModelStore,
   type ModelEntry,
-  type ModelDownloadProgress,
   type OcrModelService,
   type VoiceTranscribeService,
   type UserConfigService,
   getLogger,
+  getHost,
+  type DressIndexManifest,
+  parseDressIndexManifest,
 } from '@weq/service';
 import type { IntentSenseLocalEngineControl } from '../context/app_context';
 import { resolveResourceRoot } from '../resource';
 import { runOcrEngine } from '../ocr/engine';
 import { transcribeWav } from '../transcribe/engine';
-import {
-  layaBundleStore,
-  LAYA_BUNDLE_SOURCES,
-  LAYA_BUNDLE_BYTES,
-  downloadLayaBundle,
-} from '../intent_sense/model_files';
+import { layaBundleStore, layaModelEntry } from '../intent_sense/model_files';
 import { EnhancementEngineStore, readEnhancementEngineManifest } from './engine_store';
-import { enhancementEngineBusy, setEnhancementEngineStore } from './engine_environment';
+import {
+  enhancementEngineBusy,
+  setEnhancementEngineStore,
+  withEnhancementEngineDirectories,
+  blockEnhancementEngineUse,
+} from './engine_environment';
 import { EnhancementPacks, type EnhancementComponent } from './packs';
+import { createModelComponent } from './model_component';
+import { createEnhancementCatalog, releaseContentVersion } from './release_catalog';
+import { EnhancementUpdateController } from './updates';
+import { trackEnhancementPreparation } from './tasks';
+import type { EnhancementEngineKind } from '../../shared/enhancement_manifest';
 
 function fileIdentity(paths: string[]): string {
   return paths
@@ -39,6 +46,25 @@ function fileIdentity(paths: string[]): string {
     })
     .join('|');
 }
+
+function fileBytes(paths: string[]): number {
+  const seen = new Set<string>();
+  return paths.reduce((total, path) => {
+    try {
+      const file = statSync(path);
+      const key = `${file.dev}:${file.ino}`;
+      if (!file.isFile() || seen.has(key)) return total;
+      seen.add(key);
+      return total + file.size;
+    } catch {
+      return total;
+    }
+  }, 0);
+}
+const dressFiles = (directory: string) =>
+  DRESS_INDEX_KINDS.flatMap((kind) =>
+    ['', '.incoming', '.incoming.part'].map((suffix) => join(directory, `${kind}.dat${suffix}`)),
+  );
 
 export function createEnhancementResources(
   platform: Platform,
@@ -73,6 +99,7 @@ export function createEnhancementResources(
   for (const kind of ['onnx', 'sherpa'] as const) {
     components.set(`engine:${kind}`, {
       id: `engine:${kind}`,
+      name: kind === 'onnx' ? 'ONNX 推理引擎' : 'Sherpa 推理引擎',
       state: () => {
         const state = engines.state(kind);
         return {
@@ -113,140 +140,27 @@ export function createEnhancementResources(
     });
   }
 
-  const addModel = <T extends ModelEntry>(store: ModelStore<T>, id: string) => {
-    const model = store.getModel(id)!;
-    const component: EnhancementComponent = {
-      id: `model:${id}`,
-      state: () => {
-        const state = store.getModelStatus(id)!;
-        const paths = store.resolveModelPaths(id);
-        const downloadBytes = model.files.reduce((sum, file) => {
-          try {
-            const info = statSync(paths[file.key]!);
-            if (
-              info.isFile() &&
-              info.size > 0 &&
-              (file.sizeBytes === undefined || info.size === file.sizeBytes)
-            )
-              return sum;
-          } catch {
-            /* 尚未准备。 */
-          }
-          return sum + (file.sizeBytes ?? Math.round(model.sizeBytes * file.weight));
-        }, 0);
-        return {
-          ready: state.downloaded,
-          identity: fileIdentity(Object.values(paths)),
-          sizeOnDisk: state.sizeOnDisk,
-          downloadBytes,
-        };
-      },
-      ensure: async (report) => {
-        const initial = model.sizeBytes - component.state().downloadBytes;
-        const progress = (p: ModelDownloadProgress) => {
-          if (p.id === id)
-            report({
-              received: Math.max(0, p.downloadedBytes - initial),
-              total: p.totalBytes - initial,
-              paused: p.paused,
-              note: p.paused ? '下载已暂停' : '下载模型文件',
-            });
-        };
-        store.on('progress', progress);
-        try {
-          const result = await store.downloadModel(id);
-          if (!result.success) throw new Error(result.error ?? '模型下载失败');
-        } finally {
-          store.off('progress', progress);
-        }
-      },
-      check: async () => {
-        if (!(await store.verifyModel(id))) throw new Error('已有模型校验失败，请重试下载');
-      },
-      remove: async () => {
-        if (!store.deleteModel(id)) throw new Error('模型正在下载或无法删除，请稍后重试');
-        const kind = id === 'sensevoice' ? 'voice' : id === 'ppocr-v6-det-tiny' ? 'filter' : 'ocr';
-        userConfig.setSettings({ modelResources: { [kind]: '' } });
-      },
-      busy: () => store.isDownloading(id),
-      pause: () => store.pauseDownload(id),
-      resume: () => store.continueDownload(id),
-    };
-    components.set(component.id, component);
-  };
-  for (const model of resources.ocrModels.listModels()) addModel(resources.ocrModels, model.id);
-  for (const model of resources.voiceTranscribe.listModels())
-    addModel(resources.voiceTranscribe, model.id);
-
   const layaDir = join(root, 'models/laya-multilingual');
-  components.set('model:laya-multilingual', {
-    id: 'model:laya-multilingual',
-    state: () => {
-      const state = layaBundleStore(layaDir).getModelStatus('laya-multilingual')!;
-      const present = LAYA_BUNDLE_SOURCES.reduce((sum, file) => {
-        try {
-          const info = statSync(join(layaDir, file.local));
-          return sum + (info.isFile() && info.size === file.size ? file.size : 0);
-        } catch {
-          return sum;
-        }
-      }, 0);
-      return {
-        ready: state.downloaded,
-        identity: fileIdentity(LAYA_BUNDLE_SOURCES.map((file) => join(layaDir, file.local))),
-        sizeOnDisk: state.sizeOnDisk,
-        downloadBytes: LAYA_BUNDLE_BYTES - present,
-        blocker: getIntentEngine() ? undefined : '当前宿主不支持本地意图与画像引擎',
-      };
-    },
-    ensure: async (report) => {
-      const initial =
-        LAYA_BUNDLE_BYTES - components.get('model:laya-multilingual')!.state().downloadBytes;
-      await downloadLayaBundle({
-        destDir: layaDir,
-        mirror: userConfig.getSharedPreference('intent').hfMirror ?? true,
-        onProgress: (p) =>
-          report({
-            received: Math.max(0, p.received - initial),
-            total: p.total - initial,
-            paused: p.paused,
-            note: '准备意图与画像模型',
-          }),
-      });
-    },
-    check: async () => {
-      if (!(await layaBundleStore(layaDir).verifyModel('laya-multilingual')))
-        throw new Error('已有意图模型校验失败，请重试下载');
-    },
-    remove: async () => {
-      const engine = getIntentEngine();
-      if (engine?.isBusy?.()) throw new Error('意图或画像正在分析，请稍后删除');
-      await engine?.stop();
-      if (!layaBundleStore(layaDir).deleteModel('laya-multilingual'))
-        throw new Error('意图模型无法删除，请稍后重试');
-    },
-    busy: () =>
-      layaBundleStore(layaDir).isDownloading('laya-multilingual') ||
-      !!getIntentEngine()?.isBusy?.(),
-    pause: () => layaBundleStore(layaDir).pauseDownload('laya-multilingual'),
-    resume: () => layaBundleStore(layaDir).continueDownload('laya-multilingual'),
-  });
 
   const dress = getDressIndexStore(userConfig.cacheDir('dress_shared'));
-  const inspected = dress?.inspect().catch(() => []);
+  const inspected = Promise.resolve()
+    .then(() => dress?.inspect())
+    .catch(() => []);
   components.set('dress:index', {
     id: 'dress:index',
+    name: '装扮离线索引',
+    inspect: async () => {
+      await inspected;
+    },
     state: () => {
       const states = dress?.snapshot() ?? [];
       const ready =
         states.length === DRESS_INDEX_KINDS.length &&
         states.every((state) => state.status === 'ready');
-      const sizeOnDisk = states.reduce(
-        (sum, state) => sum + (state.status === 'ready' ? state.totalBytes : 0),
-        0,
-      );
+      const sizeOnDisk = dress ? fileBytes(dressFiles(dress.directory)) : 0;
       return {
         ready,
+        installed: !!dress && existsSync(join(dress.directory, 'installed-manifest.json')),
         sizeOnDisk,
         downloadBytes: states.reduce(
           (sum, state) => sum + (state.status === 'ready' ? 0 : state.totalBytes),
@@ -306,16 +220,18 @@ export function createEnhancementResources(
           ...resources.ocrModels.listModels().map((model) => `model:${model.id}`),
         ],
         validate: async () => {
-          for (const model of resources.ocrModels.listModels()) {
-            const paths = resources.ocrModels.resolveModelPaths(model.id);
-            const result = await runOcrEngine({
-              image: { width: 64, height: 64, data: Buffer.alloc(64 * 64 * 3, 255) },
-              paths: { det: paths.det!, rec: paths.rec, cls: paths.cls, dict: paths.dict },
-              mode: model.kind === 'filter' ? 'detect' : 'ocr',
-              threads: 1,
-            });
-            if (!result.ok) throw new Error(result.error ?? '文字识别模型加载失败');
-          }
+          return withValidation(async () => {
+            for (const model of resources.ocrModels.listModels()) {
+              const paths = stagedModels.get(model.id)!.paths();
+              const result = await runOcrEngine({
+                image: { width: 64, height: 64, data: Buffer.alloc(64 * 64 * 3, 255) },
+                paths: { det: paths.det!, rec: paths.rec, cls: paths.cls, dict: paths.dict },
+                mode: model.kind === 'filter' ? 'detect' : 'ocr',
+                threads: 1,
+              });
+              if (!result.ok) throw new Error(result.error ?? '文字识别模型加载失败');
+            }
+          });
         },
       },
       {
@@ -324,13 +240,15 @@ export function createEnhancementResources(
         description: '在本机将语音转为文字，支持中、英、日、韩、粤语。',
         components: ['engine:sherpa', 'model:sensevoice'],
         validate: async () => {
-          const paths = resources.voiceTranscribe.resolveModelPaths('sensevoice');
-          const result = await transcribeWav(
-            Buffer.alloc(44 + 16000 * 2),
-            { model: paths.model!, tokens: paths.tokens! },
-            { timeoutMs: 120_000 },
-          );
-          if (!result.success) throw new Error(result.error ?? '语音转写模型加载失败');
+          return withValidation(async () => {
+            const paths = stagedModels.get('sensevoice')!.paths();
+            const result = await transcribeWav(
+              Buffer.alloc(44 + 16000 * 2),
+              { model: paths.model!, tokens: paths.tokens! },
+              { timeoutMs: 120_000 },
+            );
+            if (!result.success) throw new Error(result.error ?? '语音转写模型加载失败');
+          });
         },
       },
       {
@@ -339,11 +257,17 @@ export function createEnhancementResources(
         description: '在本机分析消息意图、情绪与互动画像。',
         components: ['engine:onnx', 'model:laya-multilingual'],
         validate: async () => {
-          const control = getIntentEngine();
-          if (control?.validateModel) return control.validateModel('laya-multilingual');
-          const engine = control?.forModel?.('laya-multilingual');
-          if (!engine || !(await engine.analyze('你好')))
-            throw new Error('意图与画像模型实际加载失败，请检查资源后重试');
+          return withValidation(async () => {
+            const control = getIntentEngine();
+            if (control?.validateModel)
+              return control.validateModel(
+                'laya-multilingual',
+                stagedModels.get('laya-multilingual')!.directory(),
+              );
+            const engine = control?.forModel?.('laya-multilingual');
+            if (!engine || !(await engine.analyze('你好')))
+              throw new Error('意图与画像模型实际加载失败，请检查资源后重试');
+          });
         },
       },
       {
@@ -352,14 +276,433 @@ export function createEnhancementResources(
         description: 'QQ 不在线时也能查询装扮地址；下载具体素材仍需网络。',
         components: ['dress:index'],
         validate: async () => {
-          const states = await dress?.inspect();
+          const states = await stagedDress?.inspect();
           if (!states || states.some((state) => state.status !== 'ready'))
             throw new Error('装扮索引未完整准备');
+          if (
+            !(await platform.native.ntHelper.validateDressResourceIndexes?.(stagedDress!.directory))
+          )
+            throw new Error('装扮索引无法被当前原生模块读取，请先更新 WeQ');
         },
       },
     ],
     components,
     join(root, 'enhancements'),
   );
-  return { packs, engines, inspected };
+  const stagedModels = new Map<string, ReturnType<typeof createModelComponent>>();
+  for (const [store, ids] of [
+    [resources.ocrModels, resources.ocrModels.listModels().map((model) => model.id)],
+    [resources.voiceTranscribe, resources.voiceTranscribe.listModels().map((model) => model.id)],
+    [layaBundleStore(layaDir), ['laya-multilingual']],
+  ] as const) {
+    for (const id of ids) {
+      const item = createModelComponent(store as ModelStore<ModelEntry>, id, () =>
+        id === 'laya-multilingual'
+          ? !!getIntentEngine()?.isBusy?.()
+          : enhancementEngineBusy(id === 'sensevoice' ? 'sherpa' : 'onnx'),
+      );
+      const state = item.component.state;
+      if (id === 'laya-multilingual')
+        item.component.state = () => ({
+          ...state(),
+          blocker: getIntentEngine() ? undefined : '当前宿主不支持本地意图与画像引擎',
+        });
+      const remove = item.component.remove;
+      const activate = item.component.activate!;
+      const cleanup = item.component.cleanup;
+      let restartLaya = false;
+      item.component.activate = async () => {
+        if (id === 'laya-multilingual' && item.directory() !== store.resolveModelDir(id)) {
+          restartLaya = getIntentEngine()?.runningModels?.().includes(id) ?? false;
+          if (getIntentEngine()?.stopModel)
+            await getIntentEngine()!.stopModel!(id, store.resolveModelDir(id));
+          else await getIntentEngine()?.stop();
+        }
+        const undo = await activate();
+        if (id === 'laya-multilingual') return undo;
+        const kind = id === 'sensevoice' ? 'voice' : id === 'ppocr-v6-det-tiny' ? 'filter' : 'ocr';
+        const previous = userConfig.getSettings().modelResources[kind];
+        try {
+          if (previous !== id) userConfig.setSettings({ modelResources: { [kind]: id } });
+        } catch (error) {
+          await undo();
+          throw error;
+        }
+        return async () => {
+          await undo();
+          if (previous !== id) userConfig.setSettings({ modelResources: { [kind]: previous } });
+        };
+      };
+      item.component.cleanup = async () => {
+        await cleanup?.();
+        if (restartLaya) {
+          restartLaya = false;
+          await getIntentEngine()?.startModel?.('laya-multilingual');
+        }
+      };
+      if (id === 'laya-multilingual') {
+        const select = item.component.select!;
+        item.component.select = (entry) => {
+          if (entry.type !== 'model') return select(entry);
+          select({
+            ...entry,
+            files: entry.files.map((file) => {
+              const url = new URL(file.url);
+              if (url.hostname === 'huggingface.co' || url.hostname === 'hf-mirror.com')
+                url.hostname =
+                  userConfig.getSharedPreference('intent').hfMirror !== false
+                    ? 'hf-mirror.com'
+                    : 'huggingface.co';
+              return { ...file, url: url.toString() };
+            }),
+          });
+        };
+      }
+      item.component.remove = async () => {
+        if (id === 'laya-multilingual') await getIntentEngine()?.stop();
+        await remove();
+        if (id !== 'laya-multilingual') {
+          const kind =
+            id === 'sensevoice' ? 'voice' : id === 'ppocr-v6-det-tiny' ? 'filter' : 'ocr';
+          userConfig.setSettings({ modelResources: { [kind]: '' } });
+        }
+      };
+      stagedModels.set(id, item);
+      components.set(item.component.id, item.component);
+    }
+  }
+  const stagedEngines = new Map<EnhancementEngineKind, EnhancementEngineStore>();
+  for (const kind of ['onnx', 'sherpa'] as const) {
+    stagedEngines.set(kind, engines);
+    const original = components.get(`engine:${kind}`)!;
+    let oldDirectory: string | null = null;
+    let runningModels: string[] = [];
+    components.set(original.id, {
+      ...original,
+      installation: () => ({ type: 'engine', kind, id: engines.installedId(kind) }),
+      select: (entry) => {
+        if (entry.type !== 'engine' || entry.artifact.kind !== kind)
+          throw new Error('引擎组件不匹配');
+        const active = engines.directory(kind);
+        const installed = engines.installedArtifact(kind);
+        const unchanged =
+          installed &&
+          releaseContentVersion([{ type: 'engine', artifact: installed }]) ===
+            releaseContentVersion([entry]);
+        stagedEngines.set(
+          kind,
+          unchanged ||
+            active?.endsWith(entry.artifact.id) ||
+            (engines.state(kind).ready &&
+              !engines.state(kind).managed &&
+              entry.artifact.id === engines.artifact(kind)?.id)
+            ? engines
+            : new EnhancementEngineStore(
+                root,
+                { schemaVersion: 1, target, engines: [entry.artifact] },
+                { stagingOnly: true },
+              ),
+        );
+      },
+      state: () => {
+        const active = original.state();
+        const candidate = stagedEngines.get(kind)!;
+        return {
+          ...active,
+          sizeOnDisk: Math.max(active.sizeOnDisk, candidate.state(kind).installedBytes),
+          downloadBytes: candidate.state(kind).downloadBytes,
+          updateAvailable:
+            candidate !== engines &&
+            candidate.artifact(kind)?.id !== engines.directory(kind)?.split(/[\\/]/).at(-1),
+        };
+      },
+      ensure: async (report) =>
+        stagedEngines
+          .get(kind)!
+          .ensure(kind, (state) =>
+            report({ ...state, pauseReasons: state.reasons, note: '准备推理引擎' }),
+          )
+          .then(() => {}),
+      pause: () => stagedEngines.get(kind)!.pause(kind),
+      resume: () => stagedEngines.get(kind)!.resume(kind),
+      activate: async () => {
+        const candidate = stagedEngines.get(kind)!;
+        oldDirectory = null;
+        runningModels = [];
+        if (candidate === engines) return () => {};
+        oldDirectory = engines.directory(kind);
+        if (kind === 'onnx') runningModels = getIntentEngine()?.runningModels?.() ?? [];
+        if (kind === 'onnx') await getIntentEngine()?.stop();
+        return engines.adopt(candidate, kind);
+      },
+      cleanup: async () => {
+        await engines.cleanPrevious(kind, oldDirectory);
+        if (kind === 'onnx' && oldDirectory)
+          for (const id of runningModels) await getIntentEngine()?.startModel?.(id);
+      },
+      remove: async () => {
+        const candidate = stagedEngines.get(kind)!;
+        if (candidate !== engines) await candidate.remove(kind);
+        await original.remove();
+      },
+    });
+  }
+  let stagedDress = dress;
+  let oldDressDirectory = '';
+  if (dress) {
+    const original = components.get('dress:index')!;
+    components.set('dress:index', {
+      ...original,
+      installation: () => ({ type: 'dress', manifest: dress.manifest }),
+      inspect: async () => {
+        await inspected;
+        await stagedDress!.inspectStored();
+      },
+      select: (entry) => {
+        if (entry.type !== 'dress') throw new Error('装扮组件不匹配');
+        stagedDress = dress.candidate(entry.manifest as DressIndexManifest);
+      },
+      state: () => {
+        const active = original.state();
+        return {
+          ...active,
+          sizeOnDisk: fileBytes([
+            ...dressFiles(dress.directory),
+            ...dressFiles(stagedDress!.directory),
+          ]),
+          requiresWeqUpdate:
+            !platform.native.ntHelper.getBuildInfo?.().isDev &&
+            (!platform.native.ntHelper.reloadDressResourceIndexes ||
+              !platform.native.ntHelper.validateDressResourceIndexes),
+          blocker:
+            !platform.native.ntHelper.reloadDressResourceIndexes ||
+            !platform.native.ntHelper.validateDressResourceIndexes
+              ? '装扮索引更新需要新版 WeQ 原生模块，请先更新 WeQ'
+              : active.blocker,
+          updateAvailable: stagedDress!.manifest.tag !== dress.manifest.tag,
+          downloadBytes: stagedDress!.snapshot().reduce((sum, state) => {
+            const previous = dress.snapshot().find((item) => item.kind === state.kind);
+            const oldPart = dress.manifest.parts[state.kind];
+            const nextPart = stagedDress!.manifest.parts[state.kind];
+            const reusable =
+              previous?.status === 'ready' &&
+              oldPart.size === nextPart.size &&
+              oldPart.sha256 === nextPart.sha256;
+            return sum + (state.status === 'ready' || reusable ? 0 : state.totalBytes);
+          }, 0),
+        };
+      },
+      ensure: async (report) => {
+        await stagedDress!.inspect();
+        const initial = stagedDress!
+          .snapshot()
+          .reduce((sum, state) => sum + state.downloadedBytes, 0);
+        const total =
+          stagedDress!.snapshot().reduce((sum, state) => sum + state.totalBytes, 0) - initial;
+        const unsubscribe = subscribeDressIndexResources(({ store, state }) => {
+          if (store !== stagedDress) return;
+          report({
+            received: Math.max(
+              0,
+              stagedDress!.snapshot().reduce((sum, item) => sum + item.downloadedBytes, 0) -
+                initial,
+            ),
+            total,
+            paused: state.paused,
+            pauseReasons: state.pauseReasons,
+            note: '准备装扮索引',
+          });
+        });
+        try {
+          for (const kind of DRESS_INDEX_KINDS)
+            if (!(await stagedDress!.ensure(kind, true)))
+              throw new Error(
+                stagedDress!.snapshot().find((state) => state.kind === kind)?.error ??
+                  '索引下载失败',
+              );
+        } finally {
+          unsubscribe();
+        }
+      },
+      pause: () => stagedDress!.pause(),
+      resume: () => stagedDress!.resume(),
+      activate: () => {
+        oldDressDirectory = dress.directory;
+        return dress.adopt(stagedDress!, platform.native.ntHelper);
+      },
+      cleanup: () => dress.cleanPrevious(oldDressDirectory),
+      remove: async () => {
+        await original.remove();
+        if (!platform.native.ntHelper.getBuildInfo?.().isDev)
+          platform.native.ntHelper.clearDressResourceIndexes?.();
+      },
+    });
+  }
+  function withValidation<T>(action: () => T): T {
+    return withEnhancementEngineDirectories(
+      Object.fromEntries(
+        [...stagedEngines].flatMap(([kind, store]) => {
+          const directory = store.directory(kind);
+          return directory ? [[kind, directory]] : [];
+        }),
+      ),
+      action,
+    );
+  }
+  for (const definition of packs.definitions.filter(
+    (pack) => pack.id === 'text' || pack.id === 'intent',
+  )) {
+    definition.validateShared = async () => {
+      if (stagedEngines.get('onnx') === engines) return;
+      await packs.list();
+      for (const other of packs.definitions.filter(
+        (pack) => pack.id !== definition.id && (pack.id === 'text' || pack.id === 'intent'),
+      )) {
+        await withValidation(async () => {
+          if (other.id === 'intent') {
+            if (!components.get('model:laya-multilingual')?.state().ready) return;
+            return getIntentEngine()?.validateModel?.(
+              'laya-multilingual',
+              layaBundleStore(layaDir).resolveModelDir('laya-multilingual'),
+            );
+          }
+          for (const model of resources.ocrModels
+            .listModels()
+            .filter((model) => components.get(`model:${model.id}`)?.state().ready)) {
+            const paths = resources.ocrModels.resolveModelPaths(model.id);
+            const result = await runOcrEngine({
+              image: { width: 64, height: 64, data: Buffer.alloc(64 * 64 * 3, 255) },
+              paths: { det: paths.det!, rec: paths.rec, cls: paths.cls, dict: paths.dict },
+              mode: model.kind === 'filter' ? 'detect' : 'ocr',
+              threads: 1,
+            });
+            if (!result.ok) throw new Error(result.error ?? '共享引擎无法加载已有识别模型');
+          }
+        });
+      }
+      if (
+        getIntentEngine()
+          ?.listModels?.()
+          .some((model) => model.id === 'QWeQ-NineBird-v1' && model.downloaded)
+      )
+        await withValidation(() => getIntentEngine()?.validateModel?.('QWeQ-NineBird-v1'));
+    };
+  }
+  for (const definition of packs.definitions.filter((pack) => pack.id !== 'dress')) {
+    definition.lockActivation = async () => {
+      const kinds = definition.components
+        .filter((id) => id.startsWith('engine:'))
+        .map((id) => id.slice(7) as EnhancementEngineKind);
+      const unlock = blockEnhancementEngineUse(kinds);
+      while (
+        kinds.some((kind) => enhancementEngineBusy(kind)) ||
+        (kinds.includes('onnx') && getIntentEngine()?.isBusy?.())
+      )
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      return unlock;
+    };
+  }
+  // ready.json 是成套切换的提交点；中断留下的组件活动文件不能覆盖已提交的安装。
+  try {
+    const saved = JSON.parse(readFileSync(join(root, 'enhancements/ready.json'), 'utf8')) as Record<
+      string,
+      unknown
+    >;
+    for (const definition of packs.definitions) {
+      const receipt = saved[definition.id];
+      if (!receipt) continue;
+      if (typeof receipt === 'string') {
+        try {
+          const legacy = JSON.parse(receipt);
+          if (Array.isArray(legacy))
+            for (const pair of legacy) {
+              if (
+                Array.isArray(pair) &&
+                (pair[0] === 'engine:onnx' || pair[0] === 'engine:sherpa') &&
+                typeof pair[1] === 'string'
+              ) {
+                const id = pair[1].split(':')[0];
+                if (id && !id.startsWith('development-'))
+                  engines.restoreInstalled(pair[0] === 'engine:onnx' ? 'onnx' : 'sherpa', id);
+              }
+            }
+        } catch {
+          /* 未知旧回执保持原件，后续只检查实际资源。 */
+        }
+      }
+      if (
+        definition.id === 'dress' &&
+        typeof receipt === 'object' &&
+        (receipt as { removed?: unknown }).removed === true
+      ) {
+        dress?.disable();
+        if (!platform.native.ntHelper.getBuildInfo?.().isDev)
+          platform.native.ntHelper.clearDressResourceIndexes?.();
+      }
+      const snapshots =
+        typeof receipt === 'object' &&
+        Array.isArray((receipt as { components?: unknown }).components)
+          ? (receipt as { components: Array<Record<string, unknown>> }).components
+          : [];
+      for (const id of definition.components.filter((id) => id.startsWith('model:'))) {
+        const modelId = id.slice(6);
+        const snapshot = snapshots.find((entry) => entry.type === 'model' && entry.id === modelId);
+        const store =
+          modelId === 'laya-multilingual'
+            ? layaBundleStore(layaDir)
+            : modelId === 'sensevoice'
+              ? resources.voiceTranscribe
+              : resources.ocrModels;
+        store.restoreRevision(modelId, snapshot ?? { revision: null });
+      }
+      for (const snapshot of snapshots) {
+        if (
+          snapshot.type === 'engine' &&
+          (snapshot.kind === 'onnx' || snapshot.kind === 'sherpa') &&
+          typeof snapshot.id === 'string'
+        )
+          engines.restoreInstalled(snapshot.kind, snapshot.id);
+        if (snapshot.type === 'dress' && dress) dress.restoreManifest(snapshot.manifest);
+      }
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+      getLogger().warn('enhancement installation restore failed', {
+        event: 'enhancement-restore-failed',
+        error: String(error),
+      });
+  }
+  let bundledDress = dress?.manifest;
+  if (resourceRoot) {
+    try {
+      bundledDress = parseDressIndexManifest(
+        JSON.parse(readFileSync(join(resourceRoot, 'dress/index-manifest.json'), 'utf8')),
+      );
+    } catch {
+      /* 保留已知的配套清单。 */
+    }
+  }
+  const base = createEnhancementCatalog(
+    manifest ?? { schemaVersion: 1, target, engines: [] },
+    [
+      ...resources.ocrModels
+        .listModels()
+        .map((model) => resources.ocrModels.registeredModel(model.id)!),
+      ...resources.voiceTranscribe
+        .listModels()
+        .map((model) => resources.voiceTranscribe.registeredModel(model.id)!),
+      layaModelEntry(),
+    ],
+    bundledDress,
+  );
+  packs.observePreparations((id, name) => {
+    void trackEnhancementPreparation(packs, id, name).catch(() => {});
+  });
+  const updates = new EnhancementUpdateController(packs, userConfig, base, {
+    currentVersion: () => getHost().appVersion(),
+    nativeCommit: () =>
+      platform.native.ntHelper.getDressResourceKeyId?.() ?? bundledDress?.nativeCommit,
+    localDress: () => platform.native.ntHelper.getBuildInfo?.().isDev === true,
+  });
+  return { packs, engines, inspected, updates };
 }

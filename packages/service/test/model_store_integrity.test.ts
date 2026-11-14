@@ -39,7 +39,7 @@ async function fixture() {
   const store = new FixtureStore();
   const file = store.resolveModelPaths('fixture').model!;
   await mkdir(join(store.resolveModelDir('fixture'), 'nested'), { recursive: true });
-  return { store, file };
+  return { store, file, restart: () => new FixtureStore() };
 }
 
 it('复用经过哈希校验的完整旧文件，不重新下载', async () => {
@@ -50,6 +50,84 @@ it('复用经过哈希校验的完整旧文件，不重新下载', async () => {
   expect(await store.verifyModel('fixture')).toBe(true);
   expect(await store.downloadModel('fixture')).toEqual({ success: true });
   expect(fetcher).not.toHaveBeenCalled();
+});
+
+it('候选版本复用未变化文件，下载与验证不改变活动路径；切换可回滚且重开可恢复', async () => {
+  const { store, file, restart } = await fixture();
+  await writeFile(file, bytes);
+  const changed = Buffer.from('tokens');
+  const model = {
+    ...store.getModel('fixture')!,
+    sizeBytes: 12,
+    files: [
+      { ...store.getModel('fixture')!.files[0]!, weight: 0.5 },
+      {
+        key: 'tokens',
+        name: 'nested/tokens.bin',
+        url: 'https://example.invalid/tokens',
+        sizeBytes: 6,
+        sha256: createHash('sha256').update(changed).digest('hex'),
+        weight: 0.5,
+      },
+    ],
+  };
+  const revision = 'b'.repeat(64);
+  const candidate = store.revisionStore(model, revision);
+  await store.reuseInto(candidate, 'fixture');
+  const fetcher = vi.fn(
+    async () => new Response(changed, { headers: { 'content-length': '6', etag: '"tokens-v1"' } }),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  expect(await candidate.downloadModel('fixture')).toEqual({ success: true });
+  expect(fetcher).toHaveBeenCalledOnce();
+  expect(await candidate.verifyModel('fixture')).toBe(true);
+  expect(store.resolveModelPaths('fixture').model).toBe(file);
+  const undo = store.activateRevision(candidate, 'fixture', revision);
+  expect(store.resolveModelPaths('fixture').tokens).toContain(revision);
+  expect(restart().resolveModelPaths('fixture').tokens).toContain(revision);
+  // 模拟组件活动记录已更新、整包提交尚未完成的中断；提交点仍恢复原安装。
+  const interrupted = restart();
+  interrupted.restoreRevision('fixture', { revision: null });
+  expect(interrupted.resolveModelPaths('fixture').model).toBe(file);
+  undo();
+  expect(store.resolveModelPaths('fixture').model).toBe(file);
+  expect(restart().resolveModelPaths('fixture').model).toBe(file);
+});
+
+it('删除活动版本后不回退到保留的旧模型，重开仍卸载，显式重装可再次复用原件', async () => {
+  const { store, file, restart } = await fixture();
+  await writeFile(file, bytes);
+  const model = store.getModel('fixture')!;
+  const candidate = store.revisionStore(model, 'c'.repeat(64));
+  await store.reuseInto(candidate, 'fixture');
+  store.activateRevision(candidate, 'fixture', 'c'.repeat(64));
+  expect(store.deleteModel('fixture')).toBe(true);
+  expect(await readFile(file)).toEqual(bytes);
+  expect(store.getModelStatus('fixture')?.downloaded).toBe(false);
+  const reopened = restart();
+  expect(reopened.getModelStatus('fixture')?.downloaded).toBe(false);
+  const next = reopened.revisionStore(model, 'c'.repeat(64));
+  await reopened.reuseInto(next, 'fixture');
+  expect(await next.verifyModel('fixture')).toBe(true);
+});
+
+it('坏候选不阻碍复用已校验旧文件；同长度坏文件不计入可复用资源', async () => {
+  const { store, file } = await fixture();
+  await writeFile(file, bytes);
+  const candidate = store.revisionStore(store.getModel('fixture')!, 'd'.repeat(64));
+  const target = candidate.resolveModelPaths('fixture').model!;
+  await mkdir(join(candidate.resolveModelDir('fixture'), 'nested'), { recursive: true });
+  await writeFile(target, 'broken');
+  expect(await store.reusableFiles(candidate, 'fixture')).toEqual(new Set(['model']));
+  await store.reuseInto(candidate, 'fixture');
+  expect(await readFile(target)).toEqual(bytes);
+  const fetcher = vi.fn();
+  vi.stubGlobal('fetch', fetcher);
+  expect(await candidate.downloadModel('fixture')).toEqual({ success: true });
+  expect(fetcher).not.toHaveBeenCalled();
+  await writeFile(file, 'broken');
+  await writeFile(target, 'broken');
+  expect(await store.reusableFiles(candidate, 'fixture')).toEqual(new Set());
 });
 
 it('同长度坏文件不能通过校验；显式重试原子替换且并发不重复下载', async () => {

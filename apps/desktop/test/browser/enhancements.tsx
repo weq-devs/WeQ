@@ -2,9 +2,9 @@ import { createRoot } from 'react-dom/client';
 import { EnhancementPacksSection } from '../../src/renderer/src/components/settings/EnhancementPacksSection';
 import { RecognitionSettingsSection } from '../../src/renderer/src/components/settings/RecognitionSettingsSection';
 import { DialogHost } from '../../src/renderer/src/components/Dialog';
+import { SettingsResetProvider } from '../../src/renderer/src/components/settings/SettingsReset';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import '../../src/renderer/src/styles/index.css';
-import '../../src/renderer/src/im-template/styles.css';
 
 ensureThemeInitialized();
 Object.assign(window, { enhancementTheme: useThemeStore });
@@ -13,7 +13,9 @@ createRoot(document.getElementById('root')!).render(
     {new URLSearchParams(location.search).has('recognition') ? (
       <RecognitionSettingsSection />
     ) : (
-      <EnhancementPacksSection />
+      <SettingsResetProvider page="enhancement-packs">
+        <EnhancementPacksSection />
+      </SettingsResetProvider>
     )}
     <DialogHost />
   </main>,

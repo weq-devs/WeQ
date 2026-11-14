@@ -98,7 +98,7 @@ pnpm dev                   # 自动补齐依赖、native 和必要构建，启�
 > native 由 [nt_helper_release](https://github.com/weq-devs/nt_helper_release) 分发，
 > `pnpm dev` 默认准备 `native/pinned.json` 锚定的发布版，不预下载大装扮索引；本地源码模式仍准备自己的配套资源。
 > 装扮索引由 [dress-resources](https://github.com/weq-devs/dress-resources) 独立分发，桌面与 Web 安装包不再携带三份 `.dat`，
-> 应用按 `resources/dress/index-manifest.json` 的明确版本按需获取，并在宿主共享缓存中复用。
+> 应用以内置 `resources/dress/index-manifest.json` 为基础，在增强包页准备并统一检查更新；下载固定明确版本，在宿主缓存中复用。
 > native 锚点过期时需验证并升级，同时更新兼容的索引清单；反复获取同一 tag 不会延长有效期。细节见
 > [原生二进制与装扮资源的分发](./docs/develop/native-artifacts.md)。
 

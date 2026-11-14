@@ -61,14 +61,16 @@ try {
           },
           { theme, style },
         );
-        assert.equal(await page.locator('.weq-set-card').count(), 4);
-        const buttons = await page.locator('.weq-set-card-action button').evaluateAll((nodes) =>
+        assert.equal(await page.locator('.weq-set-card').count(), 2);
+        assert.equal(await page.locator('.weq-enhancement-item').count(), 4);
+        assert.equal(await page.getByRole('button', { name: '恢复本页默认设置' }).count(), 1);
+        const buttons = await page.locator('.weq-enhancement-actions button').evaluateAll((nodes) =>
           nodes.map((node) => {
             const box = node.getBoundingClientRect();
             return { width: box.width, height: box.height, text: node.textContent };
           }),
         );
-        assert.ok(buttons.every((button) => /(?:下载|删除) \d+\.\d{2} MiB/.test(button.text)));
+        assert.ok(buttons.every((button) => button.text.trim() === ''));
         assert.ok(
           buttons.every(
             (button) =>
@@ -77,7 +79,8 @@ try {
           ),
           `下载和删除按钮必须同尺寸：${JSON.stringify({ width, theme, style, buttons })}`,
         );
-        assert.equal(await page.locator('input[type="checkbox"], progress').count(), 0);
+        assert.equal(await page.getByRole('switch').count(), 2);
+        assert.equal(await page.locator('progress').count(), 0);
         assert.equal(
           await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
           true,
@@ -99,9 +102,10 @@ try {
   assert.equal(await page.locator('input[type="number"]').count(), 2);
   assert.equal(await page.getByRole('button', { name: '增强包', exact: true }).count(), 0);
   await page.goto(`${url}?state=empty`);
-  await page.getByRole('button', { name: /^下载全部/ }).click();
+  assert.equal(await page.getByRole('button', { name: /^下载全部/ }).count(), 0);
+  await page.getByRole('button', { name: '下载本地文字识别', exact: true }).click();
   await page.getByRole('button', { name: '删除本地文字识别', exact: true }).waitFor();
-  assert.equal(await page.locator('.weq-set-card-action button').count(), 4);
+  assert.equal(await page.locator('.weq-enhancement-item').count(), 4);
   await page.getByRole('button', { name: '删除本地文字识别', exact: true }).click();
   const confirmation = page.locator('.weq-dialog');
   await confirmation.waitFor();
@@ -113,14 +117,60 @@ try {
   await page.getByRole('button', { name: '删除本地文字识别', exact: true }).click();
   await confirmation.getByRole('button', { name: '删除', exact: true }).click();
   await page.getByRole('button', { name: '下载本地文字识别', exact: true }).waitFor();
-  assert.equal(await page.locator('[data-setting-id="enhancement-text"] button').count(), 1);
-  await page.goto(`${url}?state=busy`);
-  assert.equal(await page.getByRole('progressbar').getAttribute('aria-valuenow'), '50');
-  await page.goto(`${url}?state=failed`);
   assert.equal(
-    await page.getByRole('button', { name: '重试本地语音转写', exact: true }).count(),
+    await page
+      .locator('[data-setting-id="enhancement-text"] .weq-enhancement-actions button')
+      .count(),
+    2,
+  );
+  await page.goto(`${url}?state=busy`);
+  assert.equal(await page.locator('progress').evaluate((node) => node.value), 50);
+  await page.goto(`${url}?state=failed`);
+  assert.equal(await page.getByRole('button', { name: '重试', exact: true }).count(), 1);
+  await page.goto(`${url}?state=update`);
+  assert.equal(
+    await page.getByRole('button', { name: '更新本地文字识别', exact: true }).count(),
     1,
   );
+  await page.goto(`${url}?state=incompatible`);
+  assert.equal(await page.getByRole('link', { name: '前往 WeQ 更新' }).count(), 1);
+  await page.getByRole('switch', { name: '自动检查增强包更新', exact: true }).click();
+  assert.equal(
+    await page.getByRole('switch', { name: '自动安装增强包更新', exact: true }).count(),
+    0,
+  );
+  for (const width of [1024, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`${url}?state=partial`);
+    const row = page.locator('[data-setting-id="enhancement-text"]');
+    assert.equal(await row.locator('.weq-enhancement-actions button').count(), 3);
+    assert.equal(
+      await row.getByRole('button', { name: '补齐本地文字识别', exact: true }).count(),
+      1,
+    );
+    assert.equal(await row.locator('.weq-enhancement-status').textContent(), '待补齐');
+    assert.match(
+      await row.locator('.weq-enhancement-status').getAttribute('title'),
+      /文字筛图模型/,
+    );
+    assert.equal(await page.locator('details').count(), 0);
+    assert.equal(
+      await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+      true,
+    );
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((theme) => {
+        const state = window.enhancementTheme.getState();
+        state.setPreference(theme);
+        state.setComponentStyle('qqnt');
+        state.setAccent(theme === 'light' ? '#075c30' : '#fff3a1');
+      }, theme);
+      await page.screenshot({
+        path: resolve(output, `partial-${theme}-${width}.png`),
+        fullPage: true,
+      });
+    }
+  }
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ cases, errors, output }));
 } finally {

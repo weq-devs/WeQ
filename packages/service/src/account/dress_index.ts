@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto';
-import { constants, createReadStream, existsSync } from 'node:fs';
+import { constants, createReadStream, existsSync, readFileSync } from 'node:fs';
 import { copyFile, lstat, mkdir, rename, rm, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import type { NtHelperBinding } from '@weq/native';
 import { getHost, type HostBridge } from '../common/host';
-import { downloadUrlToFile } from './media_url';
+import type { downloadUrlToFile } from './media_url';
+import { ManagedDownload } from '../common/managed_download';
+import { writeFileAtomicSync } from '../common/atomic_write';
 
 export const DRESS_INDEX_KINDS = ['bubble', 'font', 'widget'] as const;
 export type DressIndexKind = (typeof DRESS_INDEX_KINDS)[number];
@@ -24,6 +26,8 @@ export interface DressIndexState {
   downloadedBytes: number;
   totalBytes: number;
   error?: string;
+  paused?: boolean;
+  pauseReasons?: string[];
 }
 
 export interface DressIndexEvent {
@@ -85,10 +89,18 @@ export function subscribeDressIndexResources(listener: (event: DressIndexEvent) 
 
 export function getDressIndexStore(sharedDirectory: string, native?: NtHelperBinding) {
   if (!configured || native?.getBuildInfo?.().isDev === true) return null;
-  const key = `${resolve(sharedDirectory)}:${configured.manifest.tag}`;
+  const key = resolve(sharedDirectory);
   let store = stores.get(key);
   if (!store) {
-    store = new DressIndexStore(join(sharedDirectory, 'index'), configured.manifest, {
+    let manifest = configured.manifest;
+    try {
+      manifest = parseDressIndexManifest(
+        JSON.parse(readFileSync(join(sharedDirectory, 'index/active.json'), 'utf8')),
+      );
+    } catch {
+      /* 沿用应用内清单。 */
+    }
+    store = new DressIndexStore(join(sharedDirectory, 'index'), manifest, {
       legacyDirectory: configured.legacyDirectory,
     });
     stores.set(key, store);
@@ -104,7 +116,11 @@ interface DressIndexOptions {
 
 /** 一个宿主共用索引文件；已装素材路径不经过此服务。 */
 export class DressIndexStore {
-  readonly directory: string;
+  public directory: string;
+  private readonly transfers = new Map<DressIndexKind, ManagedDownload>();
+  private manuallyPaused = false;
+  private continued = false;
+  private disabled = false;
   private readonly pending = new Map<DressIndexKind, Promise<boolean>>();
   private readonly localPending = new Set<DressIndexKind>();
   private readonly verified = new Set<DressIndexKind>();
@@ -114,12 +130,95 @@ export class DressIndexStore {
   private revision = 0;
 
   constructor(
-    directory: string,
-    readonly manifest: DressIndexManifest,
+    private readonly root: string,
+    public manifest: DressIndexManifest,
     private readonly options: DressIndexOptions = {},
   ) {
     parseDressIndexManifest(manifest);
-    this.directory = join(directory, manifest.tag);
+    this.directory = join(root, manifest.tag);
+    this.disabled = existsSync(join(this.directory, 'removed.json'));
+  }
+  disable() {
+    this.disabled = true;
+  }
+
+  pause() {
+    this.manuallyPaused = true;
+    this.continued = false;
+    for (const transfer of this.transfers.values()) transfer.pause();
+  }
+  resume() {
+    this.manuallyPaused = false;
+    this.continued = true;
+    for (const transfer of this.transfers.values()) transfer.continue();
+  }
+  candidate(manifest: DressIndexManifest) {
+    return new DressIndexStore(this.root, manifest, { legacyDirectory: this.directory });
+  }
+  restoreManifest(manifest: unknown) {
+    this.manifest = parseDressIndexManifest(manifest);
+    this.directory = join(this.root, this.manifest.tag);
+    this.states.clear();
+    this.verified.clear();
+    this.revision++;
+  }
+  async adopt(candidate: DressIndexStore, native: NtHelperBinding): Promise<() => Promise<void>> {
+    if (!(await native.reloadDressResourceIndexes?.(candidate.directory)))
+      throw new Error('装扮索引加载失败，请先更新 WeQ 原生模块');
+    const previous = {
+      directory: this.directory,
+      manifest: this.manifest,
+      states: new Map(this.states),
+      verified: new Set(this.verified),
+      disabled: this.disabled,
+    };
+    try {
+      writeFileAtomicSync(join(this.root, 'active.json'), JSON.stringify(candidate.manifest));
+    } catch (error) {
+      await native.reloadDressResourceIndexes?.(previous.directory);
+      throw error;
+    }
+    this.directory = candidate.directory;
+    this.manifest = candidate.manifest;
+    this.disabled = false;
+    this.states.clear();
+    this.verified.clear();
+    for (const state of candidate.snapshot()) {
+      this.states.set(state.kind, state);
+      if (state.status === 'ready') this.verified.add(state.kind);
+    }
+    this.revision++;
+    return async () => {
+      if (!(await native.reloadDressResourceIndexes?.(previous.directory)))
+        native.clearDressResourceIndexes?.();
+      this.directory = previous.directory;
+      this.manifest = previous.manifest;
+      this.disabled = previous.disabled;
+      this.states.clear();
+      this.verified.clear();
+      for (const [kind, state] of previous.states) this.states.set(kind, state);
+      for (const kind of previous.verified) this.verified.add(kind);
+      writeFileAtomicSync(join(this.root, 'active.json'), JSON.stringify(previous.manifest));
+      this.revision++;
+    };
+  }
+  async cleanPrevious(directory: string) {
+    if (
+      directory !== this.directory &&
+      dirname(directory) === this.root &&
+      existsSync(join(directory, 'installed-manifest.json'))
+    ) {
+      const manifest = parseDressIndexManifest(
+        JSON.parse(readFileSync(join(directory, 'installed-manifest.json'), 'utf8')),
+      );
+      const previous = new DressIndexStore(this.root, manifest);
+      if (previous.directory !== directory) return;
+      for (const kind of DRESS_INDEX_KINDS)
+        if (await previous.matches(join(directory, `${kind}.dat`), kind))
+          await rm(join(directory, `${kind}.dat`), { force: true });
+      if (DRESS_INDEX_KINDS.every((kind) => !existsSync(join(directory, `${kind}.dat`))))
+        await rm(join(directory, 'installed-manifest.json'), { force: true });
+    }
   }
 
   snapshot(): DressIndexState[] {
@@ -164,6 +263,7 @@ export class DressIndexStore {
     part: string,
     options: { background?: boolean } = {},
   ): Promise<ReturnType<NtHelperBinding['queryDressResourceUrl']>> {
+    if (this.disabled) return null;
     const legacy = native.queryDressResourceUrl(kind, itemId, part);
     if (legacy) {
       this.preserveLegacy(kind);
@@ -225,7 +325,27 @@ export class DressIndexStore {
     return this.snapshot();
   }
 
+  /** 候选清单只检查本地目标；列出更新不会提前迁入资源或恢复已删除的包。 */
+  async inspectStored(): Promise<DressIndexState[]> {
+    await Promise.all(
+      DRESS_INDEX_KINDS.map(async (kind) => {
+        if (this.pending.has(kind)) return;
+        const path = join(this.directory, `${kind}.dat`);
+        if (this.verified.has(kind) && existsSync(path)) return;
+        if (await this.matches(path, kind)) {
+          this.verified.add(kind);
+          this.update(kind, { status: 'ready', downloadedBytes: this.manifest.parts[kind].size });
+        } else {
+          this.verified.delete(kind);
+          this.update(kind, { status: 'idle', downloadedBytes: 0 });
+        }
+      }),
+    );
+    return this.snapshot();
+  }
+
   async remove(): Promise<void> {
+    this.disabled = true;
     if (this.pending.size) throw new Error('装扮索引正在准备，请稍后删除');
     for (const kind of DRESS_INDEX_KINDS) {
       for (const suffix of ['', '.incoming', '.incoming.part', '.incoming.resume.json'])
@@ -236,6 +356,7 @@ export class DressIndexStore {
     this.failedAt.clear();
     await mkdir(this.directory, { recursive: true });
     await writeFile(join(this.directory, 'removed.json'), JSON.stringify({ at: Date.now() }));
+    await rm(join(this.root, 'active.json'), { force: true });
     this.revision += 1;
   }
 
@@ -276,24 +397,53 @@ export class DressIndexStore {
             /* 纯 Node 测试无宿主。 */
           }
           let lastProgressAt = 0;
-          const result = await (this.options.download ?? downloadUrlToFile)(
-            `${this.manifest.baseUrl.replace(/\/$/, '')}/${part.asset}`,
-            incoming,
-            {
-              expectedSize: part.size,
-              expectedSha256: part.sha256,
-              maxBytes: part.size,
-              attempts: 2,
-              fetcher,
-              onProgress: (downloadedBytes) => {
-                const now = Date.now();
-                if (now - lastProgressAt < 200 && downloadedBytes < part.size) return;
-                lastProgressAt = now;
-                this.update(kind, { downloadedBytes });
+          if (this.options.download) {
+            const result = await this.options.download(
+              `${this.manifest.baseUrl.replace(/\/$/, '')}/${part.asset}`,
+              incoming,
+              {
+                expectedSize: part.size,
+                expectedSha256: part.sha256,
+                maxBytes: part.size,
+                attempts: 2,
+                fetcher,
+                onProgress: (downloadedBytes) => {
+                  const now = Date.now();
+                  if (now - lastProgressAt < 200 && downloadedBytes < part.size) return;
+                  lastProgressAt = now;
+                  this.update(kind, { downloadedBytes });
+                },
               },
-            },
-          );
-          if (!result.ok) throw new Error(result.reason);
+            );
+            if (!result.ok) throw new Error(result.reason);
+          } else {
+            const transfer = new ManagedDownload({
+              batch: true,
+              total: part.size,
+              maxBytes: part.size,
+              state: (state) =>
+                this.update(kind, {
+                  downloadedBytes: state.received,
+                  paused: state.paused,
+                  pauseReasons: state.reasons,
+                }),
+              validate: async (path) => {
+                if (!(await this.matches(path, kind)))
+                  throw new Error('装扮索引大小或哈希校验失败');
+              },
+            });
+            this.transfers.set(kind, transfer);
+            if (this.manuallyPaused) transfer.pause();
+            else if (this.continued) transfer.continue();
+            try {
+              await transfer.file(
+                `${this.manifest.baseUrl.replace(/\/$/, '')}/${part.asset}`,
+                incoming,
+              );
+            } finally {
+              this.transfers.delete(kind);
+            }
+          }
         }
         if (!(await this.matches(incoming, kind))) throw new Error('装扮索引大小或哈希校验失败');
         await rename(incoming, target);
@@ -301,9 +451,21 @@ export class DressIndexStore {
       this.verified.add(kind);
       this.failedAt.delete(kind);
       this.revision += 1;
-      this.update(kind, { status: 'ready', downloadedBytes: part.size, error: undefined });
-      if (DRESS_INDEX_KINDS.every((kind) => this.verified.has(kind)))
+      this.update(kind, {
+        status: 'ready',
+        downloadedBytes: part.size,
+        error: undefined,
+        paused: false,
+        pauseReasons: [],
+      });
+      if (DRESS_INDEX_KINDS.every((kind) => this.verified.has(kind))) {
+        this.disabled = false;
         await rm(join(this.directory, 'removed.json'), { force: true });
+        await writeFile(
+          join(this.directory, 'installed-manifest.json'),
+          JSON.stringify(this.manifest),
+        );
+      }
       return true;
     } catch (error) {
       this.failedAt.set(kind, (this.options.now ?? Date.now)());

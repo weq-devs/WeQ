@@ -17,6 +17,7 @@ vi.mock('../src/main/context/app_context', () => ({
 vi.mock('../src/main/intent_sense/model_files', () => ({
   downloadLayaBundle: vi.fn(),
   isLayaBundleReady: () => true,
+  layaBundleStore: (dir: string) => ({ resolveModelDir: () => dir }),
 }));
 import { getIntentSenseLocalEngine } from '../src/main/intent_sense/bridge';
 

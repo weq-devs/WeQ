@@ -1,5 +1,5 @@
 import { dirname, basename, join } from 'node:path';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, statSync, readFileSync } from 'node:fs';
 import { ModelStore, type ModelEntry, type ModelDownloadProgress } from '@weq/service';
 
 const MULTILINGUAL =
@@ -64,6 +64,23 @@ export interface DownloadBundleOptions {
 }
 
 export function isLayaBundleReady(dir: string): boolean {
+  try {
+    const files: unknown = JSON.parse(readFileSync(join(dir, 'model-files.json'), 'utf8'));
+    if (
+      Array.isArray(files) &&
+      files.length === LAYA_BUNDLE_SOURCES.length &&
+      files.every(
+        (file) =>
+          file &&
+          typeof file.name === 'string' &&
+          !file.name.split(/[\\/]/).some((part: string) => part === '..' || part === '.') &&
+          Number.isSafeInteger(file.sizeBytes),
+      )
+    )
+      return files.every((file) => statSync(join(dir, file.name)).size === file.sizeBytes);
+  } catch {
+    /* 旧模型沿用固定清单。 */
+  }
   return LAYA_BUNDLE_SOURCES.every((file) => {
     try {
       const info = statSync(join(dir, file.local));
@@ -74,30 +91,31 @@ export function isLayaBundleReady(dir: string): boolean {
   });
 }
 
+export function layaModelEntry(mirror = false, id = 'laya-multilingual'): ModelEntry {
+  const host = mirror ? 'https://hf-mirror.com' : 'https://huggingface.co';
+  return {
+    id,
+    sizeBytes: LAYA_BUNDLE_BYTES,
+    files: LAYA_BUNDLE_SOURCES.map((file) => ({
+      key: file.local,
+      name: file.local,
+      url: `${host}/${file.repo}/${file.remote}`,
+      weight: file.size / LAYA_BUNDLE_BYTES,
+      sizeBytes: file.size,
+      sha256: file.sha256 || undefined,
+    })),
+  };
+}
 class LayaStore extends ModelStore<ModelEntry> {
   constructor(dir: string, mirror: boolean) {
-    const host = mirror ? 'https://hf-mirror.com' : 'https://huggingface.co';
-    super(dirname(dir), [
-      {
-        id: basename(dir),
-        sizeBytes: LAYA_BUNDLE_BYTES,
-        files: LAYA_BUNDLE_SOURCES.map((file) => ({
-          key: file.local,
-          name: file.local,
-          url: `${host}/${file.repo}/${file.remote}`,
-          weight: file.size / LAYA_BUNDLE_BYTES,
-          sizeBytes: file.size,
-          sha256: file.sha256 || undefined,
-        })),
-      },
-    ]);
+    super(dirname(dir), [layaModelEntry(mirror, basename(dir))]);
   }
 }
 
 const stores = new Map<string, LayaStore>();
 export function layaBundleStore(dir: string, mirror = true): LayaStore {
   let store = stores.get(dir);
-  if (!store?.isDownloading(basename(dir))) {
+  if (!store) {
     store = new LayaStore(dir, mirror);
     stores.set(dir, store);
   }

@@ -411,7 +411,7 @@ export interface IntentSenseModelProgress {
  *（`intentSense.localAvailable === false`，UI 相应隐藏本地引擎入口）。
  */
 export interface IntentSenseLocalEngineControl extends IntentLocalEnginePort {
-  validateModel?(modelId: string): Promise<void>;
+  validateModel?(modelId: string, directory?: string): Promise<void>;
   isBusy?(): boolean;
   listModels?(): Array<{ id: string; name: string; downloaded: boolean; downloadable: boolean }>;
   modelDir(): string;
@@ -423,6 +423,9 @@ export interface IntentSenseLocalEngineControl extends IntentLocalEnginePort {
   }): Promise<void>;
   start(): Promise<void>;
   stop(): Promise<void>;
+  runningModels?(): string[];
+  startModel?(modelId: string): Promise<void>;
+  stopModel?(modelId: string, directory?: string): Promise<void>;
 }
 
 let intentSenseLocalEngine: IntentSenseLocalEngineControl | null = null;
@@ -430,6 +433,13 @@ let intentSenseLocalEngine: IntentSenseLocalEngineControl | null = null;
 /** app 层注入意图感知本地引擎控制面（桌面版启动时调用一次）。 */
 export function setIntentSenseLocalEngine(engine: IntentSenseLocalEngineControl | null): void {
   intentSenseLocalEngine = engine;
+  if (engine)
+    void cached?.bootstrap?.enhancements.packs.reconcileExisting().catch((error: unknown) =>
+      getLogger().warn('enhancement local validation failed', {
+        event: 'enhancement-local-check-failed',
+        error: String(error),
+      }),
+    );
 }
 
 /** 当前注入的本地引擎控制面（未注入 = web / 未初始化）。 */

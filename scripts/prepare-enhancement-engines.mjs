@@ -20,10 +20,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const desktop = join(root, 'apps/desktop');
 const require = createRequire(join(desktop, 'package.json'));
 const { c: archive } = require('tar');
-const { ENHANCEMENT_ENGINE_RECIPES, enhancementEngineCompatibility } = await tsImport(
-  '../apps/desktop/src/shared/enhancement_manifest.ts',
-  import.meta.url,
-);
+const { ENHANCEMENT_ENGINE_RECIPES, enhancementEngineCompatibility, ENHANCEMENT_RUNTIME } =
+  await tsImport('../apps/desktop/src/shared/enhancement_manifest.ts', import.meta.url);
 
 export async function hashEnhancementFile(path) {
   const hash = createHash('sha256');
@@ -158,6 +156,8 @@ export async function prepareEnhancementEngines(options = {}) {
         kind,
         id,
         compatibility,
+        runtime: ENHANCEMENT_RUNTIME[kind],
+        minWeqVersion: recipe.minWeqVersion,
         target,
         url: `https://github.com/weq-devs/WeQ/releases/download/${tag}/${asset}`,
         sha256: await hashEnhancementFile(join(output, asset)),
@@ -169,7 +169,32 @@ export async function prepareEnhancementEngines(options = {}) {
       await rm(stage, { recursive: true, force: true });
     }
   }
-  const manifest = { schemaVersion: 1, target, engines };
+  const { createEnhancementCatalog } = await tsImport(
+    '../apps/desktop/src/main/enhancements/release_catalog.ts',
+    import.meta.url,
+  );
+  const { OCR_MODELS } = await tsImport(
+    '../packages/service/src/common/ocr_models.ts',
+    import.meta.url,
+  );
+  const { VOICE_MODELS } = await tsImport(
+    '../packages/service/src/common/voice_transcribe.ts',
+    import.meta.url,
+  );
+  const { layaModelEntry } = await tsImport(
+    '../apps/desktop/src/main/intent_sense/model_files.ts',
+    import.meta.url,
+  );
+  const dress = JSON.parse(
+    await readFile(join(root, 'resources/dress/index-manifest.json'), 'utf8'),
+  );
+  const engineManifest = { schemaVersion: 1, target, engines };
+  const catalog = createEnhancementCatalog(
+    engineManifest,
+    [...OCR_MODELS, ...VOICE_MODELS, layaModelEntry()],
+    dress,
+  );
+  const manifest = { ...engineManifest, packs: catalog.packs };
   await writeFile(join(output, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   console.log(
     `[enhancements] ${target}: ${engines.map((engine) => `${engine.kind} ${(engine.downloadBytes / 1048576).toFixed(2)} MiB → ${(engine.installedBytes / 1048576).toFixed(2)} MiB`).join(', ')}`,

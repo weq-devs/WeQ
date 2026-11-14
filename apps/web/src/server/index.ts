@@ -95,7 +95,10 @@ async function main(): Promise<void> {
   setHost(createWebHost({ exportDir: EXPORT_DIR, version: VERSION }));
   initAppContext();
   void import('@weq/desktop/main/data_saver')
-    .then(({ refreshTransferPolicy }) => refreshTransferPolicy())
+    .then(async ({ refreshTransferPolicy }) => {
+      await refreshTransferPolicy();
+      getAppContext().bootstrap?.enhancements.updates.start();
+    })
     .catch(() => undefined);
   const performanceMonitor = installPerformanceMonitor(
     DATA_DIR,
@@ -128,6 +131,7 @@ async function main(): Promise<void> {
   const shutdown = (): void => {
     if (shuttingDown) return;
     shuttingDown = true;
+    getAppContext().bootstrap?.enhancements.updates.stop();
     void assistantResourceServer.shutdown();
     const monitorStopped = performanceMonitor.dispose();
     server.close(() => {

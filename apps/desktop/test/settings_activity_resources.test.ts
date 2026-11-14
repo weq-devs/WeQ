@@ -18,6 +18,10 @@ const fixture = vi.hoisted(() => ({
   confirm: vi.fn(async () => true),
   ready: false,
   busy: false,
+  partial: false,
+  autoCheck: true,
+  autoInstall: false,
+  requiresWeqUpdate: false,
 }));
 vi.mock('../src/renderer/src/lib/dialogUtils', () => ({
   useAppDialog: () => ({ confirm: fixture.confirm }),
@@ -35,12 +39,16 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               id,
               name: ['本地文字识别', '本地语音转写', '本地意图与画像', '装扮离线索引'][index],
               description: '合成能力资源',
-              ready: fixture.ready,
-              downloaded: fixture.ready,
+              ready: fixture.ready && !fixture.partial,
+              downloaded: fixture.ready && !fixture.partial,
               busy: fixture.busy,
               pausable: id !== 'dress',
               installed: fixture.ready,
-              blocker: null,
+              needsRepair: fixture.ready && fixture.partial,
+              missingComponents: fixture.partial ? ['文字筛图模型'] : [],
+              updateAvailable: fixture.partial,
+              blocker: fixture.requiresWeqUpdate ? '需先更新 WeQ 至 v3.0.0' : null,
+              requiresWeqUpdate: fixture.requiresWeqUpdate,
               downloadBytes: fixture.ready ? 0 : 1048576,
               sizeOnDisk: fixture.ready ? 1048576 : 0,
               sharedBytes: 0,
@@ -52,7 +60,14 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             return {
               data:
                 name === 'enhancementPacks'
-                  ? { packs, all: { downloadBytes: 4194304, sizeOnDisk: 0 } }
+                  ? {
+                      packs,
+                      preferences: {
+                        autoCheck: fixture.autoCheck,
+                        autoInstall: fixture.autoInstall,
+                      },
+                      all: { downloadBytes: 4194304, sizeOnDisk: 0 },
+                    }
                   : name === 'enhancementPlan'
                     ? { downloadBytes: 4194304, sizeOnDisk: 0 }
                     : name === 'getVersionInfo'
@@ -91,6 +106,10 @@ beforeEach(() => {
   fixture.confirm.mockReset().mockResolvedValue(true);
   fixture.ready = false;
   fixture.busy = false;
+  fixture.partial = false;
+  fixture.autoCheck = true;
+  fixture.autoInstall = false;
+  fixture.requiresWeqUpdate = false;
 });
 afterEach(() => {
   useDialog.setState({ current: null });
@@ -129,17 +148,14 @@ describe('增强设置与非活动页面资源', () => {
       f.dispose();
     }
   });
-  it('管理页复用四张设置卡片，只有下载全部和各卡片的独立操作', async () => {
+  it('管理页是两张卡片与四行列表，下载单包并将空间占用放在独立列', async () => {
     const f = mount(h(EnhancementPacksSection));
     try {
-      expect(f.host.querySelector('input[type="checkbox"]')).toBeNull();
-      expect(f.host.querySelector('[role="checkbox"]')).toBeNull();
-      expect(f.host.querySelectorAll('.weq-set-card')).toHaveLength(4);
-      const all = [...f.host.querySelectorAll('button')].find((node) =>
-        node.textContent?.startsWith('下载全部'),
-      )!;
-      await act(async () => all.click());
-      expect(fixture.mutate).toHaveBeenCalledWith({ ids: ['text', 'voice', 'intent', 'dress'] });
+      expect(f.host.querySelectorAll('.weq-set-card')).toHaveLength(2);
+      expect(f.host.querySelectorAll('.weq-enhancement-item')).toHaveLength(4);
+      expect(f.host.querySelectorAll('.weq-enhancement-size')).toHaveLength(4);
+      expect(f.host.textContent).not.toContain('下载全部');
+      expect(f.host.querySelectorAll('[role="switch"]')).toHaveLength(2);
       const chosen = f.host.querySelector<HTMLButtonElement>('[aria-label="下载本地文字识别"]')!;
       await act(async () => chosen.click());
       expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
@@ -152,18 +168,59 @@ describe('增强设置与非活动页面资源', () => {
     fixture.busy = true;
     const f = mount(h(EnhancementPacksSection));
     try {
-      expect(f.host.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe(
-        '50',
-      );
+      expect(f.host.querySelector('progress')?.value).toBe(50);
       expect(fixture.listeners.size).toBe(0);
       f.render(false);
       expect(fixture.enabled.get('enhancementPacks')).toBe(false);
       fixture.busy = false;
       fixture.ready = true;
       f.render(true);
-      expect(f.host.querySelector('[role="progressbar"]')).toBeNull();
-      expect(f.host.textContent).toContain('删除 1.00 MiB');
+      expect(f.host.querySelector('progress')).toBeNull();
+      expect(f.host.textContent).toContain('1.00 MiB');
       expect(f.host.querySelectorAll('button[aria-label^="删除"]')).toHaveLength(4);
+    } finally {
+      f.dispose();
+    }
+  });
+  it('已安装缺项只加短状态与一个补齐图标，缺项留在提示，不增加展开管理', async () => {
+    fixture.ready = true;
+    fixture.partial = true;
+    const f = mount(h(EnhancementPacksSection));
+    try {
+      expect(f.host.querySelectorAll('.weq-enhancement-description')).toHaveLength(4);
+      expect(f.host.querySelectorAll('.weq-enhancement-status')).toHaveLength(4);
+      const row = f.host.querySelector('[data-setting-id="enhancement-text"]')!;
+      expect(row.querySelectorAll('.weq-enhancement-actions button')).toHaveLength(3);
+      expect(row.textContent).toContain('待补齐');
+      expect(row.textContent).not.toContain('文字筛图模型');
+      expect(row.querySelector('.weq-enhancement-status')?.getAttribute('title')).toContain(
+        '文字筛图模型',
+      );
+      expect(row.querySelector('details')).toBeNull();
+      const repair = row.querySelector<HTMLButtonElement>('[aria-label="补齐本地文字识别"]')!;
+      expect(repair.title).toContain('文字筛图模型');
+      await act(async () => repair.click());
+      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
+    } finally {
+      f.dispose();
+    }
+  });
+  it('关闭自动检查隐藏安装开关但不清空其值；最低版本提示跳到设置内更新页', async () => {
+    const navigate = vi.fn();
+    fixture.autoInstall = true;
+    const f = mount(
+      h(SettingsNavigateContext.Provider, { value: navigate }, h(EnhancementPacksSection)),
+    );
+    try {
+      fixture.autoCheck = false;
+      fixture.requiresWeqUpdate = true;
+      await f.render(false);
+      await f.render(true);
+      expect(f.host.querySelector('[aria-label="自动安装增强包更新"]')).toBeNull();
+      expect(fixture.autoInstall).toBe(true);
+      const link = f.host.querySelector<HTMLAnchorElement>('.weq-enhancement-issue a')!;
+      await act(async () => link.click());
+      expect(navigate).toHaveBeenCalledWith('version');
     } finally {
       f.dispose();
     }

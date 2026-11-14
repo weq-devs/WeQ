@@ -46,3 +46,53 @@ it('气泡、字体与挂件阶段只更新一个装扮离线索引任务，重�
   expect(backgroundTasks.snapshot()).toHaveLength(before + 1);
   expect(backgroundTasks.snapshot().at(-1)).toMatchObject({ status: 'completed', progress: 100 });
 });
+
+it('补齐沿用同一任务的暂停、继续与失败重试操作', async () => {
+  vi.useFakeTimers();
+  let ready = false;
+  let finish = () => {};
+  const complete = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const operation: PackOperation = { phase: 'downloading', received: 10, total: 100 };
+  const port = {
+    list: async () => [{ id: 'dress' as const, name: '补齐装扮', ready, operation }],
+    waitFor: async () => complete,
+    pause: vi.fn(() => {
+      operation.paused = true;
+      operation.pauseReasons = ['user'];
+    }),
+    resume: vi.fn(() => {
+      operation.paused = false;
+      operation.pauseReasons = [];
+    }),
+    start: vi.fn(),
+  };
+  const task = trackEnhancementPreparation(port, 'dress', '补齐装扮');
+  await vi.advanceTimersByTimeAsync(750);
+  const id = backgroundTasks.snapshot().at(-1)!.id;
+  await backgroundTasks.act(id, 'pause');
+  await vi.advanceTimersByTimeAsync(750);
+  expect(backgroundTasks.snapshot().find((entry) => entry.id === id)).toMatchObject({
+    status: 'paused',
+    statusLabel: '已暂停',
+    actions: [{ id: 'continue', label: '继续下载' }],
+  });
+  await backgroundTasks.act(id, 'continue');
+  await vi.advanceTimersByTimeAsync(750);
+  expect(port.resume).toHaveBeenCalledOnce();
+  expect(backgroundTasks.snapshot().find((entry) => entry.id === id)?.status).toBe('running');
+  Object.assign(operation, { phase: 'failed', error: 'offline' });
+  finish();
+  await expect(task).rejects.toThrow('offline');
+  expect(backgroundTasks.snapshot().find((entry) => entry.id === id)).toMatchObject({
+    status: 'failed',
+    actions: [{ id: 'retry', label: '重试' }],
+  });
+  ready = true;
+  operation.phase = 'ready';
+  await backgroundTasks.act(id, 'retry');
+  expect(port.start).toHaveBeenCalledWith(['dress']);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(backgroundTasks.snapshot().at(-1)?.status).toBe('completed');
+});

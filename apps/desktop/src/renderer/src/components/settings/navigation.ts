@@ -185,6 +185,8 @@ interface ItemRedirect {
 export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   ...(
     [
+      ['enhancement-auto-check', '自动检查增强包更新', ['增强包更新检查']],
+      ['enhancement-auto-install', '自动安装增强包更新', ['增强包自动安装']],
       ['enhancement-text', '本地文字识别', ['识别模型', '筛图模型', '图片识别模型', 'OCR 模型']],
       ['enhancement-voice', '本地语音转写', ['本地语音模型', 'SenseVoice', 'ASR']],
       ['enhancement-intent', '本地意图与画像', ['Laya 模型下载', '画像模型下载']],

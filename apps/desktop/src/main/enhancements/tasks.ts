@@ -48,7 +48,13 @@ export function trackEnhancementPreparation(
         if (!polling) return;
         const operation = current?.operation;
         if (operation?.paused) {
-          backgroundTasks.finish(taskId, 'paused', { statusLabel: '已暂停' });
+          backgroundTasks.finish(taskId, 'paused', {
+            statusLabel: operation.pauseReasons?.includes('user')
+              ? '已暂停'
+              : operation.pauseReasons?.includes('resume-required')
+                ? '等待继续'
+                : '省流量模式已暂停',
+          });
           backgroundTasks.setActions(
             taskId,
             packs.resume
@@ -57,7 +63,12 @@ export function trackEnhancementPreparation(
           );
         } else {
           backgroundTasks.resume(taskId);
-          backgroundTasks.setActions(taskId, []);
+          backgroundTasks.setActions(
+            taskId,
+            'pause' in packs
+              ? [{ id: 'pause', label: '暂停', run: () => (packs as EnhancementPacks).pause(id) }]
+              : [],
+          );
         }
         backgroundTasks.update(taskId, {
           progress: operation?.total
@@ -74,14 +85,30 @@ export function trackEnhancementPreparation(
         const current = (await packs.list()).find((entry) => entry.id === id);
         backgroundTasks.resume(taskId);
         backgroundTasks.setActions(taskId, []);
-        if (!current?.ready) throw new Error(current?.operation?.error ?? '增强包未准备完成');
+        if (!current?.ready || current.operation?.phase === 'failed')
+          throw new Error(current?.operation?.error ?? '增强包未准备完成');
       } finally {
         polling = false;
         clearInterval(timer);
       }
     },
     () => ({ note: '增强包已就绪' }),
-  ).finally(() => tasks!.delete(id));
+  )
+    .catch((error: unknown) => {
+      const task = backgroundTasks
+        .snapshot()
+        .findLast((entry) => entry.kind === 'model' && entry.name === name);
+      if (task && 'start' in packs)
+        backgroundTasks.setActions(task.id, [
+          {
+            id: 'retry',
+            label: '重试',
+            run: () => startEnhancementDownloads(packs as EnhancementPacks, [id]),
+          },
+        ]);
+      throw error;
+    })
+    .finally(() => tasks!.delete(id));
   tasks.set(id, task);
   return task;
 }

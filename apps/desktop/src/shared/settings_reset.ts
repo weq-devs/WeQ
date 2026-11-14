@@ -53,6 +53,7 @@ export const SETTINGS_RESET_CARDS = [
   ['interaction-profile', 'profile-cache', '请求与缓存'],
   ['recognition', 'voice-online', '语音转写'],
   ['recognition', 'ocr-online', '图片文字识别'],
+  ['enhancement-packs', 'enhancement-updates', '增强包自动更新'],
   ['account', 'realtime', '实时监听'],
   ['account', 'attach', '自动进入完整模式'],
   ['accounts', 'auto-enter', '现有配置'],

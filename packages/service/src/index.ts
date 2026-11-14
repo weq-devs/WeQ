@@ -1184,6 +1184,7 @@ export { pingDaemon, daemonStop } from './daemon/client';
 
 // ---- common (account-independent helpers) ----
 export { ModelStore } from './common/model_store';
+export { writeFileAtomic, writeFileAtomicSync } from './common/atomic_write';
 export type {
   ModelFile,
   ModelEntry,

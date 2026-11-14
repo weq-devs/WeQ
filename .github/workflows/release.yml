@@ -108,6 +108,9 @@ jobs:
       - name: Fetch nt_helper native artifacts
         run: node scripts/fetch-native.mjs --require-fresh --require-authorization --verify
 
+      - name: Verify enhancement native interface
+        run: node scripts/verify-enhancement-engines.mjs --native-only
+
       # 把 tag 里的版本号（v1.2.3 -> 1.2.3）写进 package.json，
       # 让 electron-builder 命名产物、app.getVersion() 也能读到。
       - name: Sync version from tag
@@ -228,6 +231,9 @@ jobs:
       - name: Fetch nt_helper native artifacts
         run: node scripts/fetch-native.mjs --require-fresh --require-authorization --verify
 
+      - name: Verify enhancement native interface
+        run: node scripts/verify-enhancement-engines.mjs --native-only
+
       # 打包前先把「架构对不对」验掉：resvg / sherpa 的 .node binding 和 cargo
       # 编出来的守护进程都取自构建机。与 macOS 两个 job 同款把关 —— v1.0.0 的
       # weQ-1.0.0-linux-x86_64.AppImage 就是在 arm64 runner 上打出来的，
@@ -334,6 +340,9 @@ jobs:
       - name: Fetch nt_helper native artifacts
         run: node scripts/fetch-native.mjs --require-fresh --require-authorization --verify
 
+      - name: Verify enhancement native interface
+        run: node scripts/verify-enhancement-engines.mjs --native-only
+
       # 同 linux-x64：构建机架构必须就是目标架构，否则 resvg / sherpa binding
       # 与守护进程都会是另一个架构的。
       - name: Verify Node architecture and native bindings
@@ -436,6 +445,9 @@ jobs:
       # 同 windows：先取 nt_helper 原生产物，再开始打包。
       - name: Fetch nt_helper native artifacts
         run: node scripts/fetch-native.mjs --require-fresh --require-authorization --verify
+
+      - name: Verify enhancement native interface
+        run: node scripts/verify-enhancement-engines.mjs --native-only
 
       # 打包前先确认 Node 架构符合目标，避免再打出「arm64 壳 + x64 binding」
       # 的坏包（v0.4.4 已踩过一次）。
@@ -557,6 +569,9 @@ jobs:
       # 同 windows：先取 nt_helper 原生产物，再开始打包。
       - name: Fetch nt_helper native artifacts
         run: node scripts/fetch-native.mjs --require-fresh --require-authorization --verify
+
+      - name: Verify enhancement native interface
+        run: node scripts/verify-enhancement-engines.mjs --native-only
 
       # 同上：装完依赖后校验 Node 架构，并确认 arm64 binding 真的进包。
       - name: Verify Node architecture

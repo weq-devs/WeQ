@@ -1334,6 +1334,10 @@ export interface NtHelperBinding {
    *   xydata.js / main / fzfont
    */
   queryDressResourceUrl(dtype: string, itemId: string, name: string): DressResourceUrl | null;
+  validateDressResourceIndexes?(directory: string): boolean | Promise<boolean>;
+  reloadDressResourceIndexes?(directory: string): boolean | Promise<boolean>;
+  clearDressResourceIndexes?(): void;
+  getDressResourceKeyId?(): string;
 
   // --- 网卡抓包（capture） ---
   /**
