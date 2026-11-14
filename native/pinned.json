@@ -1,8 +1,8 @@
 {
-  "tag": "nt-helper-20261109-83720f2",
-  "commit": "83720f22166ccb04f1651ccde2e43ad6e67755fe",
-  "builtAt": "2026-11-09T17:49:43.000Z",
-  "expiresAt": "2026-12-09T17:49:43.000Z",
-  "pinnedAt": "2026-11-10",
+  "tag": "nt-helper-20261114-bf7882d",
+  "commit": "bf7882d36a635a04b2e64bc5eac6686a3214db77",
+  "builtAt": "2026-11-14T19:28:25.000Z",
+  "expiresAt": "2026-12-14T19:28:25.000Z",
+  "pinnedAt": "2026-11-15",
   "note": "WeQ 认这一份 native 构建（pnpm native:fetch 默认取它）。升级时对同一明确 tag 使用 --version 验证并 --write-pin，同时更新兼容的 resources/dress/index-manifest.json，提交两份版本锚。"
 }
