@@ -233,6 +233,13 @@ it('文件夹创建返回真实 ID，删除别名共用一条服务路径', asyn
   });
   expect(f.services.groupFile.renameFile).toHaveBeenCalledWith(42, 'f', 'folder', 'b.txt');
 });
+it('删除文件保留省略目录的含义，显式目录则原样传入权限检查', async () => {
+  const f = setup();
+  await f.run('delete_group_file', { group_id: 42, file_id: 'f' });
+  expect(f.services.groupFile.deleteFile).toHaveBeenLastCalledWith(42, 'f', undefined);
+  await f.run('delete_group_file', { group_id: 42, file_id: 'f', parent_directory: '/folder' });
+  expect(f.services.groupFile.deleteFile).toHaveBeenLastCalledWith(42, 'f', '/folder');
+});
 
 it('备注未确认不是成功；已读调用现有完整编排', async () => {
   const f = setup();

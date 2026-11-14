@@ -40,6 +40,7 @@ export interface GroupFileListing {
 const PAGE_SIZE = 100;
 /** 分页上限 —— 兜底防止服务端不给 isEnd 导致死循环。 */
 const MAX_PAGES = 200;
+const MAX_PERMISSION_DIRECTORIES = 32;
 
 export class GroupFileService {
   constructor(
@@ -53,7 +54,7 @@ export class GroupFileService {
     action: QQGroupOperation,
     groupId: number,
     fileId?: string,
-    directory = '/',
+    directory?: string,
   ) {
     if (!this.permissionContext) return;
     const pid = this.resolvePid();
@@ -63,8 +64,7 @@ export class GroupFileService {
       fileId &&
       (action === 'fileDelete' || action === 'fileRename')
     ) {
-      const listing = await this.list(groupId, directory);
-      const file = listing.files.find((row) => row.fileId === fileId);
+      const file = await this.permissionFile(groupId, fileId, directory);
       context.owned =
         file !== undefined &&
         qqResourceOwnedBy(file.uploaderUin, {
@@ -74,6 +74,32 @@ export class GroupFileService {
     }
     if (!groupPermission(action, context)) throw new Error('当前账号无权执行此群文件操作');
     if (this.resolvePid() !== pid) throw new Error('QQ 运行时已改变，请重新操作');
+  }
+
+  private async permissionFile(
+    groupId: number,
+    fileId: string,
+    directory?: string,
+  ): Promise<GroupFileItem | undefined> {
+    const pending = [directory ?? '/'];
+    const seen = new Set(pending);
+    const pid = this.resolvePid();
+    for (let count = 0; pending.length; count++) {
+      if (count >= MAX_PERMISSION_DIRECTORIES)
+        throw new Error('群文件目录较多，请提供文件所在的 parent_directory 后重试');
+      if (this.resolvePid() !== pid) throw new Error('QQ 运行时已改变，请重新操作');
+      const listing = await this.list(groupId, pending.shift()!);
+      const file = listing.files.find((row) => row.fileId === fileId);
+      if (file) return file;
+      // OneBot 删除只要求 file_id；未带目录时按需寻找，显式目录不扩成全群扫描。
+      if (directory === undefined)
+        for (const folder of listing.folders) {
+          if (!folder.folderId || seen.has(folder.folderId)) continue;
+          seen.add(folder.folderId);
+          pending.push(folder.folderId);
+        }
+    }
+    return undefined;
   }
 
   /** 拉某个目录下的全部文件+子文件夹(内部翻页到 isEnd)。 */
@@ -128,7 +154,7 @@ export class GroupFileService {
   // ───────────────────────── 文件 / 文件夹写操作 ─────────────────────────
 
   /** 删除单个群文件（OIDB 0x6D6_3）。 */
-  async deleteFile(groupId: number, fileId: string, directory = '/'): Promise<void> {
+  async deleteFile(groupId: number, fileId: string, directory?: string): Promise<void> {
     await this.permitted('fileDelete', groupId, fileId, directory);
     await DeleteGroupFile.invoke(this.nt, this.resolvePid(), { groupId, fileId });
   }

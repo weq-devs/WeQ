@@ -290,7 +290,7 @@ export function createActions(
         await services.groupFile.deleteFile(
           Number(id(p.group_id)),
           text(p.file_id),
-          text(p.parent_directory, '/'),
+          p.parent_directory === undefined ? undefined : text(p.parent_directory, '/'),
         );
         return null;
       case 'rename_group_file':

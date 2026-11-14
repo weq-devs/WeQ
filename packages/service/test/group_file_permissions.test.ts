@@ -61,3 +61,36 @@ it('查询上传者期间 QQ 运行时发生变化，不继续删除', async () 
   await expect(f.service.deleteFile(123, 'file')).rejects.toThrow('运行时');
   expect(f.remove).not.toHaveBeenCalled();
 });
+it('未带目录的 OneBot 删除按需找到子目录内的本人文件，显式目录不扩查', async () => {
+  const f = fixture();
+  const root = { targetDirectory: '/', files: [], folders: [{ folderId: '/nested' }] };
+  f.listing.mockImplementation(async (_groupId, directory = '/') =>
+    directory === '/'
+      ? (root as Awaited<ReturnType<typeof f.service.list>>)
+      : {
+          targetDirectory: directory,
+          folders: [],
+          files: [{ fileId: 'file', uploaderUin: 10001 } as GroupFileItem],
+        },
+  );
+  await expect(f.service.deleteFile(123, 'file')).resolves.toBeUndefined();
+  expect(f.listing).toHaveBeenNthCalledWith(2, 123, '/nested');
+  f.remove.mockClear();
+  await expect(f.service.deleteFile(123, 'file', '/')).rejects.toThrow('无权');
+  expect(f.remove).not.toHaveBeenCalled();
+});
+it('未知文件的目录搜索有上限，不因服务端持续返回子目录无限扫描', async () => {
+  const f = fixture();
+  let serial = 0;
+  f.listing.mockImplementation(
+    async () =>
+      ({
+        targetDirectory: '/',
+        files: [],
+        folders: [{ folderId: `/folder-${++serial}` }],
+      }) as Awaited<ReturnType<typeof f.service.list>>,
+  );
+  await expect(f.service.deleteFile(123, 'missing')).rejects.toThrow('parent_directory');
+  expect(f.listing.mock.calls.length).toBeLessThan(100);
+  expect(f.remove).not.toHaveBeenCalled();
+});
