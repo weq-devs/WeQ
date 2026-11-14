@@ -98,7 +98,7 @@
  * 而网格项即使 position:static 也认 z-index（CSS Grid §6 的绘制顺序规则）。加
  * position:relative 会把它们变成后代绝对定位元素的包含块，平白改掉既有布局。
  *
- * 抬到 1 就够：面板里既有的 7~45 那几层（group-info-toggle、未读气泡、右键菜单…）
+ * 抬到 1 就够：面板里既有的 7~50 那几层（group-info-toggle、未读气泡、右键菜单…）
  * 都在 .chat-pane 上，层级关系完全不受影响。 */
 .chat-pane > .chat-header,
 .chat-pane > .message-scroll,
@@ -1455,7 +1455,8 @@ html[data-theme='dark'] .message-line.weq-reply-target-flash {
    聊天区可能挂着的装扮字体（子集化 / 粗体）而显得「格格不入」。 */
 .message-context-menu {
   position: fixed;
-  z-index: 45;
+  /* 消息与头像菜单必须高于自绘滚动条（46），避免滑块盖住菜单并截获点击。 */
+  z-index: 50;
   display: grid;
   width: max-content;
   padding: 6px;
