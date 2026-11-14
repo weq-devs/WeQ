@@ -181,8 +181,10 @@ export async function prepareEnhancementEngines(options = {}) {
     '../packages/service/src/common/voice_transcribe.ts',
     import.meta.url,
   );
+  // 只 import 零依赖的清单叶子文件：走 intent_sense/model_files.ts 会把
+  // `@weq/service` 桶（上千个模块）拖进 tsx，Windows runner 上打包会卡死。
   const { layaModelEntry } = await tsImport(
-    '../apps/desktop/src/main/intent_sense/model_files.ts',
+    '../apps/desktop/src/shared/laya_bundle.ts',
     import.meta.url,
   );
   const dress = JSON.parse(
