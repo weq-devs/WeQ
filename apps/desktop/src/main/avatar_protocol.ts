@@ -17,6 +17,7 @@
  */
 
 import { getAppContext } from './context/app_context';
+import { imageProcessor } from './image_processor';
 import { imagePreview } from './image_preview';
 import { avatarResponse } from './avatar_response';
 import { networkScope } from '@weq/service/network-scope';
@@ -68,8 +69,17 @@ export async function handleAvatarRequest(request: Request): Promise<Response> {
 
   try {
     if (url.searchParams.get('preview') === '1') {
-      const data = await imagePreview(async () => (await get()).data);
-      return avatarResponse({ data, contentType: 'image/webp' }, request);
+      const preview = await get();
+      if (preview.data.length === 0) return new Response('avatar empty', { status: 502 });
+      try {
+        const data = await imagePreview(async () => preview.data);
+        return avatarResponse({ data, contentType: 'image/webp' }, request);
+      } catch (error) {
+        // 只有原生缩放整体不可用（Linux/Electron 的 sharp 崩溃）时才退回原图；
+        // 单张坏图仍按原行为 502，避免把超大/损坏内容塞给渲染端。
+        if (!imageProcessor.isUnavailable()) throw error;
+        return avatarResponse(preview, request);
+      }
     }
     const blob = await get(url.searchParams.get('_weq_avatar_remote') === '1' ? 0 : undefined);
     if (blob.data.length === 0) {
