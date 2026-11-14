@@ -211,7 +211,7 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
   // 占位和正文共用 left/top 布局，正文就绪后不重新播放入场动画或改变位置。
   const style: CSSProperties = useMemo(() => forwardWindowStyle(win, viewport), [win, viewport]);
 
-  // 转发窗口挂在 App 根部、MainView 之外，拿不到聊天区那两个 provider——
+  // 转发窗口不在聊天区的消息 provider 内——
   // 这里补上，否则窗口里的视频/文件下载既不知道群号也不知道自己是转发内容。
   const carrier = useMemo(
     (): { msgId: string; kind: 'c2c' | 'group' } => ({ msgId: win.rootMsgId, kind: win.kind }),

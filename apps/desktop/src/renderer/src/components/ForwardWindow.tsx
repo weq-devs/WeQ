@@ -1,4 +1,13 @@
-import { lazy, Suspense, useCallback, useContext, useMemo, useRef, type ReactElement } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  type ReactElement,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { ForwardCarrierContext, ConvContext } from '../state/messageContext';
@@ -358,6 +367,7 @@ export function ForwardWindowHost(): ReactElement | null {
   const windows = useForwardStore((s) => s.windows);
   const revision = useForwardStore((s) => s.zTop);
   const layer = useOverlayLayer(windows.length > 0, revision);
+  useEffect(() => () => useForwardStore.setState({ windows: [] }), []);
   if (typeof document === 'undefined' || windows.length === 0) return null;
   return createPortal(
     <div className="weq-forward-layer" style={{ zIndex: layer }} aria-live="polite">

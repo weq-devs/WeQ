@@ -6,7 +6,7 @@
  *
  * 走 context 而不是让每个 `Avatar` 自己 useQuery：气泡是每条消息一个实例，挂几百个
  * 订阅会在缓存失效时全量重渲。provider 在 App.tsx（要包住 ForwardWindowHost——
- * 转发窗口里的气泡在 MainView 之外）。
+ * 转发窗口里的头像也需要同一份挂件）。
  */
 
 import { createContext, useContext } from 'react';

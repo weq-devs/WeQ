@@ -97,6 +97,7 @@ import { useToast } from '../components/Toast';
 import { useMessageLocateFeedback } from '../hooks/useMessageLocateFeedback';
 import { onOpenSettingsRequest } from '../lib/callSettingsBridge';
 import { useDialog } from '../components/Dialog';
+import { ForwardWindowHost } from '../components/ForwardWindow';
 import { Undo2 } from 'lucide-react';
 import { useReadStateUndo } from '../hooks/useReadStateUndo';
 import { useAccountNoticeUnread } from '../hooks/useAccountNoticeUnread';
@@ -13363,6 +13364,7 @@ function MainWorkspace(): ReactElement {
                           </FriendDirectoryControls>
                         </ConversationDirectoryContext.Provider>
                       </QzoneCardNavigationContext.Provider>
+                      <ForwardWindowHost />
                     </ChatNavigationContext.Provider>
                   </QzoneProfileContext.Provider>
                 </QzoneNavigationContext.Provider>
