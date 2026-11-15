@@ -89,9 +89,11 @@ beforeEach(async () => {
   fixture.releasePatch = null;
   // 共享偏好是模块级状态：先把上一个用例残留的 pending 落盘，再用空快照清空共享值，
   // 否则 pending 会触发「尚未保存」提示并挡住设置页导航。
-  retryPreferences();
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  acceptPreferences({ epoch: `test-${Date.now()}`, revision: 0, values: {}, records: {} }, false);
+  await act(async () => {
+    retryPreferences();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    acceptPreferences({ epoch: `test-${Date.now()}`, revision: 0, values: {}, records: {} }, false);
+  });
   fixture.save.mockImplementation(
     (
       input: { enabled: boolean },
@@ -128,12 +130,23 @@ function mount() {
     host,
     render,
     toggle: (label: string) => {
-      const page =
-        label === '使用 QQ 账号设置的个性字体发送消息'
-          ? '互动与防撤回'
-          : ['消息气泡', '消息字体', '聊天头像挂件', '聊天 QQ 秀替换头像'].includes(label)
-            ? '消息显示'
-            : '阅读与未读';
+      const page = [
+        '使用 QQ 账号设置的个性字体发送消息',
+        '群聊引用时自动 @ 对方',
+        '按退格键移除引用',
+      ].includes(label)
+        ? '互动与防撤回'
+        : [
+              '消息气泡',
+              '消息字体',
+              '聊天头像挂件',
+              '聊天 QQ 秀替换头像',
+              '显示群消息发送者名称',
+              '显示群成员等级',
+              '显示群成员头衔与身份',
+            ].includes(label)
+          ? '消息显示'
+          : '阅读与未读';
       act(() =>
         [...host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')]
           .find((button) => button.textContent === page)!
@@ -159,6 +172,11 @@ const sharedToggles = [
   ['消息字体', 'showMessageFont', true],
   ['聊天头像挂件', 'showAvatarPendant', true],
   ['聊天 QQ 秀替换头像', 'showChatQqShow', true],
+  ['群聊引用时自动 @ 对方', 'autoMentionOnQuote', false],
+  ['按退格键移除引用', 'backspaceRemovesQuote', true],
+  ['显示群消息发送者名称', 'showGroupMemberName', true],
+  ['显示群成员等级', 'showGroupMemberLevel', true],
+  ['显示群成员头衔与身份', 'showGroupMemberTitle', true],
 ] as const;
 
 const toggles = [
@@ -262,8 +280,11 @@ it('共享显示开关走 clientPreferences：改为共享值、失败保留本�
       fixture.patchCalls = [];
       expect(preferenceValue(key), label).toBe(defaultValue);
       expect(toggle().getAttribute('aria-checked'), label).toBe(String(defaultValue));
-      act(() => toggle().click());
-      await vi.waitFor(() => expect(fixture.patchCalls.length, label).toBe(1));
+      await act(async () => {
+        toggle().click();
+        await vi.waitFor(() => expect(fixture.shared[key], label).toBe(!defaultValue));
+      });
+      expect(fixture.patchCalls.length, label).toBe(1);
       expect(fixture.patchCalls[0], label).toEqual({ [key]: !defaultValue });
       expect(fixture.shared[key], label).toBe(!defaultValue);
       expect(fixture.invalidate, label).not.toHaveBeenCalled();
@@ -292,8 +313,13 @@ it('共享显示开关保存失败时保留本机值（可重试），保存期�
       const toggle = () => element;
       vi.clearAllMocks();
       fixture.patchCalls = [];
-      act(() => toggle().click());
-      await vi.waitFor(() => expect(fixture.patchCalls.length, label).toBe(1));
+      await act(async () => {
+        toggle().click();
+        await vi.waitFor(() =>
+          expect(useClientPreferences.getState().error, label).toContain('设置未保存'),
+        );
+      });
+      expect(fixture.patchCalls.length, label).toBe(1);
       // 乐观更新：本机值已经是新值，服务端还没接受。
       expect(preferenceValue(key), label).toBe(!defaultValue);
       expect(fixture.shared[key], label).toBeUndefined();
@@ -304,8 +330,10 @@ it('共享显示开关保存失败时保留本机值（可重试），保存期�
       // 修好服务端后重试，同一个值会被再次提交。
       fixture.patchFail = false;
       vi.clearAllMocks();
-      retryPreferences();
-      await vi.waitFor(() => expect(fixture.shared[key], label).toBe(!defaultValue));
+      await act(async () => {
+        retryPreferences();
+        await vi.waitFor(() => expect(fixture.shared[key], label).toBe(!defaultValue));
+      });
       expect(fixture.patchCalls[0], label).toEqual({ [key]: !defaultValue });
       await vi.waitFor(() => expect(useClientPreferences.getState().error, label).toBe(''));
       fixture.patchFail = true;

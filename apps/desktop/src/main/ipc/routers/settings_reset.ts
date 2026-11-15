@@ -155,6 +155,22 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     b.setShowScrollToBottomButton({ enabled }),
   );
   const clientPreferences = config.getSharedPreference('client');
+  for (const [card, key, label] of [
+    ['group-messages', 'showGroupMemberName', '显示群消息发送者名称'],
+    ['group-messages', 'showGroupMemberLevel', '显示群成员等级'],
+    ['group-messages', 'showGroupMemberTitle', '显示群成员头衔与身份'],
+    ['quote-replies', 'autoMentionOnQuote', '群聊引用时自动 @ 对方'],
+    ['quote-replies', 'backspaceRemovesQuote', '按退格键移除引用'],
+  ] as const) {
+    add(
+      card,
+      key,
+      label,
+      clientPreferences[key] ?? preferenceDefaults[key],
+      preferenceDefaults[key],
+      () => clientStateRouter.createCaller(ctx).patch({ [key]: preferenceDefaults[key] }),
+    );
+  }
   for (const [key, label] of [
     ['autoFetchMissingMessages', '查看时自动拉取缺失的消息'],
     ['autoFetchMissingContext', '定位到缺失消息时自动拉取上下文'],

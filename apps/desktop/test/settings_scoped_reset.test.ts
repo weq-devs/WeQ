@@ -86,6 +86,17 @@ vi.mock('../src/main/ipc/routers/bootstrap', () => ({
 }));
 vi.mock('../src/main/ipc/routers/remote', () => ({ remoteRouter: { createCaller: () => ({}) } }));
 vi.mock('../src/main/ipc/routers/update', () => ({ updateRouter: { createCaller: () => ({}) } }));
+vi.mock('../src/main/ipc/routers/client_state', () => ({
+  clientStateRouter: {
+    createCaller: () => ({
+      patch: async (patch: object) => {
+        state.calls.push(['clientPreferences', patch]);
+        state.settings.sharedPreferences.client ??= {};
+        Object.assign(state.settings.sharedPreferences.client, patch);
+      },
+    }),
+  },
+}));
 
 beforeEach(() => {
   state.settings = structuredClone(DEFAULT_APP_SETTINGS);
@@ -97,6 +108,37 @@ beforeEach(() => {
 });
 const caller = () => settingsResetRouter.createCaller({});
 describe('分级恢复默认', () => {
+  it.each([
+    [
+      'message-display',
+      'group-messages',
+      { showGroupMemberName: false, showGroupMemberLevel: false, showGroupMemberTitle: false },
+    ],
+    [
+      'chat-interaction',
+      'quote-replies',
+      { autoMentionOnQuote: true, backspaceRemovesQuote: false },
+    ],
+  ] as const)('%s 恢复包含新增设置且不改其他偏好', async (page, card, patch) => {
+    state.settings.sharedPreferences.client = { ...patch, mailListWidth: 400 };
+    const preview = await caller().preview({ page, card });
+    expect(preview.items.map((item) => item.id)).toEqual(
+      Object.keys(patch).map((key) => `${card}:${key}`),
+    );
+    expect(
+      preview.items.every((item) => item.scope === '全局' && item.current !== item.defaultValue),
+    ).toBe(true);
+    expect(state.calls).toEqual([]);
+    await caller().restore({ page, card, source: null });
+    expect(state.calls).toHaveLength(Object.keys(patch).length);
+    for (const item of preview.items) {
+      expect(state.calls).toContainEqual([
+        'clientPreferences',
+        { [item.id.split(':')[1]!]: item.defaultValue },
+      ]);
+    }
+    expect(state.settings.sharedPreferences.client.mailListWidth).toBe(400);
+  });
   it('API 默认模型预览与重置按聊天、视觉、向量排列，分别清空而不改服务商', async () => {
     state.settings.agentLab.defaultModel = { providerId: 'p', model: 'chat' };
     state.settings.agentLab.defaultVisionModel = { providerId: 'p', model: 'vision' };

@@ -16,6 +16,19 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 describe('跨端偏好与功能状态', () => {
+  it.each([
+    ['showGroupMemberName', true],
+    ['showGroupMemberLevel', true],
+    ['showGroupMemberTitle', true],
+    ['autoMentionOnQuote', false],
+    ['backspaceRemovesQuote', true],
+  ] as const)('%s 使用统一默认值、持久共享且只接受布尔值', (key, defaultValue) => {
+    const state = store();
+    expect(preferenceDefaults[key]).toBe(defaultValue);
+    state.patch({ [key]: !defaultValue });
+    expect(new ClientStateStore(state.path).snapshot().values[key]).toBe(!defaultValue);
+    expect(() => state.patch({ [key]: 'true' })).toThrow();
+  });
   it.each([false, true])(
     '清理旧副本及容量记录，保留正式草稿与其他文件（分文件：%s）',
     (external) => {

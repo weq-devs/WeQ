@@ -1,5 +1,6 @@
 import { useContext, useEffect, useRef, useState } from 'react';
 import { IS_WEB } from '../../lib/target';
+import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { Bot, Check, LoaderCircle, RotateCcw, Sparkle, TriangleAlert, X } from 'lucide-react';
 import { renderMessageWithRegistry, type MessageRenderer } from './messageRenderers';
@@ -200,6 +201,16 @@ export function MessageBubble({
   /** 本地克隆等展示标识，不改变发送者或 QQ 消息能力。 */
   avatarBadge?: import('react').ReactNode;
 }) {
+  // 只订阅名称、等级与头衔的组合，其他共享偏好变化不重绘消息。
+  const groupDisplay = useClientPreferences(() =>
+    conversation.type === 'group'
+      ? Number(preferenceValue('showGroupMemberName')) |
+        (Number(preferenceValue('showGroupMemberLevel')) << 1) |
+        (Number(preferenceValue('showGroupMemberTitle')) << 2)
+      : 0,
+  );
+  const senderNameVisible =
+    showSenderName && (conversation.type !== 'group' || Boolean(groupDisplay & 1));
   const longPressTimerRef = useRef<number | null>(null);
   const longPressPointRef = useRef<{ x: number; y: number } | null>(null);
   const longPressAnchorRef = useRef<{ x: number; y: number } | null>(null);
@@ -513,10 +524,16 @@ export function MessageBubble({
         onDragStart={(event) => event.preventDefault()}
       >
         <div className="weq-message-heading">
-          {showSenderName ? (
+          {senderNameVisible || (conversation.type === 'group' && Boolean(groupDisplay & 6)) ? (
             <span className={cn('message-name')}>
-              {conversation.type === 'group' ? <GroupMessageBadge member={sender} /> : null}
-              {onAvatarClick && conversation.generated ? (
+              {conversation.type === 'group' ? (
+                <GroupMessageBadge
+                  member={sender}
+                  showLevel={Boolean(groupDisplay & 2)}
+                  showTitle={Boolean(groupDisplay & 4)}
+                />
+              ) : null}
+              {senderNameVisible && onAvatarClick && conversation.generated ? (
                 <button
                   type="button"
                   className="weq-message-name-profile"
@@ -535,9 +552,9 @@ export function MessageBubble({
                 >
                   <span data-privacy-sensitive>{senderName}</span>
                 </button>
-              ) : (
+              ) : senderNameVisible ? (
                 <span data-privacy-sensitive>{senderName}</span>
-              )}
+              ) : null}
               {senderKind === 'bot' ? (
                 <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
                   <Bot size={12} strokeWidth={2.4} />

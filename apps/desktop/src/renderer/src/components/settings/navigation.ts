@@ -149,13 +149,21 @@ export interface ResolvedSettingsTarget extends SettingsTarget {
 
 /** 旧聊天设置条目按稳定身份归位，页面导航与搜索使用同一份目录。 */
 function chatMessagePageFor(settingId: string): SettingsPageId {
-  if (['typing-status', 'send-with-qq-font'].includes(settingId)) return 'chat-interaction';
+  if (
+    ['typing-status', 'send-with-qq-font', 'quote-auto-mention', 'quote-backspace-remove'].includes(
+      settingId,
+    )
+  )
+    return 'chat-interaction';
   if (
     [
       'custom-message-display',
       'message-seq',
       'message-date',
       'message-time',
+      'group-message-name',
+      'group-message-level',
+      'group-message-title',
       'avatar-pendant',
       'message-bubble',
       'message-font',
@@ -516,11 +524,16 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['jump-latest-after-send', '发送消息后定位到最新消息'],
       ['scroll-to-bottom-button', '向下滚动时显示定位到底部按钮', '快速到底部'],
       ['send-with-qq-font', '使用 QQ 账号设置的个性字体发送消息'],
+      ['quote-auto-mention', '群聊引用时自动 @ 对方', '引用自动提及'],
+      ['quote-backspace-remove', '按退格键移除引用', '退格取消引用', 'Backspace'],
       ['auto-transcribe-voice', '语音消息自动转文字', '语音自动识别'],
       ['custom-message-display', '自定义消息显示'],
       ['message-seq', '显示消息序号（seq）'],
       ['message-date', '显示发送日期'],
       ['message-time', '显示发送时间', '显示发送时间（精确到秒）'],
+      ['group-message-name', '显示群消息发送者名称', '显示群成员昵称'],
+      ['group-message-level', '显示群成员等级'],
+      ['group-message-title', '显示群成员头衔与身份', '群主', '管理员'],
       ['avatar-pendant', '聊天头像挂件'],
       ['chat-qqshow', '聊天 QQ 秀替换头像', 'QQ 秀'],
       ['chat-qqshow-days', 'QQ 秀缓存有效期'],

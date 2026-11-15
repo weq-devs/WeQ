@@ -90,6 +90,31 @@ it('手机不能自动提交旧值为共享初值；显式修改和桌面补缺�
   await desktop.seed({ background: 'paper', accent: '#123456' });
   expect((await mobile.snapshot()).values).toMatchObject({ background: 'dots', accent: '#123456' });
 });
+it('群消息与引用偏好经真实路由保存，切号、重开与恢复共享值后保持一致', async () => {
+  const client = clientStateRouter.createCaller({});
+  const defaults = {
+    showGroupMemberName: true,
+    showGroupMemberLevel: true,
+    showGroupMemberTitle: true,
+    autoMentionOnQuote: false,
+    backspaceRemovesQuote: true,
+  };
+  expect((await client.snapshot()).values).toMatchObject(defaults);
+  const patch = {
+    showGroupMemberName: false,
+    showGroupMemberLevel: false,
+    showGroupMemberTitle: false,
+    autoMentionOnQuote: true,
+    backspaceRemovesQuote: false,
+  };
+  await client.patch(patch);
+  context.uin = '10002';
+  context.configId = '10002_other';
+  context.config = new UserConfigService({ appDataRoot: () => context.root });
+  expect((await client.snapshot()).values).toMatchObject(patch);
+  await client.patch(defaults);
+  expect((await client.snapshot()).values).toMatchObject(defaults);
+});
 it('同号不同配置隔离，旧账号绑定不能写入新配置', async () => {
   const client = clientStateRouter.createCaller({});
   const old = { expectedAccountUin: context.uin, expectedAccountConfigId: context.configId };
