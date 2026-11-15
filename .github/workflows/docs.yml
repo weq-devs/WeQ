@@ -1,10 +1,15 @@
 name: Docs
 
-# 文档站构建与部署。和 ci.yml 完全独立：
-#   - ci.yml 被 release.yml 通过 workflow_call 复用，是发版门禁，不该被文档牵连；
-#   - 用 paths 过滤而不是在 ci.yml 里加 paths-ignore，避免 required check 永远 pending。
+# 文档站的构建与部署在 `weq-devs/WeqDocs` 自己的 CI 里，不在这个仓库。
 #
-# 部署只从 main 走。dev 上的文档只验证构建，坏的文档不会上线。
+# 这里只做两件事：
+#   1. **确认 submodule 指针指向的是已推送的提交** —— 忘记推 docs 仓就提交指针，
+#      会让别人 clone 后 submodule 拉取失败。这是最常见的 submodule 事故，
+#      检查成本很低，值得每次都跑。
+#   2. 确认公开内容里没有真实账号信息。
+#
+# 和 ci.yml 完全独立：ci.yml 被 release.yml 复用，是发版门禁，不该被文档牵连。
+
 on:
   pull_request:
     branches: [main, dev]
@@ -15,91 +20,42 @@ on:
 permissions:
   contents: read
 
-# 同一 ref 上新的 push 作废在途的构建（部署有自己的 group，见 deploy job）。
 concurrency:
-  group: docs-${{ github.ref }}
+  group: docs-pointer-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # 没改文档的 PR 直接跳过构建：否则 required check 会一直 pending 卡住合并。
-  changes:
+  pointer:
+    name: submodule pointer
     runs-on: ubuntu-latest
-    outputs:
-      docs: ${{ steps.filter.outputs.docs }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            docs:
-              - 'docs/**'
-              - '.github/workflows/docs.yml'
-              - 'scripts/check-docs.mjs'
-              - 'pnpm-lock.yaml'
-              - 'pnpm-workspace.yaml'
-
-  build:
-    name: build
-    needs: changes
-    if: needs.changes.outputs.docs == 'true' || github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
-          # VitePress 的 lastUpdated 读 git 历史；浅克隆会让所有页面显示成当天。
-          fetch-depth: 0
+          # submodule 是 public，匿名可读。
+          submodules: recursive
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - name: Verify docs submodule commit is pushed
+        run: |
+          set -euo pipefail
+
+          sha=$(git -C docs rev-parse HEAD)
+          echo "docs submodule @ $sha"
+
+          url=$(git config -f .gitmodules submodule.docs.url)
+          if ! git -C docs ls-remote "$url" | grep -q "$sha"; then
+            echo "::error::$sha 不在 $url 的任何分支上 —— docs 仓的提交还没推送。"
+            echo "  先 cd docs && git push，再回主仓提交指针。"
+            exit 1
+          fi
+          echo "✓ 指针指向的提交已存在于远端"
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      # build 内部先跑 check-docs.mjs（链接完整性），失败就不进 VitePress。
-      - name: Build docs
-        env:
-          # PR 构建用根路径，产物丢给人下载预览；正式站是项目站点子路径。
-          DOCS_BASE: ${{ github.event_name == 'pull_request' && '/' || '/WeQ/' }}
-        run: pnpm --filter @weq/docs build
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: docs-site
-          path: docs/.vitepress/dist
-          retention-days: 7
-
-      - name: Upload Pages artifact
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs/.vitepress/dist
-
-  # 部署到 GitHub Pages。只从 main 的 push 触发。
-  deploy:
-    name: deploy
-    needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    permissions:
-      pages: write
-      id-token: write
-    # 部署的 group 必须和构建分开，且不能 cancel-in-progress ——
-    # 中途掐断会留下半成品站点。
-    concurrency:
-      group: docs-deploy
-      cancel-in-progress: false
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Anonymization check
+        # 只扫当前版本。历史不在范围内 —— 主仓一直公开，这些内容在历史里早已可查，
+        # 单独洗 docs 仓的历史没有意义。
+        run: node scripts/anonymize-docs.mjs --check
