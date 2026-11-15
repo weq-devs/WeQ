@@ -105,14 +105,14 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
   },
   {
     id: 'data',
-    label: '数据库与资源',
+    label: '资源与数据库',
     sections: [
-      'database-repair',
-      'database-tolerance',
-      'database-management',
-      'qq-storage',
-      'media',
       'resource-loading',
+      'media',
+      'qq-storage',
+      'database-management',
+      'database-tolerance',
+      'database-repair',
     ],
   },
   {

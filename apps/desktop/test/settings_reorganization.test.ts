@@ -272,7 +272,7 @@ describe('设置归位后的实际页面', () => {
       expect(remote.querySelector('[aria-label="连接方式"]')).toBeNull();
       f.render('resource-loading');
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
-        '数据库与资源',
+        '资源与数据库',
       );
       expect(f.body().querySelector('[data-setting-id="prefer-cdn"]')).not.toBeNull();
       expect(f.body().textContent).toContain('桌面端与 Web 共用');

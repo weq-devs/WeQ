@@ -162,7 +162,15 @@ try {
         await page.locator('.weq-settings-body [data-setting-id="performance-monitor"]').count(),
         0,
       );
-      await openCategory('数据库与资源');
+      await openCategory('资源与数据库');
+      assert.deepEqual(await page.locator('.weq-settings-subnav-item').allTextContents(), [
+        '资源加载',
+        '媒体来源',
+        'QQ 资源管理',
+        '数据库管理',
+        '数据库容错',
+        '损坏与修复',
+      ]);
       await page.getByRole('button', { name: '媒体来源', exact: true }).click();
       await page.locator('.weq-settings-body [data-setting-id="external-chatpic"]').waitFor();
       const heading = page.locator('.weq-settings-body h3').first();
