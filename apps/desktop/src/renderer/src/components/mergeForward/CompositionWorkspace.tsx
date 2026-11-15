@@ -67,6 +67,7 @@ import {
   insertCompositionEntry,
   compositionInsertionError,
   readCompositionEntries,
+  sameDraftContent,
   type CompositionBinding,
   type CompositionRequest,
 } from './workspaceModel';
@@ -193,9 +194,17 @@ export function CompositionWorkspace({
       if (id !== working.id || !dirtyRef.current) sharedVersions.current.set(id, revision);
     if (!dirtyRef.current) {
       const remote = saved.data?.current.find((entry) => entry.id === working.id);
-      if (remote && JSON.stringify(remote) !== JSON.stringify(working)) {
-        setDraft(coerceDraft(remote));
-        setEditorVersion((value) => value + 1);
+      // 只比用户内容：保存回执里的 updatedAt / version 由服务端盖章，拿它们比较会让
+      // 每次自动保存都被当成「别的端改了」，重挂载编辑器把正在输入的文本清掉。
+      // 两侧都过 coerceDraft —— 归一化后的键顺序一致，否则同样的内容也会比出差异。
+      try {
+        const normalized = remote ? coerceDraft(remote) : null;
+        if (normalized && !sameDraftContent(normalized, coerceDraft(working))) {
+          setDraft(normalized);
+          setEditorVersion((value) => value + 1);
+        }
+      } catch {
+        /* 坏记录交给列表读取边界逐项反馈，不在这里重挂载编辑器 */
       }
     }
   }, [saved.data]);

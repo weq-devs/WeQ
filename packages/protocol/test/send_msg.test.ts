@@ -660,7 +660,7 @@ describe('发消息带装扮（dress）—— 服务端不收，仅保留打包�
     const elems = buildSendElems([TEXT], { dress: DRESS });
     // 顺序：generalFlags（挂件+字体）→ bubble → 正文，与真机一致。
     expect(elems).toHaveLength(3);
-    expect(elems[0]).toEqual({
+    expect(elems[0]).toMatchObject({
       generalFlags: { widgetId: 104228, font: { fontId1: 54981 } },
     });
     expect(elems[1]).toEqual({ bubble: { id: 2116371 } });
@@ -672,16 +672,20 @@ describe('发消息带装扮（dress）—— 服务端不收，仅保留打包�
     };
     expect(decoded.generalFlags?.widgetId).toBe(104228);
     expect(decoded.generalFlags?.font?.fontId1).toBe(54981);
-    expect(decoded.generalFlags?.font?.fontId2).toBeUndefined();
+    // 真机的 font.15 恒存在：没给 fontId2 时写 65536（只有 bit16 标志位）。
+    // 收侧 decodeMessage 会把纯标志位还原成 fontId 0，不影响「有字体」的判定。
+    expect(decoded.generalFlags?.font?.fontId2).toBe(0x10000);
   });
 
   it('只给部分装扮时按需产出：单挂件／单字体／单气泡', () => {
-    expect(buildSendElems([TEXT], { dress: { widgetId: 104228 } })).toEqual([
-      { generalFlags: { widgetId: 104228 } },
+    // 真机每条带 generalFlags 的消息都写 .1=0 与 .17=0（后者 0 = 无挂件），
+    // 挂件存在时再补 .16=0 —— 少写会让收端忽略整格（挂件丢失的根因）。
+    expect(buildSendElems([TEXT], { dress: { widgetId: 104228 } })).toMatchObject([
+      { generalFlags: { bubbleDiyTextId: 0, flag16: 0, widgetId: 104228 } },
       { text: { str: 'hi' } },
     ]);
-    expect(buildSendElems([TEXT], { dress: { fontId: 54981 } })).toEqual([
-      { generalFlags: { font: { fontId1: 54981 } } },
+    expect(buildSendElems([TEXT], { dress: { fontId: 54981 } })).toMatchObject([
+      { generalFlags: { bubbleDiyTextId: 0, widgetId: 0, font: { fontId1: 54981 } } },
       { text: { str: 'hi' } },
     ]);
     expect(buildSendElems([TEXT], { dress: { bubbleId: 2116371 } })).toEqual([
@@ -692,15 +696,43 @@ describe('发消息带装扮（dress）—— 服务端不收，仅保留打包�
 
   it('字体第二个 id：fontId2 自动做低 16 位字节交换后写进 tag 15', () => {
     // 真机 tag15 的形态：54981 → 50646（0xC5D6）；收侧 decode 会交换回 54981。
-    expect(buildSendElems([TEXT], { dress: { fontId2: 54981 } })).toEqual([
+    expect(buildSendElems([TEXT], { dress: { fontId2: 54981 } })).toMatchObject([
       { generalFlags: { font: { fontId2: 50646 } } },
       { text: { str: 'hi' } },
     ]);
     // 两个槽位可以同时给。
-    expect(buildSendElems([TEXT], { dress: { fontId: 54981, fontId2: 54981 } })).toEqual([
+    expect(buildSendElems([TEXT], { dress: { fontId: 54981, fontId2: 54981 } })).toMatchObject([
       { generalFlags: { font: { fontId1: 54981, fontId2: 50646 } } },
       { text: { str: 'hi' } },
     ]);
+  });
+
+  // 真机抓包（qqhook 2026-11-15 16:02:55，QQ SsoSendLongMsg）里一条带挂件+字体的
+  // 消息节点，generalFlags(37) 的完整 payload。之前的实现只写 widgetId，缺了
+  // .1/.16/.17(0)/font 骨架，收端因此把整格当残缺数据忽略 —— 气泡正常（独立
+  // bubble elem）而挂件丢失。这条用例把骨架钉死，避免以后又被「简化」掉。
+  // 真机这条消息（挂件 104228 + 字体 fontId2=290024，无 fontId1）的 generalFlags
+  // payload，已剥掉末尾来源未知的 `.109`（`{1:1, 4:<8 字节>}`，逐条不同）。
+  const REAL_GENERAL_FLAGS_HEX =
+    '08008001008801a4ae069a013878e8d911c80100f00100f80100900200c80200980302a00308b00300b80300c00300b80402c00400ca040a08001000180020003800800600';
+
+  it('generalFlags 的字节骨架与真机抓包逐字段对齐', () => {
+    const elems = buildSendElems([TEXT], { dress: { widgetId: 104228, fontId2Raw: 290024 } });
+    const encoded = Buffer.from(encode(ELEM, elems[0]!));
+    // 外层是 tag 37 = (37<<3)|2 = 0x12a，varint 编码成 aa 02，随后是长度 varint。
+    expect(encoded[0]).toBe(0xaa);
+    expect(encoded[1]).toBe(0x02);
+    let offset = 2;
+    let length = 0;
+    let shift = 0;
+    while (encoded[offset]! & 0x80) {
+      length |= (encoded[offset]! & 0x7f) << shift;
+      shift += 7;
+      offset++;
+    }
+    length |= encoded[offset]! << shift;
+    offset++;
+    expect(encoded.subarray(offset, offset + length).toString('hex')).toBe(REAL_GENERAL_FLAGS_HEX);
   });
 
   it('fontId2 进请求体后能被收侧 decodeMessage 还原成同一个字体 id', () => {
@@ -717,7 +749,8 @@ describe('发消息带装扮（dress）—— 服务端不收，仅保留打包�
     const flags = decode(ELEM, encode(ELEM, elems[0]!)) as {
       generalFlags?: { font?: { fontId1?: number; fontId2?: number } };
     };
-    expect(flags.generalFlags?.font?.fontId1).toBeUndefined();
+    // 真机用回退槽时 fontId1 显式写 0（force 字段），不是省略。
+    expect(flags.generalFlags?.font?.fontId1).toBe(0);
     expect(flags.generalFlags?.font?.fontId2).toBe(50646);
   });
 

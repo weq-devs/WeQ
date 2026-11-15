@@ -231,7 +231,7 @@ describe('节点级装扮（含字体两个 id）', () => {
       ctx,
     );
     const elems = (body.body as { richText: { elems: Record<string, unknown>[] } }).richText.elems;
-    expect(elems[0]).toEqual({
+    expect(elems[0]).toMatchObject({
       generalFlags: { widgetId: 104228, font: { fontId1: 54981, fontId2: 50646 } },
     });
     expect(elems[1]).toEqual({ bubble: { id: 2116371 } });
@@ -248,10 +248,11 @@ describe('节点级装扮（含字体两个 id）', () => {
       ctx,
     );
     const elems = (body.body as { richText: { elems: Record<string, unknown>[] } }).richText.elems;
-    expect(elems).toEqual([
-      { generalFlags: { font: { fontId2: 50646 } } },
-      { text: { str: 'hi' } },
-    ]);
+    expect(elems).toHaveLength(2);
+    expect(elems[0]).toMatchObject({ generalFlags: { font: { fontId2: 50646 } } });
+    // 没有挂件时真机仍然写 .1=0 / .17=0（见 buildDressElems 的注释）。
+    expect((elems[0] as { generalFlags: { widgetId: number } }).generalFlags.widgetId).toBe(0);
+    expect(elems[1]).toEqual({ text: { str: 'hi' } });
   });
 
   it('fontId1Raw / fontId2Raw 原样写进 tag 56 / tag 15（透传，不换算）', async () => {
@@ -266,7 +267,7 @@ describe('节点级装扮（含字体两个 id）', () => {
       ctx,
     );
     const elems = (body.body as { richText: { elems: Record<string, unknown>[] } }).richText.elems;
-    expect(elems[0]).toEqual({
+    expect(elems[0]).toMatchObject({
       generalFlags: { widgetId: 104228, font: { fontId2: 116182 } },
     });
     // 标志位没丢：low16 还原回真实 itemId 54981。
@@ -290,10 +291,13 @@ describe('节点级装扮（含字体两个 id）', () => {
       ctx,
     );
     const elems = (body.body as { richText: { elems: Record<string, unknown>[] } }).richText.elems;
-    expect(elems[0]).toEqual({ generalFlags: { font: { fontId1: 20671, fontId2: 116182 } } });
+    expect(elems[0]).toMatchObject({ generalFlags: { font: { fontId1: 20671, fontId2: 116182 } } });
+    expect(
+      (elems[0] as { generalFlags: { font: { fontId2: number } } }).generalFlags.font.fontId2,
+    ).toBe(116182);
   });
 
-  it('只给 raw font2 时不写 fontId1 槽位（与真机一致）', async () => {
+  it('只给 raw font2 时 fontId1 槽位写 0（真机用回退槽时就是这么写）', async () => {
     const body = await buildForwardNodeBody(
       {
         userUin: 1,
@@ -303,10 +307,11 @@ describe('节点级装扮（含字体两个 id）', () => {
       ctx,
     );
     const elems = (body.body as { richText: { elems: Record<string, unknown>[] } }).richText.elems;
-    expect(elems).toEqual([
-      { generalFlags: { font: { fontId2: 73767 } } },
-      { text: { str: 'hi' } },
-    ]);
+    expect(elems).toHaveLength(2);
+    const flags = (elems[0] as { generalFlags: { font: Record<string, unknown> } }).generalFlags;
+    expect(flags.font.fontId2).toBe(73767);
+    expect(flags.font.fontId1).toBe(0);
+    expect(elems[1]).toEqual({ text: { str: 'hi' } });
   });
 
   it('不传 dress 时元素与以前逐字节一致（零回归）', async () => {
