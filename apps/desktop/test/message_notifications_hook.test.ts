@@ -10,8 +10,13 @@ const f = vi.hoisted(() => ({
   locked: false,
   receive: undefined as undefined | ((batch: NewMessagesWire) => void),
   notify: vi.fn(async () => true),
+  browserNotify: vi.fn(() => true),
   badge: vi.fn(async () => true),
   unsubscribe: vi.fn(),
+}));
+vi.mock('../src/renderer/src/lib/browserNotifications', () => ({
+  WEB_NOTICE_OPEN: 'weq:notice-open',
+  browserNoticeChannel: () => ({ show: f.browserNotify, close() {} }),
 }));
 vi.mock('../src/renderer/src/lib/target', () => ({
   get IS_WEB() {
@@ -51,8 +56,10 @@ afterEach(() => {
   f.values.messageNotifications = false;
   f.values.applicationBadge = true;
   f.values.privacyMode = false;
+  f.locked = false;
   f.receive = undefined;
   f.notify.mockClear();
+  f.browserNotify.mockClear();
   f.badge.mockClear();
   f.unsubscribe.mockClear();
 });
@@ -107,6 +114,132 @@ const batch = (id = '1', patch = {}) =>
       },
     ],
   }) as unknown as NewMessagesWire;
+it.each([false, true])('群通知保留群名并显示最后一条消息的发送者（Web=%s）', async (web) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  f.web = web;
+  f.values.messageNotifications = true;
+  const resolveGroupSenderName = vi.fn(async () => '本地群名片');
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(createElement(Probe, { resolveGroupSenderName })));
+    const first = batch('20', { kind: 'group', conv: '10003', senderUid: 'first' });
+    const last = batch('21', { kind: 'group', conv: '10003', senderUid: 'last' });
+    await act(async () =>
+      f.receive?.({ ...first, messages: [...first.messages, ...last.messages] }),
+    );
+    expect(resolveGroupSenderName).toHaveBeenCalledOnce();
+    expect(resolveGroupSenderName).toHaveBeenCalledWith(last.messages[0]);
+    expect(web ? f.browserNotify : f.notify).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        title: '测试群',
+        body: '本地群名片：消息正文\n另有 1 条消息',
+      }),
+    );
+    await act(async () => f.receive?.(batch('22')));
+    expect(web ? f.browserNotify : f.notify).toHaveBeenLastCalledWith(
+      expect.objectContaining({ title: '测试联系人', body: '消息正文' }),
+    );
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+it('群发送者资料缺失时回退 QQ 号或 UID，空消息仍保留发送者', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  f.values.messageNotifications = true;
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(createElement(Probe)));
+    await act(async () => f.receive?.(batch('23', { kind: 'group', conv: '10003' })));
+    expect(f.notify).toHaveBeenLastCalledWith(expect.objectContaining({ body: '10002：消息正文' }));
+    await act(async () =>
+      f.receive?.(batch('24', { kind: 'group', conv: '10003', senderUin: '0', elements: [] })),
+    );
+    expect(f.notify).toHaveBeenLastCalledWith(expect.objectContaining({ body: 'peer：[消息]' }));
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+it('发送者解析期间锁定后不泄露群名、发送者或正文', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  f.values.messageNotifications = true;
+  let finish!: (name: string) => void;
+  const resolveGroupSenderName = vi.fn(() => new Promise<string>((resolve) => (finish = resolve)));
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(createElement(Probe, { resolveGroupSenderName })));
+    await act(async () => f.receive?.(batch('25', { kind: 'group', conv: '10003' })));
+    f.locked = true;
+    await act(async () => root.render(createElement(Probe, { resolveGroupSenderName })));
+    await act(async () => finish('群名片'));
+    expect(f.notify).toHaveBeenLastCalledWith(
+      expect.objectContaining({ title: 'WeQ', body: '收到新消息', private: true }),
+    );
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+it('发送者解析失败仍显示消息，长名称和正文不超过原生通知限制', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  f.values.messageNotifications = true;
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  const resolveGroupSenderName = vi.fn(async (): Promise<string> => {
+    throw new Error('本地资料不可读');
+  });
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(createElement(Probe, { resolveGroupSenderName })));
+    await act(async () => f.receive?.(batch('26', { kind: 'group', conv: '10003' })));
+    expect(f.notify).toHaveBeenLastCalledWith(expect.objectContaining({ body: '10002：消息正文' }));
+    expect(warning).toHaveBeenCalledOnce();
+    resolveGroupSenderName.mockImplementation(async () => '名'.repeat(1000));
+    await act(async () =>
+      f.receive?.(
+        batch('27', {
+          kind: 'group',
+          conv: '10003',
+          elements: [{ type: 'text', data: { textContent: '文'.repeat(3000) } }],
+        }),
+      ),
+    );
+    expect(f.notify).toHaveBeenLastCalledWith(
+      expect.objectContaining({ body: `${'名'.repeat(256)}：${'文'.repeat(1700)}` }),
+    );
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+it.each(['unmount', 'reading', 'disabled'])(
+  '发送者查询未完成时 %s，不再弹出旧通知',
+  async (state) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    f.values.messageNotifications = true;
+    let finish!: (name: string) => void;
+    const resolveGroupSenderName = () => new Promise<string>((resolve) => (finish = resolve));
+    const root = createRoot(document.createElement('div'));
+    await act(async () => root.render(createElement(Probe, { resolveGroupSenderName })));
+    await act(async () => f.receive?.(batch('28', { kind: 'group', conv: '10003' })));
+    try {
+      if (state === 'unmount') await act(async () => root.unmount());
+      else {
+        if (state === 'disabled') f.values.messageNotifications = false;
+        await act(async () =>
+          root.render(
+            createElement(Probe, {
+              resolveGroupSenderName,
+              foregroundConversation: state === 'reading' ? '10003' : undefined,
+            }),
+          ),
+        );
+      }
+      await act(async () => finish('旧账号群名片'));
+      expect(f.notify).not.toHaveBeenCalled();
+    } finally {
+      if (state !== 'unmount') await act(async () => root.unmount());
+    }
+  },
+);
 it('默认不开实时订阅，角标使用现成计数，开关互不影响', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const root = createRoot(document.createElement('div'));
