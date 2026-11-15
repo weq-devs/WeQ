@@ -81,6 +81,25 @@ describe('签名探测帧判定', () => {
     });
   });
 
+  // 回归：抓包方向曾被端口启发式判反（QQ 显式 bind 低位本地端口 5479 → 14000），
+  // 服务端应答被当成请求送进来。应答 head 是 `[seq][0][0][cmd]...`，命令在 offset 12，
+  // 旧实现按请求布局从 24 读 a2，读到命令串中间字节而抛「SSO 字段长度越界」。
+  it('应答布局的 head 也能解析，不会误报字段越界', () => {
+    const head = Buffer.concat([
+      Buffer.alloc(4), // seq
+      Buffer.alloc(8), // 两个 0 字段
+      prefix(Buffer.from('fixture.command')),
+      prefix(Buffer.alloc(0)), // cookies
+      prefix(signed), // reserved
+    ]);
+    const bytes = Buffer.concat([prefix(head), prefix(Buffer.alloc(0))]);
+    expect(inspectSignFrame(bytes, 13)).toMatchObject({
+      status: 'signed',
+      secInfo: { sign: 4, token: 1, extra: 1 },
+      reservedTags: [24],
+    });
+  });
+
   it('SSO head 长度越界不能被 subarray 静默裁切后判不签名', () => {
     const bytes = frame(Buffer.alloc(0));
     bytes.writeUInt32BE(bytes.length + 100);
