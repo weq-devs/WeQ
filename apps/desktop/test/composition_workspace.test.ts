@@ -70,19 +70,21 @@ vi.mock('../src/renderer/src/trpc/client', async () => {
     if (name === 'workspaceSave') {
       if (fixture.defer) await new Promise<void>((resolve) => fixture.pending.push(resolve));
       const key = `composition:${data.draft.id}`;
+      // 与 MergeForwardDraftStore.save() 一致：落盘时用服务端时间重盖 updatedAt。
+      const stored = { ...structuredClone(data.draft), updatedAt: 1_700_000_000 };
       const existing = fixture.current.find((item) => item.id === data.draft.id);
-      const sameContent = JSON.stringify(existing) === JSON.stringify(data.draft);
+      const sameContent = JSON.stringify(existing) === JSON.stringify(stored);
       if (!sameContent) {
         fixture.current = [
           ...fixture.current.filter((item) => item.id !== data.draft.id),
-          structuredClone(data.draft),
+          structuredClone(stored),
         ];
       }
       return {
         ok: true as const,
         current: {
           key,
-          value: structuredClone(data.draft),
+          value: structuredClone(stored),
           version: `v-${fixture.writes.length}`,
         },
       };
@@ -856,6 +858,54 @@ describe('合成工作窗口', () => {
       act(() => useAppLock.getState().lock());
       expect(close).toHaveBeenCalledOnce();
       expect(f.host.querySelector('.weq-composition-workspace')).toBeNull();
+    } finally {
+      f.close();
+    }
+  });
+  it('自动保存回执不重挂载编辑器，连续输入不会被打断', async () => {
+    vi.useFakeTimers();
+    const f = mount(
+      createElement(CompositionWorkspace, {
+        popup: null,
+        fallback: true,
+        onClose: vi.fn(),
+        onPopOut: vi.fn(),
+        self,
+        targets: [],
+        sendAvailable: false,
+        onForward: vi.fn(),
+        onSend: vi.fn(),
+      }),
+    );
+    const type = (input: HTMLTextAreaElement, value: string) =>
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
+          input,
+          value,
+        );
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    try {
+      act(() => f.host.querySelector<HTMLButtonElement>('.weq-mf-add')!.click());
+      act(() => button(f.host, '给这条消息添加一段内容').click());
+      act(() =>
+        [...document.querySelectorAll<HTMLButtonElement>('.weq-mf-add-item')]
+          .find((item) => item.textContent === '文本')!
+          .click(),
+      );
+      const before = f.host.querySelector<HTMLTextAreaElement>('textarea[placeholder="文本内容"]')!;
+      type(before, '第一段');
+      // 第一次自动保存（服务端会重盖 updatedAt），编辑器必须还在、还是同一个 DOM 节点。
+      await act(async () => vi.advanceTimersByTimeAsync(301));
+      expect(fixture.writes.length).toBeGreaterThan(0);
+      const after = f.host.querySelector<HTMLTextAreaElement>('textarea[placeholder="文本内容"]');
+      expect(after).toBe(before);
+      expect(after?.value).toBe('第一段');
+      // 接着打第二个字：内容仍然落在同一个编辑器里，不会因为回执被清空。
+      type(after!, '第一段第二句');
+      expect(
+        f.host.querySelector<HTMLTextAreaElement>('textarea[placeholder="文本内容"]')?.value,
+      ).toBe('第一段第二句');
     } finally {
       f.close();
     }
