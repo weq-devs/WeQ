@@ -986,6 +986,7 @@ jobs:
           # CHANGELOG.md 对应章节），GitHub 自动生成的 commit/PR 变更列表附在后面
           # 作为补充。release-notes 已在失败时回退原文，这里只读文件，不再自行抽取。
           SECTION=$(cat dist/release-notes.md)
+          DOCS_COMMIT=$(git rev-parse "${TAG}:docs")
 
           # 让 GitHub 从上一个 tag 到本 tag 自动生成变更列表（commit/PR）。
           # 只取其中的正文（.body），拼到我们自己的中文说明后面。
@@ -1029,7 +1030,7 @@ jobs:
 
           ### macOS 首次打开
           将 WeQ 拖入“应用程序”后打开。只有确认下载来源可信时，才在“系统设置 → 隐私与安全性”对 WeQ 点“仍要打开”。无需终端命令，不关闭 SIP；“已损坏”或恶意软件警告不能当作普通首次提醒处理。
-          详见[图形化安装说明](https://github.com/${REPO}/blob/${TAG}/docs/guide/macos-install.md)。
+          详见[图形化安装说明](https://github.com/weq-devs/WeqDocs/blob/${DOCS_COMMIT}/guide/macos-install.md)。
 
           ### 变更
           ${CHANGES}

@@ -79,6 +79,22 @@ test('macOS 发布说明与固定自签证书构建一致并保留未公证状�
   }
 });
 
+test('安装说明固定到发布标签引用的独立文档提交，不链接主仓子模块内文件', async () => {
+  const workflow = load(
+    await readFile(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8'),
+  );
+  const notes = workflow.jobs.notes.steps.find(
+    (step) => step.name === '生成并写入中文 Release 说明',
+  ).run;
+  assert.ok(notes.includes('DOCS_COMMIT=$(git rev-parse "${TAG}:docs")'));
+  assert.ok(
+    notes.includes(
+      'https://github.com/weq-devs/WeqDocs/blob/${DOCS_COMMIT}/guide/macos-install.md',
+    ),
+  );
+  assert.ok(!notes.includes('blob/${TAG}/docs/guide/macos-install.md'));
+});
+
 test('缺失正式签名 secret 时立即拒绝，不创建钥匙串', {
   skip: process.platform !== 'darwin',
 }, async () => {
