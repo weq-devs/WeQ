@@ -24,6 +24,7 @@ import {
   enhancementReleaseBlocker,
   type EnhancementCatalog,
   type EnhancementRelease,
+  type EnhancementUpdateNotice,
 } from '../../shared/enhancement_release';
 import { createEnhancementCatalog, createRelease, releaseContentVersion } from './release_catalog';
 import { startEnhancementDownloads } from './tasks';
@@ -50,6 +51,10 @@ export class EnhancementUpdateController {
   private readonly states = new Map<EnhancementPackId, EnhancementCheckState>();
   private readonly latest = new Map<EnhancementPackId, EnhancementRelease>();
   private readonly fresh = new Set<EnhancementPackId>();
+  private readonly notifiedVersions = new Map<EnhancementPackId, string>();
+  private notifications: EnhancementUpdateNotice[] = [];
+  private readonly notificationListeners = new Set<(notices: EnhancementUpdateNotice[]) => void>();
+  private saving = Promise.resolve();
   private readonly scheduler: UpdateCheckScheduler;
   private readonly loaded: Promise<void>;
   private pending?: Promise<void>;
@@ -97,6 +102,12 @@ export class EnhancementUpdateController {
           throw new Error('增强包缓存内容身份无效');
         for (const entry of catalog.packs) {
           this.latest.set(entry.id, entry);
+          // 旧版已知的内容作为迁移基线，不因 WeQ 本身升级重新提醒。
+          const notified =
+            cached.notifiedVersions === undefined
+              ? entry.contentVersion
+              : cached.notifiedVersions?.[entry.id];
+          if (typeof notified === 'string') this.notifiedVersions.set(entry.id, notified);
         }
         for (const id of ENHANCEMENT_PACK_IDS) {
           this.states.set(
@@ -155,6 +166,44 @@ export class EnhancementUpdateController {
   state(id: EnhancementPackId) {
     return this.states.get(id) ?? { phase: 'unchecked' as const };
   }
+  subscribeNotifications(listener: (notices: EnhancementUpdateNotice[]) => void) {
+    this.notificationListeners.add(listener);
+    listener(this.notifications);
+    return () => {
+      this.notificationListeners.delete(listener);
+    };
+  }
+  async acknowledgeNotifications(
+    notices: readonly Pick<EnhancementUpdateNotice, 'id' | 'contentVersion'>[],
+  ) {
+    await this.loaded;
+    for (const notice of notices)
+      if (
+        this.notifications.some(
+          (entry) => entry.id === notice.id && entry.contentVersion === notice.contentVersion,
+        )
+      )
+        this.notifiedVersions.set(notice.id, notice.contentVersion);
+    await this.save();
+    await this.refreshNotifications();
+  }
+  private async refreshNotifications() {
+    this.notifications = (await this.packs.list())
+      .filter(
+        (pack) =>
+          this.fresh.has(pack.id) &&
+          this.state(pack.id).phase === 'checked' &&
+          pack.installed &&
+          pack.updateAvailable &&
+          !pack.busy &&
+          !pack.blocker &&
+          pack.latestVersion &&
+          pack.latestVersion !== pack.installedVersion &&
+          this.notifiedVersions.get(pack.id) !== pack.latestVersion,
+      )
+      .map((pack) => ({ id: pack.id, name: pack.name, contentVersion: pack.latestVersion! }));
+    for (const listener of this.notificationListeners) listener(this.notifications);
+  }
   start() {
     if (this.stopSettings || this.abort.signal.aborted) return;
     const configure = () => {
@@ -185,6 +234,7 @@ export class EnhancementUpdateController {
     this.stopSettled?.();
     this.stopSettled = undefined;
     this.stopSettings = undefined;
+    this.notificationListeners.clear();
     this.abort.abort();
   }
 
@@ -280,6 +330,7 @@ export class EnhancementUpdateController {
       await this.save();
       this.abort.signal.throwIfAborted();
       await this.installKnown(ids);
+      await this.refreshNotifications();
       if (errors.length) throw new Error([...new Set(errors)].join('；'));
     } catch (error) {
       for (const id of ids)
@@ -431,17 +482,17 @@ export class EnhancementUpdateController {
     }
     throw error;
   }
-  private async save() {
-    await writeFileAtomic(
-      this.path,
-      JSON.stringify({
-        states: Object.fromEntries(this.states),
-        catalog: {
-          schemaVersion: 1,
-          target: this.target,
-          packs: [...this.latest.values()],
-        },
-      }),
-    );
+  private save() {
+    const text = JSON.stringify({
+      states: Object.fromEntries(this.states),
+      notifiedVersions: Object.fromEntries(this.notifiedVersions),
+      catalog: {
+        schemaVersion: 1,
+        target: this.target,
+        packs: [...this.latest.values()],
+      },
+    });
+    this.saving = this.saving.catch(() => {}).then(() => writeFileAtomic(this.path, text));
+    return this.saving;
   }
 }

@@ -6,6 +6,7 @@ import {
   parseEnhancementEngineManifest,
   safeEnhancementPath,
   type EnhancementEngineArtifact,
+  type EnhancementPackId,
 } from './enhancement_manifest';
 
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
@@ -76,6 +77,11 @@ const catalog = z.object({
 export type EnhancementRelease = z.infer<typeof pack>;
 export type EnhancementReleaseComponent = EnhancementRelease['components'][number];
 export type EnhancementCatalog = z.infer<typeof catalog>;
+export interface EnhancementUpdateNotice {
+  id: EnhancementPackId;
+  name: string;
+  contentVersion: string;
+}
 export const PACK_RUNTIMES = {
   text: 'ppocr-v1',
   voice: 'sensevoice-v1',

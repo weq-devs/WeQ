@@ -67,6 +67,17 @@ const snapshot = () => {
 const proxy = (path = ''): unknown =>
   new Proxy(() => undefined, {
     get(_target, key) {
+      if (key === 'subscribe')
+        return (_input: unknown, handler: { onData: (data: unknown) => void }) => {
+          if (path === 'bootstrap.onEnhancementUpdates')
+            handler.onData([
+              { id: 'text', name: names[0], contentVersion: 'a'.repeat(64) },
+              { id: 'voice', name: names[1], contentVersion: 'b'.repeat(64) },
+            ]);
+          return { unsubscribe: () => {} };
+        };
+      if (key === 'mutate' && path === 'bootstrap.acknowledgeEnhancementUpdates')
+        return async () => true;
       if (key === 'useUtils') return () => proxy('utils');
       if (key === 'useQuery')
         return () => {

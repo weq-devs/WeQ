@@ -13,7 +13,15 @@
 /** 通话窗口 → 主界面：打开设置页并定位到某一节。 */
 export const OPEN_SETTINGS_COMMAND = 'weq:open-settings';
 
-export type SettingsSection = 'callRecording' | 'longTermAuthorization';
+export type SettingsSection = 'callRecording' | 'longTermAuthorization' | 'enhancementPacks';
+
+function isSettingsSection(section: unknown): section is SettingsSection {
+  return (
+    section === 'callRecording' ||
+    section === 'longTermAuthorization' ||
+    section === 'enhancementPacks'
+  );
+}
 
 interface OpenSettingsPayload {
   section: SettingsSection;
@@ -36,15 +44,13 @@ export function requestOpenSettings(section: SettingsSection): void {
 export function onOpenSettingsRequest(handler: (section: SettingsSection) => void): () => void {
   const sameWindow = (event: Event) => {
     const payload = (event as CustomEvent<OpenSettingsPayload>).detail;
-    if (payload?.section === 'callRecording' || payload?.section === 'longTermAuthorization')
-      handler(payload.section);
+    if (isSettingsSection(payload?.section)) handler(payload.section);
   };
   const listener = (event: StorageEvent) => {
     if (event.key !== OPEN_SETTINGS_COMMAND || !event.newValue) return;
     try {
       const payload = JSON.parse(event.newValue) as OpenSettingsPayload;
-      if (payload.section === 'callRecording' || payload.section === 'longTermAuthorization')
-        handler(payload.section);
+      if (isSettingsSection(payload.section)) handler(payload.section);
     } catch {
       // 值被别的东西写坏了，忽略。
     }

@@ -92,6 +92,7 @@ import {
 } from '../lib/clientPreferences';
 import { useWebConnection } from '../state/webConnection';
 import { useUpdateStore } from '../state/update';
+import { useEnhancementUpdates } from '../hooks/useEnhancementUpdates';
 import { client } from '../trpc/client';
 import { useToast } from '../components/Toast';
 import { useMessageLocateFeedback } from '../hooks/useMessageLocateFeedback';
@@ -2991,6 +2992,8 @@ function MainWorkspace(): ReactElement {
     return () => sub.unsubscribe();
   }, []);
 
+  useEnhancementUpdates();
+
   // Update availability: seed from the last cached check (the background startup
   // check may have already run), then keep it live via the check events. Drives
   // the settings rail red dot. setState via getState() to avoid re-render churn.
@@ -3174,13 +3177,16 @@ function MainWorkspace(): ReactElement {
     setSettingsSearchTarget(null);
   }, [messageScope]);
 
-  /**
-   * 通话窗口请求打开设置页（`localStorage` 的 `storage` 事件，同源广播）。
-   * 现在只有「通话与录音」一节会这样跳过来。
-   */
+  /** 任务、更新提醒与独立窗口共用设置跳转入口。 */
   useEffect(
     () =>
       onOpenSettingsRequest((section) => {
+        if (section === 'enhancementPacks') {
+          setSettingsSearchTarget(null);
+          setSettingsSection('enhancement-packs');
+          setSettingsOpen(true);
+          return;
+        }
         if (section === 'longTermAuthorization') {
           setSettingsSection('account');
           setSettingsSearchTarget({

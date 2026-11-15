@@ -23,7 +23,7 @@ export interface BackgroundTask {
   kind: BackgroundTaskKind;
   name: string;
   scope?: BackgroundTaskScope;
-  destination?: 'db-checkup';
+  destination?: 'db-checkup' | 'enhancement-packs';
   status: BackgroundTaskStatus;
   statusLabel?: string;
   progress?: number;
