@@ -7,6 +7,7 @@ import { createTemplateDemoData } from './support/templateDemoData';
 import { AvatarOrb } from '../src/renderer/src/components/dressPieces';
 import { cachedAvatarUrl, refreshAvatarUrl } from '../src/renderer/src/lib/avatarCache';
 import { setPreferCdnFlag } from '../src/renderer/src/lib/cdn';
+import { ShowMessageTimeContext } from '../src/renderer/src/components/MessageProvenance';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>
@@ -153,6 +154,44 @@ describe('发送状态', () => {
   it('发送中只在消息旁显示转圈，不占下方一行', () => {
     expect(bubble('sending')).toContain('weq-message-sending');
     expect(bubble('sending')).not.toContain('weq-msg-optimistic-tag');
+  });
+  it.each([
+    ['group', false],
+    ['group', true],
+    ['direct', false],
+    ['direct', true],
+  ] as const)('%s 发送圈与 +1 共用正文定位（有 +1：%s）', (type, repeat) => {
+    for (const showSenderName of [false, true]) {
+      const html = renderToStaticMarkup(
+        createElement(
+          ShowMessageTimeContext.Provider,
+          { value: true },
+          createElement(MessageBubble, {
+            message: { ...demo.messages[0]!, optimistic: 'sending' },
+            conversation: demo.conversations.find((item) => item.type === type)!,
+            sender: demo.user,
+            mine: true,
+            senderName: '测试用户',
+            showSenderName,
+            repeatAction: repeat
+              ? createElement('button', { className: 'weq-message-repeat' }, '+1')
+              : undefined,
+            pendingAction: createElement('div', { className: 'fixture-pending' }, '附加内容'),
+            onContextMenu: () => {},
+            onLongPress: () => {},
+          }),
+        ),
+      );
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const spinner = doc.querySelector('.weq-message-sending')!;
+      expect(spinner.parentElement?.classList.contains('weq-repeat-content')).toBe(true);
+      expect(spinner.parentElement?.querySelector('.message-content')).not.toBeNull();
+      expect(spinner.parentElement?.querySelector('.weq-message-heading')).toBeNull();
+      expect(spinner.parentElement?.querySelector('.fixture-pending')).toBeNull();
+      expect(doc.querySelector('.weq-message-heading .weq-message-provenance')).not.toBeNull();
+      expect(doc.querySelector('.weq-message-repeat')).toBeNull();
+      expect(doc.querySelector('.message-line > .weq-message-sending')).toBeNull();
+    }
   });
   it('失败和疑似静默拒收仍保留下方提示', () => {
     expect(bubble('failed')).toContain('发送失败');

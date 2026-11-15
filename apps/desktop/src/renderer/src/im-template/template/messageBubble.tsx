@@ -23,6 +23,7 @@ import { useToast } from '../../components/Toast';
 import { GroupMessageBadge } from '../../components/GroupMessageBadge';
 import { messageHasIntentText } from '../../lib/intentTimeline';
 import '../../styles/chat-interactions.css';
+import '../../styles/message-repeat.css';
 import '../../styles/composer-reedit.css';
 import '../../styles/unsent-message.css';
 
@@ -507,11 +508,6 @@ export function MessageBubble({
           </span>
         )
       ) : null}
-      {optimistic === 'sending' ? (
-        <span className="weq-message-sending" role="status" aria-label="发送中">
-          <LoaderCircle size={16} aria-hidden />
-        </span>
-      ) : null}
       <div
         ref={bubbleRef}
         className={cn('message-bubble', active && 'context-active')}
@@ -567,10 +563,16 @@ export function MessageBubble({
             precision={conversation.generated || message.optimistic ? 'millisecond' : 'second'}
           />
         </div>
-        {repeatAction ? (
+        {repeatAction || optimistic === 'sending' ? (
           <div className="weq-repeat-content">
             {renderMessageWithRegistry({ message, conversation, sender, mine }, renderers)}
-            {repeatAction}
+            {optimistic === 'sending' ? (
+              <span className="weq-message-sending" role="status" aria-label="发送中">
+                <LoaderCircle size={16} aria-hidden />
+              </span>
+            ) : (
+              repeatAction
+            )}
           </div>
         ) : (
           renderMessageWithRegistry({ message, conversation, sender, mine }, renderers)

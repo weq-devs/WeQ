@@ -2,10 +2,6 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  align-self: center;
-  flex: 0 0 16px;
-  width: 16px;
-  height: 16px;
   color: var(--weq-fg-secondary);
 }
 .weq-message-sending svg {
