@@ -1920,6 +1920,10 @@ export class AgentLabService extends EventEmitter {
   }
 
   /** Public entry: runs the build, emitting build-progress events throughout. */
+  runningBuildCount(): number {
+    return this.buildingPersonas.size;
+  }
+
   async buildFromC2c(input: BuildFromC2cInput): Promise<AgentLabPersona> {
     return this.executeBuild(input);
   }

@@ -6,6 +6,8 @@ import { UserConfigService, DEFAULT_INTENT_SENSE_CONFIG } from '@weq/service';
 import { sharedSettingsRouter } from '../src/main/ipc/routers/shared_settings';
 import { clientStateRouter, globalClientState } from '../src/main/ipc/routers/client_state';
 import { assertAccountBinding } from '../src/main/ipc/account_binding';
+import { dataSaverSession } from '@weq/service/transfer-policy';
+import { settingsResetRouter } from '../src/main/ipc/routers/settings_reset';
 
 const state = vi.hoisted(() => ({
   root: '',
@@ -25,6 +27,7 @@ vi.mock('../src/main/context/app_context', () => ({
   getActiveIntentSenseLocalEngine: () => null,
   emitDressChanged: vi.fn(),
   getAppContext: () => ({
+    bootstrap: { userConfig: state.config },
     services: state.record ? { accountConfig: { getRecord: () => state.record } } : null,
     account: state.record ? { context: { uin: state.record.uin } } : null,
   }),
@@ -35,9 +38,71 @@ beforeEach(() => {
   state.config = new UserConfigService({ appDataRoot: () => state.root });
   state.record = null;
 });
-afterEach(() => rmSync(state.root, { recursive: true, force: true }));
+afterEach(() => {
+  dataSaverSession.clearTemporary();
+  rmSync(state.root, { recursive: true, force: true });
+});
 
 describe('宿主全局设置接口', () => {
+  it('基础偏好已是默认时，恢复默认仍清除临时覆盖', async () => {
+    await clientStateRouter.createCaller({}).patch({ dataSaverMode: 'auto' });
+    dataSaverSession.setTemporary({ enabled: true, duration: 'exit' });
+    const reset = settingsResetRouter.createCaller({});
+    const preview = await reset.preview({ page: 'resource-loading', card: 'data-saver' });
+    expect(preview.items.find((item) => item.id === 'data-saver:temporary')).toMatchObject({
+      current: '临时开启',
+      defaultValue: '无临时设置',
+    });
+    const result = await reset.restore({
+      page: 'resource-loading',
+      card: 'data-saver',
+      source: null,
+    });
+    expect(result.find((item) => item.id === 'data-saver:temporary')?.ok).toBe(true);
+    expect(dataSaverSession.status().temporary).toBeNull();
+  });
+  it('省流量临时设置跨端共用且不持久化，基础设置同值保存也清除覆盖', async () => {
+    const caller = sharedSettingsRouter.createCaller({});
+    const client = clientStateRouter.createCaller({});
+    await client.patch({ dataSaverMode: 'always' });
+    const status = await caller.dataSaver.temporary({
+      clientId: 'desktop',
+      value: { enabled: false, duration: 'exit' },
+    });
+    expect(status).toMatchObject({
+      mode: 'always',
+      enabled: false,
+      temporary: { enabled: false, duration: 'exit' },
+    });
+    expect(
+      (
+        await caller.dataSaver.status({
+          clientId: 'phone',
+          windowId: 'd0a47d22-ff36-4294-b5be-98cff6e28a01',
+          pendingTasks: 0,
+        })
+      ).temporary,
+    ).toEqual(status.temporary);
+    expect(state.config!.getSharedPreference('client')).toEqual({ dataSaverMode: 'always' });
+    await client.patch({ dataSaverMode: 'always' });
+    expect(dataSaverSession.status()).toMatchObject({
+      temporary: null,
+      enabled: true,
+      reason: 'settings',
+    });
+    await expect(
+      caller.dataSaver.temporary({
+        clientId: 'phone',
+        value: { enabled: true, duration: 'minutes', minutes: 0 },
+      }),
+    ).rejects.toThrow();
+    await expect(
+      caller.dataSaver.temporary({
+        clientId: 'phone',
+        value: { enabled: false, duration: 'tasks' },
+      }),
+    ).rejects.toThrow('未完成任务');
+  });
   it('没有账号也能读取和保存三项 AI、邮箱及助手偏好', async () => {
     const caller = sharedSettingsRouter.createCaller({});
     expect(await caller.intent.getStatus()).toMatchObject({ enabled: false, apiConfigured: false });

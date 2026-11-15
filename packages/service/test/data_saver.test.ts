@@ -23,7 +23,7 @@ import { ModelStore } from '../src/common/model_store';
 const roots: string[] = [];
 afterEach(async () => {
   vi.unstubAllGlobals();
-  updateTransferPolicy('auto', UNKNOWN_NETWORK);
+  updateTransferPolicy('auto', networkCost(false, false, 'fixture-reset'));
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 it('共享偏好仅接受三种模式；未知状态不冒充已检测的不受限', () => {

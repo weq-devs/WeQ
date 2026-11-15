@@ -74,7 +74,10 @@ try {
       await page.getByRole('heading', { name: '省流量模式下的行为' }).waitFor();
       assert.equal(await page.getByRole('switch').count(), 9);
       assert.deepEqual(
-        await page.getByLabel('省流量模式', { exact: true }).locator('option').allTextContents(),
+        await page
+          .getByRole('radiogroup', { name: '省流量模式', exact: true })
+          .getByRole('radio')
+          .allTextContents(),
         ['开启', '关闭', '跟随系统'],
       );
       await page.screenshot({
@@ -109,7 +112,10 @@ try {
       const active = await activeRequest;
       await active.response();
       assert.equal(new URL(active.url()).searchParams.get('intent'), 'interactive');
-      await page.getByLabel('省流量模式', { exact: true }).selectOption('never');
+      await page
+        .getByRole('radiogroup', { name: '省流量模式', exact: true })
+        .getByRole('radio', { name: '关闭', exact: true })
+        .click();
       await page.getByText('正常加载', { exact: false }).waitFor();
       for (const control of await page.getByRole('switch').all())
         assert.equal(await control.isEnabled(), true);
@@ -126,8 +132,8 @@ try {
       await page.getByLabel('恢复省流量默认设置', { exact: true }).click();
       await page.waitForFunction(
         () =>
-          document.querySelector('[aria-label="省流量模式"]').value === 'auto' &&
-          document.querySelector('[aria-label="大文件暂停阈值"]').value === '10',
+          document.querySelector('[aria-label="省流量模式"] [aria-checked="true"]').textContent ===
+            '跟随系统' && document.querySelector('[aria-label="大文件暂停阈值"]').value === '10',
       );
       assert.equal(
         await page
@@ -136,10 +142,76 @@ try {
         'false',
       );
       await page.waitForLoadState('networkidle');
+      await page
+        .getByRole('radiogroup', { name: '省流量模式', exact: true })
+        .getByRole('radio', { name: '开启', exact: true })
+        .click();
+      await page.getByRole('button', { name: '省流量菜单', exact: true }).click();
+      const menu = page.getByRole('dialog', { name: '省流量模式', exact: true });
+      await menu.getByRole('button', { name: '临时关闭', exact: true }).click();
+      await menu.getByRole('radio', { name: '自定义分钟数', exact: true }).click();
+      await menu.getByRole('spinbutton', { name: '临时省流量分钟数' }).fill('0');
+      assert.equal(
+        await menu.getByRole('button', { name: '确认临时关闭', exact: true }).isEnabled(),
+        false,
+      );
+      await menu.getByRole('spinbutton', { name: '临时省流量分钟数' }).fill('30');
+      await page.screenshot({
+        path: resolve(output, `${width}-${theme}-duration.png`),
+        fullPage: true,
+      });
+      await menu.getByRole('button', { name: '确认临时关闭', exact: true }).click();
+      await menu.getByText('正常加载', { exact: false }).waitFor();
+      assert.equal(
+        await page.getByRole('button', { name: '省流量菜单', exact: true }).isVisible(),
+        true,
+      );
+      await menu.getByRole('button', { name: '临时开启', exact: true }).click();
+      assert.equal(await menu.getByRole('radio', { name: '直到全部任务完成' }).count(), 0);
+      await menu.getByRole('button', { name: '恢复基础设置', exact: true }).click();
+      await menu.getByRole('button', { name: '临时关闭', exact: true }).click();
+      await menu.getByRole('radio', { name: '直到全部任务完成' }).click();
+      await menu.getByRole('button', { name: '确认临时关闭', exact: true }).click();
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+        false,
+      );
+      const bounds = await menu.boundingBox();
+      assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width);
+      await page.screenshot({
+        path: resolve(output, `${width}-${theme}-menu.png`),
+        fullPage: true,
+      });
+      await page.evaluate(() => {
+        window.fixtureDataSaver.setPendingTasks(0);
+        window.fixtureDataSaver.finishTasks();
+      });
+      await page.getByText('已自动进入省流量模式', { exact: true }).waitFor();
+      await page.keyboard.press('Escape');
+      await menu.waitFor({ state: 'detached' });
+      assert.equal(
+        await page
+          .getByRole('button', { name: '省流量菜单', exact: true })
+          .evaluate((button) => document.activeElement === button),
+        true,
+      );
+      await page.getByRole('button', { name: '省流量菜单', exact: true }).click();
+      await page.evaluate(() => {
+        window.lastDataSaverNavigation = null;
+        window.addEventListener(
+          'weq:open-settings',
+          (event) => {
+            window.lastDataSaverNavigation = event.detail.section;
+          },
+          { once: true },
+        );
+      });
+      await menu.getByRole('button', { name: '完整设置' }).click();
+      assert.equal(await page.evaluate(() => window.lastDataSaverNavigation), 'dataSaver');
     }
   assert.deepEqual(errors, []);
   console.log(
-    '省流量浏览器验证通过：6 个桌面／移动浅深色场景，自动小图、点击加载、三态设置、无横向溢出。',
+    '省流量浏览器验证通过：6 个桌面／移动浅深色场景，分段设置、临时期限、自动横幅、设置跳转、自动小图、点击加载及无横向溢出。',
   );
 } finally {
   await browser?.close();

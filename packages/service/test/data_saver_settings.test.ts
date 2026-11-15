@@ -11,7 +11,7 @@ import { networkScope, scopedNetworkAllowed } from '../src/common/network_scope'
 import { updateTransferPolicy } from '../src/common/transfer_policy';
 import { ManagedDownload } from '../src/common/managed_download';
 
-afterEach(() => updateTransferPolicy('auto', UNKNOWN_NETWORK));
+afterEach(() => updateTransferPolicy('auto', networkCost(false, false, 'fixture-reset')));
 
 it('十二项默认值兼容旧配置，行为偏好具有严格类型和整数阈值', () => {
   expect(preferenceDefaults).toMatchObject(dataSaverBehaviorDefaults);

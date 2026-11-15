@@ -632,7 +632,6 @@ export function GlobalSettingsSection({
         </Card>
       )}
 
-      {section === 'network' && <DataSaverSettings />}
       {section === 'network' && (
         <Card title="加载来源" icon={<Cloud size={15} strokeWidth={1.8} />} settingId="prefer-cdn">
           <Row
@@ -658,6 +657,7 @@ export function GlobalSettingsSection({
           />
         </Card>
       )}
+      {section === 'network' && <DataSaverSettings />}
       {/* WeQ 存储管理 */}
       {section === 'storage' && (
         <Card

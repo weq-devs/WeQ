@@ -3182,6 +3182,16 @@ function MainWorkspace(): ReactElement {
   useEffect(
     () =>
       onOpenSettingsRequest((section) => {
+        if (section === 'dataSaver') {
+          setSettingsSection('resource-loading');
+          setSettingsSearchTarget({
+            section: 'resource-loading',
+            settingId: 'data-saver',
+            revision: Date.now(),
+          });
+          setSettingsOpen(true);
+          return;
+        }
         if (section === 'enhancementPacks') {
           setSettingsSearchTarget(null);
           setSettingsSection('enhancement-packs');

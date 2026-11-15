@@ -15,6 +15,7 @@ import { sharedIntentStatus } from './intent_sense';
 import { sharedAntiRecallStatus } from './anti_recall';
 import { clientStateRouter } from './client_state';
 import { dataSaverBehaviorDefaults } from '@weq/service/data-saver';
+import { dataSaverSession } from '@weq/service/transfer-policy';
 import { preferenceDefaults } from '@weq/service/client-preferences';
 import {
   remoteResetCardAvailable,
@@ -313,6 +314,15 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   );
   app('cdn', 'preferCdn', '优先 CDN', (enabled) => b.setPreferCdn({ enabled }));
   if (selected.has('data-saver')) {
+    const temporary = dataSaverSession.status().temporary;
+    add(
+      'data-saver',
+      'temporary',
+      '临时省流量设置',
+      temporary ? (temporary.enabled ? '临时开启' : '临时关闭') : '无临时设置',
+      '无临时设置',
+      async () => dataSaverSession.clearTemporary('settings'),
+    );
     const saverDefaults = { dataSaverMode: 'auto' as const, ...dataSaverBehaviorDefaults };
     const saverCurrent = config.getSharedPreference('client');
     add(

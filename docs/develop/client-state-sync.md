@@ -7,6 +7,10 @@
 省流量行为由 `dataSaverBehaviorDefaults` 定义，与 `dataSaverMode` 一同存入 `client` 组。图片档位为 `dataSaverImageLoading: none | thumbnail | original`；头像、表情、个性装扮、封面、屏幕外预取及链接预览分别使用独立布尔字段。任务使用 `dataSaverPauseBatch`、`dataSaverPauseLarge`、`dataSaverLargeMiB` 和 `dataSaverAutoResume`，阈值为 1–1048576 MiB 的整数。缺失字段沿用默认值，设置关闭时不禁用行为编辑；卡片恢复与页面恢复均覆盖这十二项。共享配置变更立即刷新宿主策略；各下载器、导出队列与媒体入口读取同一份行为策略，资源分类开关不由预取开关代替。关闭自动继续后策略解除仍等待手动操作，不伪装成用户手动暂停。
 
 `dataSaverMode` 为 `auto | always | never`，缺省 `auto`，随 `client` 组同步、备份与重置。网络检测状态独立于偏好：`settings.networkCost` 返回宿主状态并接收可选的本端运行态，HTTP 请求携带稳定的浏览器来源标识以绑定任务，不上传为全局设置。旧 native／手机桥缺能力时返回 unknown。共享策略区分自动预取、小图、主动查看与批量任务；任务保存策略暂停原因，手动继续只放行对应任务。下载续写必须核对强 ETag 或 Last-Modified、Content-Range 与长度；没有可靠身份的分段不续写。
+
+`DataSaverSession` 保存宿主进程级临时覆盖，优先于基础模式但不进入配置文件；分钟期限由宿主定时器结束，任务期限仅允许临时关闭。`settings.dataSaver` 提供 `status`、`temporary`、`clearTemporary`、`changed`；状态包含宿主运行身份、修订、有效模式、临时期限、未完成任务数及变更原因。渲染端丢弃同一运行身份下的迟到状态，自动状态变化通过现有横幅系统去重提示。基础模式显式保存（包括同值保存）和默认恢复清除覆盖；网络探测 unknown 保留最近可靠的状态。
+
+任务期限观察宿主任务来源和窗口上报的本地未完成数，不依赖任务面板挂载；宿主等待导出／保存、漫游／扫描、闪传、后台任务及克隆构建，暂停及排队也不算结束。查询失败保留待确认状态，窗口暂时断连不清零；页面确实结束时通过 `windowClosed` 撤销该文档的本地任务来源，宿主任务仍独立等待。归零后留一轮排队启动时间，并重新读取真实状态才清除覆盖。任务期限结束后停止专用观察。媒体入口使用同一有效模式，临时关闭期间忽略旧请求的 `ds=1`，不会因界面状态已变化而继续拦截；任务自动继续仍遵循共享偏好，不解除用户暂停。
 `UserConfigService` 与 `config.json` 是通用偏好的唯一持久来源。已有 AppSettings 字段保留原位置；客户端偏好、AI、邮箱、防撤回模式、装扮、年度报告、联系人排序与助手配置位于 `settings.sharedPreferences` 的相应组。`common/shared_preferences.ts` 集中声明组、对象规则字段、备份归属和完整快照默认值，复用各领域的归一化逻辑。
 `ClientStateStore` 只保存业务状态与草稿，账号状态位于 `config/accounts/<configId>/client-state.json`；旧 `client-state/global.json` 只作为一次性迁移输入，不再参与显示、通知或写入。
 大草稿正文位于同目录的 `client-state-drafts`，状态文件只保存版本；切换背景、更新已读及重读账号状态不会反复解析或重写所有正文。备份展开正文，导入的内联正文在下一次写入时转为分文件。

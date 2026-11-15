@@ -13,13 +13,18 @@
 /** 通话窗口 → 主界面：打开设置页并定位到某一节。 */
 export const OPEN_SETTINGS_COMMAND = 'weq:open-settings';
 
-export type SettingsSection = 'callRecording' | 'longTermAuthorization' | 'enhancementPacks';
+export type SettingsSection =
+  | 'callRecording'
+  | 'longTermAuthorization'
+  | 'enhancementPacks'
+  | 'dataSaver';
 
 function isSettingsSection(section: unknown): section is SettingsSection {
   return (
     section === 'callRecording' ||
     section === 'longTermAuthorization' ||
-    section === 'enhancementPacks'
+    section === 'enhancementPacks' ||
+    section === 'dataSaver'
   );
 }
 
