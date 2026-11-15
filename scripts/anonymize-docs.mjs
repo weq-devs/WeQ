@@ -109,6 +109,6 @@ if (checkOnly) {
 
 process.stdout.write(
   changed.length > 0
-    ? `✓ 已脱敏 ${changed.length} 个文件\n` + changed.map((f) => `  - ${f}`).join('\n') + '\n'
+    ? `✓ 已脱敏 ${changed.length} 个文件\n${changed.map((f) => `  - ${f}`).join('\n')}\n`
     : '✓ 无需改动\n',
 );

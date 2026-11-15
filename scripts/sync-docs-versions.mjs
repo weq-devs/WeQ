@@ -32,7 +32,7 @@ if (!existsSync(SOURCE)) {
 
 mkdirSync(TARGET, { recursive: true });
 
-let stale = [];
+const stale = [];
 for (const name of FILES) {
   const from = join(SOURCE, name);
   const to = join(TARGET, name);
