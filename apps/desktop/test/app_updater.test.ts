@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform')!;
 const fixture = vi.hoisted(() => ({
   app: { isPackaged: true, getVersion: () => '1.0.0', once: vi.fn() },
   quitAndInstall: vi.fn(),
@@ -57,7 +58,10 @@ beforeEach(() => {
   fixture.fetchOfficialArchive.mockResolvedValue({ sha256: 'fixture', size: 100 });
   fixture.verifyOfficialArchive.mockResolvedValue(undefined);
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  Object.defineProperty(process, 'platform', platformDescriptor);
+});
 async function ready() {
   const {
     default: { autoUpdater },
@@ -74,21 +78,49 @@ async function ready() {
     base: 'https://synthetic.invalid',
     ranked: ['https://synthetic.invalid'],
   });
-  fixture.checkForUpdates.mockResolvedValue({
-    updateInfo: { version: '1.1.0' },
+  fixture.checkForUpdates.mockImplementation(async () => ({
+    updateInfo: { version: state.getUpdateState()?.latest ?? '1.1.0' },
     cancellationToken: { cancel: fixture.cancelDownload },
-  });
+  }));
   fixture.downloadUpdate.mockImplementation(async () => {
+    const version = state.getUpdateState()?.latest ?? '1.1.0';
+    const arch = process.arch === 'x64' ? 'x86_64' : 'arm64';
+    const file =
+      process.platform === 'linux' && !fixture.macVerifiedArchive
+        ? `/synthetic/weQ-${version}-linux-${arch}.AppImage`
+        : `/synthetic/weQ-${version}-mac-arm64.zip`;
     autoUpdater.emit('update-downloaded', {
-      version: '1.1.0',
-      downloadedFile: '/synthetic/weQ-1.1.0-mac-arm64.zip',
+      version,
+      downloadedFile: file,
     });
     return [];
   });
   return { updater, autoUpdater, events };
 }
 
-describe('更新安装动作', () => {
+describe.each(['win32', 'linux'])('更新安装动作（%s）', (platform) => {
+  beforeEach(() => {
+    Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+  });
+  it.each(['version', 'file'])('Linux 拒绝下载回执与已检查身份不一致：%s', async (field) => {
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+    const { updater, autoUpdater, events } = await ready();
+    const arch = process.arch === 'x64' ? 'x86_64' : 'arm64';
+    fixture.downloadUpdate.mockImplementationOnce(async () => {
+      autoUpdater.emit('update-downloaded', {
+        version: field === 'version' ? '1.2.0' : '1.1.0',
+        downloadedFile:
+          field === 'file'
+            ? '/synthetic/weQ-1.1.0-mac-arm64.zip'
+            : `/synthetic/weQ-1.1.0-linux-${arch}.AppImage`,
+      });
+      return [];
+    });
+    await expect(updater.startDownload()).rejects.toThrow('不一致');
+    expect(fixture.fetchOfficialArchive).not.toHaveBeenCalled();
+    expect(events).not.toContainEqual({ kind: 'downloaded', latest: '1.1.0' });
+    expect(() => updater.quitAndInstall()).toThrow('下载');
+  });
   it.each([false, true])('Linux 官方核验完成前不提供安装状态，失败拒绝安装：%s', async (fail) => {
     const previous = process.platform;
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
