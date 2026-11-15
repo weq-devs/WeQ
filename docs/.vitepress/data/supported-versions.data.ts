@@ -1,18 +1,53 @@
 /**
  * 「支持的 QQ 版本」页面的数据源。
  *
- * 构建时直接读仓库根的 `versions/supported.json`（已验证清单）和
- * `versions/latest.json`（官网最新版本），单一数据源，不另存副本。
- * 两个文件由 `.github/workflows/qq-version-watch.yml` 每晚更新。
+ * 读 `versions/supported.json`（已验证清单）与 `versions/latest.json`（官网最新版本），
+ * 单一数据源，不另存副本。两个文件由 `.github/workflows/qq-version-watch.yml` 每晚更新。
  *
- * 这里只挑展示需要的字段：`sign` 里的 RVA / sampleSign 属于内部实现细节，
- * 不对外暴露。
+ * ## 为什么不是写死的相对路径
+ *
+ * 文档站是独立仓库（`weq-devs/WeQDocs`），在主仓里则挂在 `docs/`。两种 checkout 下
+ * 「往上几级到版本文件」的答案不同：主仓里是 `docs/.vitepress/data` → 上三级 = 仓库根，
+ * 而独立 checkout 时同样三级会**越过仓库根**，于是同一份代码在本地正常、在 CI 直接报
+ * ENOENT。所以按下面的顺序探测，和 `actions.data.ts` 用同一套约定：
+ *
+ * 1. `WEQ_VERSIONS_DIR` —— CI 显式指定；
+ * 2. `docs/versions/` —— `scripts/sync-docs-versions.mjs` 从主仓复制的构建期副本；
+ * 3. `../versions/` —— 主仓布局下直接读权威数据（副本还没同步时也能跑）。
+ *
+ * 这里只挑展示需要的字段：`sign` 里的 RVA / sampleSign 属于内部实现细节，不对外暴露。
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const SUPPORTED_FILE = fileURLToPath(new URL('../../../versions/supported.json', import.meta.url));
-const LATEST_FILE = fileURLToPath(new URL('../../../versions/latest.json', import.meta.url));
+const here = dirname(fileURLToPath(import.meta.url));
+/** `docs/` 根（`data/` → `.vitepress/` → `docs/`）。 */
+const docsRoot = resolve(here, '..', '..');
+
+function findVersionsDir(): string {
+  const candidates = [
+    ...(process.env.WEQ_VERSIONS_DIR ? [resolve(process.env.WEQ_VERSIONS_DIR)] : []),
+    join(docsRoot, 'versions'),
+    join(docsRoot, '..', 'versions'),
+  ];
+  for (const dir of candidates) {
+    if (existsSync(join(dir, 'supported.json'))) return dir;
+  }
+  throw new Error(
+    [
+      '找不到 QQ 版本清单。已尝试：',
+      ...candidates.map((dir) => `  - ${dir}`),
+      '',
+      '主仓内：确认 versions/supported.json 存在。',
+      '独立仓库：设置 WEQ_VERSIONS_DIR，或把两个 json 放到 docs 仓库根的 versions/ 下。',
+    ].join('\n'),
+  );
+}
+
+const VERSIONS_DIR = findVersionsDir();
+const SUPPORTED_FILE = join(VERSIONS_DIR, 'supported.json');
+const LATEST_FILE = join(VERSIONS_DIR, 'latest.json');
 
 interface SupportedEntry {
   version: string;

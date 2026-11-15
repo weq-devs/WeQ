@@ -1,0 +1,97 @@
+name: Docs
+
+# 文档站构建与部署。
+#
+# 这个仓库（`weq-devs/WeQDocs`）只装文档内容；内容根就是仓库根。
+# 上游是 `weq-devs/WeQ` 的 `docs/` 目录 —— 本仓库以 submodule 形式挂在那边，
+# 主仓里改文档会更新这里的提交指针。
+#
+# 为什么不把构建放主仓：文档站与产品代码的发布节奏无关，混在发版门禁里会让
+# 「改一个错别字」也触发整套 CI。
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # VitePress 的 lastUpdated 读 git 历史；浅克隆会让所有页面显示成当天。
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 「支持的 QQ 版本」页读 `versions/*.json`，那是主仓的权威数据。
+      # 这里拉一份副本落到 `versions/`，与主仓的 `pnpm docs:versions` 同形。
+      - name: Fetch version manifests
+        run: |
+          mkdir -p versions
+          for f in supported.json latest.json; do
+            curl -fsSL \
+              "https://raw.githubusercontent.com/weq-devs/WeQ/main/versions/$f" \
+              -o "versions/$f"
+          done
+
+      # build 内部先跑 check-docs.mjs（链接完整性），失败就不进 VitePress。
+      - name: Build docs
+        env:
+          # PR 构建用根路径，产物丢给人下载预览；正式站是项目站点子路径。
+          DOCS_BASE: ${{ github.event_name == 'pull_request' && '/' || '/WeQDocs/' }}
+        run: pnpm build
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-site
+          path: .vitepress/dist
+          retention-days: 7
+
+      - name: Upload Pages artifact
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .vitepress/dist
+
+  # 部署到 GitHub Pages。只从 main 的 push 触发。
+  deploy:
+    name: deploy
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    # 部署的 group 必须和构建分开，且不能 cancel-in-progress ——
+    # 中途掐断会留下半成品站点。
+    concurrency:
+      group: docs-deploy
+      cancel-in-progress: false
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

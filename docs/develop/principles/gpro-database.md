@@ -24,7 +24,7 @@ db_key      = md5( header_seed + user_seed )
 
 | 输入 | 值 |
 | --- | --- |
-| uin | `1707889225` |
+| uin | `100000004` |
 | 头部随机串 | `vgdBdzWwwrNNGORk` |
 | 结果 | `2a4e04f77fd4ab2f4a42717e3e69e3d3` |
 

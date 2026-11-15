@@ -25,17 +25,17 @@
 
 | 高仿QQ聊天页面（装扮） | **好友克隆** |
 | -------------- | ---------- |
-| ![image-20260911055149883](./docs/images/image-20260911055149883.png) | ![image-20260911060604639](./docs/images/image-20260911060604639.png) |
+| ![image-20260911055149883](./.github/readme-assets/image-20260911055149883.png) | ![image-20260911060604639](./.github/readme-assets/image-20260911060604639.png) |
 | **导出聊天记录** | **QQ个性装扮** |
-| ![image-20260911054056426](./docs/images/image-20260911054056426.png) | ![image-20260911081812755](./docs/images/image-20260911081812755.png) |
+| ![image-20260911054056426](./.github/readme-assets/image-20260911054056426.png) | ![image-20260911081812755](./.github/readme-assets/image-20260911081812755.png) |
 | **年度/历史报告**                                            | **修改/新增消息**                                            |
-| ![image-20260911054626863](./docs/images/image-20260911054626863.png) | ![image-20260911055616318](./docs/images/image-20260911055616318.png) |
+| ![image-20260911054626863](./.github/readme-assets/image-20260911054626863.png) | ![image-20260911055616318](./.github/readme-assets/image-20260911055616318.png) |
 | **离线防撤回** | **agent助手** |
-| ![image-20260911055729672](./docs/images/image-20260911055729672.png) | ![image-20260911061008294](./docs/images/image-20260911061008294.png) |
+| ![image-20260911055729672](./.github/readme-assets/image-20260911055729672.png) | ![image-20260911061008294](./.github/readme-assets/image-20260911061008294.png) |
 | **群相册查看和导出** | **QQ空间导出html** |
-| ![image-20260911061423170](./docs/images/image-20260911061423170.png) | ![image-20260911081643550](./docs/images/image-20260911081643550.png) |
+| ![image-20260911061423170](./.github/readme-assets/image-20260911061423170.png) | ![image-20260911081643550](./.github/readme-assets/image-20260911081643550.png) |
 | **群聊/私聊分析** | **QQ缓存资源清理** |
-| ![image-20260911060130806](./docs/images/image-20260911060130806.png) | ![image-20260911060406735](./docs/images/image-20260911060406735.png) |
+| ![image-20260911060130806](./.github/readme-assets/image-20260911060130806.png) | ![image-20260911060406735](./.github/readme-assets/image-20260911060406735.png) |
 
 
 > 完整功能请查看[使用手册](./docs/guide/index.md)，更多内容见 [文档中心](./docs/index.md)

@@ -6,8 +6,8 @@
   "description": "WeQ 文档站（VitePress），内容就是仓库 docs/ 目录",
   "scripts": {
     "dev": "vitepress dev . --port 5174",
-    "check": "node ../scripts/check-docs.mjs",
-    "build": "node ../scripts/check-docs.mjs && vitepress build .",
+    "check": "node check-docs.mjs",
+    "build": "node check-docs.mjs && vitepress build .",
     "preview": "vitepress preview . --port 5174"
   },
   "devDependencies": {

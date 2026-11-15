@@ -17,7 +17,12 @@ export default defineConfig({
   base,
 
   // 过程记录不进站点：写完即过期，不要求维护，也不该出现在搜索里。
-  srcExclude: ['notes/**'],
+  //
+  // `develop/redbag.md` 也在排除之列：它在 `.gitignore` 里（含真机抓包样本与
+  // 加密 KEY/IV，且**不入库**），但 VitePress 读的是工作区而不是 git 索引 ——
+  // 不排除的话本机能构建出 `develop/redbag.html`，站点一上线这份内容就通过
+  // 网站泄露出去了，和仓库公不公开无关。
+  srcExclude: ['notes/**', 'develop/redbag.md'],
 
   // 侧栏要按最近一次 commit 显示「最后更新」，CI 必须 fetch-depth: 0。
   lastUpdated: true,
