@@ -1,5 +1,6 @@
 import { detectImageFormat } from '@weq/protocol';
 import { toProtocolAssetUrl } from '../../protocol_asset_url';
+import { readResponseBytes } from '../../bounded_response';
 
 const MAX_BYTES = 20 * 1024 * 1024;
 
@@ -27,29 +28,12 @@ export async function readFavoriteEmojiMedia(raw: string, current: () => void): 
       throw new Error('未能取得表情原文件，请稍后重试');
     if (Number(response.headers.get('content-length')) > MAX_BYTES)
       throw new Error('表情不能超过 20 MB');
-    const reader = response.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let size = 0;
-    try {
-      for (;;) {
-        signal.throwIfAborted();
-        current();
-        const next = await reader.read();
-        if (next.done) break;
-        size += next.value.length;
-        if (size > MAX_BYTES) throw new Error('表情不能超过 20 MB');
-        chunks.push(next.value);
-      }
-    } finally {
-      await reader.cancel().catch(() => {});
-      reader.releaseLock();
-    }
+    const bytes = await readResponseBytes(response, MAX_BYTES, signal, current);
     current();
-    const bytes = Buffer.concat(chunks, size);
     const format = detectImageFormat(bytes);
-    if (!size || !format.width || !format.height) throw new Error('表情文件不是有效图片');
+    if (!bytes.length || !format.width || !format.height) throw new Error('表情文件不是有效图片');
     return bytes;
   } finally {
-    if (response.body && !response.body.locked) await response.body.cancel().catch(() => {});
+    if (response.body && !response.body.locked) void response.body.cancel().catch(() => {});
   }
 }

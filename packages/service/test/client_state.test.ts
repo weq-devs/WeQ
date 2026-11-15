@@ -1,10 +1,31 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  readFileSync,
+  writeFileSync,
+  readdirSync,
+} from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ClientStateStore } from '../src/bootstrap/client_state';
 import { preferenceDefaults } from '../src/common/client_preferences';
+
+const failure = vi.hoisted(() => ({ path: '', body: false }));
+vi.mock('../src/common/atomic_write', async (original) => {
+  const actual = await original<typeof import('../src/common/atomic_write')>();
+  return {
+    ...actual,
+    writeFileAtomicSync: (path: string, data: string | Uint8Array) => {
+      if (path === failure.path || (failure.body && path.includes('client-state-drafts')))
+        throw Object.assign(new Error('synthetic ENOSPC'), { code: 'ENOSPC' });
+      actual.writeFileAtomicSync(path, data);
+    },
+  };
+});
 
 const roots: string[] = [];
 function store() {
@@ -13,9 +34,80 @@ function store() {
   return new ClientStateStore(join(root, 'state.json'));
 }
 afterEach(() => {
+  failure.path = '';
+  failure.body = false;
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 describe('跨端偏好与功能状态', () => {
+  it('连续保存只保留当前正文，通知失败不破坏已成功提交的版本', () => {
+    const state = store();
+    state.subscribe(() => {
+      throw new Error('synthetic subscriber failure');
+    });
+    let version: string | null = null;
+    for (let i = 0; i < 20; i++)
+      version = state.saveDraft('assistant:gc', `value-${i}`, version).current.version;
+    expect(new ClientStateStore(state.path).draft('assistant:gc')).toEqual({
+      version,
+      value: 'value-19',
+    });
+    expect(readdirSync(join(state.path, '..', 'client-state-drafts'))).toHaveLength(1);
+  });
+  it('旧分文件迁移的索引失败保留原路径，成功后才清理旧正文', () => {
+    const state = store();
+    const key = 'assistant:legacy';
+    const dir = join(state.path, '..', 'client-state-drafts');
+    mkdirSync(dir);
+    const path = join(dir, `${createHash('sha256').update(key).digest('hex')}.json`);
+    const draft = { version: 'legacy', value: 'original' };
+    writeFileSync(path, JSON.stringify({ key, ...draft }));
+    writeFileSync(
+      state.path,
+      JSON.stringify({
+        revision: 1,
+        records: {},
+        values: {},
+        externalDrafts: true,
+        drafts: { [key]: { version: draft.version, value: null } },
+      }),
+    );
+    failure.path = state.path;
+    expect(() => state.patch({ background: 'grid' })).toThrow('ENOSPC');
+    expect(existsSync(path)).toBe(true);
+    expect(state.draft(key)).toEqual(draft);
+    failure.path = '';
+    state.patch({ background: 'grid' });
+    expect(existsSync(path)).toBe(false);
+    expect(new ClientStateStore(state.path).draft(key)).toEqual(draft);
+  });
+  it.each(['new', 'update', 'clear'] as const)('索引提交失败后重开仍是上次成功态：%s', (kind) => {
+    const state = store();
+    const key = 'assistant:atomic';
+    const old =
+      kind === 'new' ? { version: null, value: null } : state.saveDraft(key, 'old', null).current;
+    const before = state.snapshot();
+    const listener = vi.fn();
+    state.subscribe(listener);
+    failure.path = state.path;
+    expect(() => state.saveDraft(key, kind === 'clear' ? null : 'new', old.version)).toThrow(
+      'ENOSPC',
+    );
+    failure.path = '';
+    const reopened = new ClientStateStore(state.path);
+    expect(reopened.snapshot()).toEqual(before);
+    expect(reopened.draft(key)).toEqual(old);
+    expect(listener).not.toHaveBeenCalled();
+    expect(state.saveDraft(key, 'retry', old.version).ok).toBe(true);
+  });
+  it('正文保存失败不改变已确认的草稿和索引', () => {
+    const state = store();
+    const old = state.saveDraft('assistant:atomic', 'old', null).current;
+    const before = readFileSync(state.path, 'utf8');
+    failure.body = true;
+    expect(() => state.saveDraft('assistant:atomic', 'new', old.version)).toThrow('ENOSPC');
+    expect(readFileSync(state.path, 'utf8')).toBe(before);
+    expect(new ClientStateStore(state.path).draft('assistant:atomic')).toEqual(old);
+  });
   it.each([
     ['showGroupMemberName', true],
     ['showGroupMemberLevel', true],

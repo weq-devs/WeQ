@@ -18,6 +18,7 @@
 OCR 的数值管线、筛图判据与 worker 协议统一位于 [`packages/agentlab/src/ocr`](https://github.com/weq-devs/WeQ/tree/dev/packages/agentlab/src/ocr)，桌面旧入口仅重导出；Bot 使用同一 worker，`sharp` 与 `onnxruntime-node` 只在本地推理时按需加载。`pnpm build:bot` 同时构建 Bot 与独立 OCR worker。
 
 宿主取图复用媒体协议的 `resolveChatImageFile`，包含本机缓存、外部 chatpic 与完整下载服务的既有回退，不以 QQ 离线为由跳过在线取图。上传附件按内容寻址保存在账号的 AgentLab `images/` 目录，消息与草稿只存 `ai-image:` 引用，随克隆／助手数据备份并可迁移恢复；请求时才构造图像 Data URL，不将其写入历史或断点。
+本地 OCR 直接取图的总期限为 30 秒，字节上限为 32 MiB，响应头和流式正文都受约束；媒体协议仍走完整缓存、在线下载及 rkey 回退。调用方取消会结束本轮取图等待、正文接收与推理，worker 超过 60 秒没有终态也会被回收，不影响其他识别任务。
 
 图片预处理单实例并发上限为四个；通用描述以内容和模型身份缓存，内存最多 256 条、磁盘约 512 条并在七天后过期。指定问题的图片回答不使用或污染通用描述缓存。直接图文调用失败时只能在未收到正文、推理或工具片段前回退 OCR；取消不触发回退。
 

@@ -50,6 +50,13 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
   const identity = `${binding?.expectedAccountUin ?? ''}:${binding?.expectedAccountConfigId ?? ''}:${artifact.kind}:${artifact.id}`;
   const latest = useRef(identity);
   latest.current = identity;
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const cancelLocation = useRef(chooseServerLocation);
   cancelLocation.current = chooseServerLocation;
   useEffect(() => {
@@ -65,7 +72,7 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
   const busy = operation?.identity === identity ? operation.kind : null;
   const taskId = monitor?.identity === identity ? monitor.taskId : null;
   const autoRefresh = useQQAutoRefresh(Boolean(binding && taskId));
-  const current = () => latest.current === identity && isCurrent();
+  const current = () => mounted.current && latest.current === identity && isCurrent();
   const receipt = trpc.account.getExportOutputReceipt.useQuery(
     {
       expectedAccountUin: binding?.expectedAccountUin ?? '',
@@ -96,12 +103,14 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
       const result = isExport
         ? await client.account.openAssistantExport.mutate({ ...expected, taskId: id })
         : await client.account.openAssistantArtifact.mutate({ ...expected, id });
+      if (!current()) return;
       presentClientDocument(result, '助手报告');
     } catch (e) {
       if (current()) dialog.error('打开失败', e instanceof Error ? e.message : String(e));
     } finally {
       if (pending.current === identity) pending.current = null;
-      setOperation((previous) => (previous?.identity === identity ? null : previous));
+      if (mounted.current)
+        setOperation((previous) => (previous?.identity === identity ? null : previous));
     }
   }
 

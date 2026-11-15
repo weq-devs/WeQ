@@ -12,6 +12,8 @@ const fixture = vi.hoisted(() => ({
   installMacUpdate: vi.fn(),
   restricted: false,
   cancelDownload: vi.fn(),
+  fetchOfficialArchive: vi.fn(),
+  verifyOfficialArchive: vi.fn(),
 }));
 vi.mock('../src/main/data_saver', () => ({
   hostDataSaver: async () => fixture.restricted,
@@ -39,6 +41,10 @@ vi.mock('../src/main/update/mac', () => ({
   installMacUpdate: fixture.installMacUpdate,
   finishMacUpdate: vi.fn(),
 }));
+vi.mock('../src/main/update/official_archive', () => ({
+  fetchOfficialArchive: fixture.fetchOfficialArchive,
+  verifyOfficialArchive: fixture.verifyOfficialArchive,
+}));
 
 beforeEach(() => {
   vi.resetModules();
@@ -48,6 +54,8 @@ beforeEach(() => {
   fixture.restricted = false;
   fixture.prepareMacUpdate.mockResolvedValue({ version: '1.1.0' });
   fixture.installMacUpdate.mockResolvedValue(undefined);
+  fixture.fetchOfficialArchive.mockResolvedValue({ sha256: 'fixture', size: 100 });
+  fixture.verifyOfficialArchive.mockResolvedValue(undefined);
 });
 afterEach(() => vi.useRealTimers());
 async function ready() {
@@ -81,6 +89,52 @@ async function ready() {
 }
 
 describe('更新安装动作', () => {
+  it.each([false, true])('Linux 官方核验完成前不提供安装状态，失败拒绝安装：%s', async (fail) => {
+    const previous = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+    try {
+      const { updater, autoUpdater, events } = await ready();
+      const arch = process.arch === 'x64' ? 'x86_64' : 'arm64';
+      const file = `/synthetic/weQ-1.1.0-linux-${arch}.AppImage`;
+      fixture.downloadUpdate.mockImplementationOnce(async () => {
+        autoUpdater.emit('update-downloaded', { version: '1.1.0', downloadedFile: file });
+        return [file];
+      });
+      let finish!: () => void;
+      fixture.verifyOfficialArchive.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve, reject) => {
+            finish = () => (fail ? reject(new Error('官方摘要不匹配')) : resolve());
+          }),
+      );
+      const download = updater.startDownload();
+      const outcome = download.catch((error: Error) => error);
+      await vi.waitFor(() =>
+        expect(fixture.verifyOfficialArchive).toHaveBeenCalledWith(file, {
+          sha256: 'fixture',
+          size: 100,
+        }),
+      );
+      expect(fixture.fetchOfficialArchive).toHaveBeenCalledWith(
+        '1.1.0',
+        `weQ-1.1.0-linux-${arch}.AppImage`,
+        false,
+      );
+      expect(events).not.toContainEqual({ kind: 'downloaded', latest: '1.1.0' });
+      expect(() => updater.quitAndInstall()).toThrow('下载');
+      finish();
+      if (fail) {
+        expect(await outcome).toMatchObject({ message: '官方摘要不匹配' });
+        expect(() => updater.quitAndInstall()).toThrow('下载');
+      } else {
+        await download;
+        updater.quitAndInstall();
+        expect(fixture.quitAndInstall).toHaveBeenCalledOnce();
+      }
+    } finally {
+      Object.defineProperty(process, 'platform', { value: previous, configurable: true });
+    }
+  });
   it('大文件按共享阈值暂停；关闭自动继续后网络恢复仍等待本次继续', async () => {
     const { updater, autoUpdater } = await ready();
     const { updateTransferPolicy } = await import('@weq/service/transfer-policy');

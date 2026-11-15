@@ -60,6 +60,7 @@ export interface OcrEngineRequest {
    * 筛图那条路一次并发好几个进程，每个都开 8 线程只会互相抢。
    */
   threads?: number;
+  signal?: AbortSignal;
 }
 
 export interface OcrEngineResult {
@@ -99,9 +100,16 @@ function executeOcrEngine(request: OcrEngineRequest): Promise<OcrEngineResult> {
   const { image, paths, mode = 'ocr' } = request;
   return new Promise((resolve) => {
     let settled = false;
+    let worker: ReturnType<typeof fork> | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const abort = () => done(fail('本地识别已取消'));
     const done = (result: OcrEngineResult): void => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
+      request.signal?.removeEventListener('abort', abort);
+      if (worker?.connected) worker.disconnect();
+      worker?.kill();
       resolve(result);
     };
     const fail = (error: string): OcrEngineResult => ({
@@ -112,6 +120,10 @@ function executeOcrEngine(request: OcrEngineRequest): Promise<OcrEngineResult> {
       elapsedMs: Date.now() - started,
       error,
     });
+    if (request.signal?.aborted) {
+      abort();
+      return;
+    }
 
     // 最后一层闸：这台机器上根本没有能跑的推理引擎（如 macOS Intel 没有 onnxruntime
     // 二进制）时不必 fork 出去再等一句 MODULE_NOT_FOUND，直接给原因 —— 调用方
@@ -133,7 +145,6 @@ function executeOcrEngine(request: OcrEngineRequest): Promise<OcrEngineResult> {
       return;
     }
 
-    let worker: ReturnType<typeof fork>;
     try {
       worker = fork(workerPath, [], {
         stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
@@ -144,6 +155,8 @@ function executeOcrEngine(request: OcrEngineRequest): Promise<OcrEngineResult> {
       done(fail(`本地识别引擎启动失败：${String(error)}`));
       return;
     }
+    timer = setTimeout(() => done(fail('本地识别超时，请稍后重试')), 60_000);
+    request.signal?.addEventListener('abort', abort, { once: true });
 
     worker.on('message', (msg: OcrWorkerMessage) => {
       if (msg?.type === 'final') {
@@ -158,8 +171,6 @@ function executeOcrEngine(request: OcrEngineRequest): Promise<OcrEngineResult> {
       } else if (msg?.type === 'error') {
         done(fail(msg.error ?? '本地识别失败'));
       }
-      worker.disconnect();
-      worker.kill();
     });
 
     worker.on('error', (error) => done(fail(String(error))));
@@ -187,6 +198,10 @@ function executeOcrEngine(request: OcrEngineRequest): Promise<OcrEngineResult> {
       detOptions: request.detOptions,
       threads: request.threads,
     };
-    worker.send(params);
+    try {
+      worker.send(params);
+    } catch (error) {
+      done(fail(`本地识别引擎通信失败：${String(error)}`));
+    }
   });
 }

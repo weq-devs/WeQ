@@ -20,6 +20,7 @@ import type { AppRouter } from '../../../shared/router';
 import { useWebConnection } from '../state/webConnection';
 import { networkClientId } from '../lib/dataSaver';
 import { HTTP_BATCH_MAX_URL_LENGTH } from '../lib/unreadRequests';
+import { fetchRpcWithDeadline } from './httpDeadline';
 
 const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 
@@ -60,7 +61,7 @@ export function createLinks(): TRPCLink<AppRouter>[] {
     headers: () => ({ 'x-weq-client-id': networkClientId }),
     url: '/trpc',
     async fetch(input: RequestInfo | URL, init?: RequestInit) {
-      const res = await fetch(input, { ...init, credentials: 'same-origin' });
+      const res = await fetchRpcWithDeadline(input, init);
       if (res.status === 401) location.reload();
       return res;
     },
@@ -70,9 +71,20 @@ export function createLinks(): TRPCLink<AppRouter>[] {
       condition: (op) => op.type === 'subscription',
       true: wsLink({ client: wsClient }),
       false: splitLink({
-        condition: (op) => independentReads.has(op.path),
-        true: httpLink(httpOptions),
-        false: httpBatchLink({ ...httpOptions, maxURLLength: HTTP_BATCH_MAX_URL_LENGTH }),
+        condition: (op) => op.type === 'mutation',
+        true: httpLink({
+          ...httpOptions,
+          async fetch(input, init) {
+            const res = await fetchRpcWithDeadline(input, init, true);
+            if (res.status === 401) location.reload();
+            return res;
+          },
+        }),
+        false: splitLink({
+          condition: (op) => independentReads.has(op.path),
+          true: httpLink(httpOptions),
+          false: httpBatchLink({ ...httpOptions, maxURLLength: HTTP_BATCH_MAX_URL_LENGTH }),
+        }),
       }),
     }),
   ];

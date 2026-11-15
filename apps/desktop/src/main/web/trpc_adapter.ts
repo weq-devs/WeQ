@@ -19,6 +19,9 @@ import { logTransportError } from '@weq/service';
 import { WebSocketServer } from 'ws';
 import type { AuthGate } from './auth';
 
+// 单图上传允许 14 MiB base64；附件使用既有分段入口。批量只用于读取。
+export const HTTP_RPC_MAX_BODY_BYTES = 16 * 1024 * 1024;
+
 /** HTTP handler for queries + mutations, mounted under `/trpc`. */
 export function createTrpcHandler(
   router: AnyRouter,
@@ -27,6 +30,7 @@ export function createTrpcHandler(
 ): (req: IncomingMessage, res: ServerResponse) => void {
   const handler = createHTTPHandler({
     router,
+    maxBodySize: HTTP_RPC_MAX_BODY_BYTES,
     onError: ({ error, path }) => logTransportError('trpc-http', path, error),
     createContext: ({ req }) => ({
       networkClientId:
@@ -42,10 +46,97 @@ export function createTrpcHandler(
     }),
   });
   return (req, res) => {
-    // The standalone adapter wants the path relative to its mount point.
-    const original = req.url ?? '/';
-    req.url = original.slice('/trpc'.length) || '/';
-    handler(req, res);
+    const invoke = () => {
+      const original = req.url ?? '/';
+      req.url = original.slice('/trpc'.length) || '/';
+      handler(req, res);
+    };
+    if (
+      (req.method === 'GET' || req.method === 'HEAD') &&
+      !req.headers['content-length'] &&
+      !req.headers['transfer-encoding']
+    ) {
+      invoke();
+      return;
+    }
+    let chunks: Buffer[] = [];
+    let bytes = 0;
+    const cleanup = () => {
+      chunks = [];
+      req.off('data', data);
+      req.off('end', end);
+      req.off('aborted', cleanup);
+      req.off('error', cleanup);
+    };
+    const reject = (status: 400 | 413) => {
+      cleanup();
+      req.pause();
+      const code = status === 413 ? 'PAYLOAD_TOO_LARGE' : 'PARSE_ERROR';
+      const error = new TRPCError({
+        code,
+        message:
+          status === 413 ? '请求正文超过 16 MiB 上限，请使用附件分段上传。' : '请求 JSON 无效',
+      });
+      const result = {
+        error: router._def._config.transformer.output.serialize(
+          router.getErrorShape({
+            error,
+            type: req.method === 'GET' ? 'query' : 'mutation',
+            path: undefined,
+            input: undefined,
+            ctx: undefined,
+          }),
+        ),
+      };
+      const url = new URL(req.url ?? '/', 'http://localhost');
+      const body =
+        url.searchParams.get('batch') === '1'
+          ? url.pathname
+              .split('/')
+              .at(-1)!
+              .split(',')
+              .map(() => result)
+          : result;
+      res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+      // 先送达错误响应；暂停读取期间不再累积正文，随后关闭不可复用的连接。
+      const closing = setTimeout(() => req.destroy(), 250);
+      closing.unref();
+      req.once('close', () => clearTimeout(closing));
+      res.end(JSON.stringify(body));
+    };
+    const data = (chunk: Buffer) => {
+      bytes += chunk.byteLength;
+      if (bytes > HTTP_RPC_MAX_BODY_BYTES) {
+        reject(413);
+        return;
+      }
+      chunks.push(chunk);
+    };
+    const end = () => {
+      const text = Buffer.concat(chunks, bytes).toString('utf8');
+      cleanup();
+      try {
+        Object.assign(req, {
+          body: req.headers['content-type']?.startsWith('application/json')
+            ? text
+              ? JSON.parse(text)
+              : undefined
+            : text || undefined,
+        });
+      } catch {
+        reject(400);
+        return;
+      }
+      invoke();
+    };
+    if (Number(req.headers['content-length'] ?? 0) > HTTP_RPC_MAX_BODY_BYTES) {
+      reject(413);
+      return;
+    }
+    req.on('data', data);
+    req.once('end', end);
+    req.once('aborted', cleanup);
+    req.once('error', cleanup);
   };
 }
 

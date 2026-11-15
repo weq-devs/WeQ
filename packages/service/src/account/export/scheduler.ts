@@ -19,12 +19,14 @@ import * as timeFormat from '@weq/time';
  */
 
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ExportTaskManager, TaskProgress } from './task_manager';
 import type { DressExportKinds } from './dress_export';
 import type { ExportFormat, ExportTimeRange } from './types';
-import { writeFileAtomicSync } from '../../common/atomic_write';
+import { JsonStore } from '../../common/json_store';
+import { getLogger } from '../../common/logger';
+import { isRecord } from '../../common/client_preferences';
 
 /** Cadence for a scheduled export. Mirrors the renderer's `Schedule`. */
 export interface ScheduleConfig {
@@ -143,6 +145,103 @@ export interface ScheduledTask {
 
 const MAX_HISTORY = 20;
 const SCHEDULE_FILE = 'schedules.json';
+const RETRY_SECONDS = 60;
+function normalizeSchedules(raw: unknown): ScheduledTask[] {
+  if (!Array.isArray(raw)) throw new Error('定时任务文件不是数组，原件已保留');
+  const ids = new Set<string>();
+  return raw.map((value: unknown) => {
+    const invalid = (): never => {
+      throw new Error('定时任务记录损坏，原件已保留');
+    };
+    if (!isRecord(value) || typeof value.id !== 'string' || !value.id || ids.has(value.id))
+      return invalid();
+    ids.add(value.id);
+    for (const key of ['name', 'format'])
+      if (value[key] !== undefined && typeof value[key] !== 'string') invalid();
+    if (value.enabled !== undefined && typeof value.enabled !== 'boolean') invalid();
+    for (const key of ['createdAt', 'updatedAt', 'nextRunAt'])
+      if (
+        value[key] !== undefined &&
+        !(key === 'nextRunAt' && value[key] === null) &&
+        (typeof value[key] !== 'number' || !Number.isFinite(value[key]))
+      )
+        invalid();
+    const schedule = value.schedule ?? { mode: 'daily', time: '03:00', intervalHours: 6 };
+    if (
+      !isRecord(schedule) ||
+      typeof schedule.mode !== 'string' ||
+      !['daily', 'interval'].includes(schedule.mode) ||
+      typeof schedule.time !== 'string' ||
+      typeof schedule.intervalHours !== 'number' ||
+      !Number.isFinite(schedule.intervalHours)
+    )
+      invalid();
+    const conversations = value.conversations ?? [];
+    if (
+      !Array.isArray(conversations) ||
+      conversations.some(
+        (row) =>
+          !isRecord(row) ||
+          typeof row.id !== 'string' ||
+          typeof row.name !== 'string' ||
+          typeof row.kind !== 'string' ||
+          !['group', 'c2c'].includes(row.kind) ||
+          typeof row.total !== 'number' ||
+          !Number.isFinite(row.total),
+      )
+    )
+      invalid();
+    const history = value.history ?? [];
+    if (
+      !Array.isArray(history) ||
+      history.some(
+        (row) =>
+          !isRecord(row) ||
+          typeof row.at !== 'number' ||
+          !Number.isFinite(row.at) ||
+          !Array.isArray(row.taskIds) ||
+          row.taskIds.some((id) => typeof id !== 'string') ||
+          typeof row.outcome !== 'string' ||
+          !['running', 'completed', 'partial', 'failed', 'skipped', 'cancelled'].includes(
+            row.outcome,
+          ),
+      )
+    )
+      invalid();
+    const options: unknown = value.options ?? defaultOptions();
+    if (
+      !isRecord(options) ||
+      !isRecord(options.range) ||
+      typeof options.range.preset !== 'string' ||
+      !['all', 'today', '7d', '30d', '1y', 'custom'].includes(options.range.preset)
+    )
+      return invalid();
+    for (const key of ['start', 'end']) {
+      const bound = options.range[key];
+      if (bound !== null && (typeof bound !== 'number' || !Number.isFinite(bound))) invalid();
+    }
+    for (const [key, defaultValue] of Object.entries(defaultOptions()))
+      if (
+        typeof defaultValue === 'boolean' &&
+        options[key] !== undefined &&
+        typeof options[key] !== 'boolean'
+      )
+        invalid();
+    return {
+      name: '',
+      enabled: false,
+      format: 'txt',
+      createdAt: 0,
+      updatedAt: 0,
+      nextRunAt: null,
+      ...value,
+      schedule,
+      conversations,
+      history,
+      options: { ...defaultOptions(), ...options },
+    } as ScheduledTask;
+  });
+}
 
 /** Input shape for `create` / `update` — server-side fields filled by the manager. */
 export type ScheduleInput = Omit<
@@ -180,12 +279,15 @@ export declare interface ExportScheduler {
 export class ExportScheduler extends EventEmitter {
   private tasks = new Map<string, ScheduledTask>();
   private readonly path: string;
+  private readonly store: JsonStore<ScheduledTask[]>;
+  private retries = new Map<string, number>();
   private wakeHandle: NodeJS.Timeout | null = null;
   /** Set while a fire is mid-flight; new fires triggered by a tick that races
    *  with a still-running one bail out instead of stacking. */
   private firing = false;
   private stopped = false;
   private startingBatches = new Set<string>();
+  private settlingBatches = new Set<string>();
   private activeBatches = new Map<string, string[]>();
   private outcomeListeners = new Set<() => void>();
 
@@ -196,6 +298,10 @@ export class ExportScheduler extends EventEmitter {
     super();
     mkdirSync(cacheDir, { recursive: true });
     this.path = join(cacheDir, SCHEDULE_FILE);
+    this.store = new JsonStore(this.path, () => [], {
+      pretty: true,
+      normalize: normalizeSchedules,
+    });
     this.load();
     this.scheduleNextWake();
   }
@@ -203,18 +309,12 @@ export class ExportScheduler extends EventEmitter {
   // ---- persistence ----
 
   private load(): void {
-    if (!existsSync(this.path)) return;
     try {
-      const raw = readFileSync(this.path, 'utf-8').trim();
-      if (!raw) return;
-      const data = JSON.parse(raw) as ScheduledTask[];
+      this.store.assertReadable();
+      const data = structuredClone(this.store.data);
       const now = Math.floor(Date.now() / 1000);
       let rebased = false;
       for (const t of data) {
-        // Back-compat: legacy entries without history / nextRunAt.
-        if (!Array.isArray(t.history)) t.history = [];
-        if (!t.schedule) t.schedule = { mode: 'daily', time: '03:00', intervalHours: 6 };
-        if (!t.options) t.options = defaultOptions();
         // 已逾期记录沿用一次恢复；只重算尚未到期的每日计划。
         if (t.enabled && t.schedule.mode === 'daily' && t.nextRunAt !== null && t.nextRunAt > now) {
           const next = computeNextRun(t.schedule, now);
@@ -231,39 +331,59 @@ export class ExportScheduler extends EventEmitter {
 
   private save(): void {
     try {
-      writeFileAtomicSync(this.path, JSON.stringify([...this.tasks.values()], null, 2));
-    } catch (e) {
-      console.error('[ExportScheduler] failed to save schedules:', e);
+      this.store.replace(structuredClone([...this.tasks.values()]), true);
+    } catch (error) {
+      this.applyTasks(structuredClone(this.store.data));
+      throw error;
     }
+  }
+  private applyTasks(next: ScheduledTask[]) {
+    const previous = this.tasks;
+    this.tasks = new Map(
+      next.map((task) => {
+        const current = previous.get(task.id);
+        return [task.id, current ? Object.assign(current, task) : task];
+      }),
+    );
+  }
+  private replaceTasks(next: ScheduledTask[]) {
+    this.store.replace(structuredClone(next), true);
+    this.applyTasks(next);
   }
 
   private notify(): void {
-    this.emit('change', this.list());
+    try {
+      this.emit('change', this.list());
+    } catch (error) {
+      getLogger().child({ scope: 'export-scheduler' }).warn('任务已保存，订阅通知失败', { error });
+    }
   }
 
   // ---- public API ----
 
   list(): ScheduledTask[] {
+    this.store.assertReadable();
     return [...this.tasks.values()].sort((a, b) => b.createdAt - a.createdAt);
   }
 
   get(id: string): ScheduledTask | null {
+    this.store.assertReadable();
     return this.tasks.get(id) ?? null;
   }
 
   /** Create a new schedule. `nextRunAt` is computed from now. */
   create(input: ScheduleInput): ScheduledTask {
+    this.store.assertReadable();
     const now = Math.floor(Date.now() / 1000);
     const task: ScheduledTask = {
-      ...input,
+      ...structuredClone(input),
       id: `sched-${now}-${Math.random().toString(36).slice(2, 8)}`,
       createdAt: now,
       updatedAt: now,
       nextRunAt: computeNextRun(input.schedule, now),
       history: [],
     };
-    this.tasks.set(task.id, task);
-    this.save();
+    this.replaceTasks([...this.tasks.values(), task]);
     this.notify();
     this.scheduleNextWake();
     return task;
@@ -272,12 +392,14 @@ export class ExportScheduler extends EventEmitter {
   /** Patch an existing schedule. Re-computes `nextRunAt` when `schedule` changes
    *  (relative to `updatedAt`, i.e. now). */
   update(id: string, patch: SchedulePatch): ScheduledTask | null {
+    this.store.assertReadable();
     const t = this.tasks.get(id);
     if (!t) return null;
     const now = Math.floor(Date.now() / 1000);
-    Object.assign(t, patch, { updatedAt: now });
-    if (patch.schedule) t.nextRunAt = computeNextRun(t.schedule, now);
-    this.save();
+    const next = { ...t, ...structuredClone(patch), updatedAt: now };
+    if (patch.schedule) next.nextRunAt = computeNextRun(next.schedule, now);
+    this.replaceTasks([...this.tasks.values()].map((task) => (task.id === id ? next : task)));
+    this.retries.delete(id);
     this.notify();
     this.scheduleNextWake();
     return t;
@@ -288,10 +410,11 @@ export class ExportScheduler extends EventEmitter {
   }
 
   delete(id: string): boolean {
+    this.store.assertReadable();
     const t = this.tasks.get(id);
     if (!t) return false;
-    this.tasks.delete(id);
-    this.save();
+    this.replaceTasks([...this.tasks.values()].filter((task) => task.id !== id));
+    this.retries.delete(id);
     this.notify();
     this.scheduleNextWake();
     return true;
@@ -299,10 +422,8 @@ export class ExportScheduler extends EventEmitter {
 
   /** Wipe every persisted schedule + history. Useful for "reset". */
   clear(): void {
-    this.tasks.clear();
-    try {
-      if (existsSync(this.path)) rmSync(this.path, { force: true });
-    } catch {}
+    this.replaceTasks([]);
+    this.retries.clear();
     this.notify();
     this.scheduleNextWake();
   }
@@ -311,6 +432,7 @@ export class ExportScheduler extends EventEmitter {
    *  ids; the call does NOT await the tasks themselves — they continue running
    *  in the background like any other export. */
   async runNow(id: string): Promise<string[]> {
+    this.store.assertReadable();
     const t = this.tasks.get(id);
     if (!t) return [];
     const result = await this.fire(t, /* reason */ 'manual');
@@ -335,7 +457,8 @@ export class ExportScheduler extends EventEmitter {
     let soonest: number | null = null;
     for (const t of this.tasks.values()) {
       if (!t.enabled || t.nextRunAt == null) continue;
-      if (soonest == null || t.nextRunAt < soonest) soonest = t.nextRunAt;
+      const attemptAt = Math.max(t.nextRunAt, this.retries.get(t.id) ?? 0);
+      if (soonest == null || attemptAt < soonest) soonest = attemptAt;
     }
     if (soonest == null) {
       this.wakeHandle = null;
@@ -352,8 +475,15 @@ export class ExportScheduler extends EventEmitter {
   }
 
   private async tickAndReschedule(): Promise<void> {
-    await this.tick();
-    this.scheduleNextWake();
+    try {
+      await this.tick();
+    } catch (error) {
+      getLogger()
+        .child({ scope: 'export-scheduler' })
+        .error('定时任务状态保存失败，稍后重试', { error });
+    } finally {
+      this.scheduleNextWake();
+    }
   }
 
   /** Walk every schedule; fire each whose `nextRunAt <= now`. */
@@ -362,7 +492,13 @@ export class ExportScheduler extends EventEmitter {
     const now = Math.floor(Date.now() / 1000);
     const due: ScheduledTask[] = [];
     for (const t of this.tasks.values()) {
-      if (t.enabled && t.nextRunAt != null && t.nextRunAt <= now) due.push(t);
+      if (
+        t.enabled &&
+        t.nextRunAt != null &&
+        t.nextRunAt <= now &&
+        (this.retries.get(t.id) ?? 0) <= now
+      )
+        due.push(t);
     }
     if (due.length === 0) return;
 
@@ -372,7 +508,13 @@ export class ExportScheduler extends EventEmitter {
       // firing simultaneously (midnight = many "daily" tasks at once).
       for (const t of due) {
         if (this.stopped) break;
-        await this.fire(t, 'scheduled');
+        this.retries.set(t.id, now + RETRY_SECONDS);
+        try {
+          await this.fire(t, 'scheduled');
+        } catch (error) {
+          this.retries.set(t.id, now + RETRY_SECONDS);
+          throw error;
+        }
       }
     } finally {
       this.firing = false;
@@ -388,29 +530,46 @@ export class ExportScheduler extends EventEmitter {
 
     // --- guards (record skip in history, don't throw) ---
     if (t.enabled === false && reason === 'scheduled') {
-      return this.recordOutcome(t, { at, taskIds, outcome: 'skipped', skipReason: '已暂停' });
+      return this.recordOutcome(
+        t,
+        { at, taskIds, outcome: 'skipped', skipReason: '已暂停' },
+        reason === 'scheduled',
+      );
     }
     // Conflict: a previous run for this same schedule still has live tasks.
     if (
       this.startingBatches.has(t.id) ||
+      this.settlingBatches.has(t.id) ||
       this.hasRunning(this.activeBatches.get(t.id)) ||
       t.history.some((trigger) => this.hasRunning(trigger.taskIds))
     ) {
-      return this.recordOutcome(t, {
-        at,
-        taskIds,
-        outcome: 'skipped',
-        skipReason: '上次任务未结束',
-      });
+      return this.recordOutcome(
+        t,
+        {
+          at,
+          taskIds,
+          outcome: 'skipped',
+          skipReason: '上次任务未结束',
+        },
+        reason === 'scheduled',
+      );
     }
     const completeMessages = t.options.content
       ? t.options.content.messages === 'cloud'
       : t.options.completeMessages;
     if (completeMessages && !this.deps.isOnline()) {
-      return this.recordOutcome(t, { at, taskIds, outcome: 'skipped', skipReason: 'QQ 离线' });
+      return this.recordOutcome(
+        t,
+        { at, taskIds, outcome: 'skipped', skipReason: 'QQ 离线' },
+        reason === 'scheduled',
+      );
     }
     if (t.conversations.length === 0) {
-      return this.recordOutcome(t, { at, taskIds, outcome: 'skipped', skipReason: '未选择会话' });
+      return this.recordOutcome(
+        t,
+        { at, taskIds, outcome: 'skipped', skipReason: '未选择会话' },
+        reason === 'scheduled',
+      );
     }
 
     this.startingBatches.add(t.id);
@@ -511,13 +670,12 @@ export class ExportScheduler extends EventEmitter {
 
     // Persist the running batch and book the next cadence before yielding to the wake loop.
     this.activeBatches.set(t.id, taskIds);
-    const trigger = this.recordOutcome(
-      t,
-      { at, taskIds, outcome: 'running' },
-      reason === 'scheduled',
-    );
-    if (!this.stopped) this.watchOutcome(t, trigger, firstError);
-    return trigger;
+    const trigger: ScheduleTrigger = { at, taskIds, outcome: 'running' };
+    try {
+      return this.recordOutcome(t, trigger, reason === 'scheduled');
+    } finally {
+      if (!this.stopped) this.watchOutcome(t, trigger, firstError, reason === 'scheduled');
+    }
   }
 
   /** Subscribe to ExportTaskManager progress; on every task terminal event,
@@ -526,13 +684,62 @@ export class ExportScheduler extends EventEmitter {
     t: ScheduledTask,
     trigger: ScheduleTrigger,
     firstError: string | null,
+    advance: boolean,
   ): void {
     const taskIds = trigger.taskIds;
     const expected = new Set(taskIds);
     const states = new Map<string, 'completed' | 'failed' | 'cancelled'>();
+    const archives: Record<string, string> = {};
+    let retry: ReturnType<typeof setTimeout> | undefined;
     const unsubscribe = (): void => {
+      clearTimeout(retry);
+      this.settlingBatches.delete(t.id);
       this.deps.taskManager.off('progress', onProgress);
       this.outcomeListeners.delete(unsubscribe);
+    };
+    const finalize = () => {
+      if (retry) return;
+      const current = this.tasks.get(t.id);
+      if (!current || this.stopped) {
+        unsubscribe();
+        return;
+      }
+      this.settlingBatches.add(t.id);
+      const allDone = [...states.values()].every((state) => state === 'completed');
+      const outcome: ScheduleOutcome = allDone && !firstError ? 'completed' : 'partial';
+      const completed = {
+        ...trigger,
+        outcome,
+        ...(firstError && outcome !== 'completed' ? { note: firstError } : {}),
+      };
+      const matches = (entry: ScheduleTrigger) =>
+        entry.at === trigger.at && entry.taskIds.join(',') === taskIds.join(',');
+      const history = current.history.some(matches)
+        ? current.history.map((entry) => (matches(entry) ? completed : entry))
+        : [completed, ...current.history].slice(0, MAX_HISTORY);
+      const next = {
+        ...current,
+        history,
+        updatedAt: Math.floor(Date.now() / 1000),
+        ...(Object.keys(archives).length ? { archives: { ...current.archives, ...archives } } : {}),
+        nextRunAt: advance
+          ? Math.max(current.nextRunAt ?? 0, computeNextRun(current.schedule, trigger.at))
+          : current.nextRunAt,
+      };
+      try {
+        this.replaceTasks([...this.tasks.values()].map((task) => (task.id === t.id ? next : task)));
+        unsubscribe();
+        if (this.activeBatches.get(t.id) === taskIds) this.activeBatches.delete(t.id);
+        this.notify();
+      } catch (error) {
+        getLogger()
+          .child({ scope: 'export-scheduler' })
+          .error('导出已结束，触发回执保存失败，稍后重试保存', { error });
+        retry = setTimeout(() => {
+          retry = undefined;
+          finalize();
+        }, RETRY_SECONDS * 1000);
+      }
     };
     const onProgress = (p: TaskProgress): void => {
       if (!expected.has(p.taskId)) return;
@@ -547,28 +754,13 @@ export class ExportScheduler extends EventEmitter {
         const saveFailed = task?.save?.status === 'failed' || task?.save?.status === 'interrupted';
         if (p.status === 'completed' && !saveFailed && task?.archiveId) {
           const path = this.deps.taskManager.formalArchivePath(task.id);
-          if (path) {
-            t.archives ??= {};
-            t.archives[`${task.kind}:${task.conv}`] = path;
-          }
+          if (path) archives[`${task.kind}:${task.conv}`] = path;
         }
         if (saveFailed && !firstError) firstError = task?.save?.error ?? '导出已完成，结果未保存';
         if (!states.has(p.taskId)) {
           states.set(p.taskId, saveFailed ? 'failed' : p.status);
-          if (states.size === expected.size) {
-            unsubscribe();
-            if (this.activeBatches.get(t.id) === taskIds) this.activeBatches.delete(t.id);
-            const allDone = [...states.values()].every((s) => s === 'completed');
-            const outcome: ScheduleOutcome = allDone && !firstError ? 'completed' : 'partial';
-            Object.assign(trigger, {
-              outcome,
-              ...(firstError && outcome !== 'completed' ? { note: firstError } : {}),
-            });
-            t.updatedAt = Math.floor(Date.now() / 1000);
-            this.save();
-            this.notify();
-          }
         }
+        if (states.size === expected.size) finalize();
       }
     };
     this.deps.taskManager.on('progress', onProgress);
@@ -613,6 +805,11 @@ export class ExportScheduler extends EventEmitter {
     trigger: ScheduleTrigger,
     advance = true,
   ): ScheduleTrigger {
+    if (trigger.outcome === 'skipped' && advance) {
+      this.retries.set(t.id, trigger.at + RETRY_SECONDS);
+      const last = t.history[0];
+      if (last?.outcome === 'skipped' && last.skipReason === trigger.skipReason) return last;
+    } else if (advance) this.retries.delete(t.id);
     t.history.unshift(trigger);
     if (t.history.length > MAX_HISTORY) t.history.length = MAX_HISTORY;
     if (advance && trigger.outcome !== 'skipped') {

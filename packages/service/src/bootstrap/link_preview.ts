@@ -31,7 +31,7 @@ import { request as httpRequest, type IncomingMessage } from 'node:http';
 import type { Readable } from 'node:stream';
 import { createBrotliDecompress, createGunzip, createInflate } from 'node:zlib';
 import { request as httpsRequest } from 'node:https';
-import { isIP } from 'node:net';
+import { BlockList, isIP } from 'node:net';
 import { join } from 'node:path';
 import { getLogger } from '../common/logger';
 import type { UserConfigService } from './user_config';
@@ -115,41 +115,33 @@ function uaFor(host: string): string {
 
 // ---- SSRF 闸门 -------------------------------------------------------------
 
-function ipv4Blocked(ip: string): boolean {
-  const p = ip.split('.').map(Number);
-  if (p.length !== 4 || p.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return true;
-  const [a, b] = p as [number, number, number, number];
-  if (a === 0 || a === 127) return true; // 本机 / 未指定
-  if (a === 10) return true; // 私网
-  if (a === 172 && b >= 16 && b <= 31) return true; // 私网
-  if (a === 192 && b === 168) return true; // 私网
-  if (a === 169 && b === 254) return true; // link-local（含 169.254.169.254 云元数据）
-  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
-  if (a === 192 && b === 0) return true; // 192.0.0/24 IETF、192.0.2/24 文档网
-  if (a === 198 && (b === 18 || b === 19)) return true; // 基准测试网
-  if (a >= 224) return true; // 组播 / 保留 / 广播
-  return false;
-}
-
-function ipv6Blocked(ip: string): boolean {
-  const s = ip.toLowerCase().split('%')[0]!;
-  // IPv4-mapped / IPv4-compatible（::ffff:127.0.0.1 是最常见的绕过写法）
-  const mapped = s.match(/^(?:::ffff:|::)(\d+\.\d+\.\d+\.\d+)$/);
-  if (mapped) return ipv4Blocked(mapped[1]!);
-  if (s === '::' || s === '::1') return true;
-  const head = s.split(':')[0] ?? '';
-  const n = Number.parseInt(head || '0', 16);
-  if ((n & 0xfe00) === 0xfc00) return true; // fc00::/7 ULA
-  if ((n & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
-  if ((n & 0xff00) === 0xff00) return true; // ff00::/8 组播
-  if (s.startsWith('64:ff9b:')) return true; // NAT64 → 可映射到内网 v4
-  return false;
-}
+// Node 按地址位解析，IPv4 子网也匹配 mapped IPv6，不依赖 URL 的文本表示。
+const blockedAddresses = new BlockList();
+for (const [address, prefix] of [
+  ['0.0.0.0', 8],
+  ['127.0.0.0', 8],
+  ['10.0.0.0', 8],
+  ['172.16.0.0', 12],
+  ['192.168.0.0', 16],
+  ['169.254.0.0', 16],
+  ['100.64.0.0', 10],
+  ['192.0.0.0', 16],
+  ['198.18.0.0', 15],
+  ['224.0.0.0', 3],
+] as const)
+  blockedAddresses.addSubnet(address, prefix, 'ipv4');
+for (const [address, prefix] of [
+  ['::', 96], // 未指定、回环及已弃用的 IPv4-compatible 地址。
+  ['fc00::', 7],
+  ['fe80::', 10],
+  ['ff00::', 8],
+  ['64:ff9b::', 32],
+] as const)
+  blockedAddresses.addSubnet(address, prefix, 'ipv6');
 
 function ipBlocked(ip: string): boolean {
   const v = isIP(ip);
-  if (v === 4) return ipv4Blocked(ip);
-  if (v === 6) return ipv6Blocked(ip);
+  if (v === 4 || v === 6) return blockedAddresses.check(ip, v === 4 ? 'ipv4' : 'ipv6');
   return true;
 }
 
@@ -570,10 +562,12 @@ export class LinkPreviewService {
 
     return this.fetchPreview(url)
       .catch((error) => {
+        const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
         this.logger.debug('link preview failed', {
           event: 'link-preview-fail',
-          url,
-          error: String(error),
+          origin: new URL(url).origin,
+          urlHash: createHash('sha256').update(url).digest('hex'),
+          code: typeof code === 'string' && /^E[A-Z0-9_]{1,40}$/.test(code) ? code : undefined,
         });
         return null;
       })

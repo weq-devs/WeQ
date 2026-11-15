@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { writeFileAtomicSync } from '../common/atomic_write';
 import { normalizeSearchPreferences } from '../account/search_policy';
+import { getLogger } from '../common/logger';
 import {
   isRecord,
   validatePreferencePatch,
@@ -15,6 +16,7 @@ import {
 interface State extends ClientStateSnapshot {
   drafts: Record<string, SharedDraft>;
   externalDrafts?: boolean;
+  versionedDrafts?: boolean;
   draftBytes?: Record<string, number>;
   restoredReceipts?: string[];
 }
@@ -39,6 +41,8 @@ export function validateClientState(value: unknown): asserts value is State {
     throw new Error('共享恢复回执无效');
   if (value.externalDrafts !== undefined && typeof value.externalDrafts !== 'boolean')
     throw new Error('草稿分文件标记无效');
+  if (value.versionedDrafts !== undefined && typeof value.versionedDrafts !== 'boolean')
+    throw new Error('草稿版本文件标记无效');
   if (
     value.draftBytes !== undefined &&
     (!isRecord(value.draftBytes) ||
@@ -98,7 +102,10 @@ export class ClientStateStore {
     ].filter((key) => key.startsWith('copy:'));
     if (retiredKeys.length) {
       for (const key of retiredKeys) {
-        rmSync(this.draftPath(key), { force: true });
+        const draft = data.drafts[key];
+        this.removeDraftFile(
+          this.draftPath(key, data.versionedDrafts ? draft?.version : undefined),
+        );
         delete data.drafts[key];
         if (data.draftBytes) delete data.draftBytes[key];
       }
@@ -117,42 +124,69 @@ export class ClientStateStore {
     return {
       ...state,
       externalDrafts: false,
+      versionedDrafts: false,
       draftBytes: undefined,
       drafts: Object.fromEntries(
         Object.keys(state.drafts).map((key) => [key, this.readDraft(state, key)]),
       ),
     };
   }
-  private draftPath(key: string) {
+  private draftPath(key: string, version?: string | null) {
+    const hash = createHash('sha256').update(key).digest('hex');
     return join(
       dirname(this.path),
       'client-state-drafts',
-      `${createHash('sha256').update(key).digest('hex')}.json`,
+      `${hash}${
+        version === undefined
+          ? ''
+          : `.${createHash('sha256')
+              .update(version ?? 'null')
+              .digest('hex')}`
+      }.json`,
     );
+  }
+  private removeDraftFile(path: string) {
+    try {
+      rmSync(path, { force: true });
+    } catch {
+      // 清理不影响已成功发布的索引；读取始终只采用当前索引引用。
+    }
   }
   private readDraft(state: State, key: string): SharedDraft {
     if (!Object.hasOwn(state.drafts, key)) return { version: null, value: null };
     if (!state.externalDrafts) return state.drafts[key]!;
-    const value: unknown = JSON.parse(readFileSync(this.draftPath(key), 'utf8'));
+    const expected = state.drafts[key]!;
+    const value: unknown = JSON.parse(
+      readFileSync(
+        this.draftPath(key, state.versionedDrafts ? expected.version : undefined),
+        'utf8',
+      ),
+    );
     if (
       !isRecord(value) ||
       value.key !== key ||
       !(value.version === null || typeof value.version === 'string') ||
-      !Object.hasOwn(value, 'value')
+      !Object.hasOwn(value, 'value') ||
+      (state.versionedDrafts && value.version !== expected.version)
     )
       throw new Error('草稿文件无效，已保留原件');
     return { version: value.version, value: value.value };
   }
   private externalize(state: State) {
-    if (state.externalDrafts) return;
+    if (state.externalDrafts && state.versionedDrafts) return [];
+    const retired: string[] = [];
     state.draftBytes = {};
-    for (const [key, draft] of Object.entries(state.drafts)) {
+    for (const key of Object.keys(state.drafts)) {
+      const draft = this.readDraft(state, key);
       const data = JSON.stringify({ key, ...draft });
-      writeFileAtomicSync(this.draftPath(key), data);
+      writeFileAtomicSync(this.draftPath(key, draft.version), data);
+      if (state.externalDrafts) retired.push(this.draftPath(key));
       state.draftBytes[key] = Buffer.byteLength(data);
       state.drafts[key] = { version: draft.version, value: null };
     }
     state.externalDrafts = true;
+    state.versionedDrafts = true;
+    return retired;
   }
   subscribe(listener: (event: ClientStateChange) => void): () => void {
     this.listeners.add(listener);
@@ -163,16 +197,24 @@ export class ClientStateStore {
   announceDrafts() {
     for (const listener of this.listeners) listener({ revision: Date.now(), section: 'drafts' });
   }
-  private commit(state: State, section: ClientStateChange['section']) {
-    this.externalize(state);
+  private commit(state: State, section: ClientStateChange['section'], retired: string[] = []) {
+    retired.push(...this.externalize(state));
     state.revision++;
     if (!state.epoch || state.epoch === 'empty') state.epoch = randomUUID();
     const data = JSON.stringify(state);
     if (Buffer.byteLength(data) > 32 * 1024 * 1024) throw new Error('跨端状态超过 32 MiB 容量限制');
     mkdirSync(dirname(this.path), { recursive: true });
     writeFileAtomicSync(this.path, data);
-    for (const listener of this.listeners) listener({ revision: state.revision, section });
-    return this.snapshot();
+    for (const path of retired) this.removeDraftFile(path);
+    for (const listener of this.listeners) {
+      try {
+        listener({ revision: state.revision, section });
+      } catch (error) {
+        getLogger().child({ scope: 'client-state' }).warn('状态已提交，订阅通知失败', { error });
+      }
+    }
+    const { epoch, revision, values, records } = state;
+    return structuredClone({ epoch, revision, values, records });
   }
   patch(patch: unknown) {
     validatePreferencePatch(patch);
@@ -303,7 +345,8 @@ export class ClientStateStore {
       return { ok: true as const, current };
     if (current.version !== expectedVersion) return { ok: false as const, current };
     const next = { version: randomUUID(), value };
-    this.externalize(state);
+    const retired = this.externalize(state);
+    if (Object.hasOwn(state.drafts, key)) retired.push(this.draftPath(key, current.version));
     const data = JSON.stringify({ key, ...next });
     const sizes = { ...state.draftBytes, [key]: Buffer.byteLength(data) };
     if (Object.values(sizes).reduce((sum, size) => sum + size, 0) > 32 * 1024 * 1024)
@@ -311,8 +354,14 @@ export class ClientStateStore {
     state.draftBytes = sizes;
     state.drafts[key] = { version: next.version, value: null };
     if (Object.keys(state.drafts).length > 8192) throw new Error('草稿记录超过容量限制');
-    writeFileAtomicSync(this.draftPath(key), data);
-    this.commit(state, 'drafts');
+    const path = this.draftPath(key, next.version);
+    try {
+      writeFileAtomicSync(path, data);
+      this.commit(state, 'drafts', retired);
+    } catch (error) {
+      this.removeDraftFile(path);
+      throw error;
+    }
     return { ok: true as const, current: next };
   }
 }
