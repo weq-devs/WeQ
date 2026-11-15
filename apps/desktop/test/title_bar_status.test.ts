@@ -111,16 +111,18 @@ describe('标题栏在线状态', () => {
     expect(f.host.querySelector('[aria-label="编辑在线状态"]')).toBeNull();
     expect(f.host.querySelector('.weq-title-online-status')?.textContent).toBe('在线');
   });
-  it('搜索在签名右侧、受限提示左侧，签名保留全文提示且受限状态可收拢', () => {
+  it('搜索与省流量菜单在签名右侧、受限提示左侧，签名保留全文提示且受限状态可收拢', () => {
     const f = fixture();
     const signature = f.host.querySelector('.app-title-bar-signature')!;
     const search = f.host.querySelector('.weq-titlebar-search')!;
+    const dataSaver = f.host.querySelector('.weq-data-saver-entry')!;
     const restriction = f.host.querySelector('.weq-titlebar-restriction')!;
     expect(signature.getAttribute('title')).toBe(f.user.signature);
     expect(
       signature.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(search.nextElementSibling).toBe(restriction);
+    expect(search.nextElementSibling).toBe(dataSaver);
+    expect(dataSaver.nextElementSibling).toBe(restriction);
     const indicator = restriction.querySelector('button')!;
     expect(indicator.getAttribute('aria-hidden')).toBe('true');
     expect(indicator.disabled).toBe(true);
@@ -144,6 +146,7 @@ describe('标题栏在线状态', () => {
         'self-profile.css',
         'restricted-mode.css',
         'titlebar-search.css',
+        'data-saver-menu.css',
       ]
         .map((name) => readFileSync(resolve('src/renderer/src/styles', name), 'utf8'))
         .join('\n');
