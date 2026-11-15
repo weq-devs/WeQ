@@ -13,7 +13,7 @@
           id="avatar-uid"
           v-model="uid"
           spellcheck="false"
-          placeholder="u_LKt3AdAIMP-CUfn6ydzDzw"
+          placeholder="u_EXAMPLEFRIENDUID0000"
           @input="onInput"
         />
       </div>

@@ -25,8 +25,15 @@ db_key      = md5( header_seed + user_seed )
 | 输入 | 值 |
 | --- | --- |
 | uin | `100000004` |
-| 头部随机串 | `vgdBdzWwwrNNGORk` |
-| 结果 | `2a4e04f77fd4ab2f4a42717e3e69e3d3` |
+| 头部随机串 | `ExampleHeaderStr` |
+| 结果 | `6fa31d8e977aa29a43e4eded85d8ad70` |
+
+::: info 测试向量是构造的
+
+上面这组是**按本节公式现算的示例**，不是从任何真实账号的库里取出来的。
+换成自己的 `uin` 与 `header` 重算，结果应当能对上 —— 对不上说明实现有偏差。
+
+:::
 
 ## 二、算法组合也和消息库不同
 

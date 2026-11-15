@@ -9,7 +9,7 @@
     <div class="weq-tool-grid">
       <div class="weq-tool-field">
         <label for="gpro-uin">QQ 号（uin）</label>
-        <input id="gpro-uin" v-model="uin" spellcheck="false" placeholder="1707889225" @input="compute" />
+        <input id="gpro-uin" v-model="uin" spellcheck="false" placeholder="10001" @input="compute" />
       </div>
       <div class="weq-tool-field">
         <label for="gpro-header">头部盐值（16 字符）</label>
@@ -17,7 +17,7 @@
           id="gpro-header"
           v-model="header"
           spellcheck="false"
-          placeholder="vgdBdzWwwrNNGORk"
+          placeholder="ExampleHeaderStr"
           @input="compute"
         />
       </div>

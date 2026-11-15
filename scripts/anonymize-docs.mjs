@@ -10,6 +10,9 @@
  *   node scripts/anonymize-docs.mjs           # 写盘
  *   node scripts/anonymize-docs.mjs --check   # 只报错，不写盘（CI 用）
  *
+ * 也扫 `docs/.vitepress/theme/` 下的 Vue 组件 —— 计算器输入框的 `placeholder`
+ * 曾直接写死真实 uin 与 uid，那会渲染进公开页面。
+ *
  * ## 映射规则
  *
  * **按号码的第一次出现顺序**编号，同一个号码在所有文件里映射到同一个占位符 ——
@@ -56,6 +59,8 @@ const REPLACEMENTS = [
   ['u_h3h1...', 'u_EXAMPLESELF...'],
   // 本机测试账号
   ['1707889225', '100000004'],
+  // 真实设备的 gpro 库私有头随机串（文档里的「已知测试向量」）
+  ['vgdBdzWwwrNNGORk', 'ExampleHeaderStr'],
 ];
 
 /**
@@ -71,7 +76,7 @@ function trackedMarkdown() {
   });
   return out
     .split('\0')
-    .filter((p) => p.endsWith('.md'))
+    .filter((p) => p.endsWith('.md') || p.endsWith('.vue') || p.endsWith('.ts'))
     .map((p) => join(root, p));
 }
 
