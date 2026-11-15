@@ -606,13 +606,8 @@ function ReplyPreviewNode({
   }
   if (element.type === 'pic') {
     return (
-      <span className="qq-reply-preview-media">
-        <QqImage
-          data={element.data ?? {}}
-          sendTimeMs={sendTimeMs}
-          conv={conv}
-          interactive={interactive}
-        />
+      <span className="qq-reply-preview-media qq-reply-preview-image">
+        <QqImage data={element.data ?? {}} sendTimeMs={sendTimeMs} conv={conv} />
       </span>
     );
   }
@@ -679,7 +674,7 @@ function replyPreviewElements(origElements: RenderElement[]): RenderElement[] {
  *   line 1 — the original sender's nickname (resolved by the host),
  *   line 2 — a compact preview of the referenced message's elements
  *           with the jump-arrow tucked at its end.
- * Clicking anywhere on the box asks the host to scroll to that message.
+ * 点击文字或箭头定位原消息；图片保留自身的加载、重试与预览操作。
  */
 function ReplyQuote({ data, sendTimeMs }: { data: Record<string, unknown>; sendTimeMs: number }) {
   const jumpToSeq = useContext(ReplyJumpContext);
@@ -717,16 +712,13 @@ function ReplyQuote({ data, sendTimeMs }: { data: Record<string, unknown>; sendT
       role={canJump ? 'button' : undefined}
       tabIndex={canJump ? 0 : undefined}
       title={canJump ? '跳转到原消息' : undefined}
-      onClickCapture={(event) => {
-        // 引用缩略图只负责定位，不启动正文图片灯箱或视频播放器。
-        if (
-          canJump &&
-          event.target instanceof Element &&
-          event.target.closest('.qq-reply-preview-media')
-        )
-          handleJump(event);
+      onClick={(event) => {
+        if (event.target instanceof Element && event.target.closest('.qq-reply-preview-image')) {
+          event.stopPropagation();
+          return;
+        }
+        if (canJump) handleJump(event);
       }}
-      onClick={canJump ? handleJump : undefined}
       onKeyDown={(event) => {
         if (
           canJump &&
