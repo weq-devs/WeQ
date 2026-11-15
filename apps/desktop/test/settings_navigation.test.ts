@@ -10,6 +10,19 @@ import {
 
 describe('设置的两级导航', () => {
   it.each([
+    ['引用自动提及', 'quote-auto-mention', 'chat-interaction'],
+    ['退格取消引用', 'quote-backspace-remove', 'chat-interaction'],
+    ['显示群成员昵称', 'group-message-name', 'message-display'],
+    ['显示群成员等级', 'group-message-level', 'message-display'],
+    ['显示群成员头衔与身份', 'group-message-title', 'message-display'],
+  ])('%s 搜索直达群消息或引用设置', (keyword, settingId, section) => {
+    expect(searchAppEntries(keyword)[0]?.target).toMatchObject({
+      kind: 'setting',
+      section,
+      settingId,
+    });
+  });
+  it.each([
     ['默认聊天模型', 'llm-default-model'],
     ['默认视觉模型', 'llm-default-vision-model'],
     ['默认向量模型', 'llm-default-embedding-model'],
@@ -50,7 +63,7 @@ describe('设置的两级导航', () => {
       '基础功能',
       '增强功能',
       '凭据与账号',
-      '数据库与资源',
+      '资源与数据库',
       'WeQ 服务',
       '关于 WeQ',
     ]);
@@ -95,14 +108,14 @@ describe('设置的两级导航', () => {
     for (const id of ['database', 'database-status', 'maintenance'] as const) {
       expect(settingsGroupFor(id)).toEqual({
         id: 'data',
-        label: '数据库与资源',
+        label: '资源与数据库',
         sections: [
-          'database-repair',
-          'database-tolerance',
-          'database-management',
-          'qq-storage',
-          'media',
           'resource-loading',
+          'media',
+          'qq-storage',
+          'database-management',
+          'database-tolerance',
+          'database-repair',
         ],
       });
     }
@@ -126,11 +139,11 @@ describe('设置的两级导航', () => {
   it.each([
     ['诊断工具', 'QQ 协议工具', '凭据与账号'],
     ['QQ 账号管理', 'QQ 登录记录管理', '凭据与账号'],
-    ['数据库宽容', '数据库容错', '数据库与资源'],
-    ['资源目录管理', 'QQ 资源管理', '数据库与资源'],
+    ['数据库宽容', '数据库容错', '资源与数据库'],
+    ['资源目录管理', 'QQ 资源管理', '资源与数据库'],
     ['已保存的 provider', '已保存的服务商', '增强功能'],
-    ['优先使用 CDN', '优先直连 QQ 加载图片', '数据库与资源'],
-    ['媒体来源', '媒体来源', '数据库与资源'],
+    ['优先使用 CDN', '优先直连 QQ 加载图片', '资源与数据库'],
+    ['媒体来源', '媒体来源', '资源与数据库'],
     ['性能监视', '性能监视', '关于 WeQ'],
   ])('旧名或新名 %s 展示规范名称 %s 与新路径', (keyword, title, group) => {
     const entry = searchAppEntries(keyword)[0];

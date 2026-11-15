@@ -158,7 +158,8 @@ export function mailEnvelope(value: unknown): MailObject {
   const head = object(envelope.head);
   const code = text(head.ret);
   if (code === '0') return object(envelope.body);
-  if (code === '-20002' || code === '-20062' || code === '-39005') {
+  // 已有会话被 -25001 拒绝时先换票据；新登录需要用户验证仍由 native 单独识别。
+  if (code === '-20002' || code === '-20062' || code === '-39005' || code === '-25001') {
     throw new MailFailure('auth', '邮箱登录已失效，请重新连接。', code);
   }
   throw new MailFailure(

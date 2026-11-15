@@ -21,6 +21,7 @@ export function useMessageNotifications(options: {
   badgeCount: number;
   foregroundConversation?: string;
   groupAssistantIds?: ReadonlySet<string>;
+  resolveGroupSenderName?: (message: ChatMsgWire) => string | Promise<string>;
 }) {
   useClientPreferences((state) => state.tick);
   const locked = useAppLock((state) => state.locked);
@@ -66,6 +67,7 @@ export function useMessageNotifications(options: {
   const seen = useRef(new Set<string>());
   const pending = useRef(new Map<string, { message: ChatMsgWire; observedAt: number }>());
   const openedAt = useRef(Date.now() / 1000);
+  const generation = useRef(0);
   const channel = useRef<ReturnType<typeof browserNoticeChannel> | null>(null);
   if (!channel.current) channel.current = browserNoticeChannel();
   const process = useRef<(batch?: NewMessagesWire) => void>(() => undefined);
@@ -128,33 +130,64 @@ export function useMessageNotifications(options: {
     while (seen.current.size > 5000) seen.current.delete(seen.current.values().next().value!);
     while (pending.current.size > 500) pending.current.delete(pending.current.keys().next().value!);
     for (const item of notices.values()) {
-      const title = latest.current.privacy ? 'WeQ' : item.title.slice(0, 512);
-      const body = latest.current.privacy
-        ? '收到新消息'
-        : item.body + (item.count > 1 ? `\n另有 ${item.count - 1} 条消息` : '');
-      const notice: WebNotice = {
-        uin: scope.expectedAccountUin,
-        configId: scope.expectedAccountConfigId,
-        kind: 'message',
-        title,
-        body,
-        target: { kind: item.message.kind, conv: item.message.conv, seq: item.message.msgSeq },
+      const currentGeneration = generation.current;
+      const show = (senderName = '') => {
+        if (
+          generation.current !== currentGeneration ||
+          JSON.stringify(accountBinding()) !== scopeKey ||
+          !latest.current.enabled ||
+          (document.visibilityState === 'visible' &&
+            document.hasFocus() &&
+            latest.current.foregroundConversation === item.message.conv)
+        )
+          return;
+        const sender =
+          senderName.trim() ||
+          (item.message.senderUin && item.message.senderUin !== '0'
+            ? item.message.senderUin
+            : item.message.senderUid || '成员');
+        const content =
+          item.message.kind === 'group' ? `${sender.slice(0, 256)}：${item.body}` : item.body;
+        const title = latest.current.privacy ? 'WeQ' : item.title.slice(0, 512);
+        const body = latest.current.privacy
+          ? '收到新消息'
+          : content + (item.count > 1 ? `\n另有 ${item.count - 1} 条消息` : '');
+        const notice: WebNotice = {
+          uin: scope.expectedAccountUin,
+          configId: scope.expectedAccountConfigId,
+          kind: 'message',
+          title,
+          body,
+          target: { kind: item.message.kind, conv: item.message.conv, seq: item.message.msgSeq },
+        };
+        if (IS_WEB) {
+          channel.current?.show(notice);
+        } else
+          void client.account.messageNotifications.notify
+            .mutate({
+              ...scope,
+              messageId: item.message.msgId,
+              kind: item.message.kind,
+              conv: item.message.conv,
+              seq: item.message.msgSeq,
+              title,
+              body,
+              private: latest.current.privacy,
+            })
+            .catch((error: unknown) => console.warn('[message-notifications] 通知未提交', error));
       };
-      if (IS_WEB) {
-        channel.current?.show(notice);
-      } else
-        void client.account.messageNotifications.notify
-          .mutate({
-            ...scope,
-            messageId: item.message.msgId,
-            kind: item.message.kind,
-            conv: item.message.conv,
-            seq: item.message.msgSeq,
-            title,
-            body,
-            private: latest.current.privacy,
-          })
-          .catch((error: unknown) => console.warn('[message-notifications] 通知未提交', error));
+      const resolve = latest.current.resolveGroupSenderName;
+      if (item.message.kind === 'group' && !latest.current.privacy && resolve) {
+        void (async () => {
+          let senderName = '';
+          try {
+            senderName = await resolve(item.message);
+          } catch (error) {
+            console.warn('[message-notifications] 发送者名称未补全', error);
+          }
+          show(senderName);
+        })();
+      } else show();
     }
   };
   useEffect(() => {
@@ -166,6 +199,7 @@ export function useMessageNotifications(options: {
       onData: (batch) => process.current(batch),
     });
     return () => {
+      generation.current++;
       subscription.unsubscribe();
       channel.current?.close();
     };

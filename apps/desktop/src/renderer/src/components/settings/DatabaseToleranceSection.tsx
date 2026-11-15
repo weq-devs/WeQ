@@ -393,7 +393,7 @@ export function DatabaseToleranceSection({
         >
           <Row
             label="数据库异常时弹窗提醒"
-            desc="健康检查确认损坏后会显示提示，可点击「尝试修复」，或从设置 → 数据库与资源 → 损坏与修复进入。关闭提示后仍会记录日志并生成检查报告。"
+            desc="健康检查确认损坏后会显示提示，可点击「尝试修复」，或从设置 → 资源与数据库 → 损坏与修复进入。关闭提示后仍会记录日志并生成检查报告。"
             control={
               <Toggle
                 checked={remindOnDamage}

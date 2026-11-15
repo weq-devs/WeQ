@@ -53,6 +53,7 @@ import { withBrowserFile } from '../lib/browserFileUpload';
 import { stageAccountFile } from '../lib/accountFilePicker';
 import { WEB_NOTICE_OPEN } from '../components/WebNotifications';
 import type { WebNotice } from '../../../main/web/notices';
+import type { ChatMsgWire as IncomingMessageWire } from '../../../main/ipc/serde';
 import {
   createReplyPreviewIndex,
   findReplyPreview,
@@ -3181,6 +3182,16 @@ function MainWorkspace(): ReactElement {
   useEffect(
     () =>
       onOpenSettingsRequest((section) => {
+        if (section === 'dataSaver') {
+          setSettingsSection('resource-loading');
+          setSettingsSearchTarget({
+            section: 'resource-loading',
+            settingId: 'data-saver',
+            revision: Date.now(),
+          });
+          setSettingsOpen(true);
+          return;
+        }
         if (section === 'enhancementPacks') {
           setSettingsSearchTarget(null);
           setSettingsSection('enhancement-packs');
@@ -5178,12 +5189,46 @@ function MainWorkspace(): ReactElement {
     activeGroupSidebarPopover?.kind === 'sign' ? activeGroupSidebarPopover : null;
   const essenceDialog =
     activeGroupSidebarPopover?.kind === 'essence' ? activeGroupSidebarPopover : null;
+  const resolveNoticeGroupSenderName = useCallback(
+    async (message: IncomingMessageWire) => {
+      const names = previewGroupNames.get(message.conv);
+      const cached = names?.get(message.senderUid) || names?.get(message.senderUin);
+      if (cached) return cached;
+      const binding = messageBindingRef.current;
+      const profile = profileByUid.get(message.senderUid);
+      const profileName =
+        previewDisplayNames.get(message.senderUid) || previewDisplayNames.get(message.senderUin);
+      if (!binding || (!message.senderUid && !/^[1-9]\d*$/.test(message.senderUin)))
+        return profileName || '';
+      const members = await (message.senderUid
+        ? client.account.getGroupMembersByUids.query({
+            ...binding,
+            groupCode: message.conv,
+            uids: [message.senderUid],
+          })
+        : client.account.getGroupMembersByUins.query({
+            ...binding,
+            groupCode: message.conv,
+            uins: [message.senderUin],
+          })
+      ).catch(() => []);
+      const member = members[0];
+      return displayGroupMemberName(
+        member?.card,
+        profile?.remark,
+        member?.nick || profile?.nick,
+        profileName || '',
+      );
+    },
+    [previewGroupNames, previewDisplayNames, profileByUid],
+  );
   useMessageNotifications({
     selfUin: user.identityValue,
     selfUid: user.uid,
     conversations,
     preferences: conversationPrefs,
     groupAssistantIds,
+    resolveGroupSenderName: resolveNoticeGroupSenderName,
     badgeCount: shell.messageUnreadCount,
     foregroundConversation:
       messagesTabActive && !settingsOpen && !dressUpOpen ? selectedUid : undefined,

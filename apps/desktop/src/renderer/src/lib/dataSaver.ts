@@ -6,9 +6,26 @@ import {
   type NetworkCost,
   dataSaverBehaviorDefaults,
   type DataSaverBehavior,
+  type DataSaverStatus,
+  type DataSaverTemporaryRequest,
 } from '@weq/service/data-saver';
 import { preferenceValue, PREFERENCES_CHANGED, useClientPreferences } from './clientPreferences';
 import { IS_WEB } from './target';
+import { localBackgroundTasks } from '../state/backgroundTasks';
+import { unfinishedDataSaverTasks } from '../../../shared/data_saver_tasks';
+import { useToast } from '../components/Toast';
+import { requestOpenSettings } from './callSettingsBridge';
+
+export const DATA_SAVER_MENU_EVENT = 'weq:open-data-saver';
+export const dataSaverModeOptions = [
+  { value: 'always', label: '开启' },
+  { value: 'never', label: '关闭' },
+  { value: 'auto', label: '跟随系统' },
+] as const;
+export function openDataSaverMenu() {
+  if (window.dispatchEvent(new Event(DATA_SAVER_MENU_EVENT, { cancelable: true })))
+    requestOpenSettings('dataSaver');
+}
 
 type Connection = EventTarget & { saveData?: boolean };
 type NetworkWindow = Window & {
@@ -21,6 +38,7 @@ export const useDataSaver = create(() => ({
   host: UNKNOWN_NETWORK,
   local: UNKNOWN_NETWORK,
   behavior: { ...dataSaverBehaviorDefaults },
+  status: null as DataSaverStatus | null,
 }));
 export const networkClientId = (() => {
   try {
@@ -33,6 +51,8 @@ export const networkClientId = (() => {
     return globalThis.crypto.randomUUID();
   }
 })();
+// 同源弹窗会复制 sessionStorage；每份文档必须有独立的任务来源。
+const taskWindowId = globalThis.crypto.randomUUID();
 function localNetwork(): NetworkCost {
   let native = (window as NetworkWindow).weqRemoteNetworkCost;
   try {
@@ -52,7 +72,7 @@ function localNetwork(): NetworkCost {
   return typeof connection?.saveData === 'boolean'
     ? connection.saveData
       ? networkCost(true, false, 'browser')
-      : { ...UNKNOWN_NETWORK, source: 'browser' }
+      : networkCost(false, false, 'browser')
     : UNKNOWN_NETWORK;
 }
 function refresh() {
@@ -73,20 +93,80 @@ function refresh() {
   useDataSaver.setState({
     host,
     local,
-    enabled: dataSaverEnabled(preferenceValue('dataSaverMode'), host, local),
+    enabled:
+      useDataSaver.getState().status?.enabled ??
+      dataSaverEnabled(preferenceValue('dataSaverMode'), host, local),
     behavior,
   });
   if (IS_WEB && useClientPreferences.getState().ready) {
     const native = window as NetworkWindow;
     try {
-      native.weqRemoteLinks?.networkPreference?.(preferenceValue('dataSaverMode'));
+      const mode =
+        useDataSaver.getState().status?.effectiveMode ?? preferenceValue('dataSaverMode');
+      native.weqRemoteLinks?.networkPreference?.(mode);
       native.webkit?.messageHandlers?.weqShell?.postMessage({
-        dataSaverMode: preferenceValue('dataSaverMode'),
+        dataSaverMode: mode,
       });
     } catch {
       /* 旧壳不接收网络偏好时仍按已有能力运行。 */
     }
   }
+}
+export function applyDataSaverStatus(status: DataSaverStatus) {
+  const previous = useDataSaver.getState().status;
+  const sameSession = previous?.sessionId === status.sessionId;
+  if (sameSession && previous && status.revision < previous.revision) return;
+  useDataSaver.setState({
+    status,
+    host: status.host,
+    local: status.local,
+    enabled: status.enabled,
+  });
+  refresh();
+  const automatic = ['initial', 'system', 'expiry', 'tasks'].includes(status.reason);
+  const initial = !previous || !sameSession;
+  if (
+    initial
+      ? status.mode === 'auto' && status.enabled && !status.temporary
+      : automatic && previous.enabled !== status.enabled
+  ) {
+    const reason = initial
+      ? '跟随系统省流量设置'
+      : status.reason === 'expiry'
+        ? '临时设置已到期'
+        : status.reason === 'tasks'
+          ? '全部任务已结束'
+          : '系统网络状态变化';
+    useToast.getState().push({
+      key: 'data-saver-mode',
+      tone: 'info',
+      title: status.enabled ? '已自动进入省流量模式' : '已自动退出省流量模式',
+      detail: reason,
+      action: { label: '省流量设置', run: openDataSaverMenu },
+    });
+  }
+}
+export async function refreshDataSaverStatus() {
+  const { client } = await import('../trpc/client');
+  const status = await client.settings.dataSaver.status.query({
+    clientId: networkClientId,
+    windowId: taskWindowId,
+    pendingTasks: unfinishedDataSaverTasks({ background: [...localBackgroundTasks.snapshot()] }),
+  });
+  applyDataSaverStatus(status);
+  return status;
+}
+export async function temporarilySetDataSaver(value: DataSaverTemporaryRequest) {
+  const { client } = await import('../trpc/client');
+  applyDataSaverStatus(
+    await client.settings.dataSaver.temporary.mutate({ clientId: networkClientId, value }),
+  );
+}
+export async function clearTemporaryDataSaver() {
+  const { client } = await import('../trpc/client');
+  applyDataSaverStatus(
+    await client.settings.dataSaver.clearTemporary.mutate({ clientId: networkClientId }),
+  );
 }
 export function dataSaverActive() {
   return useDataSaver.getState().enabled;
@@ -99,16 +179,14 @@ export function installDataSaver() {
     busy = true;
     try {
       const { client } = await import('../trpc/client');
-      const host = await client.settings.networkCost.query(
+      await client.settings.networkCost.query(
         IS_WEB ? { clientId: networkClientId, cost: localNetwork() } : undefined,
       );
       if (!closed) {
-        useDataSaver.setState({ host });
-        refresh();
+        await refreshDataSaverStatus();
       }
     } catch {
       if (!closed) {
-        useDataSaver.setState({ host: UNKNOWN_NETWORK });
         refresh();
       }
     } finally {
@@ -127,10 +205,46 @@ export function installDataSaver() {
   connection?.addEventListener('change', changed);
   refresh();
   void poll();
+  let subscription: { unsubscribe(): void } | undefined;
+  void import('../trpc/client')
+    .then(({ client }) => {
+      if (!closed)
+        subscription = client.settings.dataSaver.changed.subscribe(
+          { clientId: networkClientId },
+          {
+            onData: (status) => {
+              if (!closed) applyDataSaverStatus(status);
+            },
+          },
+        );
+    })
+    .catch(() => undefined);
+  let lastTaskCount = unfinishedDataSaverTasks({
+    background: [...localBackgroundTasks.snapshot()],
+  });
+  const stopTasks = localBackgroundTasks.subscribe(() => {
+    const count = unfinishedDataSaverTasks({ background: [...localBackgroundTasks.snapshot()] });
+    if (count === lastTaskCount) return;
+    lastTaskCount = count;
+    void refreshDataSaverStatus().catch(() => undefined);
+  });
   const timer = setInterval(() => void poll(), 15000);
+  const pageClosed = (event: PageTransitionEvent) => {
+    if (event.persisted) return;
+    // 明确结束页面生命周期才撤销本地任务来源；网络断开不会发送此回执。
+    void import('../trpc/client')
+      .then(({ client }) =>
+        client.settings.dataSaver.windowClosed.mutate({ windowId: taskWindowId }),
+      )
+      .catch(() => undefined);
+  };
+  window.addEventListener('pagehide', pageClosed);
   return () => {
     closed = true;
     clearInterval(timer);
+    subscription?.unsubscribe();
+    stopTasks();
+    window.removeEventListener('pagehide', pageClosed);
     window.removeEventListener(PREFERENCES_CHANGED, refresh);
     window.removeEventListener('weq-remote-network-cost', changed);
     window.removeEventListener('online', changed);

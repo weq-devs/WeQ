@@ -272,7 +272,7 @@ describe('设置归位后的实际页面', () => {
       expect(remote.querySelector('[aria-label="连接方式"]')).toBeNull();
       f.render('resource-loading');
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
-        '数据库与资源',
+        '资源与数据库',
       );
       expect(f.body().querySelector('[data-setting-id="prefer-cdn"]')).not.toBeNull();
       expect(f.body().textContent).toContain('桌面端与 Web 共用');
@@ -358,6 +358,9 @@ describe('设置归位后的实际页面', () => {
         '显示消息序号（seq）',
         '显示发送日期',
         '显示发送时间',
+        '显示群消息发送者名称',
+        '显示群成员等级',
+        '显示群成员头衔与身份',
         '聊天头像挂件',
         '消息气泡',
         '消息字体',
@@ -371,7 +374,7 @@ describe('设置归位后的实际页面', () => {
       ]);
       expect(
         [...display.querySelectorAll('.weq-set-card-title')].map((node) => node.textContent),
-      ).toEqual(['时间与序号', '头像与装扮', '文本与链接', '语音消息', '图片与表情']);
+      ).toEqual(['时间与序号', '群消息', '头像与装扮', '文本与链接', '语音消息', '图片与表情']);
       act(() => tabs.find((tab) => tab.textContent === '互动与防撤回')!.click());
       expect(f.body().querySelector('[data-setting-id="send-with-qq-font"]')).not.toBeNull();
       expect(f.body().querySelector('[data-setting-id="typing-status"]')).not.toBeNull();

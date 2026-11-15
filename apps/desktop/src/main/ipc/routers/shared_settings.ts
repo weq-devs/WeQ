@@ -12,8 +12,22 @@ import { sharedPreferencePersistence } from '@weq/service/shared-preferences';
 import { agentLabModelSelectionSchema } from '../../../shared/agentlab_model_selection';
 import { validateMcpConfig } from '../../mcp/external';
 import { listScreenWidgets } from './dressup';
-import { refreshTransferPolicy } from '../../data_saver';
-import { updateClientNetwork } from '@weq/service/transfer-policy';
+import {
+  refreshTransferPolicy,
+  dataSaverStatus,
+  reportDataSaverTasks,
+  setTemporaryDataSaver,
+  closeDataSaverWindow,
+} from '../../data_saver';
+import { dataSaverSession, updateClientNetwork } from '@weq/service/transfer-policy';
+import { observable } from '@trpc/server/observable';
+import type { DataSaverStatus } from '@weq/service/data-saver';
+
+const dataSaverClient = z.object({
+  clientId: z.string().regex(/^[\w-]{1,80}$/),
+  windowId: z.string().uuid(),
+  pendingTasks: z.number().int().min(0).max(100000).optional(),
+});
 
 export const assistantSettingsProcedures = {
   getConfig: procedure.query(
@@ -72,6 +86,51 @@ export function sharedMailPreferences() {
 }
 
 export const sharedSettingsRouter = router({
+  dataSaver: router({
+    windowClosed: procedure
+      .input(z.object({ windowId: dataSaverClient.shape.windowId }))
+      .mutation(({ input }) => closeDataSaverWindow(input.windowId)),
+    status: procedure.input(dataSaverClient).query(async ({ input }) => {
+      reportDataSaverTasks(input.windowId, input.pendingTasks);
+      await refreshTransferPolicy();
+      return dataSaverStatus(input.clientId);
+    }),
+    temporary: procedure
+      .input(
+        z.object({
+          clientId: dataSaverClient.shape.clientId,
+          value: z.discriminatedUnion('duration', [
+            z.object({ duration: z.literal('exit'), enabled: z.boolean() }),
+            z.object({ duration: z.literal('tasks'), enabled: z.literal(false) }),
+            z.object({
+              duration: z.literal('minutes'),
+              enabled: z.boolean(),
+              minutes: z.number().int().min(1).max(1440),
+            }),
+          ]),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        await refreshTransferPolicy();
+        return setTemporaryDataSaver(input.value, input.clientId);
+      }),
+    clearTemporary: procedure
+      .input(z.object({ clientId: dataSaverClient.shape.clientId }))
+      .mutation(({ input }) => {
+        dataSaverSession.clearTemporary();
+        return dataSaverSession.status(input.clientId);
+      }),
+    changed: procedure
+      .input(z.object({ clientId: dataSaverClient.shape.clientId }))
+      .subscription(({ input }) =>
+        observable<DataSaverStatus>((emit) => {
+          emit.next(dataSaverSession.status(input.clientId));
+          return dataSaverSession.subscribe(() =>
+            emit.next(dataSaverSession.status(input.clientId)),
+          );
+        }),
+      ),
+  }),
   networkCost: procedure
     .input(
       z

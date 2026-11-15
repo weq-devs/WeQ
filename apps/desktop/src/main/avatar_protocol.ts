@@ -56,7 +56,7 @@ export async function handleAvatarRequest(request: Request): Promise<Response> {
     return new Response('native unavailable', { status: 503 });
   }
   const cache = ctx.bootstrap.avatarCache;
-  const restricted = url.searchParams.get('ds') === '1' || (await hostDataSaver());
+  const restricted = await hostDataSaver(url.searchParams.get('ds') === '1');
   const get = (ttl?: number) =>
     networkScope.run(
       {

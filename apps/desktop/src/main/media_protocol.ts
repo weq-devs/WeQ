@@ -531,7 +531,7 @@ export async function resolveChatImageFile(
   if (backup) return { path: backup, variant: 'unknown' as const };
   const cached = services.mediaDownload.cachedFile(q.get('token') ?? '');
   if (cached) return { path: cached, variant: 'downloaded' as const };
-  const restricted = q.get('ds') === '1' || (await hostDataSaver());
+  const restricted = await hostDataSaver(q.get('ds') === '1');
   const behavior = transferBehavior();
   if (
     q.get('intent') !== 'interactive' &&
@@ -570,7 +570,7 @@ export async function handleMediaRequest(request: Request, check?: () => void): 
   try {
     const query = new URL(request.url).searchParams;
     const kind = new URL(request.url).hostname;
-    const restricted = query.get('ds') === '1' || (await hostDataSaver());
+    const restricted = await hostDataSaver(query.get('ds') === '1');
     const intent =
       query.get('intent') === 'interactive'
         ? 'interactive'
