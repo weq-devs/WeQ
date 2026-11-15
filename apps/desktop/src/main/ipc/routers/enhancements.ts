@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { observable } from '@trpc/server/observable';
+import type { EnhancementUpdateNotice } from '../../../shared/enhancement_release';
 import { ENHANCEMENT_PACK_IDS } from '../../../shared/enhancement_manifest';
 import { requireBootstrap } from '../../context/app_context';
 import { startEnhancementDownloads } from '../../enhancements/tasks';
@@ -8,6 +10,23 @@ const packId = z.enum(ENHANCEMENT_PACK_IDS);
 const selection = z.object({ ids: z.array(packId).min(1).max(ENHANCEMENT_PACK_IDS.length) });
 
 export const enhancementProcedures = {
+  onEnhancementUpdates: procedure.subscription(() =>
+    observable<EnhancementUpdateNotice[]>((emit) =>
+      requireBootstrap().enhancements.updates.subscribeNotifications((notices) =>
+        emit.next(notices),
+      ),
+    ),
+  ),
+  acknowledgeEnhancementUpdates: procedure
+    .input(
+      z
+        .array(z.object({ id: packId, contentVersion: z.string().regex(/^[a-f0-9]{64}$/) }))
+        .max(ENHANCEMENT_PACK_IDS.length),
+    )
+    .mutation(async ({ input }) => {
+      await requireBootstrap().enhancements.updates.acknowledgeNotifications(input);
+      return true;
+    }),
   enhancementPacks: procedure.query(async () => {
     const resources = requireBootstrap().enhancements;
     await resources.inspected;

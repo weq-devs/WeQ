@@ -18,6 +18,7 @@ import { TaskQuickActions } from '../src/renderer/src/components/tasks/TaskQuick
 import { useToast } from '../src/renderer/src/components/Toast';
 import { useDbRepairWindow } from '../src/renderer/src/state/dbRepairWindow';
 import { backgroundTaskNavigation } from '../src/renderer/src/components/tasks/backgroundTaskNavigation';
+import { onOpenSettingsRequest } from '../src/renderer/src/lib/callSettingsBridge';
 
 const fixture = vi.hoisted(() => ({
   accountId: 'fixture-account',
@@ -215,6 +216,32 @@ async function clickQuick(row: Element, label: string) {
 }
 
 describe('统一当前任务', () => {
+  it.each([false, true])('增强包下载任务可跳转设置，不依赖账号或下载状态（Web：%s）', (web) => {
+    fixture.web = web;
+    const open = vi.fn();
+    const unsubscribe = onOpenSettingsRequest(open);
+    try {
+      for (const status of ['running', 'paused', 'completed', 'failed'] as const) {
+        const task: BackgroundTask = {
+          id: 'enhancement-download',
+          kind: 'model',
+          name: '本地文字识别',
+          status,
+          actions: [],
+          startedAt: 1,
+          updatedAt: 1,
+          destination: 'enhancement-packs',
+        };
+        const navigation = backgroundTaskNavigation(task);
+        expect(navigation?.label).toBe('打开增强包设置');
+        navigation?.run();
+        expect(open).toHaveBeenLastCalledWith('enhancementPacks');
+        expect(backgroundTaskNavigation({ ...task, destination: undefined })).toBeNull();
+      }
+    } finally {
+      unsubscribe();
+    }
+  });
   it('体检跳转只对带明确目标和账号的桌面任务显示，不按名称猜测', () => {
     const task: BackgroundTask = {
       id: 'checkup-task',

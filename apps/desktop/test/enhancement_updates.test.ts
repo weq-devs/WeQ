@@ -8,13 +8,18 @@ import { UserConfigService, VOICE_MODELS } from '@weq/service';
 import { afterEach, expect, it, vi } from 'vitest';
 import { EnhancementUpdateController } from '../src/main/enhancements/updates';
 import { EnhancementPacks, type EnhancementComponentState } from '../src/main/enhancements/packs';
-import { createRelease, releaseContentVersion } from '../src/main/enhancements/release_catalog';
+import {
+  createRelease,
+  releaseContentVersion,
+  modelReleaseComponent,
+} from '../src/main/enhancements/release_catalog';
 import {
   enhancementReleaseBlocker,
   parseEnhancementCatalog,
   parseEnhancementCatalogForHost,
 } from '../src/shared/enhancement_release';
 import { backgroundTasks } from '../src/main/background_tasks';
+import { trackEnhancementPreparation } from '../src/main/enhancements/tasks';
 import { updateTransferPolicy } from '@weq/service/transfer-policy';
 import { networkCost } from '@weq/service/data-saver';
 import { enhancementEngineCompatibility } from '../src/shared/enhancement_manifest';
@@ -47,7 +52,7 @@ function release(revision: string, minWeqVersion = '2.6.1') {
     minWeqVersion,
   );
 }
-async function fixture(installed = true, existingRoot?: string) {
+async function fixture(installed = true, existingRoot?: string, currentVersion = '2.7.0') {
   const root = existingRoot ?? (await mkdtemp(join(tmpdir(), 'weq-enhancement-updates-')));
   if (!existingRoot) roots.push(root);
   const config = new UserConfigService({ appDataRoot: () => root } as unknown as Platform);
@@ -120,7 +125,7 @@ async function fixture(installed = true, existingRoot?: string) {
       ),
   );
   const controller = new EnhancementUpdateController(packs, config, 'darwin-arm64', {
-    currentVersion: () => '2.7.0',
+    currentVersion: () => currentVersion,
     nativeCommit: () => nativeCommit,
     fetcher,
   });
@@ -243,6 +248,21 @@ it('已有完整资源的离线核对不读取在线清单', async () => {
   expect(f.fetcher).not.toHaveBeenCalled();
   expect(f.select).not.toHaveBeenCalled();
   expect((await f.packs.list())[0]?.downloaded).toBe(true);
+});
+
+it('关闭自动安装时启动核对已有资源，不生成增强包已就绪任务，也不下载', async () => {
+  const f = await fixture(false);
+  Object.assign(f.state, { ready: true, sizeOnDisk: 96, downloadBytes: 0, identity: 'legacy' });
+  f.config.setSettings({ enhancementUpdates: { autoCheck: false, autoInstall: false } });
+  f.packs.observePreparations((id, name) => {
+    void trackEnhancementPreparation(f.packs, id, name).catch(() => {});
+  });
+  f.controller.start();
+  await vi.waitFor(async () => expect((await f.packs.list())[0]?.ready).toBe(true));
+  await f.packs.wait();
+  expect(f.ensure).not.toHaveBeenCalled();
+  expect(f.fetcher).not.toHaveBeenCalled();
+  expect(backgroundTasks.snapshot()).toEqual([]);
 });
 
 it('同版统一清单存在但损坏时不改读旧格式或更旧版本', async () => {
@@ -445,6 +465,193 @@ it('默认只自动检查，发现更新不安装；列表查询不触发下载�
     blocker: null,
   });
   expect(f.ensure).not.toHaveBeenCalled();
+});
+it('增强包按内容版本提醒，已提醒版本在 WeQ 升级后不重复提醒', async () => {
+  const f = await fixture();
+  const notices = vi.fn();
+  const unsubscribe = f.controller.subscribeNotifications(notices);
+  await f.controller.check(['dress'], true);
+  const expected = [{ id: 'dress', name: '装扮', contentVersion: f.next.contentVersion }] as const;
+  expect(notices).toHaveBeenLastCalledWith(expected);
+  expect(backgroundTasks.snapshot()).toEqual([]);
+  await f.controller.acknowledgeNotifications(expected);
+  expect(notices).toHaveBeenLastCalledWith([]);
+  await f.controller.check(['dress'], true);
+  expect(notices).toHaveBeenLastCalledWith([]);
+  unsubscribe();
+
+  const upgraded = await fixture(true, f.root, '2.8.0');
+  const nextNotices = vi.fn();
+  upgraded.controller.subscribeNotifications(nextNotices);
+  await upgraded.controller.check(['dress'], true);
+  expect(nextNotices).toHaveBeenLastCalledWith([]);
+  const next = release('newer');
+  upgraded.setLatest(next);
+  await upgraded.controller.check(['dress'], true);
+  expect(nextNotices).toHaveBeenLastCalledWith([
+    { id: 'dress', name: '装扮', contentVersion: next.contentVersion },
+  ]);
+});
+
+it('新订阅可取得尚未提醒的结果，旧弹窗确认不会清除新内容版本', async () => {
+  const f = await fixture();
+  await f.controller.check(['dress'], true);
+  const notices = vi.fn();
+  f.controller.subscribeNotifications(notices);
+  await vi.waitFor(() =>
+    expect(notices).toHaveBeenLastCalledWith([
+      { id: 'dress', name: '装扮', contentVersion: f.next.contentVersion },
+    ]),
+  );
+  const next = release('newer');
+  f.setLatest(next);
+  await f.controller.check(['dress'], true);
+  await f.controller.acknowledgeNotifications([
+    { id: 'dress', contentVersion: f.next.contentVersion },
+  ]);
+  expect(notices).toHaveBeenLastCalledWith([
+    { id: 'dress', name: '装扮', contentVersion: next.contentVersion },
+  ]);
+});
+
+it('等待两种发布来源检查完成后一次发布合并提醒，不提前逐包通知', async () => {
+  const f = await fixture(false);
+  const voice = createRelease('voice', [
+    {
+      type: 'engine',
+      artifact: {
+        kind: 'sherpa',
+        id: 'sherpa-new',
+        target: 'darwin-arm64',
+        compatibility: enhancementEngineCompatibility('sherpa'),
+        url: 'https://example.invalid/sherpa.tar.gz',
+        sha256: sha('engine'),
+        downloadBytes: 32,
+        installedBytes: 8,
+        files: [{ path: 'node_modules/runtime/index.js', size: 8, sha256: sha('runtime') }],
+      },
+    },
+    modelReleaseComponent(VOICE_MODELS[0]!),
+  ]);
+  const definitions = [
+    { id: 'voice' as const, name: '语音', components: ['engine:sherpa', 'model:sensevoice'] },
+    { id: 'dress' as const, name: '装扮', components: ['dress:index'] },
+  ].map((entry) => ({ ...entry, description: '', validate: async () => {} }));
+  const packs = new EnhancementPacks(
+    definitions,
+    new Map(
+      definitions.flatMap((pack) =>
+        pack.components.map((id) => {
+          const state = {
+            ready: true,
+            identity: 'old',
+            downloadBytes: 32,
+            sizeOnDisk: 32,
+            updateAvailable: false,
+          };
+          return [
+            id,
+            {
+              id,
+              state: () => state,
+              select: () => {
+                state.updateAvailable = true;
+              },
+              ensure: async () => {},
+              remove: async () => {},
+            },
+          ];
+        }),
+      ),
+    ),
+    join(f.root, 'combined'),
+  );
+  packs.start(['voice', 'dress'], false);
+  await packs.wait();
+  let finish!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const fetcher = vi.fn(async (url: string | URL | Request) => {
+    const address = String(url);
+    const dress = address.includes('dress-resources');
+    const asset = dress ? 'enhancement-pack.json' : 'enhancement-packs-darwin-arm64.json';
+    if (!address.includes('api.github.com') && dress) await waiting;
+    return new Response(
+      JSON.stringify(
+        address.includes('api.github.com')
+          ? [
+              {
+                tag_name: dress ? 'dress-new' : '2.7.0',
+                draft: false,
+                prerelease: false,
+                published_at: '2026-11-14T00:00:00Z',
+                assets: [{ name: asset }],
+              },
+            ]
+          : { schemaVersion: 1, target: 'darwin-arm64', packs: [dress ? f.next : voice] },
+      ),
+    );
+  });
+  const controller = new EnhancementUpdateController(packs, f.config, 'darwin-arm64', {
+    currentVersion: () => '2.7.0',
+    nativeCommit: () => nativeCommit,
+    fetcher,
+  });
+  controllers.push(controller);
+  const notices = vi.fn();
+  controller.subscribeNotifications(notices);
+  const checking = controller.check(['voice', 'dress'], true);
+  try {
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(4));
+    expect(notices).toHaveBeenCalledTimes(1);
+    expect(notices).toHaveBeenLastCalledWith([]);
+  } finally {
+    finish();
+    await checking;
+  }
+  expect(notices).toHaveBeenCalledTimes(2);
+  expect(notices).toHaveBeenLastCalledWith([
+    { id: 'voice', name: '语音', contentVersion: voice.contentVersion },
+    { id: 'dress', name: '装扮', contentVersion: f.next.contentVersion },
+  ]);
+  expect(backgroundTasks.snapshot()).toEqual([]);
+});
+
+it.each(['uninstalled', 'unchanged', 'repair', 'incompatible', 'automatic'] as const)(
+  '%s 不产生增强包更新弹窗提醒',
+  async (scenario) => {
+    const f = await fixture(scenario !== 'uninstalled');
+    if (scenario === 'unchanged' || scenario === 'repair') f.setLatest(release('old'));
+    if (scenario === 'repair') {
+      await f.controller.check(['dress']);
+      f.packs.start(['dress']);
+      await f.packs.wait();
+      Object.assign(f.state, { ready: false, downloadBytes: 96 });
+    }
+    if (scenario === 'incompatible') f.setLatest(release('future', '3.0.0'));
+    if (scenario === 'automatic')
+      f.config.setSettings({ enhancementUpdates: { autoInstall: true } });
+    const notices = vi.fn();
+    f.controller.subscribeNotifications(notices);
+    await f.controller.check(['dress'], true);
+    expect(notices).toHaveBeenLastCalledWith([]);
+    await f.packs.wait();
+  },
+);
+
+it('旧缓存迁移以已知内容为基线，不因升级 WeQ 再次提醒', async () => {
+  const f = await fixture();
+  await f.controller.check(['dress'], true);
+  const path = join(f.root, 'enhancements/checks.json');
+  const cached = JSON.parse(await readFile(path, 'utf8'));
+  delete cached.notifiedVersions;
+  await writeFile(path, JSON.stringify(cached));
+  const upgraded = await fixture(true, f.root, '2.8.0');
+  const notices = vi.fn();
+  upgraded.controller.subscribeNotifications(notices);
+  await upgraded.controller.check(['dress'], true);
+  expect(notices).toHaveBeenLastCalledWith([]);
 });
 it.each([false, true])(
   '更新检查不登记任务，合并在途请求并保留结果（自动：%s）',

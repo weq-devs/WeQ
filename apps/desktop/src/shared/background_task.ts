@@ -23,7 +23,7 @@ export interface BackgroundTask {
   kind: BackgroundTaskKind;
   name: string;
   scope?: BackgroundTaskScope;
-  destination?: 'db-checkup';
+  destination?: 'db-checkup' | 'enhancement-packs';
   status: BackgroundTaskStatus;
   statusLabel?: string;
   progress?: number;
@@ -174,7 +174,9 @@ export class BackgroundTaskRegistry {
   }
 
   private prune() {
-    const ended = this.tasks.filter((task) => task.status !== 'running');
+    const ended = this.tasks.filter(
+      (task) => task.status !== 'running' && task.status !== 'paused',
+    );
     for (const task of ended.slice(0, Math.max(0, ended.length - this.historyLimit)))
       this.remove(task.id);
   }

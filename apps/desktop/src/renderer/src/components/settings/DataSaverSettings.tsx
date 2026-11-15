@@ -10,7 +10,8 @@ import {
   preferenceValue,
   useClientPreferences,
 } from '../../lib/clientPreferences';
-import { useDataSaver } from '../../lib/dataSaver';
+import { useDataSaver, dataSaverModeOptions } from '../../lib/dataSaver';
+import { SegmentedControl } from '../SegmentedControl';
 import { IS_WEB } from '../../lib/target';
 import { Card, Row, Toggle } from './controls';
 import { RotateCcw } from 'lucide-react';
@@ -124,18 +125,12 @@ export function DataSaverSettings() {
         label="省流量模式"
         desc={`${enabled ? '正在节省流量' : '正常加载'} · 本端：${describe(local)}${IS_WEB ? ` · 宿主：${describe(host)}` : ''}`}
         control={
-          <select
-            className="weq-set-input"
-            aria-label="省流量模式"
+          <SegmentedControl<DataSaverMode>
+            label="省流量模式"
             value={preferenceValue('dataSaverMode')}
-            onChange={(event) =>
-              void changePreference('dataSaverMode', event.target.value as DataSaverMode)
-            }
-          >
-            <option value="always">开启</option>
-            <option value="never">关闭</option>
-            <option value="auto">跟随系统</option>
-          </select>
+            options={dataSaverModeOptions}
+            onChange={(mode) => void changePreference('dataSaverMode', mode)}
+          />
         }
       />
       <div className="weq-data-saver-behavior">
@@ -146,21 +141,16 @@ export function DataSaverSettings() {
       <Row
         label="聊天图片自动加载"
         control={
-          <select
-            className="weq-set-input"
-            aria-label="聊天图片自动加载"
+          <SegmentedControl<DataSaverBehavior['dataSaverImageLoading']>
+            label="聊天图片自动加载"
             value={preferenceValue('dataSaverImageLoading')}
-            onChange={(event) =>
-              void changePreference(
-                'dataSaverImageLoading',
-                event.target.value as DataSaverBehavior['dataSaverImageLoading'],
-              )
-            }
-          >
-            <option value="none">不自动加载</option>
-            <option value="thumbnail">仅小图</option>
-            <option value="original">原图</option>
-          </select>
+            options={[
+              { value: 'none', label: '不自动加载' },
+              { value: 'thumbnail', label: '仅小图' },
+              { value: 'original', label: '原图' },
+            ]}
+            onChange={(value) => void changePreference('dataSaverImageLoading', value)}
+          />
         }
       />
       {mediaOptions.map(([name, label]) => (

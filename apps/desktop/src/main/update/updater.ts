@@ -167,7 +167,7 @@ let downloaded = false;
 let installing = false;
 let downloading = false;
 let macVerifiedArchive = false;
-let macDownload: { file: string; version: string } | null = null;
+let archiveDownload: { file: string; version: string } | null = null;
 let macPlan: MacUpdatePlan | null = null;
 
 function installFailed(error: unknown): void {
@@ -201,8 +201,8 @@ function wireAutoUpdater(): void {
   });
 
   autoUpdater.on('update-downloaded', (info) => {
-    if (macVerifiedArchive) {
-      macDownload = { file: info.downloadedFile, version: info.version };
+    if (macVerifiedArchive || process.platform === 'linux') {
+      archiveDownload = { file: info.downloadedFile, version: info.version };
       return;
     }
     downloaded = true;
@@ -362,7 +362,7 @@ async function downloadUpdate(): Promise<void> {
   }
 
   macVerifiedArchive = usesMacVerifiedArchiveUpdater();
-  macDownload = null;
+  archiveDownload = null;
   macPlan = null;
   wireAutoUpdater();
 
@@ -398,9 +398,32 @@ async function downloadUpdate(): Promise<void> {
   if (!success) throw lastErr ?? new Error('更新下载失败');
   if (macVerifiedArchive) {
     // 下载事件只说明 ZIP 已落地；官方哈希与固定发布身份通过后才允许安装。
-    const update = macDownload as { file: string; version: string } | null;
+    const update = archiveDownload as { file: string; version: string } | null;
     if (!update?.file) throw new Error('未取得 macOS 更新包路径');
     macPlan = await prepareMacUpdate(update.file, update.version, state.includePrerelease === true);
+    downloaded = true;
+    updateBus.emit('event', { kind: 'downloaded', latest: update.version } satisfies UpdateEvent);
+  } else if (process.platform === 'linux') {
+    const update = archiveDownload as { file: string; version: string } | null;
+    if (
+      !update?.file ||
+      update.version !== state.latest ||
+      !semver.valid(update.version) ||
+      !semver.gt(update.version, state.current)
+    )
+      throw new Error('Linux 更新包与已检查版本不一致，未安装');
+    const arch = process.arch === 'x64' ? 'x86_64' : process.arch === 'arm64' ? 'arm64' : null;
+    const fileName = `weQ-${update.version}-linux-${arch}.AppImage`;
+    const { basename } = await import('node:path');
+    if (!arch || basename(update.file) !== fileName)
+      throw new Error('Linux 更新包架构或文件名不一致，未安装');
+    const { fetchOfficialArchive, verifyOfficialArchive } = await import('./official_archive');
+    const expected = await fetchOfficialArchive(
+      update.version,
+      fileName,
+      state.includePrerelease === true,
+    );
+    await verifyOfficialArchive(update.file, expected);
     downloaded = true;
     updateBus.emit('event', { kind: 'downloaded', latest: update.version } satisfies UpdateEvent);
   }

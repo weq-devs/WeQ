@@ -26,6 +26,10 @@ const state = vi.hoisted(() => ({
   error: vi.fn(),
   choose: vi.fn(),
   download: vi.fn(async (_input: unknown) => ({ url: '/download/synthetic' })),
+  present: vi.fn(),
+}));
+vi.mock('../src/renderer/src/components/ClientDocumentPreview', () => ({
+  presentClientDocument: state.present,
 }));
 vi.mock('../src/renderer/src/lib/target', () => ({
   get IS_WEB() {
@@ -111,6 +115,7 @@ beforeEach(() => {
   });
   state.save.mockReset().mockResolvedValue('/saved/result.html');
   state.open.mockClear();
+  state.present.mockClear();
   state.toast.mockClear();
   state.error.mockClear();
   state.choose.mockClear();
@@ -131,8 +136,38 @@ async function mount(artifact = report) {
     host.remove();
   });
   await render();
-  return { host, render };
+  return { host, render, unmount: () => act(() => root.unmount()) };
 }
+it.each(['account', 'artifact', 'unmount'] as const)(
+  '报告响应迟到后不打开旧预览：%s',
+  async (change) => {
+    state.web = true;
+    let finish!: (value: boolean) => void;
+    state.open.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const f = await mount();
+    act(() =>
+      [...f.host.querySelectorAll<HTMLButtonElement>('button')]
+        .find((button) => button.textContent?.trim() === '查看')!
+        .click(),
+    );
+    if (change === 'account') {
+      state.configId = 'source-b';
+      await f.render();
+    }
+    if (change === 'artifact') await f.render({ ...report, id: 'new.md' });
+    if (change === 'unmount') f.unmount();
+    await act(async () => {
+      finish(true);
+      await Promise.resolve();
+    });
+    expect(state.present).not.toHaveBeenCalled();
+  },
+);
 async function save(host: HTMLElement) {
   await act(async () =>
     [...host.querySelectorAll<HTMLButtonElement>('button')]

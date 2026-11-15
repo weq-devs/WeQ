@@ -294,7 +294,7 @@ function processor(): AiImageProcessor {
       if (!model)
         throw new Error([...notes, localOcrBlocker() ?? '没有可用的本地识别模型'].join('；'));
       if (!file.path) throw new Error('本地图片不可用');
-      const result = await runLocalOcr(file.path, model);
+      const result = await runLocalOcr(file.path, model, signal);
       check(signal);
       const text = result.blocks.map((b) => b.text).join('\n');
       if (file.key)

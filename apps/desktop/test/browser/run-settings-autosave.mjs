@@ -48,6 +48,8 @@ try {
   );
   const input = page.getByRole('spinbutton', { name: '翻页时间窗口（秒）' });
   await input.waitFor();
+  const output = resolve(root, 'node_modules/.cache/settings-autosave-qa');
+  await mkdir(output, { recursive: true });
   assert.equal(await page.getByRole('button', { name: '保存', exact: true }).count(), 0);
   assert.equal(await page.locator('.weq-set-card').last().getByRole('button').count(), 0);
   await input.fill('12');
@@ -74,6 +76,37 @@ try {
   await input.press('Enter');
   await page.waitForFunction(() => window.autosaveQa.settings.qzonePagination.windowSeconds === 16);
   assert.equal(await input.isDisabled(), false);
+  let invalidDraftCases = 0;
+  for (const width of [1280, 390, 320])
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate((theme) => window.themeQa.getState().setPreference(theme), theme);
+      const value = 30 + invalidDraftCases;
+      await input.fill(String(value));
+      await input.press('Enter');
+      await page.waitForFunction(
+        (value) => window.autosaveQa.calls.at(-1)?.input.windowSeconds === value,
+        value,
+      );
+      await input.fill('0');
+      await page.waitForFunction(
+        (value) => window.autosaveQa.settings.qzonePagination.windowSeconds === value,
+        value,
+      );
+      await page.getByText('输入无效，尚未保存', { exact: true }).waitFor();
+      assert.equal(await input.inputValue(), '0');
+      assert.equal(await page.getByText('已保存', { exact: true }).count(), 0);
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+        true,
+      );
+      await page.screenshot({
+        path: resolve(output, `invalid-draft-${theme}-${width}.png`),
+        fullPage: true,
+      });
+      invalidDraftCases++;
+    }
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.evaluate(() => {
     window.autosaveQa.delay = 0;
     window.autosaveQa.fail = true;
@@ -98,8 +131,6 @@ try {
   assert.equal(await input.inputValue(), '10');
   await page.waitForTimeout(700);
   assert.equal(await input.inputValue(), '10');
-  const output = resolve(root, 'node_modules/.cache/settings-autosave-qa');
-  await mkdir(output, { recursive: true });
   let cases = 0;
   const checkAlignment = () =>
     page.evaluate(() => {
@@ -180,9 +211,13 @@ try {
   await page.getByRole('button', { name: '恢复本页默认设置' }).click();
   await page.screenshot({ path: resolve(output, 'directory-preview.png'), fullPage: true });
   assert.deepEqual(await page.locator('.weq-settings-reset-detail pre').allTextContents(), []);
-  assert.equal(await page.getByRole('combobox', { name: '通话录音目录' }).inputValue(), 'keep');
+  const directory = page.getByRole('radiogroup', { name: '通话录音目录' });
+  assert.equal(
+    await directory.getByRole('radio').filter({ hasText: '保留当前' }).getAttribute('aria-checked'),
+    'true',
+  );
   assert.equal(await page.getByRole('button', { name: '确认恢复默认' }).isDisabled(), true);
-  await page.getByRole('combobox', { name: '通话录音目录' }).selectOption('reset');
+  await directory.getByRole('radio', { name: '恢复默认' }).click();
   assert.equal(await page.getByRole('button', { name: '确认恢复默认' }).isEnabled(), true);
   await page.getByRole('button', { name: '取消', exact: true }).click();
   await page.getByRole('button', { name: 'appearance', exact: true }).click();
@@ -221,7 +256,7 @@ try {
       cases++;
     }
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ cases, errors, output }, null, 2));
+  console.log(JSON.stringify({ cases, invalidDraftCases, errors, output }, null, 2));
 } finally {
   await browser?.close();
   await server.close();

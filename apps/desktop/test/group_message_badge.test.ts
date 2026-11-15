@@ -18,11 +18,14 @@ afterEach(() => {
   for (const close of cleanups.splice(0)) close();
   vi.unstubAllGlobals();
 });
-function render(member: GroupBadgeMember) {
+function render(
+  member: GroupBadgeMember,
+  display: { showLevel?: boolean; showTitle?: boolean } = {},
+) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  act(() => root.render(h(GroupMessageBadge, { member })));
+  act(() => root.render(h(GroupMessageBadge, { member, ...display })));
   cleanups.push(() => {
     act(() => root.unmount());
     host.remove();
@@ -30,6 +33,16 @@ function render(member: GroupBadgeMember) {
   return host.querySelector<HTMLElement>('.member-badge');
 }
 describe('群消息头衔固定展示', () => {
+  it('等级与头衔独立显示，隐藏身份后不泄露角色配色', () => {
+    const member = { role: 'owner', customTitle: '组长', memberLevel: 42, levelName: '活跃成员' };
+    expect(render(member, { showLevel: false })?.textContent).toBe('组长');
+    const level = render(member, { showTitle: false });
+    expect(level?.textContent).toBe('Lv42 · 活跃成员');
+    expect(level?.classList.contains('neutral')).toBe(true);
+    expect(level?.getAttribute('data-privacy-title')).toBeNull();
+    expect(render(member, { showLevel: false, showTitle: false })).toBeNull();
+    expect(render({ levelName: '活跃成员' }, { showLevel: false })).toBeNull();
+  });
   it('固定配色样式由共享组件加载，保留独立深色 token 并移除等级分档色', () => {
     const css = readFileSync(resolve('src/renderer/src/styles/group-message-badge.css'), 'utf8');
     expect(css).toContain("html[data-theme='dark'] .member-badge");

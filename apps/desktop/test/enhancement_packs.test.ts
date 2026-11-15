@@ -137,6 +137,8 @@ it('用户自行放入的兼容模型保留共享引擎；文件身份变化要�
 
 it('旧完整资源由程序自动检查，不自动下载；校验失败也不开始网络修复', async () => {
   const f = await fixture();
+  const taskObserver = vi.fn();
+  f.packs.observePreparations(taskObserver);
   for (const [id, component] of f.components) {
     f.state.set(id, { ready: true, sizeOnDisk: 10, downloadBytes: 0, identity: 'legacy' });
     component.check = vi.fn(async () => {});
@@ -144,6 +146,7 @@ it('旧完整资源由程序自动检查，不自动下载；校验失败也不�
   await f.packs.reconcileExisting();
   await f.packs.wait();
   expect((await f.packs.list()).every((pack) => pack.ready)).toBe(true);
+  expect(taskObserver).not.toHaveBeenCalled();
   for (const component of f.components.values()) expect(component.ensure).not.toHaveBeenCalled();
   f.state.get('text-model')!.identity = 'bad';
   f.components.get('text-model')!.check = vi.fn(async () => {
@@ -156,6 +159,11 @@ it('旧完整资源由程序自动检查，不自动下载；校验失败也不�
     operation: { phase: 'failed' },
   });
   expect(f.components.get('text-model')!.ensure).not.toHaveBeenCalled();
+  expect(taskObserver).not.toHaveBeenCalled();
+  f.packs.start(['text']);
+  await f.packs.wait();
+  expect(taskObserver).toHaveBeenCalledOnce();
+  expect(taskObserver).toHaveBeenCalledWith('text', '文字');
 });
 
 it('旧协调只验证已有资源，不能绕过自动安装设置单独升级引擎', async () => {

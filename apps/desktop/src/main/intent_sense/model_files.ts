@@ -1,6 +1,6 @@
 import { dirname, basename, join } from 'node:path';
 import { existsSync, statSync, readFileSync } from 'node:fs';
-import { ModelStore, type ModelEntry, type ModelDownloadProgress } from '@weq/service';
+import { ModelStore, type ModelEntry, type ModelDownloadProgress } from '@weq/service/model-store';
 import { LAYA_BUNDLE_SOURCES, layaModelEntry } from '../../shared/laya_bundle';
 
 // 清单与入口定义挪到 shared/laya_bundle.ts（零运行时依赖），打包脚本会直接

@@ -9,6 +9,7 @@ export class SettingsSaveQueue<T> {
   private baseline: string;
   private revision = 0;
   private blocked = false;
+  private valid = true;
   status: SaveStatus = 'idle';
   error = '';
   constructor(
@@ -26,6 +27,7 @@ export class SettingsSaveQueue<T> {
     if (this.blocked) return;
     clearTimeout(this.timer);
     this.revision++;
+    this.valid = valid;
     this.next =
       valid && JSON.stringify(value) !== (this.inFlightValue ?? this.baseline)
         ? { value, save }
@@ -52,7 +54,7 @@ export class SettingsSaveQueue<T> {
         await work.save(work.value);
         this.baseline = JSON.stringify(work.value);
         if (this.next && JSON.stringify(this.next.value) === this.baseline) this.next = undefined;
-        this.publish(this.next ? 'pending' : 'saved');
+        this.publish(this.next ? 'pending' : this.valid ? 'saved' : 'idle');
       } catch (reason) {
         clearTimeout(this.timer);
         // 失败后保留最新输入；没有新输入时保留刚失败的提交。
@@ -79,6 +81,7 @@ export class SettingsSaveQueue<T> {
   }
   reset(value: T) {
     this.blocked = false;
+    this.valid = true;
     clearTimeout(this.timer);
     this.next = undefined;
     this.baseline = JSON.stringify(value);

@@ -544,6 +544,25 @@ describe('toOutcome', () => {
 });
 
 describe('MessageSendService.sendText（离线集成）', () => {
+  // 与 protocol 的真机字节夹具一致；不调用生产构造器生成预期，保留完整报文断言。
+  const fontWireFields = {
+    fontId1: 0,
+    fontId2: 0x10000,
+    flag25: 0,
+    flag30: 0,
+    flag31: 0,
+    flag34: 0,
+    flag41: 0,
+    flag51: 2,
+    flag52: 8,
+    flag54: 0,
+    flag55: 0,
+    flag71: 2,
+    flag72: 0,
+    nested73: { flag1: 0, flag2: 0, flag3: 0, flag4: 0, flag7: 0 },
+    flag96: 0,
+  };
+
   it('手机伪 UID 不查好友目录，装扮准备和发送使用设备身份', async () => {
     const native = fakeNative();
     const svc = new MessageSendService(native as never, fakeSession(), () => 1);
@@ -678,7 +697,7 @@ describe('MessageSendService.sendText（离线集成）', () => {
   });
 
   it.each(['c2c', 'group'] as const)(
-    '%s 关闭后不查字体、不带任何字体字段，保留其他装扮',
+    '%s 关闭后不查字体、不带字体款式，保留无字体骨架与其他装扮',
     async (peerType) => {
       const native = fakeNative();
       const saved: import('../src/account/gap_history').GapFetchedMessage[] = [];
@@ -714,7 +733,22 @@ describe('MessageSendService.sendText（离线集成）', () => {
       });
       expect(reads).toBe(0);
       expect(elemsOf(native.calls[0]!.body)).toEqual([
-        { generalFlags: { widgetId: 22 } },
+        {
+          generalFlags: {
+            bubbleDiyTextId: 0,
+            flag16: 0,
+            widgetId: 22,
+            font: {
+              fontId2: 0x10000,
+              flag25: 0,
+              flag30: 0,
+              flag31: 0,
+              flag34: 0,
+              nested73: { flag2: 0 },
+              flag96: 0,
+            },
+          },
+        },
         { bubble: { id: 11 } },
         { text: { str: '普通字体' } },
       ]);
@@ -746,7 +780,11 @@ describe('MessageSendService.sendText（离线集成）', () => {
       preparedChatFont,
     });
     expect(elemsOf(native.calls[0]!.body)[0]).toEqual({
-      generalFlags: { font: { fontId2: 72057 } },
+      generalFlags: {
+        bubbleDiyTextId: 0,
+        widgetId: 0,
+        font: { ...fontWireFields, fontId2: 72057 },
+      },
     });
     expect(saved[0]!.decoration?.fontId).toBe(31001);
     await svc.sendElements({
@@ -812,7 +850,11 @@ describe('MessageSendService.sendText（离线集成）', () => {
         };
         expect(body.messageBody.richText.elems).toHaveLength(2);
         expect(body.messageBody.richText.elems[0]).toEqual({
-          generalFlags: { font: { fontId2: [72057, 66173][index] } },
+          generalFlags: {
+            bubbleDiyTextId: 0,
+            widgetId: 0,
+            font: { ...fontWireFields, fontId2: [72057, 66173][index] },
+          },
         });
       }
     },
@@ -930,7 +972,11 @@ describe('MessageSendService.sendText（离线集成）', () => {
       messageBody: { richText: { elems: Record<string, unknown>[] } };
     };
     expect(request.messageBody.richText.elems[0]).toEqual({
-      generalFlags: { font: { fontId2: 0x01017684 } },
+      generalFlags: {
+        bubbleDiyTextId: 0,
+        widgetId: 0,
+        font: { ...fontWireFields, fontId2: 0x01017684 },
+      },
     });
   });
 
@@ -1275,7 +1321,14 @@ describe('MessageSendService.sendText（离线集成）', () => {
     };
     const elems = body.messageBody?.richText?.elems ?? [];
     expect(elems).toEqual([
-      { generalFlags: { widgetId: 104228, font: { fontId1: 54981 } } },
+      {
+        generalFlags: {
+          bubbleDiyTextId: 0,
+          flag16: 0,
+          widgetId: 104228,
+          font: { ...fontWireFields, fontId1: 54981 },
+        },
+      },
       { bubble: { id: 2116371 } },
       { text: { str: '你好' } },
     ]);

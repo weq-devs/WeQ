@@ -1039,6 +1039,17 @@ html[data-theme='dark'] .weq-qqshow-avatar img {
   max-height: 56px;
 }
 
+/* 未加载与失败状态也保持缩略图尺寸，不撑开引用框。 */
+.qq-reply-preview-image .qq-media-missing {
+  width: 96px !important;
+  height: 56px !important;
+  min-width: 0;
+  min-height: 0;
+  max-width: 96px;
+  max-height: 56px;
+  padding: 4px;
+}
+
 .qq-reply-preview-media img,
 .qq-reply-preview-media .qq-media-image,
 .qq-reply-preview-media .qq-media-mface,
@@ -1065,7 +1076,6 @@ html[data-theme='dark'] .weq-qqshow-avatar img {
   width: 56px !important;
   height: 56px !important;
   border-radius: 4px;
-  pointer-events: none;
 }
 
 .qq-reply-preview-media .qq-mface-badge {

@@ -26,6 +26,24 @@ export interface CompositionRequest {
 }
 export const COMPOSITION_DRAG_TYPE = 'application/x-weq-composition-entry';
 
+/**
+ * 两份草稿是不是**同一份内容**（不含服务端盖章字段）。
+ *
+ * `updatedAt` 由服务层落盘时用服务器时间重盖、`version` 由 client-state 写入，
+ * 两者都不是用户编辑出来的内容 —— 自动保存回执里它们几乎必然与本地不同。拿
+ * `JSON.stringify(整个草稿)` 比较会把「刚保存成功」误判成「别的端改了」，
+ * 进而重挂载编辑器（正在输入的文本段被清掉）。
+ */
+export function sameDraftContent(left: MfDraft | null, right: MfDraft | null): boolean {
+  if (!left || !right) return left === right;
+  return (
+    left.id === right.id &&
+    left.title === right.title &&
+    left.createdAt === right.createdAt &&
+    JSON.stringify(left.nodes) === JSON.stringify(right.nodes)
+  );
+}
+
 /** 单份坏记录留在原存储并单独反馈，不让列表归一化异常卸载整个合成窗口。 */
 export function readCompositionEntries(raw: readonly unknown[]): {
   drafts: MfDraft[];

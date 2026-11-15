@@ -44,6 +44,143 @@ export function networkCost(constrained: boolean, metered: boolean, source: stri
 export function dataSaverEnabled(mode: DataSaverMode, ...networks: NetworkCost[]): boolean {
   return mode === 'always' || (mode !== 'never' && networks.some((n) => n.state === 'restricted'));
 }
+export type DataSaverChangeReason =
+  | 'initial'
+  | 'system'
+  | 'settings'
+  | 'temporary'
+  | 'restore'
+  | 'expiry'
+  | 'tasks';
+export type DataSaverTemporaryRequest =
+  | { enabled: boolean; duration: 'exit' }
+  | { enabled: boolean; duration: 'minutes'; minutes: number }
+  | { enabled: false; duration: 'tasks' };
+export interface DataSaverTemporary {
+  enabled: boolean;
+  duration: 'exit' | 'minutes' | 'tasks';
+  expiresAt: number | null;
+}
+export interface DataSaverStatus {
+  sessionId: string;
+  mode: DataSaverMode;
+  effectiveMode: DataSaverMode;
+  host: NetworkCost;
+  local: NetworkCost;
+  enabled: boolean;
+  temporary: DataSaverTemporary | null;
+  pendingTasks: number | null;
+  revision: number;
+  reason: DataSaverChangeReason;
+}
+
+/** 本次宿主运行共用的覆盖；系统 unknown 不撤销已确认的网络限制。 */
+export class DataSaverSession {
+  private sessionId = globalThis.crypto.randomUUID();
+  private mode: DataSaverMode = 'auto';
+  private host = UNKNOWN_NETWORK;
+  private clients = new Map<string, NetworkCost>();
+  private temporary: DataSaverTemporary | null = null;
+  private pendingTasks: number | null = null;
+  private revision = 0;
+  private reason: DataSaverChangeReason = 'initial';
+  private listeners = new Set<() => void>();
+  private timer: ReturnType<typeof setTimeout> | undefined;
+
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+  status(clientId?: string): DataSaverStatus {
+    const effectiveMode = this.temporary
+      ? this.temporary.enabled
+        ? 'always'
+        : 'never'
+      : this.mode;
+    const local = this.clients.get(clientId ?? '') ?? this.host;
+    return {
+      sessionId: this.sessionId,
+      mode: this.mode,
+      effectiveMode,
+      host: this.host,
+      local,
+      enabled: dataSaverEnabled(effectiveMode, this.host, local),
+      temporary: this.temporary ? { ...this.temporary } : null,
+      pendingTasks: this.pendingTasks,
+      revision: this.revision,
+      reason: this.reason,
+    };
+  }
+  update(mode: DataSaverMode, cost: NetworkCost) {
+    const modeChanged = mode !== this.mode;
+    const host = cost.state === 'unknown' && this.host.state !== 'unknown' ? this.host : cost;
+    const networkChanged = JSON.stringify(host) !== JSON.stringify(this.host);
+    this.mode = mode;
+    this.host = host;
+    if (modeChanged) this.cancelTimer();
+    if (modeChanged) this.temporary = null;
+    if (modeChanged || networkChanged) this.emit(modeChanged ? 'settings' : 'system');
+  }
+  updateClient(clientId: string, cost: NetworkCost) {
+    const previous = this.clients.get(clientId);
+    if (cost.state === 'unknown' && previous?.state !== 'unknown' && previous) return;
+    if (JSON.stringify(previous) === JSON.stringify(cost)) return;
+    this.clients.set(clientId, cost);
+    if (this.clients.size > 256) this.clients.delete(this.clients.keys().next().value!);
+    this.emit('system');
+  }
+  setTemporary(input: DataSaverTemporaryRequest) {
+    if (
+      input.duration === 'minutes' &&
+      (!Number.isInteger(input.minutes) || input.minutes < 1 || input.minutes > 1440)
+    )
+      throw new Error('分钟数须为 1–1440 的整数');
+    if (
+      input.duration === 'tasks' &&
+      (input.enabled || this.pendingTasks === null || this.pendingTasks === 0)
+    )
+      throw new Error('暂无已确认的未完成任务，请选择其他期限');
+    this.cancelTimer();
+    const expiresAt = input.duration === 'minutes' ? Date.now() + input.minutes * 60000 : null;
+    this.temporary = { enabled: input.enabled, duration: input.duration, expiresAt };
+    if (expiresAt !== null) {
+      this.timer = setTimeout(
+        () => this.clearTemporary('expiry'),
+        Math.max(0, expiresAt - Date.now()),
+      );
+      this.timer.unref?.();
+    }
+    this.emit('temporary');
+  }
+  clearTemporary(reason: DataSaverChangeReason = 'restore') {
+    if (!this.temporary) return;
+    this.cancelTimer();
+    this.temporary = null;
+    this.emit(reason);
+  }
+  setPendingTasks(count: number | null) {
+    if (count === this.pendingTasks) return;
+    this.pendingTasks = count;
+    this.emit();
+  }
+  finishTasks() {
+    if (this.temporary?.duration === 'tasks' && this.pendingTasks === 0)
+      this.clearTemporary('tasks');
+  }
+  dispose() {
+    this.cancelTimer();
+    this.listeners.clear();
+  }
+  private cancelTimer() {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = undefined;
+  }
+  private emit(reason?: DataSaverChangeReason) {
+    this.revision++;
+    if (reason) this.reason = reason;
+    for (const listener of this.listeners) listener();
+  }
+}
 export type NetworkIntent = 'prefetch' | 'thumbnail' | 'interactive' | 'batch';
 export function allowNetwork(
   restricted: boolean,

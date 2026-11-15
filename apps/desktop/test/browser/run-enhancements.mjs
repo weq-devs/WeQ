@@ -165,12 +165,57 @@ try {
         state.setComponentStyle('qqnt');
         state.setAccent(theme === 'light' ? '#075c30' : '#fff3a1');
       }, theme);
+      await page.waitForFunction(
+        (theme) => document.documentElement.dataset.theme === theme,
+        theme,
+      );
       await page.screenshot({
         path: resolve(output, `partial-${theme}-${width}.png`),
         fullPage: true,
       });
     }
   }
+  assert.deepEqual(errors, []);
+  for (const width of [1024, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const theme of ['light', 'dark']) {
+      await page.goto(`${url}?notice=1`);
+      const dialog = page.getByRole('dialog');
+      await dialog.waitFor();
+      await page.evaluate((theme) => {
+        const state = window.enhancementTheme.getState();
+        state.setPreference(theme);
+        state.setAccent(theme === 'light' ? '#075c30' : '#fff3a1');
+      }, theme);
+      assert.equal(await dialog.locator('li').count(), 2);
+      assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
+      assert.equal(await page.getByRole('dialog').count(), 1);
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+        true,
+      );
+      const overflow = await dialog.evaluate((root) =>
+        [...root.querySelectorAll('h3, p, li, button')]
+          .filter((node) => node.scrollWidth > node.clientWidth + 2)
+          .map((node) => node.textContent),
+      );
+      assert.deepEqual(overflow, []);
+      await page.screenshot({
+        path: resolve(output, `notice-${theme}-${width}.png`),
+        fullPage: true,
+      });
+      await dialog.getByRole('button', { name: '前往增强包', exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      assert.equal(
+        await page.locator('body').getAttribute('data-settings-section'),
+        'enhancementPacks',
+      );
+    }
+  }
+  await page.goto(`${url}?notice=1`);
+  await page.getByRole('dialog').getByRole('button', { name: '稍后', exact: true }).click();
+  assert.equal(await page.getByRole('dialog').count(), 0);
+  assert.equal(await page.locator('body').getAttribute('data-settings-section'), null);
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ cases, errors, output }));
 } finally {

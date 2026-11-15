@@ -19,6 +19,11 @@ export function SharedDisplayToggle({
     | 'showMessageTime'
     | 'showMessageDate'
     | 'showMessageSeq'
+    | 'showGroupMemberName'
+    | 'showGroupMemberLevel'
+    | 'showGroupMemberTitle'
+    | 'autoMentionOnQuote'
+    | 'backspaceRemovesQuote'
     | 'keepConversationPositionOnHover'
     | 'allConversationsIncludeHidden'
     | 'allConversationsIncludeDeleted';

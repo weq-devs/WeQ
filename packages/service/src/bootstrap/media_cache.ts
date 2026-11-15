@@ -48,6 +48,20 @@ function isHttpUrl(url: string): boolean {
   return /^https?:\/\//i.test(url);
 }
 
+/** 群幸运字符是会话标识，沿用装扮缓存但不受装扮自动下载开关限制。 */
+function isGroupLuckyCharUrl(src: string): boolean {
+  try {
+    const url = new URL(src);
+    return (
+      url.protocol === 'https:' &&
+      url.hostname === 'tianquan.gtimg.cn' &&
+      /^\/groupluckyword\/item\/\d+\/pic-\d+\.png$/.test(url.pathname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** Map a Content-Type / URL to the file extension we persist under. */
 function extFor(contentType: string | null, url: string): string {
   const ct = (contentType ?? '').toLowerCase();
@@ -139,6 +153,7 @@ export class MediaCacheService {
    */
   async get(url: string, subdir: CacheSubdir = 'avatar', ttl?: number): Promise<MediaBlob> {
     if (
+      !(subdir === 'dress' && isGroupLuckyCharUrl(url)) &&
       !scopedNetworkAllowed(
         subdir === 'avatar'
           ? 'avatar'

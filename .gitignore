@@ -122,3 +122,8 @@ tmp_reverse/
 # VitePress 构建产物与缓存（内容目录就是 docs/ 本身）
 /docs/.vitepress/dist
 /docs/.vitepress/cache
+
+# 文档站的依赖与构建期数据副本：由 scripts/sync-docs-versions.mjs 从主仓
+# versions/*.json 生成，权威数据只有主仓那一份，不重复入库。
+/docs/node_modules
+/docs/versions

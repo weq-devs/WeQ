@@ -25,7 +25,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
-function fixture() {
+function fixture(waitForSave?: () => Promise<void>) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -46,6 +46,7 @@ function fixture() {
         reset: () => setDraft(String(saved[source])),
         save: async (value) => {
           writes.push([source, Number(value)]);
+          await waitForSave?.();
           saved[source] = Number(value);
           render(current);
         },
@@ -89,6 +90,25 @@ function fixture() {
     render: (source: string) => act(() => render(source)),
   };
 }
+it('保存中继续输入无效值，旧请求完成后仍显示当前输入未保存', async () => {
+  let finish!: () => void;
+  const f = fixture(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  f.edit('2');
+  await act(async () => vi.advanceTimersByTimeAsync(600));
+  f.edit('');
+  await act(async () => {
+    finish();
+    await Promise.resolve();
+  });
+  expect(f.host.textContent).toContain('输入无效，尚未保存');
+  expect(f.host.textContent).not.toContain('已保存');
+  expect(f.input().value).toBe('');
+});
 it('真实草稿在自动保存后确认，前导零等值编辑不重复提交或拦截离页', async () => {
   const f = fixture();
   f.edit('02');

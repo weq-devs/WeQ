@@ -15,6 +15,7 @@ import { sharedIntentStatus } from './intent_sense';
 import { sharedAntiRecallStatus } from './anti_recall';
 import { clientStateRouter } from './client_state';
 import { dataSaverBehaviorDefaults } from '@weq/service/data-saver';
+import { dataSaverSession } from '@weq/service/transfer-policy';
 import { preferenceDefaults } from '@weq/service/client-preferences';
 import {
   remoteResetCardAvailable,
@@ -154,6 +155,22 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     b.setShowScrollToBottomButton({ enabled }),
   );
   const clientPreferences = config.getSharedPreference('client');
+  for (const [card, key, label] of [
+    ['group-messages', 'showGroupMemberName', '显示群消息发送者名称'],
+    ['group-messages', 'showGroupMemberLevel', '显示群成员等级'],
+    ['group-messages', 'showGroupMemberTitle', '显示群成员头衔与身份'],
+    ['quote-replies', 'autoMentionOnQuote', '群聊引用时自动 @ 对方'],
+    ['quote-replies', 'backspaceRemovesQuote', '按退格键移除引用'],
+  ] as const) {
+    add(
+      card,
+      key,
+      label,
+      clientPreferences[key] ?? preferenceDefaults[key],
+      preferenceDefaults[key],
+      () => clientStateRouter.createCaller(ctx).patch({ [key]: preferenceDefaults[key] }),
+    );
+  }
   for (const [key, label] of [
     ['autoFetchMissingMessages', '查看时自动拉取缺失的消息'],
     ['autoFetchMissingContext', '定位到缺失消息时自动拉取上下文'],
@@ -313,6 +330,15 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   );
   app('cdn', 'preferCdn', '优先 CDN', (enabled) => b.setPreferCdn({ enabled }));
   if (selected.has('data-saver')) {
+    const temporary = dataSaverSession.status().temporary;
+    add(
+      'data-saver',
+      'temporary',
+      '临时省流量设置',
+      temporary ? (temporary.enabled ? '临时开启' : '临时关闭') : '无临时设置',
+      '无临时设置',
+      async () => dataSaverSession.clearTemporary('settings'),
+    );
     const saverDefaults = { dataSaverMode: 'auto' as const, ...dataSaverBehaviorDefaults };
     const saverCurrent = config.getSharedPreference('client');
     add(

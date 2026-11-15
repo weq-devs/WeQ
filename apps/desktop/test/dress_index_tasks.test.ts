@@ -35,6 +35,7 @@ it('气泡、字体与挂件阶段只更新一个装扮离线索引任务，重�
     expect(backgroundTasks.snapshot().at(-1)).toMatchObject({
       kind: 'model',
       name: '装扮离线索引',
+      destination: 'enhancement-packs',
       status: 'running',
       progress: received,
       note: expect.stringContaining(note),

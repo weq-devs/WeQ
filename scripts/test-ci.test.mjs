@@ -21,6 +21,25 @@ const workflow = load(
   readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8'),
 );
 
+test('安装依赖的 CI 与发布任务先检出文档子模块，匹配冻结锁文件', () => {
+  const release = load(
+    readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8'),
+  );
+  for (const [name, config] of [
+    ['CI', workflow],
+    ['Release', release],
+  ]) {
+    for (const [job, definition] of Object.entries(config.jobs)) {
+      const steps = definition.steps ?? [];
+      const install = steps.findIndex((step) => /pnpm install/.test(step.run ?? ''));
+      if (install < 0) continue;
+      const checkout = steps.findIndex((step) => step.uses === 'actions/checkout@v4');
+      assert.ok(checkout >= 0 && checkout < install, `${name}/${job} 先检出源码`);
+      assert.equal(steps[checkout].with?.submodules, 'recursive', `${name}/${job}`);
+    }
+  }
+});
+
 test('类型检查分组覆盖每个包和桌面端两个配置，保留完整汇总门禁', () => {
   const suites = workflow.jobs['typecheck-suites'];
   assert.equal(suites.strategy['fail-fast'], false);

@@ -594,9 +594,13 @@ export const FONT_INFO: ProtoMessage = message([
   f('flag41', 41, 'uint32', { force: true }),
   f('flag51', 51, 'uint32'),
   f('flag52', 52, 'uint32'),
-  f('flag55', 55, 'uint32', { force: true }),
+  // 真机 wire 顺序是 .54 → .55（字段号本身无顺序语义，这里照抄抓包顺序，
+  // 字节级对照时不会有多余差异）。
   f('flag54', 54, 'uint32', { force: true }),
-  f('fontId1', 56, 'uint32'),
+  f('flag55', 55, 'uint32', { force: true }),
+  // 真机在「有字体但用回退槽」时也会把这个 0 写出来（抓包 `.56 = 0`），
+  // 与 .54/.55 一样属于骨架，故标 force。
+  f('fontId1', 56, 'uint32', { force: true }),
   f('flag58', 58, 'uint32'),
   f('flag61', 61, 'uint32'),
   f('nested65', 65, message([f('flag2', 2, 'uint32')])),
@@ -637,6 +641,10 @@ export const FONT_INFO: ProtoMessage = message([
   f('token116', 116, 'uint64'),
 ]);
 
+/**
+ * 顺序按真机 wire 排列：`.1 → .16 → .17 → .19`。字段号本身不参与语义，但保持
+ * 与真机相同的出现顺序，字节级对照抓包时不会有噪音。
+ */
 export const GENERAL_FLAGS: ProtoMessage = message([
   f('bubbleDiyTextId', 1, 'int32', { force: true }),
   f('groupFlagNew', 2, 'int32'),
@@ -646,8 +654,8 @@ export const GENERAL_FLAGS: ProtoMessage = message([
   f('flag10', 10, 'int32'),
   f('flag12', 12, 'int32'),
   f('flag13', 13, 'int32'),
-  f('widgetId', 17, 'uint32', { force: true }),
   f('flag16', 16, 'int32', { force: true }),
+  f('widgetId', 17, 'uint32', { force: true }),
   f('font', 19, FONT_INFO),
 ]);
 

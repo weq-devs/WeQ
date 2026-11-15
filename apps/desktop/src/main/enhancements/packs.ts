@@ -297,7 +297,7 @@ export class EnhancementPacks {
         });
       this.pending.set(id, task);
       this.queue = task;
-      this.preparationObserver?.(id, pack.name);
+      if (download) this.preparationObserver?.(id, pack.name);
     }
   }
 

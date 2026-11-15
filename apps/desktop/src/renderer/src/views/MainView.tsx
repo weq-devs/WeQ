@@ -53,6 +53,7 @@ import { withBrowserFile } from '../lib/browserFileUpload';
 import { stageAccountFile } from '../lib/accountFilePicker';
 import { WEB_NOTICE_OPEN } from '../components/WebNotifications';
 import type { WebNotice } from '../../../main/web/notices';
+import type { ChatMsgWire as IncomingMessageWire } from '../../../main/ipc/serde';
 import {
   createReplyPreviewIndex,
   findReplyPreview,
@@ -92,6 +93,7 @@ import {
 } from '../lib/clientPreferences';
 import { useWebConnection } from '../state/webConnection';
 import { useUpdateStore } from '../state/update';
+import { useEnhancementUpdates } from '../hooks/useEnhancementUpdates';
 import { client } from '../trpc/client';
 import { useToast } from '../components/Toast';
 import { useMessageLocateFeedback } from '../hooks/useMessageLocateFeedback';
@@ -2991,6 +2993,8 @@ function MainWorkspace(): ReactElement {
     return () => sub.unsubscribe();
   }, []);
 
+  useEnhancementUpdates();
+
   // Update availability: seed from the last cached check (the background startup
   // check may have already run), then keep it live via the check events. Drives
   // the settings rail red dot. setState via getState() to avoid re-render churn.
@@ -3174,13 +3178,26 @@ function MainWorkspace(): ReactElement {
     setSettingsSearchTarget(null);
   }, [messageScope]);
 
-  /**
-   * 通话窗口请求打开设置页（`localStorage` 的 `storage` 事件，同源广播）。
-   * 现在只有「通话与录音」一节会这样跳过来。
-   */
+  /** 任务、更新提醒与独立窗口共用设置跳转入口。 */
   useEffect(
     () =>
       onOpenSettingsRequest((section) => {
+        if (section === 'dataSaver') {
+          setSettingsSection('resource-loading');
+          setSettingsSearchTarget({
+            section: 'resource-loading',
+            settingId: 'data-saver',
+            revision: Date.now(),
+          });
+          setSettingsOpen(true);
+          return;
+        }
+        if (section === 'enhancementPacks') {
+          setSettingsSearchTarget(null);
+          setSettingsSection('enhancement-packs');
+          setSettingsOpen(true);
+          return;
+        }
         if (section === 'longTermAuthorization') {
           setSettingsSection('account');
           setSettingsSearchTarget({
@@ -5172,12 +5189,46 @@ function MainWorkspace(): ReactElement {
     activeGroupSidebarPopover?.kind === 'sign' ? activeGroupSidebarPopover : null;
   const essenceDialog =
     activeGroupSidebarPopover?.kind === 'essence' ? activeGroupSidebarPopover : null;
+  const resolveNoticeGroupSenderName = useCallback(
+    async (message: IncomingMessageWire) => {
+      const names = previewGroupNames.get(message.conv);
+      const cached = names?.get(message.senderUid) || names?.get(message.senderUin);
+      if (cached) return cached;
+      const binding = messageBindingRef.current;
+      const profile = profileByUid.get(message.senderUid);
+      const profileName =
+        previewDisplayNames.get(message.senderUid) || previewDisplayNames.get(message.senderUin);
+      if (!binding || (!message.senderUid && !/^[1-9]\d*$/.test(message.senderUin)))
+        return profileName || '';
+      const members = await (message.senderUid
+        ? client.account.getGroupMembersByUids.query({
+            ...binding,
+            groupCode: message.conv,
+            uids: [message.senderUid],
+          })
+        : client.account.getGroupMembersByUins.query({
+            ...binding,
+            groupCode: message.conv,
+            uins: [message.senderUin],
+          })
+      ).catch(() => []);
+      const member = members[0];
+      return displayGroupMemberName(
+        member?.card,
+        profile?.remark,
+        member?.nick || profile?.nick,
+        profileName || '',
+      );
+    },
+    [previewGroupNames, previewDisplayNames, profileByUid],
+  );
   useMessageNotifications({
     selfUin: user.identityValue,
     selfUid: user.uid,
     conversations,
     preferences: conversationPrefs,
     groupAssistantIds,
+    resolveGroupSenderName: resolveNoticeGroupSenderName,
     badgeCount: shell.messageUnreadCount,
     foregroundConversation:
       messagesTabActive && !settingsOpen && !dressUpOpen ? selectedUid : undefined,

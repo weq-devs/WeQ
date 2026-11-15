@@ -1,0 +1,196 @@
+import { act, createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { DataSaverSession, networkCost, UNKNOWN_NETWORK } from '@weq/service/data-saver';
+import { DataSaverMenu } from '../src/renderer/src/components/DataSaverMenu';
+import { DataSaverSettings } from '../src/renderer/src/components/settings/DataSaverSettings';
+import { applyDataSaverStatus, useDataSaver } from '../src/renderer/src/lib/dataSaver';
+import { useClientPreferences } from '../src/renderer/src/lib/clientPreferences';
+import { useToast } from '../src/renderer/src/components/Toast';
+import { OPEN_SETTINGS_COMMAND } from '../src/renderer/src/lib/callSettingsBridge';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const fixture = vi.hoisted(() => ({
+  session: null as DataSaverSession | null,
+  revision: 0,
+  fail: false,
+}));
+vi.mock('../src/renderer/src/trpc/client', () => ({
+  client: {
+    settings: {
+      dataSaver: {
+        status: { query: async () => fixture.session!.status() },
+        temporary: {
+          mutate: async ({ value }: { value: Parameters<DataSaverSession['setTemporary']>[0] }) => {
+            if (fixture.fail) throw new Error('合成保存失败');
+            fixture.session!.setTemporary(value);
+            return fixture.session!.status();
+          },
+        },
+        clearTemporary: {
+          mutate: async () => {
+            fixture.session!.clearTemporary();
+            return fixture.session!.status();
+          },
+        },
+      },
+    },
+    clientState: {
+      patch: {
+        mutate: async (values: { dataSaverMode?: 'auto' | 'always' | 'never' }) => {
+          fixture.session!.update(
+            values.dataSaverMode ?? fixture.session!.status().mode,
+            fixture.session!.status().host,
+          );
+          fixture.session!.clearTemporary('settings');
+          return { epoch: 'menu-fixture', revision: ++fixture.revision, values, records: {} };
+        },
+      },
+    },
+  },
+}));
+
+let root: Root;
+let host: HTMLElement;
+beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  fixture.session = new DataSaverSession();
+  fixture.fail = false;
+  useDataSaver.setState({
+    enabled: false,
+    host: UNKNOWN_NETWORK,
+    local: UNKNOWN_NETWORK,
+    status: null,
+  });
+  useClientPreferences.setState({ error: '' });
+  useToast.setState({ toasts: [], leaving: [] });
+  host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+});
+afterEach(async () => {
+  await act(async () => root.unmount());
+  host.remove();
+  fixture.session!.dispose();
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+async function click(name: string) {
+  const element = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+    (button) => button.getAttribute('aria-label') === name || button.textContent === name,
+  );
+  expect(element, name).toBeTruthy();
+  await act(async () => element!.click());
+}
+async function mountMenu() {
+  applyDataSaverStatus(fixture.session!.status());
+  await act(async () => root.render(createElement(DataSaverMenu)));
+}
+
+it('自动进入退出提醒去重，未知探测不退出，手动操作不产生横幅', () => {
+  fixture.session!.update('auto', networkCost(true, false, 'fixture'));
+  applyDataSaverStatus(fixture.session!.status());
+  applyDataSaverStatus(fixture.session!.status());
+  expect(useToast.getState().toasts).toHaveLength(1);
+  expect(useToast.getState().toasts[0].title).toBe('已自动进入省流量模式');
+  fixture.session!.update('auto', UNKNOWN_NETWORK);
+  applyDataSaverStatus(fixture.session!.status());
+  expect(useToast.getState().toasts[0].title).toBe('已自动进入省流量模式');
+  fixture.session!.update('auto', networkCost(false, false, 'fixture'));
+  applyDataSaverStatus(fixture.session!.status());
+  expect(useToast.getState().toasts[0].title).toBe('已自动退出省流量模式');
+  useToast.setState({ toasts: [] });
+  fixture.session!.setTemporary({ enabled: true, duration: 'exit' });
+  applyDataSaverStatus(fixture.session!.status());
+  expect(useToast.getState().toasts).toHaveLength(0);
+});
+it('临时期满恢复基础模式并显示横幅，迟到的旧状态不能覆盖', async () => {
+  vi.useFakeTimers();
+  fixture.session!.update('auto', networkCost(true, false, 'fixture'));
+  fixture.session!.setTemporary({ enabled: false, duration: 'minutes', minutes: 1 });
+  const old = fixture.session!.status();
+  applyDataSaverStatus(old);
+  await vi.advanceTimersByTimeAsync(60000);
+  applyDataSaverStatus(fixture.session!.status());
+  applyDataSaverStatus(old);
+  expect(useDataSaver.getState().enabled).toBe(true);
+  expect(useToast.getState().toasts[0].detail).toBe('临时设置已到期');
+});
+it('首次确认跟随系统开启时提醒，不受之前的手动设置原因影响', () => {
+  fixture.session!.update('never', networkCost(true, false, 'fixture'));
+  fixture.session!.update('auto', networkCost(true, false, 'fixture'));
+  expect(fixture.session!.status().reason).toBe('settings');
+  applyDataSaverStatus(fixture.session!.status());
+  expect(useToast.getState().toasts[0].title).toBe('已自动进入省流量模式');
+});
+it('省流量关闭且无系统限制时隐藏入口，系统仍限制时保留', async () => {
+  await mountMenu();
+  expect(host.querySelector('button')?.hidden).toBe(true);
+  await act(async () => {
+    fixture.session!.update('never', networkCost(true, false, 'fixture'));
+    applyDataSaverStatus(fixture.session!.status());
+  });
+  expect(host.querySelector('button')?.hidden).toBe(false);
+});
+it('临时关闭提供三种期限，临时开启没有任务期限，支持恢复与设置跳转', async () => {
+  fixture.session!.update('always', UNKNOWN_NETWORK);
+  fixture.session!.setPendingTasks(2);
+  await mountMenu();
+  await click('省流量菜单');
+  await click('临时关闭');
+  expect(document.querySelector('[aria-label="临时省流量期限"]')?.textContent).toContain(
+    '直到全部任务完成',
+  );
+  await click('直到全部任务完成');
+  await click('确认临时关闭');
+  expect(fixture.session!.status().temporary?.duration).toBe('tasks');
+  expect(host.querySelector('button')?.hidden).toBe(false);
+  await click('临时开启');
+  expect(document.querySelector('[aria-label="临时省流量期限"]')?.textContent).not.toContain(
+    '直到全部任务完成',
+  );
+  await click('恢复基础设置');
+  expect(fixture.session!.status().temporary).toBeNull();
+  const navigate = vi.fn();
+  window.addEventListener(OPEN_SETTINGS_COMMAND, navigate);
+  await click('完整设置');
+  expect(navigate.mock.calls[0][0].detail.section).toBe('dataSaver');
+  expect(document.querySelector('.weq-data-saver-panel')).toBeNull();
+  window.removeEventListener(OPEN_SETTINGS_COMMAND, navigate);
+});
+it('无任务禁用任务期限，分钟数校验及失败保留输入，Escape 关闭', async () => {
+  fixture.session!.update('always', UNKNOWN_NETWORK);
+  fixture.session!.setPendingTasks(0);
+  await mountMenu();
+  await click('省流量菜单');
+  await click('临时关闭');
+  expect(
+    [...document.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(
+      (button) => button.textContent === '直到全部任务完成',
+    )?.disabled,
+  ).toBe(true);
+  await click('自定义分钟数');
+  const input = document.querySelector<HTMLInputElement>('[aria-label="临时省流量分钟数"]')!;
+  expect(input.value).toBe('30');
+  fixture.fail = true;
+  await click('确认临时关闭');
+  expect(document.querySelector('[role="alert"]')?.textContent).toBe('合成保存失败');
+  expect(input.value).toBe('30');
+  await act(async () =>
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+  );
+  expect(document.querySelector('.weq-data-saver-panel')).toBeNull();
+});
+it('两组三选一改用分段选择，加载来源位于省流量前', async () => {
+  await act(async () => root.render(createElement(DataSaverSettings)));
+  expect(host.querySelectorAll('[role="radiogroup"]')).toHaveLength(2);
+  expect(host.querySelector('select')).toBeNull();
+  const source = readFileSync(
+    join(process.cwd(), 'src/renderer/src/components/settings/GlobalSettingsSection.tsx'),
+    'utf8',
+  );
+  expect(source.indexOf('<Card title="加载来源"')).toBeLessThan(
+    source.indexOf("{section === 'network' && <DataSaverSettings />}"),
+  );
+});

@@ -88,7 +88,7 @@ pnpm ci:local --full      # 额外跑 web 打包冒烟（≈ CI 的 build-web）
 
 - 先搜再写：用 `rg <关键词>` 找现有实现、工具函数、协议定义。同名能力通常已经躺在 `packages/service`、`packages/protocol`、`packages/db`、`packages/codec` 里了。
 - 涉及 QQ 侧能力，先看 [docs/develop/nt-helper-interface.md](./docs/develop/nt-helper-interface.md)（原生模块能力总览）和 [docs/develop/](./docs/develop/) 下的专题文档，别绕过已有接口自己碰内存 / 数据库。
-- 表结构和字段看 [docs/database/](./docs/database/)，加解密原理看 [docs/principles/](./docs/principles/)。
+- 表结构和字段看 [docs/database/](./docs/database/)，加解密原理看 [docs/develop/principles/](./docs/develop/principles/)。
 - 找不到现成实现再动手；动手时优先复用已有的类型、常量、工具函数，不要另起一套并行抽象。
 - 大改动（跨包重构、新增依赖、改协议层）先说清方案和影响面，别一次性铺开。
 
@@ -138,7 +138,13 @@ pnpm ci:local --full      # 额外跑 web 打包冒烟（≈ CI 的 build-web）
 ## 8. 文档
 
 文档站用 VitePress，**内容目录就是 `docs/` 本身**（配置在 `docs/.vitepress/`）。
+`docs/` 是 `weq-devs/WeqDocs` 的 **submodule** —— 文档内容在那边提交，主仓只记一个指针。
+
 本地预览：`pnpm --filter @weq/docs dev`（http://localhost:5174），构建 `build`。
+clone 主仓时要带 `--recurse-submodules`，否则 `docs/` 是空的。
+
+改完文档记得**两边都提交**：先 `cd docs && git commit && git push`，再回主仓提交指针。
+`.github/workflows/docs.yml` 会校验指针指向的提交确实已推送。
 
 ### 放哪个目录
 
@@ -147,7 +153,7 @@ pnpm ci:local --full      # 额外跑 web 打包冒烟（≈ CI 的 build-web）
 | `docs/guide/` | 用户向的用法 / 功能说明 | ✅ |
 | `docs/develop/` | 开发向的**常青**内容：协议、架构、踩坑记录 | ✅ |
 | `docs/database/` | 表结构与字段 | ✅ |
-| `docs/principles/` | 解密、密钥派生等原理 | ✅ |
+| `docs/develop/principles/` | 解密、密钥派生等原理 | ✅ |
 | `docs/notes/` | 过程记录：阶段计划、验收回执、TODO 清单 | ❌ |
 
 **判断标准**：半年后有人改这块代码，读它有用吗？有用 → `develop/`，只记录「当时做到哪一步」→ `notes/`。

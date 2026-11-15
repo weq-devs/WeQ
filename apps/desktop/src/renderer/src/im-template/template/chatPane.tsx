@@ -2679,7 +2679,7 @@ export function ChatPane({
     if (!focus && range) composerSelectionRef.current = range;
   }
 
-  function insertMention(member: GroupMember) {
+  function insertMention(member: GroupMember, replaceTrigger = true) {
     if (
       conversation?.type !== 'group' ||
       currentPreference.blocked ||
@@ -2697,7 +2697,9 @@ export function ChatPane({
       return;
     }
 
-    const trigger = getActiveComposerMentionTrigger(editor, composerSelectionRef.current);
+    const trigger = replaceTrigger
+      ? getActiveComposerMentionTrigger(editor, composerSelectionRef.current)
+      : null;
     const token = document.createElement('span');
     token.className = cn('composer-mention-token');
     token.contentEditable = 'false';
@@ -3430,9 +3432,10 @@ export function ChatPane({
     if (!conversation || quoteBlockReason(message)) {
       return;
     }
+    const sender = resolveMessageSender(message, conversation, user);
     const quote = quoteFromMessage({
       ...message,
-      sender: resolveMessageSender(message, conversation, user),
+      sender,
     });
     if (!quote) {
       return;
@@ -3443,6 +3446,26 @@ export function ChatPane({
     setPendingSuperEmoji(null);
     setAttachmentError(null);
     setPendingQuote(quote);
+    if (conversation.type === 'group' && preferenceValue('autoMentionOnQuote')) {
+      const self = new Set(selfIdentityValues(user));
+      const editor = currentComposerEditor();
+      const alreadyMentioned =
+        editor &&
+        [...editor.querySelectorAll<HTMLElement>('[data-weq-at-uid]')].some(
+          (node) =>
+            node.dataset.weqAtUid === sender.id ||
+            (node.dataset.weqAtUin && node.dataset.weqAtUin === sender.identityValue),
+        );
+      if (
+        editor &&
+        !isSelfIdentity(self, sender.id) &&
+        !isSelfIdentity(self, sender.identityValue) &&
+        !alreadyMentioned
+      ) {
+        focusComposerEnd(editor);
+        insertMention(sender as GroupMember, false);
+      }
+    }
     if (isMobileWebComposer()) setComposerCollapsed(false);
     // 引用条要占正文上面那一行，表情 / 语音 / 更多 / 链接面板先收起来。
     setEmojiOpen(false);
@@ -4065,6 +4088,27 @@ export function ChatPane({
         return;
       }
       void submitMessage();
+    }
+    if (
+      event.key === 'Backspace' &&
+      !event.repeat &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.shiftKey &&
+      pendingQuote &&
+      preferenceValue('backspaceRemovesQuote') &&
+      !serializeComposer(event.currentTarget)
+    ) {
+      const selection = event.currentTarget.ownerDocument.defaultView?.getSelection();
+      if (
+        selection?.isCollapsed &&
+        selection.anchorNode &&
+        event.currentTarget.contains(selection.anchorNode)
+      ) {
+        event.preventDefault();
+        removeQuote();
+      }
     }
   }
 

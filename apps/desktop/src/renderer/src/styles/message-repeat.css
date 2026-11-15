@@ -9,15 +9,17 @@
   min-width: 0;
   max-width: 100%;
 }
-.weq-message-repeat {
+.weq-repeat-content > :is(.weq-message-repeat, .weq-message-sending) {
   position: absolute;
   right: -38px;
   top: 50%;
   transform: translateY(-50%);
-  display: grid;
-  place-items: center;
   width: 32px;
   height: 28px;
+}
+.weq-message-repeat {
+  display: grid;
+  place-items: center;
   padding: 0;
   border: 1px solid var(--weq-border-strong);
   border-radius: 4px;
@@ -30,7 +32,7 @@
   margin-left: 40px;
   margin-right: 0;
 }
-.message-line.mine .weq-message-repeat {
+.message-line.mine .weq-repeat-content > :is(.weq-message-repeat, .weq-message-sending) {
   left: -38px;
   right: auto;
 }

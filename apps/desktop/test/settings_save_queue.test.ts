@@ -3,6 +3,23 @@ import { SettingsSaveQueue } from '../src/renderer/src/lib/settingsSaveQueue';
 
 afterEach(() => vi.useRealTimers());
 describe('设置自动保存队列', () => {
+  it('旧请求成功不把期间编辑的无效新值标记为已保存', async () => {
+    let finish!: () => void;
+    const save = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const queue = new SettingsSaveQueue('1');
+    queue.edit('2', true, save);
+    const flushing = queue.flush();
+    queue.edit('', false, save);
+    finish();
+    await flushing;
+    expect(queue.status).not.toBe('saved');
+    expect(save).toHaveBeenCalledOnce();
+  });
   it('600ms 防抖，只提交最新有效值，同值与无效输入不写入', async () => {
     vi.useFakeTimers();
     const save = vi.fn(async (_value: string) => {});

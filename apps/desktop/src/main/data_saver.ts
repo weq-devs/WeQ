@@ -1,14 +1,80 @@
 import {
   networkCost,
   UNKNOWN_NETWORK,
-  dataSaverEnabled,
   type NetworkCost,
+  type DataSaverTemporaryRequest,
 } from '@weq/service/data-saver';
 import { getAppContext } from './context/app_context';
-import { updateTransferPolicy } from '@weq/service/transfer-policy';
+import { dataSaverSession, updateTransferPolicy } from '@weq/service/transfer-policy';
 import { transferActivity, type TransferActivity } from '@weq/service/managed-download';
 import { backgroundTasks } from './background_tasks';
 import { onSettingsChanged } from '@weq/service/settings-changes';
+import { unfinishedDataSaverTasks } from '../shared/data_saver_tasks';
+
+const windowTasks = new Map<string, number | null>();
+const taskSources = new Map<string, NonNullable<ReturnType<typeof getAppContext>['services']>>();
+let taskTimer: ReturnType<typeof setInterval> | undefined;
+let idleTimer: ReturnType<typeof setTimeout> | undefined;
+let watchingTasks = false;
+
+export function reportDataSaverTasks(windowId: string, count?: number) {
+  if (!windowTasks.has(windowId) && windowTasks.size >= 256)
+    for (const [id, pendingCount] of windowTasks) if (pendingCount === 0) windowTasks.delete(id);
+  if (!windowTasks.has(windowId) && windowTasks.size >= 256)
+    throw new Error('省流量任务来源过多，请关闭不再使用的窗口');
+  windowTasks.set(windowId, count ?? windowTasks.get(windowId) ?? null);
+  if (watchingTasks) checkTasks();
+}
+export function closeDataSaverWindow(windowId: string) {
+  windowTasks.delete(windowId);
+  if (watchingTasks) checkTasks();
+}
+function readTaskCount(): number | null {
+  if (!watchingTasks) taskSources.clear();
+  const services = getAppContext().services;
+  if (services) taskSources.set(services.accountConfig.getRecord()?.configId ?? '', services);
+  if ([...windowTasks.values()].some((count) => count === null)) return null;
+  try {
+    let count = unfinishedDataSaverTasks({ background: [...backgroundTasks.snapshot()] });
+    for (const source of taskSources.values()) {
+      count += unfinishedDataSaverTasks({
+        exports: source.exportManager.listTasks(),
+        roaming: source.roamingBackfill.list(),
+        scanning: source.roamingBackfill.scanning(),
+        flash: source.flashTransferFiles.downloads.list(),
+      });
+      count += source.agentLab.runningBuildCount();
+    }
+    return count + [...windowTasks.values()].reduce<number>((sum, value) => sum + (value ?? 0), 0);
+  } catch {
+    return null;
+  }
+}
+function checkTasks() {
+  const count = readTaskCount();
+  dataSaverSession.setPendingTasks(count);
+  if (count !== 0 || dataSaverSession.status().temporary?.duration !== 'tasks') {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = undefined;
+  } else if (!idleTimer) {
+    // 给结束事件后的排队启动留出一轮；到时再读取真实状态，不用旧的零值。
+    idleTimer = setTimeout(() => {
+      idleTimer = undefined;
+      dataSaverSession.setPendingTasks(readTaskCount());
+      dataSaverSession.finishTasks();
+    }, 1000);
+    idleTimer.unref();
+  }
+}
+export function dataSaverStatus(clientId?: string) {
+  checkTasks();
+  return dataSaverSession.status(clientId);
+}
+export function setTemporaryDataSaver(input: DataSaverTemporaryRequest, clientId?: string) {
+  checkTasks();
+  dataSaverSession.setTemporary(input);
+  return dataSaverSession.status(clientId);
+}
 
 let last: NetworkCost = UNKNOWN_NETWORK;
 let checked = 0;
@@ -23,6 +89,23 @@ export async function refreshTransferPolicy() {
 }
 export function startTransferPolicy() {
   if (!timer) {
+    dataSaverSession.subscribe(() => {
+      const active = dataSaverSession.status().temporary?.duration === 'tasks';
+      if (active === watchingTasks) return;
+      watchingTasks = active;
+      if (active) {
+        taskTimer = setInterval(checkTasks, 1000);
+        taskTimer.unref();
+      } else {
+        if (taskTimer) clearInterval(taskTimer);
+        if (idleTimer) clearTimeout(idleTimer);
+        taskTimer = idleTimer = undefined;
+        taskSources.clear();
+      }
+    });
+    backgroundTasks.subscribe(() => {
+      if (watchingTasks) checkTasks();
+    });
     onSettingsChanged(() => {
       void refreshTransferPolicy().catch(() => undefined);
     });
@@ -66,11 +149,12 @@ export function hostNetworkCost(): Promise<NetworkCost> {
     try {
       const read = getAppContext().platform?.native.ntHelper.getNetworkCost;
       const value = await read?.();
-      last = value?.known
+      const next = value?.known
         ? networkCost(value.constrained, value.metered, value.source)
         : UNKNOWN_NETWORK;
+      if (next.state !== 'unknown' || last.state === 'unknown') last = next;
     } catch {
-      last = UNKNOWN_NETWORK;
+      // 探测失败不冒充系统已解除限制。
     }
     checked = Date.now();
     return last;
@@ -79,14 +163,12 @@ export function hostNetworkCost(): Promise<NetworkCost> {
   });
   return pending;
 }
-export async function hostDataSaver(): Promise<boolean> {
+export async function hostDataSaver(clientRestricted = false): Promise<boolean> {
   try {
-    const mode =
-      getAppContext().bootstrap?.userConfig.getSharedPreference?.('client')?.dataSaverMode ??
-      'auto';
     // 媒体命中不能排队等系统探测，实时状态由独立轮询更新。
     void hostNetworkCost();
-    return dataSaverEnabled(mode, last);
+    const status = dataSaverSession.status();
+    return status.effectiveMode !== 'never' && (clientRestricted || status.enabled);
   } catch {
     return false;
   }

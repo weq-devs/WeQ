@@ -1,11 +1,11 @@
 import { execFile, spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
 import { lstat, rename, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import signingIdentity from '../../shared/mac-signing.json';
+import { officialArchive } from './official_archive';
+export { verifyOfficialArchive as verifyMacArchive } from './official_archive';
 
 const run = promisify(execFile);
 export const MAC_BUNDLE_ID = signingIdentity.bundleId;
@@ -48,20 +48,6 @@ export function macAppBundle(executable: string): string {
   return bundle;
 }
 
-const releaseSchema = z.object({
-  tag_name: z.string(),
-  draft: z.literal(false),
-  prerelease: z.boolean(),
-  assets: z.array(
-    z.object({
-      name: z.string(),
-      state: z.literal('uploaded'),
-      digest: z.string().nullable().optional(),
-      size: z.number().int().positive(),
-    }),
-  ),
-});
-
 /** 信任锚只来自官方 HTTPS API，不接受加速站同时提供包与自报哈希。 */
 export function officialMacArchive(
   data: unknown,
@@ -73,30 +59,16 @@ export function officialMacArchive(
   sha256: string;
   size: number;
 } {
-  const release = releaseSchema.parse(data);
-  if (release.prerelease && !includePrerelease) throw new Error('未开启检查测试版');
-  if (release.tag_name !== `v${version}` && release.tag_name !== version)
-    throw new Error('官方 Release 版本与更新包不一致');
+  const verified = officialArchive(data, version, fileName, includePrerelease);
   const arch =
     fileName === `weQ-${version}-mac-arm64.zip`
       ? 'arm64'
       : fileName === `weQ-${version}-mac-x64.zip`
         ? 'x64'
         : null;
-  const asset = release.assets.find((item) => item.name === fileName);
-  if (!arch || !asset || !/^sha256:[a-f0-9]{64}$/.test(asset.digest ?? ''))
+  if (!arch)
     throw new Error('官方 Release 缺少此架构更新包的 SHA-256，未安装；请稍后重试或手动下载。');
-  return { arch, sha256: asset.digest?.slice(7) ?? '', size: asset.size };
-}
-
-export async function verifyMacArchive(path: string, expected: { sha256: string; size: number }) {
-  const stat = await lstat(path);
-  if (!stat.isFile() || stat.size !== expected.size)
-    throw new Error('更新包大小与官方 Release 不一致');
-  const hash = createHash('sha256');
-  for await (const chunk of createReadStream(path)) hash.update(chunk);
-  if (hash.digest('hex') !== expected.sha256)
-    throw new Error('更新包与官方 SHA-256 不匹配，未安装');
+  return { arch, ...verified };
 }
 
 export async function verifyMacBundle(

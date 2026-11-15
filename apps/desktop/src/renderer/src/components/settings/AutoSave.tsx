@@ -115,14 +115,14 @@ function AutoSaveField<T>({
   }, [q, card]);
   const status = (
     <span className="weq-autosave-status" role={q.status === 'error' ? 'alert' : 'status'}>
-      {q.status === 'saving'
-        ? '正在保存…'
-        : q.status === 'saved'
-          ? '已保存'
-          : q.status === 'error'
-            ? `保存失败：${q.error}`
-            : !valid && ready
-              ? '输入无效，尚未保存'
+      {!valid && ready
+        ? '输入无效，尚未保存'
+        : q.status === 'saving'
+          ? '正在保存…'
+          : q.status === 'saved'
+            ? '已保存'
+            : q.status === 'error'
+              ? `保存失败：${q.error}`
               : ''}
       {q.status === 'error' ? (
         <button

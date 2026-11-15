@@ -26,7 +26,7 @@ pnpm dev           # 自动补依赖、准备 native 与构建，然后启动桌
 pnpm dev --prepare-only # 只准备开发环境，不启动应用
 ```
 
-更多背景见[开发者入口](./docs/develop/index.md)与[原理文档](./docs/principles/index.md)。
+更多背景见[开发者入口](./docs/develop/index.md)与[原理文档](./docs/develop/principles/index.md)。
 默认使用锚定的发布版 native；参与 native 开发时在不入库的 `weq.dev.local.json` 中选择 `local` 并设置源码目录。配置、缓存、镜像与失败处理见[一行命令开发启动](./docs/develop/dev-startup.md)。
 
 ---

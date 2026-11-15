@@ -26,6 +26,7 @@ import type { ProfileGroup } from '../lib/profileNavigation';
 import type { MainView, User } from '../im-template/template/types';
 import { displayUserName } from '../im-template/template/user';
 import { TitleBarSearch } from './TitleBarSearch';
+import { DataSaverMenu } from './DataSaverMenu';
 import { RemoteShellMenuButton } from './RemoteShellMenus';
 import { OnlineStatus } from './OnlineStatus';
 import { useWorkspaceMobilePage } from './WorkspacePages';
@@ -168,6 +169,7 @@ export function MobileWebNavigation({
           onSearchFocus={onSearchFocus}
           results={searchPanel}
         />
+        <DataSaverMenu />
         <RemoteShellMenuButton />
       </header>
       {moreOpen ? moreContent : null}

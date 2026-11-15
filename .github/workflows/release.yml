@@ -11,6 +11,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: 只诊断 Windows 打包准备，不创建或上传 Release
+        required: true
+        default: v2.7.1
 
 permissions:
   contents: read
@@ -24,10 +30,79 @@ env:
   EP_DRAFT: 'true'
 
 jobs:
+  windows-preparation-probe:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [remote-network, enhancements]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          persist-credentials: false
+          submodules: recursive
+      - name: Setup Go
+        if: matrix.component == 'remote-network'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/remote-network/go.mod
+          cache-dependency-path: tools/remote-network/go.sum
+      - name: Probe Go helper build
+        if: matrix.component == 'remote-network'
+        timeout-minutes: 12
+        working-directory: tools/remote-network
+        shell: pwsh
+        env:
+          CGO_ENABLED: '0'
+          GOOS: windows
+          GOARCH: amd64
+        run: |
+          go build -v -p 2 -trimpath '-ldflags=-s -w' -o "$env:RUNNER_TEMP\weq-remote-network.exe" .
+          if ($LASTEXITCODE -ne 0) { throw 'Go helper build failed' }
+          go version -m -json "$env:RUNNER_TEMP\weq-remote-network.exe"
+      - uses: pnpm/action-setup@v4
+        if: matrix.component == 'enhancements'
+      - uses: actions/setup-node@v4
+        if: matrix.component == 'enhancements'
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Prepare engine dependencies
+        if: matrix.component == 'enhancements'
+        run: pnpm install --frozen-lockfile
+      - name: Verify native dependency
+        if: matrix.component == 'enhancements'
+        run: node scripts/fetch-native.mjs --require-fresh --require-authorization --verify
+      - name: Probe engine preparation and runtime
+        if: matrix.component == 'enhancements'
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          if [ -f scripts/enhancement-metadata.test.mjs ]; then
+            node --test scripts/enhancement-metadata.test.mjs
+          fi
+          node --input-type=module <<'JS'
+          import { existsSync, readdirSync } from 'node:fs';
+          const path = 'apps/desktop/.artifacts/enhancements/win32-x64';
+          const timer = setInterval(() => console.log(JSON.stringify({
+            probe: 'engines', files: existsSync(path) ? readdirSync(path) : [],
+            handles: process.getActiveResourcesInfo(),
+          })), 15000);
+          try {
+            const { prepareEnhancementEngines } = await import('./scripts/prepare-enhancement-engines.mjs');
+            await prepareEnhancementEngines();
+          } finally { clearInterval(timer); }
+          JS
+          node scripts/verify-enhancement-engines.mjs
+
   # ======================= 分类与通知意图 =======================
   # 固定标签分类与提交；通知意图仍按原有最后一次 commit 前缀判断。
   # 前缀未匹配仅跳过 QQ 通知，不跳过检查或构建。
   gate:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     outputs:
       release: ${{ steps.check.outputs.release }}
@@ -82,6 +157,8 @@ jobs:
     needs: [prepare]
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -207,6 +284,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -316,6 +395,8 @@ jobs:
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -422,6 +503,8 @@ jobs:
     runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -541,6 +624,8 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -726,6 +811,8 @@ jobs:
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4

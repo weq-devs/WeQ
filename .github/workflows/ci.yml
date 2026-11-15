@@ -38,6 +38,8 @@ jobs:
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -74,6 +76,8 @@ jobs:
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4 # version comes from package.json "packageManager"
@@ -149,6 +153,8 @@ jobs:
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -180,7 +186,7 @@ jobs:
 
       - name: Check CI orchestration and reports
         if: matrix.suite == 'core'
-        run: node --test scripts/test-ci.test.mjs scripts/release-notes.test.mjs scripts/publish-aur.test.mjs
+        run: node --test scripts/test-ci.test.mjs scripts/release-notes.test.mjs scripts/publish-aur.test.mjs scripts/enhancement-metadata.test.mjs
 
       # 打包前置脚本在 electron-builder 的 beforePack 里跑；它一旦拉进
       # `@weq/service` 那种桶文件，Windows runner 上会把打包卡死（v2.7.1 踩过）。
@@ -226,6 +232,8 @@ jobs:
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4

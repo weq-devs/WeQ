@@ -6,9 +6,15 @@
  *   pnpm run version:set 0.5.0 --dry-run  # 只打印将要修改的文件
  *   （也支持带 v 前缀：pnpm run version:set v0.5.0）
  *
- * 覆盖范围：仓库根 + apps/* + packages/* + docs/ 的 package.json（跳过
- * node_modules / dist / target 等产物目录）。docs 也参与统一版本，文档站页脚
- * 显示的版本号因此永远和当前发版一致。pnpm-lock.yaml 不动 —— 下次 `pnpm i` 自然对齐。
+ * 覆盖范围：仓库根 + apps/* + packages/* 的 package.json（跳过 node_modules /
+ * dist / target 等产物目录）。pnpm-lock.yaml 不动 —— 下次 `pnpm i` 自然对齐。
+ *
+ * ## `docs/` 为什么不在覆盖范围
+ *
+ * 它是 `weq-devs/WeqDocs` 的 submodule。往里面写文件会让 submodule 变脏，主仓
+ * 的版本提交里就会多出一个「未提交的 submodule 改动」——那种状态很容易被误提交，
+ * 也很容易被 `git checkout` 静默丢掉。文档站的版本号由它自己的 `package.json`
+ * 决定，页脚改用 `WEQBOT_VERSION` 之类的构建期注入来对齐发版号。
  *
  */
 
@@ -30,7 +36,7 @@ if (!version) {
   process.exit(1);
 }
 
-/** 目标 package.json 清单（根 + 一级 workspace 包 + docs）。 */
+/** 目标 package.json 清单（根 + 一级 workspace 包）。`docs/` 是 submodule，不在此列。 */
 function targets() {
   const list = [join(repoRoot, 'package.json')];
   for (const scope of ['apps', 'packages']) {
@@ -42,9 +48,6 @@ function targets() {
       if (existsSync(pkg)) list.push(pkg);
     }
   }
-  // 文档站是 workspace 成员但不在一级 scope 目录里，单独列。
-  const docsPkg = join(repoRoot, 'docs', 'package.json');
-  if (existsSync(docsPkg)) list.push(docsPkg);
   return list;
 }
 

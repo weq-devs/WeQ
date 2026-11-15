@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -7,7 +7,21 @@ import { ExportScheduler, type ScheduleInput } from '../src/account/export/sched
 import type { ExportTask, ExportTaskManager } from '../src/account/export/task_manager';
 
 const cleanups: Array<() => void> = [];
+const persistence = vi.hoisted(() => ({ fail: false, writes: 0 }));
+vi.mock('../src/common/atomic_write', async (original) => {
+  const actual = await original<typeof import('../src/common/atomic_write')>();
+  return {
+    ...actual,
+    writeFileAtomicSync: (path: string, data: string | Uint8Array) => {
+      persistence.writes++;
+      if (persistence.fail) throw new Error('synthetic ENOSPC');
+      actual.writeFileAtomicSync(path, data);
+    },
+  };
+});
 afterEach(() => {
+  persistence.fail = false;
+  persistence.writes = 0;
   for (const cleanup of cleanups.splice(0)) cleanup();
   vi.useRealTimers();
 });
@@ -63,8 +77,62 @@ function fixture() {
     offline: () => {
       online = false;
     },
+    online: () => {
+      online = true;
+    },
   };
 }
+
+it.each(['[{"id":"original"', '[{"id":"valid"},{"id":42}]', 'null', ''])(
+  '损坏任务文件保留且拒绝覆盖：%s',
+  (original) => {
+    const f = fixture();
+    f.scheduler.stop();
+    const path = join(f.root, 'schedules.json');
+    writeFileSync(path, original);
+    const scheduler = new ExportScheduler(f.root, {
+      taskManager: f.manager as unknown as ExportTaskManager,
+      isOnline: () => false,
+    });
+    try {
+      expect(() => scheduler.list()).toThrow();
+      expect(() => scheduler.create(f.schedule)).toThrow();
+      expect(readFileSync(path, 'utf8')).toBe(original);
+    } finally {
+      scheduler.stop();
+    }
+  },
+);
+it.each(['create', 'update', 'delete'] as const)('保存失败不发布内存或成功通知：%s', (action) => {
+  const f = fixture();
+  const before = structuredClone(f.scheduler.list());
+  const file = readFileSync(join(f.root, 'schedules.json'), 'utf8');
+  const notify = vi.fn();
+  f.scheduler.on('change', notify);
+  persistence.fail = true;
+  expect(() => {
+    if (action === 'create') f.scheduler.create(f.schedule);
+    if (action === 'update') f.scheduler.update(f.schedule.id, { name: 'not-saved' });
+    if (action === 'delete') f.scheduler.delete(f.schedule.id);
+  }).toThrow('ENOSPC');
+  expect(f.scheduler.list()).toEqual(before);
+  expect(readFileSync(join(f.root, 'schedules.json'), 'utf8')).toBe(file);
+  expect(notify).not.toHaveBeenCalled();
+});
+it('离线一小时不重复写相同跳过，恢复在线后只补执行一次', async () => {
+  const f = fixture();
+  f.scheduler.update(f.schedule.id, { options: { ...f.schedule.options, completeMessages: true } });
+  f.offline();
+  persistence.writes = 0;
+  await vi.advanceTimersByTimeAsync(7_200_000);
+  expect(f.schedule.history).toHaveLength(1);
+  expect(persistence.writes).toBeLessThanOrEqual(2);
+  expect(f.manager.startTask).not.toHaveBeenCalled();
+  f.online();
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(f.manager.startTask).toHaveBeenCalledTimes(1);
+  expect(f.schedule.history[0]?.outcome).toBe('running');
+});
 
 it('books the next cadence and persists in-flight IDs before the first batch completes', async () => {
   const f = fixture();
@@ -175,6 +243,20 @@ it('completion updates its original trigger without changing the next cadence', 
   expect(f.schedule.history).toHaveLength(1);
   expect(f.schedule.history[0]?.outcome).toBe('completed');
   expect(f.schedule.nextRunAt).toBe(nextRun);
+  expect(f.manager.listenerCount('progress')).toBe(0);
+});
+it('完成回执写盘失败只重试持久化，不让异常打断导出或重新启动任务', async () => {
+  const f = fixture();
+  await f.scheduler.runNow(f.schedule.id);
+  const task = f.tasks.get('task-1')!;
+  task.status = 'completed';
+  persistence.fail = true;
+  expect(() => f.manager.emit('progress', { taskId: task.id, status: task.status })).not.toThrow();
+  expect(f.schedule.history[0]?.outcome).toBe('running');
+  persistence.fail = false;
+  await vi.advanceTimersByTimeAsync(60_001);
+  expect(f.schedule.history[0]?.outcome).toBe('completed');
+  expect(f.manager.startTask).toHaveBeenCalledOnce();
   expect(f.manager.listenerCount('progress')).toBe(0);
 });
 

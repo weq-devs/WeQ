@@ -7,7 +7,11 @@ import { sharedPreferencePersistence } from '../src/common/shared_preferences';
 import { JsonStore } from '../src/common/json_store';
 import * as atomic from '../src/common/atomic_write';
 import { IntentSenseService, DEFAULT_INTENT_SENSE_CONFIG } from '../src/account/intent_sense';
-import { snapshotWeqSettings, snapshotWeqApiSettings } from '../src/bootstrap/backup_settings';
+import {
+  snapshotWeqSettings,
+  snapshotWeqApiSettings,
+  validateWeqAppSettings,
+} from '../src/bootstrap/backup_settings';
 
 function save(root: string, name: string, value: unknown) {
   const path = join(root, name);
@@ -17,6 +21,30 @@ function save(root: string, name: string, value: unknown) {
 }
 
 describe('统一设置来源', () => {
+  it('群消息与引用偏好进入应用设置备份，保留显式关闭值', () => {
+    const f = configFixture();
+    const defaults = {
+      showGroupMemberName: true,
+      showGroupMemberLevel: true,
+      showGroupMemberTitle: true,
+      autoMentionOnQuote: false,
+      backspaceRemovesQuote: true,
+    };
+    expect(snapshotWeqSettings(f.service.getSettings()).sharedPreferences.client).toMatchObject(
+      defaults,
+    );
+    const patch = {
+      showGroupMemberName: false,
+      showGroupMemberLevel: false,
+      showGroupMemberTitle: false,
+      autoMentionOnQuote: true,
+      backspaceRemovesQuote: false,
+    };
+    f.service.patchSharedPreference('client', patch);
+    const backup = snapshotWeqSettings(f.service.getSettings());
+    expect(backup.sharedPreferences.client).toMatchObject(patch);
+    expect(() => validateWeqAppSettings(backup)).not.toThrow();
+  });
   it('邮箱列宽持久化到应用共享值，重开与切号不会恢复账号旧值', () => {
     const f = configFixture();
     f.service.patchSharedPreference('client', { mailListWidth: 432 });

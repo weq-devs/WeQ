@@ -1209,6 +1209,32 @@ function AppearanceSection({
               {category === 'reading' ? <MissingMessageSettings /> : null}
             </Card>
           )}
+          {category === 'sending' && (
+            <Card title="引用回复" icon={<MessagesSquare size={15} />}>
+              <Row
+                settingId="quote-auto-mention"
+                label="群聊引用时自动 @ 对方"
+                control={
+                  <SharedDisplayToggle
+                    name="autoMentionOnQuote"
+                    label="群聊引用时自动 @ 对方"
+                    fallback={false}
+                  />
+                }
+              />
+              <Row
+                settingId="quote-backspace-remove"
+                label="按退格键移除引用"
+                control={
+                  <SharedDisplayToggle
+                    name="backspaceRemovesQuote"
+                    label="按退格键移除引用"
+                    fallback={true}
+                  />
+                }
+              />
+            </Card>
+          )}
           {readingError ? <p role="alert">{readingError}</p> : null}
           {category === 'display' && (
             <>
@@ -1253,6 +1279,22 @@ function AppearanceSection({
                     />
                   }
                 />
+              </Card>
+              <Card title="群消息" icon={<Users size={15} />}>
+                {(
+                  [
+                    ['showGroupMemberName', 'group-message-name', '显示群消息发送者名称'],
+                    ['showGroupMemberLevel', 'group-message-level', '显示群成员等级'],
+                    ['showGroupMemberTitle', 'group-message-title', '显示群成员头衔与身份'],
+                  ] as const
+                ).map(([name, settingId, label]) => (
+                  <Row
+                    key={settingId}
+                    settingId={settingId}
+                    label={label}
+                    control={<SharedDisplayToggle name={name} label={label} fallback={true} />}
+                  />
+                ))}
               </Card>
               <Card title="头像与装扮" icon={<Smile size={15} strokeWidth={1.8} />}>
                 {[

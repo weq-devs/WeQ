@@ -40,7 +40,7 @@ export function trackEnhancementPreparation(
   const existing = tasks.get(id);
   if (existing) return existing;
   const task = runBackgroundTask(
-    { kind: 'model', name },
+    { kind: 'model', name, destination: 'enhancement-packs' },
     async (taskId) => {
       let polling = true;
       const update = async () => {
