@@ -22,6 +22,7 @@
 @import './log-console-palette.css';
 @import './numeric-readouts.css';
 @import './danger-actions.css';
+@import './control-alignment.css';
 @import './frozen-lists.css';
 
 /* streamdown 代码块用 Tailwind `dark:` 工具类切换 shiki 明/暗配色，但本项目暗色靠
