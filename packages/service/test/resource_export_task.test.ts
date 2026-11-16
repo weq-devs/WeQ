@@ -524,14 +524,14 @@ describe('独立资源沿用导出任务生命周期', () => {
         status: 'cancelled',
       });
       expect(f.manager.getTask(id)?.bundleDir).toBeUndefined();
-      expect(f.manager.resumeTask(id)).toBe(false);
+      expect(f.manager.listTasks()[0]).toMatchObject({ canResume: true, resumeMode: 'restart' });
       expect(new ExportTaskManager({} as MsgService, f.cache).listTasks()[0]?.canResume).toBe(
         false,
       );
       if (action === 'cancel') expect(f.manager.getTask(id)?.error).toBeUndefined();
     },
   );
-  it('非续作资源不能手动暂停，取消后即使旧运行器完成也不能恢复或发布', async () => {
+  it('非续作资源不能手动暂停，取消后旧运行器不能发布，退出后允许重新执行', async () => {
     const f = fixture();
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
@@ -557,10 +557,10 @@ describe('独立资源沿用导出任务生命周期', () => {
       expect(readdirSync(f.cache).some((name) => name.endsWith('.partial'))).toBe(false),
     );
     expect(f.manager.getTask(id)?.status).toBe('cancelled');
-    expect(f.manager.resumeTask(id)).toBe(false);
+    expect(f.manager.listTasks()[0]).toMatchObject({ canResume: true, resumeMode: 'restart' });
     expect(f.manager.getTask(id)?.bundleDir).toBeUndefined();
   });
-  it('非续作资源拒绝暂停，取消清除中断提示且不提供重新执行', async () => {
+  it('非续作资源拒绝暂停，取消清除中断提示并提供重新执行', async () => {
     const f = fixture();
     let started!: () => void;
     const entered = new Promise<void>((resolve) => {
@@ -586,7 +586,7 @@ describe('独立资源沿用导出任务生命周期', () => {
     await f.done();
     expect(readdirSync(f.cache).some((name) => name.endsWith('.partial'))).toBe(false);
     expect(f.manager.getTask(id)?.error).toBeUndefined();
-    expect(f.manager.resumeTask(id)).toBe(false);
+    expect(f.manager.listTasks()[0]).toMatchObject({ canResume: true, resumeMode: 'restart' });
   });
   it('取消策略暂停的下载后清除暂停状态，网络恢复也不会重新开始', async () => {
     const f = fixture();

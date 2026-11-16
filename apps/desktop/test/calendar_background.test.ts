@@ -170,3 +170,36 @@ it('直接关闭仍取消读取，不生成任务记录', async () => {
   expect(backgroundTasks.snapshot()).toHaveLength(0);
   expect(fixture.read).toHaveBeenCalledTimes(1);
 });
+
+it('后台统计取消后提供重试，沿用同一任务且拒绝旧账号动作', async () => {
+  let release!: (value: { rows: never[]; done: boolean }) => void;
+  fixture.read.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  fixture.read.mockResolvedValue({ rows: [], done: true });
+  const caller = conversationCalendarRouter.createCaller({});
+  const { id } = await caller.start({
+    ...binding,
+    month: '2026-04',
+    day: '2026-04-10',
+    targets: [],
+  });
+  const { taskId } = await caller.background({ ...binding, id });
+  await vi.advanceTimersByTimeAsync(100);
+  expect(release).toBeDefined();
+  await backgroundTasks.act(taskId!, 'stop');
+  expect(backgroundTasks.snapshot()[0]?.actions).toContainEqual({ id: 'retry', label: '重试统计' });
+  release({ rows: [], done: true });
+  await vi.runAllTimersAsync();
+  const session = fixture.session;
+  fixture.session = { ...session };
+  await expect(backgroundTasks.act(taskId!, 'retry')).rejects.toThrow('原账号');
+  fixture.session = session;
+  await backgroundTasks.act(taskId!, 'retry');
+  await vi.runAllTimersAsync();
+  expect(backgroundTasks.snapshot()).toHaveLength(1);
+  expect(backgroundTasks.snapshot()[0]?.status).toBe('completed');
+});

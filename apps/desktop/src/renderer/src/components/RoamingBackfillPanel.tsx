@@ -822,7 +822,7 @@ export function RoamingBackfillPanel({
                           暂停
                         </button>
                       ) : null}
-                      {job.status === 'partial' ? (
+                      {job.status === 'partial' || job.status === 'cancelled' ? (
                         <button
                           type="button"
                           className="weq-roaming-actionbtn"

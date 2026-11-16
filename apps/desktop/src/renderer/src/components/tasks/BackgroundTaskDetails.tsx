@@ -214,8 +214,10 @@ function TaskDetails({
               )
             }
           >
-            {action.id === 'stop' ? (
+            {action.id === 'stop' || action.id === 'cancel' ? (
               <Square size={14} />
+            ) : action.id === 'retry' ? (
+              <RotateCw size={14} />
             ) : action.id === 'download' ? (
               <Download size={14} />
             ) : (

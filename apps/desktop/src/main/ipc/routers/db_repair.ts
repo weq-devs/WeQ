@@ -539,38 +539,54 @@ export const dbRepairRouter = router({
   checkup: procedure
     .input(targetRef.extend({ taskId: z.string().min(1).max(128) }))
     .mutation(({ input }): Promise<DbRepairCheckup> => {
-      const target = service.resolveTarget(input.uin, input.dbName);
-      const key = `${input.uin}:${input.taskId}`;
-      return runBackgroundTask(
-        {
-          kind: 'database',
-          name: `数据库体检 · ${input.dbName}`,
-          scope: { uin: input.uin },
-          destination: 'db-checkup',
-        },
-        async (id) => {
-          const tracked = { id, cancelled: false };
-          if (checkupTasks.has(key)) throw new Error('这个体检任务已经在运行。');
-          checkupTasks.set(key, tracked);
-          backgroundTasks.setActions(id, [
-            {
-              id: 'stop',
-              label: '停止体检',
-              run: () => cancelTrackedCheckup(input.uin, input.taskId),
-            },
-          ]);
-          try {
-            return await databaseCheckups.start(input.uin, input.taskId, target);
-          } catch (error) {
-            if (tracked.cancelled) backgroundTasks.finish(id, 'cancelled', { note: '体检已停止' });
-            throw error;
-          } finally {
-            checkupTasks.delete(key);
-            backgroundTasks.setActions(id, []);
-          }
-        },
-        (report) => ({ note: report.summary }),
-      );
+      const run = (): Promise<DbRepairCheckup> => {
+        const target = service.resolveTarget(input.uin, input.dbName);
+        const key = `${input.uin}:${input.taskId}`;
+        if (checkupTasks.has(key)) throw new Error('这个体检任务已经在运行。');
+        let backgroundId: string | undefined;
+        return runBackgroundTask(
+          {
+            kind: 'database',
+            name: `数据库体检 · ${input.dbName}`,
+            scope: { uin: input.uin },
+            destination: 'db-checkup',
+          },
+          async (id) => {
+            backgroundId = id;
+            const tracked = { id, cancelled: false };
+            checkupTasks.set(key, tracked);
+            backgroundTasks.setActions(id, [
+              {
+                id: 'stop',
+                label: '停止体检',
+                run: () => cancelTrackedCheckup(input.uin, input.taskId),
+              },
+            ]);
+            try {
+              return await databaseCheckups.start(input.uin, input.taskId, target);
+            } catch (error) {
+              if (tracked.cancelled)
+                backgroundTasks.finish(id, 'cancelled', { note: '体检已停止' });
+              throw error;
+            } finally {
+              checkupTasks.delete(key);
+              backgroundTasks.setActions(id, []);
+            }
+          },
+          (report) => ({ note: report.summary }),
+        ).catch((error: unknown) => {
+          if (backgroundId)
+            backgroundTasks.setActions(backgroundId, [
+              {
+                id: 'retry',
+                label: '重新体检',
+                run,
+              },
+            ]);
+          throw error;
+        });
+      };
+      return run();
     }),
 
   cancelCheckup: procedure

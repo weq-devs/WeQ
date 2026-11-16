@@ -338,16 +338,21 @@ export function CurrentTaskList({
           await refresh();
         },
       });
-    if (['planned', 'paused', 'failed', 'partial'].includes(job.status))
+    if (['planned', 'paused', 'failed', 'partial', 'cancelled'].includes(job.status))
       actions.push({
         id: 'resume',
         label:
           job.status === 'planned'
             ? '开始补全'
-            : job.status === 'partial'
+            : job.status === 'partial' || job.status === 'cancelled'
               ? '重试未补区间'
               : '继续',
-        icon: <Play size={14} />,
+        icon:
+          job.status === 'cancelled' || job.status === 'partial' ? (
+            <RotateCw size={14} />
+          ) : (
+            <Play size={14} />
+          ),
         disabled:
           busy ||
           roaming.data?.historyVersion !== 2 ||
@@ -355,7 +360,7 @@ export function CurrentTaskList({
         run: async () => {
           await client.account.roamingBackfill.start.mutate({
             id: job.id,
-            retryRemaining: job.status === 'partial',
+            retryRemaining: job.status === 'partial' || job.status === 'cancelled',
           });
           await refresh();
         },
@@ -442,6 +447,15 @@ export function CurrentTaskList({
   for (const task of flash.data ?? []) {
     const running = task.status === 'resolving' || task.status === 'downloading';
     const single = (task.files?.length ?? 1) === 1;
+    const retryFlash = async () => {
+      if (!cleanupBinding) return;
+      const retried = await client.account.flashRetryDownloadTask.mutate({
+        ...cleanupBinding,
+        taskId: task.id,
+      });
+      await utils.account.flashListDownloadTasks.invalidate();
+      if (!retried) showInfo('暂时无法重试', '下载仍在收尾或任务状态已变化，请查看最新任务状态。');
+    };
     const openFlash = async (mode: 'file' | 'directory' | 'reveal') => {
       if (!cleanupBinding || openingFlashRef.current) return;
       openingFlashRef.current = task.id;
@@ -491,6 +505,14 @@ export function CurrentTaskList({
               },
             },
           ];
+    if (task.canRetry)
+      actions.unshift({
+        id: 'retry',
+        label: '重试下载',
+        icon: <RotateCw size={14} />,
+        disabled: !cleanupBinding,
+        run: retryFlash,
+      });
     if (!IS_WEB) {
       if (single && task.status === 'done')
         actions.unshift({
@@ -602,6 +624,19 @@ export function CurrentTaskList({
             binding={cleanupBinding}
           />
           <div className="weq-long-task-actions">
+            {task.canRetry ? (
+              <TaskQuickActions
+                actions={[
+                  {
+                    id: 'retry',
+                    label: '重试下载',
+                    icon: <RotateCw size={14} />,
+                    disabled: !cleanupBinding,
+                    run: retryFlash,
+                  },
+                ]}
+              />
+            ) : null}
             {!IS_WEB && single && task.status === 'done' ? (
               <button
                 type="button"
@@ -665,7 +700,9 @@ export function CurrentTaskList({
           <Square size={14} />
         ) : action.id === 'pause' ? (
           <Pause size={14} />
-        ) : action.id === 'resume' || action.id === 'retry' ? (
+        ) : action.id === 'retry' ? (
+          <RotateCw size={14} />
+        ) : action.id === 'resume' || action.id === 'continue' ? (
           <Play size={14} />
         ) : (
           <FolderOpen size={14} />

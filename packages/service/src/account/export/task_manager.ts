@@ -876,6 +876,7 @@ export class ExportTaskManager extends EventEmitter {
     this.queue = this.queue
       .then(() => {
         const task = this.tasks.get(id);
+        if (task?.status !== 'pending') return;
         return networkScope.run(
           {
             clientId: task?.networkClientId,
@@ -1205,7 +1206,10 @@ export class ExportTaskManager extends EventEmitter {
           isFinalizing: this.finalizing.has(task.id),
           ...(canResume
             ? {
-                resumeMode: task.resource && !task.resource.resume ? 'restart' : 'checkpoint',
+                resumeMode:
+                  task.status === 'cancelled' || (task.resource && !task.resource.resume)
+                    ? 'restart'
+                    : 'checkpoint',
               }
             : {}),
           logs: this.taskLogs.get(task.id) ?? [],
@@ -6067,12 +6071,15 @@ export class ExportTaskManager extends EventEmitter {
       return task.status === 'paused' && !this.abortControllers.has(task.id);
     if (task.resource)
       return (
-        this.resumableResource(task) &&
-        ['paused', 'failed'].includes(task.status) &&
+        (this.resumableResource(task) || this.networkRunners.has(task.id)) &&
+        ['paused', 'failed', 'cancelled'].includes(task.status) &&
         !this.abortControllers.has(task.id)
       );
     if (task.marketpack || task.emojipack)
-      return ['paused', 'failed'].includes(task.status) && !this.abortControllers.has(task.id);
+      return (
+        ['paused', 'failed', 'cancelled'].includes(task.status) &&
+        !this.abortControllers.has(task.id)
+      );
     if (
       task.generated &&
       task.status === 'completed' &&
@@ -6080,9 +6087,12 @@ export class ExportTaskManager extends EventEmitter {
     )
       return !this.abortControllers.has(task.id);
     if (task.contacts || task.generated || task.qzone || task.collection)
-      return ['paused', 'failed'].includes(task.status) && !this.abortControllers.has(task.id);
+      return (
+        ['paused', 'failed', 'cancelled'].includes(task.status) &&
+        !this.abortControllers.has(task.id)
+      );
     return (
-      (['paused', 'failed'].includes(task.status) ||
+      (['paused', 'failed', 'cancelled'].includes(task.status) ||
         (task.status === 'completed' &&
           task.stages.some((stage) => this.canRetrySkippedStage(task, stage)))) &&
       !task.qzone &&
@@ -6224,6 +6234,23 @@ export class ExportTaskManager extends EventEmitter {
         !this.canResume(task))
     )
       return false;
+    if (task.status === 'cancelled') {
+      // 取消已清除续作缓存；保留原始输入与正式文件，重新生成本轮输出。
+      task.formatCheckpoints = {};
+      task.partialReady = false;
+      task.current = 0;
+      task.progress = 0;
+      if (task.save && task.save.status !== 'saved') task.save.status = 'pending';
+      for (const stage of task.stages) {
+        if (stage.status === 'skipped') continue;
+        stage.status = 'pending';
+        stage.current = 0;
+        stage.failed = 0;
+        delete stage.note;
+        delete stage.failures;
+      }
+      this.log(id, 'task', '重新执行已取消的任务');
+    }
     task.networkPaused = false;
     if (!automatic) task.networkOverride = true;
     const networkRunner = this.networkRunners.get(id);

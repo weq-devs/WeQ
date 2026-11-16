@@ -26,6 +26,8 @@ const fixture = vi.hoisted(() => ({
   plannedSeqs: 100,
   flashStatus: 'pending',
   flashCount: 1,
+  flashCanRetry: false,
+  retryFlash: vi.fn(async () => true),
   web: false,
   confirm: vi.fn(async () => false),
   clear: vi.fn(async () => ({ removed: 3, skipped: 0, errors: [] as string[] })),
@@ -96,6 +98,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         remove: { mutate: fixture.removeRoaming },
       },
       flashCancelDownloadTask: { mutate: fixture.cancelFlash },
+      flashRetryDownloadTask: { mutate: fixture.retryFlash },
       flashOpenDownloadOutput: { mutate: fixture.openFlash },
     },
   },
@@ -151,6 +154,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
               id: 'same-id',
               name: '合成闪传',
               status: fixture.flashStatus,
+              canRetry: fixture.flashCanRetry,
               fileSize: 100,
               downloadedBytes: 0,
               filesetName: '合成集合',
@@ -190,6 +194,7 @@ afterEach(() => {
   fixture.plannedSeqs = 100;
   fixture.flashStatus = 'pending';
   fixture.flashCount = 1;
+  fixture.flashCanRetry = false;
   fixture.web = false;
   fixture.activeRoaming = null;
   getCloneTasks()[0]!.status = 'running';
@@ -217,6 +222,58 @@ async function clickQuick(row: Element, label: string) {
 }
 
 describe('统一当前任务', () => {
+  it('取消的导出、漫游和闪传在快捷列表中提供实际重试入口', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    fixture.flashStatus = 'cancelled';
+    fixture.flashCanRetry = true;
+    fixture.roamingStatus = 'cancelled';
+    const binding = {
+      expectedAccountUin: fixture.accountId,
+      expectedAccountConfigId: 'fixture-config',
+    };
+    const task: UiTask = {
+      id: 'retry-export',
+      name: '取消资源',
+      kind: 'c2c',
+      format: 'json',
+      status: 'cancelled',
+      current: 0,
+      total: 1,
+      progress: 0,
+      resource: { kind: 'group-files' },
+      canResume: true,
+      resumeMode: 'restart',
+    };
+    const actions = { pause: vi.fn(), resume: vi.fn(), cancel: vi.fn(), remove: vi.fn() };
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    try {
+      act(() =>
+        root.render(
+          h(CurrentTaskList, {
+            layout: 'compact',
+            cleanupBinding: binding,
+            exports: [task],
+            exportActions: actions,
+            renderExport: () => null,
+          }),
+        ),
+      );
+      const row = (name: string) =>
+        [...host.querySelectorAll('.weq-long-task-entry')].find((item) =>
+          item.textContent?.includes(name),
+        )!;
+      await clickQuick(row('取消资源'), '重新下载');
+      expect(actions.resume).toHaveBeenCalledWith(task);
+      await clickQuick(row('合成漫游'), '重试未补区间');
+      expect(fixture.startRoaming).toHaveBeenCalledWith({ id: 'same-id', retryRemaining: true });
+      await clickQuick(row('合成闪传'), '重试下载');
+      expect(fixture.retryFlash).toHaveBeenCalledWith({ ...binding, taskId: 'same-id' });
+      expect(fixture.cancelFlash).not.toHaveBeenCalled();
+    } finally {
+      act(() => root.unmount());
+    }
+  });
   it.each([false, true])('增强包下载任务可跳转设置，不依赖账号或下载状态（Web：%s）', (web) => {
     fixture.web = web;
     const open = vi.fn();

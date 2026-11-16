@@ -100,4 +100,5 @@ export interface FlashDownloadTask {
 
 export interface FlashDownloadBatch extends FlashDownloadTask {
   files: FlashDownloadTask[];
+  canRetry?: boolean;
 }

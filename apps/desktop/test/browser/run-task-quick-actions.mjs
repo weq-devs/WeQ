@@ -119,6 +119,21 @@ try {
       await page.screenshot({
         path: resolve(output, `resource-paused-${dark ? 'dark' : 'light'}-${width}.png`),
       });
+    const cancelled = page
+      .locator('.weq-long-task-entry')
+      .filter({ hasText: '合成取消文件下载.zip' });
+    await cancelled.scrollIntoViewIfNeeded();
+    if (
+      !(await cancelled
+        .getByRole('button', { name: '重新下载', exact: true })
+        .locator('svg.lucide-rotate-cw')
+        .count())
+    )
+      throw new Error('取消后可重试的下载应显示重新下载图标');
+    if (output)
+      await page.screenshot({
+        path: resolve(output, `resource-cancelled-${dark ? 'dark' : 'light'}-${width}.png`),
+      });
     const saved = page.locator('.weq-long-task-entry').filter({ hasText: '合成已保存结果' });
     if ((await saved.locator('.weq-task-quick-actions > button').count()) !== 3)
       throw new Error('常用按钮与更多按钮的数量不符合预期');
@@ -197,8 +212,10 @@ try {
   if (await resource.getByRole('button', { name: '暂停', exact: true }).count())
     throw new Error('不能断点继续的文件下载不应提供暂停入口');
   await resource.getByRole('button', { name: '取消下载', exact: true }).click();
+  await resource.getByRole('button', { name: '重新下载', exact: true }).waitFor();
+  await resource.getByRole('button', { name: '重新下载', exact: true }).click();
   if (await resource.getByRole('button', { name: '重新下载', exact: true }).count())
-    throw new Error('取消后不应保留重新下载入口');
+    throw new Error('重新下载开始后不应保留重复重试入口');
   const exported = page.locator('.weq-long-task-entry').filter({ hasText: '合成导出-long' });
   await exported.getByRole('button', { name: '暂停', exact: true }).click();
   await exported.getByRole('button', { name: '继续导出', exact: true }).click();

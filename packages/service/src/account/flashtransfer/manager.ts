@@ -209,7 +209,46 @@ export class FlashTransferDownloadManager extends EventEmitter {
 
   /** 按下载操作归并，文件明细保留在 files 中，新的在前。 */
   list(): FlashDownloadBatch[] {
-    return groupFlashDownloads(this.tasks).sort((a, b) => b.createdAt - a.createdAt);
+    return groupFlashDownloads(this.tasks)
+      .map((task) => ({
+        ...task,
+        canRetry:
+          task.files.some((file) => file.status === 'failed' || file.status === 'cancelled') &&
+          task.files.every(
+            (file) => FINISHED_FLASH_STATUSES.has(file.status) && !this.running.has(file.id),
+          ),
+      }))
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  /** 只重试失败或取消的文件；旧下载完全退出后才复用任务身份与路径。 */
+  retry(taskId: string): Promise<boolean> {
+    const request = this.startQueue.then(async () => {
+      await this.loading;
+      const batch = this.list().find((task) => task.id === taskId);
+      if (!batch?.canRetry) return false;
+      const files = batch.files.filter(
+        (file) => file.status === 'failed' || file.status === 'cancelled',
+      );
+      const previous = files.map((file) => ({ ...file }));
+      for (const file of files) {
+        file.status = 'pending';
+        file.error = undefined;
+        file.finishedAt = undefined;
+        file.downloadedBytes = 0;
+      }
+      try {
+        await this.persist(true);
+      } catch (error) {
+        for (const [index, file] of files.entries()) Object.assign(file, previous[index]);
+        throw error;
+      }
+      for (const file of files) this.emitTask(file);
+      void this.pump();
+      return true;
+    });
+    this.startQueue = request.catch(() => {});
+    return request;
   }
 
   /**

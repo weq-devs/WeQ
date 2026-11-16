@@ -834,6 +834,13 @@ export class ContactDirectoryRuntime {
         this.appendLog(`本地资料读取完成，准备 ${jobs.length} 项在线查询`);
         if (this.stopPreparing) {
           backgroundTasks.finish(id, 'cancelled');
+          backgroundTasks.setActions(id, [
+            {
+              id: 'retry',
+              label: '重新准备',
+              run: () => this.rebuild(missingOnly, fields, range, target),
+            },
+          ]);
           return;
         }
         this.cache.start(

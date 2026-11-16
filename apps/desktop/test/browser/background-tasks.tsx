@@ -77,6 +77,19 @@ function Fixture() {
     compact
       ? [
           {
+            id: 'resource-cancelled',
+            name: '合成取消文件下载.zip',
+            kind: 'c2c',
+            format: 'json',
+            resource: { kind: 'group-files' },
+            status: 'cancelled',
+            canResume: true,
+            resumeMode: 'restart',
+            progress: 30,
+            current: 1,
+            total: 3,
+          },
+          {
             id: 'resource-paused',
             name: '合成暂停文件下载.zip',
             kind: 'c2c',
@@ -153,7 +166,8 @@ function Fixture() {
             pause: (task) => update(task, { status: 'paused', canResume: true }),
             resume: (task) =>
               update(task, { status: 'running', canResume: false, networkPaused: false }),
-            cancel: (task) => update(task, { status: 'cancelled', canResume: false }),
+            cancel: (task) =>
+              update(task, { status: 'cancelled', canResume: true, resumeMode: 'restart' }),
             remove: (task) => setTasks((items) => items.filter((item) => item.id !== task.id)),
             save: (task) => {
               window.taskQuickCalls?.push({ action: 'save', input: task.id });

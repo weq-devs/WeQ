@@ -7442,6 +7442,13 @@ export const accountRouter = router({
       return requireServices().flashTransferFiles.downloads.cancel(input.taskId);
     }),
 
+  flashRetryDownloadTask: procedure
+    .input(exportAccountBindingInput.required().extend({ taskId: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const svc = requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+      return svc.flashTransferFiles.downloads.retry(input.taskId);
+    }),
+
   /** 清掉已结束（完成 / 失败 / 取消）的任务，进行中的保留。 */
   flashClearDownloadTasks: procedure.mutation(async () => {
     return requireServices().flashTransferFiles.downloads.clearFinished();

@@ -468,15 +468,15 @@ export class RoamingBackfillManager {
     this.idle();
     const job = this.job(id);
     this.assertSupportedTransport(job);
-    if (job.status === 'cancelled' || job.status === 'completed')
-      throw new Error('已结束的任务不能继续。');
+    if (job.status === 'completed') throw new Error('已结束的任务不能继续。');
     const previous = {
       status: job.status,
       note: job.note,
       updatedAt: job.updatedAt,
       pending: job.targets.map((target) => target.pending),
     };
-    if (retryRemaining) for (const target of job.targets) target.pending = copy(target.remaining);
+    if (retryRemaining || job.status === 'cancelled')
+      for (const target of job.targets) target.pending = copy(target.remaining);
     job.status = 'running';
     job.note = '正在复核本地记录与候选缺口。';
     job.updatedAt = Date.now();

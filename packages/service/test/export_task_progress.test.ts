@@ -73,9 +73,8 @@ describe('消息导出进度与收尾', () => {
         includeIntegrityReport: false,
         savePolicy: { mode: 'before', directory: root },
       });
-      await vi.waitFor(() =>
-        expect(manager.getTask(id)?.status, manager.getTask(id)?.error).toBe('completed'),
-      );
+      await (manager as unknown as { queue: Promise<void> }).queue;
+      expect(manager.getTask(id)?.status, manager.getTask(id)?.error).toBe('completed');
       expect(manager.getTask(id)).toMatchObject({ current: 2, total: 2, progress: 100 });
       expect(Object.values(manager.getTask(id)!.formatCounts!)).toEqual([2, 2, 2, 2, 2, 2]);
     } finally {

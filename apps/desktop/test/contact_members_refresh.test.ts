@@ -146,6 +146,31 @@ it('取消后不再启动下一个群，继续仍复用原任务并在最后重�
   expect(services.groupInfo.getRelationGraph).toHaveBeenCalledTimes(1);
 });
 
+it('本地资料准备阶段取消后仍可重新准备，不误用尚未创建的在线队列', async () => {
+  const { runtime, services } = await setup();
+  let release!: () => void;
+  services.groupInfo.listGroupDirectory.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => resolve([]);
+      }),
+  );
+  const id = await runtime.rebuild(false, undefined, 'all', 'groupMembers');
+  await vi.waitFor(() => expect(release).toBeDefined());
+  await backgroundTasks.act(id!, 'stop');
+  release();
+  await vi.waitFor(() =>
+    expect(backgroundTasks.snapshot().find((task) => task.id === id)?.actions).toContainEqual({
+      id: 'retry',
+      label: '重新准备',
+    }),
+  );
+  await backgroundTasks.act(id!, 'retry');
+  await vi.waitFor(() => expect(runtime.cache.progress.status).toBe('completed'));
+  expect(services.groupInfo.listGroupDirectory).toHaveBeenCalledTimes(2);
+  expect(services.groupInfo.refreshGroupMembers).toHaveBeenCalledTimes(2);
+});
+
 it('重算失败不标为完成，重试只重算而不重复拉取已成功名单', async () => {
   const { runtime, services } = await setup();
   services.groupInfo.getRelationGraph.mockRejectedValueOnce(new Error('合成重算失败'));
