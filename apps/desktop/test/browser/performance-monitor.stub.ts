@@ -1,5 +1,10 @@
 import { useState, useSyncExternalStore } from 'react';
-import type { MonitorHistory, MonitorPoint, MonitorSettings } from '@weq/service/performance';
+import type {
+  MonitorHistory,
+  MonitorPoint,
+  MonitorRange,
+  MonitorSettings,
+} from '@weq/service/performance';
 const now = Date.now();
 let settings: MonitorSettings = {
   version: 1,
@@ -46,7 +51,7 @@ export const qa = {
   historyAgeDays: 40 / 1440,
   databaseReadChanges: [] as number[],
 };
-function history(input: { from: number; to: number; process?: string }): MonitorHistory {
+function history(input: MonitorRange): MonitorHistory {
   const points: MonitorPoint[] = [];
   if (!cleared && fixture !== 'empty')
     for (let i = 0; i < 80; i++) {
@@ -55,8 +60,11 @@ function history(input: { from: number; to: number; process?: string }): Monitor
       for (const [process, label] of [
         ['1:1', '主进程'],
         ['2:2', '主窗口'],
+        ['3:3', '渲染进程'],
+        ['4:4', '渲染进程'],
       ]) {
         if (input.process && process !== input.process) continue;
+        if (input.processGroup && label !== input.processGroup) continue;
         const cpu = 2 + (i % 8);
         points.push({
           id: i + 1,
@@ -79,8 +87,35 @@ function history(input: { from: number; to: number; process?: string }): Monitor
         });
       }
     }
+  const grouped = new Map<number, MonitorPoint>();
+  if (input.aggregate)
+    for (const point of points) {
+      const previous = grouped.get(point.id);
+      if (!previous)
+        grouped.set(point.id, {
+          ...point,
+          label: input.processGroup || '全部进程',
+          process: `group:${input.processGroup || '全部进程'}`,
+          metrics: structuredClone(point.metrics),
+        });
+      else
+        for (const metric of Object.keys(point.metrics) as Array<keyof MonitorPoint['metrics']>)
+          for (const stat of ['min', 'max', 'mean'] as const) {
+            const a = previous.metrics[metric][stat],
+              b = point.metrics[metric][stat];
+            previous.metrics[metric][stat] =
+              a === null
+                ? b
+                : b === null
+                  ? a
+                  : metric === 'eventLoopP95Ms'
+                    ? Math.max(a, b)
+                    : a + b;
+          }
+    }
   return {
-    points: points.sort((a, b) => a.lastAt - b.lastAt),
+    points: (input.aggregate ? [...grouped.values()] : points).sort((a, b) => a.lastAt - b.lastAt),
+    processGroups: ['主进程', '主窗口', '渲染进程'],
     events: [{ id: 1000, at: now - 1200_000, session: 'fixture', event: 'sampling-gap' }],
     eventLimitReached: false,
     pointLimitReached: false,
@@ -90,7 +125,7 @@ function useFixtureQuery<T>(route: string, value: T, options?: { enabled?: boole
   useSyncExternalStore(subscribe, () => revision);
   qa.requests.push({ route, enabled: options?.enabled !== false });
   return {
-    data: value,
+    data: fixture === 'error' && route === 'history' ? undefined : value,
     error: fixture === 'error' && route === 'history' ? { message: '合成读取失败' } : null,
     isLoading: false,
     refetch: async () => {

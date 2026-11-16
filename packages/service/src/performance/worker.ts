@@ -171,11 +171,32 @@ export function performanceWorker(load: NodeJS.Require) {
           `AVG(${key}) ${key}_mean`,
         ])
         .join(',');
+      const filter = "at>=? AND at<=? AND (?='' OR process=?) AND (?='' OR label=?)";
+      const parameters = [
+        range.from,
+        range.to,
+        range.process ?? '',
+        range.process ?? '',
+        range.processGroup ?? '',
+        range.processGroup ?? '',
+      ];
+      // 先按真实采样合计，再计算时间桶统计，避免进程退出或峰值错位使汇总失真。
+      const source = range.aggregate
+        ? `(SELECT record,at,? process,? label,segment,MAX(interval_ms) interval_ms,
+          ${metrics.map((key) => `${key === 'eventLoopP95Ms' ? 'MAX' : 'SUM'}(${key}) ${key}`).join(',')}
+          FROM points WHERE ${filter} GROUP BY record,segment)`
+        : `(SELECT * FROM points WHERE ${filter})`;
+      const label = range.processGroup || '全部进程';
       const rows = db
         .prepare(`SELECT process,label,segment,CAST((at-?)/? AS INTEGER) bucket,
         MIN(at) firstAt,MAX(at) lastAt,MAX(record) id,COUNT(*) count,MAX(interval_ms) intervalMs,${aggregates}
-        FROM points WHERE at>=? AND at<=? AND (?='' OR process=?) GROUP BY process,segment,bucket ORDER BY firstAt LIMIT 8001`)
-        .all(range.from, width, range.from, range.to, range.process ?? '', range.process ?? '');
+        FROM ${source} GROUP BY process,segment,bucket ORDER BY firstAt LIMIT 8001`)
+        .all(
+          range.from,
+          width,
+          ...(range.aggregate ? [`group:${label}`, label] : []),
+          ...parameters,
+        );
       const points = rows.slice(0, 8000).map((row) => ({
         process: row.process,
         label: row.label,
@@ -201,6 +222,12 @@ export function performanceWorker(load: NodeJS.Require) {
         .all(range.from, range.to);
       return {
         points,
+        processGroups: db
+          .prepare(
+            'SELECT DISTINCT label FROM points WHERE at>=? AND at<=? ORDER BY label LIMIT 128',
+          )
+          .all(range.from, range.to)
+          .map((row) => String(row.label)),
         events: events.slice(0, 1000),
         eventLimitReached: events.length > 1000,
         pointLimitReached: rows.length > 8000,

@@ -48,7 +48,12 @@ async function settle(ms = 1) {
 
 function fixture() {
   const queries = createQueryClient(false);
-  const historyReads: Array<{ from: number; to: number; process?: string }> = [];
+  const historyReads: Array<{
+    from: number;
+    to: number;
+    processGroup?: string;
+    aggregate?: boolean;
+  }> = [];
   const detailReads: number[] = [];
   let holdHistory = false;
   let releaseHistory: (() => void) | undefined;
@@ -68,6 +73,7 @@ function fixture() {
               historyReads.push(input);
               const metric = { min: 1, max: 1, mean: 1 };
               const history: MonitorHistory = {
+                processGroups: ['合成进程'],
                 points: [1, 2, 3].map(
                   (id): MonitorPoint => ({
                     id,
@@ -169,16 +175,30 @@ it('连续实时刷新只保留当前历史结果，不影响其它业务缓存�
   expect(f.queries.getQueryData(['unrelated-business'])).toEqual({ retained: true });
 }, 15_000);
 
+it('实时刷新等待响应时不卸载图表，也不插入读取占位', async () => {
+  const f = fixture();
+  await settle();
+  const point = f.host.querySelector('[data-point="1"]');
+  expect(point).not.toBeNull();
+  f.holdNextHistory();
+  await settle(10_000);
+  expect(f.host.querySelector('[data-point="1"]')).toBe(point);
+  expect(f.host.textContent).not.toContain('正在读取历史');
+  await act(async () => f.releaseHistory());
+  await settle();
+  expect(f.cachedHistory()).toHaveLength(1);
+});
+
 it('筛选和明细切换不积压结果，关闭后迟到的历史响应也会释放', async () => {
   const f = fixture();
   await settle();
   const process = f.host.querySelector<HTMLSelectElement>('[aria-label="进程"]')!;
   await act(async () => {
-    process.value = 'synthetic';
+    process.value = '合成进程';
     process.dispatchEvent(new Event('change', { bubbles: true }));
   });
   await settle();
-  expect(f.historyReads.at(-1)?.process).toBe('synthetic');
+  expect(f.historyReads.at(-1)).toMatchObject({ processGroup: '合成进程', aggregate: true });
   expect(f.cachedHistory()).toHaveLength(1);
   for (const id of [1, 2, 3]) {
     await act(async () => f.host.querySelector<HTMLButtonElement>(`[data-point="${id}"]`)!.click());

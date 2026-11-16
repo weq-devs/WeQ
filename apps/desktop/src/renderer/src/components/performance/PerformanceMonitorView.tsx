@@ -34,8 +34,8 @@ export default function PerformanceMonitorView() {
   const [live, setLive] = useState(true);
   const [hours, setHours] = useState(1);
   const [range, setRange] = useState(() => ({ from: Date.now() - 3600_000, to: Date.now() }));
-  const [processKey, setProcessKey] = useState('');
-  const [processes, setProcesses] = useState<Array<[string, string]>>([]);
+  const [processGroup, setProcessGroup] = useState('');
+  const [processes, setProcesses] = useState<string[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [hover, setHover] = useState<MonitorPoint | null>(null);
   const [inspector, setInspector] = useState<'sample' | 'events' | null>(null);
@@ -57,12 +57,13 @@ export default function PerformanceMonitorView() {
     refetchOnWindowFocus: false,
   });
   const history = trpc.performanceMonitor.history.useQuery(
-    { ...range, buckets, process: processKey || undefined },
+    { ...range, buckets, processGroup: processGroup || undefined, aggregate: true },
     {
       enabled: activity.enabled,
       // 实时范围每轮都是新 key，离开后不保留重叠的整份历史。
       cacheTime: 0,
-      keepPreviousData: false,
+      // 刷新只替换数据，不卸载图表；仍由零缓存时长释放旧查询。
+      keepPreviousData: true,
       refetchOnWindowFocus: false,
     },
   );
@@ -89,18 +90,11 @@ export default function PerformanceMonitorView() {
   }, [activity.enabled]);
   useEffect(() => {
     if (!history.data) return;
-    const discovered = history.data.points.map((point): [string, string] => [
-      point.process,
-      point.label,
-    ]);
+    const discovered =
+      history.data.processGroups ?? history.data.points.map((point) => point.label);
     setProcesses((previous) => {
-      const merged = [...new Map([...previous, ...discovered]).entries()];
-      return merged.length === previous.length &&
-        merged.every(
-          ([key, label], index) => previous[index]?.[0] === key && previous[index]?.[1] === label,
-        )
-        ? previous
-        : merged;
+      const merged = [...new Set([...previous, ...discovered])];
+      return merged.length === previous.length ? previous : merged;
     });
   }, [history.data]);
   useEffect(() => {
@@ -137,7 +131,7 @@ export default function PerformanceMonitorView() {
     setMessage('正在导出…');
     try {
       const result = await exportHistory.mutateAsync({
-        range: { ...range, buckets, process: processKey || undefined },
+        range: { ...range, buckets, processGroup: processGroup || undefined, aggregate: true },
         format,
       });
       if (!result) {
@@ -191,16 +185,18 @@ export default function PerformanceMonitorView() {
         </select>
         <select
           aria-label="进程"
-          value={processKey}
+          value={processGroup}
           onChange={(event) => {
-            setProcessKey(event.target.value);
+            setProcessGroup(event.target.value);
             setHover(null);
+            setSelected(null);
+            setInspector((current) => (current === 'sample' ? null : current));
           }}
         >
           <option value="">全部进程</option>
-          {processes.map(([key, label]) => (
-            <option key={key} value={key}>
-              {label} · {key.split(':')[0]}
+          {processes.map((label) => (
+            <option key={label} value={label}>
+              {label}
             </option>
           ))}
         </select>
@@ -286,15 +282,25 @@ export default function PerformanceMonitorView() {
           记录异常：{status.error?.message ?? status.data?.error}
         </p>
       )}
+      {history.error && points.length > 0 && (
+        <p role="alert" className="weq-perf-error">
+          历史刷新失败：{history.error.message}
+        </p>
+      )}
       {history.data?.pointLimitReached && (
         <p role="status" className="weq-perf-notice">
-          超过 8000 个图表点，仅显示前段历史；请选择单一进程或缩小时间范围。
+          超过 8000 个图表点，仅显示前段历史；请选择进程类别或缩小时间范围。
         </p>
       )}
       <div className={`weq-perf-workspace${inspector ? ' has-inspector' : ''}`}>
         <div className="weq-perf-timeline">
-          <div className="weq-perf-plots" ref={plots}>
-            {history.error ? (
+          <div
+            className="weq-perf-plots"
+            ref={plots}
+            aria-busy={history.isFetching}
+            style={{ minHeight: metrics.length * 130 }}
+          >
+            {history.error && !points.length ? (
               <div role="alert" className="weq-perf-empty">
                 历史读取失败：{history.error.message}
                 <button
@@ -318,7 +324,7 @@ export default function PerformanceMonitorView() {
                   key={metric}
                   metric={metric}
                   width={size.width}
-                  height={Math.max(72, Math.floor(size.height / metrics.length) - 27)}
+                  height={Math.max(88, Math.floor(size.height / metrics.length) - 43)}
                   points={points}
                   from={range.from}
                   to={range.to}
@@ -432,7 +438,7 @@ export default function PerformanceMonitorView() {
                     </p>
                     <div className="weq-perf-detail-list">
                       {detail.data.processes
-                        ?.filter((proc) => !processKey || proc.key === processKey)
+                        ?.filter((proc) => !processGroup || proc.label === processGroup)
                         .map((proc) => (
                           <section key={proc.key}>
                             <h4>

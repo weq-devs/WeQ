@@ -264,6 +264,89 @@ describe('宿主性能监视', () => {
 });
 
 describe('性能历史 Worker', () => {
+  it('按每次采样汇总同类或全部进程后分桶，不把各进程的峰值和均值直接相加', async () => {
+    const request = await worker(),
+      now = Date.now();
+    const records: MonitorRecord[] = [
+      [
+        [10, 90],
+        [90, 10],
+      ],
+      [[20, 80]],
+    ].map((samples, index) => ({
+      version: 1,
+      session: 's',
+      segment: 'before-gap',
+      kind: 'sample',
+      at: now - 1000 + index * 100,
+      intervalMs: 30_000,
+      processes: samples.map(([cpu, loop], process) => ({
+        key: `${process}:1`,
+        label: '渲染进程',
+        pid: process,
+        createdAt: 1,
+        metrics: {
+          cpuPercent: cpu!,
+          residentBytes: 100,
+          heapBytes: null,
+          externalBytes: null,
+          eventLoopP95Ms: loop!,
+        },
+      })),
+    }));
+    // 同一时间桶中进程退出，均值应为 (100 + 20) / 2，而不是 15 + 90。
+    for (const record of records)
+      record.processes!.push({
+        key: 'main:1',
+        label: '主进程',
+        pid: 99,
+        createdAt: 1,
+        metrics: {
+          cpuPercent: 5,
+          residentBytes: 100,
+          heapBytes: null,
+          externalBytes: null,
+          eventLoopP95Ms: null,
+        },
+      });
+    await request('batch', { records, settings: DEFAULT_MONITOR_SETTINGS });
+    const range = { from: now - 2000, to: now, buckets: 1, aggregate: true };
+    const history = await request<import('../src/performance').MonitorHistory>('history', range);
+    expect(history.points).toHaveLength(1);
+    expect(history.points[0]).toMatchObject({
+      label: '全部进程',
+      count: 2,
+      metrics: {
+        cpuPercent: { min: 25, max: 105, mean: 65 },
+        residentBytes: { min: 200, max: 300, mean: 250 },
+        heapBytes: { min: null, max: null, mean: null },
+        eventLoopP95Ms: { min: 80, max: 90, mean: 85 },
+      },
+    });
+    const group = await request<import('../src/performance').MonitorHistory>('history', {
+      ...range,
+      processGroup: '渲染进程',
+    });
+    expect(group.points).toHaveLength(1);
+    expect(group.points[0]!.metrics.cpuPercent).toEqual({ min: 20, max: 100, mean: 60 });
+    expect(group.processGroups).toEqual(history.processGroups);
+    expect(group.processGroups).toEqual(expect.arrayContaining(['主进程', '渲染进程']));
+    expect(group.points[0]!.label).toBe('渲染进程');
+    const missing = await request<import('../src/performance').MonitorHistory>('history', {
+      ...range,
+      processGroup: '不存在的进程',
+    });
+    expect(missing.points).toEqual([]);
+    const path = join(await root(), 'aggregate.csv');
+    await request('export-file', {
+      path,
+      format: 'csv',
+      range: { ...range, processGroup: '渲染进程' },
+    });
+    const csv = await readFile(path, 'utf8');
+    expect(csv).toContain('"group:渲染进程"');
+    expect(csv).toContain('"cpuPercent","20","100","60"');
+  });
   it('降低时长和容量但实际没有待删除记录时无需确认', async () => {
     const request = await worker();
     const settings = { ...DEFAULT_MONITOR_SETTINGS, retentionDays: 30 };

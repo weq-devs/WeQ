@@ -59,4 +59,9 @@ it('分页 JSONL 与聚合 CSV 导出使用真实文件，Web 返回下载入口
   expect(await readFile(csv!.path, 'utf8')).toContain(
     'start,end,process,segment,count,metric,min,max,mean',
   );
+  const groupedRange = { ...range, aggregate: true, processGroup: 'Web 服务' };
+  const history = await first.history(groupedRange);
+  expect(history.processGroups).toContain('Web 服务');
+  expect(history.points[0]?.process).toBe('group:Web 服务');
+  expect((await first.history({ ...range, aggregate: true })).points[0]?.label).toBe('全部进程');
 });

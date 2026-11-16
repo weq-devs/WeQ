@@ -3,8 +3,8 @@ import {
   dateFormatter,
   clockFormatter,
 } from '@weq/time';
-import { useMemo, useRef } from 'react';
-import { area, line, scaleLinear, scaleTime } from 'd3';
+import { useId, useMemo, useRef, useState } from 'react';
+import { area, curveMonotoneX, line, scaleLinear, scaleTime } from 'd3';
 import type { MonitorMetric, MonitorPoint } from '@weq/service/performance';
 export const labels = { off: '关闭', light: '轻量记录', full: '完整记录' } as const;
 export const metricLabels: Record<MonitorMetric, string> = {
@@ -15,11 +15,19 @@ export const metricLabels: Record<MonitorMetric, string> = {
   eventLoopP95Ms: '事件循环 P95',
 };
 export const time = (at: number) => eventTimeFormatter.format(new Date(at));
-function valueLabel(value: number | null | undefined, metric: MonitorMetric) {
+export function valueLabel(value: number | null | undefined, metric: MonitorMetric) {
   if (value === null || value === undefined) return '不可用';
   if (metric === 'cpuPercent') return `${value.toFixed(1)}%`;
   if (metric === 'eventLoopP95Ms') return `${value.toFixed(1)} ms`;
-  return `${(value / 1048576).toFixed(1)} MiB`;
+  const [divisor, unit] =
+    Math.abs(value) >= 1073741824
+      ? [1073741824, 'GiB']
+      : Math.abs(value) >= 1048576
+        ? [1048576, 'MiB']
+        : Math.abs(value) >= 1024
+          ? [1024, 'KiB']
+          : [1, 'B'];
+  return `${(value / divisor).toFixed(divisor === 1 ? 0 : 1)} ${unit}`;
 }
 export const eventLabels: Record<string, string> = {
   startup: '宿主启动',
@@ -172,20 +180,20 @@ export function Chart({
   zoom(factor: number): void;
   width: number;
 }) {
-  const left = 58,
+  const left = 76,
     bottom = 25;
+  const clip = useId();
+  const [inspecting, setInspecting] = useState(false);
   const drag = useRef<number | null>(null);
   const { x, y, paths } = useMemo(() => {
-    const max = Math.max(
-      metric === 'cpuPercent' ? 100 : 1,
-      ...points.map((point) => point.metrics[metric].max ?? 0),
-    );
+    const max = Math.max(1, ...points.map((point) => point.metrics[metric].max ?? 0));
     const x = scaleTime()
       .domain([new Date(from), new Date(to)])
       .range([left, width - 12]);
     const y = scaleLinear()
-      .domain([0, max * (metric === 'cpuPercent' ? 1 : 1.08)])
-      .range([height - bottom, 12]);
+      .domain([0, max * 1.12])
+      .nice(3)
+      .range([height - bottom, 10]);
     const groups = new Map<string, MonitorPoint[][]>();
     for (const point of points) {
       const key = `${point.process}/${point.segment}`;
@@ -208,15 +216,19 @@ export function Chart({
         return (
           <g
             key={`${run[0]?.process}-${run[0]?.segment}-${run[0]?.firstAt}`}
-            strokeDasharray={
-              Math.floor(seriesIndex(run[0]?.process ?? '') / 4) === 0
-                ? undefined
-                : Math.floor(seriesIndex(run[0]?.process ?? '') / 4) === 1
-                  ? '5 3'
-                  : '2 3'
-            }
-            className={`weq-perf-series weq-perf-series-${seriesIndex(run[0]?.process ?? '') % 4}`}
+            className="weq-perf-series"
           >
+            <path
+              className="weq-perf-area"
+              d={
+                area<MonitorPoint>()
+                  .curve(curveMonotoneX)
+                  .defined((point) => point.metrics[metric].mean !== null)
+                  .x((point) => x(point.lastAt))
+                  .y0(height - bottom)
+                  .y1((point) => y(point.metrics[metric].mean ?? 0))(run) ?? ''
+              }
+            />
             <path
               className="weq-perf-band"
               d={
@@ -231,6 +243,7 @@ export function Chart({
               className="weq-perf-line"
               d={
                 line<MonitorPoint>()
+                  .curve(curveMonotoneX)
                   .defined((point) => point.metrics[metric].mean !== null)
                   .x((point) => x(point.lastAt))
                   .y((point) => y(point.metrics[metric].mean ?? 0))(run) ?? ''
@@ -251,7 +264,7 @@ export function Chart({
           </g>
         );
       }),
-    [paths, metric, x, y],
+    [paths, metric, x, y, height],
   );
   const nearest = (clientX: number, element: SVGSVGElement) => {
     const bounds = element.getBoundingClientRect();
@@ -263,22 +276,33 @@ export function Chart({
     );
   };
   const highlighted = hover ?? points.find((point) => point.id === selected) ?? null;
+  const current = highlighted ?? points.at(-1);
+  const currentValue = current?.metrics[metric];
+  const peak = useMemo(() => {
+    const values = points.flatMap((point) => point.metrics[metric].max ?? []);
+    return values.length ? Math.max(...values) : null;
+  }, [points, metric]);
   return (
-    <section className="weq-perf-chart">
+    <section className="weq-perf-chart" data-metric={metric}>
       <header>
-        <h3>{metricLabels[metric]}</h3>
-        <span>
-          {highlighted
-            ? `${highlighted.label} · ${valueLabel(highlighted.metrics[metric].mean, metric)}`
-            : '均值 / 峰值范围'}
-        </span>
+        <h3 title={metric === 'eventLoopP95Ms' ? '同次采样取各进程 P95 最大值' : undefined}>
+          {metricLabels[metric]}
+        </h3>
+        <div className="weq-perf-chart-summary">
+          <strong>{valueLabel(currentValue?.mean, metric)}</strong>
+          <span>
+            {highlighted ? '所选均值' : '最新均值'} · 峰值 {valueLabel(peak, metric)}
+          </span>
+        </div>
       </header>
       <svg
         viewBox={`0 0 ${width} ${height}`}
         style={{ height }}
         role="img"
-        aria-label={`${metricLabels[metric]}历史曲线`}
+        aria-label={`${metricLabels[metric]}历史曲线，${current?.label ?? ''}，${valueLabel(currentValue?.mean, metric)}`}
         tabIndex={0}
+        onFocus={() => setInspecting(true)}
+        onBlur={() => setInspecting(false)}
         onKeyDown={(event) => {
           if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
             event.preventDefault();
@@ -297,8 +321,14 @@ export function Chart({
           if (event.key === '+' || event.key === '=') zoom(0.5);
           if (event.key === '-') zoom(2);
         }}
-        onPointerMove={(event) => onHover(nearest(event.clientX, event.currentTarget))}
-        onPointerLeave={() => onHover(null)}
+        onPointerMove={(event) => {
+          setInspecting(true);
+          onHover(nearest(event.clientX, event.currentTarget));
+        }}
+        onPointerLeave={() => {
+          setInspecting(false);
+          onHover(null);
+        }}
         onPointerDown={(event) => {
           drag.current = event.clientX;
           event.currentTarget.setPointerCapture(event.pointerId);
@@ -320,25 +350,45 @@ export function Chart({
           }
         }}
       >
+        <defs>
+          <clipPath id={clip}>
+            <rect
+              x={left}
+              y={0}
+              width={Math.max(0, width - left - 12)}
+              height={height - bottom + 2}
+            />
+          </clipPath>
+        </defs>
         {y.ticks(3).map((tick) => (
           <g key={tick}>
             <line x1={left} x2={width - 12} y1={y(tick)} y2={y(tick)} className="weq-perf-grid" />
             <text x={left - 6} y={y(tick) + 4} textAnchor="end">
-              {metric.endsWith('Bytes') ? `${Math.round(tick / 1048576)}M` : tick.toFixed(0)}
+              {valueLabel(tick, metric)}
             </text>
           </g>
         ))}
-        {series}
+        <g clipPath={`url(#${clip})`}>{series}</g>
         {highlighted ? (
-          <line
-            x1={x(highlighted.lastAt)}
-            x2={x(highlighted.lastAt)}
-            y1={8}
-            y2={height - bottom}
-            className="weq-perf-cursor"
-          />
+          <g clipPath={`url(#${clip})`}>
+            <line
+              x1={x(highlighted.lastAt)}
+              x2={x(highlighted.lastAt)}
+              y1={8}
+              y2={height - bottom}
+              className="weq-perf-cursor"
+            />
+            {highlighted.metrics[metric].mean !== null && (
+              <circle
+                cx={x(highlighted.lastAt)}
+                cy={y(highlighted.metrics[metric].mean!)}
+                r={4}
+                className="weq-perf-highlight"
+              />
+            )}
+          </g>
         ) : null}
-        {x.ticks(width < 400 ? 3 : 4).map((tick) => (
+        {x.ticks(Math.max(2, Math.floor((width - left) / 140))).map((tick) => (
           <text key={+tick} x={x(tick)} y={height - 5} textAnchor="middle">
             {to - from > 86400_000
               ? dateFormatter.format(tick).slice(5)
@@ -346,14 +396,19 @@ export function Chart({
           </text>
         ))}
       </svg>
+      {inspecting && highlighted && currentValue?.mean !== null && (
+        <div className="weq-perf-chart-tooltip" role="status">
+          <time>{time(highlighted.lastAt)}</time>
+          <span>{highlighted.label}</span>
+          <strong>{valueLabel(currentValue?.mean, metric)}</strong>
+          <span>
+            范围 {valueLabel(currentValue?.min, metric)} 至 {valueLabel(currentValue?.max, metric)}
+          </span>
+        </div>
+      )}
       {!points.some((point) => point.metrics[metric].mean !== null) && (
         <span className="weq-perf-no-metric">此范围没有可用指标</span>
       )}
     </section>
   );
-}
-export function seriesIndex(key: string) {
-  let hash = 0;
-  for (const char of key) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  return hash % 12;
 }

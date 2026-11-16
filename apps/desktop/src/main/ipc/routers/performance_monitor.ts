@@ -11,6 +11,8 @@ const range = z
     to: timestamp,
     buckets: z.number().int().min(1).max(1200).default(400),
     process: z.string().max(128).optional(),
+    processGroup: z.string().max(128).optional(),
+    aggregate: z.boolean().optional(),
   })
   .refine((value) => value.to > value.from, '结束时间须晚于开始时间');
 const config = z.object({

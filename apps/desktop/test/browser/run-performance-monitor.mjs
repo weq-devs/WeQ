@@ -175,9 +175,24 @@ try {
         .getByLabel('进程', { exact: true })
         .evaluate((el) => el.getBoundingClientRect().width)) <= 170,
     );
-    await monitor.getByLabel('进程', { exact: true }).selectOption('2:2');
+    assert.deepEqual(
+      await monitor.getByLabel('进程', { exact: true }).locator('option').allTextContents(),
+      ['全部进程', '主进程', '主窗口', '渲染进程'],
+    );
+    assert.equal(
+      await monitor.locator('[data-metric="cpuPercent"] header strong').textContent(),
+      '40.0%',
+    );
+    assert.equal(await monitor.locator('[data-metric="cpuPercent"] path.weq-perf-line').count(), 2);
+    await monitor.getByLabel('进程', { exact: true }).selectOption('渲染进程');
+    assert.equal(
+      await monitor.locator('[data-metric="cpuPercent"] header strong').textContent(),
+      '20.0%',
+    );
+    assert.equal(await monitor.locator('[data-metric="cpuPercent"] path.weq-perf-line').count(), 2);
+    await monitor.getByLabel('进程', { exact: true }).selectOption('主窗口');
     assert.ok(
-      await monitor.getByLabel('进程', { exact: true }).locator('option[value="1:1"]').count(),
+      await monitor.getByLabel('进程', { exact: true }).locator('option[value="主进程"]').count(),
     );
     await monitor
       .locator('.weq-perf-chart svg')
@@ -243,7 +258,7 @@ try {
     await page.getByRole('button', { name: '打开性能监视' }).click();
     await page.getByRole('button', { name: '打开日志查看' }).click();
     assert.equal(browser.contexts()[0].pages().length, popupCount);
-    assert.equal(await monitor.getByLabel('进程', { exact: true }).inputValue(), '2:2');
+    assert.equal(await monitor.getByLabel('进程', { exact: true }).inputValue(), '主窗口');
     await logs.getByRole('button', { name: '跟随最新', exact: true }).click();
     if (output)
       await logs.screenshot({ path: resolve(output, host + '-logs.png'), fullPage: true });

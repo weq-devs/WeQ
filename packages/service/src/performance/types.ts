@@ -55,6 +55,8 @@ export interface MonitorRange {
   to: number;
   buckets: number;
   process?: string;
+  processGroup?: string;
+  aggregate?: boolean;
 }
 export interface MonitorPoint {
   process: string;
@@ -78,6 +80,7 @@ export interface MonitorEvent {
 }
 export interface MonitorHistory {
   points: MonitorPoint[];
+  processGroups?: string[];
   events: MonitorEvent[];
   eventLimitReached: boolean;
   pointLimitReached: boolean;
