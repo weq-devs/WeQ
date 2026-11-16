@@ -170,9 +170,16 @@ function repeatElementSegment(element: RepeatElement) {
   );
 }
 
+/** 卡片等消息可携带空文本占位；只去掉空串，不改动实际空格与换行。 */
+function withoutEmptyTextElements(elements: readonly RepeatElement[]): RepeatElement[] {
+  return elements.filter(
+    (element) => element.type !== 'text' || text(element.data?.textContent).length > 0,
+  );
+}
+
 /** 逐条转发的静态预检；图片下载、表情目录与网络失败仍由真实发送结果处理。 */
 export function forwardUnsupportedReason(elements: readonly RepeatElement[]): string | null {
-  const content = elements.filter((element) => element.type !== 'reply');
+  const content = withoutEmptyTextElements(elements).filter((element) => element.type !== 'reply');
   if (!content.length) return '消息没有可重发的内容';
   for (const element of content) {
     if (element.type === 'pic') continue;
@@ -268,8 +275,8 @@ function sendElement(
       ...(data.origSenderUin ? { origSenderUin: Number(data.origSenderUin) } : {}),
       ...(data.origMsgTime ? { origMsgTime: Number(data.origMsgTime) } : {}),
       origElements: Array.isArray(data.origElements)
-        ? data.origElements.map((item) =>
-            sendElement(item as RepeatElement, stickers, group, images),
+        ? withoutEmptyTextElements(data.origElements).map((item) =>
+            sendElement(item, stickers, group, images),
           )
         : [],
     };
@@ -299,8 +306,9 @@ export function repeatSendPlan(
   group: boolean,
   images = new Map<RepeatElement, Uint8Array>(),
 ): ComposerSendPlan {
-  if (!elements.length) throw new Error('消息没有可重发的内容。');
-  const outgoing = elements.map((element) => sendElement(element, stickers, group, images));
+  const content = withoutEmptyTextElements(elements);
+  if (!content.length) throw new Error('消息没有可重发的内容。');
+  const outgoing = content.map((element) => sendElement(element, stickers, group, images));
   if (outgoing.length === 1 && outgoing[0]?.kind === 'file') {
     if (typeof outgoing[0].source !== 'string' || !outgoing[0].source)
       throw new Error('文件缺少本机路径。');
