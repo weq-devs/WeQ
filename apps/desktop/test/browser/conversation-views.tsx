@@ -29,6 +29,8 @@ import { useViewState } from '../../src/renderer/src/state/view';
 import { groupAssistantPreferences } from '../../src/renderer/src/lib/groupAssistant';
 import { createTemplateDemoData } from '../support/templateDemoData';
 import { MobileNavigationRuntime } from '../../src/renderer/src/components/MobileNavigationRuntime';
+import { DialogHost, useDialog } from '../../src/renderer/src/components/Dialog';
+import { generatedConversationDeletion } from '../../src/renderer/src/lib/generatedConversationDeletion';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/rail-navigation.css';
 import '../../src/renderer/src/styles/mobile-web.css';
@@ -55,6 +57,13 @@ const clones = [
     kind: 'persona' as const,
     ownerId: 'p1',
     name: '合成克隆 · 很长的联系人名称用于检查省略与布局',
+    updatedAt: 1900000000000,
+  },
+  {
+    id: 'virtual:group:g1',
+    kind: 'group' as const,
+    ownerId: 'g1',
+    name: '合成克隆群',
     updatedAt: 1900000000000,
   },
 ];
@@ -181,7 +190,15 @@ function Fixture() {
           onReadState: () => setEvents((value) => [...value, 'read']),
           onRoaming: (items) => setEvents((value) => [...value, `roaming:${items.length}`]),
           onDelete: async (items) => {
-            setEvents((value) => [...value, `delete:${items.length}`]);
+            const prompt = generatedConversationDeletion(items, []);
+            if (
+              await useDialog.getState().confirm(prompt.title, prompt.message, {
+                danger: 'solid',
+                okLabel: '永久删除',
+                cancelLabel: '取消',
+              })
+            )
+              setEvents((value) => [...value, `delete:${items.length}`]);
           },
           onExportBatch: (items) => setEvents((value) => [...value, `export:${items.length}`]),
           onCalendar: () => setEvents((value) => [...value, `calendar:${view}`]),
@@ -234,6 +251,7 @@ function Fixture() {
           </div>
         </div>
         <SelectionProbe />
+        <DialogHost />
       </ConversationDirectoryContext.Provider>
     </ContentSelectionProvider>
   );

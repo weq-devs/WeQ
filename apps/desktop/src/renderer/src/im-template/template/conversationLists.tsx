@@ -1008,6 +1008,7 @@ export function ConversationList({
               avatarUrl={conversationAvatarUrl(actionMenu.conversation)}
               identity={conversationSeed(actionMenu.conversation)}
               kind={actionMenu.conversation.type}
+              generated={actionMenu.conversation.generated}
               count={actionMenu.ids.length}
               containedCount={
                 actionMenu.conversation.type === 'merged' &&

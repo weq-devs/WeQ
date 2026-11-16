@@ -133,6 +133,7 @@ import { useToast } from '../components/Toast';
 import { useMessageLocateFeedback } from '../hooks/useMessageLocateFeedback';
 import { onOpenSettingsRequest } from '../lib/callSettingsBridge';
 import { useDialog } from '../components/Dialog';
+import { generatedConversationDeletion } from '../lib/generatedConversationDeletion';
 import { ForwardWindowHost } from '../components/ForwardWindow';
 import { Undo2 } from 'lucide-react';
 import { useReadStateUndo } from '../hooks/useReadStateUndo';
@@ -7644,27 +7645,13 @@ function MainWorkspace(): ReactElement {
               (run) => run.kind === row.generated?.kind && run.id === row.generated?.ownerId,
             ),
       );
-      const confirmed = await confirmReadState(
-        '永久删除 AI 会话',
-        <>
-          <p>
-            将永久删除以下 <span className="weq-number weq-number-inherit">{rows.length}</span>{' '}
-            个会话，无法恢复，也不会进入“已删除会话”。克隆角色或克隆群及其数据会一并删除；助手仅删除所选独立会话。
-          </p>
-          <ul>
-            {rows.map((row) => (
-              <li key={row.id}>{conversationRowName(row)}</li>
-            ))}
-          </ul>
-          {running.length ? (
-            <p>
-              其中 {running.map(conversationRowName).join('、')}{' '}
-              正在生成回答。确认后会先停止这些运行，等待写入结束，再永久删除；其他运行不受影响。
-            </p>
-          ) : null}
-        </>,
-        { tone: 'warning', okLabel: '永久删除', cancelLabel: '取消' },
-      );
+      const deletion = generatedConversationDeletion(rows, running);
+      const confirmed = await confirmReadState(deletion.title, deletion.message, {
+        tone: 'warning',
+        danger: 'solid',
+        okLabel: '永久删除',
+        cancelLabel: '取消',
+      });
       if (!confirmed || messageScopeRef.current !== source) return;
       const failed: string[] = [];
       const assistantRows = rows.filter((row) => row.generated?.kind === 'assistant');

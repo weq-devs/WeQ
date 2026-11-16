@@ -47,6 +47,12 @@ const clone = virtualConversationRow({
   name: '合成克隆',
 });
 const assistant = assistantConversationRow({ id: 's1', title: '合成助手对话', updatedAt: 12345 });
+const cloneGroup = virtualConversationRow({
+  id: 'virtual:group:g1',
+  kind: 'group',
+  ownerId: 'g1',
+  name: '合成克隆群',
+});
 const base = createTemplateDemoData().conversations.find((row) => row.type === 'group')!;
 const group: Conversation = {
   ...base,
@@ -77,7 +83,7 @@ const directory: ConversationViewDirectory = {
   guild: [],
   hidden: [{ ...ordinary, id: '34567', hidden: true }],
   deleted: [],
-  clone: [clone],
+  clone: [clone, cloneGroup],
   assistant: [assistant],
 };
 
@@ -266,6 +272,21 @@ it('助手视图只展示导出和永久删除，未选对象时保留禁用及�
   expect(del.disabled).toBe(false);
   act(() => del.click());
   expect(remove).toHaveBeenCalledWith([assistant]);
+});
+it.each([
+  ['assistant', assistant, 'WeQ 助手会话'],
+  ['clone', clone, '克隆会话'],
+  ['clone', cloneGroup, '克隆群聊'],
+] as const)('%s 右键菜单显示实际会话类型，不提供内部标识复制', (view, row, label) => {
+  act(() => root.render(h(Fixture, { initialView: view })));
+  act(() =>
+    host
+      .querySelector(`[data-conversation-id="${row.id}"]`)!
+      .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 50, clientY: 50 })),
+  );
+  const target = document.querySelector('.weq-conversation-actions-target')!;
+  expect(target.querySelector('small')!.textContent).toBe(label);
+  expect(target.querySelector('.weq-conversation-copy-number')).toBeNull();
 });
 it('克隆单会话保留原有本地置顶能力，不借用 QQ 目标', () => {
   act(() => root.render(h(Fixture, { initialView: 'clone' })));
