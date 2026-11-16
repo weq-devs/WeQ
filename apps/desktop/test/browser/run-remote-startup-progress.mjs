@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
+import { gzipSync } from 'node:zlib';
 import { serveStatic } from '../../src/main/web/static.ts';
 
 const client = process.env.WEQ_REMOTE_CLIENT_REPO;
@@ -12,7 +13,7 @@ const root = await mkdtemp(resolve('.artifacts/remote-startup-progress-'));
 await mkdir(join(root, 'assets'));
 await writeFile(
   join(root, 'index.html'),
-  '<!doctype html><head><meta http-equiv="Content-Security-Policy" content="default-src \'self\'; script-src \'self\'; style-src \'self\'"><link rel="stylesheet" href="/assets/style-12345678.css"><link rel="modulepreload" href="/assets/shared-12345678.js"><script type="module" src="/assets/main-12345678.js"></script></head><body><main>合成启动页面</main></body>',
+  '<!doctype html><head><meta http-equiv="Content-Security-Policy" content="default-src \'self\'; script-src \'self\'; style-src \'self\'"><link rel="stylesheet" href="/assets/style-12345678.css"><link rel="modulepreload" href="/assets/shared-12345678.js"><script type="module" src="/assets/main-12345678.js"></script></head><body><main class="fixture-workspace">合成启动页面</main></body>',
 );
 await writeFile(
   join(root, 'assets/style-12345678.css'),
@@ -21,7 +22,29 @@ await writeFile(
 await writeFile(join(root, 'assets/shared-12345678.js'), 'export const shared=1;');
 await writeFile(
   join(root, 'assets/main-12345678.js'),
-  'import {shared} from "./shared-12345678.js";window.weqRemoteStartup={state:"loading",message:"正在检查恢复状态"};window.dispatchEvent(new Event("weq-remote-startup"));setTimeout(()=>{window.weqRemoteStartup={state:"ready"};window.dispatchEvent(new Event("weq-remote-startup"));window.__ready=shared},400);',
+  'import {shared} from "./shared-12345678.js";window.__workspacePremature=!!window.__workspaceExecuted;window.__stylePremature=getComputedStyle(document.querySelector("main")).display==="flex";window.weqRemoteStartup={state:"loading",message:"正在检查恢复状态"};window.dispatchEvent(new Event("weq-remote-startup"));const style=document.createElement("link");style.rel="stylesheet";style.crossOrigin="";style.href="/assets/workspace-12345678.css";const styled=new Promise(resolve=>{style.onload=resolve});document.head.append(style);Promise.all([import("./workspace-12345678.js"),styled]).then(()=>setTimeout(()=>{window.weqRemoteStartup={state:"ready"};window.dispatchEvent(new Event("weq-remote-startup"));window.__ready=shared},400));',
+);
+await writeFile(join(root, 'assets/workspace-12345678.js'), 'window.__workspaceExecuted=true;');
+await writeFile(join(root, 'assets/workspace-12345678.css'), '.fixture-workspace{display:flex}');
+const resources = [];
+for (const name of ['style', 'shared', 'main', 'workspace', 'workspace-style']) {
+  const file =
+    name === 'style'
+      ? 'style-12345678.css'
+      : name === 'workspace-style'
+        ? 'workspace-12345678.css'
+        : `${name}-12345678.js`;
+  const body = await readFile(join(root, 'assets', file));
+  resources.push({
+    path: `/assets/${file}`,
+    raw: body.length,
+    gzip: body.length >= 1024 ? gzipSync(body).length : body.length,
+    preload: name.startsWith('workspace'),
+  });
+}
+await writeFile(
+  join(root, 'weq-startup.json'),
+  JSON.stringify({ version: 1, entry: '/assets/main-12345678.js', resources }),
 );
 let requests = 0;
 const server = createServer((req, res) => {
@@ -64,7 +87,7 @@ try {
           }
           await page.waitForFunction(() => window.__ready === 1);
           const values = await page.evaluate(() => window.__downloadProgress);
-          if (values.at(-1)?.completed !== 3)
+          if (values.at(-1)?.completed !== 5)
             console.log(
               await page.evaluate(() =>
                 performance.getEntriesByType('resource').map((e) => ({
@@ -79,8 +102,22 @@ try {
               ),
             );
           assert.ok(values.length >= 1, `${name}: missing progress`);
-          assert.equal(values.at(-1).total, 3);
-          assert.equal(values.at(-1).completed, 3);
+          assert.equal(values.at(-1).total, 5);
+          assert.equal(values.at(-1).completed, 5);
+          assert.equal(
+            await page.evaluate(() => window.__workspacePremature),
+            false,
+            '预下载不能提前执行工作区',
+          );
+          assert.equal(
+            await page.evaluate(() => window.__stylePremature),
+            false,
+            '样式预下载不能提前应用',
+          );
+          assert.equal(
+            await page.locator('main').evaluate((node) => getComputedStyle(node).display),
+            'flex',
+          );
           assert.equal(values.at(-1).loadedBytes, values.at(-1).totalBytes);
           assert.ok(values.every((v) => v.totalBytes === values[0].totalBytes));
           assert.ok(values.every((v, i) => i === 0 || v.loadedBytes >= values[i - 1].loadedBytes));
@@ -106,7 +143,7 @@ try {
       await browser.close();
     }
   }
-  assert.equal(requests, 12, '重载应命中浏览器资源缓存，不重复下载代码');
+  assert.equal(requests, 20, '重载应命中浏览器资源缓存，不重复下载代码');
 } finally {
   server.closeAllConnections();
   await new Promise((resolve) => server.close(resolve));

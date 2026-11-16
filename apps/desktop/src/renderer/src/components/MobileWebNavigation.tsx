@@ -33,7 +33,8 @@ import { useWorkspaceMobilePage } from './WorkspacePages';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
 import { preloadMobilePages } from '../lib/mobilePageLoading';
-import { mobilePageLoaders } from './lazyWorkspaces';
+import { mobilePageLoaders, mobileMorePageLoaders, preloadWorkspace } from './lazyWorkspaces';
+import { useDataSaver } from '../lib/dataSaver';
 import { registerMobileBack } from '../hooks/useMobileNavigation';
 import { mobileRootTab } from '../lib/mobileRootTransition';
 import { isSingleColumnLayout, subscribeResponsiveLayout } from '../lib/responsiveLayout';
@@ -76,6 +77,7 @@ export function MobileWebNavigation({
 }) {
   const mobilePage = useWorkspaceMobilePage();
   const mobile = useMobileWebLayout();
+  const dataSaver = useDataSaver((state) => state.enabled);
   const viewChange = useRef(onViewChange);
   viewChange.current = onViewChange;
   useEffect(() => {
@@ -90,11 +92,15 @@ export function MobileWebNavigation({
     });
   }, [mobile, view]);
   useEffect(() => {
-    if (mobile) return preloadMobilePages(mobilePageLoaders);
+    if (mobile && !dataSaver) return preloadMobilePages(mobilePageLoaders);
     return undefined;
-  }, [mobile]);
+  }, [mobile, dataSaver]);
   const openTool = useWorkspaceMenu((state) => state.openMobileTool);
   const moreOpen = view === 'more' && !mobilePage;
+  useEffect(() => {
+    if (mobile && moreOpen && !dataSaver) return preloadMobilePages(mobileMorePageLoaders);
+    return undefined;
+  }, [mobile, moreOpen, dataSaver]);
   useEffect(() => {
     if (!moreOpen) return;
     const leaveMobile = () => {
@@ -111,17 +117,32 @@ export function MobileWebNavigation({
   const entries = [
     { label: '主页', icon: House, action: () => select('home') },
     { label: 'QQ 邮箱', icon: Mail, badge: mailBadgeCount, action: () => select('mail') },
-    { label: '频道私聊', icon: Hash, action: () => select('guild-direct') },
-    { label: '我的收藏', icon: Bookmark, action: onOpenCollection },
-    { label: '年度报告', icon: Sparkles, action: () => select('annual') },
-    { label: '个性装扮', icon: Palette, action: onOpenDressUp },
+    {
+      label: '频道私聊',
+      icon: Hash,
+      action: () => select('guild-direct'),
+      workspace: 'guild-direct',
+    },
+    { label: '我的收藏', icon: Bookmark, action: onOpenCollection, workspace: 'collections' },
+    { label: '年度报告', icon: Sparkles, action: () => select('annual'), workspace: 'annual' },
+    { label: '个性装扮', icon: Palette, action: onOpenDressUp, workspace: 'dressup' },
     { label: '任务', icon: ListTodo, action: () => openTool('tasks') },
     { label: 'WeQ 助手', icon: Bot, action: () => openTool('assistant') },
-    { label: '分析与报告', icon: BarChart3, action: () => openTool('analysis') },
-    { label: '导出', icon: Download, action: () => openTool('export') },
-    { label: '导出查看器', icon: FolderOpen, action: () => openTool('viewer') },
+    {
+      label: '分析与报告',
+      icon: BarChart3,
+      action: () => openTool('analysis'),
+      workspace: 'analysis',
+    },
+    { label: '导出', icon: Download, action: () => openTool('export'), workspace: 'export' },
+    {
+      label: '导出查看器',
+      icon: FolderOpen,
+      action: () => openTool('viewer'),
+      workspace: 'viewer',
+    },
     { label: '合成聊天记录', icon: FileStack, action: () => openTool('composition') },
-    { label: '设置', icon: Settings, action: onOpenSettings },
+    { label: '设置', icon: Settings, action: onOpenSettings, workspace: 'settings' },
   ];
   const moreContent = (
     <section className="weq-mobile-more" aria-label="更多功能">
@@ -132,8 +153,21 @@ export function MobileWebNavigation({
           <span>{user.identityValue}</span>
         </div>
       </div>
-      {entries.map(({ label, icon: Icon, badge, action }) => (
-        <button key={label} type="button" onClick={action}>
+      {entries.map(({ label, icon: Icon, badge, action, workspace }) => (
+        <button
+          key={label}
+          type="button"
+          onClick={action}
+          onPointerEnter={() => {
+            if (workspace) preloadWorkspace(workspace);
+          }}
+          onFocus={() => {
+            if (workspace) preloadWorkspace(workspace);
+          }}
+          onPointerDown={() => {
+            if (workspace) preloadWorkspace(workspace);
+          }}
+        >
           <Icon size={22} aria-hidden />
           <span>{label}</span>
           {badge ? <ReminderCount count={badge} className="weq-mobile-badge" /> : null}

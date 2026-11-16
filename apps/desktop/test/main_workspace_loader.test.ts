@@ -6,20 +6,30 @@ import {
   loadMainWorkspace,
 } from '../src/renderer/src/lib/mainWorkspaceLoader';
 
-const fixture = vi.hoisted(() => ({ loads: vi.fn(), render: vi.fn(() => null) }));
+const fixture = vi.hoisted(() => ({ web: false, loads: vi.fn(), render: vi.fn(() => null) }));
+vi.mock('../src/renderer/src/lib/target', () => ({
+  get IS_WEB() {
+    return fixture.web;
+  },
+}));
 vi.mock('../src/renderer/src/views/MainView', () => {
   fixture.loads();
   return { MainView: fixture.render };
 });
 
-it('未进入账号不预载，身份预热及切号与真正打开复用同一请求且不提前挂载', async () => {
+it('Remote 恢复检查时并行预载，桌面仍等待身份阶段，打开与切号复用请求且不提前挂载', async () => {
   useStartupProgress.setState({ stage: 'resources' });
   useAccountSwitch.setState({ active: false });
   const stop = installMainWorkspacePreload();
   try {
     expect(fixture.loads).not.toHaveBeenCalled();
-    useStartupProgress.setState({ stage: 'account' });
+    useStartupProgress.setState({ stage: 'restore' });
     expect(fixture.loads).not.toHaveBeenCalled();
+    fixture.web = true;
+    useStartupProgress.setState({ stage: 'restore' });
+    await vi.waitFor(() => expect(fixture.loads).toHaveBeenCalledOnce());
+    useStartupProgress.setState({ stage: 'account' });
+    expect(fixture.loads).toHaveBeenCalledOnce();
     useStartupProgress.setState({ stage: 'identity' });
     const first = loadMainWorkspace();
     useAccountSwitch.setState({ active: true });
@@ -30,6 +40,7 @@ it('未进入账号不预载，身份预热及切号与真正打开复用同一�
     expect(fixture.render).not.toHaveBeenCalled();
   } finally {
     stop();
+    fixture.web = false;
     useAccountSwitch.setState({ active: false });
     useStartupProgress.setState({ stage: 'resources' });
   }

@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { tsImport } from 'tsx/esm/api';
 import { webChunkBudget } from './scripts/chunk-budget.ts';
+import { remoteStartupAssets } from './scripts/startup-assets.ts';
 
 const developmentViteLogging: typeof import('../desktop/src/main/development_vite').developmentViteLogging =
   process.env.WEQ_DEV_CONSOLE === '1' && process.env.WEQ_LOG_LEVEL !== 'debug'
@@ -29,7 +30,7 @@ export default defineConfig({
   clearScreen: false,
   root: RENDERER,
   cacheDir: resolve(import.meta.dirname, 'node_modules/.vite-web'),
-  plugins: [...logging.plugins, chunkBudget.plugin, react(), tailwindcss()],
+  plugins: [...logging.plugins, chunkBudget.plugin, remoteStartupAssets(), react(), tailwindcss()],
   define: {
     'import.meta.env.VITE_WEQ_TARGET': JSON.stringify('web'),
   },

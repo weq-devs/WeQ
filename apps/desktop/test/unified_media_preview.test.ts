@@ -276,9 +276,9 @@ it('开发严格模式的迟到分页不覆盖当前边界，关闭后不再继�
   expect(page).toHaveBeenCalledTimes(2);
   expect(document.querySelector('[role="dialog"]')).toBeNull();
 });
-it('同文档图片和视频预览互相替换', () => {
+it('同文档图片和视频预览互相替换', async () => {
   act(() => root.render(h(MediaPreviewHost)));
-  act(() =>
+  await act(async () =>
     openMediaPreview({ items: [{ key: items[0]!.src, kind: 'image', src: items[0]!.src }] }),
   );
   act(() =>

@@ -44,6 +44,9 @@ it('查询失败也算本批完成，不把可行的后续批次永久阻塞', a
 
 function fixture() {
   let next = 0;
+  let now = 0;
+  vi.spyOn(performance, 'now').mockImplementation(() => now);
+  vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
   const frames = new Map<number, () => void>(),
     timers = new Map<number, () => void>(),
     idle = new Map<number, () => void>();
@@ -58,9 +61,17 @@ function fixture() {
     for (const fn of current) fn();
   };
   vi.stubGlobal('window', {
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
     requestAnimationFrame: (fn: () => void) => enqueue(frames, fn),
     cancelAnimationFrame: (id: number) => frames.delete(id),
-    setTimeout: (fn: () => void) => enqueue(timers, fn),
+    setTimeout: (fn: () => void, delay = 0) => {
+      const after = now + delay;
+      return enqueue(timers, () => {
+        now = Math.max(now, after);
+        fn();
+      });
+    },
     clearTimeout: (id: number) => timers.delete(id),
     requestIdleCallback: (fn: () => void) => enqueue(idle, fn),
     cancelIdleCallback: (id: number) => idle.delete(id),
@@ -70,9 +81,10 @@ function fixture() {
       flush(frames);
       flush(frames);
     },
-    runIdle: () => {
+    runIdle: async () => {
       flush(timers);
       flush(idle);
+      for (let turn = 0; turn < 6; turn++) await Promise.resolve();
     },
     flush: () => {
       flush(frames);
@@ -82,25 +94,25 @@ function fixture() {
   };
 }
 
-it('首屏先绘制、前台查询忙时不放行，空闲后再绘制并启动一次', () => {
+it('首屏先绘制、前台查询忙时不放行，空闲后再绘制并启动一次', async () => {
   const f = fixture(),
     run = vi.fn();
   let busy = true;
   scheduleStartupQueryBatch(run, () => !busy);
   expect(run).not.toHaveBeenCalled();
   f.paint();
-  f.runIdle();
+  await f.runIdle();
   expect(run).not.toHaveBeenCalled();
   busy = false;
-  f.runIdle();
+  await f.runIdle();
   f.paint();
-  f.runIdle();
+  await f.runIdle();
   expect(run).toHaveBeenCalledOnce();
   f.flush();
   expect(run).toHaveBeenCalledOnce();
 });
 
-it('顶层页面支持绘制计时时，不在动画帧回调早于真实首屏绘制时提前放行', () => {
+it('顶层页面支持绘制计时时，不在动画帧回调早于真实首屏绘制时提前放行', async () => {
   const f = fixture(),
     run = vi.fn();
   let painted = false;
@@ -111,27 +123,27 @@ it('顶层页面支持绘制计时时，不在动画帧回调早于真实首屏�
   });
   scheduleStartupQueryBatch(run, () => true);
   f.paint();
-  f.runIdle();
+  await f.runIdle();
   expect(run).not.toHaveBeenCalled();
   painted = true;
-  f.runIdle();
+  await f.runIdle();
   f.paint();
-  f.runIdle();
+  await f.runIdle();
   expect(run).toHaveBeenCalledOnce();
 });
 
-it('卸载或账号切换取消尚未启动的批次，隐藏页面不后台抢读', () => {
+it('卸载或账号切换取消尚未启动的批次，隐藏页面不后台抢读', async () => {
   const f = fixture(),
     run = vi.fn();
   const cancel = scheduleStartupQueryBatch(run, () => true);
   f.paint();
   cancel();
-  f.runIdle();
+  await f.runIdle();
   expect(run).not.toHaveBeenCalled();
   vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
   const stop = scheduleStartupQueryBatch(run, () => true);
   f.paint();
-  f.runIdle();
+  await f.runIdle();
   expect(run).not.toHaveBeenCalled();
   stop();
   f.flush();

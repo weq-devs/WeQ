@@ -27,7 +27,7 @@ import { trpc, client } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useDialog } from '../components/Dialog';
 import { BootstrapWindowActions } from '../components/BootstrapWindowActions';
-import { SelectScreen } from './bootstrap/SelectScreen';
+import { lazyPanel } from '../lib/lazyPanel';
 import { WarmupSplash } from '../components/WarmupSplash';
 import { NativeExpiredDialog } from '../components/NativeExpiredDialog';
 import { runDesktopStartupWarmup, type WarmupProgress } from '../lib/accountWarmup';
@@ -39,6 +39,9 @@ const BackupSection = lazy(() =>
     default: module.BackupSection,
   })),
 );
+const SelectScreen = lazyPanel<
+  Parameters<typeof import('./bootstrap/SelectScreen').SelectScreen>[0]
+>(() => import('./bootstrap/SelectScreen').then((module) => ({ default: module.SelectScreen })));
 import '../styles/startup-shell.css';
 import { WebStartupCache, WEB_STARTUP_CACHE_KEY } from '../lib/webStartupCache';
 import { advanceStartup } from '../state/startupProgress';

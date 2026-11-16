@@ -37,7 +37,43 @@ const tracker = String.raw`
   window.addEventListener('weq-remote-startup', stop);
 })();`;
 const trackerHash = `'sha256-${createHash('sha256').update(tracker).digest('base64')}'`;
-type Asset = { path: string; raw: number; gzip: number };
+type Asset = { path: string; raw: number; gzip: number; preload?: boolean };
+function validAsset(value: unknown): value is Asset {
+  if (!value || typeof value !== 'object') return false;
+  const asset = value as Partial<Asset>;
+  return (
+    typeof asset.path === 'string' &&
+    /^\/assets\/[^/?]+\.(?:js|css)$/.test(asset.path) &&
+    Number.isSafeInteger(asset.raw) &&
+    Number.isSafeInteger(asset.gzip) &&
+    asset.raw! > 0 &&
+    asset.gzip! > 0 &&
+    typeof asset.preload === 'boolean'
+  );
+}
+
+async function builtAssets(root: string, paths: Set<string>): Promise<Asset[]> {
+  try {
+    const data: { version?: unknown; entry?: unknown; resources?: unknown } = JSON.parse(
+      await readFile(join(root, 'weq-startup.json'), 'utf8'),
+    );
+    if (
+      data.version !== 1 ||
+      typeof data.entry !== 'string' ||
+      !paths.has(data.entry) ||
+      !Array.isArray(data.resources) ||
+      !data.resources.length ||
+      data.resources.length > 4096 ||
+      !data.resources.every(validAsset)
+    )
+      return [];
+    const byPath = new Map(data.resources.map((asset) => [asset.path, asset]));
+    // 构建清单必须匹配当前 HTML；旧产物、缺失清单继续走原有兼容路径。
+    return [...paths].every((path) => byPath.has(path)) ? [...byPath.values()] : [];
+  } catch {
+    return [];
+  }
+}
 // 只保留当前构建的清单与尺寸，不缓存整套资源，也不在每次手机连接时重新压缩。
 let cached: { root: string; html: string; assets: Promise<Asset[]> } | undefined;
 
@@ -94,6 +130,8 @@ export async function startupShell(
   if (!head || paths.size === 0) return html;
   if (!cached || cached.root !== root || cached.html !== html) {
     const assets = (async () => {
+      const built = await builtAssets(root, paths);
+      if (built.length) return built;
       const result: Asset[] = [];
       for (const path of paths) {
         const body = await readFile(join(root, new URL(path, 'https://weq.invalid').pathname));
@@ -111,7 +149,19 @@ export async function startupShell(
       if (cached === entry) cached = undefined;
     });
   }
-  const resources = (await cached.assets).map((a) => ({
+  const assets = await cached.assets;
+  for (const asset of assets) {
+    if (!asset.preload || paths.has(asset.path)) continue;
+    const css = asset.path.endsWith('.css');
+    const link = defaultTreeAdapter.createElement('link', htmlNames.NS.HTML, [
+      { name: 'rel', value: css ? 'preload' : 'modulepreload' },
+      { name: 'href', value: asset.path },
+      ...(css ? [{ name: 'as', value: 'style' }] : []),
+      { name: 'crossorigin', value: '' },
+    ]);
+    defaultTreeAdapter.appendChild(head, link);
+  }
+  const resources = assets.map((a) => ({
     path: a.path,
     size: gzipAccepted ? a.gzip : a.raw,
   }));
