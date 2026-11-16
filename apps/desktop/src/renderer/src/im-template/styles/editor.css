@@ -72,7 +72,7 @@ html[data-theme='dark'] .weq-editor-dialog {
   justify-content: space-between;
   gap: 12px;
   padding: 13px 16px;
-  border-bottom: 1px solid var(--weq-ed-line);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .weq-editor-title {
@@ -130,7 +130,7 @@ html[data-theme='dark'] .weq-editor-dialog {
   flex-shrink: 0;
   overflow-x: auto;
   overflow-y: hidden;
-  border-bottom: 1px solid var(--weq-ed-line);
+  border-bottom: 1px solid var(--weq-border-subtle);
   scrollbar-width: thin;
   scrollbar-color: var(--weq-ed-line) transparent;
 }
@@ -375,7 +375,7 @@ html[data-theme='dark'] .weq-editor-dialog {
   justify-content: space-between;
   gap: 12px;
   padding: 12px 16px;
-  border-top: 1px solid var(--weq-ed-line);
+  border-top: 1px solid var(--weq-border-subtle);
   background: var(--weq-ed-surface);
 }
 

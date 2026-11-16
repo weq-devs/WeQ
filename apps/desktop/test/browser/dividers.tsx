@@ -11,6 +11,8 @@ import '../../src/renderer/src/styles/export.css';
 import '../../src/renderer/src/styles/roaming-backfill.css';
 import '../../src/renderer/src/styles/qzone.css';
 import '../../src/renderer/src/styles/qzone-actions.css';
+import '../../src/renderer/src/styles/long-tasks.css';
+import '../../src/renderer/src/components/relationGraph/relationGraph.css';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 
 ensureThemeInitialized();
@@ -61,6 +63,16 @@ const samples = [
   ['sidebar-header', 'bottom', '侧栏标题'],
   ['tools-detail-fields', 'top', '工具详情'],
   ['tools-row', 'bottom', '工具列表'],
+  ['weq-grouppick-head', 'bottom', '关系图选群标题'],
+  ['weq-grouppick-foot', 'top', '关系图选群操作'],
+  ['weq-rank-head', 'bottom', '关系排行标题'],
+  ['weq-rank-foot', 'top', '关系排行操作'],
+  ['weq-editor-header', 'bottom', '消息编辑标题'],
+  ['weq-editor-tabs', 'bottom', '消息编辑分类'],
+  ['weq-editor-footer', 'top', '消息编辑操作'],
+  ['reaction-likers-head', 'bottom', '回应成员标题'],
+  ['reaction-likers-foot', 'top', '回应成员操作'],
+  ['weq-long-task-detail', 'bottom', '任务详情'],
 ] as const;
 
 createRoot(document.getElementById('root')!).render(

@@ -219,7 +219,7 @@ html[data-theme='dark'] .weq-current-tasks .weq-set-btn-soft:hover:not(:disabled
 
 .weq-long-task-detail {
   padding: 12px;
-  border-bottom: 1px solid var(--weq-border-strong);
+  border-bottom: 1px solid var(--weq-border-subtle);
   background: color-mix(in srgb, var(--weq-bg-surface) 65%, transparent);
   overflow-wrap: anywhere;
 }
