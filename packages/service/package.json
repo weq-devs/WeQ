@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./notification-settings": "./src/common/notification_settings.ts",
     "./qq-permissions": "./src/common/qq_permissions.ts",
     "./data-saver": "./src/common/data_saver.ts",
     "./network-scope": "./src/common/network_scope.ts",
