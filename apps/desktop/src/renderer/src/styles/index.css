@@ -555,7 +555,8 @@ html[data-theme='dark'] .chat-empty {
     letter-spacing: 0;
   }
 
-  .weq-number {
+  .weq-number,
+  .weq-set-input:is([type='number'], [inputmode='numeric'], [inputmode='decimal']) {
     font-family:
       'Segoe UI Variable Display', 'SF Pro Display', 'DIN Alternate', 'Bahnschrift',
       var(--font-sans);

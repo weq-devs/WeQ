@@ -65,12 +65,60 @@ try {
       await page.getByRole('spinbutton', { name: '数据库读取并发上限', exact: true }).waitFor();
       assert.equal(await page.locator('.weq-set-card .weq-set-card').count(), 0);
       const input = page.getByRole('spinbutton', { name: '数据库读取并发上限', exact: true });
+      const stepper = await input.evaluate((node) => ({
+        appearance: getComputedStyle(node).appearance,
+      }));
+      assert.equal(stepper.appearance, 'textfield', '外部加减按钮不应叠加原生步进器');
+      const typography = await page.evaluate(() => {
+        const samples = document.createElement('div');
+        samples.innerHTML = `
+          <span class="weq-number">1234</span>
+          <input class="weq-set-input" type="number" value="1234">
+          <input class="weq-set-input" type="number" step="0.1" value="0.7">
+          <input class="weq-set-input" inputmode="numeric" value="1234">
+          <input class="weq-set-input" inputmode="decimal" value="0.7">
+          <input class="weq-set-input" type="text" value="普通文本">
+        `;
+        document.querySelector('.weq-set').append(samples);
+        const read = (node) => {
+          const style = getComputedStyle(node);
+          return [
+            style.fontFamily,
+            style.fontWeight,
+            style.fontVariantNumeric,
+            style.letterSpacing,
+          ];
+        };
+        const values = [...samples.children].map(read);
+        samples.remove();
+        return values;
+      });
+      for (const sample of typography.slice(1, -1))
+        assert.deepEqual(sample, typography[0], '设置数字框统一使用截图中的编号字体');
+      assert.notDeepEqual(typography.at(-1), typography[0], '普通文本框不受影响');
+      const increase = page.getByRole('button', { name: '增加数据库读取并发', exact: true });
+      const decrease = page.getByRole('button', { name: '减少数据库读取并发', exact: true });
+      await increase.click();
+      assert.equal(await input.inputValue(), '5');
+      await page.waitForFunction(() => window.databaseQa.changes.includes(5));
+      await decrease.click();
+      assert.equal(await input.inputValue(), '4');
+      await page.waitForFunction(() => window.databaseQa.changes.includes(4));
+      await input.press('ArrowUp');
+      assert.equal(await input.inputValue(), '5');
+      await input.press('ArrowDown');
+      assert.equal(await input.inputValue(), '4');
       await input.fill('8');
       await input.press('Enter');
       await page.waitForFunction(() => window.databaseQa.changes.includes(8));
+      assert.equal(await increase.isDisabled(), true);
       await input.fill('9');
       await input.press('Enter');
       assert.equal(await input.inputValue(), '8');
+      await input.fill('1');
+      await input.press('Enter');
+      await page.waitForFunction(() => window.databaseQa.changes.includes(1));
+      assert.equal(await decrease.isDisabled(), true);
       if (output)
         await page.screenshot({
           path: resolve(output, `reading-${width}-${theme}.png`),

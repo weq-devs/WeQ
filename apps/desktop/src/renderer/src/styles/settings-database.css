@@ -71,6 +71,12 @@ html[data-theme='dark'] .weq-database-browser-content {
 }
 .weq-database-read-controls input[type='number'] {
   width: 76px;
+  appearance: textfield;
+}
+.weq-database-read-controls input::-webkit-inner-spin-button,
+.weq-database-read-controls input::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
 }
 @media (max-width: 520px) {
   html[data-theme] .weq-database-management .weq-set-row {
