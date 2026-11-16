@@ -48,7 +48,31 @@ export function calendarReadLabel(snapshot?: CalendarSnapshot): string | undefin
   if (!snapshot.days.every((value) => value.complete)) return '正在统计消息数量…';
   return undefined;
 }
-function CalendarKindSelection() {
+export function CalendarStatistics({
+  snapshot,
+  day,
+  id,
+  targets,
+  busy,
+  error,
+  onLocate,
+  onLoadMore,
+  month,
+  onDayChange,
+  locateDisabled = false,
+}: {
+  snapshot?: CalendarSnapshot;
+  day: string;
+  id?: string;
+  targets: Map<string, CalendarTarget>;
+  busy: boolean;
+  error?: string;
+  onLocate: (target: CalendarTarget, anchor: CalendarAnchor) => void;
+  onLoadMore: () => void;
+  month?: string;
+  onDayChange?: (day: string) => void;
+  locateDisabled?: boolean;
+}) {
   const [kinds, setKinds] = useCalendarKinds();
   const allSelected = CALENDAR_SOURCE_ORDER.every((kind) => kinds.includes(kind));
   const selection = useMultiSelection({
@@ -67,65 +91,34 @@ function CalendarKindSelection() {
       ),
   });
   return (
-    <div
-      className="weq-search-scope weq-calendar-kinds"
-      role="group"
-      aria-label="统计内容"
-      {...selection.rootProps}
-    >
-      <button
-        type="button"
-        aria-label="全部统计内容"
-        aria-pressed={allSelected ? true : kinds.length ? 'mixed' : false}
-        onClick={() => setKinds(allSelected ? [] : [...CALENDAR_SOURCE_ORDER])}
-      >
-        <Layers size={14} aria-hidden />
-        全部
-      </button>
-      {contentOptions.map((option) => (
-        <button
-          key={option.id}
-          type="button"
-          aria-pressed={option.kinds.every((kind) => kinds.includes(kind))}
-          {...selection.itemProps(option.id)}
-        >
-          <option.Icon size={14} aria-hidden />
-          {option.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-export function CalendarStatistics({
-  snapshot,
-  day,
-  id,
-  targets,
-  busy,
-  error,
-  onLocate,
-  onLoadMore,
-  month,
-  onDayChange,
-  locateDisabled = false,
-  showKindSelection = true,
-}: {
-  snapshot?: CalendarSnapshot;
-  day: string;
-  id?: string;
-  targets: Map<string, CalendarTarget>;
-  busy: boolean;
-  error?: string;
-  onLocate: (target: CalendarTarget, anchor: CalendarAnchor) => void;
-  onLoadMore: () => void;
-  month?: string;
-  onDayChange?: (day: string) => void;
-  locateDisabled?: boolean;
-  showKindSelection?: boolean;
-}) {
-  return (
     <section className="weq-overview-calendar-conversations" aria-label="当天会话">
-      {showKindSelection ? <CalendarKindSelection /> : null}
+      <div
+        className="weq-search-scope weq-calendar-kinds"
+        role="group"
+        aria-label="统计内容"
+        {...selection.rootProps}
+      >
+        <button
+          type="button"
+          aria-label="全部统计内容"
+          aria-pressed={allSelected ? true : kinds.length ? 'mixed' : false}
+          onClick={() => setKinds(allSelected ? [] : [...CALENDAR_SOURCE_ORDER])}
+        >
+          <Layers size={14} aria-hidden />
+          全部
+        </button>
+        {contentOptions.map((option) => (
+          <button
+            key={option.id}
+            type="button"
+            aria-pressed={option.kinds.every((kind) => kinds.includes(kind))}
+            {...selection.itemProps(option.id)}
+          >
+            <option.Icon size={14} aria-hidden />
+            {option.label}
+          </button>
+        ))}
+      </div>
       {onDayChange && month ? (
         <label className="weq-calendar-task-date">
           列表日期
@@ -171,7 +164,7 @@ export function CalendarStatistics({
         total={snapshot?.totalRows ?? 0}
         complete={Boolean(snapshot?.complete || snapshot?.emptyReason)}
         busy={busy || locateDisabled}
-        showEmpty={!error && snapshot?.enabledKinds?.length !== 0 && !snapshot?.emptyReason}
+        showEmpty={!error && kinds.length > 0 && !snapshot?.emptyReason}
         targets={targets}
         onLocate={onLocate}
         onLoadMore={onLoadMore}

@@ -132,9 +132,7 @@ try {
   await page.goto(
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/calendar-statistics.html?overview=1`,
   );
-  await page.getByRole('dialog', { name: '会话日历（所有会话）', exact: true }).waitFor();
-  if (await page.getByRole('group', { name: '统计内容', exact: true }).count())
-    throw new Error('会话日历仍有独立的范围选择');
+  await page.getByRole('dialog', { name: '会话日历', exact: true }).waitFor();
   await page.waitForFunction(() => Number(document.documentElement.dataset.calendarPolls) >= 2);
   const left = page.locator('.weq-overview-calendar-left');
   const right = page.locator('.weq-overview-calendar-conversations');
@@ -244,13 +242,10 @@ try {
           const log = document.querySelector('.weq-calendar-statistics-progress .weq-exp-log');
           const calendar = document.querySelector('.weq-density-calendar');
           const progress = document.querySelector('.weq-calendar-statistics-progress');
-          const right = document.querySelector('.weq-overview-calendar-conversations');
           const bottom = body.getBoundingClientRect().bottom;
           return {
             outerScroll: body.scrollHeight > body.clientHeight + 1,
             rowsGap: bottom - rows.getBoundingClientRect().bottom,
-            rightTopGap: right.getBoundingClientRect().top - body.getBoundingClientRect().top,
-            rightWidthGap: right.clientWidth - rows.getBoundingClientRect().width,
             logGap: bottom - log.getBoundingClientRect().bottom,
             logHeight: log.clientHeight,
             calendarGap:
@@ -260,8 +255,6 @@ try {
         if (
           layout.outerScroll ||
           Math.abs(layout.rowsGap) > 2 ||
-          Math.abs(layout.rightTopGap) > 2 ||
-          Math.abs(layout.rightWidthGap) > 2 ||
           Math.abs(layout.logGap) > 2 ||
           layout.logHeight < 140 ||
           layout.calendarGap > 13
@@ -284,43 +277,14 @@ try {
         fullPage: true,
       });
     }
-  for (const [view, title] of [
-    ['clone', '会话日历（仅克隆会话）'],
-    ['assistant', '会话日历（仅 WeQ 助手会话）'],
-  ]) {
-    await page.goto(
-      `http://127.0.0.1:${server.httpServer.address().port}/test/browser/calendar-statistics.html?overview=1&view=${view}`,
-    );
-    await page.getByRole('dialog', { name: title, exact: true }).waitFor();
-    for (const width of [1100, 320]) {
-      await page.setViewportSize({ width, height: 900 });
-      const overflow = await page.evaluate(() => {
-        const title = document.querySelector('.weq-overview-calendar h3').getBoundingClientRect();
-        const action = document
-          .querySelector('.weq-overview-calendar header button')
-          .getBoundingClientRect();
-        const sameRow = title.top < action.bottom && title.bottom > action.top;
-        return (
-          document.documentElement.scrollWidth > innerWidth ||
-          (sameRow && title.right > action.left)
-        );
-      });
-      if (overflow) throw new Error(`范围标题溢出或遮挡操作: ${view}/${width}`);
-      await page.screenshot({
-        path: resolve(output, `overview-${view}-${width}.png`),
-        fullPage: true,
-      });
-    }
-  }
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(
     JSON.stringify({
-      cases: 18,
+      cases: 14,
       overflow: false,
       selectionRemembered: true,
       navigation: true,
       stablePolling: true,
-      viewScoped: true,
       output,
     }),
   );

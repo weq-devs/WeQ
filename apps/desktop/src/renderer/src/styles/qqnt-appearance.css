@@ -239,10 +239,6 @@ html[data-component-style='qqnt'][data-theme] body .sidebar-header-contacts .con
   margin: 0;
 }
 
-html[data-component-style='qqnt'][data-theme] body .sidebar-header-contacts .weq-directory-toolbar {
-  border-bottom: 0;
-}
-
 html[data-component-style='qqnt'][data-theme] body .contact-tab-switch {
   margin: 10px 12px 0;
 }

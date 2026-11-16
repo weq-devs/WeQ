@@ -3,7 +3,6 @@ import { replaceEqualDeep } from '@tanstack/react-query';
 import { ListTodo, X } from 'lucide-react';
 import {
   filterCalendarTargets,
-  CALENDAR_SOURCE_ORDER,
   calendarTargetKey,
   type CalendarAnchor,
   type CalendarTarget,
@@ -19,9 +18,10 @@ import { Modal } from './Dialog';
 import { MessageCalendar } from './MessageCalendar';
 import { CalendarStatistics, calendarReadLabel } from './CalendarStatistics';
 import { CalendarStatisticsProgress } from './CalendarStatisticsProgress';
+import { useCalendarKinds } from '../hooks/useCalendarKinds';
 import { useTabActive } from './RetainedTabs';
 import '../styles/conversation-overview-calendar.css';
-import { CONVERSATION_VIEW_LABELS, type ConversationView } from '../lib/conversationViews';
+import type { ConversationView } from '../lib/conversationViews';
 
 type Snapshot = ReturnType<ConversationCalendarJob['snapshot']>;
 type Located = Awaited<ReturnType<typeof client.account.calendarOverview.locate.mutate>>;
@@ -67,11 +67,10 @@ export function ConversationOverviewCalendar({
   );
   const live = useRef(true);
   const backgroundIds = useRef(new Set<string>());
+  const [kinds] = useCalendarKinds();
+  const latestKinds = useRef(kinds);
   const sentRefreshRevision = useRef(0);
-  const scopeLabel =
-    scope === 'regular' || scope === 'all'
-      ? '所有会话'
-      : `${scope === 'assistant' ? '仅 ' : '仅'}${CONVERSATION_VIEW_LABELS[scope]}`;
+  latestKinds.current = kinds;
   useEffect(() => {
     live.current = true;
     return () => {
@@ -173,7 +172,7 @@ export function ConversationOverviewCalendar({
         ...binding,
         month,
         targets,
-        kinds: [...CALENDAR_SOURCE_ORDER],
+        kinds: latestKinds.current,
         refresh,
         day: latestDay.current.startsWith(`${month}-`) ? latestDay.current : undefined,
       });
@@ -214,7 +213,7 @@ export function ConversationOverviewCalendar({
           day: day.startsWith(month) ? day : undefined,
           limit: rowLimit,
           includeLogs: logOpen,
-          kinds: [...CALENDAR_SOURCE_ORDER],
+          kinds,
         });
         if (cancelled || currentRequest.current !== request) return;
         setSnapshot((previous) => replaceEqualDeep(previous, result));
@@ -238,7 +237,19 @@ export function ConversationOverviewCalendar({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [id, binding, day, rowLimit, month, visible, active, request, logOpen, controlRevision]);
+  }, [
+    id,
+    binding,
+    day,
+    rowLimit,
+    month,
+    visible,
+    active,
+    request,
+    logOpen,
+    kinds,
+    controlRevision,
+  ]);
   async function control(
     scope: 'month' | 'day',
     action: CalendarControlAction,
@@ -360,7 +371,7 @@ export function ConversationOverviewCalendar({
     >
       <div className="weq-overview-calendar" data-conversation-view={scope}>
         <header>
-          <h3 id="conversation-overview-calendar-title">会话日历（{scopeLabel}）</h3>
+          <h3 id="conversation-overview-calendar-title">会话日历</h3>
           <button
             type="button"
             className="weq-set-btn weq-set-btn-soft"
@@ -420,7 +431,6 @@ export function ConversationOverviewCalendar({
             />
           </div>
           <CalendarStatistics
-            showKindSelection={false}
             snapshot={snapshot}
             day={day}
             id={id}

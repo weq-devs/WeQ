@@ -18,14 +18,11 @@ html[data-theme] body .sidebar .sidebar-header-contacts .contact-tools {
   gap: 8px;
   min-width: 0;
   margin: 0;
-  padding: 8px 0;
+  padding: 0 0 8px;
   background: transparent;
 }
 
 html[data-theme] body .sidebar-header-contacts .weq-directory-toolbar {
-  height: 32px;
-  padding: 0 var(--weq-contact-directory-gutter);
-  border-bottom: 0;
   background: transparent;
 }
 
@@ -61,10 +58,9 @@ html[data-theme] body .sidebar .weq-contact-directory-scroll .contact-cat-header
 /* 好友/群通知压成一行两个轻量入口：与工具行同高，不再冒充列表行。 */
 html[data-theme] .sidebar .contact-notice-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
   min-width: 0;
-  container-type: inline-size;
 }
 
 html[data-theme] .sidebar .contact-notice-row > .weq-contact-notice-entry {
@@ -83,9 +79,14 @@ html[data-theme] .sidebar .contact-notice-row > .weq-contact-notice-entry {
   font-weight: 500;
   line-height: 18px;
   white-space: nowrap;
+  container: weq-friend-notice / inline-size;
   transition:
     background 140ms ease,
     color 140ms ease;
+}
+
+html[data-theme] .sidebar .contact-notice-row > .weq-contact-notice-entry:nth-child(2) {
+  container-name: weq-group-notice;
 }
 
 html[data-theme] .sidebar .contact-notice-row > .weq-contact-notice-entry .notice-entry-label {
@@ -143,9 +144,35 @@ html[data-theme='dark'] .sidebar .contact-notice-row > .weq-contact-notice-entry
   background: color-mix(in srgb, var(--weq-fg-primary) 9%, transparent);
 }
 
-/* 侧栏整体很窄时只留图标，避免「好友通知」被截成半截字。 */
-@container (max-width: 230px) {
+/* 按入口内容区计算字宽、图标、间距及可选红点，另留 1px 字形取整余量。 */
+@container weq-friend-notice (width < calc(4ic + 21px)) {
   html[data-theme] .sidebar .contact-notice-row .notice-entry-text {
+    display: none;
+  }
+}
+
+@container weq-group-notice (width < calc(3ic + 21px)) {
+  html[data-theme] .sidebar .contact-notice-row .notice-entry-text {
+    display: none;
+  }
+}
+
+@container weq-friend-notice (width < calc(4ic + 34px)) {
+  html[data-theme]
+    .sidebar
+    .contact-notice-row
+    .notice-entry-label:has(.notice-entry-dot)
+    .notice-entry-text {
+    display: none;
+  }
+}
+
+@container weq-group-notice (width < calc(3ic + 34px)) {
+  html[data-theme]
+    .sidebar
+    .contact-notice-row
+    .notice-entry-label:has(.notice-entry-dot)
+    .notice-entry-text {
     display: none;
   }
 }
