@@ -125,7 +125,7 @@ try {
           width: node.getBoundingClientRect().width,
         };
       };
-      return ['database-read-concurrency', 'full-features'].map(readStyle);
+      return ['long-term-authorization', 'full-features'].map(readStyle);
     });
     assert.deepEqual(groups[1], groups[0], `${style}: QQ 在线能力分组与设置基线不一致`);
   }

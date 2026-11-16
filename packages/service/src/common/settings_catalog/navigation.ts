@@ -20,7 +20,7 @@ export const SETTINGS_PAGE_LABELS = {
   'reply-suggestions': '推荐回复',
   'enhancement-packs': '增强包',
   recognition: '识别与转写',
-  account: '监听与读取',
+  account: '在线能力与授权',
   credentials: '凭据管理',
   accounts: 'WeQ 账号管理',
   diagnostics: 'QQ 高级工具',
@@ -70,7 +70,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
   {
     id: 'general',
     label: '常规',
-    sections: ['startup', 'appearance', 'global', 'privacy'],
+    sections: ['startup', 'account', 'appearance', 'global', 'privacy'],
   },
   {
     id: 'basic',
@@ -102,7 +102,6 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
     id: 'data',
     label: '凭据与数据',
     sections: [
-      'account',
       'credentials',
       'resource-loading',
       'qq-storage',
@@ -212,7 +211,6 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['theme-accent', 'appearance', '主题色'],
       ['theme-background', 'appearance', '界面背景'],
       ['auto-enter-account', 'accounts', '现有配置'],
-      ['realtime-enabled', 'account', '启用数据库监听'],
       ['backup-export', 'backup', '导出备份'],
       ['backup-import', 'backup', '导入备份'],
       ['ocr-online', 'recognition', 'QQ 在线 OCR'],
@@ -289,11 +287,25 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   { id: 'log-retention', section: 'logs', label: '日志保留时长', from: ['logs'] },
   {
+    id: 'realtime-enabled',
+    section: 'database-management',
+    label: '启用数据库监听',
+    aliases: ['自动刷新消息'],
+    from: ['account', 'database-management'],
+  },
+  {
     id: 'database-read-concurrency',
-    section: 'account',
+    section: 'database-management',
     label: '数据库读取并发上限',
     aliases: ['连接池', '并行读取', '查询排队', '读取性能'],
     from: ['logs', 'database-management', 'account'],
+  },
+  {
+    id: 'database-listening',
+    section: 'database-management',
+    label: '监听与读取',
+    aliases: ['接入与监听', '实时监听'],
+    from: ['account', 'database-management'],
   },
   { id: 'log-folder', section: 'logs', label: '日志文件夹', from: ['logs'], desktopOnly: true },
   {
@@ -766,7 +778,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     id: 'tolerance-records',
     section: 'database-management',
     label: '容错记录',
-    aliases: ['降级账本', '已放弃的表（隔离中）'],
+    aliases: ['当前账号容错记录', '降级账本', '已放弃的表（隔离中）'],
     from: ['database-status', 'database-tolerance', 'database-management'],
   },
   {

@@ -11,9 +11,18 @@ const subscribe = (listener: () => void) => {
     listeners.delete(listener);
   };
 };
-const settings = { databaseReadConcurrency: 4, suppressDbDamageReminder: false };
+const settings = {
+  realtimeEnabled: true,
+  databaseReadConcurrency: 4,
+  suppressDbDamageReminder: false,
+};
 const tolerance = { level: 0, grantedAt: null, summary: { total: 0 }, entries: [] };
-export const qa = { changes: [] as number[], repairs: 0 };
+export const qa = {
+  changes: [] as number[],
+  realtime: [] as boolean[],
+  levels: [] as number[],
+  repairs: 0,
+};
 const data: Record<string, unknown> = {
   'bootstrap.getSettings': settings,
   'bootstrap.databaseReadCapabilities': {
@@ -67,6 +76,7 @@ function proxy(path = ''): unknown {
               concurrency?: number;
               suppressed?: boolean;
               level?: number;
+              enabled?: boolean;
             }) => {
               if (
                 path === 'bootstrap.setDatabaseReadConcurrency' &&
@@ -75,11 +85,17 @@ function proxy(path = ''): unknown {
                 settings.databaseReadConcurrency = input.concurrency;
                 qa.changes.push(input.concurrency);
               }
-              if (path === 'account.setDbToleranceLevel' && input.level !== undefined)
+              if (path === 'bootstrap.setRealtimeEnabled' && input.enabled !== undefined) {
+                settings.realtimeEnabled = input.enabled;
+                qa.realtime.push(input.enabled);
+              }
+              if (path === 'account.setDbToleranceLevel' && input.level !== undefined) {
                 tolerance.level = input.level;
+                qa.levels.push(input.level);
+              }
               notify();
               render((v) => v + 1);
-              return {};
+              return { closedSalvage: 0 };
             },
           };
         };

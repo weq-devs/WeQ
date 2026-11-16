@@ -108,7 +108,7 @@ export const SETTINGS_PAGE_ALIASES: Partial<Record<SettingsPageId, readonly stri
     '消息元数据',
   ],
   'call-recording': ['通话录音'],
-  account: ['接入与监听', '账号接入与消息'],
+  account: ['QQ 在线能力', '在线授权', '账号在线能力'],
   accounts: ['账号管理'],
   credentials: ['账号凭据'],
   diagnostics: ['高级诊断', '诊断工具', 'QQ 协议工具'],

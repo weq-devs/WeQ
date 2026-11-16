@@ -208,11 +208,11 @@ describe('设置重构的规范目标与旧入口分流', () => {
       expect(
         resolveSettingsTarget({ section, settingId: 'database-read-concurrency' }),
       ).toMatchObject({
-        section: 'account',
+        section: 'database-management',
         settingId: 'database-read-concurrency',
       });
       expect(resolveSettingsTarget({ section, item: '数据库读取并发上限' })).toMatchObject({
-        section: 'account',
+        section: 'database-management',
         settingId: 'database-read-concurrency',
       });
     }

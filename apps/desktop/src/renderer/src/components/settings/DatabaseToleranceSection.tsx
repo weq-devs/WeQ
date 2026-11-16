@@ -1,21 +1,18 @@
 import * as timeFormat from '@weq/time';
 import { eventTimeFormatter } from '@weq/time';
 /**
- * 设置 → 数据库宽容（salvage）。
+ * 设置 → QQ 数据库管理 → 容错与修复。
  *
  * 这一屏要回答三个问题，顺序也就是版面顺序：
- *   1. **现在是什么级别**（顶部一处说清，含"实验性"与覆盖范围）；
- *   2. **想开哪一级，代价是什么**（每一级一行，确认**就在那一行里**完成）；
+ *   1. **现在是什么级别**（紧凑选择器，保留实验性标识）；
+ *   2. **想开哪一级，代价是什么**（有损级别在选择器旁原位确认，详细范围折叠）；
  *   3. **到底降级过什么**（账本、隔离清单）。
  *
- * 坏页扫描**不在这里**：它已经搬到 设置 → 数据维护 → 维护工具 → 数据库修复（那边才对**任意账号**
- * 可用，且与修复共用同一份实现）。这里只留容错本身的账。
+ * 坏页扫描继续复用本页的修复工具，级别选择不另起扫描实现。
  *
  * 三条不变量，界面文案必须与之保持一致：
- *   1. **默认严格**：级别 0 是默认，也占一行，用户随时能看到"关掉会回到什么"。
- *   2. **会丢数据的级别必须当场确认**：确认框内联在被点的那一行里 ——
- *      曾经放在卡片底部，结果点级别 1 的开关时确认条出现在级别 3 下面，位置与
- *      操作对象对不上。现在确认与它在同一行，且带 `aria-live` 提示。
+ *   1. **默认严格**：级别 0 始终保留为选项。
+ *   2. **会丢数据的级别必须当场确认**：确认紧邻选择器，且带 `aria-live` 提示。
  *   3. **降级可见**：账本、坏页清单都在这一屏，随时可看。
  *
  * 文案一律取自 `@weq/service` 的 `db_tolerance_copy.ts`（那份带守卫测试）。
@@ -39,7 +36,6 @@ import {
   ChevronRight,
   DatabaseZap,
   FlaskConical,
-  Info,
   RefreshCw,
   ShieldCheck,
   ScrollText,
@@ -51,12 +47,13 @@ import {
   SALVAGE_EXPERIMENTAL_TAG,
   SALVAGE_SKIPPED_SPAN_CAVEAT,
   salvageLevelToast,
+  salvageLevelCopy,
   salvageLevelsAscending,
 } from '@weq/service/db-tolerance-copy';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useToast } from '../Toast';
-import { Card, Row, SectionHeader, Toggle } from './controls';
+import { Card, Row, SectionHeader, Toggle, QueryError } from './controls';
 
 function ToleranceGroup({
   embedded,
@@ -65,17 +62,19 @@ function ToleranceGroup({
 }: ComponentProps<typeof Card> & { embedded: boolean; scope?: string }) {
   return embedded ? (
     <section className="weq-database-setting-group" data-setting-id={props.settingId}>
-      <div className="weq-database-group-head">
-        <h4>{props.title}</h4>
-        {scope && <span>{scope}</span>}
-        {props.settingId === 'db-tolerance' && (
-          <span className="weq-set-exp-badge" title={SALVAGE_EXPERIMENTAL_NOTE}>
-            <FlaskConical size={11} aria-hidden />
-            {SALVAGE_EXPERIMENTAL_TAG}
-          </span>
-        )}
-        {props.action}
-      </div>
+      {(props.title || scope || props.action) && (
+        <div className="weq-database-group-head">
+          <h4>{props.title}</h4>
+          {scope && <span>{scope}</span>}
+          {props.settingId === 'db-tolerance' && (
+            <span className="weq-set-exp-badge" title={SALVAGE_EXPERIMENTAL_NOTE}>
+              <FlaskConical size={11} aria-hidden />
+              {SALVAGE_EXPERIMENTAL_TAG}
+            </span>
+          )}
+          {props.action}
+        </div>
+      )}
       {props.children}
     </section>
   ) : (
@@ -266,6 +265,7 @@ export function DatabaseToleranceSection({
   };
 
   const busy = setLevel.isPending;
+  const selectedCopy = salvageLevelCopy(pendingLossy ?? level);
 
   const content = (
     <div className="weq-set">
@@ -280,7 +280,6 @@ export function DatabaseToleranceSection({
                   <FlaskConical size={11} strokeWidth={2.2} aria-hidden />
                   {SALVAGE_EXPERIMENTAL_TAG}
                 </span>
-                QQ 数据库损坏时默认直接报错；也可以按需开启容错级别，接受「少读一点也能用」的代价。
               </>
             )
           }
@@ -294,143 +293,104 @@ export function DatabaseToleranceSection({
           settingId="db-tolerance"
           title="容错级别"
           icon={<ShieldCheck size={15} strokeWidth={1.8} />}
+          action={
+            <select
+              className="weq-set-input weq-database-tolerance-select"
+              aria-label="数据库容错级别"
+              value={tolerance.data ? String(pendingLossy ?? level) : ''}
+              disabled={busy || !tolerance.data}
+              onChange={(event) => {
+                const next = salvageLevelsAscending().find(
+                  (copy) => String(copy.level) === event.currentTarget.value,
+                );
+                if (!next || busy || !tolerance.data) return;
+                if (next.level === level) setPendingLossy(null);
+                else if (next.losesData) setPendingLossy(next.level);
+                else void changeLevel(next.level);
+              }}
+            >
+              {!tolerance.data && (
+                <option value="">{tolerance.error ? '读取失败' : '状态待确认'}</option>
+              )}
+              {salvageLevelsAscending().map((copy) => (
+                <option key={copy.level} value={copy.level}>
+                  {copy.title}
+                </option>
+              ))}
+            </select>
+          }
         >
-          {/* 口径说明收进卡内可展开块：默认不占版面，要看时点开。 */}
+          {tolerance.data && selectedCopy.level > 0 && (
+            <p className="weq-set-note">{selectedCopy.summary}</p>
+          )}
+          {tolerance.error && (
+            <QueryError
+              message="容错级别读取失败"
+              retryLabel="重新读取容错级别"
+              retrying={tolerance.isFetching}
+              onRetry={() => void tolerance.refetch()}
+            />
+          )}
+          {pendingLossy !== null && (
+            <div className="weq-set-confirm" role="group" aria-live="polite">
+              <span className="weq-set-confirm-text">
+                <AlertTriangle size={12} strokeWidth={1.9} aria-hidden />
+                <span>
+                  {selectedCopy.confirm} {SALVAGE_EXPERIMENTAL_NOTE}
+                </span>
+              </span>
+              <span className="weq-set-confirm-actions">
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-sm"
+                  disabled={busy}
+                  onClick={() => void changeLevel(pendingLossy)}
+                >
+                  确认启用级别 {pendingLossy}
+                </button>
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-sm weq-set-btn-soft"
+                  disabled={busy}
+                  onClick={() => setPendingLossy(null)}
+                >
+                  取消
+                </button>
+              </span>
+            </div>
+          )}
           <details className="weq-set-details">
             <summary>
               <ChevronDown size={13} aria-hidden />
-              容错是什么、覆盖哪些功能
+              作用范围与代价
             </summary>
             <div className="weq-set-details-body">
-              <p>
-                严格（级别 0）之外还有三级容错：级别 1 只换访问路径（<strong>不丢数据</strong>），
-                级别 2 会跳过读不出来的区间（<strong>可能缺失部分消息</strong>），级别 3
-                再允许放弃读不动的整张表。
-              </p>
+              <dl className="weq-database-tolerance-scopes">
+                {salvageLevelsAscending().map((copy) => (
+                  <div key={copy.level}>
+                    <dt>{copy.title}</dt>
+                    <dd>{copy.scope}</dd>
+                  </div>
+                ))}
+              </dl>
               <p>{SALVAGE_EXPERIMENTAL_NOTE}</p>
               <p className="weq-set-warnbox">
                 <AlertTriangle size={12} strokeWidth={1.9} aria-hidden />
                 <span>{SALVAGE_AGGREGATE_CAVEAT}</span>
               </p>
+              {grantedAt && <p>授权时间：{eventTimeFormatter.format(new Date(grantedAt))}</p>}
             </div>
           </details>
-          <div className="weq-set-levels" role="radiogroup" aria-label="数据库容错级别">
-            {salvageLevelsAscending().map((copy) => {
-              const active = copy.level === level;
-              const confirming = pendingLossy === copy.level;
-              return (
-                <div
-                  key={copy.level}
-                  className={`weq-set-level${active ? ' is-active' : ''}${confirming ? ' is-confirming' : ''}`}
-                >
-                  <div className="weq-set-level-head">
-                    <span className="weq-set-level-main">
-                      <span className="weq-set-level-title">
-                        {copy.title}
-                        {active ? <span className="weq-set-level-tag">当前</span> : null}
-                      </span>
-                      <span className="weq-set-level-desc">{copy.summary}</span>
-                      {copy.losesData ? (
-                        <span className="weq-set-level-loss">
-                          <AlertTriangle size={11} strokeWidth={1.9} aria-hidden />
-                          会少数据
-                        </span>
-                      ) : null}
-                    </span>
-                    <span className="weq-set-level-action">
-                      <button
-                        type="button"
-                        role="radio"
-                        aria-checked={active}
-                        className={`weq-set-btn weq-set-btn-sm${active ? '' : ' weq-set-btn-soft'}`}
-                        disabled={busy || active || !tolerance.data}
-                        onClick={() => {
-                          if (active) return;
-                          if (copy.losesData) {
-                            setPendingLossy(copy.level);
-                            return;
-                          }
-                          void changeLevel(copy.level);
-                        }}
-                      >
-                        {active
-                          ? '已启用'
-                          : copy.level === 0
-                            ? '恢复严格'
-                            : `启用级别 ${copy.level}`}
-                      </button>
-                    </span>
-                  </div>
-                  {/* 生效范围很长，收进可展开块 —— 级别列表先做到一行一个。 */}
-                  <details className="weq-set-details weq-set-level-details">
-                    <summary>
-                      <ChevronDown size={12} aria-hidden />
-                      生效范围与代价
-                    </summary>
-                    <div className="weq-set-details-body">
-                      <p>{copy.scope}</p>
-                    </div>
-                  </details>
-                  {confirming ? (
-                    <div className="weq-set-confirm" role="group" aria-live="polite">
-                      <span className="weq-set-confirm-text">
-                        <AlertTriangle size={12} strokeWidth={1.9} aria-hidden />
-                        <span>
-                          {copy.confirm} {SALVAGE_EXPERIMENTAL_NOTE}
-                        </span>
-                      </span>
-                      <span className="weq-set-confirm-actions">
-                        <button
-                          type="button"
-                          className="weq-set-btn weq-set-btn-sm"
-                          disabled={busy}
-                          onClick={() => void changeLevel(copy.level)}
-                        >
-                          确认启用级别 {copy.level}
-                        </button>
-                        <button
-                          type="button"
-                          className="weq-set-btn weq-set-btn-sm weq-set-btn-soft"
-                          disabled={busy}
-                          onClick={() => setPendingLossy(null)}
-                        >
-                          取消
-                        </button>
-                      </span>
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-          {level >= 1 && grantedAt ? (
-            <p className="weq-set-note">
-              <ShieldCheck size={12} strokeWidth={1.9} aria-hidden />
-              <span>
-                已于 {eventTimeFormatter.format(new Date(grantedAt))} 授权，在本机对该账号持续生效；
-                随时可以在这里回到级别 0。
-              </span>
-            </p>
-          ) : (
-            <p className="weq-set-note">
-              <Info size={12} strokeWidth={1.9} aria-hidden />
-              <span>
-                默认严格模式：损坏时照常报错，不会静默降级。开启后的每一次降级都可在「容错记录」中查看。
-              </span>
-            </p>
-          )}
         </ToleranceGroup>
       )}
       {(page === 'damage' || embedded) && (
         <ToleranceGroup
           embedded={embedded}
-          title="损坏提醒"
           icon={<AlertTriangle size={15} strokeWidth={1.8} />}
           settingId="damage-reminder"
         >
           <Row
             label="数据库异常时弹窗提醒"
-            desc="健康检查确认损坏后显示提醒；检查与修复入口在本页。关闭提醒后仍会记录日志并生成检查报告。"
             control={
               <Toggle
                 checked={remindOnDamage}
@@ -445,27 +405,30 @@ export function DatabaseToleranceSection({
       {(page === 'policy' || embedded) && onOpenRecords && (
         <ToleranceGroup
           embedded={embedded}
-          scope="当前账号"
-          title="容错记录"
+          title="当前账号容错记录"
           icon={<ScrollText size={15} strokeWidth={1.8} />}
           settingId="tolerance-records"
           action={
-            <button type="button" className="weq-set-btn" onClick={onOpenRecords}>
-              查看记录
-              <ChevronRight size={14} aria-hidden />
-            </button>
+            <>
+              <span className="weq-database-record-count" role="status">
+                {summary
+                  ? `${summary.total} 次 · ${quarantine.data ? `${quarantined.length} 表隔离` : quarantine.error ? '隔离状态读取失败' : '隔离状态读取中'}`
+                  : tolerance.error
+                    ? '读取失败'
+                    : '待确认'}
+              </span>
+              <button
+                type="button"
+                className="weq-set-iconbtn"
+                title="查看容错记录"
+                aria-label="查看记录"
+                onClick={onOpenRecords}
+              >
+                <ChevronRight size={16} aria-hidden />
+              </button>
+            </>
           }
-        >
-          <p className="weq-set-desc" role="status">
-            {summary
-              ? `共 ${summary.total} 次降级记录；${quarantine.data ? `${quarantined.length} 张表正在隔离中。` : quarantine.error ? '隔离状态读取失败。' : '隔离状态读取中。'}`
-              : tolerance.error
-                ? '暂时无法读取容错记录，可打开记录查看详情并重试。'
-                : tolerance.isLoading
-                  ? '正在读取容错记录…'
-                  : '暂无容错记录。'}
-          </p>
-        </ToleranceGroup>
+        />
       )}
       {page === 'status' && (
         <Card
@@ -494,7 +457,13 @@ export function DatabaseToleranceSection({
             </p>
           ) : (
             <p className="weq-set-desc">
-              还没有任何降级记录。只有在你开启了宽容模式、且真的遇到损坏时才会产生记录。
+              {tolerance.error
+                ? '容错记录读取失败。'
+                : tolerance.isLoading
+                  ? '正在读取容错记录…'
+                  : tolerance.data
+                    ? '暂无容错记录。'
+                    : '容错记录状态待确认。'}
             </p>
           )}
           {hasLedger &&

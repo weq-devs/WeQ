@@ -34,7 +34,7 @@ function Fixture() {
             }}
           >
             {new URLSearchParams(location.search).has('reading') ? (
-              <AccountBasicsSection />
+              <AccountBasicsSection page="listening" />
             ) : (
               <DatabaseManagementSection
                 onOpen={() => {

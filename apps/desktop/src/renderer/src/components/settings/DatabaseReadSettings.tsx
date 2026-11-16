@@ -1,12 +1,14 @@
-import { useState } from 'react';
+import { useContext, useState } from 'react';
 import { Database, Minus, Plus } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import { AutoSave } from './AutoSave';
 import { Card, Row, QueryError } from './controls';
+import { SettingsResetCardContext, SettingsResetContext } from './resetContext';
 import '../../styles/settings-database.css';
 
-export function DatabaseReadSettings() {
+export function DatabaseReadSettings({ embedded = false }: { embedded?: boolean }) {
+  const reset = useContext(SettingsResetContext);
   const { enabled } = useQQReadActivity(true, { onlineOnly: false });
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
     enabled,
@@ -23,13 +25,8 @@ export function DatabaseReadSettings() {
   const count = Number(value);
   const valid = value.trim() !== '' && Number.isInteger(count) && count >= 1 && count <= 8;
   const disabled = saved === undefined || mutation.isLoading;
-  return (
-    <Card
-      title="读取性能"
-      icon={<Database size={15} />}
-      settingId="database-read-concurrency"
-      resetId="database-read"
-    >
+  const content = (
+    <>
       {settings.error && (
         <QueryError
           message={settings.error.message}
@@ -51,6 +48,7 @@ export function DatabaseReadSettings() {
         }}
       >
         <Row
+          settingId="database-read-concurrency"
           label="数据库读取并发上限"
           desc={
             capabilities.data?.parallelAvailable === false
@@ -101,6 +99,15 @@ export function DatabaseReadSettings() {
           }
         />
       </AutoSave>
+    </>
+  );
+  return embedded ? (
+    <SettingsResetCardContext.Provider value={reset ? reset.saves('database-read') : null}>
+      {content}
+    </SettingsResetCardContext.Provider>
+  ) : (
+    <Card title="读取性能" icon={<Database size={15} />} resetId="database-read">
+      {content}
     </Card>
   );
 }

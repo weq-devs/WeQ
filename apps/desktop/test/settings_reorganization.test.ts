@@ -190,7 +190,9 @@ describe('设置归位后的实际页面', () => {
     const titles = () =>
       [...f.body().querySelectorAll('.weq-set-card-title')].map((node) => node.textContent);
     try {
-      expect(titles()).toEqual(['实时监听', '读取性能', 'QQ 在线能力', '长期授权']);
+      expect(titles()).toEqual(['QQ 在线能力', '长期授权']);
+      expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe('常规');
+      expect(f.body().querySelector('h3')?.textContent).toBe('在线能力与授权');
       const overview = f.body().querySelector('[data-setting-id="full-features"]')!;
       const routes = f.body().querySelector('[data-setting-id="full-feature-routes"]')!;
       expect(overview).not.toBeNull();
@@ -233,15 +235,16 @@ describe('设置归位后的实际页面', () => {
           nodes[i - 1]!.compareDocumentPosition(nodes[i]!) & Node.DOCUMENT_POSITION_FOLLOWING,
         ).not.toBe(0);
       expect(f.body().textContent).toContain('进入受限模式时横幅提醒');
+      expect(f.body().querySelector('[data-setting-id="database-read-concurrency"]')).toBeNull();
+      f.render('database-management');
+      expect(f.body().querySelector('h3')?.textContent).toBe('QQ 数据库管理');
       expect(
         f.body().querySelector('[data-setting-id="database-read-concurrency"]'),
       ).not.toBeNull();
-      f.render('database-management');
-      expect(f.body().querySelector('h3')?.textContent).toBe('QQ 数据库管理');
-      expect(f.body().querySelector('[data-setting-id="database-read-concurrency"]')).toBeNull();
+      expect(titles()).toEqual(['数据库浏览', '监听与读取', '容错与修复']);
       conditional.platform = 'linux';
       f.render('account');
-      expect(titles()).toEqual(['实时监听', '读取性能', 'QQ 在线能力', '长期授权']);
+      expect(titles()).toEqual(['QQ 在线能力', '长期授权']);
       expect(f.body().querySelector('[data-setting-id="qq-debug-copy"]')).toBeNull();
       expect(f.body().textContent).not.toContain('SIP');
       expect(f.body().querySelector('[data-setting-id="full-features"]')).not.toBeNull();
@@ -638,7 +641,7 @@ describe('设置归位后的实际页面', () => {
     ['storage', '优先使用 CDN', 'prefer-cdn', '资源加载'],
     ['media', '允许使用外部安卓图片缓存', 'external-chatpic', '资源加载'],
     ['qq-accounts', 'QQ 登录记录管理', 'qq-accounts', 'QQ 高级工具'],
-    ['logs', '数据库读取并发上限', 'database-read-concurrency', '监听与读取'],
+    ['logs', '数据库读取并发上限', 'database-read-concurrency', 'QQ 数据库管理'],
     ['rkey', '外部 RKEY', 'external-rkey', '凭据管理'],
     ['applock', '隐私模式', 'privacy-mode', '隐私'],
     ['applock', '启用应用锁', 'app-lock', '隐私'],
@@ -897,7 +900,8 @@ describe('设置归位后的实际页面', () => {
   it('普通账号页无凭据，凭据页默认掩码，离开后不保留展开状态', () => {
     const f = mount('account');
     try {
-      expect(f.body().textContent).toContain('启用数据库监听');
+      expect(f.body().textContent).toContain('QQ 在线能力');
+      expect(f.body().querySelector('[data-setting-id="realtime-enabled"]')).toBeNull();
       expect(f.body().textContent).not.toContain('会话密钥');
       f.render('credentials');
       expect(f.body().textContent).toContain('会话密钥');
@@ -956,7 +960,7 @@ describe('设置归位后的实际页面', () => {
       expect(f.body().querySelector('h3')?.textContent).toBe('启动与退出');
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((node) => node.textContent),
-      ).toEqual(['启动与退出', '外观与布局', '通知与提醒', '隐私']);
+      ).toEqual(['启动与退出', '在线能力与授权', '外观与布局', '通知与提醒', '隐私']);
       const ids = [
         ...new Set(
           [...f.body().querySelectorAll('[data-setting-id]')].map((node) =>
@@ -1109,13 +1113,13 @@ describe('设置归位后的实际页面', () => {
     }
   });
 
-  it('数据库页面保留浏览和容错修复，读取性能移出，旧深链只定位不自动打开', () => {
+  it('数据库页面在浏览后展示监听读取和容错修复，旧深链只定位不自动打开', () => {
     const f = mount('database');
     try {
       expect(f.body().textContent).toContain('容错级别');
       expect(
         [...f.body().querySelectorAll('.weq-set-card-title')].map((node) => node.textContent),
-      ).toEqual(['数据库浏览', '容错与修复']);
+      ).toEqual(['数据库浏览', '监听与读取', '容错与修复']);
       expect(f.body().querySelector('.weq-cache-db')).toBeNull();
       expect(f.body().querySelector('.weq-set-head-title .weq-settings-scope')).toBeNull();
       expect(f.body().textContent).toContain('数据库异常时弹窗提醒');

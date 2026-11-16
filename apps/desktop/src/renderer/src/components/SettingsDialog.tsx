@@ -192,8 +192,8 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'account',
-    label: '监听与读取',
-    icon: <User size={16} strokeWidth={1.8} />,
+    label: '在线能力与授权',
+    icon: <Plug size={16} strokeWidth={1.8} />,
     render: () => <AccountBasicsSection />,
   },
   {

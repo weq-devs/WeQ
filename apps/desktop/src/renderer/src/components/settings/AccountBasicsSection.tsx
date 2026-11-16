@@ -135,7 +135,7 @@ export function AccountBasicsSection({
   page = 'account',
   heading = true,
 }: {
-  page?: 'account' | 'credentials' | 'media' | 'read';
+  page?: 'account' | 'credentials' | 'media' | 'read' | 'listening';
   heading?: boolean;
 }): ReactElement {
   const active = useTabActive();
@@ -359,8 +359,21 @@ export function AccountBasicsSection({
     <div className="weq-set">
       {heading && (
         <SectionHeader
-          icon={<User size={16} strokeWidth={1.8} />}
-          title={{ account: '监听与读取', credentials: '凭据管理', media: '资源加载' }[page]}
+          icon={
+            page === 'account' ? (
+              <Plug size={16} strokeWidth={1.8} />
+            ) : (
+              <User size={16} strokeWidth={1.8} />
+            )
+          }
+          title={
+            {
+              account: '在线能力与授权',
+              credentials: '凭据管理',
+              media: '资源加载',
+              listening: '监听与读取',
+            }[page]
+          }
           desc={page === 'credentials' ? '当前账号的敏感凭据，默认隐藏。' : undefined}
         />
       )}
@@ -546,9 +559,15 @@ export function AccountBasicsSection({
         </>
       )}
       {/* Realtime / db watch */}
-      {page === 'account' && (
-        <Card title="实时监听" icon={<Radio size={15} strokeWidth={1.8} />} resetId="realtime">
+      {page === 'listening' && (
+        <Card
+          title="监听与读取"
+          icon={<Radio size={15} strokeWidth={1.8} />}
+          settingId="database-listening"
+          resetId="realtime"
+        >
           <Row
+            settingId="realtime-enabled"
             label={
               <span className="weq-set-row-icon">
                 <Database size={15} strokeWidth={1.8} aria-hidden />
@@ -570,11 +589,11 @@ export function AccountBasicsSection({
               />
             }
           />
+          <DatabaseReadSettings embedded />
         </Card>
       )}
       {page === 'account' && (
         <>
-          <DatabaseReadSettings />
           <FullFunctionSetup isMac={isMac}>
             <Row
               settingId="auto-full-mode"

@@ -137,12 +137,37 @@ try {
       await page.getByRole('button', { name: '打开数据库浏览', exact: true }).waitFor();
       assert.deepEqual(await page.locator('.weq-set-card-title').allTextContents(), [
         '数据库浏览',
+        '监听与读取',
         '容错与修复',
       ]);
       assert.equal(
         await page.getByRole('spinbutton', { name: '数据库读取并发上限', exact: true }).count(),
-        0,
+        1,
       );
+      const listen = page.getByRole('switch', { name: '启用数据库监听', exact: true });
+      await listen.click();
+      assert.equal(await listen.getAttribute('aria-checked'), 'false');
+      await listen.click();
+      assert.equal(await listen.getAttribute('aria-checked'), 'true');
+      const level = page.getByRole('combobox', { name: '数据库容错级别', exact: true });
+      await level.selectOption('2');
+      assert.equal(await page.evaluate(() => window.databaseQa.levels.length), 0);
+      await page.getByRole('button', { name: '取消', exact: true }).click();
+      assert.equal(await level.inputValue(), '0');
+      await level.selectOption('1');
+      await page.waitForFunction(() => window.databaseQa.levels.includes(1));
+      await level.selectOption('0');
+      await page.waitForFunction(() => window.databaseQa.levels.includes(0));
+      assert.equal(await page.getByText('默认严格模式：', { exact: false }).count(), 0);
+      assert.equal(await page.getByRole('heading', { name: '损坏提醒', exact: true }).count(), 0);
+      const recordAlignment = await page
+        .locator('[data-setting-id="tolerance-records"]')
+        .evaluate((node) => {
+          const title = node.querySelector('h4').getBoundingClientRect();
+          const count = node.querySelector('[role="status"]').getBoundingClientRect();
+          return Math.abs(title.top + title.height / 2 - count.top - count.height / 2);
+        });
+      assert.ok(recordAlignment < 2);
       assert.equal(
         await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
         false,
@@ -189,7 +214,7 @@ try {
   await page.waitForFunction(() => window.databaseQa.changes.includes(6));
   assert.deepEqual(errors, []);
   console.log(
-    '监听与读取：并发保存及旧组件提示；QQ 数据库管理：两卡片、独立窗口及三尺寸浅深主题通过',
+    '数据库管理：浏览、监听与读取、紧凑容错选择、同排计数及独立窗口通过三尺寸深浅主题验证',
   );
 } finally {
   await browser?.close();

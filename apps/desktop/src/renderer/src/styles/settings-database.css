@@ -63,6 +63,27 @@ html[data-theme='dark'] .weq-database-browser-content {
 .weq-database-group-head > button {
   margin-left: auto;
 }
+.weq-database-tolerance-select {
+  width: 260px;
+  max-width: 100%;
+  min-width: 0;
+  margin-left: auto;
+}
+.weq-database-tolerance-scopes {
+  margin: 0;
+}
+.weq-database-tolerance-scopes dt {
+  font-weight: 500;
+}
+.weq-database-tolerance-scopes dd {
+  margin: 4px 0 12px;
+  overflow-wrap: anywhere;
+}
+.weq-database-record-count {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.55;
+}
 .weq-database-read-controls {
   display: flex;
   align-items: center;
@@ -83,6 +104,9 @@ html[data-theme='dark'] .weq-database-browser-content {
     align-items: flex-start;
   }
   .weq-database-group-head > button {
+    margin-left: 0;
+  }
+  .weq-database-tolerance-select {
     margin-left: 0;
   }
 }

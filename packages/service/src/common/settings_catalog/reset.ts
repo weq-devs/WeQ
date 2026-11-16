@@ -55,7 +55,7 @@ export const SETTINGS_RESET_CARDS = [
   ['recognition', 'voice-online', '语音转写'],
   ['recognition', 'ocr-online', '图片文字识别'],
   ['enhancement-packs', 'enhancement-updates', '增强包自动更新'],
-  ['account', 'realtime', '实时监听'],
+  ['database-management', 'realtime', '监听与读取'],
   ['account', 'attach', 'QQ 在线能力'],
   ['accounts', 'auto-enter', '现有配置'],
   ['resource-loading', 'external-chatpic', '外部安卓图片缓存'],
@@ -74,7 +74,7 @@ export const SETTINGS_RESET_CARDS = [
   ['assistant', 'assistant', '推送与资源服务'],
   ['version', 'update', '软件更新'],
   ['logs', 'logs', '应用日志'],
-  ['account', 'database-read', '读取性能'],
+  ['database-management', 'database-read', '读取性能'],
 ] as const;
 export type SettingsResetCardId = (typeof SETTINGS_RESET_CARDS)[number][1];
 export type SettingsResetPageId = (typeof SETTINGS_RESET_CARDS)[number][0];
@@ -113,8 +113,12 @@ export function planSettingsReset<
   );
 }
 export function resetCards(target: SettingsResetTarget) {
+  const currentPage =
+    target.page === 'account' && (target.card === 'realtime' || target.card === 'database-read')
+      ? 'database-management'
+      : target.page;
   const cards = SETTINGS_RESET_CARDS.filter(
-    ([page, card]) => page === target.page && (!target.card || card === target.card),
+    ([page, card]) => page === currentPage && (!target.card || card === target.card),
   );
   if (!cards.length) throw new Error('未知的设置恢复范围');
   return cards;

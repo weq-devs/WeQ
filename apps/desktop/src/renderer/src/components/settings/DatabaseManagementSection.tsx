@@ -5,6 +5,7 @@ import { ToolSurface } from '../ToolSurface';
 import { PageShell } from '../PageShell';
 import { useDatabaseBrowserWindow } from '../../state/databaseBrowserWindow';
 import { DatabaseToleranceSection } from './DatabaseToleranceSection';
+import { AccountBasicsSection } from './AccountBasicsSection';
 import { Card, Row, SectionHeader } from './controls';
 import { DataMaintenanceSection, type MaintenanceTool } from './DataMaintenanceSection';
 import '../../styles/settings-database.css';
@@ -34,6 +35,7 @@ export function DatabaseManagementSection({ onOpen }: { onOpen: (tool: Maintenan
           }
         />
       </Card>
+      <AccountBasicsSection page="listening" heading={false} />
       <DatabaseToleranceSection
         page="management"
         onOpenRecords={() => setRecordsOpen(true)}

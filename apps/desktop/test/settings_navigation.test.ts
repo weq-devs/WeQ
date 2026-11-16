@@ -33,9 +33,10 @@ describe('设置的两级导航', () => {
     const entry = searchAppEntries(keyword)[0];
     expect(entry?.target).toMatchObject({ kind: 'setting', section: 'agentlab', settingId });
   });
-  it('常规按启动、外观、通知和隐私分类，旧主页入口仍能定位', () => {
+  it('常规在启动后展示在线能力与授权，旧主页入口仍能定位', () => {
     expect(settingsGroupFor('startup').sections).toEqual([
       'startup',
+      'account',
       'appearance',
       'global',
       'privacy',
@@ -141,7 +142,6 @@ describe('设置的两级导航', () => {
         id: 'data',
         label: '凭据与数据',
         sections: [
-          'account',
           'credentials',
           'resource-loading',
           'qq-storage',
