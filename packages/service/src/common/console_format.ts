@@ -129,25 +129,35 @@ const eventTitles: Record<string, Record<string, string>> = {
 };
 const duration = (value: number) =>
   value < 1000 ? `${Math.round(value)}ms` : `${Number((value / 1000).toFixed(2))}s`;
-function formatSummary(summary: ConsoleSummary): string[] {
+function formatSummary(
+  summary: ConsoleSummary,
+  { compact = false, hideQueue = false } = {},
+): string[] {
   const period =
     summary.windowMs < 1000 ? '本轮' : `近 ${Number((summary.windowMs / 1000).toFixed(2))} 秒`;
   const metrics: string[] = [];
   for (const [key, label] of Object.entries(consoleTimingLabels)) {
+    if (hideQueue && key === 'jsQueueWaitMs') continue;
     const stats = summary.timings[key as keyof typeof consoleTimingLabels];
     if (!stats?.count) continue;
     const divisor = stats.max < 1000 ? 1 : 1000;
-    const unit = divisor === 1 ? '毫秒' : '秒';
+    const unit = compact ? (divisor === 1 ? 'ms' : 's') : divisor === 1 ? '毫秒' : '秒';
     const value = (ms: number) => Number((ms / divisor).toFixed(2));
     let text = `${label} ${value(stats.min)}`;
-    if (stats.min !== stats.max)
+    if (compact) {
+      if (stats.min !== stats.max)
+        text += `～${value(stats.max)}${unit}，均值 ${duration(stats.total / stats.count)}`;
+      else text += unit;
+    } else if (stats.min !== stats.max)
       text += `～${value(stats.max)} ${unit}，平均 ${value(stats.total / stats.count)} ${unit}，最近 ${value(stats.last)} ${unit}`;
     else text += ` ${unit}`;
     if (stats.count < summary.count) text += `（${stats.count} 次有记录）`;
     metrics.push(text);
   }
   const [first, ...rest] = metrics;
-  return [`${period} ${summary.count} 次${first ? `，${first}` : ''}`, ...rest];
+  return compact
+    ? [`${period} ${summary.count} 次`, ...metrics]
+    : [`${period} ${summary.count} 次${first ? `，${first}` : ''}`, ...rest];
 }
 function bytes(value: number): string {
   if (value < 1024) return `${value}B`;
@@ -193,6 +203,11 @@ export function formatConsoleRecord(
   if (context.event === 'request-slow') title = '慢请求';
   if (context.event === 'request-failed')
     title = context.outcome === 'cancelled' ? '请求已取消' : '请求失败';
+  const slowSummary =
+    options.summary &&
+    context.outcome === 'ok' &&
+    (context.event === 'request-slow' || (databaseOperation && context.event === 'database-slow'));
+  if (slowSummary) title += '汇总';
   const parts: string[] = [];
   if (typeof context.path === 'string') parts.push(paint(36, plain(context.path)));
   else if (databaseCaller) parts.push(paint(36, databaseCaller));
@@ -201,6 +216,12 @@ export function formatConsoleRecord(
       paint(
         90,
         `${plain(context.platform)}${typeof context.arch === 'string' ? `/${plain(context.arch)}` : ''}`,
+      ),
+    );
+  if (slowSummary && options.summary)
+    parts.push(
+      ...formatSummary(options.summary, { compact: true, hideQueue: databaseOperation }).map(
+        (text) => paint(levelColors[level], text),
       ),
     );
   const add = (key: string, value: unknown, label = labels[key] ?? key) => {
@@ -293,7 +314,7 @@ export function formatConsoleRecord(
   let output = `${header}${parts.length ? `  ${parts.slice(0, limit).join('  ')}` : ''}\n`;
   for (let i = limit; i < parts.length; i += limit)
     output += `         ${parts.slice(i, i + limit).join('  ')}\n`;
-  if (options.summary)
+  if (options.summary && !slowSummary)
     output += formatSummary(options.summary)
       .map((line) => `         ${paint(levelColors[level], line)}\n`)
       .join('');

@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { scheduleDatabase, SLOW_DATABASE_OPERATION_MS } from '@weq/db';
 import { configureDevelopmentLogging } from '../src/common/development_logging';
-import { configureConsoleLogger, initLogger } from '../src/common/logger';
+import { configureConsoleLogger, flushConsoleLogger, initLogger } from '../src/common/logger';
 import { currentOperationId, withLogOperation } from '../src/common/operation_log';
+import { logRequest } from '../src/common/request_log';
 
 const cleanup = vi.hoisted(() => ({ stops: [] as Array<() => void> }));
 vi.mock('@weq/db', async (original) => {
@@ -51,7 +52,7 @@ function fixture() {
   return {
     lines,
     at: (value: number) => (time = value),
-    records: () =>
+    records: (scope = 'database') =>
       readdirSync(join(directory, 'logs'))
         .flatMap((file) =>
           readFileSync(join(directory, 'logs', file), 'utf8')
@@ -59,7 +60,7 @@ function fixture() {
             .split('\n'),
         )
         .map((line) => JSON.parse(line))
-        .filter((record) => record.context?.scope === 'database'),
+        .filter((record) => record.context?.scope === scope),
   };
 }
 
@@ -136,6 +137,45 @@ it('连续慢操作各自保留一条，不因相同队列合并或重复记录�
       maxBlockedMs: 800,
     }),
   ]);
+});
+
+it('重复慢请求及数据库操作仅合并终端，文件保留各次耗时和关联详情', async () => {
+  const f = fixture();
+  let time = 0;
+  for (const [index, durationMs] of [1200, 3600, 1800].entries()) {
+    await logRequest('trpc', 'account.getOnlineStatus', 'query', async () => {
+      time += durationMs;
+      f.at(time);
+      await scheduleDatabase(
+        '/synthetic/log-repeated.db',
+        async () => {
+          time += durationMs;
+          f.at(time);
+        },
+        undefined,
+        {
+          caller: 'FixtureReader.read',
+          fingerprint: 'aaaaaaaaaaaaaaaa',
+        },
+      );
+    });
+    expect(f.lines).toHaveLength(2);
+    expect(f.records()).toHaveLength(index + 1);
+  }
+  flushConsoleLogger();
+  expect(f.lines).toHaveLength(4);
+  expect(f.lines[2]).toContain('慢操作汇总  FixtureReader.read  本轮 3 次');
+  expect(f.lines[2]).toContain('原生等待 1.2～3.6s，均值 2.2s');
+  expect(f.lines[3]).toContain('慢请求汇总  account.getOnlineStatus  本轮 3 次');
+  expect(f.lines[3]).toContain('耗时 2.4～7.2s，均值 4.4s');
+  const records = f.records();
+  expect(records.map((record) => record.context.nativePromiseAwaitMs)).toEqual([1200, 3600, 1800]);
+  expect(new Set(records.map((record) => record.context.operationId)).size).toBe(3);
+  const requests = f.records('trpc');
+  expect(requests.map((record) => record.context.durationMs)).toEqual([2400, 7200, 3600]);
+  expect(requests.map((record) => record.context.operationId)).toEqual(
+    records.map((record) => record.context.operationId),
+  );
 });
 
 it.each(['failed', 'cancelled'] as const)('被阻塞查询自身 %s 时仍保留独立记录', async (outcome) => {
