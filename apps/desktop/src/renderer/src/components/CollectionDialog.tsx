@@ -2,7 +2,7 @@ import { TimeLabel } from './TimeLabel';
 import * as timeFormat from '@weq/time';
 import { eventTimeFormatter } from '@weq/time';
 /**
- * 我的收藏 —— QQ favorites lightbox.
+ * 收藏 —— QQ favorites lightbox.
  *
  * Opened from the left rail (like the settings dialog). Loads ALL collected
  * items once via `account.listCollections` (paging the service until
@@ -19,6 +19,7 @@ import { eventTimeFormatter } from '@weq/time';
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { usePageDataCache, usePageState } from './PageSnapshots';
 import { pageValue } from '../lib/pageSnapshots';
+import { APP_NAVIGATION } from '../lib/appNavigation';
 import {
   Bookmark,
   CheckCheck,
@@ -1038,7 +1039,9 @@ export function CollectionDialog({
               </button>
             ) : null}
             <Bookmark size={18} strokeWidth={1.9} />
-            <h2 id="weq-collection-title">{selected ? '收藏详情' : '我的收藏'}</h2>
+            <h2 id="weq-collection-title">
+              {selected ? '收藏详情' : APP_NAVIGATION.collections.label}
+            </h2>
             {!selected ? (
               <button
                 type="button"

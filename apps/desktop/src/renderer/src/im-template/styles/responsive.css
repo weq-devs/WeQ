@@ -710,14 +710,6 @@
   border-top: 1px solid #eeeeee;
 }
 
-:where(html[data-weq-layout='single']) .desktop-notice-label {
-  display: none;
-}
-
-:where(html[data-weq-layout='single']) .mobile-notice-label {
-  display: inline;
-}
-
 :where(html[data-weq-layout='single']) .contact-tab-switch {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

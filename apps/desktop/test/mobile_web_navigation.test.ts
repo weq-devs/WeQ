@@ -85,6 +85,14 @@ it('底栏固定四个入口，未读数封顶但不会增加导航宽度', asyn
   expect(host.querySelector('[aria-label="更多功能"]')).toBeNull();
 });
 
+it('导航使用完整统一名称，收藏入口不再带有个人前缀', async () => {
+  await act(async () => root.render(createElement(MobileWebNavigation, props)));
+  expect(host.querySelector('[data-mobile-tab="qzone"]')?.textContent).toBe('QQ 空间');
+  await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
+  await click('收藏');
+  expect(props.onOpenCollection).toHaveBeenCalledOnce();
+});
+
 it('更多保留全部次级入口，选中后关闭列表并调用原有操作', async () => {
   await act(async () => root.render(createElement(MobileWebNavigation, props)));
   await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
@@ -114,9 +122,9 @@ it('搜索在手机标题中可展开，聊天详情隐藏整套主导航', asyn
 
 it('更多中的收藏入口复用现有回调，不增加底栏入口', async () => {
   await act(async () => root.render(createElement(MobileWebNavigation, props)));
-  expect(host.textContent).not.toContain('我的收藏');
+  expect(host.textContent).not.toContain('收藏');
   await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
-  await click('我的收藏');
+  await click('收藏');
   expect(props.onOpenCollection).toHaveBeenCalledOnce();
   expect(host.querySelectorAll('nav > button')).toHaveLength(4);
 });

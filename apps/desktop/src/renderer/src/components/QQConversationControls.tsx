@@ -278,7 +278,7 @@ export function QQConversationControls({
             </Card>
           )}
           {kind === 'c2c' && state.friend && state.friendUin && (
-            <Card title="空间" icon={<Star size={15} strokeWidth={1.9} />}>
+            <Card title="QQ 空间" icon={<Star size={15} strokeWidth={1.9} />}>
               <QzoneFriendPermissions targetUin={state.friendUin} />
             </Card>
           )}

@@ -118,13 +118,13 @@ it('空间只有一个范围和结果组，统一预览、缓存覆盖及更多�
   const f = mount(createElement(Harness));
   try {
     const buttons = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-search-scope button')];
-    expect(buttons.filter((button) => button.textContent === '空间')).toHaveLength(1);
+    expect(buttons.filter((button) => button.textContent === 'QQ 空间')).toHaveLength(1);
     expect(buttons.some((button) => ['个人空间', '他人空间'].includes(button.textContent!))).toBe(
       false,
     );
     expect(
       [...f.host.querySelectorAll('.weq-search-section-name')].map((node) => node.textContent),
-    ).toEqual(['空间']);
+    ).toEqual(['QQ 空间']);
     expect(f.host.textContent).not.toContain('已缓存内容');
     const rows = f.host.querySelectorAll<HTMLButtonElement>('[role="option"]');
     expect(rows).toHaveLength(3);
@@ -132,9 +132,9 @@ it('空间只有一个范围和结果组，统一预览、缓存覆盖及更多�
     expect(select.mock.calls.map(([hit]) => hit)).toEqual([hits[3], hits[1], hits[2]]);
     act(() => f.host.querySelector<HTMLButtonElement>('.weq-search-more')!.click());
     expect(more).toHaveBeenCalledWith('qzone');
-    act(() => buttons.find((button) => button.textContent === '空间')!.click());
+    act(() => buttons.find((button) => button.textContent === 'QQ 空间')!.click());
     expect(change).toHaveBeenLastCalledWith([]);
-    act(() => buttons.find((button) => button.textContent === '空间')!.click());
+    act(() => buttons.find((button) => button.textContent === 'QQ 空间')!.click());
     expect(change).toHaveBeenLastCalledWith(['qzone']);
   } finally {
     f.close();
@@ -156,7 +156,7 @@ it('空间部分来源失败显示统一重试入口并保留有效命中', () =
     }),
   );
   try {
-    expect(f.host.querySelector('[aria-label="重试空间搜索"]')).not.toBeNull();
+    expect(f.host.querySelector('[aria-label="重试QQ 空间搜索"]')).not.toBeNull();
     expect(f.host.querySelectorAll('[role="option"]')).toHaveLength(3);
   } finally {
     f.close();

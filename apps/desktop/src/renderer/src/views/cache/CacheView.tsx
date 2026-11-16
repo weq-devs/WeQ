@@ -153,7 +153,7 @@ const CATEGORIES: CacheCategory[] = [
   {
     id: 'qzone',
     group: '空间',
-    label: 'QQ空间缓存',
+    label: 'QQ 空间缓存',
     desc: '空间浏览缓存',
     icon: <Cloud size={18} />,
     ready: true,

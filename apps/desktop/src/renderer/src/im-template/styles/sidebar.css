@@ -58,13 +58,8 @@
   margin-top: 0;
 }
 
-.mobile-sidebar-top,
-.mobile-notice-label {
+.mobile-sidebar-top {
   display: none;
-}
-
-.desktop-notice-label {
-  display: inline;
 }
 
 .search-row {

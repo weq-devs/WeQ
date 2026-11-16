@@ -3969,7 +3969,7 @@ export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'get_ptlogin_jump_url',
     description:
-      '生成一个 QQ空间 / QQ频道 的【免登录跳转 URL】——浏览器打开即已登录（ptlogin2 跳转链，302 落 cookie）。' +
+      '生成一个 QQ 空间 / QQ频道 的【免登录跳转 URL】——浏览器打开即已登录（ptlogin2 跳转链，302 落 cookie）。' +
       'site=qzone 落地到空间个人中心，site=channel 落地到频道 pd.qq.com。URL 含一次性 clientKey，点击时现取。需要在线且已注入的 QQ。',
     input: z.object({
       site: z.enum(['qzone', 'channel']).describe('目标站点'),
@@ -4745,7 +4745,7 @@ export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'get_qzone_profile',
     description:
-      '读取某个 QQ 号的【QQ空间资料】：说说列表（get_emotion_list，pos+num 稳定深翻）或相册列表。' +
+      '读取某个 QQ 号的【QQ 空间资料】：说说列表（get_emotion_list，pos+num 稳定深翻）或相册列表。' +
       'mode=msgs 返回说说（内容/时间/图片/视频/评论数），mode=albums 返回相册。需要在线 QQ。',
     input: z.object({
       targetUin: z.string().min(1).describe('目标 QQ 号（纯数字；不传查自己）').optional(),

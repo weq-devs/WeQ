@@ -216,7 +216,7 @@ try {
   await page.locator('[data-mobile-tab="contacts"]').click();
   await page.waitForTimeout(300);
   for (const [label, title] of [
-    ['新好友', '好友通知'],
+    ['好友通知', '好友通知'],
     ['群通知', '群通知'],
   ]) {
     for (const action of ['cancel', 'swipe', 'system', 'button']) {

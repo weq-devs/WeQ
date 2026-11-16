@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MobileWebNavigation } from '../../src/renderer/src/components/MobileWebNavigation';
+import { SidebarHeader } from '../../src/renderer/src/im-template/template/sidebarHeader';
 import { ChatHeader } from '../../src/renderer/src/components/ChatHeader';
 import { ConversationActionsMenu } from '../../src/renderer/src/components/ConversationActionsMenu';
 import { Ellipsis } from 'lucide-react';
@@ -113,8 +114,19 @@ function Fixture() {
               </div>
               <div data-mobile-sidebar-page="contacts" hidden={shell.view !== 'contacts'}>
                 合成联系人
-                <button onClick={() => shell.openContactNotice('friend')}>新好友</button>
-                <button onClick={() => shell.openContactNotice('group')}>群通知</button>
+                <SidebarHeader
+                  user={user}
+                  view="contacts"
+                  query=""
+                  onQueryChange={noop}
+                  onOpenProfile={noop}
+                  contactTab={shell.contactTab}
+                  onContactTabChange={shell.changeContactTab}
+                  activeNotice={shell.contactNotice}
+                  showSearch={false}
+                  onOpenFriendNotices={() => shell.openContactNotice('friend')}
+                  onOpenGroupNotices={() => shell.openContactNotice('group')}
+                />
               </div>
             </div>
           </aside>

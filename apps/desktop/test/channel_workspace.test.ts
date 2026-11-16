@@ -497,7 +497,7 @@ describe('主聊天区域的频道私聊', () => {
         'QQ 空间',
         'QQ 频道',
         'QQ 邮箱',
-        '我的收藏',
+        '收藏',
         '年度报告',
         '个性装扮',
         '应用',
@@ -515,7 +515,7 @@ describe('主聊天区域的频道私聊', () => {
       expect(settingsButton.title).toContain('有新版本可更新');
       expect(settingsButton.querySelector('[aria-label="有新版本可更新"]')).not.toBeNull();
       expect(f.host.querySelector('.rail-mobile-settings')).not.toBeNull();
-      for (const title of ['我的收藏', '个性装扮']) {
+      for (const title of ['收藏', '个性装扮']) {
         act(() => f.host.querySelector<HTMLButtonElement>(`[title="${title}"]`)!.click());
       }
       expect(collection).toHaveBeenCalledOnce();

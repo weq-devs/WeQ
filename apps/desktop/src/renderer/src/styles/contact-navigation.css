@@ -145,7 +145,7 @@ html[data-theme='dark'] .sidebar .contact-notice-row > .weq-contact-notice-entry
 
 /* 侧栏整体很窄时只留图标，避免「好友通知」被截成半截字。 */
 @container (max-width: 150px) {
-  html[data-theme] .sidebar .contact-notice-row .desktop-notice-label {
+  html[data-theme] .sidebar .contact-notice-row .notice-entry-text {
     display: none;
   }
 }

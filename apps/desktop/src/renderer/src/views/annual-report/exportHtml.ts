@@ -2429,7 +2429,7 @@ function qzoneSlide(data: Record<string, unknown>): string {
   return `${slideOpen('忆')}
     <div class="qz">
       <div class="qz-kicker">
-        <span>${escapeHtml(reportEraLabel(year))} · QQ空间回忆</span>
+        <span>${escapeHtml(reportEraLabel(year))} · QQ 空间回忆</span>
         <span class="qz-kicker-meta">${allTime && firstYear ? `<b>${escapeHtml(firstYear.trim())}</b> 起 / ` : ''}<b>${fmt(
           Number(data.total ?? 0),
         )}</b> 条说说</span>

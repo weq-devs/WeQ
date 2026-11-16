@@ -1,17 +1,5 @@
 // @ts-nocheck
-import {
-  LayoutGrid,
-  MessageCircle,
-  Settings,
-  Hash,
-  Bookmark,
-  Palette,
-  Mail,
-  Sparkles,
-  UsersRound,
-} from 'lucide-react';
-import { SiQzone } from 'react-icons/si';
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { cn } from './classNames';
 import { Avatar } from './primitives';
@@ -22,6 +10,7 @@ import '../../styles/rail-navigation.css';
 import { useWorkspaceActiveTitle } from '../../components/WorkspacePages';
 import { preloadWorkspace } from '../../components/lazyWorkspaces';
 import { ReminderCount, ReminderDot } from '../../components/ReminderBadge';
+import { APP_NAVIGATION, activateNavigation, navigationEntries } from '../../lib/appNavigation';
 
 export function AppRail({
   user,
@@ -68,8 +57,13 @@ export function AppRail({
   const [profileOpen, setProfileOpen] = useState(false);
   const railRef = useRef<HTMLElement | null>(null);
   const activeTitle = useWorkspaceActiveTitle();
+  const Settings = APP_NAVIGATION.settings.icon;
   const activePage =
-    activeTitle === '个性装扮' ? 'dressup' : activeTitle === '设置' ? 'settings' : undefined;
+    activeTitle === APP_NAVIGATION.dressup.label
+      ? 'dressup'
+      : activeTitle === APP_NAVIGATION.settings.label
+        ? 'settings'
+        : undefined;
   const activeView = activePage ?? activeRailItem ?? view;
   const updateAvailable = useUpdateStore((s) => s.available);
   const settingsButton = (mobile = false) => (
@@ -81,31 +75,27 @@ export function AppRail({
           : 'weq-rail-control weq-rail-settings',
       )}
       aria-current={activeView === 'settings' ? 'page' : undefined}
-      aria-label="设置"
-      onPointerEnter={() => preloadWorkspace('settings')}
-      onFocus={() => preloadWorkspace('settings')}
+      aria-label={APP_NAVIGATION.settings.label}
+      onPointerEnter={() => preloadWorkspace(APP_NAVIGATION.settings.workspace)}
+      onFocus={() => preloadWorkspace(APP_NAVIGATION.settings.workspace)}
       onClick={() => {
         setProfileOpen(false);
         onOpenSettings();
       }}
-      title={updateAvailable ? '设置 · 有新版本可更新' : '设置'}
+      title={
+        updateAvailable
+          ? `${APP_NAVIGATION.settings.label} · 有新版本可更新`
+          : APP_NAVIGATION.settings.label
+      }
       type="button"
     >
       <Settings size={22} strokeWidth={1.75} aria-hidden />
-      {mobile ? <span className="rail-label">设置</span> : null}
+      {mobile ? <span className="rail-label">{APP_NAVIGATION.settings.label}</span> : null}
       {updateAvailable ? (
         <ReminderDot overlay className="rail-badge rail-badge-dot" aria-label="有新版本可更新" />
       ) : null}
     </button>
   );
-
-  const contentItems = [
-    { id: 'collection', label: '我的收藏', icon: Bookmark, onSelect: onOpenCollection },
-    // 年度报告整页独占内容区（shell.view === 'annual'），与 QQ 空间 / 邮箱同一条
-    // 「整页视图」路径，不另开弹窗。
-    { id: 'annual', label: '年度报告', icon: Sparkles, onSelect: () => selectView('annual') },
-    { id: 'dressup', label: '个性装扮', icon: Palette, onSelect: onOpenDressUp },
-  ];
 
   useEffect(() => {
     if (!profileOpen) {
@@ -176,163 +166,92 @@ export function AppRail({
       <div className={cn('rail-groups')}>
         <nav
           className={cn('rail-nav rail-nav-primary')}
-          aria-label="Primary"
+          aria-label="主导航"
           onMouseDown={(event) => event.stopPropagation()}
         >
-          <div className="rail-message-entry">
-            <button
-              className={cn(
-                railButtonClass(activeView === 'messages'),
-                'rail-tab rail-tab-messages',
-              )}
-              onClick={() => {
-                if (activeView === 'messages' && onMessageBadgeClick) {
-                  setProfileOpen(false);
-                  onMessageBadgeClick();
-                } else selectView('messages');
-              }}
-              title="消息"
-              aria-current={activeView === 'messages' ? 'page' : undefined}
-            >
-              <span className={cn('rail-tab-icon')}>
-                <MessageCircle size={22} strokeWidth={1.5} />
-              </span>
-              <span className={cn('rail-label')}>消息</span>
-            </button>
-            {messageBadgeCount > 0 ? (
-              <ReminderCount
-                as="button"
-                count={messageBadgeCount}
-                overlay
-                className={cn('rail-badge rail-message-badge')}
-                title="定位首条未读会话"
-                aria-label={`定位首条未读会话，共 ${messageBadgeCount} 条未读消息`}
+          {navigationEntries('rail').map(({ id, label, icon: Icon, target, workspace }) => {
+            if (id === 'settings') return <Fragment key={id}>{settingsButton(true)}</Fragment>;
+            const button = (
+              <button
+                key={id}
+                type="button"
+                className={cn(
+                  railButtonClass(activeView === id),
+                  'rail-tab',
+                  `rail-tab-${id === 'collections' ? 'collection' : id}`,
+                  id === 'tools' && 'rail-mobile-tool',
+                  id === 'tools' && !showTools && 'rail-desktop-hidden',
+                )}
+                title={label}
+                aria-current={activeView === id ? 'page' : undefined}
+                onPointerEnter={() => {
+                  if (workspace) preloadWorkspace(workspace);
+                }}
+                onFocus={() => {
+                  if (workspace) preloadWorkspace(workspace);
+                }}
                 onClick={() => {
                   setProfileOpen(false);
-                  if (onMessageBadgeClick) onMessageBadgeClick();
-                  else selectView('messages');
+                  if (id === 'messages' && activeView === 'messages' && onMessageBadgeClick)
+                    onMessageBadgeClick();
+                  else
+                    activateNavigation(target, {
+                      onViewChange: selectView,
+                      onOpenCollection,
+                      onOpenDressUp,
+                      onOpenSettings,
+                      onOpenTool: () => {},
+                      onOpenNotice: () => {},
+                    });
                 }}
-              />
-            ) : null}
-          </div>
-          <button
-            className={cn(railButtonClass(activeView === 'contacts'), 'rail-tab rail-tab-contacts')}
-            onClick={() => selectView('contacts')}
-            title="联系人"
-            aria-current={activeView === 'contacts' ? 'page' : undefined}
-          >
-            <span className={cn('rail-tab-icon')}>
-              <UsersRound size={22} strokeWidth={1.75} aria-hidden />
-            </span>
-            <span className={cn('rail-label')}>联系人</span>
-            {contactBadgeCount > 0 ? (
-              <ReminderDot
-                overlay
-                className={cn('rail-badge rail-badge-dot')}
-                role="status"
-                aria-label="有新的好友或群通知"
-              />
-            ) : null}
-          </button>
-          <button
-            className={cn(railButtonClass(activeView === 'qzone'), 'rail-tab rail-tab-qzone')}
-            onClick={() => selectView('qzone')}
-            title="QQ 空间"
-            onPointerEnter={() => preloadWorkspace('qzone')}
-            onFocus={() => preloadWorkspace('qzone')}
-            aria-current={activeView === 'qzone' ? 'page' : undefined}
-            type="button"
-          >
-            <span className={cn('rail-tab-icon')}>
-              <SiQzone size={22} />
-            </span>
-            <span className={cn('rail-label')}>QQ空间</span>
-          </button>
-          <button
-            className={cn(railButtonClass(activeView === 'channel'), 'rail-tab rail-tab-channel')}
-            onClick={() => selectView('channel')}
-            title="QQ 频道"
-            onPointerEnter={() => preloadWorkspace('channel')}
-            onFocus={() => preloadWorkspace('channel')}
-            aria-current={activeView === 'channel' ? 'page' : undefined}
-            type="button"
-          >
-            <span className={cn('rail-tab-icon')}>
-              <Hash size={22} strokeWidth={1.5} />
-            </span>
-            <span className={cn('rail-label')}>QQ频道</span>
-          </button>
-          <button
-            type="button"
-            className={cn(railButtonClass(activeView === 'mail'), 'rail-tab rail-tab-mail')}
-            onClick={() => selectView('mail')}
-            title="QQ 邮箱"
-            aria-current={activeView === 'mail' ? 'page' : undefined}
-          >
-            <span className={cn('rail-tab-icon')}>
-              <Mail size={22} strokeWidth={1.5} />
-            </span>
-            <span className={cn('rail-label')}>QQ邮箱</span>
-            {mailBadgeCount > 0 ? (
-              <ReminderCount
-                count={mailBadgeCount}
-                overlay
-                className="rail-badge rail-badge-mail"
-                role="status"
-                aria-label={`${mailBadgeCount} 封未读邮件`}
-                title={`${mailBadgeCount} 封未读邮件`}
-              />
-            ) : null}
-          </button>
-          {contentItems.map((item) => (
-            <button
-              key={item.id}
-              onPointerEnter={() =>
-                preloadWorkspace(item.id === 'collection' ? 'collections' : item.id)
-              }
-              onFocus={() => preloadWorkspace(item.id === 'collection' ? 'collections' : item.id)}
-              className={cn(
-                railButtonClass(
-                  activeView === (item.id === 'collection' ? 'collections' : item.id),
-                ),
-                'rail-tab',
-                `rail-tab-${item.id}`,
-              )}
-              aria-current={
-                activeView === (item.id === 'collection' ? 'collections' : item.id)
-                  ? 'page'
-                  : undefined
-              }
-              onClick={() => {
-                setProfileOpen(false);
-                item.onSelect();
-              }}
-              title={item.label}
-              type="button"
-            >
-              <span className={cn('rail-tab-icon')}>
-                <item.icon size={22} strokeWidth={1.5} />
-              </span>
-              <span className={cn('rail-label')}>{item.label}</span>
-            </button>
-          ))}
-          {settingsButton(true)}
-          <button
-            className={cn(
-              railButtonClass(activeView === 'tools'),
-              'rail-mobile-tool rail-tab rail-tab-tools',
-              !showTools && 'rail-desktop-hidden',
-            )}
-            type="button"
-            title="应用"
-            aria-current={activeView === 'tools' ? 'page' : undefined}
-            onClick={() => selectView('tools')}
-          >
-            <span className={cn('rail-tab-icon')}>
-              <LayoutGrid size={22} strokeWidth={1.5} />
-            </span>
-            <span className={cn('rail-label')}>应用</span>
-          </button>
+              >
+                <span className="rail-tab-icon">
+                  <Icon size={22} strokeWidth={1.5} aria-hidden />
+                </span>
+                <span className="rail-label">{label}</span>
+                {id === 'contacts' && contactBadgeCount > 0 && (
+                  <ReminderDot
+                    overlay
+                    className="rail-badge rail-badge-dot"
+                    role="status"
+                    aria-label="有新的好友或群通知"
+                  />
+                )}
+                {id === 'mail' && mailBadgeCount > 0 && (
+                  <ReminderCount
+                    count={mailBadgeCount}
+                    overlay
+                    className="rail-badge rail-badge-mail"
+                    role="status"
+                    aria-label={`${mailBadgeCount} 封未读邮件`}
+                    title={`${mailBadgeCount} 封未读邮件`}
+                  />
+                )}
+              </button>
+            );
+            return id === 'messages' ? (
+              <div key={id} className="rail-message-entry">
+                {button}
+                {messageBadgeCount > 0 && (
+                  <ReminderCount
+                    as="button"
+                    count={messageBadgeCount}
+                    overlay
+                    className="rail-badge rail-message-badge"
+                    title="定位首条未读会话"
+                    aria-label={`定位首条未读会话，共 ${messageBadgeCount} 条未读消息`}
+                    onClick={() => {
+                      setProfileOpen(false);
+                      if (onMessageBadgeClick) onMessageBadgeClick();
+                      else selectView('messages');
+                    }}
+                  />
+                )}
+              </div>
+            ) : (
+              <Fragment key={id}>{button}</Fragment>
+            );
+          })}
         </nav>
       </div>
       <div className={cn('rail-footer')}>

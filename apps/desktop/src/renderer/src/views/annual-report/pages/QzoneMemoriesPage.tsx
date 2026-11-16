@@ -93,7 +93,7 @@ export function QzoneMemoriesPage({
     <PageFrame page={page} active={active} ghost="忆" tone="#3a77b6">
       <div className="weq-qz">
         <header className="weq-qz-kicker weq-report-line" style={{ '--i': 1 } as CSSProperties}>
-          <span>{reportEraLabel(data.year)} · QQ空间回忆</span>
+          <span>{reportEraLabel(data.year)} · QQ 空间回忆</span>
           <span className="weq-qz-kicker-meta">
             {allTime && firstYear ? (
               <>

@@ -21,6 +21,7 @@ import {
 import { avatarFromUin } from '../lib/avatarResolver';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import '../styles/contact-notices.css';
+import { APP_NAVIGATION } from '../lib/appNavigation';
 
 export type NoticeProfileHandler = (
   user: User,
@@ -60,11 +61,11 @@ function ContactNoticeDialogBody({
       tabIndex={-1}
       className="weq-notice-dialog weq-notice-panel"
       role="region"
-      aria-label="好友通知"
+      aria-label={APP_NAVIGATION['friend-notice'].label}
       onMouseDown={(event) => event.stopPropagation()}
     >
       <PageShell
-        title="好友通知"
+        title={APP_NAVIGATION['friend-notice'].label}
         icon={<Bell size={15} />}
         leading={
           <button
@@ -218,11 +219,11 @@ function GroupNoticeDialogBody({
       tabIndex={-1}
       className="weq-notice-dialog weq-notice-panel"
       role="region"
-      aria-label="群通知"
+      aria-label={APP_NAVIGATION['group-notice'].label}
       onMouseDown={(event) => event.stopPropagation()}
     >
       <PageShell
-        title="群通知"
+        title={APP_NAVIGATION['group-notice'].label}
         icon={<Users size={15} />}
         leading={
           <button

@@ -281,7 +281,7 @@ export function QqDynamic({
               e.currentTarget.style.display = 'none';
             }}
           />
-          <span>QQ空间</span>
+          <span>QQ 空间</span>
         </div>
       ) : null}
     </div>

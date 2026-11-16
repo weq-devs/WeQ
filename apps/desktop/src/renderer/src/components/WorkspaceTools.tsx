@@ -10,16 +10,7 @@ import { CalendarNavigationContext } from '../lib/calendarNavigation';
 import { getCloneTasks, subscribeCloneTasks } from '../views/agentlab/cloneTaskStore';
 import type { GeneratedSearchHit } from './search/types';
 import type { ToolSearchRequest } from './search/appSearchCatalog';
-import {
-  BarChart3,
-  Download,
-  FileStack,
-  FolderOpen,
-  ShieldAlert,
-  X,
-  Maximize2,
-  Minimize2,
-} from 'lucide-react';
+import { ShieldAlert, X, Maximize2, Minimize2 } from 'lucide-react';
 import type { ExportAuthorizationIndicatorState } from '../views/export/authorization';
 import { Modal } from './Dialog';
 import { RetainedTabs } from './RetainedTabs';
@@ -45,6 +36,7 @@ import { createToolDraft, type ToolDraft } from '../../../shared/content_selecti
 import { initialExportMode } from '../views/export/exportScope';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
+import { APP_NAVIGATION, navigationEntries } from '../lib/appNavigation';
 import type {
   AnalysisReportRequest,
   AnalysisTarget,
@@ -65,18 +57,6 @@ import {
 } from '../lib/toolTargets';
 
 type Tool = 'export' | 'viewer' | 'backfill' | 'analysis';
-const TITLES: Record<Tool, string> = {
-  export: '导出',
-  viewer: '导出查看器',
-  backfill: '拉取漫游消息',
-  analysis: '分析与报告',
-};
-const ACTION_LABELS: Record<string, string> = {
-  analysis: '分析',
-  export: '导出',
-  viewer: '查看',
-  composition: '合成',
-};
 
 export function WorkspaceTools({
   accountScope,
@@ -392,33 +372,24 @@ export function WorkspaceTools({
         exportDraft.draft.selection.scope.type === 'items' &&
         exportDraft.draft.selection.scope.ids.length > 0));
 
-  const items = [
-    {
-      id: 'export',
-      label: '导出',
-      icon: <Download size={20} />,
-      action: () => select('export'),
-    },
-    {
-      id: 'analysis',
-      label: '分析与报告',
-      icon: <BarChart3 size={20} />,
-      action: () => select('analysis'),
-    },
-    {
-      id: 'viewer',
-      label: '导出查看器',
-      icon: <FolderOpen size={20} />,
-      action: () => select('viewer'),
-    },
-  ];
-  if (onOpenComposition)
-    items.push({
-      id: 'composition',
-      label: '合成聊天记录',
-      icon: <FileStack size={20} />,
-      action: () => leave(onOpenComposition),
-    });
+  const items = navigationEntries('workspace')
+    .filter(({ target }) => target.kind !== 'composition' || onOpenComposition)
+    .map(({ id, label, icon: Icon, target }) => ({
+      id,
+      label,
+      icon: <Icon size={20} aria-hidden />,
+      action: () => {
+        if (target.kind === 'composition' && onOpenComposition) leave(onOpenComposition);
+        else if (
+          target.kind === 'tool' &&
+          (target.tool === 'export' ||
+            target.tool === 'analysis' ||
+            target.tool === 'viewer' ||
+            target.tool === 'backfill')
+        )
+          select(target.tool);
+      },
+    }));
   return (
     <>
       <Modal
@@ -516,7 +487,7 @@ export function WorkspaceTools({
                     onClick={item.action}
                   >
                     {item.icon}
-                    <span>{ACTION_LABELS[item.id]}</span>
+                    <span>{item.label}</span>
                   </button>
                 ))}
             </nav>
@@ -527,7 +498,7 @@ export function WorkspaceTools({
       <Modal
         presentation={mobile ? 'page' : 'modal'}
         mobileChrome={mobile}
-        title={TITLES[tool]}
+        title={APP_NAVIGATION[tool].label}
         dismissOnOutside={false}
         open={open && tool !== 'backfill'}
         onClose={close}
@@ -536,7 +507,7 @@ export function WorkspaceTools({
         labelledBy="weq-tools-title"
       >
         <header className="weq-tools-header">
-          <h2 id="weq-tools-title">{TITLES[tool]}</h2>
+          <h2 id="weq-tools-title">{APP_NAVIGATION[tool].label}</h2>
           {tool === 'export' && exportAuthorization?.needed ? (
             <button
               type="button"

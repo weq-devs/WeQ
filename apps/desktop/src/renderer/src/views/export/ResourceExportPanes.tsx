@@ -100,7 +100,7 @@ export function QzoneContentSelector({
         value={value}
         onChange={onChange}
         options={[
-          { value: 'posts', label: '空间' },
+          { value: 'posts', label: 'QQ 空间' },
           { value: 'both', label: '都导出' },
           { value: 'albums', label: '相册' },
         ]}

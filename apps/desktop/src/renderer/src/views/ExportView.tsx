@@ -165,7 +165,7 @@ const MODES: ModeDef[] = [
   },
   {
     id: 'qzone',
-    label: 'QQ空间导出',
+    label: 'QQ 空间导出',
     short: 'QQ 空间',
     desc: '说说 / 相册 · JSON / TXT / HTML',
     icon: <Globe size={18} />,
@@ -1854,10 +1854,10 @@ function ExportToolBody({
 
   const activeMode = MODES.find((m) => m.id === mode)!;
   // 底部格式 chips 只保留给不走灯箱的导出收藏；
-  // 完整消息 / QQ空间 / 定时的格式选择已移入灯箱多选。
+  // 完整消息 / QQ 空间 / 定时的格式选择已移入灯箱多选。
   const showFormatChips = mode === 'collection';
   const formatOptions = COLLECTION_FORMATS;
-  // QQ空间导出只列目标空间（自己 + 好友）；其余多选模式用全部会话。
+  // QQ 空间导出只列目标空间（自己 + 好友）；其余多选模式用全部会话。
   const pickerItems = mode === 'qzone' ? friendItems : convItems;
   const scopeConversation =
     mode === 'full' &&
@@ -2911,7 +2911,7 @@ function CategoryChips({
   );
 }
 
-/** 收藏类型多选（导出收藏）。空选 = 全部收藏。顺序与「我的收藏」弹窗一致。 */
+/** 收藏类型多选（导出收藏）。空选 = 全部收藏。顺序与「收藏」弹窗一致。 */
 const COLLECTION_KIND_FILTERS: Array<{ id: string; label: string }> = [
   { id: 'richMedia', label: '图文' },
   { id: 'link', label: '链接' },
@@ -2928,7 +2928,7 @@ const COLLECTION_KIND_LABEL: Record<string, string> = Object.fromEntries(
   COLLECTION_KIND_FILTERS.map((k) => [k.id, k.label]),
 );
 
-/** 收藏 kind → 行图标（对齐「我的收藏」弹窗的 kindIcon）。 */
+/** 收藏 kind → 行图标（对齐「收藏」弹窗的 kindIcon）。 */
 function collectionKindIcon(kind: string, size = 15): ReactElement {
   switch (kind) {
     case 'link':

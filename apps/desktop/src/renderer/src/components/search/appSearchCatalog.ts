@@ -6,6 +6,7 @@ import type { ContactWorkspaceTab } from '../../lib/profileNavigation';
 import { SETTINGS_CATALOG, SETTINGS_PAGE_ALIASES } from '@weq/service/settings-catalog';
 import { isRemoteClient } from '../../lib/remoteClient';
 import { remoteSettingAvailable } from '../../../../shared/remote_capabilities';
+import { navigationEntries, type NavigationTool } from '../../lib/appNavigation';
 import {
   SETTINGS_PAGE_LABELS,
   resolveSettingsTarget,
@@ -14,7 +15,7 @@ import {
 } from '../settings/navigation';
 export { SETTINGS_PAGE_LABELS } from '../settings/navigation';
 
-export type SearchableTool = 'export' | 'viewer' | 'analysis' | 'tasks' | 'assistant' | 'backfill';
+export type SearchableTool = NavigationTool;
 export interface ToolSearchRequest {
   scope: string;
   tool: SearchableTool;
@@ -78,26 +79,19 @@ function uniqueEntries(entries: AppSearchEntry[]): AppSearchEntry[] {
 }
 
 export const APP_SEARCH_ENTRIES: readonly AppSearchEntry[] = uniqueEntries([
-  feature('首页', { kind: 'view', view: 'home' }),
-  feature('消息', { kind: 'view', view: 'messages' }, '聊天', '会话'),
-  feature('联系人', { kind: 'view', view: 'contacts' }, '好友', '群聊'),
-  feature('收藏', { kind: 'view', view: 'collections' }),
-  feature('QQ 空间', { kind: 'view', view: 'qzone' }, '说说', '相册'),
-  feature('QQ 邮箱', { kind: 'view', view: 'mail' }, '邮件'),
-  feature('频道', { kind: 'view', view: 'channel' }, 'QQ 频道'),
-  feature('频道私聊', { kind: 'view', view: 'guild-direct' }),
+  ...navigationEntries('search').flatMap(({ label, target, keywords }) =>
+    target.kind === 'contact-notice' ? [] : [feature(label, target, ...keywords)],
+  ),
   feature('好友克隆', { kind: 'conversation-directory', scope: 'virtual' }, '克隆聊天'),
   feature('新建好友克隆', { kind: 'clone-create' }, '创建克隆'),
   feature('新建克隆体群聊', { kind: 'clone-create', group: true }, '克隆群聊'),
-  feature('年度报告', { kind: 'view', view: 'annual' }, '年度总结'),
-  feature('导出', { kind: 'tool', tool: 'export' }, '导出聊天记录', '备份聊天'),
   ...(
     [
       ['聊天消息导出', 'full', '完整消息导出'],
       ['定时导出', 'scheduled', '定时任务', '自动备份'],
       ['频道私聊数据', 'guild', '导出频道私聊'],
       ['克隆与助手对话', 'generated', '导出克隆对话', '导出助手会话'],
-      ['QQ空间导出', 'qzone', '导出说说'],
+      ['QQ 空间导出', 'qzone', '导出说说'],
       ['导出联系人', 'contacts', '好友名单', '群成员名单', 'vCard'],
       ['导出收藏', 'collection', '收藏导出'],
       ['邮件导出', 'mail', '导出邮件'],
@@ -111,13 +105,6 @@ export const APP_SEARCH_ENTRIES: readonly AppSearchEntry[] = uniqueEntries([
   ).map(([title, exportMode, ...aliases]) =>
     feature(title, { kind: 'tool', tool: 'export', exportMode }, ...aliases),
   ),
-  feature('拉取漫游消息', { kind: 'tool', tool: 'backfill' }, '漫游消息', '补全聊天记录'),
-  feature('导出查看器', { kind: 'tool', tool: 'viewer' }, '打开导出', 'JSON', 'JSONL'),
-  feature('分析与报告', { kind: 'tool', tool: 'analysis' }, '聊天分析', '统计'),
-  feature('任务', { kind: 'tool', tool: 'tasks' }, '导出进度', '下载任务'),
-  feature('WeQ 助手', { kind: 'tool', tool: 'assistant' }, 'AI 助手', '智能助手'),
-  feature('合成聊天记录', { kind: 'composition' }, '合并转发'),
-  feature('个性装扮', { kind: 'dressup' }, '装扮商城'),
   feature('我的资料', { kind: 'self-profile' }, '本人资料', '个人资料'),
   {
     ...feature('礼物墙', { kind: 'self-profile', tab: 'giftwall' }, '我的礼物墙', '礼物'),

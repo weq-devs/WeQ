@@ -4,7 +4,7 @@
  * Unlike WeQ's own preview cache (see `UserConfigService.clearCache`, which wipes
  * `%APPDATA%/weq/cache/*`), this service deletes the account's REAL QQ `nt_data`
  * resource trees — the same files the 本地资源整理 page browses (头像 / 各类表情 /
- * 图片墙 / QQ空间 / 图片 / 视频 / 语音 / File 目录). Every target is a well-known
+ * 图片墙 / QQ 空间 / 图片 / 视频 / 语音 / File 目录). Every target is a well-known
  * sub-directory of `nt_data`; the cleanup is whitelist-gated and each resolved
  * path is re-checked to sit inside `nt_data` so it can never rm outside the tree
  * (never `nt_db`, never the `nt_data` root itself, never WeQ's own data).
@@ -135,8 +135,8 @@ const TARGETS: readonly CleanupTargetDef[] = [
   },
   {
     id: 'qzone',
-    label: 'QQ空间缓存',
-    desc: 'QQ空间浏览缓存，可随时重新生成',
+    label: 'QQ 空间缓存',
+    desc: 'QQ 空间浏览缓存，可随时重新生成',
     tier: 'safe',
     hasVariants: false,
     resolveDir: (p, uin) => ntDataChild(p, uin, 'Qzone'),

@@ -19,6 +19,7 @@ import { Avatar } from './primitives';
 import type { ContactTab, MainView, User } from './types';
 import { displayUserName } from './user';
 import '../../styles/contact-navigation.css';
+import { APP_NAVIGATION } from '../../lib/appNavigation';
 
 export function SidebarHeader({
   user,
@@ -276,13 +277,12 @@ export function SidebarHeader({
               type="button"
               className={cn(contactToolButtonClass(activeNotice === 'friend'))}
               aria-current={activeNotice === 'friend' ? 'page' : undefined}
-              title="好友通知"
+              title={APP_NAVIGATION['friend-notice'].label}
               onClick={onOpenFriendNotices}
             >
               <span className={cn('notice-entry-label')}>
                 <UserPlus size={15} aria-hidden />
-                <span className={cn('desktop-notice-label')}>好友通知</span>
-                <span className={cn('mobile-notice-label')}>新朋友</span>
+                <span className="notice-entry-text">{APP_NAVIGATION['friend-notice'].label}</span>
                 {friendNoticeCount > 0 && (
                   <ReminderDot
                     className="notice-entry-dot"
@@ -296,12 +296,12 @@ export function SidebarHeader({
               type="button"
               className={cn(contactToolButtonClass(activeNotice === 'group'))}
               aria-current={activeNotice === 'group' ? 'page' : undefined}
-              title="群通知"
+              title={APP_NAVIGATION['group-notice'].label}
               onClick={onOpenGroupNotices}
             >
               <span className={cn('notice-entry-label')}>
                 <UsersRound size={15} aria-hidden />
-                群通知
+                <span className="notice-entry-text">{APP_NAVIGATION['group-notice'].label}</span>
                 {groupNoticeCount > 0 && (
                   <ReminderDot
                     className="notice-entry-dot"

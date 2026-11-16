@@ -518,12 +518,12 @@ describe('搜索范围与失败界面', () => {
       );
       const buttons = [...host.querySelectorAll<HTMLButtonElement>('.weq-search-scope button')];
       expect(
-        buttons.find((node) => node.textContent === '空间')?.getAttribute('aria-pressed'),
+        buttons.find((node) => node.textContent === 'QQ 空间')?.getAttribute('aria-pressed'),
       ).toBe('true');
       expect(buttons.some((node) => ['个人空间', '他人空间'].includes(node.textContent!))).toBe(
         false,
       );
-      act(() => buttons.find((node) => node.textContent === '空间')!.click());
+      act(() => buttons.find((node) => node.textContent === 'QQ 空间')!.click());
       const selected = change.mock.lastCall![0] as SearchCategory[];
       expect(selected).not.toContain('qzone');
     } finally {

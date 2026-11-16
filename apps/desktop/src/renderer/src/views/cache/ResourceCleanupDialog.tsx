@@ -85,7 +85,7 @@ const PRESETS: Preset[] = [
     id: 'safe',
     label: '完全安全清理',
     icon: <ShieldCheck size={20} />,
-    desc: '清理头像、商城表情、图片墙、QQ空间、关联表情等完全可再生的缓存，QQ 会在需要时自动重新下载。',
+    desc: '清理头像、商城表情、图片墙、QQ 空间、关联表情等完全可再生的缓存，QQ 会在需要时自动重新下载。',
     danger: false,
     build: (targets) =>
       targets.filter((t) => t.tier === 'safe').map((t) => ({ id: t.id, variant: 'all' })),
