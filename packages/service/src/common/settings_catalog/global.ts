@@ -15,6 +15,7 @@ export const APP_SETTINGS_RESET_POLICY = {
   exportSaveMode: 'preference',
   realtimeEnabled: 'preference',
   autoAttachQq: 'preference',
+  restrictedModeIndicatorEnabled: 'preference',
   restrictedModeBannerEnabled: 'preference',
   webServiceAutoStart: 'connection',
   showWindowOnAutostart: 'connection',

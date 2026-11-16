@@ -110,6 +110,22 @@ beforeEach(() => {
 });
 const caller = () => settingsResetRouter.createCaller({});
 describe('分级恢复默认', () => {
+  it('QQ 在线能力卡片恢复右上角标记，不改变独立通知偏好', async () => {
+    state.settings.restrictedModeIndicatorEnabled = false;
+    state.settings.restrictedModeBannerEnabled = false;
+    const preview = await caller().preview({ page: 'account', card: 'attach' });
+    expect(preview.items).toContainEqual(
+      expect.objectContaining({
+        id: 'attach:restrictedModeIndicatorEnabled',
+        current: false,
+        defaultValue: true,
+      }),
+    );
+    await caller().restore({ page: 'account', card: 'attach', source: null });
+    expect(state.calls).toContainEqual(['setRestrictedModeIndicatorEnabled', { enabled: true }]);
+    expect(state.calls.some(([name]) => name === 'resetNotificationEvents')).toBe(false);
+    expect(state.settings.restrictedModeBannerEnabled).toBe(false);
+  });
   it('所有登记的全局恢复字段均有真实适配器，不依赖设置控件是否挂载', async () => {
     const api = settingsResetRouter.createCaller({ authorize: () => {} });
     for (const page of new Set(SETTINGS_RESET_CARDS.map(([page]) => page))) {

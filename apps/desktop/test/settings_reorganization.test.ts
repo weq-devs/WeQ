@@ -234,7 +234,10 @@ describe('设置归位后的实际页面', () => {
         expect(
           nodes[i - 1]!.compareDocumentPosition(nodes[i]!) & Node.DOCUMENT_POSITION_FOLLOWING,
         ).not.toBe(0);
-      expect(f.body().textContent).toContain('进入受限模式时横幅提醒');
+      expect(f.body().textContent).toContain('进入受限模式时通知');
+      expect(
+        f.body().querySelector('[data-setting-id="restricted-mode-indicator"]'),
+      ).not.toBeNull();
       expect(f.body().querySelector('[data-setting-id="database-read-concurrency"]')).toBeNull();
       f.render('database-management');
       expect(f.body().querySelector('h3')?.textContent).toBe('QQ 数据库管理');
@@ -278,6 +281,7 @@ describe('设置归位后的实际页面', () => {
     'qq-debug-copy',
     'long-term-authorization',
     'auto-full-mode',
+    'restricted-mode-indicator',
     'restricted-mode-banner',
   ])('整理后的 QQ 在线能力入口 %s 仍可通过搜索定位', async (settingId) => {
     conditional.platform = 'darwin';

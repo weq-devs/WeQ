@@ -166,6 +166,7 @@ export function AccountBasicsSection({
   const setRealtime = trpc.bootstrap.setRealtimeEnabled.useMutation();
   const setAutoAttachQq = trpc.bootstrap.setAutoAttachQq.useMutation();
   const setRestrictedModeBanner = trpc.bootstrap.setRestrictedModeBannerEnabled.useMutation();
+  const setRestrictedIndicator = trpc.bootstrap.setRestrictedModeIndicatorEnabled.useMutation();
   const setReadSyncEnabled = trpc.bootstrap.setReadSyncEnabled.useMutation();
   const setExternalChatpic = trpc.bootstrap.setExternalChatpic.useMutation();
   const pickExternalChatpicDir = trpc.bootstrap.pickExternalChatpicDir.useMutation();
@@ -183,6 +184,9 @@ export function AccountBasicsSection({
   const [restrictedBanner, setRestrictedBanner] = useState(true);
   const [savingBanner, setSavingBanner] = useState(false);
   const bannerPending = useRef(false);
+  const [restrictedIndicator, setRestrictedIndicatorLocal] = useState(true);
+  const [savingIndicator, setSavingIndicator] = useState(false);
+  const indicatorPending = useRef(false);
   const [reportRead, setReportRead] = useState(false);
   const [manualReadReport, setManualReadReport] = useState(false);
   const [savingReadSync, setSavingReadSync] = useState(false);
@@ -206,6 +210,7 @@ export function AccountBasicsSection({
     setRealtimeLocal(d.realtimeEnabled);
     setAutoAttach(d.autoAttachQq);
     setRestrictedBanner(d.restrictedModeBannerEnabled);
+    setRestrictedIndicatorLocal(d.restrictedModeIndicatorEnabled !== false);
     setReportRead(d.reportReadEnabled);
     setManualReadReport(d.manualReadReportEnabled);
   }, [settings.data]);
@@ -292,6 +297,24 @@ export function AccountBasicsSection({
     } finally {
       bannerPending.current = false;
       setSavingBanner(false);
+    }
+  }
+
+  async function toggleRestrictedIndicator(enabled: boolean): Promise<void> {
+    if (indicatorPending.current) return;
+    indicatorPending.current = true;
+    setSavingIndicator(true);
+    const previous = restrictedIndicator;
+    setRestrictedIndicatorLocal(enabled);
+    try {
+      await setRestrictedIndicator.mutateAsync({ enabled });
+      await settings.refetch();
+    } catch (error) {
+      setRestrictedIndicatorLocal(previous);
+      showError('保存失败', errMsg(error));
+    } finally {
+      indicatorPending.current = false;
+      setSavingIndicator(false);
     }
   }
 
@@ -627,9 +650,23 @@ export function AccountBasicsSection({
               }
             />
             <Row
+              settingId="restricted-mode-indicator"
+              label="受限模式时在窗口右上角显示"
+              control={
+                <Toggle
+                  checked={restrictedIndicator}
+                  disabled={
+                    settingsLoading || !settings.data || Boolean(settings.error) || savingIndicator
+                  }
+                  onChange={(value) => void toggleRestrictedIndicator(value)}
+                  label="受限模式时在窗口右上角显示"
+                />
+              }
+            />
+            <Row
               settingId="restricted-mode-banner"
-              label="进入受限模式时横幅提醒"
-              desc="QQ 在线能力就绪后再次受限时显示横幅。仅控制被动提醒，状态详情、授权请求、主动操作错误和启用进度仍会显示。"
+              label="进入受限模式时通知"
+              desc="QQ 在线能力就绪后再次受限时，按通知设置提醒。授权请求、主动操作错误和启用进度不受影响。"
               control={
                 <Toggle
                   checked={restrictedBanner}
@@ -637,7 +674,7 @@ export function AccountBasicsSection({
                     settingsLoading || !settings.data || Boolean(settings.error) || savingBanner
                   }
                   onChange={(value) => void toggleRestrictedBanner(value)}
-                  label="进入受限模式时横幅提醒"
+                  label="进入受限模式时通知"
                 />
               }
             />

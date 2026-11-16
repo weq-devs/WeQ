@@ -5,6 +5,9 @@ import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { IS_WEB } from '../../lib/target';
 import { QqDebugCopyDialog } from '../QqDebugCopyDialog';
 import { Card } from './controls';
+import { useViewState } from '../../state/view';
+import { useRestrictedMode } from '../../state/restrictedMode';
+import { restrictionReasons } from '../../lib/restrictedMode';
 import '../../styles/settings-full-functions.css';
 
 const FEATURES = [
@@ -16,7 +19,56 @@ const FEATURES = [
   ['缺失媒体', '使用已有缓存和可用下载链路', '增加当前 QQ 会话的取票、链接更新与媒体补全', true],
 ] as const;
 
-/** 只说明能力与读取路线，不用授权助手或自动策略冒充账号就绪状态。 */
+function OnlineCapabilityStatus() {
+  const uin = useViewState((state) => state.openedUin);
+  const requests = useRestrictedMode((state) => state.requests.length);
+  const entering = useRestrictedMode((state) => state.enteringSince !== null);
+  const authorizationIssue = useRestrictedMode((state) =>
+    state.reasons.some((reason) => reason.code === 'authorization'),
+  );
+  const open = useRestrictedMode((state) => state.open);
+  const access = trpc.account.getGroupAlbumAccessState.useQuery(
+    undefined,
+    useQQAutoRefresh(Boolean(uin)),
+  );
+  const currentAccess =
+    access.data?.source && access.data.source.expectedAccountUin !== uin ? undefined : access.data;
+  const enabled = Boolean(
+    uin &&
+      currentAccess &&
+      !access.isError &&
+      !restrictionReasons({ access: currentAccess }).length,
+  );
+  const label = requests
+    ? '待提权'
+    : entering && !authorizationIssue
+      ? '正在启用'
+      : !uin
+        ? '未启用'
+        : access.isError
+          ? '状态待确认'
+          : !currentAccess
+            ? '检测中'
+            : enabled
+              ? '已启用'
+              : '未启用';
+  return (
+    <button
+      type="button"
+      className="weq-full-function-status"
+      data-enabled={enabled && !requests && !entering}
+      title="查看 QQ 在线能力状态"
+      aria-label={`QQ 在线能力：${label}，查看详情`}
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      onClick={() => useRestrictedMode.getState().setOpen(!open)}
+    >
+      {label}
+    </button>
+  );
+}
+
+/** 集中展示真实能力状态与读取路线，不用自动策略冒充账号就绪状态。 */
 export function FullFunctionSetup({ isMac, children }: { isMac: boolean; children?: ReactNode }) {
   const [debugOpen, setDebugOpen] = useState(false);
   const autoRefresh = useQQAutoRefresh(isMac);
@@ -32,6 +84,7 @@ export function FullFunctionSetup({ isMac, children }: { isMac: boolean; childre
     <>
       <Card
         title="QQ 在线能力"
+        titleBadge={<OnlineCapabilityStatus />}
         icon={<Zap size={15} strokeWidth={1.8} />}
         desc="在本地记录查看与导出的基础上，启用当前账号的 QQ 在线能力。"
         settingId="full-features"
@@ -159,7 +212,7 @@ export function FullFunctionSetup({ isMac, children }: { isMac: boolean; childre
           )}
           <p className="weq-set-note">
             QQ 已启动、调试副本已就绪或权限助手已连接，都不等于 QQ
-            在线能力已启用。关闭自动启用时，可从标题栏的「受限模式」详情为当前来源手动启用。
+            在线能力已启用。关闭自动启用时，可点击标题旁的状态标签，或从标题栏的「受限模式」详情为当前来源手动启用。
           </p>
         </section>
       </Card>

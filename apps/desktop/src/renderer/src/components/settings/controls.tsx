@@ -138,6 +138,7 @@ export function SectionHeader({
 export function Card({
   settingId,
   title: titleOverride,
+  titleBadge,
   desc,
   icon,
   action,
@@ -147,6 +148,7 @@ export function Card({
 }: {
   settingId?: string;
   title?: string;
+  titleBadge?: ReactNode;
   /** 卡片标题下的一句说明，与页头 `SectionHeader` 的 desc 同一套字号/颜色。 */
   desc?: ReactNode;
   /** 标题前的图标（lucide 组件或资源图），与设置页各分区的视觉语言保持一致。 */
@@ -186,7 +188,19 @@ export function Card({
         {title || action || card ? (
           <div className="weq-set-card-head">
             <div className="weq-set-card-heading">
-              {title ? (
+              {titleBadge ? (
+                <div className="weq-set-card-title-line">
+                  <div className="weq-set-card-title">
+                    {icon ? (
+                      <span className="weq-set-card-icon" aria-hidden>
+                        {icon}
+                      </span>
+                    ) : null}
+                    {title}
+                  </div>
+                  {titleBadge}
+                </div>
+              ) : title ? (
                 <div className="weq-set-card-title">
                   {icon ? (
                     <span className="weq-set-card-icon" aria-hidden>

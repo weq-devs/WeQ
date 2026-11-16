@@ -7,6 +7,7 @@ let settings = {
   realtimeEnabled: true,
   autoAttachQq: true,
   restrictedModeBannerEnabled: true,
+  restrictedModeIndicatorEnabled: true,
   databaseReadConcurrency: 4,
   reportReadEnabled: true,
   manualReadReportEnabled: true,
@@ -38,14 +39,22 @@ const bootstrap = new Proxy(Reflect.get(baseTrpc as object, 'bootstrap'), {
           refetch: async () => ({ data: settings }),
         }),
       };
-    if (key === 'setAutoAttachQq' || key === 'setRestrictedModeBannerEnabled')
+    if (
+      key === 'setAutoAttachQq' ||
+      key === 'setRestrictedModeBannerEnabled' ||
+      key === 'setRestrictedModeIndicatorEnabled'
+    )
       return {
         useMutation: () => ({
           mutateAsync: async ({ enabled }: { enabled: boolean }) => {
             saves.push(String(key));
             settings = {
               ...settings,
-              [key === 'setAutoAttachQq' ? 'autoAttachQq' : 'restrictedModeBannerEnabled']: enabled,
+              [key === 'setAutoAttachQq'
+                ? 'autoAttachQq'
+                : key === 'setRestrictedModeIndicatorEnabled'
+                  ? 'restrictedModeIndicatorEnabled'
+                  : 'restrictedModeBannerEnabled']: enabled,
             };
             for (const listener of listeners) listener();
           },

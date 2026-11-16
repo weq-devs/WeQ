@@ -844,6 +844,13 @@ export const bootstrapRouter = router({
   /** 各窗口与 Web 客户端读取同一宿主的有效运行态。 */
   getFullModeState: procedure.query(() => ({ allowed: fullModeAllowed(getAppContext()) })),
 
+  setRestrictedModeIndicatorEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }).strict())
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ restrictedModeIndicatorEnabled: input.enabled });
+      return true;
+    }),
+
   setRestrictedModeBannerEnabled: procedure
     .input(z.object({ enabled: z.boolean() }).strict())
     .mutation(({ input }) => {

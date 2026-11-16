@@ -77,6 +77,12 @@ export const APP_SETTING_FIELDS = (
     ['attach', 'autoAttachQq', 'auto-full-mode', '自动启用 QQ 在线能力'],
     ['attach', 'restrictedModeBannerEnabled', 'restricted-mode-banner', '受限模式横幅提醒'],
     ['db-tolerance', 'suppressDbDamageReminder', 'damage-reminder', '损坏提醒'],
+    [
+      'attach',
+      'restrictedModeIndicatorEnabled',
+      'restricted-mode-indicator',
+      '受限模式时在窗口右上角显示',
+    ],
     ['cdn', 'preferCdn', 'prefer-cdn', '优先 CDN'],
     ['logs', 'logRetentionDays', 'log-retention', '日志保留天数'],
     ['database-read', 'databaseReadConcurrency', 'database-read-concurrency', '数据库读取并发上限'],

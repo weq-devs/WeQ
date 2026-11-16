@@ -37,6 +37,7 @@ vi.mock('../src/renderer/src/components/settings/SelfQQControls', () => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    bootstrap: { getSettings: { useQuery: () => ({ data: {} }) } },
     // 会员徽标是独立组件，另有测试覆盖；这里让它不渲染即可。
     useUtils: () => ({ account: { getSelfVip: { invalidate: () => {} } } }),
     account: {

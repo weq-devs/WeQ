@@ -68,6 +68,7 @@ function useAuthorizationBridge() {
 }
 
 export function RestrictedModeIndicator({ persistent = false }: { persistent?: boolean }) {
+  const settings = trpc.bootstrap.getSettings.useQuery();
   const reasons = useRestrictedMode((s) => s.reasons);
   const requests = useRestrictedMode((s) => s.requests);
   const open = useRestrictedMode((s) => s.open);
@@ -77,7 +78,9 @@ export function RestrictedModeIndicator({ persistent = false }: { persistent?: b
     !authorizationIssue;
   const awaitingAuthorization = requests.length > 0;
   const title = awaitingAuthorization ? '待提权' : entering ? '正在启用 QQ 在线能力' : '受限模式';
-  const visible = Boolean(reasons.length || requests.length || entering);
+  const visible =
+    settings.data?.restrictedModeIndicatorEnabled !== false &&
+    Boolean(reasons.length || requests.length || entering);
   if (!visible && !persistent) return null;
   return (
     <button

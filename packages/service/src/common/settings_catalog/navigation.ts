@@ -559,6 +559,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     from: ['account'],
   },
   {
+    id: 'restricted-mode-indicator',
+    section: 'account',
+    label: '受限模式时在窗口右上角显示',
+    aliases: ['受限模式标记', '标题栏受限模式', '受限状态显示'],
+    from: ['account'],
+  },
+  {
     id: 'qq-debug-copy',
     section: 'account',
     label: 'QQ 调试副本',
@@ -729,7 +736,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   {
     id: 'restricted-mode-banner',
     section: 'account',
-    label: '进入受限模式时横幅提醒',
+    label: '进入受限模式时通知',
+    aliases: ['进入受限模式时横幅提醒'],
     from: ['account'],
   },
   {

@@ -759,6 +759,8 @@ export interface AppSettings {
    * 登录时的数据库密钥提取仍独立于此策略。
    */
   autoAttachQq: boolean;
+  /** 受限模式时在窗口右上角显示状态入口，默认开启。 */
+  restrictedModeIndicatorEnabled: boolean;
   /** 进入受限状态的被动横幅；不隐藏真实授权请求或主动错误。 */
   restrictedModeBannerEnabled: boolean;
   /** 仅桌面客户端启动时启用本机 Web 服务；默认关闭。 */
@@ -1156,6 +1158,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   // WELCOME_POLICY_VERSION / planWelcomePolicyMigration。
   autoAttachQq: false,
   restrictedModeBannerEnabled: true,
+  restrictedModeIndicatorEnabled: true,
   webServiceAutoStart: false,
   showWindowOnAutostart: false,
   startupPage: 'home',
@@ -1950,6 +1953,7 @@ export class UserConfigService {
           ? s.exportSaveMode
           : d.exportSaveMode,
       autoAttachQq,
+      restrictedModeIndicatorEnabled: s?.restrictedModeIndicatorEnabled !== false,
       restrictedModeBannerEnabled: s?.restrictedModeBannerEnabled !== false,
       webServiceAutoStart: s?.webServiceAutoStart === true,
       showWindowOnAutostart: s?.showWindowOnAutostart === true,
@@ -2126,6 +2130,8 @@ export class UserConfigService {
       exportSaveMode: patch.exportSaveMode ?? current.exportSaveMode,
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
       autoAttachQq,
+      restrictedModeIndicatorEnabled:
+        patch.restrictedModeIndicatorEnabled ?? current.restrictedModeIndicatorEnabled,
       restrictedModeBannerEnabled:
         patch.restrictedModeBannerEnabled ?? current.restrictedModeBannerEnabled,
       webServiceAutoStart: patch.webServiceAutoStart ?? current.webServiceAutoStart,

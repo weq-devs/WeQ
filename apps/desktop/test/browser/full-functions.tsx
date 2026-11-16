@@ -3,14 +3,19 @@ import { AccountBasicsSection } from '../../src/renderer/src/components/settings
 import { DialogHost } from '../../src/renderer/src/components/Dialog';
 import { WelcomeDialog } from '../../src/renderer/src/components/WelcomeDialog';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
-import { setFixture } from './qq-debug-copy.stub';
+import { setFixture, setOnlineFixture } from './qq-debug-copy.stub';
 import { saves } from './full-functions.stub';
+import { useViewState } from '../../src/renderer/src/state/view';
+import { useRestrictedMode } from '../../src/renderer/src/state/restrictedMode';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/mobile-web.css';
 
 ensureThemeInitialized();
 setFixture({ state: 'ready', version: '合成版本', runningPids: [] });
-Object.assign(window, { fullFunctionsQa: { theme: useThemeStore, saves } });
+useViewState.setState({ openedUin: '10001' });
+Object.assign(window, {
+  fullFunctionsQa: { theme: useThemeStore, saves, setOnlineFixture, restricted: useRestrictedMode },
+});
 createRoot(document.getElementById('root')!).render(
   <>
     <style>{`

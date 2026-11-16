@@ -40,6 +40,7 @@ const mock = vi.hoisted(() => ({
   openSettings: vi.fn(async () => true),
   onlineFailed: false,
   banner: true,
+  indicator: undefined as boolean | undefined,
   settingsLoading: false,
   launchQq: vi.fn(async () => true),
   debugAction: vi.fn(async () => ({})),
@@ -111,7 +112,10 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
       getSettings: {
         useQuery: () => ({
-          data: { restrictedModeBannerEnabled: mock.banner },
+          data: {
+            restrictedModeBannerEnabled: mock.banner,
+            restrictedModeIndicatorEnabled: mock.indicator,
+          },
           isLoading: mock.settingsLoading,
         }),
       },
@@ -245,6 +249,7 @@ beforeEach(() => {
   mock.openSettings.mockClear();
   mock.onlineFailed = false;
   mock.banner = true;
+  mock.indicator = undefined;
   mock.settingsLoading = false;
   mock.launchQq.mockReset().mockResolvedValue(true);
   mock.debugAction.mockReset().mockResolvedValue({});
@@ -274,7 +279,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-function fixture(showToasts = false, showDialogs = false) {
+function fixture(showToasts = false, showDialogs = false, persistent = false) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -285,7 +290,7 @@ function fixture(showToasts = false, showDialogs = false) {
         h(
           'div',
           null,
-          h(RestrictedModeIndicator),
+          h(RestrictedModeIndicator, { persistent }),
           h(RestrictedModeHost, { key: revision }),
           showToasts ? h(ToastHost) : null,
           showDialogs ? h(DialogHost) : null,
@@ -309,6 +314,29 @@ function fixture(showToasts = false, showDialogs = false) {
 function event(channel: string, payload: unknown) {
   act(() => mock.listeners.get(channel)?.({}, payload));
 }
+
+it.each([false, true])(
+  '右上角标记可隐藏并重新开启，不影响受限通知与详情：常驻 %s',
+  (persistent) => {
+    const f = fixture(true, false, persistent);
+    mock.indicator = false;
+    mock.access = { ...ready, qqOnline: false };
+    mock.updatedAt += 1;
+    f.render();
+    const indicator = () => f.host.querySelector<HTMLButtonElement>('.weq-restricted-indicator');
+    if (persistent) {
+      expect(indicator()?.getAttribute('aria-hidden')).toBe('true');
+      expect(indicator()?.disabled).toBe(true);
+    } else expect(indicator()).toBeNull();
+    expect(useToast.getState().toasts.some((toast) => toast.key === 'restricted-mode')).toBe(true);
+    act(() => useRestrictedMode.getState().setOpen(true));
+    expect(f.host.querySelector('.weq-restricted-panel')).not.toBeNull();
+    mock.indicator = true;
+    f.render();
+    expect(indicator()?.getAttribute('aria-hidden')).toBeNull();
+    expect(indicator()?.textContent).toBe('受限模式');
+  },
+);
 
 it.each(['ready', 'failed', 'authorization'] as const)(
   '启动自动尝试 QQ 在线能力时保持静默：%s',
