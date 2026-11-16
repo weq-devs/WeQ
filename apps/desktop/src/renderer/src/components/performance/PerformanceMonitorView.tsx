@@ -44,6 +44,7 @@ export default function PerformanceMonitorView() {
     'cpuPercent',
     'residentBytes',
     'heapBytes',
+    'externalBytes',
     'eventLoopP95Ms',
   ]);
   const [menu, setMenu] = useState<'range' | 'metrics' | 'export' | null>(null);

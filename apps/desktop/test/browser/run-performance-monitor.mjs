@@ -163,6 +163,13 @@ try {
     ]);
     monitor.on('pageerror', (error) => errors.push(error.message));
     await monitor.locator('.weq-perf-chart svg').first().waitFor();
+    assert.equal(await monitor.locator('.weq-perf-chart').count(), 5);
+    await monitor.getByRole('button', { name: '显示指标', exact: true }).click();
+    assert.equal(
+      await monitor.getByRole('checkbox', { name: 'JS 外部内存', exact: true }).isChecked(),
+      true,
+    );
+    await monitor.keyboard.press('Escape');
     assert.deepEqual(await monitor.evaluate(() => ({ width: innerWidth, height: innerHeight })), {
       width: 1060,
       height: 740,
@@ -209,9 +216,6 @@ try {
     await monitor.getByRole('button', { name: '导出性能记录' }).click();
     await monitor.getByRole('button', { name: '图表统计 CSV' }).click();
     assert.equal(await page.evaluate(() => window.performanceQa.exports.length), 1);
-    await monitor.getByRole('button', { name: '显示指标', exact: true }).click();
-    await monitor.getByRole('checkbox', { name: 'JS 外部内存', exact: true }).check();
-    await monitor.keyboard.press('Escape');
     await monitor.setViewportSize({ width: 1060, height: 900 });
     for (const theme of ['light', 'dark']) {
       await page.evaluate((theme) => {
@@ -250,9 +254,6 @@ try {
           fullPage: true,
         });
     }
-    await monitor.getByRole('button', { name: '显示指标', exact: true }).click();
-    await monitor.getByRole('checkbox', { name: 'JS 外部内存', exact: true }).uncheck();
-    await monitor.keyboard.press('Escape');
     for (const [width, height] of [
       [1060, 740],
       [720, 520],
@@ -273,6 +274,20 @@ try {
           await monitor.evaluate(() => document.documentElement.scrollWidth > innerWidth),
           false,
         );
+        await monitor.locator('.weq-perf-chart').last().scrollIntoViewIfNeeded();
+        assert.equal(
+          await monitor
+            .locator('.weq-perf-chart')
+            .last()
+            .evaluate((chart) => {
+              const box = chart.getBoundingClientRect();
+              return chart.contains(
+                document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2),
+              );
+            }),
+          true,
+        );
+        await monitor.locator('.weq-perf-chart').first().scrollIntoViewIfNeeded();
         if (output)
           await monitor.screenshot({
             path: resolve(output, host + '-' + width + '-' + theme + '.png'),

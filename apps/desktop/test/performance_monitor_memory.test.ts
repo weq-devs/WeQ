@@ -4,7 +4,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { getQueryKey } from '@trpc/react-query';
 import { observable } from '@trpc/server/observable';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { MonitorHistory, MonitorPoint } from '@weq/service/performance';
+import { MONITOR_METRICS, type MonitorHistory, type MonitorPoint } from '@weq/service/performance';
 import { trpc } from '../src/renderer/src/trpc/client';
 import { createQueryClient } from '../src/renderer/src/trpc/queryClient';
 import PerformanceMonitorView from '../src/renderer/src/components/performance/PerformanceMonitorView';
@@ -17,10 +17,10 @@ vi.mock('../src/renderer/src/components/performance/PerformanceCharts', async (i
     >();
   return {
     ...original,
-    Chart: ({ points, select }: ComponentProps<typeof Chart>) =>
+    Chart: ({ metric, points, select }: ComponentProps<typeof Chart>) =>
       h(
         'div',
-        null,
+        { 'data-metric': metric },
         ...points.map((point) =>
           h('button', { key: point.id, 'data-point': point.id, onClick: () => select(point) }),
         ),
@@ -152,6 +152,15 @@ function fixture() {
     },
   };
 }
+
+it('默认显示全部五项指标，包含 JS 外部内存', async () => {
+  const f = fixture();
+  await settle();
+  expect(
+    [...f.host.querySelectorAll<HTMLElement>('[data-metric]')].map((chart) => chart.dataset.metric),
+  ).toEqual([...MONITOR_METRICS]);
+  expect(f.host.querySelector('[data-metric="externalBytes"]')).not.toBeNull();
+});
 
 it('连续实时刷新只保留当前历史结果，不影响其它业务缓存，关闭后释放性能结果', async () => {
   const f = fixture();
