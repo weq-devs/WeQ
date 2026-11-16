@@ -116,7 +116,12 @@ export function GroupCardIdentity({
             valueClassName="weq-profile-identity-remark"
           />
         )}
-        <ContactRow label={generated ? 'ID' : '群号'} value={identity} copyValue={identity} />
+        <ContactRow
+          label={generated ? 'ID' : '群号'}
+          value={identity}
+          number
+          copyValue={identity}
+        />
       </div>
     </>
   );

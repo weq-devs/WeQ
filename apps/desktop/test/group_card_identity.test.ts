@@ -81,6 +81,8 @@ it('群号点击复制，标签不包含在复制热区内', async () => {
   await render();
   const value = host.querySelector<HTMLButtonElement>('[aria-label="复制 群号"]')!;
   expect(value.textContent).toBe('20001');
+  expect(value.closest('.weq-number')).not.toBeNull();
+  expect(host.querySelector('.weq-profile-data-label.weq-number')).toBeNull();
   await act(async () => value.click());
   expect(copyTextToClipboard).toHaveBeenLastCalledWith('20001', document);
 });

@@ -23,6 +23,8 @@ import { ChatMainContent } from '../src/renderer/src/im-template/template/chatMa
 import { useTabActive } from '../src/renderer/src/components/RetainedTabs';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { normalizeContactCard } from '@weq/service/contact-card';
+import { ContactIdentity } from '../src/renderer/src/components/contactProfile/ContactContent';
 beforeEach(() => useViewState.setState({ openedUin: '10001' }));
 function createRoot(host: Element) {
   const root = createDomRoot(host);
@@ -252,6 +254,41 @@ const groupFixture = {
   })),
 } as GroupConversation;
 
+it.each([false, true])('个人身份区编号使用专用字体，名片正文=%s', (cardBody) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        h(ContactIdentity, {
+          person: contactFixture,
+          settings: normalizeContactCard({ visible: { uid: true, qid: true } }),
+          cardBody,
+        }),
+      ),
+    );
+    expect([...host.querySelectorAll('.weq-number')].map((node) => node.textContent)).toEqual([
+      contactFixture.identityValue,
+      contactFixture.qid,
+      contactFixture.id,
+    ]);
+    expect(host.querySelector('.weq-profile-name.weq-number')).toBeNull();
+    expect(host.querySelector('.weq-profile-data-label.weq-number')).toBeNull();
+    for (const label of ['QQ', 'QID', 'UID']) {
+      const actionLabel = label === 'QQ' && !cardBody ? 'QQ 号码' : label;
+      const button = host.querySelector(`[aria-label="复制 ${actionLabel}"]`);
+      expect(button).not.toBeNull();
+      // 专用字体在值容器或按钮内的值元素上，不受按钮 font: inherit 覆盖。
+      expect(button?.closest('.weq-number') ?? button?.querySelector('.weq-number')).not.toBeNull();
+    }
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
 it.each([false, true])('联系人名片以真实昵称为主标题并保留备注，内嵌=%s', (embedded) => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
@@ -322,6 +359,9 @@ it.each([false, true])('群名片以群名为主标题，备注单独成行，�
       document.querySelector('.weq-profile-identity-remark .weq-profile-data-value')?.textContent,
     ).toBe('群备注');
     expect(document.querySelector('[aria-label="群资料"]')?.textContent).toContain('群备注');
+    expect(
+      document.querySelector('[aria-label="复制 群号"]')?.closest('.weq-number')?.textContent,
+    ).toBe(groupFixture.group.identityValue);
   } finally {
     act(() => root.unmount());
     host.remove();

@@ -245,6 +245,7 @@ export function ContactIdentity({
           <ContactRow
             label={identityLabel}
             value={identity}
+            number
             copyValue={identity}
             activateTitle={`复制 ${identityLabel}${['ID', 'QID', 'UID'].includes(identityLabel) ? '' : ' 号码'}`}
           />
@@ -252,6 +253,7 @@ export function ContactIdentity({
             <ContactRow
               label="QID"
               value={person.qid}
+              number
               copyValue={person.qid ?? undefined}
               activateTitle="复制 QID"
             />
@@ -260,6 +262,7 @@ export function ContactIdentity({
             <ContactRow
               label="UID"
               value={person.uid || person.id}
+              number
               copyValue={person.uid || person.id}
               activateTitle="复制 UID"
             />
@@ -314,11 +317,11 @@ function IdentityNumber({ label, value }: { label: string; value: string }) {
       {label}{' '}
       <CopyButton
         text={value}
-        className="weq-contact-value weq-number"
+        className="weq-contact-value"
         title={`复制 ${label}`}
         aria-label={['ID', 'QID', 'UID'].includes(label) ? `复制 ${label}` : `复制 ${label} 号码`}
       >
-        {value}
+        <span className="weq-number">{value}</span>
       </CopyButton>
     </span>
   );
