@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Play, RotateCcw } from 'lucide-react';
+import { Play, RotateCcw, Square } from 'lucide-react';
 import { AiImageGallery } from '../../components/AiImageComposer';
 import { AssistantMessage } from './AssistantMessage';
 import { AssistantSteps } from './AssistantSteps';
@@ -10,8 +10,12 @@ import {
   AssistantCompactionMarker,
 } from './AssistantWorkspace';
 import type { AssistantTurn } from './assistantTranscript';
+import '../../styles/assistant-reply-controls.css';
 
 export interface AssistantReplyActions {
+  onStop?: () => void;
+  stopping?: boolean;
+  recovering?: boolean;
   onContinue?: () => void;
   onRestore?: () => void;
   onNext?: () => void;
@@ -59,15 +63,36 @@ export const AssistantReplyContent = memo(function AssistantReplyContent({
         ) : null,
       )}
       {turn.error ? <p role="alert">{turn.error}</p> : null}
-      {turn.status === 'stopped' ? <p role="status">已停止</p> : null}
-      {actions ? (
-        <div className="weq-conversation-tools">
-          {actions.onContinue ? (
-            <button type="button" className="weq-set-btn" onClick={actions.onContinue}>
-              <Play size={14} />
-              继续当前任务并恢复队列
+      {actions?.onStop || actions?.onContinue || turn.status === 'stopped' ? (
+        <div className="weq-asst-run-controls" aria-label="回复控制">
+          {turn.status === 'stopped' && !turn.running ? <span role="status">已停止</span> : null}
+          {actions?.onStop ? (
+            <button
+              type="button"
+              className="weq-asst-run-button"
+              aria-label={actions.stopping ? '正在停止输出' : '停止输出'}
+              title={actions.stopping ? '正在停止输出' : '停止输出'}
+              disabled={actions.stopping}
+              onClick={actions.onStop}
+            >
+              <Square size={12} fill="currentColor" aria-hidden="true" />
+            </button>
+          ) : actions?.onContinue ? (
+            <button
+              type="button"
+              className="weq-asst-run-button"
+              aria-label={actions.recovering ? '正在恢复输出' : '恢复输出'}
+              title={actions.recovering ? '正在恢复输出' : '恢复输出'}
+              disabled={actions.recovering}
+              onClick={actions.onContinue}
+            >
+              <Play size={15} fill="currentColor" aria-hidden="true" />
             </button>
           ) : null}
+        </div>
+      ) : null}
+      {actions?.onRestore || actions?.onNext ? (
+        <div className="weq-conversation-tools">
           {actions.onRestore ? (
             <button type="button" className="weq-set-btn" onClick={actions.onRestore}>
               <RotateCcw size={14} />
@@ -75,7 +100,12 @@ export const AssistantReplyContent = memo(function AssistantReplyContent({
             </button>
           ) : null}
           {actions.onNext ? (
-            <button type="button" className="weq-set-btn" onClick={actions.onNext}>
+            <button
+              type="button"
+              className="weq-set-btn"
+              disabled={actions.recovering}
+              onClick={actions.onNext}
+            >
               <Play size={14} />
               跳过当前任务并执行下一条
             </button>

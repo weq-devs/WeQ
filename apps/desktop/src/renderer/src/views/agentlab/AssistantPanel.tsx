@@ -1,6 +1,6 @@
 /** 助手数据与运行控制适配；可见界面全部由 ChatPane 提供。 */
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, Play, Square, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Play, X } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { ChatPane } from '../../im-template/template/chatPane';
 import type { Message } from '../../im-template/template/types';
@@ -106,6 +106,7 @@ export function AssistantPanel({
   const [imageUploading, setImageUploading] = useState(false);
   const [sending, setSending] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [recovering, setRecovering] = useState(false);
   const stopPending = useRef(false);
   const request = useRef<{ raw: string; id: string } | undefined>(undefined);
   const [error, setError] = useState('');
@@ -276,6 +277,7 @@ export function AssistantPanel({
   }, [utils]);
   async function control(action: 'stop' | 'continue' | 'next') {
     if (!bindingRef.current || !idRef.current) return;
+    if (action !== 'stop') setRecovering(true);
     try {
       setError('');
       await client.account.controlAssistantQueue.mutate({
@@ -285,8 +287,11 @@ export function AssistantPanel({
       });
       await utils.account.assistantQueue.invalidate();
     } catch (reason) {
+      stopPending.current = false;
       setStopping(false);
       setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      if (action !== 'stop') setRecovering(false);
     }
   }
   const editQueuedMessage = useStableCallback(
@@ -395,6 +400,12 @@ export function AssistantPanel({
   const continueCurrent = useStableCallback(() => {
     void control('continue');
   });
+  const stopCurrent = useStableCallback(() => {
+    if (stopPending.current) return;
+    stopPending.current = true;
+    setStopping(true);
+    void control('stop');
+  });
   const runNext = useStableCallback(() => {
     void control('next');
   });
@@ -422,23 +433,39 @@ export function AssistantPanel({
   const queuePaused = Boolean(
     queue.data?.paused && queue.data.items.some((item) => item.status !== 'running'),
   );
+  const activeId = turns.findLast((turn) => turn.role === 'assistant' && turn.running)?.id;
   const messages = useMemo(
     () =>
-      recoveryId
+      activeId || recoveryId
         ? baseMessages.map((message) =>
-            message.id === recoveryId
-              ? {
-                  ...message,
-                  assistantActions: {
-                    onContinue: resumable ? continueCurrent : undefined,
-                    onRestore: resumable ? undefined : restoreQuestion,
-                    onNext: queuePaused ? runNext : undefined,
-                  },
-                }
-              : message,
+            message.id === activeId
+              ? { ...message, assistantActions: { onStop: stopCurrent, stopping } }
+              : message.id === recoveryId
+                ? {
+                    ...message,
+                    assistantActions: {
+                      recovering,
+                      onContinue: resumable ? continueCurrent : undefined,
+                      onRestore: resumable ? undefined : restoreQuestion,
+                      onNext: queuePaused ? runNext : undefined,
+                    },
+                  }
+                : message,
           )
         : baseMessages,
-    [baseMessages, recoveryId, resumable, queuePaused, continueCurrent, restoreQuestion, runNext],
+    [
+      baseMessages,
+      activeId,
+      recoveryId,
+      resumable,
+      queuePaused,
+      continueCurrent,
+      restoreQuestion,
+      runNext,
+      stopCurrent,
+      stopping,
+      recovering,
+    ],
   );
   const renderers = useMemo<MessageRenderer[]>(
     () => [
@@ -456,18 +483,6 @@ export function AssistantPanel({
     [],
   );
   if (headless) return null;
-  const stopAction = {
-    id: 'assistant-stop',
-    label: stopping ? '停止中' : '停止当前任务',
-    icon: Square,
-    disabled: () => stopping,
-    onClick: () => {
-      stopPending.current = true;
-      setStopping(true);
-      void control('stop');
-    },
-  };
-  const stopActions = running || sending ? [stopAction] : [];
   const waiting = queue.data?.items.filter((item) => item.status !== 'running') ?? [];
   return (
     <>
@@ -484,11 +499,6 @@ export function AssistantPanel({
             conversation={chat}
             messages={messages}
             messageRenderers={renderers}
-            composerActions={{
-              desktopToolbar: stopActions,
-              mobileToolbar: stopActions,
-              mobileExpandedToolbar: stopActions,
-            }}
             loading={conversation.isFetching && !turns.length}
             loadError={conversation.error?.message}
             preference={undefined}

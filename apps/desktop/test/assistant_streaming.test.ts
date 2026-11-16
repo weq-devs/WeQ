@@ -21,6 +21,8 @@ const fixture = vi.hoisted(() => ({
   unsubscribe: vi.fn(),
   error: vi.fn(),
   sendError: false,
+  resumable: false,
+  control: vi.fn(),
   utils: {
     account: {
       getAssistantConversation: { invalidate: vi.fn() },
@@ -70,9 +72,11 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
                   ? { model: { providerId: 'synthetic', model: 'model-a' } }
                   : path === 'getAssistantConversation'
                     ? fixture.conversation
-                    : path === 'getAccountConfig'
-                      ? { uin: '10000', configId: 'synthetic' }
-                      : undefined,
+                    : path === 'getAssistantResumeState'
+                      ? { resumable: fixture.resumable }
+                      : path === 'getAccountConfig'
+                        ? { uin: '10000', configId: 'synthetic' }
+                        : undefined,
               isSuccess: true,
             }),
             useMutation: () => ({
@@ -90,6 +94,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   },
   client: {
     account: {
+      controlAssistantQueue: { mutate: fixture.control },
       onAssistantEvent: { subscribe: fixture.subscribe },
       submitAssistantMessage: {
         mutate: async (input: { sessionId: string }) => {
@@ -133,7 +138,8 @@ vi.mock('../src/renderer/src/views/agentlab/messageSearch', () => ({
   useGeneratedSearchJump: () => false,
 }));
 vi.mock('../src/renderer/src/views/agentlab/AssistantMessage', () => ({
-  AssistantMessage: ({ text }: { text: string }) => h('div', { className: 'stream-body' }, text),
+  AssistantMessage: ({ text, streaming }: { text: string; streaming?: boolean }) =>
+    h('div', { className: 'stream-body', 'data-streaming': Boolean(streaming) }, text),
 }));
 
 const frames = new Map<number, FrameRequestCallback>();
@@ -143,6 +149,8 @@ beforeEach(() => {
   frames.clear();
   fixture.listener = null;
   fixture.sendError = false;
+  fixture.resumable = false;
+  fixture.control.mockResolvedValue({ runId: 'resumed-run' });
   fixture.subscribe.mockImplementation(
     (_input: unknown, observer: { onData: NonNullable<typeof fixture.listener> }) => {
       fixture.listener = observer.onData;
@@ -273,3 +281,70 @@ it.each(['stream-error', 'send-error', 'aborted'] as const)(
     }
   },
 );
+
+it('停止和恢复控件位于助手消息内，停止保留正文，恢复逐段追加且可以再次停止', async () => {
+  rememberAssistantDraft('stop-resume', 'session', '合成问题');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        h(AssistantPanel, {
+          sessionId: 'session',
+          draftAccount: 'stop-resume',
+          chatModels: [],
+          onBack: vi.fn(),
+          onSessionCreated: vi.fn(),
+        }),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('.composer-send')!.click());
+    flushFrame();
+    emit({ kind: 'text_delta', text: '已有正文\n\n' });
+    flushFrame();
+    const stop = host.querySelector<HTMLButtonElement>(
+      '.weq-asst-content [aria-label="停止输出"]',
+    )!;
+    expect(stop).not.toBeNull();
+    expect(host.querySelector('.composer [aria-label="停止输出"]')).toBeNull();
+    await act(async () => stop.click());
+    expect(fixture.control).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'stop' }));
+    expect(host.querySelector('.stream-body')?.textContent).toBe('已有正文\n\n');
+    fixture.resumable = true;
+    emit({ kind: 'aborted' });
+    flushFrame();
+    expect(host.querySelector('.stream-body')?.textContent).toBe('已有正文\n\n');
+    const resume = host.querySelector<HTMLButtonElement>(
+      '.weq-asst-content [aria-label="恢复输出"]',
+    )!;
+    expect(resume).not.toBeNull();
+    await act(async () => resume.click());
+    expect(fixture.control).toHaveBeenLastCalledWith(
+      expect.objectContaining({ action: 'continue' }),
+    );
+    emit({
+      kind: 'turn',
+      turn: {
+        id: 'assistant-message',
+        role: 'assistant',
+        text: '已有正文\n\n',
+        ts: 1,
+        status: 'running',
+        steps: [],
+      },
+    });
+    flushFrame();
+    emit({ kind: 'text_delta', text: '后续片段' });
+    flushFrame();
+    expect(host.querySelector('.stream-body')?.textContent).toBe('已有正文\n\n后续片段');
+    expect(host.querySelector('.stream-body')?.getAttribute('data-streaming')).toBe('true');
+    expect(host.querySelector('.weq-asst-content [aria-label="停止输出"]')).not.toBeNull();
+    emit({ kind: 'final', text: '已有正文\n\n后续片段' });
+    flushFrame();
+    expect(host.querySelector('[aria-label="停止输出"]')).toBeNull();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
