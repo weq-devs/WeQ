@@ -135,6 +135,7 @@ it('列表与队列共享定位进度，乱序选择只完成自身，重定位�
     expect(state.locatedSeq).toBe('102');
     expect(state.dockStop?.seq).toBe('103');
     expect(state.dockRemaining).toBe(2);
+    expect(state.dockImportantRemaining).toBe(1);
     await act(async () => state.jumpToSeq({ seq: '102' }));
     expect(state.dockRemaining).toBe(2);
     jump.mockRejectedValueOnce(new Error('fixture failure'));
@@ -145,6 +146,7 @@ it('列表与队列共享定位进度，乱序选择只完成自身，重定位�
     expect(state.locatedSeq).toBe('103');
     expect(state.dockStop?.seq).toBe('101');
     expect(state.dockRemaining).toBe(1);
+    expect(state.dockImportantRemaining).toBe(0);
   } finally {
     act(() => root.unmount());
     host.remove();

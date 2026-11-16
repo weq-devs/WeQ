@@ -713,6 +713,9 @@ export function useChatTimelineNavigation({
   const dockIndex = nextDockIndex < 0 ? (unreadDock?.stops.length ?? 0) : nextDockIndex;
   const dockStop = unreadDock?.stops[dockIndex] ?? null;
   const dockRemaining = unreadDock?.stops.filter((stop) => !visitedStops.has(stop.seq)).length ?? 0;
+  const dockImportantRemaining =
+    unreadDock?.stops.filter((stop) => stop.kind !== 'unread' && !visitedStops.has(stop.seq))
+      .length ?? 0;
 
   const dockVisible = Boolean(dockStop);
 
@@ -740,6 +743,7 @@ export function useChatTimelineNavigation({
     },
     dockIndex,
     dockRemaining,
+    dockImportantRemaining,
     locatedSeq,
     dockJumping,
     dockStop,

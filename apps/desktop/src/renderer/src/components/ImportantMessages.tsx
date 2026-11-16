@@ -1,13 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
-  ArrowDown,
   AtSign,
   Bell,
   File,
   Gift,
-  Image,
   Layers,
   ListFilter,
+  Loader2,
   Megaphone,
   Reply,
   Star,
@@ -19,17 +18,14 @@ import { client, trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { OverlayLayer } from './OverlayLayer';
 import {
-  dockStopLabel,
   highlightLabel,
   IMPORTANT_MESSAGE_KINDS,
   type ImportantMessageKind,
 } from '../im-template/template/unreadDock';
-import type { UnreadDock } from '../im-template/template/types';
 import type { ReplyJumpTarget } from '../state/messageContext';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import { useMessageLocateMenu } from '../hooks/useMessageLocateMenu';
 import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
-import { mediaUrl } from '../lib/resourceUrl';
 import { useSurfaceEscapeDismissal } from '../lib/surfaceEscape';
 import '../styles/search-scope.css';
 import '../styles/important-messages.css';
@@ -45,13 +41,6 @@ const icons = {
   groupAnnouncement: Megaphone,
   redPacket: Gift,
 };
-export type ImportantMessageQueue = {
-  dock: UnreadDock;
-  index: number;
-  remaining: number;
-  pending: boolean;
-  onNext: () => void;
-};
 type PanelProps = {
   groupCode: string;
   open: boolean;
@@ -59,7 +48,8 @@ type PanelProps = {
   senderName: (uid: string) => string;
   onLocate: (target: ReplyJumpTarget) => void | Promise<void>;
   activeSeq?: string | null;
-  queue?: ImportantMessageQueue;
+  locatePending?: boolean;
+  navigationAnchor?: HTMLElement | null;
 };
 
 export function ImportantMessagesButton({ open, onClick }: { open: boolean; onClick: () => void }) {
@@ -95,7 +85,11 @@ export function ImportantMessagesPanel({ groupCode, open, onClose, ...props }: P
       binding={{ expectedAccountUin: uin, expectedAccountConfigId: source.configId }}
     />
   ) : (
-    <ImportantMessageSurface open={open} onClose={onClose}>
+    <ImportantMessageSurface
+      open={open}
+      onClose={onClose}
+      navigationAnchor={props.navigationAnchor}
+    >
       <p role={config.error ? 'alert' : 'status'}>
         {config.error ? '账号读取失败' : '正在读取账号…'}
       </p>
@@ -112,10 +106,12 @@ function ImportantMessageSurface({
   open,
   onClose,
   children,
+  navigationAnchor,
 }: {
   open: boolean;
   onClose: () => void;
   children: React.ReactNode;
+  navigationAnchor?: HTMLElement | null;
 }) {
   const mobile = useMobileWebLayout();
   const ref = useRef<HTMLElement>(null);
@@ -155,6 +151,7 @@ function ImportantMessageSurface({
       title="重要消息"
       className="weq-important-drawer"
       onClose={onClose}
+      anchor={navigationAnchor}
     >
       {content}
     </OverlayLayer>
@@ -171,7 +168,8 @@ export function ImportantMessagesList({
   onClose,
   open = true,
   activeSeq,
-  queue,
+  locatePending = false,
+  navigationAnchor,
 }: Omit<PanelProps, 'open'> & {
   open?: boolean;
   binding: { expectedAccountUin: string; expectedAccountConfigId: string };
@@ -193,6 +191,8 @@ export function ImportantMessagesList({
   const [locateError, setLocateError] = useState('');
   const list = useRef<HTMLUListElement>(null);
   const scrollTop = useRef(0);
+  const initialized = useRef(false);
+  const prepend = useRef<{ seq: string; top: number } | null>(null);
   const busy = useRef(false);
   const alive = useRef(true);
   const lastRequest = useRef('');
@@ -209,6 +209,9 @@ export function ImportantMessagesList({
     setKinds(next);
     setRequest((old) => ({ id: old.id + 1 }));
     scrollTop.current = 0;
+    initialized.current = false;
+    prepend.current = null;
+    focusedSeq.current = null;
   };
   const selection = useMultiSelection({
     ids: IMPORTANT_MESSAGE_KINDS,
@@ -263,6 +266,7 @@ export function ImportantMessagesList({
       })
       .catch((reason: unknown) => {
         if (!active) return;
+        prepend.current = null;
         setError(reason instanceof Error ? reason.message : '重要消息读取失败');
         setPending(false);
       });
@@ -272,20 +276,36 @@ export function ImportantMessagesList({
   }, [open, source, expectedAccountUin, expectedAccountConfigId, groupCode, kinds, request]);
   const currentSeq = activeSeq ?? selected;
   const focusedSeq = useRef<string | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (open && list.current) list.current.scrollTop = scrollTop.current;
   }, [open, mobile]);
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const element = list.current;
+    if (!open || !element || !page.items.length) return;
+    if (prepend.current) {
+      const anchor = element.querySelector<HTMLElement>(
+        `[data-important-seq="${prepend.current.seq}"]`,
+      );
+      if (anchor) element.scrollTop += anchor.getBoundingClientRect().top - prepend.current.top;
+      prepend.current = null;
+    } else if (!initialized.current) {
+      element.scrollTop = element.scrollHeight;
+    }
+    initialized.current = true;
+    scrollTop.current = element.scrollTop;
+  }, [open, page.items]);
+  useLayoutEffect(() => {
     if (!open || !currentSeq || focusedSeq.current === currentSeq) return;
     const item = [
       ...(list.current?.querySelectorAll<HTMLElement>('[data-important-seq]') ?? []),
     ].find((item) => item.dataset.importantSeq === currentSeq);
     if (!item) return;
     item.scrollIntoView?.({ block: 'nearest' });
+    scrollTop.current = list.current?.scrollTop ?? 0;
     focusedSeq.current = currentSeq;
   }, [open, currentSeq, page.items]);
   async function locate(target: ReplyJumpTarget) {
-    if (busy.current || queue?.pending) return;
+    if (busy.current || locatePending) return;
     const started = scope.current;
     busy.current = true;
     setLocating(String(target.seq));
@@ -304,29 +324,8 @@ export function ImportantMessagesList({
     }
   }
   const locateMenu = useMessageLocateMenu(locate, `${source}:${open}`);
-  const next = queue?.dock.stops[queue.index];
   return (
-    <ImportantMessageSurface open={open} onClose={onClose}>
-      {queue ? (
-        <div className="weq-important-queue">
-          <span>
-            本次提醒 · 剩余 {queue.remaining}/{queue.dock.stops.length}
-          </span>
-          {next ? (
-            <button
-              type="button"
-              title={`下一条：${dockStopLabel(next, queue.dock.unread)}`}
-              disabled={queue.pending || locating !== null}
-              onClick={queue.onNext}
-            >
-              <ArrowDown size={14} />
-              <span>{dockStopLabel(next, queue.dock.unread)}</span>
-            </button>
-          ) : (
-            <span>已查看全部提醒</span>
-          )}
-        </div>
-      ) : null}
+    <ImportantMessageSurface open={open} onClose={onClose} navigationAnchor={navigationAnchor}>
       <div
         className="weq-search-scope weq-important-filters"
         role="group"
@@ -353,6 +352,7 @@ export function ImportantMessagesList({
           return (
             <button
               key={kind}
+              data-important-kind={kind}
               type="button"
               aria-pressed={kinds.has(kind)}
               {...selection.itemProps(kind)}
@@ -375,6 +375,29 @@ export function ImportantMessagesList({
         <p role="alert">{locateError || locateMenu.error}</p>
       ) : null}
       {page.contentUnavailable ? <p role="status">原消息摘要暂时不可用</p> : null}
+      {page.nextBefore ? (
+        <button
+          type="button"
+          className="weq-important-more"
+          disabled={pending}
+          onClick={() => {
+            if (list.current) {
+              const top = list.current.getBoundingClientRect().top;
+              const anchor = [
+                ...list.current.querySelectorAll<HTMLElement>('[data-important-seq]'),
+              ].find((item) => item.getBoundingClientRect().bottom > top);
+              if (anchor)
+                prepend.current = {
+                  seq: anchor.dataset.importantSeq!,
+                  top: anchor.getBoundingClientRect().top,
+                };
+            }
+            setRequest((old) => ({ id: old.id + 1, before: page.nextBefore! }));
+          }}
+        >
+          加载更早消息
+        </button>
+      ) : null}
       <ul
         ref={list}
         aria-label="重要消息列表"
@@ -383,96 +406,82 @@ export function ImportantMessagesList({
           scrollTop.current = event.currentTarget.scrollTop;
         }}
       >
-        {page.items.map((row) => {
-          const date = new Date(Number(row.sendTime) * 1000);
-          const time =
-            Number(row.sendTime) > 0 && !Number.isNaN(date.getTime())
-              ? eventTimeFormatter.format(date)
-              : '时间未知';
-          return (
-            <li key={row.msgSeq}>
-              <button
-                type="button"
-                className="weq-important-row"
-                data-important-seq={row.msgSeq}
-                aria-current={row.msgSeq === currentSeq ? 'true' : undefined}
-                disabled={locating !== null || queue?.pending}
-                title="定位到原消息"
-                onClick={() => void locate({ seq: row.msgSeq, msgId: row.msgId })}
-                onContextMenu={(event) =>
-                  locateMenu.openMenu(event, { seq: row.msgSeq, msgId: row.msgId })
-                }
-              >
-                <span className="weq-important-meta">
-                  <strong data-privacy-sensitive>
-                    {senderName(row.senderUid) || row.senderUid || '未知发送者'}
-                  </strong>
-                  <time>{time}</time>
-                </span>
-                <span className="weq-important-reasons" data-privacy-sensitive>
-                  {row.reasons
-                    .filter((reason) => reason.kind !== 'unknown')
-                    .map(
-                      (reason) =>
-                        `${highlightLabel(reason.kind)}${reason.kind === 'groupKeyword' && reason.text ? `「${reason.text}」` : ''}`,
-                    )
-                    .join(' · ')}
-                </span>
-                <span className="weq-important-summary">
-                  {row.thumbnail ? <ImportantThumbnail row={row} /> : null}
-                  <span className="weq-important-preview" data-privacy-sensitive>
-                    {row.preview ||
-                      row.reasons.find((reason) => reason.text)?.text ||
-                      `消息 ${row.msgSeq}`}
+        {page.items
+          .slice()
+          .reverse()
+          .map((row) => {
+            const date = new Date(Number(row.sendTime) * 1000);
+            const time =
+              Number(row.sendTime) > 0 && !Number.isNaN(date.getTime())
+                ? eventTimeFormatter.format(date)
+                : '时间未知';
+            const sender = senderName(row.senderUid) || row.senderUid || '未知发送者';
+            const preview =
+              row.preview ||
+              row.reasons.find((reason) => reason.text)?.text ||
+              `消息 ${row.msgSeq}`;
+            const kinds = IMPORTANT_MESSAGE_KINDS.filter((kind) =>
+              row.reasons.some((reason) => reason.kind === kind),
+            );
+            const reasonLabel = (kind: ImportantMessageKind) =>
+              row.reasons
+                .filter((reason) => reason.kind === kind)
+                .map(
+                  (reason) =>
+                    `${highlightLabel(kind)}${kind === 'groupKeyword' && reason.text ? `「${reason.text}」` : ''}`,
+                )
+                .join('、');
+            return (
+              <li key={row.msgSeq}>
+                <button
+                  type="button"
+                  className="weq-important-row"
+                  data-important-seq={row.msgSeq}
+                  aria-current={row.msgSeq === currentSeq ? 'true' : undefined}
+                  disabled={locating !== null || locatePending}
+                  aria-busy={locating === row.msgSeq}
+                  aria-label={`${kinds.map(reasonLabel).join('、')}，${sender}，${time}，${preview}`}
+                  title={`${time} · 定位到原消息`}
+                  onClick={() => void locate({ seq: row.msgSeq, msgId: row.msgId })}
+                  onContextMenu={(event) =>
+                    locateMenu.openMenu(event, { seq: row.msgSeq, msgId: row.msgId })
+                  }
+                >
+                  <span className="weq-important-types">
+                    {kinds.map((kind) => {
+                      const Icon = icons[kind];
+                      return (
+                        <span key={kind} data-important-kind={kind} title={reasonLabel(kind)}>
+                          <Icon size={14} aria-hidden />
+                        </span>
+                      );
+                    })}
                   </span>
-                </span>
-                {locating === row.msgSeq ? <span role="status">正在定位…</span> : null}
-              </button>
-            </li>
-          );
-        })}
+                  <strong className="weq-important-sender" data-privacy-sensitive>
+                    {sender}
+                  </strong>
+                  <span className="weq-important-preview" data-privacy-sensitive>
+                    {preview}
+                  </span>
+                  {locating === row.msgSeq ? (
+                    <Loader2
+                      className="weq-important-locating"
+                      size={14}
+                      role="status"
+                      aria-label="正在定位"
+                    />
+                  ) : null}
+                </button>
+              </li>
+            );
+          })}
       </ul>
       {pending ? (
         <p role="status">正在读取重要消息…</p>
       ) : !error && !page.items.length ? (
         <p role="status">{kinds.size ? '暂无已记录的重要消息' : '未选择消息类型'}</p>
       ) : null}
-      {page.nextBefore ? (
-        <button
-          type="button"
-          className="weq-important-more"
-          disabled={pending}
-          onClick={() => setRequest((old) => ({ id: old.id + 1, before: page.nextBefore! }))}
-        >
-          加载更多
-        </button>
-      ) : null}
       {locateMenu.menu}
     </ImportantMessageSurface>
-  );
-}
-
-function ImportantThumbnail({ row }: { row: Page['items'][number] }) {
-  const [failed, setFailed] = useState(false);
-  const params: Record<string, string | number> = {
-    t: Number(row.sendTime) * 1000,
-    v: 'thumb',
-    lookup: 2,
-  };
-  for (const [key, value] of Object.entries(row.thumbnail ?? {})) {
-    if (typeof value === 'string' || typeof value === 'number') params[key] = value;
-  }
-  return (
-    <span className="weq-important-thumbnail">
-      <Image size={20} aria-hidden />
-      {!failed ? (
-        <img
-          loading="lazy"
-          src={mediaUrl('pic', params)}
-          alt="图片缩略图"
-          onError={() => setFailed(true)}
-        />
-      ) : null}
-    </span>
   );
 }

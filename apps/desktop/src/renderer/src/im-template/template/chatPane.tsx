@@ -344,7 +344,7 @@ import type {
   UnreadDock,
   User,
 } from './types';
-import { dockStopLabel, dockStopTone } from './unreadDock';
+import { dockStopLabel, dockStopTone, highlightLabel } from './unreadDock';
 import { displayGroupName, displayUserName } from './user';
 import { OnlineStatus } from '../../components/OnlineStatus';
 import { MessageDecorationCard } from '../../components/MessageDecorationCard';
@@ -864,6 +864,7 @@ export function ChatPane({
   const [groupInfoCollapsed, setGroupInfoCollapsed] = useState(loadGroupInfoCollapsed);
   const [mobileGroupInfoOpen, setMobileGroupInfoOpen] = useState(false);
   const [importantMessagesOpen, setImportantMessagesOpen] = useState(false);
+  const importantDockRef = useRef<HTMLDivElement>(null);
   const [importantMessagesVisited, setImportantMessagesVisited] = useState<string | null>(null);
   const importantMessagesActive =
     importantMessagesOpen && importantMessagesVisited === conversation?.id;
@@ -1508,8 +1509,7 @@ export function ChatPane({
 
   const {
     leaveBottom,
-    dockIndex,
-    dockRemaining,
+    dockImportantRemaining,
     locatedSeq,
     dockStop,
     dockVisible,
@@ -6628,23 +6628,25 @@ export function ChatPane({
         </button>
       ) : null}
 
-      {/* 未读跳转坞：打开会话时按内存快照逐个引导跳转，跳完自动收起。
-          高亮用告警/内容/红包三色区分，兜底的「新的 N 条未读消息」是中性蓝。 */}
-      {dockVisible && dockStop && unreadDock && !importantMessagesActive ? (
+      {/* 未读跳转坞：重要消息与索引共用类型色，普通未读保留原有样式。 */}
+      {dockVisible && dockStop && unreadDock ? (
         <div
-          key={`${conversation.id}:${dockStop.kind}:${dockStop.seq}`}
+          ref={importantDockRef}
           className={cn(
             'unread-dock-button',
             'weq-important-dock',
             `tone-${dockStopTone(dockStop)}`,
           )}
+          data-important-kind={dockStop.kind === 'unread' ? undefined : dockStop.kind}
         >
           <button
             type="button"
             title={`下一条：${dockStopLabel(dockStop, unreadDock.unread)}`}
             disabled={dockJumping}
             onClick={() => {
-              void jumpDockStop();
+              void jumpDockStop().then((located) => {
+                if (located && isSingleColumnLayout()) setImportantMessagesOpen(false);
+              });
             }}
           >
             {dockStop.kind === 'unread' ? (
@@ -6653,11 +6655,16 @@ export function ChatPane({
               <Sparkles size={13} strokeWidth={2.4} aria-hidden />
             )}
             <span className={cn('unread-dock-label')}>
-              下一条 · {dockStopLabel(dockStop, unreadDock.unread)}
+              {dockStop.kind === 'unread'
+                ? dockStopLabel(dockStop, unreadDock.unread)
+                : highlightLabel(dockStop.kind)}
             </span>
-            {unreadDock.stops.length > 1 ? (
-              <span className={cn('unread-dock-count')}>
-                剩余 {dockRemaining}/{unreadDock.stops.length}
+            {dockStop.kind !== 'unread' ? (
+              <span
+                className={cn('unread-dock-count')}
+                aria-label={`剩余 ${dockImportantRemaining} 条重要消息`}
+              >
+                {dockImportantRemaining}
               </span>
             ) : null}
           </button>
@@ -6666,6 +6673,8 @@ export function ChatPane({
               type="button"
               title="展开重要消息列表"
               aria-label="展开重要消息列表"
+              aria-expanded={importantMessagesActive}
+              aria-controls="weq-important-messages"
               onClick={() => {
                 setImportantMessagesVisited(conversation.id);
                 setImportantMessagesOpen(true);
@@ -6758,21 +6767,8 @@ export function ChatPane({
             const member = conversation.members.find((item) => item.id === uid);
             return member ? displayUserName(member) : '';
           }}
-          queue={
-            unreadDock
-              ? {
-                  dock: unreadDock,
-                  index: dockIndex,
-                  remaining: dockRemaining,
-                  pending: dockJumping,
-                  onNext: () => {
-                    void jumpDockStop().then((located) => {
-                      if (located && isSingleColumnLayout()) setImportantMessagesOpen(false);
-                    });
-                  },
-                }
-              : undefined
-          }
+          locatePending={dockJumping}
+          navigationAnchor={importantDockRef.current}
         />
       ) : null}
 

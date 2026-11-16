@@ -14,7 +14,7 @@ async function query(input: Record<string, unknown>) {
   await new Promise((resolve) => setTimeout(resolve, 60));
   if (mode() === 'error') throw new Error('暂时无法读取重要消息');
   if (mode() === 'empty') return { items: [], nextBefore: null, contentUnavailable: false };
-  const rows = Array.from({ length: 14 }, (_, index) => ({
+  const rows = Array.from({ length: 30 }, (_, index) => ({
     chatType: 2,
     uid: '777',
     msgSeq: String(1024 - index),
@@ -46,8 +46,8 @@ async function query(input: Record<string, unknown>) {
       (!input.before || BigInt(row.msgSeq) < BigInt(String(input.before))),
   );
   return {
-    items: rows.slice(0, 10),
-    nextBefore: rows.length > 10 ? rows[9]!.msgSeq : null,
+    items: rows.slice(0, 20),
+    nextBefore: rows.length > 20 ? rows[19]!.msgSeq : null,
     contentUnavailable: false,
   };
 }
