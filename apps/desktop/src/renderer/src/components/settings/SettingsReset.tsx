@@ -105,6 +105,7 @@ function localEntries(target: SettingsResetTarget): LocalEntry[] {
     ['quote-replies', 'autoMentionOnQuote', '群聊引用时自动 @ 对方'],
     ['quote-replies', 'backspaceRemovesQuote', '按退格键移除引用'],
     ['emoji-shortcuts', 'slashEmojiEnabled', '斜杠表情快捷输入'],
+    ['emoji-shortcuts', 'slashEmojiAutoReplace', '无需回车即自动替换'],
   ] as const) {
     add(card, key, label, preferenceValue(key), preferenceDefaults[key], () =>
       resetPreference(key),

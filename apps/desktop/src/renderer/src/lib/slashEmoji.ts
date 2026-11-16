@@ -8,6 +8,9 @@ export interface SlashEmojiTrigger {
   end: number;
   query: string;
 }
+export interface SlashEmojiMatch extends SlashEmojiFace {
+  code: string;
+}
 
 export function slashEmojiTrigger(before: string): SlashEmojiTrigger | null {
   const match = /\/([^/\s\r\n]{0,64})$/u.exec(before);
@@ -28,34 +31,27 @@ function searchName(value: string) {
     .trim()
     .toLowerCase();
 }
+const codeOrder = new Intl.Collator('zh-CN');
+
 export function searchSlashEmojis(
   faces: readonly SlashEmojiFace[],
-  recent: readonly { id: string; usedAt: number }[],
   query: string,
-): SlashEmojiFace[] {
+): SlashEmojiMatch[] {
   const keyword = searchName(query);
-  const used = new Map(recent.map((item) => [item.id, item.usedAt]));
   const seen = new Set<string>();
   return faces
-    .flatMap((face, index) => {
+    .flatMap((face) => {
       if (seen.has(face.id) || !/^\d+$/u.test(face.id)) return [];
       seen.add(face.id);
-      const keys = [...(face.shortcuts ?? []), face.desc].map(searchName);
-      const rank = !keyword
-        ? 0
-        : Math.min(
-            ...keys.map((name) =>
-              name === keyword
-                ? 0
-                : name.startsWith(keyword)
-                  ? 1
-                  : name.includes(keyword)
-                    ? 2
-                    : Infinity,
-            ),
-          );
-      return Number.isFinite(rank) ? [{ face, rank, usedAt: used.get(face.id) ?? 0, index }] : [];
+      const keys =
+        !keyword && face.shortcuts?.length
+          ? face.shortcuts
+          : [...(face.shortcuts ?? []), face.desc];
+      const code = keys
+        .map(searchName)
+        .filter((name) => name.length > 0 && name.startsWith(keyword))
+        .sort(codeOrder.compare)[0];
+      return code ? [{ ...face, code }] : [];
     })
-    .sort((a, b) => a.rank - b.rank || b.usedAt - a.usedAt || a.index - b.index)
-    .map((item) => item.face);
+    .sort((a, b) => codeOrder.compare(a.code, b.code) || codeOrder.compare(a.id, b.id));
 }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
@@ -7,6 +7,7 @@ import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const fixtureEmoji = await readFile(resolve(root, '../../resources/pokeemoji/0.png'));
 const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
 const server = await createServer({
   configFile: false,
@@ -52,10 +53,7 @@ try {
       await page.route('**/_asset/emoji/**', (route) =>
         route.fulfill({
           contentType: 'image/png',
-          body: Buffer.from(
-            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6VxQAAAAASUVORK5CYII=',
-            'base64',
-          ),
+          body: fixtureEmoji,
         }),
       );
       await page.goto(
@@ -74,6 +72,21 @@ try {
       await menu.waitFor();
       assert.ok((await menu.getByRole('option').count()) > 8);
       const box = await menu.boundingBox();
+      assert.ok(box && box.width <= 224, '候选菜单过宽');
+      const metrics = await menu
+        .getByRole('option')
+        .first()
+        .evaluate((node) => ({
+          height: node.getBoundingClientRect().height,
+          font: getComputedStyle(node).fontSize,
+          codeFont: getComputedStyle(node.querySelector('code')).fontSize,
+          family: getComputedStyle(node).fontFamily,
+          appFamily: getComputedStyle(document.body).fontFamily,
+        }));
+      assert.equal(metrics.height, 30);
+      assert.equal(metrics.font, '13px');
+      assert.equal(metrics.codeFont, metrics.font);
+      assert.equal(metrics.family, metrics.appFamily);
       assert.ok(
         box &&
           box.x >= 0 &&
@@ -108,6 +121,31 @@ try {
         '[[chat:face:182]]',
       );
       assert.deepEqual(await page.evaluate(() => window.slashQA.sent), []);
+      await editor.fill('/w');
+      assert.deepEqual(await menu.locator('code').allTextContents(), ['/weak', '/wx']);
+      await editor.fill('/s');
+      assert.deepEqual(await menu.locator('code').allTextContents(), ['/strong']);
+      await editor.fill('/strong');
+      await menu.getByRole('option', { name: '赞 /strong', exact: true }).waitFor();
+      await editor.fill('/ron');
+      assert.equal(await menu.count(), 0);
+      await page.evaluate(() => window.slashQA.preferences(true, true));
+      await editor.fill('/str');
+      assert.equal(await editor.locator('img[data-chat-token]').count(), 0);
+      await editor.pressSequentially('ong');
+      assert.equal(await editor.locator('img').getAttribute('data-chat-token'), '[[chat:face:76]]');
+      await editor.press('Meta+z');
+      assert.equal(await editor.textContent(), '/strong');
+      await editor.press('ArrowLeft');
+      assert.equal(await editor.locator('img').count(), 0);
+      await editor.fill('');
+      await editor.pressSequentially('/qiang');
+      assert.equal(await editor.locator('img').getAttribute('data-chat-token'), '[[chat:face:76]]');
+      await page.evaluate(() => window.slashQA.preferences(false, true));
+      await editor.fill('/bx');
+      assert.equal(await editor.locator('img').count(), 0);
+      assert.equal(await menu.count(), 0);
+      await page.evaluate(() => window.slashQA.preferences(true, false));
       await editor.fill('https://example.com/xk');
       assert.equal(await menu.count(), 0);
       await editor.fill('/');
@@ -148,6 +186,13 @@ try {
           await expanded.locator('img[data-chat-token]').getAttribute('data-chat-token'),
           '[[chat:face:182]]',
         );
+        await page.evaluate(() => window.slashQA.preferences(true, true));
+        await expanded.fill('/strong');
+        assert.equal(
+          await expanded.locator('img').getAttribute('data-chat-token'),
+          '[[chat:face:76]]',
+        );
+        await page.evaluate(() => window.slashQA.preferences(true, false));
         await page.getByRole('button', { name: '收起输入', exact: true }).click();
       }
       if (width === 1280 && theme === 'dark') {
@@ -162,11 +207,40 @@ try {
         );
         await toast.click();
       }
+      await page.evaluate(() => localStorage.clear());
+      await page.goto(
+        `http://127.0.0.1:${server.httpServer.address().port}/test/browser/slash-emoji.html?settings`,
+      );
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      const enabled = page.getByRole('switch', { name: '斜杠表情快捷输入', exact: true });
+      const automatic = page.getByRole('switch', { name: '无需回车即自动替换', exact: true });
+      await automatic.waitFor();
+      assert.equal(await automatic.getAttribute('aria-checked'), 'false');
+      await automatic.click();
+      assert.equal(await automatic.getAttribute('aria-checked'), 'true');
+      await enabled.click();
+      await automatic.waitFor({ state: 'hidden' });
+      await enabled.click();
+      await automatic.waitFor();
+      assert.equal(await automatic.getAttribute('aria-checked'), 'true');
+      if (output)
+        await page.screenshot({ path: resolve(output, `settings-${theme}-${width}.png`) });
       await page.close();
     }
   assert.deepEqual(errors, []);
   console.log(
-    JSON.stringify({ passed: true, scenes: 6, keyboard: true, ime: true, overlay3000: true }),
+    JSON.stringify({
+      passed: true,
+      scenes: 6,
+      keyboard: true,
+      ime: true,
+      overlay3000: true,
+      compactMenu: true,
+      autoReplace: true,
+      settings: true,
+    }),
   );
 } finally {
   await browser?.close();

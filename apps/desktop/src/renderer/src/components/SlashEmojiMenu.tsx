@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import type { SlashEmojiFace } from '../lib/slashEmoji';
+import type { SlashEmojiMatch } from '../lib/slashEmoji';
 import { emojiUrl } from '../lib/resourceUrl';
 import { useOverlayLayer } from '../lib/overlayStack';
 import '../styles/slash-emoji.css';
@@ -13,11 +13,11 @@ export function SlashEmojiMenu({
   onSelect,
   onActiveIndexChange,
 }: {
-  items: readonly SlashEmojiFace[];
+  items: readonly SlashEmojiMatch[];
   id: string;
   activeIndex: number;
   editor: HTMLElement;
-  onSelect: (item: SlashEmojiFace) => void;
+  onSelect: (item: SlashEmojiMatch) => void;
   onActiveIndexChange: (index: number) => void;
 }) {
   const list = useRef<HTMLDivElement>(null);
@@ -30,8 +30,8 @@ export function SlashEmojiMenu({
   const ownerWindow = editor.ownerDocument.defaultView ?? window;
   const viewport = ownerWindow.visualViewport;
   const viewportHeight = viewport?.height ?? ownerWindow.innerHeight;
-  const width = Math.min(280, ownerWindow.innerWidth - 16);
-  const height = Math.min(296, items.length * 36 + 8, viewportHeight - 16);
+  const width = Math.min(224, ownerWindow.innerWidth - 16);
+  const height = Math.min(250, items.length * 30 + 10, viewportHeight - 16);
   const selection = editor.ownerDocument.getSelection();
   const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
   const caret =
@@ -75,7 +75,7 @@ export function SlashEmojiMenu({
           <span className="weq-slash-emoji-name">
             {item.desc.replace(/^\//u, '').replace(/^\[([^\]]+)\]$/u, '$1')}
           </span>
-          {item.shortcuts?.[0] ? <code>/{item.shortcuts[0]}</code> : null}
+          <code>/{item.code}</code>
         </button>
       ))}
     </div>,

@@ -4,6 +4,10 @@ import { flushSync } from 'react-dom';
 import { ChatPane } from '../../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from '../support/templateDemoData';
 import { useOverlayLayer } from '../../src/renderer/src/lib/overlayStack';
+import { acceptPreferences } from '../../src/renderer/src/lib/clientPreferences';
+import { SlashEmojiSettings } from '../../src/renderer/src/components/settings/SlashEmojiSettings';
+import { Card } from '../../src/renderer/src/components/settings/controls';
+import { patchPreferences } from './slash-emoji.stub';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/mobile-web.css';
 
@@ -25,6 +29,8 @@ function Scene() {
   Object.assign(window, {
     slashQA: {
       sent,
+      preferences: (slashEmojiEnabled: boolean, slashEmojiAutoReplace: boolean) =>
+        acceptPreferences(patchPreferences({ slashEmojiEnabled, slashEmojiAutoReplace })),
       switchConversation: () => {
         setDraft('');
         setRevision((value) => value + 1);
@@ -43,6 +49,14 @@ function Scene() {
       },
     },
   });
+  if (new URLSearchParams(location.search).has('settings'))
+    return (
+      <main className="weq-set" style={{ padding: 16 }}>
+        <Card title="表情输入">
+          <SlashEmojiSettings />
+        </Card>
+      </main>
+    );
   return (
     <main style={{ height: '100dvh' }}>
       <ChatPane

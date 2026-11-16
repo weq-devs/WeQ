@@ -47,6 +47,21 @@ function server() {
   return response;
 }
 describe('独立客户端的偏好同步', () => {
+  it('斜杠表情及自动替换采用同一份共享设置，跨端和切号保持一致', async () => {
+    const response = server();
+    const desktop = await page(new Storage(), 'desktop');
+    await desktop.initializePreferences();
+    expect(desktop.preferenceValue('slashEmojiAutoReplace')).toBe(false);
+    await desktop.changePreference('slashEmojiAutoReplace', true);
+    const mobile = await page(new Storage(), 'web');
+    await mobile.initializePreferences();
+    expect(mobile.preferenceValue('slashEmojiAutoReplace')).toBe(true);
+    await mobile.changePreference('slashEmojiEnabled', false);
+    desktop.acceptPreferences(response());
+    desktop.bindAccountState({ expectedAccountUin: '20002', expectedAccountConfigId: 'other' });
+    expect(desktop.preferenceValue('slashEmojiEnabled')).toBe(false);
+    expect(desktop.preferenceValue('slashEmojiAutoReplace')).toBe(true);
+  });
   it('全部会话包含隐藏与删除独立跨端同步，切号不回灌旧值', async () => {
     const response = server();
     const desktop = await page(new Storage(), 'desktop');

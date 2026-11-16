@@ -12,6 +12,7 @@ describe('设置的两级导航', () => {
   it.each([
     ['引用自动提及', 'quote-auto-mention', 'chat-interaction'],
     ['退格取消引用', 'quote-backspace-remove', 'chat-interaction'],
+    ['表情自动替换', 'slash-emoji-auto-replace', 'chat-interaction'],
     ['显示群成员昵称', 'group-message-name', 'message-display'],
     ['显示群成员等级', 'group-message-level', 'message-display'],
     ['显示群成员头衔与身份', 'group-message-title', 'message-display'],

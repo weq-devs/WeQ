@@ -156,6 +156,7 @@ function chatMessagePageFor(settingId: string): SettingsPageId {
       'quote-auto-mention',
       'quote-backspace-remove',
       'slash-emoji-input',
+      'slash-emoji-auto-replace',
     ].includes(settingId)
   )
     return 'chat-interaction';
@@ -530,6 +531,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['send-with-qq-font', '使用 QQ 账号设置的个性字体发送消息'],
       ['quote-auto-mention', '群聊引用时自动 @ 对方', '引用自动提及'],
       ['slash-emoji-input', '斜杠表情快捷输入', '系统表情快捷搜索'],
+      ['slash-emoji-auto-replace', '无需回车即自动替换', '表情自动替换'],
       ['quote-backspace-remove', '按退格键移除引用', '退格取消引用', 'Backspace'],
       ['auto-transcribe-voice', '语音消息自动转文字', '语音自动识别'],
       ['custom-message-display', '自定义消息显示'],

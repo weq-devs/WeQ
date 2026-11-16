@@ -1210,12 +1210,7 @@ export function ChatPane({
     },
   );
   const slashItems = useMemo(
-    () =>
-      searchSlashEmojis(
-        shortcuts.data?.faces ?? [],
-        shortcuts.data?.recent ?? [],
-        slashMenu?.query ?? '',
-      ),
+    () => searchSlashEmojis(shortcuts.data?.faces ?? [], slashMenu?.query ?? ''),
     [shortcuts.data, slashMenu?.query],
   );
   useEffect(() => {
@@ -2719,13 +2714,35 @@ export function ChatPane({
     });
   }
 
-  function syncComposerBody(editor = currentComposerEditor()) {
+  function syncComposerBody(editor = currentComposerEditor(), autoReplaceSlash = false) {
     if (!editor) {
       return;
     }
 
-    setComposerBody(serializeComposer(editor));
     saveComposerSelection(editor);
+    if (
+      autoReplaceSlash &&
+      tabActive &&
+      slashEnabled &&
+      preferenceValue('slashEmojiAutoReplace') &&
+      !composerComposing.current &&
+      !currentPreference.blocked &&
+      !sending
+    ) {
+      const trigger = getActiveComposerSlashTrigger(editor, composerSelectionRef.current);
+      const key = trigger ? `${trigger.start}:${trigger.end}:${trigger.query}` : null;
+      if (trigger?.query && key !== slashDismissed.current) {
+        const exact = searchSlashEmojis(shortcuts.data?.faces ?? [], trigger.query).filter(
+          (item) => item.code === trigger.query.toLowerCase(),
+        );
+        if (exact.length === 1 && exact[0]) {
+          insertEmoji(systemFaceItem(exact[0].id, exact[0].desc), trigger);
+          setSlashMenu(null);
+          return;
+        }
+      }
+    }
+    setComposerBody(serializeComposer(editor));
     if (editor === composerEditorRef.current) {
       scheduleMobileComposerMeasure(editor);
     }
@@ -7370,14 +7387,19 @@ export function ChatPane({
             contentEditable={!readOnly && !currentPreference.blocked}
             suppressContentEditableWarning
             onPointerDown={prepareMobileComposerKeyboard}
-            onInput={() => syncComposerBody(composerEditorRef.current)}
+            onInput={(event) =>
+              syncComposerBody(
+                event.currentTarget,
+                (event.nativeEvent as InputEvent).inputType?.startsWith('insert'),
+              )
+            }
             onCompositionStart={() => {
               composerComposing.current = true;
               setSlashMenu(null);
             }}
             onCompositionEnd={() => {
               composerComposing.current = false;
-              syncComposerBody(composerEditorRef.current);
+              syncComposerBody(composerEditorRef.current, true);
             }}
             onMouseDown={prepareComposerImagePreview}
             onClick={previewComposerImage}
@@ -7452,14 +7474,19 @@ export function ChatPane({
               contentEditable={!readOnly && !currentPreference.blocked}
               suppressContentEditableWarning
               onPointerDown={prepareMobileComposerKeyboard}
-              onInput={() => syncComposerBody(expandedComposerEditorRef.current)}
+              onInput={(event) =>
+                syncComposerBody(
+                  event.currentTarget,
+                  (event.nativeEvent as InputEvent).inputType?.startsWith('insert'),
+                )
+              }
               onCompositionStart={() => {
                 composerComposing.current = true;
                 setSlashMenu(null);
               }}
               onCompositionEnd={() => {
                 composerComposing.current = false;
-                syncComposerBody(expandedComposerEditorRef.current);
+                syncComposerBody(expandedComposerEditorRef.current, true);
               }}
               onMouseDown={prepareComposerImagePreview}
               onClick={previewComposerImage}

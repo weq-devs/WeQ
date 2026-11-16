@@ -44,6 +44,7 @@ export const preferenceDefaults = {
   autoMentionOnQuote: false,
   backspaceRemovesQuote: true,
   slashEmojiEnabled: true,
+  slashEmojiAutoReplace: false,
   keepConversationPositionOnHover: false,
   autoFetchMissingMessages: false,
   autoFetchMissingContext: false,

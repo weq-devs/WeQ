@@ -21,21 +21,15 @@ describe('斜杠表情匹配', () => {
   ])('不触发 URL、路径及跨行片段 %s', (text) => {
     expect(slashEmojiTrigger(text)).toBeNull();
   });
-  it('名称精确、前缀、包含依次排序；空词使用最近记录', () => {
+  it('只匹配前缀，按代码字典序排列', () => {
     const faces = [
       { id: '1', desc: '[微笑]' },
-      { id: '2', desc: '/笑' },
+      { id: '2', desc: '/笑脸' },
       { id: '3', desc: '[笑哭]' },
     ];
-    expect(
-      searchSlashEmojis(faces, [{ id: '1', usedAt: 10 }], '笑').map((item) => item.id),
-    ).toEqual(['2', '3', '1']);
-    expect(searchSlashEmojis(faces, [{ id: '3', usedAt: 20 }], '').map((item) => item.id)).toEqual([
-      '3',
-      '1',
-      '2',
-    ]);
-    expect(searchSlashEmojis([{ id: '9', desc: '/打Call' }], [], 'call')).toHaveLength(1);
+    expect(searchSlashEmojis(faces, '笑').map((item) => item.id)).toEqual(['3', '2']);
+    expect(searchSlashEmojis(faces, '').map((item) => item.id)).toEqual(['1', '3', '2']);
+    expect(searchSlashEmojis([{ id: '9', desc: '/打Call' }], 'call')).toEqual([]);
   });
   it('QQ 实际英文短码可匹配，不把 bx 当作比心，也不擅自补全拼', () => {
     const faces = [
@@ -45,12 +39,37 @@ describe('斜杠表情匹配', () => {
       { id: '361', desc: '/狗狗笑哭', shortcuts: [] },
       { id: '14', desc: '/微笑', shortcuts: ['wx', ':)'] },
     ];
+    expect(searchSlashEmojis(faces, 'bx').map((item) => item.id)).toEqual(['297']);
+    expect(searchSlashEmojis(faces, 'XK')[0]?.id).toBe('182');
+    expect(searchSlashEmojis(faces, 'xiaoku')).toEqual([]);
+    expect(searchSlashEmojis(faces, 'wx')[0]?.id).toBe('14');
+    expect(searchSlashEmojis(faces, '笑哭').map((item) => item.id)).toEqual(['182']);
+  });
+  it('显示当前命中的别名，多个前缀别名也按字典序选择', () => {
+    const faces = [
+      { id: '76', desc: '/赞', shortcuts: ['qiang', 'strong'] },
+      { id: '77', desc: '/太阳', shortcuts: ['sun', 'solar'] },
+    ];
+    expect(searchSlashEmojis(faces, 'STRONG')).toMatchObject([{ id: '76', code: 'strong' }]);
+    expect(searchSlashEmojis(faces, 'qi')).toMatchObject([{ id: '76', code: 'qiang' }]);
+    expect(searchSlashEmojis(faces, '赞')).toMatchObject([{ id: '76', code: '赞' }]);
+    expect(searchSlashEmojis(faces, 's')).toMatchObject([
+      { id: '77', code: 'solar' },
+      { id: '76', code: 'strong' },
+    ]);
+    expect(searchSlashEmojis(faces, 'ron')).toEqual([]);
+    expect(faces[0]?.shortcuts).toEqual(['qiang', 'strong']);
+  });
+  it('过滤非法表情，重复表情只显示一次', () => {
     expect(
-      searchSlashEmojis(faces, [{ id: '319', usedAt: 999 }], 'bx').map((item) => item.id),
-    ).toEqual(['297']);
-    expect(searchSlashEmojis(faces, [{ id: '361', usedAt: 999 }], 'XK')[0]?.id).toBe('182');
-    expect(searchSlashEmojis(faces, [], 'xiaoku')).toEqual([]);
-    expect(searchSlashEmojis(faces, [], 'wx')[0]?.id).toBe('14');
-    expect(searchSlashEmojis(faces, [], '笑哭').map((item) => item.id)).toEqual(['182', '361']);
+      searchSlashEmojis(
+        [
+          { id: 'not-a-face', desc: '/smile' },
+          { id: '1', desc: '/smile' },
+          { id: '1', desc: '/smile' },
+        ],
+        's',
+      ),
+    ).toMatchObject([{ id: '1', code: 'smile' }]);
   });
 });

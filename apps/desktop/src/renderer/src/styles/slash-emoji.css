@@ -8,27 +8,31 @@
   border: 1px solid var(--weq-border-strong);
   border-radius: 6px;
   box-shadow: var(--weq-shadow-soft);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 20px;
 }
 .weq-slash-emoji-menu button {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   width: 100%;
-  height: 36px;
-  padding: 4px 8px;
+  height: 30px;
+  padding: 3px 6px;
   border: 0;
   border-radius: 3px;
   background: transparent;
   color: inherit;
   font: inherit;
   text-align: left;
+  cursor: pointer;
 }
 .weq-slash-emoji-menu button[aria-selected='true'] {
   background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
 }
 .weq-slash-emoji-menu img {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   object-fit: contain;
   flex: none;
 }
@@ -40,12 +44,12 @@
 }
 .weq-slash-emoji-menu code {
   margin-left: auto;
-  max-width: 45%;
+  max-width: 55%;
   flex-shrink: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font: inherit;
   color: var(--weq-fg-secondary);
 }
 html[data-theme='dark'] .weq-slash-emoji-menu {

@@ -92,6 +92,7 @@ import { DatabaseManagementSection } from './settings/DatabaseManagementSection'
 import { ResourceManagementSection } from './settings/ResourceManagementSection';
 import { ChatImageCacheSettings } from './settings/ChatImageCacheSettings';
 import { MissingMessageSettings } from './settings/MissingMessageSettings';
+import { SlashEmojiSettings } from './settings/SlashEmojiSettings';
 import { QqShowSettings } from './settings/QqShowSettings';
 import { VoiceAutoTranscribeSetting } from './settings/VoiceAutoTranscribeSetting';
 import {
@@ -1211,17 +1212,7 @@ function AppearanceSection({
           )}
           {category === 'sending' && (
             <Card title="表情输入" icon={<Smile size={15} />} resetId="emoji-shortcuts">
-              <Row
-                settingId="slash-emoji-input"
-                label="斜杠表情快捷输入"
-                control={
-                  <SharedDisplayToggle
-                    name="slashEmojiEnabled"
-                    label="斜杠表情快捷输入"
-                    fallback={true}
-                  />
-                }
-              />
+              <SlashEmojiSettings />
             </Card>
           )}
           {category === 'sending' && (
