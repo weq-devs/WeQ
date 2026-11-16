@@ -67,16 +67,22 @@ export function IntentSenseSection() {
             settingId="intent-mode"
             label="模式"
             control={
-              <SegmentedControl
-                label="意图感知模式"
-                value={s ? (s.analysisMode ?? 'auto') : null}
-                disabled={disabled}
-                onChange={(analysisMode) => void patch({ analysisMode })}
-                options={[
-                  { value: 'auto', label: '自动' },
-                  { value: 'manual', label: '手动' },
-                ]}
-              />
+              <span
+                data-setting-fallback={
+                  s?.analysisMode === 'manual' ? 'intent-after-self' : undefined
+                }
+              >
+                <SegmentedControl
+                  label="意图感知模式"
+                  value={s ? (s.analysisMode ?? 'auto') : null}
+                  disabled={disabled}
+                  onChange={(analysisMode) => void patch({ analysisMode })}
+                  options={[
+                    { value: 'auto', label: '自动' },
+                    { value: 'manual', label: '手动' },
+                  ]}
+                />
+              </span>
             }
           />
         </>
@@ -90,7 +96,7 @@ export function IntentSenseSection() {
               <span
                 data-setting-fallback={
                   s?.engine === 'local'
-                    ? 'intent-api-model'
+                    ? 'intent-api-model intent-tuning-analysisTemperature'
                     : s?.engine === 'api'
                       ? 'intent-model-resources'
                       : undefined
@@ -170,21 +176,23 @@ export function IntentSenseSection() {
               }
             />
           </Card>
-          <Card title="触发方式" icon={<MousePointerClick size={15} strokeWidth={1.8} />}>
-            <Row
-              settingId="intent-after-self"
-              label="自己发送后分析"
-              control={
-                <Toggle
-                  label="自己发送后分析"
-                  checked={s?.analyzeAfterSelf !== false}
-                  indeterminate={!s}
-                  disabled={disabled || inactive || s?.analysisMode === 'manual'}
-                  onChange={(analyzeAfterSelf) => void patch({ analyzeAfterSelf })}
-                />
-              }
-            />
-          </Card>
+          {s?.analysisMode !== 'manual' ? (
+            <Card title="触发方式" icon={<MousePointerClick size={15} strokeWidth={1.8} />}>
+              <Row
+                settingId="intent-after-self"
+                label="自己发送后分析"
+                control={
+                  <Toggle
+                    label="自己发送后分析"
+                    checked={s?.analyzeAfterSelf !== false}
+                    indeterminate={!s}
+                    disabled={disabled || inactive}
+                    onChange={(analyzeAfterSelf) => void patch({ analyzeAfterSelf })}
+                  />
+                }
+              />
+            </Card>
+          ) : null}
           <IntentTuningPanel group="analysis" />
           <IntentTuningPanel group="advanced" />
           <Card title="缓存管理" icon={<Database size={15} strokeWidth={1.8} />}>

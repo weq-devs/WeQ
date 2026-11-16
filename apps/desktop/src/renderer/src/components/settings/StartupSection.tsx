@@ -101,28 +101,30 @@ export function StartupSection() {
             />
           }
         />
-        <Row
-          label="自启时显示窗口"
-          desc="默认关闭，自启后在托盘中运行；手动打开 WeQ 时仍显示窗口。"
-          indent
-          control={
-            <Toggle
-              label="自启时显示窗口"
-              checked={settings.data?.showWindowOnAutostart ?? false}
-              disabled={
-                !data?.supported ||
-                !(data.enabled || data.requiresApproval) ||
-                status.isLoading ||
-                !!status.error ||
-                settings.isLoading ||
-                !!settings.error ||
-                update.isLoading ||
-                windowUpdate.isLoading
-              }
-              onChange={(enabled) => void changeWindow(enabled)}
-            />
-          }
-        />
+        {data?.enabled || data?.requiresApproval ? (
+          <Row
+            label="自启时显示窗口"
+            desc="默认关闭，自启后在托盘中运行；手动打开 WeQ 时仍显示窗口。"
+            indent
+            control={
+              <Toggle
+                label="自启时显示窗口"
+                checked={settings.data?.showWindowOnAutostart ?? false}
+                disabled={
+                  !data?.supported ||
+                  !(data.enabled || data.requiresApproval) ||
+                  status.isLoading ||
+                  !!status.error ||
+                  settings.isLoading ||
+                  !!settings.error ||
+                  update.isLoading ||
+                  windowUpdate.isLoading
+                }
+                onChange={(enabled) => void changeWindow(enabled)}
+              />
+            }
+          />
+        ) : null}
         <Row label="系统登录项" desc={label} control={<Power size={14} aria-hidden />} />
         {status.error && <p className="weq-set-note weq-set-note-warn">{status.error.message}</p>}
         {settings.error && (

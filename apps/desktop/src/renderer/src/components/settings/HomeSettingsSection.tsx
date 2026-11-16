@@ -78,12 +78,18 @@ export function HomeSettingsSection() {
             settingId={id}
             label={label}
             control={
-              <Toggle
-                label={label}
-                checked={(home ?? DEFAULT_HOME_SETTINGS)[key]}
-                disabled={disabled}
-                onChange={(enabled) => void update({ [key]: enabled })}
-              />
+              <span
+                data-setting-fallback={
+                  key === 'showHitokoto' && !home?.showHitokoto ? 'home-blocked-words' : undefined
+                }
+              >
+                <Toggle
+                  label={label}
+                  checked={(home ?? DEFAULT_HOME_SETTINGS)[key]}
+                  disabled={disabled}
+                  onChange={(enabled) => void update({ [key]: enabled })}
+                />
+              </span>
             }
           />
         ))}
@@ -103,22 +109,24 @@ export function HomeSettingsSection() {
             await utils.account.sampleHitokoto.invalidate();
           }}
         >
-          <div className="weq-home-words" data-setting-id="home-blocked-words">
-            <label className="weq-set-card-title" htmlFor="weq-home-blocked-words">
-              一言屏蔽词
-            </label>
-            <textarea
-              id="weq-home-blocked-words"
-              aria-label="一言屏蔽词（每行一个）"
-              className="weq-set-input"
-              rows={6}
-              value={words}
-              disabled={disabled}
-              placeholder="每行一个屏蔽词"
-              onChange={(event) => setWords(event.target.value)}
-            />
-            {!valid && <p role="alert">最多 1000 个屏蔽词，每个不超过 200 字。</p>}
-          </div>
+          {home?.showHitokoto ? (
+            <div className="weq-home-words" data-setting-id="home-blocked-words">
+              <label className="weq-set-card-title" htmlFor="weq-home-blocked-words">
+                一言屏蔽词
+              </label>
+              <textarea
+                id="weq-home-blocked-words"
+                aria-label="一言屏蔽词（每行一个）"
+                className="weq-set-input"
+                rows={6}
+                value={words}
+                disabled={disabled}
+                placeholder="每行一个屏蔽词"
+                onChange={(event) => setWords(event.target.value)}
+              />
+              {!valid && <p role="alert">最多 1000 个屏蔽词，每个不超过 200 字。</p>}
+            </div>
+          ) : null}
         </AutoSave>
       </Card>
     </div>

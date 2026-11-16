@@ -68,7 +68,7 @@ export function InteractionProfileSection() {
                     ? status.data.profileEngine === 'api'
                       ? 'profile-local-model'
                       : status.data.profileEngine === 'local'
-                        ? 'profile-api-model'
+                        ? 'profile-api-model intent-tuning-profileTemperature intent-tuning-profileModelTopics'
                         : 'profile-api-model profile-local-model'
                     : undefined
                 }

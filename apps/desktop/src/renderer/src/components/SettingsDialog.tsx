@@ -1371,32 +1371,36 @@ function AppearanceSection({
                     </>
                   }
                   control={
-                    <Toggle
-                      checked={linkCard}
-                      disabled={settings.isLoading || setLinkPreview.isLoading}
-                      onChange={(next) => void onSetLinkCard(next)}
-                      label="链接预览卡片"
-                    />
+                    <span data-setting-fallback={!linkCard ? 'link-screenshot' : undefined}>
+                      <Toggle
+                        checked={linkCard}
+                        disabled={settings.isLoading || setLinkPreview.isLoading}
+                        onChange={(next) => void onSetLinkCard(next)}
+                        label="链接预览卡片"
+                      />
+                    </span>
                   }
                 />
-                <Row
-                  settingId="link-screenshot"
-                  label="无封面时网页截图"
-                  desc={
-                    <>
-                      网页没提供封面图时，在一个隔离的后台窗口里把它打开并截取首屏当封面。这会
-                      真正运行对方页面的脚本（沙盒内、不落盘、退出即清），默认关闭。
-                    </>
-                  }
-                  control={
-                    <Toggle
-                      checked={linkShot}
-                      disabled={!linkCard || settings.isLoading || setLinkPreview.isLoading}
-                      onChange={(next) => void onSetLinkShot(next)}
-                      label="无封面时网页截图"
-                    />
-                  }
-                />
+                {linkCard ? (
+                  <Row
+                    settingId="link-screenshot"
+                    label="无封面时网页截图"
+                    desc={
+                      <>
+                        网页没提供封面图时，在一个隔离的后台窗口里把它打开并截取首屏当封面。这会
+                        真正运行对方页面的脚本（沙盒内、不落盘、退出即清），默认关闭。
+                      </>
+                    }
+                    control={
+                      <Toggle
+                        checked={linkShot}
+                        disabled={!linkCard || settings.isLoading || setLinkPreview.isLoading}
+                        onChange={(next) => void onSetLinkShot(next)}
+                        label="无封面时网页截图"
+                      />
+                    }
+                  />
+                ) : null}
               </Card>
               <Card title="语音消息" icon={<AudioLines size={15} strokeWidth={1.8} />}>
                 <VoiceAutoTranscribeSetting />

@@ -888,18 +888,20 @@ export function ExportLightbox({
                           disabled={htmlForced}
                           onChange={(v) => patch({ exportMedia: v })}
                         />
-                        <MasterRow
-                          icon={<Heart size={17} />}
-                          label="评论与点赞"
-                          desc={
-                            htmlForced
-                              ? 'HTML 导出包含评论与点赞，已随格式强制开启'
-                              : '按说说逐条补拉评论（含回复）与点赞用户，写进导出文件（尽力而为，可能不全）'
-                          }
-                          checked={wantQzonePosts && (htmlForced || opts.qzoneInteractions)}
-                          disabled={htmlForced || !wantQzonePosts}
-                          onChange={(v) => patch({ qzoneInteractions: v })}
-                        />
+                        {wantQzonePosts ? (
+                          <MasterRow
+                            icon={<Heart size={17} />}
+                            label="评论与点赞"
+                            desc={
+                              htmlForced
+                                ? 'HTML 导出包含评论与点赞，已随格式强制开启'
+                                : '按说说逐条补拉评论（含回复）与点赞用户，写进导出文件（尽力而为，可能不全）'
+                            }
+                            checked={wantQzonePosts && (htmlForced || opts.qzoneInteractions)}
+                            disabled={htmlForced || !wantQzonePosts}
+                            onChange={(v) => patch({ qzoneInteractions: v })}
+                          />
+                        ) : null}
                       </>
                     ) : isContacts ? (
                       contactScope === 'groups' ? null : (

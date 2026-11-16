@@ -12,8 +12,14 @@ import { SETTINGS_ITEM_TARGETS } from '../src/renderer/src/components/settings/n
 import { SETTINGS_RESET_CARDS } from '../src/shared/settings_reset';
 import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
 
+const conditional = vi.hoisted(() => ({
+  settings: undefined as { linkPreview: { enabled: boolean; screenshot: boolean } } | undefined,
+  save: vi.fn(),
+}));
+
 vi.mock('../src/renderer/src/trpc/client', () => {
   const queryData = (name: string) => {
+    if (name === 'getSettings') return conditional.settings;
     if (name === 'getAccountConfig')
       return {
         uin: '10001',
@@ -44,7 +50,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               refetch: vi.fn(),
             })
           : key === 'useMutation'
-            ? () => ({ mutate: vi.fn(), isLoading: false })
+            ? () => ({ mutate: vi.fn(), mutateAsync: conditional.save, isLoading: false })
             : proxy([...path, String(key)]),
     });
   return { trpc: proxy(), client: proxy() };
@@ -59,7 +65,11 @@ vi.mock('../src/renderer/src/components/settings/BugReportPanel', () => ({
   BugReportPanel: () => '合成反馈表单',
 }));
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  conditional.settings = undefined;
+  conditional.save.mockReset();
+  vi.unstubAllGlobals();
+});
 
 function mount(initialSection?: SectionId) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -116,6 +126,31 @@ function expectInnermostControlFocused(highlighted: HTMLElement | null) {
 }
 
 describe('设置归位后的实际页面', () => {
+  it('关闭链接卡片隐藏截图子项，搜索回到父项且重开保留截图偏好', async () => {
+    conditional.settings = { linkPreview: { enabled: false, screenshot: true } };
+    conditional.save.mockResolvedValue(true);
+    const f = mount('message-display');
+    try {
+      expect(f.body().querySelector('[data-setting-id="link-screenshot"]')).toBeNull();
+      f.render('message-display', {
+        section: 'message-display',
+        settingId: 'link-screenshot',
+        revision: 1,
+      });
+      expect(
+        f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
+      ).toBe('link-preview');
+      await act(async () =>
+        f.body().querySelector<HTMLButtonElement>('[aria-label="链接预览卡片"]')!.click(),
+      );
+      expect(
+        f.body().querySelector('[aria-label="无封面时网页截图"]')?.getAttribute('aria-checked'),
+      ).toBe('true');
+      expect(conditional.save).toHaveBeenLastCalledWith({ enabled: true });
+    } finally {
+      f.close();
+    }
+  });
   it('媒体来源独立显示，账号页不再混入媒体设置，协议工具不重复放性能入口', () => {
     const f = mount('accounts');
     try {
@@ -758,7 +793,6 @@ describe('设置归位后的实际页面', () => {
         'home-tags',
         'home-greeting',
         'home-hitokoto',
-        'home-blocked-words',
       ]);
       expect(f.body().querySelector('.weq-set-row-label')?.textContent).toBe('开机自动启动');
       f.render('home');
@@ -773,7 +807,7 @@ describe('设置归位后的实际页面', () => {
         ['个性标签', 'home-tags'],
         ['问候语', 'home-greeting'],
         ['一言', 'home-hitokoto'],
-        ['一言屏蔽词', 'home-blocked-words'],
+        ['一言屏蔽词', 'home-hitokoto'],
       ] as const) {
         f.render('home', { section: 'home', item, revision: 1 });
         expect(

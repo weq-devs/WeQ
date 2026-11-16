@@ -56,8 +56,10 @@ function BooleanRow({
 }
 function TransferThreshold() {
   const saved = preferenceValue('dataSaverLargeMiB');
+  const enabled = preferenceValue('dataSaverPauseLarge');
   const [draft, setDraft] = useState(String(saved));
   useEffect(() => setDraft(String(saved)), [saved]);
+  if (!enabled) return null;
   return (
     <Row
       label="大文件暂停阈值"

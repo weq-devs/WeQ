@@ -226,6 +226,30 @@ it('两组三选一改用分段选择，加载来源位于省流量前', async (
     source.indexOf("{section === 'network' && <DataSaverSettings />}"),
   );
 });
+it('暂停大文件关闭时隐藏阈值，重新开启保留数值，其余省流量配置仍可用', async () => {
+  const preferences = (enabled: boolean) =>
+    acceptPreferences(
+      {
+        epoch: 'menu-fixture',
+        revision: ++fixture.revision,
+        values: { dataSaverMode: 'never', dataSaverPauseLarge: enabled, dataSaverLargeMiB: 37 },
+        records: {},
+      },
+      false,
+    );
+  preferences(true);
+  await act(async () => root.render(createElement(DataSaverSettings)));
+  expect(host.querySelector<HTMLInputElement>('[aria-label="大文件暂停阈值"]')?.value).toBe('37');
+  await act(async () => {
+    preferences(false);
+  });
+  expect(host.querySelector('[aria-label="大文件暂停阈值"]')).toBeNull();
+  expect(host.querySelector('[aria-label="聊天图片自动加载"]')).not.toBeNull();
+  await act(async () => {
+    preferences(true);
+  });
+  expect(host.querySelector<HTMLInputElement>('[aria-label="大文件暂停阈值"]')?.value).toBe('37');
+});
 it('计费选项默认关闭且仅跟随系统显示，设置和菜单共享值，切换模式保留选择', async () => {
   fixture.session!.update('auto', networkCost(false, true, 'fixture'));
   applyDataSaverStatus(fixture.session!.status());

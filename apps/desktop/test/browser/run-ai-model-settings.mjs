@@ -74,6 +74,29 @@ try {
           await model.locator('option:checked').textContent(),
           '默认（当前：gpt-fixture-long-model-name）',
         );
+        if (title !== '互动画像') {
+          const trigger = page.getByRole('switch', {
+            name: title === '意图感知' ? '自己发送后分析' : '自己发送后推荐回复',
+            exact: true,
+          });
+          const checked = await trigger.getAttribute('aria-checked');
+          await mode.getByRole('radio', { name: '手动', exact: true }).click();
+          await trigger.waitFor({ state: 'detached' });
+          await mode.getByRole('radio', { name: '自动', exact: true }).click();
+          await trigger.waitFor();
+          assert.equal(await trigger.getAttribute('aria-checked'), checked);
+        } else {
+          const engine = page.getByRole('radiogroup', { name: '互动画像运行方式', exact: true });
+          const temperature = page.getByLabel('画像推断温度', { exact: true });
+          const value = await temperature.inputValue();
+          await engine.getByRole('radio', { name: '本地模型', exact: true }).click();
+          await temperature.waitFor({ state: 'detached' });
+          assert.equal(await page.getByLabel('模型推断话题上限', { exact: true }).count(), 0);
+          await page.getByLabel('模型推断采样上限（条）', { exact: true }).waitFor();
+          await engine.getByRole('radio', { name: 'API 模型', exact: true }).click();
+          await temperature.waitFor();
+          assert.equal(await temperature.inputValue(), value);
+        }
         if (title === '推荐回复') {
           const expiry = page.getByLabel('最近推荐过期时间（分钟）', { exact: true });
           assert.equal(await expiry.inputValue(), '1');
@@ -165,6 +188,7 @@ try {
         `http://127.0.0.1:${server.httpServer.address().port}/test/browser/ai-model-settings.html?local-model=1`,
       );
       await page.getByLabel('意图模型资源', { exact: true }).waitFor();
+      assert.equal(await page.getByLabel('意图感知温度', { exact: true }).count(), 0);
       await page.evaluate((theme) => window.aiSettingsTheme.getState().setPreference(theme), theme);
       assert.equal(await page.locator('.weq-set-card .weq-set-card').count(), 0);
       const owner = page

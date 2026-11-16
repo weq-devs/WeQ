@@ -113,10 +113,30 @@ describe('独立系统自启设置', () => {
       view.close();
     }
   });
-  it.each(['disabled', 'unsupported', 'loading', 'failed', 'pending'] as const)(
+  it('关闭自启隐藏窗口子项，待批准时仍显示，保留原偏好', () => {
+    fixture.settings.showWindowOnAutostart = true;
+    const view = mount();
+    try {
+      expect(view.host.querySelector('[aria-label="自启时显示窗口"]')).toBeNull();
+      expect(fixture.settings.showWindowOnAutostart).toBe(true);
+      expect(fixture.windowUpdate).not.toHaveBeenCalled();
+    } finally {
+      view.close();
+    }
+    fixture.data.requiresApproval = true;
+    const pending = mount();
+    try {
+      expect(
+        pending.host.querySelector('[aria-label="自启时显示窗口"]')?.getAttribute('aria-checked'),
+      ).toBe('true');
+    } finally {
+      pending.close();
+    }
+  });
+  it.each(['unsupported', 'loading', 'failed', 'pending'] as const)(
     '%s 时不误提交窗口偏好',
     (state) => {
-      fixture.data.enabled = state !== 'disabled';
+      fixture.data.enabled = true;
       fixture.data.supported = state !== 'unsupported';
       fixture.settingsLoading = state === 'loading';
       fixture.settingsError = state === 'failed' ? new Error('合成偏好读取失败') : null;

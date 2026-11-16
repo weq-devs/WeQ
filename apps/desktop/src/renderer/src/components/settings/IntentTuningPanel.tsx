@@ -146,6 +146,9 @@ function TuningFields({
     selected.every((key) => draft[key]?.trim() && isIntentTuningValue(key, Number(draft[key])));
 
   const apiOnly: readonly IntentTuningKey[] = [
+    'analysisTemperature',
+    'profileTemperature',
+    'profileModelTopics',
     'apiBatchMessages',
     'apiTimeoutSeconds',
     'apiCooldownSeconds',
