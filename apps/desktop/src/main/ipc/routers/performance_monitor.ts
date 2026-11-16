@@ -22,15 +22,15 @@ const config = z.object({
 });
 export const performanceMonitorRouter = router({
   status: procedure.query(() => getPerformanceMonitor().status()),
+  previewPrune: procedure
+    .input(config.pick({ retentionDays: true, capacityMiB: true }))
+    .query(({ input }) => getPerformanceMonitor().previewPrune(input)),
   configure: procedure.input(config).mutation(async ({ input }) => {
     const monitor = getPerformanceMonitor();
     await monitor.ready;
-    if (
-      !input.confirmPrune &&
-      (input.retentionDays < monitor.settings.retentionDays ||
-        input.capacityMiB < monitor.settings.capacityMiB)
-    )
-      throw new Error('缩短保存期或降低容量会删除最旧历史，请确认后重试');
+    const policyChanged =
+      input.retentionDays !== monitor.settings.retentionDays ||
+      input.capacityMiB !== monitor.settings.capacityMiB;
     const fullUntil =
       input.mode !== 'full'
         ? null
@@ -39,13 +39,16 @@ export const performanceMonitorRouter = router({
           : input.fullDurationMinutes === null
             ? null
             : Date.now() + (input.fullDurationMinutes ?? 60) * 60_000;
-    return monitor.configure({
-      version: 1,
-      mode: input.mode,
-      retentionDays: input.retentionDays,
-      capacityMiB: input.capacityMiB,
-      fullUntil,
-    });
+    return monitor.configure(
+      {
+        version: 1,
+        mode: input.mode,
+        retentionDays: input.retentionDays,
+        capacityMiB: input.capacityMiB,
+        fullUntil,
+      },
+      !policyChanged || input.confirmPrune,
+    );
   }),
   history: procedure.input(range).query(({ input }) => getPerformanceMonitor().history(input)),
   detail: procedure

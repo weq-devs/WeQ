@@ -88,6 +88,15 @@ export interface MonitorStorageStatus {
   newest: number | null;
   records: number;
 }
+export interface MonitorPrunePreview extends MonitorStorageStatus {
+  cutoff: number;
+  retentionDays: number;
+  capacityMiB: MonitorSettings['capacityMiB'];
+  capacityBudgetBytes: number;
+  expiredRecords: number;
+  capacityExceeded: boolean;
+  needsPrune: boolean;
+}
 export interface MonitorStatus extends MonitorStorageStatus {
   host: 'desktop' | 'web';
   capabilities: string[];

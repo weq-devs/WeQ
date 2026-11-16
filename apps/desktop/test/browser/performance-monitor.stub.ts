@@ -41,6 +41,8 @@ export const qa = {
   clearCount: 0,
   detailIds: [] as number[],
   logReads: 0,
+  storageBytes: 42_000,
+  historyAgeDays: 40 / 1440,
 };
 function history(input: { from: number; to: number; process?: string }): MonitorHistory {
   const points: MonitorPoint[] = [];
@@ -167,9 +169,9 @@ export const trpc = {
           {
             host: new URLSearchParams(location.search).get('host') ?? 'desktop',
             settings,
-            bytes: 42_000,
+            bytes: qa.storageBytes,
             records: cleared ? 0 : 80,
-            oldest: cleared ? null : now - 2400_000,
+            oldest: cleared ? null : now - qa.historyAgeDays * 86400_000,
             newest: now,
             session: 'fixture',
             capabilities: [],
@@ -222,9 +224,11 @@ export const trpc = {
             version: 1,
             fullUntil:
               input.mode === 'full'
-                ? input.fullDurationMinutes === null
-                  ? null
-                  : Date.now() + (input.fullDurationMinutes ?? 60) * 60_000
+                ? input.fullDurationMinutes === undefined && settings.mode === 'full'
+                  ? settings.fullUntil
+                  : input.fullDurationMinutes === null
+                    ? null
+                    : Date.now() + (input.fullDurationMinutes ?? 60) * 60_000
                 : null,
           };
           qa.changes.push(input);
@@ -247,6 +251,27 @@ export const trpc = {
   },
 };
 export const client = {
+  performanceMonitor: {
+    previewPrune: {
+      query: async (input: { retentionDays: number; capacityMiB: number }) => {
+        const expiredRecords = !cleared && qa.historyAgeDays > input.retentionDays ? 12 : 0;
+        const capacityBudgetBytes = input.capacityMiB * 1048576 * 0.9;
+        const capacityExceeded = !cleared && qa.storageBytes > capacityBudgetBytes;
+        return {
+          ...input,
+          bytes: qa.storageBytes,
+          records: cleared ? 0 : 80,
+          oldest: cleared ? null : now - qa.historyAgeDays * 86400_000,
+          newest: now,
+          cutoff: Date.now() - input.retentionDays * 86400_000,
+          expiredRecords,
+          capacityBudgetBytes,
+          capacityExceeded,
+          needsPrune: expiredRecords > 0 || capacityExceeded,
+        };
+      },
+    },
+  },
   help: {
     setNativeDebugLog: {
       mutate: async (input: { enabled: boolean }) => {

@@ -40,23 +40,57 @@ export function performanceWorker(load: NodeJS.Require) {
         return sum;
       }
     }, 0);
-  const status = () => {
+  const status = (): import('./types').MonitorStorageStatus => {
     const row = db
       .prepare('SELECT MIN(at) oldest,MAX(at) newest,COUNT(*) records FROM records')
       .get()!;
-    return { ...row, bytes: bytes() };
+    return {
+      oldest: row.oldest === null ? null : Number(row.oldest),
+      newest: row.newest === null ? null : Number(row.newest),
+      records: Number(row.records),
+      bytes: bytes(),
+    };
   };
-  async function prune(settings: Settings) {
+  // 回收本身也会写 WAL，落盘后再按实际文件占用判断容量。
+  const reclaim = () =>
+    db.exec(
+      'PRAGMA wal_checkpoint(TRUNCATE); PRAGMA incremental_vacuum(2048); PRAGMA wal_checkpoint(TRUNCATE);',
+    );
+  const capacityBudget = (settings: Settings) => settings.capacityMiB * 1024 * 1024 * 0.9;
+  function previewPrune(settings: Settings): import('./types').MonitorPrunePreview {
+    // 与删除前的非破坏性回收相同，不把 WAL 或空闲页误判成需要删除记录。
+    reclaim();
+    const storage = status();
+    const cutoff = Date.now() - settings.retentionDays * 86400_000;
+    const expiredRecords = Number(
+      db.prepare('SELECT COUNT(*) n FROM records WHERE at<?').get(cutoff)!.n,
+    );
+    const capacityBudgetBytes = capacityBudget(settings);
+    const capacityExceeded = storage.records > 0 && storage.bytes > capacityBudgetBytes;
+    return {
+      ...storage,
+      cutoff,
+      retentionDays: settings.retentionDays,
+      capacityMiB: settings.capacityMiB,
+      capacityBudgetBytes,
+      expiredRecords,
+      capacityExceeded,
+      needsPrune: expiredRecords > 0 || capacityExceeded,
+    };
+  }
+  async function prune(settings: Settings, confirmed = true) {
     const cutoff = Date.now() - settings.retentionDays * 86400_000;
     // 留出 WAL 和下一批写入空间；按实际文件大小回收，不只限制逻辑内容量。
-    const budget = settings.capacityMiB * 1024 * 1024 * 0.9;
+    const budget = capacityBudget(settings);
     let removed = 0;
     for (;;) {
       const expired = Number(
         db.prepare('SELECT COUNT(*) n FROM records WHERE at<?').get(cutoff)!.n,
       );
-      db.exec('PRAGMA wal_checkpoint(TRUNCATE); PRAGMA incremental_vacuum(2048);');
+      reclaim();
       if (!expired && bytes() <= budget) break;
+      if (!confirmed && Number(db.prepare('SELECT COUNT(*) n FROM records').get()!.n) > 0)
+        throw new Error('当前性能历史会被新保存策略删除，请重新确认后保存');
       const result = expired
         ? db
             .prepare(
@@ -82,10 +116,23 @@ export function performanceWorker(load: NodeJS.Require) {
     if (method === 'settings')
       return db.prepare('SELECT data FROM settings WHERE id=1').get()?.data ?? null;
     if (method === 'configure') {
+      const previous = db.prepare('SELECT data FROM settings WHERE id=1').get()?.data;
+      if (input.confirmPrune === false && previewPrune(input.settings as Settings).needsPrune)
+        throw new Error('当前性能历史会被新保存策略删除，请重新确认后保存');
       db.prepare('INSERT OR REPLACE INTO settings VALUES(1,?)').run(JSON.stringify(input.settings));
-      await prune(input.settings as Settings);
+      try {
+        // 写入配置也可能增加文件占用；在实际 DELETE 前再次检查。
+        await prune(input.settings as Settings, input.confirmPrune !== false);
+      } catch (error) {
+        if (input.confirmPrune === false) {
+          if (previous === undefined) db.prepare('DELETE FROM settings WHERE id=1').run();
+          else db.prepare('INSERT OR REPLACE INTO settings VALUES(1,?)').run(previous);
+        }
+        throw error;
+      }
       return null;
     }
+    if (method === 'prune-preview') return previewPrune(input.settings as Settings);
     if (method === 'batch') {
       db.exec('BEGIN IMMEDIATE');
       try {

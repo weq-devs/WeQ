@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Activity, ArrowUpRight, Clock3, Database, Trash2 } from 'lucide-react';
 import type { MonitorMode, MonitorSettings } from '@weq/service/performance';
 import { preciseTimeFormatter } from '@weq/time';
-import { trpc } from '../../trpc/client';
+import { trpc, client } from '../../trpc/client';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import { useLogPerformanceWindow } from '../../state/logPerformanceWindow';
+import { performancePruneMessage } from '../../lib/performanceRetention';
 import { useDialog } from '../Dialog';
 import { SegmentedControl } from '../SegmentedControl';
 import { IconPicker } from '../ui/iconPicker';
@@ -36,6 +37,16 @@ export default function LogPerformanceSettings() {
   const [draft, setDraft] = useState<RecordingDraft | null>(null);
   const [savedDuration, setSavedDuration] = useState('keep');
   const [message, setMessage] = useState('');
+  const [checking, setChecking] = useState(false);
+  const checkingRef = useRef(false);
+  const confirmedPolicy = useRef<string | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const settings = status.data?.settings;
   const saved: RecordingDraft = {
     mode: settings?.mode ?? 'light',
@@ -44,26 +55,45 @@ export default function LogPerformanceSettings() {
     duration: savedDuration,
   };
   const value = draft ?? saved;
-  const busy = configure.isLoading || clear.isLoading;
+  const busy = configure.isLoading || clear.isLoading || checking;
   const valid =
     Number.isInteger(Number(value.days)) && Number(value.days) >= 1 && Number(value.days) <= 365;
   const edit = async (patch: Partial<RecordingDraft>) => {
-    if (!settings || busy) return;
+    if (!settings || busy || checkingRef.current) return;
     const next = { ...value, ...patch };
-    const smaller =
-      (patch.days !== undefined && Number(patch.days) < settings.retentionDays) ||
-      (patch.capacity !== undefined && patch.capacity < settings.capacityMiB);
-    // 删除确认先于本地编辑；取消不会留下待保存的缩减策略。
-    if (
-      smaller &&
-      !(await dialog.confirm(
-        '缩短性能历史保存策略？',
-        `将删除超过 ${next.days} 天或 ${next.capacity} MiB 的最旧历史。`,
-        { okLabel: '保存并删除', tone: 'warning' },
-      ))
-    )
+    if (patch.days === undefined && patch.capacity === undefined) {
+      setDraft(next);
       return;
-    setDraft(next);
+    }
+    if (next.days === value.days && next.capacity === value.capacity) return;
+    checkingRef.current = true;
+    setChecking(true);
+    setMessage('');
+    try {
+      const preview = await client.performanceMonitor.previewPrune.query({
+        retentionDays: Number(next.days),
+        capacityMiB: next.capacity,
+      });
+      if (!mounted.current) return;
+      if (
+        preview.needsPrune &&
+        !(await dialog.confirm('调整性能历史保存策略？', performancePruneMessage(preview), {
+          okLabel: '保存并删除',
+          tone: 'warning',
+        }))
+      )
+        return;
+      if (!mounted.current) return;
+      confirmedPolicy.current = preview.needsPrune
+        ? JSON.stringify([next.days, next.capacity])
+        : null;
+      setDraft(next);
+    } catch (reason) {
+      if (mounted.current) setMessage(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      checkingRef.current = false;
+      if (mounted.current) setChecking(false);
+    }
   };
   const save = async (next: RecordingDraft) => {
     if (!settings) return;
@@ -79,9 +109,10 @@ export default function LogPerformanceSettings() {
             ? null
             : (Number(next.duration) as 15 | 60 | 240)
           : undefined,
-      confirmPrune:
-        Number(next.days) < settings.retentionDays || next.capacity < settings.capacityMiB,
+      confirmPrune: confirmedPolicy.current === JSON.stringify([next.days, next.capacity]),
     });
+    if (confirmedPolicy.current === JSON.stringify([next.days, next.capacity]))
+      confirmedPolicy.current = null;
     setSavedDuration(next.duration);
     await utils.performanceMonitor.invalidate();
     setDraft((current) => (JSON.stringify(current) === JSON.stringify(next) ? null : current));

@@ -101,9 +101,41 @@ try {
       undefined,
     );
     await choose(page, '保存时长', '7 天');
+    await page.waitForFunction(() => window.performanceQa.changes.length === 4);
+    assert.equal(await page.getByRole('button', { name: '保存并删除', exact: true }).count(), 0);
+    await page.evaluate(() => {
+      window.performanceQa.historyAgeDays = 5;
+    });
+    await choose(page, '保存时长', '3 天');
+    await page.getByRole('button', { name: '保存并删除', exact: true }).waitFor();
+    await page.getByText('当前性能历史占用', { exact: false }).waitFor();
+    await page.getByText('之前的 12 条记录', { exact: false }).waitFor();
     await page.getByRole('button', { name: '取消', exact: true }).click();
-    assert.equal(await page.evaluate(() => window.performanceQa.changes.length), 3);
-    assert.equal(await page.getByLabel('保存时长', { exact: true }).textContent(), '30 天');
+    assert.equal(await page.evaluate(() => window.performanceQa.changes.length), 4);
+    assert.equal(await page.getByLabel('保存时长', { exact: true }).textContent(), '7 天');
+    await choose(page, '保存时长', '3 天');
+    await page.getByRole('button', { name: '保存并删除', exact: true }).click();
+    await page.waitForFunction(() => window.performanceQa.changes.length === 5);
+    assert.equal(await page.evaluate(() => window.performanceQa.changes.at(-1).confirmPrune), true);
+    await page.evaluate(() => {
+      window.performanceQa.storageBytes = 70 * 1048576;
+      window.performanceQa.historyAgeDays = 1;
+    });
+    await choose(page, '容量上限', '64 MiB');
+    await page.getByText('当前性能历史占用 70 MiB', { exact: false }).waitFor();
+    await page.getByText('容量上限设为 64 MiB', { exact: false }).waitFor();
+    await page.getByText('实际回收目标为 57.6 MiB', { exact: false }).waitFor();
+    await page.getByRole('button', { name: '取消', exact: true }).click();
+    assert.equal(await page.getByLabel('容量上限', { exact: true }).textContent(), '128 MiB');
+    await page.evaluate(() => {
+      window.performanceQa.storageBytes = 42_000;
+    });
+    await choose(page, '容量上限', '64 MiB');
+    await page.waitForFunction(() => window.performanceQa.changes.length === 6);
+    assert.equal(
+      await page.evaluate(() => window.performanceQa.changes.at(-1).confirmPrune),
+      false,
+    );
     if (output)
       await page.screenshot({ path: resolve(output, host + '-settings.png'), fullPage: true });
     for (const width of [390, 320]) {
@@ -114,6 +146,11 @@ try {
       assert.equal(
         await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
         false,
+      );
+      assert.ok(
+        await page
+          .locator('[data-setting-id="database-read-concurrency"] .weq-set-row')
+          .evaluate((row) => row.getBoundingClientRect().height < 110),
       );
       if (output)
         await page.screenshot({
