@@ -161,6 +161,11 @@ it('群交集保留统计首页，加载完成后可进入图谱并主动返回'
     render();
     expect(host.querySelector('.weq-relhome')).not.toBeNull();
     expect(host.querySelector('.weq-graph-stage')).toBeNull();
+    expect(host.querySelector('.weq-relhome-title')?.textContent).toBe('好友、群友分析');
+    expect(host.querySelector('.weq-relhome-sub')?.textContent).toBe(
+      '只读群成员名单，分析哪些圈子其实是一拨人。',
+    );
+    expect(host.querySelector('.weq-relhome-cta')?.textContent).toBe('正在扫描群成员……');
     expect(host.querySelector<HTMLButtonElement>('.weq-relhome-cta')?.disabled).toBe(true);
     query.data = {
       selfUin: '10001',
