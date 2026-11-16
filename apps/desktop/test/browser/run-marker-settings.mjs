@@ -62,30 +62,32 @@ try {
       await page.goto(
         `http://127.0.0.1:${server.httpServer.address().port}/test/browser/marker-settings.html`,
       );
-      await page.getByRole('button', { name: '更新标记设置', exact: true }).first().waitFor();
+      await page.getByRole('button', { name: '邮箱红点设置', exact: true }).waitFor();
       await page.evaluate((theme) => {
         const store = window.markerQa.theme.getState();
         store.setPreference(theme);
         store.setAccent(theme === 'light' ? '#b5243e' : '#81c995');
         store.setBackground(theme === 'light' ? 'grid' : 'telegram');
       }, theme);
-      const placements = [
-        [
-          '[data-testid="version"] .weq-set-card:has(.weq-update-interval-control)',
-          '更新标记设置',
-          'update-badge',
-        ],
-        ['[data-setting-id="enhancement-updates"]', '更新标记设置', 'update-badge'],
-        ['.contact-notice-row', '申请未读标记设置', 'contact-request-badge'],
-        ['.weq-current-tasks-results', '任务结果标记设置', 'task-result-badge'],
-      ];
+      for (const label of ['更新标记设置', '申请未读标记设置', '任务结果标记设置'])
+        assert.equal(await page.getByRole('button', { name: label, exact: true }).count(), 0);
       assert.equal(await page.locator('.weq-set-head .weq-set-iconbtn').count(), 0);
       assert.equal(await page.locator('.weq-current-tasks-head .weq-set-iconbtn').count(), 0);
       assert.equal(await page.locator('.weq-current-tasks-results').innerText(), '1 项已结束');
-      for (const [selector, label, settingId] of placements) {
-        const button = page.locator(selector).getByRole('button', { name: label, exact: true });
-        assert.equal(await button.count(), 1, selector);
-        assert.equal(await button.getAttribute('title'), label);
+      assert.equal(await page.locator('.contact-notice-row > button').count(), 2);
+      assert.equal(await page.locator('button .lucide-settings2').count(), 0);
+      for (const [label, settingId] of [
+        ['邮件通知设置', 'mail-banner'],
+        ['邮箱红点设置', 'mail-unread-badge'],
+        ['邮件列表标记设置', 'mail-item-unread-badge'],
+      ]) {
+        const button = page
+          .getByTestId('mail-settings')
+          .getByRole('button', { name: label, exact: true });
+        assert.equal(await button.count(), 1, label);
+        assert((await button.getAttribute('class')).includes('weq-set-btn'));
+        assert(!(await button.getAttribute('class')).includes('weq-set-iconbtn'));
+        assert.equal(await button.innerText(), label);
         await button.click();
         assert.deepEqual(await page.evaluate(() => window.markerQa.navigations.at(-1)), {
           section: 'global',
@@ -96,7 +98,7 @@ try {
           const area = node.parentElement.getBoundingClientRect();
           return box.width > 0 && box.left >= area.left && box.right <= area.right + 1;
         });
-        assert(fits, `${width}/${theme}: ${label} fits beside its feature`);
+        assert(fits, `${width}/${theme}: ${label} fits its settings row`);
         await button.focus();
         assert(await button.evaluate((node) => node === document.activeElement));
       }
@@ -129,12 +131,20 @@ try {
       assert.equal(await page.locator('.weq-current-tasks-results').innerText(), '0 项已结束');
       assert.equal(
         await page.getByRole('button', { name: '任务结果标记设置', exact: true }).count(),
-        1,
+        0,
       );
       cases++;
     }
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ cases, placements: 4, navigations: 'passed', errors }));
+  console.log(
+    JSON.stringify({
+      cases,
+      removedPlacements: 4,
+      retainedLinks: 3,
+      navigations: 'passed',
+      errors,
+    }),
+  );
 } finally {
   await browser?.close();
   await server.close();

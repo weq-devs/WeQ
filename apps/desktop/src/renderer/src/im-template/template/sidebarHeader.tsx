@@ -4,7 +4,6 @@ import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { ContactDirectoryContext } from '../../lib/conversationDirectory';
 import { ContactRefreshButton } from '../../components/ContactRefreshButton';
 import { ReminderDot } from '../../components/ReminderBadge';
-import { NotificationSettingsLink } from '../../components/settings/NotificationSettingsLink';
 import { FriendGroupCreateMenu } from '../../components/FriendGroupCreateMenu';
 import { QQExactLookup, type QQExactLookupKind } from '../../components/QQExactLookup';
 import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
@@ -315,9 +314,6 @@ export function SidebarHeader({
                 )}
               </span>
             </button>
-            <NotificationSettingsLink compact settingId="contact-request-badge">
-              申请未读标记设置
-            </NotificationSettingsLink>
           </div>
           <div className="contact-list-controls">
             <div className={cn('contact-tab-switch')} role="tablist" aria-label="联系人类型">

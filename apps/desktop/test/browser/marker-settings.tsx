@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { VersionSection } from '../../src/renderer/src/components/settings/VersionSection';
 import { EnhancementPacksSection } from '../../src/renderer/src/components/settings/EnhancementPacksSection';
+import { MailSettingsSection } from '../../src/renderer/src/components/settings/MailSettingsSection';
 import { SidebarHeader } from '../../src/renderer/src/im-template/template/sidebarHeader';
 import { CurrentTaskList } from '../../src/renderer/src/components/tasks/CurrentTaskList';
 import type { UiTask } from '../../src/renderer/src/views/export/TaskList';
@@ -55,6 +56,9 @@ createRoot(document.getElementById('root')!).render(
       </section>
       <section data-testid="enhancements">
         <EnhancementPacksSection />
+      </section>
+      <section data-testid="mail-settings">
+        <MailSettingsSection />
       </section>
       <section className="sidebar marker-directory" data-testid="contacts">
         <SidebarHeader

@@ -9,7 +9,6 @@ import {
   type ReactNode,
 } from 'react';
 import { useTabActive } from '../RetainedTabs';
-import { NotificationSettingsLink } from '../settings/NotificationSettingsLink';
 import { useWorkspaceMenu } from '../../state/workspaceMenu';
 import {
   CloudDownload,
@@ -974,9 +973,6 @@ export function CurrentTaskList({
         <span>
           <NumericText>{`${finished.length} 项已结束`}</NumericText>
         </span>
-        <NotificationSettingsLink compact settingId="task-result-badge">
-          任务结果标记设置
-        </NotificationSettingsLink>
       </div>
     </section>
   );

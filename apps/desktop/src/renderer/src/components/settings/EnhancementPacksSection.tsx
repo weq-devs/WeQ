@@ -17,7 +17,6 @@ import { useTabActive } from '../RetainedTabs';
 import { useAppDialog } from '../../lib/dialogUtils';
 import type { EnhancementPackId } from '../../../../shared/enhancement_manifest';
 import { Card, QueryError, SectionHeader, Row, Toggle, SettingsNavigateContext } from './controls';
-import { NotificationSettingsLink } from './NotificationSettingsLink';
 import { LoadingIndicator } from '../LoadingIndicator';
 import '../../styles/enhancement-packs.css';
 
@@ -92,11 +91,6 @@ export function EnhancementPacksSection() {
         icon={<Settings2 size={15} />}
         settingId="enhancement-updates"
         resetId="enhancement-updates"
-        action={
-          <NotificationSettingsLink compact settingId="update-badge">
-            更新标记设置
-          </NotificationSettingsLink>
-        }
       >
         <Row
           settingId="enhancement-auto-check"
