@@ -25,24 +25,23 @@ export function RetainedSettingsPage({
     null,
     pageValue.optionalString,
   );
+  const { section, item, settingId } = target;
   const request = JSON.stringify([target, revision]);
   useEffect(() => {
-    if (
-      !active ||
-      !root.current ||
-      target.section !== pageId ||
-      (!target.item && !target.settingId)
-    )
-      return;
+    if (!active || !root.current || section !== pageId || (!item && !settingId)) return;
     if (applied !== request)
       root.current.dispatchEvent(new Event('weq-page-navigation', { bubbles: true }));
-    return revealSetting(root.current, target, {
-      navigate: applied !== request,
-      onLocated: () => {
-        if (applied !== request) setApplied(request);
+    return revealSetting(
+      root.current,
+      { item, settingId },
+      {
+        navigate: applied !== request,
+        onLocated: () => {
+          if (applied !== request) setApplied(request);
+        },
       },
-    });
-  }, [active, target, pageId, applied, request, setApplied]);
+    );
+  }, [active, section, item, settingId, pageId, applied, request, setApplied]);
   return (
     <div
       hidden={!active}
