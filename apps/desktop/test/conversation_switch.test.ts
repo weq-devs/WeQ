@@ -93,6 +93,8 @@ const f = vi.hoisted(() => ({
   unreadReads: [] as UnreadInput[],
   unreadFailures: 0,
   unreadReply: undefined as (() => Promise<unknown>) | undefined,
+  markedRead: [] as Array<{ chatType: number; uid: string; latestSeq?: string }>,
+  readCurrent: undefined as (() => void) | undefined,
   dbChanged: undefined as (() => void) | undefined,
   unreadChanged: undefined as ((targets: UnreadInput['targets']) => void) | undefined,
   refreshRows: undefined as TestMessage[] | undefined,
@@ -190,6 +192,10 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         if (key === 'useSubscription') return () => {};
         if (key === 'query' || key === 'mutate' || key === 'invalidate')
           return async (input?: UnreadInput) => {
+            if (path.at(-1) === 'markConversationRead') {
+              f.markedRead.push(input as unknown as (typeof f.markedRead)[number]);
+              return { changed: true, report: { state: 'disabled' } };
+            }
             if (path.at(-1) === 'memberDetails') return f.memberDetails;
             if (path.at(-1) === 'listBefore') return f.beforeRows;
             if (path.at(-1) === 'listAfter') return f.afterReply?.() ?? [];
@@ -298,6 +304,9 @@ vi.mock('../src/renderer/src/im-template/template/chatMainContent', async (impor
     ChatMainContent: (props: ComponentProps<typeof ChatMainContent>) => {
       f.jump = useContext(ReplyJumpContext);
       f.messages = props.messages;
+      f.readCurrent = () => {
+        if (props.activeConversation) props.onReadCurrentConversation?.(props.activeConversation);
+      };
       f.atLatest = props.atLatest;
       f.deletionSets = { deleted: props.deletedIds, hidden: props.hiddenDeletedIds };
       useLayoutEffect(() => {
@@ -408,6 +417,8 @@ afterEach(() => {
   f.memberDetails = undefined;
   f.messages = [];
   f.messageCommits = [];
+  f.markedRead = [];
+  f.readCurrent = undefined;
   f.atLatest = true;
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -528,6 +539,97 @@ it.each(['10001', 'u_peer'])(
       act(() => root.unmount());
       client.clear();
       host.remove();
+    }
+  },
+);
+
+it.each([
+  { summarySeq: '900', mismatch: 'none' },
+  { summarySeq: '50', mismatch: 'none' },
+  { summarySeq: '900', mismatch: 'uid' },
+  { summarySeq: '900', mismatch: 'chatType' },
+  { summarySeq: '900', mismatch: 'switched' },
+])(
+  '自动已读只用目标会话小表水位：摘要 $summarySeq，快照身份 $mismatch',
+  async ({ summarySeq, mismatch }) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    useViewState.getState().setOpenedUin('90001');
+    f.unreadMode = true;
+    const contact = f.recent.find((row) => row.targetUid === '10002')!;
+    const originalSeq = contact.msgSeq;
+    contact.msgSeq = summarySeq;
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    try {
+      await act(async () =>
+        root.render(
+          h(
+            QueryClientProvider,
+            { client: queryClient },
+            h(ContentSelectionProvider, null, h(MainView)),
+          ),
+        ),
+      );
+      await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+      await act(async () =>
+        [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+          .find((button) => button.textContent === '10002')!
+          .click(),
+      );
+      await act(async () =>
+        f.reads.at(-1)!.show({
+          complete: true,
+          rows: [
+            {
+              msgId: 'target-message',
+              msgSeq: '100',
+              sendTime: '1794200000',
+              senderUid: 'u_peer',
+              senderUin: '20001',
+              elements: [{ type: 'text', data: { textContent: '目标会话' } }],
+            },
+          ],
+        }),
+      );
+      f.markedRead = [];
+      let release: (() => void) | undefined;
+      if (mismatch === 'switched')
+        f.unreadReply = () =>
+          new Promise((resolve) => {
+            release = () =>
+              resolve([{ chatType: 2, uid: '10002', latestSeq: '100', unreadCount: 0 }]);
+          });
+      else if (mismatch !== 'none')
+        f.unreadReply = async () => [
+          {
+            chatType: mismatch === 'chatType' ? 1 : 2,
+            uid: mismatch === 'uid' ? '10001' : '10002',
+            latestSeq: '100',
+            unreadCount: 0,
+          },
+        ];
+      await act(async () => f.readCurrent?.());
+      if (mismatch === 'switched') {
+        expect(release).toBeTypeOf('function');
+        await act(async () =>
+          [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+            .find((button) => button.textContent === '10001')!
+            .click(),
+        );
+        await act(async () => release!());
+      }
+      if (mismatch === 'none') {
+        expect(f.markedRead).toHaveLength(1);
+        expect(f.markedRead[0]).toMatchObject({ chatType: 2, uid: '10002', latestSeq: '100' });
+      } else expect(f.markedRead).toHaveLength(0);
+    } finally {
+      act(() => root.unmount());
+      queryClient.clear();
+      host.remove();
+      contact.msgSeq = originalSeq;
     }
   },
 );

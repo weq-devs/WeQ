@@ -7494,9 +7494,7 @@ function MainWorkspace(): ReactElement {
   // 同时兼作「异步结果还是不是当前会话」的判据：await 回来时若已换会话就丢弃。
   const unreadDockConvRef = useRef<string | null>(null);
   const unreadSnapshotPendingRef = useRef<string | null>(null);
-  const readRequestsRef = useRef(
-    new Map<string, { again: boolean; promise: Promise<void>; latestSeq: string | undefined }>(),
-  );
+  const readRequestsRef = useRef(new Map<string, { again: boolean; promise: Promise<void> }>());
   useEffect(() => {
     unreadDockConvRef.current = null;
     unreadSnapshotPendingRef.current = null;
@@ -7522,42 +7520,58 @@ function MainWorkspace(): ReactElement {
     [],
   );
   const markVisibleConversationRead = useCallback(
-    async (conv: Conversation, capturedLatestSeq?: string) => {
+    async (
+      conv: Conversation,
+      capturedSnapshot?: Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>[number],
+    ) => {
+      if (conv.type !== 'direct' && conv.type !== 'group') return;
       const source = messageScopeRef.current;
       const binding = messageBindingRef.current;
+      const chatType =
+        conv.type === 'group' ? (2 as const) : (unreadChatType(conv.chatType ?? 1) ?? 1);
       const isCurrent = () =>
         Boolean(binding) &&
         messageScopeRef.current === source &&
         messagesTabActiveRef.current &&
         document.visibilityState !== 'hidden' &&
         selectedUidRef.current === conv.id &&
+        selectionRef.current?.kind === conv.type &&
         !manualReadPendingRef.current.has(conv.id) &&
         useViewState.getState().openedUin === openedUin;
-      if (!isCurrent() || (conv.type !== 'direct' && conv.type !== 'group')) return;
+      if (!isCurrent() || !binding) return;
       const key = `${source}:${conv.type}:${conv.id}`;
-      const latestSeq =
-        capturedLatestSeq ??
-        unreadContactsRef.current.find((contact) => contact.targetUid === conv.id)?.msgSeq;
       const existing = readRequestsRef.current.get(key);
       if (existing) {
         existing.again = true;
-        if (latestSeq !== undefined && BigInt(latestSeq) > BigInt(existing.latestSeq ?? '0'))
-          existing.latestSeq = latestSeq;
         return existing.promise;
       }
-      const entry = { again: false, promise: Promise.resolve(), latestSeq };
+      const entry = { again: false, promise: Promise.resolve() };
       entry.promise = (async () => {
         do {
           entry.again = false;
           if (!isCurrent()) break;
           const finishUpdate = unreadUpdateGuardRef.current.begin([conv.id]);
           try {
+            // 摘要可能来自乐观更新或漫游；阅读水位只认带目标身份的小表快照。
+            const info =
+              capturedSnapshot ??
+              (await readUnreadInfos({ ...binding, targets: [{ chatType, uid: conv.id }] }))[0];
+            capturedSnapshot = undefined;
+            if (
+              !isCurrent() ||
+              !info ||
+              info.readError ||
+              info.chatType !== chatType ||
+              info.uid !== conv.id ||
+              info.latestSeq === null ||
+              !/^\d{1,20}$/.test(info.latestSeq)
+            )
+              break;
             // 固定这次打开时的本地水位，重试不会顺带确认后来到达的新消息。
             const request = {
-              chatType:
-                conv.type === 'group' ? (2 as const) : (unreadChatType(conv.chatType ?? 1) ?? 1),
+              chatType,
               uid: conv.id,
-              latestSeq: entry.latestSeq,
+              latestSeq: info.latestSeq,
               expectedAccountUin: openedUin ?? undefined,
               expectedAccountConfigId: binding?.expectedAccountConfigId,
             };
@@ -7831,7 +7845,7 @@ function MainWorkspace(): ReactElement {
 
       // 打开即已读：哪怕一个跳转都不点，也要把 48902 的未读/高亮清掉，
       // 这样下次进来不会再重复弹跳转、红点也即时消失。
-      await markVisibleConversationRead(conv, info.latestSeq ?? undefined);
+      await markVisibleConversationRead(conv, info);
       if (!stillCurrent()) return;
       setUnreadDock(dock);
     })();

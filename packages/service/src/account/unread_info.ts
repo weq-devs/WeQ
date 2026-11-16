@@ -184,6 +184,41 @@ export class UnreadInfoService {
     return this.session.unreadInfo.getUnreadInfo(chatType, uid);
   }
 
+  private async readSequence(chatType: number, uid: string, requested?: string) {
+    if (this.disposed || (requested !== undefined && !/^\d{1,20}$/.test(requested)))
+      return undefined;
+    const target = { chatType, uid };
+    let [snapshot] = await this.getUnreadInfos([target]);
+    if (
+      requested !== undefined &&
+      snapshot?.latestSeq != null &&
+      BigInt(requested) > BigInt(snapshot.latestSeq)
+    ) {
+      // 列表可能领先共享缓存；只补读小表，不用越界值推进已读或改读最新消息。
+      try {
+        [snapshot] = await this.readSnapshots([target]);
+      } catch {
+        return undefined;
+      }
+    }
+    const sequence = requested ?? snapshot?.latestSeq;
+    if (
+      this.disposed ||
+      !snapshot ||
+      snapshot.readError ||
+      snapshot.chatType !== chatType ||
+      snapshot.uid !== uid ||
+      snapshot.peer !== this.key(target) ||
+      snapshot.latestSeq === null ||
+      sequence == null ||
+      !/^\d{1,20}$/.test(sequence) ||
+      BigInt(sequence) <= 0n ||
+      BigInt(sequence) > BigInt(snapshot.latestSeq)
+    )
+      return undefined;
+    return sequence;
+  }
+
   async listImportantMessages(input: Parameters<ImportantMessageStore['list']>[0]) {
     const [snapshot] = await this.getUnreadInfos([input]);
     if (snapshot?.readError) throw new Error('提醒状态读取失败，请重试');
@@ -380,6 +415,8 @@ export class UnreadInfoService {
   }
 
   async markLocalRead(chatType: number, uid: string, latestSeq?: string): Promise<boolean> {
+    latestSeq = await this.readSequence(chatType, uid, latestSeq);
+    if (latestSeq === undefined) return false;
     return (await this.saveLocalRead(chatType, uid, latestSeq)).changed;
   }
 
@@ -560,11 +597,8 @@ export class UnreadInfoService {
    * recent-contact watermark when omitted.
    */
   async markRead(chatType: number, uid: string, latestSeq?: string): Promise<boolean> {
-    const snapshot =
-      latestSeq === undefined ? (await this.getUnreadInfos([{ chatType, uid }]))[0] : undefined;
-    const sequence = latestSeq ?? snapshot?.latestSeq;
-    if (this.disposed || snapshot?.readError || sequence === undefined || sequence === null)
-      return false;
+    const sequence = await this.readSequence(chatType, uid, latestSeq);
+    if (sequence === undefined) return false;
     const target = { chatType, uid };
     const { changed: local, version } = await this.saveLocalRead(chatType, uid, sequence);
     if (this.disposed || this.localOptions?.readOnly) return local;
@@ -595,7 +629,8 @@ export class UnreadInfoService {
     const snapshot = (await this.getUnreadInfos([{ chatType, uid }]))[0];
     if (this.disposed || snapshot?.readError)
       return { changed: false, report: { state: 'unavailable' } };
-    const sequence = latestSeq ?? snapshot?.latestSeq ?? '0';
+    const sequence = await this.readSequence(chatType, uid, latestSeq);
+    if (sequence === undefined) return { changed: false, report: { state: 'skipped' } };
     const changed = options?.write === false ? false : await this.markRead(chatType, uid, sequence);
     const finish = (status: ReadReportStatus) => {
       if (!this.disposed && this.generation === generation) this.lastReport = status;
@@ -611,8 +646,7 @@ export class UnreadInfoService {
     )
       return finish({ state: 'unavailable' });
     const seq = BigInt(sequence);
-    if (seq <= 0n || seq > 0xffffffffn || !snapshot?.latestSeq || seq > BigInt(snapshot.latestSeq))
-      return finish({ state: 'skipped' });
+    if (seq > 0xffffffffn) return finish({ state: 'skipped' });
     try {
       let target: ReadReportParams;
       if (chatType === 2) {
