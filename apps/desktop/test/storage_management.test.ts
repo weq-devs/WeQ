@@ -46,7 +46,12 @@ vi.mock('../src/renderer/src/trpc/client', () => {
       get: (_target, key) =>
         key === 'useQuery'
           ? () => ({
-              data: path.at(-1) === 'listStorageUsage' ? fixture.items : undefined,
+              data:
+                path.at(-1) === 'listStorageUsage'
+                  ? fixture.items
+                  : path.at(-1) === 'storageCleanupResult'
+                    ? { cleared: ['avatar'], failed: [], freedBytes: 1024 }
+                    : undefined,
               refetch: fixture.refetch,
               isLoading: false,
               isFetching: false,
@@ -93,6 +98,31 @@ afterEach(() => {
 });
 
 describe('WeQ 存储管理页面', () => {
+  it('不常驻上次清除结果，清理完成仍即时反馈，重新进入不显示历史摘要', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    try {
+      act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
+      expect(host.textContent).not.toContain('上次清除');
+      await act(async () =>
+        [...host.querySelectorAll<HTMLButtonElement>('button')]
+          .find((button) => button.textContent === '开始清理')!
+          .click(),
+      );
+      expect(fixture.push).toHaveBeenLastCalledWith(
+        expect.objectContaining({ title: '清理已完成', message: '已清除 1 项，释放约 1 KB' }),
+      );
+      expect(host.querySelector('.weq-storage-result')).toBeNull();
+      act(() => root.render(null));
+      act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
+      expect(host.textContent).not.toContain('上次清除');
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+
   it('同类缓存只显示一行，选择后清除全部来源，空项目及空分类不显示', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());

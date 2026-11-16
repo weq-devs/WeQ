@@ -111,9 +111,6 @@ export function GlobalSettingsSection({
     refetchOnMount: 'always',
   });
   const clearStorageData = trpc.bootstrap.clearStorageData.useMutation();
-  const cleanupResult = trpc.bootstrap.storageCleanupResult.useQuery(undefined, {
-    enabled: active && section === 'storage',
-  });
   const [cleaning, setCleaning] = useState(false);
   const [restartIds, setRestartIds] = useState<string[]>([]);
   const cleanupBusy = cleaning || clearStorageData.isLoading;
@@ -253,7 +250,6 @@ export function GlobalSettingsSection({
       const res = await clearStorageData.mutateAsync({ ids, acknowledgeRisk: true });
       setRestartIds(res.restartIds);
       await cacheUsage.refetch();
-      await cleanupResult.refetch();
       const failedIds = new Set(res.failed.flatMap((item) => (item.id ? [item.id] : [])));
       setPickedCats(
         new Set([
@@ -534,23 +530,6 @@ export function GlobalSettingsSection({
               </button>
             </div>
           </div>
-          {cleanupResult.data && (
-            <div
-              className="weq-storage-result"
-              role={cleanupResult.data.failed.length ? 'alert' : 'status'}
-            >
-              <span>
-                上次清除：{cleanupResult.data.cleared.length} 项成功，
-                {cleanupResult.data.failed.length} 项失败，清除约{' '}
-                {formatBytes(cleanupResult.data.freedBytes)}。
-              </span>
-              {cleanupResult.data.failed.map((item) => (
-                <div key={item.label}>
-                  {item.label}：{item.error}
-                </div>
-              ))}
-            </div>
-          )}
           {restartIds.length > 0 && (
             <button
               type="button"

@@ -104,6 +104,9 @@ try {
                 cleanup.textContent.includes(label),
               ),
               emptyHidden: !cleanup.textContent.includes('空项目'),
+              noCleanupHistory:
+                !cleanup.textContent.includes('上次清除') &&
+                !cleanup.querySelector('.weq-storage-result'),
               noOverflow: document.documentElement.scrollWidth <= innerWidth,
               textBounded: [...document.querySelectorAll('.weq-storage-detail')].every(
                 (node) => node.scrollWidth <= node.clientWidth + 1,
