@@ -123,7 +123,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
   {
     id: 'help',
     label: '关于 WeQ',
-    sections: ['version', 'backup', 'faq', 'logs', 'performance-monitor', 'feedback'],
+    sections: ['version', 'backup', 'logs', 'performance-monitor', 'faq', 'feedback'],
   },
 ];
 

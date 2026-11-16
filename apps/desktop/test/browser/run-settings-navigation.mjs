@@ -140,11 +140,31 @@ try {
       assert.deepEqual(await page.locator('.weq-settings-subnav-item').allTextContents(), [
         '版本与更新',
         '配置备份与恢复',
-        '常见问题',
         '日志',
         '性能监视',
+        '常见问题',
         '反馈',
       ]);
+      await page.getByRole('button', { name: '反馈', exact: true }).click();
+      const feedbackBody = page.getByRole('textbox', { name: '反馈正文 Markdown', exact: true });
+      await feedbackBody.waitFor();
+      assert((await feedbackBody.inputValue()).includes('## 错误的功能描述'));
+      await page.getByRole('button', { name: '常见问题', exact: true }).click();
+      assert.equal(await page.locator('.weq-message-modal').count(), 0);
+      assert.equal(await page.locator('.weq-settings-body .weq-help-bug').count(), 0);
+      await page.getByRole('button', { name: '反馈', exact: true }).click();
+      const feedbackTitle = page.getByRole('textbox', { name: '反馈标题', exact: true });
+      await feedbackTitle.fill('合成反馈标题');
+      await page.getByRole('button', { name: '常见问题', exact: true }).click();
+      await page.getByText('当前设置尚未保存', { exact: true }).waitFor();
+      await page.getByRole('button', { name: '先保存', exact: true }).click();
+      await feedbackTitle.fill('');
+      if (output)
+        await page.screenshot({ path: resolve(output, `feedback-${width}-${theme}.png`) });
+      await page.getByRole('button', { name: '常见问题', exact: true }).click();
+      assert.equal(await page.locator('.weq-message-modal').count(), 0);
+      await page.getByRole('button', { name: '反馈', exact: true }).click();
+      assert((await feedbackBody.inputValue()).includes('## 错误的功能描述'));
       await openCategory('凭据与账号');
       assert.equal(
         await page

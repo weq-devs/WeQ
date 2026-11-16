@@ -169,6 +169,37 @@ function chooseNavigation(label: string) {
 }
 
 describe('设置二级页现场与活动生命周期', () => {
+  it('反馈自动填入模板后切换二级页或主页面不提示未保存，实际修改仍拦截', () => {
+    const f = mount('feedback');
+    try {
+      expect(
+        f.body().querySelector<HTMLTextAreaElement>('[aria-label="反馈正文 Markdown"]')!.value,
+      ).toContain('## 错误的功能描述');
+      const navigate = vi.fn();
+      f.navigate(navigate);
+      expect(navigate).toHaveBeenCalledOnce();
+      const faq = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')].find(
+        (button) => button.textContent === '常见问题',
+      )!;
+      act(() => faq.click());
+      expect(document.body.textContent).not.toContain('当前设置尚未保存');
+      expect(f.body().querySelector('.weq-help-bug')).toBeNull();
+      act(() =>
+        [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')]
+          .find((button) => button.textContent === '反馈')!
+          .click(),
+      );
+      inputValue(f.body().querySelector<HTMLInputElement>('[aria-label="反馈标题"]')!, '合成标题');
+      act(() => faq.click());
+      expect(document.body.textContent).toContain('当前设置尚未保存');
+      chooseNavigation('先保存');
+      inputValue(f.body().querySelector<HTMLInputElement>('[aria-label="反馈标题"]')!, '');
+      f.navigate(navigate);
+      expect(navigate).toHaveBeenCalledTimes(2);
+    } finally {
+      f.dispose();
+    }
+  });
   it.each([0, 1])('服务商编辑器 %s 关闭后离开 API 配置页不误报未保存', async (index) => {
     const f = mount('agentlab');
     try {

@@ -287,7 +287,7 @@ describe('设置归位后的实际页面', () => {
       );
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((node) => node.textContent),
-      ).toEqual(['版本与更新', '配置备份与恢复', '常见问题', '日志', '性能监视', '反馈']);
+      ).toEqual(['版本与更新', '配置备份与恢复', '日志', '性能监视', '常见问题', '反馈']);
       expect(f.onOpenMaintenance).not.toHaveBeenCalled();
     } finally {
       f.close();
@@ -628,7 +628,7 @@ describe('设置归位后的实际页面', () => {
     try {
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((item) => item.textContent),
-      ).toEqual(['版本与更新', '配置备份与恢复', '常见问题', '日志', '性能监视', '反馈']);
+      ).toEqual(['版本与更新', '配置备份与恢复', '日志', '性能监视', '常见问题', '反馈']);
       expect(f.body().querySelector('h3')?.textContent).toBe('版本与更新');
       expect(f.body().textContent).toContain('内置组件');
       expect(f.body().textContent).not.toContain('监控新版本发布');

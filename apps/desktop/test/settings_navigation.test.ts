@@ -47,9 +47,9 @@ describe('设置的两级导航', () => {
     expect(settingsGroupFor('version').sections).toEqual([
       'version',
       'backup',
-      'faq',
       'logs',
       'performance-monitor',
+      'faq',
       'feedback',
     ]);
     expect(settingsSectionFor('help')).toBe('faq');
@@ -104,7 +104,7 @@ describe('设置的两级导航', () => {
     expect(settingsGroupFor('backup')).toEqual({
       id: 'help',
       label: '关于 WeQ',
-      sections: ['version', 'backup', 'faq', 'logs', 'performance-monitor', 'feedback'],
+      sections: ['version', 'backup', 'logs', 'performance-monitor', 'faq', 'feedback'],
     });
     for (const id of ['database', 'database-status', 'maintenance'] as const) {
       expect(settingsGroupFor(id)).toEqual({
