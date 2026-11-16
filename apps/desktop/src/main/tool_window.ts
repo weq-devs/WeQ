@@ -3,12 +3,35 @@ import { compositionPopupOptions } from './composition_window';
 import { floatingWindowTypeOption } from './linux_window_backend';
 import { windowDecorationOptions } from './window_controls_events';
 import { readGroupResourceWindowName } from '../shared/group_resource_window';
+import { MONITOR_WINDOWS } from '../shared/monitor_window';
 
 /** 仅放行明确登记的本地空白工具窗，不给子窗口增加 preload 或 Node 权限。 */
 export function applicationToolPopupOptions(
   url: string,
   frameName: string,
 ): BrowserWindowConstructorOptions | null {
+  const monitor =
+    url === 'about:blank'
+      ? Object.values(MONITOR_WINDOWS).find((item) => item.name === frameName)
+      : undefined;
+  if (monitor)
+    return {
+      title: monitor.title,
+      width: monitor.width,
+      height: monitor.height,
+      minWidth: monitor.minWidth,
+      minHeight: monitor.minHeight,
+      frame: true,
+      ...windowDecorationOptions(),
+      autoHideMenuBar: true,
+      ...floatingWindowTypeOption(),
+      webPreferences: {
+        preload: undefined,
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+      },
+    };
   const resource = url === 'about:blank' ? readGroupResourceWindowName(frameName) : null;
   if (resource)
     return {

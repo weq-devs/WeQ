@@ -11,8 +11,6 @@ import {
   useMemo,
   useRef,
   useState,
-  lazy,
-  Suspense,
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
   type ReactNode,
@@ -70,7 +68,6 @@ import { TypingStatusSettingsCard } from './settings/TypingStatusSettingsCard';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
 import { ComponentAppearance } from './settings/ComponentAppearance';
 import { SegmentedControl } from './SegmentedControl';
-import { PanelLoading } from './LoadingIndicator';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { IntentSenseSection } from './settings/IntentSenseSection';
 import { InteractionProfileSection } from './settings/InteractionProfileSection';
@@ -130,7 +127,7 @@ import { Modal } from './Dialog';
 import type { SettingsNavigation } from '../hooks/useSettingsNavigation';
 import { z } from 'zod';
 import { RetainedSettingsPage } from './settings/RetainedSettingsPage';
-const PerformanceMonitor = lazy(() => import('./settings/PerformanceMonitor'));
+import LogPerformanceSettings from './settings/LogPerformanceSettings';
 import { useAppLock } from '../state/lock';
 import {
   SETTINGS_GROUPS,
@@ -277,21 +274,10 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <GlobalSettingsSection section="network" />,
   },
   {
-    id: 'performance-monitor',
-    label: '性能监视',
+    id: 'logs',
+    label: '日志与性能',
     icon: <Activity size={16} />,
-    render: () => (
-      <Suspense
-        fallback={
-          <div className="weq-set">
-            <SectionHeader title="性能监视" icon={<Activity size={16} />} />
-            <PanelLoading />
-          </div>
-        }
-      >
-        <PerformanceMonitor />
-      </Suspense>
-    ),
+    render: () => <LogPerformanceSettings />,
   },
   {
     id: 'diagnostics',
@@ -467,12 +453,6 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
         </div>
       </>
     ),
-  },
-  {
-    id: 'logs',
-    label: '日志',
-    icon: <ScrollText size={16} />,
-    render: () => <HelpSection page="logs" />,
   },
 ];
 

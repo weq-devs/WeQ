@@ -287,7 +287,7 @@ describe('设置归位后的实际页面', () => {
       );
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((node) => node.textContent),
-      ).toEqual(['版本与更新', '配置备份与恢复', '日志', '性能监视', '常见问题', '反馈']);
+      ).toEqual(['版本与更新', '配置备份与恢复', '日志与性能', '常见问题', '反馈']);
       expect(f.onOpenMaintenance).not.toHaveBeenCalled();
     } finally {
       f.close();
@@ -612,7 +612,8 @@ describe('设置归位后的实际页面', () => {
     const root = createRoot(host);
     try {
       act(() => root.render(createElement(HelpSection)));
-      expect(host.textContent).toContain('合成日志查看器');
+      expect(host.textContent).toContain('打开日志查看');
+      expect(host.textContent).not.toContain('合成日志查看器');
       const tabs = [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
       act(() => tabs.find((tab) => tab.textContent === '常见问题')!.click());
       expect(host.textContent).toContain('合成常见问题正文');
@@ -628,7 +629,7 @@ describe('设置归位后的实际页面', () => {
     try {
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((item) => item.textContent),
-      ).toEqual(['版本与更新', '配置备份与恢复', '日志', '性能监视', '常见问题', '反馈']);
+      ).toEqual(['版本与更新', '配置备份与恢复', '日志与性能', '常见问题', '反馈']);
       expect(f.body().querySelector('h3')?.textContent).toBe('版本与更新');
       expect(f.body().textContent).toContain('内置组件');
       expect(f.body().textContent).not.toContain('监控新版本发布');
@@ -639,9 +640,13 @@ describe('设置归位后的实际页面', () => {
       expect(f.body().textContent).toContain('合成常见问题正文');
       expect(f.body().querySelector('[role="tablist"]')).toBeNull();
       f.render('logs');
-      expect(f.body().querySelector('h3')?.textContent).toBe('日志');
+      expect(f.body().querySelector('h3')?.textContent).toBe('日志与性能');
       expect(f.body().textContent).toContain('日志保留时长');
-      expect(f.body().textContent).toContain('合成日志查看器');
+      expect(f.body().textContent).toContain('打开日志查看');
+      expect(f.body().textContent).not.toContain('合成日志查看器');
+      f.render('performance-monitor');
+      expect(f.body().querySelector('h3')?.textContent).toBe('日志与性能');
+      expect(f.body().querySelector('[data-setting-id="performance-monitor"]')).not.toBeNull();
       const feedback = [
         ...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item'),
       ].find((item) => item.textContent === '反馈')!;

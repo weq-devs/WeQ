@@ -6,6 +6,7 @@ import { SettingsDialog, type SectionId } from '../src/renderer/src/components/S
 import { useSettingsMaintenance } from '../src/renderer/src/hooks/useSettingsMaintenance';
 import { useAppLock } from '../src/renderer/src/state/lock';
 import { useCaptureWindow } from '../src/renderer/src/state/captureWindow';
+import { useLogPerformanceWindow } from '../src/renderer/src/state/logPerformanceWindow';
 import { useUpdateStore } from '../src/renderer/src/state/update';
 import type { MaintenanceTool } from '../src/renderer/src/components/settings/DataMaintenanceSection';
 import { DataMaintenanceDialog } from '../src/renderer/src/components/settings/DataMaintenanceDialog';
@@ -57,6 +58,7 @@ vi.mock('../src/renderer/src/components/settings/LogViewerPanel', () => ({
 
 afterEach(() => {
   useCaptureWindow.getState().dismiss();
+  useLogPerformanceWindow.getState().dismiss();
   useAppLock.setState({ locked: false });
   useUpdateStore.setState({ available: false });
   vi.unstubAllGlobals();
@@ -211,10 +213,13 @@ describe('设置来源工具不替换设置页面', () => {
     }
   });
 
-  it('日志查看器留在设置正文，不创建模态层或新的工作区页面', () => {
+  it('日志与性能只在设置正文展示配置和入口，不挂载查看器', () => {
     const f = fixture('logs');
     try {
-      expect(f.host.querySelector('.weq-settings-body [data-log-viewer]')).not.toBeNull();
+      expect(f.host.querySelector('.weq-settings-body [data-log-viewer]')).toBeNull();
+      expect(f.host.querySelector('.weq-settings-body')?.textContent).toContain('打开性能监视');
+      expect(f.host.querySelector('.weq-settings-body')?.textContent).toContain('打开日志查看');
+      expect(f.host.querySelector('.weq-settings-body .weq-perf-chart')).toBeNull();
       expect(document.querySelector('.weq-tool-modal')).toBeNull();
       expect(f.host.querySelectorAll('.weq-workspace-page')).toHaveLength(1);
     } finally {

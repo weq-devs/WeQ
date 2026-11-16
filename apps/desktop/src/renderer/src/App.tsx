@@ -31,6 +31,7 @@ import { HoverTooltip } from './components/HoverTooltip';
 import { ToastHost, useToast } from './components/Toast';
 import { DbRepairWindowHost } from './components/DbRepairWindow';
 import { CaptureWindowHost } from './components/CaptureWindow';
+import { LogPerformanceWindowHost } from './components/LogPerformanceWindow';
 import { WelcomeDialog } from './components/WelcomeDialog';
 import { JoinGroupDialog } from './components/JoinGroupDialog';
 import { CloseConfirmDialog } from './components/CloseConfirmDialog';
@@ -267,6 +268,7 @@ export default function App(): ReactElement {
             <HoverTooltip />
             <DbRepairWindowHost />
             <CaptureWindowHost />
+            <LogPerformanceWindowHost />
             <DesktopOnly>
               <CloseConfirmDialog />
             </DesktopOnly>

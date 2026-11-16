@@ -163,7 +163,7 @@ describe('日志页保留与活动读取', () => {
         await vi.advanceTimersByTimeAsync(6000);
       });
       expect(fixture.info).toHaveBeenCalledTimes(reads);
-      expect([...fixture.enabled.values()]).toEqual([false, false]);
+      expect([...fixture.enabled.entries()]).toEqual([['listLogFiles', false]]);
       fixture.text.set('/synthetic/a.log', line('a-one') + line('a-two'));
       f.render(true);
       await flush();
@@ -225,7 +225,7 @@ describe('日志页保留与活动读取', () => {
     try {
       await flush();
       const pause = [...f.host.querySelectorAll<HTMLButtonElement>('button')].find(
-        (button) => button.textContent === '实时更新中',
+        (button) => button.textContent === '跟随最新',
       )!;
       act(() => pause.click());
       f.render(false);

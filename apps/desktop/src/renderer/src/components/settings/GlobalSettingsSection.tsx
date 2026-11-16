@@ -26,7 +26,6 @@ import {
   PanelsTopLeft,
   RotateCcw,
   Settings2,
-  ScrollText,
   Trash2,
   User,
 } from 'lucide-react';
@@ -70,17 +69,6 @@ const CLOSE_BEHAVIOR_OPTIONS: ReadonlyArray<{ value: WindowCloseBehavior; label:
   { value: 'quit', label: '直接退出' },
 ];
 
-/** 日志保留时长档位（0 = 永久保留）。日志按天拆文件，所以档位用「天」最直观。 */
-const LOG_RETENTION_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
-  { value: 1, label: '1 天' },
-  { value: 3, label: '3 天' },
-  { value: 7, label: '7 天（默认）' },
-  { value: 14, label: '14 天' },
-  { value: 30, label: '30 天' },
-  { value: 90, label: '90 天' },
-  { value: 0, label: '永久保留' },
-];
-
 export function GlobalSettingsSection({
   section = 'general',
   heading = true,
@@ -98,7 +86,6 @@ export function GlobalSettingsSection({
   // 初值与 DEFAULT_APP_SETTINGS 保持一致，否则首次渲染会先显示旧档位再跳变。
   const [closeBehavior, setCloseBehavior] = useState<WindowCloseBehavior>('tray');
   const [preferCdn, setPreferCdn] = useState(false);
-  const [logRetentionDays, setLogRetentionDays] = useState(7);
 
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
     enabled: active,
@@ -132,7 +119,6 @@ export function GlobalSettingsSection({
   const setWindowsStyle = trpc.bootstrap.setWindowsStyleControls.useMutation();
   const platform = !IS_WEB ? window.electron?.process.platform : undefined;
   const setPreferCdnMut = trpc.bootstrap.setPreferCdn.useMutation();
-  const setLogRetention = trpc.bootstrap.setLogRetentionDays.useMutation();
 
   // 存储统计包含持久数据，选择与清理只针对后端明确标记的可清理项。
   const cacheUsage = trpc.bootstrap.listStorageUsage.useQuery(undefined, {
@@ -191,24 +177,6 @@ export function GlobalSettingsSection({
     const enabled = settings.data?.preferCdn;
     if (typeof enabled === 'boolean') setPreferCdn(enabled);
   }, [settings.data?.preferCdn]);
-
-  useEffect(() => {
-    const days = settings.data?.logRetentionDays;
-    if (typeof days === 'number') setLogRetentionDays(days);
-  }, [settings.data?.logRetentionDays]);
-
-  async function onOpenLogDir(): Promise<void> {
-    try {
-      await window.weq.openLogDir();
-      pushToast({
-        tone: 'success',
-        title: '已打开日志文件夹',
-        detail: '日志按日期拆分保存，反馈问题时可将最新日志一并附上。',
-      });
-    } catch (e) {
-      showError('打开日志文件夹失败', errMsg(e));
-    }
-  }
 
   const cacheMulti = useMultiSelection({
     ids: storageEntries.filter(({ item }) => item.clearable).map(({ item }) => item.id),
@@ -413,20 +381,6 @@ export function GlobalSettingsSection({
       setPreferCdn(prev);
       await settings.refetch();
       showError('保存 CDN 设置失败', errMsg(e));
-    }
-  }
-
-  // 保存后主进程会立即按新阈值清一轮，所以这里只是"回读一次真实值 + 失败回滚"。
-  async function onSetLogRetention(days: number): Promise<void> {
-    const prev = logRetentionDays;
-    setLogRetentionDays(days);
-    try {
-      await setLogRetention.mutateAsync({ days });
-      await settings.refetch();
-    } catch (e) {
-      setLogRetentionDays(prev);
-      await settings.refetch();
-      showError('保存日志保留时长失败', errMsg(e));
     }
   }
 
@@ -779,51 +733,9 @@ export function GlobalSettingsSection({
         </Card>
       )}
 
-      {section === 'logs' && (
-        <Card title="日志文件" icon={<ScrollText size={15} strokeWidth={1.8} />} remoteUnsupported>
-          <Row
-            label="日志保留时长"
-            desc={
-              logRetentionDays > 0
-                ? `超过 ${logRetentionDays} 天的日志会在启动时与后台自动清理，日志文件夹不会一直变大。正在写入的当天日志永远保留。`
-                : '永久保留全部日志，不自动清理。日志文件夹会随着使用持续变大。'
-            }
-            control={
-              <select
-                className="weq-set-input"
-                value={String(logRetentionDays)}
-                disabled={settings.isLoading || setLogRetention.isLoading}
-                onChange={(e) => void onSetLogRetention(Number(e.target.value))}
-                aria-label="日志保留时长"
-              >
-                {/* 配置里存了非档位值（旧版本 / 手改）时补一个选项，避免 select 显示为空 */}
-                {logRetentionDays > 0 &&
-                !LOG_RETENTION_OPTIONS.some((o) => o.value === logRetentionDays) ? (
-                  <option value={String(logRetentionDays)}>{logRetentionDays} 天</option>
-                ) : null}
-                {LOG_RETENTION_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={String(opt.value)}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            }
-          />
-          <DesktopOnly>
-            <Row
-              label="日志文件夹"
-              desc="日志按日期拆分保存到 WeQ 缓存目录下的 logs 文件夹。"
-              control={
-                <button type="button" className="weq-set-btn" onClick={() => void onOpenLogDir()}>
-                  <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
-                  打开日志文件夹
-                </button>
-              }
-            />
-          </DesktopOnly>
-        </Card>
-      )}
+      {section === 'logs' && <LogFileSettings />}
     </div>
   );
 }
 import { formatBytes } from '../../lib/format';
+import { LogFileSettings } from './LogFileSettings';

@@ -15,6 +15,8 @@ export type ToolWindowName =
   | 'weq-db-repair'
   | 'weq-call'
   | 'weq-capture'
+  | 'weq-performance-monitor'
+  | 'weq-log-viewer'
   | GroupResourceWindowName;
 
 /** 在触发点击中先创建空白窗口，避免浏览器把后续 React effect 当成弹窗拦截。 */

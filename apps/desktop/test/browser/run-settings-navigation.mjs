@@ -140,8 +140,7 @@ try {
       assert.deepEqual(await page.locator('.weq-settings-subnav-item').allTextContents(), [
         '版本与更新',
         '配置备份与恢复',
-        '日志',
-        '性能监视',
+        '日志与性能',
         '常见问题',
         '反馈',
       ]);

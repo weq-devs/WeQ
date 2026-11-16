@@ -25,7 +25,6 @@ export const SETTINGS_PAGE_LABELS = {
   accounts: 'WeQ 账号管理',
   'qq-accounts': 'QQ 登录记录管理',
   diagnostics: 'QQ 协议工具',
-  'performance-monitor': '性能监视',
   'database-repair': '损坏与修复',
   'database-tolerance': '数据库容错',
   'database-management': '数据库管理',
@@ -41,13 +40,14 @@ export const SETTINGS_PAGE_LABELS = {
   backup: '配置备份与恢复',
   version: '版本与更新',
   faq: '常见问题',
-  logs: '日志',
+  logs: '日志与性能',
   feedback: '反馈',
 } as const;
 
 export type SettingsPageId = keyof typeof SETTINGS_PAGE_LABELS;
 export type SectionId =
   | SettingsPageId
+  | 'performance-monitor'
   | 'anti-recall'
   | 'home'
   | 'applock'
@@ -123,7 +123,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
   {
     id: 'help',
     label: '关于 WeQ',
-    sections: ['version', 'backup', 'logs', 'performance-monitor', 'faq', 'feedback'],
+    sections: ['version', 'backup', 'logs', 'faq', 'feedback'],
   },
 ];
 
@@ -237,10 +237,19 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   ),
   {
     id: 'performance-monitor',
-    section: 'performance-monitor',
+    section: 'logs',
     label: '性能监视',
     aliases: ['性能记录', 'CPU', '内存历史'],
-    from: ['diagnostics', 'performance-monitor'],
+    from: ['diagnostics', 'performance-monitor', 'logs'],
+  },
+  { id: 'log-retention', section: 'logs', label: '日志保留时长', from: ['logs'] },
+  { id: 'log-folder', section: 'logs', label: '日志文件夹', from: ['logs'], desktopOnly: true },
+  {
+    id: 'native-debug-log',
+    section: 'logs',
+    label: '原生调试日志',
+    aliases: ['底层调试', '调试模式'],
+    from: ['logs'],
   },
   { id: 'component-style', section: 'appearance', label: '组件风格', from: ['appearance'] },
   { id: 'interface-density', section: 'appearance', label: '界面密度', from: ['appearance'] },
@@ -750,6 +759,7 @@ const SECTION_REDIRECTS: Partial<
   Record<SectionId, { section: SettingsPageId; settingId?: string }>
 > = {
   applock: { section: 'privacy', settingId: 'app-lock' },
+  'performance-monitor': { section: 'logs', settingId: 'performance-monitor' },
   home: { section: 'startup', settingId: 'home-settings' },
   saving: { section: 'global' },
   storage: { section: 'weq-storage' },
