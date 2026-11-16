@@ -1187,6 +1187,10 @@ export interface NtHelperBinding {
     mode?: number,
   ): Promise<Buffer>;
 
+  /** 新版 native 显式按 QQ 进程号发送；旧发布构建仍使用同名主入口。 */
+  sendPacketByPid?: NtHelperBinding['sendPacket'];
+  sendOidbPacketByPid?: NtHelperBinding['sendOidbPacket'];
+
   // --- 语音通话的媒体编码 ---
   /**
    * 打开语音通话用的 Opus 编解码器。

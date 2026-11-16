@@ -23,6 +23,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { NativeBuildInfo, NativeBundle, NtHelperBinding } from './types';
 import { InitStatus } from './types';
+import { withProcessTransport } from './process_transport';
 
 export const INIT_ERROR_MESSAGES: Record<InitStatus, string> = {
   [InitStatus.Success]: 'Initialization successful',
@@ -127,7 +128,7 @@ export function loadNative(opts: LoadNativeOptions = {}): NativeBundle {
 
   let ntHelper: NtHelperBinding;
   try {
-    ntHelper = requireFromHere(ntHelperPath) as NtHelperBinding;
+    ntHelper = withProcessTransport(requireFromHere(ntHelperPath) as NtHelperBinding);
     logToFile('[loadNative] nt_helper.node loaded successfully');
   } catch (err) {
     logToFile('[loadNative] Failed to require nt_helper.node:', err);
