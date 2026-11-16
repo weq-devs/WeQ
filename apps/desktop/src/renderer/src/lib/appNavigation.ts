@@ -84,7 +84,7 @@ export const APP_NAVIGATION = {
     target: { kind: 'view', view: 'channel' },
     workspace: 'channel',
     keywords: ['频道'],
-    placements: { rail: 3, 'mobile-more': 2, search: 6 },
+    placements: { rail: 3, search: 6 },
   },
   'guild-direct': {
     label: '频道私聊',
@@ -92,7 +92,7 @@ export const APP_NAVIGATION = {
     target: { kind: 'view', view: 'guild-direct' },
     workspace: 'guild-direct',
     keywords: [],
-    placements: { 'mobile-more': 3, search: 7 },
+    placements: { search: 7 },
   },
   annual: {
     label: '年度报告',
@@ -122,7 +122,7 @@ export const APP_NAVIGATION = {
     icon: FEATURE_ICONS.assistant,
     target: { kind: 'tool', tool: 'assistant' },
     keywords: ['AI 助手', '智能助手'],
-    placements: { 'mobile-more': 8, search: 11 },
+    placements: { search: 11 },
   },
   analysis: {
     label: '分析与报告',

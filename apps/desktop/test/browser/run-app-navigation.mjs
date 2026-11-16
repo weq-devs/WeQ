@@ -95,6 +95,7 @@ try {
         ['QQ 频道', 'channel'],
         ['主页', 'home'],
       ]) {
+        if (single && label === 'QQ 频道') continue;
         if (single && !['QQ 空间'].includes(label))
           await nav.getByRole('button', { name: '更多', exact: true }).click();
         const button =
@@ -108,6 +109,14 @@ try {
       }
       if (single) {
         await nav.getByRole('button', { name: '更多', exact: true }).click();
+        for (const label of ['QQ 频道', '频道私聊', 'WeQ 助手'])
+          assert.equal(
+            await page
+              .locator('.weq-mobile-more')
+              .getByRole('button', { name: label, exact: true })
+              .count(),
+            0,
+          );
         if (output)
           await page.screenshot({ path: resolve(output, `${width}-${height}-${theme}-more.png`) });
       }

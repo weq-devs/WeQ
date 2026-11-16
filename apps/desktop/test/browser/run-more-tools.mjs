@@ -49,7 +49,7 @@ try {
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/more-tools.html`,
   );
   await page.waitForSelector('.weq-mobile-more');
-  const names = ['任务', 'WeQ 助手', '分析与报告', '导出', '导出查看器', '合成聊天记录'];
+  const names = ['任务', '分析与报告', '导出', '导出查看器', '合成聊天记录'];
   const swipeBack = async (selector) => {
     await page.evaluate(async (selector) => {
       const target = document.querySelector(selector);
@@ -100,6 +100,11 @@ try {
       if (output)
         await page.screenshot({ path: resolve(output, `more-list-${width}-${theme}.png`) });
       assert.equal(await page.locator('.weq-mobile-more .weq-workspace-menu-trigger').count(), 0);
+      for (const name of ['QQ 频道', '频道私聊', 'WeQ 助手'])
+        assert.equal(
+          await page.locator('.weq-mobile-more').getByRole('button', { name, exact: true }).count(),
+          0,
+        );
       await page
         .locator('.weq-mobile-more')
         .getByRole('button', { name: '个性装扮', exact: true })
@@ -118,12 +123,10 @@ try {
       for (const [name, view] of [
         ['主页', 'home'],
         ['QQ 邮箱', 'mail'],
-        ['频道私聊', 'guild-direct'],
         ['年度报告', 'annual'],
       ]) {
         await page.locator('.weq-mobile-more').getByRole('button', { name, exact: true }).click();
         await page.locator(`[data-secondary-page="${view}"]`).waitFor();
-        if (view === 'guild-direct') assert.ok(await page.locator('.weq-guild-direct').isVisible());
         if (view === 'mail') {
           await page.locator('.weq-mail-primary').click();
           await page.getByRole('region', { name: '写邮件', exact: true }).waitFor();
@@ -165,9 +168,9 @@ try {
   await page.locator('[data-mobile-tab="more"]').click();
   await page
     .locator('.weq-mobile-more')
-    .getByRole('button', { name: 'WeQ 助手', exact: true })
+    .getByRole('button', { name: '分析与报告', exact: true })
     .click();
-  await page.getByRole('region', { name: 'WeQ 助手', exact: true }).waitFor();
+  await page.getByRole('region', { name: '分析与报告', exact: true }).waitFor();
   await page.evaluate(() => window.weqMobileNavigation.back());
   await page.waitForSelector('.weq-mobile-more');
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -190,7 +193,7 @@ try {
   assert.equal(await page.locator('.weq-workspace-page').count(), 0);
   assert.deepEqual(errors, []);
   console.log(
-    'PASS: 个性装扮顶底栏与返回、频道私聊直达、更多四个次级页面与六个工具、真实邮箱写信分层侧滑、320/390 深浅色、顶底栏边界、同标签返回、跨标签关闭及系统返回',
+    'PASS: 个性装扮顶底栏与返回、更多移除频道与助手、三个次级页面与五个工具、真实邮箱写信分层侧滑、320/390 深浅色、顶底栏边界、同标签返回、跨标签关闭及系统返回',
   );
 } finally {
   await browser?.close();

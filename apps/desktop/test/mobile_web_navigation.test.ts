@@ -93,12 +93,15 @@ it('导航使用完整统一名称，收藏入口不再带有个人前缀', asyn
   expect(props.onOpenCollection).toHaveBeenCalledOnce();
 });
 
-it('更多保留全部次级入口，选中后关闭列表并调用原有操作', async () => {
+it('更多保留其余次级入口，选中后关闭列表并调用原有操作', async () => {
   await act(async () => root.render(createElement(MobileWebNavigation, props)));
   await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
   expect(host.querySelector('[aria-label="更多功能"]')).not.toBeNull();
-  await click('频道私聊');
-  expect(props.onViewChange).toHaveBeenCalledWith('guild-direct');
+  const more = host.querySelector('[aria-label="更多功能"]')!;
+  for (const label of ['QQ 频道', '频道私聊', 'WeQ 助手'])
+    expect(more.textContent).not.toContain(label);
+  await click('年度报告');
+  expect(props.onViewChange).toHaveBeenCalledWith('annual');
   expect(host.querySelector('[aria-label="更多功能"]')).toBeNull();
   await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
   await click('设置');

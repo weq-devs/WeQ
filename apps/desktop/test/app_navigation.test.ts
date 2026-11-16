@@ -17,7 +17,16 @@ describe('共用功能导航', () => {
     }
     const tabs = navigationEntries('mobile-tabs');
     expect(tabs.map(({ id }) => id)).toEqual(['messages', 'contacts', 'qzone', 'more']);
-    expect(navigationEntries('mobile-more').some(({ id }) => id === 'channel')).toBe(true);
+  });
+
+  it('竖版更多不再展示频道、频道私聊和助手，保留搜索及横版频道入口', () => {
+    const moreIds = navigationEntries('mobile-more').map(({ id }) => id);
+    const searchIds = navigationEntries('search').map(({ id }) => id);
+    for (const id of ['channel', 'guild-direct', 'assistant']) {
+      expect(moreIds).not.toContain(id);
+      expect(searchIds).toContain(id);
+    }
+    expect(navigationEntries('rail').map(({ id }) => id)).toContain('channel');
   });
 
   it('搜索与导航展示同名功能并指向相同目标', () => {
