@@ -63,6 +63,9 @@ import { localBackgroundTasks } from '../../state/backgroundTasks';
 import { IS_WEB } from '../../lib/target';
 import { backgroundTaskNavigation } from './backgroundTaskNavigation';
 import { EmptyState } from '../EmptyState';
+import { TaskProgressDetails } from './TaskProgressDetails';
+import { FlashTaskLog } from './FlashTaskLog';
+import { TaskProgressBar } from './TaskProgressBar';
 
 export interface ExportTaskActions {
   pause: (task: UiTask) => unknown;
@@ -287,7 +290,14 @@ export function CurrentTaskList({
         ) : null,
       detail: (
         <div>
-          <p role={task.status === 'error' ? 'alert' : undefined}>{task.error || task.phase}</p>
+          <TaskProgressDetails
+            name={task.name}
+            status={
+              task.status === 'done' ? 'completed' : task.status === 'error' ? 'failed' : 'running'
+            }
+            progress={task.percent}
+            note={task.error || task.phase}
+          />
           <CloneTaskLog key={`${task.personaId}:${task.revision}`} task={task} />
           <div className="weq-long-task-actions">
             {task.status === 'done' && onOpenClone ? (
@@ -420,7 +430,13 @@ export function CurrentTaskList({
       kind: '漫游拉取',
       status: 'running',
       icon: <CloudDownload size={16} />,
-      detail: <p>正在检查所选范围内的本地记录与候选缺口。</p>,
+      detail: (
+        <TaskProgressDetails
+          name="正在检查缺失消息"
+          status="running"
+          note="正在检查所选范围内的本地记录与候选缺口。"
+        />
+      ),
     });
   }
   for (const task of flash.data ?? []) {
@@ -515,6 +531,27 @@ export function CurrentTaskList({
       quickActions: <TaskQuickActions actions={actions} />,
       detail: (
         <div>
+          <TaskProgressDetails
+            name={task.name}
+            status={
+              task.status === 'done'
+                ? 'completed'
+                : task.status === 'resolving' || task.status === 'downloading'
+                  ? 'running'
+                  : task.status
+            }
+            statusLabel={task.status === 'resolving' ? '获取链接' : undefined}
+            progress={
+              task.status === 'done'
+                ? 100
+                : task.fileSize > 0
+                  ? (task.downloadedBytes / task.fileSize) * 100
+                  : undefined
+            }
+            note={task.error}
+            startedAt={task.createdAt}
+            finishedAt={task.finishedAt}
+          />
           <p>
             {task.filesetName} · 已完成{' '}
             {task.files?.filter((file) => file.status === 'done').length ??
@@ -522,7 +559,6 @@ export function CurrentTaskList({
             / {task.files?.length ?? 1} 个文件
           </p>
           {(task.files?.length ?? 1) === 1 ? <p>{task.targetPath}</p> : null}
-          {task.error ? <p role="alert">{task.error}</p> : null}
           <ul className="weq-flash-task-files" aria-label="下载文件">
             {(task.files ?? [task]).map((file) => (
               <li key={file.id}>
@@ -540,10 +576,31 @@ export function CurrentTaskList({
                   }{' '}
                   · {formatSize(file.downloadedBytes)} / {formatSize(file.fileSize)}
                 </span>
+                <TaskProgressBar
+                  value={
+                    file.status === 'done'
+                      ? 100
+                      : file.fileSize > 0
+                        ? Math.min(100, (file.downloadedBytes / file.fileSize) * 100)
+                        : undefined
+                  }
+                  label={`${file.relativePath}下载进度`}
+                  status={
+                    file.status === 'downloading' || file.status === 'resolving'
+                      ? 'running'
+                      : file.status
+                  }
+                />
                 {file.error ? <p role="alert">{file.error}</p> : null}
               </li>
             ))}
           </ul>
+          <FlashTaskLog
+            key={`${cleanupBinding?.expectedAccountUin}:${cleanupBinding?.expectedAccountConfigId}:${task.id}`}
+            taskId={task.id}
+            version={task.logVersion}
+            binding={cleanupBinding}
+          />
           <div className="weq-long-task-actions">
             {!IS_WEB && single && task.status === 'done' ? (
               <button

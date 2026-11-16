@@ -44,11 +44,13 @@ it('真实 HTTP link 在慢业务批次未结束时仍返回任务和日志', as
       client.query('backgroundTasks.list'),
       client.query('backgroundTasks.logs'),
       client.query('account.listExportTasks'),
+      client.query('account.flashDownloadTaskLogs'),
     ]);
     expect(values).toEqual([
       '/trpc/backgroundTasks.list',
       '/trpc/backgroundTasks.logs',
       '/trpc/account.listExportTasks',
+      '/trpc/account.flashDownloadTaskLogs',
     ]);
     expect(slowFinished).toBe(false);
     expect(requests.every((path) => !path.includes(','))).toBe(true);

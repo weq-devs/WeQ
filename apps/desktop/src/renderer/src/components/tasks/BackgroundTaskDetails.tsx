@@ -25,9 +25,12 @@ import type { TaskLogLine } from '../TaskLogConsole';
 import { CalendarTaskDetails } from '../CalendarTaskDetails';
 import { ContactTaskStages } from './ContactTaskStages';
 import { backgroundTaskNavigation } from './backgroundTaskNavigation';
+import { TaskActivityLog } from './TaskActivityLog';
+import { TaskProgressDetails } from './TaskProgressDetails';
 import '../../styles/export.css';
 import '../../styles/conversation-overview-calendar.css';
 import '../../styles/contact-directory-order.css';
+import '../../styles/long-tasks.css';
 
 export const BACKGROUND_TASK_LABELS = {
   analysis: '分析报告',
@@ -99,7 +102,7 @@ function TaskDetails({
   const taskLogs = trpc.backgroundTasks.logs.useQuery(
     { id: task.id, scope, updatedAt: task.updatedAt },
     {
-      enabled: entry.source === 'host' && task.kind === 'contacts',
+      enabled: entry.source === 'host' && task.kind !== 'calendar',
       cacheTime: 0,
       keepPreviousData: true,
     },
@@ -108,7 +111,7 @@ function TaskDetails({
   useEffect(() => {
     if (taskLogs.data) retainedLogs.current = taskLogs.data;
   }, [taskLogs.data]);
-  const contactLogs =
+  const logs =
     (entry.source === 'host' ? (taskLogs.data ?? retainedLogs.current) : task.logs) ??
     contactLogLines(details ?? []);
   const [busy, setBusy] = useState(false);
@@ -126,7 +129,16 @@ function TaskDetails({
     }
   };
   return (
-    <div>
+    <div className="weq-background-task-details">
+      <TaskProgressDetails
+        name={task.name}
+        status={task.status}
+        statusLabel={task.statusLabel}
+        progress={task.progress}
+        note={task.kind === 'contacts' && task.subtasks?.length ? undefined : task.note}
+        startedAt={task.startedAt}
+        finishedAt={task.finishedAt}
+      />
       {task.kind === 'calendar' ? (
         <CalendarTaskDetails
           key={task.id}
@@ -138,15 +150,11 @@ function TaskDetails({
       {task.kind === 'contacts' ? (
         <ContactTaskStages
           task={task}
-          logs={contactLogs}
+          logs={logs}
           onShowFailures={(label, items) =>
             showError(`${label}读取失败`, items.map((item) => item.error).join('\n'))
           }
         />
-      ) : null}
-      {task.note &&
-      (task.kind !== 'contacts' || (task.status === 'failed' && !task.subtasks?.length)) ? (
-        <p role={task.status === 'failed' ? 'alert' : undefined}>{task.note}</p>
       ) : null}
       {hostDetails.error && entry.source === 'host' ? (
         <p role="alert">详情读取失败：{hostDetails.error.message}</p>
@@ -163,6 +171,13 @@ function TaskDetails({
             ))}
           </ul>
         </div>
+      ) : null}
+      {task.kind !== 'calendar' && (task.kind !== 'contacts' || !task.subtasks?.length) ? (
+        <TaskActivityLog
+          lines={logs}
+          loading={entry.source === 'host' && taskLogs.isLoading}
+          error={taskLogs.error?.message}
+        />
       ) : null}
       <div className="weq-long-task-actions">
         {navigation ? (

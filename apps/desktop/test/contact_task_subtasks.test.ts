@@ -55,7 +55,7 @@ it('好友和群聊复用导出子任务样式，分别显示进度并独立完�
   expect(
     [...host.querySelectorAll('.weq-exp-detail-stage-pct')].map((node) => node.textContent),
   ).toEqual(['25%', '50%']);
-  expect(host.querySelectorAll('.weq-exp-detail-stage-fill.is-active')).toHaveLength(2);
+  expect(host.querySelectorAll('.weq-exp-detail-stage-bar.is-running')).toHaveLength(2);
   render({
     subtasks: [
       { label: '好友', done: 1, total: 4, failed: 0 },
@@ -64,7 +64,7 @@ it('好友和群聊复用导出子任务样式，分别显示进度并独立完�
   });
   expect(stages[0]?.classList.contains('is-running')).toBe(true);
   expect(stages[1]?.classList.contains('is-completed')).toBe(true);
-  expect(host.querySelectorAll('.weq-exp-detail-stage-fill.is-active')).toHaveLength(1);
+  expect(host.querySelectorAll('.weq-exp-detail-stage-bar.is-running')).toHaveLength(1);
 });
 
 it('分项日志不混用，失败详情只包含对应群聊错误', () => {
@@ -129,7 +129,7 @@ it('联系人任务保留总进度，不影响导出日志的默认行为', () =
 it.each(['paused', 'cancelled', 'failed'] as const)('%s 时停止未完成子任务动画', (status) => {
   const { host, render } = mount();
   render({ status });
-  expect(host.querySelectorAll('.weq-exp-detail-stage-fill.is-active')).toHaveLength(0);
+  expect(host.querySelectorAll('.weq-exp-detail-stage-bar.is-running')).toHaveLength(0);
 });
 
 it('空分项显示跳过，不伪造进度；准备阶段没有分项时不显示空容器', () => {

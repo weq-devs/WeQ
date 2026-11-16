@@ -7416,8 +7416,24 @@ export const accountRouter = router({
 
   /** 全部下载任务（含历史，新在前）。 */
   flashListDownloadTasks: procedure.query(() => {
-    return requireServices().flashTransferFiles.downloads.list();
+    return requireServices()
+      .flashTransferFiles.downloads.list()
+      .map(({ logs: _logs, files, ...task }) => ({
+        ...task,
+        logVersion: files.reduce((total, file) => total + (file.logs?.at(-1)?.seq ?? 0), 0),
+        files: files.map(({ logs: _fileLogs, ...file }) => file),
+      }));
   }),
+
+  flashDownloadTaskLogs: procedure
+    .input(generatedAccountInput.extend({ taskId: z.string().min(1), version: z.number() }))
+    .query(({ input }) => {
+      const task = requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId)
+        .flashTransferFiles.downloads.list()
+        .find((task) => task.id === input.taskId);
+      if (!task) throw new Error('下载记录不存在');
+      return task.logs ?? [];
+    }),
 
   /** 取消单个下载任务（进行中的会中断下载）。 */
   flashCancelDownloadTask: procedure

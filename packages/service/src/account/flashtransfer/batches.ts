@@ -33,6 +33,15 @@ export function groupFlashDownloads(tasks: FlashDownloadTask[]): FlashDownloadBa
       name: first.batchId ? first.filesetName : first.name,
       status,
       files,
+      logs: files
+        .flatMap((file, index) =>
+          (file.logs ?? []).map((line) => ({
+            ...line,
+            seq: line.seq * files.length + index,
+          })),
+        )
+        .sort((a, b) => a.ts - b.ts)
+        .slice(-300),
       fileSize: files.reduce((sum, file) => sum + file.fileSize, 0),
       downloadedBytes: files.reduce((sum, file) => sum + file.downloadedBytes, 0),
       createdAt: Math.min(...files.map((file) => file.createdAt)),

@@ -173,6 +173,37 @@ export class FlashTransferDownloadManager extends EventEmitter {
   }
 
   private emitTask(task: FlashDownloadTask): void {
+    const previous = task.logs?.at(-1);
+    const stage = task.status;
+    const pct = task.fileSize > 0 ? Math.floor((task.downloadedBytes / task.fileSize) * 10) : 0;
+    const checkpoint = `${stage}:${pct}`;
+    if (
+      !previous ||
+      previous.stage.split(':')[0] !== stage ||
+      (stage === 'downloading' && previous.stage !== checkpoint && Date.now() - previous.ts >= 1000)
+    ) {
+      const label = {
+        pending: '等待下载',
+        resolving: '获取下载链接',
+        downloading: '下载中',
+        done: '文件已保存',
+        failed: '下载失败',
+        cancelled: '已取消下载',
+      }[stage];
+      task.logs = [
+        ...(task.logs ?? []).slice(-99),
+        {
+          ts: Date.now(),
+          seq: (previous?.seq ?? 0) + 1,
+          stage: checkpoint,
+          level: stage === 'failed' ? 'error' : stage === 'cancelled' ? 'warn' : 'info',
+          text: `${task.relativePath} · ${label}${stage === 'downloading' && task.fileSize > 0 ? ` · ${Math.min(100, pct * 10)}%` : ''}${task.error ? ` · ${task.error}` : ''}`.slice(
+            0,
+            4000,
+          ),
+        },
+      ];
+    }
     this.emit('task', task);
   }
 

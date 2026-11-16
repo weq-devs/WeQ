@@ -1,4 +1,5 @@
 import { Pause, Play, RotateCw } from 'lucide-react';
+import { TaskProgressBar } from './tasks/TaskProgressBar';
 import type {
   CalendarControlAction,
   CalendarControlState,
@@ -51,17 +52,23 @@ export function CalendarScanProgress({
               </strong>
             </div>
             <div className="weq-calendar-progress-track">
-              <progress
-                aria-label={label}
-                aria-valuetext={
+              <TaskProgressBar
+                label={label}
+                status={empty ? 'pending' : (state?.state ?? 'running')}
+                valueText={
                   empty
                     ? '暂无可统计来源'
                     : value
                       ? `已完成 ${value.completedSources} / ${value.totalSources} 个来源统计`
                       : '准备中'
                 }
-                max={Math.max(1, value?.totalSources ?? 1)}
-                value={empty ? 0 : value?.completedSources}
+                value={
+                  empty
+                    ? 0
+                    : value
+                      ? (value.completedSources / Math.max(1, value.totalSources)) * 100
+                      : undefined
+                }
               />
               {onControl ? (
                 <button

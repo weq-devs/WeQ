@@ -1,6 +1,7 @@
 import { TimeLabel } from './TimeLabel';
 import { eventTimeFormatter } from '@weq/time';
 import { useEffect, useMemo, useState } from 'react';
+import { TaskProgressBar } from './tasks/TaskProgressBar';
 import {
   CalendarRange,
   Check,
@@ -710,16 +711,11 @@ export function RoamingBackfillPanel({
                         <small>/ {format(job.plannedSeqs)}</small>
                       </span>
                     </header>
-                    <div
-                      className="weq-roaming-progress"
-                      role="progressbar"
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-valuenow={Math.round(pct)}
-                      aria-label="候选缺口覆盖进度"
-                    >
-                      <span style={{ width: `${pct}%` }} />
-                    </div>
+                    <TaskProgressBar
+                      value={pct}
+                      label="候选缺口覆盖进度"
+                      status={job.status === 'partial' ? 'paused' : job.status}
+                    />
                     <div className="weq-roaming-job-targets">
                       {job.targets.map((target) => (
                         <span key={targetKey(target)} className="weq-roaming-tag">

@@ -1,0 +1,85 @@
+.weq-task-progress-track {
+  --task-progress-color: var(--weq-accent-effective);
+  display: block;
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 5px;
+  width: 100%;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--weq-fg-primary) 12%, transparent);
+}
+
+.weq-task-progress-track.is-failed {
+  --task-progress-color: var(--destructive);
+}
+
+.weq-task-progress-track:is(.is-paused, .is-cancelled, .is-pending, .is-skipped) {
+  --task-progress-color: var(--weq-fg-secondary);
+}
+
+.weq-task-progress-track > progress {
+  display: block;
+  appearance: none;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--task-progress-color);
+}
+
+.weq-task-progress-track > progress::-webkit-progress-bar {
+  background: transparent;
+}
+
+.weq-task-progress-track > progress::-webkit-progress-value {
+  background: var(--task-progress-color);
+  border-radius: 3px;
+}
+
+.weq-task-progress-track > progress::-moz-progress-bar {
+  background: var(--task-progress-color);
+  border-radius: 3px;
+}
+
+.weq-task-progress-track.is-indeterminate > progress {
+  opacity: 0;
+}
+
+.weq-task-progress-indicator {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 35%;
+  border-radius: inherit;
+  background: var(--task-progress-color);
+}
+
+.weq-task-progress-track.is-running > .weq-task-progress-indicator {
+  animation: weq-task-progress-pending 1.6s ease-in-out infinite alternate;
+}
+
+.weq-task-progress-track:not(.is-running) > .weq-task-progress-indicator {
+  display: none;
+}
+
+@keyframes weq-task-progress-pending {
+  to {
+    transform: translateX(185%);
+  }
+}
+
+html[data-theme='dark'] .weq-task-progress-track {
+  background: color-mix(in srgb, var(--weq-fg-primary) 18%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-task-progress-track.is-running > .weq-task-progress-indicator {
+    animation: none;
+    transform: translateX(90%);
+  }
+}

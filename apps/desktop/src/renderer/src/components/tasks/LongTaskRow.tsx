@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Ban, CircleAlert, CircleCheck, Clock, Loader2, Pause } from 'lucide-react';
 import '../../styles/long-tasks.css';
+import { TaskProgressBar } from './TaskProgressBar';
 
 export type LongTaskStatus =
   | 'pending'
@@ -40,6 +41,12 @@ const PRIORITY: Record<LongTaskStatus, number> = {
   cancelled: 5,
 };
 
+export const longTaskStatusLabel = (status: LongTaskStatus) => LABELS[status];
+export const longTaskProgress = (progress?: number) =>
+  progress !== undefined && Number.isFinite(progress)
+    ? Math.max(0, Math.min(100, Math.round(progress)))
+    : undefined;
+
 export function orderLongTasks(items: LongTaskItem[]): LongTaskItem[] {
   return [...items].sort((a, b) => PRIORITY[a.status] - PRIORITY[b.status]);
 }
@@ -63,10 +70,7 @@ export function LongTaskRow({
     failed: CircleAlert,
     cancelled: Ban,
   }[task.status];
-  const progress =
-    task.progress !== undefined && Number.isFinite(task.progress)
-      ? Math.max(0, Math.min(100, Math.round(task.progress)))
-      : undefined;
+  const progress = longTaskProgress(task.progress);
   const row = (
     <button
       type="button"
@@ -83,9 +87,7 @@ export function LongTaskRow({
           {task.kind}
           {task.note ? ` · ${task.note}` : ''}
         </span>
-        {task.status === 'running' || task.status === 'paused' ? (
-          <progress max={100} value={progress} aria-label={`${task.name}进度`} />
-        ) : null}
+        <TaskProgressBar value={progress} label={`${task.name}进度`} status={task.status} />
       </span>
       <span className="weq-long-task-state">
         <span>

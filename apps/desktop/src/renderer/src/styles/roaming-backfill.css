@@ -775,21 +775,6 @@
   font-weight: 500;
 }
 
-.weq-roaming-progress {
-  position: relative;
-  height: 4px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
-  overflow: hidden;
-}
-.weq-roaming-progress > span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--weq-accent-effective);
-  transition: width 240ms ease;
-}
-
 .weq-roaming-job-targets {
   display: flex;
   flex-wrap: wrap;
@@ -1015,10 +1000,6 @@ html[data-theme='dark'] .weq-roaming-job.is-cancelled .weq-roaming-job-icon,
 html[data-theme='dark'] .weq-roaming-job.is-paused .weq-roaming-job-icon {
   color: var(--weq-fg-secondary);
 }
-html[data-theme='dark'] .weq-roaming-progress {
-  background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
-}
-
 /* ---- 窄窗口 ---- */
 @media (max-width: 900px) {
   .weq-roaming-grid,

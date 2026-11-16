@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useState, type ReactElement } from 'react';
+import { TaskProgressBar } from '../../components/tasks/TaskProgressBar';
 import {
   Ban,
   Check,
@@ -344,14 +345,18 @@ export function StageRow({
             失败 {fmtCount(failures.length)}
           </button>
         ) : null}
-        <span className="weq-exp-detail-stage-bar">
-          <span
-            className={`weq-exp-detail-stage-fill${stage.status === 'running' && !paused ? ' is-active' : ''}`}
-            style={{ width: `${pct}%` }}
-          />
-        </span>
+        <TaskProgressBar
+          className="weq-exp-detail-stage-bar"
+          value={stage.status === 'running' && !stage.total ? undefined : pct}
+          label={`${stage.label}进度`}
+          status={paused && stage.status === 'running' ? 'paused' : stage.status}
+        />
         <span className="weq-exp-detail-stage-pct">
-          {stage.status === 'pending' ? '–' : `${pct}%`}
+          {stage.status === 'pending'
+            ? '–'
+            : stage.status === 'running' && !stage.total
+              ? '处理中'
+              : `${pct}%`}
         </span>
         <span className="weq-exp-detail-stage-actions">
           {onSkip ? (
@@ -691,6 +696,11 @@ function TaskDetail({
           ) : null}
         </div>
       </header>
+      <TaskProgressBar
+        value={overall}
+        label={`${t.name}总进度`}
+        status={t.networkPaused ? 'paused' : t.status}
+      />
       {t.status === 'completed' ? (
         <p className="weq-export-save-status" role="status">
           {t.save?.status === 'saved'

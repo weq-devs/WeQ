@@ -120,6 +120,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
     }),
     account: {
+      flashDownloadTaskLogs: { useQuery: () => ({ data: [] }) },
       getAccountConfig: {
         useQuery: () => ({ data: { uin: fixture.accountId, configId: 'fixture-config' } }),
       },

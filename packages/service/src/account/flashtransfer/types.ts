@@ -68,6 +68,14 @@ export type FlashTaskStatus =
   | 'failed'
   | 'cancelled';
 
+export interface FlashDownloadLogLine {
+  ts: number;
+  seq: number;
+  stage: string;
+  level: 'info' | 'warn' | 'error';
+  text: string;
+}
+
 export interface FlashDownloadTask {
   id: string;
   /** 同一次下载操作共享的任务 id；旧记录未提供时独立展示。 */
@@ -87,6 +95,7 @@ export interface FlashDownloadTask {
   error?: string;
   createdAt: number;
   finishedAt?: number;
+  logs?: FlashDownloadLogLine[];
 }
 
 export interface FlashDownloadBatch extends FlashDownloadTask {

@@ -199,7 +199,7 @@ html[data-theme='dark'] .weq-current-tasks .weq-set-btn-soft:hover:not(:disabled
 
 @media (prefers-reduced-motion: reduce) {
   .weq-long-task.is-running .weq-long-task-state svg {
-    animation-duration: 1800ms;
+    animation: none;
   }
 }
 
@@ -215,13 +215,6 @@ html[data-theme='dark'] .weq-current-tasks .weq-set-btn-soft:hover:not(:disabled
 
 .weq-long-task.is-failed .weq-long-task-state {
   color: var(--destructive);
-}
-
-.weq-long-task progress {
-  display: block;
-  width: 100%;
-  height: 5px;
-  accent-color: var(--weq-accent-effective);
 }
 
 .weq-long-task-detail {
@@ -303,6 +296,88 @@ html[data-theme='dark'] .weq-long-task-detail > .weq-exp-detail {
   line-height: 1.6;
   color: var(--weq-fg-secondary);
   overflow-wrap: anywhere;
+}
+
+.weq-background-task-details {
+  min-width: 0;
+}
+
+.weq-task-progress-details {
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  color: var(--weq-fg-primary);
+}
+
+.weq-task-progress-details > header,
+.weq-task-progress-metric,
+.weq-task-activity > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.weq-task-progress-details > header > strong {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.weq-task-progress-details > header > span,
+.weq-task-progress-metric > span,
+.weq-task-activity > header > span,
+.weq-task-progress-times {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-task-progress-metric {
+  margin-top: 14px;
+  margin-bottom: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-task-progress-details > p,
+.weq-task-activity > p {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.weq-task-progress-details.is-failed > p,
+.weq-task-activity > p[role='alert'] {
+  color: var(--destructive);
+}
+
+.weq-task-progress-times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 10px;
+  font-size: 11px;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-task-activity {
+  min-width: 0;
+  margin-top: 16px;
+}
+
+.weq-task-activity > header {
+  margin-bottom: 8px;
+}
+
+.weq-task-activity .weq-exp-log.is-scrollable {
+  height: 200px;
+  max-height: 45dvh;
+}
+
+.weq-flash-task-files .weq-task-progress-track {
+  flex: 0 0 100%;
 }
 
 .weq-export-tool.is-tasks .weq-exp-sched-list {

@@ -1861,54 +1861,6 @@ button.weq-exp-detail-complete.is-clickable:hover {
   text-overflow: ellipsis;
 }
 
-.weq-exp-detail-stage-bar {
-  height: 5px;
-  flex: 1 1 auto;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
-  overflow: hidden;
-}
-
-.weq-exp-detail-stage-fill {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--weq-accent-effective) 78%, white),
-    var(--weq-accent-effective)
-  );
-  transition: width 0.35s ease;
-}
-
-.weq-exp-detail-stage-fill.is-active {
-  background-image:
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--weq-accent-effective) 78%, white),
-      var(--weq-accent-effective)
-    ),
-    linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.55) 50%, transparent 80%);
-  background-size:
-    100% 100%,
-    40% 100%;
-  background-repeat: no-repeat;
-  animation: weq-exp-shimmer 1.3s linear infinite;
-}
-
-@keyframes weq-exp-shimmer {
-  from {
-    background-position:
-      0 0,
-      -40% 0;
-  }
-  to {
-    background-position:
-      0 0,
-      140% 0;
-  }
-}
-
 .weq-exp-detail-stage-pct {
   font-size: 11px;
   color: #97a2b0;

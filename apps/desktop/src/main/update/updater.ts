@@ -328,6 +328,10 @@ export async function startDownload(): Promise<void> {
     total = progress.total;
     received = progress.transferred;
     updatePolicy();
+    backgroundTasks.update(taskId, {
+      progress: total > 0 ? (received / total) * 100 : undefined,
+      note: `${(received / 1048576).toFixed(1)} / ${total > 0 ? (total / 1048576).toFixed(1) : '未知'} MiB`,
+    });
   };
   updateSizePolicy = (bytes) => {
     total = bytes;
