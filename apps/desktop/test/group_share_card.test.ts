@@ -136,10 +136,11 @@ describe('群名片消息', () => {
     expect(groupShareTarget(ark.app, { contact: { id: Number.MAX_SAFE_INTEGER + 1 } })).toBeNull();
   });
 
-  it('点击显示已有群资料，随后跳转到同一个群会话', () => {
+  it('点击显示已有群资料，随后跳转到同一个群会话', async () => {
     const f = fixture(true);
     const external = vi.spyOn(window, 'open');
     act(() => f.host.querySelector<HTMLElement>('[title="查看群名片"]')!.click());
+    await act(async () => vi.dynamicImportSettled());
     const dialog = document.querySelector('[role="dialog"][aria-label="群资料"]')!;
     expect(dialog.hasAttribute('aria-modal')).toBe(false);
     expect(dialog.parentElement?.classList.contains('weq-nonmodal-layer')).toBe(true);
@@ -164,10 +165,11 @@ describe('群名片消息', () => {
     expect(external).not.toHaveBeenCalled();
   });
 
-  it.each(['Enter', ' '])('键盘 %s 打开未收录群，不虚构群人数，关闭后可再次打开', (key) => {
+  it.each(['Enter', ' '])('键盘 %s 打开未收录群，不虚构群人数，关闭后可再次打开', async (key) => {
     const f = fixture();
     const card = f.host.querySelector<HTMLElement>('[title="查看群名片"]')!;
     act(() => card.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })));
+    await act(async () => vi.dynamicImportSettled());
     const dialog = document.querySelector('[aria-label="群资料"]')!;
     expect(dialog.textContent).toContain(target.name);
     // 未收录群：不虚构成员预览，也不出数据行。

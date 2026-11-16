@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { useTabActive } from '../../components/RetainedTabs';
 import { FolderOpen, X } from 'lucide-react';
 import type { ReactNode, RefObject } from 'react';
-import { MediaPreview } from '../../components/MediaPreview';
+import { MediaPreview } from '../../components/lazyMainPanels';
 import { cn } from './classNames';
 import {
   attachmentKindText,

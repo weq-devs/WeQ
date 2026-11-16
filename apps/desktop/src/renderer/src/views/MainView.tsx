@@ -296,10 +296,12 @@ import {
   GroupMemberRenameDialog,
   GroupMemberTitleDialog,
   ConversationOverviewCalendar,
+  MemberProfileCard,
+  GroupProfileDialog,
+  GroupTodos,
 } from '../components/lazyMainPanels';
 import { GroupAlbumCardNavigationProvider } from '../components/GroupAlbumCardNavigation';
 import type { GroupBulletinWire } from '../components/GroupAnnouncementsDialog';
-import { GroupTodos } from '../components/qq-actions/GroupActions';
 import { useDbRepairWindow } from '../state/dbRepairWindow';
 import { useCaptureWindow } from '../state/captureWindow';
 import {
@@ -322,8 +324,6 @@ import {
   hasCompleteEssenceSnapshot,
   GROUP_ESSENCE_ONLINE_LIMIT,
 } from '../lib/groupEssenceProjection';
-import { MemberProfileCard } from '../components/MemberProfileCard';
-import { GroupProfileDialog } from '../im-template/template/profilePanes';
 import { sharedGroupConversation } from '../components/ark/groupShareCard';
 import { openRedBagQrcode } from '../components/RedBagQrcodeDialog';
 import type { GroupLeftMemberRow } from '../components/GroupLeftMembersDialog';
@@ -419,38 +419,46 @@ import {
   QzoneProfileContext,
   type QzoneSpaceRequest,
 } from '../lib/qzoneNavigation';
+import { ChatMainContent } from '../im-template/template/chatMainContent';
+import { ChatShell } from '../im-template/template/chatShell';
+import { ChatSidebarContent } from '../im-template/template/chatSidebarContent';
 import {
-  ChatMainContent,
-  ChatShell,
-  ChatSidebarContent,
   composeMessageRenderers,
-  type Contact,
-  type Conversation,
-  type ConversationHighlight,
-  type ConversationPreference,
-  type ConversationPreferences,
-  type UnreadDock,
-  type GroupMember,
-  type ArkContactSource,
-  type ArkLocationProvider,
-  type ArkPayload,
-  type FlashSendPayload,
-  type FlashPhotoSendPayload,
-  type BubbleVideoSendPayload,
-  type RedPacketDraft,
+  type MessageRenderer,
+} from '../im-template/template/messageRenderers';
+import type {
+  Contact,
+  Conversation,
+  ConversationHighlight,
+  ConversationPreference,
+  ConversationPreferences,
+  UnreadDock,
+  GroupMember,
+  Message,
+  User,
+} from '../im-template/template/types';
+import {
   buildFlashOptimisticElement,
   flashDescOf,
+  type FlashSendPayload,
+} from '../im-template/template/flashComposer';
+import {
   arkCardSignature,
   buildContactPlaceholderArk,
   buildGroupSignupArkJson,
   buildLocationArkJson,
   buildTuwenArkJson,
-  type Message,
-  type MessageRenderer,
-  type User,
-  useChatShellController,
-  toIpcElements,
-} from '../im-template/template';
+  type ArkContactSource,
+  type ArkLocationProvider,
+  type ArkPayload,
+} from '../im-template/template/arkCards';
+import type {
+  FlashPhotoSendPayload,
+  BubbleVideoSendPayload,
+} from '../im-template/template/chatPane';
+import type { RedPacketDraft } from '../im-template/template/redPacketPanel';
+import { useChatShellController } from '../im-template/template/shellController';
+import { toIpcElements } from '../im-template/template/draftElements';
 import { buildUnreadDock } from '../im-template/template/unreadDock';
 import {
   buildComposerSendPlan,

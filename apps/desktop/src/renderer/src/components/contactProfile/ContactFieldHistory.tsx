@@ -6,11 +6,15 @@ import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { client } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { Modal } from '../Dialog';
-import { FieldHistoryContent } from './FieldHistoryContent';
+import { lazyPanel } from '../../lib/lazyPanel';
 import { ContactFieldHistoryContext as Context } from '../../lib/contactFieldHistoryContext';
 import { fieldPhotoHistoryValue } from '../../lib/contactFieldPresentation';
 import { CONTACT_HISTORY_DISPLAY_ENABLED } from '../../lib/contactHistoryVisibility';
 import { ContactFieldHistoryBoundary } from '../../lib/contactFieldHistoryContext';
+
+const FieldHistoryContent = lazyPanel<
+  Parameters<typeof import('./FieldHistoryContent').FieldHistoryContent>[0]
+>(() => import('./FieldHistoryContent').then((m) => ({ default: m.FieldHistoryContent })));
 
 export const contactHistoryFieldForLabel: Record<string, string> = {
   昵称: 'nick',

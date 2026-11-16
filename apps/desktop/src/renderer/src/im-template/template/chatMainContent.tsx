@@ -1,9 +1,5 @@
-import {
-  ContactProfileDialog,
-  ContactProfilePane,
-  GroupProfileDialog,
-  GroupProfilePane,
-} from './profilePanes';
+import { ContactProfileDialog, GroupProfileDialog } from '../../components/lazyMainPanels';
+import { ContactProfilePane, GroupProfilePane } from '../../components/ProfileEmptyPanes';
 import { ChatPane, type ChatPaneProps } from './chatPane';
 import { ToolDetailPane } from './toolsPane';
 import { RetainedTabs, TabActivity } from '../../components/RetainedTabs';

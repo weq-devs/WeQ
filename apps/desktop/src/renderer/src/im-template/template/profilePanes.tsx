@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { Eye, MessageSquare, Waypoints, X } from 'lucide-react';
+import { Eye, MessageSquare, X } from 'lucide-react';
 import { useContext, type ReactNode } from 'react';
 import { datalineName, isDatalineUid } from '@weq/codec';
 import { deviceAvatarDataUri } from '../../lib/deviceAvatar';
@@ -10,7 +10,7 @@ import { SelfProfileDisplayProvider } from '../../components/ProfileDisplaySetti
 import { SelfProfileProvider } from '../../components/settings/SelfQQControls';
 import { useViewState } from '../../state/view';
 import { cn } from './classNames';
-import { Avatar, EmptyState } from './primitives';
+import { Avatar } from './primitives';
 import type { Contact, ProfileExtInfo } from './types';
 import '../../styles/group-profile.css';
 import '../../styles/contact-profile.css';
@@ -120,33 +120,7 @@ export function toPersonalityProfile(
   };
 }
 
-/** 未选择对象时保留占位，群交集由用户主动进入。 */
-export function ContactProfilePane({ onOpenOverview }: { onOpenOverview?: () => void }) {
-  return (
-    <section className={cn('contact-profile-empty weq-contact-reserved')}>
-      <EmptyState title="联系人" body="在左侧选择联系人，查看资料卡片。" />
-      <ContactOverviewAction onOpen={onOpenOverview} />
-    </section>
-  );
-}
-
-export function GroupProfilePane({ onOpenOverview }: { onOpenOverview?: () => void }) {
-  return (
-    <section className={cn('contact-profile-empty weq-contact-reserved')}>
-      <EmptyState title="群聊" body="在左侧选择群聊，查看群资料。" />
-      <ContactOverviewAction onOpen={onOpenOverview} />
-    </section>
-  );
-}
-
-function ContactOverviewAction({ onOpen }: { onOpen?: () => void }) {
-  return onOpen ? (
-    <button className="weq-profile-perhome" type="button" onClick={onOpen}>
-      <Waypoints size={15} />
-      群交集
-    </button>
-  ) : null;
-}
+export { ContactProfilePane, GroupProfilePane } from '../../components/ProfileEmptyPanes';
 
 /** 联系人页内嵌资料；其他入口保留原有浮层与关闭行为。 */
 function ProfileSurface({

@@ -6,7 +6,7 @@ import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { Modal } from '../Dialog';
 import { withQQAccountScope } from './shared';
 import { GroupAvatar } from '../exportAvatars';
-import { GroupProfileDialog } from '../../im-template/template/profilePanes';
+import { GroupProfileDialog } from '../lazyMainPanels';
 import { ContactRow } from '../contactProfile/ContactRow';
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { avatarFromGroupCode } from '../../lib/avatarResolver';

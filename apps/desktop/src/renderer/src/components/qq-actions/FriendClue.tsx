@@ -2,7 +2,7 @@ import { eventTimeFormatter } from '@weq/time';
 import { useContext, useState } from 'react';
 import { trpc } from '../../trpc/client';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
-import { GroupProfileDialog } from '../../im-template/template/profilePanes';
+import { GroupProfileDialog } from '../lazyMainPanels';
 import { ContactRow } from '../contactProfile/ContactRow';
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { avatarFromGroupCode } from '../../lib/avatarResolver';

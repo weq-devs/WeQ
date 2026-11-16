@@ -29,8 +29,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   },
 }));
 vi.mock('../src/renderer/src/components/exportAvatars', () => ({ GroupAvatar: () => null }));
-vi.mock('../src/renderer/src/im-template/template/profilePanes', () => ({
-  GroupProfileDialog: ({ onClose }: { onClose: () => void }) =>
+vi.mock('../src/renderer/src/components/groupProfile/GroupProfileSurface', () => ({
+  GroupProfileSurface: ({ onClose }: { onClose: () => void }) =>
     h(
       OverlayLayer,
       { presentation: 'popover', onClose },
@@ -125,7 +125,7 @@ it.each(['inside', 'blank', 'outside'])(
   },
 );
 
-it('共同群中的群名片失焦后仍先关闭名片，再关闭列表和联系人资料', () => {
+it('共同群中的群名片失焦后仍先关闭名片，再关闭列表和联系人资料', async () => {
   const f = mount();
   const groupTrigger = document.querySelector<HTMLButtonElement>(
     '[aria-label="查看 合成共同群 的群名片"]',
@@ -134,6 +134,8 @@ it('共同群中的群名片失焦后仍先关闭名片，再关闭列表和联�
     groupTrigger.focus();
     groupTrigger.click();
   });
+  await act(async () => vi.dynamicImportSettled());
+  expect(document.querySelector('[aria-label="群资料"]')).not.toBeNull();
   act(() => (document.activeElement as HTMLElement).blur());
   pressEscape();
   expect(document.querySelector('[aria-label="群资料"]')).toBeNull();

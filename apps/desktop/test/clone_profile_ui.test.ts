@@ -91,6 +91,7 @@ for (const kind of ['persona', 'group'] as const) {
       await act(async () =>
         host.querySelector<HTMLButtonElement>('.weq-conversation-title-profile')!.click(),
       );
+      await act(async () => vi.dynamicImportSettled());
       const card = document.querySelector(
         `[role="dialog"][aria-label="${kind === 'group' ? '群资料' : '用户资料'}"]`,
       )!;

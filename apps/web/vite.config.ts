@@ -5,6 +5,7 @@ import tailwindcss from '@tailwindcss/vite';
 import { tsImport } from 'tsx/esm/api';
 import { webChunkBudget } from './scripts/chunk-budget.ts';
 import { remoteStartupAssets } from './scripts/startup-assets.ts';
+import { remoteStartupChunks } from './scripts/startup-chunks.ts';
 
 const developmentViteLogging: typeof import('../desktop/src/main/development_vite').developmentViteLogging =
   process.env.WEQ_DEV_CONSOLE === '1' && process.env.WEQ_LOG_LEVEL !== 'debug'
@@ -24,13 +25,21 @@ const developmentViteLogging: typeof import('../desktop/src/main/development_vit
 const RENDERER = resolve(import.meta.dirname, '../desktop/src/renderer');
 const logging = developmentViteLogging('web');
 const chunkBudget = webChunkBudget();
+const startupChunks = remoteStartupChunks();
 
 export default defineConfig({
   ...logging.config,
   clearScreen: false,
   root: RENDERER,
   cacheDir: resolve(import.meta.dirname, 'node_modules/.vite-web'),
-  plugins: [...logging.plugins, chunkBudget.plugin, remoteStartupAssets(), react(), tailwindcss()],
+  plugins: [
+    ...logging.plugins,
+    chunkBudget.plugin,
+    startupChunks.plugin,
+    remoteStartupAssets(),
+    react(),
+    tailwindcss(),
+  ],
   define: {
     'import.meta.env.VITE_WEQ_TARGET': JSON.stringify('web'),
   },
@@ -64,19 +73,12 @@ export default defineConfig({
               priority: 10,
             },
             {
-              name: 'chat-ui',
-              // 首页共用的小工具不能把整个聊天分组带入首屏。
-              test: /src[\\/]renderer[\\/]src[\\/]im-template[\\/]template[\\/](?!(?:arkPanel|redPacketPanel|locationCardPanel|locationSharePanel|lazyComposerPanels|classNames|conversationDisplay|messageGap|modalUtils|user)\.)/,
-              includeDependenciesRecursively: false,
-              maxSize: 350_000,
-              priority: 10,
-            },
-            {
               name: 'timeline-virtualizer',
               test: /node_modules[\\/]@tanstack[\\/](?:virtual-core|react-virtual)[\\/]/,
               includeDependenciesRecursively: false,
               priority: 10,
             },
+            ...startupChunks.groups,
           ],
         },
       },

@@ -1,0 +1,13 @@
+.weq-contact-overview {
+  height: 100%;
+}
+
+.weq-contact-reserved {
+  align-content: center;
+  gap: 16px;
+}
+
+.weq-contact-reserved > .weq-profile-perhome {
+  width: auto;
+  margin-top: 0;
+}

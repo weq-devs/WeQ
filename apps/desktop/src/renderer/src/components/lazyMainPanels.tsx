@@ -61,6 +61,34 @@ export const GroupAlbumFeedDialog = lazyPanel<
 export const GroupFileDialog = lazyPanel<
   ComponentProps<typeof import('./GroupFileDialog').GroupFileDialog>
 >(() => import('./GroupFileDialog').then((m) => ({ default: m.GroupFileDialog })));
+export const ContactProfileDialog = lazyPanel<
+  ComponentProps<typeof import('../im-template/template/profilePanes').ContactProfileDialog>
+>(() =>
+  import('../im-template/template/profilePanes').then((m) => ({
+    default: m.ContactProfileDialog,
+  })),
+);
+export const GroupProfileDialog = lazyPanel<
+  ComponentProps<typeof import('./groupProfile/GroupProfileSurface').GroupProfileSurface>
+>(() =>
+  import('./groupProfile/GroupProfileSurface').then((m) => ({ default: m.GroupProfileSurface })),
+);
+export const MemberProfileCard = lazyPanel<
+  ComponentProps<typeof import('./MemberProfileCard').MemberProfileCard>
+>(() => import('./MemberProfileCard').then((m) => ({ default: m.MemberProfileCard })));
+export const CloneMemberProfileCard = lazyPanel<
+  ComponentProps<typeof import('../views/agentlab/CloneMemberProfileCard').CloneMemberProfileCard>
+>(() =>
+  import('../views/agentlab/CloneMemberProfileCard').then((m) => ({
+    default: m.CloneMemberProfileCard,
+  })),
+);
+export const GroupTodos = lazyPanel<
+  ComponentProps<typeof import('./qq-actions/GroupActions').GroupTodos>
+>(() => import('./qq-actions/GroupActions').then((m) => ({ default: m.GroupTodos })));
+export const MediaPreview = lazyPanel<ComponentProps<typeof import('./MediaPreview').MediaPreview>>(
+  () => import('./MediaPreview').then((m) => ({ default: m.MediaPreview })),
+);
 export const GroupSignDialog = lazyPanel<
   ComponentProps<typeof import('./GroupSignDialog').GroupSignDialog>
 >(() => import('./GroupSignDialog').then((m) => ({ default: m.GroupSignDialog })));

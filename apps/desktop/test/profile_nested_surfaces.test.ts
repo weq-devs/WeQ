@@ -368,7 +368,7 @@ it.each([false, true])('群名片以群名为主标题，备注单独成行，�
   }
 });
 
-it.each([false, true])('共同群查看消息关闭列表及浮层好友名片，内嵌=%s', (embedded) => {
+it.each([false, true])('共同群查看消息关闭列表及浮层好友名片，内嵌=%s', async (embedded) => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -399,6 +399,7 @@ it.each([false, true])('共同群查看消息关闭列表及浮层好友名片�
     act(() =>
       document.querySelector<HTMLButtonElement>('[aria-label="查看 合成共同群 的群名片"]')!.click(),
     );
+    await act(async () => vi.dynamicImportSettled());
     const entry = [
       ...document.querySelectorAll<HTMLButtonElement>('[aria-label="群资料"] button'),
     ].find((button) => button.textContent === '查看消息')!;

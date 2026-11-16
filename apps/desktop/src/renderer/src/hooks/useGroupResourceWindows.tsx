@@ -9,8 +9,7 @@ import {
 import { focusToolPopup, openToolPopup, useToolWindow } from './useCompositionWindow';
 import { RenderDocumentContext } from '../lib/renderDocument';
 import { useAppLock } from '../state/lock';
-import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
-import { GroupFileDialog } from '../components/GroupFileDialog';
+import { GroupAlbumDialog, GroupFileDialog } from '../components/lazyMainPanels';
 import { OverlayLayer } from '../components/OverlayLayer';
 import { TabActivity } from '../components/RetainedTabs';
 import { ToastHost } from '../components/Toast';
