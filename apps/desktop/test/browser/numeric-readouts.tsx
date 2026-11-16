@@ -32,6 +32,7 @@ function Fixture() {
         .numeric-fixture .weq-report-root { --rp-serif-base: Georgia, serif; --rp-mono: Georgia, serif; font-family: Georgia, serif; }
         .numeric-fixture .weq-density-calendar-grid { grid-column: 1 / -1; }
         .numeric-fixture :is([data-real-task], [data-real-performance], [data-real-seq]) { grid-column: 1 / -1; }
+        .numeric-fixture [data-real-svg] text { fill: currentColor; }
       `}</style>
       <h1>数字排版</h1>
       <p data-body>普通正文 12345，保留原有字体。</p>
