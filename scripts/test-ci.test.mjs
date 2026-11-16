@@ -40,6 +40,24 @@ test('安装依赖的 CI 与发布任务先检出文档子模块，匹配冻结�
   }
 });
 
+test('文档门禁先验证主仓记录的提交可拉取，再初始化子模块', () => {
+  const docs = load(
+    readFileSync(new URL('../.github/workflows/docs.yml', import.meta.url), 'utf8'),
+  );
+  const steps = docs.jobs.pointer.steps;
+  const checkout = steps.find((step) => step.uses === 'actions/checkout@v4');
+  assert.notEqual(checkout.with?.submodules, 'recursive');
+  const verify = steps.findIndex((step) => step.run === 'node scripts/check-docs-submodule.mjs');
+  const initialize = steps.findIndex(
+    (step) => step.run === 'git submodule update --init --recursive docs',
+  );
+  assert.ok(verify >= 0 && initialize > verify);
+  const regression = workflow.jobs['test-suites'].steps.find(
+    (step) => step.name === 'Check CI orchestration and reports',
+  );
+  assert.match(regression.run, /scripts\/check-docs-submodule\.test\.mjs/);
+});
+
 test('类型检查分组覆盖每个包和桌面端两个配置，保留完整汇总门禁', () => {
   const suites = workflow.jobs['typecheck-suites'];
   assert.equal(suites.strategy['fail-fast'], false);

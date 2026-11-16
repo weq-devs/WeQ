@@ -31,29 +31,17 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-        with:
-          # submodule 是 public，匿名可读。
-          submodules: recursive
-
-      - name: Verify docs submodule commit is pushed
-        run: |
-          set -euo pipefail
-
-          sha=$(git -C docs rev-parse HEAD)
-          echo "docs submodule @ $sha"
-
-          url=$(git config -f .gitmodules submodule.docs.url)
-          if ! git -C docs ls-remote "$url" | grep -q "$sha"; then
-            echo "::error::$sha 不在 $url 的任何分支上 —— docs 仓的提交还没推送。"
-            echo "  先 cd docs && git push，再回主仓提交指针。"
-            exit 1
-          fi
-          echo "✓ 指针指向的提交已存在于远端"
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - name: Verify docs submodule commit is pushed
+        run: node scripts/check-docs-submodule.mjs
+
+      - name: Initialize verified docs submodule
+        run: git submodule update --init --recursive docs
 
       - name: Anonymization check
         # 只扫当前版本。历史不在范围内 —— 主仓一直公开，这些内容在历史里早已可查，
