@@ -59,7 +59,6 @@ export const SETTINGS_RESET_CARDS = [
   ['account', 'attach', 'QQ 在线能力'],
   ['accounts', 'auto-enter', '现有配置'],
   ['resource-loading', 'external-chatpic', '外部安卓图片缓存'],
-  ['database-management', 'db-tolerance', '容错与修复'],
   ['resource-loading', 'cdn', '加载来源'],
   ['resource-loading', 'data-saver', '省流量模式'],
   ['resource-loading', 'qqshow-cache', 'QQ 秀缓存'],

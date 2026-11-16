@@ -1120,26 +1120,19 @@ describe('设置归位后的实际页面', () => {
   it('数据库页面在浏览后展示监听读取和容错修复，旧深链只定位不自动打开', () => {
     const f = mount('database');
     try {
-      expect(f.body().textContent).toContain('容错级别');
+      expect(f.body().textContent).not.toContain('容错级别');
       expect(
         [...f.body().querySelectorAll('.weq-set-card-title')].map((node) => node.textContent),
-      ).toEqual(['数据库浏览', '监听与读取', '容错与修复']);
+      ).toEqual(['数据库浏览', '监听与读取', '数据库检查与修复']);
       expect(f.body().querySelector('.weq-cache-db')).toBeNull();
       expect(f.body().querySelector('.weq-set-head-title .weq-settings-scope')).toBeNull();
       expect(f.body().textContent).toContain('数据库异常时弹窗提醒');
       expect(f.body().textContent).not.toContain('降级账本');
       f.render('database-status');
-      const entry = f.body().querySelector<HTMLElement>('[data-setting-id="tolerance-records"]')!;
+      const entry = f.body().querySelector<HTMLElement>('[data-setting-id="database-repair"]')!;
       expect(entry.dataset.searchHighlight).toBe('true');
       expect(document.querySelector('.weq-tool-modal')).toBeNull();
-      const body = f.body();
-      act(() => entry.querySelector<HTMLButtonElement>('button')!.click());
-      expect(document.querySelector('.weq-tool-modal')?.textContent).toContain('降级账本');
-      expect(f.body()).toBe(body);
-      act(() =>
-        document.querySelector<HTMLButtonElement>('.weq-tool-modal [aria-label="关闭"]')!.click(),
-      );
-      expect(document.querySelector('.weq-tool-modal')).toBeNull();
+      expect(f.body().querySelector('[data-setting-id="tolerance-records"]')).toBeNull();
       f.render('database-repair', {
         section: 'database',
         item: '数据库异常时弹窗提醒',

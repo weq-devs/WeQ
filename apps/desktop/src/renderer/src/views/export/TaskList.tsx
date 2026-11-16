@@ -42,6 +42,10 @@ import {
 import { fmtCount } from './types';
 import { TaskLogConsole as LogConsole } from '../../components/TaskLogConsole';
 import '../../styles/chat-export-continuation.css';
+import {
+  DatabaseRecoveryPanel,
+  type RecoveryDecision,
+} from '../../components/tasks/DatabaseRecoveryPanel';
 
 export type StageStatus = 'pending' | 'running' | 'completed' | 'skipped' | 'failed';
 
@@ -110,6 +114,8 @@ function completionSummary(stages: UiStage[] | undefined): {
 }
 
 export interface UiTask {
+  databaseRecovery?: import('@weq/service').ExportTask['databaseRecovery'];
+  databaseRecoveryRecords?: import('@weq/service').ExportTask['databaseRecoveryRecords'];
   networkPaused?: boolean;
   resource?: import('@weq/service').ExportTask['resource'];
   save?: import('@weq/service').ExportSaveState;
@@ -475,6 +481,7 @@ function TaskDetail({
   onBrowserDownload,
   onDelete,
   onShowFailures,
+  onDatabaseRecovery,
 }: {
   task: UiTask;
   onPause: (t: UiTask) => void;
@@ -489,6 +496,11 @@ function TaskDetail({
   onBrowserDownload?: (t: UiTask) => void;
   onDelete: (t: UiTask) => void;
   onShowFailures: (t: UiTask, failures: UiFailure[]) => void;
+  onDatabaseRecovery?: (
+    t: UiTask,
+    decision: RecoveryDecision,
+    skipRemaining: boolean,
+  ) => Promise<void>;
 }): ReactElement {
   const overall = t.status === 'completed' ? 100 : Math.min(100, Math.max(0, t.progress));
   const completion = completionSummary(t.stages);
@@ -559,19 +571,23 @@ function TaskDetail({
           ) : (
             <StatusIcon status={t.status} />
           )}
-          {t.networkPaused
-            ? '省流量模式已暂停'
-            : t.isFinalizing
-              ? '收尾中'
-              : t.status === 'paused' && t.partialReady
-                ? '已收尾'
-                : t.status === 'paused' && !t.canResume
-                  ? pauseDraining
-                    ? '暂停收尾中'
-                    : '暂停中'
-                  : t.status === 'completed' && resourceMissing
-                    ? '已完成 · 资源缺失'
-                    : STATUS_LABEL[t.status]}
+          {t.databaseRecovery
+            ? '等待处理'
+            : t.networkPaused
+              ? '省流量模式已暂停'
+              : t.isFinalizing
+                ? '收尾中'
+                : t.status === 'paused' && t.partialReady
+                  ? '已收尾'
+                  : t.status === 'paused' && !t.canResume
+                    ? pauseDraining
+                      ? '暂停收尾中'
+                      : '暂停中'
+                    : t.status === 'completed' && t.databaseRecoveryRecords?.length
+                      ? '部分完成'
+                      : t.status === 'completed' && resourceMissing
+                        ? '已完成 · 资源缺失'
+                        : STATUS_LABEL[t.status]}
         </span>
         <strong className="weq-exp-detail-overall">
           <span className="weq-number weq-number-inherit">{overall}</span>%
@@ -713,6 +729,19 @@ function TaskDetail({
         label={`${t.name}总进度`}
         status={t.networkPaused ? 'paused' : t.status}
       />
+      {t.databaseRecovery && onDatabaseRecovery && (
+        <DatabaseRecoveryPanel
+          key={t.databaseRecovery.id}
+          request={t.databaseRecovery}
+          name={t.name}
+          onDecision={(decision, skipRemaining) => onDatabaseRecovery(t, decision, skipRemaining)}
+        />
+      )}
+      {t.databaseRecoveryRecords?.length ? (
+        <p className="weq-exp-detail-complete is-warn" role="status">
+          本次导出已跳过无法读取的内容，结果不完整；未读范围见任务日志与完整性报告。
+        </p>
+      ) : null}
       {t.status === 'completed' ? (
         <p className="weq-export-save-status" role="status">
           {t.save?.status === 'saved'
@@ -845,6 +874,7 @@ export function TaskList({
   onSkipStage,
   onReport,
   onCancel,
+  onDatabaseRecovery,
   onDownload,
   onOpenSaved,
   onBrowserDownload,
@@ -863,6 +893,11 @@ export function TaskList({
   onSkipStage?: (t: UiTask, stage: SkippableStage) => void;
   onReport?: (t: UiTask) => void;
   onCancel: (t: UiTask) => void;
+  onDatabaseRecovery?: (
+    t: UiTask,
+    decision: RecoveryDecision,
+    skipRemaining: boolean,
+  ) => Promise<void>;
   onDownload: (t: UiTask) => void;
   onOpenSaved?: (t: UiTask, reveal: boolean) => void;
   onBrowserDownload?: (t: UiTask) => void;
@@ -913,6 +948,7 @@ export function TaskList({
   if (detailOnly) {
     return selected ? (
       <TaskDetail
+        onDatabaseRecovery={onDatabaseRecovery}
         key={selected.id}
         task={selected}
         onPause={onPause}
@@ -1006,6 +1042,7 @@ export function TaskList({
           </div>
           {selected ? (
             <TaskDetail
+              onDatabaseRecovery={onDatabaseRecovery}
               task={selected}
               onPause={onPause}
               onResume={onResume}

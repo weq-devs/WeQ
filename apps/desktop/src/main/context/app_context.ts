@@ -622,35 +622,9 @@ function unmountGroupKeyword(): void {
   groupKeyword = null;
 }
 
-/**
- * 导出链路的损坏宽容授权。
- *
- * 只有导出会用它（分页读真的报出损坏、且该账号已授权级别 ≥ 2 → 从当前游标切到
- * 容错续读）。宽容服务是**每个账号一份**的，所以这里必须传当前账号那一份；
- * 传 `null`（没打开账号 / 关账号时）就是严格 —— 这也是默认状态：级别为 0 时导出与
- * 以前逐字节相同。
- *
- * 注意：**不允许**让它退回"上一次打开的那个账号"的实例。静态账号与在线账号各有自己的
- * 配置，串用会让「A 账号开了宽容」顺带影响 B 账号（见 {@link AppContext.dbTolerance}）。
- */
+/** 导出消息源的无损读取策略；跳过区间与表的决策在任务内追加。 */
 function exportSalvageSource(tolerance: DbToleranceService | null): MsgSalvageSource | undefined {
   return tolerance ? { binding: tolerance.binding() } : undefined;
-}
-
-/**
- * 为某个账号建一份宽容配置服务（在线 / 静态各一份，按 `(uin, dataDir)` 隔离）。
- *
- * 路径与导出缓存同源（`accountConfigId`），所以同一账号的在线会话与导入目录各算一个
- * 账号 —— 与 `AccountConfigService`、导出任务的口径一致。
- */
-function createDbTolerance(
-  userConfig: UserConfigService,
-  uin: string,
-  dataDir: string | undefined,
-): DbToleranceService {
-  return new DbToleranceService(
-    join(userConfig.cacheDir(join('db_tolerance', accountConfigId(uin, dataDir))), 'config.json'),
-  );
 }
 
 async function createRoamingBackfill(
@@ -1566,9 +1540,8 @@ export function initAppContext(fileRoot?: string): AppContext {
       // the (otherwise unrun) full health check — not account-open. `this.account`
       // is only set after this resolves, so callbacks that fire mid-open (e.g.
       // the uid-map load) are ignored until the session is the current one.
-      // 账号级宽容（salvage）配置 + 降级账本：**默认严格**。这里只负责把它接好，
-      // 级别永远由用户显式动作决定（弹窗按钮 / 设置页），没有自动降级。
-      const dbTolerance = createDbTolerance(userConfig, accountCtx.uin, metadata.dataDir);
+      // 日常读取自动尝试无损访问路径；跳过区间与表只由导出任务按次询问。
+      const dbTolerance = new DbToleranceService();
       this.dbTolerance = dbTolerance;
       const session = await openAccount(
         platform,
@@ -1590,7 +1563,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           startDbHealthCheck(this, current, platform);
         },
         {
-          // 读取级别的实时来源 + 每次降级的落盘出口。级别为 0 时包装是纯透传。
+          // 账号读取固定为无损级别 1；异常记入普通诊断日志。
           level: () => dbTolerance.level,
           onEntry: (entry) => dbTolerance.recordLedgerEntry(entry),
         },
@@ -2538,7 +2511,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // 按 `(uin, dirPath)` 与在线会话分开存。以前这里不赋值，`dbTolerance` 会留着上一个
       // 账号的实例 —— 静态账号的导出会静默沿用别人的授权，设置页显示的也是别人那一份。
       // 级别默认 0（严格），所以不授权即与今天逐字节相同。
-      const dbTolerance = createDbTolerance(userConfig, selfPreview.uin, dirPath);
+      const dbTolerance = new DbToleranceService();
       this.dbTolerance = dbTolerance;
 
       // Static (backup) accounts are offline snapshots, not the live QQ

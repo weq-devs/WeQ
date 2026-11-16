@@ -739,18 +739,6 @@ export type {
   DbRepairTarget,
   DbRepairWalCheckpoint,
 } from './account/db_repair';
-export {
-  SALVAGE_AGGREGATE_CAVEAT,
-  SALVAGE_EXPERIMENTAL_NOTE,
-  SALVAGE_EXPERIMENTAL_TAG,
-  SALVAGE_LEVEL_COPY,
-  SALVAGE_SKIPPED_SPAN_CAVEAT,
-  salvageLevelCopy,
-  salvageLevelToast,
-  salvageLevelsAscending,
-} from './account/db_tolerance_copy';
-export type { SalvageLevelCopy } from './account/db_tolerance_copy';
-
 // A process-wide singleton (NOT bound to AccountSession): a single polling
 // loop you mount/unmount db-watch tasks onto to watch their size for changes.
 export { DbWatchService } from './account/db_watch';

@@ -511,16 +511,11 @@ describe('设置二级页现场与活动生命周期', () => {
       f.dispose();
     }
   });
-  it('锁屏释放设置内容和局部工具，解锁重建且不重新打开工具', () => {
+  it('锁屏释放数据库设置，解锁重建且不恢复已移除的记录工具', () => {
     const f = mount('database-tolerance');
     try {
       const body = f.body();
-      act(() =>
-        body
-          .querySelector<HTMLButtonElement>('[data-setting-id="tolerance-records"] button')!
-          .click(),
-      );
-      expect(document.querySelector('.weq-tool-modal')).not.toBeNull();
+      expect(body.querySelector('[data-setting-id="tolerance-records"]')).toBeNull();
       act(() => useAppLock.setState({ locked: true }));
       expect(document.querySelector('.weq-tool-modal')).toBeNull();
       act(() => useAppLock.setState({ locked: false }));
@@ -606,7 +601,7 @@ describe('设置二级页现场与活动生命周期', () => {
       else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
     }
   });
-  it('只挂载当前页，重建恢复输入、展开与滚动，不让旧页继续查询', async () => {
+  it('只挂载当前页，重建恢复输入与滚动，不让旧页继续查询', async () => {
     fixture.mcpPort = 48765;
     const f = mount('mcp');
     try {
@@ -620,10 +615,6 @@ describe('设置二级页现场与活动生命周期', () => {
       f.render('database-tolerance');
       chooseNavigation('暂时离开');
       const databaseBody = f.body();
-      const details = databaseBody.querySelector('details')!;
-      act(() => {
-        details.open = true;
-      });
       f.render('mcp');
       expect(f.body()).not.toBe(body);
       expect(f.body().querySelector('input')).not.toBe(input);
@@ -636,7 +627,7 @@ describe('设置二级页现场与活动生命周期', () => {
       f.render('database-tolerance');
       chooseNavigation('暂时离开');
       expect(f.body()).not.toBe(databaseBody);
-      expect(f.body().querySelector('details')!.open).toBe(true);
+      expect(f.body().textContent).toContain('数据库检查与修复');
       expect(f.host.querySelectorAll('[data-retained-panel]')).toHaveLength(1);
       expect(
         [...fixture.queries.values()].filter((query) => !query.active && query.enabled),

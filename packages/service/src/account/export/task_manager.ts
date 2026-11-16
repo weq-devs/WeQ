@@ -90,6 +90,14 @@ import {
   watchTransferPolicy,
 } from '../../common/transfer_policy';
 import { MessageJournal } from './message_journal';
+import { isLikelyCorruptionError } from '@weq/db';
+import {
+  DatabaseRecoveryGate,
+  DatabaseRecoveryStopped,
+  type DatabaseRecoveryDecision,
+  type DatabaseRecoveryRecord,
+  type DatabaseRecoveryRequest,
+} from './database_recovery';
 import { ExportCheckpoint } from './checkpoint';
 import { checkpointCollection, checkpointContacts, checkpointQzone } from './domain_checkpoint';
 import type { MailArchiveOptions } from '../mail/export';
@@ -368,6 +376,8 @@ export interface MediaExportOptions {
 }
 
 export interface ExportTask {
+  databaseRecovery?: DatabaseRecoveryRequest;
+  databaseRecoveryRecords?: DatabaseRecoveryRecord[];
   workBundleId?: string;
   networkClientId?: string;
   networkPaused?: boolean;
@@ -656,6 +666,9 @@ export class ExportTaskManager extends EventEmitter {
   private finalizing = new Set<string>();
   private startedAt = Date.now();
   private filteredSources = new Map<string, MsgService>();
+  private databaseRecoveryGates = new Map<string, DatabaseRecoveryGate>();
+  private queueReleases = new Map<string, () => void>();
+  private executions = new Map<string, Promise<void>>();
   private tasks = new Map<string, ExportTask>();
   private abortControllers = new Map<string, AbortController>();
   /** 任务日志（内存环形缓冲，不随 export_tasks.json 持久化）。 */
@@ -707,6 +720,8 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   private releaseTask(task: ExportTask): void {
+    delete task.databaseRecovery;
+    this.databaseRecoveryGates.delete(task.id);
     this.abortControllers.delete(task.id);
     this.finalizing.delete(task.id);
     if (task.status === 'completed' || task.status === 'cancelled') this.clearResumeState(task);
@@ -745,6 +760,8 @@ export class ExportTaskManager extends EventEmitter {
       if (!raw) return;
       const data = JSON.parse(raw) as ExportTask[];
       for (const t of data) {
+        // 等待中的 Promise 和本次任务授权不能跨进程恢复。
+        delete t.databaseRecovery;
         if (!supportsExportReport(t)) {
           delete t.reportVersion;
           delete t.reportPath;
@@ -877,7 +894,8 @@ export class ExportTaskManager extends EventEmitter {
       .then(() => {
         const task = this.tasks.get(id);
         if (task?.status !== 'pending') return;
-        return networkScope.run(
+        const yielded = this.queueYield(id);
+        const execution = networkScope.run(
           {
             clientId: task?.networkClientId,
             restricted: transferRestricted(task?.networkClientId),
@@ -886,8 +904,20 @@ export class ExportTaskManager extends EventEmitter {
           },
           run,
         );
+        this.executions.set(id, execution);
+        void execution
+          .finally(() => {
+            this.executions.delete(id);
+            this.queueReleases.delete(id);
+          })
+          .catch(() => undefined);
+        return Promise.race([execution, yielded]);
       })
       .catch(() => undefined);
+  }
+
+  private queueYield(id: string): Promise<void> {
+    return new Promise((resolve) => this.queueReleases.set(id, resolve));
   }
 
   private networkTask(task: ExportTask): boolean {
@@ -2055,12 +2085,33 @@ export class ExportTaskManager extends EventEmitter {
     if (!task.guild) {
       let source = this.filteredSources.get(task.id);
       if (!source) {
+        const gate = this.databaseRecoveryFor(task);
+        const base = this.msgs.salvage;
+        const salvage =
+          base && (task.kind === 'group' || task.kind === 'c2c')
+            ? {
+                ...base,
+                binding: { ...base.binding, level: () => 2, beforeSkip: gate.beforeSkip },
+                tableSkipped: () => gate.tableSkipped,
+                onUnreadable: (error: unknown) =>
+                  gate.unreadable(
+                    this.msgs.exportDatabasePath(task.kind as 'group' | 'c2c', task.conv),
+                    task.kind === 'group' ? 'group_msg_table' : 'c2c_msg_table',
+                    error,
+                  ),
+              }
+            : base;
         source =
           typeof this.msgs.withExportFilter === 'function'
-            ? this.msgs.withExportFilter(task.filter, this.abortControllers.get(task.id)?.signal)
+            ? this.msgs.withExportFilter(
+                task.filter,
+                this.abortControllers.get(task.id)?.signal,
+                salvage,
+              )
             : Object.assign(Object.create(this.msgs) as MsgService, {
                 exportFilter: task.filter,
                 exportSignal: this.abortControllers.get(task.id)?.signal,
+                salvage,
               });
         this.filteredSources.set(task.id, source);
       }
@@ -2086,6 +2137,92 @@ export class ExportTaskManager extends EventEmitter {
     // 适配源只实现 c2c 分支用到的成员子集；按 kind='c2c' 的调用契约使用。
     src.exportJournal = this.journals.get(task.id);
     return src as unknown as MsgService;
+  }
+
+  private databaseRecoveryFor(task: ExportTask): DatabaseRecoveryGate {
+    let gate = this.databaseRecoveryGates.get(task.id);
+    if (!gate) {
+      const signal = this.abortControllers.get(task.id)?.signal;
+      if (!signal) throw new Error('任务尚未开始读取');
+      gate = new DatabaseRecoveryGate(
+        signal,
+        (request) => {
+          task.databaseRecovery = request;
+          if (request) this.queueReleases.get(task.id)?.();
+          if (!signal.aborted) task.status = request ? 'paused' : 'running';
+          task.updatedAt = Date.now();
+          this.saveTasks();
+          this.emit('progress', {
+            taskId: task.id,
+            status: task.status,
+            progress: task.progress,
+            current: task.current,
+            message: request ? '数据库读取异常，等待处理' : '继续读取',
+          });
+        },
+        (record) => {
+          task.reportVersion = 1;
+          task.databaseRecoveryRecords ??= [];
+          const records = task.databaseRecoveryRecords;
+          if (!records.some((entry) => JSON.stringify(entry) === JSON.stringify(record)))
+            records.push(record);
+          this.log(
+            task.id,
+            'message',
+            record.kind === 'table'
+              ? '本次任务不再读取该表，已有消息保留；结果为部分导出。'
+              : `已确认跳过未读键区间：${record.ranges?.map((range) => `(${range.lo}, ${range.hi}]`).join('、')}；结果为部分导出。`,
+            'warn',
+          );
+          this.saveTasks();
+        },
+        () => Math.max(task.current, this.journals.get(task.id)?.count ?? 0) > 0,
+      );
+      this.databaseRecoveryGates.set(task.id, gate);
+    }
+    return gate;
+  }
+
+  async resolveDatabaseRecovery(
+    id: string,
+    requestId: string,
+    decision: DatabaseRecoveryDecision,
+    skipRemaining = false,
+  ): Promise<boolean> {
+    const task = this.tasks.get(id);
+    if (
+      !task?.databaseRecovery ||
+      task.databaseRecovery.id !== requestId ||
+      task.databaseRecovery.decisionPending
+    )
+      return false;
+    if (decision === 'skip') {
+      if (!task.databaseRecovery.canSkip) return false;
+      task.databaseRecovery.decisionPending = true;
+      this.saveTasks();
+      // 等待用户时让出导出队列；继续时重新排队，避免一次恢复多项重任务。
+      return new Promise<boolean>((resolve) => {
+        this.queue = this.queue
+          .then(async () => {
+            const yielded = this.queueYield(id);
+            const accepted =
+              this.databaseRecoveryGates.get(id)?.respond(requestId, decision, skipRemaining) ??
+              false;
+            resolve(accepted);
+            if (accepted) await Promise.race([this.executions.get(id), yielded]);
+          })
+          .catch(() => {
+            resolve(false);
+          });
+      });
+    }
+    const accepted =
+      this.databaseRecoveryGates.get(id)?.respond(requestId, decision, skipRemaining) ?? false;
+    if (accepted) {
+      // 修复工具打开前先等写入器结束、消息日志落盘，不能边导出边修复。
+      while (this.abortControllers.has(id)) await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    return accepted;
   }
 
   /** 结构化导出（json / chatlab / html）的昵称解析：guild 任务覆盖 self / peer 身份。 */
@@ -2182,7 +2319,7 @@ export class ExportTaskManager extends EventEmitter {
       taskId,
       'message',
       `损坏降级：跳过 ${ranges} 处读不出来的区间（键跨度合计 ${span}，不是条数），` +
-        `涉及会话 ${convs.join('、')}。导出的消息可能不完整，明细见 设置 → 数据库宽容 的账本`,
+        `涉及会话 ${convs.join('、')}。导出的消息可能不完整，明细见本任务完整性报告。`,
       'warn',
     );
   }
@@ -2814,7 +2951,13 @@ export class ExportTaskManager extends EventEmitter {
       }
 
       // ---- 消息导出（HTML + 装扮需等 manifest；其余格式仅等装扮用量扫描） ----
-      if (!task.archiveId || task.guild || task.kind === 'official' || task.kind === 'service') {
+      if (
+        !task.archiveId ||
+        task.guild ||
+        task.kind === 'official' ||
+        task.kind === 'service' ||
+        formats.some((format) => !['json', 'jsonl', 'jsonl.gz'].includes(format))
+      ) {
         const journalDir = task.directOutput?.journalDirectory ?? outDir;
         if (task.journalPath && task.current > 0 && !existsSync(task.journalPath))
           throw new Error('原消息进度记录已丢失，请恢复进度目录后继续。');
@@ -3912,8 +4055,23 @@ export class ExportTaskManager extends EventEmitter {
       this.log(id, 'finalize', '收尾与校验完成');
     } catch (e) {
       if (aborted() && (paused() || task.status === 'cancelled')) return;
+      let failure = e;
+      if (isLikelyCorruptionError(failure)) {
+        try {
+          await this.databaseRecoveryFor(task).failedRead(failure);
+        } catch (decision) {
+          failure = decision;
+        }
+      }
+      if (failure instanceof DatabaseRecoveryStopped) {
+        task.status = 'paused';
+        task.error = failure.message;
+        abort.abort();
+        this.log(id, 'task', task.error, 'warn');
+        return;
+      }
       task.status = 'failed';
-      task.error = String((e as Error)?.message ?? e);
+      task.error = String((failure as Error)?.message ?? failure);
       // Mark the running stage failed so the UI shows where it broke.
       const running = task.stages.find((s) => s.status === 'running');
       if (running) {
@@ -6613,7 +6771,7 @@ export class ExportTaskManager extends EventEmitter {
   cancelTask(id: string): boolean {
     const task = this.tasks.get(id);
     if (!task || task.status === 'completed' || this.finalizing.has(id)) return false;
-    if (task.status === 'running') this.abortControllers.get(id)?.abort();
+    this.abortControllers.get(id)?.abort();
     task.status = 'cancelled';
     if (!this.abortControllers.has(id)) this.clearResumeState(task);
     if (task.resource) {

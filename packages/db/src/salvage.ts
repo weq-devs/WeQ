@@ -342,6 +342,14 @@ export interface SalvageBindingOptions {
   ledger?: SalvageLedger;
   /** 额外回调，供上层落盘 / 打日志。 */
   onEntry?: (entry: SalvageLedgerEntry) => void;
+  /** 任务接受不完整结果前询问；拒绝时不返回行，也不记成已跳过。 */
+  beforeSkip?: (input: {
+    dbPath: string;
+    table?: string | null;
+    sqlFingerprint: string;
+    keyAxis?: 'seq' | 'rowid';
+    ranges: SalvageSkippedRange[];
+  }) => Promise<void>;
 }
 
 interface ReadCredentials {
@@ -761,6 +769,12 @@ export async function runSalvageScan(
 
   // 拿到结果但少了若干区间：这是**会丢数据**的结局，必须留下账目。
   if (outcome.skipped.length > 0) {
+    await opts.beforeSkip?.({
+      dbPath: target.dbPath,
+      table: outcome.table,
+      sqlFingerprint: fingerprintSql(sql),
+      ranges: outcome.skipped,
+    });
     recordEntry(
       {
         at: new Date().toISOString(),

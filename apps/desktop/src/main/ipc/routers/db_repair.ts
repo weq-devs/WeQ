@@ -52,11 +52,20 @@ import {
   requireBootstrap,
   requirePlatform,
 } from '../../context/app_context';
-import { procedure, router } from '../trpc';
+import { procedure as baseProcedure, router } from '../trpc';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { databaseCheckups } from '../../db_checkup';
 import { backgroundTasks, runBackgroundTask } from '../../background_tasks';
 
 const logger = getLogger().child({ scope: 'db-repair' });
+const repairSource = new AsyncLocalStorage<string | undefined>();
+const procedure = baseProcedure.use(({ rawInput: input, next }) => {
+  const configId =
+    input && typeof input === 'object' && 'configId' in input && typeof input.configId === 'string'
+      ? input.configId
+      : undefined;
+  return repairSource.run(configId, next);
+});
 
 /** 结束 QQ 之后等锁释放的上限。 */
 const KILL_WAIT_MS = 5000;
@@ -195,7 +204,15 @@ function resolveAccountInfo(uin: string): DbRepairAccountInfo | null {
   const candidates: DbRepairAccountInfo[] = [];
   for (const config of boot.userConfig.listAccountConfigs()) {
     if (config.uin !== uin) continue;
+    if (repairSource.getStore() && config.configId !== repairSource.getStore()) continue;
     const dataDir = config.dataDir ?? null;
+    if (
+      repairSource.getStore() &&
+      dataDir &&
+      !existsSync(join(dataDir, 'nt_msg.db')) &&
+      !existsSync(join(dataDir, 'nt_db', 'nt_msg.db'))
+    )
+      continue;
     const dbDir = resolveAccountDbDir(platform, uin, dataDir);
     if (!dbDir) continue;
     candidates.push({ dataDir, dbDir, dbKey: config.dbKey, algos: config.algos });
@@ -416,7 +433,7 @@ function failedResult(error: unknown, closedAccount: boolean, event: string): Db
   return { ok: false, code, error: message, closedAccount };
 }
 
-const accountRef = z.object({ uin: z.string().min(1) });
+const accountRef = z.object({ uin: z.string().min(1), configId: z.string().min(1).optional() });
 const targetRef = accountRef.extend({ dbName: z.string().min(1) });
 const recordRef = accountRef.extend({ recordId: z.string().min(1) });
 

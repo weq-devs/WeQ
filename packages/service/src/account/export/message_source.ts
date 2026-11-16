@@ -29,8 +29,8 @@
  * 导出一场会话要读几万行，而数据库可能只在其中几页上坏掉。严格读的代价是
  * "坏一页 = 整场会话后面的消息全部导不出来"。所以当：
  *
- *   1. 某次分页**真的报出错**（`isLikelyCorruptionError`），且
- *   2. 该账号已被用户授权宽容级别 ≥ 2（记住账号的 `dbTolerance` 设置）
+ *   1. 某次分页带回 SQLite 损坏错误码，且
+ *   2. 调用方提供任务级分块读取策略（接受未读区间前等待用户决定）
  *
  * 时，本次分页会从**当前游标**切到容错续读（沿 seq/rowid 轴分块扫描），把能读出来的
  * 消息接着导完，读不出来的区间如实汇报给 `onSkipped`（进导出报告与降级账本）。
@@ -38,12 +38,12 @@
  * 一样。回退只属于 group / c2c 两个最主要的会话类型（官方号 / 服务号的容错读取尚未
  * 接入，它们仍然严格失败）。
  *
- * 授权默认从 `msgs.salvage`（账号级设置）取，所以导出入口**不需要**多传一个参数；
+ * 策略默认从 `msgs.salvage`（任务私有消息源）取，所以导出入口不需要另传参数；
  * 调用方仍可用 `opts.salvage` 覆盖它（例如只想对某一次导出开宽容）。两者都没给时，
  * 这里退化成原来的严格分页。
  */
 
-import { type SalvageBindingOptions, isLikelyCorruptionError, withDatabasePriority } from '@weq/db';
+import { type SalvageBindingOptions, withDatabasePriority } from '@weq/db';
 import type { SalvageSkippedRange } from '@weq/native';
 import type { MsgSalvageSource, MsgService, RenderGroupMsg, RenderC2cMsg } from '../msg';
 import type { GapFetchedMessage } from '../gap_history';
@@ -84,6 +84,29 @@ export interface SalvageSourceOptions {
   onSkipped?: (info: ExportSkippedRanges) => void;
   /** 每块键跨度；省略则用 native 默认值。 */
   chunk?: number;
+  tableSkipped?: () => boolean;
+  onUnreadable?: (error: unknown) => Promise<void>;
+}
+
+/** 分块仍失败时，只允许本次任务决定是否结束这张表的读取。 */
+async function* recoveryBatches<T>(
+  batches: AsyncGenerator<T[]>,
+  signal: AbortSignal | undefined,
+  salvage: SalvageSourceOptions | undefined,
+): AsyncGenerator<T[]> {
+  try {
+    for await (const batch of backgroundBatches(batches, signal)) {
+      if (salvage?.tableSkipped?.()) return;
+      yield batch;
+    }
+  } catch (error) {
+    signal?.throwIfAborted();
+    const scanFailure =
+      error instanceof Error &&
+      ['SalvageBudgetError', 'SalvageQuarantinedError'].includes(error.name);
+    if (!salvage?.onUnreadable || (!hasCorruptionCode(error) && !scanFailure)) throw error;
+    await salvage.onUnreadable(error);
+  }
 }
 
 /** 当前是否允许把一次失败的分页换成容错续读。 */
@@ -95,7 +118,12 @@ function canSalvage(
   if ((salvage.binding.level() ?? 0) < SALVAGE_MIN_LEVEL) return false;
   // 只有"看起来真的是损坏"才换路径：BUSY / 权限 / 语法错照旧抛出去，
   // 否则会把一个可重试的失败变成一个永不重试的降级。
-  return isLikelyCorruptionError(error);
+  return hasCorruptionCode(error);
+}
+
+function hasCorruptionCode(error: unknown): boolean {
+  if (!error || typeof error !== 'object' || !('errorCode' in error)) return false;
+  return error.errorCode === 11 || error.errorCode === 26;
 }
 
 /** 把导出侧的选项折成 `streamSalvage*` 要的形状（含跳过回调的会话标注）。 */
@@ -103,10 +131,16 @@ function salvageStreamOptions(
   salvage: SalvageSourceOptions | MsgSalvageSource,
   conv: string,
   kind: 'group' | 'c2c',
+  keyAxis: 'seq' | 'rowid',
 ): Parameters<MsgService['streamSalvageGroupAfter']>[2] {
   const report = 'onSkipped' in salvage ? salvage.onSkipped : undefined;
   return {
-    salvage: salvage.binding,
+    salvage: salvage.binding.beforeSkip
+      ? {
+          ...salvage.binding,
+          beforeSkip: (input) => salvage.binding.beforeSkip!({ ...input, keyAxis }),
+        }
+      : salvage.binding,
     ...(salvage.chunk !== undefined ? { chunk: salvage.chunk } : {}),
     ...(report
       ? {
@@ -293,6 +327,7 @@ async function* pageGroupBySeq(
 ): AsyncGenerator<RenderGroupMsg> {
   let cursor = 0n;
   for (;;) {
+    if (salvage?.tableSkipped?.()) return;
     let page: RenderGroupMsg[];
     try {
       page = await withDatabasePriority(
@@ -304,13 +339,14 @@ async function* pageGroupBySeq(
       if (!canSalvage(salvage, error)) throw error;
       // 严格读坏了：从**当前游标**接着读（不是从头重来 —— 已经 yield 出去的那部分
       // 不该重复写进文件）。续读是分批交出来的，所以这里再拆一层，保住"逐条产出"的契约。
-      for await (const batch of backgroundBatches(
+      for await (const batch of recoveryBatches(
         msgs.streamSalvageGroupAfter(
           groupCode,
           cursor,
-          salvageStreamOptions(salvage!, groupCode, 'group'),
+          salvageStreamOptions(salvage!, groupCode, 'group', 'seq'),
         ),
         msgs.exportSignal,
+        salvage,
       )) {
         yield* batch;
       }
@@ -333,6 +369,7 @@ async function* pageGroupBySeqlessRowId(
 ): AsyncGenerator<RenderGroupMsg> {
   let cursor = 0n;
   for (;;) {
+    if (salvage?.tableSkipped?.()) return;
     let page: Array<RenderGroupMsg & { rowId: bigint }>;
     try {
       page = await withDatabasePriority(
@@ -342,13 +379,14 @@ async function* pageGroupBySeqlessRowId(
       );
     } catch (error) {
       if (!canSalvage(salvage, error)) throw error;
-      for await (const batch of backgroundBatches(
+      for await (const batch of recoveryBatches(
         msgs.streamSalvageGroupSeqlessAfterRowId(
           groupCode,
           cursor,
-          salvageStreamOptions(salvage!, groupCode, 'group'),
+          salvageStreamOptions(salvage!, groupCode, 'group', 'rowid'),
         ),
         msgs.exportSignal,
+        salvage,
       )) {
         yield* batch;
       }
@@ -402,6 +440,7 @@ async function* pageC2cBySeq(
 ): AsyncGenerator<RenderC2cMsg> {
   let cursor = 0n;
   for (;;) {
+    if (salvage?.tableSkipped?.()) return;
     let page: RenderC2cMsg[];
     try {
       page = await withDatabasePriority(
@@ -411,9 +450,14 @@ async function* pageC2cBySeq(
       );
     } catch (error) {
       if (!canSalvage(salvage, error)) throw error;
-      for await (const batch of backgroundBatches(
-        msgs.streamSalvageC2cAfter(peerUid, cursor, salvageStreamOptions(salvage!, peerUid, 'c2c')),
+      for await (const batch of recoveryBatches(
+        msgs.streamSalvageC2cAfter(
+          peerUid,
+          cursor,
+          salvageStreamOptions(salvage!, peerUid, 'c2c', 'seq'),
+        ),
         msgs.exportSignal,
+        salvage,
       )) {
         yield* batch;
       }
@@ -435,6 +479,7 @@ async function* pageC2cBySeqlessRowId(
 ): AsyncGenerator<RenderC2cMsg> {
   let cursor = 0n;
   for (;;) {
+    if (salvage?.tableSkipped?.()) return;
     let page: Array<RenderC2cMsg & { rowId: bigint }>;
     try {
       page = await withDatabasePriority(
@@ -444,13 +489,14 @@ async function* pageC2cBySeqlessRowId(
       );
     } catch (error) {
       if (!canSalvage(salvage, error)) throw error;
-      for await (const batch of backgroundBatches(
+      for await (const batch of recoveryBatches(
         msgs.streamSalvageC2cSeqlessAfterRowId(
           peerUid,
           cursor,
-          salvageStreamOptions(salvage!, peerUid, 'c2c'),
+          salvageStreamOptions(salvage!, peerUid, 'c2c', 'rowid'),
         ),
         msgs.exportSignal,
+        salvage,
       )) {
         yield* batch;
       }

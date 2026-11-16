@@ -69,7 +69,6 @@ import { basename, dirname, extname, join } from 'node:path';
 import {
   getAppContext,
   requireBootstrap,
-  closeSalvageConnections,
   dbEventBus,
   accountEventBus,
   type AccountServices,
@@ -77,8 +76,6 @@ import {
 } from '../../context/app_context';
 import { fullModeAllowed, requestFullMode } from '../../context/full_mode';
 import { onlineTranscriber } from '../../online_transcribe';
-import type { QuarantinedTable } from '@weq/native';
-import type { SalvageLedgerEntry } from '@weq/db';
 import {
   databasePerformance,
   withDatabasePriority,
@@ -8945,6 +8942,30 @@ export const accountRouter = router({
       requireServices().exportManager.resumeTask(input.taskId, input.incremental),
     ),
 
+  resolveExportDatabaseRecovery: procedure
+    .input(
+      exportAccountBindingInput.extend({
+        taskId: z.string().min(1),
+        requestId: z.string().uuid(),
+        decision: z.enum(['skip', 'repair', 'stop']),
+        skipRemaining: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const accepted = await services.exportManager.resolveDatabaseRecovery(
+        input.taskId,
+        input.requestId,
+        input.decision,
+        input.skipRemaining,
+      );
+      if (!accepted) throw new Error('任务的等待状态已变化，请刷新后重试。');
+      return true;
+    }),
+
   finalizeExportTask: procedure
     .input(z.object({ taskId: z.string().min(1) }))
     .mutation(({ input }) => requireServices().exportManager.finalizeTask(input.taskId)),
@@ -9477,131 +9498,7 @@ export const accountRouter = router({
         };
       },
     ),
-
-  /**
-   * 当前账号的宽容（salvage）配置 + 降级账本。
-   *
-   * 账本按时间倒序取最新 50 条；只含 SQL 指纹，不含参数值。
-   */
-  getDbTolerance: procedure.query((): DbToleranceSnapshot => {
-    const ctx = getAppContext();
-    const tolerance = ctx.dbTolerance;
-    if (!tolerance)
-      return { level: 0, grantedAt: null, summary: EMPTY_SALVAGE_SUMMARY, entries: [] };
-    const config = tolerance.getConfig();
-    return {
-      level: config.level,
-      grantedAt: config.grantedAt ?? null,
-      summary: tolerance.summary(),
-      entries: [...tolerance.listEntries()].reverse().slice(0, 50),
-    };
-  }),
-
-  /**
-   * 授权/调整宽容级别（0 = 回到严格）。
-   *
-   * 只有用户的显式动作会调用它：没有自动降级，也不会因为某次查询失败就偷偷改级别。
-   * 级别降回 0 时顺手释放 salvage 只读连接（严格连接不受影响）。
-   */
-  setDbToleranceLevel: procedure
-    .input(z.object({ level: z.number().int().min(0).max(3), source: z.string().optional() }))
-    .mutation(({ input }): { level: number; grantedAt: string | null; closedSalvage: number } => {
-      const ctx = getAppContext();
-      const tolerance = ctx.dbTolerance;
-      if (!tolerance) throw new Error('未打开账号');
-      const config = tolerance.setLevel(input.level, input.source ?? 'ipc');
-      const closedSalvage = config.level === 0 ? closeSalvageConnections(ctx) : 0;
-      return { level: config.level, grantedAt: config.grantedAt ?? null, closedSalvage };
-    }),
-
-  // 坏页扫描原本在这里（只能扫"当前打开的账号"）。它已经搬到 设置 → 数据维护 → 维护工具 → 数据库修复
-  // 的 `client.dbRepair.scanBadPages`：那边对**任意账号**可用，而且与修复共用同一份
-  // 实现（`@weq/service` 的 `bad_pages`），口径不会漂。设置页不再有扫描入口。
-
-  /**
-   * 当前进程内被 L3（整表放弃）隔离的表。
-   *
-   * 隔离是**进程内**的临时状态：条目有存活时间（默认 300 秒，到点自动失效重试），
-   * 所以这里既不落盘也不参与“记住该账号”的设置。它存在的意义只有一个 ——
-   * 让用户能看到“哪张表已经被放弃、为什么”，并且能手动让它再试一次。
-   */
-  listSalvageQuarantine: procedure.query((): QuarantinedTable[] => {
-    const platform = getAppContext().platform;
-    if (!platform) return [];
-    try {
-      return platform.native.ntHelper.listQuarantinedTables();
-    } catch {
-      // 原生侧不可用不应让设置页整个报错：隔离清单只是个只读的展示。
-      return [];
-    }
-  }),
-
-  /**
-   * 把隔离记录清掉，让那些表**立刻**再试一次。
-   *
-   * 三个粒度与 native 一致：只给 `dbName` 清该库，再加 `table` 只清那一张，都不给全清。
-   * `dbPath` 不接收渲染层传来的路径 —— 只能用于“当前确实被隔离的库”（路径由 native
-   * 自己报回来，按文件名匹配），否则就变成了一个任意路径的写入接口。
-   */
-  clearSalvageQuarantine: procedure
-    .input(z.object({ dbName: z.string().optional(), table: z.string().optional() }))
-    .mutation(({ input }): { cleared: number; remaining: number } => {
-      const platform = getAppContext().platform;
-      if (!platform) return { cleared: 0, remaining: 0 };
-      const helper = platform.native.ntHelper;
-      let dbPath: string | undefined;
-      if (input.dbName) {
-        const entry = helper
-          .listQuarantinedTables()
-          .find((item) => basename(item.dbPath) === input.dbName);
-        if (!entry) throw new Error(`${input.dbName} 当前没有被隔离的表`);
-        dbPath = entry.dbPath;
-      }
-      const cleared = helper.clearQuarantinedTables(dbPath, input.table);
-      return { cleared, remaining: helper.listQuarantinedTables().length };
-    }),
 });
-
-// ── 数据库宽容（salvage）：IPC 边界的形状与辅助 ────────────────────────
-
-/** 降级账本汇总。四种结局各自计数、**不合并** —— 它们在报告里的说法完全不同。 */
-export interface SalvageSummary {
-  total: number;
-  /** 换了访问路径后拿到结果（**不丢数据**）。 */
-  indexRetreat: number;
-  /** 损坏且替代路径也救不回来（本次读取没有结果）。 */
-  unrecoverable: number;
-  /**
-   * 分块扫描里跳过了若干区间：**拿到了结果但少了数据**。
-   *
-   * 这是唯一“看起来成功了、实际丢了东西”的一类，所以它必须独立计数，
-   * 不能归到“救不回来”里 —— 后者用户至少知道要重试。
-   */
-  skipped: number;
-  /** 该表已被 L3 整表放弃，本次压根没读。 */
-  quarantined: number;
-  databases: string[];
-  lastAt: string | null;
-}
-
-/** 设置页 / 弹窗需要的全部宽容状态。 */
-export interface DbToleranceSnapshot {
-  level: number;
-  grantedAt: string | null;
-  summary: SalvageSummary;
-  /** 最新 50 条账目（新→旧）。 */
-  entries: SalvageLedgerEntry[];
-}
-
-export const EMPTY_SALVAGE_SUMMARY: SalvageSummary = {
-  total: 0,
-  indexRetreat: 0,
-  unrecoverable: 0,
-  skipped: 0,
-  quarantined: 0,
-  databases: [],
-  lastAt: null,
-};
 
 /**
  * 克隆体 / 克隆群在会话列表上的「最近活动」：取最新会话的最后一条消息。

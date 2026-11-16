@@ -56,7 +56,6 @@ export const SETTINGS_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
     '保留本机导出目录与图片库路径',
   ],
   'weq-config-management': ['重置设置', '恢复出厂'],
-  'db-tolerance': ['数据库宽容级别', '严格模式'],
   'tts-providers': [
     '语音合成',
     '朗读',

@@ -1,4 +1,5 @@
 import { NumericText } from '../components/NumericText';
+import { useDbRepairWindow } from '../state/dbRepairWindow';
 import * as timeFormat from '@weq/time';
 import { eventTimeFormatter } from '@weq/time';
 /** 统一导出工具：内容选择与执行配置；任务工具独立管理执行结果和计划。 */
@@ -993,6 +994,8 @@ function ExportToolBody({
       canResume: t.canResume,
       canPause: t.canPause,
       networkPaused: t.networkPaused,
+      databaseRecovery: t.databaseRecovery,
+      databaseRecoveryRecords: t.databaseRecoveryRecords,
       journalPath: t.journalPath,
       databaseRecovery: t.databaseRecovery,
       databaseRecoveryRecords: t.databaseRecoveryRecords,
@@ -2713,6 +2716,29 @@ function ExportToolBody({
                 autoSelectId={autoSelectTaskId}
                 renderExport={(task) => (
                   <TaskList
+                    onDatabaseRecovery={async (task, decision, skipRemaining) => {
+                      const request = task.databaseRecovery;
+                      if (!request || !saveBinding || !isCurrent())
+                        throw new Error('账号或任务状态已变化，请刷新后重试。');
+                      const binding = { ...saveBinding };
+                      await client.account.resolveExportDatabaseRecovery.mutate({
+                        ...binding,
+                        taskId: task.id,
+                        requestId: request.id,
+                        decision,
+                        skipRemaining,
+                      });
+                      await utils.account.listExportTasks.invalidate();
+                      if (decision === 'repair' && isCurrent()) {
+                        useDbRepairWindow.getState().open({
+                          uin: binding.expectedAccountUin,
+                          configId: binding.expectedAccountConfigId,
+                          dbName: request.dbPath.split(/[\\/]/).at(-1) || undefined,
+                          name: binding.expectedAccountUin,
+                          avatarUrl: '',
+                        });
+                      }
+                    }}
                     detailOnly
                     onDatabaseRecovery={async (task, decision, skipRemaining) => {
                       const request = task.databaseRecovery;

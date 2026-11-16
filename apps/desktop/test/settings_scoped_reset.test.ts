@@ -390,17 +390,10 @@ describe('分级恢复默认', () => {
     expect(result.every((item) => item.ok)).toBe(true);
     expect(state.intent.profileEngine).toBe(DEFAULT_INTENT_SENSE_CONFIG.profileEngine);
   });
-  it('数据源配置仍拒绝切号前的恢复目标', async () => {
+  it('已移除的账号级容错不再提供恢复字段', async () => {
     state.account = true;
-    const preview = await caller().preview({ page: 'database-management', card: 'db-tolerance' });
-    state.source = 'other-source';
-    await expect(
-      caller().restore({
-        page: 'database-management',
-        card: 'db-tolerance',
-        source: preview.source,
-      }),
-    ).rejects.toThrow('已切换');
+    const preview = await caller().preview({ page: 'database-management' });
+    expect(preview.items.some((item) => item.id.startsWith('db-tolerance:'))).toBe(false);
     expect(state.calls).toEqual([]);
   });
   it('整页画像参数成组恢复，不因中间状态违反范围约束而失败，保留单会话覆盖', async () => {

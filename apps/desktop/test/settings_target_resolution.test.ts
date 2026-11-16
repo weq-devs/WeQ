@@ -121,14 +121,14 @@ describe('设置重构的规范目标与旧入口分流', () => {
       item: '关联资源目录',
       target: 'resource-loading',
     },
-    { section: 'database', target: 'database-management', settingId: 'db-tolerance' },
+    { section: 'database', target: 'database-management', settingId: 'database-repair' },
     {
       section: 'database',
       item: '数据库异常时弹窗提醒',
       target: 'database-management',
       settingId: 'damage-reminder',
     },
-    { section: 'database-status', target: 'database-management', settingId: 'tolerance-records' },
+    { section: 'database-status', target: 'database-management', settingId: 'database-repair' },
     { section: 'maintenance', target: 'database-management' },
     {
       section: 'maintenance',

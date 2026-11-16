@@ -12,7 +12,7 @@
  *  4. 续读只有批次概念，对外的产出仍是**逐条**的 —— 顺序与严格读完全一致。
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { isLikelyCorruptionError } from '@weq/db';
 import { MsgService, iterateGroupMessages, type ExportSkippedRanges } from '@weq/service';
 import type { MsgSalvageSource, RenderGroupMsg } from '@weq/service';
@@ -107,6 +107,32 @@ async function collect(gen: AsyncGenerator<RenderGroupMsg>): Promise<RenderGroup
 }
 
 describe('导出容错续读（level 2）', () => {
+  it('分块仍读不动时等待任务决策，结束此表后不再启动另一路扫描', async () => {
+    const { msgs, calls } = makeMsgs({ pages: [corrupt()], salvageLevel: 2 });
+    let skipped = false;
+    const ask = vi.fn(async () => {
+      skipped = true;
+    });
+    Object.assign(msgs.salvage!, { onUnreadable: ask, tableSkipped: () => skipped });
+    msgs.streamSalvageGroupAfter = async function* () {
+      yield await Promise.reject(corrupt());
+    };
+    expect(await collect(iterateGroupMessages(msgs, CONV))).toEqual([]);
+    expect(ask).toHaveBeenCalledOnce();
+    expect(calls).not.toContain('page:seqless');
+  });
+  it('仅文案像损坏、实际错误码为 BUSY 时不能跳过数据', async () => {
+    const { msgs, calls } = makeMsgs({
+      pages: [
+        Object.assign(new Error('database disk image is malformed in upstream context'), {
+          errorCode: 5,
+        }),
+      ],
+      salvageLevel: 2,
+    });
+    await expect(collect(iterateGroupMessages(msgs, CONV))).rejects.toThrow();
+    expect(calls.some((call) => call.startsWith('salvage:'))).toBe(false);
+  });
   it('keeps failing hard while the account is strict', async () => {
     const { msgs, calls } = makeMsgs({ pages: [corrupt()] });
 

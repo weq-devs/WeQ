@@ -77,6 +77,8 @@ import '../styles/db-repair-storage.css';
 /** 展示当前账号用的最小信息（父级已有一份，不再重复探测）。 */
 export interface DbRepairAccountOption {
   uin: string;
+  configId?: string;
+  dbName?: string;
   name: string;
   avatarUrl: string;
 }
@@ -887,12 +889,13 @@ export function DbRepairPanel({
   const utils = trpc.useUtils();
 
   /** 当前在哪一页。回滚 / 记录不在这条线上（见 `<HistoryLightbox>` 的注释）。 */
-  const [stage, setStage] = useState<'scan' | 'repair'>('scan');
+  const initialDatabase = accounts.find((account) => account.uin === currentUin)?.dbName ?? null;
+  const [stage, setStage] = useState<'scan' | 'repair'>(initialDatabase ? 'repair' : 'scan');
   /**
    * 选中的库。从体检结论点某个坏库进来时会预选它；「跳过体检」进来是 null ——
    * 没有选中就没有修复按钮。
    */
-  const [dbName, setDbName] = useState<string | null>(null);
+  const [dbName, setDbName] = useState<string | null>(initialDatabase);
   /** 体检结果：按库名记着。 */
   const [checkups, setCheckups] = useState<Record<string, DbRepairCheckupView>>({});
   /** 体检跑到哪了（标题右边那句 + 顶部进度条）。 */
@@ -920,6 +923,7 @@ export function DbRepairPanel({
   const [preview, setPreview] = useState<DbRepairRestorePreviewView | null>(null);
 
   const uin = currentUin;
+  const configId = accounts.find((account) => account.uin === uin)?.configId;
   const running = busy === 'repair' || busy === 'restore';
   const autoRefresh = useQQAutoRefresh(uin !== null);
 
@@ -932,14 +936,14 @@ export function DbRepairPanel({
 
   // ── 查询 ────────────────────────────────────────────────────────────────
   const statusQuery = trpc.dbRepair.status.useQuery(
-    { uin: uin ?? '' },
+    { uin: uin ?? '', configId },
     { ...autoRefresh, refetchInterval: autoRefresh.enabled && running ? POLL_MS : false },
   );
   const status = statusQuery.data as DbRepairStatusView | undefined;
   /** 该账号的 QQ 是否在线（决定要不要盯着锁状态）。 */
   const qqOnline = (status?.qqPid ?? null) !== null;
   const preflightQuery = trpc.dbRepair.preflight.useQuery(
-    { uin: uin ?? '', dbName: dbName ?? '' },
+    { uin: uin ?? '', configId, dbName: dbName ?? '' },
     // 没选库就不查（整段环境检查都对着某个库说话）。
     {
       ...autoRefresh,
@@ -959,12 +963,12 @@ export function DbRepairPanel({
    * 的只读读盘，不需要整库扫描，也不会和体检抢 IO。
    */
   const layoutQuery = trpc.dbRepair.detectLayout.useQuery(
-    { uin: uin ?? '', dbName: dbName ?? '' },
+    { uin: uin ?? '', configId, dbName: dbName ?? '' },
     { ...autoRefresh, enabled: autoRefresh.enabled && stage === 'repair' && dbName !== null },
   );
   const layoutProbe = layoutQuery.data as DbRepairLayoutProbeView | undefined;
   const needsMigration = layoutProbe?.needsMigration === true;
-  const historyQuery = trpc.dbRepair.history.useQuery({ uin: uin ?? '' }, autoRefresh);
+  const historyQuery = trpc.dbRepair.history.useQuery({ uin: uin ?? '', configId }, autoRefresh);
   const history = useMemo(
     () => (historyQuery.data ?? []) as DbRepairRecordView[],
     [historyQuery.data],
@@ -1109,7 +1113,7 @@ export function DbRepairPanel({
       for (const name of names) {
         if (stopScanRef.current || scanRunRef.current !== run) break;
         setScan((prev) => (prev ? { ...prev, current: name } : prev));
-        const request = { uin, taskId: createMediaId('db-checkup') };
+        const request = { uin, configId, taskId: createMediaId('db-checkup') };
         activeCheckupRef.current = request;
         try {
           const row = (await checkupRun.mutateAsync({
@@ -1172,7 +1176,7 @@ export function DbRepairPanel({
     setBusy('kill');
     setNotice(null);
     try {
-      const result = await killQq.mutateAsync({ uin, dbName, pid: holder.pid });
+      const result = await killQq.mutateAsync({ uin, configId, dbName, pid: holder.pid });
       if (result.released) {
         pushToast({
           tone: 'success',
@@ -1210,7 +1214,7 @@ export function DbRepairPanel({
     setBusy('backup');
     setNotice(null);
     try {
-      const result = await backupNow.mutateAsync({ uin, dbName });
+      const result = await backupNow.mutateAsync({ uin, configId, dbName });
       pushToast({
         tone: 'success',
         title: '已备份',
@@ -1289,6 +1293,7 @@ export function DbRepairPanel({
       await pendingScan;
       const result = (await startRepair.mutateAsync({
         uin,
+        configId,
         dbName: target,
         ...(allowLowSpace ? { allowLowSpace: true } : {}),
         ...(layoutMigration ? { layoutMigration: true } : {}),
@@ -1349,6 +1354,7 @@ export function DbRepairPanel({
       setPreview(
         (await utils.dbRepair.restorePreview.fetch({
           uin,
+          configId,
           recordId: record.id,
         })) as DbRepairRestorePreviewView,
       );
@@ -1368,6 +1374,7 @@ export function DbRepairPanel({
     try {
       const result = (await restore.mutateAsync({
         uin,
+        configId,
         recordId: record.id,
         force,
       })) as DbRepairTaskResultView;
@@ -1413,7 +1420,7 @@ export function DbRepairPanel({
     if (uin === null) return;
     setNotice(null);
     try {
-      await removeRecord.mutateAsync({ uin, recordId: record.id });
+      await removeRecord.mutateAsync({ uin, configId, recordId: record.id });
       pushToast({
         tone: 'info',
         title: '已删除这条修复记录',
@@ -1433,9 +1440,9 @@ export function DbRepairPanel({
     if (uin === null) return;
     try {
       if (what === 'report') {
-        await client.dbRepair.revealReport.mutate({ uin, recordId: record.id });
+        await client.dbRepair.revealReport.mutate({ uin, configId, recordId: record.id });
       } else {
-        await client.dbRepair.revealBackup.mutate({ uin, recordId: record.id });
+        await client.dbRepair.revealBackup.mutate({ uin, configId, recordId: record.id });
       }
     } catch (error) {
       const text = errMsg(error);

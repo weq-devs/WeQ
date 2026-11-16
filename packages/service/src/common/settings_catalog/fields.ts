@@ -316,7 +316,6 @@ export const RUNTIME_SETTING_FIELDS: readonly SettingField[] = [
   field('recall-scope', 'notify-targets', 'anti-recall', '撤回通知会话选择', 'runtime', {
     scope: '当前账号',
   }),
-  field('db-tolerance', 'level', 'db-tolerance', '宽容级别', 'runtime', { scope: '当前账号' }),
   field('external-chatpic', 'enabled', 'external-chatpic', '外部安卓图片缓存', 'runtime'),
   field('external-chatpic', 'dir', 'external-chatpic', '外部安卓图片目录', 'runtime', {
     directory: true,

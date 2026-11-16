@@ -31,7 +31,7 @@ describe('用户可见文案', () => {
   it('修复提示、报告与使用文档不再引导到旧工具入口', () => {
     for (const path of [
       'apps/desktop/src/renderer/src/components/DatabaseDamagedDialog.tsx',
-      'apps/desktop/src/renderer/src/components/settings/DatabaseToleranceSection.tsx',
+      'apps/desktop/src/renderer/src/components/settings/DatabaseRepairSection.tsx',
       'packages/service/src/account/db_repair/report.ts',
       'docs/guide/wonderful-tools.md',
       'docs/guide/voice-transcribe.md',

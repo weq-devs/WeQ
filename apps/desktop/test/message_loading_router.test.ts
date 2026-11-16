@@ -39,8 +39,8 @@ beforeEach(() => {
 
 it('未打开宽容服务或原生平台时，既有配置与隔离目录读取保持空快照返回', async () => {
   const api = accountRouter.createCaller({});
-  expect(await api.getDbTolerance()).toMatchObject({ level: 0, entries: [] });
-  expect(await api.listSalvageQuarantine()).toEqual([]);
+  expect('getDbTolerance' in api).toBe(false);
+  expect('listSalvageQuarantine' in api).toBe(false);
 });
 
 const local = () => ({

@@ -152,7 +152,6 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
           utils.account.intentSense.getProfile.invalidate(),
         );
       if (cards.has('recall-scope')) refresh.push(utils.account.antiRecall.getStatus.invalidate());
-      if (cards.has('db-tolerance')) refresh.push(utils.account.getDbTolerance.invalidate());
       if (cards.has('mail')) refresh.push(utils.mail.preferences.invalidate());
       if (cards.has('remote')) refresh.push(utils.remote.status.invalidate());
       if (cards.has('web')) refresh.push(utils.remote.webStatus.invalidate());

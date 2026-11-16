@@ -1,21 +1,12 @@
-import { useEffect, useState } from 'react';
 import { ArrowUpRight, Database } from 'lucide-react';
-import { useTabActive } from '../RetainedTabs';
-import { ToolSurface } from '../ToolSurface';
-import { PageShell } from '../PageShell';
 import { useDatabaseBrowserWindow } from '../../state/databaseBrowserWindow';
-import { DatabaseToleranceSection } from './DatabaseToleranceSection';
+import { DatabaseRepairSection } from './DatabaseRepairSection';
 import { AccountBasicsSection } from './AccountBasicsSection';
 import { Card, Row, SectionHeader } from './controls';
-import { DataMaintenanceSection, type MaintenanceTool } from './DataMaintenanceSection';
+import type { MaintenanceTool } from './DataMaintenanceSection';
 import '../../styles/settings-database.css';
 
 export function DatabaseManagementSection({ onOpen }: { onOpen: (tool: MaintenanceTool) => void }) {
-  const active = useTabActive();
-  const [recordsOpen, setRecordsOpen] = useState(false);
-  useEffect(() => {
-    if (!active) setRecordsOpen(false);
-  }, [active]);
   return (
     <div className="weq-set weq-database-management">
       <SectionHeader title="QQ 数据库管理" page="database-management" />
@@ -36,20 +27,7 @@ export function DatabaseManagementSection({ onOpen }: { onOpen: (tool: Maintenan
         />
       </Card>
       <AccountBasicsSection page="listening" heading={false} />
-      <DatabaseToleranceSection
-        page="management"
-        onOpenRecords={() => setRecordsOpen(true)}
-        repairAction={<DataMaintenanceSection title={null} onOpen={onOpen} tools={['db-repair']} />}
-      />
-      {recordsOpen && (
-        <ToolSurface title="容错记录" presentation="modal" onClose={() => setRecordsOpen(false)}>
-          {(requestClose) => (
-            <PageShell title="容错记录" onClose={requestClose}>
-              <DatabaseToleranceSection page="status" />
-            </PageShell>
-          )}
-        </ToolSurface>
-      )}
+      <DatabaseRepairSection onOpen={onOpen} />
     </div>
   );
 }

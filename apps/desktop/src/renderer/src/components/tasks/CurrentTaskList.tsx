@@ -237,19 +237,23 @@ export function CurrentTaskList({
       name: task.name,
       kind: taskTypeLabel(task),
       status: saving ? 'running' : saveFailed ? 'failed' : task.status,
-      statusLabel: task.networkPaused
-        ? '省流量模式已暂停'
-        : saving
-          ? '保存中'
-          : saveFailed
-            ? '保存未完成'
-            : task.status === 'completed'
-              ? missing
-                ? '完成 · 资源缺失'
-                : task.save?.path
-                  ? '已保存'
-                  : '待保存'
-              : undefined,
+      statusLabel: task.databaseRecovery
+        ? '等待处理'
+        : task.networkPaused
+          ? '省流量模式已暂停'
+          : saving
+            ? '保存中'
+            : saveFailed
+              ? '保存未完成'
+              : task.status === 'completed'
+                ? task.databaseRecoveryRecords?.length
+                  ? '部分完成'
+                  : missing
+                    ? '完成 · 资源缺失'
+                    : task.save?.path
+                      ? '已保存'
+                      : '待保存'
+                : undefined,
       progress: saving || saveFailed ? undefined : taskPct(task),
       note: task.error || task.save?.error,
       icon: taskIcon(task),

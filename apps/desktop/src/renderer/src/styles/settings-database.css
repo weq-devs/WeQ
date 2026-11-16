@@ -36,53 +36,10 @@ html[data-theme='dark'] .weq-database-browser-content {
     border-bottom: 1px solid var(--weq-border-subtle);
   }
 }
-.weq-database-setting-group {
-  display: grid;
-  gap: 12px;
-  min-width: 0;
-}
-.weq-database-setting-group + .weq-database-setting-group {
-  border-top: 1px solid var(--weq-border-subtle);
-  padding-top: 14px;
-}
-.weq-database-group-head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.weq-database-group-head h4 {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 500;
-}
-.weq-database-group-head > span {
-  font-size: 12px;
-  color: var(--weq-fg-secondary);
-}
-.weq-database-group-head > button {
-  margin-left: auto;
-}
-.weq-database-tolerance-select {
-  width: 260px;
-  max-width: 100%;
-  min-width: 0;
-  margin-left: auto;
-}
-.weq-database-tolerance-scopes {
-  margin: 0;
-}
-.weq-database-tolerance-scopes dt {
-  font-weight: 500;
-}
-.weq-database-tolerance-scopes dd {
-  margin: 4px 0 12px;
-  overflow-wrap: anywhere;
-}
-.weq-database-record-count {
-  min-width: 0;
-  font-size: 12px;
-  line-height: 1.55;
+.weq-database-management
+  > [data-setting-id='database-repair']
+  :is(.weq-set-row, .weq-set-card-head, .weq-maintenance-rows) {
+  border-block: 0;
 }
 .weq-database-read-controls {
   display: flex;
@@ -102,11 +59,5 @@ html[data-theme='dark'] .weq-database-browser-content {
 @media (max-width: 520px) {
   html[data-theme] .weq-database-management .weq-set-row {
     align-items: flex-start;
-  }
-  .weq-database-group-head > button {
-    margin-left: 0;
-  }
-  .weq-database-tolerance-select {
-    margin-left: 0;
   }
 }

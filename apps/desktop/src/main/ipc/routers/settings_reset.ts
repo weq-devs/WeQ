@@ -12,7 +12,7 @@ import {
   settingsDefaults,
 } from '@weq/service/settings-catalog';
 import { procedure, router, type RpcContext } from '../trpc';
-import { getAppContext, closeSalvageConnections } from '../../context/app_context';
+import { getAppContext } from '../../context/app_context';
 import { bootstrapRouter } from './bootstrap';
 import { remoteRouter } from './remote';
 import { updateRouter } from './update';
@@ -378,12 +378,6 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
           services.antiRecall.setNotify({ targets: [] }),
         );
     }
-    if (context.dbTolerance)
-      bind('db-tolerance:level', context.dbTolerance.getConfig().level, 0, async () => {
-        const result = context.dbTolerance!.setLevel(0, 'settings');
-        closeSalvageConnections(context);
-        return result;
-      });
   }
   bind(
     'external-chatpic:enabled',
@@ -408,7 +402,7 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
 }
 
 async function preview(ctx: RpcContext, input: SettingsResetTarget) {
-  const accountCards = new Set(['db-tolerance', 'recall-scope', 'recall-notifications', 'typing']);
+  const accountCards = new Set(['recall-scope', 'recall-notifications', 'typing']);
   const selected = new Set(
     resetCards(input)
       .filter(

@@ -36,7 +36,7 @@ export function summarizeWorkspaceTasks({
   background = [],
 }: {
   exports?: (Pick<ExportTask, 'id' | 'status' | 'save'> &
-    Partial<Pick<ExportTask, 'updatedAt' | 'resource' | 'autoOpenTaskList'>>)[];
+    Partial<Pick<ExportTask, 'updatedAt' | 'resource' | 'autoOpenTaskList' | 'databaseRecovery' | 'databaseRecoveryRecords'>>)[];
   clones?: Pick<CloneTask, 'personaId' | 'status'>[];
   roaming?: { id: string; status: RoamingJobStatus; updatedAt?: number }[];
   scanning?: boolean;
@@ -54,6 +54,7 @@ export function summarizeWorkspaceTasks({
       task.save?.status === 'interrupted';
     const failed =
       task.status === 'failed' ||
+      (task.status === 'completed' && Boolean(task.databaseRecoveryRecords?.length)) ||
       task.save?.status === 'failed' ||
       task.save?.status === 'interrupted';
     items.push({
