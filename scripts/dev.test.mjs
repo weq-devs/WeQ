@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -113,6 +113,71 @@ console.log('installed');
   await prepare();
   assert.equal(await readFile(join(root, 'installs'), 'utf8'), '111111');
   assert.equal((await dependencyState(root, env)).complete, true);
+});
+
+test('独立文档站的依赖缺失或清单变化不影响应用依赖状态', async (t) => {
+  const root = await fixture(t);
+  await installed(root);
+  const before = await dependencyState(root, {});
+  await writeJson(join(root, 'docs/package.json'), {
+    name: '@weq/docs',
+    devDependencies: { vitepress: '1.6.4' },
+  });
+  assert.deepEqual(await dependencyState(root, {}), before);
+  await writeJson(join(root, 'docs/package.json'), {
+    name: '@weq/docs',
+    devDependencies: { vitepress: '2.0.0' },
+  });
+  assert.deepEqual(await dependencyState(root, {}), before);
+});
+
+test('真实 pnpm 将文档站作为独立工作区安装，根目录文档命令转调其自身配置', async (t) => {
+  const root = await fixture(t);
+  const manifest = await readJson(new URL('../package.json', import.meta.url));
+  await writeJson(join(root, 'package.json'), {
+    name: 'fixture',
+    private: true,
+    scripts: { 'docs:check': manifest.scripts['docs:check'] },
+  });
+  await writeFile(
+    join(root, 'pnpm-workspace.yaml'),
+    await readFile(new URL('../pnpm-workspace.yaml', import.meta.url)),
+  );
+  await rm(join(root, 'pnpm-lock.yaml'));
+  await writeJson(join(root, 'docs/package.json'), {
+    name: '@weq/docs',
+    scripts: {
+      check: 'node -p "JSON.stringify({name:process.env.npm_package_name,cwd:process.cwd()})"',
+    },
+  });
+  await writeFile(join(root, 'docs/pnpm-workspace.yaml'), 'allowBuilds:\n  esbuild: true\n');
+  const env = { ...process.env, npm_execpath: actualPnpm(), CI: 'true', NO_COLOR: '1' };
+  const run = async (args) => {
+    const [command, parameters] = pnpmCommand(args, env);
+    const result = spawnSync(command, parameters, {
+      cwd: root,
+      env,
+      encoding: 'utf8',
+      timeout: 30_000,
+    });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.doesNotMatch(result.stdout + result.stderr, /The settings in .*do not apply/);
+    return result.stdout.trim();
+  };
+  await run(['install', '--offline', '--ignore-scripts']);
+  const projects = JSON.parse(await run(['--recursive', 'list', '--depth', '-1', '--json']));
+  assert(projects.every((project) => project.name !== '@weq/docs'));
+  await run(['--dir', 'docs', 'install', '--offline', '--ignore-scripts']);
+  assert.equal(await exists(join(root, 'docs/pnpm-lock.yaml')), true);
+  assert.deepEqual(JSON.parse(await run(['--dir', 'docs', 'config', 'get', 'allowBuilds'])), {
+    esbuild: true,
+  });
+  const output = await run(['--silent', 'run', 'docs:check']);
+  const lastLine = output.split(/\r?\n/).at(-1);
+  assert.deepEqual(JSON.parse(lastLine), {
+    name: '@weq/docs',
+    cwd: await realpath(join(root, 'docs')),
+  });
 });
 
 test('安装失败或安装期间清单变化不记成功，不启动后续阶段', async (t) => {

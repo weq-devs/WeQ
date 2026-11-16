@@ -140,7 +140,9 @@ pnpm ci:local --full      # 额外跑 web 打包冒烟（≈ CI 的 build-web）
 文档站用 VitePress，**内容目录就是 `docs/` 本身**（配置在 `docs/.vitepress/`）。
 `docs/` 是 `weq-devs/WeqDocs` 的 **submodule** —— 文档内容在那边提交，主仓只记一个指针。
 
-本地预览：`pnpm --filter @weq/docs dev`（http://localhost:5174），构建 `build`。
+文档站是独立 workspace，使用 `docs/pnpm-workspace.yaml` 与自己的锁文件，不参与主仓依赖安装。
+根目录先运行 `pnpm docs:install`，再用 `pnpm docs:dev` 本地预览（http://localhost:5174）、
+`pnpm docs:check` 检查或 `pnpm docs:build` 构建；也可进入 `docs/` 执行对应命令。
 clone 主仓时要带 `--recurse-submodules`，否则 `docs/` 是空的。
 
 改完文档记得**两边都提交**：先 `cd docs && git commit && git push`，再回主仓提交指针。
@@ -171,8 +173,8 @@ clone 主仓时要带 `--recurse-submodules`，否则 `docs/` 是空的。
 
 ### 检查
 
-- `node scripts/check-docs.mjs`（`pnpm --filter @weq/docs check`）：链接完整性，`build` 前自动跑。
-- 提交前跑一次 `pnpm --filter @weq/docs build`，构建通过再提。
+- `pnpm docs:check`：调用文档仓的 `check-docs.mjs` 检查链接完整性，`build` 前自动跑。
+- 提交前跑一次 `pnpm docs:build`，构建通过再提。
 - 改了对外行为 / 配置项 / 接口，顺手把对应文档一起改，别留旧描述。
 
 ## 9. 红线

@@ -120,14 +120,13 @@ export async function loadConfig(root, env = process.env) {
 
 async function workspaceManifests(root) {
   const files = ['package.json'];
-  // 对应 pnpm-workspace.yaml 的 apps/*、packages/* 和 docs，不依赖尚未安装的 YAML 库。
+  // 对应 pnpm-workspace.yaml 的 apps/* 和 packages/*，独立文档站不参与应用启动。
   for (const parent of ['apps', 'packages']) {
     for (const entry of await readdir(join(root, parent), { withFileTypes: true })) {
       if (entry.isDirectory() && (await exists(join(root, parent, entry.name, 'package.json'))))
         files.push(`${parent}/${entry.name}/package.json`);
     }
   }
-  if (await exists(join(root, 'docs/package.json'))) files.push('docs/package.json');
   return files.sort();
 }
 
