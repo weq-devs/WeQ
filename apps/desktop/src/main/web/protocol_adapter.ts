@@ -20,6 +20,7 @@ export function toProtocolRequest(
   req: IncomingMessage,
   scheme: string,
   mountPath: string,
+  signal?: AbortSignal,
 ): Request | null {
   const raw = req.url ?? '/';
   if (!raw.startsWith(mountPath)) return null;
@@ -38,12 +39,12 @@ export function toProtocolRequest(
 
   const headers = new Headers();
   headers.set('x-weq-web', '1');
-  for (const name of ['range', 'if-modified-since', 'if-none-match'] as const) {
+  for (const name of ['range', 'if-range', 'if-modified-since', 'if-none-match'] as const) {
     const value = req.headers[name];
     if (typeof value === 'string') headers.set(name, value);
   }
 
-  return new Request(`${scheme}://${host}${path}${query}`, { method: 'GET', headers });
+  return new Request(`${scheme}://${host}${path}${query}`, { method: 'GET', headers, signal });
 }
 
 /** Write a Web `Response` out to a `node:http` response, streaming the body. */

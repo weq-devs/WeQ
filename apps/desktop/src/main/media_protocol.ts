@@ -67,6 +67,7 @@ import { fullModeAllowed } from './context/full_mode';
 import { resolveResource } from './resource';
 import { redPackSkinField, resourceSkinCover } from './redpack_catalog';
 import { CallRecordingStore, recordingsRootFor } from './call_recording_store';
+import { videoPreviewResponse } from './video_preview_response';
 
 /** rkey types accepted when downloading the video COVER (thumb only; the
  *  original mp4 now goes through OIDB). ptt tries rkey first and falls back
@@ -419,7 +420,7 @@ async function dressRemoteResponse(src: string, theme: string | null): Promise<R
     const dir = join(boot.userConfig.cacheDir('media'), 'dress');
     const path = join(dir, `${createHash('sha1').update(src).digest('hex')}.mp4`);
     if (existsSync(path)) return fileResponse(path);
-    const outcome = await downloadUrlToFile(src, path);
+    const outcome = await downloadUrlToFile(src, path, { reportActivity: false });
     return outcome.ok ? fileResponse(path) : notFound(`dress video failed: ${outcome.reason}`);
   }
 
@@ -864,8 +865,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           mediaBinding.getStore()?.();
           if (source) return fileResponse(source);
 
-          // Missing on disk → OIDB completion (needs an online QQ). Cache the
-          // result by fileToken so a replay doesn't re-download.
+          // 本地缺片时现签 URL 并按播放器 Range 流式读取；完整收取后才发布缓存。
           const boot = getAppContext().bootstrap;
           if (!boot || !token) return notFound('video not found');
           const cacheDir = join(boot.userConfig.cacheDir('media'), 'video');
@@ -891,10 +891,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           }
           if (!url) return notFound('video OIDB returned empty url');
           mediaBinding.getStore()?.();
-          const outcome = await downloadUrlToFile(url, cachePath, { reportActivity: false });
-          return outcome.ok
-            ? fileResponse(cachePath)
-            : notFound(`video download failed: ${outcome.reason}`);
+          return await videoPreviewResponse(url, cachePath, request, mediaBinding.getStore());
         }
         case 'ptt': {
           const { source } = await services.fileSearch.findFile(tMs, name, 'ptt');
@@ -936,7 +933,9 @@ async function routeMediaRequest(request: Request): Promise<Response> {
                   }
                   if (url) {
                     mediaBinding.getStore()?.();
-                    const outcome = await downloadUrlToFile(url, cachePath);
+                    const outcome = await downloadUrlToFile(url, cachePath, {
+                      reportActivity: false,
+                    });
                     if (outcome.ok) silk = cachePath;
                   }
                 }
@@ -1127,6 +1126,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           return notFound(`unknown media kind: ${kind}`);
       }
     } catch (e) {
+      if (request.signal.aborted) return new Response(null, { status: 499 });
       console.error(`[media] ${kind} failed:`, e);
       return new Response('media error', { status: 500 });
     }

@@ -28,6 +28,8 @@ vi.mock('../src/main/context/app_context', () => ({
 }));
 
 const bytes = Buffer.alloc(LARGE_TRANSFER_BYTES);
+bytes.write('ftyp', 4);
+bytes.write('isom', 8);
 const activity = vi.fn();
 const url = 'weq-media://video?t=1&name=video.mp4&token=synthetic-video&msgId=41&conv=123';
 beforeEach(async () => {
