@@ -35,7 +35,7 @@ const logText =
     JSON.stringify({
       ts: new Date(now - (160 - index) * 1000).toISOString(),
       level: index % 8 === 0 ? 'warn' : 'info',
-      message: `合成日志 ${index}`,
+      message: `合成日志 ${index}${fixture === 'long-logs' && index === 159 ? ` ${'file:///synthetic/logs/long-unbroken-token-'.repeat(160)}` : ''}`,
       context: { scope: 'fixture' },
     }),
   ).join('\n') + '\n';
