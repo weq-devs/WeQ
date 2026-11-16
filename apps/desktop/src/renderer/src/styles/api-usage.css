@@ -328,6 +328,44 @@
   border-bottom: 0;
 }
 
+.weq-usage-category-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.weq-usage-category-toggle svg {
+  flex: 0 0 16px;
+}
+
+.weq-usage-category-toggle span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.weq-usage-category-details th:first-child {
+  padding-left: 34px;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-usage-accounting-table .weq-usage-category tr > * {
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-usage-category:has(+ .weq-usage-category-details:not([hidden])) tr > * {
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
 .weq-usage-accounting-table small,
 .weq-usage-model-name {
   display: block;
@@ -353,6 +391,10 @@ html[data-theme='dark'] .weq-usage-accounting-table thead th {
 
   .weq-usage-accounting-table th:first-child {
     width: 42%;
+  }
+
+  .weq-usage-category-details th:first-child {
+    padding-left: 26px;
   }
 }
 

@@ -52,6 +52,24 @@ it('语音输入为空时没有发生请求，不记账', async () => {
   expect(onUsage).not.toHaveBeenCalled();
 });
 
+it('业务提供记账回调时只写业务账本，不再重复写入全局语音账本', async () => {
+  const globalUsage = vi.fn();
+  const accountUsage = vi.fn();
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(new Uint8Array(101).fill(1))),
+  );
+  await new TtsService(globalUsage).synthesize(cfg, '测试', { onUsage: accountUsage });
+  expect(globalUsage).not.toHaveBeenCalled();
+  expect(accountUsage).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      feature: 'tts-synthesis',
+      status: 'success',
+      providerId: cfg.id,
+    }),
+  );
+});
+
 it('语音后端的真实重试分配不同请求 ID，不只记录第一次失败', async () => {
   vi.useFakeTimers();
   const updates: AgentLabUsage[] = [];

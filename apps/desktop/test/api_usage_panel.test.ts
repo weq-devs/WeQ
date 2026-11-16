@@ -1,7 +1,7 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import { UsagePanel } from '../src/renderer/src/views/agentlab/UsagePanel';
+import { UsagePanel, type UsageStats } from '../src/renderer/src/views/agentlab/UsagePanel';
 
 const state = vi.hoisted(() => ({
   known: 0,
@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
   empty: false,
   feature: 'intent-analysis',
   featureCount: 1,
+  categories: undefined as UsageStats['byCategory'] | undefined,
   queryInput: undefined as unknown,
   queryOptions: undefined as { enabled: boolean } | undefined,
   refetch: vi.fn(),
@@ -70,6 +71,22 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
                     tokens: state.tokens,
                     unknownCalls: state.unknown,
                   })),
+                  byCategory: state.categories ?? [
+                    {
+                      category: 'intent',
+                      label: '意图感知',
+                      calls: state.known + state.unknown,
+                      tokens: state.tokens,
+                      unknownCalls: state.unknown,
+                      features: Array.from({ length: state.featureCount }, (_, index) => ({
+                        feature: index === 0 ? state.feature : `fixture-${index}`,
+                        label: index === 0 ? '意图分析' : `合成用途 ${index}`,
+                        calls: state.known + state.unknown,
+                        tokens: state.tokens,
+                        unknownCalls: state.unknown,
+                      })),
+                    },
+                  ],
                 },
           };
         },
@@ -86,6 +103,7 @@ afterEach(() => {
   state.empty = false;
   state.feature = 'intent-analysis';
   state.featureCount = 1;
+  state.categories = undefined;
   state.refetch.mockClear();
 });
 function fixture() {
@@ -158,9 +176,22 @@ it('查询失败独立显示错误与重试，不显示首次使用空状态', (
 });
 
 it('能力检测显示中文名称，切换范围提交真实查询参数', () => {
-  state.feature = 'capability-test';
+  state.categories = [
+    {
+      category: 'settings',
+      label: '模型与识别设置',
+      calls: 1,
+      tokens: 0,
+      unknownCalls: 1,
+      features: [
+        { feature: 'capability-test', label: '能力检测', calls: 1, tokens: 0, unknownCalls: 1 },
+      ],
+    },
+  ];
   const host = fixture();
-  expect(host.querySelector('tbody th')?.textContent).toBe('模型能力检测');
+  expect(host.querySelector('tbody th')?.textContent).toBe('模型与识别设置');
+  act(() => host.querySelector<HTMLButtonElement>('[aria-expanded="false"]')!.click());
+  expect(host.querySelector('.weq-usage-category-details')?.textContent).toContain('能力检测');
   act(() => host.querySelector<HTMLButtonElement>('[role="radio"]')!.click());
   expect(state.queryInput).toEqual({ period: '24h' });
 });
@@ -201,8 +232,45 @@ it('本地账本在离线时仍可读取，不依赖网络在线标记', () => {
 it('大量细分功能分页展示，不在轮询时一次渲染全部记录', () => {
   state.featureCount = 65;
   const host = fixture();
-  expect(host.querySelectorAll('tbody tr')).toHaveLength(50);
-  act(() => host.querySelector<HTMLButtonElement>('[aria-label="功能用量下一页"]')!.click());
-  expect(host.querySelectorAll('tbody tr')).toHaveLength(15);
+  expect(host.querySelectorAll('.weq-usage-category-details tr')).toHaveLength(0);
+  act(() => host.querySelector<HTMLButtonElement>('[aria-expanded="false"]')!.click());
+  expect(host.querySelectorAll('.weq-usage-category-details th')).toHaveLength(50);
+  act(() => host.querySelector<HTMLButtonElement>('[aria-label="意图感知明细下一页"]')!.click());
+  expect(host.querySelectorAll('.weq-usage-category-details th')).toHaveLength(15);
   expect(host.textContent).toContain('51–65 / 65');
+});
+
+it('大类默认只显示汇总，展开显示小类，收起不留明细，轮询不丢展开状态', () => {
+  state.categories = [
+    {
+      category: 'clone',
+      label: '克隆会话',
+      calls: 3,
+      tokens: 12,
+      unknownCalls: 1,
+      features: [
+        { feature: 'expressions', label: '表达风格库', calls: 2, tokens: 12, unknownCalls: 0 },
+        { feature: 'image-analysis', label: '图片分析', calls: 1, tokens: 0, unknownCalls: 1 },
+      ],
+    },
+  ];
+  const host = fixture();
+  const toggle = host.querySelector<HTMLButtonElement>('.weq-usage-category-toggle')!;
+  const details = document.getElementById(toggle.getAttribute('aria-controls')!)!;
+  expect(details.hidden).toBe(true);
+  expect(details.childElementCount).toBe(0);
+  act(() => toggle.click());
+  expect(details.hidden).toBe(false);
+  expect(details.querySelectorAll('tr')).toHaveLength(2);
+  expect(details.textContent).toContain('表达风格库2120');
+  expect(details.textContent).toContain('图片分析1未知1');
+  state.categories[0].tokens = 24;
+  act(() =>
+    host.querySelector<HTMLButtonElement>('[aria-label="趋势指标"] button:last-child')!.click(),
+  );
+  expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  expect(host.querySelector('.weq-usage-category')?.textContent).toContain('3241');
+  act(() => toggle.click());
+  expect(details.hidden).toBe(true);
+  expect(details.childElementCount).toBe(0);
 });
