@@ -209,6 +209,50 @@ try {
     await monitor.getByRole('button', { name: '导出性能记录' }).click();
     await monitor.getByRole('button', { name: '图表统计 CSV' }).click();
     assert.equal(await page.evaluate(() => window.performanceQa.exports.length), 1);
+    await monitor.getByRole('button', { name: '显示指标', exact: true }).click();
+    await monitor.getByRole('checkbox', { name: 'JS 外部内存', exact: true }).check();
+    await monitor.keyboard.press('Escape');
+    await monitor.setViewportSize({ width: 1060, height: 900 });
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.setProperty('--weq-accent-effective', '#137a63');
+      }, theme);
+      await monitor.waitForFunction(
+        (theme) => document.documentElement.dataset.theme === theme,
+        theme,
+      );
+      const colors = await monitor.locator('.weq-perf-chart').evaluateAll((charts) =>
+        charts.map((chart) => {
+          const stroke = getComputedStyle(chart.querySelector('path.weq-perf-line')).stroke;
+          const fill = getComputedStyle(chart.querySelector('.weq-perf-area')).fill;
+          const swatch = getComputedStyle(chart.querySelector('h3'), '::before').backgroundColor;
+          const marker = chart.querySelector('.weq-perf-highlight');
+          return {
+            metric: chart.dataset.metric,
+            stroke,
+            fill,
+            swatch,
+            marker: marker ? getComputedStyle(marker).fill : null,
+          };
+        }),
+      );
+      assert.equal(colors.length, 5);
+      assert.equal(new Set(colors.map((row) => row.stroke)).size, 5);
+      for (const row of colors) {
+        assert.equal(row.fill, row.stroke, row.metric);
+        assert.equal(row.swatch, row.stroke, row.metric);
+        if (row.marker) assert.equal(row.marker, row.stroke, row.metric);
+      }
+      if (output)
+        await monitor.screenshot({
+          path: resolve(output, host + '-metric-colors-' + theme + '.png'),
+          fullPage: true,
+        });
+    }
+    await monitor.getByRole('button', { name: '显示指标', exact: true }).click();
+    await monitor.getByRole('checkbox', { name: 'JS 外部内存', exact: true }).uncheck();
+    await monitor.keyboard.press('Escape');
     for (const [width, height] of [
       [1060, 740],
       [720, 520],
