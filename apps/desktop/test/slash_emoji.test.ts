@@ -37,4 +37,20 @@ describe('斜杠表情匹配', () => {
     ]);
     expect(searchSlashEmojis([{ id: '9', desc: '/打Call' }], [], 'call')).toHaveLength(1);
   });
+  it('QQ 实际英文短码可匹配，不把 bx 当作比心，也不擅自补全拼', () => {
+    const faces = [
+      { id: '297', desc: '/拜谢', shortcuts: ['bx'] },
+      { id: '319', desc: '/比心', shortcuts: [] },
+      { id: '182', desc: '/笑哭', shortcuts: ['xk'] },
+      { id: '361', desc: '/狗狗笑哭', shortcuts: [] },
+      { id: '14', desc: '/微笑', shortcuts: ['wx', ':)'] },
+    ];
+    expect(
+      searchSlashEmojis(faces, [{ id: '319', usedAt: 999 }], 'bx').map((item) => item.id),
+    ).toEqual(['297']);
+    expect(searchSlashEmojis(faces, [{ id: '361', usedAt: 999 }], 'XK')[0]?.id).toBe('182');
+    expect(searchSlashEmojis(faces, [], 'xiaoku')).toEqual([]);
+    expect(searchSlashEmojis(faces, [], 'wx')[0]?.id).toBe('14');
+    expect(searchSlashEmojis(faces, [], '笑哭').map((item) => item.id)).toEqual(['182', '361']);
+  });
 });

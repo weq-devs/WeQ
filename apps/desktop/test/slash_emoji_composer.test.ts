@@ -8,8 +8,8 @@ import { createTemplateDemoData } from './support/templateDemoData';
 vi.mock('../src/renderer/src/trpc/client', () => {
   const catalog = {
     faces: [
-      { id: '14', desc: '[微笑]' },
-      { id: '9', desc: '/笑哭' },
+      { id: '297', desc: '/拜谢', shortcuts: ['bx'] },
+      { id: '182', desc: '/笑哭', shortcuts: ['xk'] },
     ],
     recent: [],
   };
@@ -67,12 +67,15 @@ it('只替换光标前的斜杠片段，选择不发送，取消后不会原地�
       editor.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })),
     );
   try {
-    input('前文/微笑后文', 5);
+    input('前文/bx后文', 5);
     expect(document.querySelector('[aria-label="表情候选"]')).not.toBeNull();
     press('Enter');
-    expect(editor.querySelector('img')?.dataset.chatToken).toBe('[[chat:face:14]]');
+    expect(editor.querySelector('img')?.dataset.chatToken).toBe('[[chat:face:297]]');
     expect(editor.textContent).toBe('前文后文');
-    expect(onDraftChange.mock.calls.at(-1)?.[1]).toBe('前文[[chat:face:14]]后文');
+    expect(onDraftChange.mock.calls.at(-1)?.[1]).toBe('前文[[chat:face:297]]后文');
+    input('/xk');
+    press('Tab');
+    expect(editor.querySelector('img')?.dataset.chatToken).toBe('[[chat:face:182]]');
     expect(onSend).not.toHaveBeenCalled();
     input('/');
     press('Escape');

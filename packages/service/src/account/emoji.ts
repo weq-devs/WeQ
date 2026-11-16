@@ -221,6 +221,8 @@ export class EmojiService {
   private favoriteDetailTurn: Promise<void> = Promise.resolve();
   /** 关联 GIF 分组缓存。 */
   private relatedTags: PanelRelatedTag[] | null = null;
+  private shortcutFaces: Promise<import('../common/emoji_shortcuts').SystemEmojiShortcut[]> | null =
+    null;
   /** packId → 在线详情（android.json），会话内缓存（含 in-flight 去重）。 */
   private packDetailCache = new Map<string, Promise<MarketPackDetail | null>>();
   /** packId → 解密密钥，会话内缓存（native 恢复较快但结果稳定，缓存省重复爆破）。 */
@@ -363,6 +365,28 @@ export class EmojiService {
       if (r.sticker) group.stickerCount += 1;
     }
     return [...groups.values()].sort(compareFaceGroups);
+  }
+
+  /** 原始短码表与当前系统目录在宿主合并一次，不按名称推导别名。 */
+  async listShortcutFaces() {
+    if (!this.shortcutFaces) {
+      const task = Promise.all([this.listPanelFaces(), import('../common/emoji_shortcuts')]).then(
+        ([groups, { buildSystemEmojiShortcuts }]) =>
+          buildSystemEmojiShortcuts(
+            groups.flatMap((group) => group.items.filter((item) => !item.unicode)),
+          ),
+      );
+      this.shortcutFaces = task;
+      void task.then(
+        (faces) => {
+          if (!faces.length && this.shortcutFaces === task) this.shortcutFaces = null;
+        },
+        () => {
+          if (this.shortcutFaces === task) this.shortcutFaces = null;
+        },
+      );
+    }
+    return (await this.shortcutFaces).map((face) => ({ ...face, shortcuts: [...face.shortcuts] }));
   }
 
   /**

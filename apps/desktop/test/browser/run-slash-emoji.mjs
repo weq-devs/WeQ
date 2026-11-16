@@ -89,17 +89,26 @@ try {
       await editor.press('Escape');
       await menu.waitFor({ state: 'hidden' });
       assert.equal(await editor.textContent(), '/');
-      await editor.fill('/微笑');
-      await menu.getByRole('option', { name: '微笑', exact: true }).waitFor();
+      await editor.fill('/bx');
+      await menu.getByRole('option', { name: '拜谢 /bx', exact: true }).waitFor();
+      if (output)
+        await page.screenshot({ path: resolve(output, `shortcode-${theme}-${width}.png`) });
       await editor.press('Enter');
       assert.equal(
         await editor.locator('img[data-chat-token]').getAttribute('data-chat-token'),
-        '[[chat:face:14]]',
+        '[[chat:face:297]]',
       );
       assert.deepEqual(await page.evaluate(() => window.slashQA.sent), []);
       await editor.press('Meta+z');
-      assert.equal(await editor.textContent(), '/微笑');
-      await editor.fill('https://example.com/笑');
+      assert.equal(await editor.textContent(), '/bx');
+      await editor.fill('/XK');
+      await menu.getByRole('option', { name: '笑哭 /xk', exact: true }).click();
+      assert.equal(
+        await editor.locator('img[data-chat-token]').getAttribute('data-chat-token'),
+        '[[chat:face:182]]',
+      );
+      assert.deepEqual(await page.evaluate(() => window.slashQA.sent), []);
+      await editor.fill('https://example.com/xk');
       assert.equal(await menu.count(), 0);
       await editor.fill('/');
       await editor.evaluate((node) =>
@@ -116,7 +125,7 @@ try {
         await editor.fill(`${'多行正文\n'.repeat(8)}/`);
         await page.getByRole('button', { name: '展开输入', exact: true }).click();
         const expanded = page.locator('.mobile-composer-expanded-editor');
-        await expanded.fill('/微笑');
+        await expanded.fill('/xk');
         await menu.waitFor();
         const expandedBox = await menu.boundingBox();
         assert.ok(expandedBox && expandedBox.y >= 0 && expandedBox.y + expandedBox.height <= 900);
@@ -137,7 +146,7 @@ try {
         await expanded.press('Tab');
         assert.equal(
           await expanded.locator('img[data-chat-token]').getAttribute('data-chat-token'),
-          '[[chat:face:14]]',
+          '[[chat:face:182]]',
         );
         await page.getByRole('button', { name: '收起输入', exact: true }).click();
       }

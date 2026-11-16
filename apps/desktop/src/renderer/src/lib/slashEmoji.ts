@@ -1,6 +1,7 @@
 export interface SlashEmojiFace {
   id: string;
   desc: string;
+  shortcuts?: readonly string[];
 }
 export interface SlashEmojiTrigger {
   start: number;
@@ -39,16 +40,21 @@ export function searchSlashEmojis(
     .flatMap((face, index) => {
       if (seen.has(face.id) || !/^\d+$/u.test(face.id)) return [];
       seen.add(face.id);
-      const name = searchName(face.desc);
-      const rank =
-        !keyword || name === keyword
-          ? 0
-          : name.startsWith(keyword)
-            ? 1
-            : name.includes(keyword)
-              ? 2
-              : -1;
-      return rank < 0 ? [] : [{ face, rank, usedAt: used.get(face.id) ?? 0, index }];
+      const keys = [...(face.shortcuts ?? []), face.desc].map(searchName);
+      const rank = !keyword
+        ? 0
+        : Math.min(
+            ...keys.map((name) =>
+              name === keyword
+                ? 0
+                : name.startsWith(keyword)
+                  ? 1
+                  : name.includes(keyword)
+                    ? 2
+                    : Infinity,
+            ),
+          );
+      return Number.isFinite(rank) ? [{ face, rank, usedAt: used.get(face.id) ?? 0, index }] : [];
     })
     .sort((a, b) => a.rank - b.rank || b.usedAt - a.usedAt || a.index - b.index)
     .map((item) => item.face);

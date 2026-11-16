@@ -68,12 +68,13 @@ export const emojiPanelRouter = router({
   shortcuts: procedure.input(resourceSourceInput).query(async ({ input }) => {
     const services = requireResourceSource(input);
     const emoji = services.emoji;
-    const [groups, recent] = await Promise.all([emoji.listPanelFaces(), emoji.listRecentEmojis()]);
+    const [faces, recent] = await Promise.all([
+      emoji.listShortcutFaces(),
+      emoji.listRecentEmojis(),
+    ]);
     assertResourceSource(services, input);
     return {
-      faces: groups.flatMap((group) =>
-        group.items.filter((item) => !item.unicode).map(({ id, desc }) => ({ id, desc })),
-      ),
+      faces,
       recent: recent.filter((item) => !item.unicode).map(({ id, usedAt }) => ({ id, usedAt })),
     };
   }),

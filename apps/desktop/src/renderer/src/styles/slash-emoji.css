@@ -32,10 +32,21 @@
   object-fit: contain;
   flex: none;
 }
-.weq-slash-emoji-menu span {
+.weq-slash-emoji-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.weq-slash-emoji-menu code {
+  margin-left: auto;
+  max-width: 45%;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
 }
 html[data-theme='dark'] .weq-slash-emoji-menu {
   background: var(--weq-bg-surface);

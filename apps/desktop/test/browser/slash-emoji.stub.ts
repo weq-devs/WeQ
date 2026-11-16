@@ -1,7 +1,9 @@
 const catalog = {
   faces: [
-    { id: '14', desc: '[微笑]' },
-    { id: '9', desc: '/笑哭' },
+    { id: '14', desc: '[微笑]', shortcuts: ['wx', ':)'] },
+    { id: '297', desc: '/拜谢', shortcuts: ['bx'] },
+    { id: '319', desc: '/比心', shortcuts: [] },
+    { id: '182', desc: '/笑哭', shortcuts: ['xk'] },
     ...Array.from({ length: 10 }, (_, index) => ({
       id: String(20 + index),
       desc: `合成表情${index}`,

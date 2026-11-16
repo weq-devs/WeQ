@@ -72,7 +72,10 @@ export function SlashEmojiMenu({
           onClick={() => onSelect(item)}
         >
           <img src={emojiUrl(item.id, 'apng', `${item.id}.png`)} alt="" />
-          <span>{item.desc.replace(/^\//u, '').replace(/^\[([^\]]+)\]$/u, '$1')}</span>
+          <span className="weq-slash-emoji-name">
+            {item.desc.replace(/^\//u, '').replace(/^\[([^\]]+)\]$/u, '$1')}
+          </span>
+          {item.shortcuts?.[0] ? <code>/{item.shortcuts[0]}</code> : null}
         </button>
       ))}
     </div>,
