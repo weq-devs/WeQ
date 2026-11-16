@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import {
-  ChevronRight,
+  ArrowRight,
+  ArrowUpRight,
   Database,
   DatabaseZap,
   FolderOpen,
@@ -9,7 +10,7 @@ import {
   RefreshCw,
   Trash2,
 } from 'lucide-react';
-import { SectionHeader } from './controls';
+import { Row, SectionHeader } from './controls';
 import { useTabActive } from '../RetainedTabs';
 import { trpc } from '../../trpc/client';
 import '../../styles/data-maintenance.css';
@@ -36,6 +37,7 @@ export const MAINTENANCE_TOOLS = [
   {
     id: 'cache',
     label: '资源查看',
+    actionLabel: '浏览资源',
     settingId: 'resource-viewer',
     icon: FolderOpen,
     needsResources: true,
@@ -43,6 +45,7 @@ export const MAINTENANCE_TOOLS = [
   {
     id: 'database',
     label: '数据库管理',
+    actionLabel: '打开数据库浏览',
     settingId: 'database-manager',
     icon: Database,
     needsResources: false,
@@ -50,6 +53,7 @@ export const MAINTENANCE_TOOLS = [
   {
     id: 'storage',
     label: '占用分析',
+    actionLabel: '分析占用',
     settingId: 'qq-storage-analysis',
     icon: HardDrive,
     needsResources: true,
@@ -57,6 +61,7 @@ export const MAINTENANCE_TOOLS = [
   {
     id: 'cleanup',
     label: '缓存清理',
+    actionLabel: '打开清理工具',
     settingId: 'qq-storage-cleanup',
     icon: Trash2,
     needsResources: true,
@@ -64,6 +69,7 @@ export const MAINTENANCE_TOOLS = [
   {
     id: 'db-repair',
     label: '数据库修复',
+    actionLabel: '打开修复工具',
     settingId: 'database-repair',
     icon: DatabaseZap,
     needsResources: false,
@@ -71,6 +77,7 @@ export const MAINTENANCE_TOOLS = [
   {
     id: 'db-decrypt',
     label: '导出明文数据库',
+    actionLabel: '打开导出工具',
     settingId: 'database-export',
     icon: Database,
     needsResources: false,
@@ -78,6 +85,7 @@ export const MAINTENANCE_TOOLS = [
   {
     id: 'key-scan',
     label: '密钥扫描',
+    actionLabel: '打开密钥扫描',
     settingId: 'key-scan',
     icon: KeyRound,
     needsResources: false,
@@ -85,6 +93,7 @@ export const MAINTENANCE_TOOLS = [
   {
     id: 'other-device-key',
     label: '其他设备密钥',
+    actionLabel: '查看设备密钥',
     settingId: 'other-device-key',
     icon: KeyRound,
     needsResources: false,
@@ -92,6 +101,7 @@ export const MAINTENANCE_TOOLS = [
   {
     id: 'login-accounts',
     label: 'QQ 登录账号管理',
+    actionLabel: '管理登录账号',
     settingId: 'qq-accounts',
     icon: KeyRound,
     needsResources: false,
@@ -135,26 +145,36 @@ export function DataMaintenanceSection({
           </button>
         </div>
       ) : null}
-      <div className="weq-maintenance-list">
+      <div className="weq-maintenance-rows">
         {visibleTools
           .filter(({ id }) => !remote || !remoteUnsupportedTools.includes(id))
-          .map(({ id, label, settingId, icon: Icon, needsResources }) => {
+          .map(({ id, label, actionLabel, settingId, icon: Icon, needsResources }) => {
             const unavailable = needsResources && account.data?.static;
+            const OpenIcon = id === 'db-repair' || id === 'database' ? ArrowUpRight : ArrowRight;
             return (
-              <button
-                type="button"
-                className="weq-maintenance-entry"
+              <Row
                 key={id}
-                data-setting-id={settingId}
-                onClick={() => onOpen(id)}
-                disabled={!account.data || account.isFetching || account.isError || unavailable}
-                title={unavailable ? '静态账号暂不支持本地资源维护' : label}
-              >
-                <Icon size={18} aria-hidden />
-                <span>{label}</span>
-                {unavailable ? <small>静态账号不可用</small> : null}
-                <ChevronRight size={16} aria-hidden />
-              </button>
+                label={
+                  <span className="weq-maintenance-label">
+                    <Icon size={15} aria-hidden />
+                    {label}
+                  </span>
+                }
+                desc={unavailable ? '静态账号不可用' : undefined}
+                control={
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-soft"
+                    data-setting-id={settingId}
+                    onClick={() => onOpen(id)}
+                    disabled={!account.data || account.isFetching || account.isError || unavailable}
+                    title={unavailable ? '静态账号暂不支持本地资源维护' : undefined}
+                  >
+                    {actionLabel}
+                    <OpenIcon size={14} aria-hidden />
+                  </button>
+                }
+              />
             );
           })}
       </div>

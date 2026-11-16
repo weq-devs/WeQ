@@ -24,14 +24,13 @@ export function findSettingElement(
   }
   if (!item) return null;
   const nodes = root.querySelectorAll<HTMLElement>(
-    '[aria-label], .weq-set-row-label, .weq-set-card-title, strong, h3, h4, .weq-maintenance-entry span',
+    '[aria-label], .weq-set-row-label, .weq-set-card-title, strong, h3, h4',
   );
   for (const node of nodes) {
     if (node.getAttribute('aria-label') !== item && node.textContent?.trim() !== item) continue;
     return (
-      node.closest<HTMLElement>(
-        '.weq-set-row, .weq-settings-appearance-card, .weq-maintenance-entry, .weq-set-card',
-      ) ?? node
+      node.closest<HTMLElement>('.weq-set-row, .weq-settings-appearance-card, .weq-set-card') ??
+      node
     );
   }
   return null;

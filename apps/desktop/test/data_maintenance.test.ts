@@ -4,11 +4,14 @@ import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DataMaintenanceSection,
+  MAINTENANCE_TOOLS,
+  remoteUnsupportedTools,
   type MaintenanceTool,
 } from '../src/renderer/src/components/settings/DataMaintenanceSection';
 import { DataMaintenanceDialog } from '../src/renderer/src/components/settings/DataMaintenanceDialog';
 import { useDbRepairWindow } from '../src/renderer/src/state/dbRepairWindow';
 import { useCaptureWindow } from '../src/renderer/src/state/captureWindow';
+import { useDatabaseBrowserWindow } from '../src/renderer/src/state/databaseBrowserWindow';
 import { SettingsDialog } from '../src/renderer/src/components/SettingsDialog';
 import type { ToolPresentation } from '../src/renderer/src/components/ToolSurface';
 import { useViewState } from '../src/renderer/src/state/view';
@@ -18,8 +21,14 @@ const state = vi.hoisted(() => ({
     | { static: boolean; uin?: string; configId?: string }
     | undefined,
   failed: false,
+  fetching: false,
+  remote: false,
   refetch: vi.fn(),
   repairAccount: '',
+}));
+vi.mock('../src/renderer/src/lib/remoteClient', () => ({
+  isRemoteClient: () => state.remote,
+  useRemoteClient: () => state.remote,
 }));
 vi.mock('../src/renderer/src/views/cache/useResourceManagementScan', () => ({
   useResourceManagementScan: (source: {
@@ -46,6 +55,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                 ? {
                     data: state.account,
                     isError: state.failed,
+                    isFetching: state.fetching,
                     error: state.failed ? new Error('账号读取失败') : null,
                     refetch: state.refetch,
                   }
@@ -145,6 +155,8 @@ afterEach(() => {
   state.account = { static: false, uin: '10001', configId: 'synthetic' };
   useViewState.setState({ openedUin: null });
   state.failed = false;
+  state.fetching = false;
+  state.remote = false;
   state.refetch.mockClear();
 });
 function mount(element: Parameters<ReturnType<typeof createRoot>['render']>[0]) {
@@ -164,7 +176,11 @@ function mount(element: Parameters<ReturnType<typeof createRoot>['render']>[0]) 
   };
 }
 function entries(host: Element) {
-  return [...host.querySelectorAll<HTMLButtonElement>('.weq-maintenance-entry')];
+  return [
+    ...host.querySelectorAll<HTMLButtonElement>(
+      '.weq-data-maintenance button[data-setting-id], button[data-setting-id="qqnt-capture"]',
+    ),
+  ];
 }
 
 describe('设置的数据与维护', () => {
@@ -205,7 +221,10 @@ describe('设置的数据与维护', () => {
       }),
     );
     try {
-      expect(entries(f.host).map((button) => button.textContent)).toEqual(['QQNT 抓包']);
+      expect(entries(f.host).map((button) => button.textContent)).toEqual(['打开抓包']);
+      expect(entries(f.host)[0]?.closest('.weq-set-card')?.textContent).toContain('QQNT 抓包');
+      expect(entries(f.host)[0]?.closest('.weq-set-card-head')).not.toBeNull();
+      expect(f.host.querySelector('.weq-maintenance-entry')).toBeNull();
       expect(f.host.querySelector('[data-setting-id="reverse-tool"] textarea')).not.toBeNull();
       for (const button of entries(f.host)) act(() => button.click());
       expect(open.mock.calls.map(([tool]) => tool)).toEqual(['capture']);
@@ -253,16 +272,22 @@ describe('设置的数据与维护', () => {
     const open = vi.fn();
     const f = mount(createElement(DataMaintenanceSection, { onOpen: open }));
     try {
-      expect(entries(f.host).map((button) => button.textContent)).toEqual([
+      expect(
+        [...f.host.querySelectorAll('.weq-set-row-label')].map((row) => row.textContent),
+      ).toEqual([
         '资源查看',
-        '数据库管理',
+        MAINTENANCE_TOOLS.find(({ id }) => id === 'database')!.label,
         '占用分析',
         '缓存清理',
-        '数据库修复',
+        MAINTENANCE_TOOLS.find(({ id }) => id === 'db-repair')!.label,
         '导出明文数据库',
         '密钥扫描',
         '其他设备密钥',
       ]);
+      expect(entries(f.host).every((button) => button.classList.contains('weq-set-btn'))).toBe(
+        true,
+      );
+      expect(f.host.querySelector('.weq-maintenance-entry')).toBeNull();
       for (const button of entries(f.host)) act(() => button.click());
       expect(open.mock.calls.map(([tool]) => tool)).toEqual([
         'cache',
@@ -274,6 +299,78 @@ describe('设置的数据与维护', () => {
         'key-scan',
         'other-device-key',
       ]);
+    } finally {
+      f.dispose();
+    }
+  });
+  it('密钥工具共用卡片，只有行内按钮启动对应工具', () => {
+    const open = vi.fn();
+    const f = mount(
+      createElement(SettingsDialog, {
+        open: true,
+        initialSection: 'credentials',
+        onClose: vi.fn(),
+        onOpenMaintenance: open,
+        onOpenRecalls: vi.fn(),
+      }),
+    );
+    try {
+      const buttons = entries(f.host);
+      expect(buttons.map((button) => button.textContent)).toEqual(['打开密钥扫描', '查看设备密钥']);
+      const card = buttons[0]!.closest('.weq-set-card');
+      expect(card).not.toBeNull();
+      expect(card?.querySelector('.weq-set-card-title')?.textContent).toBe('密钥工具');
+      expect(buttons[1]!.closest('.weq-set-card')).toBe(card);
+      expect(card?.querySelector('.weq-set-card')).toBeNull();
+      for (const label of card!.querySelectorAll<HTMLElement>('.weq-set-row-label')) {
+        act(() => label.click());
+      }
+      expect(open).not.toHaveBeenCalled();
+      for (const button of buttons) act(() => button.click());
+      expect(open.mock.calls.map(([tool]) => tool)).toEqual(['key-scan', 'other-device-key']);
+    } finally {
+      f.dispose();
+    }
+  });
+  it('已有账号刷新期间仍禁用工具按钮，避免打开未确认来源', () => {
+    state.fetching = true;
+    const open = vi.fn();
+    const f = mount(createElement(DataMaintenanceSection, { onOpen: open }));
+    try {
+      expect(entries(f.host).every((button) => button.disabled)).toBe(true);
+      for (const button of entries(f.host)) act(() => button.click());
+      expect(open).not.toHaveBeenCalled();
+    } finally {
+      f.dispose();
+    }
+  });
+  it('账号尚未载入时保留按钮和读取状态，不允许启动工具', () => {
+    state.account = undefined;
+    const open = vi.fn();
+    const f = mount(createElement(DataMaintenanceSection, { onOpen: open }));
+    try {
+      expect(entries(f.host)).toHaveLength(8);
+      expect(entries(f.host).every((button) => button.disabled)).toBe(true);
+      expect(f.host.querySelector('[role="status"]')?.textContent).toContain('正在读取当前账号');
+      for (const button of entries(f.host)) act(() => button.click());
+      expect(open).not.toHaveBeenCalled();
+    } finally {
+      f.dispose();
+    }
+  });
+  it('远程端继续隐藏不支持的本机工具', () => {
+    state.remote = true;
+    const open = vi.fn();
+    const f = mount(createElement(DataMaintenanceSection, { onOpen: open }));
+    try {
+      const visibleTools = MAINTENANCE_TOOLS.filter(
+        ({ id }) => id !== 'login-accounts' && !remoteUnsupportedTools.includes(id),
+      );
+      expect(entries(f.host).map((button) => button.textContent)).toEqual(
+        visibleTools.map(({ actionLabel }) => actionLabel),
+      );
+      for (const button of entries(f.host)) act(() => button.click());
+      expect(open.mock.calls.map(([tool]) => tool)).toEqual(visibleTools.map(({ id }) => id));
     } finally {
       f.dispose();
     }
@@ -311,11 +408,13 @@ describe('设置的数据与维护', () => {
     }
   });
   it.each(['cache', 'database', 'storage', 'cleanup', 'db-repair', 'db-decrypt'] as const)(
-    '%s 保留设置原页，数据库及资源直接显示、导出模态、修复独立开窗',
+    '%s 保留设置原页，数据库浏览独立开窗、资源内嵌、导出模态',
     (tool) => {
+      let openTool: (tool: MaintenanceTool) => void = () => {};
       function Harness() {
         const [settings, setSettings] = useState(true);
         const [active, setActive] = useState<MaintenanceTool | null>(null);
+        openTool = setActive;
         return createElement(
           'div',
           null,
@@ -347,8 +446,14 @@ describe('设置的数据与维护', () => {
       try {
         const settings = f.host.querySelector('.weq-settings-dialog');
         if (tool === 'database') {
-          expect(f.host.textContent).toContain('数据库面板');
-          expect(f.host.querySelector('button[data-setting-id="database-manager"]')).toBeNull();
+          expect(f.host.textContent).not.toContain('数据库面板');
+          const open = [...f.host.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
+            button.textContent?.includes('打开数据库浏览'),
+          )!;
+          vi.spyOn(window, 'open').mockReturnValue(null);
+          act(() => open.click());
+          expect(useDatabaseBrowserWindow.getState().request).not.toBeNull();
+          useDatabaseBrowserWindow.getState().dismiss();
           expect(document.querySelector('.weq-tool-modal')).toBeNull();
           expect(f.host.querySelector('.weq-settings-dialog')).toBe(settings);
           return;
@@ -381,9 +486,13 @@ describe('设置的数据与维护', () => {
           'db-repair': 'database-repair',
           'db-decrypt': 'database-export',
         }[tool];
-        act(() =>
-          f.host.querySelector<HTMLButtonElement>(`button[data-setting-id="${entryId}"]`)!.click(),
-        );
+        if (tool === 'db-decrypt') act(() => openTool(tool));
+        else
+          act(() =>
+            f.host
+              .querySelector<HTMLButtonElement>(`button[data-setting-id="${entryId}"]`)!
+              .click(),
+          );
         expect(f.host.querySelector('.weq-settings-dialog')).toBe(settings);
         expect(settings?.closest('[hidden]')).toBeNull();
         if (tool === 'db-repair') {

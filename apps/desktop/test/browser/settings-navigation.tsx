@@ -10,7 +10,8 @@ import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/mobile-web.css';
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-Object.assign(window, { settingsNavigationQa: { theme: useThemeStore } });
+const launchedTools: string[] = [];
+Object.assign(window, { settingsNavigationQa: { theme: useThemeStore, launchedTools } });
 
 function Fixture() {
   const [view, setView] = useState('settings');
@@ -41,7 +42,7 @@ function Fixture() {
                 initialSection={location.search === '?display=1' ? 'message-display' : 'onebot'}
                 onClose={() => setOpen(false)}
                 navigationGuard={navigation.guard}
-                onOpenMaintenance={() => {}}
+                onOpenMaintenance={(tool) => launchedTools.push(tool)}
                 onOpenRecalls={() => {}}
               />
             )}

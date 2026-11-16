@@ -18,6 +18,7 @@ import {
 import {
   Activity,
   AlertTriangle,
+  ArrowUpRight,
   ArrowLeft,
   AudioLines,
   Bell,
@@ -286,18 +287,21 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: (onOpen) => (
       <div className="weq-set">
         <SectionHeader title="QQ 协议工具" icon={<ScanSearch size={16} strokeWidth={1.8} />} />
-        <div className="weq-maintenance-list">
-          <button
-            type="button"
-            className="weq-maintenance-entry"
-            data-setting-id="qqnt-capture"
-            onClick={() => onOpen('capture')}
-          >
-            <Radio size={18} aria-hidden />
-            <span>QQNT 抓包</span>
-            <ChevronRight size={16} aria-hidden />
-          </button>
-        </div>
+        <Card
+          title="QQNT 抓包"
+          icon={<Radio size={15} />}
+          action={
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-soft"
+              data-setting-id="qqnt-capture"
+              onClick={() => onOpen('capture')}
+            >
+              打开抓包
+              <ArrowUpRight size={14} aria-hidden />
+            </button>
+          }
+        />
         <SignerStatusCard />
         <Card
           title="Protobuf / JCE 逆向"
@@ -443,11 +447,15 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: (onOpen) => (
       <>
         <AccountBasicsSection page="credentials" />
-        <DataMaintenanceSection
-          title={null}
-          onOpen={onOpen}
-          tools={['key-scan', 'other-device-key']}
-        />
+        <div className="weq-set">
+          <Card title="密钥工具" icon={<LockKeyhole size={15} />}>
+            <DataMaintenanceSection
+              title={null}
+              onOpen={onOpen}
+              tools={['key-scan', 'other-device-key']}
+            />
+          </Card>
+        </div>
         <div data-setting-id="external-rkey">
           <ExternalRkeySection />
         </div>
