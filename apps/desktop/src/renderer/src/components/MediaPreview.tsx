@@ -561,11 +561,14 @@ function MediaPreviewItem({
             }}
           />
         ) : null}
-        <MediaLoadStatus
-          kind={current.kind === 'image' ? '图片' : '视频'}
-          status={status}
-          onRetry={retry}
-        />
+        {/* 播放器挂载后使用原生加载提示，避免叠加两组转圈。 */}
+        {waiting || current.kind === 'image' || status === 'error' ? (
+          <MediaLoadStatus
+            kind={current.kind === 'image' ? '图片' : '视频'}
+            status={status}
+            onRetry={retry}
+          />
+        ) : null}
       </div>
       {onMove ? (
         <button

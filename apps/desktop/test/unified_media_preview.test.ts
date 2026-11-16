@@ -295,6 +295,49 @@ it('视频加载中也保留原生播放器的Tab入口，不把焦点锁在关�
   act(() => button('关闭预览').dispatchEvent(event));
   expect(event.defaultPrevented).toBe(false);
 });
+it('已挂载视频只用原生加载提示，播放失败仍可重试', () => {
+  act(() => root.render(h(MediaPreview, { items: [items[1]!], onClose: vi.fn() })));
+  const player = document.querySelector('video')!;
+  expect(player.controls).toBe(true);
+  expect(document.querySelector('[data-media-state]')?.getAttribute('aria-busy')).toBe('true');
+  expect(document.querySelector('.weq-media-load-status')).toBeNull();
+  act(() => player.dispatchEvent(new Event('error')));
+  expect(document.querySelector('.weq-media-load-error')?.textContent).toContain(
+    '视频暂时无法播放',
+  );
+  act(() => button('重试加载视频').click());
+  const retryPlayer = document.querySelector('video')!;
+  expect(retryPlayer).not.toBe(player);
+  expect(document.querySelector('.weq-media-load-status')).toBeNull();
+  act(() => retryPlayer.dispatchEvent(new Event('canplay')));
+  expect(document.querySelector('[data-media-state]')?.getAttribute('data-media-state')).toBe(
+    'ready',
+  );
+});
+it('视频原片解析期间显示一组加载提示，播放器挂载后交由原生提示接管', async () => {
+  let finish!: (value: { src: string; kind: 'video' }) => void;
+  const detail = new Promise<{ src: string; kind: 'video' }>((resolve) => {
+    finish = resolve;
+  });
+  await act(async () =>
+    root.render(
+      h(MediaPreview, { items: [{ ...items[1]!, load: () => detail }], onClose: vi.fn() }),
+    ),
+  );
+  expect(document.querySelector('video')).toBeNull();
+  expect(document.querySelectorAll('.weq-media-load-status')).toHaveLength(1);
+  expect(document.querySelector('.weq-media-load-status')?.textContent).toBe('正在加载视频…');
+  await act(async () => finish({ src: items[1]!.src, kind: 'video' }));
+  expect(document.querySelector('video')?.controls).toBe(true);
+  expect(document.querySelector('.weq-media-load-status')).toBeNull();
+});
+it('图片加载时继续保留一组加载提示', () => {
+  act(() => root.render(h(MediaPreview, { items: [items[0]!], onClose: vi.fn() })));
+  expect(document.querySelectorAll('.weq-media-load-status')).toHaveLength(1);
+  expect(document.querySelector('.weq-media-load-status')?.textContent).toBe('正在加载图片…');
+  load();
+  expect(document.querySelector('.weq-media-load-status')).toBeNull();
+});
 it('详情返回相同图片地址时不把已绘制图片退回永久加载态', async () => {
   let finish!: (value: { src: string; kind: 'image' }) => void;
   const detail = new Promise<{ src: string; kind: 'image' }>((resolve) => {
