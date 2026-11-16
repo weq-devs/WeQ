@@ -18,12 +18,7 @@ import type {
   SqlValue,
   DatabaseAlgorithms,
 } from '@weq/native';
-import {
-  databaseReadBudget,
-  databaseRequestSignal,
-  scheduleDatabase,
-  waitForDatabaseQuiet,
-} from './query_schedule';
+import { databaseReadBudget, databaseRequestSignal, scheduleDatabase } from './query_schedule';
 import { queryDiagnosticSource } from './query_diagnostics';
 import {
   iterateSalvageWindows,
@@ -192,11 +187,8 @@ export class QqDb {
       const read = this.nt.executeSqlBudgeted;
       if (!read) throw new Error('日历需要支持短预算读取的原生组件');
       const signal = databaseRequestSignal();
-      const waitingSince = performance.now();
-      // 短预算读取最多在队列外让路 1 秒，之后交给后台公平调度，避免周期查询使其饿死。
-      const current = () => !signal?.aborted && performance.now() - waitingSince < 1000;
-      await waitForDatabaseQuiet(this.dbPath, current, 500, budget.onWait);
       if (signal?.aborted) throw new DOMException('日历统计已取消', 'AbortError');
+      // 短 SQL 直接交给前台优先的公平队列；逐页等空闲会被正常轮询反复推迟。
       await new Promise<void>((done) => setTimeout(done, 0));
       budget.onState?.('queued');
       return scheduleDatabase(

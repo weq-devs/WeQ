@@ -235,6 +235,7 @@ export const conversationCalendarRouter = router({
           });
         }
         if (input.refresh) value.job.invalidate();
+        value.job.retryTimedOut();
         value.job.setKinds(input.kinds ?? [...CALENDAR_SOURCE_ORDER]);
         runJob(value, value.day);
         syncTask(value);
@@ -330,6 +331,7 @@ export const conversationCalendarRouter = router({
         retire(cache.get(first));
         cache.delete(first);
       }
+      job.retryTimedOut();
       job.setKinds(input.kinds ?? [...CALENDAR_SOURCE_ORDER]);
       runJob(tracked);
       entry.store?.schedule();

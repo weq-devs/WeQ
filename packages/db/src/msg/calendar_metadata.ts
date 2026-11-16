@@ -120,12 +120,18 @@ export class CalendarMetadataDb {
     const params: SqlValue[] = [];
     let where = '';
     if (indexed) {
-      where = '"40050">=? AND "40050"<?';
+      if (cursor && cursor.source !== null && cursor.time >= start) {
+        // 显式声明可寻址的索引前缀；仅用三元组条件会让 SQLite 从当天开头反复过滤。
+        where = '("40050","40040")>=(?,?) AND "40050"<?';
+        params.push(BigInt(cursor.time), BigInt(cursor.source), BigInt(end));
+      } else {
+        where = '"40050">=? AND "40050"<?';
+        params.push(BigInt(Math.max(start, cursor?.time ?? start)), BigInt(end));
+      }
       if (scoped) {
         where = `"${columns[this.table]}"=? AND ${where}`;
-        params.push(conv!);
+        params.unshift(conv!);
       }
-      params.push(BigInt(start), BigInt(end));
       if (cursor) {
         if (cursor.source === null) {
           where +=

@@ -150,6 +150,7 @@ interface Work {
   cursor?: unknown;
   limit: number;
   failures: number;
+  successfulBatches: number;
   error?: string;
   rows: Map<string, CalendarRow>;
   progress?: CalendarScanProgress;
@@ -280,6 +281,8 @@ export class ConversationCalendarJob {
         if (task.refresh) this.releaseRows(task.refresh);
         task.generation++;
         task.error = undefined;
+        task.limit = CALENDAR_BATCH_SIZE;
+        task.successfulBatches = 0;
         task.refresh = {
           ...task,
           counted: false,
@@ -289,6 +292,7 @@ export class ConversationCalendarJob {
           rows: new Map(),
           progress: undefined,
           failures: 0,
+          successfulBatches: 0,
           error: undefined,
           refresh: undefined,
         };
@@ -536,6 +540,19 @@ export class ConversationCalendarJob {
     if (this.running) throw new Error('旧统计读取尚未结束');
     if (this.controller.signal.aborted) this.controller = new AbortController();
   }
+  retryTimedOut(): void {
+    let retried = 0;
+    for (const owner of this.work) {
+      const task = owner.refresh ?? owner;
+      if (task.error !== '读取超出预算，统计已暂停') continue;
+      task.error = undefined;
+      task.failures = 0;
+      task.successfulBatches = 0;
+      task.limit = CALENDAR_BATCH_SIZE;
+      retried++;
+    }
+    if (retried) this.log('info', 'task', `继续 ${retried} 个超时来源，从已保存游标续查`);
+  }
   invalidate(): void {
     this.control('month', 'retry');
   }
@@ -632,6 +649,7 @@ export class ConversationCalendarJob {
           count: 0,
           limit: CALENDAR_BATCH_SIZE,
           failures: 0,
+          successfulBatches: 0,
           rows: new Map(),
         })),
     );
@@ -830,6 +848,10 @@ export class ConversationCalendarJob {
         task.cursor = page.cursor;
         task.progress = page.progress;
         task.failures = 0;
+        if (++task.successfulBatches >= 4) {
+          task.limit = Math.min(CALENDAR_BATCH_SIZE, task.limit * 2);
+          task.successfulBatches = 0;
+        }
         if (!task.counted || page.done)
           task.count = [...task.rows.values()].reduce((sum, row) => sum + row.count, 0);
         if (page.done) {
@@ -841,6 +863,7 @@ export class ConversationCalendarJob {
           }
         }
       } catch (error) {
+        task.successfulBatches = 0;
         if (!this.current()) return;
         if (owner.generation !== generation) continue;
         if (error instanceof Error && error.name === 'AbortError') {

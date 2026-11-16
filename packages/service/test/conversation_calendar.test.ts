@@ -4,6 +4,7 @@ import {
   calendarToday,
   calendarTargetKey,
   ConversationCalendarJob,
+  CALENDAR_BATCH_SIZE,
   filterCalendarTargets,
   type CalendarSource,
   type CalendarTarget,
@@ -438,6 +439,42 @@ it('COUNT 超时降级，分页超时不提交游标或重复条数', async () =
   await finish(job);
   expect(job.snapshot(day).rows[0]?.count).toBe(2);
   expect(job.metrics.timeouts).toBe(1);
+});
+it('临时超时缩批后连续成功会恢复吞吐，失败重试不沿用极小批量', async () => {
+  const limits: number[] = [];
+  let first = true;
+  const page = vi.fn<CalendarSource['page']>(async (_start, _end, cursor, limit) => {
+    limits.push(limit);
+    if (first) {
+      first = false;
+      throw new Error('database_query_execution_timeout');
+    }
+    const next = Number(cursor ?? 0) + 1;
+    return { rows: [message(String(next))], cursor: next, done: next >= 5 };
+  });
+  const job = new ConversationCalendarJob(
+    '2026-11',
+    [target],
+    [{ kind: 'c2c', count: async () => 0, page }],
+  );
+  job.keepAlive(day);
+  await finish(job);
+  expect(limits).toEqual([
+    CALENDAR_BATCH_SIZE,
+    ...Array(4).fill(CALENDAR_BATCH_SIZE / 2),
+    CALENDAR_BATCH_SIZE,
+  ]);
+  page.mockRejectedValue(new Error('database_query_execution_timeout'));
+  job.control('day', 'retry', day);
+  job.keepAlive(day);
+  await finish(job);
+  expect(job.snapshot(day).controls.day.state).toBe('failed');
+  page.mockResolvedValue({ rows: [], done: true });
+  job.control('day', 'retry', day);
+  job.keepAlive(day);
+  await finish(job);
+  expect(page.mock.calls.at(-1)?.[3]).toBe(CALENDAR_BATCH_SIZE);
+  job.cancel();
 });
 it('三次无法推进暂停来源，结果不是完整零值，重试不丢已完成结果', async () => {
   const page = vi.fn(async () => {
