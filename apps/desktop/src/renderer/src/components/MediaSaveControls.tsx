@@ -9,6 +9,7 @@ import { useRemoteClient } from '../lib/remoteClient';
 import { RenderDocumentContext, useRenderDocument } from '../lib/renderDocument';
 import { ServerSavePrompt } from './ServerSavePrompt';
 import { useToast } from './Toast';
+import { taskNotificationSource } from '../lib/notificationNavigation';
 import '../styles/media-save.css';
 
 function sourceKey(source: MediaSaveSource): string {
@@ -75,6 +76,7 @@ export function useMediaSave() {
         push({
           tone: 'error',
           title: '停止请求未确认，任务可能仍在后台',
+          source: taskNotificationSource(op.taskId),
           detail: error instanceof Error ? error.message : String(error),
         });
     }
@@ -120,10 +122,18 @@ export function useMediaSave() {
       if (op.cancelled && op.taskId) await stopTask(op);
       if (!op.taskId || !current()) return { taskId: op.taskId, cancelled: true };
       if (!browser) {
-        push({ tone: 'info', title: '媒体保存任务已创建' });
+        push({
+          tone: 'info',
+          title: '媒体保存任务已创建',
+          source: taskNotificationSource(op.taskId),
+        });
         return { taskId: op.taskId };
       }
-      push({ tone: 'info', title: '媒体下载任务已创建' });
+      push({
+        tone: 'info',
+        title: '媒体下载任务已创建',
+        source: taskNotificationSource(op.taskId),
+      });
       const deadline = Date.now() + 15 * 60_000;
       while (current() && Date.now() < deadline) {
         const receipt = await client.account.getExportOutputReceipt.query({
@@ -152,12 +162,22 @@ export function useMediaSave() {
         }
         await pause(op.controller.signal);
       }
-      if (current()) push({ tone: 'info', title: '文件仍在后台处理，结果将保留在任务列表' });
+      if (current())
+        push({
+          tone: 'info',
+          title: '文件仍在后台处理，结果将保留在任务列表',
+          source: taskNotificationSource(op.taskId),
+        });
       return { taskId: op.taskId, cancelled: !current() };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (current()) {
-        push({ tone: 'error', title: '媒体保存失败', detail: message });
+        push({
+          tone: 'error',
+          title: '媒体保存失败',
+          detail: message,
+          ...(op.taskId ? { source: taskNotificationSource(op.taskId) } : {}),
+        });
         return { taskId: op.taskId, error: message };
       }
       return { taskId: op.taskId, cancelled: true };

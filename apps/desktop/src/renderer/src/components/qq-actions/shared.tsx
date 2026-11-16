@@ -15,9 +15,17 @@ import { QQWriteResult } from '../QQWriteControls';
 import { useDialog, type DangerLevel } from '../Dialog';
 import '../../styles/qq-actions.css';
 import { useRenderDocument } from '../../lib/renderDocument';
+import {
+  NotificationSourceProvider,
+  notificationSource,
+  type NotificationTarget,
+} from '../../lib/notificationNavigation';
 
 /** 同号切换数据源也销毁草稿，不能仅以 QQ 号判断编辑器身份。 */
-export function withQQAccountScope<P extends object>(Component: ComponentType<P>) {
+export function withQQAccountScope<P extends object>(
+  Component: ComponentType<P>,
+  sourceFor?: (props: P) => NotificationTarget,
+) {
   return function QQAccountScopedAction(props: P) {
     const active = useTabActive();
     const uin = useViewState((s) => s.openedUin);
@@ -26,7 +34,14 @@ export function withQQAccountScope<P extends object>(Component: ComponentType<P>
       refetchOnMount: false,
     });
     const id = config.data?.uin === uin ? config.data.configId : '';
-    return <Component key={`${uin}:${id}`} {...props} />;
+    const body = <Component key={`${uin}:${id}`} {...props} />;
+    return sourceFor ? (
+      <NotificationSourceProvider source={notificationSource(sourceFor(props))}>
+        {body}
+      </NotificationSourceProvider>
+    ) : (
+      body
+    );
   };
 }
 
@@ -36,6 +51,7 @@ export function ActionIcon({
   children,
   disabled,
   title,
+  danger,
   onClick,
 }: {
   label: string;
@@ -44,14 +60,15 @@ export function ActionIcon({
   children: ReactNode;
   disabled?: boolean;
   title?: string;
+  danger?: DangerLevel;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       data-qq-action
+      data-danger={danger}
       className={`weq-set-iconbtn${text ? ' has-label' : ''}`}
-  danger,
       title={title ?? label}
       aria-label={label}
       disabled={disabled}
@@ -60,14 +77,12 @@ export function ActionIcon({
       {children}
       {text && <span className="weq-set-iconbtn-label">{text}</span>}
     </button>
-  danger?: DangerLevel;
   );
 }
 export function useQQAction(scope: string, feedback: QQWriteFeedback = 'all') {
   const ownerDocument = useRenderDocument();
   const session = useQQWriteSession(`actions:${scope}`);
   const confirm = useDialog((s) => s.confirm);
-      data-danger={danger}
   const [error, setError] = useState('');
   const [pending, setPending] = useState(false);
   const busy = useRef(false),

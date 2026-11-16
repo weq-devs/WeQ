@@ -6,7 +6,7 @@ import { OverlayLayer } from '../../components/OverlayLayer';
 import { useRestrictedMode } from '../../state/restrictedMode';
 import type { OnlineAccess } from '../../lib/restrictedMode';
 import type { ExportOptions } from './types';
-import { useToast } from '../../components/Toast';
+import { useToastApi } from '../../components/Toast';
 import { LongTermAuthorizationLink } from '../../components/LongTermAuthorizationLink';
 
 export interface ExportAuthorizationState {
@@ -60,6 +60,7 @@ async function readReadiness(captureNeeded = false): Promise<ExportAuthorization
 }
 
 export function useExportAuthorization(options: ExportOptions, enabled: boolean) {
+  const notificationToast = useToastApi();
   const [state, setState] = useState<ExportAuthorizationState>();
   const [pending, setPending] = useState<{
     options: ExportOptions;
@@ -162,7 +163,7 @@ export function useExportAuthorization(options: ExportOptions, enabled: boolean)
         else void authorize(snapshot);
       });
     } catch (e) {
-      useToast.getState().push({ tone: 'error', title: '检查导出授权失败', detail: String(e) });
+      notificationToast.push({ tone: 'error', title: '检查导出授权失败', detail: String(e) });
       return null;
     } finally {
       preparing.current = false;

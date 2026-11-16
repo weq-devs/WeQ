@@ -788,8 +788,9 @@ export function CurrentTaskList({
     if (selected !== null && !ordered.some((task) => task.id === selected) && ordered[0])
       setSelected(ordered[0].id);
   }, [selected, ordered]);
+  const missingFocusedTask = Boolean(taskFocusId && !items.some((task) => task.id === taskFocusId));
   const selectedId =
-    selected === null
+    missingFocusedTask || selected === null
       ? null
       : ordered.some((item) => item.id === selected)
         ? selected
@@ -935,6 +936,11 @@ export function CurrentTaskList({
           后台任务读取失败：{background.query.error.message}
         </p>
       ) : null}
+      {missingFocusedTask ? (
+        <p role="status" className="weq-current-tasks-notice">
+          正在查找通知对应的任务；若记录已清理，可在下方查看其余任务。
+        </p>
+      ) : null}
       {!items.length && !hasError ? (
         <EmptyState compact icon={<ListTodo />} title={loading ? '读取任务中…' : '暂无任务'} />
       ) : null}
@@ -950,6 +956,7 @@ export function CurrentTaskList({
                   active={task.id === selectedId}
                   showQuickActions={layout === 'compact'}
                   onSelect={() => {
+                    useWorkspaceMenu.setState({ taskFocusId: null });
                     setSelected(layout === 'inline' && task.id === selectedId ? null : task.id);
                     if (layout === 'compact') onOpenDetail?.();
                   }}

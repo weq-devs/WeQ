@@ -230,7 +230,11 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
     </section>
   );
 }
-export const GroupActions = withQQAccountScope(GroupActionsBody);
+export const GroupActions = withQQAccountScope(GroupActionsBody, (props) => ({
+  kind: 'group',
+  id: String(props.groupId),
+  section: 'management',
+}));
 function GroupTodosBody({
   groupId,
   groupName,
@@ -567,7 +571,11 @@ function GroupTodosBody({
     </>
   );
 }
-const ScopedGroupTodos = withQQAccountScope(GroupTodosBody);
+const ScopedGroupTodos = withQQAccountScope(GroupTodosBody, (props) => ({
+  kind: 'group',
+  id: String(props.groupId),
+  section: 'todos',
+}));
 export function GroupTodos(props: Parameters<typeof GroupTodosBody>[0]) {
   return <ScopedGroupTodos key={props.groupId} {...props} />;
 }

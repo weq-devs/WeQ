@@ -5,14 +5,21 @@ export const SETTINGS_SEARCH_HIGHLIGHT_MS = 2000;
 
 export interface SettingsSearchTarget extends SettingsTarget {
   revision: number;
+  recordId?: string;
 }
 
 /** 只在当前设置正文内按界面标签定位，不匹配配置值，不触发按钮。 */
 export function findSettingElement(
   root: HTMLElement,
-  target: string | Pick<SettingsTarget, 'item' | 'settingId'>,
+  target: string | (Pick<SettingsTarget, 'item' | 'settingId'> & { recordId?: string }),
 ): HTMLElement | null {
-  const { item, settingId } = typeof target === 'string' ? { item: target } : target;
+  const { item, settingId, recordId } = typeof target === 'string' ? { item: target } : target;
+  if (recordId) {
+    for (const node of root.querySelectorAll<HTMLElement>('[data-notification-record]')) {
+      if (node.dataset.notificationRecord === recordId) return node;
+    }
+    return null;
+  }
   if (settingId) {
     for (const node of root.querySelectorAll<HTMLElement>('[data-setting-id]')) {
       if (node.dataset.settingId === settingId) return node;
@@ -39,7 +46,7 @@ export function findSettingElement(
 /** 异步设置加载后仍可定位；切页或关闭时撤销观察与高亮。 */
 export function revealSetting(
   root: HTMLElement,
-  target: string | Pick<SettingsTarget, 'item' | 'settingId'>,
+  target: string | (Pick<SettingsTarget, 'item' | 'settingId'> & { recordId?: string }),
   { navigate = true, onLocated }: { navigate?: boolean; onLocated?: () => void } = {},
 ): () => void {
   let highlighted: HTMLElement | null = null;
@@ -99,7 +106,7 @@ export function revealSetting(
     subtree: true,
     characterData: true,
     attributes: true,
-    attributeFilter: ['aria-label', 'data-setting-id'],
+    attributeFilter: ['aria-label', 'data-setting-id', 'data-notification-record'],
   });
   locate();
   return () => {

@@ -171,4 +171,12 @@ function GroupAlbumManagementBody({
     </div>
   );
 }
-export const GroupAlbumManagement = withQQAccountScope(GroupAlbumManagementBody);
+export const GroupAlbumManagement = withQQAccountScope(GroupAlbumManagementBody, (props) => ({
+  kind: 'group-resource',
+  request: {
+    kind: 'albums',
+    groupCode: props.groupCode,
+    groupName: props.groupCode,
+    initialAlbumId: props.album?.id,
+  },
+}));

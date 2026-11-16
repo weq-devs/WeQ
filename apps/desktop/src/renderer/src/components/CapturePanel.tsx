@@ -56,7 +56,8 @@ import { IS_WEB } from '../lib/target';
 import { useTabActive } from './RetainedTabs';
 import { decodeAnyBytes, RvTree } from './ReverseTool';
 import { HexDump } from './HexDump';
-import { useToast } from './Toast';
+import { useToastApi } from './Toast';
+import { savedFileNotificationSource } from '../lib/notificationNavigation';
 import '../styles/capture-window.css';
 
 /** 后端传回的帧（hex 形态）。与主进程 `CaptureFrameWire` 保持一致。 */
@@ -466,6 +467,7 @@ export function CapturePanel({
   accounts: { uin: string; name: string; avatarUrl: string; pid: number | null }[];
   initialUin?: string;
 }): ReactElement {
+  const notificationToast = useToastApi();
   const document = useRenderDocument();
   const view = useMemo(() => document.defaultView ?? window, [document]);
   const { enabled: active, revision: activityRevision } = useQQReadActivity(true, {
@@ -793,7 +795,7 @@ export function CapturePanel({
 
       setExporting(true);
       setError(null);
-      const toast = useToast.getState();
+      const toast = notificationToast;
       const toastId = toast.push({
         tone: 'info',
         title: '正在导出抓包结果…',
@@ -832,6 +834,8 @@ export function CapturePanel({
               sizeLabel ? `（${sizeLabel}）` : ''
             }`,
             detail: canPresent ? (result.downloadId ? '已开始下载' : result.path) : undefined,
+            source:
+              !canPresent || result.downloadId ? null : savedFileNotificationSource(result.path),
             ttl: 8000,
           });
         } else if (result.canceled) {
@@ -855,7 +859,7 @@ export function CapturePanel({
         if (alive.current && !view.closed) setExporting(false);
       }
     },
-    [accounts, exporting, selectedUin, session, visible, document, view],
+    [accounts, exporting, selectedUin, session, visible, document, view, notificationToast],
   );
 
   const frameStats = useMemo(() => {
@@ -1049,11 +1053,11 @@ export function CapturePanel({
         </button>
 
         <button
+          data-danger="outline"
           type="button"
           className="weq-cap-iconbtn"
           onClick={clearList}
           disabled={frames.length === 0}
-          data-danger="outline"
           title="清空当前列表（不影响抓包）"
         >
           <Trash2 size={13} />

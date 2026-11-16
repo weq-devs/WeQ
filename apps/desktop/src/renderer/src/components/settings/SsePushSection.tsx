@@ -247,6 +247,7 @@ export function SsePushSection(): ReactElement {
               return (
                 <li
                   key={server.id}
+                  data-notification-record={`sse:${server.id}`}
                   className={`weq-set-server-item${isEnabled ? ' is-enabled' : ''}`}
                 >
                   <div className="weq-set-server-main">

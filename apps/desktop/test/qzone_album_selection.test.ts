@@ -47,7 +47,10 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
     chooseServerLocation: vi.fn(),
   }),
 }));
-vi.mock('../src/renderer/src/components/Toast', () => ({ useToast: () => save.toast }));
+vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToastApi: () => ({ push: save.toast }),
+  useToast: () => save.toast,
+}));
 afterEach(() => {
   vi.unstubAllGlobals();
   save.prepare.mockResolvedValue({ mode: 'before', directory: '/srv/qzone-export' });

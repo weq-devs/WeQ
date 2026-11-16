@@ -37,7 +37,7 @@ import {
   runConnectionTest,
   useConnectionTestTasks,
 } from '../../lib/connectionTestTask';
-import { useToast } from '../Toast';
+import { useToastApi } from '../Toast';
 import { DefaultApiModelRow } from './DefaultApiModelRow';
 import { DefaultVisionModelRow } from './AiImageSettings';
 import '../../styles/search-scope.css';
@@ -110,6 +110,7 @@ function templateDisplayName(label: string | undefined): string {
 }
 
 export function AgentLabSection(): ReactElement {
+  const notificationToast = useToastApi();
   const active = useTabActive();
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
@@ -673,7 +674,7 @@ export function AgentLabSection(): ReactElement {
   /** 测试连通性：用表单里第一个带「聊天」能力的模型探活，把详细错误（状态码/响应体）展示出来。 */
   function onTest(): void {
     if (!form.baseUrl.trim()) {
-      useToast.getState().push({
+      notificationToast.push({
         tone: 'warning',
         durationKind: 'success',
         title: '无法测试',
@@ -685,7 +686,7 @@ export function AgentLabSection(): ReactElement {
       .find((m) => m.capabilities.includes('chat') && m.id.trim())
       ?.id.trim();
     if (!chatModel) {
-      useToast.getState().push({
+      notificationToast.push({
         tone: 'warning',
         title: '无法测试',
         detail: '请先添加并填写一个带「聊天」能力的模型。',
@@ -713,8 +714,8 @@ export function AgentLabSection(): ReactElement {
   async function onDelete(): Promise<void> {
     if (!selectedId) return;
     const ok = await dialog.confirm('删除服务商', `确认删除「${selectedId}」？`, {
-      okLabel: '删除',
       danger: 'outline',
+      okLabel: '删除',
       cancelLabel: '返回',
       tone: 'warning',
     });
@@ -789,6 +790,7 @@ export function AgentLabSection(): ReactElement {
                 title={providerLabels.get(item.id)}
                 className={`weq-agentlab-provider-item${open && selectedId === item.id ? ' is-active' : ''}`}
                 onClick={() => editProvider(item.id)}
+                data-notification-record={`llm:${item.id}`}
               >
                 <span className="weq-agentlab-provider-name">
                   <Server
@@ -1091,9 +1093,9 @@ export function AgentLabSection(): ReactElement {
                         }
                       />
                       <button
+                        data-danger="outline"
                         type="button"
                         className="weq-set-iconbtn weq-provider-model-remove"
-                        data-danger="outline"
                         onClick={() => removeModel(index)}
                         aria-label={`删除模型 ${index + 1}`}
                         title={`删除模型 ${index + 1}`}
@@ -1191,9 +1193,9 @@ export function AgentLabSection(): ReactElement {
                 测试连通性
               </button>
               <button
+                data-danger="outline"
                 type="button"
                 className="weq-set-btn weq-set-btn-soft"
-                data-danger="outline"
                 onClick={() => void onDelete()}
                 disabled={!selectedId || deleteProvider.isLoading || detectingModel !== null}
               >

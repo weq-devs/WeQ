@@ -10,7 +10,7 @@ import { NumericText } from '../NumericText';
 import { useEffect, useId, useRef, useState, type ReactElement } from 'react';
 import { Lightbulb, RefreshCw, ChevronUp, ChevronDown, Square, Info, Play } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
-import { useToast } from '../Toast';
+import { useToastApi } from '../Toast';
 import { useIntentSenseStatus } from './context';
 import { ReplySuggestionHistory } from './ReplySuggestionHistory';
 import { ReplySuggestionDetailsPanel } from './ReplySuggestionDetailsPanel';
@@ -35,6 +35,7 @@ export function IntentSuggestionBar({
   onInsert: (text: string) => void;
   onLocate?: (target: ReplySuggestionHistoryEntry['target']) => void | Promise<void>;
 }): ReactElement | null {
+  const notificationToast = useToastApi();
   const [busy, setBusy] = useState(false);
   const [historyScope, setHistoryScope] = useState<string | null>(null);
   const [detail, setDetail] = useState<{
@@ -331,7 +332,7 @@ export function IntentSuggestionBar({
                     setBusy(false);
                   }
                 } catch (error) {
-                  useToast.getState().push({
+                  notificationToast.push({
                     tone: 'error',
                     message: '停止推荐回复失败',
                     detail: error instanceof Error ? error.message : String(error),
@@ -370,7 +371,7 @@ export function IntentSuggestionBar({
                     context: expected,
                     message: error instanceof Error ? error.message : String(error),
                   });
-                  useToast.getState().push({
+                  notificationToast.push({
                     tone: 'error',
                     message: '刷新推荐回复失败',
                     detail: error instanceof Error ? error.message : String(error),

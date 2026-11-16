@@ -9,7 +9,7 @@ import { NumericText } from './NumericText';
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { useRenderDocument } from '../lib/renderDocument';
-import { useToast } from './Toast';
+import { useToastApi } from './Toast';
 
 /** 默认渲染的字节数；超过可用「显示全部」展开。 */
 export const HEX_PREVIEW_BYTES = 2048;
@@ -76,6 +76,7 @@ export function HexDump({
 
 /** 复制 hex 文本的小按钮（带 1.4s 的已复制反馈）。 */
 export function CopyHex({ text, disabled }: { text: string; disabled?: boolean }): ReactElement {
+  const notificationToast = useToastApi();
   const document = useRenderDocument();
   const view = useMemo(() => document.defaultView ?? window, [document]);
   const timer = useRef<number | null>(null);
@@ -97,9 +98,11 @@ export function CopyHex({ text, disabled }: { text: string; disabled?: boolean }
       onClick={() => {
         const clipboard = view.navigator.clipboard;
         if (!clipboard) {
-          useToast
-            .getState()
-            .push({ tone: 'error', title: '复制失败', detail: '当前窗口不支持剪贴板' });
+          notificationToast.push({
+            tone: 'error',
+            title: '复制失败',
+            detail: '当前窗口不支持剪贴板',
+          });
           return;
         }
         void clipboard
@@ -115,7 +118,7 @@ export function CopyHex({ text, disabled }: { text: string; disabled?: boolean }
           })
           .catch((error) => {
             if (alive.current && !view.closed)
-              useToast.getState().push({ tone: 'error', title: '复制失败', detail: errMsg(error) });
+              notificationToast.push({ tone: 'error', title: '复制失败', detail: errMsg(error) });
           });
       }}
     >

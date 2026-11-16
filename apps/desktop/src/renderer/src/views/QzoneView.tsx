@@ -1674,7 +1674,10 @@ type InteractionPost = Pick<QzoneEmotion, 'tid' | 'time'> & {
   forwardNum?: number;
   repost?: QzoneEmotion['repost'];
 };
-const PostActions = withQQAccountScope(PostActionsBody);
+const PostActions = withQQAccountScope(PostActionsBody, (props) => ({
+  kind: 'qzone',
+  target: { kind: 'post', uin: props.hostUin, tid: props.post.tid },
+}));
 function PostActionsBody({
   selfUin,
   hostUin,

@@ -10,6 +10,7 @@ import { TabActivity } from './RetainedTabs';
 import { Modal } from './Dialog';
 import { HoverTooltip } from './HoverTooltip';
 import { ToastHost } from './Toast';
+import { NotificationSourceProvider, notificationSource } from '../lib/notificationNavigation';
 import '../styles/database-browser-window.css';
 
 const DatabaseBrowser = lazy(() => import('./DatabaseBrowser'));
@@ -61,7 +62,14 @@ function BrowserWindow({ request }: { request: BrowserRequest }) {
           </header>
         )}
         <Suspense fallback={<div role="status">正在加载数据库浏览…</div>}>
-          <DatabaseBrowser />
+          <NotificationSourceProvider
+            source={notificationSource(
+              { kind: 'local', open: () => useDatabaseBrowserWindow.getState().open() },
+              '返回数据库浏览器',
+            )}
+          >
+            <DatabaseBrowser />
+          </NotificationSourceProvider>
         </Suspense>
         <ToastHost />
         <HoverTooltip />

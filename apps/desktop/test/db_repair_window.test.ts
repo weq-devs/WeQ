@@ -40,6 +40,7 @@ vi.mock('../src/renderer/src/components/DbRepairPanel', () => ({
   },
 }));
 vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToastApi: () => ({ push: pushToast }),
   ToastHost: () => null,
   useToast: (select: (state: { push: typeof pushToast }) => unknown) => select({ push: pushToast }),
 }));

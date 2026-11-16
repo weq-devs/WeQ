@@ -1,0 +1,1 @@
+export const NOTIFICATION_CLICK_LIMIT = 100;

@@ -95,6 +95,11 @@ it('多个目标并行发送且群内保序，一个目标失败不会阻塞其�
   }
   expect(events).toEqual(['qa-group:text', 'second:text', 'second:media', 'qa-group:media']);
   expect(useToast.getState().toasts.map((toast) => toast.tone)).toEqual(['success', 'warning']);
+  const failed = localBackgroundTasks.snapshot().find((entry) => entry.name === second.name)!;
+  expect(useToast.getState().toasts[1]!.source?.target).toEqual({
+    kind: 'task',
+    id: `background:window:${failed.id}`,
+  });
 });
 
 it('不可等价发送的整条消息在发送前确认并可预览，取消不会发出任何消息', async () => {

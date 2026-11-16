@@ -18,7 +18,10 @@ const fixture = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/renderer/src/components/QqAvatar', () => ({ QqAvatar: () => null }));
-vi.mock('../src/renderer/src/components/Toast', () => ({ useToast: () => vi.fn() }));
+vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToastApi: () => ({ push: vi.fn() }),
+  useToast: () => vi.fn(),
+}));
 vi.mock('../src/renderer/src/hooks/useQQAutoRefresh', () => ({
   useQQAutoRefresh: () => ({ enabled: true }),
 }));

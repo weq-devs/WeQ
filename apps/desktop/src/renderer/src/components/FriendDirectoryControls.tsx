@@ -4,7 +4,7 @@ import { X, Save } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { useViewState } from '../state/view';
-import { useToast } from './Toast';
+import { useToastApi } from './Toast';
 import { Modal } from './Dialog';
 import '../styles/friend-directory.css';
 
@@ -34,6 +34,7 @@ export const FriendDirectoryContext = createContext<{
 } | null>(null);
 
 export function FriendDirectoryControls({ children }: { children: ReactNode }) {
+  const notificationToast = useToastApi();
   const session = useQQWriteSession('friend-directory');
   const view = useViewState((state) => state.openedUin);
   const scope = `${view}:${session.binding?.expectedAccountConfigId ?? ''}`;
@@ -79,9 +80,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
       ]);
       if (current.current !== captured) return;
       if (result.state !== 'confirmed') throw new Error('操作已提交，读回尚未确认，请刷新后核对');
-      useToast
-        .getState()
-        .push({ title: '好友分组已更新', tone: 'success', durationKind: 'success' });
+      notificationToast.push({ title: '好友分组已更新', tone: 'success', durationKind: 'success' });
       setEditor(null);
     } catch (cause) {
       if (current.current !== captured) return;
@@ -89,7 +88,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
       if (current.current !== captured) return;
       const message = cause instanceof Error ? cause.message : String(cause);
       setError(message);
-      useToast.getState().push({ title: message, tone: 'warning', durationKind: 'failure' });
+      notificationToast.push({ title: message, tone: 'warning', durationKind: 'failure' });
     } finally {
       running.current = false;
       setBusy(false);

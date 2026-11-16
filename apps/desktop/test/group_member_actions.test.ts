@@ -35,6 +35,7 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
 }));
 vi.mock('../src/renderer/src/components/Toast', () => ({
   useToast: { getState: () => ({ push: rpc.toast }) },
+  useToastApi: () => ({ push: rpc.toast }),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {

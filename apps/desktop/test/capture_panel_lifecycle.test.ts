@@ -41,6 +41,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 }));
 vi.mock('../src/renderer/src/components/Toast', () => ({
   useToast: { getState: () => ({ push: f.push, update: f.update }) },
+  useToastApi: () => ({ push: f.push, update: f.update }),
 }));
 
 const pending: Array<(batch: CaptureBatchWire) => void> = [];

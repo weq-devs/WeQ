@@ -63,7 +63,15 @@ export interface GroupAlbumDialogProps {
   binding?: QQWriteBinding;
   onClose: () => void;
 }
-const ScopedGroupAlbumDialog = withQQAccountScope(GroupAlbumDialogBody);
+const ScopedGroupAlbumDialog = withQQAccountScope(GroupAlbumDialogBody, (props) => ({
+  kind: 'group-resource',
+  request: {
+    kind: 'albums',
+    groupCode: props.groupCode,
+    groupName: props.groupName,
+    initialAlbumId: props.initialAlbumId,
+  },
+}));
 export function GroupAlbumDialog(props: GroupAlbumDialogProps): ReactElement {
   return <ScopedGroupAlbumDialog key={props.groupCode} {...props} />;
 }

@@ -11,6 +11,11 @@ import {
   type ForwardOptions,
 } from '../lib/sequentialForward';
 import { useToast } from './Toast';
+import {
+  taskNotificationSource,
+  notificationSource,
+  openNotificationSource,
+} from '../lib/notificationNavigation';
 import { localBackgroundTasks } from '../state/backgroundTasks';
 import type { BackgroundTaskScope } from '../../../shared/background_task';
 import '../styles/sequential-forward.css';
@@ -53,6 +58,11 @@ export function startSequentialForward({
     let finished = false;
     const startedAt = Date.now();
     const taskId = localBackgroundTasks.start({ kind: 'forward', name: target.name, scope });
+    const taskSource = taskNotificationSource(taskId, 'background:window');
+    const conversationSource = notificationSource(
+      { kind: 'local', open: () => onOpenTarget(target) },
+      `打开对话：${target.name}`,
+    );
     const openAction = { id: 'open', label: '打开对话', run: () => onOpenTarget(target) };
     localBackgroundTasks.setActions(taskId, [
       {
@@ -133,7 +143,13 @@ export function startSequentialForward({
       title: progress(),
       ttl: 0,
       dismissible: false,
-      action: { label: `打开对话：${target.name}`, run: () => onOpenTarget(target) },
+      source: conversationSource,
+      action: {
+        label: conversationSource.label,
+        run: () => {
+          void openNotificationSource(conversationSource);
+        },
+      },
     });
     const update = () => {
       toast.update(id, { title: progress() });
@@ -204,6 +220,7 @@ export function startSequentialForward({
       tone: stopped || failed ? 'warning' : 'success',
       durationKind: failed || (stopped && !local.signal.aborted) ? 'failure' : 'success',
       title: progress(),
+      source: failed ? taskSource : conversationSource,
       detail: [stopped, ...failures].filter(Boolean).join('\n') || undefined,
       ttl: 0,
       dismissible: true,

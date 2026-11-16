@@ -422,7 +422,11 @@ function GroupNoticeActionsBody({
     </section>
   );
 }
-const ScopedGroupNoticeActions = withQQAccountScope(GroupNoticeActionsBody);
+const ScopedGroupNoticeActions = withQQAccountScope(GroupNoticeActionsBody, (props) => ({
+  kind: 'group',
+  id: String(props.groupId),
+  section: 'announcements',
+}));
 export function GroupNoticeActions(props: Parameters<typeof GroupNoticeActionsBody>[0]) {
   return (
     <PageSnapshotsFallback scope="qq-group-notices">

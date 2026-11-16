@@ -74,6 +74,7 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
     selector({ confirm: fixture.confirm, showError: vi.fn() }),
 }));
 vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToastApi: () => ({ push: fixture.push }),
   useToast: (selector: (state: unknown) => unknown) => selector({ push: fixture.push }),
 }));
 

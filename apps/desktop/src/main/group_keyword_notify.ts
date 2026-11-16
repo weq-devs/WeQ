@@ -97,6 +97,7 @@ async function showNotification(services: AccountServices, hit: GroupKeywordHit)
     silent: false,
   });
   notification.on('click', () => {
+    if (getAppContext().services !== services) return;
     openConversationAt(hit.groupCode, hit.msgSeq);
   });
   notification.show();

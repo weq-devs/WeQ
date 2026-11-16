@@ -1,24 +1,13 @@
-.weq-toast:has(> .weq-toast-open) {
-  position: relative;
-}
-.weq-toast-open {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  border: 0;
-  padding: 0;
-  background: transparent;
+.weq-toast:has(.weq-toast-open) {
   cursor: pointer;
+}
+.weq-toast .weq-toast-title,
+.weq-toast .weq-toast-detail {
+  user-select: text;
 }
 .weq-toast-open:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
-  outline-offset: -3px;
-  border-radius: inherit;
-}
-.weq-toast-open ~ .weq-toast-header button,
-.weq-toast-open ~ .weq-toast-body-wrapper {
-  position: relative;
-  z-index: 2;
+  outline-offset: -2px;
 }
 
 @media (prefers-reduced-motion: reduce) {

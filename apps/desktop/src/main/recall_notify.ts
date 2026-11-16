@@ -63,6 +63,7 @@ async function handle(event: RecallNotifyEvent): Promise<void> {
     silent: false,
   });
   notification.on('click', () => {
+    if (getAppContext().services !== services) return;
     openConversationAt(event);
   });
   notification.show();

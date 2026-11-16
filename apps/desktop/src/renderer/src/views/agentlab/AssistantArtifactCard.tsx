@@ -22,6 +22,7 @@ import { useAppDialog } from '../../lib/dialogUtils';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
 import { useToast } from '../../components/Toast';
+import { taskNotificationSource } from '../../lib/notificationNavigation';
 import { IS_WEB } from '../../lib/target';
 import { presentClientDocument } from '../../components/ClientDocumentPreview';
 import '../../styles/assistant-artifact-save.css';
@@ -176,6 +177,7 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
         pushToast({
           tone: 'info',
           title: '报告保存任务已创建',
+          source: taskNotificationSource(id),
         });
     } catch (e) {
       if (current()) setFailure({ identity, message: e instanceof Error ? e.message : String(e) });

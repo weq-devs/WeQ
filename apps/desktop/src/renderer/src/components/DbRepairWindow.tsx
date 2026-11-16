@@ -13,6 +13,7 @@ import { TabActivity } from './RetainedTabs';
 import { Modal } from './Dialog';
 import { HoverTooltip } from './HoverTooltip';
 import { ToastHost } from './Toast';
+import { NotificationSourceProvider, notificationSource } from '../lib/notificationNavigation';
 import '../styles/db-repair-window.css';
 
 const DbRepairPanel = lazyPanel<ComponentProps<typeof import('./DbRepairPanel').DbRepairPanel>>(
@@ -72,13 +73,21 @@ export function DbRepairWindowHost() {
           <RenderDocumentContext.Provider value={popup.document}>
             <TabActivity active={!locked}>
               <div className="weq-db-repair-native" hidden={locked} inert={locked}>
-                <DbRepairPanel
-                  currentUin={account.uin}
-                  accounts={[account]}
-                  onRefreshAccounts={() => {
-                    void utils.bootstrap.listAccountConfigs.invalidate();
-                  }}
-                />
+                <NotificationSourceProvider
+                  source={notificationSource(
+                    { kind: 'local', open: () => useDbRepairWindow.getState().open(account) },
+                    '返回对应数据库修复',
+                    null,
+                  )}
+                >
+                  <DbRepairPanel
+                    currentUin={account.uin}
+                    accounts={[account]}
+                    onRefreshAccounts={() => {
+                      void utils.bootstrap.listAccountConfigs.invalidate();
+                    }}
+                  />
+                </NotificationSourceProvider>
                 <ToastHost />
                 <HoverTooltip />
               </div>

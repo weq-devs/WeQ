@@ -29,6 +29,7 @@ import { AccountSwitchRequestHost } from './components/AccountSwitchRequestHost'
 import { RemoteRequests } from './components/RemoteRequests';
 import { HoverTooltip } from './components/HoverTooltip';
 import { ToastHost, useToast } from './components/Toast';
+import { NotificationClickBridge } from './components/NotificationClickBridge';
 import { DbRepairWindowHost } from './components/DbRepairWindow';
 import { CaptureWindowHost } from './components/CaptureWindow';
 import { LogPerformanceWindowHost } from './components/LogPerformanceWindow';
@@ -263,6 +264,7 @@ export default function App(): ReactElement {
             <AccountSwitchRequestHost />
             <RemoteRequests />
             <ToastHost />
+            <NotificationClickBridge />
             <RendererRecoveryNotice ready={view === 'bootstrap' && homeStage !== 'booting'} />
             {IS_WEB && <WebConnectionStatus />}
             {IS_WEB && view === 'main' && <WebNotifications />}

@@ -7,7 +7,7 @@ import { useId, useRef, useState } from 'react';
 import { X, Save, ChevronLeft, ChevronRight, Hash, Type, Binary, Box, Copy } from 'lucide-react';
 import { cn } from '../im-template/template/classNames';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
-import { useToast } from './Toast';
+import { useToastApi } from './Toast';
 
 export interface Props {
   msgId: string;
@@ -24,6 +24,7 @@ export function MsgElementEditor({
   onClose,
   onSave,
 }: Props) {
+  const notificationToast = useToastApi();
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   useSurfaceEscape(dialogRef, onClose, true, true);
@@ -68,9 +69,9 @@ export function MsgElementEditor({
     };
     try {
       await navigator.clipboard.writeText(JSON.stringify(elements, replacer, 2));
-      useToast.getState().push({ tone: 'success', title: '已复制' });
+      notificationToast.push({ tone: 'success', title: '已复制' });
     } catch (error) {
-      useToast.getState().push({
+      notificationToast.push({
         tone: 'error',
         title: '复制失败',
         detail: error instanceof Error ? error.message : String(error),

@@ -1281,7 +1281,15 @@ function GroupFileManagerBody({
     </section>
   );
 }
-const Scoped = withQQAccountScope(GroupFileManagerBody);
+const Scoped = withQQAccountScope(GroupFileManagerBody, (props) => ({
+  kind: 'group-resource',
+  request: {
+    kind: 'files',
+    groupCode: String(props.groupId),
+    groupName: String(props.groupId),
+    initialFolderId: props.directory,
+  },
+}));
 export function GroupFileManager(props: Props) {
   return <Scoped key={`${props.groupId}:${props.directory}`} {...props} />;
 }

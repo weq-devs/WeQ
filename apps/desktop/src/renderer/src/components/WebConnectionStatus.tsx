@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { WifiOff } from 'lucide-react';
 import { useWebConnection } from '../state/webConnection';
-import { useToast } from './Toast';
+import { useToastApi } from './Toast';
+import { notificationSource } from '../lib/notificationNavigation';
 import '../styles/web-connection.css';
 
 type RemoteConnectionState = 'connected' | 'network' | 'connection';
@@ -19,6 +20,7 @@ function nativeConnectionState(): RemoteConnectionState | undefined {
 }
 
 export function WebConnectionStatus() {
+  const notificationToast = useToastApi();
   const status = useWebConnection((state) => state.status);
   const recovery = useWebConnection((state) => state.recovery);
   const previousRecovery = useRef(recovery);
@@ -46,13 +48,13 @@ export function WebConnectionStatus() {
     return () => {
       window.removeEventListener('weq-remote-connection', changed);
       window.removeEventListener('weq-remote-shell-ready', changed);
-      useToast.getState().resolve(NOTICE_KEY);
+      notificationToast.resolve(NOTICE_KEY);
     };
-  }, []);
+  }, [notificationToast]);
 
   useEffect(() => {
     if (!nativeState) return;
-    const toast = useToast.getState();
+    const toast = notificationToast;
     if (nativeState !== 'connected') {
       warned.current = true;
       toast.push({
@@ -61,13 +63,18 @@ export function WebConnectionStatus() {
         durationKind: 'long',
         ttl: 0,
         title: nativeState === 'network' ? '网络已断开，恢复后自动重连' : '连接已中断，正在重连…',
+        source: notificationSource(
+          { kind: 'local', open: () => window.weqRemoteShell?.openMenu() },
+          '查看当前连接',
+          null,
+        ),
       });
     } else if (warned.current || nativeRecovery > previousNativeRecovery.current) {
       warned.current = false;
       toast.push({ key: NOTICE_KEY, tone: 'success', title: '连接已恢复' });
     }
     previousNativeRecovery.current = nativeRecovery;
-  }, [nativeState, nativeRecovery]);
+  }, [nativeState, nativeRecovery, notificationToast]);
 
   useEffect(() => {
     if (shellReady && nativeState && status !== 'connected')

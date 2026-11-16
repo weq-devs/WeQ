@@ -34,6 +34,7 @@ import { MergeForwardTargets } from './MergeForwardTargets';
 import { SequentialForwardDialog } from '../SequentialForwardDialog';
 import { Modal } from '../Dialog';
 import { useToast } from '../Toast';
+import { NotificationSourceProvider, notificationSource } from '../../lib/notificationNavigation';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../ServerSavePrompt';
 import { HoverTooltip } from '../HoverTooltip';
@@ -79,7 +80,17 @@ interface SendRequest {
   mode: 'merged' | 'sequential';
 }
 
-export function CompositionWorkspace({
+export function CompositionWorkspace(props: Parameters<typeof CompositionWorkspaceBody>[0]) {
+  return (
+    <NotificationSourceProvider
+      source={notificationSource({ kind: 'app', target: { kind: 'composition' } })}
+    >
+      <CompositionWorkspaceBody {...props} />
+    </NotificationSourceProvider>
+  );
+}
+
+function CompositionWorkspaceBody({
   popup,
   fallback,
   onClose,
@@ -779,6 +790,7 @@ export function CompositionWorkspace({
                             <Share2 size={16} />
                           </CompositionButton>
                           <CompositionButton
+                            data-danger="outline"
                             type="button"
                             title={kind === 'history' ? '删除合成记录' : '删除素材'}
                             aria-label={kind === 'history' ? '删除合成记录' : '删除素材'}
@@ -790,7 +802,6 @@ export function CompositionWorkspace({
                                   if (dirtyRef.current)
                                     await persist(structuredClone(working), binding);
                                   if (dirtyRef.current)
-                            data-danger="outline"
                                     throw new Error('内容仍在更新，请稍后再删除');
                                   await serial.current.catch(() => {});
                                   const removed = await resolveDraftSave(

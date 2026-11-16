@@ -21,13 +21,20 @@ import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 
 import {
   useEffect,
+  useContext,
+  useMemo,
   useLayoutEffect,
   useRef,
   useState,
   type ReactElement,
   type ReactNode,
 } from 'react';
-import { create } from 'zustand';
+import { create, useStore, type StoreApi } from 'zustand';
+import {
+  NotificationSourceContext,
+  openNotificationSource,
+  type NotificationSource,
+} from '../lib/notificationNavigation';
 import { version } from '../../../../package.json';
 import { IS_WEB } from '../lib/target';
 import {
@@ -39,6 +46,8 @@ import '../styles/toast-action.css';
 import '../styles/toast-layout.css';
 import {
   AlertTriangle,
+  ArrowUpRight,
+  Play,
   Check,
   ChevronDown,
   CircleAlert,
@@ -51,6 +60,12 @@ import {
 
 export type ToastTone = 'info' | 'warning' | 'error' | 'success';
 export type ToastDurationKind = 'success' | 'failure' | 'long';
+
+export interface ToastAction {
+  label: string;
+  run: () => void;
+  icon?: 'play' | 'open';
+}
 
 interface Toast {
   id: number;
@@ -71,14 +86,23 @@ interface Toast {
   /** 进行中的发送任务仅提供停止按钮，避免误关进度后继续静默发送。 */
   dismissible?: boolean;
   /** 整条横幅的主操作；关闭、展开和内部按钮仍独立操作。 */
-  action?: { label: string; run: () => void };
+  action?: ToastAction;
+  source?: NotificationSource | null;
 }
 
 /** 就地改一条已在屏上的 toast —— 长任务用它把「进行中」推进成「成功/失败」。 */
 export type ToastPatch = Partial<
   Pick<
     Toast,
-    'tone' | 'durationKind' | 'loading' | 'title' | 'detail' | 'ttl' | 'dismissible' | 'action'
+    | 'tone'
+    | 'durationKind'
+    | 'loading'
+    | 'title'
+    | 'detail'
+    | 'ttl'
+    | 'dismissible'
+    | 'action'
+    | 'source'
   >
 >;
 
@@ -104,6 +128,7 @@ interface ToastStore {
     ttl?: number;
     dismissible?: boolean;
     action?: Toast['action'];
+    source?: NotificationSource | null;
   }): number;
   /**
    * 原地更新一条 toast（不重播进场、不改变堆叠顺序）。
@@ -137,7 +162,7 @@ function defaultDurationKind(tone: ToastTone, ttl?: number): ToastDurationKind {
   return tone === 'warning' || tone === 'error' ? 'failure' : 'success';
 }
 
-export const useToast = create<ToastStore>((set, get) => ({
+const toastStore = create<ToastStore>((set, get) => ({
   durations: { ...DEFAULT_TOAST_DURATIONS },
   setDurations(input) {
     const durations = normalizeToastDurations(input);
@@ -171,6 +196,7 @@ export const useToast = create<ToastStore>((set, get) => ({
     ttl,
     dismissible,
     action,
+    source,
   }) {
     const state = get();
     const existing = key === undefined ? undefined : state.toasts.find((item) => item.key === key);
@@ -192,6 +218,7 @@ export const useToast = create<ToastStore>((set, get) => ({
       timerRevision: existing ? existing.timerRevision + 1 : 0,
       dismissible,
       action,
+      source,
     };
     set({
       seq: Math.max(state.seq, id),
@@ -246,6 +273,67 @@ export const useToast = create<ToastStore>((set, get) => ({
   },
 }));
 
+export function sourceToastPush(source: NotificationSource): ToastStore['push'] {
+  return (input) =>
+    toastStore.getState().push({
+      ...input,
+      source:
+        input.source !== undefined
+          ? input.source
+          : input.loading ||
+              input.durationKind === 'long' ||
+              input.dismissible === false ||
+              input.durationKind === 'failure' ||
+              input.tone === 'error' ||
+              input.tone === 'warning'
+            ? source
+            : undefined,
+    });
+}
+
+function scopedToastStore(source: NotificationSource): StoreApi<ToastStore> {
+  const push = sourceToastPush(source);
+  let previous: ToastStore | undefined;
+  let snapshot: ToastStore;
+  const getState = () => {
+    const state = toastStore.getState();
+    if (state !== previous) {
+      previous = state;
+      snapshot = { ...state, push };
+    }
+    return snapshot;
+  };
+  return { ...toastStore, getState, getInitialState: getState };
+}
+
+export const useToast = Object.assign(function useToast<T = ToastStore>(
+  selector: (state: ToastStore) => T = ((state: ToastStore) => state) as (state: ToastStore) => T,
+  origin?: NotificationSource | null,
+): T {
+  const inherited = useContext(NotificationSourceContext);
+  const source = origin === undefined ? inherited : origin;
+  const store = useMemo(() => (source ? scopedToastStore(source) : toastStore), [source]);
+  return useStore(store, selector);
+}, toastStore);
+
+export function useToastApi(
+  origin?: NotificationSource | null,
+): Pick<ToastStore, 'push' | 'update' | 'dismiss' | 'resolve' | 'remove' | 'setDurations'> {
+  const inherited = useContext(NotificationSourceContext);
+  const source = origin === undefined ? inherited : origin;
+  return useMemo(() => {
+    const { push, update, dismiss, resolve, remove, setDurations } = toastStore.getState();
+    return {
+      push: source ? sourceToastPush(source) : push,
+      update,
+      dismiss,
+      resolve,
+      remove,
+      setDurations,
+    };
+  }, [source]);
+}
+
 const TONE_CONFIG: Record<ToastTone, { icon: ReactElement }> = {
   info: { icon: <CircleAlert size={20} strokeWidth={2} aria-hidden /> },
   warning: { icon: <AlertTriangle size={20} strokeWidth={2} aria-hidden /> },
@@ -297,7 +385,9 @@ const LEAVE_MS = 400;
 function ToastRow({ toast }: { toast: Toast }): ReactElement {
   const dismiss = useToast((s) => s.dismiss);
   const remove = useToast((s) => s.remove);
+  const update = useToast((s) => s.update);
   const leaving = useToast((s) => s.leaving.includes(toast.id));
+
 
   const [shown, setShown] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -373,6 +463,23 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
   const config = TONE_CONFIG[toast.tone];
   const progress = toast.ttl > 0 ? Math.max(0, Math.min(100, (timeLeft / toast.ttl) * 100)) : 0;
   const secondsLeft = Math.ceil(timeLeft / 1000);
+  const runAction = async (run: () => unknown) => {
+    try {
+      await run();
+    } catch (error) {
+      update(toast.id, { detail: error instanceof Error ? error.message : String(error) });
+      setExpanded(true);
+    }
+  };
+
+  const action = toast.source
+    ? {
+        label: toast.source.label,
+        run: () => runAction(() => openNotificationSource(toast.source!)),
+      }
+    : toast.action
+      ? { ...toast.action, run: () => runAction(toast.action!.run) }
+      : undefined;
 
   return (
     <div
@@ -380,21 +487,29 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
       role="status"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
+      onPointerUp={(event) => {
+        if (
+          !action ||
+          event.button !== 0 ||
+          (event.target as Element).closest('button, a, input, textarea, select')
+        )
+          return;
+        const selection = event.currentTarget.ownerDocument.getSelection();
+        if (
+          selection &&
+          !selection.isCollapsed &&
+          (event.currentTarget.contains(selection.anchorNode) ||
+            event.currentTarget.contains(selection.focusNode))
+        )
+          return;
+        action.run();
+      }}
       onFocus={() => setPaused(true)}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setPaused(false);
       }}
     >
       {/* 第一行：标题栏 */}
-      {toast.action ? (
-        <button
-          type="button"
-          className="weq-toast-open"
-          aria-label={toast.action.label}
-          title={toast.action.label}
-          onClick={toast.action.run}
-        />
-      ) : null}
       <div className="weq-toast-header">
         <div className="weq-toast-icon">
           {toast.loading ? (
@@ -405,6 +520,32 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
         </div>
         <h3 className="weq-toast-title">{toast.title}</h3>
         <div className="weq-toast-actions">
+          {action ? (
+            <button
+              type="button"
+              className="weq-toast-action weq-toast-open"
+              aria-label={action.label}
+              title={action.label}
+              onClick={action.run}
+            >
+              <ArrowUpRight size={16} aria-hidden />
+            </button>
+          ) : null}
+          {toast.source && toast.action && toast.action.label !== toast.source.label ? (
+            <button
+              type="button"
+              className="weq-toast-action"
+              title={toast.action.label}
+              aria-label={toast.action.label}
+              onClick={() => void runAction(toast.action!.run)}
+            >
+              {toast.action.icon === 'play' ? (
+                <Play size={16} aria-hidden />
+              ) : (
+                <ArrowUpRight size={16} aria-hidden />
+              )}
+            </button>
+          ) : null}
           {hasBody ? (
             <button
               type="button"

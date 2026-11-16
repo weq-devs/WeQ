@@ -96,7 +96,10 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
     };
   },
 }));
-vi.mock('../src/renderer/src/components/Toast', () => ({ useToast: () => state.toast }));
+vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToast: () => state.toast,
+  useToastApi: () => ({ push: state.toast }),
+}));
 vi.mock('../src/renderer/src/hooks/useVoiceTranscription', () => ({
   useVoiceTranscription: () => ({
     available: Boolean(state.model),
@@ -493,7 +496,7 @@ it('图片右键只保留一个另存为动作并保留消息身份', async () =
 it('图片灯箱选择器取消后仍保留原图和缩放状态，不关闭浏览', async () => {
   state.save.mockResolvedValueOnce(null);
   await mount(h(MediaPreviewHost));
-  act(() =>
+  await act(async () =>
     openMediaPreview({
       items: [
         {
@@ -506,6 +509,10 @@ it('图片灯箱选择器取消后仍保留原图和缩放状态，不关闭浏�
     }),
   );
   try {
+    await vi.waitFor(async () => {
+      await act(async () => Promise.resolve());
+      expect(document.querySelector('.weq-lightbox-frame')).not.toBeNull();
+    });
     const frame = document.querySelector<HTMLElement>('.weq-lightbox-frame')!;
     act(() =>
       frame.dispatchEvent(

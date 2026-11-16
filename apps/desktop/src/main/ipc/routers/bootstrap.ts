@@ -15,6 +15,7 @@
 import { OperationError } from '@weq/service';
 
 import { observable } from '@trpc/server/observable';
+import { consumeNotificationClick, notificationClickEvents } from '../../notification_click_bus';
 import { reconcileLocalModelResources } from '../../context/local_model_resources';
 import { z } from 'zod';
 import { assertAccountBinding, optionalAccountBinding } from '../account_binding';
@@ -932,6 +933,15 @@ export const bootstrapRouter = router({
       refreshWindowControls();
       return true;
     }),
+
+  consumeNotificationClick: procedure.mutation(() => consumeNotificationClick()),
+  onNotificationClick: procedure.subscription(() =>
+    observable<{ pending: true }>((emit) => {
+      const listener = () => emit.next({ pending: true });
+      notificationClickEvents.on('click', listener);
+      return () => notificationClickEvents.off('click', listener);
+    }),
+  ),
 
   setToastDuration: procedure
     .input(

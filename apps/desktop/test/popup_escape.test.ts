@@ -36,7 +36,10 @@ vi.mock('../src/renderer/src/views/annual-report/useSelfFace', () => ({
 vi.mock('../src/renderer/src/views/annual-report/reportContext', () => ({
   useReportView: () => ({ overlayHostRef: state.overlay }),
 }));
-vi.mock('../src/renderer/src/components/Toast', () => ({ useToast: () => state.toast }));
+vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToastApi: () => ({ push: state.toast }),
+  useToast: () => state.toast,
+}));
 vi.mock('../src/renderer/src/components/ark/QqArk', () => ({ QqArk: () => null }));
 
 const cleanups: Array<() => void> = [];

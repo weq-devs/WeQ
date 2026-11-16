@@ -6,6 +6,7 @@ import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
 import { IS_WEB } from '../lib/target';
 import { ServerSavePrompt } from './ServerSavePrompt';
 import { useToast } from './Toast';
+import { taskNotificationSource } from '../lib/notificationNavigation';
 import '../styles/decoration-save.css';
 
 interface DecorationSaveInput {
@@ -56,6 +57,7 @@ export function useDecorationSave() {
         pushToast({
           tone: 'info',
           title: '装扮保存任务已创建',
+          source: taskNotificationSource(result.taskId),
           message: '可在导出任务列表查看结果与保存位置',
         });
     } catch (error) {

@@ -4,6 +4,7 @@ import { client } from '../../trpc/client';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
 import { useToast } from '../../components/Toast';
+import { taskNotificationSource } from '../../lib/notificationNavigation';
 import { ExportReportControl } from './ExportReportControl';
 import { WindowedList } from '../../components/WindowedList';
 import { contentReferenceKey, type ContentReference } from '../../../../shared/content_selection';
@@ -49,7 +50,11 @@ export function ReferenceExportTool({
         includeIntegrityReport,
       });
       if (id && save.isCurrent()) {
-        toast({ tone: 'info', title: '相册导出已加入任务列表' });
+        toast({
+          tone: 'info',
+          title: '相册导出已加入任务列表',
+          source: taskNotificationSource(id),
+        });
         onClose?.();
       }
     } catch (reason) {

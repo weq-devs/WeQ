@@ -6,6 +6,7 @@ import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
 import { IS_WEB } from '../lib/target';
 import { ServerSavePrompt } from './ServerSavePrompt';
 import { useToast } from './Toast';
+import { taskNotificationSource } from '../lib/notificationNavigation';
 import '../styles/market-image-save.css';
 
 export function MarketImageSave({
@@ -31,11 +32,15 @@ export function MarketImageSave({
     try {
       const policy = await save.prepareSave(intent, { kind: 'file', name, format: 'gif' });
       if (!policy || !save.isCurrent()) return;
-      await client.account.marketEmoji.startImageSave.mutate({ ...selected, savePolicy: policy });
+      const taskId = await client.account.marketEmoji.startImageSave.mutate({
+        ...selected,
+        savePolicy: policy,
+      });
       if (save.isCurrent())
         pushToast({
           tone: 'info',
           title: '单张表情保存任务已创建',
+          source: taskNotificationSource(taskId),
           message: '可在导出任务列表查看结果与保存位置',
         });
     } catch (error) {

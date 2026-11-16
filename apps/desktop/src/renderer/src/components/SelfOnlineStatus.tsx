@@ -2,6 +2,11 @@ import { lazy, Suspense, useEffect, useId, useRef, useState, type ReactNode } fr
 import { X } from 'lucide-react';
 import { OverlayLayer } from './OverlayLayer';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
+import {
+  NotificationSourceProvider,
+  notificationSource,
+  openNotificationSource,
+} from '../lib/notificationNavigation';
 import '../styles/self-online-status.css';
 
 const StatusEditor = lazy(() => import('./SelfOnlineStatusEditor'));
@@ -91,7 +96,22 @@ export function SelfOnlineStatus({
               </button>
             </header>
             <Suspense fallback={<p role="status">正在读取在线状态…</p>}>
-              <StatusEditor key={identity} binding={session.binding} onSaved={close} />
+              <NotificationSourceProvider
+                source={notificationSource(
+                  {
+                    kind: 'local',
+                    open: () =>
+                      trigger.current?.isConnected
+                        ? setOpen(true)
+                        : openNotificationSource(
+                            notificationSource({ kind: 'app', target: { kind: 'self-profile' } }),
+                          ),
+                  },
+                  '返回在线状态编辑器',
+                )}
+              >
+                <StatusEditor key={identity} binding={session.binding} onSaved={close} />
+              </NotificationSourceProvider>
             </Suspense>
           </section>
         </OverlayLayer>

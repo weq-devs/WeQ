@@ -358,4 +358,4 @@ function GroupAlbumVideoUploadBody({
     </div>
   );
 }
-export const GroupAlbumVideoUpload = withQQAccountScope(GroupAlbumVideoUploadBody);
+export const GroupAlbumVideoUpload = withQQAccountScope(GroupAlbumVideoUploadBody, (props) => ({ kind: 'group-resource', request: { kind: 'albums', groupCode: String(props.groupId), groupName: String(props.groupId), initialAlbumId: props.albumId } }));

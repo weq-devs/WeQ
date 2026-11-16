@@ -10,6 +10,7 @@ import { SetEmojiReactions } from '../src/renderer/src/components/SetEmojiReacti
 const warn = vi.hoisted(() => vi.fn());
 vi.mock('../src/renderer/src/components/Toast', () => ({
   useToast: { getState: () => ({ push: warn }) },
+  useToastApi: () => ({ push: warn }),
 }));
 vi.mock('../src/renderer/src/components/FaceEmoji', () => ({
   FaceEmoji: () => createElement('span', { className: 'face-emoji' }),

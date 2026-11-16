@@ -37,7 +37,10 @@ vi.mock('../src/renderer/src/lib/target', () => ({
     return !state.web;
   },
 }));
-vi.mock('../src/renderer/src/components/Toast', () => ({ useToast: () => vi.fn() }));
+vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToastApi: () => ({ push: vi.fn() }),
+  useToast: () => vi.fn(),
+}));
 vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
   useQQWriteSession: () => ({
     binding: { expectedAccountUin: '10001', expectedAccountConfigId: state.configId },

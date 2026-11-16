@@ -13,6 +13,7 @@ import { lazyPanel } from '../lib/lazyPanel';
 import { TabActivity } from './RetainedTabs';
 import { Modal } from './Dialog';
 import { ToastHost } from './Toast';
+import { notificationContent, notificationSource } from '../lib/notificationNavigation';
 import { HoverTooltip } from './HoverTooltip';
 import { QueryError } from './settings/controls';
 import '../styles/capture-window.css';
@@ -41,9 +42,22 @@ export function CaptureWindowRequest({
   return null;
 }
 
-function CaptureWindowPanel({ initialUin, onClose }: { initialUin: string; onClose: () => void }) {
+function CaptureWindowPanel({
+  initialUin,
+  initialTab,
+  source,
+  onClose,
+}: {
+  initialUin: string;
+  initialTab?: 'tcp' | 'udp';
+  source: string;
+  onClose: () => void;
+}) {
   /** 两个抓包面板：TCP（QQNT / OIDB，按账号）与 UDP（按进程，不解析协议）。 */
-  const [tab, setTab] = useState<'tcp' | 'udp'>('tcp');
+  const [tab, setTab] = useState<'tcp' | 'udp'>(initialTab ?? 'tcp');
+  useEffect(() => {
+    if (initialTab) setTab(initialTab);
+  }, [initialTab]);
   const activity = useQQReadActivity(true, { onlineOnly: IS_WEB });
   const [accounts, setAccounts] = useState<
     Awaited<ReturnType<typeof client.wonderfulTools.overview.query>>
@@ -89,7 +103,12 @@ function CaptureWindowPanel({ initialUin, onClose }: { initialUin: string; onClo
     }
     return () => controller.current?.abort();
   }, [activity.enabled, activity.revision, refresh]);
-  return (
+  return notificationContent(
+    notificationSource(
+      { kind: 'local', open: () => useCaptureWindow.getState().open(source, initialUin, tab) },
+      '返回对应抓包面板',
+      null,
+    ),
     <div className="weq-capture-native">
       <header className="weq-capture-window-head">
         <Radio size={17} />
@@ -163,7 +182,7 @@ function CaptureWindowPanel({ initialUin, onClose }: { initialUin: string; onClo
           />
         )}
       </div>
-    </div>
+    </div>,
   );
 }
 
@@ -212,7 +231,12 @@ export function CaptureWindowHost() {
               hidden={locked}
               inert={locked}
             >
-              <CaptureWindowPanel initialUin={request.uin} onClose={dismiss} />
+              <CaptureWindowPanel
+                initialUin={request.uin}
+                initialTab={request.tab}
+                source={request.source}
+                onClose={dismiss}
+              />
               <ToastHost />
               {!locked ? <HoverTooltip /> : null}
             </div>

@@ -21,7 +21,7 @@ import { useZoomPan } from './useZoomPan';
 import { PreviewOcr } from './usePreviewOcr';
 import { MediaSourceSave } from './MediaSaveControls';
 import { exportMedia } from '../lib/mediaExport';
-import { useToast } from './Toast';
+import { useToastApi } from './Toast';
 import { retainObjectUrl } from '../lib/objectUrl';
 import {
   resourceForRenderDocument,
@@ -29,6 +29,8 @@ import {
   useRenderDocument,
 } from '../lib/renderDocument';
 import { mediaRetryUrl } from '../lib/mediaRetryUrl';
+import { NotificationSourceProvider, notificationSource } from '../lib/notificationNavigation';
+import { openMediaPreview } from './mediaPreviewStore';
 import { topSurface } from '../lib/surfaceEscape';
 import type { MediaPreviewOptions, PreviewMedia } from './mediaPreviewTypes';
 export type { PreviewMedia, MediaPreviewOptions } from './mediaPreviewTypes';
@@ -227,7 +229,30 @@ export function MediaPreview(options: MediaPreviewOptions) {
   );
 }
 
-function MediaPreviewItem({
+function MediaPreviewItem(props: Parameters<typeof MediaPreviewItemBody>[0]) {
+  const { item } = props;
+  const source = useMemo(
+    () =>
+      notificationSource(
+        {
+          kind: 'local',
+          open: () => {
+            window.focus();
+            return openMediaPreview({ items: [item] });
+          },
+        },
+        '返回这项媒体',
+      ),
+    [item],
+  );
+  return (
+    <NotificationSourceProvider source={source}>
+      <MediaPreviewItemBody {...props} />
+    </NotificationSourceProvider>
+  );
+}
+
+function MediaPreviewItemBody({
   item,
   ownerDocument,
   active,
@@ -252,6 +277,7 @@ function MediaPreviewItem({
   canNewer: boolean;
   business: ReactNode;
 }) {
+  const notificationToast = useToastApi();
   const [resolved, setResolved] = useState<{
     key: string;
     src: string;
@@ -365,13 +391,11 @@ function MediaPreviewItem({
   const ready = status === 'ready';
   async function copy() {
     const result = await exportMedia({ url: src, name: item.title }, 'clipboard', ownerDocument);
-    useToast
-      .getState()
-      .push(
-        result.ok
-          ? { tone: 'success', title: '已复制到剪贴板' }
-          : { tone: 'error', title: '复制失败', message: result.error },
-      );
+    notificationToast.push(
+      result.ok
+        ? { tone: 'success', title: '已复制到剪贴板' }
+        : { tone: 'error', title: '复制失败', message: result.error },
+    );
   }
   // 等待视频原片时不把封面或占位来源误挂到播放器。
   const waiting = Boolean(item.load && item.kind === 'video' && resolved?.key !== item.key);

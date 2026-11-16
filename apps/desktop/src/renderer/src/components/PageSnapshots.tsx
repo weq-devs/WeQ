@@ -15,7 +15,7 @@ import type { z } from 'zod';
 import superjson from 'superjson';
 import { belongsToScope, pageSnapshots } from '../lib/pageSnapshots';
 import { PageDataCache } from '../lib/pageDataCache';
-import { useToast } from './Toast';
+import { useToastApi } from './Toast';
 
 const SnapshotContext = createContext<{
   key: string;
@@ -76,6 +76,7 @@ export function PageSnapshots({
   children: ReactNode;
   resetOnMount?: boolean;
 }) {
+  const notificationToast = useToastApi();
   const [preparedScope, setPreparedScope] = useState<string | null>(null);
   const needsReset = Boolean(scope && resetOnMount && preparedScope !== scope);
   useLayoutEffect(() => {
@@ -83,14 +84,14 @@ export function PageSnapshots({
     try {
       pageSnapshots.resetScope(scope);
     } catch {
-      useToast.getState().push({
+      notificationToast.push({
         tone: 'error',
         title: '页面现场重置失败',
         detail: '请检查本机存储，部分页面可能仍保留上次的操作位置。',
       });
     }
     setPreparedScope(scope);
-  }, [scope, needsReset]);
+  }, [scope, needsReset, notificationToast]);
   const context = useMemo(
     () =>
       scope
@@ -159,6 +160,7 @@ export function usePageState<T>(
   draft = false,
   enabled = true,
 ): [T, Dispatch<SetStateAction<T>>] {
+  const notificationToast = useToastApi();
   const scopedKey = usePageSnapshotKey(name);
   const fallback = useContext(SnapshotContext)?.fallback;
   const key = enabled ? scopedKey : null;
@@ -166,12 +168,12 @@ export function usePageState<T>(
   const report = useCallback(() => {
     if (reported.current) return;
     reported.current = true;
-    useToast.getState().push({
+    notificationToast.push({
       tone: 'error',
       title: '页面现场保存失败',
       detail: '请检查本机存储；尚未提交的修改请先保存。',
     });
-  }, []);
+  }, [notificationToast]);
   const load = () => {
     if (key) {
       try {

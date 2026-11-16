@@ -10,6 +10,7 @@ import { GroupFileManager } from './GroupFileManager';
 import { GroupFileMessageResults } from './GroupFileMessageResults';
 import { useQQAction, withQQAccountScope } from './qq-actions/shared';
 import { useToast } from './Toast';
+import { taskNotificationSource } from '../lib/notificationNavigation';
 import { collectGroupFileSubtree, resolveGroupFileSelection } from '../lib/groupFileSelection';
 import type { GroupFileWire, GroupFolderWire } from '../lib/groupFile';
 import '../styles/group-media.css';
@@ -128,7 +129,7 @@ function GroupFileDialogBody({
     if (includeIntegrityReport === null || !isCurrent()) return;
     const savePolicy = await save.prepareSave(undefined, { kind: 'bundle', name });
     if (!savePolicy || !isCurrent()) return;
-    await client.account.startGroupFileExport.mutate({
+    const taskId = await client.account.startGroupFileExport.mutate({
       ...binding,
       includeIntegrityReport,
       groupCode,
@@ -142,7 +143,12 @@ function GroupFileDialogBody({
       })),
       concurrency: 4,
     });
-    if (isCurrent()) toast({ tone: 'info', title: '群文件保存任务已创建' });
+    if (isCurrent())
+      toast({
+        tone: 'info',
+        title: '群文件保存任务已创建',
+        source: taskNotificationSource(taskId),
+      });
   }
   return (
     <ProfileDetailSurface
@@ -290,7 +296,16 @@ function GroupFileDialogBody({
     </ProfileDetailSurface>
   );
 }
-const Scoped = withQQAccountScope(GroupFileDialogBody);
+const Scoped = withQQAccountScope(GroupFileDialogBody, (props) => ({
+  kind: 'group-resource',
+  request: {
+    kind: 'files',
+    groupCode: props.groupCode,
+    groupName: props.groupName,
+    initialFolderId: props.initialFolderId,
+    initialFileId: props.initialFileId,
+  },
+}));
 export function GroupFileDialog(props: Props) {
   return <Scoped key={props.groupCode} {...props} />;
 }

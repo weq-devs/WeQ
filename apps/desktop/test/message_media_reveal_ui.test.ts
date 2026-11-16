@@ -18,6 +18,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   client: { account: { mediaResource: { revealMessageMedia: { mutate: state.reveal } } } },
 }));
 vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToastApi: () => ({ push: state.toast }),
   useToast: (select: (store: { push: typeof state.toast }) => unknown) =>
     select({ push: state.toast }),
 }));

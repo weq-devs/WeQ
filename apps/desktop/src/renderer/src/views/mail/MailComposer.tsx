@@ -4,7 +4,8 @@ import { QqIcon } from '../../lib/qqIcons';
 import type { MailComposeInput } from '@weq/service/mail';
 import { useDialog } from '../../components/Dialog';
 import { SegmentedControl } from '../../components/SegmentedControl';
-import { useToast } from '../../components/Toast';
+import { useToastApi } from '../../components/Toast';
+import { notificationSource } from '../../lib/notificationNavigation';
 import { IS_WEB } from '../../lib/target';
 import { registerMailDraft } from '../../state/mailDraft';
 import { useMobileBack } from '../../hooks/useMobileNavigation';
@@ -55,6 +56,7 @@ export function MailComposer({
   onDirtyChange(dirty: boolean): void;
   onDraftChange?(draft: MailDraft): void;
 }) {
+  const notificationToast = useToastApi();
   const [draft, setDraft] = useState(initial);
   const [saved, setSaved] = useState(initial.draftId && !initial.unsaved ? snapshot(initial) : '');
   const currentDraft = useRef(draft);
@@ -134,9 +136,9 @@ export function MailComposer({
     if (
       dirty &&
       !(await useDialog.getState().confirm('放弃未保存的邮件？', '当前内容尚未保存到草稿箱。', {
+        danger: 'outline',
         okLabel: '放弃',
         cancelLabel: '继续编辑',
-        danger: 'outline',
         tone: 'warning',
       }))
     )
@@ -215,7 +217,16 @@ export function MailComposer({
           update({ draftId: result.id || draft.draftId });
           setSaved(snapshot(draft));
         } else {
-          useToast.getState().push({ tone: 'success', title: '邮件已提交发送' });
+          notificationToast.push({
+            tone: 'success',
+            title: '邮件已提交发送',
+            source: result.id
+              ? notificationSource(
+                  { kind: 'mail', folderId: 3, mailId: result.id },
+                  '查看已提交的邮件',
+                )
+              : null,
+          });
           onSubmitted(result.id);
         }
       } else {

@@ -12,7 +12,8 @@ import { IS_MAC } from '../lib/target';
 import { QqDataAccessNotice } from '../views/bootstrap/QqDataAccessNotice';
 import { useRestrictedMode, type AuthorizationRequest } from '../state/restrictedMode';
 import { useViewState } from '../state/view';
-import { useToast } from './Toast';
+import { useToastApi } from './Toast';
+import { notificationSource } from '../lib/notificationNavigation';
 import { useOverlayLayer } from '../lib/overlayStack';
 import { topSurface } from '../lib/surfaceEscape';
 import '../styles/restricted-mode.css';
@@ -194,6 +195,7 @@ export function AuthorizationForm({
 }
 
 export function RestrictedModeHost() {
+  const notificationToast = useToastApi();
   useAuthorizationBridge();
   const uin = useViewState((s) => s.openedUin);
   const view = useViewState((s) => s.view);
@@ -288,10 +290,10 @@ export function RestrictedModeHost() {
     previous.current = '';
     recoveryPending.current = false;
     fullModeSeen.current = false;
-    useToast.getState().resolve(NOTICE_KEY);
+    notificationToast.resolve(NOTICE_KEY);
     useRestrictedMode.getState().setOpen(false);
     useRestrictedMode.getState().endEntering();
-  }, [sourceKey]);
+  }, [sourceKey, notificationToast]);
   useEffect(
     () => () => {
       operation.current += 1;
@@ -431,14 +433,14 @@ export function RestrictedModeHost() {
     if (reasonSource !== sourceKey) return;
     const manualNotice = enteringManually || recoveryPending.current;
     const activeNotice = manualNotice && (entering || awaitingAuthorization);
-    if (!activeNotice && !passiveBanner) useToast.getState().resolve(NOTICE_KEY);
+    if (!activeNotice && !passiveBanner) notificationToast.resolve(NOTICE_KEY);
     if (enteringManually) recoveryPending.current = true;
     // 启动自动尝试只更新标题栏；确认正常运行后才提醒降级，手动启用单独回执。
     const notify =
       manualNotice || (fullModeSeen.current && passiveBanner && !globalSettings.isLoading);
     const noticeSignature = `${signature}:${enteringManually}`;
     if (signature && noticeSignature !== previous.current && notify) {
-      const toast = useToast.getState();
+      const toast = notificationToast;
       const message: Parameters<typeof toast.push>[0] = {
         key: NOTICE_KEY,
         tone: entering ? 'info' : 'warning',
@@ -469,17 +471,21 @@ export function RestrictedModeHost() {
     if (!signature) {
       if (fullModeConfirmed) fullModeSeen.current = true;
       useRestrictedMode.getState().setOpen(false);
-      useToast.getState().resolve(NOTICE_KEY);
+      notificationToast.resolve(NOTICE_KEY);
       if (recoveryPending.current && fullModeConfirmed) {
-        useToast.getState().push({ tone: 'success', title: '已启用 QQ 在线能力' });
+        notificationToast.push({ tone: 'success', title: '已启用 QQ 在线能力' });
         recoveryPending.current = false;
         // 刚刚确认 QQ 在线能力：顺手把签名器降级的情况说清楚。
         if (signerDegraded && !signerWarned.current) {
           signerWarned.current = true;
-          useToast.getState().push({
+          notificationToast.push({
             key: 'signer-degraded',
             tone: 'warning',
             title: '签名器已降级：改用完整签名函数',
+            source: notificationSource({
+              kind: 'app',
+              target: { kind: 'setting', section: 'diagnostics', settingId: 'signer-status' },
+            }),
             detail: signer.data
               ? `sign core RVA ${signer.data.signCoreRva === null ? '未定位' : `0x${signer.data.signCoreRva.toString(16)}`}，VM ${signer.data.vmRva === null ? '未定位' : `0x${signer.data.vmRva.toString(16)}`}。QQ 更新或 wrapper.node 被替换后需要重新扫描；可在「设置 → 凭据与数据 → QQ 高级工具 → 签名器」里手动重扫。`
               : undefined,
@@ -502,6 +508,7 @@ export function RestrictedModeHost() {
     sourceKey,
     signerDegraded,
     signer.data,
+    notificationToast,
   ]);
   useEffect(() => {
     if (previousUin.current !== uin) {

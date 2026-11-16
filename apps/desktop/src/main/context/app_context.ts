@@ -388,7 +388,12 @@ function notifyRecall(session: AccountSession, event: RecallNotifyEvent): void {
   recallNotifier?.(event);
 }
 function notifyMail(session: AccountSession, notice: MailNotice): void {
-  webNotice(session, { kind: 'mail', title: 'QQ 邮箱收到新邮件', body: '' });
+  webNotice(session, {
+    kind: 'mail',
+    title: 'QQ 邮箱收到新邮件',
+    body: '',
+    mail: { folderId: notice.folderId, id: notice.id },
+  });
   mailNotifier?.(String(session.context.uin), notice);
 }
 let mailNotifier: ((uin: string, notice: MailNotice) => void) | null = null;

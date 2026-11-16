@@ -135,6 +135,11 @@ it.each([false, true])('群通知保留群名并显示最后一条消息的发�
         body: '本地群名片：消息正文\n另有 1 条消息',
       }),
     );
+    expect(web ? f.browserNotify : f.notify).toHaveBeenLastCalledWith(
+      expect.objectContaining(
+        web ? { target: { seq: '20', kind: 'group', conv: '10003' } } : { seq: '20' },
+      ),
+    );
     await act(async () => f.receive?.(batch('22')));
     expect(web ? f.browserNotify : f.notify).toHaveBeenLastCalledWith(
       expect.objectContaining({ title: '测试联系人', body: '消息正文' }),
@@ -295,4 +300,24 @@ it('去重、历史、免打扰、群助手、前台阅读与隐私状态共同�
     await act(async () => root.unmount());
   }
   expect(f.unsubscribe).toHaveBeenCalledOnce();
+});
+
+it('乱序批次与缺失序号不改变第一条可定位消息的目标', async () => {
+  f.values.messageNotifications = true;
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(createElement(Probe)));
+    const invalid = batch('missing-sequence', { msgSeq: '0' });
+    const latest = batch('51');
+    const first = batch('50');
+    await act(async () =>
+      f.receive?.({
+        ...first,
+        messages: [...invalid.messages, ...latest.messages, ...first.messages],
+      }),
+    );
+    expect(f.notify).toHaveBeenLastCalledWith(expect.objectContaining({ conv: 'peer', seq: '50' }));
+  } finally {
+    await act(async () => root.unmount());
+  }
 });

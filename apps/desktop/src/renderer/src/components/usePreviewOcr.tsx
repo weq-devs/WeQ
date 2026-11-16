@@ -4,7 +4,7 @@ import { Eye, EyeOff, Loader2, ScanText } from 'lucide-react';
 import type { OcrBlock } from '@weq/protocol';
 import { trpc } from '../trpc/client';
 import { OcrTextPanel } from './OcrTextPanel';
-import { useToast } from './Toast';
+import { useToastApi } from './Toast';
 import type { PreviewOcrContext } from './mediaPreviewTypes';
 
 /** OCR 只挂载到图片与工具栏插槽，不重挂载媒体外壳或播放器。 */
@@ -41,6 +41,7 @@ export function PreviewOcr({
 
 /** 每次展示独立持有 OCR 结果，失效请求不能回写到下一张图片。 */
 export function usePreviewOcr(src: string, context: PreviewOcrContext | null | undefined) {
+  const notificationToast = useToastApi();
   const [result, setResult] = useState<{
     blocks: OcrBlock[];
     width: number;
@@ -113,10 +114,10 @@ export function usePreviewOcr(src: string, context: PreviewOcrContext | null | u
       setVisible(true);
       setPanel(value.blocks.length > 0);
       if (!value.blocks.length)
-        useToast.getState().push({ tone: 'info', durationKind: 'success', title: '没识别到文字' });
+        notificationToast.push({ tone: 'info', durationKind: 'success', title: '没识别到文字' });
     } catch (error) {
       if (request === generation.current)
-        useToast.getState().push({
+        notificationToast.push({
           tone: 'error',
           title: '文字识别失败',
           message: error instanceof Error ? error.message : String(error),

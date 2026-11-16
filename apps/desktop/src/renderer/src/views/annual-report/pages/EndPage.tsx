@@ -4,6 +4,7 @@ import type { EndPageData, ExportSavePolicy } from '@weq/service';
 import { isAllTimeYear, reportPeriodLabel } from '@weq/service/report-time';
 import { client } from '../../../trpc/client';
 import { useToast } from '../../../components/Toast';
+import { taskNotificationSource } from '../../../lib/notificationNavigation';
 import { PageFrame, type ReportPageProps } from '../pageFrame';
 import { useReportView } from '../reportContext';
 import { buildReportHtml, preloadReportAssets } from '../exportHtml';
@@ -151,7 +152,12 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
           : kind === 'pdf'
             ? await client.account.annualReport.exportPdf.mutate(input)
             : await client.account.annualReport.exportLongImage.mutate(input);
-      if (taskId && current()) pushToast({ tone: 'info', title: '报告保存任务已创建' });
+      if (taskId && current())
+        pushToast({
+          tone: 'info',
+          title: '报告保存任务已创建',
+          source: taskNotificationSource(taskId),
+        });
     } catch (error) {
       if (current())
         pushToast({

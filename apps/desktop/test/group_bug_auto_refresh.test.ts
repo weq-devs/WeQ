@@ -26,6 +26,7 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
     selector({ showError() {} }),
 }));
 vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToastApi: () => ({ push() {} }),
   useToast: (selector: (value: { push: () => void }) => unknown) => selector({ push() {} }),
 }));
 vi.mock('../src/renderer/src/state/theme', () => ({

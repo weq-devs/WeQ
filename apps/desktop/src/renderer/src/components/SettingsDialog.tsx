@@ -104,7 +104,8 @@ import {
 } from './PageSnapshots';
 import { pageSnapshots } from '../lib/pageSnapshots';
 import { DraftCloseContext, useDraftClose } from '../lib/draftClose';
-import { useToast } from './Toast';
+import { useToastApi } from './Toast';
+import { SettingsNotificationSource } from '../lib/notificationNavigation';
 import { Modal } from './Dialog';
 import type { SettingsNavigation } from '../hooks/useSettingsNavigation';
 import { z } from 'zod';
@@ -443,6 +444,7 @@ function SettingsContent({
   isCurrentSource?: () => boolean;
   navigationGuard?: { current: SettingsNavigation | null };
 }): ReactElement | null {
+  const notificationToast = useToastApi();
   const remote = useRemoteClient();
   const target = useMemo(
     () => resolveSettingsTarget(searchTarget ?? { section: initialSection ?? 'startup' }),
@@ -478,9 +480,9 @@ function SettingsContent({
     try {
       pageSnapshots.write(activeKey, activeId);
     } catch {
-      useToast.getState().push({ tone: 'error', title: '设置页面位置保存失败' });
+      notificationToast.push({ tone: 'error', title: '设置页面位置保存失败' });
     }
-  }, [open, activeKey, activeId]);
+  }, [open, activeKey, activeId, notificationToast]);
   const activeSnapshots = usePageSnapshotReset('workspace:main:设置', `settings:${activeId}`);
   const [closing, setClosing] = useState(false);
   const guard = useDraftClose(() => setClosing(true), null);
@@ -543,9 +545,11 @@ function SettingsContent({
     try {
       snapshots.reset();
     } catch {
-      useToast
-        .getState()
-        .push({ tone: 'error', title: '设置页面状态清除失败', detail: '请检查本机存储后重试。' });
+      notificationToast.push({
+        tone: 'error',
+        title: '设置页面状态清除失败',
+        detail: '请检查本机存储后重试。',
+      });
       setClosing(false);
       return;
     }
@@ -553,7 +557,7 @@ function SettingsContent({
     setMobileCategoryOpen(false);
     onClose();
     setClosing(false);
-  }, [closing, snapshots, setActiveId, onClose]);
+  }, [closing, snapshots, setActiveId, onClose, notificationToast]);
   useEffect(() => {
     guard.drafts.add(snapshotDraft);
     return () => {
@@ -697,30 +701,33 @@ function SettingsContent({
                       pageId={active.id}
                       target={target}
                       revision={searchTarget?.revision}
+                      recordId={searchTarget?.recordId}
                     >
-                      <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
-                        <SettingsNavigateContext.Provider
-                          value={(section) => switchSection(section as SettingsPageId)}
-                        >
-                          {active.id === 'chat-interaction' ? (
-                            <>
-                              {active.render(onOpenMaintenance)}
-                              <SettingsScopeContext.Provider value={null}>
-                                <AntiRecallDialog
-                                  embedded
-                                  onClose={() => {}}
-                                  onOpenRecalls={onOpenRecalls}
-                                  recallDetails={recallDetails}
-                                  onCloseRecalls={onCloseRecalls}
-                                  isCurrentSource={isCurrentSource}
-                                />
-                              </SettingsScopeContext.Provider>
-                            </>
-                          ) : (
-                            active.render(onOpenMaintenance)
-                          )}
-                        </SettingsNavigateContext.Provider>
-                      </SettingsScopeContext.Provider>
+                      <SettingsNotificationSource section={active.id}>
+                        <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
+                          <SettingsNavigateContext.Provider
+                            value={(section) => switchSection(section as SettingsPageId)}
+                          >
+                            {active.id === 'chat-interaction' ? (
+                              <>
+                                {active.render(onOpenMaintenance)}
+                                <SettingsScopeContext.Provider value={null}>
+                                  <AntiRecallDialog
+                                    embedded
+                                    onClose={() => {}}
+                                    onOpenRecalls={onOpenRecalls}
+                                    recallDetails={recallDetails}
+                                    onCloseRecalls={onCloseRecalls}
+                                    isCurrentSource={isCurrentSource}
+                                  />
+                                </SettingsScopeContext.Provider>
+                              </>
+                            ) : (
+                              active.render(onOpenMaintenance)
+                            )}
+                          </SettingsNavigateContext.Provider>
+                        </SettingsScopeContext.Provider>
+                      </SettingsNotificationSource>
                     </RetainedSettingsPage>
                   </RetainedTabs>
                 </PageSnapshotsFallback>

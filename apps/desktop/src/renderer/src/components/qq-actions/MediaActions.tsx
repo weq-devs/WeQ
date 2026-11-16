@@ -587,6 +587,25 @@ function QzoneWriteActionsBody({
     </div>
   );
 }
-export const GroupAlbumUpload = withQQAccountScope(GroupAlbumUploadBody);
-export const GroupAlbumMediaActions = withQQAccountScope(GroupAlbumMediaActionsBody);
-export const QzoneWriteActions = withQQAccountScope(QzoneWriteActionsBody);
+export const GroupAlbumUpload = withQQAccountScope(GroupAlbumUploadBody, (props) => ({
+  kind: 'group-resource',
+  request: {
+    kind: 'albums',
+    groupCode: String(props.groupId),
+    groupName: String(props.groupId),
+    initialAlbumId: props.albumId,
+  },
+}));
+export const GroupAlbumMediaActions = withQQAccountScope(GroupAlbumMediaActionsBody, (props) => ({
+  kind: 'group-resource',
+  request: {
+    kind: 'albums',
+    groupCode: String(props.groupId),
+    groupName: String(props.groupId),
+    initialAlbumId: props.albumId,
+  },
+}));
+export const QzoneWriteActions = withQQAccountScope(QzoneWriteActionsBody, (props) => ({
+  kind: 'qzone',
+  target: { kind: 'post', uin: props.hostUin, tid: props.tid },
+}));

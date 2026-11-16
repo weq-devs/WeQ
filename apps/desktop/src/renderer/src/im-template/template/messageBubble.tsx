@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { IS_WEB } from '../../lib/target';
 import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
@@ -19,7 +19,12 @@ import { localDressApplies } from '../../lib/dressSkin';
 import { MsgDecorationEnabledContext } from '../../components/QqMessageContent';
 import { MessageProvenance } from '../../components/MessageProvenance';
 import '../../styles/message-deletion.css';
-import { useToast } from '../../components/Toast';
+import { useToastApi } from '../../components/Toast';
+import {
+  NotificationSourceContext,
+  NotificationSourceProvider,
+  messageNotificationSource,
+} from '../../lib/notificationNavigation';
 import { GroupMessageBadge } from '../../components/GroupMessageBadge';
 import { messageHasIntentText } from '../../lib/intentTimeline';
 import '../../styles/chat-interactions.css';
@@ -102,7 +107,30 @@ function PendantOverlay({
   );
 }
 
-export function MessageBubble({
+export function MessageBubble(props: Parameters<typeof MessageBubbleBody>[0]) {
+  const inherited = useContext(NotificationSourceContext);
+  const uin = inherited?.binding?.expectedAccountUin;
+  const configId = inherited?.binding?.expectedAccountConfigId;
+  const conv = props.conversation.id;
+  const kind = props.conversation.type === 'group' ? 'group' : 'c2c';
+  const { id, msgId, msgSeq, sourceFormat, ntSeqVerified } = props.message;
+  const source = useMemo(
+    () =>
+      messageNotificationSource(
+        { id: conv, type: kind },
+        { id, msgId, msgSeq, sourceFormat, ntSeqVerified },
+        uin && configId ? { expectedAccountUin: uin, expectedAccountConfigId: configId } : null,
+      ),
+    [uin, configId, kind, conv, id, msgId, msgSeq, sourceFormat, ntSeqVerified],
+  );
+  return (
+    <NotificationSourceProvider source={source}>
+      <MessageBubbleBody {...props} />
+    </NotificationSourceProvider>
+  );
+}
+
+function MessageBubbleBody({
   message,
   conversation,
   sender,
@@ -202,6 +230,7 @@ export function MessageBubble({
   /** 本地克隆等展示标识，不改变发送者或 QQ 消息能力。 */
   avatarBadge?: import('react').ReactNode;
 }) {
+  const notificationToast = useToastApi();
   // 只订阅名称、等级与头衔的组合，其他共享偏好变化不重绘消息。
   const groupDisplay = useClientPreferences(() =>
     conversation.type === 'group'
@@ -419,7 +448,7 @@ export function MessageBubble({
     try {
       await onRestore(message.id);
     } catch (error) {
-      useToast.getState().push({
+      notificationToast.push({
         tone: 'error',
         title: '恢复消息失败',
         detail: error instanceof Error ? error.message : String(error),
@@ -667,6 +696,7 @@ export function MessageBubble({
             )}
             {dismissable ? (
               <button
+                data-danger="outline"
                 type="button"
                 className={cn('weq-msg-dismiss-unsent')}
                 title="从本机列表移除这条（对方是否收到不受影响）"
@@ -696,7 +726,6 @@ export function MessageBubble({
             aria-label={isQqDeleted ? 'QQ删除的消息' : '已删除的消息'}
           >
             <StatusTag {...statusProps} className={cn('weq-msg-deleted-badge', reeditClass)}>
-                data-danger="outline"
               {reeditArmed && reeditClass ? '重新编辑' : isQqDeleted ? 'QQ删除' : '已删除'}
             </StatusTag>
             {!isQqDeleted && !selectionMode && onRestore ? (

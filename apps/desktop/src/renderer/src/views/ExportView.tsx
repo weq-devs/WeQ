@@ -36,6 +36,7 @@ import {
 } from './export/StructuredExportControls';
 import { useToast } from '../components/Toast';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
+import { NotificationSourceProvider, notificationSource } from '../lib/notificationNavigation';
 import { fixProfileAvatarUrl } from '../lib/avatarResolver';
 import { classifyChatType, datalineName, toChatTypeNumber } from '@weq/codec';
 import type { ExportPresets } from '@weq/service';
@@ -342,6 +343,23 @@ function collectionPreview(it: CollectionItemWire): CollectionPreviewItem {
 }
 
 export function ExportTool(props: Parameters<typeof ExportToolBody>[0]): ReactElement {
+  return (
+    <NotificationSourceProvider
+      source={notificationSource({
+        kind: 'app',
+        target: {
+          kind: 'tool',
+          tool: props.surface === 'tasks' ? 'tasks' : 'export',
+          exportMode: props.initialMode,
+        },
+      })}
+    >
+      <ScopedExportTool {...props} />
+    </NotificationSourceProvider>
+  );
+}
+
+function ScopedExportTool(props: Parameters<typeof ExportToolBody>[0]): ReactElement {
   const selection = props.initialSelection;
   if (
     props.surface !== 'tasks' &&
@@ -976,6 +994,8 @@ function ExportToolBody({
       canPause: t.canPause,
       networkPaused: t.networkPaused,
       journalPath: t.journalPath,
+      databaseRecovery: t.databaseRecovery,
+      databaseRecoveryRecords: t.databaseRecoveryRecords,
       canIncremental: t.canIncremental,
       canFinalize: t.canFinalize,
       resourceOnly: t.resourceOnly,
@@ -2694,6 +2714,18 @@ function ExportToolBody({
                 renderExport={(task) => (
                   <TaskList
                     detailOnly
+                    onDatabaseRecovery={async (task, decision, skipRemaining) => {
+                      const request = task.databaseRecovery;
+                      if (!request || !saveBinding || !isCurrent()) throw new Error('账号或任务状态已变化，请刷新后重试。');
+                      const binding = { ...saveBinding };
+                      await client.account.resolveExportDatabaseRecovery.mutate({
+                        ...binding, taskId: task.id, requestId: request.id, decision, skipRemaining,
+                      });
+                      await utils.account.listExportTasks.invalidate();
+                      if (decision === 'repair' && isCurrent()) {
+                        useDbRepairWindow.getState().open({ uin: binding.expectedAccountUin, name: binding.expectedAccountUin, avatarUrl: '' });
+                      }
+                    }}
                     tasks={[task]}
                     onPause={onPause}
                     onFinalize={(t) => {
@@ -3305,6 +3337,7 @@ function ScheduleRow({
         </button>
         <button
           type="button"
+          data-danger="outline"
           className="is-danger"
           onClick={onDelete}
           title="删除"
@@ -3316,4 +3349,3 @@ function ScheduleRow({
     </div>
   );
 }
-          data-danger="outline"

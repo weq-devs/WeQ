@@ -32,7 +32,10 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
     isCurrent: () => state.current,
   }),
 }));
-vi.mock('../src/renderer/src/components/Toast', () => ({ useToast: () => state.toast }));
+vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToastApi: () => ({ push: state.toast }),
+  useToast: () => state.toast,
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     account: {
