@@ -17,7 +17,7 @@ import {
 } from 'react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import type { SettingsScope } from './navigation';
-import { RefreshCw } from 'lucide-react';
+import { Minus, RefreshCw } from 'lucide-react';
 import '../../styles/settings-query.css';
 import '../../styles/settings-controls.css';
 import { SettingsResetCardContext, SettingsResetContext } from './resetContext';
@@ -240,15 +240,19 @@ export function Row({
   );
 }
 
-/** iOS-style switch. Renders as a `role="switch"` button for a11y. */
+/** mixed 表示部分开启，点击请求全开；indeterminate 保留既有“尚未读取”的双向请求。 */
 export function Toggle({
   checked,
+  mixed,
   indeterminate = false,
   disabled,
   onChange,
   label,
 }: {
   checked: boolean;
+  /** 分组汇总状态；显式传入 false 时仍维持 checkbox 语义。 */
+  mixed?: boolean;
+  /** 尚未读取，保留根据 checked 请求相反值的旧行为。 */
   indeterminate?: boolean;
   disabled?: boolean;
   onChange: (next: boolean) => void;
@@ -257,15 +261,17 @@ export function Toggle({
   return (
     <button
       type="button"
-      className={`weq-set-toggle${indeterminate ? ' is-unknown' : checked ? ' is-on' : ''}`}
-      role={indeterminate ? 'checkbox' : 'switch'}
-      aria-checked={indeterminate ? 'mixed' : checked}
+      className={`weq-set-toggle${mixed ? ' is-mixed' : indeterminate ? ' is-unknown' : checked ? ' is-on' : ''}`}
+      role={mixed !== undefined || indeterminate ? 'checkbox' : 'switch'}
+      aria-checked={mixed || indeterminate ? 'mixed' : checked}
       aria-label={label}
       disabled={disabled}
-      onClick={() => onChange(!checked)}
+      onClick={() => onChange(mixed || !checked)}
     >
-      <span className="weq-set-toggle-track">
-        <span className="weq-set-toggle-knob" />
+      <span className="weq-set-toggle-track" aria-hidden="true">
+        <span className="weq-set-toggle-knob">
+          {mixed ? <Minus size={10} strokeWidth={2.5} /> : null}
+        </span>
       </span>
     </button>
   );

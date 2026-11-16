@@ -60,6 +60,49 @@ html[data-theme] .weq-settings-dialog .weq-settings-appearance-head span {
   max-width: 100%;
 }
 
+.weq-set-toggle:focus-visible {
+  border-radius: var(--weq-skin-toggle-radius, 999px);
+  outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
+  outline-offset: 3px;
+}
+
+.weq-set-toggle.is-mixed .weq-set-toggle-track {
+  background: color-mix(in srgb, var(--weq-accent-effective) 28%, var(--weq-bg-surface));
+  outline: 1px solid var(--weq-border-strong);
+  outline-offset: -1px;
+}
+
+.weq-set-toggle.is-mixed .weq-set-toggle-knob {
+  display: grid;
+  place-items: center;
+  transform: translateX(9px);
+  background: var(--weq-bg-elevated);
+  color: var(--weq-fg-primary);
+  box-shadow: var(--weq-shadow-soft);
+}
+
+html[data-theme='dark'] .weq-set-toggle.is-mixed .weq-set-toggle-track {
+  background: color-mix(in srgb, var(--weq-accent-effective) 36%, var(--weq-bg-elevated));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-set-toggle :is(.weq-set-toggle-track, .weq-set-toggle-knob) {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .weq-set-toggle.is-mixed .weq-set-toggle-track {
+    outline-color: CanvasText;
+  }
+
+  .weq-set-toggle.is-mixed .weq-set-toggle-knob {
+    forced-color-adjust: none;
+    background: CanvasText;
+    color: Canvas;
+  }
+}
+
 .weq-set-empty:has(> svg) {
   display: flex;
   align-items: center;
