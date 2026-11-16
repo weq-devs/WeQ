@@ -43,6 +43,9 @@ try {
     new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
   );
   await page.addInitScript(() => {
+    document.addEventListener('pointerdown', (event) => {
+      window.relationPointerId = event.pointerId;
+    });
     const clear = CanvasRenderingContext2D.prototype.clearRect;
     const fillText = CanvasRenderingContext2D.prototype.fillText;
     CanvasRenderingContext2D.prototype.clearRect = function (...args) {
@@ -113,51 +116,55 @@ try {
           await page.getByRole('button', { name: '适应全部', exact: true }).click();
         }
         const canvas = page.locator('canvas');
-        // 等布局稳定后从真实画布读取头像像素，再用悬浮名称确认点击对象。
-        await page.waitForFunction(
-          () => window.relationLastDraw && performance.now() - window.relationLastDraw > 600,
-        );
-        const points = await canvas.evaluate((canvas) => {
-          const ctx = canvas.getContext('2d');
-          const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          const bounds = canvas.getBoundingClientRect();
-          const points = [];
-          const stride = bounds.width < 400 ? 4 : 8;
-          for (let y = stride; y < canvas.height - stride; y += stride) {
-            for (let x = stride; x < canvas.width - stride; x += stride) {
-              const i = (y * canvas.width + x) * 4;
-              if (
-                data[i + 3] > 240 &&
-                Math.max(data[i], data[i + 1], data[i + 2]) -
-                  Math.min(data[i], data[i + 1], data[i + 2]) >
-                  50
-              )
-                points.push({
-                  x: bounds.x + (x * bounds.width) / canvas.width,
-                  y: bounds.y + (y * bounds.height) / canvas.height,
-                });
+        async function findTarget() {
+          // 等布局稳定后从真实画布读取头像像素，再用悬浮名称确认点击对象。
+          await page.waitForFunction(
+            () => window.relationLastDraw && performance.now() - window.relationLastDraw > 600,
+          );
+          const points = await canvas.evaluate((canvas) => {
+            const ctx = canvas.getContext('2d');
+            const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const bounds = canvas.getBoundingClientRect();
+            const points = [];
+            const stride = bounds.width < 400 ? 4 : 8;
+            for (let y = stride; y < canvas.height - stride; y += stride) {
+              for (let x = stride; x < canvas.width - stride; x += stride) {
+                const i = (y * canvas.width + x) * 4;
+                if (
+                  data[i + 3] > 240 &&
+                  Math.max(data[i], data[i + 1], data[i + 2]) -
+                    Math.min(data[i], data[i + 1], data[i + 2]) >
+                    50
+                )
+                  points.push({
+                    x: bounds.x + (x * bounds.width) / canvas.width,
+                    y: bounds.y + (y * bounds.height) / canvas.height,
+                  });
+              }
+            }
+            return points;
+          });
+          assert(points.length > 0, '图谱画布不能空白');
+          let target;
+          for (const point of points) {
+            await page.mouse.move(point.x, point.y);
+            const hovered = await page.evaluate(
+              () =>
+                new Promise((resolve) => {
+                  requestAnimationFrame(() =>
+                    resolve(document.querySelector('.weq-graph-tooltip strong')?.textContent ?? ''),
+                  );
+                }),
+            );
+            if (hovered === label) {
+              target = point;
+              break;
             }
           }
-          return points;
-        });
-        assert(points.length > 0, '图谱画布不能空白');
-        let target;
-        for (const point of points) {
-          await page.mouse.move(point.x, point.y);
-          const hovered = await page.evaluate(
-            () =>
-              new Promise((resolve) => {
-                requestAnimationFrame(() =>
-                  resolve(document.querySelector('.weq-graph-tooltip strong')?.textContent ?? ''),
-                );
-              }),
-          );
-          if (hovered === label) {
-            target = point;
-            break;
-          }
+          assert(target, `未找到${label}`);
+          return target;
         }
-        assert(target, `未找到${label}`);
+        let target = await findTarget();
         await page.mouse.down();
         await page.mouse.move(target.x + 30, target.y + 20, { steps: 4 });
         await page.mouse.up();
@@ -167,14 +174,24 @@ try {
           '拖动不能打开名片',
         );
         await page.mouse.down();
-        await page.locator('.weq-graph-canvas-wrap').dispatchEvent('pointercancel');
+        await page.locator('.weq-graph-canvas-wrap').evaluate((element) =>
+          element.dispatchEvent(
+            new PointerEvent('pointercancel', {
+              bubbles: true,
+              pointerId: window.relationPointerId,
+              pointerType: 'mouse',
+            }),
+          ),
+        );
         await page.mouse.up();
         assert.equal(
           await page.getByRole('dialog', { name: title, exact: true }).count(),
           0,
           '取消指针操作不能打开名片',
         );
-        await page.mouse.click(target.x + 30, target.y + 20);
+        // 释放节点会重新参与拉力模拟，重新命中实际绘制位置，不沿用拖动结束坐标。
+        target = await findTarget();
+        await page.mouse.click(target.x, target.y);
         const card = page.getByRole('dialog', { name: title, exact: true });
         await card.waitFor();
         await card.evaluate(async (element) => {

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RelationGraphView } from '../../src/renderer/src/components/relationGraph/RelationGraphView';
 import { MemberProfileCard } from '../../src/renderer/src/components/MemberProfileCard';
 import { useThemeStore } from '../../src/renderer/src/state/theme';
@@ -31,4 +32,8 @@ function Fixture() {
     </div>
   );
 }
-createRoot(document.getElementById('root')!).render(<Fixture />);
+createRoot(document.getElementById('root')!).render(
+  <QueryClientProvider client={new QueryClient()}>
+    <Fixture />
+  </QueryClientProvider>,
+);

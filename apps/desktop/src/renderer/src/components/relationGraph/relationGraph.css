@@ -84,6 +84,7 @@
   position: absolute;
   left: 14px;
   top: 14px;
+  max-width: calc(100% - 28px);
   z-index: 3;
   display: flex;
   flex-direction: column;
@@ -96,14 +97,70 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
   pointer-events: auto;
 }
 
 .weq-graph-overlay .weq-graph-seg {
-  background: rgba(255, 255, 255, 0.86);
-  box-shadow: 0 8px 22px -12px rgba(7, 31, 61, 0.4);
+  grid-auto-flow: row;
+  grid-template-columns: repeat(4, minmax(100px, 1fr));
+  min-width: 0;
+  background: var(--weq-bg-surface);
+  box-shadow: var(--weq-shadow-soft);
   backdrop-filter: blur(8px);
+}
+
+.weq-graph-overlay .weq-graph-seg button {
+  min-height: 36px;
+  padding: 6px 12px;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-graph-overlay .weq-graph-seg button.is-active {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, var(--weq-bg-surface));
+}
+
+.weq-graph-overlay .weq-graph-seg button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}
+
+.weq-graph-overlay .weq-graph-seg button svg {
+  flex: none;
+}
+
+.weq-graph-overlay .weq-graph-icon-btn {
+  width: 36px;
+  height: 36px;
+}
+
+@container (max-width: 560px) {
+  .weq-graph-overlay {
+    width: calc(100% - 28px);
+  }
+  .weq-graph-overlay-bar {
+    width: 100%;
+  }
+  .weq-graph-overlay .weq-graph-seg {
+    flex: 1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .weq-graph-overlay .weq-graph-seg button {
+    min-width: 0;
+    padding-inline: 8px;
+  }
+}
+
+@media (any-pointer: coarse) {
+  .weq-graph-overlay .weq-graph-seg button {
+    min-height: 44px;
+  }
+  .weq-graph-overlay .weq-graph-icon-btn {
+    width: 44px;
+    height: 44px;
+  }
 }
 
 .weq-graph-icon-btn {
@@ -1154,7 +1211,12 @@ html[data-theme='dark'] .weq-graph-slider-value {
 
 /* dark — overlay toolbar */
 html[data-theme='dark'] .weq-graph-overlay .weq-graph-seg {
-  background: rgba(34, 37, 41, 0.9);
+  background: var(--weq-bg-surface);
+}
+
+html[data-theme='dark'] .weq-graph-overlay .weq-graph-seg button.is-active {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, var(--weq-bg-surface));
 }
 
 html[data-theme='dark'] .weq-graph-icon-btn {
