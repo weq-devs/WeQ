@@ -6,7 +6,6 @@ import { occupationText } from '@weq/protocol/profile-values';
 import {
   BellOff,
   Bot,
-  Hash,
   PenLine,
   Pin,
   MailOpen,
@@ -25,7 +24,6 @@ import {
   Trash2,
   RefreshCw,
   Plus,
-  MessagesSquare,
   Sparkles,
   BarChart3,
   CloudDownload,
@@ -121,6 +119,7 @@ import { WindowedList } from '../../components/WindowedList';
 import { useThemeStore } from '../../state/theme';
 import '../../styles/conversation-directory.css';
 import { cn } from './classNames';
+import { FEATURE_ICONS } from '../../lib/featureIcons';
 import { Avatar, EmptyState, ListSkeleton } from './primitives';
 import { isBotConversation } from './conversationDisplay';
 import { messageMentionsUser } from './mentions';
@@ -142,16 +141,16 @@ import { intimateRelationOf } from '../../lib/profileRelations';
 import '../../styles/contact-relations.css';
 
 const VIEW_ICONS = {
-  regular: MessagesSquare,
-  all: MessagesSquare,
+  regular: FEATURE_ICONS.messages,
+  all: FEATURE_ICONS.messages,
   groupAssistant: Users,
   official: Newspaper,
   service: Mail,
-  guild: Hash,
+  guild: FEATURE_ICONS.guildDirect,
   hidden: EyeOff,
   deleted: Trash2,
-  clone: Bot,
-  assistant: Sparkles,
+  clone: FEATURE_ICONS.clone,
+  assistant: FEATURE_ICONS.assistant,
 };
 const VIEW_OPTIONS = CONVERSATION_VIEWS.map((id) => ({ id, Icon: VIEW_ICONS[id] }));
 
@@ -708,7 +707,12 @@ export function ConversationList({
       {directory?.loadingError ? (
         <div role="alert">
           会话读取失败：{directory.loadingError}
-          <button type="button" onClick={directory.onRetry ?? onLoadMore}>
+          <button
+            type="button"
+            onClick={directory.onRetry ?? onLoadMore}
+            className="weq-retry-button"
+          >
+            <RefreshCw size={14} aria-hidden />
             重试
           </button>
         </div>
@@ -844,7 +848,7 @@ export function ConversationList({
                     ) : conversation.mergedKind === 'deleted' ? (
                       <Trash2 size={20} strokeWidth={2} />
                     ) : conversation.mergedKind === 'guildDirect' ? (
-                      <Hash size={20} strokeWidth={2} />
+                      <FEATURE_ICONS.guildDirect size={20} strokeWidth={2} aria-hidden />
                     ) : conversation.mergedKind === 'clone' ? (
                       <Bot size={20} strokeWidth={2} />
                     ) : conversation.mergedKind === 'assistant' ? (
@@ -883,9 +887,9 @@ export function ConversationList({
                         aria-label="虚拟会话"
                       >
                         {virtualRow.kind === 'group' ? (
-                          <MessagesSquare size={11} />
+                          <FEATURE_ICONS.cloneGroup size={11} aria-hidden />
                         ) : (
-                          <Sparkles size={11} />
+                          <FEATURE_ICONS.clone size={11} aria-hidden />
                         )}
                       </small>
                     ) : null}

@@ -976,7 +976,12 @@ function LinkedPost({
       ) : error ? (
         <p role="alert">
           {error}
-          <button type="button" onClick={() => setRetry((value) => value + 1)}>
+          <button
+            type="button"
+            onClick={() => setRetry((value) => value + 1)}
+            className="weq-retry-button"
+          >
+            <RefreshCw size={14} aria-hidden />
             重试
           </button>
         </p>
@@ -2353,7 +2358,12 @@ function Interaction({
         {error ? (
           <p className="weq-qzn-error">
             {error}{' '}
-            <button type="button" onClick={() => setRetry((value) => value + 1)}>
+            <button
+              type="button"
+              onClick={() => setRetry((value) => value + 1)}
+              className="weq-retry-button"
+            >
+              <RefreshCw size={14} aria-hidden />
               重试
             </button>
           </p>
@@ -2468,7 +2478,12 @@ function Interaction({
       {error ? (
         <p className="weq-qzn-error">
           {error}{' '}
-          <button type="button" onClick={() => setRetry((value) => value + 1)}>
+          <button
+            type="button"
+            onClick={() => setRetry((value) => value + 1)}
+            className="weq-retry-button"
+          >
+            <RefreshCw size={14} aria-hidden />
             重试
           </button>
         </p>
@@ -3397,7 +3412,12 @@ function RelatedCard({
             {error ? (
               <p className="weq-qzn-error">
                 {error}{' '}
-                <button type="button" onClick={() => setRetry((v) => v + 1)}>
+                <button
+                  type="button"
+                  onClick={() => setRetry((v) => v + 1)}
+                  className="weq-retry-button"
+                >
+                  <RefreshCw size={14} aria-hidden />
                   重试
                 </button>
               </p>

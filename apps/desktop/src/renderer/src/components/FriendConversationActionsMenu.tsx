@@ -1,5 +1,5 @@
 import type { ComponentProps } from 'react';
-import { Sparkles } from 'lucide-react';
+import { FEATURE_ICONS } from '../lib/featureIcons';
 import { ConversationActionsMenu } from './ConversationActionsMenu';
 import { useFriendSpecialCare } from '../hooks/useFriendSpecialCare';
 
@@ -27,7 +27,7 @@ function FriendActions({
           ? [
               {
                 label: care.enabled ? '取消特别关心' : '特别关心',
-                icon: <Sparkles size={16} />,
+                icon: <FEATURE_ICONS.specialCare size={16} aria-hidden />,
                 disabled: care.disabled,
                 reason: care.reason,
                 keepOpen: true,

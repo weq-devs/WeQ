@@ -1,6 +1,6 @@
 import { NumericText } from '../../components/NumericText';
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, RotateCw, Search } from 'lucide-react';
+import { ChevronDown, RefreshCw, Search } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { useQzoneRequests } from '../../hooks/useQzoneRequests';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
@@ -167,7 +167,7 @@ export function QzoneScopePicker({
                 title="重试读取说说范围"
                 onClick={() => setRetry((value) => value + 1)}
               >
-                <RotateCw size={15} />
+                <RefreshCw size={15} aria-hidden />
               </button>
             </div>
           ) : next !== null ? (

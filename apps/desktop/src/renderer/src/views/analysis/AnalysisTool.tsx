@@ -1,7 +1,7 @@
 import { TimeLabel } from '../../components/TimeLabel';
 import * as timeFormat from '@weq/time';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Play, RotateCw, Search, Users } from 'lucide-react';
+import { ArrowLeft, Play, RefreshCw, Search, Users } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { useTabActive } from '../../components/RetainedTabs';
 import { WindowedList } from '../../components/WindowedList';
@@ -633,7 +633,7 @@ function AnalysisToolForm({
                   className="weq-analysis-retry"
                   onClick={() => void source.refetch()}
                 >
-                  <RotateCw size={14} /> 重试读取对象
+                  <RefreshCw size={14} aria-hidden /> 重试读取对象
                 </button>
               ) : (
                 <ObjectPicker

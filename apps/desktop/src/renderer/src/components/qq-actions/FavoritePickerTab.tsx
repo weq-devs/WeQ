@@ -4,7 +4,7 @@ import {
   ArrowUpToLine,
   Download,
   Pencil,
-  RotateCw,
+  RefreshCw,
   Save,
   Smile,
   Trash2,
@@ -84,7 +84,7 @@ function FavoritePickerTabBody({
             disabled={online.isFetching || !action.available}
             onClick={() => void online.refetch()}
           >
-            <RotateCw size={15} />
+            <RefreshCw size={15} aria-hidden />
           </ActionIcon>
         </div>
       )}

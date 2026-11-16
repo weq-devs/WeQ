@@ -23,7 +23,6 @@ import {
   Play,
   Radio,
   RefreshCw,
-  RotateCcw,
   Search,
   Square,
   Trash2,
@@ -344,7 +343,7 @@ export function RoamingBackfillPanel({
                 disabled={!autoRefresh.enabled || state.isFetching}
                 onClick={refresh}
               >
-                <RefreshCw size={14} />
+                <RefreshCw size={14} aria-hidden />
               </button>
             ) : null}
           </p>
@@ -879,7 +878,7 @@ export function RoamingBackfillPanel({
                             run.mutate({ id: job.id, retryRemaining: true });
                           }}
                         >
-                          <RotateCcw size={14} />
+                          <RefreshCw size={14} aria-hidden />
                           重试未补区间
                         </button>
                       ) : null}

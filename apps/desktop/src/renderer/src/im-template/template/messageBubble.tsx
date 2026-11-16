@@ -2,7 +2,18 @@ import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { IS_WEB } from '../../lib/target';
 import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
-import { Bot, Check, LoaderCircle, RotateCcw, Sparkle, TriangleAlert, X } from 'lucide-react';
+import {
+  Bot,
+  Check,
+  Clock,
+  LoaderCircle,
+  RefreshCw,
+  RotateCcw,
+  SendHorizontal,
+  TriangleAlert,
+  X,
+} from 'lucide-react';
+import { FEATURE_ICONS } from '../../lib/featureIcons';
 import { renderMessageWithRegistry, type MessageRenderer } from './messageRenderers';
 import { Avatar } from './primitives';
 import { ChatQqShowEnabledContext, useChatQqShow } from '../../lib/chatQqShow';
@@ -353,7 +364,7 @@ function MessageBubbleBody({
       : {};
 
   // 群精华角标：消息 seq 命中本地 group_essence 表（仅数据库，不联网）时，
-  // 在气泡右下角打「四芒星 精华」标。
+  // 在气泡右下角打「星形 精华」标，与群精华入口共用图形。
   const isEssence =
     conversation.type === 'group' &&
     message.msgSeq != null &&
@@ -617,7 +628,7 @@ function MessageBubbleBody({
         {pendingAction}
         {isEssence ? (
           <span className={cn('weq-msg-essence-badge')} title="该消息为群精华">
-            <Sparkle size={10} strokeWidth={2.6} />
+            <FEATURE_ICONS.groupEssence size={10} strokeWidth={2.6} aria-hidden />
             <span>精华</span>
           </span>
         ) : null}
@@ -651,7 +662,11 @@ function MessageBubbleBody({
               onStartOutgoing?.(message);
             }}
           >
-            <RotateCcw size={12} aria-hidden />
+            {reeditArmed ? (
+              <SendHorizontal size={12} aria-hidden />
+            ) : (
+              <Clock size={12} aria-hidden />
+            )}
             <span>{reeditArmed ? '立即发送' : '排队中'}</span>
           </button>
         ) : null}
@@ -676,7 +691,7 @@ function MessageBubbleBody({
                   onStartOutgoing?.(message);
                 }}
               >
-                <RotateCcw size={12} aria-hidden />
+                <RefreshCw size={12} aria-hidden />
                 <span>{reeditArmed ? '重试发送' : '发送失败'}</span>
               </button>
             ) : (

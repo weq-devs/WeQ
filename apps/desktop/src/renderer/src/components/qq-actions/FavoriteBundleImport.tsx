@@ -1,6 +1,6 @@
 import { NumericText } from '../NumericText';
 import { useEffect, useId, useRef, useState } from 'react';
-import { FileArchive, FolderOpen, ImageOff, Loader2, RotateCw, Upload, X } from 'lucide-react';
+import { FileArchive, FolderOpen, ImageOff, Loader2, RefreshCw, Upload, X } from 'lucide-react';
 import type { FavoriteEmojiImportPreview, FavoriteEmojiImportState } from '@weq/service';
 import type { QQWriteBinding } from '../../hooks/useQQWriteSession';
 import { client, trpc } from '../../trpc/client';
@@ -359,7 +359,7 @@ export function FavoriteBundleImport({
                 disabled={pending || state.isFetching || !binding || !active}
                 onClick={() => void recheck()}
               >
-                <RotateCw size={16} />
+                <RefreshCw size={16} aria-hidden />
               </ActionIcon>
             ) : null}
             {stage?.phase === 'ready' && (

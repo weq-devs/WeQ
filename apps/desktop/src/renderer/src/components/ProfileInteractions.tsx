@@ -7,7 +7,7 @@ import {
   MessageCircle,
   PenLine,
   Reply,
-  RotateCw,
+  RefreshCw,
   Send,
   ThumbsUp,
   Trash2,
@@ -298,10 +298,11 @@ export function SignatureInteractions({
             ) : null}
             {likes.error ? (
               <button
-                className="weq-set-btn weq-set-btn-soft"
+                className="weq-set-btn weq-set-btn-soft weq-retry-button"
                 type="button"
                 onClick={() => void likes.refetch()}
               >
+                <RefreshCw size={14} aria-hidden />
                 重试读取点赞人
               </button>
             ) : null}
@@ -518,10 +519,11 @@ function QuestionDetail({
       {detail.isFetching || more.isFetching ? <p role="status">读取中…</p> : null}
       {detail.error ? (
         <button
-          className="weq-set-btn weq-set-btn-soft"
+          className="weq-set-btn weq-set-btn-soft weq-retry-button"
           type="button"
           onClick={() => void detail.refetch()}
         >
+          <RefreshCw size={14} aria-hidden />
           重试读取评论
         </button>
       ) : null}
@@ -713,7 +715,7 @@ export function PersonalityPhotoUploader({
             disabled={!online || op.pending}
             onClick={readback.retry}
           >
-            <RotateCw size={14} />
+            <RefreshCw size={14} aria-hidden />
           </button>
         </p>
       ) : null}

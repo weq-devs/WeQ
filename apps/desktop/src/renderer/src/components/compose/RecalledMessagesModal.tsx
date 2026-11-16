@@ -21,7 +21,7 @@ import * as timeFormat from '@weq/time';
 
 import { useMemo, useState, type ReactElement } from 'react';
 import { LoadingIndicator } from '../LoadingIndicator';
-import { CornerUpRight, RotateCcw, Search, X } from 'lucide-react';
+import { CornerUpRight, RotateCcw, Search, X, RefreshCw } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { ConvContext, ForwardKindContext } from '../QqMessageContent';
 import { cn } from '../../im-template/template/classNames';
@@ -285,7 +285,8 @@ export function RecalledMessagesModal({
               <div className="weq-deleted-empty" role="alert">
                 <span>{error}</span>
                 {onRetry ? (
-                  <button className="weq-set-btn" type="button" onClick={onRetry}>
+                  <button className="weq-set-btn weq-retry-button" type="button" onClick={onRetry}>
+                    <RefreshCw size={14} aria-hidden />
                     重试读取
                   </button>
                 ) : null}

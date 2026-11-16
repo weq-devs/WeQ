@@ -3,13 +3,14 @@
  *
  * 右键消息气泡时显示该消息的三装扮（字体/气泡/挂件）的 ID 和预览图。
  */
-import { Palette, X, ImageOff, Type, MessageCircle, Sparkles } from 'lucide-react';
+import { X, ImageOff } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { OverlayLayer } from './OverlayLayer';
 import { trpc } from '../trpc/client';
 import { dressFontUrl } from '../lib/resourceUrl';
 import { fontFaces } from '../lib/fontFaces';
+import { DRESS_KIND_ICONS, FEATURE_ICONS } from '../lib/featureIcons';
 import { DecorationSaveControls, useDecorationSave } from './DecorationSaveControls';
 import '../styles/message-decoration-card.css';
 
@@ -189,7 +190,7 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
       type: 'font' as const,
       id: decoration.fontId,
       label: '字体',
-      icon: <Type size={18} />,
+      icon: <DRESS_KIND_ICONS.font size={18} aria-hidden />,
     });
   }
   if (decoration?.bubbleId) {
@@ -197,7 +198,7 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
       type: 'bubble' as const,
       id: decoration.bubbleId,
       label: '气泡',
-      icon: <MessageCircle size={18} />,
+      icon: <DRESS_KIND_ICONS.bubble size={18} aria-hidden />,
     });
   }
   if (decoration?.widgetId) {
@@ -205,7 +206,7 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
       type: 'widget' as const,
       id: decoration.widgetId,
       label: '挂件',
-      icon: <Sparkles size={18} />,
+      icon: <DRESS_KIND_ICONS.widget size={18} aria-hidden />,
     });
   }
 
@@ -231,7 +232,7 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
 
         <div className="weq-decoration-card-titlebar">
           <div className="weq-decoration-card-title">
-            <Palette size={20} strokeWidth={2} />
+            <FEATURE_ICONS.dressup size={20} strokeWidth={2} aria-hidden />
             <span>消息装扮</span>
           </div>
           {hasDecoration ? (
@@ -250,7 +251,7 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
 
         {!hasDecoration ? (
           <div className="weq-decoration-card-empty-state">
-            <Palette size={48} strokeWidth={1.5} opacity={0.3} />
+            <FEATURE_ICONS.dressup size={48} strokeWidth={1.5} opacity={0.3} aria-hidden />
             <span>此消息未使用装扮</span>
           </div>
         ) : (

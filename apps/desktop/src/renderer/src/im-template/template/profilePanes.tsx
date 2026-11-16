@@ -1,5 +1,6 @@
 // @ts-nocheck
-import { Eye, MessageSquare, X } from 'lucide-react';
+import { Eye, X } from 'lucide-react';
+import { FEATURE_ICONS } from '../../lib/featureIcons';
 import { useContext, type ReactNode } from 'react';
 import { datalineName, isDatalineUid } from '@weq/codec';
 import { deviceAvatarDataUri } from '../../lib/deviceAvatar';
@@ -239,7 +240,7 @@ function DeviceProfile({
                     openChat({ kind: 'direct', user: contact });
                   }}
                 >
-                  <MessageSquare size={13} />
+                  <FEATURE_ICONS.messages size={13} aria-hidden />
                   查看消息
                 </button>
               ) : null}

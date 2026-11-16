@@ -5,7 +5,7 @@ import {
   structuredExportOptions,
   type StructuredExportOptions,
 } from './StructuredExportControls';
-import { Download, RotateCw, Search, Sparkles, Users, MessagesSquare } from 'lucide-react';
+import { Download, RefreshCw, Search, Sparkles, Users, MessagesSquare } from 'lucide-react';
 import type {
   ExportSavePolicy,
   GeneratedContentTarget,
@@ -270,7 +270,7 @@ export function GeneratedExportPane({
                   void sessions.refetch();
                 }}
               >
-                <RotateCw size={14} />
+                <RefreshCw size={14} aria-hidden />
               </button>
             </div>
           ) : null}
@@ -339,7 +339,7 @@ export function GeneratedExportPane({
                 aria-label="重试读取生成记录"
                 onClick={() => void content.refetch()}
               >
-                <RotateCw size={14} />
+                <RefreshCw size={14} aria-hidden />
               </button>
             </div>
           ) : (

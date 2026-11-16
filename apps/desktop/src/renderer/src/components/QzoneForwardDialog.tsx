@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { Loader2, Repeat2, X } from 'lucide-react';
+import { Loader2, Repeat2, X, RefreshCw } from 'lucide-react';
 import { Modal } from './Dialog';
 import { client } from '../trpc/client';
 import { qzoneForwardDraft } from '../lib/qzoneActions';
@@ -91,7 +91,12 @@ export function QzoneForwardDialog({
           <p className="weq-qzn-error" role="alert">
             {error}
             {!ready ? (
-              <button type="button" onClick={() => setRetry((value) => value + 1)}>
+              <button
+                type="button"
+                onClick={() => setRetry((value) => value + 1)}
+                className="weq-retry-button"
+              >
+                <RefreshCw size={14} aria-hidden />
                 重试
               </button>
             ) : null}

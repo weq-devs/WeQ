@@ -15,7 +15,7 @@
 import { NumericText } from './NumericText';
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { RotateCw, Users } from 'lucide-react';
+import { RefreshCw, Users } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { cn } from '../lib/utils';
 import { QqAvatar } from './QqAvatar';
@@ -176,7 +176,7 @@ export function ReactionLikersPanel({
             disabled={query.isFetching}
             onClick={() => void query.refetch()}
           >
-            <RotateCw size={12} strokeWidth={2.2} />
+            <RefreshCw size={12} strokeWidth={2.2} aria-hidden />
             {query.isFetching ? '重试中…' : '重试'}
           </button>
         </div>

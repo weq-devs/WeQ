@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { DatabaseZap, Loader2, ShieldCheck, Zap } from 'lucide-react';
+import { DatabaseZap, Loader2, ShieldCheck, Zap, RefreshCw } from 'lucide-react';
 import type { ExportSavePolicy } from '@weq/service';
 import { client, trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
@@ -183,7 +183,12 @@ export function DatabasePlainExport({
       {databases.isError ? (
         <p className="weq-db-cards-error" role="alert">
           {databases.error.message}
-          <button type="button" onClick={() => void databases.refetch()}>
+          <button
+            type="button"
+            onClick={() => void databases.refetch()}
+            className="weq-retry-button"
+          >
+            <RefreshCw size={14} aria-hidden />
             重试
           </button>
         </p>

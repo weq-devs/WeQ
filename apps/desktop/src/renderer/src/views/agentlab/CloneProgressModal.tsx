@@ -8,7 +8,8 @@
  */
 
 import type { ReactElement } from 'react';
-import { Minus, Sparkles } from 'lucide-react';
+import { Minus } from 'lucide-react';
+import { FEATURE_ICONS } from '../../lib/featureIcons';
 import { Modal } from '../../components/Dialog';
 import type { CloneTask } from './cloneTaskStore';
 import { CloneTaskLog } from './CloneTaskLog';
@@ -44,7 +45,7 @@ export function CloneProgressModal({
       <div className="weq-clone-modal">
         <header className="weq-clone-modal-head">
           <span className="weq-clone-modal-icon">
-            <Sparkles size={16} />
+            <FEATURE_ICONS.clone size={16} aria-hidden />
           </span>
           <strong title={`${title}：${task.name}`}>
             {title}：{task.name}

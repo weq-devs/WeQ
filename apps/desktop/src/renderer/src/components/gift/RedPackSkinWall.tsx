@@ -15,7 +15,7 @@ import { dateFormatter } from '@weq/time';
  */
 
 import { useCallback, useMemo, useState, type ReactElement } from 'react';
-import { Gift as GiftIcon, Search, Wallet, X } from 'lucide-react';
+import { Gift as GiftIcon, Search, Wallet, X, RefreshCw } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { redPackSkinUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../ShimmerImage';
@@ -139,7 +139,8 @@ export function RedPackSkinWall(): ReactElement {
             <Wallet size={26} strokeWidth={1.6} />
             <p>红包封面目录读不出来</p>
             <span>{query.error instanceof Error ? query.error.message : String(query.error)}</span>
-            <button type="button" onClick={() => void query.refetch()}>
+            <button type="button" onClick={() => void query.refetch()} className="weq-retry-button">
+              <RefreshCw size={14} aria-hidden />
               重试
             </button>
           </div>

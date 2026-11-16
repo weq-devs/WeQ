@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { RotateCw, Search } from 'lucide-react';
+import { RefreshCw, Search } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../../components/RetainedTabs';
 import { ExportTab } from '../agentlab/PersonaSettingsModal';
@@ -24,7 +24,7 @@ export function PersonaBotExportPane() {
             aria-label="重试加载克隆体"
             onClick={() => void personas.refetch()}
           >
-            <RotateCw size={15} />
+            <RefreshCw size={15} aria-hidden />
           </button>
         </p>
       ) : null}

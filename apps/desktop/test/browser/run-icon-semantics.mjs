@@ -139,6 +139,43 @@ try {
           await page.screenshot({ path: resolve(output, `settings-${width}-${theme}.png`) });
         cases++;
       }
+
+      await page.evaluate(() => window.iconQa.show('audit'));
+      const contentRows = page.locator('.weq-export-content-row:not(.is-detail)');
+      await contentRows.last().waitFor();
+      const contentIcons = await contentRows
+        .locator('.weq-export-content-label > svg')
+        .evaluateAll((icons) => icons.map((icon) => icon.innerHTML));
+      assert.equal(new Set(contentIcons).size, contentIcons.length, '导出内容子项不撞图标');
+      assert.equal(contentIcons.length, 12);
+      const cloneIcons = await page
+        .locator('.weq-virtual-avatar-badge svg')
+        .evaluateAll((icons) => icons.map((icon) => icon.innerHTML));
+      assert.equal(new Set(cloneIcons).size, 2);
+      await page.getByRole('button', { name: '重试分析', exact: true }).click();
+      await page.getByText('读取失败 1', { exact: true }).waitFor();
+      if (output && theme !== 'system')
+        await page.screenshot({ path: resolve(output, `audit-${width}-${theme}.png`) });
+      await page.getByRole('button', { name: '消息装扮', exact: true }).click();
+      const decoration = page.getByRole('dialog', { name: '消息装扮', exact: true });
+      await decoration.waitFor();
+      const labels = await decoration
+        .locator('.weq-decoration-card-header svg')
+        .evaluateAll((icons) =>
+          icons.map((icon) => ({
+            shape: icon.innerHTML,
+            rect: icon.getBoundingClientRect().toJSON(),
+          })),
+        );
+      assert.equal(new Set(labels.map(({ shape }) => shape)).size, 3);
+      assert(labels.every(({ rect }) => rect.width === 18 && rect.height === 18));
+      const bounds = await decoration.boundingBox();
+      assert(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width);
+      if (output && theme !== 'system')
+        await page.screenshot({ path: resolve(output, `decoration-${width}-${theme}.png`) });
+      await decoration.getByRole('button', { name: '关闭', exact: true }).click();
+      await decoration.waitFor({ state: 'detached' });
+      cases++;
     }
   }
   assert.deepEqual(errors, []);

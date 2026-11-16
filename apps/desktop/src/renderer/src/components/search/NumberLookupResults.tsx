@@ -1,4 +1,4 @@
-import { RotateCw, UserRound, UsersRound } from 'lucide-react';
+import { RefreshCw, UserRound, UsersRound } from 'lucide-react';
 import { useNumberLookup, type NumberLookupProfile } from '../../hooks/useNumberLookup';
 import { SearchAvatar, c2cAvatarSrc, groupAvatarSrc } from './SearchResultCard';
 import '../../styles/identity-links.css';
@@ -74,7 +74,7 @@ export function NumberLookupResults({
                       aria-label={`重试${label}查询`}
                       onClick={result.retry}
                     >
-                      <RotateCw size={14} />
+                      <RefreshCw size={14} aria-hidden />
                     </button>
                   </div>
                 ) : null}

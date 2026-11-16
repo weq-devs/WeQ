@@ -304,9 +304,10 @@ export function EnhancementPacksSection() {
                         {' '}
                         <button
                           type="button"
-                          className="weq-enhancement-retry"
+                          className="weq-enhancement-retry weq-retry-button"
                           onClick={() => void act(() => prepare.mutateAsync({ ids: [pack.id] }))}
                         >
+                          <RefreshCw size={14} aria-hidden />
                           重试
                         </button>
                       </>

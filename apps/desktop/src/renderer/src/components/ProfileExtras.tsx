@@ -6,7 +6,7 @@ import {
   GraduationCap,
   History,
   MessageCircleQuestion,
-  RotateCcw,
+  RefreshCw,
   X,
   Zap,
 } from 'lucide-react';
@@ -198,7 +198,7 @@ function ExtrasBody({
                 aria-label="重试读取能量值"
                 onClick={() => void energy.refetch()}
               >
-                <RotateCcw size={13} />
+                <RefreshCw size={13} aria-hidden />
               </button>
             ) : null}
           </div>
@@ -328,7 +328,7 @@ export function EducationSection({ uin }: { uin: string }) {
             disabled={!session.available || education.fetching}
             onClick={() => void education.refetch()}
           >
-            <RotateCcw size={12} />
+            <RefreshCw size={12} aria-hidden />
             {education.fetching ? '读取中…' : '刷新'}
           </button>
         ) : undefined
@@ -374,7 +374,7 @@ function PageStatus({
             disabled={!online}
             onClick={retry}
           >
-            <RotateCcw size={14} />
+            <RefreshCw size={14} aria-hidden />
             重试
           </button>
         </>
@@ -415,7 +415,7 @@ function More({
           disabled={!online || loading}
           onClick={load}
         >
-          {error || warning ? <RotateCcw size={14} /> : <ArrowDown size={14} />}
+          {error || warning ? <RefreshCw size={14} aria-hidden /> : <ArrowDown size={14} />}
           {loading ? '读取中…' : error || warning ? '重试本页' : '加载更多'}
         </button>
       ) : null}

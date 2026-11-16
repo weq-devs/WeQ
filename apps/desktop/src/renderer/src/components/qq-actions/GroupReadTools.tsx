@@ -1,7 +1,7 @@
 import { dateFormatter, clockFormatter } from '@weq/time';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarCheck, Loader2, RotateCw } from 'lucide-react';
+import { CalendarCheck, Loader2, RefreshCw } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { ContactEmptyState } from '../contactProfile/ContactRow';
@@ -246,7 +246,7 @@ export function GroupReadTools({
                 void (failedNextScope.current === scope ? fetchMore() : query.refetch())
               }
             >
-              <RotateCw size={15} />
+              <RefreshCw size={15} aria-hidden />
             </button>
           </div>
         )}

@@ -1,5 +1,5 @@
 import { useId, useState } from 'react';
-import { ChevronRight, ContactRound, RotateCcw, X } from 'lucide-react';
+import { ChevronRight, ContactRound, RefreshCw, X } from 'lucide-react';
 import type { ProfileDetailInfo } from '@weq/protocol';
 import { useQQWriteSession, type QQWriteBinding } from '../hooks/useQQWriteSession';
 import { trpc } from '../trpc/client';
@@ -169,7 +169,7 @@ export function ProfileDetailsSection({ uin }: { uin: string }) {
             disabled={!session.available || details.fetching}
             onClick={() => void details.refetch()}
           >
-            <RotateCcw size={12} />
+            <RefreshCw size={12} aria-hidden />
             {details.fetching ? '读取中…' : '刷新'}
           </button>
         ) : undefined

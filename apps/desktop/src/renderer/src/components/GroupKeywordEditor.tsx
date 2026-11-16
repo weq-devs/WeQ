@@ -494,7 +494,12 @@ export function GroupKeywordEditor({
                         {candidates.error ? (
                           <p role="alert">
                             成员读取失败
-                            <button type="button" onClick={() => void candidates.refetch()}>
+                            <button
+                              type="button"
+                              onClick={() => void candidates.refetch()}
+                              className="weq-retry-button"
+                            >
+                              <RefreshCw size={14} aria-hidden />
                               重试
                             </button>
                           </p>

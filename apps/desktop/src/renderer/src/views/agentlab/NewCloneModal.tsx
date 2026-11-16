@@ -19,7 +19,8 @@ import { useMemo, useState, type ReactElement } from 'react';
 import type { AgentLabModels, AgentLabModelSelection } from '@weq/agentlab';
 import { ApiModelSelect } from '../../components/settings/ApiModelSelect';
 import { AiImagePreferenceSetting } from '../../components/settings/AiImageSettings';
-import { ArrowLeft, Check, Search, Sparkles, X, SearchX, UsersRound } from 'lucide-react';
+import { ArrowLeft, Check, Search, X, SearchX, UsersRound } from 'lucide-react';
+import { FEATURE_ICONS } from '../../lib/featureIcons';
 import { Modal } from '../../components/Dialog';
 import { qqAvatarUrl } from '../../components/QqAvatar';
 import { Avatar } from '../export/widgets';
@@ -183,7 +184,7 @@ export function NewCloneModal({
             </button>
           ) : (
             <span className="weq-clone-modal-icon">
-              <Sparkles size={16} />
+              <FEATURE_ICONS.clone size={16} aria-hidden />
             </span>
           )}
           <strong id="weq-new-clone-title" title={title}>

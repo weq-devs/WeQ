@@ -7,7 +7,10 @@ import {
   FolderOpen,
   Forward,
   HardDrive,
+  Pause,
+  Play,
   RotateCw,
+  RefreshCw,
   SmilePlus,
   Square,
   Trash2,
@@ -59,6 +62,22 @@ export const BACKGROUND_TASK_ICONS = {
   'album-upload': Upload,
   resource: HardDrive,
 };
+
+export function BackgroundTaskActionIcon({ id }: { id: string }) {
+  const Icon =
+    id === 'stop' || id === 'cancel'
+      ? Square
+      : id === 'pause'
+        ? Pause
+        : id === 'resume' || id === 'continue'
+          ? Play
+          : id === 'retry'
+            ? RefreshCw
+            : id === 'download'
+              ? Download
+              : FolderOpen;
+  return <Icon size={14} aria-hidden />;
+}
 
 export function BackgroundTaskDetails({
   entry,
@@ -214,15 +233,7 @@ function TaskDetails({
               )
             }
           >
-            {action.id === 'stop' || action.id === 'cancel' ? (
-              <Square size={14} />
-            ) : action.id === 'retry' ? (
-              <RotateCw size={14} />
-            ) : action.id === 'download' ? (
-              <Download size={14} />
-            ) : (
-              <FolderOpen size={14} />
-            )}
+            <BackgroundTaskActionIcon id={action.id} />
             {action.label}
           </button>
         ))}

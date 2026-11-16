@@ -1,0 +1,11 @@
+/* 错误区的重试与工具栏保持同样的图文排列，不改变按钮本身的颜色和尺寸。 */
+button.weq-retry-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+button.weq-retry-button > svg {
+  flex-shrink: 0;
+}

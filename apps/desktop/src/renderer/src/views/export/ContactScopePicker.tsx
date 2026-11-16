@@ -1,6 +1,6 @@
 import { NumericText } from '../../components/NumericText';
 import { useMemo } from 'react';
-import { RotateCw, X } from 'lucide-react';
+import { RefreshCw, X } from 'lucide-react';
 import { ConversationPicker } from './ConversationPicker';
 import { convAvatarUrl } from './types';
 import { SegmentedControl } from '../../components/SegmentedControl';
@@ -75,7 +75,7 @@ export function ContactScopePicker({
             aria-label="重试读取联系人"
             onClick={onRetry}
           >
-            <RotateCw size={14} />
+            <RefreshCw size={14} aria-hidden />
           </button>
         </div>
       ) : null}

@@ -2,7 +2,7 @@
 
 import { EmptyState } from '../EmptyState';
 import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
-import { Layers, RotateCw, Settings2, SearchX } from 'lucide-react';
+import { Layers, RefreshCw, Settings2, SearchX } from 'lucide-react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { isLookupNumber } from '../../hooks/useNumberLookup';
 import { NumberLookupResults, type OpenNumberProfile } from './NumberLookupResults';
@@ -516,7 +516,7 @@ export function SearchDropdown({
                         title="重试搜索"
                         aria-label={`重试${CATEGORY_META[category].label}搜索`}
                       >
-                        <RotateCw size={14} />
+                        <RefreshCw size={14} aria-hidden />
                       </button>
                     </div>
                   ) : null}

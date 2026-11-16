@@ -11,7 +11,7 @@ import {
   FolderPlus,
   Forward,
   ListPlus,
-  RotateCw,
+  RefreshCw,
   Share2,
   Trash2,
   X,
@@ -1021,7 +1021,7 @@ function CompositionWorkspaceBody({
               disabledReason="正在处理当前操作，请稍后"
               onClick={() => void perform(() => persist(structuredClone(working), binding))}
             >
-              <RotateCw size={15} />
+              <RefreshCw size={15} aria-hidden />
             </CompositionButton>
           ) : null}
         </div>

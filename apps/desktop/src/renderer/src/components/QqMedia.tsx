@@ -25,7 +25,7 @@ import {
   Loader2,
   Pause,
   Play,
-  RotateCw,
+  RefreshCw,
   Sparkles,
   Star,
   Store,
@@ -153,7 +153,7 @@ function QqMediaMissing({
           onClick={onRetry}
           onKeyDown={mediaKeyDown}
         >
-          <RotateCw size={16} aria-hidden />
+          <RefreshCw size={16} aria-hidden />
         </button>
       ) : null}
     </div>

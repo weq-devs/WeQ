@@ -226,10 +226,11 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
                     <span>读取账号失败，请确认 QQ 数据目录可访问后重试。</span>
                     <button
                       type="button"
-                      className="weq-action-soft"
+                      className="weq-action-soft weq-retry-button"
                       disabled={busy || accountQuery.isFetching}
                       onClick={() => void accountQuery.refetch()}
                     >
+                      <RefreshCw size={14} aria-hidden />
                       重试
                     </button>
                   </div>

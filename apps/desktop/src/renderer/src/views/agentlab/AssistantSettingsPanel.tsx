@@ -7,6 +7,7 @@ import {
   Settings2,
   SlidersHorizontal,
   RotateCcw,
+  RefreshCw,
 } from 'lucide-react';
 import type { AssistantConfig } from '@weq/service';
 import {
@@ -439,7 +440,9 @@ export function AssistantSettingsPanel({ onClose }: { onClose: () => void }) {
                   onClick={() =>
                     void (form.dirty || form.error ? form.flush() : retry()).catch(() => {})
                   }
+                  className="weq-retry-button"
                 >
+                  <RefreshCw size={14} aria-hidden />
                   重试保存
                 </button>
               </span>

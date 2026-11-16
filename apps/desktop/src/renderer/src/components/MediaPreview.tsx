@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { ChevronLeft, ChevronRight, Copy, RotateCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Copy, RefreshCw } from 'lucide-react';
 import { compareMessageOrder } from '@weq/codec';
 import { interactiveMediaUrl } from '../lib/resourceUrl';
 import { MediaPreviewShell } from './MediaPreviewShell';
@@ -217,7 +217,7 @@ export function MediaPreview(options: MediaPreviewOptions) {
                 aria-label={`重试加载${direction === 'older' ? '更早' : '更新'}的媒体`}
                 onClick={() => void readPage(direction, !options.prefetchAdjacent)}
               >
-                <RotateCw size={16} />
+                <RefreshCw size={16} aria-hidden />
                 加载失败，重试
               </button>
             ))}
@@ -482,7 +482,7 @@ function MediaPreviewItemBody({
                 title="原图读取失败，重试"
                 aria-label="重试读取原图"
               >
-                <RotateCw size={16} />
+                <RefreshCw size={16} aria-hidden />
                 重试原图
               </button>
             ) : null}

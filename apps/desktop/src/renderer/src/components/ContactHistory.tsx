@@ -322,7 +322,12 @@ function HistoryQuery({
       {categoriesQuery.error ? (
         <p role="alert">
           历史类别读取失败：{categoriesQuery.error.message}
-          <button type="button" onClick={() => void categoriesQuery.refetch()}>
+          <button
+            type="button"
+            onClick={() => void categoriesQuery.refetch()}
+            className="weq-retry-button"
+          >
+            <RefreshCw size={14} aria-hidden />
             重试
           </button>
         </p>

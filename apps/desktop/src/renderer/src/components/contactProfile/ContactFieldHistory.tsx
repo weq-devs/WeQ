@@ -1,7 +1,7 @@
 import { eventTimeFormatter as groupTimeFormatter } from '@weq/time';
 import { useContext, useId, useRef, useState, type ReactNode } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { History, X } from 'lucide-react';
+import { History, X, RefreshCw } from 'lucide-react';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { client } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
@@ -253,7 +253,8 @@ function FieldHistoryDialog({
         ) : query.error && !rows.length ? (
           <p role="alert">
             历史读取失败
-            <button type="button" onClick={() => void query.refetch()}>
+            <button type="button" onClick={() => void query.refetch()} className="weq-retry-button">
+              <RefreshCw size={14} aria-hidden />
               重试
             </button>
           </p>

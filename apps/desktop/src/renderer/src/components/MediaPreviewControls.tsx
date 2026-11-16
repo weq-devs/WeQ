@@ -1,5 +1,5 @@
 import type { KeyboardEvent } from 'react';
-import { ImageOff, Loader2, Maximize, RotateCw, ZoomIn, ZoomOut } from 'lucide-react';
+import { ImageOff, Loader2, Maximize, RefreshCw, ZoomIn, ZoomOut } from 'lucide-react';
 import type { ZoomPan } from './useZoomPan';
 import { topSurface } from '../lib/surfaceEscape';
 import '../styles/media-preview.css';
@@ -44,7 +44,7 @@ export function MediaLoadStatus({
             onRetry();
           }}
         >
-          <RotateCw size={16} aria-hidden />
+          <RefreshCw size={16} aria-hidden />
           重试
         </button>
       ) : null}

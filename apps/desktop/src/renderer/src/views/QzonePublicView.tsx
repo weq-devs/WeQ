@@ -1112,7 +1112,12 @@ function PublicFeedDetail({
       {error ? (
         <p className="weq-qzn-error" role="alert">
           {error}{' '}
-          <button type="button" onClick={() => setRetry((value) => value + 1)}>
+          <button
+            type="button"
+            onClick={() => setRetry((value) => value + 1)}
+            className="weq-retry-button"
+          >
+            <RefreshCw size={14} aria-hidden />
             重试
           </button>
         </p>

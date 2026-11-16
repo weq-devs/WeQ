@@ -14,24 +14,14 @@ import { CompositionButton } from './CompositionButton';
 
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  Check,
-  Gem,
-  Loader2,
-  Palette,
-  Search,
-  Sparkles,
-  Trophy,
-  Type,
-  WifiOff,
-  X,
-} from 'lucide-react';
+import { Check, Loader2, Search, Trophy, WifiOff, X } from 'lucide-react';
 import type { DressMallItem } from '@weq/service';
 import { trpc } from '../../trpc/client';
 import { useOverlayLayer } from '../../lib/overlayStack';
 import { useRenderDocument } from '../../lib/renderDocument';
 import { useSurfaceEscape } from '../../lib/surfaceEscape';
 import { dressUrl } from '../../lib/resourceUrl';
+import { DRESS_KIND_ICONS, FEATURE_ICONS } from '../../lib/featureIcons';
 import { closeFromScrim } from '../../im-template/template/modalUtils';
 import { cn } from '../../im-template/template/classNames';
 import { QqMessageContent } from '../QqMessageContent';
@@ -43,9 +33,9 @@ import { segsToRenderElements, type MfDecoration, type MfSeg } from './model';
 type DressKind = 'bubble' | 'font' | 'widget';
 
 const KIND_META: Record<DressKind, { label: string; icon: ReactElement }> = {
-  bubble: { label: '气泡', icon: <Palette size={14} /> },
-  widget: { label: '挂件', icon: <Gem size={14} /> },
-  font: { label: '字体', icon: <Type size={14} /> },
+  bubble: { label: '气泡', icon: <DRESS_KIND_ICONS.bubble size={14} aria-hidden /> },
+  widget: { label: '挂件', icon: <DRESS_KIND_ICONS.widget size={14} aria-hidden /> },
+  font: { label: '字体', icon: <DRESS_KIND_ICONS.font size={14} aria-hidden /> },
 };
 
 /**
@@ -198,7 +188,7 @@ export function MsgDressEditor({
       >
         <header className="weq-mf-dress-head">
           <span className="weq-mf-dress-head-icon">
-            <Sparkles size={15} />
+            <FEATURE_ICONS.dressup size={15} aria-hidden />
           </span>
           <strong>编辑装扮</strong>
           <CompositionButton
@@ -413,7 +403,7 @@ function DressMallPicker({
           </div>
         ) : items.length === 0 ? (
           <div className="weq-mf-mall-empty">
-            <Sparkles size={20} />
+            <FEATURE_ICONS.dressup size={20} aria-hidden />
             <span>{searching ? '没有匹配的装扮' : '没有结果'}</span>
           </div>
         ) : (

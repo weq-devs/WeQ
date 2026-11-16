@@ -1,10 +1,10 @@
 ﻿// @ts-nocheck
-import { FileText, Folder, Gamepad2, Music, Star } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { FileText, Folder, Gamepad2, Music } from 'lucide-react';
+import { FEATURE_ICONS, type FeatureIcon } from '../../lib/featureIcons';
 
 export type ToolPaneItem = {
   id: string;
-  icon: LucideIcon;
+  icon: FeatureIcon;
   label: string;
   description?: string;
   color: string;
@@ -30,7 +30,7 @@ export const defaultToolRegistry: ToolPaneGroup[] = [
     items: [
       {
         id: 'activity',
-        icon: Star,
+        icon: FEATURE_ICONS.qzone,
         label: '空间动态',
         description: '查看动态内容',
         color: '#f7c400',

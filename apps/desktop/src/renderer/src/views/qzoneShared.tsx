@@ -18,7 +18,7 @@ import {
   type ReactElement,
   type RefObject,
 } from 'react';
-import { CircleDot, Loader2, Pause, Play, VideoOff, Images } from 'lucide-react';
+import { CircleDot, Loader2, Pause, Play, VideoOff, Images, RefreshCw } from 'lucide-react';
 import { MediaPreview, type PreviewMedia } from '../components/MediaPreview';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { ShimmerImage } from '../components/ShimmerImage';
@@ -101,7 +101,8 @@ export function State({
         <>
           <span>{error}</span>
           {retry ? (
-            <button type="button" onClick={retry}>
+            <button type="button" onClick={retry} className="weq-retry-button">
+              <RefreshCw size={14} aria-hidden />
               重试
             </button>
           ) : null}

@@ -28,7 +28,8 @@ import {
   Loader2,
   Pause,
   Play,
-  RotateCw,
+  FilePlus2,
+  RefreshCw,
   FileCheck,
   ExternalLink,
   FolderOpen,
@@ -616,7 +617,7 @@ function TaskDetail({
               disabled={t.save?.status === 'saving'}
               onClick={() => onIncremental(t)}
             >
-              <RotateCw size={15} />
+              <FilePlus2 size={15} aria-hidden />
             </button>
           ) : null}
           {t.canResume && onResume ? (
@@ -632,7 +633,11 @@ function TaskDetail({
               aria-label={taskResumeActionLabel(t)}
               onClick={() => onResume(t)}
             >
-              {t.resumeMode === 'restart' ? <RotateCw size={15} /> : <Play size={15} />}
+              {t.resumeMode === 'restart' ? (
+                <RefreshCw size={15} aria-hidden />
+              ) : (
+                <Play size={15} />
+              )}
             </button>
           ) : null}
           {t.reportPath && onReport ? (

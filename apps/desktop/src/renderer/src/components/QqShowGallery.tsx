@@ -205,7 +205,12 @@ export function QqShowGallery({
               <ImageOff size={26} strokeWidth={1.6} />
               <p>展柜没打开</p>
               <span>{error}</span>
-              <button type="button" onClick={() => setRunId((id) => id + 1)}>
+              <button
+                type="button"
+                onClick={() => setRunId((id) => id + 1)}
+                className="weq-retry-button"
+              >
+                <RefreshCw size={14} aria-hidden />
                 重试
               </button>
             </div>

@@ -32,7 +32,7 @@ import { ContentReferenceToolbar } from './ContentReferenceToolbar';
 import { contentReferenceKey, type ContentReference } from '../../../shared/content_selection';
 import { qzoneAlbumMediaKey } from '../../../shared/album_media_identity';
 import { mobileBack, useMobileBack } from '../hooks/useMobileNavigation';
-import { Check, Images, Inbox, Loader2, Play, X } from 'lucide-react';
+import { Check, Images, Inbox, Loader2, Play, X, RefreshCw } from 'lucide-react';
 import { Modal } from './Dialog';
 import type { QzoneAlbumRequest } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
@@ -583,7 +583,12 @@ export function QzoneAlbumDialog({
             <Inbox size={26} />
             <span>相册列表加载失败</span>
             <small>{albumsError}</small>
-            <button type="button" onClick={() => setAlbumRetry((value) => value + 1)}>
+            <button
+              type="button"
+              onClick={() => setAlbumRetry((value) => value + 1)}
+              className="weq-retry-button"
+            >
+              <RefreshCw size={14} aria-hidden />
               重试
             </button>
           </div>
@@ -1095,9 +1100,10 @@ export function MediaView({
             {loadFailed ? (
               <button
                 type="button"
-                className="weq-qzal-retry"
+                className="weq-qzal-retry weq-retry-button"
                 onClick={() => void triggerLoadMore()}
               >
+                <RefreshCw size={14} aria-hidden />
                 加载失败，点击重试
               </button>
             ) : loadingMore ? (

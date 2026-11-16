@@ -1,5 +1,5 @@
 import { NumericText } from './NumericText';
-import { Pause, Play, RotateCw } from 'lucide-react';
+import { Pause, Play, RefreshCw } from 'lucide-react';
 import { TaskProgressBar } from './tasks/TaskProgressBar';
 import { beijingDay } from '../lib/messageCalendar';
 import type {
@@ -34,7 +34,7 @@ export function CalendarScanProgress({
   const action =
     state?.state === 'running' ? 'pause' : state?.state === 'paused' ? 'continue' : 'retry';
   const name = `${{ pause: '暂停', continue: '继续', retry: '重试' }[action]}当月统计`;
-  const Icon = action === 'pause' ? Pause : action === 'continue' ? Play : RotateCw;
+  const Icon = action === 'pause' ? Pause : action === 'continue' ? Play : RefreshCw;
   return (
     <div className="weq-overview-calendar-progress" role="group" aria-label="统计进度">
       <section>

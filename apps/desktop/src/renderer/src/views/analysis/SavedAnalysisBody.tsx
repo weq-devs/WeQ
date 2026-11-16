@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Play, RotateCw, Square } from 'lucide-react';
+import { Loader2, Play, RefreshCw, Square } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { BuddyAnalyticsDialog } from '../../components/BuddyAnalyticsDialog';
 import { GroupAnalyticsDialog } from '../../components/GroupAnalyticsDialog';
@@ -196,7 +196,7 @@ export function SavedAnalysisBody({
             {running ? (
               <Square size={16} />
             ) : saved.status === 'completed' ? (
-              <RotateCw size={16} />
+              <RefreshCw size={16} aria-hidden />
             ) : (
               <Play size={16} />
             )}

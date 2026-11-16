@@ -1,6 +1,6 @@
 import { EmptyState } from './EmptyState';
 import { useEffect, useRef, useState } from 'react';
-import { LocateFixed, RotateCw, X, SearchX } from 'lucide-react';
+import { LocateFixed, RefreshCw, X, SearchX } from 'lucide-react';
 import { client } from '../trpc/client';
 import { formatFileTime } from '../lib/groupFile';
 import '../styles/group-file-message-results.css';
@@ -114,7 +114,7 @@ export function GroupFileMessageResults({
           aria-label="重试定位"
           onClick={() => setRequest((old) => ({ ...old, id: old.id + 1 }))}
         >
-          <RotateCw size={16} />
+          <RefreshCw size={16} aria-hidden />
         </button>
       ) : page.nextBefore ? (
         <button

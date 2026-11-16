@@ -6,11 +6,9 @@ import {
   Bot,
   CalendarCheck,
   ChevronRight,
-  FolderOpen,
-  Images,
   MoreHorizontal,
   Search,
-  Sparkles,
+  RefreshCw,
   UserMinus,
   UserPlus,
   X,
@@ -31,6 +29,7 @@ import type { GroupConversationView } from './conversationDetailsTypes';
 import { useEventContextValue } from '../../hooks/useEventContextValue';
 import { displayUserName } from './user';
 import { cn } from './classNames';
+import { FEATURE_ICONS } from '../../lib/featureIcons';
 import { OverlayScrollbar } from '../../components/OverlayScrollbar';
 import { formatShortDate } from './format';
 import { GroupMessageBadge } from '../../components/GroupMessageBadge';
@@ -417,7 +416,7 @@ export function GroupInfoPanel({
             aria-expanded={activeFeature === 'essence'}
             title="群精华"
           >
-            <Sparkles size={17} />
+            <FEATURE_ICONS.groupEssence size={17} aria-hidden />
             <span>精华</span>
           </button>
         ) : null}
@@ -427,7 +426,7 @@ export function GroupInfoPanel({
             onClick={(event) => onOpenAlbums(event.currentTarget)}
             title="群相册"
           >
-            <Images size={17} />
+            <FEATURE_ICONS.groupAlbum size={17} aria-hidden />
             <span>相册</span>
           </button>
         ) : null}
@@ -437,7 +436,7 @@ export function GroupInfoPanel({
             onClick={(event) => onOpenFiles(event.currentTarget)}
             title="群文件"
           >
-            <FolderOpen size={17} />
+            <FEATURE_ICONS.groupFile size={17} aria-hidden />
             <span>文件</span>
           </button>
         ) : null}
@@ -544,6 +543,7 @@ export function GroupInfoPanel({
             加载失败：{activeError}
             {!searching && onRetryMembers ? (
               <button type="button" disabled={fetching} onClick={onRetryMembers}>
+                <RefreshCw size={14} aria-hidden />
                 重新加载
               </button>
             ) : null}

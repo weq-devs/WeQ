@@ -1,6 +1,7 @@
 import { useContext, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { BarChart3, Eye, MessageSquare, Star } from 'lucide-react';
+import { BarChart3, Eye, MessageSquareText } from 'lucide-react';
+import { FEATURE_ICONS } from '../../lib/featureIcons';
 import {
   ChatNavigationContext,
   GroupSpeechPreviewContext,
@@ -86,14 +87,14 @@ export function ContactActions({
     secondary.push({
       key: 'group-speech',
       label: '本群发言',
-      icon: <MessageSquare size={14} />,
+      icon: <MessageSquareText size={14} aria-hidden />,
       run: () => navigate(() => previewSpeech?.open(person, previewSource), false),
     });
   if (!groupOnly && qq && openSpace)
     secondary.push({
       key: 'space',
       label: '查看空间',
-      icon: <Star size={14} />,
+      icon: <FEATURE_ICONS.qzone size={14} aria-hidden />,
       run: () => navigate(() => openSpace(person.identityValue, person.nick || person.displayName)),
     });
   if (group)
@@ -125,7 +126,7 @@ export function ContactActions({
               })
             }
           >
-            <MessageSquare size={14} />
+            <FEATURE_ICONS.messages size={14} aria-hidden />
             {person.clone || exists || !resolved ? '打开会话' : '发起会话'}
           </button>
         ) : null}

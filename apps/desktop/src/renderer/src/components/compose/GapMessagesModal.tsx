@@ -253,7 +253,8 @@ export function GapMessagesModal({
                   <CloudOff size={26} />
                   <span>{error}</span>
                   {onRetry ? (
-                    <button type="button" onClick={onRetry}>
+                    <button type="button" onClick={onRetry} className="weq-retry-button">
+                      <RefreshCw size={14} aria-hidden />
                       重试
                     </button>
                   ) : null}
@@ -275,7 +276,8 @@ export function GapMessagesModal({
                           正在加载更早的消息…
                         </span>
                       ) : moreFailed ? (
-                        <button type="button" onClick={loadMore}>
+                        <button type="button" onClick={loadMore} className="weq-retry-button">
+                          <RefreshCw size={14} aria-hidden />
                           加载失败，点击重试
                         </button>
                       ) : hasMore ? (
@@ -330,7 +332,12 @@ export function GapMessagesModal({
                           {preview ? '正在加载更早的消息…' : '正在加载更新的消息…'}
                         </span>
                       ) : moreFailed ? (
-                        <button type="button" className="weq-gap-footer-retry" onClick={loadMore}>
+                        <button
+                          type="button"
+                          className="weq-gap-footer-retry weq-retry-button"
+                          onClick={loadMore}
+                        >
+                          <RefreshCw size={14} aria-hidden />
                           加载失败，点击重试
                         </button>
                       ) : hasMore ? (

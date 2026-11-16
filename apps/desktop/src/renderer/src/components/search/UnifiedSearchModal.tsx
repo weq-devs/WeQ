@@ -10,7 +10,7 @@ import {
   useState,
   type ReactElement,
 } from 'react';
-import { ArrowLeft, RotateCw, SearchX } from 'lucide-react';
+import { ArrowLeft, RefreshCw, SearchX } from 'lucide-react';
 import { SearchResultCard } from './SearchResultCard';
 import { SearchListSkeleton } from './SearchSkeleton';
 import {
@@ -226,7 +226,7 @@ export function SearchMoreResults({
           )
         }
       >
-        <RotateCw size={14} />
+        <RefreshCw size={14} aria-hidden />
       </button>
     </div>
   );

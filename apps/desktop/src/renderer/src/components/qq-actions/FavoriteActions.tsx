@@ -5,7 +5,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
-  RotateCw,
+  RefreshCw,
   Trash2,
   X,
   Heart,
@@ -148,7 +148,7 @@ function FavoriteActionsBody() {
               disabled={list.isFetching || !a.available}
               onClick={() => void list.refetch()}
             >
-              <RotateCw size={16} />
+              <RefreshCw size={16} aria-hidden />
             </ActionIcon>
           </div>
         )}

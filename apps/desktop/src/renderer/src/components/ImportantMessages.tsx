@@ -9,11 +9,12 @@ import {
   Loader2,
   Megaphone,
   Reply,
-  Star,
   Users,
   X,
+  RefreshCw,
 } from 'lucide-react';
 import { eventTimeFormatter } from '@weq/time';
+import { FEATURE_ICONS } from '../lib/featureIcons';
 import { client, trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { OverlayLayer } from './OverlayLayer';
@@ -35,7 +36,7 @@ const icons = {
   atMe: AtSign,
   atAll: Users,
   replyMe: Reply,
-  specialCare: Star,
+  specialCare: FEATURE_ICONS.specialCare,
   groupKeyword: Bell,
   newFile: File,
   groupAnnouncement: Megaphone,
@@ -94,7 +95,8 @@ export function ImportantMessagesPanel({ groupCode, open, onClose, ...props }: P
         {config.error ? '账号读取失败' : '正在读取账号…'}
       </p>
       {config.error ? (
-        <button type="button" onClick={() => void config.refetch()}>
+        <button type="button" onClick={() => void config.refetch()} className="weq-retry-button">
+          <RefreshCw size={14} aria-hidden />
           重试
         </button>
       ) : null}
@@ -366,7 +368,12 @@ export function ImportantMessagesList({
       {error ? (
         <p role="alert">
           {error}
-          <button type="button" onClick={() => setRequest((old) => ({ ...old, id: old.id + 1 }))}>
+          <button
+            type="button"
+            onClick={() => setRequest((old) => ({ ...old, id: old.id + 1 }))}
+            className="weq-retry-button"
+          >
+            <RefreshCw size={14} aria-hidden />
             重试
           </button>
         </p>

@@ -26,6 +26,7 @@ import {
   Sparkles,
   WifiOff,
   X,
+  RefreshCw,
 } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { OverlayLayer } from '../OverlayLayer';
@@ -328,9 +329,10 @@ export function GiftMallPanel({
                   <span>{error}</span>
                   <button
                     type="button"
-                    className="weq-gift-subtab"
+                    className="weq-gift-subtab weq-retry-button"
                     onClick={() => void loadPage('reset')}
                   >
+                    <RefreshCw size={14} aria-hidden />
                     重试
                   </button>
                 </div>

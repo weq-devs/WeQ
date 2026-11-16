@@ -19,7 +19,7 @@ import {
   ListTodo,
   Pause,
   Play,
-  RotateCw,
+  RefreshCw,
   Square,
   Trash2,
   Users,
@@ -57,6 +57,7 @@ import {
 import {
   BACKGROUND_TASK_ICONS,
   BACKGROUND_TASK_LABELS,
+  BackgroundTaskActionIcon,
   BackgroundTaskDetails,
 } from './BackgroundTaskDetails';
 import { TaskQuickActions, type TaskQuickAction } from './TaskQuickActions';
@@ -206,7 +207,12 @@ export function CurrentTaskList({
         actions.push({
           id: 'resume',
           label: taskResumeActionLabel(task),
-          icon: task.resumeMode === 'restart' ? <RotateCw size={14} /> : <Play size={14} />,
+          icon:
+            task.resumeMode === 'restart' ? (
+              <RefreshCw size={14} aria-hidden />
+            ) : (
+              <Play size={14} />
+            ),
           disabled: saving || task.isFinalizing,
           run: () => exportActions.resume(task),
         });
@@ -355,7 +361,7 @@ export function CurrentTaskList({
               : '继续',
         icon:
           job.status === 'cancelled' || job.status === 'partial' ? (
-            <RotateCw size={14} />
+            <RefreshCw size={14} aria-hidden />
           ) : (
             <Play size={14} />
           ),
@@ -520,7 +526,7 @@ export function CurrentTaskList({
       actions.unshift({
         id: 'retry',
         label: '重试下载',
-        icon: <RotateCw size={14} />,
+        icon: <RefreshCw size={14} aria-hidden />,
         disabled: !cleanupBinding,
         run: retryFlash,
       });
@@ -649,7 +655,7 @@ export function CurrentTaskList({
                   {
                     id: 'retry',
                     label: '重试下载',
-                    icon: <RotateCw size={14} />,
+                    icon: <RefreshCw size={14} aria-hidden />,
                     disabled: !cleanupBinding,
                     run: retryFlash,
                   },
@@ -714,18 +720,7 @@ export function CurrentTaskList({
     const actions: TaskQuickAction[] = task.actions.map((action) => ({
       id: action.id,
       label: action.label,
-      icon:
-        action.id === 'stop' || action.id === 'cancel' ? (
-          <Square size={14} />
-        ) : action.id === 'pause' ? (
-          <Pause size={14} />
-        ) : action.id === 'retry' ? (
-          <RotateCw size={14} />
-        ) : action.id === 'resume' || action.id === 'continue' ? (
-          <Play size={14} />
-        ) : (
-          <FolderOpen size={14} />
-        ),
+      icon: <BackgroundTaskActionIcon id={action.id} />,
       run: async () => {
         if (action.id === 'view-report' && task.reportId) {
           window.dispatchEvent(

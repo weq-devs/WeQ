@@ -8,6 +8,11 @@ import { SettingsDialog } from '../../src/renderer/src/components/SettingsDialog
 import type { SettingsPageId } from '../../src/renderer/src/components/settings/navigation';
 import { WorkspaceContent, WorkspacePages } from '../../src/renderer/src/components/WorkspacePages';
 import { FEATURE_ICONS } from '../../src/renderer/src/lib/featureIcons';
+import { ExportContentSelector } from '../../src/renderer/src/views/export/ExportContentSelector';
+import type { ExportContentPolicy } from '@weq/service/export-content';
+import { VirtualConversationBadge } from '../../src/renderer/src/components/VirtualConversationAvatar';
+import { AnalyticsRetry } from '../../src/renderer/src/components/AnalyticsRetry';
+import { MessageDecorationCard } from '../../src/renderer/src/components/MessageDecorationCard';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/mobile-web.css';
@@ -28,13 +33,16 @@ const entries = [
 ensureThemeInitialized();
 
 function Fixture() {
-  const [mode, setMode] = useState<'search' | 'settings' | 'brand'>('search');
+  const [mode, setMode] = useState<'search' | 'settings' | 'brand' | 'audit'>('search');
   const [section, setSection] = useState<SettingsPageId>('qzone');
+  const [content, setContent] = useState<ExportContentPolicy>({});
+  const [decoration, setDecoration] = useState(false);
+  const [retries, setRetries] = useState(0);
   Object.assign(window, {
     iconQa: {
       theme: useThemeStore,
       selected,
-      show: (mode: 'search' | 'settings' | 'brand', section?: SettingsPageId) => {
+      show: (mode: 'search' | 'settings' | 'brand' | 'audit', section?: SettingsPageId) => {
         if (section) setSection(section);
         setMode(mode);
       },
@@ -57,6 +65,32 @@ function Fixture() {
               onOpenMaintenance={noop}
             />
           </>
+        ) : mode === 'audit' ? (
+          <main style={{ width: '100%', maxWidth: 680, margin: '0 auto', padding: 16 }}>
+            <ExportContentSelector value={content} onChange={setContent} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 16 }}>
+              <span style={{ position: 'relative', width: 40, height: 40 }}>
+                <VirtualConversationBadge />
+              </span>
+              <span style={{ position: 'relative', width: 40, height: 40 }}>
+                <VirtualConversationBadge group />
+              </span>
+              <button type="button" className="weq-set-btn" onClick={() => setDecoration(true)}>
+                <FEATURE_ICONS.dressup size={14} aria-hidden />
+                消息装扮
+              </button>
+            </div>
+            <AnalyticsRetry
+              error={`读取失败 ${retries}`}
+              onRetry={() => setRetries((n) => n + 1)}
+            />
+            {decoration ? (
+              <MessageDecorationCard
+                decoration={{ fontId: 1, bubbleId: 2, widgetId: 3 }}
+                onClose={() => setDecoration(false)}
+              />
+            ) : null}
+          </main>
         ) : mode === 'search' ? (
           <main
             style={{

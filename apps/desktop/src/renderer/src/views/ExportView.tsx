@@ -20,7 +20,7 @@ import {
   Music,
   Pause,
   Play,
-  RotateCw,
+  RefreshCw,
   Search,
   Trash2,
   X,
@@ -2329,7 +2329,7 @@ function ExportToolBody({
                         aria-label="重试读取群目录"
                         onClick={() => void groups.refetch()}
                       >
-                        <RotateCw size={14} />
+                        <RefreshCw size={14} aria-hidden />
                       </button>
                     </div>
                   ) : null}
@@ -2442,7 +2442,7 @@ function ExportToolBody({
                         title="重试加载收藏"
                         onClick={collectionSource.retry}
                       >
-                        <RotateCw size={14} />
+                        <RefreshCw size={14} aria-hidden />
                       </button>
                     </div>
                   ) : null}
@@ -2640,7 +2640,7 @@ function ExportToolBody({
                         aria-label="重试加载计划"
                         onClick={() => void schedules.refetch()}
                       >
-                        <RotateCw size={14} />
+                        <RefreshCw size={14} aria-hidden />
                       </button>
                     </div>
                   ) : (schedules.data ?? []).length === 0 ? (

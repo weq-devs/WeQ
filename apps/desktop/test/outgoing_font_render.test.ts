@@ -74,6 +74,60 @@ vi.mock('../src/renderer/src/hooks/useActiveWidget', () => ({
 }));
 afterEach(() => vi.unstubAllGlobals());
 
+it('排队、立即发送与失败重试使用不同语义图标，发送回调保持不变', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('IntersectionObserver', undefined);
+  const demo = createTemplateDemoData();
+  const send = vi.fn();
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const render = (optimistic: 'queued' | 'failed') =>
+    act(async () =>
+      root.render(
+        createElement(MessageBubble, {
+          message: {
+            id: 'icon-state',
+            conversationId: demo.conversations[0]!.id,
+            senderId: demo.user.id,
+            body: '合成消息',
+            createdAt: new Date(0).toISOString(),
+            optimistic,
+          },
+          conversation: demo.conversations[0]!,
+          sender: demo.user,
+          mine: true,
+          senderName: '我',
+          senderAvatarUrl: null,
+          senderSeed: 'me',
+          showSenderName: false,
+          active: true,
+          onContextMenu: vi.fn(),
+          onLongPress: vi.fn(),
+          onStartOutgoing: send,
+          renderers: [{ id: 'icon-test', match: () => true, render: () => '合成消息' }],
+        }),
+      ),
+    );
+  try {
+    await render('queued');
+    const queued = host.querySelector<HTMLButtonElement>('[aria-label="立即发送"]')!;
+    expect(queued.querySelector('.lucide-clock')).not.toBeNull();
+    await act(async () => queued.focus());
+    expect(queued.querySelector('.lucide-send-horizontal')).not.toBeNull();
+    await act(async () => queued.click());
+    expect(send).toHaveBeenCalledOnce();
+    await render('failed');
+    const failed = host.querySelector<HTMLButtonElement>('[aria-label="重试发送"]')!;
+    expect(failed.querySelector('.lucide-refresh-cw')).not.toBeNull();
+    await act(async () => failed.click());
+    expect(send).toHaveBeenCalledTimes(2);
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
 it('发送气泡按请求字体显示，读回可换款或清除，本地使用字体仍可覆盖', async () => {
   stubReadyDecorationResources();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

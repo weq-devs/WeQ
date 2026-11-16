@@ -7,7 +7,6 @@ import {
   House,
   LayoutGrid,
   ListTodo,
-  Palette,
   Settings,
 } from 'lucide-react';
 import { FEATURE_ICONS, type FeatureIcon } from './featureIcons';
@@ -104,7 +103,7 @@ export const APP_NAVIGATION = {
   },
   dressup: {
     label: '个性装扮',
-    icon: Palette,
+    icon: FEATURE_ICONS.dressup,
     target: { kind: 'dressup' },
     workspace: 'dressup',
     keywords: ['装扮商城'],

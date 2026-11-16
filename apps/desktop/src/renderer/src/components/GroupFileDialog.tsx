@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, LocateFixed, RotateCw, Square, X } from 'lucide-react';
+import { Loader2, LocateFixed, RefreshCw, Square, X } from 'lucide-react';
 import { client, trpc } from '../trpc/client';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
@@ -219,7 +219,7 @@ function GroupFileDialogBody({
                 disabled={read.isFetching}
                 onClick={() => void read.refetch()}
               >
-                <RotateCw size={16} />
+                <RefreshCw size={16} aria-hidden />
               </button>
             </div>
           )}
