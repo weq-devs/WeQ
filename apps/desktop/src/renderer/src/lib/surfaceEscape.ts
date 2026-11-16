@@ -110,11 +110,12 @@ export function useSurfaceEscape(
   onClose: (() => void) | undefined,
   active: boolean,
   modal: boolean,
+  mobilePriority: number | false = 100,
 ) {
   useMobileBack(
-    active && Boolean(onClose),
+    active && Boolean(onClose) && mobilePriority !== false,
     () => onClose?.(),
-    100,
+    mobilePriority === false ? 100 : mobilePriority,
     () => ref.current,
   );
   // 在节点移除前归还焦点；被动清理时 activeElement 已可能变成 body。

@@ -50,7 +50,8 @@ function ContactNoticeDialogBody({
 }) {
   const inbox = useNoticeOperations(false, open);
   const panel = useRef<HTMLElement>(null);
-  useSurfaceEscape(panel, onClose, open, false);
+  // 手机返回由 shell 的来源快照负责，避免 onClose 再次进入同一个返回栈。
+  useSurfaceEscape(panel, onClose, open, false, false);
   const { cards, remaining } = bindNoticeOperations(requests, inbox.operations);
   if (!open) return null;
   return (
@@ -208,7 +209,7 @@ function GroupNoticeDialogBody({
 }) {
   const inbox = useNoticeOperations(true, open);
   const panel = useRef<HTMLElement>(null);
-  useSurfaceEscape(panel, onClose, open, false);
+  useSurfaceEscape(panel, onClose, open, false, false);
   const { cards, remaining } = bindNoticeOperations(requests, inbox.operations);
   if (!open) return null;
   return (

@@ -10,6 +10,7 @@ import {
   noopChatShellHistoryAdapter,
 } from '../src/renderer/src/im-template/template/shellController';
 import type { Contact, GroupConversation } from '../src/renderer/src/im-template/template/types';
+import { resetMobileRoot } from '../src/renderer/src/hooks/useMobileNavigation';
 
 const person: Contact = {
   id: 'u_known',
@@ -41,8 +42,30 @@ const group: GroupConversation = {
 const cleanups: Array<() => void> = [];
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
+  resetMobileRoot();
   useToast.setState({ toasts: [] });
   vi.unstubAllGlobals();
+});
+
+it('手机从通知进入资料并连续查看其他资料，逐级返回原来源而非跳到联系人首页', () => {
+  vi.stubGlobal('matchMedia', (media: string) =>
+    Object.assign(new EventTarget(), { matches: media.includes('max-width'), media }),
+  );
+  const shell = mount();
+  act(() => shell.state().switchView('contacts'));
+  act(() => shell.state().openContactNotice('friend'));
+  act(() => shell.state().openContactDetails(person));
+  act(() => shell.state().openGroupDetails(group));
+  act(() => shell.state().backGroup());
+  expect(shell.state().selectedContactId).toBe(person.id);
+  expect(shell.state().selectedGroupConversationId).toBeNull();
+  expect(shell.state().contactNotice).toBeNull();
+  act(() => shell.state().backContact());
+  expect(shell.state().contactNotice).toBe('friend');
+  expect(shell.state().selectedContactId).toBeNull();
+  act(() => shell.state().backContactNotice());
+  expect(shell.state().view).toBe('contacts');
+  expect(shell.state().contactNotice).toBeNull();
 });
 
 function mount(

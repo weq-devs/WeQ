@@ -168,6 +168,7 @@ export function useChatShellController({
   const restoreRef = useRef<() => () => void>(() => () => {});
   // 连续查看不同资料时保留最初的外部来源，主动切栏目或选目录对象后清除。
   const profileReturn = useRef<(() => void) | null>(null);
+  const mobileDetailReturns = useRef<Array<() => void>>([]);
   restoreRef.current = () => {
     const snapshot = {
       activeConversationId,
@@ -198,14 +199,25 @@ export function useChatShellController({
     const push = () => {
       if (!isMobileNavigation()) return;
       const restore = restoreRef.current();
-      pushMobileBack(restore, () =>
+      const back = () => {
+        const index = mobileDetailReturns.current.indexOf(back);
+        if (index < 0) return;
+        mobileDetailReturns.current.splice(index, 1);
+        remove();
+        restore();
+      };
+      const remove = pushMobileBack(back, () =>
         document.querySelector<HTMLElement>('.weq-web-shell .chat-main'),
       );
+      mobileDetailReturns.current.push(back);
     };
     return {
       ...historyAdapter,
-      replaceShell: () =>
-        isMobileNavigation() ? resetMobileRoot() : historyAdapter.replaceShell(),
+      replaceShell: () => {
+        mobileDetailReturns.current = [];
+        if (isMobileNavigation()) resetMobileRoot();
+        else historyAdapter.replaceShell();
+      },
       pushShellDetail: () => (isMobileNavigation() ? push() : historyAdapter.pushShellDetail()),
       pushConversationDetail: (id: string) =>
         isMobileNavigation() ? push() : historyAdapter.pushConversationDetail(id),
@@ -532,6 +544,12 @@ export function useChatShellController({
   );
 
   const backContact = useCallback(() => {
+    // 资料自身先完成草稿检查，再恢复紧邻的来源，不清空整条详情链。
+    const mobileReturn = isMobileNavigation() && mobileDetailReturns.current.at(-1);
+    if (mobileReturn) {
+      mobileReturn();
+      return;
+    }
     const restore = profileReturn.current;
     profileReturn.current = null;
     setSelectedContactId(null);

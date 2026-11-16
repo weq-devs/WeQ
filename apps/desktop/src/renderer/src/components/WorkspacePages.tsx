@@ -256,7 +256,8 @@ export function WorkspacePage({
     20,
     () => ref.current,
   );
-  useSurfaceEscape(ref, onClose, active, false);
+  // 页面已登记 onBack；Esc 的关闭动作不再作为高优先级返回覆盖子页。
+  useSurfaceEscape(ref, onClose, active, false, false);
   const content = (
     <div
       ref={ref}

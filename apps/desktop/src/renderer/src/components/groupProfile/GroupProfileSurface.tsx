@@ -77,6 +77,7 @@ function GroupProfileBody({
     previewContent ? () => preview?.close() : closing.requestClose,
     Boolean(embedded),
     false,
+    20,
   );
   const register = useContext(ProfileNavigationGuardContext);
   const leave = useRef(closing.confirmLeave);

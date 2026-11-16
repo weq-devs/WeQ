@@ -3,6 +3,7 @@ import {
   attachMobileHistory,
   isMobileNavigation,
   mobileBack,
+  mobileBackEntry,
   mobileBackTarget,
 } from '../hooks/useMobileNavigation';
 import { isSingleColumnLayout, subscribeResponsiveLayout } from '../lib/responsiveLayout';
@@ -10,6 +11,7 @@ import { shouldCompleteMobileSwipe } from '../lib/mobileNavigation';
 import { topSurface } from '../lib/surfaceEscape';
 import { setMobileNavigationBusy } from '../lib/mobilePageLoading';
 import { createMobileRootTransition, mobileRootTab } from '../lib/mobileRootTransition';
+import { createMobileBackPreview } from '../lib/mobileBackPreview';
 import '../styles/mobile-navigation.css';
 import { observeRemoteWindowLayout } from '../lib/remoteWindowLayout';
 import '../styles/remote-window-layout.css';
@@ -24,6 +26,13 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
     let frame = 0;
     let animation: Animation | undefined;
     let completing = false;
+    let backCommitted = false;
+    let removeBackPreview: (() => void) | undefined;
+    const cancelAnimation = () => {
+      const current = animation;
+      animation = undefined;
+      current?.cancel();
+    };
     let rootTransition: ReturnType<typeof createMobileRootTransition>;
     let skipRootClick = false;
     const removeRootTransition = () => {
@@ -52,14 +61,21 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
           dragging: boolean;
           kind: 'back' | 'tab';
           direction?: number;
+          entryId?: string;
+          identifier: number;
+          width: number;
+          reduced: boolean;
+          style: { transform: string; opacity: string; willChange: string };
         }
       | undefined;
     const clearSwipe = () => {
+      removeBackPreview?.();
+      removeBackPreview = undefined;
       if (swipe) {
-        swipe.target.style.removeProperty('transform');
-        swipe.target.style.removeProperty('opacity');
+        Object.assign(swipe.target.style, swipe.style);
       }
       swipe = undefined;
+      backCommitted = false;
       delete element.dataset.mobileSwiping;
       delete element.dataset.mobileAnimating;
       if (!rootTransition) setMobileNavigationBusy(false);
@@ -96,20 +112,23 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
       duration: number,
       done?: () => void,
     ) => {
-      animation?.cancel();
+      cancelAnimation();
       setMobileNavigationBusy(true);
       if (!target.animate) {
         setMobileNavigationBusy(false);
         done?.();
         return;
       }
-      animation = target.animate(frames, {
+      const current = target.animate(frames, {
         duration: reduced() ? 100 : duration,
         easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
       });
-      animation.finished.then(
+      animation = current;
+      current.finished.then(
         () => {
-          setMobileNavigationBusy(false);
+          if (animation !== current) return;
+          animation = undefined;
+          if (!done) setMobileNavigationBusy(false);
           done?.();
         },
         () => {},
@@ -117,11 +136,20 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
     };
     const navigate = (event: Event) => {
       if (rootTransition) return;
-      if (completing) {
-        completing = false;
-        clearSwipe();
+      if (completing && backCommitted) {
+        // 等页面提交并绘制后再还原被拖动节点，避免先闪回退出前的页面。
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(() => {
+          frame = requestAnimationFrame(() => {
+            completing = false;
+            clearSwipe();
+          });
+        });
         return;
       }
+      cancelAnimation();
+      completing = false;
+      clearSwipe();
       if (topSurface(document)) return;
       const direction = (event as CustomEvent<string>).detail;
       setMobileNavigationBusy(true);
@@ -167,47 +195,54 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
       removeRootTransition();
       completing = false;
       clearSwipe();
-      animation?.cancel();
+      cancelAnimation();
       rootTransition = createMobileRootTransition(element, from, to, reduced());
       if (!rootTransition) return;
       setMobileNavigationBusy(true);
       void completeRootTransition(0, true);
     };
     const start = (event: TouchEvent) => {
-      if (
-        !isSingleColumnLayout() ||
-        event.touches.length !== 1 ||
-        completing ||
-        topSurface(document)
-      )
+      if (swipe) {
+        if (event.touches.length !== 1) finish(true);
         return;
+      }
+      if (!isSingleColumnLayout() || event.touches.length !== 1 || completing) return;
       const touch = event.touches[0]!;
+      const entry = mobileBackEntry();
       const backTarget = mobileBackTarget();
+      const surface = topSurface(document);
+      let origin = event.target instanceof Element ? event.target : null;
+      // Portal 和主页面共用手势入口，但只能操作当前最上层，不能穿过不可关闭的弹窗。
+      if (surface) {
+        if (!backTarget || !surface.contains(backTarget) || !origin || !surface.contains(origin))
+          return;
+      } else if (!origin || !element.contains(origin)) return;
       const navigation = element.querySelector('.weq-mobile-navigation');
       const rootPage =
         mobileRootTab(element.dataset.mobileRootView) &&
         navigation &&
         navigation.getAttribute('aria-hidden') !== 'true' &&
         !element.hasAttribute('data-mobile-detail');
-      const kind = backTarget && touch.clientX <= 24 ? 'back' : rootPage ? 'tab' : null;
+      const kind = backTarget && touch.clientX <= 24 ? 'back' : !surface && rootPage ? 'tab' : null;
       const target = kind === 'back' ? backTarget : contentTarget();
       if (!kind || !target) return;
-      let origin = event.target instanceof Element ? event.target : null;
       if (
+        document.getSelection()?.isCollapsed === false ||
         origin?.closest(
-          'input, textarea, select, [contenteditable="true"], [role="slider"], [data-no-swipe-back], .weq-mobile-header, .weq-mobile-tabs',
+          'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="slider"], video[controls], audio[controls], [data-no-swipe-back], .weq-mobile-header, .weq-mobile-tabs',
         )
       )
         return;
       while (origin && origin !== element) {
-        if (
-          origin.scrollWidth > origin.clientWidth + 1 &&
-          /auto|scroll/.test(getComputedStyle(origin).overflowX)
-        )
+        const style = getComputedStyle(origin);
+        // 图片缩放、拖动面板等已声明自己的触摸轴，不与它们同时消费手势。
+        if (style.touchAction === 'none' || /\bpan-x\b/.test(style.touchAction)) return;
+        if (origin.scrollWidth > origin.clientWidth + 1 && /auto|scroll/.test(style.overflowX))
           return;
         origin = origin.parentElement;
       }
-      animation?.cancel();
+      cancelAnimationFrame(frame);
+      cancelAnimation();
       swipe = {
         x: touch.clientX,
         y: touch.clientY,
@@ -216,11 +251,20 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
         target,
         dragging: false,
         kind,
+        entryId: entry?.id,
+        identifier: touch.identifier,
+        width: element.clientWidth,
+        reduced: reduced(),
+        style: {
+          transform: target.style.transform,
+          opacity: target.style.opacity,
+          willChange: target.style.willChange,
+        },
       };
     };
     const move = (event: TouchEvent) => {
-      if (!swipe) return;
-      if (event.touches.length !== 1) {
+      if (!swipe || completing) return;
+      if (event.touches.length !== 1 || event.touches[0]?.identifier !== swipe.identifier) {
         finish(true);
         return;
       }
@@ -228,7 +272,7 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
       const dx = touch.clientX - swipe.x,
         dy = Math.abs(touch.clientY - swipe.y);
       if (!swipe.dragging) {
-        if (dy > 10 || (swipe.kind === 'back' && dx < -8)) {
+        if ((dy > 8 && dy >= Math.abs(dx)) || (swipe.kind === 'back' && dx < -8)) {
           clearSwipe();
           return;
         }
@@ -253,6 +297,8 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
           swipe.direction = direction;
         }
         swipe.dragging = true;
+        if (swipe.kind === 'back') removeBackPreview = createMobileBackPreview(swipe.target);
+        swipe.target.style.willChange = swipe.reduced ? 'opacity' : 'transform';
         setMobileNavigationBusy(true);
         element.dataset.mobileSwiping = 'true';
       }
@@ -262,8 +308,8 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
       }
       event.preventDefault();
       swipe.distance = Math.max(
-        swipe.kind === 'back' ? 0 : -element.clientWidth,
-        Math.min(dx, element.clientWidth),
+        swipe.kind === 'back' ? 0 : -swipe.width,
+        Math.min(dx, swipe.width),
       );
       if (swipe.kind === 'tab') {
         swipe.distance =
@@ -271,9 +317,9 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
         rootTransition?.move(swipe.distance);
         return;
       }
-      if (reduced())
+      if (swipe.reduced)
         swipe.target.style.opacity = String(
-          1 - (Math.abs(swipe.distance) / Math.max(element.clientWidth, 1)) * 0.4,
+          1 - (Math.abs(swipe.distance) / Math.max(swipe.width, 1)) * 0.4,
         );
       else swipe.target.style.transform = `translateX(${swipe.distance}px)`;
     };
@@ -289,7 +335,7 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
         shouldCompleteMobileSwipe(
           Math.abs(current.distance),
           performance.now() - current.started,
-          element.clientWidth,
+          current.width,
         );
       const sign = current.distance < 0 ? -1 : 1;
       const next = current.kind === 'tab' ? adjacentTab(-sign) : undefined;
@@ -298,28 +344,36 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
         void completeRootTransition(current.distance, accepted, next);
         return;
       }
-      const endDistance = accepted ? sign * element.clientWidth : 0;
-      const frames = reduced()
+      const endDistance = accepted ? sign * current.width : 0;
+      const frames = current.reduced
         ? [{ opacity: current.target.style.opacity || 1 }, { opacity: accepted ? 0.6 : 1 }]
         : [
             { transform: `translateX(${current.distance}px)` },
             { transform: `translateX(${endDistance}px)` },
           ];
-      completing = accepted;
-      if (reduced()) current.target.style.opacity = accepted ? '0.6' : '1';
+      completing = true;
+      element.dataset.mobileAnimating = 'true';
+      if (current.reduced) current.target.style.opacity = accepted ? '0.6' : '1';
       else current.target.style.transform = `translateX(${endDistance}px)`;
       animate(current.target, frames, 200, () => {
-        if (accepted && mobileBack()) return;
+        backCommitted = accepted;
+        if (accepted && mobileBack(current.entryId)) return;
         completing = false;
         clearSwipe();
       });
     };
-    const end = () => finish(false);
+    const end = (event: TouchEvent) => {
+      const ended = [...event.changedTouches].some(
+        (touch) => touch.identifier === swipe?.identifier,
+      );
+      finish(event.touches.length > 0 || !ended);
+    };
     const cancel = () => finish(true);
     const resize = () => {
       completing = false;
+      cancelAnimationFrame(frame);
       removeRootTransition();
-      animation?.cancel();
+      cancelAnimation();
       clearSwipe();
       if (isMobileNavigation() && !detach) detach = attachMobileHistory();
       else if (!isMobileNavigation() && detach) {
@@ -334,27 +388,29 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
     document.addEventListener('visibilitychange', visibility);
     const unsubscribeLayout = subscribeResponsiveLayout(resize);
     window.addEventListener('resize', resize);
+    window.addEventListener('blur', resize);
     window.addEventListener('weq-mobile-navigate', navigate);
     element.addEventListener('click', clickTab, true);
-    element.addEventListener('touchstart', start, { passive: true, capture: true });
-    element.addEventListener('touchmove', move, { passive: false, capture: true });
-    element.addEventListener('touchend', end, true);
-    element.addEventListener('touchcancel', cancel, true);
+    document.addEventListener('touchstart', start, { passive: true, capture: true });
+    document.addEventListener('touchmove', move, { passive: false, capture: true });
+    document.addEventListener('touchend', end, true);
+    document.addEventListener('touchcancel', cancel, true);
     return () => {
       detach?.();
       removeRootTransition();
-      animation?.cancel();
+      cancelAnimation();
       cancelAnimationFrame(frame);
       clearSwipe();
       unsubscribeLayout();
       document.removeEventListener('visibilitychange', visibility);
       window.removeEventListener('resize', resize);
+      window.removeEventListener('blur', resize);
       window.removeEventListener('weq-mobile-navigate', navigate);
       element.removeEventListener('click', clickTab, true);
-      element.removeEventListener('touchstart', start, true);
-      element.removeEventListener('touchmove', move, true);
-      element.removeEventListener('touchend', end, true);
-      element.removeEventListener('touchcancel', cancel, true);
+      document.removeEventListener('touchstart', start, true);
+      document.removeEventListener('touchmove', move, true);
+      document.removeEventListener('touchend', end, true);
+      document.removeEventListener('touchcancel', cancel, true);
     };
   }, [root]);
   return null;

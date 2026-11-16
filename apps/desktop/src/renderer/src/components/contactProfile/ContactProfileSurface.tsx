@@ -77,6 +77,7 @@ function ContactProfilePage({
     previewContent && preview ? preview.close : closing.requestClose,
     true,
     false,
+    20,
   );
   const person: Contact = { createdAt: '', ...profile };
   return (

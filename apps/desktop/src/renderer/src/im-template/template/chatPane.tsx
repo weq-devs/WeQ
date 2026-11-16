@@ -871,7 +871,15 @@ export function ChatPane({
   }, []);
   // 空间不足时群资料是浮在聊天区上的最上层，系统返回必须先关掉它，
   // 否则 Android 的返回会穿过聊天页直接结束应用。
-  useMobileBack(mobileGroupInfoOpen, closeMobileGroupInfo, 20, () => groupInfoTriggerRef.current);
+  useMobileBack(
+    mobileGroupInfoOpen,
+    closeMobileGroupInfo,
+    20,
+    () =>
+      groupInfoTriggerRef.current
+        ?.closest('.chat-pane')
+        ?.querySelector<HTMLElement>('.group-info-panel') ?? null,
+  );
   const sidecarOpen = useWorkspaceSidecarOpen();
   // 桌面沿用收纳偏好；手机输入区常驻，但进入会话不自动聚焦。
   const [composerCollapsed, setComposerCollapsed] = useState(loadComposerCollapsed);
