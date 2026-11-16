@@ -10,6 +10,7 @@ import '../../src/renderer/src/styles/backup.css';
 
 ensureThemeInitialized();
 Object.assign(window, { settingsActionsQa: useThemeStore });
+const restore = new URLSearchParams(location.search).get('restore');
 
 createRoot(document.getElementById('root')!).render(
   <>
@@ -56,7 +57,21 @@ createRoot(document.getElementById('root')!).render(
               inventory: async () => ({
                 accounts: [],
                 cloneScopes: [],
-                restore: { pending: null, result: null },
+                restore: {
+                  pending: null,
+                  result: restore
+                    ? {
+                        id: 'synthetic-restore',
+                        status: restore === 'failed' ? 'failed' : 'applied',
+                        completedAt: '2026-11-16T00:00:00Z',
+                        applied: ['settings'],
+                        skipped: [],
+                        warnings: ['合成恢复提示'],
+                        clientPending: restore === 'pending',
+                        ...(restore === 'failed' ? { error: '合成恢复失败' } : {}),
+                      }
+                    : null,
+                },
                 canPickFile: true,
                 canRestart: false,
                 maxArchiveBytes: 260 * 1024 * 1024,

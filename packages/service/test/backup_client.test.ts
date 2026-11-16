@@ -26,7 +26,7 @@ function storage(initial: Record<string, string> = {}) {
   return { value, values };
 }
 
-it('恢复默认覆盖所有账号显示设置，只移除页面快照中的偏好项，保留数据与会话整理', () => {
+it('恢复默认清除所有账号和层级的页面现场，保留草稿与会话整理', () => {
   const snapshot = (name: string) => `weq:page-snapshot:v1:${JSON.stringify(['10001', name])}`;
   const reset = {
     'weq.contacts.order.10001.10001.friends': '{"sort":"qq"}',
@@ -35,11 +35,16 @@ it('恢复默认覆盖所有账号显示设置，只移除页面快照中的偏�
     'weq.calendar.kinds': '[]',
     'weq.theme-density': 'compact',
     [snapshot('workspace:conversation-scope')]: '"real"',
+    [snapshot('messages')]: '合成消息数据',
+    [snapshot('settings:active')]: '"backup"',
+    [`weq:page-snapshot:v1:${JSON.stringify(['10002', 'shell:view'])}`]: '"设置"',
+    [`weq:page-snapshot:v1:${JSON.stringify([JSON.stringify(['10002', 'qzone']), 'scroll'])}`]:
+      '900',
+    'weq:page-snapshot:v1:bad': '{',
   };
   const data = {
     'chat-template:conversation-preferences': '{"peer":{"pinned":true}}',
     'weq:group-assistant-pins:10001': '{"123":true}',
-    [snapshot('messages')]: '合成消息数据',
     [`weq:page-draft:v1:${JSON.stringify(['10001', 'export:options:chat:peer'])}`]: '未提交草稿',
     'weq.backup-client-id': 'synthetic-client',
     'weq.message-clipboard': '合成剪贴板',
@@ -53,6 +58,7 @@ it('恢复默认覆盖所有账号显示设置，只移除页面快照中的偏�
 
 it('恢复默认删除偏好失败时回滚全部设置与回执，会话数据始终保留', () => {
   const initial = {
+    'weq:page-snapshot:v1:synthetic': '合成浏览位置',
     'weq.theme-density': 'compact',
     'weq.calendar.kinds': '[]',
     'chat-template:conversation-preferences': '合成会话整理',
@@ -133,18 +139,24 @@ it('只快照真实界面偏好，不混入令牌、草稿或恢复现场', () =
 });
 
 it('恢复替换所选偏好而保留无关令牌和业务现场，空设置可恢复默认', () => {
+  const page = 'weq:page-snapshot:v1:synthetic';
   const source = storage({
     'weq.theme-preference': 'dark',
     'weq.theme-background': 'paper',
     'weq-bot-key': 'synthetic-key',
+    [page]: '合成浏览位置',
   });
   applyWeqClientSettings(source.value, { 'weq.theme-preference': 'light' });
   expect(Object.fromEntries(source.values)).toEqual({
     'weq.theme-preference': 'light',
     'weq-bot-key': 'synthetic-key',
+    [page]: '合成浏览位置',
   });
   applyWeqClientSettings(source.value, {});
-  expect(Object.fromEntries(source.values)).toEqual({ 'weq-bot-key': 'synthetic-key' });
+  expect(Object.fromEntries(source.values)).toEqual({
+    'weq-bot-key': 'synthetic-key',
+    [page]: '合成浏览位置',
+  });
 });
 
 it('当前偏好损坏也能恢复，不让导出校验阻止修复现有配置', () => {

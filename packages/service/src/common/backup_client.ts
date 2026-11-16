@@ -31,7 +31,7 @@ export function isWeqClientBackupKey(key: string): boolean {
   return KEYS.has(key) || /^weq:group-assistant-pins:\d{1,20}(?:_[0-9a-f]{8})?$/.test(key);
 }
 
-/** 恢复默认只处理设置键；会话整理、草稿、数据快照与普通备份导入互不混用。 */
+/** 恢复默认清除设置与可重建页面现场；保留会话整理和正文草稿，普通备份导入不受影响。 */
 export function isWeqClientDefaultsKey(key: string): boolean {
   if (/^weq\.sync\.v1:[a-f0-9]{24}:shared$/.test(key)) return true;
   if (
@@ -53,27 +53,10 @@ export function isWeqClientDefaultsKey(key: string): boolean {
   if (
     key.startsWith('weq.contacts.order.') ||
     key.startsWith('weq.contacts.refreshRange.') ||
-    key.startsWith('weq:workspace-panel:')
+    key.startsWith('weq:workspace-panel:') ||
+    key.startsWith('weq:page-snapshot:v1:')
   )
     return true;
-  if (key.startsWith('weq:page-snapshot:v1:')) {
-    try {
-      const value: unknown = JSON.parse(key.slice('weq:page-snapshot:v1:'.length));
-      if (Array.isArray(value) && value.length === 2 && typeof value[1] === 'string') {
-        const name = value[1];
-        return (
-          name === 'workspace:conversation-scope' ||
-          name === 'export:format' ||
-          name === 'export:execution' ||
-          name.startsWith('export:options:') ||
-          name.startsWith('export:formats:') ||
-          name.startsWith('export:schedule:')
-        );
-      }
-    } catch {
-      /* 无法识别的现场原样保留。 */
-    }
-  }
   return false;
 }
 

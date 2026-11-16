@@ -108,9 +108,47 @@ try {
     await page.getByRole('dialog').getByRole('button', { name: '确认恢复默认' }).isEnabled(),
     true,
   );
+  for (const restore of ['applied', 'failed', 'pending']) {
+    await page.goto(
+      `http://127.0.0.1:${server.httpServer.address().port}/test/browser/settings-actions.html?restore=${restore}`,
+    );
+    await entry.waitFor();
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 800 });
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate((theme) => {
+          window.settingsActionsQa.getState().setPreference(theme);
+        }, theme);
+        const backup = page.locator('[data-backup]');
+        assert.equal(await backup.getByText('最近一次恢复已应用', { exact: true }).count(), 0);
+        if (restore === 'applied') {
+          assert.equal(await backup.getByText('合成恢复提示', { exact: true }).count(), 0);
+          assert.equal(await entry.isEnabled(), true);
+        } else if (restore === 'failed') {
+          await backup.getByText('最近一次恢复失败', { exact: true }).waitFor();
+          await backup.getByText('合成恢复失败', { exact: true }).waitFor();
+        } else {
+          await backup.getByText('界面偏好待恢复', { exact: true }).waitFor();
+          assert.equal(await backup.getByRole('button', { name: '改在此设备恢复' }).count(), 1);
+          assert.equal(await entry.isDisabled(), true);
+        }
+        assert.equal(
+          await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
+          true,
+        );
+        if (output)
+          await page.screenshot({ path: resolve(output, `${restore}-${theme}-${width}.png`) });
+        cases++;
+      }
+    }
+  }
   assert.deepEqual(errors, []);
   console.log(
-    JSON.stringify({ cases, errors, result: '全局恢复入口、默认保留、取消、失败重试与布局通过' }),
+    JSON.stringify({
+      cases,
+      errors,
+      result: '全局恢复入口、默认保留、取消、失败重试、成功结果隐藏与布局通过',
+    }),
   );
 } finally {
   await browser?.close();

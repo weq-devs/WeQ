@@ -188,6 +188,49 @@ it('配置备份页保留全局恢复入口，先读取范围、取消不提交�
   expect(f.api.defaults).toHaveBeenCalledWith(expect.any(String), {});
   expect(reset.restore).not.toHaveBeenCalled();
 });
+it.each([{ warnings: [] }, { warnings: ['账号配置不包含 QQ 数据库，装扮资源需在本机重新获取。'] }])(
+  '恢复成功后不再显示常驻结果卡片（警告：%j）',
+  async ({ warnings }) => {
+    const f = fixture();
+    const result = { ...(await f.api.defaults()), warnings };
+    const ui = await mount({
+      ...f.api,
+      inventory: async () => ({
+        ...(await f.api.inventory()),
+        restore: { pending: null, result },
+      }),
+    });
+    expect(ui.host.textContent).not.toContain('最近一次恢复已应用');
+    expect(ui.host.textContent).not.toContain('已应用 1 项');
+    for (const warning of warnings) expect(ui.host.textContent).not.toContain(warning);
+    expect(ui.button('恢复全局默认设置').disabled).toBe(false);
+  },
+);
+it.each(['failed', 'clientPending'] as const)('恢复仍需处理时保留必要信息：%s', async (kind) => {
+  const f = fixture();
+  const result = {
+    ...(await f.api.defaults()),
+    status: kind === 'failed' ? ('failed' as const) : ('applied' as const),
+    clientPending: kind === 'clientPending',
+    error: kind === 'failed' ? '合成恢复失败' : undefined,
+  };
+  const ui = await mount({
+    ...f.api,
+    inventory: async () => ({
+      ...(await f.api.inventory()),
+      restore: { pending: null, result },
+    }),
+  });
+  if (kind === 'failed') {
+    expect(ui.host.textContent).toContain('最近一次恢复失败');
+    expect(ui.host.textContent).toContain('合成恢复失败');
+  } else {
+    expect(ui.host.textContent).toContain('界面偏好待恢复');
+    expect(ui.button('改在此设备恢复')).toBeDefined();
+    expect(ui.button('保留本机界面偏好')).toBeDefined();
+    expect(ui.button('恢复全局默认设置').disabled).toBe(true);
+  }
+});
 it('全局恢复读取失败不能提交，可重试', async () => {
   const f = fixture();
   f.api.defaultsInfo.mockRejectedValueOnce(new Error('合成范围读取失败'));

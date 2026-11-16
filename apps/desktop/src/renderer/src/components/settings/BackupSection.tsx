@@ -361,9 +361,9 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
           {busy}
         </p>
       ) : null}
-      {result ? (
+      {result && (result.status === 'failed' || result.clientPending) ? (
         <Card
-          title={result.status === 'applied' ? '最近一次恢复已应用' : '最近一次恢复失败'}
+          title={result.status === 'failed' ? '最近一次恢复失败' : '界面偏好待恢复'}
           icon={<ArchiveRestore size={15} strokeWidth={1.8} />}
         >
           <p>
