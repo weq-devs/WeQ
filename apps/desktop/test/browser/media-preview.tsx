@@ -50,7 +50,10 @@ function View() {
       >
         打开混排
       </button>
-      <button type="button" onClick={() => openMarketFaceLightbox('123')}>
+      <button
+        type="button"
+        onClick={(event) => openMarketFaceLightbox('123', undefined, event.currentTarget)}
+      >
         打开表情包
       </button>
       <button

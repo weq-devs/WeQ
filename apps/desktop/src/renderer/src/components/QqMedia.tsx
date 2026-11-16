@@ -1152,7 +1152,7 @@ export function QqMarketFace({ data, interactive = true }: { data: Data; interac
     return <QqMediaMissing label="该表情" style={style} />;
   }
   // 商城表情与普通图片表情的差异：外层包一层带商城角标的容器，点击弹出
-  // 「这一整组表情」的灯箱（数据同构本地资源页的商城表情包）。
+  // 贴近消息的整包小浮层（数据同构本地资源页的商城表情包）。
   const StickerControl = interactive ? 'button' : 'span';
   return (
     <StickerControl
@@ -1163,7 +1163,11 @@ export function QqMarketFace({ data, interactive = true }: { data: Data; interac
       data-favorite-emoji-source={mediaUrl('mface', { pack, hash })}
       style={style}
       title={interactive ? '商城表情 · 点击查看整组' : '商城表情'}
-      onClick={interactive ? () => openMarketFaceLightbox(String(pack), hash) : undefined}
+      onClick={
+        interactive
+          ? (event) => openMarketFaceLightbox(String(pack), hash, event.currentTarget)
+          : undefined
+      }
     >
       <ShimmerImage
         suspendOffscreen

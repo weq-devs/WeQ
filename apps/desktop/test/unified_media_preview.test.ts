@@ -16,6 +16,9 @@ import {
   MediaPreviewHost,
   openMediaPreview,
 } from '../src/renderer/src/components/mediaPreviewStore';
+import { QqMarketFace } from '../src/renderer/src/components/QqMedia';
+import { useDataSaver } from '../src/renderer/src/lib/dataSaver';
+import { useViewState } from '../src/renderer/src/state/view';
 
 const mocks = vi.hoisted(() => ({
   ocr: vi.fn(),
@@ -448,20 +451,92 @@ it('聊天元素按消息与元素位置标识，不混入闪照、表情和嵌�
     ]).map((item) => item.key),
   ).toEqual(['roaming:native:10:1:0', 'roaming:native:11:1:0']);
 });
-it('商城表情复用外壳后保留整组、参数与分级Escape，打开时替换旧图片预览', () => {
-  act(() => root.render(h('div', null, h(MediaPreviewHost), h(MarketFaceLightbox))));
-  act(() =>
-    openMediaPreview({ items: [{ key: items[0]!.src, kind: 'image', src: items[0]!.src }] }),
-  );
-  act(() => openMarketFaceLightbox('123'));
+it('商城表情使用无全屏遮罩的小浮层，图片主动复用聊天路径并保留加密回退与分级Escape', () => {
+  act(() => root.render(h(MarketFaceLightbox)));
+  act(() => openMarketFaceLightbox('123', 'fixture'));
+  expect(document.querySelector('.weq-unified-preview')).toBeNull();
+  expect(document.querySelector('[aria-modal="true"]')).toBeNull();
+  expect(document.querySelector('.weq-mface-popover-layer.is-popover')).not.toBeNull();
+  const image = document.querySelector<HTMLImageElement>('.weq-mface-lb-cell img')!;
+  const source = new URL(image.src);
+  expect(source.searchParams.get('intent')).toBe('interactive');
+  expect(source.searchParams.has('enc')).toBe(false);
+  act(() => image.dispatchEvent(new Event('error')));
+  expect(new URL(image.src).searchParams.get('enc')).toBe('tea');
+  expect(new URL(image.src).searchParams.get('intent')).toBe('interactive');
   expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
   act(() => document.querySelector<HTMLButtonElement>('.weq-mface-lb-cell')!.click());
   expect(document.querySelector('.weq-mface-detail')?.textContent).toContain('fixture-key');
-  key('Escape');
+  // 网格按钮卸载后焦点可回落到 body，Esc 仍须先返回整包。
+  act(() =>
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    ),
+  );
   expect(document.querySelector('.weq-mface-lb-grid')).not.toBeNull();
   expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
   key('Escape');
   expect(document.querySelector('[role="dialog"]')).toBeNull();
+});
+it('省流量模式下整包与详情均为主动请求，失败后可重新加载且不依赖密钥', () => {
+  const previous = useDataSaver.getState();
+  try {
+    act(() => useDataSaver.setState({ enabled: true }));
+    act(() => root.render(h(MarketFaceLightbox)));
+    act(() => openMarketFaceLightbox('123'));
+    const cell = document.querySelector<HTMLImageElement>('.weq-mface-lb-cell img')!;
+    expect(new URL(cell.src).searchParams.get('intent')).toBe('interactive');
+    act(() => document.querySelector<HTMLButtonElement>('.weq-mface-lb-cell')!.click());
+    const image = document.querySelector<HTMLImageElement>('.weq-mface-detail-image')!;
+    expect(new URL(image.src).searchParams.has('enc')).toBe(false);
+    act(() => image.dispatchEvent(new Event('error')));
+    expect(new URL(image.src).searchParams.get('enc')).toBe('tea');
+    act(() => image.dispatchEvent(new Event('error')));
+    expect(document.querySelector('.weq-mface-detail-image')).toBeNull();
+    const retry = [...document.querySelectorAll<HTMLButtonElement>('button')].find((item) =>
+      item.textContent?.includes('重试加载'),
+    )!;
+    act(() => retry.click());
+    const retried = document.querySelector<HTMLImageElement>('.weq-mface-detail-image')!;
+    expect(new URL(retried.src).searchParams.has('enc')).toBe(false);
+    expect(new URL(retried.src).searchParams.get('intent')).toBe('interactive');
+  } finally {
+    act(() => useDataSaver.setState(previous));
+  }
+});
+it('真实聊天入口传递锚点，同包切换更新高亮，点击背景继续操作且切号关闭', () => {
+  const clicked = vi.fn();
+  act(() =>
+    root.render(
+      h(
+        'div',
+        null,
+        h(QqMarketFace, { data: { emojiPackId: 123, marketEmoticonIdHex: 'fixture' } }),
+        h(QqMarketFace, { data: { emojiPackId: 123, marketEmoticonIdHex: 'other' } }),
+        h('button', { onClick: clicked, id: 'outside' }, '背景操作'),
+        h(MarketFaceLightbox),
+      ),
+    ),
+  );
+  const triggers = document.querySelectorAll<HTMLButtonElement>('.qq-mface-wrap');
+  act(() => triggers[0]!.click());
+  expect(document.querySelector('.weq-mface-popover-layer.is-anchored-popover')).not.toBeNull();
+  expect(document.querySelector('.weq-mface-lb-cell.is-active')).not.toBeNull();
+  act(() => triggers[1]!.click());
+  expect(document.querySelectorAll('.weq-mface-popover')).toHaveLength(1);
+  expect(document.querySelector('.weq-mface-lb-cell.is-active')).toBeNull();
+  const outside = document.querySelector<HTMLButtonElement>('#outside')!;
+  act(() => {
+    outside.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    outside.click();
+  });
+  expect(document.querySelector('.weq-mface-popover')).toBeNull();
+  expect(clicked).toHaveBeenCalledOnce();
+  act(() => triggers[0]!.click());
+  const previous = useViewState.getState().openedUin;
+  act(() => useViewState.getState().setOpenedUin('different-fixture-account'));
+  expect(document.querySelector('.weq-mface-popover')).toBeNull();
+  act(() => useViewState.getState().setOpenedUin(previous));
 });
 it('真实消息渲染入口接入混排、双向分页、实时追加和账号切换', async () => {
   mocks.bound = true;
