@@ -604,7 +604,7 @@ export async function handleMediaRequest(request: Request, check?: () => void): 
             const response = await routeMediaRequest(request);
             return withCors(
               request.headers.get('x-weq-web') === '1'
-                ? new ManagedDownload({ name: '传输媒体到客户端' }).response(response)
+                ? new ManagedDownload().response(response)
                 : response,
             );
           }),
@@ -891,7 +891,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           }
           if (!url) return notFound('video OIDB returned empty url');
           mediaBinding.getStore()?.();
-          const outcome = await downloadUrlToFile(url, cachePath);
+          const outcome = await downloadUrlToFile(url, cachePath, { reportActivity: false });
           return outcome.ok
             ? fileResponse(cachePath)
             : notFound(`video download failed: ${outcome.reason}`);
