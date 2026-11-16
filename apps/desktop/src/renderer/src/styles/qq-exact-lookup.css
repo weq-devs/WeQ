@@ -1,0 +1,42 @@
+.weq-exact-lookup footer .weq-set-btn-primary {
+  white-space: nowrap;
+}
+
+.weq-exact-lookup-result {
+  min-width: 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-exact-lookup-result h4 {
+  max-height: 6em;
+  margin: 0 0 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  color: var(--weq-fg-primary);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.weq-exact-lookup-result dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px 20px;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.weq-exact-lookup-result dt {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-exact-lookup-result dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--weq-fg-primary);
+  overflow-wrap: anywhere;
+  user-select: text;
+}

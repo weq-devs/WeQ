@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useEventContextValue } from '../hooks/useEventContextValue';
 import { X, Save } from 'lucide-react';
 import { trpc } from '../trpc/client';
@@ -34,6 +34,7 @@ export const FriendDirectoryContext = createContext<{
 } | null>(null);
 
 export function FriendDirectoryControls({ children }: { children: ReactNode }) {
+  const titleId = useId();
   const notificationToast = useToastApi();
   const session = useQQWriteSession('friend-directory');
   const view = useViewState((state) => state.openedUin);
@@ -157,6 +158,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
         <Modal
           centered
           width={400}
+          labelledBy={titleId}
           onClose={() => {
             if (!busy) setEditor(null);
           }}
@@ -164,7 +166,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
           title="好友分组"
         >
           <header>
-            <h3>
+            <h3 id={titleId}>
               {activeEditor.type === 'move'
                 ? '移动分组'
                 : activeEditor.type === 'create'
@@ -174,14 +176,14 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
                     : '删除分组'}
             </h3>
             <button
-              className="icon-button"
+              className="weq-set-iconbtn"
               type="button"
               title="关闭"
               aria-label="关闭"
               disabled={busy}
               onClick={() => setEditor(null)}
             >
-              <X size={18} />
+              <X size={18} aria-hidden />
             </button>
           </header>
           <form
@@ -208,10 +210,13 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
           >
             {activeEditor.type === 'move' ? (
               <label>
-                将{' '}
-                {<span className="weq-number weq-number-inherit">{activeEditor.uids.length}</span>}{' '}
-                位好友移动到
+                <span>
+                  将{' '}
+                  <span className="weq-number weq-number-inherit">{activeEditor.uids.length}</span>{' '}
+                  位好友移动到
+                </span>
                 <select
+                  className="weq-set-select"
                   autoFocus
                   required
                   value={mergeInto}
@@ -235,9 +240,12 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
                 <p>删除「{categories?.find((row) => row.id === activeEditor.id)?.name}」？</p>
                 {memberCount > 0 && (
                   <label>
-                    将 <span className="weq-number weq-number-inherit">{memberCount}</span>{' '}
-                    位好友合并到
+                    <span>
+                      将 <span className="weq-number weq-number-inherit">{memberCount}</span>{' '}
+                      位好友合并到
+                    </span>
                     <select
+                      className="weq-set-select"
                       required
                       value={mergeInto}
                       disabled={busy}
@@ -261,6 +269,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
               <label>
                 分组名称
                 <input
+                  className="weq-set-input"
                   autoFocus
                   required
                   maxLength={255}
