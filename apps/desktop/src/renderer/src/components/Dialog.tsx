@@ -424,7 +424,7 @@ export function DialogHost(): ReactElement | null {
                   </>
                 ) : (
                   handleClose && (
-                    <button className="weq-action-primary" onClick={handleClose}>
+                    <button className="weq-action-soft" onClick={handleClose}>
                       我知道了
                     </button>
                   )

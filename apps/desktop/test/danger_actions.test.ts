@@ -59,3 +59,17 @@ it('替换确认时不把上一项的危险等级带到普通确认', () => {
   });
   expect(document.querySelector('[data-danger]')).toBeNull();
 });
+
+it('普通提示只用中性关闭动作，普通确认仍显式强调提交', () => {
+  mount();
+  act(() => useDialog.getState().showInfo('检查完成', '合成提示'));
+  const acknowledge = document.querySelector<HTMLButtonElement>('.weq-dialog-foot button')!;
+  expect(acknowledge.className).toBe('weq-action-soft');
+  act(() => acknowledge.click());
+  expect(document.querySelector('.weq-dialog-foot')).toBeNull();
+  act(() => {
+    void useDialog.getState().confirm('继续导出', '合成内容');
+  });
+  expect(document.querySelectorAll('.weq-dialog-foot .weq-action-primary')).toHaveLength(1);
+  expect(document.querySelectorAll('.weq-dialog-foot .weq-action-soft')).toHaveLength(1);
+});
