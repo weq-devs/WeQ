@@ -6,6 +6,8 @@ import { resourceUrl } from '../lib/resourceUrl';
 import { FaceEmoji } from './FaceEmoji';
 import { RelationshipDirectoryContext } from '../lib/contactRelationship';
 import { SelfOnlineStatus } from './SelfOnlineStatus';
+import { cn } from '../lib/utils';
+import '../styles/online-status.css';
 
 const SUB_ICONS: Record<number, string> = {
   1028: 'music@2x.png',
@@ -81,6 +83,7 @@ export function OnlineStatus({
     { uid },
     { refetchInterval, refetchOnMount: 'always' },
   );
+  const statusClassName = cn('weq-online-status', !ownUin && className);
 
   const wrap = (content: React.ReactNode, title?: string) =>
     ownUin ? (
@@ -91,16 +94,7 @@ export function OnlineStatus({
       content
     );
   if (!status || status.typeName === '未知' || (status.uid && status.uid !== uid))
-    return fallbackText
-      ? wrap(
-          <span
-            className={ownUin ? undefined : className}
-            style={{ fontSize: 12, color: 'var(--weq-fg-secondary)' }}
-          >
-            {fallbackText}
-          </span>,
-        )
-      : null;
+    return fallbackText ? wrap(<span className={statusClassName}>{fallbackText}</span>) : null;
 
   const customText =
     status.type === 10 && status.subType === 2000 ? status.customStatus?.text?.trim() : '';
@@ -112,30 +106,26 @@ export function OnlineStatus({
 
   const title = hasDetail ? `${status.typeName} - ${detail}` : status.displayStatus;
   return wrap(
-    <span
-      className={ownUin ? undefined : className}
-      title={title}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 4,
-        fontSize: 12,
-        color: 'var(--weq-fg-secondary)',
-      }}
-    >
+    <span className={statusClassName} title={title}>
       {hasDetail && (
         <>
-          <OnlineStatusIcon type={status.type} />
-          <span>{status.typeName}</span>
-          <span aria-hidden>·</span>
+          <span className="weq-online-status-base">
+            <OnlineStatusIcon type={status.type} />
+            <span>{status.typeName}</span>
+          </span>
+          <span className="weq-online-status-separator" aria-hidden>
+            ·
+          </span>
         </>
       )}
-      {status.type === 10 && status.subType === 2000 && status.customStatus?.faceType === 1 ? (
-        <FaceEmoji element={{ faceId: status.customStatus.faceId }} size={16} />
-      ) : (
-        <OnlineStatusIcon type={status.type} subType={status.subType} />
-      )}
-      <span>{detail}</span>
+      <span className="weq-online-status-icon">
+        {status.type === 10 && status.subType === 2000 && status.customStatus?.faceType === 1 ? (
+          <FaceEmoji element={{ faceId: status.customStatus.faceId }} size={16} />
+        ) : (
+          <OnlineStatusIcon type={status.type} subType={status.subType} />
+        )}
+      </span>
+      <span className="weq-online-status-text">{detail}</span>
     </span>,
     title,
   );
