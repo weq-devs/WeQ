@@ -202,23 +202,6 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <GlobalSettingsSection section="accounts" />,
   },
   {
-    id: 'media',
-    label: '媒体来源',
-    icon: <HardDrive size={16} />,
-    render: () => <AccountBasicsSection page="media" />,
-  },
-  {
-    id: 'qq-accounts',
-    label: 'QQ 登录记录管理',
-    icon: <Users size={16} />,
-    render: () => (
-      <div className="weq-set" data-setting-id="qq-accounts">
-        <SectionHeader title="QQ 登录记录管理" icon={<Users size={16} strokeWidth={1.8} />} />
-        <LoginAccountPanel />
-      </div>
-    ),
-  },
-  {
     id: 'call-recording',
     label: '通话录音',
     icon: <PhoneCall size={16} strokeWidth={1.8} />,
@@ -238,7 +221,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'database-management',
-    label: '数据库管理',
+    label: 'QQ 数据库管理',
     icon: <HardDrive size={16} strokeWidth={1.8} />,
     render: (onOpen) => <DatabaseManagementSection onOpen={onOpen} />,
   },
@@ -258,7 +241,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     id: 'resource-loading',
     label: '资源加载',
     icon: <Globe size={16} />,
-    render: () => <GlobalSettingsSection section="network" />,
+    render: () => (
+      <>
+        <GlobalSettingsSection section="network" />
+        <AccountBasicsSection page="media" heading={false} />
+      </>
+    ),
   },
   {
     id: 'logs',
@@ -268,11 +256,11 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'diagnostics',
-    label: 'QQ 协议工具',
+    label: 'QQ 高级工具',
     icon: <ScanSearch size={16} />,
     render: (onOpen) => (
       <div className="weq-set">
-        <SectionHeader title="QQ 协议工具" icon={<ScanSearch size={16} strokeWidth={1.8} />} />
+        <SectionHeader title="QQ 高级工具" icon={<ScanSearch size={16} strokeWidth={1.8} />} />
         <Card
           title="QQNT 抓包"
           icon={<Radio size={15} />}
@@ -295,6 +283,9 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
           settingId="reverse-tool"
         >
           <ReverseTool />
+        </Card>
+        <Card title="登录记录与设备标识" icon={<Users size={15} />} settingId="qq-accounts">
+          <LoginAccountPanel />
         </Card>
       </div>
     ),

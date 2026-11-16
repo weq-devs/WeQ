@@ -53,6 +53,30 @@ try {
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(
+        `http://127.0.0.1:${server.httpServer.address().port}/test/browser/database-management.html?reading=1`,
+      );
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.setProperty(
+          '--weq-accent-effective',
+          theme === 'light' ? '#006d50' : '#f5cb70',
+        );
+      }, theme);
+      await page.getByRole('spinbutton', { name: '数据库读取并发上限', exact: true }).waitFor();
+      assert.equal(await page.locator('.weq-set-card .weq-set-card').count(), 0);
+      const input = page.getByRole('spinbutton', { name: '数据库读取并发上限', exact: true });
+      await input.fill('8');
+      await input.press('Enter');
+      await page.waitForFunction(() => window.databaseQa.changes.includes(8));
+      await input.fill('9');
+      await input.press('Enter');
+      assert.equal(await input.inputValue(), '8');
+      if (output)
+        await page.screenshot({
+          path: resolve(output, `reading-${width}-${theme}.png`),
+          fullPage: true,
+        });
+      await page.goto(
         `http://127.0.0.1:${server.httpServer.address().port}/test/browser/database-management.html`,
       );
       await page.evaluate((theme) => {
@@ -65,17 +89,12 @@ try {
       await page.getByRole('button', { name: '打开数据库浏览', exact: true }).waitFor();
       assert.deepEqual(await page.locator('.weq-set-card-title').allTextContents(), [
         '数据库浏览',
-        '读取性能',
         '容错与修复',
       ]);
-      assert.equal(await page.locator('.weq-set-card .weq-set-card').count(), 0);
-      const input = page.getByRole('spinbutton', { name: '数据库读取并发上限', exact: true });
-      await input.fill('8');
-      await input.press('Enter');
-      await page.waitForFunction(() => window.databaseQa.changes.includes(8));
-      await input.fill('9');
-      await input.press('Enter');
-      assert.equal(await input.inputValue(), '8');
+      assert.equal(
+        await page.getByRole('spinbutton', { name: '数据库读取并发上限', exact: true }).count(),
+        0,
+      );
       assert.equal(
         await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
         false,
@@ -111,7 +130,7 @@ try {
       }
     }
   await page.goto(
-    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/database-management.html?legacy-native=1`,
+    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/database-management.html?reading=1&legacy-native=1`,
   );
   await page
     .getByText('当前原生组件仅支持串行读取；保存的上限将在组件更新后生效。', { exact: true })
@@ -122,7 +141,7 @@ try {
   await page.waitForFunction(() => window.databaseQa.changes.includes(6));
   assert.deepEqual(errors, []);
   console.log(
-    '数据库管理：三卡片顺序、无嵌套卡片、并发保存、独立窗口复用、关闭设置后保留、手机整页及三尺寸浅深主题通过',
+    '监听与读取：并发保存及旧组件提示；QQ 数据库管理：两卡片、独立窗口及三尺寸浅深主题通过',
   );
 } finally {
   await browser?.close();

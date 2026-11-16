@@ -1,6 +1,6 @@
 import { eventTimeFormatter } from '@weq/time';
 /**
- * 维护与诊断工具 → QQ 登录账号管理。
+ * QQ 高级工具 → 登录记录与设备标识。
  *
  * 一页把「这台机器上 QQ 认得哪些号」讲清楚，并提供三个动作：
  *

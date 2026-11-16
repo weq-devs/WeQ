@@ -60,8 +60,7 @@ export const SETTINGS_RESET_CARDS = [
   ['account', 'realtime', '实时监听'],
   ['account', 'attach', '自动进入完整模式'],
   ['accounts', 'auto-enter', '现有配置'],
-  ['media', 'native-media', '关联资源目录'],
-  ['media', 'external-chatpic', '外部安卓图片缓存'],
+  ['resource-loading', 'external-chatpic', '外部安卓图片缓存'],
   ['database-management', 'db-tolerance', '容错与修复'],
   ['resource-loading', 'cdn', '加载来源'],
   ['resource-loading', 'data-saver', '省流量模式'],
@@ -76,7 +75,7 @@ export const SETTINGS_RESET_CARDS = [
   ['assistant', 'assistant', '推送与资源服务'],
   ['version', 'update', '软件更新'],
   ['logs', 'logs', '应用日志'],
-  ['database-management', 'database-read', '读取性能'],
+  ['account', 'database-read', '读取性能'],
 ] as const;
 export type SettingsResetCardId = (typeof SETTINGS_RESET_CARDS)[number][1];
 export type SettingsResetPageId = (typeof SETTINGS_RESET_CARDS)[number][0];

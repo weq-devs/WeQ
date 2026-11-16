@@ -15,11 +15,13 @@ import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
 const conditional = vi.hoisted(() => ({
   settings: undefined as { linkPreview: { enabled: boolean; screenshot: boolean } } | undefined,
   save: vi.fn(),
+  platform: 'linux',
 }));
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const queryData = (name: string) => {
     if (name === 'getSettings') return conditional.settings;
+    if (name === 'systemInfo') return { platformKind: conditional.platform };
     if (name === 'getAccountConfig')
       return {
         uin: '10001',
@@ -68,6 +70,7 @@ vi.mock('../src/renderer/src/components/settings/BugReportPanel', () => ({
 afterEach(() => {
   conditional.settings = undefined;
   conditional.save.mockReset();
+  conditional.platform = 'linux';
   vi.unstubAllGlobals();
 });
 
@@ -151,18 +154,21 @@ describe('设置归位后的实际页面', () => {
       f.close();
     }
   });
-  it('媒体来源独立显示，账号页不再混入媒体设置，协议工具不重复放性能入口', () => {
+  it('媒体来源并入资源加载，QQ 登录记录并入高级工具，不保留资源关联入口', () => {
     const f = mount('accounts');
     try {
       expect(f.body().querySelector('[data-setting-id="linked-resources"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="external-chatpic"]')).toBeNull();
       f.render('media');
-      expect(f.body().getAttribute('data-settings-page')).toBe('media');
-      expect(f.body().querySelector('h3')?.textContent).toBe('媒体来源');
-      expect(f.body().querySelector('[data-setting-id="linked-resources"]')).not.toBeNull();
+      expect(f.body().getAttribute('data-settings-page')).toBe('resource-loading');
+      expect(f.body().querySelector('h3')?.textContent).toBe('资源加载');
+      expect(f.body().querySelector('[data-setting-id="linked-resources"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="external-chatpic"]')).not.toBeNull();
       f.render('diagnostics');
-      expect(f.body().querySelector('h3')?.textContent).toBe('QQ 协议工具');
+      expect(f.body().querySelector('h3')?.textContent).toBe('QQ 高级工具');
+      expect(
+        f.body().querySelector('[data-setting-id="qq-accounts"] .weq-login-acc'),
+      ).not.toBeNull();
       expect(f.body().querySelector('[data-setting-id="performance-monitor"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="qqnt-capture"]')).not.toBeNull();
       f.render('resource-loading');
@@ -171,6 +177,44 @@ describe('设置归位后的实际页面', () => {
       f.render('agentlab');
       expect(f.body().textContent).toContain('已保存的服务商');
       expect(f.body().textContent).not.toContain('已保存的 provider');
+    } finally {
+      f.close();
+    }
+  });
+  it('监听与读取依次排列五张卡片，非 macOS 不显示 QQ 调试副本', () => {
+    conditional.platform = 'darwin';
+    const f = mount('account');
+    const titles = () =>
+      [...f.body().querySelectorAll('.weq-set-card-title')].map((node) => node.textContent);
+    try {
+      expect(titles()).toEqual([
+        '实时监听',
+        '读取性能',
+        '自动进入完整模式',
+        '长期授权',
+        'QQ 调试副本',
+      ]);
+      expect(
+        f.body().querySelector('[data-setting-id="database-read-concurrency"]'),
+      ).not.toBeNull();
+      f.render('database-management');
+      expect(f.body().querySelector('h3')?.textContent).toBe('QQ 数据库管理');
+      expect(f.body().querySelector('[data-setting-id="database-read-concurrency"]')).toBeNull();
+      conditional.platform = 'linux';
+      f.render('account');
+      expect(titles()).toEqual(['实时监听', '读取性能', '自动进入完整模式', '长期授权']);
+    } finally {
+      f.close();
+    }
+  });
+  it('旧资源关联深链仅打开资源加载，不留下高亮失效控件', () => {
+    const f = mount('media');
+    try {
+      f.render('media', { section: 'media', settingId: 'linked-resources', revision: 1 });
+      expect(f.body().getAttribute('data-settings-page')).toBe('resource-loading');
+      expect(f.body().textContent).not.toContain('关联资源目录');
+      expect(f.body().querySelector('[data-search-highlight]')).toBeNull();
+      expect(f.onOpenMaintenance).not.toHaveBeenCalled();
     } finally {
       f.close();
     }
@@ -280,7 +324,7 @@ describe('设置归位后的实际页面', () => {
       );
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((node) => node.textContent),
-      ).toEqual(['版本与更新', '配置备份与恢复', '日志与性能', '常见问题', '反馈']);
+      ).toEqual(['版本与更新', 'WeQ 账号管理', '配置备份与恢复', '日志与性能', '常见问题', '反馈']);
       expect(f.onOpenMaintenance).not.toHaveBeenCalled();
     } finally {
       f.close();
@@ -300,7 +344,7 @@ describe('设置归位后的实际页面', () => {
       expect(remote.querySelector('[aria-label="连接方式"]')).toBeNull();
       f.render('resource-loading');
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
-        '资源与数据库',
+        '凭据与数据',
       );
       expect(f.body().querySelector('[data-setting-id="prefer-cdn"]')).not.toBeNull();
       expect(f.body().textContent).toContain('桌面端与 Web 共用');
@@ -482,8 +526,9 @@ describe('设置归位后的实际页面', () => {
     ['account', '手动标记时上报已读位置', 'read-sync', '阅读与未读'],
     ['chat-messages', '向 QQ 服务器上报已读位置', 'read-sync', '阅读与未读'],
     ['storage', '优先使用 CDN', 'prefer-cdn', '资源加载'],
-    ['media', '关联本机媒体目录', 'linked-resources', '媒体来源'],
-    ['media', '允许使用外部安卓图片缓存', 'external-chatpic', '媒体来源'],
+    ['media', '允许使用外部安卓图片缓存', 'external-chatpic', '资源加载'],
+    ['qq-accounts', 'QQ 登录记录管理', 'qq-accounts', 'QQ 高级工具'],
+    ['logs', '数据库读取并发上限', 'database-read-concurrency', '监听与读取'],
     ['rkey', '外部 RKEY', 'external-rkey', '凭据管理'],
     ['applock', '隐私模式', 'privacy-mode', '隐私'],
     ['applock', '启用应用锁', 'app-lock', '隐私'],
@@ -493,8 +538,8 @@ describe('设置归位后的实际页面', () => {
     ['maintenance', '本地缓存', 'resource-viewer', 'QQ 资源管理'],
     ['maintenance', '存储占用', 'qq-storage-analysis', 'QQ 资源管理'],
     ['maintenance', '清理缓存', 'qq-storage-cleanup', 'QQ 资源管理'],
-    ['maintenance', '数据库修复', 'database-repair', '数据库管理'],
-    ['maintenance', '导出明文数据库', 'database-export', '数据库管理'],
+    ['maintenance', '数据库修复', 'database-repair', 'QQ 数据库管理'],
+    ['maintenance', '导出明文数据库', 'database-export', 'QQ 数据库管理'],
     ['maintenance', '密钥扫描', 'key-scan', '凭据管理'],
     ['maintenance', '其它设备密钥', 'other-device-key', '凭据管理'],
     ['message-display', '显示消息汇总红点', 'message-unread-badge', '阅读与未读'],
@@ -505,7 +550,7 @@ describe('设置归位后的实际页面', () => {
     ['reply-suggestions', '常驻显示', 'intent-persistent-display', '意图感知'],
     ['reply-suggestions', '悬停显示', 'intent-hover-display', '意图感知'],
     ['intent-models', '意图模型资源', 'intent-engine', '意图感知'],
-    ['database', '数据库异常时弹窗提醒', 'damage-reminder', '数据库管理'],
+    ['database', '数据库异常时弹窗提醒', 'damage-reminder', 'QQ 数据库管理'],
   ] as const)('旧 %s / %s 定位实际控件而不执行工具', (section, item, settingId, page) => {
     const f = mount('appearance');
     try {
@@ -622,7 +667,7 @@ describe('设置归位后的实际页面', () => {
     try {
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((item) => item.textContent),
-      ).toEqual(['版本与更新', '配置备份与恢复', '日志与性能', '常见问题', '反馈']);
+      ).toEqual(['版本与更新', 'WeQ 账号管理', '配置备份与恢复', '日志与性能', '常见问题', '反馈']);
       expect(f.body().querySelector('h3')?.textContent).toBe('版本与更新');
       expect(f.body().textContent).toContain('内置组件');
       expect(f.body().textContent).not.toContain('监控新版本发布');
@@ -701,7 +746,7 @@ describe('设置归位后的实际页面', () => {
   it('常规不再混入账号、缓存、日志；二级页仅呈现对应配置', () => {
     const f = mount('global');
     try {
-      expect(f.host.querySelectorAll('.weq-settings-nav-item')).toHaveLength(7);
+      expect(f.host.querySelectorAll('.weq-settings-nav-item')).toHaveLength(6);
       for (const title of ['现有配置', '缓存目录', '日志保留时长', '导出保存目录'])
         expect(f.body().textContent).not.toContain(title);
       expect(f.host.querySelector('.weq-settings-scope')).toBeNull();
@@ -901,13 +946,13 @@ describe('设置归位后的实际页面', () => {
     }
   });
 
-  it('数据库页面合并为三张卡片，容错记录通过入口查看，旧深链只定位不自动打开', () => {
+  it('数据库页面保留浏览和容错修复，读取性能移出，旧深链只定位不自动打开', () => {
     const f = mount('database');
     try {
       expect(f.body().textContent).toContain('容错级别');
       expect(
         [...f.body().querySelectorAll('.weq-set-card-title')].map((node) => node.textContent),
-      ).toEqual(['数据库浏览', '读取性能', '容错与修复']);
+      ).toEqual(['数据库浏览', '容错与修复']);
       expect(f.body().querySelector('.weq-cache-db')).toBeNull();
       expect(f.body().querySelector('.weq-set-head-title .weq-settings-scope')).toBeNull();
       expect(f.body().textContent).toContain('数据库异常时弹窗提醒');

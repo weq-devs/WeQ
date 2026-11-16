@@ -2,6 +2,26 @@ const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'fixture
 const region = [{ code: '1', name: '合成地区名称', children: [] }];
 const data: Record<string, unknown> = {
   'account.getAccountConfig': { uin: '10001', configId: 'fixture' },
+  'wonderfulTools.loginAccountsOverview': {
+    accounts: [
+      {
+        uin: '10001',
+        uid: 'u_fixture',
+        userName: '合成登录账号',
+        avatarUrl: '',
+        lastLoginAt: 1700000000,
+        hasA1: true,
+        a1Bytes: 32,
+        dataDir: '/synthetic/Tencent Files/10001',
+        dbPaths: ['/synthetic/login.db'],
+      },
+    ],
+    guid: '0123456789abcdef0123456789abcdef',
+    qqInstanceCount: 0,
+    canWrite: true,
+    dataRoot: '/synthetic/Tencent Files',
+    supported: true,
+  },
   'account.getGroupAlbumAccessState': {
     qqOnline: true,
     attachEnabled: true,

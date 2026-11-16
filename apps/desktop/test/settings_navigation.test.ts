@@ -46,6 +46,7 @@ describe('设置的两级导航', () => {
   it('关于包含版本后的配置备份，旧帮助和更新提醒深链归到新页面', () => {
     expect(settingsGroupFor('version').sections).toEqual([
       'version',
+      'accounts',
       'backup',
       'logs',
       'faq',
@@ -62,8 +63,7 @@ describe('设置的两级导航', () => {
       '常规',
       '基础功能',
       '增强功能',
-      '凭据与账号',
-      '资源与数据库',
+      '凭据与数据',
       'WeQ 服务',
       '关于 WeQ',
     ]);
@@ -81,7 +81,7 @@ describe('设置的两级导航', () => {
     expect(settingsSectionFor('local-models')).toBe('enhancement-packs');
     expect(settingsSectionFor('intent-models')).toBe('enhancement-packs');
     expect(settingsSectionFor('tts')).toBe('agentlab');
-    expect(settingsGroupFor('credentials').id).toBe('account');
+    expect(settingsGroupFor('credentials').id).toBe('data');
     expect(settingsGroupFor('startup').id).toBe('general');
     expect(settingsGroupFor('database').id).toBe('data');
     expect(settingsGroupFor('mail').sections).toEqual([
@@ -99,44 +99,56 @@ describe('设置的两级导航', () => {
 
   it('存储、备份和维护按用途拆分，原页面入口定位到各自分类', () => {
     expect(settingsGroupFor('storage').sections).toContain('weq-storage');
-    expect(settingsGroupFor('media').sections).toContain('media');
+    expect(settingsGroupFor('media').sections).toContain('resource-loading');
     expect(settingsGroupFor('backup')).toEqual({
       id: 'help',
       label: '关于 WeQ',
-      sections: ['version', 'backup', 'logs', 'faq', 'feedback'],
+      sections: ['version', 'accounts', 'backup', 'logs', 'faq', 'feedback'],
     });
     for (const id of ['database', 'database-status', 'maintenance'] as const) {
       expect(settingsGroupFor(id)).toEqual({
         id: 'data',
-        label: '资源与数据库',
-        sections: ['resource-loading', 'media', 'qq-storage', 'database-management'],
+        label: '凭据与数据',
+        sections: [
+          'account',
+          'credentials',
+          'resource-loading',
+          'qq-storage',
+          'database-management',
+          'diagnostics',
+        ],
       });
     }
   });
 
-  it('性能归关于，媒体来源归数据，未选中的备份和凭据位置不变', () => {
+  it('账号配置归关于，媒体与登录记录合并到对应页面，旧分区仍可跳转', () => {
     expect(settingsGroupFor('performance-monitor').id).toBe('help');
     expect(settingsGroupFor('media').id).toBe('data');
     expect(settingsGroupFor('accounts').sections).not.toContain('performance-monitor');
-    expect(settingsGroupFor('diagnostics').id).toBe('account');
+    expect(settingsGroupFor('diagnostics').id).toBe('data');
+    expect(settingsGroupFor('accounts').id).toBe('help');
     expect(settingsGroupFor('backup').id).toBe('help');
     expect(settingsSectionFor('rkey')).toBe('credentials');
-    expect(SETTINGS_PAGE_LABELS.diagnostics).toBe('QQ 协议工具');
+    expect(SETTINGS_PAGE_LABELS.diagnostics).toBe('QQ 高级工具');
     expect(settingsSectionFor('database-tolerance')).toBe('database-management');
-    expect(SETTINGS_PAGE_LABELS['qq-accounts']).toBe('QQ 登录记录管理');
+    expect(settingsSectionFor('qq-accounts')).toBe('diagnostics');
+    expect(settingsSectionFor('media')).toBe('resource-loading');
+    expect(SETTINGS_PAGE_LABELS['database-management']).toBe('QQ 数据库管理');
     expect(SETTINGS_PAGE_LABELS['qq-storage']).toBe('QQ 资源管理');
     expect(SETTINGS_PAGE_LABELS.agentlab).toBe('API 配置');
     expect(SETTINGS_PAGE_LABELS['model-usage']).toBe('API 用量');
   });
 
   it.each([
-    ['诊断工具', 'QQ 协议工具', '凭据与账号'],
-    ['QQ 账号管理', 'QQ 登录记录管理', '凭据与账号'],
-    ['数据库宽容', '数据库管理', '资源与数据库'],
-    ['资源目录管理', 'QQ 资源管理', '资源与数据库'],
+    ['诊断工具', 'QQ 高级工具', '凭据与数据'],
+    ['QQ 协议工具', 'QQ 高级工具', '凭据与数据'],
+    ['QQ 账号管理', '登录记录与设备标识', '凭据与数据'],
+    ['QQ 登录记录管理', '登录记录与设备标识', '凭据与数据'],
+    ['数据库宽容', 'QQ 数据库管理', '凭据与数据'],
+    ['资源目录管理', 'QQ 资源管理', '凭据与数据'],
     ['已保存的 provider', '已保存的服务商', '增强功能'],
-    ['优先使用 CDN', '优先直连 QQ 加载图片', '资源与数据库'],
-    ['媒体来源', '媒体来源', '资源与数据库'],
+    ['优先使用 CDN', '优先直连 QQ 加载图片', '凭据与数据'],
+    ['媒体来源', '资源加载', '凭据与数据'],
     ['性能监视', '性能监视', '关于 WeQ'],
   ])('旧名或新名 %s 展示规范名称 %s 与新路径', (keyword, title, group) => {
     const entry = searchAppEntries(keyword)[0];
@@ -146,7 +158,7 @@ describe('设置的两级导航', () => {
 
   it('保留原分区深链，每个二级页只归属一个分类', () => {
     const ids = SETTINGS_GROUPS.flatMap((group) => group.sections);
-    expect(SETTINGS_GROUPS).toHaveLength(7);
+    expect(SETTINGS_GROUPS).toHaveLength(6);
     expect([...ids].sort()).toEqual(Object.keys(SETTINGS_PAGE_LABELS).sort());
     expect(settingsSectionFor('applock')).toBe('privacy');
     expect(settingsGroupFor('privacy').id).toBe('general');

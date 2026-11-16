@@ -4,11 +4,12 @@ import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { Platform } from '@weq/platform';
+import { withResourceRoots, type Platform } from '@weq/platform';
 import type { AccountConfig } from '@weq/service';
 import type { AttachHook } from '@weq/service';
 import {
   backupMediaRoots,
+  backupResourceRoots,
   discoverBackups,
   matchingBackupConfigs,
   probeBackup,
@@ -276,6 +277,61 @@ it('平铺文件夹即使叫 nt_db，也不会丢掉它自己携带的媒体', a
   const location = (await discoverBackups(flat)).candidates[0]!;
   expect(location).toMatchObject({ dirPath: flat, dbDir: flat, mediaDir: join(flat, 'nt_data') });
   expect(backupMediaRoots(location.mediaDir!, location.dirPath).accountDir).toBe(flat);
+});
+it('纯数据库备份不借用本机同号资源，在线检测仍使用真实平台', async () => {
+  const root = fixture();
+  const selected = db(join(root, 'backup'));
+  const liveMedia = join(root, 'live', 'nt_data');
+  mkdirSync(join(liveMedia, 'Pic'), { recursive: true });
+  const livePic = vi.fn(() => join(liveMedia, 'Pic'));
+  const online = vi.fn(() => true);
+  const base = { ...platform, picDir: livePic, isQqLoggedIn: online };
+  const location = (await discoverBackups(selected)).candidates[0]!;
+  const resources = withResourceRoots(base, () =>
+    backupResourceRoots({
+      accountDir: location.dirPath,
+      dbDir: location.dbDir,
+      mediaDir: location.mediaDir,
+    }),
+  );
+  expect(resources.ntDbDir('12345')).toBe(selected);
+  for (const key of [
+    'accountDir',
+    'ntDataDir',
+    'picDir',
+    'pttDir',
+    'videoDir',
+    'fileDir',
+    'emojiResourceDir',
+  ] as const)
+    expect(resources[key]('12345'), key).toBeNull();
+  expect(livePic).not.toHaveBeenCalled();
+  expect(resources.isQqLoggedIn('12345')).toBe(true);
+  expect(online).toHaveBeenCalledWith('12345');
+});
+it('备份资源根直接供聊天与导出使用，不依赖当前运行平台的 QQ 路径', async () => {
+  const root = fixture();
+  const selected = join(root, 'Tencent Files', '12345');
+  const dbDir = db(join(selected, 'nt_qq', 'nt_db'));
+  const mediaDir = join(selected, 'nt_qq', 'nt_data');
+  mkdirSync(mediaDir, { recursive: true });
+  const location = (await discoverBackups(selected)).candidates[0]!;
+  const resources = withResourceRoots(platform, () =>
+    backupResourceRoots({
+      accountDir: location.dirPath,
+      dbDir: location.dbDir,
+      mediaDir: location.mediaDir,
+    }),
+  );
+  expect(resources.ntDbDir('12345')).toBe(dbDir);
+  expect(resources.accountDir('12345')).toBe(selected);
+  for (const [key, leaf] of [
+    ['picDir', 'Pic'],
+    ['pttDir', 'Ptt'],
+    ['videoDir', 'Video'],
+    ['fileDir', 'File'],
+  ] as const)
+    expect(resources[key]('12345')).toBe(join(mediaDir, leaf));
 });
 it('UID 哈希目录匹配同账号的所有配置，不混入其他账号', () => {
   const md5 = (s: string) => createHash('md5').update(s).digest('hex');

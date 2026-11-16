@@ -24,7 +24,6 @@ import {
   Eye,
   EyeOff,
   FolderOpen,
-  FolderSearch,
   KeyRound,
   Plug,
   Radio,
@@ -40,6 +39,7 @@ import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { LongTermAuthorizationSection } from './LongTermAuthorizationSection';
+import { DatabaseReadSettings } from './DatabaseReadSettings';
 import { QqDebugCopy } from '../QqDebugCopy';
 import { IS_WEB } from '../../lib/target';
 import { CopyButton } from '../CopyButton';
@@ -147,7 +147,7 @@ export function AccountBasicsSection({
 
   const config = trpc.account.getAccountConfig.useQuery(undefined, {
     ...autoRefresh,
-    enabled: autoRefresh.enabled && page !== 'read',
+    enabled: autoRefresh.enabled && page === 'credentials',
     // rkeys/clientkey are harvested in the background by the monitor; poll so a
     // fresh one shows up (and the expiry countdown re-renders) without reopening.
     refetchInterval: autoRefresh.enabled && page === 'credentials' ? 10_000 : false,
@@ -169,7 +169,6 @@ export function AccountBasicsSection({
   const setAutoAttachQq = trpc.bootstrap.setAutoAttachQq.useMutation();
   const setRestrictedModeBanner = trpc.bootstrap.setRestrictedModeBannerEnabled.useMutation();
   const setReadSyncEnabled = trpc.bootstrap.setReadSyncEnabled.useMutation();
-  const setNativeMediaEnabled = trpc.account.setNativeMediaEnabled.useMutation();
   const setExternalChatpic = trpc.bootstrap.setExternalChatpic.useMutation();
   const pickExternalChatpicDir = trpc.bootstrap.pickExternalChatpicDir.useMutation();
 
@@ -198,9 +197,6 @@ export function AccountBasicsSection({
       readSyncActive.current = false;
     };
   }, [active]);
-  // 静态账号的原生媒体绑定存在**账号**配置里（不是全局设置），所以单独镜像一份。
-  const [nativeMedia, setNativeMedia] = useState(true);
-  const [savingNativeMedia, setSavingNativeMedia] = useState(false);
   // 外部安卓 chatpic 兜底（存在全局设置里）。
   const [externalChatpicDir, setExternalChatpicDir] = useState('');
   const [externalChatpicEnabled, setExternalChatpicEnabled] = useState(false);
@@ -217,12 +213,6 @@ export function AccountBasicsSection({
   }, [settings.data]);
 
   useEffect(() => {
-    const d = config.data;
-    if (!d) return;
-    setNativeMedia(d.nativeMediaEnabled);
-  }, [config.data]);
-
-  useEffect(() => {
     const d = settings.data;
     if (page !== 'media' || !d) return;
     setExternalChatpicDir(d.externalChatpic.dir);
@@ -236,8 +226,6 @@ export function AccountBasicsSection({
   const clientKey = cfg?.clientKey;
   const settingsLoading = settings.isLoading;
   const attachAllowed = fullMode.data?.allowed === true;
-  const isStatic = cfg?.static ?? false;
-  const nativeMediaDir = cfg?.nativeMediaDir ?? null;
   // macOS 现在也能读内存（需 root 且关闭 SIP），开关不再置灰 —— 只在文案里提示门槛。
   const isMac = systemInfo.data?.platformKind === 'darwin';
 
@@ -310,22 +298,6 @@ export function AccountBasicsSection({
     }
   }
 
-  // 原生媒体绑定存在账号配置里，所以刷的是 config 而不是 settings。主进程侧
-  // 装饰器惰性读这个值，翻转后立即生效，无需重开账号。
-  async function toggleNativeMedia(enabled: boolean): Promise<void> {
-    setNativeMedia(enabled);
-    setSavingNativeMedia(true);
-    try {
-      await setNativeMediaEnabled.mutateAsync({ enabled });
-      await config.refetch();
-    } catch (e) {
-      await config.refetch();
-      showError('保存失败', errMsg(e));
-    } finally {
-      setSavingNativeMedia(false);
-    }
-  }
-
   /** 弹窗选目录 → 校验三个子目录 → 持久化并自动启用。 */
   async function importChatpicDir(): Promise<void> {
     setPickingChatpic(true);
@@ -392,7 +364,7 @@ export function AccountBasicsSection({
       {heading && (
         <SectionHeader
           icon={<User size={16} strokeWidth={1.8} />}
-          title={{ account: '监听与读取', credentials: '凭据管理', media: '媒体来源' }[page]}
+          title={{ account: '监听与读取', credentials: '凭据管理', media: '资源加载' }[page]}
           desc={page === 'credentials' ? '当前账号的敏感凭据，默认隐藏。' : undefined}
         />
       )}
@@ -579,52 +551,6 @@ export function AccountBasicsSection({
           </Card>
         </>
       )}
-      {/* 静态账号：关联本机原生目录读媒体 */}
-      {page === 'media' && isStatic && (
-        <Card
-          title="关联资源目录"
-          icon={<FolderOpen size={15} strokeWidth={1.8} />}
-          settingId="linked-resources"
-        >
-          <Row
-            label={
-              <span className="weq-set-row-icon">
-                <FolderSearch size={15} strokeWidth={1.8} aria-hidden />
-                关联资源目录
-              </span>
-            }
-            desc={
-              nativeMediaDir
-                ? `已在本机找到同账号的原生目录，可用于在聊天页与导出中显示图片、语音等媒体：${nativeMediaDir}`
-                : '本机没有找到同账号的原生目录。聊天里缺失的媒体会在同账号 QQ 登录时自动从服务器补全。'
-            }
-            control={
-              <Toggle
-                checked={Boolean(nativeMediaDir) && nativeMedia}
-                disabled={!nativeMediaDir || savingNativeMedia}
-                onChange={(v) => void toggleNativeMedia(v)}
-                label="关联资源目录"
-              />
-            }
-          />
-        </Card>
-      )}
-      {page === 'media' && (!cfg || !isStatic) && (
-        <Card
-          title="关联资源目录"
-          icon={<FolderOpen size={15} strokeWidth={1.8} />}
-          settingId="linked-resources"
-        >
-          <p className="weq-set-desc" role="status">
-            {!cfg
-              ? config.error
-                ? '暂时无法读取当前账号的资源关联状态，请重试。'
-                : '正在读取资源关联状态…'
-              : '仅静态账号需要关联本机资源目录，当前账号使用自己的 QQ 资源目录。'}
-          </p>
-        </Card>
-      )}
-
       {/* Realtime / db watch */}
       {page === 'account' && (
         <Card title="实时监听" icon={<Radio size={15} strokeWidth={1.8} />} resetId="realtime">
@@ -654,17 +580,7 @@ export function AccountBasicsSection({
       )}
       {page === 'account' && (
         <>
-          {/* 自动进入策略与本来源运行请求分离 */}
-          <LongTermAuthorizationSection />
-          {isMac && !IS_WEB && (
-            <Card
-              title="QQ 调试副本"
-              icon={<Copy size={15} strokeWidth={1.8} />}
-              settingId="qq-debug-copy"
-            >
-              <QqDebugCopy />
-            </Card>
-          )}
+          <DatabaseReadSettings />
           <Card
             title="自动进入完整模式"
             icon={<Zap size={15} strokeWidth={1.8} />}
@@ -713,6 +629,16 @@ export function AccountBasicsSection({
               }
             />
           </Card>
+          <LongTermAuthorizationSection />
+          {isMac && !IS_WEB && (
+            <Card
+              title="QQ 调试副本"
+              icon={<Copy size={15} strokeWidth={1.8} />}
+              settingId="qq-debug-copy"
+            >
+              <QqDebugCopy />
+            </Card>
+          )}
         </>
       )}
       {/* 外部安卓图片缓存（放最下面，带引导文案） */}

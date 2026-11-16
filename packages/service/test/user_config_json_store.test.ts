@@ -208,6 +208,25 @@ describe('AccountConfigService.setA1Payload', () => {
     expect(s.getRecord()?.a1Payload).toBe('deadbeef');
   });
 
+  it('重新保存账号时清理旧媒体关联字段，保留其余账号配置', () => {
+    const { s, dir } = svc();
+    const record = s.getRecord()!;
+    const path = join(dir, 'config', 'accounts', `${record.configId}.json`);
+    writeFileSync(
+      path,
+      JSON.stringify({
+        ...record,
+        nativeMediaDir: '/synthetic/live',
+        nativeMediaEnabled: true,
+        a1Payload: 'preserved',
+      }),
+    );
+    s.save({ dataDir: '/tmp/data-12345', static: true });
+    expect(s.getRecord()).not.toHaveProperty('nativeMediaDir');
+    expect(s.getRecord()).not.toHaveProperty('nativeMediaEnabled');
+    expect(s.getRecord()?.a1Payload).toBe('preserved');
+  });
+
   it('通知已读按类别保存，重建服务后仍保留且不覆盖账号其他配置', () => {
     const { s, dir } = svc();
     s.setA1Payload('deadbeef');

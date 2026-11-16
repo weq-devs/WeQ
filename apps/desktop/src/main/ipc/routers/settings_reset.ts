@@ -583,19 +583,6 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
         { scope: '当前账号' },
       );
     }
-    if (services)
-      add(
-        'native-media',
-        'enabled',
-        '本机 QQ 资源',
-        record?.nativeMediaEnabled ?? true,
-        true,
-        async () => {
-          services.accountConfig.setNativeMediaEnabled(true);
-          return true;
-        },
-        { scope: '当前账号' },
-      );
     const mail = sharedMailPreferences();
     add('mail', 'unread', '邮箱红点', mail.showUnread, true, async () => {
       await shared.mail.patch({ showUnread: true });
@@ -691,7 +678,7 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
 }
 
 async function preview(ctx: RpcContext, input: SettingsResetTarget) {
-  const accountCards = new Set(['native-media', 'db-tolerance', 'recall-scope', 'typing']);
+  const accountCards = new Set(['db-tolerance', 'recall-scope', 'typing']);
   const selected = new Set(
     resetCards(input)
       .filter(

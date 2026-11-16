@@ -15,21 +15,15 @@
  *   - **db**     `ntDbDir` and friends → the directory the session actually
  *                opened. Fixes the db browser / `emoji.db` lookups reading the
  *                local install instead of the imported folder.
- *   - **media**  `nt_data` and its children → passed through when the account is
- *                bound to a local native directory, else all null. Null is the
- *                safe answer: the media pipeline already falls back to the CDN
- *                on a local miss (see `media_protocol.ts`), so nothing else
- *                needs to know.
+ *   - **media**  `nt_data` and its children → the backup's own resource tree,
+ *                or all null for database-only backups. A local miss still uses
+ *                the existing download pipeline (see `media_protocol.ts`).
  *   - **rest**   untouched. In particular `isQqLoggedIn` / `native` / `qqExePath`
  *                must keep pointing at the real machine, or online detection for
  *                a static account would break.
  *
- * `overrides` is read lazily on every call so a binding toggled at runtime takes
- * effect without reopening the account.
- *
- * This is also the seam for future Android backups (a `com.tencent.mobileqq`
- * folder ships its own complete media tree): point `media` at the unpacked tree
- * and the service layer needs no changes at all.
+ * `overrides` is read lazily on every call. Source-specific resource layouts
+ * are resolved before this wrapper; consumers do not need platform-specific paths.
  */
 
 import { existsSync } from 'node:fs';

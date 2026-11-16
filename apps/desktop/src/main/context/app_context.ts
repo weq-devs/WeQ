@@ -27,7 +27,7 @@ import { webNotices, type WebNotice } from '../web/notices';
 import { initBackupContext, resetBackupContextForRecovery } from './backup_context';
 import { clearFullMode, fullModeAllowed } from './full_mode';
 import { resolveSignerWrapper } from './signer_target';
-import { resolveBackupLocation, backupMediaRoots } from '../static_backup';
+import { resolveBackupLocation, backupResourceRoots } from '../static_backup';
 import { VipBadgeService } from '../vip_badge';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -1063,8 +1063,8 @@ export interface AppContext {
   /**
    * The Platform that resource lookups for the OPEN account must go through.
    * Same object as `platform` for an online account; for a static one it is the
-   * `withResourceRoots` wrapper pointing at the imported db folder (and at the
-   * native media dir only while bound). Anything resolving account resources
+   * `withResourceRoots` wrapper pointing at the imported db folder and its own
+   * media tree, if present. Anything resolving account resources
    * outside the service layer — e.g. `weq-asset://` in resource_protocol.ts —
    * must read this, not `platform`, or a static account leaks into the local
    * install's files. Null when no account is open.
@@ -2495,8 +2495,8 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.scheduler = null;
 
       // Seed uin→uid BEFORE anything resolves a path: on linux the account
-      // directory is `nt_qq_<md5(md5(uid)+"nt_kernel")>`, so without this the
-      // native-media probe and `isQqLoggedIn` below can never resolve.
+      // directory is `nt_qq_<md5(md5(uid)+"nt_kernel")>`, so without this
+      // `isQqLoggedIn` below can never resolve.
       const selfUid = selfPreview.uid ?? '';
       if (selfUid) rememberAccountUid(selfPreview.uin, selfUid);
 
@@ -2532,24 +2532,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       const accountConfig = new AccountConfigService(session, platform.appDataRoot(), userConfig);
       const exportConfigId = accountConfigId(session.context.uin, dirPath);
 
-      // Does this machine also hold a native QQ directory for the same account?
-      // Re-probed on every open: the user may have changed the global data-dir
-      // override since last time, so the persisted path is display-only.
-      const nativeDir = platform.accountDir(session.context.uin);
-      const importedMedia = backup.mediaDir;
-      const nativeMediaOn = (): boolean =>
-        nativeDir !== null && (accountConfig.getRecord()?.nativeMediaEnabled ?? true);
-
-      // 数据库始终指向导入目录；媒体优先取备份自带的 nt_data，缺失时才使用
-      // 用户允许关联的本机同账号目录，否则由原有管线回退在线补全。
-      const staticPlatform = withResourceRoots(platform, () => ({
-        dbDir: dirPath,
-        media: importedMedia
-          ? backupMediaRoots(importedMedia, backup.accountDir)
-          : nativeMediaOn()
-            ? 'passthrough'
-            : 'none',
-      }));
+      const staticPlatform = withResourceRoots(platform, () => backupResourceRoots(backup));
       this.resourcePlatform = staticPlatform;
       this.accountIsStatic = true;
       this.accountIsAndroidBackup = options.mobile ?? false;
@@ -3188,7 +3171,6 @@ export function initAppContext(fileRoot?: string): AppContext {
         backupAccountDir: backup.accountDir,
         ...(options.mobile ? { mobile: true } : {}),
         ...(selfUid ? { uid: selfUid } : {}),
-        ...(nativeDir ? { nativeMediaDir: nativeDir } : {}),
         ...(selfPreview.displayName ? { displayName: selfPreview.displayName } : {}),
         ...(selfPreview.avatarUrl ? { avatarUrl: selfPreview.avatarUrl } : {}),
       });
@@ -3204,8 +3186,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         durationMs: Math.round(performance.now() - openedAt),
         accountUin: session.context.uin,
         dirPath,
-        nativeMediaDir: nativeDir,
-        nativeMediaEnabled: nativeMediaOn(),
+        backupMediaDir: backup.mediaDir,
       });
 
       // A same-account QQ may still be running on this machine even though our

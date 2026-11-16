@@ -305,10 +305,14 @@ describe('分级恢复默认', () => {
   });
   it('数据源配置仍拒绝切号前的恢复目标', async () => {
     state.account = true;
-    const preview = await caller().preview({ page: 'media', card: 'native-media' });
+    const preview = await caller().preview({ page: 'database-management', card: 'db-tolerance' });
     state.source = 'other-source';
     await expect(
-      caller().restore({ page: 'media', card: 'native-media', source: preview.source }),
+      caller().restore({
+        page: 'database-management',
+        card: 'db-tolerance',
+        source: preview.source,
+      }),
     ).rejects.toThrow('已切换');
     expect(state.calls).toEqual([]);
   });

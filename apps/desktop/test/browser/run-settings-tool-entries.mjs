@@ -98,16 +98,15 @@ try {
         );
         assert.equal(await page.locator('.weq-maintenance-entry').count(), 0);
       };
-      await openCategory('凭据与账号');
-      await page.getByRole('button', { name: 'QQ 协议工具', exact: true }).click();
+      await openCategory('凭据与数据');
+      await page.getByRole('button', { name: 'QQ 高级工具', exact: true }).click();
       await checkButton('qqnt-capture', '打开抓包', 'QQNT 抓包', 'capture');
       if (output) await page.screenshot({ path: resolve(output, `capture-${width}-${theme}.png`) });
       await page.getByRole('button', { name: '凭据管理', exact: true }).click();
       await checkButton('key-scan', '打开密钥扫描', '密钥工具', 'key-scan');
       await checkButton('other-device-key', '查看设备密钥', '密钥工具', 'other-device-key');
       if (output) await page.screenshot({ path: resolve(output, `keys-${width}-${theme}.png`) });
-      await openCategory('资源与数据库');
-      await page.getByRole('button', { name: '数据库管理', exact: true }).click();
+      await page.getByRole('button', { name: 'QQ 数据库管理', exact: true }).click();
       await checkButton('database-repair', '打开修复工具', '容错与修复', 'db-repair');
       if (output) await page.screenshot({ path: resolve(output, `repair-${width}-${theme}.png`) });
       assert.equal(

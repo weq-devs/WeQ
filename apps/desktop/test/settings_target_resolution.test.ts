@@ -28,13 +28,12 @@ describe('设置重构的规范目标与旧入口分流', () => {
     },
   );
 
-  it('七组页面各归其位，主页并入启动，聊天拆成三个二级页面', () => {
+  it('六组页面各归其位，凭据与数据合并且不重复保留旧页面', () => {
     expect(SETTINGS_GROUPS.map((group) => group.label)).toEqual([
       '常规',
       '基础功能',
       '增强功能',
-      '凭据与账号',
-      '资源与数据库',
+      '凭据与数据',
       'WeQ 服务',
       '关于 WeQ',
     ]);
@@ -108,33 +107,33 @@ describe('设置重构的规范目标与旧入口分流', () => {
     },
     { section: 'message-display', item: '显示消息序号（seq）', target: 'message-display' },
     { section: 'anti-recall', target: 'chat-interaction', settingId: 'anti-recall' },
-    { section: 'media', target: 'media', settingId: 'linked-resources' },
+    { section: 'media', target: 'resource-loading' },
+    { section: 'qq-accounts', target: 'diagnostics', settingId: 'qq-accounts' },
     {
       section: 'media',
       item: '允许使用外部安卓图片缓存',
-      target: 'media',
+      target: 'resource-loading',
       settingId: 'external-chatpic',
     },
     { section: 'rkey', target: 'credentials', settingId: 'external-rkey' },
     {
       section: 'accounts',
       item: '关联资源目录',
-      target: 'media',
-      settingId: 'linked-resources',
+      target: 'resource-loading',
     },
-    { section: 'database', target: 'database-tolerance' },
+    { section: 'database', target: 'database-management', settingId: 'db-tolerance' },
     {
       section: 'database',
       item: '数据库异常时弹窗提醒',
-      target: 'database-repair',
+      target: 'database-management',
       settingId: 'damage-reminder',
     },
-    { section: 'database-status', target: 'database-tolerance', settingId: 'tolerance-records' },
+    { section: 'database-status', target: 'database-management', settingId: 'tolerance-records' },
     { section: 'maintenance', target: 'database-management' },
     {
       section: 'maintenance',
       item: '数据库修复',
-      target: 'database-repair',
+      target: 'database-management',
       settingId: 'database-repair',
     },
     {
@@ -187,7 +186,7 @@ describe('设置重构的规范目标与旧入口分流', () => {
   it('稳定 ID 优先于旧标签，同名条目不跨页面误分流', () => {
     expect(
       resolveSettingsTarget({ section: 'accounts', settingId: 'external-chatpic' }),
-    ).toMatchObject({ section: 'media', settingId: 'external-chatpic' });
+    ).toMatchObject({ section: 'resource-loading', settingId: 'external-chatpic' });
     expect(
       resolveSettingsTarget({
         section: 'storage',
@@ -201,6 +200,24 @@ describe('设置重构的规范目标与旧入口分流', () => {
     expect(resolveSettingsTarget({ section: 'storage', item: '未知未来设置' })).toEqual({
       section: 'weq-storage',
       item: '未知未来设置',
+    });
+  });
+
+  it('并发上限的旧来源统一定位读取页，已移除关联项不返回失效 ID', () => {
+    for (const section of ['logs', 'database-management', 'account'] as const) {
+      expect(
+        resolveSettingsTarget({ section, settingId: 'database-read-concurrency' }),
+      ).toMatchObject({
+        section: 'account',
+        settingId: 'database-read-concurrency',
+      });
+      expect(resolveSettingsTarget({ section, item: '数据库读取并发上限' })).toMatchObject({
+        section: 'account',
+        settingId: 'database-read-concurrency',
+      });
+    }
+    expect(resolveSettingsTarget({ section: 'media', settingId: 'linked-resources' })).toEqual({
+      section: 'resource-loading',
     });
   });
 });

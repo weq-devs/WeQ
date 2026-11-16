@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DatabaseManagementSection } from '../../src/renderer/src/components/settings/DatabaseManagementSection';
+import { AccountBasicsSection } from '../../src/renderer/src/components/settings/AccountBasicsSection';
 import { DatabaseBrowserWindowHost } from '../../src/renderer/src/components/DatabaseBrowserWindow';
 import { DialogHost } from '../../src/renderer/src/components/Dialog';
 import { useViewState } from '../../src/renderer/src/state/view';
@@ -32,11 +33,15 @@ function Fixture() {
               overflow: 'visible',
             }}
           >
-            <DatabaseManagementSection
-              onOpen={() => {
-                qa.repairs++;
-              }}
-            />
+            {new URLSearchParams(location.search).has('reading') ? (
+              <AccountBasicsSection />
+            ) : (
+              <DatabaseManagementSection
+                onOpen={() => {
+                  qa.repairs++;
+                }}
+              />
+            )}
           </div>
         )}
         <DatabaseBrowserWindowHost />

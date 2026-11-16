@@ -23,11 +23,9 @@ export const SETTINGS_PAGE_LABELS = {
   account: '监听与读取',
   credentials: '凭据管理',
   accounts: 'WeQ 账号管理',
-  'qq-accounts': 'QQ 登录记录管理',
-  diagnostics: 'QQ 协议工具',
-  'database-management': '数据库管理',
+  diagnostics: 'QQ 高级工具',
+  'database-management': 'QQ 数据库管理',
   'qq-storage': 'QQ 资源管理',
-  media: '媒体来源',
   'resource-loading': '资源加载',
   remote: 'Web 与 Remote',
   mcp: 'MCP 服务器',
@@ -52,6 +50,8 @@ export type SectionId =
   | 'saving'
   | 'storage'
   | 'rkey'
+  | 'media'
+  | 'qq-accounts'
   | 'database'
   | 'database-status'
   | 'database-repair'
@@ -99,14 +99,16 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
     ],
   },
   {
-    id: 'account',
-    label: '凭据与账号',
-    sections: ['account', 'credentials', 'accounts', 'qq-accounts', 'diagnostics'],
-  },
-  {
     id: 'data',
-    label: '资源与数据库',
-    sections: ['resource-loading', 'media', 'qq-storage', 'database-management'],
+    label: '凭据与数据',
+    sections: [
+      'account',
+      'credentials',
+      'resource-loading',
+      'qq-storage',
+      'database-management',
+      'diagnostics',
+    ],
   },
   {
     id: 'services',
@@ -116,7 +118,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
   {
     id: 'help',
     label: '关于 WeQ',
-    sections: ['version', 'backup', 'logs', 'faq', 'feedback'],
+    sections: ['version', 'accounts', 'backup', 'logs', 'faq', 'feedback'],
   },
 ];
 
@@ -238,10 +240,10 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   { id: 'log-retention', section: 'logs', label: '日志保留时长', from: ['logs'] },
   {
     id: 'database-read-concurrency',
-    section: 'database-management',
+    section: 'account',
     label: '数据库读取并发上限',
-    aliases: ['连接池', '并行读取', '查询排队'],
-    from: ['logs', 'database-management'],
+    aliases: ['连接池', '并行读取', '查询排队', '读取性能'],
+    from: ['logs', 'database-management', 'account'],
   },
   { id: 'log-folder', section: 'logs', label: '日志文件夹', from: ['logs'], desktopOnly: true },
   {
@@ -635,18 +637,19 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     from: ['anti-recall', 'chat-messages', 'chat-interaction'],
   },
   {
-    id: 'linked-resources',
-    section: 'media',
-    label: '关联资源目录',
-    aliases: ['关联本机媒体目录'],
-    from: ['media', 'accounts'],
-  },
-  {
     id: 'external-chatpic',
-    section: 'media',
+    section: 'resource-loading',
     label: '外部安卓图片缓存',
     aliases: ['允许使用外部安卓图片缓存'],
-    from: ['media', 'accounts'],
+    from: ['media', 'accounts', 'resource-loading'],
+  },
+  {
+    id: 'qq-accounts',
+    section: 'diagnostics',
+    label: '登录记录与设备标识',
+    aliases: ['QQ 登录记录管理', 'QQ 账号管理', '设备 GUID', '登录记录'],
+    from: ['qq-accounts', 'diagnostics'],
+    desktopOnly: true,
   },
   {
     id: 'external-rkey',
@@ -773,7 +776,8 @@ const SECTION_REDIRECTS: Partial<
   saving: { section: 'global' },
   storage: { section: 'weq-storage' },
   'anti-recall': { section: 'chat-interaction', settingId: 'anti-recall' },
-  media: { section: 'media', settingId: 'linked-resources' },
+  media: { section: 'resource-loading' },
+  'qq-accounts': { section: 'diagnostics', settingId: 'qq-accounts' },
   rkey: { section: 'credentials', settingId: 'external-rkey' },
   database: { section: 'database-management', settingId: 'db-tolerance' },
   'database-tolerance': { section: 'database-management', settingId: 'db-tolerance' },
@@ -792,6 +796,13 @@ const SECTION_REDIRECTS: Partial<
 
 /** 页面和条目共用一个解析器；解析只定位，不打开工具或执行操作。 */
 export function resolveSettingsTarget(target: SettingsTarget): ResolvedSettingsTarget {
+  // 已移除的资源关联入口只回到资源加载页，不留下失效定位或操作入口。
+  if (
+    target.settingId === 'linked-resources' ||
+    (['media', 'accounts'].includes(target.section) &&
+      ['关联资源目录', '关联本机媒体目录'].includes(target.item ?? ''))
+  )
+    return { section: 'resource-loading' };
   const targetId = target.settingId === 'message-decoration' ? 'message-bubble' : target.settingId;
   const redirect = targetId
     ? SETTINGS_ITEM_TARGETS.find((entry) => entry.id === targetId)

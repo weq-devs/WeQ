@@ -3061,8 +3061,8 @@ export const bootstrapRouter = router({
         preview: z.object({
           uin: z.string().min(1),
           // Needed to derive the account directory on linux (`nt_qq_<hash>` is
-          // keyed by uid, not uin) — both for the native-media probe and for
-          // `isQqLoggedIn`. Optional so a client from an older build still opens.
+          // keyed by uid, not uin) for `isQqLoggedIn`.
+          // Optional so a client from an older build still opens.
           uid: z.string().default(''),
           displayName: z.string(),
           avatarUrl: z.string(),

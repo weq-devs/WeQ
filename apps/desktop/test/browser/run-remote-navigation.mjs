@@ -186,15 +186,7 @@ try {
   await page.waitForSelector('.weq-mobile-settings:not([data-mobile-category])');
   for (const theme of ['light', 'dark']) {
     await page.evaluate((theme) => window.remoteNavigationQa.theme(theme), theme);
-    for (const category of [
-      '常规',
-      '基础功能',
-      '增强功能',
-      '凭据与账号',
-      '资源与数据库',
-      'WeQ 服务',
-      '关于 WeQ',
-    ]) {
+    for (const category of ['常规', '基础功能', '增强功能', '凭据与数据', 'WeQ 服务', '关于 WeQ']) {
       await page
         .locator('.weq-settings-nav')
         .getByRole('button', { name: category, exact: true })

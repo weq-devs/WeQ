@@ -5,7 +5,6 @@ import { ToolSurface } from '../ToolSurface';
 import { PageShell } from '../PageShell';
 import { useDatabaseBrowserWindow } from '../../state/databaseBrowserWindow';
 import { DatabaseToleranceSection } from './DatabaseToleranceSection';
-import { DatabaseReadSettings } from './DatabaseReadSettings';
 import { Card, Row, SectionHeader } from './controls';
 import { DataMaintenanceSection, type MaintenanceTool } from './DataMaintenanceSection';
 import '../../styles/settings-database.css';
@@ -18,7 +17,7 @@ export function DatabaseManagementSection({ onOpen }: { onOpen: (tool: Maintenan
   }, [active]);
   return (
     <div className="weq-set weq-database-management">
-      <SectionHeader title="数据库管理" icon={<HardDrive size={16} />} />
+      <SectionHeader title="QQ 数据库管理" icon={<HardDrive size={16} />} />
       <Card title="数据库浏览" icon={<Database size={15} />} settingId="database-manager">
         <Row
           label="库、表与记录"
@@ -35,7 +34,6 @@ export function DatabaseManagementSection({ onOpen }: { onOpen: (tool: Maintenan
           }
         />
       </Card>
-      <DatabaseReadSettings />
       <DatabaseToleranceSection
         page="management"
         onOpenRecords={() => setRecordsOpen(true)}
