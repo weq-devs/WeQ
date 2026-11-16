@@ -59,11 +59,7 @@ export function VersionSection(): ReactElement {
 
   return (
     <div className="weq-set">
-      <SectionHeader
-        page="version"
-        title="版本与更新"
-        desc="WeQ 版本、内置组件时间与软件更新。"
-      />
+      <SectionHeader page="version" title="版本与更新" desc="WeQ 版本、内置组件时间与软件更新。" />
 
       {/* WeQ versions */}
       <Card>

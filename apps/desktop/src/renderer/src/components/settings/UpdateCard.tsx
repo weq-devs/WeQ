@@ -15,6 +15,7 @@ import { useNumericSettingDraft } from './useNumericSettingDraft';
 import { isUpdateCheckInterval } from '@weq/service/update-settings';
 import { useAppUpdate } from '../../hooks/useAppUpdate';
 import { Card, Row, Toggle } from './controls';
+import { NotificationSettingsLink } from './NotificationSettingsLink';
 import '../../styles/update-settings.css';
 
 function fmtBytes(bytes: number): string {
@@ -72,7 +73,15 @@ export function UpdateCard(): ReactElement {
       : '软件更新';
 
   return (
-    <Card title="软件更新" icon={<Download size={15} strokeWidth={1.8} />}>
+    <Card
+      title="软件更新"
+      icon={<Download size={15} strokeWidth={1.8} />}
+      action={
+        <NotificationSettingsLink compact settingId="update-badge">
+          更新标记设置
+        </NotificationSettingsLink>
+      }
+    >
       <Row
         settingId="update-check-interval"
         desc="单位：分钟；-1 表示永不"

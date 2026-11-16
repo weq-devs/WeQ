@@ -61,7 +61,7 @@ html[data-theme] body .sidebar .weq-contact-directory-scroll .contact-cat-header
 /* 好友/群通知压成一行两个轻量入口：与工具行同高，不再冒充列表行。 */
 html[data-theme] .sidebar .contact-notice-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
   gap: 6px;
   min-width: 0;
   container-type: inline-size;
@@ -144,7 +144,7 @@ html[data-theme='dark'] .sidebar .contact-notice-row > .weq-contact-notice-entry
 }
 
 /* 侧栏整体很窄时只留图标，避免「好友通知」被截成半截字。 */
-@container (max-width: 150px) {
+@container (max-width: 230px) {
   html[data-theme] .sidebar .contact-notice-row .notice-entry-text {
     display: none;
   }

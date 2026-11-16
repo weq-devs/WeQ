@@ -31,6 +31,16 @@
   overflow-wrap: anywhere;
 }
 
+.weq-current-tasks-results {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
 .weq-current-tasks-actions {
   display: flex;
   flex-wrap: wrap;

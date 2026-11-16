@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useTabActive } from '../RetainedTabs';
+import { NotificationSettingsLink } from '../settings/NotificationSettingsLink';
 import { useWorkspaceMenu } from '../../state/workspaceMenu';
 import {
   CloudDownload,
@@ -969,6 +970,14 @@ export function CurrentTaskList({
           ) : null}
         </div>
       ) : null}
+      <div className="weq-current-tasks-results" role="group" aria-label="已结束任务">
+        <span>
+          <NumericText>{`${finished.length} 项已结束`}</NumericText>
+        </span>
+        <NotificationSettingsLink compact settingId="task-result-badge">
+          任务结果标记设置
+        </NotificationSettingsLink>
+      </div>
     </section>
   );
 }
