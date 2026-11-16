@@ -32,11 +32,15 @@ describe('未读刷新调度', () => {
   });
   it('启动批次并行读取并合并为一次回显，不等首屏消息、不逐会话统计', () => {
     const source = readFileSync('src/renderer/src/views/MainView.tsx', 'utf8');
+    const reads = readFileSync(
+      'src/renderer/src/views/workspace/useConversationWindowRead.ts',
+      'utf8',
+    );
     const effect = source.slice(
       source.indexOf('const unreadContactsRef'),
       source.indexOf('const unreadDirectoryKey'),
     );
-    expect(source).toMatch(/Promise\.all\(\s*batches\.map\(/);
+    expect(reads).toMatch(/Promise\.all\(\s*batches\.map\(/);
     expect(effect).toContain('await readUnreadInfos({ ...binding, targets })');
     expect(effect).not.toContain('initialized');
     expect(effect).not.toContain('startupTargets');
