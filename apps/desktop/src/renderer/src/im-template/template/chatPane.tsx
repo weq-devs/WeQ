@@ -6,6 +6,7 @@ import {
   type SlashEmojiTrigger,
 } from '../../lib/slashEmoji';
 import { SlashEmojiMenu } from '../../components/SlashEmojiMenu';
+import { ComposerSendButton, type ComposerSpeechRestriction } from './composerSendButton';
 import {
   useContentMultiSelect,
   useRequestContentExport,
@@ -101,7 +102,6 @@ import {
   PhoneCall,
   Radio,
   Video,
-  SendHorizontal,
   Gift,
   Settings2,
   Zap,
@@ -1141,6 +1141,11 @@ export function ChatPane({
     muteUntil && muteUntil > Date.now() / 1000
       ? '你在此群被禁言，暂时无法发送消息'
       : '此群已开启全员禁言，暂时无法发送消息';
+  const groupSpeechRestriction: ComposerSpeechRestriction | null = !groupSpeechBlocked
+    ? null
+    : muteUntil && muteUntil > Date.now() / 1000
+      ? { kind: 'personal', until: muteUntil }
+      : { kind: 'all' };
   const selectionCancelRef = useRef<(() => void) | null>(null);
   const recentReactions = trpc.account.emojiPanel.recentReactions.useQuery(
     { ...recallBinding },
@@ -7393,18 +7398,14 @@ export function ChatPane({
             onCopy={handleComposerCopy}
             onCut={handleComposerCopy}
           />
-          <button
-            type="button"
-            className={cn('composer-send', 'composer-desktop-tool')}
+          <ComposerSendButton
+            variant="desktop"
             title={sendTitle}
-            aria-label={sendTitle}
             disabled={sendDisabled}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => void submitMessage()}
-          >
-            <SendHorizontal size={17} />
-            <strong>发送</strong>
-          </button>
+            restriction={groupSpeechRestriction}
+            active={tabActive && !mobileComposerExpanded}
+            onSend={() => void submitMessage()}
+          />
           {attachmentError ? (
             <span className={cn('composer-attachment-error')} role="status">
               {attachmentError}
@@ -7536,17 +7537,14 @@ export function ChatPane({
                 </button>
               ) : null}
               <span />
-              <button
-                type="button"
-                className={cn('composer-send-expanded')}
+              <ComposerSendButton
+                variant="expanded"
                 title={sendTitle}
-                aria-label={sendTitle}
                 disabled={sendDisabled}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => void submitMessage()}
-              >
-                <SendHorizontal size={28} />
-              </button>
+                restriction={groupSpeechRestriction}
+                active={tabActive}
+                onSend={() => void submitMessage()}
+              />
             </div>
             {emojiOpen ? (
               <EmojiPanel
