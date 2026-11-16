@@ -1,0 +1,75 @@
+.weq-editor-dialog {
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+}
+
+.weq-editor-dialog .weq-dialog-head {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.weq-editor-dialog .weq-dialog-body {
+  white-space: normal;
+}
+
+.weq-editor-dialog .weq-set-row-ctrl {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.weq-editor-dialog .weq-set-row-ctrl > :is(input, .weq-set-keyfield) {
+  max-width: 100%;
+}
+
+.weq-editor-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.weq-editor-fields > form {
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+}
+
+.weq-editor-dialog :is(.weq-set-server-form-actions, .weq-onebot-server-form-actions) {
+  flex-wrap: wrap;
+}
+
+.weq-editor-dialog .weq-set-server-form-wrap {
+  padding: 0;
+  border: 0;
+}
+
+.weq-editor-dialog .weq-profile-comment-form textarea {
+  min-height: 100px;
+}
+
+html[data-theme='dark'] .weq-editor-dialog {
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-elevated);
+}
+
+@media (max-width: 600px) {
+  html[data-theme] .weq-editor-dialog .weq-set-row {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  html[data-theme] .weq-editor-dialog .weq-set-row-main {
+    flex: none;
+    align-content: start;
+  }
+
+  .weq-editor-dialog .weq-set-row-ctrl,
+  .weq-editor-dialog .weq-set-row-ctrl > :is(input, .weq-set-keyfield) {
+    width: 100%;
+  }
+}

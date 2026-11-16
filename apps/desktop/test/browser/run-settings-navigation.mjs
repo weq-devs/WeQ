@@ -176,7 +176,7 @@ try {
       ]);
       assert.deepEqual(
         await page.locator('.weq-settings-body .weq-set-card-title').allTextContents(),
-        ['实时监听', '读取性能', '完整功能', '启用方式', '长期授权', '自动启用与提醒'],
+        ['实时监听', '读取性能', 'QQ 在线能力', '长期授权'],
       );
       assert.equal(
         await page.getByRole('spinbutton', { name: '数据库读取并发上限', exact: true }).count(),
@@ -232,11 +232,12 @@ try {
       await openCategory('WeQ 服务');
       await page.getByRole('button', { name: 'OneBot / cc-connect', exact: true }).click();
       await page.getByRole('button', { name: 'WebSocket', exact: true }).click();
-      const name = page.locator('.weq-onebot-server-editor input').first();
+      const editor = page.getByRole('dialog', { name: '新建 WebSocket 服务器', exact: true });
+      const name = editor.getByLabel('OneBot 服务器名称', { exact: true });
       await name.fill('未保存的连接');
-      await page.getByRole('button', { name: '消息', exact: true }).click();
-      const modal = page.getByRole('dialog');
-      await modal.getByText('当前设置尚未保存', { exact: true }).waitFor();
+      await page.keyboard.press('Escape');
+      const modal = page.getByRole('dialog', { name: '放弃未保存的修改？', exact: true });
+      await modal.waitFor();
       const bounds = await modal.boundingBox();
       assert(
         bounds &&
@@ -246,14 +247,16 @@ try {
           bounds.y + bounds.height <= 845,
       );
       if (output) await page.screenshot({ path: resolve(output, `${width}-${theme}.png`) });
-      await modal.getByRole('button', { name: '先保存', exact: true }).click();
+      await modal.getByRole('button', { name: '继续编辑', exact: true }).click();
       assert.equal(await name.inputValue(), '未保存的连接');
+      await page.keyboard.press('Escape');
+      await modal.getByRole('button', { name: '放弃修改', exact: true }).click();
+      await editor.waitFor({ state: 'detached' });
       await page.getByRole('button', { name: '消息', exact: true }).click();
-      await page.getByRole('button', { name: '暂时离开', exact: true }).click();
       await page.getByText('消息页面', { exact: true }).waitFor();
       assert.equal(await page.locator('.weq-settings-dialog').count(), 0);
       await page.getByRole('button', { name: '打开设置', exact: true }).click();
-      assert.equal(await name.inputValue(), '未保存的连接');
+      assert.equal(await page.locator('.weq-editor-dialog').count(), 0);
       cases++;
     }
   }

@@ -111,16 +111,17 @@ async function run() {
         '10001',
       );
       await firstSignature.getByRole('button', { name: '回复评论', exact: true }).click();
-      await firstSignature.getByLabel('签名评论').fill('合成回复验收');
+      const signatureEditor = page.getByRole('dialog', { name: '回复合成昵称', exact: true });
+      await signatureEditor.getByLabel('签名评论').fill('合成回复验收');
       await page.evaluate(() => window.profileExtrasQa.failNext('signatureComment'));
-      await firstSignature.getByRole('button', { name: '发送评论', exact: true }).click();
-      await firstSignature.getByText('合成操作失败').waitFor();
-      assert.equal(await firstSignature.getByLabel('签名评论').inputValue(), '合成回复验收');
-      await firstSignature.getByRole('button', { name: '发送评论', exact: true }).click();
+      await signatureEditor.getByRole('button', { name: '发送评论', exact: true }).click();
+      await signatureEditor.getByText('合成操作失败').waitFor();
+      assert.equal(await signatureEditor.getByLabel('签名评论').inputValue(), '合成回复验收');
+      await signatureEditor.getByRole('button', { name: '发送评论', exact: true }).click();
       await firstSignature
         .getByRole('button', { name: '删除评论：合成回复验收', exact: true })
         .waitFor();
-      assert.equal(await firstSignature.getByLabel('签名评论').inputValue(), '');
+      await signatureEditor.waitFor({ state: 'detached' });
       await firstSignature
         .getByRole('button', { name: '删除评论：合成回复验收', exact: true })
         .click();

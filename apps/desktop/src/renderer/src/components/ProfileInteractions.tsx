@@ -4,6 +4,7 @@ import {
   ArrowDown,
   ImagePlus,
   MessageCircle,
+  PenLine,
   Reply,
   RotateCw,
   Send,
@@ -22,6 +23,7 @@ import type {
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 import { client, trpc } from '../trpc/client';
 import { useDialog } from './Dialog';
+import { EditorDialog } from './EditorDialog';
 import { QqAvatar } from './QqAvatar';
 import { ProfileAvatar } from './ProfileAvatar';
 import { QzoneLikesPopover } from './QzoneLikesPopover';
@@ -117,12 +119,14 @@ function CommentRows({
   remove,
   canRemove,
   qzone = false,
+  disabled = false,
 }: {
   items: ProfileComment[];
   reply?: (item: ProfileComment) => void;
   remove?: (item: ProfileComment) => void;
   canRemove?: (item: ProfileComment) => boolean;
   qzone?: boolean;
+  disabled?: boolean;
 }) {
   const name = useNames();
   return (
@@ -139,6 +143,7 @@ function CommentRows({
                   type="button"
                   title="回复评论"
                   aria-label="回复评论"
+                  disabled={disabled}
                   onClick={() => reply(item)}
                 >
                   <Reply size={14} />
@@ -149,6 +154,7 @@ function CommentRows({
                   type="button"
                   title="删除评论"
                   aria-label={`删除评论：${item.text}`}
+                  disabled={disabled}
                   onClick={() => remove(item)}
                 >
                   <Trash2 size={14} />
@@ -208,6 +214,7 @@ export function SignatureInteractions({
     [showLikes, setShowLikes] = useState(false);
   const [content, setContent] = useState(''),
     [reply, setReply] = useState<ProfileComment | null>(null);
+  const [composerOpen, setComposerOpen] = useState(false);
   const [likedOverride, setLiked] = useState<boolean | null>(null);
   const [added, setAdded] = useState<ProfileComment[]>([]),
     [removed, setRemoved] = useState<string[]>([]);
@@ -307,18 +314,39 @@ export function SignatureInteractions({
           <MessageCircle size={16} />
           评论
         </button>
+        <button
+          type="button"
+          title="写签名评论"
+          aria-label="写签名评论"
+          disabled={!online || (op.pending && !composerOpen)}
+          onClick={() => {
+            setReply(null);
+            setComposerOpen(true);
+          }}
+        >
+          <PenLine size={16} />
+          写评论
+        </button>
       </div>
       {expanded ? (
         <div className="weq-qzn-interaction">
           <CommentRows
             qzone
             items={comments}
-            reply={online && !op.pending ? setReply : undefined}
+            disabled={op.pending && !composerOpen}
+            reply={
+              online
+                ? (comment) => {
+                    setReply(comment);
+                    setComposerOpen(true);
+                  }
+                : undefined
+            }
             canRemove={(comment) =>
               comment.fromUin === input.expectedAccountUin || input.uin === input.expectedAccountUin
             }
             remove={
-              online && !op.pending
+              online
                 ? (comment) =>
                     void op.run(async () => {
                       if (!(await confirm('删除评论', `删除“${comment.text}”？`))) return;
@@ -335,18 +363,16 @@ export function SignatureInteractions({
                 : undefined
             }
           />
+        </div>
+      ) : null}
+      {composerOpen ? (
+        <EditorDialog
+          title={reply ? `回复${name(reply.fromUin, reply.fromName)}` : '写签名评论'}
+          onClose={() => setComposerOpen(false)}
+          busy={op.pending}
+        >
           {reply ? (
-            <div className="weq-profile-reply-target">
-              回复 {name(reply.fromUin, reply.fromName)}
-              <button
-                type="button"
-                title="取消回复"
-                aria-label="取消回复"
-                onClick={() => setReply(null)}
-              >
-                <X size={14} />
-              </button>
-            </div>
+            <blockquote className="weq-profile-reply-target">{reply.text}</blockquote>
           ) : null}
           <form
             className="weq-profile-comment-form weq-qzn-comment-composer"
@@ -378,6 +404,7 @@ export function SignatureInteractions({
                       ]);
                     setContent('');
                     setReply(null);
+                    setComposerOpen(false);
                   }
                   await reload();
                 });
@@ -402,9 +429,10 @@ export function SignatureInteractions({
               <Send size={16} />
             </button>
           </form>
-        </div>
+          {op.error ? <p role="alert">{op.error}</p> : null}
+        </EditorDialog>
       ) : null}
-      {op.error ? <p role="status">{op.error}</p> : null}
+      {!composerOpen && op.error ? <p role="status">{op.error}</p> : null}
     </div>
   );
 }

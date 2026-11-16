@@ -5,6 +5,7 @@ import { QQWriteToggleRow } from '../QQWriteControls';
 import { ActionFeedback, ActionIcon, useQQAction, withQQAccountScope } from './shared';
 import { QueryError } from '../settings/controls';
 import { QqAvatar } from '../QqAvatar';
+import { EditorDialog } from '../EditorDialog';
 import { ProfileNavigationContext, profileTargetUser } from '../../lib/profileNavigation';
 import { useTabActive } from '../RetainedTabs';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
@@ -117,11 +118,7 @@ function PermissionKind({
           <span className="weq-qzone-permissions-count">{lists.data.length} 人</span>
         )}
         <div className="weq-qzone-permissions-tools">
-          <ActionIcon
-            label={`添加到${label}`}
-            disabled={disabled || adding}
-            onClick={() => setAdding(true)}
-          >
+          <ActionIcon label={`添加到${label}`} disabled={disabled} onClick={() => setAdding(true)}>
             <Plus size={16} />
           </ActionIcon>
         </div>
@@ -148,14 +145,20 @@ function PermissionKind({
         ))}
       </ul>
       {adding && (
-        <PermissionAdder
-          label={label}
-          action={action}
-          disabled={disabled}
-          existing={existing}
-          add={add}
+        <EditorDialog
+          title={`添加到${label}`}
           onClose={() => setAdding(false)}
-        />
+          busy={action.pending || action.busy}
+        >
+          <PermissionAdder
+            label={label}
+            action={action}
+            disabled={disabled}
+            existing={existing}
+            add={add}
+          />
+          <ActionFeedback action={action} />
+        </EditorDialog>
       )}
     </section>
   );
@@ -167,14 +170,12 @@ function PermissionAdder({
   disabled,
   existing,
   add,
-  onClose,
 }: {
   label: string;
   action: ReturnType<typeof useQQAction>;
   disabled: boolean;
   existing: Set<string>;
   add: (uin: string) => Promise<void>;
-  onClose: () => void;
 }) {
   const [keyword, setKeyword] = useState('');
   const needle = keyword.trim();
@@ -199,7 +200,6 @@ function PermissionAdder({
       >
         <Search size={15} aria-hidden />
         <input
-          autoFocus
           aria-label={`搜索好友或输入 QQ 号：${label}`}
           placeholder="搜索好友或输入 QQ 号"
           value={keyword}
@@ -215,9 +215,6 @@ function PermissionAdder({
         >
           <Plus size={16} />
         </button>
-        <ActionIcon label={`取消添加到${label}`} disabled={action.pending} onClick={onClose}>
-          <X size={16} />
-        </ActionIcon>
       </form>
       {needle && candidates.isFetching && <p role="status">正在搜索…</p>}
       {needle && candidates.error && (

@@ -40,6 +40,7 @@ import { trpc, client } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
+import { EditorDialog } from '../EditorDialog';
 import { Card, QueryError, Row, Toggle } from './controls';
 import '../../styles/settings-services.css';
 import {
@@ -233,10 +234,10 @@ export function ExternalRkeySection(): ReactElement {
             type="button"
             className="weq-set-btn weq-set-btn-sm"
             disabled={busy}
-            onClick={() => (form ? setForm(null) : startCreate())}
+            onClick={startCreate}
           >
-            {form ? <X size={13} /> : <Plus size={13} />}
-            {form ? '取消' : '导入新配置'}
+            <Plus size={13} />
+            导入新配置
           </button>
         }
       >
@@ -358,90 +359,111 @@ export function ExternalRkeySection(): ReactElement {
           </ul>
         )}
         {form ? (
-          <form
-            className="weq-set-server-form weq-set-server-form-wrap"
-            aria-label={form.id ? '编辑配置' : '导入新配置'}
-            onSubmit={(e) => void onSave(e)}
+          <EditorDialog
+            title={form.id ? '编辑配置' : '导入新配置'}
+            onClose={() => setForm(null)}
+            draft={form}
+            busy={busy}
+            bodyClassName="weq-set weq-service-settings"
           >
-            <div className="weq-set-server-form-title">{form.id ? '编辑配置' : '导入新配置'}</div>
-            <Row
-              label="名称"
-              desc="可选，默认取服务器地址的主机名。"
-              control={
-                <input
-                  className="weq-set-input"
-                  aria-label="RKEY 名称"
-                  value={form.name}
-                  spellCheck={false}
-                  placeholder="例如：瞌睡猫"
-                  onChange={(e) => updateField('name', e.target.value)}
+            {(requestClose) => (
+              <form
+                className="weq-set-server-form weq-set-server-form-wrap"
+                aria-label={form.id ? '编辑配置' : '导入新配置'}
+                onSubmit={(e) => void onSave(e)}
+              >
+                <Row
+                  label="名称"
+                  desc="可选，默认取服务器地址的主机名。"
+                  control={
+                    <input
+                      className="weq-set-input"
+                      aria-label="RKEY 名称"
+                      value={form.name}
+                      spellCheck={false}
+                      placeholder="例如：瞌睡猫"
+                      onChange={(e) => updateField('name', e.target.value)}
+                    />
+                  }
                 />
-              }
-            />
-            <Row
-              label="HTTP 服务器地址"
-              desc="结尾若带 /get_rkey_server 会自动去掉。"
-              control={
-                <input
-                  className="weq-set-input weq-set-input-wide"
-                  aria-label="RKEY HTTP 地址"
-                  value={form.baseUrl}
-                  spellCheck={false}
-                  autoComplete="off"
-                  placeholder="http://127.0.0.1:3000"
-                  onChange={(e) => updateField('baseUrl', e.target.value)}
+                <Row
+                  label="HTTP 服务器地址"
+                  desc="结尾若带 /get_rkey_server 会自动去掉。"
+                  control={
+                    <input
+                      className="weq-set-input weq-set-input-wide"
+                      aria-label="RKEY HTTP 地址"
+                      value={form.baseUrl}
+                      spellCheck={false}
+                      autoComplete="off"
+                      placeholder="http://127.0.0.1:3000"
+                      onChange={(e) => updateField('baseUrl', e.target.value)}
+                    />
+                  }
                 />
-              }
-            />
-            <Row
-              label="access_token"
-              desc="访问令牌，仅本机使用。"
-              control={
-                <div className="weq-set-keyfield weq-set-tokenfield">
-                  <KeyRound
-                    size={15}
-                    strokeWidth={1.8}
-                    className="weq-set-keyfield-icon"
-                    aria-hidden
-                  />
-                  <input
-                    className="weq-set-token-input"
-                    aria-label="RKEY access_token"
-                    type={revealToken ? 'text' : 'password'}
-                    value={form.accessToken}
-                    spellCheck={false}
-                    autoComplete="off"
-                    placeholder="access_token"
-                    onChange={(e) => updateField('accessToken', e.target.value)}
-                  />
+                <Row
+                  label="access_token"
+                  desc="访问令牌，仅本机使用。"
+                  control={
+                    <div className="weq-set-keyfield weq-set-tokenfield">
+                      <KeyRound
+                        size={15}
+                        strokeWidth={1.8}
+                        className="weq-set-keyfield-icon"
+                        aria-hidden
+                      />
+                      <input
+                        className="weq-set-token-input"
+                        aria-label="RKEY access_token"
+                        type={revealToken ? 'text' : 'password'}
+                        value={form.accessToken}
+                        spellCheck={false}
+                        autoComplete="off"
+                        placeholder="access_token"
+                        onChange={(e) => updateField('accessToken', e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        className="weq-set-iconbtn"
+                        title={revealToken ? '隐藏' : '显示'}
+                        aria-label={revealToken ? '隐藏 token' : '显示 token'}
+                        onClick={() => setRevealToken((v) => !v)}
+                      >
+                        {revealToken ? <EyeOff size={15} /> : <Eye size={15} />}
+                      </button>
+                    </div>
+                  }
+                />
+                <div className="weq-set-server-form-actions">
                   <button
                     type="button"
-                    className="weq-set-iconbtn"
-                    title={revealToken ? '隐藏' : '显示'}
-                    aria-label={revealToken ? '隐藏 token' : '显示 token'}
-                    onClick={() => setRevealToken((v) => !v)}
+                    className="weq-set-btn weq-set-btn-soft"
+                    onClick={requestClose}
                   >
-                    {revealToken ? <EyeOff size={15} /> : <Eye size={15} />}
+                    <X size={13} />
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-soft"
+                    disabled={testing}
+                    onClick={() => void onTestForm()}
+                  >
+                    {testing ? (
+                      <Loader2 size={13} className="weq-set-spin" />
+                    ) : (
+                      <RefreshCw size={13} />
+                    )}
+                    测试连接
+                  </button>
+                  <button type="submit" className="weq-set-btn" disabled={busy}>
+                    <Save size={13} aria-hidden="true" />
+                    保存
                   </button>
                 </div>
-              }
-            />
-            <div className="weq-set-server-form-actions">
-              <button
-                type="button"
-                className="weq-set-btn weq-set-btn-soft"
-                disabled={testing}
-                onClick={() => void onTestForm()}
-              >
-                {testing ? <Loader2 size={13} className="weq-set-spin" /> : <RefreshCw size={13} />}
-                测试连接
-              </button>
-              <button type="submit" className="weq-set-btn" disabled={busy}>
-                <Save size={13} aria-hidden="true" />
-                保存
-              </button>
-            </div>
-          </form>
+              </form>
+            )}
+          </EditorDialog>
         ) : null}
       </Card>
     </div>

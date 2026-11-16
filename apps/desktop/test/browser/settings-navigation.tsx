@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PageSnapshots } from '../../src/renderer/src/components/PageSnapshots';
 import { SettingsDialog } from '../../src/renderer/src/components/SettingsDialog';
+import { DialogHost } from '../../src/renderer/src/components/Dialog';
 import { WorkspacePages, WorkspaceContent } from '../../src/renderer/src/components/WorkspacePages';
 import { useSettingsNavigation } from '../../src/renderer/src/hooks/useSettingsNavigation';
 import { useThemeStore } from '../../src/renderer/src/state/theme';
@@ -48,6 +49,7 @@ function Fixture() {
             )}
           </div>
         </WorkspacePages>
+        <DialogHost />
       </PageSnapshots>
     </QueryClientProvider>
   );

@@ -185,21 +185,26 @@ describe('显式保存设置不以未变化禁用', () => {
       const f = mount(createElement(kind === 'rkey' ? ExternalRkeySection : SsePushSection));
       try {
         const edits = f.host.querySelectorAll<HTMLButtonElement>('[aria-label="编辑"]');
+        const editor = () => document.querySelector<HTMLElement>('.weq-editor-dialog')!;
+        const testButton = () =>
+          [...editor().querySelectorAll<HTMLButtonElement>('button')].find(
+            (button) => button.textContent?.trim() === '测试连接',
+          )!;
         act(() => edits[0]!.click());
-        await act(async () =>
-          f.host.querySelector<HTMLButtonElement>('.weq-set-server-form-actions button')!.click(),
-        );
+        await act(async () => testButton().click());
         expect(useToast.getState().toasts[0]!.loading).toBe(true);
         expect(state.mutate).toHaveBeenCalledWith(
           kind === 'rkey' ? 'bootstrap.testExternalRkeyServer' : 'bootstrap.testSsePushServer',
           expect.objectContaining({ accessToken: server.accessToken }),
         );
+        const cancel = [...editor().querySelectorAll<HTMLButtonElement>('button')].find(
+          (button) => button.textContent?.trim() === '取消',
+        )!;
+        act(() => cancel.click());
         act(() => edits[1]!.click());
+        expect(testButton().disabled).toBe(false);
         expect(
-          f.host.querySelector<HTMLButtonElement>('.weq-set-server-form-actions button')!.disabled,
-        ).toBe(false);
-        expect(
-          f.host.querySelector<HTMLInputElement>('.weq-set-server-form input[type="password"]')!
+          editor().querySelector<HTMLInputElement>('.weq-set-server-form input[type="password"]')!
             .value,
         ).toBe(other.accessToken);
         await act(async () => fail(Error('合成连接超时')));
@@ -210,7 +215,7 @@ describe('显式保存设置不以未变化禁用', () => {
         });
         expect(useDialog.getState().current).toBeNull();
         expect(
-          f.host.querySelector<HTMLInputElement>('.weq-set-server-form input[type="password"]')!
+          editor().querySelector<HTMLInputElement>('.weq-set-server-form input[type="password"]')!
             .value,
         ).toBe(other.accessToken);
       } finally {

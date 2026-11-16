@@ -6,7 +6,7 @@ import { ConversationActionsMenu } from '../../src/renderer/src/components/Conve
 import { Ellipsis } from 'lucide-react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SettingsDialog } from '../../src/renderer/src/components/SettingsDialog';
-import { Modal } from '../../src/renderer/src/components/Dialog';
+import { DialogHost, Modal } from '../../src/renderer/src/components/Dialog';
 import {
   ContactNoticeDialog,
   GroupNoticeDialog,
@@ -193,6 +193,7 @@ function Fixture() {
         <button type="button">弹层内容</button>
       </Modal>
       <style>{`html,body,#root{height:100%;margin:0}.fixture-settings{height:100%;background:var(--weq-bg-surface);color:var(--weq-fg-primary)}.fixture-chat{padding:24px}.fixture-conversation{width:100%;min-height:76px;text-align:left;padding:16px;border:0;border-bottom:1px solid var(--weq-border-subtle);background:var(--weq-bg-surface);color:var(--weq-fg-primary)}.fixture-settings>button,.fixture-settings>input{margin:24px;min-height:44px}.chat-header{display:flex;align-items:center;min-height:calc(52px + env(safe-area-inset-top));padding:0 12px}.chat-title{flex:1}.chat-actions{display:flex}.chat-main{background:var(--weq-chat-bg,var(--background))}.weq-workspace-content,.weq-workspace-split,.weq-workspace-primary{height:100%}.weq-workspace-page-host{height:100%}textarea{width:100%;box-sizing:border-box;min-height:100px}`}</style>
+      <DialogHost />
     </div>
   );
 }

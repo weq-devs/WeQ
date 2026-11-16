@@ -127,12 +127,16 @@ try {
       await about.locator('summary').click();
       await rkeyCard.getByRole('button', { name: '导入新配置', exact: true }).click();
       assert.equal(await rkeyCard.count(), 1);
-      assert.equal(await rkeyCard.getByRole('form', { name: '导入新配置' }).count(), 1);
-      await rkeyCard.getByLabel('RKEY HTTP 地址', { exact: true }).fill('https://example.invalid');
-      await rkeyCard.getByLabel('RKEY access_token', { exact: true }).fill('synthetic-token');
-      await rkeyCard.getByRole('button', { name: '显示 token', exact: true }).click();
-      assert.equal(await rkeyCard.getByLabel('RKEY access_token').getAttribute('type'), 'text');
-      await rkeyCard.getByRole('button', { name: '隐藏 token', exact: true }).click();
+      assert.equal(await rkeyCard.locator('form').count(), 0);
+      const rkeyEditor = page.getByRole('dialog', { name: '导入新配置', exact: true });
+      assert.equal(await rkeyEditor.getByRole('form', { name: '导入新配置' }).count(), 1);
+      await rkeyEditor
+        .getByLabel('RKEY HTTP 地址', { exact: true })
+        .fill('https://example.invalid');
+      await rkeyEditor.getByLabel('RKEY access_token', { exact: true }).fill('synthetic-token');
+      await rkeyEditor.getByRole('button', { name: '显示 token', exact: true }).click();
+      assert.equal(await rkeyEditor.getByLabel('RKEY access_token').getAttribute('type'), 'text');
+      await rkeyEditor.getByRole('button', { name: '隐藏 token', exact: true }).click();
       const rkeyLayout = await rkeyCard.evaluate((card) => {
         const head = card.querySelector('.weq-set-card-head');
         const title = head.querySelector('.weq-set-card-title').getBoundingClientRect();
@@ -151,14 +155,16 @@ try {
       assert(Object.values(rkeyLayout).every(Boolean), JSON.stringify(rkeyLayout));
       if (output)
         await page.screenshot({ path: resolve(output, `rkey-form-${width}-${theme}.png`) });
-      await page.getByRole('button', { name: '资源加载', exact: true }).click();
-      await page.getByText('当前设置尚未保存', { exact: true }).waitFor();
-      await page.getByRole('button', { name: '先保存', exact: true }).click();
+      await page.keyboard.press('Escape');
+      await page.getByRole('dialog', { name: '放弃未保存的修改？', exact: true }).waitFor();
+      await page.getByRole('button', { name: '继续编辑', exact: true }).click();
       assert.equal(
-        await rkeyCard.getByLabel('RKEY HTTP 地址').inputValue(),
+        await rkeyEditor.getByLabel('RKEY HTTP 地址').inputValue(),
         'https://example.invalid',
       );
-      await rkeyCard.getByRole('button', { name: '取消', exact: true }).click();
+      await rkeyEditor.getByRole('button', { name: '取消', exact: true }).click();
+      await page.getByRole('button', { name: '放弃修改', exact: true }).click();
+      await rkeyEditor.waitFor({ state: 'detached' });
       assert.equal(await rkeyCard.locator('form').count(), 0);
       await page.getByRole('button', { name: '资源加载', exact: true }).click();
       assert.equal(await page.locator('.weq-message-modal').count(), 0);
@@ -174,6 +180,21 @@ try {
         if (output)
           await page.screenshot({ path: resolve(output, `repair-${width}-${theme}.png`) });
       }
+      await openCategory('WeQ 服务');
+      await page.getByRole('button', { name: 'OneBot / cc-connect', exact: true }).click();
+      await page.getByRole('button', { name: 'WebSocket', exact: true }).click();
+      const serverEditor = page.getByRole('dialog', { name: '新建 WebSocket 服务器', exact: true });
+      await serverEditor.getByLabel('OneBot 服务器名称', { exact: true }).fill('嵌套编辑草稿');
+      await page.keyboard.press('Escape');
+      await page.getByRole('button', { name: '继续编辑', exact: true }).click();
+      assert.equal(
+        await serverEditor.getByLabel('OneBot 服务器名称', { exact: true }).inputValue(),
+        '嵌套编辑草稿',
+      );
+      await page.keyboard.press('Escape');
+      await page.getByRole('button', { name: '放弃修改', exact: true }).click();
+      await serverEditor.waitFor({ state: 'detached' });
+      assert.equal(await page.locator('.weq-settings-dialog').count(), 1);
       assert.equal(
         await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
         false,

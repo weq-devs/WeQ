@@ -16,6 +16,7 @@
  */
 
 import { useEffect, useState, type FormEvent, type ReactElement } from 'react';
+import { EditorDialog } from '../EditorDialog';
 import { z } from 'zod';
 import { usePageState } from '../PageSnapshots';
 import { useNumericSettingDraft } from './useNumericSettingDraft';
@@ -214,10 +215,10 @@ export function SsePushSection(): ReactElement {
             type="button"
             className="weq-set-btn weq-set-btn-sm"
             disabled={busy}
-            onClick={() => (form ? setForm(null) : startCreate())}
+            onClick={startCreate}
           >
-            {form ? <X size={13} /> : <Plus size={13} />}
-            {form ? '取消' : '新增推送目标'}
+            <Plus size={13} />
+            新增推送目标
           </button>
         }
       >
@@ -295,94 +296,107 @@ export function SsePushSection(): ReactElement {
           </ul>
         )}
         {form ? (
-          <div className="weq-set-server-form-wrap">
-            <div className="weq-set-server-form-title">
-              {form.id ? '编辑推送目标' : '新增推送目标'}
-            </div>
-            <form className="weq-set-server-form" onSubmit={(e) => void onSave(e)}>
-              <Row
-                label="名称"
-                desc="可选，默认取推送地址的主机部分。"
-                control={
-                  <input
-                    className="weq-set-input"
-                    aria-label="SSE 名称"
-                    value={form.name}
-                    spellCheck={false}
-                    placeholder="例如：SSE 接收端"
-                    onChange={(e) => updateField('name', e.target.value)}
-                  />
-                }
-              />
-              <Row
-                label="推送地址"
-                desc="接收端 HTTP 接口。示例接收端见仓库 scripts/sse_receive.mjs。"
-                control={
-                  <input
-                    className="weq-set-input weq-set-input-wide"
-                    aria-label="SSE 推送地址"
-                    value={form.pushUrl}
-                    spellCheck={false}
-                    autoComplete="off"
-                    placeholder="http://127.0.0.1:8899/push"
-                    onChange={(e) => updateField('pushUrl', e.target.value)}
-                  />
-                }
-              />
-              <Row
-                label="access_token"
-                desc="可选。接收端要求鉴权时填写，推送时以 Bearer 方式发送；留空则不发送 Authorization 头。"
-                control={
-                  <div className="weq-set-keyfield weq-set-tokenfield">
-                    <KeyRound
-                      size={15}
-                      strokeWidth={1.8}
-                      className="weq-set-keyfield-icon"
-                      aria-hidden
-                    />
+          <EditorDialog
+            title={form.id ? '编辑推送目标' : '新增推送目标'}
+            onClose={() => setForm(null)}
+            draft={form}
+            busy={busy}
+            bodyClassName="weq-set weq-service-settings"
+          >
+            {(requestClose) => (
+              <form className="weq-set-server-form" onSubmit={(e) => void onSave(e)}>
+                <Row
+                  label="名称"
+                  desc="可选，默认取推送地址的主机部分。"
+                  control={
                     <input
-                      className="weq-set-token-input"
-                      aria-label="SSE access_token"
-                      type={revealToken ? 'text' : 'password'}
-                      value={form.accessToken}
+                      className="weq-set-input"
+                      aria-label="SSE 名称"
+                      value={form.name}
+                      spellCheck={false}
+                      placeholder="例如：SSE 接收端"
+                      onChange={(e) => updateField('name', e.target.value)}
+                    />
+                  }
+                />
+                <Row
+                  label="推送地址"
+                  desc="接收端 HTTP 接口。示例接收端见仓库 scripts/sse_receive.mjs。"
+                  control={
+                    <input
+                      className="weq-set-input weq-set-input-wide"
+                      aria-label="SSE 推送地址"
+                      value={form.pushUrl}
                       spellCheck={false}
                       autoComplete="off"
-                      placeholder="可选，留空则无需鉴权"
-                      onChange={(e) => updateField('accessToken', e.target.value)}
+                      placeholder="http://127.0.0.1:8899/push"
+                      onChange={(e) => updateField('pushUrl', e.target.value)}
                     />
-                    <button
-                      type="button"
-                      className="weq-set-iconbtn"
-                      title={revealToken ? '隐藏' : '显示'}
-                      aria-label={revealToken ? '隐藏 token' : '显示 token'}
-                      onClick={() => setRevealToken((v) => !v)}
-                    >
-                      {revealToken ? <EyeOff size={15} /> : <Eye size={15} />}
-                    </button>
-                  </div>
-                }
-              />
-              <div className="weq-set-server-form-actions">
-                <button
-                  type="button"
-                  className="weq-set-btn weq-set-btn-soft"
-                  disabled={testing}
-                  onClick={() => void onTest()}
-                >
-                  {testing ? (
-                    <Loader2 size={13} className="weq-set-spin" />
-                  ) : (
-                    <RefreshCw size={13} />
-                  )}
-                  测试连接
-                </button>
-                <button type="submit" className="weq-set-btn" disabled={busy}>
-                  <Save size={13} aria-hidden="true" />
-                  保存
-                </button>
-              </div>
-            </form>
-          </div>
+                  }
+                />
+                <Row
+                  label="access_token"
+                  desc="可选。接收端要求鉴权时填写，推送时以 Bearer 方式发送；留空则不发送 Authorization 头。"
+                  control={
+                    <div className="weq-set-keyfield weq-set-tokenfield">
+                      <KeyRound
+                        size={15}
+                        strokeWidth={1.8}
+                        className="weq-set-keyfield-icon"
+                        aria-hidden
+                      />
+                      <input
+                        className="weq-set-token-input"
+                        aria-label="SSE access_token"
+                        type={revealToken ? 'text' : 'password'}
+                        value={form.accessToken}
+                        spellCheck={false}
+                        autoComplete="off"
+                        placeholder="可选，留空则无需鉴权"
+                        onChange={(e) => updateField('accessToken', e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        className="weq-set-iconbtn"
+                        title={revealToken ? '隐藏' : '显示'}
+                        aria-label={revealToken ? '隐藏 token' : '显示 token'}
+                        onClick={() => setRevealToken((v) => !v)}
+                      >
+                        {revealToken ? <EyeOff size={15} /> : <Eye size={15} />}
+                      </button>
+                    </div>
+                  }
+                />
+                <div className="weq-set-server-form-actions">
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-soft"
+                    onClick={requestClose}
+                  >
+                    <X size={13} />
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-soft"
+                    disabled={testing}
+                    onClick={() => void onTest()}
+                  >
+                    {testing ? (
+                      <Loader2 size={13} className="weq-set-spin" />
+                    ) : (
+                      <RefreshCw size={13} />
+                    )}
+                    测试连接
+                  </button>
+                  <button type="submit" className="weq-set-btn" disabled={busy}>
+                    <Save size={13} aria-hidden="true" />
+                    保存
+                  </button>
+                </div>
+              </form>
+            )}
+          </EditorDialog>
         ) : null}
       </Card>
 
