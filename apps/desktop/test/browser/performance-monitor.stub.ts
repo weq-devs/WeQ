@@ -12,6 +12,7 @@ const fixture = new URLSearchParams(location.search).get('state');
 let cleared = false;
 let revision = 0;
 let logDays = 7;
+let databaseReadConcurrency = 4;
 let debug = false;
 const listeners = new Set<() => void>();
 function notify() {
@@ -43,6 +44,7 @@ export const qa = {
   logReads: 0,
   storageBytes: 42_000,
   historyAgeDays: 40 / 1440,
+  databaseReadChanges: [] as number[],
 };
 function history(input: { from: number; to: number; process?: string }): MonitorHistory {
   const points: MonitorPoint[] = [];
@@ -125,9 +127,28 @@ export const trpc = {
     },
   }),
   bootstrap: {
+    databaseReadCapabilities: {
+      useQuery: (_input: unknown, options: object) =>
+        useFixtureQuery(
+          'databaseReadCapabilities',
+          { parallelAvailable: fixture !== 'legacy-native' },
+          options,
+        ),
+    },
     getSettings: {
       useQuery: (_input: unknown, options: object) =>
-        useFixtureQuery('settings', { logRetentionDays: logDays }, options),
+        useFixtureQuery(
+          'settings',
+          { logRetentionDays: logDays, databaseReadConcurrency },
+          options,
+        ),
+    },
+    setDatabaseReadConcurrency: {
+      useMutation: () =>
+        useFixtureMutation((input: { concurrency: number }) => {
+          databaseReadConcurrency = input.concurrency;
+          qa.databaseReadChanges.push(input.concurrency);
+        }),
     },
     setLogRetentionDays: {
       useMutation: () =>

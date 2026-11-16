@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { resolve } from 'node:path';
+import type { DatabaseReadTiming, NtHelperBinding } from '@weq/native';
 import {
   beginQueryTrace,
   databaseQueryDiagnostics,
@@ -9,11 +10,61 @@ import {
 } from './query_diagnostics';
 
 export type DatabasePriority = 'interactive' | 'background';
+export type DatabaseWorkload = 'latency' | 'bulk';
+export const DEFAULT_DATABASE_READ_CONCURRENCY = 4;
+export const MAX_DATABASE_READ_CONCURRENCY = 8;
+let readConcurrency = DEFAULT_DATABASE_READ_CONCURRENCY;
+let activeReadJobs = 0;
+let nextJobSequence = 0;
+const configuredBindings = new Set<NtHelperBinding>();
+const execution = new AsyncLocalStorage<{ job: Job; path: string }>();
+export function normalizeDatabaseReadConcurrency(
+  value: unknown,
+  fallback = DEFAULT_DATABASE_READ_CONCURRENCY,
+): number {
+  return typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= 1 &&
+    value <= MAX_DATABASE_READ_CONCURRENCY
+    ? value
+    : fallback;
+}
+export function configureDatabaseReadConcurrency(value: number): void {
+  if (normalizeDatabaseReadConcurrency(value, 0) === 0)
+    throw new Error('数据库读取并发上限必须为 1–8 的整数');
+  for (const binding of configuredBindings) binding.configureDatabaseReads?.(value);
+  readConcurrency = value;
+  for (const queue of queues.values()) queue.pump?.();
+}
+export function prepareDatabaseReadBinding(binding: NtHelperBinding): void {
+  const root = (bindingAliases.get(binding) ?? binding) as NtHelperBinding;
+  if (configuredBindings.has(root)) return;
+  root.configureDatabaseReads?.(readConcurrency);
+  configuredBindings.add(root);
+}
+export function currentDatabaseRead() {
+  const job = execution.getStore()?.job;
+  return {
+    bulk: (job?.workload ?? priority.getStore()?.workload) === 'bulk',
+    signal: job?.signal ?? databaseRequestSignal(),
+  };
+}
+export function recordNativeReadTiming(timing: DatabaseReadTiming): void {
+  const scope = execution.getStore();
+  if (!scope) return;
+  scope.job.nativeTiming = timing;
+  const data = metric(scope.path);
+  record(data.nativeQueue, timing.nativeQueueMs);
+  record(data.connectionWait, timing.connectionWaitMs);
+  record(data.connectionOpen, timing.connectionOpenMs);
+  record(data.execution, timing.executionMs);
+}
 export const SLOW_DATABASE_OPERATION_MS = 500;
 export interface SlowDatabaseOperation {
   priority: DatabasePriority;
   jsQueueWaitMs: number;
   nativePromiseAwaitMs: number;
+  nativeTiming?: DatabaseReadTiming;
   affectedQueryCount?: number;
   /** 仅本操作占用队列期间造成的阻塞，不含此前排队及取消后的时间。 */
   maxBlockedMs?: number;
@@ -35,7 +86,24 @@ export function observeSlowDatabaseOperations(
     observationThreshold = Math.min(...slowObservers.values());
   };
 }
-const priority = new AsyncLocalStorage<{ priority: DatabasePriority; signal?: AbortSignal }>();
+const priority = new AsyncLocalStorage<{
+  priority: DatabasePriority;
+  workload?: DatabaseWorkload;
+  signal?: AbortSignal;
+}>();
+export function withDatabaseWorkload<T>(workload: DatabaseWorkload, run: () => T): T {
+  const inherited = priority.getStore();
+  return priority.run(
+    {
+      get priority() {
+        return inherited?.priority ?? 'interactive';
+      },
+      signal: inherited?.signal,
+      workload,
+    },
+    run,
+  );
+}
 const readBudget = new AsyncLocalStorage<{
   milliseconds: number;
   onRead?: (milliseconds: number) => void;
@@ -65,6 +133,7 @@ export function withDatabasePriority<T>(
 ): T {
   return priority.run(
     {
+      workload: priority.getStore()?.workload ?? (value === 'background' ? 'bulk' : 'latency'),
       get priority() {
         return signal && promotedSignals.has(signal) ? 'interactive' : value;
       },
@@ -80,6 +149,7 @@ export function withDatabaseSignal<T>(signal: AbortSignal, run: () => T): T {
   const parentSignal = inherited?.signal;
   return priority.run(
     {
+      workload: inherited?.workload,
       get priority() {
         return inherited?.priority ?? 'interactive';
       },
@@ -116,6 +186,10 @@ function summary(data: Series) {
   };
 }
 interface Job {
+  sequence: number;
+  read: boolean;
+  workload: DatabaseWorkload;
+  nativeTiming?: DatabaseReadTiming;
   trace?: QueryTrace;
   at: number;
   startedAtMs?: number;
@@ -127,6 +201,9 @@ interface Job {
   abort(): void;
 }
 interface Queue {
+  binding: object;
+  active: Set<Job>;
+  pump?: () => void;
   path: string;
   running: boolean;
   interactiveBurst: number;
@@ -141,9 +218,10 @@ export function promoteDatabaseSignal(signal: AbortSignal): void {
   if (signal.aborted) return;
   promotedSignals.add(signal);
   for (const queue of queues.values()) {
-    if (queue.current?.signal === signal) {
-      queue.current.priority = 'interactive';
-      if (queue.current.trace) queue.current.trace.priority = 'interactive';
+    for (const job of queue.active) {
+      if (job.signal !== signal) continue;
+      job.priority = 'interactive';
+      if (job.trace) job.trace.priority = 'interactive';
       metric(queue.path).lastInteractiveAt = performance.now();
     }
     const jobs = queue.background.filter((job) => job.signal === signal);
@@ -153,6 +231,7 @@ export function promoteDatabaseSignal(signal: AbortSignal): void {
       if (job.trace) job.trace.priority = 'interactive';
       queue.interactive.push(job);
     }
+    queue.pump?.();
   }
 }
 const bindingAliases = new WeakMap<object, object>();
@@ -183,6 +262,10 @@ const metrics = new Map<
   {
     wait: Series;
     nativeAwait: Series;
+    nativeQueue: Series;
+    connectionWait: Series;
+    connectionOpen: Series;
+    execution: Series;
     phases: Partial<Record<MessageWorkPhase, Series>>;
     failed: number;
     rows: number;
@@ -198,6 +281,10 @@ function metric(key: string) {
     value = {
       wait: series(),
       nativeAwait: series(),
+      nativeQueue: series(),
+      connectionWait: series(),
+      connectionOpen: series(),
+      execution: series(),
       phases: {},
       failed: 0,
       rows: 0,
@@ -231,6 +318,7 @@ export function scheduleDatabase<T>(
   run: () => Promise<T>,
   binding: object = defaultBinding,
   source?: QuerySource,
+  options: { read?: boolean; bulk?: boolean } = {},
 ): Promise<T> {
   const path = resolve(dbPath),
     key = `${bindingId(binding)}:${path}`,
@@ -240,7 +328,15 @@ export function scheduleDatabase<T>(
   if (signal?.aborted) return Promise.reject(new DOMException('数据库读取已取消', 'AbortError'));
   let queue = queues.get(key);
   if (!queue) {
-    queue = { path, running: false, interactiveBurst: 0, interactive: [], background: [] };
+    queue = {
+      path,
+      binding,
+      active: new Set(),
+      running: false,
+      interactiveBurst: 0,
+      interactive: [],
+      background: [],
+    };
     queues.set(key, queue);
   }
   const state = queue,
@@ -266,12 +362,13 @@ export function scheduleDatabase<T>(
       const pending = state[job.priority].indexOf(job);
       if (pending < 0) return;
       state[job.priority].splice(pending, 1);
-      const running = state.current;
-      if (running?.startedAtMs !== undefined) {
-        const blockedMs = performance.now() - Math.max(job.at, running.startedAtMs);
-        if (blockedMs > 0) {
-          running.cancelledQueryCount = (running.cancelledQueryCount ?? 0) + 1;
-          running.maxCancelledBlockMs = Math.max(running.maxCancelledBlockMs ?? 0, blockedMs);
+      for (const running of state.active) {
+        if (running.startedAtMs !== undefined) {
+          const blockedMs = performance.now() - Math.max(job.at, running.startedAtMs);
+          if (blockedMs > 0) {
+            running.cancelledQueryCount = (running.cancelledQueryCount ?? 0) + 1;
+            running.maxCancelledBlockMs = Math.max(running.maxCancelledBlockMs ?? 0, blockedMs);
+          }
         }
       }
       if (job.trace) {
@@ -280,8 +377,19 @@ export function scheduleDatabase<T>(
       }
       signal?.removeEventListener('abort', abort);
       reject(new DOMException('数据库读取已取消', 'AbortError'));
+      state.pump?.();
+      if (
+        !state.active.size &&
+        !state.interactive.length &&
+        !state.background.length &&
+        queues.get(key) === state
+      )
+        queues.delete(key);
     };
     const job: Job = {
+      sequence: ++nextJobSequence,
+      read: options.read === true,
+      workload: options.bulk === true ? 'bulk' : (context?.workload ?? 'latency'),
       trace: beginQueryTrace(path, kind, source, state.current?.trace),
       at: performance.now(),
       priority: kind,
@@ -300,7 +408,8 @@ export function scheduleDatabase<T>(
           job.trace.outcome = 'running';
         }
         try {
-          const result = await run();
+          const result = await execution.run({ job, path }, run);
+          if (job.read) signal?.throwIfAborted();
           if (job.trace) {
             job.trace.outcome = 'ok';
             if (Array.isArray(result)) job.trace.rows = result.length;
@@ -338,6 +447,7 @@ export function scheduleDatabase<T>(
               priority: job.priority,
               jsQueueWaitMs,
               nativePromiseAwaitMs,
+              ...(job.nativeTiming ? { nativeTiming: job.nativeTiming } : {}),
               outcome,
               ...(job.trace?.source ?? source ?? {}),
               ...(nativePromiseAwaitMs > observationThreshold && affectedQueryCount
@@ -352,32 +462,61 @@ export function scheduleDatabase<T>(
     state[kind].push(job);
     signal?.addEventListener('abort', abort, { once: true });
     data.peakQueued = Math.max(data.peakQueued, state.interactive.length + state.background.length);
-    if (!state.running) {
-      state.running = true;
-      void (async () => {
-        try {
-          while (state.interactive.length || state.background.length) {
-            const foreground =
-              state.interactive.length > 0 &&
-              (state.interactiveBurst < 8 || !state.background.length);
-            const next = (foreground ? state.interactive : state.background).shift()!;
-            state.interactiveBurst = foreground ? state.interactiveBurst + 1 : 0;
-            state.current = next;
-            try {
-              await next.start();
-            } finally {
-              state.current = undefined;
-            }
-            // 批间让出，使 IPC 新请求有机会在下一条后台 SQL 前入队。
-            if (state.interactive.length || state.background.length)
-              await new Promise<void>((done) => setImmediate(done));
-          }
-        } finally {
-          state.running = false;
-          if (queues.get(key) === state) queues.delete(key);
+    const boundStart = AsyncLocalStorage.bind(job.start);
+    job.start = boundStart;
+    state.pump ??= () => {
+      const capable =
+        typeof (state.binding as Partial<NtHelperBinding>).executeDatabaseRead === 'function';
+      const limit = capable ? readConcurrency : 1;
+      if (state.active.size >= limit || [...state.active].some((item) => !item.read)) return;
+      while (state.interactive.length || state.background.length) {
+        const foreground =
+          state.interactive.length > 0 && (state.interactiveBurst < 8 || !state.background.length);
+        const pending = foreground ? state.interactive : state.background;
+        const writeAt = Math.min(
+          ...[...state.interactive, ...state.background]
+            .filter((item) => !item.read)
+            .map((item) => item.sequence),
+          Infinity,
+        );
+        const eligible = (item: Job) => {
+          if (!item.read) return state.active.size === 0;
+          if (activeReadJobs >= 32) return false;
+          if (item.sequence > writeAt) return false;
+          return (
+            item.workload !== 'bulk' ||
+            ![...state.active].some((active) => active.workload === 'bulk')
+          );
+        };
+        let index = pending.findIndex(eligible);
+        let selected = pending;
+        if (index < 0) {
+          selected = foreground ? state.background : state.interactive;
+          index = selected.findIndex(eligible);
         }
-      })();
-    }
+        if (index < 0) return;
+        const next = selected.splice(index, 1)[0]!;
+        state.interactiveBurst = selected === state.interactive ? state.interactiveBurst + 1 : 0;
+        state.active.add(next);
+        if (next.read) activeReadJobs++;
+        state.running = true;
+        state.current = state.active.values().next().value;
+        void next.start().finally(() => {
+          state.active.delete(next);
+          if (next.read) activeReadJobs--;
+          state.current = state.active.values().next().value;
+          state.running = state.active.size > 0;
+          if (!state.running && !state.interactive.length && !state.background.length) {
+            if (queues.get(key) === state) queues.delete(key);
+          }
+          setImmediate(() => {
+            for (const waiting of queues.values()) waiting.pump?.();
+          });
+        });
+        if (!next.read || state.active.size >= limit) return;
+      }
+    };
+    state.pump();
   });
 }
 
@@ -434,10 +573,13 @@ export function databasePerformance(dbPath: string) {
     schemaVersion: 1,
     jsQueueWait: summary(data.wait),
     nativePromiseAwait: summary(data.nativeAwait),
-    nativeExecutionMs: null,
-    nativeQueueMs: null,
+    nativeExecutionMs: data.execution.count ? summary(data.execution) : null,
+    nativeQueueMs: data.nativeQueue.count ? summary(data.nativeQueue) : null,
+    connectionWait: summary(data.connectionWait),
+    connectionOpen: summary(data.connectionOpen),
+    configuredReadConcurrency: readConcurrency,
     queued: waiting.length,
-    inFlight: active.filter((queue) => queue.running).length,
+    inFlight: active.reduce((sum, queue) => sum + queue.active.size, 0),
     oldestWaitMs: waiting.length
       ? Math.max(0, performance.now() - Math.min(...waiting.map((job) => job.at)))
       : 0,
@@ -451,7 +593,7 @@ export function databasePerformance(dbPath: string) {
     diagnostics: databaseQueryDiagnostics(
       key,
       active.flatMap((queue) =>
-        [queue.current, ...queue.interactive, ...queue.background].flatMap((job) =>
+        [...queue.active, ...queue.interactive, ...queue.background].flatMap((job) =>
           job?.trace ? [job.trace] : [],
         ),
       ),

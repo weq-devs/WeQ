@@ -422,6 +422,9 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     { stopsService: true },
   );
   app('logs', 'logRetentionDays', '日志保留天数', (days) => b.setLogRetentionDays({ days }));
+  app('database-read', 'databaseReadConcurrency', '数据库读取并发上限', (concurrency) =>
+    b.setDatabaseReadConcurrency({ concurrency }),
+  );
   if (!ctx.authorize) {
     const r = remoteRouter.createCaller(ctx);
     const u = updateRouter.createCaller(ctx);

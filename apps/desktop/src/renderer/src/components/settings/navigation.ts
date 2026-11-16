@@ -243,6 +243,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     from: ['diagnostics', 'performance-monitor', 'logs'],
   },
   { id: 'log-retention', section: 'logs', label: '日志保留时长', from: ['logs'] },
+  {
+    id: 'database-read-concurrency',
+    section: 'logs',
+    label: '数据库读取并发上限',
+    aliases: ['连接池', '并行读取', '查询排队'],
+    from: ['logs'],
+  },
   { id: 'log-folder', section: 'logs', label: '日志文件夹', from: ['logs'], desktopOnly: true },
   {
     id: 'native-debug-log',

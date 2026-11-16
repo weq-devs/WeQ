@@ -3,7 +3,7 @@
  *
  * Consumers:
  *   - `@weq/db`        wraps `NtHelperBinding` in `QqDb` for per-database
- *                      access (one cached connection per file)
+ *                      access (bounded cached read connections per file)
  *   - `@weq/platform`  exposes the loaded bundle via `platform.native`
  *
  * Nothing in this package depends on Electron at runtime — `process.resourcesPath`

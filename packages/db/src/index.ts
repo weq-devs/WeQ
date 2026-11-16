@@ -23,6 +23,11 @@ export { QqDb } from './qq_db';
 export type { QqDbOptions } from './qq_db';
 export {
   scheduleDatabase,
+  configureDatabaseReadConcurrency,
+  normalizeDatabaseReadConcurrency,
+  DEFAULT_DATABASE_READ_CONCURRENCY,
+  MAX_DATABASE_READ_CONCURRENCY,
+  withDatabaseWorkload,
   observeSlowDatabaseOperations,
   SLOW_DATABASE_OPERATION_MS,
   promoteDatabaseSignal,

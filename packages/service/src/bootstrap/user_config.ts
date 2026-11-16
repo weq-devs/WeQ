@@ -53,6 +53,11 @@ import { generateWeqAssistantUid } from '../account/weq_assistant';
 import { writeFileAtomicSync } from '../common/atomic_write';
 import { emitSettingsChanged } from '../common/settings_changes';
 import {
+  configureDatabaseReadConcurrency,
+  normalizeDatabaseReadConcurrency,
+  DEFAULT_DATABASE_READ_CONCURRENCY,
+} from '@weq/db';
+import {
   readPreferenceObject,
   type SharedPreferences,
   type SharedPreferenceGroups,
@@ -891,6 +896,8 @@ export interface AppSettings {
    * 文件名里的日期（`2026-09-20.log` / `nt_helper_2026-09-20.log`）。
    */
   logRetentionDays: number;
+  /** 同一数据库的并行只读上限；宿主级设置，所有账号和客户端共用。 */
+  databaseReadConcurrency: number;
   /** App-wide online Qzone page request budget, shared across accounts and exports. */
   qzonePagination: QzonePaginationSettings;
   /** 空友爱看自动换首页的冷却分钟数；0 表示每次进入都刷新。 */
@@ -1217,6 +1224,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   suppressDbDamageReminder: false,
   defaultExportDir: null,
   logRetentionDays: DEFAULT_LOG_RETENTION_DAYS,
+  databaseReadConcurrency: DEFAULT_DATABASE_READ_CONCURRENCY,
   qzonePagination: { ...DEFAULT_QZONE_PAGINATION },
   qzonePublicRefreshCooldownMinutes: DEFAULT_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES,
   qzoneForwardQuotePrevious: false,
@@ -1320,6 +1328,7 @@ export class UserConfigService {
       this.logger.warn('旧全局偏好迁移失败，保留原件等待重试', logErrorContext(error));
     }
     qzonePaginationLimiter.configure(this.getSettings().qzonePagination);
+    configureDatabaseReadConcurrency(this.getSettings().databaseReadConcurrency);
   }
 
   getSharedPreference<K extends keyof SharedPreferenceGroups>(key: K): SharedPreferenceGroups[K] {
@@ -2007,6 +2016,7 @@ export class UserConfigService {
       suppressDbDamageReminder: s?.suppressDbDamageReminder ?? d.suppressDbDamageReminder,
       defaultExportDir: s?.defaultExportDir ?? d.defaultExportDir,
       logRetentionDays: normalizeLogRetentionDays(s?.logRetentionDays) ?? d.logRetentionDays,
+      databaseReadConcurrency: normalizeDatabaseReadConcurrency(s?.databaseReadConcurrency),
       qzonePagination: normalizeQzonePagination(s?.qzonePagination),
       qzonePublicRefreshCooldownMinutes: normalizeQzonePublicRefreshCooldown(
         s?.qzonePublicRefreshCooldownMinutes,
@@ -2197,6 +2207,10 @@ export class UserConfigService {
         patch.defaultExportDir !== undefined ? patch.defaultExportDir : current.defaultExportDir,
       logRetentionDays:
         normalizeLogRetentionDays(patch.logRetentionDays) ?? current.logRetentionDays,
+      databaseReadConcurrency: normalizeDatabaseReadConcurrency(
+        patch.databaseReadConcurrency,
+        current.databaseReadConcurrency,
+      ),
       qzonePagination: normalizeQzonePagination(patch.qzonePagination, current.qzonePagination),
       qzonePublicRefreshCooldownMinutes: normalizeQzonePublicRefreshCooldown(
         patch.qzonePublicRefreshCooldownMinutes,
@@ -2276,6 +2290,7 @@ export class UserConfigService {
     };
     this.write({ settings: next });
     qzonePaginationLimiter.configure(next.qzonePagination);
+    configureDatabaseReadConcurrency(next.databaseReadConcurrency);
     this.logger.info('updated app settings', {
       event: 'set-settings',
       patchKeys: Object.keys(patch),

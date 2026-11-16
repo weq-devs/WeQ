@@ -135,6 +135,18 @@ export function wrapBindingForCorruption(
         const value = Reflect.get(target, prop, receiver);
         if (typeof value !== 'function') return value;
         const fn = value as (...args: unknown[]) => unknown;
+        if (prop === 'executeDatabaseRead' && target.executeDatabaseRead) {
+          return async (input: import('@weq/native').DatabaseReadRequest) => {
+            try {
+              const result = await target.executeDatabaseRead!(input);
+              if (result.error) report(result.error, input.dbPath);
+              return result;
+            } catch (error) {
+              report(error, input.dbPath);
+              throw error;
+            }
+          };
+        }
         if (typeof prop === 'string' && GUARDED_METHODS.has(prop)) {
           return (...args: unknown[]): unknown => {
             const dbPath = typeof args[0] === 'string' ? args[0] : '';

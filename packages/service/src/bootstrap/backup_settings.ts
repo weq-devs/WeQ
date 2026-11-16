@@ -410,6 +410,8 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
     number(input.autoLockMinutes, 'settings.autoLockMinutes', 0, 120);
   if (input.logRetentionDays !== undefined)
     number(input.logRetentionDays, 'settings.logRetentionDays', 0, MAX_LOG_RETENTION_DAYS);
+  if (input.databaseReadConcurrency !== undefined)
+    number(input.databaseReadConcurrency, 'settings.databaseReadConcurrency', 1, 8);
   if (input.appLock !== undefined) {
     const lock = record(input.appLock, 'settings.appLock');
     if (lock.method !== undefined && lock.method !== 'totp' && lock.method !== 'system')

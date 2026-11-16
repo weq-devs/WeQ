@@ -1023,6 +1023,10 @@ export interface NtHelperBinding {
   buildSsoPacket(req: SsoPacketRequest): Buffer;
 
   // --- SQL (cached connection per dbPath) ---
+  /** 有界多连接读取；旧组件缺少此入口时维持串行调度。 */
+  executeDatabaseRead?(input: DatabaseReadRequest): Promise<DatabaseReadResult>;
+  configureDatabaseReads?(concurrency: number): void;
+  cancelDatabaseRead?(requestId: string): boolean;
   executeSql(dbPath: string, sql: string, params?: SqlValue[] | null): Promise<SqlRow[]>;
   /** 可中断的有界只读查询；旧组件缺少此能力时不得退回普通长查询。 */
   executeSqlBudgeted?(
@@ -1711,3 +1715,28 @@ export type NativeBinding = Pick<
   | 'closeDb'
   | 'closeAllDb'
 >;
+export interface DatabaseReadRequest {
+  dbPath: string;
+  sql: string;
+  params?: SqlValue[] | null;
+  key?: string;
+  algo?: DatabaseAlgorithms;
+  requestId: string;
+  bulk?: boolean;
+  budgetMs?: number;
+  level?: number;
+  scan?: SalvageScanOptions;
+}
+export interface DatabaseReadTiming {
+  nativeQueueMs: number;
+  connectionWaitMs: number;
+  connectionOpenMs: number;
+  executionMs: number;
+}
+export interface DatabaseReadResult {
+  rows?: SqlRow[];
+  salvage?: SalvageQueryOutcome;
+  scan?: SalvageScanOutcome;
+  error?: string;
+  timing: DatabaseReadTiming;
+}

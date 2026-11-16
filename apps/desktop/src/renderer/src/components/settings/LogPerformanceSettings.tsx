@@ -11,6 +11,7 @@ import { SegmentedControl } from '../SegmentedControl';
 import { IconPicker } from '../ui/iconPicker';
 import { AutoSave } from './AutoSave';
 import { LogFileSettings } from './LogFileSettings';
+import { DatabaseReadSettings } from './DatabaseReadSettings';
 import { Card, QueryError, Row, SectionHeader } from './controls';
 import '../../styles/log-performance.css';
 
@@ -298,6 +299,7 @@ export default function LogPerformanceSettings() {
         {status.data?.error && <p role="alert">记录异常：{status.data.error}</p>}
       </Card>
       <LogFileSettings />
+      <DatabaseReadSettings />
       {message && (
         <p role="status" className="weq-diagnostic-feedback">
           {message}

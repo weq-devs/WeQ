@@ -1065,6 +1065,19 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  setDatabaseReadConcurrency: procedure
+    .input(z.object({ concurrency: z.number().int().min(1).max(8) }))
+    .mutation(
+      ({ input }) =>
+        requireBootstrap().userConfig.setSettings({ databaseReadConcurrency: input.concurrency })
+          .databaseReadConcurrency,
+    ),
+
+  databaseReadCapabilities: procedure.query(() => ({
+    parallelAvailable:
+      typeof getAppContext().platform?.native.ntHelper.executeDatabaseRead === 'function',
+  })),
+
   setQzonePublicRefreshCooldown: procedure
     .input(
       z.object({ minutes: z.number().int().min(0).max(MAX_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES) }),

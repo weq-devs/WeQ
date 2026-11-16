@@ -79,7 +79,12 @@ import { fullModeAllowed, requestFullMode } from '../../context/full_mode';
 import { onlineTranscriber } from '../../online_transcribe';
 import type { QuarantinedTable } from '@weq/native';
 import type { SalvageLedgerEntry } from '@weq/db';
-import { databasePerformance, withDatabasePriority, type DatabasePriority } from '@weq/db';
+import {
+  databasePerformance,
+  withDatabasePriority,
+  withDatabaseWorkload,
+  type DatabasePriority,
+} from '@weq/db';
 import { MessageReadWindows } from '../message_reads';
 import type { MessagePageStage, MessageReadWindow } from '../../../shared/message_read';
 import { classifyChatType, ProtoMsg } from '@weq/codec';
@@ -5237,13 +5242,15 @@ export const accountRouter = router({
       }),
     )
     .query(async ({ input }) => {
-      return requireServices().unifiedSearch.moreSearch(
-        input.category,
-        input.keyword,
-        input.offset,
-        input.limit,
-        input.conversationScope,
-        input.sources,
+      return withDatabaseWorkload('bulk', () =>
+        requireServices().unifiedSearch.moreSearch(
+          input.category,
+          input.keyword,
+          input.offset,
+          input.limit,
+          input.conversationScope,
+          input.sources,
+        ),
       );
     }),
 

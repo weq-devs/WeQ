@@ -176,6 +176,10 @@ html[data-theme='dark'] .weq-log-performance-window {
   .weq-log-performance-settings .weq-set-row-ctrl {
     max-width: 100%;
   }
+  html[data-theme] .weq-log-performance-settings .weq-set-row-main {
+    flex: none;
+    width: 100%;
+  }
   .weq-monitor-head {
     padding: 0 8px;
     gap: 12px;

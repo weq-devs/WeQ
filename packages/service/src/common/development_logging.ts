@@ -33,6 +33,7 @@ export function configureDevelopmentLogging(development: boolean, processName: s
             : 'database-cancelled',
         caller: sample.caller,
         nativePromiseAwaitMs: sample.nativePromiseAwaitMs,
+        ...(sample.nativeTiming ? { nativeTiming: sample.nativeTiming } : {}),
         ...(sample.affectedQueryCount
           ? { affectedQueryCount: sample.affectedQueryCount, maxBlockedMs: sample.maxBlockedMs }
           : {}),
