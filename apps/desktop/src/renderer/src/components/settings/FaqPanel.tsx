@@ -15,6 +15,7 @@ import { Card, SectionHeader } from './controls';
 
 const REMARK_PLUGINS = [remarkGfm];
 const PLUGINS = { code: shikiCodeHighlighter };
+const LINK_SAFETY = { enabled: false };
 
 export function FaqPanel(): ReactElement {
   const active = useTabActive();
@@ -51,6 +52,7 @@ export function FaqPanel(): ReactElement {
             <Streamdown
               remarkPlugins={REMARK_PLUGINS}
               plugins={PLUGINS}
+              linkSafety={LINK_SAFETY}
               parseIncompleteMarkdown={false}
             >
               {faq.data.text}
