@@ -50,7 +50,7 @@ function Fixture() {
     <main className="sync-fixture">
       <ClientStateSync />
       <section>
-        <h1>主题与背景</h1>
+        <h1>外观与布局</h1>
         <label>
           界面背景
           <select

@@ -21,7 +21,7 @@ const pages = {
 } as const;
 
 describe('功能目录与真实设置控件同步', () => {
-  it('移除后台服务搜索入口，关闭窗口相关搜索定位到提醒与窗口', () => {
+  it('移除后台服务搜索入口，关闭窗口相关搜索定位到启动与退出', () => {
     expect(
       APP_SEARCH_ENTRIES.some(
         (entry) =>
@@ -34,7 +34,7 @@ describe('功能目录与真实设置控件同步', () => {
         searchAppEntries(keyword).some(
           (entry) =>
             entry.target.kind === 'setting' &&
-            entry.target.section === 'global' &&
+            entry.target.section === 'startup' &&
             entry.target.settingId === 'window-close-behavior',
         ),
       ).toBe(true);

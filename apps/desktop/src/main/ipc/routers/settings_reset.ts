@@ -110,7 +110,7 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   app('window', 'windowCloseBehavior', '关闭窗口时', (behavior) =>
     b.setWindowCloseBehavior({ behavior }),
   );
-  app('window', 'windowsStyleControls', '仿 Windows 窗口按钮', (enabled) =>
+  app('window-appearance', 'windowsStyleControls', '仿 Windows 窗口按钮', (enabled) =>
     b.setWindowsStyleControls({ enabled }),
   );
   for (const kind of ['success', 'failure'] as const) {

@@ -67,6 +67,8 @@ import { PrivacySection } from './settings/PrivacySection';
 import { TypingStatusSettingsCard } from './settings/TypingStatusSettingsCard';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
 import { ComponentAppearance } from './settings/ComponentAppearance';
+import { WindowAppearanceCard } from './settings/WindowAppearanceCard';
+import { DesktopOnly } from '../lib/target';
 import { SegmentedControl } from './SegmentedControl';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { IntentSenseSection } from './settings/IntentSenseSection';
@@ -167,7 +169,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'global',
-    label: '提醒与窗口',
+    label: '通知与提醒',
     icon: <Settings2 size={16} strokeWidth={1.8} />,
     render: () => <GlobalSettingsSection />,
   },
@@ -179,7 +181,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'appearance',
-    label: '主题与背景',
+    label: '外观与布局',
     icon: <Palette size={16} strokeWidth={1.8} />,
     render: () => <AppearanceSection page="theme" />,
   },
@@ -400,7 +402,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'startup',
-    label: '启动与主页',
+    label: '启动与退出',
     icon: <Power size={16} />,
     render: () => <StartupSection />,
   },
@@ -951,7 +953,7 @@ function AppearanceSection({
           }
           title={
             page === 'theme'
-              ? '主题与背景'
+              ? '外观与布局'
               : category === 'reading'
                 ? '阅读与未读'
                 : category === 'sending'
@@ -991,6 +993,9 @@ function AppearanceSection({
           </Card>
 
           <ComponentAppearance />
+          <DesktopOnly>
+            <WindowAppearanceCard />
+          </DesktopOnly>
         </>
       )}
       {page === 'messages' && (

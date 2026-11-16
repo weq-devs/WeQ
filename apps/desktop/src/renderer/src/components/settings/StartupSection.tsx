@@ -1,5 +1,6 @@
-import { PlayCircle, Power } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { Minimize2, PlayCircle, Power } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import type { WindowCloseBehavior } from '@weq/service';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useDialog } from '../Dialog';
@@ -7,6 +8,13 @@ import { useToast } from '../Toast';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { SegmentedControl } from '../SegmentedControl';
 import { HomeSettingsSection } from './HomeSettingsSection';
+import { DesktopOnly, IS_WEB } from '../../lib/target';
+
+const CLOSE_BEHAVIOR_OPTIONS = [
+  { value: 'ask', label: '每次询问' },
+  { value: 'tray', label: '最小化到托盘' },
+  { value: 'quit', label: '直接退出' },
+] as const;
 
 export function StartupSection() {
   const refresh = useQQAutoRefresh(true);
@@ -15,6 +23,8 @@ export function StartupSection() {
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, refresh);
   const windowUpdate = trpc.bootstrap.setShowWindowOnAutostart.useMutation();
   const pageUpdate = trpc.bootstrap.setStartupPage.useMutation();
+  const closeUpdate = trpc.bootstrap.setWindowCloseBehavior.useMutation();
+  const [closeBehavior, setCloseBehavior] = useState<WindowCloseBehavior>('tray');
   const assistant = trpc.bootstrap.getWeqAssistantStatus.useQuery(undefined, refresh);
   const confirm = useDialog((state) => state.confirm);
   const [changing, setChanging] = useState(false);
@@ -22,6 +32,23 @@ export function StartupSection() {
   const showError = useDialog((state) => state.showError);
   const pushToast = useToast((state) => state.push);
   const data = status.data;
+  useEffect(() => {
+    const behavior = settings.data?.windowCloseBehavior;
+    if (behavior) setCloseBehavior(behavior);
+  }, [settings.data?.windowCloseBehavior]);
+
+  async function changeCloseBehavior(behavior: WindowCloseBehavior) {
+    const previous = closeBehavior;
+    setCloseBehavior(behavior);
+    try {
+      await closeUpdate.mutateAsync({ behavior });
+      await settings.refetch();
+    } catch (error) {
+      setCloseBehavior(previous);
+      await settings.refetch();
+      showError('保存关闭行为设置失败', error instanceof Error ? error.message : String(error));
+    }
+  }
   const label = status.error
     ? '读取失败'
     : status.isLoading
@@ -76,7 +103,7 @@ export function StartupSection() {
   }
   return (
     <div className="weq-set">
-      <SectionHeader icon={<Power size={16} />} title="启动与主页" />
+      <SectionHeader icon={<Power size={16} />} title="启动与退出" />
       <Card title="开机启动" icon={<Power size={15} strokeWidth={1.8} />} remoteUnsupported>
         <Row
           settingId="startup-enabled"
@@ -169,6 +196,40 @@ export function StartupSection() {
           }
         />
       </Card>
+      <DesktopOnly>
+        <Card
+          title="关闭窗口"
+          icon={<Minimize2 size={15} strokeWidth={1.8} />}
+          resetId="window"
+          remoteUnsupported
+        >
+          <Row
+            settingId="window-close-behavior"
+            label="关闭按钮"
+            desc={
+              closeBehavior === 'tray'
+                ? '点击关闭按钮后最小化到系统托盘，进程常驻后台，可从托盘图标恢复。'
+                : closeBehavior === 'quit'
+                  ? '点击关闭按钮后直接完全退出应用。'
+                  : '每次点击关闭按钮时弹窗询问，可选择最小化到托盘或完全退出。'
+            }
+            control={
+              <SegmentedControl
+                label="关闭按钮行为"
+                value={closeBehavior}
+                disabled={settings.isLoading || settings.isError || closeUpdate.isLoading}
+                options={CLOSE_BEHAVIOR_OPTIONS}
+                onChange={(behavior) => void changeCloseBehavior(behavior)}
+              />
+            }
+          />
+        </Card>
+      </DesktopOnly>
+      {IS_WEB ? (
+        <p className="weq-set-note" role="status">
+          浏览器模式下，窗口关闭行为由浏览器管理。
+        </p>
+      ) : null}
       <div data-setting-id="home-settings">
         <HomeSettingsSection />
       </div>

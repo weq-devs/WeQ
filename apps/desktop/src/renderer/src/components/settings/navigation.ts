@@ -3,9 +3,9 @@ import { AI_SETTING_ITEMS } from './aiSettingsCatalog';
 import { CONTACT_CARD_FIELDS, CONTACT_GROUP_FIELDS } from '@weq/service/contact-card';
 export const SETTINGS_PAGE_LABELS = {
   'contact-card': '联系人名片',
-  appearance: '主题与背景',
-  global: '提醒与窗口',
-  startup: '启动与主页',
+  appearance: '外观与布局',
+  global: '通知与提醒',
+  startup: '启动与退出',
   'weq-storage': 'WeQ 存储管理',
   'chat-messages': '阅读与未读',
   'message-display': '消息显示',
@@ -255,6 +255,22 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   { id: 'component-style', section: 'appearance', label: '组件风格', from: ['appearance'] },
   { id: 'interface-density', section: 'appearance', label: '界面密度', from: ['appearance'] },
+  {
+    id: 'windows-style-controls',
+    section: 'appearance',
+    label: '使用仿 Windows 窗口按钮',
+    aliases: ['窗口按钮', '红绿灯', '原生窗口'],
+    from: ['global', 'appearance'],
+    desktopOnly: true,
+  },
+  {
+    id: 'window-close-behavior',
+    section: 'startup',
+    label: '关闭窗口时',
+    aliases: ['关闭按钮行为', '关闭按钮', '最小化到托盘', '退出时停止'],
+    from: ['global', 'startup'],
+    desktopOnly: true,
+  },
   ...AI_SETTING_ITEMS.map(
     (item): ItemRedirect => ({
       ...item,
@@ -387,15 +403,6 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['qzone-blocked', 'qzone', '不让 ta 看我的空间', '空间黑名单'],
       ['qzone-hidden', 'qzone', '不看 ta 的空间', '屏蔽好友空间'],
       ['totp-authenticator', 'privacy', 'WeQ 验证器', '绑定验证器', 'TOTP'],
-      [
-        'window-close-behavior',
-        'global',
-        '关闭窗口时',
-        '关闭按钮行为',
-        '关闭按钮',
-        '最小化到托盘',
-        '退出时停止',
-      ],
       ['mcp-connection', 'mcp', '连接信息', 'MCP 客户端配置', '复制客户端配置', 'MCP 令牌'],
       ['mcp-install', 'mcp', '安装到本机 AI 客户端', '安装 MCP', 'MCP 自动配置'],
       ['sse-targets', 'sse', '已配置的推送目标', '推送地址', 'SSE access_token', '添加推送目标'],

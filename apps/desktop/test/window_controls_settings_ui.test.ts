@@ -1,10 +1,15 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import { GlobalSettingsSection } from '../src/renderer/src/components/settings/GlobalSettingsSection';
+import { WindowAppearanceCard } from '../src/renderer/src/components/settings/WindowAppearanceCard';
+import { StartupSection } from '../src/renderer/src/components/settings/StartupSection';
+import type { WindowCloseBehavior } from '@weq/service';
 
 const f = vi.hoisted(() => ({
-  settings: { windowsStyleControls: false },
+  settings: {
+    windowsStyleControls: false,
+    windowCloseBehavior: 'tray' as WindowCloseBehavior,
+  },
   save: vi.fn(),
   refetch: vi.fn(),
 }));
@@ -37,16 +42,13 @@ it.each(['darwin', 'linux', 'win32'])(
   async (platform) => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('electron', { process: { platform } });
-    f.settings = { windowsStyleControls: false };
+    f.settings = { windowsStyleControls: false, windowCloseBehavior: 'tray' };
     f.save.mockResolvedValue(true);
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);
     try {
-      await act(async () => root.render(createElement(GlobalSettingsSection)));
-      for (const label of ['新消息系统通知', '应用图标未读角标']) {
-        expect(host.querySelector(`[role="switch"][aria-label="${label}"]`)).not.toBeNull();
-      }
+      await act(async () => root.render(createElement(WindowAppearanceCard)));
       const toggle = host.querySelector<HTMLButtonElement>(
         '[role="switch"][aria-label="使用仿 Windows 窗口按钮"]',
       );
@@ -59,8 +61,8 @@ it.each(['darwin', 'linux', 'win32'])(
       await act(async () => toggle!.click());
       expect(f.save).toHaveBeenCalledWith({ enabled: true });
       expect(f.refetch).toHaveBeenCalledOnce();
-      f.settings = { windowsStyleControls: true };
-      act(() => root.render(createElement(GlobalSettingsSection)));
+      f.settings = { windowsStyleControls: true, windowCloseBehavior: 'tray' };
+      act(() => root.render(createElement(WindowAppearanceCard)));
       expect(toggle?.getAttribute('aria-checked')).toBe('true');
       await act(async () => toggle!.click());
       expect(f.save).toHaveBeenLastCalledWith({ enabled: false });
@@ -70,3 +72,31 @@ it.each(['darwin', 'linux', 'win32'])(
     }
   },
 );
+
+it('启动页保留已保存的关闭行为，修改立即保存且失败时回滚', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  f.settings = { windowsStyleControls: true, windowCloseBehavior: 'quit' };
+  f.save.mockResolvedValue(true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(createElement(StartupSection)));
+    const option = (label: string) =>
+      [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(
+        (node) => node.textContent === label,
+      )!;
+    expect(option('直接退出').getAttribute('aria-checked')).toBe('true');
+    await act(async () => option('每次询问').click());
+    expect(f.save).toHaveBeenLastCalledWith({ behavior: 'ask' });
+    expect(option('每次询问').getAttribute('aria-checked')).toBe('true');
+    expect(f.refetch).toHaveBeenCalledOnce();
+    f.save.mockRejectedValueOnce(new Error('合成写入失败'));
+    await act(async () => option('最小化到托盘').click());
+    expect(option('每次询问').getAttribute('aria-checked')).toBe('true');
+    expect(host.querySelector('[aria-label="使用仿 Windows 窗口按钮"]')).toBeNull();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});

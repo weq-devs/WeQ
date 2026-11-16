@@ -108,6 +108,32 @@ beforeEach(() => {
 });
 const caller = () => settingsResetRouter.createCaller({});
 describe('分级恢复默认', () => {
+  it('窗口外观和关闭行为随各自页面恢复，不再互相影响', async () => {
+    state.settings.windowsStyleControls = true;
+    state.settings.windowCloseBehavior = 'quit';
+    const appearance = await caller().preview({ page: 'appearance' });
+    const startup = await caller().preview({ page: 'startup' });
+    const notifications = await caller().preview({ page: 'global' });
+    expect(appearance.items.map((item) => item.id)).toContain(
+      'window-appearance:windowsStyleControls',
+    );
+    expect(appearance.items.map((item) => item.id)).not.toContain('window:windowCloseBehavior');
+    expect(startup.items.map((item) => item.id)).toContain('window:windowCloseBehavior');
+    expect(startup.items.map((item) => item.id)).not.toContain(
+      'window-appearance:windowsStyleControls',
+    );
+    expect(notifications.items.some((item) => item.id.startsWith('window'))).toBe(false);
+    state.calls = [];
+    await caller().restore({ page: 'appearance', card: 'window-appearance', source: null });
+    expect(state.calls).toEqual([
+      ['setWindowsStyleControls', { enabled: DEFAULT_APP_SETTINGS.windowsStyleControls }],
+    ]);
+    state.calls = [];
+    await caller().restore({ page: 'startup', card: 'window', source: null });
+    expect(state.calls).toEqual([
+      ['setWindowCloseBehavior', { behavior: DEFAULT_APP_SETTINGS.windowCloseBehavior }],
+    ]);
+  });
   it.each([
     [
       'message-display',

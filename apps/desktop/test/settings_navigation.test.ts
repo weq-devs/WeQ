@@ -6,6 +6,7 @@ import {
   SETTINGS_PAGE_LABELS,
   settingsGroupFor,
   settingsSectionFor,
+  resolveSettingsTarget,
 } from '../src/renderer/src/components/settings/navigation';
 
 describe('设置的两级导航', () => {
@@ -32,15 +33,34 @@ describe('设置的两级导航', () => {
     const entry = searchAppEntries(keyword)[0];
     expect(entry?.target).toMatchObject({ kind: 'setting', section: 'agentlab', settingId });
   });
-  it('常规首项合并为启动与主页，旧主页入口仍能定位', () => {
+  it('常规按启动、外观、通知和隐私分类，旧主页入口仍能定位', () => {
     expect(settingsGroupFor('startup').sections).toEqual([
       'startup',
       'appearance',
       'global',
       'privacy',
     ]);
-    expect(SETTINGS_PAGE_LABELS.startup).toBe('启动与主页');
+    expect(SETTINGS_PAGE_LABELS.startup).toBe('启动与退出');
+    expect(SETTINGS_PAGE_LABELS.appearance).toBe('外观与布局');
+    expect(SETTINGS_PAGE_LABELS.global).toBe('通知与提醒');
     expect(settingsSectionFor('home')).toBe('startup');
+  });
+  it.each([
+    ['使用仿 Windows 窗口按钮', 'windows-style-controls', 'appearance', '外观与布局'],
+    ['关闭按钮行为', 'window-close-behavior', 'startup', '启动与退出'],
+  ] as const)('%s 搜索与旧入口都定位新页面', (item, settingId, section, label) => {
+    expect(searchAppEntries(item)[0]).toMatchObject({
+      path: `设置 / 常规 / ${label}`,
+      target: { kind: 'setting', section, settingId },
+    });
+    expect(resolveSettingsTarget({ section: 'global', item })).toMatchObject({
+      section,
+      settingId,
+    });
+    expect(resolveSettingsTarget({ section: 'global', settingId })).toMatchObject({
+      section,
+      settingId,
+    });
   });
   it('关于第二项为 WeQ 存储管理，旧帮助和更新提醒深链归到新页面', () => {
     expect(settingsGroupFor('version').sections).toEqual([

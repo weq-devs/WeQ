@@ -10,7 +10,7 @@ import {
 
 describe('设置重构的规范目标与旧入口分流', () => {
   it.each(['global', 'chat-messages', 'message-display', 'chat-interaction'] as const)(
-    '%s 的消息提醒入口统一定位到提醒与窗口',
+    '%s 的消息提醒入口统一定位到通知与提醒',
     (section) => {
       for (const [settingId, item] of [
         ['message-system-notifications', '新消息系统通知'],

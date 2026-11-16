@@ -22,14 +22,12 @@ import {
   FolderOpen,
   HardDrive,
   Loader2,
-  Minimize2,
-  PanelsTopLeft,
   RotateCcw,
   Settings2,
   Trash2,
   User,
 } from 'lucide-react';
-import type { WindowCloseBehavior, StorageUsageItem } from '@weq/service';
+import type { StorageUsageItem } from '@weq/service';
 import { client, trpc } from '../../trpc/client';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useDialog } from '../Dialog';
@@ -41,9 +39,7 @@ import { Card, CheckPill, Row, SectionHeader, Toggle, SettingsNavigateContext } 
 import { useTabActive } from '../RetainedTabs';
 import { ToastSettingsCard } from './ToastSettingsCard';
 import { MessageNotificationRows } from './MessageNotificationRows';
-import { DesktopOnly, IS_WEB } from '../../lib/target';
 import { groupStorage, mergeStorageEntries } from '../../lib/storage-groups';
-import { supportsWindowsStyleControls } from '../../../../shared/window_controls';
 import '../../styles/storage-management.css';
 import { DataSaverSettings } from './DataSaverSettings';
 
@@ -61,14 +57,6 @@ function backupDescription(item: StorageUsageItem): string | null {
   return `${date} · ${status === 'linked' ? '已关联修复记录' : status === 'orphan' ? '无关联修复记录' : '未识别备份'}`;
 }
 
-/** Human-readable byte size for the cache-cleanup card. */
-/** 点击关闭按钮（标题栏 ✕）时的行为。 */
-const CLOSE_BEHAVIOR_OPTIONS: ReadonlyArray<{ value: WindowCloseBehavior; label: string }> = [
-  { value: 'ask', label: '每次询问' },
-  { value: 'tray', label: '最小化到托盘' },
-  { value: 'quit', label: '直接退出' },
-];
-
 export function GlobalSettingsSection({
   section = 'general',
   heading = true,
@@ -83,8 +71,6 @@ export function GlobalSettingsSection({
   const pushToast = useToast((s) => s.push);
   // 用来把「当前已登录的账号」标出来并禁掉它的删除按钮。
   const openedUin = useViewState((s) => s.openedUin);
-  // 初值与 DEFAULT_APP_SETTINGS 保持一致，否则首次渲染会先显示旧档位再跳变。
-  const [closeBehavior, setCloseBehavior] = useState<WindowCloseBehavior>('tray');
   const [preferCdn, setPreferCdn] = useState(false);
 
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
@@ -115,9 +101,6 @@ export function GlobalSettingsSection({
   const setAutoEnter = trpc.bootstrap.setAutoEnter.useMutation();
   const clearAutoEnter = trpc.bootstrap.clearAutoEnter.useMutation();
   const deleteAccount = trpc.bootstrap.deleteAccountConfig.useMutation();
-  const setWindowClose = trpc.bootstrap.setWindowCloseBehavior.useMutation();
-  const setWindowsStyle = trpc.bootstrap.setWindowsStyleControls.useMutation();
-  const platform = !IS_WEB ? window.electron?.process.platform : undefined;
   const setPreferCdnMut = trpc.bootstrap.setPreferCdn.useMutation();
 
   // 存储统计包含持久数据，选择与清理只针对后端明确标记的可清理项。
@@ -167,11 +150,6 @@ export function GlobalSettingsSection({
     (sum, item) => sum + item.bytes,
     0,
   );
-
-  useEffect(() => {
-    const behavior = settings.data?.windowCloseBehavior;
-    if (behavior) setCloseBehavior(behavior);
-  }, [settings.data?.windowCloseBehavior]);
 
   useEffect(() => {
     const enabled = settings.data?.preferCdn;
@@ -358,19 +336,6 @@ export function GlobalSettingsSection({
     }
   }
 
-  async function onSetCloseBehavior(behavior: WindowCloseBehavior): Promise<void> {
-    const prev = closeBehavior;
-    setCloseBehavior(behavior);
-    try {
-      await setWindowClose.mutateAsync({ behavior });
-      await settings.refetch();
-    } catch (e) {
-      setCloseBehavior(prev);
-      await settings.refetch();
-      showError('保存关闭行为设置失败', errMsg(e));
-    }
-  }
-
   async function onSetPreferCdn(next: boolean): Promise<void> {
     const prev = preferCdn;
     setPreferCdn(next);
@@ -394,7 +359,7 @@ export function GlobalSettingsSection({
           icon={<Settings2 size={16} strokeWidth={1.8} />}
           title={
             {
-              general: '提醒与窗口',
+              general: '通知与提醒',
               accounts: 'WeQ 账号管理',
               storage: 'WeQ 存储管理',
               logs: '日志',
@@ -404,85 +369,12 @@ export function GlobalSettingsSection({
         />
       )}
 
-      {/* Window close behavior */}
       {section === 'general' && (
         <>
           <Card title="消息提醒" icon={<Bell size={15} strokeWidth={1.8} />}>
             <MessageNotificationRows />
           </Card>
           <ToastSettingsCard />
-          <DesktopOnly>
-            <Card
-              title="窗口"
-              icon={<PanelsTopLeft size={15} strokeWidth={1.8} />}
-              remoteUnsupported
-            >
-              {platform && supportsWindowsStyleControls(platform) && (
-                <Row
-                  label={
-                    <span className="weq-set-row-icon">
-                      <PanelsTopLeft size={15} strokeWidth={1.8} aria-hidden />
-                      使用仿 Windows 窗口按钮
-                    </span>
-                  }
-                  desc={`在右上角使用最小化、最大化和关闭按钮，替代系统窗口按钮；账号选择页保持统一样式。${platform === 'linux' ? '主窗口重新进入账号后生效，独立窗口下次打开时生效。' : '主窗口立即生效，独立窗口下次打开时生效。'}`}
-                  control={
-                    <Toggle
-                      label="使用仿 Windows 窗口按钮"
-                      checked={settings.data?.windowsStyleControls ?? false}
-                      disabled={settings.isLoading || settings.isError || setWindowsStyle.isLoading}
-                      onChange={(enabled) => {
-                        void setWindowsStyle
-                          .mutateAsync({ enabled })
-                          .then(() => settings.refetch())
-                          .catch((error: unknown) =>
-                            showError('保存窗口按钮设置失败', errMsg(error)),
-                          );
-                      }}
-                    />
-                  }
-                />
-              )}
-              <Row
-                settingId="window-close-behavior"
-                label={
-                  <span className="weq-set-row-icon">
-                    <Minimize2 size={15} strokeWidth={1.8} aria-hidden />
-                    关闭按钮
-                  </span>
-                }
-                desc={
-                  closeBehavior === 'tray'
-                    ? '点击关闭按钮后最小化到系统托盘，进程常驻后台，可从托盘图标恢复。'
-                    : closeBehavior === 'quit'
-                      ? '点击关闭按钮后直接完全退出应用。'
-                      : '每次点击关闭按钮时弹窗询问，可选择最小化到托盘或完全退出。'
-                }
-                control={
-                  <div className="weq-set-seg" role="radiogroup" aria-label="关闭按钮行为">
-                    {CLOSE_BEHAVIOR_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        role="radio"
-                        aria-checked={closeBehavior === opt.value}
-                        className={`weq-set-seg-item${closeBehavior === opt.value ? ' is-on' : ''}`}
-                        disabled={settings.isLoading || setWindowClose.isLoading}
-                        onClick={() => void onSetCloseBehavior(opt.value)}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                }
-              />
-            </Card>
-          </DesktopOnly>
-          {IS_WEB ? (
-            <p className="weq-set-note" role="status">
-              浏览器模式下，窗口关闭行为由浏览器管理。
-            </p>
-          ) : null}
         </>
       )}
 

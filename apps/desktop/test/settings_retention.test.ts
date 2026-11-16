@@ -299,7 +299,7 @@ describe('设置二级页现场与活动生命周期', () => {
       expect(f.onClose).toHaveBeenCalledOnce();
       f.render(undefined, undefined, 1);
       expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
-        '启动与主页',
+        '启动与退出',
       );
       f.render('mcp', undefined, 2);
       expect(f.body().querySelector('[aria-label="MCP 端口"]')).not.toBeNull();
@@ -390,7 +390,7 @@ describe('设置二级页现场与活动生命周期', () => {
       expect(f.onClose).toHaveBeenCalledOnce();
       f.render(undefined, undefined, 1);
       expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
-        '启动与主页',
+        '启动与退出',
       );
       f.render('mcp');
       expect(f.body().querySelector<HTMLInputElement>('[aria-label="MCP 端口"]')!.value).toBe(
@@ -488,12 +488,12 @@ describe('设置二级页现场与活动生命周期', () => {
       });
       act(() =>
         [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')]
-          .find((button) => button.textContent === '主题与背景')!
+          .find((button) => button.textContent === '外观与布局')!
           .click(),
       );
       const back = [
         ...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item'),
-      ].find((button) => button.textContent === '提醒与窗口')!;
+      ].find((button) => button.textContent === '通知与提醒')!;
       act(() => {
         back.focus();
         back.click();

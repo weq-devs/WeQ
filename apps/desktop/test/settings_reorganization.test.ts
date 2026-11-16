@@ -579,7 +579,7 @@ describe('设置归位后的实际页面', () => {
     try {
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe('常规');
       expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
-        '启动与主页',
+        '启动与退出',
       );
       expect(f.onOpenMaintenance).not.toHaveBeenCalled();
     } finally {
@@ -636,15 +636,15 @@ describe('设置归位后的实际页面', () => {
       f.render('appearance', target);
       act(() =>
         [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')]
-          .find((button) => button.textContent === '提醒与窗口')!
+          .find((button) => button.textContent === '通知与提醒')!
           .click(),
       );
       expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
-        '提醒与窗口',
+        '通知与提醒',
       );
       f.render('appearance', { ...target, revision: 2 });
       expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
-        '主题与背景',
+        '外观与布局',
       );
       expect(f.body().querySelector('[data-search-highlight]')?.textContent).toContain('基础模式');
     } finally {
@@ -847,13 +847,13 @@ describe('设置归位后的实际页面', () => {
       f.close();
     }
   });
-  it('启动与主页按开机启动、启动页面、主页设置排列，旧主页入口定位到底部分区', () => {
+  it('启动与退出依次展示自启、启动页面、关闭窗口和主页，旧主页入口仍定位底部', () => {
     const f = mount('startup');
     try {
-      expect(f.body().querySelector('h3')?.textContent).toBe('启动与主页');
+      expect(f.body().querySelector('h3')?.textContent).toBe('启动与退出');
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((node) => node.textContent),
-      ).toEqual(['启动与主页', '主题与背景', '提醒与窗口', '隐私']);
+      ).toEqual(['启动与退出', '外观与布局', '通知与提醒', '隐私']);
       const ids = [...f.body().querySelectorAll('[data-setting-id]')].map((node) =>
         node.getAttribute('data-setting-id'),
       );
@@ -861,6 +861,7 @@ describe('设置归位后的实际页面', () => {
         'weq-config-management',
         'startup-enabled',
         'startup-page',
+        'window-close-behavior',
         'home-settings',
         'home-prefer-qqshow',
         'home-tags',
@@ -870,7 +871,7 @@ describe('设置归位后的实际页面', () => {
       expect(f.body().querySelector('.weq-set-row-label')?.textContent).toBe('开机自动启动');
       f.render('home');
       expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
-        '启动与主页',
+        '启动与退出',
       );
       expect(
         f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
@@ -887,6 +888,31 @@ describe('设置归位后的实际页面', () => {
           f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
         ).toBe(id);
       }
+    } finally {
+      f.close();
+    }
+  });
+  it('窗口外观与关闭行为分别归位，通知页不再保留窗口卡片', () => {
+    vi.stubGlobal('electron', { process: { platform: 'darwin' } });
+    const f = mount('global');
+    try {
+      expect(f.body().querySelector('h3')?.textContent).toBe('通知与提醒');
+      expect(f.body().querySelector('[aria-label="新消息系统通知"]')).not.toBeNull();
+      expect(f.body().querySelector('[data-setting-id="window-close-behavior"]')).toBeNull();
+      expect(f.body().querySelector('[data-setting-id="windows-style-controls"]')).toBeNull();
+      f.render('appearance');
+      expect(f.body().querySelector('[data-setting-id="windows-style-controls"]')).not.toBeNull();
+      expect(f.body().querySelector('[data-setting-id="window-close-behavior"]')).toBeNull();
+      f.render('global', { section: 'global', item: '使用仿 Windows 窗口按钮', revision: 1 });
+      expect(f.body().getAttribute('data-settings-page')).toBe('appearance');
+      expect(
+        f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
+      ).toBe('windows-style-controls');
+      f.render('global', { section: 'global', item: '关闭按钮行为', revision: 2 });
+      expect(f.body().getAttribute('data-settings-page')).toBe('startup');
+      expect(
+        f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
+      ).toBe('window-close-behavior');
     } finally {
       f.close();
     }
