@@ -152,7 +152,7 @@ export function TitleBarSearch({
           aria-label="清空搜索"
           onClick={() => {
             onQueryChange('');
-            input.current?.focus();
+            if (expanded && hasPanel) input.current?.focus();
           }}
         >
           <X size={20} aria-hidden />
