@@ -161,7 +161,7 @@ export function AppLockSection({ heading = true }: { heading?: boolean }): React
       const b = shellBridge();
       await b?.totp.remove();
       await queryClient.invalidateQueries({ queryKey: TOTP_STATUS_QUERY_KEY });
-      pushToast({ tone: 'success', title: '已解除', message: 'WeQ 验证器已解除绑定' });
+      pushToast({ tone: 'success', title: 'WeQ 验证器已解除绑定' });
     } catch (e) {
       showError('解除绑定失败', errMsg(e));
     }
@@ -338,8 +338,8 @@ export function AppLockSection({ heading = true }: { heading?: boolean }): React
             void queryClient.invalidateQueries({ queryKey: TOTP_STATUS_QUERY_KEY });
             pushToast({
               tone: 'success',
-              title: '绑定成功',
-              message: 'WeQ 验证器已生效，解锁时输入 6 位动态验证码即可。',
+              title: 'WeQ 验证器已绑定',
+              detail: '解锁时输入 6 位动态验证码即可。',
             });
           }}
         />

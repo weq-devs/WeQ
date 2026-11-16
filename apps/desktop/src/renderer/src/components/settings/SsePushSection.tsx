@@ -159,7 +159,7 @@ export function SsePushSection(): ReactElement {
     try {
       await deleteServer.mutateAsync({ id });
       await refetch();
-      pushToast({ tone: 'success', title: '已删除', message: `${name} 已从列表移除` });
+      pushToast({ tone: 'success', title: `推送目标「${name}」已移除` });
     } catch (err) {
       showError('删除失败', errMsg(err));
     }

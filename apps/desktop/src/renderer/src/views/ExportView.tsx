@@ -794,7 +794,7 @@ function ExportToolBody({
       onData: (progress) => {
         void utils.account.listExportTasks.invalidate();
         if (progress.notice) {
-          pushToast({ tone: 'warning', title: '导出提示', message: progress.notice, ttl: 5000 });
+          pushToast({ tone: 'warning', title: progress.notice, ttl: 5000 });
         }
       },
       onError: (err) => console.error('[export] progress subscription error', err),

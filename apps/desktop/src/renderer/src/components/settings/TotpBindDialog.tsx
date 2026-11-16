@@ -138,7 +138,7 @@ export function TotpBindDialog({
     if (!setup) return;
     try {
       await navigator.clipboard.writeText(setup.secret);
-      pushToast({ tone: 'success', title: '已复制', message: '验证器密钥已复制到剪贴板' });
+      pushToast({ tone: 'success', title: '验证器密钥已复制到剪贴板' });
     } catch (e) {
       showError('复制失败', errMsg(e));
     }

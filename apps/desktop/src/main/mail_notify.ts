@@ -16,7 +16,7 @@ export function handleMailNotification(uin: string, notice: MailNotice): void {
     return;
   const window = getMainWindow();
   if (window && !window.isDestroyed() && window.isFocused() && !window.isMinimized()) return;
-  const notification = new Notification({ title: 'QQ 邮箱', body: '收到新邮件。', silent: false });
+  const notification = new Notification({ title: 'QQ 邮箱收到新邮件', body: '', silent: false });
   notification.on('click', () => {
     const current = getAppContext();
     if (String(current.account?.context.uin) !== uin || current.services?.mail !== mail) return;

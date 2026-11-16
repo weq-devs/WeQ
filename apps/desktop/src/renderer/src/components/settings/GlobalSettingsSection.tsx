@@ -337,7 +337,7 @@ export function GlobalSettingsSection({
     try {
       await deleteAccount.mutateAsync({ configId: acc.configId });
       await Promise.all([accounts.refetch(), autoEnter.refetch()]);
-      pushToast({ tone: 'success', title: '已删除', message: `账号配置「${label}」已移除` });
+      pushToast({ tone: 'success', title: `账号配置「${label}」已移除` });
     } catch (e) {
       showError('删除账号配置失败', errMsg(e));
     }

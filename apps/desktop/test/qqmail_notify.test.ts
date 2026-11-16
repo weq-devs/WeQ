@@ -55,6 +55,9 @@ describe('邮箱系统通知', () => {
   it('只显示通用文案，当前账号点击后打开邮件', () => {
     handleMailNotification('12345678', notice);
     expect(mocks.show).toHaveBeenCalledTimes(1);
+    expect(mocks.options).toEqual([
+      expect.objectContaining({ title: 'QQ 邮箱收到新邮件', body: '' }),
+    ]);
     expect(JSON.stringify(mocks.options)).not.toContain('private-fixture');
     mocks.click!();
     expect(mocks.focus).toHaveBeenCalledOnce();

@@ -172,7 +172,7 @@ export function ExternalRkeySection(): ReactElement {
     try {
       await deleteServer.mutateAsync({ id });
       await refetch();
-      pushToast({ tone: 'success', title: '已删除', message: `${name} 已从列表移除` });
+      pushToast({ tone: 'success', title: `外部 rKey 服务器「${name}」已移除` });
     } catch (err) {
       showError('删除失败', errMsg(err));
     }
