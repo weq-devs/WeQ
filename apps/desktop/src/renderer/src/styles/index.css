@@ -20,6 +20,7 @@
 @import './export-save-actions.css';
 @import './conversation-list-row.css';
 @import './log-console-palette.css';
+@import './frozen-lists.css';
 
 /* streamdown 代码块用 Tailwind `dark:` 工具类切换 shiki 明/暗配色，但本项目暗色靠
  * html[data-theme="dark"]（同时 theme.ts 会 toggle .dark 类）。把 `dark:` variant 桥接到这两个

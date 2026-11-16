@@ -6,7 +6,7 @@
  *  - 小重叠：反过来，只有「几乎不重合」的群对才上色，最深的是最该互相认识的。
  *
  * 交互：悬停高亮整行整列并在左上角显示这一对的摘要；点击格子打开共同成员卡片。
- * 行列标签是群头像 + 群名，行首标签固定（滚动时列头跟着滚，行头不跟）。
+ * 行列标签是群头像 + 群名，分别固定在顶部与左侧，另一轴跟随格子滚动。
  */
 
 import { type CSSProperties, useMemo, useState } from 'react';
@@ -25,7 +25,7 @@ interface CellGeom {
 function geometry(count: number, showAvatars: boolean): CellGeom {
   const cell = count <= 24 ? 26 : count <= 40 ? 20 : count <= 60 ? 16 : count <= 90 ? 13 : 10;
   const labelW = showAvatars ? 172 : 132;
-  const headH = showAvatars ? 44 : 26;
+  const headH = showAvatars ? 44 : 48;
   return { cell, labelW, headH, width: labelW + count * cell, height: headH + count * cell };
 }
 
@@ -121,51 +121,57 @@ export function OverlapMatrix({
           className={`weq-ov-matrix-grid${geom.cell < 14 ? ' is-tight' : ''}`}
           style={{ width: geom.width, height: geom.height }}
         >
-          {/* 左上角留白 */}
-          <div className="weq-ov-matrix-corner" style={{ width: geom.labelW, height: geom.headH }}>
-            {direction === 'small' ? `≤ ${threshold} 人` : '共同成员'}
+          <div className="weq-ov-matrix-heads" style={{ height: geom.headH }}>
+            <div
+              className="weq-ov-matrix-corner"
+              style={{ width: geom.labelW, height: geom.headH }}
+            >
+              {direction === 'small' ? `≤ ${threshold} 人` : '共同成员'}
+            </div>
+            {groups.map((group, col) => (
+              <button
+                key={`c-${group.code}`}
+                type="button"
+                className={`weq-ov-matrix-head${hover?.b === group.code ? ' is-hot' : ''}${
+                  showAvatars ? ' has-avatar' : ''
+                }`}
+                style={{ left: geom.labelW + col * geom.cell, width: geom.cell }}
+                title={group.name}
+                onClick={() => setHover(null)}
+              >
+                {showAvatars ? (
+                  group.avatarUrl ? (
+                    <img src={group.avatarUrl} alt="" referrerPolicy="no-referrer" loading="lazy" />
+                  ) : (
+                    <span>{(group.name || '?').slice(0, 1)}</span>
+                  )
+                ) : (
+                  <span className="weq-ov-matrix-head-name">{group.name.slice(0, 4)}</span>
+                )}
+              </button>
+            ))}
           </div>
 
-          {/* 列头 */}
-          {groups.map((group, col) => (
-            <button
-              key={`c-${group.code}`}
-              type="button"
-              className={`weq-ov-matrix-head${hover?.b === group.code ? ' is-hot' : ''}${
-                showAvatars ? ' has-avatar' : ''
-              }`}
-              style={{ left: geom.labelW + col * geom.cell, width: geom.cell }}
-              title={group.name}
-              onClick={() => setHover(null)}
-            >
-              {showAvatars ? (
-                group.avatarUrl ? (
+          <div
+            className="weq-ov-matrix-rowheads"
+            style={{ width: geom.labelW, height: geom.height - geom.headH }}
+          >
+            {groups.map((group, row) => (
+              <div
+                key={`r-${group.code}`}
+                className={`weq-ov-matrix-rowhead${hover?.a === group.code ? ' is-hot' : ''}${
+                  showAvatars ? ' has-avatar' : ''
+                }`}
+                style={{ top: row * geom.cell, width: geom.labelW, height: geom.cell }}
+                title={group.name}
+              >
+                {showAvatars && group.avatarUrl ? (
                   <img src={group.avatarUrl} alt="" referrerPolicy="no-referrer" loading="lazy" />
-                ) : (
-                  <span>{(group.name || '?').slice(0, 1)}</span>
-                )
-              ) : (
-                <span className="weq-ov-matrix-head-name">{group.name.slice(0, 4)}</span>
-              )}
-            </button>
-          ))}
-
-          {/* 行头：横向滚动时跟着走（不在 sticky 区域里），所以和格子同一层。 */}
-          {groups.map((group, row) => (
-            <div
-              key={`r-${group.code}`}
-              className={`weq-ov-matrix-rowhead${hover?.a === group.code ? ' is-hot' : ''}${
-                showAvatars ? ' has-avatar' : ''
-              }`}
-              style={{ top: geom.headH + row * geom.cell, width: geom.labelW, height: geom.cell }}
-              title={group.name}
-            >
-              {showAvatars && group.avatarUrl ? (
-                <img src={group.avatarUrl} alt="" referrerPolicy="no-referrer" loading="lazy" />
-              ) : null}
-              <span className="weq-ov-matrix-rowname">{group.name}</span>
-            </div>
-          ))}
+                ) : null}
+                <span className="weq-ov-matrix-rowname">{group.name}</span>
+              </div>
+            ))}
+          </div>
 
           {/* 格子 */}
           {groups.map((rowGroup, row) =>

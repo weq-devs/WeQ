@@ -703,6 +703,7 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+  scroll-padding: 36px 0 0 52px;
 }
 
 .weq-cache-grid {
@@ -747,15 +748,24 @@
 }
 
 .weq-cache-grid-rownum {
-  width: 1%;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 52px;
+  width: 52px;
   color: #b0b8c4;
   text-align: right !important;
   font-variant-numeric: tabular-nums;
-  background: color-mix(in srgb, var(--weq-fg-primary) 3%, transparent);
+  background: color-mix(in srgb, var(--weq-bg-surface) 97%, var(--weq-fg-primary) 3%);
 }
 
 .weq-cache-grid thead .weq-cache-grid-rownum {
+  z-index: 3;
   color: #b0b8c4;
+}
+
+.weq-cache-grid tbody tr:hover .weq-cache-grid-rownum {
+  background: color-mix(in srgb, var(--weq-bg-surface) 95%, var(--weq-accent-effective) 5%);
 }
 
 .weq-cache-grid-actions {
@@ -2733,7 +2743,7 @@ html[data-theme='dark'] .weq-cache-sql-input {
 }
 
 html[data-theme='dark'] .weq-cache-grid-rownum {
-  background: rgba(255, 255, 255, 0.02);
+  background: color-mix(in srgb, var(--weq-bg-surface) 98%, var(--weq-fg-primary) 2%);
   color: #6c7889;
 }
 

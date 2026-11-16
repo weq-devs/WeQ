@@ -928,7 +928,12 @@ function GroupFileManagerBody({
           ))}
         </div>
       )}
-      <div className="weq-file-manager-table-scroll">
+      <div
+        className="weq-file-manager-table-scroll"
+        tabIndex={0}
+        role="region"
+        aria-label="群文件列表"
+      >
         <table className="weq-file-manager-table">
           <thead>
             <tr>

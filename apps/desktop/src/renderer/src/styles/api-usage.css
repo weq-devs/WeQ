@@ -285,13 +285,14 @@
 
 .weq-usage-accounting-table {
   min-width: 0;
-  overflow-x: auto;
-  scrollbar-color: var(--weq-border-strong) transparent;
+  /* 固定布局会换行；不要用横向滚动容器截断表头对设置页的吸顶。 */
+  overflow: visible;
 }
 
 .weq-usage-accounting-table table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 12px;
   table-layout: fixed;
 }
@@ -311,9 +312,16 @@
 }
 
 .weq-usage-accounting-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   font-weight: 500;
   color: var(--weq-fg-secondary);
   background: color-mix(in srgb, var(--weq-bg-surface) 70%, var(--muted));
+}
+
+.weq-usage-accounting-table button {
+  scroll-margin-top: 72px;
 }
 
 .weq-usage-accounting-table tbody th {

@@ -1863,13 +1863,28 @@ html[data-theme='dark'] .weq-rank-value {
   position: relative;
   min-height: 0;
   overflow: auto;
-  padding: 0 16px 10px;
+  margin: 0 16px;
+  padding: 0 0 10px;
   scrollbar-width: thin;
 }
 
 .weq-ov-matrix-grid {
   position: relative;
   margin: 0 auto;
+}
+
+.weq-ov-matrix-heads {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--weq-bg-surface);
+}
+
+.weq-ov-matrix-rowheads {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--weq-bg-surface);
 }
 
 .weq-ov-matrix-corner {
@@ -1882,7 +1897,7 @@ html[data-theme='dark'] .weq-rank-value {
   padding: 0 6px 4px;
   color: var(--weq-fg-muted);
   font-size: 10.5px;
-  background: color-mix(in srgb, var(--chat-surface) 86%, var(--weq-bg-surface));
+  background: var(--weq-bg-surface);
 }
 
 .weq-ov-matrix-head {
@@ -1890,7 +1905,7 @@ html[data-theme='dark'] .weq-rank-value {
   top: 0;
   display: grid;
   place-items: center;
-  height: 40px;
+  height: 100%;
   padding: 0;
   border: 0;
   background: transparent;
@@ -2311,8 +2326,10 @@ html[data-theme='dark'] .weq-ov-matrix-cell span {
 }
 
 html[data-theme='dark'] .weq-ov-matrix-corner,
-html[data-theme='dark'] .weq-ov-matrix-rowhead {
-  background: color-mix(in srgb, var(--weq-bg-surface) 70%, transparent);
+html[data-theme='dark'] .weq-ov-matrix-rowhead,
+html[data-theme='dark'] .weq-ov-matrix-heads,
+html[data-theme='dark'] .weq-ov-matrix-rowheads {
+  background: var(--weq-bg-surface);
 }
 
 html[data-theme='dark'] .weq-ov-paircard-group {
