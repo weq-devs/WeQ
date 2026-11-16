@@ -139,7 +139,13 @@ export function ModelRequestLog({
               <details>
                 <summary>
                   {block.ts !== undefined ? (
-                    <time>{preciseClockFormatter.format(block.ts)}</time>
+                    <time>
+                      {
+                        <span className="weq-number weq-number-inherit">
+                          {preciseClockFormatter.format(block.ts)}
+                        </span>
+                      }
+                    </time>
                   ) : null}
                   {block.label}
                 </summary>
@@ -149,7 +155,13 @@ export function ModelRequestLog({
               <>
                 <header>
                   {block.ts !== undefined ? (
-                    <time>{preciseClockFormatter.format(block.ts)}</time>
+                    <time>
+                      {
+                        <span className="weq-number weq-number-inherit">
+                          {preciseClockFormatter.format(block.ts)}
+                        </span>
+                      }
+                    </time>
                   ) : null}
                   <span>{block.label}</span>
                 </header>

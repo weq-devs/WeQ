@@ -77,7 +77,9 @@ export function CalendarConversationList({
                 <small>{CALENDAR_SOURCE_LABELS[target.kind]}</small>
               </span>
               <span title={`${stored.count.toLocaleString('zh-CN')} 条`}>
-                {stored.count.toLocaleString('zh-CN')}
+                <span className="weq-number weq-number-inherit">
+                  {stored.count.toLocaleString('zh-CN')}
+                </span>
                 {complete ? '' : '+'}
               </span>
             </button>

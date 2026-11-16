@@ -146,7 +146,8 @@ export function DonutChart({
               <span className="ba-donut-dot" style={{ background: s.color }} />
               <span className="ba-donut-lbl">{s.label}</span>
               <span className="ba-donut-val">
-                {formatNumber(s.value)} · {pct}%
+                <span className="weq-number weq-number-inherit">{formatNumber(s.value)}</span> ·{' '}
+                <span className="weq-number weq-number-inherit">{pct}</span>%
               </span>
             </div>
           );
@@ -176,7 +177,13 @@ export function HourlyBarChart({
         return (
           // biome-ignore lint/suspicious/noArrayIndexKey: 固定 24 小时槽位,索引即稳定键
           <div className="ga-bar-col" key={hour}>
-            <div className="ga-bar-value-label">{value > 0 ? formatNumber(value) : ''}</div>
+            <div className="ga-bar-value-label">
+              {value > 0 ? (
+                <span className="weq-number weq-number-inherit">{formatNumber(value)}</span>
+              ) : (
+                ''
+              )}
+            </div>
             <div className="ga-bar-track">
               <div
                 className="ga-bar-fill"
@@ -186,7 +193,9 @@ export function HourlyBarChart({
                 }}
               />
             </div>
-            <div className="ga-bar-hour-label">{hour}</div>
+            <div className="ga-bar-hour-label">
+              <span className="weq-number weq-number-inherit">{hour}</span>
+            </div>
           </div>
         );
       })}
@@ -290,8 +299,15 @@ export function ContributionHeatmap({ data }: { data: DailyActivityItem[] }) {
     <div className="ga-heatmap">
       <div className="ga-hm-meta">
         <span>
-          共 <strong>{formatNumber(model.total)}</strong> 条消息 · 活跃{' '}
-          <strong>{model.activeDays}</strong> 天
+          共{' '}
+          <strong>
+            <span className="weq-number weq-number-inherit">{formatNumber(model.total)}</span>
+          </strong>{' '}
+          条消息 · 活跃{' '}
+          <strong>
+            <span className="weq-number weq-number-inherit">{model.activeDays}</span>
+          </strong>{' '}
+          天
         </span>
       </div>
       <div className="ga-hm-scroll">

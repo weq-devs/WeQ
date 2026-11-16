@@ -27,6 +27,7 @@
  * 「关了界面还在后台偷偷上报位置」这种事。
  */
 
+import { NumericText } from '../../components/NumericText';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
@@ -431,7 +432,7 @@ export function LocationSharePanel({
         </div>
         <span className={cn('lbs-count')} title="共享中的成员">
           <Users size={13} strokeWidth={2} />
-          {active ? othersCount + 1 : 0}
+          <span className="weq-number weq-number-inherit">{active ? othersCount + 1 : 0}</span>
         </span>
       </header>
 
@@ -524,9 +525,11 @@ export function LocationSharePanel({
             <span className={cn('lbs-status')}>
               <span className={cn('lbs-live-dot')} aria-hidden />
               {session.status === 2 ? '已结束' : '共享中'}
-              {session.lastReportAt
-                ? ` · ${Math.max(0, Math.round((Date.now() - session.lastReportAt) / 1000))}s 前上报`
-                : ''}
+              <NumericText>
+                {session.lastReportAt
+                  ? ` · ${Math.max(0, Math.round((Date.now() - session.lastReportAt) / 1000))}s 前上报`
+                  : ''}
+              </NumericText>
             </span>
             <button type="button" className={cn('lbs-stop')} title="停止共享" onClick={handleStop}>
               <Square size={12} strokeWidth={2.6} />

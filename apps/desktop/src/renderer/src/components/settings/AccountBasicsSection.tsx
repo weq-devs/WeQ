@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import * as timeFormat from '@weq/time';
 import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 /**
@@ -471,7 +472,7 @@ export function AccountBasicsSection({
                     <li key={`${r.type}-${i}`} className="weq-set-rkey-item">
                       <div className="weq-set-rkey-head">
                         <span className="weq-set-rkey-type">
-                          {RKEY_TYPE_LABEL[r.type] ?? `类型 ${r.type}`}
+                          <NumericText>{RKEY_TYPE_LABEL[r.type] ?? `类型 ${r.type}`}</NumericText>
                         </span>
                         <span className={`weq-set-rkey-exp${exp.expired ? ' is-expired' : ''}`}>
                           {exp.text}
@@ -493,7 +494,12 @@ export function AccountBasicsSection({
             )}
             {cfg?.rkeyUpdatedAt ? (
               <p className="weq-set-note">
-                最近更新：{eventTimeFormatter.format(new Date(cfg.rkeyUpdatedAt))}
+                最近更新：
+                {
+                  <span className="weq-number weq-number-inherit">
+                    {eventTimeFormatter.format(new Date(cfg.rkeyUpdatedAt))}
+                  </span>
+                }
               </p>
             ) : null}
           </Card>
@@ -529,7 +535,10 @@ export function AccountBasicsSection({
             ) : (
               <div className="weq-set-rkey-item">
                 <div className="weq-set-rkey-head">
-                  <span className="weq-set-rkey-type">Key Index {clientKey.keyIndex}</span>
+                  <span className="weq-set-rkey-type">
+                    Key Index{' '}
+                    <span className="weq-number weq-number-inherit">{clientKey.keyIndex}</span>
+                  </span>
                   <span
                     className={`weq-set-rkey-exp${
                       formatExpiry(Math.floor(clientKey.fetchedAt / 1000), clientKey.ttlSeconds)

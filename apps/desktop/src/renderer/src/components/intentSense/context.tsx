@@ -10,6 +10,7 @@
  * 后 bump 一次。
  */
 
+import { NumericText } from '../NumericText';
 import {
   createContext,
   useCallback,
@@ -511,9 +512,11 @@ export function IntentSenseProvider({
                 : `已处理 ${visibleBatch.completed ?? 0}/${visibleBatch.total}，成功 ${visibleBatch.succeeded ?? 0}，失败 ${visibleBatch.failed ?? 0}`
             }
           >
-            {visibleBatch.error
-              ? `分析未完成：${visibleBatch.error}`
-              : `分析未完成：${visibleBatch.failed} 条消息失败`}
+            {visibleBatch.error ? (
+              `分析未完成：${visibleBatch.error}`
+            ) : (
+              <NumericText>{`分析未完成：${visibleBatch.failed} 条消息失败`}</NumericText>
+            )}
           </span>
           <button
             type="button"

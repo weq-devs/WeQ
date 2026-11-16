@@ -1,3 +1,4 @@
+import { NumericText } from '../components/NumericText';
 import { EmptyState } from '../components/EmptyState';
 import { TimeLabel } from '../components/TimeLabel';
 import * as timeFormat from '@weq/time';
@@ -140,10 +141,18 @@ function PersonaParamsPanel({
 
       <Row label="统计">
         <span className="weq-pp-stats">
-          源消息 {stats.sourceMessageCount} · 对方 {stats.friendMessageCount} · 轮次{' '}
-          {stats.turnCount} · 问答对 {stats.pairCount} · 均字 {stats.avgFriendMsgChars} · 连发{' '}
-          {stats.avgFriendBurst} · 语料 {stats.corpusChars} 字
-          {stats.groupStyleMessageCount > 0 ? ` · 群补采 ${stats.groupStyleMessageCount} 条` : ''}
+          源消息 <span className="weq-number weq-number-inherit">{stats.sourceMessageCount}</span> ·
+          对方 <span className="weq-number weq-number-inherit">{stats.friendMessageCount}</span> ·
+          轮次 <span className="weq-number weq-number-inherit">{stats.turnCount}</span> · 问答对{' '}
+          <span className="weq-number weq-number-inherit">{stats.pairCount}</span> · 均字{' '}
+          <span className="weq-number weq-number-inherit">{stats.avgFriendMsgChars}</span> · 连发{' '}
+          <span className="weq-number weq-number-inherit">{stats.avgFriendBurst}</span> · 语料{' '}
+          <span className="weq-number weq-number-inherit">{stats.corpusChars}</span> 字
+          {stats.groupStyleMessageCount > 0 ? (
+            <NumericText>{` · 群补采 ${stats.groupStyleMessageCount} 条`}</NumericText>
+          ) : (
+            ''
+          )}
         </span>
       </Row>
       <Row label="语气">{card.tone || profile.styleSummary || '—'}</Row>
@@ -172,7 +181,8 @@ function PersonaParamsPanel({
           <div className="weq-pp-stickers">
             {stickers.map((s) => (
               <span key={`${s.description}-${s.scenario}-${s.count}`} className="weq-pp-sticker">
-                ×{s.count} {s.description || '（未解读）'}
+                ×<span className="weq-number weq-number-inherit">{s.count}</span>{' '}
+                {s.description || '（未解读）'}
                 {s.scenario ? `（${s.scenario}）` : ''}
               </span>
             ))}
@@ -192,7 +202,9 @@ function PersonaParamsPanel({
 
       <details className="weq-pp-samples">
         <summary>
-          代表样本 {fewShots.length} 组 / 真实问答对抽样 {detail.pairs.length} 条
+          代表样本 {<span className="weq-number weq-number-inherit">{fewShots.length}</span>} 组 /
+          真实问答对抽样{' '}
+          {<span className="weq-number weq-number-inherit">{detail.pairs.length}</span>} 条
         </summary>
         <div className="weq-pp-samples-body">
           {fewShots.map((pair) => (

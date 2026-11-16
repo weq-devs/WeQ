@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import {
   Fragment,
   useEffect,
@@ -576,9 +577,12 @@ export function CurrentTaskList({
           />
           <p>
             {task.filesetName} · 已完成{' '}
-            {task.files?.filter((file) => file.status === 'done').length ??
-              (task.status === 'done' ? 1 : 0)}{' '}
-            / {task.files?.length ?? 1} 个文件
+            <span className="weq-number weq-number-inherit">
+              {task.files?.filter((file) => file.status === 'done').length ??
+                (task.status === 'done' ? 1 : 0)}
+            </span>{' '}
+            / <span className="weq-number weq-number-inherit">{task.files?.length ?? 1}</span>{' '}
+            个文件
           </p>
           {(task.files?.length ?? 1) === 1 ? <p>{task.targetPath}</p> : null}
           <ul className="weq-flash-task-files" aria-label="下载文件">
@@ -596,7 +600,12 @@ export function CurrentTaskList({
                       cancelled: '已取消',
                     }[file.status]
                   }{' '}
-                  · {formatSize(file.downloadedBytes)} / {formatSize(file.fileSize)}
+                  ·{' '}
+                  <span className="weq-number weq-number-inherit">
+                    {formatSize(file.downloadedBytes)}
+                  </span>{' '}
+                  /{' '}
+                  <span className="weq-number weq-number-inherit">{formatSize(file.fileSize)}</span>
                 </span>
                 <TaskProgressBar
                   value={
@@ -876,7 +885,8 @@ export function CurrentTaskList({
       <header className="weq-current-tasks-head">
         <div className="weq-current-tasks-summary">
           <span>
-            {items.length} 项任务{running ? ` · ${running} 项进行中` : ''}
+            <span className="weq-number weq-number-inherit">{items.length}</span> 项任务
+            <NumericText>{running ? ` · ${running} 项进行中` : ''}</NumericText>
           </span>
           {toolbarAction}
         </div>

@@ -7,6 +7,7 @@
  *
  * 布局：紧凑文件列表，单次下载操作作为一个任务进入常规任务列表。
  */
+import { NumericText } from './NumericText';
 import { formatBytes as formatSize } from '../lib/format';
 import {
   useCallback,
@@ -495,7 +496,9 @@ export function FlashTransferViewer({
               />
               <span>全选</span>
             </label>
-            <span className="weq-ft-count">{loading ? '读取中' : `${entries.length} 项`}</span>
+            <span className="weq-ft-count">
+              {loading ? '读取中' : <NumericText>{`${entries.length} 项`}</NumericText>}
+            </span>
             {current.zipFileId ? (
               <span className="weq-ft-toolbar-hint">正在浏览压缩包内容</span>
             ) : null}
@@ -560,7 +563,13 @@ export function FlashTransferViewer({
                           {file.name}
                         </span>
                         <span className="weq-ft-card-meta">
-                          {file.isDir ? '文件夹' : formatSize(file.fileSize)}
+                          {file.isDir ? (
+                            '文件夹'
+                          ) : (
+                            <span className="weq-number weq-number-inherit">
+                              {formatSize(file.fileSize)}
+                            </span>
+                          )}
                           {!ready && !file.isDir ? ' · 等待上传' : ''}
                         </span>
                       </div>
@@ -600,9 +609,11 @@ export function FlashTransferViewer({
 
           <footer className="weq-ft-foot">
             <span className="weq-ft-foot-summary">
-              {selectedCount > 0
-                ? `已选 ${selectedCount} 项 · ${formatSize(selectedSize)}`
-                : '未选择文件'}
+              {selectedCount > 0 ? (
+                <NumericText>{`已选 ${selectedCount} 项 · ${formatSize(selectedSize)}`}</NumericText>
+              ) : (
+                '未选择文件'
+              )}
             </span>
             <button
               type="button"

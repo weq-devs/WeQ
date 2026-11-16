@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import { TimeLabel } from './TimeLabel';
 import * as timeFormat from '@weq/time';
 import { eventTimeFormatter } from '@weq/time';
@@ -330,7 +331,11 @@ function PicGrid({ pics, alt }: { pics: PicWire[]; alt: string }): ReactElement 
         // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
         <Thumb key={`${p.uri}-${i}`} pic={p} alt={alt} />
       ))}
-      {pics.length > 6 ? <span className="weq-col-picmore">+{pics.length - 6}</span> : null}
+      {pics.length > 6 ? (
+        <span className="weq-col-picmore">
+          +<span className="weq-number weq-number-inherit">{pics.length - 6}</span>
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -389,7 +394,12 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
           </span>
           <span className="weq-col-media-meta">
             <span className="weq-col-media-title">
-              语音{humanSeconds(a.duration / 1000) ? ` · ${humanSeconds(a.duration / 1000)}` : ''}
+              语音
+              {humanSeconds(a.duration / 1000) ? (
+                <NumericText>{` · ${humanSeconds(a.duration / 1000)}`}</NumericText>
+              ) : (
+                ''
+              )}
             </span>
             {a.stt ? (
               <span className="weq-col-media-sub" data-privacy-sensitive>
@@ -427,14 +437,20 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
               <Play size={18} strokeWidth={1.8} fill="currentColor" />
             </span>
             {humanSeconds(v.duration) ? (
-              <span className="weq-col-video-dur">{humanSeconds(v.duration)}</span>
+              <span className="weq-col-video-dur">
+                <span className="weq-number weq-number-inherit">{humanSeconds(v.duration)}</span>
+              </span>
             ) : null}
           </button>
           <span className="weq-col-media-sub">
             <span data-privacy-sensitive={Boolean(v.title || v.fileName) || undefined}>
               {v.title || v.fileName || '视频'}
             </span>
-            {humanSize(v.fileSize) ? ` · ${humanSize(v.fileSize)}` : ''}
+            {humanSize(v.fileSize) ? (
+              <NumericText>{` · ${humanSize(v.fileSize)}`}</NumericText>
+            ) : (
+              ''
+            )}
           </span>
         </div>
       );
@@ -460,7 +476,9 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
               {f.name || '文件'}
             </span>
             {humanSize(f.size) ? (
-              <span className="weq-col-media-sub">{humanSize(f.size)}</span>
+              <span className="weq-col-media-sub">
+                <span className="weq-number weq-number-inherit">{humanSize(f.size)}</span>
+              </span>
             ) : null}
           </span>
         </div>
@@ -484,7 +502,8 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
             {loc.address ? <span className="weq-col-loc-addr">{loc.address}</span> : null}
             {hasCoord ? (
               <span className="weq-col-loc-coord">
-                {loc.latitude.toFixed(5)}, {loc.longitude.toFixed(5)}
+                <span className="weq-number weq-number-inherit">{loc.latitude.toFixed(5)}</span>,{' '}
+                <span className="weq-number weq-number-inherit">{loc.longitude.toFixed(5)}</span>
               </span>
             ) : null}
           </span>
@@ -518,7 +537,11 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
     }
 
     default:
-      return <p className="weq-col-text is-muted">未知类型（type {it.type}）</p>;
+      return (
+        <p className="weq-col-text is-muted">
+          未知类型（type <span className="weq-number weq-number-inherit">{it.type}</span>）
+        </p>
+      );
   }
 }
 
@@ -1056,7 +1079,13 @@ export function CollectionDialog({
             ) : null}
             {multiSelect.selectionMode && !selected ? (
               <>
-                <span>已选 {multiSelect.selectedIds.size} 条收藏</span>
+                <span>
+                  已选{' '}
+                  <span className="weq-number weq-number-inherit">
+                    {multiSelect.selectedIds.size}
+                  </span>{' '}
+                  条收藏
+                </span>
                 <button
                   type="button"
                   onClick={() =>
@@ -1089,7 +1118,9 @@ export function CollectionDialog({
               </button>
             ) : null}
             {loaded && !selected ? (
-              <span className="weq-collection-total">{items.length}</span>
+              <span className="weq-collection-total">
+                <span className="weq-number weq-number-inherit">{items.length}</span>
+              </span>
             ) : null}
             {selected ? (
               <>
@@ -1189,15 +1220,17 @@ export function CollectionDialog({
                 ) : (
                   <Download size={13} />
                 )}
-                {detailSyncRun.current
-                  ? `${detailSync.done}/${detailSync.total}`
-                  : detailSync.cancelled
-                    ? '已停止'
-                    : detailSync.message === '需要登录中的 QQ 才能同步详情'
-                      ? '需要登录 QQ'
-                      : detailSync.failed
-                        ? `完成 ${detailSync.done - detailSync.failed}/${detailSync.total}`
-                        : '详情已同步'}
+                {detailSyncRun.current ? (
+                  <NumericText>{`${detailSync.done}/${detailSync.total}`}</NumericText>
+                ) : detailSync.cancelled ? (
+                  '已停止'
+                ) : detailSync.message === '需要登录中的 QQ 才能同步详情' ? (
+                  '需要登录 QQ'
+                ) : detailSync.failed ? (
+                  <NumericText>{`完成 ${detailSync.done - detailSync.failed}/${detailSync.total}`}</NumericText>
+                ) : (
+                  '详情已同步'
+                )}
               </span>
             ) : null}
           </div>
@@ -1242,7 +1275,9 @@ export function CollectionDialog({
                 onClick={() => setKind(k.id)}
               >
                 {k.label}
-                <span className="weq-collection-chip-n">{counts[k.id] ?? 0}</span>
+                <span className="weq-collection-chip-n">
+                  <span className="weq-number weq-number-inherit">{counts[k.id] ?? 0}</span>
+                </span>
               </button>
             ))}
           </div>
@@ -1287,7 +1322,11 @@ export function CollectionDialog({
                 <div className="weq-col-media-results">
                   <div className="weq-col-media-results-head">
                     <span>
-                      {mediaResults.length ? `附件 ${mediaResults.length}` : '暂无可下载附件'}
+                      {mediaResults.length ? (
+                        <NumericText>{`附件 ${mediaResults.length}`}</NumericText>
+                      ) : (
+                        '暂无可下载附件'
+                      )}
                     </span>
                     {!IS_WEB && mediaResults.some((result) => result.state === 'downloaded') ? (
                       <button
@@ -1392,7 +1431,8 @@ export function CollectionDialog({
               上一页
             </button>
             <span className="weq-collection-page-info">
-              第 {safePage + 1} / {pageCount} 页
+              第 <span className="weq-number weq-number-inherit">{safePage + 1}</span> /{' '}
+              <span className="weq-number weq-number-inherit">{pageCount}</span> 页
             </span>
             <button
               type="button"

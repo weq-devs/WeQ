@@ -128,7 +128,11 @@ function LikeAction({
       ) : (
         <ThumbsUp size={16} fill={liked ? 'currentColor' : 'none'} />
       )}
-      {count !== undefined ? `点赞 ${count ?? '?'}` : null}
+      {count !== undefined ? (
+        <>
+          点赞 <span className="weq-number">{count ?? '?'}</span>
+        </>
+      ) : null}
     </button>
   );
 }

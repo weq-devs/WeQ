@@ -10,6 +10,7 @@
  * - walletDetail.receiptList.payers: [{uin, amount}] 收款人列表（金额单位：分）
  */
 
+import { NumericText } from './NumericText';
 import { useEffect, useState, type ReactElement } from 'react';
 import { X } from 'lucide-react';
 import { client } from '../trpc/client';
@@ -110,7 +111,9 @@ function GroupReceiptDialog({
                   <QqAvatar uin={payer.uin} size={36} />
                   <span className="weq-group-receipt-item-name">{displayName}</span>
                 </ProfileAvatar>
-                <span className="weq-group-receipt-item-amount">¥{formatAmount(amount)}</span>
+                <span className="weq-group-receipt-item-amount">
+                  ¥<span className="weq-number weq-number-inherit">{formatAmount(amount)}</span>
+                </span>
               </div>
             );
           })}
@@ -178,9 +181,11 @@ export function QqGroupReceipt({
           <div className="weq-group-receipt-content">
             <div className="weq-group-receipt-title">{title || '群收款'}</div>
             <div className="weq-group-receipt-amount">
-              {myAmount !== null
-                ? `你需支付${formatAmount(myAmount)}元`
-                : `共 ${payers.length} 人收款`}
+              {myAmount !== null ? (
+                <NumericText>{`你需支付${formatAmount(myAmount)}元`}</NumericText>
+              ) : (
+                <NumericText>{`共 ${payers.length} 人收款`}</NumericText>
+              )}
             </div>
           </div>
         </div>

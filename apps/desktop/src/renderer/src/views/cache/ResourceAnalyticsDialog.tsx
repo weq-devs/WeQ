@@ -9,6 +9,7 @@
  * {@link ACCENT_SERIES}, so everything follows 设置里的主题色.
  */
 
+import { NumericText } from '../../components/NumericText';
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { ToolSurface, type ToolPresentation } from '../../components/ToolSurface';
 import {
@@ -210,7 +211,8 @@ export function ResourceAnalyticsDialog({
               正在扫描 <strong>{labelOf(scanningKey)}</strong>… 计算大小可能较慢，请稍候
             </span>
             <span className="weq-ra-progress-count">
-              {progress} / {scanCount}
+              <span className="weq-number weq-number-inherit">{progress}</span> /{' '}
+              <span className="weq-number weq-number-inherit">{scanCount}</span>
             </span>
           </div>
           <div className="weq-ra-progress-track">
@@ -333,11 +335,37 @@ export function ResourceAnalyticsDialog({
                   </span>
                   {s ? (
                     <>
-                      <span>{s.files > 0 ? formatNumber(s.files) : s.present ? '0' : '—'}</span>
-                      <span>{s.files > 0 ? fmtBytes(s.bytes) : '—'}</span>
-                      <span>{s.files > 0 ? fmtBytes(Math.round(s.bytes / s.files)) : '—'}</span>
+                      <span>
+                        {s.files > 0 ? (
+                          <span className="weq-number weq-number-inherit">
+                            {formatNumber(s.files)}
+                          </span>
+                        ) : s.present ? (
+                          '0'
+                        ) : (
+                          '—'
+                        )}
+                      </span>
+                      <span>
+                        {s.files > 0 ? (
+                          <span className="weq-number weq-number-inherit">{fmtBytes(s.bytes)}</span>
+                        ) : (
+                          '—'
+                        )}
+                      </span>
+                      <span>
+                        {s.files > 0 ? (
+                          <span className="weq-number weq-number-inherit">
+                            {fmtBytes(Math.round(s.bytes / s.files))}
+                          </span>
+                        ) : (
+                          '—'
+                        )}
+                      </span>
                       <span className="weq-ra-oritm">
-                        {s.ori.files || s.thumb.files ? `${s.ori.files} / ${s.thumb.files}` : '—'}
+                        <NumericText>
+                          {s.ori.files || s.thumb.files ? `${s.ori.files} / ${s.thumb.files}` : '—'}
+                        </NumericText>
                       </span>
                     </>
                   ) : (
@@ -475,9 +503,16 @@ function CategoryBars({ stats, totals }: { stats: ResourceStat[]; totals: Totals
                 />
               </span>
               <span className="weq-ra-bar-val">
-                <b>{primary}</b>
+                <b>
+                  <NumericText>{primary}</NumericText>
+                </b>
                 <small>
-                  {pct >= 10 ? pct.toFixed(0) : pct.toFixed(1)}% · {secondary}
+                  {pct >= 10 ? (
+                    <span className="weq-number weq-number-inherit">{pct.toFixed(0)}</span>
+                  ) : (
+                    <span className="weq-number weq-number-inherit">{pct.toFixed(1)}</span>
+                  )}
+                  % · <NumericText>{secondary}</NumericText>
                 </small>
               </span>
             </div>
@@ -517,7 +552,13 @@ function ShareBar({
               <i style={{ background: s.color }} />
               <span className="weq-ra-share-lbl">{s.label}</span>
               <span className="weq-ra-share-val">
-                {fmtBytes(s.bytes)} · {pct >= 10 ? pct.toFixed(0) : pct.toFixed(1)}%
+                <span className="weq-number weq-number-inherit">{fmtBytes(s.bytes)}</span> ·{' '}
+                {pct >= 10 ? (
+                  <span className="weq-number weq-number-inherit">{pct.toFixed(0)}</span>
+                ) : (
+                  <span className="weq-number weq-number-inherit">{pct.toFixed(1)}</span>
+                )}
+                %
               </span>
             </span>
           );

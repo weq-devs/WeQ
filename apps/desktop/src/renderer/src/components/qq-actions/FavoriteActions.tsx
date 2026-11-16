@@ -47,7 +47,9 @@ function FavoriteActionsBody() {
       <div className="weq-content-toolbar">
         <h3>收藏表情</h3>
         <div>
-          <span>{list.data?.length ?? 0} 项</span>
+          <span>
+            <span className="weq-number weq-number-inherit">{list.data?.length ?? 0}</span> 项
+          </span>
           <FavoriteBundleImport
             binding={a.binding}
             available={a.available && !a.pending}

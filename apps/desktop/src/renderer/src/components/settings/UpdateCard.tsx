@@ -7,6 +7,7 @@
  * dev（未打包）下仅可检查；下载/安装会被后端拒绝，故按钮禁用并提示。
  */
 
+import { NumericText } from '../NumericText';
 import { CheckCircle2, Download, Gauge, Loader2, RefreshCw, RotateCw } from 'lucide-react';
 import { AutoSave } from './AutoSave';
 import type { ReactElement } from 'react';
@@ -147,7 +148,7 @@ export function UpdateCard(): ReactElement {
           ) : phase === 'downloading' ? (
             <button type="button" className="weq-set-btn" disabled>
               <Loader2 size={14} strokeWidth={2} className="weq-spin" aria-hidden />
-              下载中 {pct}%
+              下载中 <span className="weq-number weq-number-inherit">{pct}</span>%
             </button>
           ) : phase === 'available' ? (
             <button
@@ -178,11 +179,15 @@ export function UpdateCard(): ReactElement {
               ) : (
                 <RefreshCw size={14} strokeWidth={1.8} aria-hidden />
               )}
-              {phase === 'checking'
-                ? mirrorCount
-                  ? `测速中（${mirrorCount} 个源）`
-                  : '检查中'
-                : '检查更新'}
+              {phase === 'checking' ? (
+                mirrorCount ? (
+                  <NumericText>{`测速中（${mirrorCount} 个源）`}</NumericText>
+                ) : (
+                  '检查中'
+                )
+              ) : (
+                '检查更新'
+              )}
             </button>
           )}
         </div>

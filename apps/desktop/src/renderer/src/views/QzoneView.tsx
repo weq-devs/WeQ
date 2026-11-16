@@ -1,4 +1,5 @@
 /** Qzone's known web capabilities, rendered in the local WeQ UI. */
+import { NumericText } from '../components/NumericText';
 import { EmptyState } from '../components/EmptyState';
 import {
   useCallback,
@@ -1063,7 +1064,19 @@ function SpaceStats({ selfUin, hostUin }: { selfUin: string; hostUin: string }) 
         {items.map(([label, value]) => (
           <div key={label} title={value == null && !loading ? '接口未提供可用计数' : undefined}>
             <dt>{label}</dt>
-            <dd>{value == null ? (loading ? '…' : '未知') : value.toLocaleString('zh-CN')}</dd>
+            <dd>
+              {value == null ? (
+                loading ? (
+                  '…'
+                ) : (
+                  '未知'
+                )
+              ) : (
+                <span className="weq-number weq-number-inherit">
+                  {value.toLocaleString('zh-CN')}
+                </span>
+              )}
+            </dd>
           </div>
         ))}
       </dl>
@@ -1271,11 +1284,13 @@ function Posts({
             ) : (
               '加载更多说说'
             )}
-            {pageCountLabel}
+            <NumericText>{pageCountLabel}</NumericText>
           </button>
         ) : null}
         {done && posts.length > 0 ? (
-          <p className="weq-qzn-status">已到列表末尾{pageCountLabel}</p>
+          <p className="weq-qzn-status">
+            已到列表末尾<NumericText>{pageCountLabel}</NumericText>
+          </p>
         ) : null}
       </div>
     </div>
@@ -1861,7 +1876,7 @@ function PostActionsBody({
           onClick={() => setExpanded(expanded === 'comments' ? null : 'comments')}
         >
           <MessageCircle size={16} />
-          评论 {commentCount ?? '?'}
+          评论 <span className="weq-number">{commentCount ?? '?'}</span>
         </button>
         <QzoneForwardAction
           key={`${selfUin}:${hostUin}:${post.tid}:${refresh}`}
@@ -1884,7 +1899,7 @@ function PostActionsBody({
         />
         <span title={likeError || '浏览量（非去重访客数）'}>
           <Eye size={16} />
-          浏览量 {likes?.reportedViewCount ?? '?'}
+          浏览量 <span className="weq-number">{likes?.reportedViewCount ?? '?'}</span>
         </span>
         {loading ? <Loader2 size={13} className="weq-spin" aria-label="正在加载互动数据" /> : null}
         {likeError && (
@@ -2041,11 +2056,12 @@ function FeedCounts({
   return (
     <div ref={ref} className="weq-qzn-actions" title={error || undefined}>
       <span>
-        <ThumbsUp size={16} />赞 {counts?.likeCount ?? body.likeCount ?? '?'}
+        <ThumbsUp size={16} />赞{' '}
+        <span className="weq-number">{counts?.likeCount ?? body.likeCount ?? '?'}</span>
       </span>
       <span>
         <MessageCircle size={16} />
-        评论 {counts?.commentCount ?? body.commentCount ?? '?'}
+        评论 <span className="weq-number">{counts?.commentCount ?? body.commentCount ?? '?'}</span>
       </span>
       {loading ? <Loader2 size={13} className="weq-spin" aria-label="正在加载互动数据" /> : null}
     </div>
@@ -2354,13 +2370,17 @@ function Interaction({
           ))}
         </div>
         <p className="weq-qzn-status">
-          {likes.coverage === 'complete'
-            ? likes.likes.length
-              ? `${likes.likes.length} 人赞过`
-              : '还没有人赞过'
-            : likes.reportedTotal !== null && likes.likes.length > likes.reportedTotal
-              ? `已读取 ${likes.likes.length} 人，点赞数为 ${likes.reportedTotal}，数据暂不一致`
-              : `已显示 ${likes.likes.length} 人${likes.reportedTotal === null ? '' : `，共 ${likes.reportedTotal} 人`}`}
+          {likes.coverage === 'complete' ? (
+            likes.likes.length ? (
+              <NumericText>{`${likes.likes.length} 人赞过`}</NumericText>
+            ) : (
+              '还没有人赞过'
+            )
+          ) : likes.reportedTotal !== null && likes.likes.length > likes.reportedTotal ? (
+            <NumericText>{`已读取 ${likes.likes.length} 人，点赞数为 ${likes.reportedTotal}，数据暂不一致`}</NumericText>
+          ) : (
+            <NumericText>{`已显示 ${likes.likes.length} 人${likes.reportedTotal === null ? '' : `，共 ${likes.reportedTotal} 人`}`}</NumericText>
+          )}
         </p>
       </div>
     );
@@ -2471,12 +2491,14 @@ function Interaction({
       ))}
       {orphans.map(renderComment)}
       <p className="weq-qzn-status">
-        {result!.comments.length
-          ? `已显示 ${roots.length} 条评论、${replies.length} 条回复`
-          : result!.fieldCoverage?.comments === 'complete' &&
-              result!.fieldCoverage?.replies === 'complete'
-            ? '暂无评论'
-            : '暂未读取到评论'}
+        {result!.comments.length ? (
+          <NumericText>{`已显示 ${roots.length} 条评论、${replies.length} 条回复`}</NumericText>
+        ) : result!.fieldCoverage?.comments === 'complete' &&
+          result!.fieldCoverage?.replies === 'complete' ? (
+          '暂无评论'
+        ) : (
+          '暂未读取到评论'
+        )}
         {result!.fieldCoverage?.replies !== 'complete' ? ' · 部分回复尚未读取' : ''}
       </p>
     </div>
@@ -3041,7 +3063,9 @@ function FeedTimeline({
                 <Icon size={15} />
                 {value === 'mention' ? <span className="sr-only">@</span> : label}
                 <span aria-hidden="true" title="已加载的互动">
-                  {related?.filter((item) => item.activity.kind === value).length ?? 0}
+                  <span className="weq-number weq-number-inherit">
+                    {related?.filter((item) => item.activity.kind === value).length ?? 0}
+                  </span>
                 </span>
               </button>
             ))}
@@ -3073,7 +3097,10 @@ function FeedTimeline({
               className="weq-qzn-related-unknown"
               onToggle={(event) => setUnknownOpen(event.currentTarget.open)}
             >
-              <summary>未识别（{unclassified.length}）</summary>
+              <summary>
+                未识别（
+                {<span className="weq-number weq-number-inherit">{unclassified.length}</span>}）
+              </summary>
               {unknownOpen
                 ? unclassified.map(({ feed, activity }) => (
                     <RelatedCard
@@ -3139,7 +3166,7 @@ function FeedTimeline({
             <p className="weq-qzn-status">
               <Loader2 size={16} className="weq-spin" />
               {headRequest.current ? '正在刷新…' : '正在加载更多…'}
-              {pageCountLabel}
+              <NumericText>{pageCountLabel}</NumericText>
             </p>
           ) : !done ? (
             <button
@@ -3155,7 +3182,7 @@ function FeedTimeline({
                   ? '向下滚动加载更多互动'
                   : '加载更多互动'
                 : '加载更多动态'}
-              {pageCountLabel}
+              <NumericText>{pageCountLabel}</NumericText>
             </button>
           ) : !incomplete && kind !== 'related' && !shown?.length ? (
             <EmptyState
@@ -3174,7 +3201,7 @@ function FeedTimeline({
                     : filter !== '0'
                       ? '暂无此类型动态'
                       : '暂时没有可查看的动态'}
-              {pageCountLabel}
+              <NumericText>{pageCountLabel}</NumericText>
             </p>
           )
         ) : null}
@@ -3355,7 +3382,9 @@ function RelatedCard({
             </span>
           ) : null}
         </span>
-        <time>{timeText(feed.time)}</time>
+        <time>
+          <NumericText>{timeText(feed.time)}</NumericText>
+        </time>
         <ChevronDown size={15} className="weq-qzn-related-chevron" />
       </summary>
       <div className="weq-qzn-related-detail">
@@ -3483,7 +3512,11 @@ function FeedCard({
           nickname={feed.nickname}
           onSpace={onSpace}
           size={34}
-          time={<time>{timeText(feed.time)}</time>}
+          time={
+            <time>
+              <NumericText>{timeText(feed.time)}</NumericText>
+            </time>
+          }
         >
           <QzoneName content={feed.nickname || String(feed.uin)} uin={String(feed.uin)} />
         </QzonePersonHeader>

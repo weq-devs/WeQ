@@ -360,7 +360,9 @@ export function AiVoicePanel({
             <label className={cn('ai-voice-field')}>
               <span className={cn('ai-voice-label')}>
                 要说的话
-                <em className={cn('ai-voice-count')}>{text.length}/200</em>
+                <em className={cn('ai-voice-count')}>
+                  <span className="weq-number weq-number-inherit">{text.length}</span>/200
+                </em>
               </span>
               <textarea
                 ref={textRef}

@@ -1,3 +1,4 @@
+import { NumericText } from '../../components/NumericText';
 import { formatDateTime } from '@weq/time';
 import { TimeLabel } from '../../components/TimeLabel';
 import { ReminderDot } from '../../components/ReminderBadge';
@@ -820,7 +821,9 @@ export function MailPage({
             </form>
             <header className="weq-mail-list-heading">
               <h2>{keyword ? '搜索结果' : selectedFolder?.name || '邮件'}</h2>
-              <span>{page.total}</span>
+              <span>
+                <span className="weq-number weq-number-inherit">{page.total}</span>
+              </span>
               <CheckPill
                 checked={unreadOnly}
                 onChange={(next) => {
@@ -843,7 +846,9 @@ export function MailPage({
                   setChecked(event.target.checked ? mailIds : []);
                 }}
               />
-              <span>{checked.length ? `已选 ${checked.length}` : ''}</span>
+              <span>
+                {checked.length ? <NumericText>{`已选 ${checked.length}`}</NumericText> : ''}
+              </span>
               <button
                 type="button"
                 title="标为已读"
@@ -954,7 +959,12 @@ export function MailPage({
                 <ChevronLeft size={17} />
               </button>
               <span>
-                {pageNumber + 1} / {Math.max(1, Math.ceil(page.total / 30))}
+                <span className="weq-number weq-number-inherit">{pageNumber + 1}</span> /{' '}
+                {
+                  <span className="weq-number weq-number-inherit">
+                    {Math.max(1, Math.ceil(page.total / 30))}
+                  </span>
+                }
               </span>
               <button
                 type="button"
@@ -1100,7 +1110,14 @@ export function MailPage({
                   </header>
                   {detail.thread ? (
                     <div className="weq-mail-thread">
-                      <h3>{detail.thread.length} 封邮件</h3>
+                      <h3>
+                        {
+                          <span className="weq-number weq-number-inherit">
+                            {detail.thread.length}
+                          </span>
+                        }{' '}
+                        封邮件
+                      </h3>
                       {detail.thread.map((item) => (
                         <button
                           type="button"
@@ -1126,7 +1143,14 @@ export function MailPage({
                   {detail.attachments.length ? (
                     <div className="weq-mail-attachments">
                       <h3>
-                        附件 <span>{detail.attachments.length}</span>
+                        附件{' '}
+                        <span>
+                          {
+                            <span className="weq-number weq-number-inherit">
+                              {detail.attachments.length}
+                            </span>
+                          }
+                        </span>
                       </h3>
                       {detail.attachments.map((item) => (
                         <div className="weq-mail-file" key={item.id}>
@@ -1135,7 +1159,9 @@ export function MailPage({
                             {item.name}
                           </span>
                           <small>
-                            {formatMailSize(item.size)}
+                            <span className="weq-number weq-number-inherit">
+                              {formatMailSize(item.size)}
+                            </span>
                             {item.big ? ' · 超大附件' : ''}
                           </small>
                           <button

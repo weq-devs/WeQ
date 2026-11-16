@@ -316,7 +316,8 @@ export function GeneratedExportPane({
                     <span className="weq-generated-export-session-text">
                       <strong>{session.title}</strong>
                       <span>
-                        {session.sessionTitle} · {session.count} 条
+                        {session.sessionTitle} ·{' '}
+                        <span className="weq-number weq-number-inherit">{session.count}</span> 条
                       </span>
                     </span>
                   </button>
@@ -404,12 +405,13 @@ export function GeneratedExportPane({
               {supportsGroup ? (
                 <p className="weq-generated-export-group-hint">
                   <Users size={12} aria-hidden />
-                  {groupMemberCount} 位成员
+                  <span className="weq-number weq-number-inherit">{groupMemberCount}</span> 位成员
                 </p>
               ) : null}
               {missing.length ? (
                 <p role="alert">
-                  {missing.length} 条已选记录不存在或尚未持久化，请稍后重试或重新选择。
+                  <span className="weq-number weq-number-inherit">{missing.length}</span>{' '}
+                  条已选记录不存在或尚未持久化，请稍后重试或重新选择。
                 </p>
               ) : null}
             </>

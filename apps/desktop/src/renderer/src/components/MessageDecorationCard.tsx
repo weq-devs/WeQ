@@ -140,7 +140,9 @@ function DecorationItem({ type, id, label, icon }: DecorationItemProps) {
         <span className="weq-decoration-card-icon">{icon}</span>
         <div className="weq-decoration-card-info">
           <span className="weq-decoration-card-label">{label}</span>
-          <span className="weq-decoration-card-id">ID: {id}</span>
+          <span className="weq-decoration-card-id">
+            ID: <span className="weq-number weq-number-inherit">{id}</span>
+          </span>
         </div>
       </div>
       <div className="weq-decoration-card-preview">

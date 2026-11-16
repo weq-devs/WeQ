@@ -445,7 +445,9 @@ function Signatures({ input, online }: { input: Target; online: boolean }) {
       <div className="weq-extras-list">
         {items.map((item) => (
           <article key={item.id}>
-            <time>{time(item.createdAt)}</time>
+            <time>
+              {<span className="weq-number weq-number-inherit">{time(item.createdAt)}</span>}
+            </time>
             <p>{[item.action, item.data, item.text].filter(Boolean).join(' ') || '空签名'}</p>
             {item.location ? <small>{item.location}</small> : null}
             <SignatureInteractions
@@ -530,12 +532,19 @@ function QuestionList({
       <div className="weq-extras-list">
         {items.map((item) => (
           <article key={item.id}>
-            <time>{time(item.askedAt)}</time>
+            <time>
+              {<span className="weq-number weq-number-inherit">{time(item.askedAt)}</span>}
+            </time>
             <h3>{item.question || '未提供问题正文'}</h3>
             {item.answer || (item.answeredAt ?? 0) > 0 ? (
               <>
                 <p>{item.answer || '空回答'}</p>
-                {item.answeredAt !== null ? <small>回答于 {time(item.answeredAt)}</small> : null}
+                {item.answeredAt !== null ? (
+                  <small>
+                    回答于{' '}
+                    {<span className="weq-number weq-number-inherit">{time(item.answeredAt)}</span>}
+                  </small>
+                ) : null}
               </>
             ) : (
               <small>尚未回答</small>

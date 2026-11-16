@@ -195,7 +195,9 @@ function KeyResult({
         <div className="weq-avpath-field">
           <span className="weq-avpath-field-label">时间戳</span>
           <div className="weq-avpath-field-val">
-            <span className="weq-avpath-mono">{result.timestamp}</span>
+            <span className="weq-avpath-mono">
+              <span className="weq-number weq-number-inherit">{result.timestamp}</span>
+            </span>
             <em className="weq-avpath-nick">（{keySourceLabel(result.source)}）</em>
           </div>
         </div>

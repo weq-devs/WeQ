@@ -420,7 +420,9 @@ export function RailAccountFooter({
                         <span className="weq-rail-account-item-name">
                           {cfg.displayName || cfg.uin}
                         </span>
-                        <span className="weq-rail-account-item-uin">{cfg.uin}</span>
+                        <span className="weq-rail-account-item-uin">
+                          <span className="weq-number weq-number-inherit">{cfg.uin}</span>
+                        </span>
                       </span>
                     </button>
                   </li>

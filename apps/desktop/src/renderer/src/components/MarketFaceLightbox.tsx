@@ -150,7 +150,11 @@ export function MarketFacePackView({
         <Store size={16} className="weq-mface-lb-head-icon" />
         <span className="weq-mface-lb-title">{detail.data?.name || `表情包 ${packId}`}</span>
         <em className={`weq-mpack-fee is-${fee.tone}`}>{fee.label}</em>
-        {detail.data ? <span className="weq-mface-lb-count">{detail.data.count} 张</span> : null}
+        {detail.data ? (
+          <span className="weq-mface-lb-count">
+            <span className="weq-number weq-number-inherit">{detail.data.count}</span> 张
+          </span>
+        ) : null}
         {embedded ? null : (
           <span className="weq-mface-lb-hint">点击任意表情查看大图与解密参数</span>
         )}
@@ -286,7 +290,8 @@ export function MarketFaceDetail({
         </button>
         <span className="weq-mface-lb-title">{item.name || item.hash}</span>
         <span className="weq-mface-lb-count">
-          {index + 1} / {total}
+          <span className="weq-number weq-number-inherit">{index + 1}</span> /{' '}
+          <span className="weq-number weq-number-inherit">{total}</span>
         </span>
         <MarketImageSave
           key={`${packId}:${item.hash}`}

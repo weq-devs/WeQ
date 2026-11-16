@@ -73,7 +73,9 @@ function ComposerMediaItem({
               <span className={cn('composer-single-play')} aria-hidden="true" />
               {attachment.duration ? (
                 <span className={cn('composer-single-duration')}>
-                  {formatClipDuration(attachment.duration * 1000)}
+                  <span className="weq-number weq-number-inherit">
+                    {formatClipDuration(attachment.duration * 1000)}
+                  </span>
                 </span>
               ) : null}
             </>

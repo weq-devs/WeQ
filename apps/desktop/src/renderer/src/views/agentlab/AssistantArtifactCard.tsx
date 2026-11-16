@@ -233,7 +233,8 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
           {artifact.name}
         </span>
         <span className="weq-asst-artifact-sub">
-          {kindLabel(artifact.kind)} · {formatBytes(artifact.bytes)}
+          {kindLabel(artifact.kind)} ·{' '}
+          <span className="weq-number weq-number-inherit">{formatBytes(artifact.bytes)}</span>
           {stateLabel ? ` · ${stateLabel}` : ''}
         </span>
         {error && (

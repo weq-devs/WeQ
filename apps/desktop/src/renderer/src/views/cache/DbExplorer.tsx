@@ -185,7 +185,9 @@ export function DbExplorer({
                     title={db.path}
                   >
                     <strong>{db.name}</strong>
-                    <small>{fmtBytes(db.bytes)}</small>
+                    <small>
+                      <span className="weq-number weq-number-inherit">{fmtBytes(db.bytes)}</span>
+                    </small>
                   </button>
                 ))}
               </div>
@@ -326,7 +328,9 @@ function ObjectGroup({
       <div className="weq-cache-tree-grouphead">
         {icon}
         <span>{label}</span>
-        <span className="weq-cache-tree-count">{items.length}</span>
+        <span className="weq-cache-tree-count">
+          <span className="weq-number weq-number-inherit">{items.length}</span>
+        </span>
       </div>
       {items.map((o) => (
         <button

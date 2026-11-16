@@ -507,7 +507,10 @@ function AnalysisToolForm({
           {messageIds !== undefined ? (
             <section className="weq-analysis-card">
               <h3>分析范围</h3>
-              <p className="weq-analysis-scope-note">已选 {messageIds.length} 条消息</p>
+              <p className="weq-analysis-scope-note">
+                已选 {<span className="weq-number weq-number-inherit">{messageIds.length}</span>}{' '}
+                条消息
+              </p>
             </section>
           ) : (
             <section className="weq-analysis-card">

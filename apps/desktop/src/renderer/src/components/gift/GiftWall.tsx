@@ -121,7 +121,9 @@ export function GiftWall() {
           </button>
         </div>
         {items.length > 0 ? (
-          <span className="weq-gift-wall-count">已加载 {items.length} 个</span>
+          <span className="weq-gift-wall-count">
+            已加载 <span className="weq-number weq-number-inherit">{items.length}</span> 个
+          </span>
         ) : null}
       </div>
 
@@ -243,7 +245,9 @@ function WallCard({
             <span className="weq-gift-wall-time">· {item.time}</span>
           </small>
         </span>
-        <span className="weq-gift-wall-price">{item.giftPrice}</span>
+        <span className="weq-gift-wall-price">
+          <span className="weq-number weq-number-inherit">{item.giftPrice}</span>
+        </span>
       </div>
     </div>
   );

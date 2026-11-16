@@ -1,3 +1,4 @@
+import { NumericText } from '../components/NumericText';
 import * as timeFormat from '@weq/time';
 import { eventTimeFormatter } from '@weq/time';
 /** 统一导出工具：内容选择与执行配置；任务工具独立管理执行结果和计划。 */
@@ -2021,7 +2022,9 @@ function ExportToolBody({
                 <Zap size={14} />
               </span>
               <span className="weq-exp-source-text">
-                <small>{fixedScopeSummary(initialSelection)}</small>
+                <small>
+                  <NumericText>{fixedScopeSummary(initialSelection)}</NumericText>
+                </small>
               </span>
               {editingList ? (
                 <button
@@ -2328,7 +2331,9 @@ function ExportToolBody({
                       <details className="weq-export-contact-categories">
                         <summary>
                           好友分组 ·{' '}
-                          {catSelection.size ? `已选 ${catSelection.size} 个分组` : '全部好友'}
+                          <NumericText>
+                            {catSelection.size ? `已选 ${catSelection.size} 个分组` : '全部好友'}
+                          </NumericText>
                         </summary>
                         <CategoryChips
                           items={catItems}
@@ -2475,9 +2480,11 @@ function ExportToolBody({
               <footer className="weq-exp-pane-foot">
                 {mode === 'full' && execution === 'scheduled' ? (
                   <span className="weq-exp-foot-hint">
-                    {convSelection.size > 0
-                      ? `已选 ${convSelection.size} 个会话`
-                      : '请先选择至少一个会话'}
+                    {convSelection.size > 0 ? (
+                      <NumericText>{`已选 ${convSelection.size} 个会话`}</NumericText>
+                    ) : (
+                      '请先选择至少一个会话'
+                    )}
                   </span>
                 ) : showFormatChips ? (
                   <div className="weq-exp-foot-format">
@@ -2516,33 +2523,45 @@ function ExportToolBody({
                   </div>
                 ) : mode === 'full' || mode === 'qzone' || mode === 'guild' ? (
                   <span className="weq-exp-foot-hint">
-                    {mode === 'qzone'
-                      ? convSelection.size > 0
-                        ? `已选 ${convSelection.size} 个空间 · 灯箱内选择格式与媒体`
-                        : '请先选择要导出的空间'
-                      : mode === 'guild'
-                        ? guildSelection.size > 0
-                          ? `已选 ${guildSelection.size} 个会话 · 频道私聊仅本地消息，不支持漫游拉取`
-                          : '请先选择至少一个频道私聊会话'
-                        : convSelection.size > 0
-                          ? `已选 ${convSelection.size} 个会话 · 灯箱内选择格式与内容`
-                          : '请先选择至少一个会话'}
+                    {mode === 'qzone' ? (
+                      convSelection.size > 0 ? (
+                        <NumericText>{`已选 ${convSelection.size} 个空间 · 灯箱内选择格式与媒体`}</NumericText>
+                      ) : (
+                        '请先选择要导出的空间'
+                      )
+                    ) : mode === 'guild' ? (
+                      guildSelection.size > 0 ? (
+                        <NumericText>{`已选 ${guildSelection.size} 个会话 · 频道私聊仅本地消息，不支持漫游拉取`}</NumericText>
+                      ) : (
+                        '请先选择至少一个频道私聊会话'
+                      )
+                    ) : convSelection.size > 0 ? (
+                      <NumericText>{`已选 ${convSelection.size} 个会话 · 灯箱内选择格式与内容`}</NumericText>
+                    ) : (
+                      '请先选择至少一个会话'
+                    )}
                   </span>
                 ) : mode === 'contacts' ? (
                   <span className="weq-exp-foot-hint">
-                    {contactScope === 'friends'
-                      ? friendUids !== undefined
-                        ? `精确选中 ${friendUids.length} 位好友`
-                        : catSelection.size > 0
-                          ? `已选 ${catSelection.size} 个分组 · 灯箱内选择格式与头像`
-                          : '全部好友 · 灯箱内选择格式与头像'
-                      : contactScope === 'groups'
-                        ? groupListIds
-                          ? `已选 ${groupListIds.length} 个群聊`
-                          : '全部本地群聊名单'
-                        : contactGroupIds.size
-                          ? `已选 ${contactGroupIds.size} 个群`
-                          : '请先选择群'}
+                    {contactScope === 'friends' ? (
+                      friendUids !== undefined ? (
+                        <NumericText>{`精确选中 ${friendUids.length} 位好友`}</NumericText>
+                      ) : catSelection.size > 0 ? (
+                        <NumericText>{`已选 ${catSelection.size} 个分组 · 灯箱内选择格式与头像`}</NumericText>
+                      ) : (
+                        '全部好友 · 灯箱内选择格式与头像'
+                      )
+                    ) : contactScope === 'groups' ? (
+                      groupListIds ? (
+                        <NumericText>{`已选 ${groupListIds.length} 个群聊`}</NumericText>
+                      ) : (
+                        '全部本地群聊名单'
+                      )
+                    ) : contactGroupIds.size ? (
+                      <NumericText>{`已选 ${contactGroupIds.size} 个群`}</NumericText>
+                    ) : (
+                      '请先选择群'
+                    )}
                   </span>
                 ) : (
                   <span className="weq-exp-foot-hint">
@@ -2628,8 +2647,16 @@ function ExportToolBody({
                         onClick={() => setSelectedSchedule(s.id)}
                       >
                         <strong>{s.name}</strong>
-                        <span>{scheduleSummary(s)}</span>
-                        <small>{s.enabled ? `下次 ${fmtRunAt(s.nextRunAt)}` : '已暂停'}</small>
+                        <span>
+                          <NumericText>{scheduleSummary(s)}</NumericText>
+                        </span>
+                        <small>
+                          {s.enabled ? (
+                            <NumericText>{`下次 ${fmtRunAt(s.nextRunAt)}`}</NumericText>
+                          ) : (
+                            '已暂停'
+                          )}
+                        </small>
                       </button>
                     ))
                   )}
@@ -2867,7 +2894,13 @@ function CategoryChips({
     <div className="weq-exp-cats" {...multi.rootProps}>
       <div className="weq-exp-cats-head">
         <strong>好友分组</strong>
-        <small>{allActive ? `全部好友 · ${total} 人` : `已选 ${selected.size} 个分组`}</small>
+        <small>
+          {allActive ? (
+            <NumericText>{`全部好友 · ${total} 人`}</NumericText>
+          ) : (
+            <NumericText>{`已选 ${selected.size} 个分组`}</NumericText>
+          )}
+        </small>
       </div>
       {loading ? (
         <ChipsSkeleton />
@@ -2893,7 +2926,10 @@ function CategoryChips({
             className={`weq-exp-chip${allActive ? ' is-on' : ''}`}
             onClick={() => onChange(new Set())}
           >
-            全部好友 <b>{total}</b>
+            全部好友{' '}
+            <b>
+              <span className="weq-number weq-number-inherit">{total}</span>
+            </b>
           </button>
           {items.map((c) => (
             <button
@@ -2902,7 +2938,10 @@ function CategoryChips({
               className={`weq-exp-chip${selected.has(c.id) ? ' is-on' : ''}`}
               {...multi.itemProps(c.id)}
             >
-              {c.name} <b>{c.count}</b>
+              {c.name}{' '}
+              <b>
+                <span className="weq-number weq-number-inherit">{c.count}</span>
+              </b>
             </button>
           ))}
         </div>
@@ -3011,11 +3050,13 @@ function CollectionScope({
         <div className="weq-exp-cats-head">
           <strong>收藏类型</strong>
           <small>
-            {loading
-              ? '加载中…'
-              : allActive
-                ? `全部收藏 · ${fmtCount(total)} 条`
-                : `已选 ${selected.size} 类 · ${fmtCount(scoped.length)} 条`}
+            {loading ? (
+              '加载中…'
+            ) : allActive ? (
+              <NumericText>{`全部收藏 · ${fmtCount(total)} 条`}</NumericText>
+            ) : (
+              <NumericText>{`已选 ${selected.size} 类 · ${fmtCount(scoped.length)} 条`}</NumericText>
+            )}
           </small>
         </div>
         {loading ? (
@@ -3031,7 +3072,10 @@ function CollectionScope({
               className={`weq-exp-chip${allActive ? ' is-on' : ''}`}
               onClick={() => onChange(new Set())}
             >
-              全部收藏 <b>{total}</b>
+              全部收藏{' '}
+              <b>
+                <span className="weq-number weq-number-inherit">{total}</span>
+              </b>
             </button>
             {kinds.map((k) => (
               <button
@@ -3040,7 +3084,10 @@ function CollectionScope({
                 className={`weq-exp-chip${selected.has(k.id) ? ' is-on' : ''}`}
                 {...typesMulti.itemProps(k.id)}
               >
-                {k.label} <b>{counts[k.id] ?? 0}</b>
+                {k.label}{' '}
+                <b>
+                  <span className="weq-number weq-number-inherit">{counts[k.id] ?? 0}</span>
+                </b>
               </button>
             ))}
           </div>
@@ -3050,7 +3097,9 @@ function CollectionScope({
       <div className="weq-exp-friends" {...itemsMulti.rootProps}>
         <div className="weq-exp-friends-head">
           <strong>{allActive ? '全部收藏' : '所选类型'}</strong>
-          <small>{loading ? '加载中…' : `${fmtCount(filtered.length)} 条`}</small>
+          <small>
+            {loading ? '加载中…' : <NumericText>{`${fmtCount(filtered.length)} 条`}</NumericText>}
+          </small>
         </div>
         <div className="weq-message-scope-mode">
           <CheckPill
@@ -3109,7 +3158,11 @@ function CollectionScope({
                     {COLLECTION_KIND_LABEL[it.kind] ?? '其他'}
                   </span>
                   {fmtCollectDay(it.collectTime) ? (
-                    <small>{fmtCollectDay(it.collectTime)}</small>
+                    <small>
+                      <span className="weq-number weq-number-inherit">
+                        {fmtCollectDay(it.collectTime)}
+                      </span>
+                    </small>
                   ) : null}
                 </span>
               </div>
@@ -3216,13 +3269,23 @@ function ScheduleRow({
         </div>
         <div className="weq-exp-sched-card-meta">
           <span>
-            会话 <b>{schedule.conversations.length}</b>
+            会话{' '}
+            <b>
+              <span className="weq-number weq-number-inherit">{schedule.conversations.length}</span>
+            </b>
           </span>
           <span>
-            节奏 <b>{scheduleSummary(schedule)}</b>
+            节奏{' '}
+            <b>
+              <NumericText>{scheduleSummary(schedule)}</NumericText>
+            </b>
           </span>
           <span>
-            下次 <b>{fmtRunAt(next)}</b> · {fmtRel(next)}
+            下次{' '}
+            <b>
+              <span className="weq-number weq-number-inherit">{fmtRunAt(next)}</span>
+            </b>{' '}
+            · <span className="weq-number weq-number-inherit">{fmtRel(next)}</span>
           </span>
         </div>
         {schedule.history.length > 0 ? (

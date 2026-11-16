@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { GroupConversation, GroupMember } from '../../im-template/template/types';
 import { Avatar } from '../../im-template/template/primitives';
@@ -214,7 +215,7 @@ export function GroupCardContent({
                 : setList({ kind: 'members', anchor: event.currentTarget })
             }
           >
-            {count || '查看'}
+            <span className="weq-number weq-number-inherit">{count || '查看'}</span>
           </button>
         </ContactRow>
         {!generated ? (
@@ -226,7 +227,7 @@ export function GroupCardContent({
               title="查看群内好友列表"
               onClick={(event) => setList({ kind: 'friends', anchor: event.currentTarget })}
             >
-              {friendCount === null ? '查看' : `${friendCount} 人`}
+              {friendCount === null ? '查看' : <NumericText>{`${friendCount} 人`}</NumericText>}
             </button>
           </ContactRow>
         ) : null}

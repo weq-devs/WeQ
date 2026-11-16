@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { NumericText } from '../../components/NumericText';
 import type { Message } from './types';
 import { cn } from './classNames';
 import { useState } from 'react';
@@ -76,13 +77,15 @@ export function MessageGapDivider({
               : '缺口暂不可读取，可进入多选保留选择'
         }
       >
-        {loading
-          ? '正在拉取缺失消息…'
-          : selectionMode
-            ? `此处有 ${count} 条消息缺失`
-            : onOpen
-              ? `此处有 ${count} 条消息缺失 · 点击拉取`
-              : `此处有 ${count} 条消息需要打开 QQ 本体同步`}
+        {loading ? (
+          '正在拉取缺失消息…'
+        ) : selectionMode ? (
+          <NumericText>{`此处有 ${count} 条消息缺失`}</NumericText>
+        ) : onOpen ? (
+          <NumericText>{`此处有 ${count} 条消息缺失 · 点击拉取`}</NumericText>
+        ) : (
+          <NumericText>{`此处有 ${count} 条消息需要打开 QQ 本体同步`}</NumericText>
+        )}
       </button>
     </div>
   );

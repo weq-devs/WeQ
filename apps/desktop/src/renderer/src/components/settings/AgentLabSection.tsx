@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { usePageSnapshotReset } from '../PageSnapshots';
 import type {
@@ -799,7 +800,8 @@ export function AgentLabSection(): ReactElement {
                   {providerLabels.get(item.id)}
                 </span>
                 <small>
-                  {item.models.length} 个模型 · {item.baseUrl}
+                  {<span className="weq-number weq-number-inherit">{item.models.length}</span>}{' '}
+                  个模型 · {item.baseUrl}
                 </small>
               </button>
             ))}
@@ -915,7 +917,7 @@ export function AgentLabSection(): ReactElement {
                     disabled={!vendorEntry?.models.length}
                   >
                     <Sparkles size={12} /> 导入模板推荐
-                    {newModelCount > 0 ? ` (${newModelCount})` : ''}
+                    {newModelCount > 0 ? <NumericText>{` (${newModelCount})`}</NumericText> : ''}
                   </button>
                   <button
                     type="button"
@@ -952,7 +954,15 @@ export function AgentLabSection(): ReactElement {
                       fontSize: 12,
                     }}
                   >
-                    <span style={{ fontWeight: 600 }}>拉取到 {fetchedModels.length} 个模型</span>
+                    <span style={{ fontWeight: 600 }}>
+                      拉取到{' '}
+                      {
+                        <span className="weq-number weq-number-inherit">
+                          {fetchedModels.length}
+                        </span>
+                      }{' '}
+                      个模型
+                    </span>
                     <span style={{ opacity: 0.7 }}>勾选要导入的（已添加的会跳过）</span>
                     <span style={{ flex: 1 }} />
                     <button
@@ -979,7 +989,13 @@ export function AgentLabSection(): ReactElement {
                       onClick={importFetchedModels}
                       disabled={checkedModelIds.length === 0}
                     >
-                      <Plus size={12} /> 导入选中 ({checkedModelIds.length})
+                      <Plus size={12} /> 导入选中 (
+                      {
+                        <span className="weq-number weq-number-inherit">
+                          {checkedModelIds.length}
+                        </span>
+                      }
+                      )
                     </button>
                     <button
                       type="button"

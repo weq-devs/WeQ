@@ -57,7 +57,11 @@ export function GroupBulletinList({
               <div className="group-bulletin-header">
                 <span className="group-bulletin-date">
                   {entry.date && <span>{entry.date}</span>}
-                  {entry.readNum !== undefined && <span>{entry.readNum} 人已读</span>}
+                  {entry.readNum !== undefined && (
+                    <span>
+                      <span className="weq-number weq-number-inherit">{entry.readNum}</span> 人已读
+                    </span>
+                  )}
                   {!entry.noticeId && <span>历史记录</span>}
                 </span>
                 {tools(entry)}

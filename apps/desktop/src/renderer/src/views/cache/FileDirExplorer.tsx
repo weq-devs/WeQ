@@ -8,6 +8,7 @@
  * manager; the 打开 button opens it with the default app.
  */
 
+import { NumericText } from '../../components/NumericText';
 import { EmptyState } from '../../components/EmptyState';
 import { useMemo, useState, type ReactElement } from 'react';
 import { FolderOpen, ExternalLink, AlertTriangle } from 'lucide-react';
@@ -94,7 +95,8 @@ export function FileDirExplorer(): ReactElement {
 
       {summary.data?.truncated ? (
         <div className="weq-filebrowser-warn">
-          <AlertTriangle size={13} /> 文件过多，仅加载了前 {total} 个
+          <AlertTriangle size={13} /> 文件过多，仅加载了前{' '}
+          <span className="weq-number weq-number-inherit">{total}</span> 个
         </div>
       ) : null}
 
@@ -179,7 +181,11 @@ function FileCard({ entry }: { entry: FileResourceEntry }): ReactElement {
           {entry.name}
         </div>
         <div className={cn('weq-filecard-sub', msg && 'is-error')}>
-          {msg ? msg : `${fmtBytes(entry.size)} · ${fmtDate(entry.mtimeMs)}`}
+          {msg ? (
+            msg
+          ) : (
+            <NumericText>{`${fmtBytes(entry.size)} · ${fmtDate(entry.mtimeMs)}`}</NumericText>
+          )}
         </div>
       </div>
       <DesktopOnly>

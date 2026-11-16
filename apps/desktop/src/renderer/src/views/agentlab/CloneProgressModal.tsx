@@ -70,7 +70,9 @@ export function CloneProgressModal({
               <div className="weq-clone-progress-track">
                 <div className="weq-clone-progress-fill" style={{ width: `${task.percent}%` }} />
               </div>
-              <div className="weq-clone-progress-pct">{Math.round(task.percent)}%</div>
+              <div className="weq-clone-progress-pct">
+                <span className="weq-number weq-number-inherit">{Math.round(task.percent)}</span>%
+              </div>
             </>
           )}
           <p className="weq-clone-progress-hint">

@@ -109,7 +109,11 @@ export function State({
       ) : (
         empty
       )}
-      {progress ? <span className="weq-qzn-page-count">{progress}</span> : null}
+      {progress ? (
+        <span className="weq-qzn-page-count">
+          <span className="weq-number weq-number-inherit">{progress}</span>
+        </span>
+      ) : null}
     </div>
   );
 }

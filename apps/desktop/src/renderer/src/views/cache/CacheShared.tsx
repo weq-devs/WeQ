@@ -1,3 +1,4 @@
+import { NumericText } from '../../components/NumericText';
 import * as timeFormat from '@weq/time';
 /**
  * Shared bits for the 本地资源 (cache) view: formatting helpers, the file-browser
@@ -142,7 +143,9 @@ export function FileResourceToolbar({
             {CATEGORY_META[c].icon}
             <span>{CATEGORY_META[c].label}</span>
             <em className="weq-filebrowser-tabcount">
-              {c === 'all' ? total : (counts?.[c as FileCategory] ?? 0)}
+              <span className="weq-number weq-number-inherit">
+                {c === 'all' ? total : (counts?.[c as FileCategory] ?? 0)}
+              </span>
             </em>
           </button>
         ))}
@@ -332,7 +335,11 @@ export function ListFooter({
 }): ReactElement {
   if (done) {
     if (count === 0) return <EmptyState compact icon={<Files />} title="没有匹配的文件" />;
-    return <div className="weq-filebrowser-more is-end">{`已全部加载（${count}）`}</div>;
+    return (
+      <div className="weq-filebrowser-more is-end">
+        <NumericText>{`已全部加载（${count}）`}</NumericText>
+      </div>
+    );
   }
   if (loading) {
     return (
@@ -499,7 +506,11 @@ export function GridFooter({
 }): ReactElement {
   if (done) {
     if (count === 0) return <EmptyState compact icon={<Package />} title="该分类暂无缓存" />;
-    return <div className="weq-cache-avatar-more is-end">{`已全部加载（${count}）`}</div>;
+    return (
+      <div className="weq-cache-avatar-more is-end">
+        <NumericText>{`已全部加载（${count}）`}</NumericText>
+      </div>
+    );
   }
   if (loading) {
     return (

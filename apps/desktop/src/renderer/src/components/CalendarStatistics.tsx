@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import {
   CALENDAR_SOURCE_ORDER,
   CALENDAR_SOURCE_LABELS,
@@ -143,16 +144,22 @@ export function CalendarStatistics({
         }
       />
       <p role="status">
-        {error ??
-          calendarReadLabel(snapshot) ??
-          (snapshot?.complete ? `${snapshot.totalRows} 个会话` : '正在统计当天会话…')}
+        {error ?? (
+          <NumericText>
+            {calendarReadLabel(snapshot) ??
+              (snapshot?.complete ? `${snapshot.totalRows} 个会话` : '正在统计当天会话…')}
+          </NumericText>
+        )}
       </p>
       {snapshot?.activeScan ? (
         <p>
-          {snapshot.activeScan.day} · {CALENDAR_SOURCE_LABELS[snapshot.activeScan.kind]}
-          {snapshot.activeScan.progress
-            ? ` · ${snapshot.activeScan.progress.phase} · 已处理 ${snapshot.activeScan.progress.processed.toLocaleString('zh-CN')} ${snapshot.activeScan.progress.unit}`
-            : ''}
+          <span className="weq-number weq-number-inherit">{snapshot.activeScan.day}</span> ·{' '}
+          {CALENDAR_SOURCE_LABELS[snapshot.activeScan.kind]}
+          {snapshot.activeScan.progress ? (
+            <NumericText>{` · ${snapshot.activeScan.progress.phase} · 已处理 ${snapshot.activeScan.progress.processed.toLocaleString('zh-CN')} ${snapshot.activeScan.progress.unit}`}</NumericText>
+          ) : (
+            ''
+          )}
         </p>
       ) : null}
       <TaskLogDisclosure
@@ -183,11 +190,16 @@ export function CalendarStatistics({
       )}
       {snapshot?.dayProgress && !snapshot.emptyReason ? (
         <p>
-          {snapshot.complete
-            ? `${snapshot.totalRows} 个会话`
-            : `已完成 ${snapshot.dayProgress.completedSources}/${snapshot.dayProgress.totalSources} 个来源`}{' '}
-          · 已计 {snapshot.dayProgress.count.toLocaleString('zh-CN')} 条
-          {snapshot.dayProgress.paused ? ' · 该日已暂停' : ''}
+          {snapshot.complete ? (
+            <NumericText>{`${snapshot.totalRows} 个会话`}</NumericText>
+          ) : (
+            <NumericText>{`已完成 ${snapshot.dayProgress.completedSources}/${snapshot.dayProgress.totalSources} 个来源`}</NumericText>
+          )}{' '}
+          · 已计{' '}
+          <span className="weq-number weq-number-inherit">
+            {snapshot.dayProgress.count.toLocaleString('zh-CN')}
+          </span>{' '}
+          条{snapshot.dayProgress.paused ? ' · 该日已暂停' : ''}
         </p>
       ) : null}
       <CalendarConversationList

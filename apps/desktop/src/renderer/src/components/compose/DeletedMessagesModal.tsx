@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import * as timeFormat from '@weq/time';
 /**
  * DeletedMessagesModal — the "删除列表": browse the messages WeQ deleted in one
@@ -232,7 +233,11 @@ export function DeletedMessagesModal({
           ) : null}
 
           <span className="weq-msglist-count">
-            {filtering ? `${filtered.length} / ${rows.length} 条` : `共 ${rows.length} 条`}
+            {filtering ? (
+              <NumericText>{`${filtered.length} / ${rows.length} 条`}</NumericText>
+            ) : (
+              <NumericText>{`共 ${rows.length} 条`}</NumericText>
+            )}
           </span>
         </div>
 

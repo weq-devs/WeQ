@@ -180,7 +180,11 @@ export function GrayTipGroupMessage({
           {person(targetUid, targetNick, user2Uid)}
           <span> 被 </span>
           {person(operatorUid, operatorNick, user1Uid)}
-          <span> 禁言了 {formatMuteDuration(duration)}</span>
+          <span>
+            {' '}
+            禁言了{' '}
+            <span className="weq-number weq-number-inherit">{formatMuteDuration(duration)}</span>
+          </span>
         </Tip>
       ) : (
         <Tip>

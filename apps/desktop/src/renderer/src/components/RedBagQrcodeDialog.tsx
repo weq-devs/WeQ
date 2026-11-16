@@ -98,8 +98,15 @@ function RedBagQrcodeDialog({
         />
 
         <div className="weq-redbag-qr-meta">
-          <span className="weq-redbag-qr-amount">¥{formatAmount(result.totalAmount)}</span>
-          <span className="weq-redbag-qr-count">{result.totalNum} 个</span>
+          <span className="weq-redbag-qr-amount">
+            ¥
+            <span className="weq-number weq-number-inherit">
+              {formatAmount(result.totalAmount)}
+            </span>
+          </span>
+          <span className="weq-redbag-qr-count">
+            <span className="weq-number weq-number-inherit">{result.totalNum}</span> 个
+          </span>
         </div>
         <p className="weq-redbag-qr-hint">用手机 QQ 完成支付</p>
       </section>

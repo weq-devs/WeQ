@@ -28,6 +28,7 @@
  * 面板自己不碰 trpc / 协议；样式见 styles/flash-composer.css，颜色全走主题 token。
  */
 
+import { NumericText } from '../../components/NumericText';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTabActive } from '../../components/RetainedTabs';
@@ -672,7 +673,9 @@ export function FlashComposer({
                 <span className={cn('flash-file-name')} title={file.path}>
                   {file.name}
                 </span>
-                <em>{formatBytes(file.size)}</em>
+                <em>
+                  <span className="weq-number weq-number-inherit">{formatBytes(file.size)}</span>
+                </em>
                 <button
                   type="button"
                   className={cn('flash-file-remove')}
@@ -796,7 +799,9 @@ export function FlashComposer({
                     />
                   </div>
                   <div className={cn('flash-lightbox-meta')}>
-                    <span>{desc}</span>
+                    <span>
+                      <NumericText>{desc}</NumericText>
+                    </span>
                     <span className={cn('flash-lightbox-sep')}>·</span>
                     <span>封面 {cover ? '已就绪' : '未设置'}</span>
                   </div>
@@ -805,11 +810,18 @@ export function FlashComposer({
                       <li key={file.path}>
                         <img src={fileIconUrl(fileExtIcon(file.name))} alt="" loading="lazy" />
                         <span title={file.path}>{file.name}</span>
-                        <em>{formatBytes(file.size)}</em>
+                        <em>
+                          <span className="weq-number weq-number-inherit">
+                            {formatBytes(file.size)}
+                          </span>
+                        </em>
                       </li>
                     ))}
                     {files.length > 6 ? (
-                      <li className={cn('flash-lightbox-more')}>…还有 {files.length - 6} 个</li>
+                      <li className={cn('flash-lightbox-more')}>
+                        …还有{' '}
+                        <span className="weq-number weq-number-inherit">{files.length - 6}</span> 个
+                      </li>
                     ) : null}
                   </ul>
                   {error ? <span className={cn('flash-error')}>{error}</span> : null}

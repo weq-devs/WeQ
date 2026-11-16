@@ -126,7 +126,9 @@ function ContactNoticeDialogBody({
                       <em className={cn('notice-state', badge.tone)}>{badge.text}</em>
                     ) : null}
                     <time dateTime={request.createdAt}>
-                      {formatNoticeTimestamp(request.createdAt)}
+                      <span className="weq-number weq-number-inherit">
+                        {formatNoticeTimestamp(request.createdAt)}
+                      </span>
                     </time>
                   </div>
                   {open && operation && (
@@ -292,7 +294,9 @@ function GroupNoticeDialogBody({
                           <>
                             {' · '}
                             <time dateTime={request.respondedAt}>
-                              {formatNoticeTimestamp(request.respondedAt)}
+                              <span className="weq-number weq-number-inherit">
+                                {formatNoticeTimestamp(request.respondedAt)}
+                              </span>
                             </time>
                           </>
                         ) : null}
@@ -307,7 +311,9 @@ function GroupNoticeDialogBody({
                       <em className={cn('notice-state', badge.tone)}>{badge.text}</em>
                     ) : null}
                     <time dateTime={request.createdAt}>
-                      {formatNoticeTimestamp(request.createdAt)}
+                      <span className="weq-number weq-number-inherit">
+                        {formatNoticeTimestamp(request.createdAt)}
+                      </span>
                     </time>
                   </div>
                   {open && operation && (

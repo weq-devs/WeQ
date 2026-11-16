@@ -53,7 +53,8 @@ export function MarketEmojiExplorer(): ReactElement {
       <div className="weq-cache-marketemoji-bar">
         <span className="weq-cache-data-name">商城表情</span>
         <span className="weq-cache-data-meta">
-          {total ?? entries.length} 个 · 优先展示动图(GIF)，点击查看全部格式
+          <span className="weq-number weq-number-inherit">{total ?? entries.length}</span> 个 ·
+          优先展示动图(GIF)，点击查看全部格式
         </span>
       </div>
 
@@ -162,7 +163,9 @@ function MarketEmojiLightbox({
             </div>
             <figcaption className="weq-marketemoji-panel-cap">
               <strong>{p.label}</strong>
-              <span>{fmtBytes(p.size)}</span>
+              <span>
+                <span className="weq-number weq-number-inherit">{fmtBytes(p.size)}</span>
+              </span>
             </figcaption>
           </figure>
         ))

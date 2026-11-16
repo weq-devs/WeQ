@@ -10,6 +10,7 @@
  * 底部，任务完成后也可展开查看。
  */
 
+import { NumericText } from '../../components/NumericText';
 import { useEffect, useState, type ReactElement } from 'react';
 import { TaskProgressBar } from '../../components/tasks/TaskProgressBar';
 import {
@@ -342,7 +343,7 @@ export function StageRow({
             title="点击查看失败详情"
             onClick={() => onShowFailures(failures)}
           >
-            失败 {fmtCount(failures.length)}
+            失败 <span className="weq-number weq-number-inherit">{fmtCount(failures.length)}</span>
           </button>
         ) : null}
         <TaskProgressBar
@@ -352,11 +353,13 @@ export function StageRow({
           status={paused && stage.status === 'running' ? 'paused' : stage.status}
         />
         <span className="weq-exp-detail-stage-pct">
-          {stage.status === 'pending'
-            ? '–'
-            : stage.status === 'running' && !stage.total
-              ? '处理中'
-              : `${pct}%`}
+          {stage.status === 'pending' ? (
+            '–'
+          ) : stage.status === 'running' && !stage.total ? (
+            '处理中'
+          ) : (
+            <NumericText>{`${pct}%`}</NumericText>
+          )}
         </span>
         <span className="weq-exp-detail-stage-actions">
           {onSkip ? (
@@ -528,10 +531,12 @@ function TaskDetail({
           <strong>{t.name}</strong>
           <span className="weq-exp-detail-meta">
             {taskTypeLabel(t)}
-            {t.isMarketPack || t.isEmojiPack || t.resource ? null : ` · ${fmtFormats(t)}`}
+            {t.isMarketPack || t.isEmojiPack || t.resource ? null : (
+              <NumericText>{` · ${fmtFormats(t)}`}</NumericText>
+            )}
             {' · '}
-            {fmtCount(t.current)}
-            {t.total > 0 ? ` / ${fmtCount(t.total)}` : ''}{' '}
+            <span className="weq-number weq-number-inherit">{fmtCount(t.current)}</span>
+            {t.total > 0 ? <NumericText>{` / ${fmtCount(t.total)}`}</NumericText> : ''}{' '}
             {t.resource
               ? '个文件'
               : t.isMarketPack || t.isEmojiPack
@@ -539,7 +544,11 @@ function TaskDetail({
                 : t.isContacts
                   ? '位'
                   : '条'}
-            {t.avatarCount ? ` · 含头像 ${fmtCount(t.avatarCount)}` : ''}
+            {t.avatarCount ? (
+              <NumericText>{` · 含头像 ${fmtCount(t.avatarCount)}`}</NumericText>
+            ) : (
+              ''
+            )}
           </span>
         </div>
         <span
@@ -564,7 +573,9 @@ function TaskDetail({
                     ? '已完成 · 资源缺失'
                     : STATUS_LABEL[t.status]}
         </span>
-        <strong className="weq-exp-detail-overall">{overall}%</strong>
+        <strong className="weq-exp-detail-overall">
+          <span className="weq-number weq-number-inherit">{overall}</span>%
+        </strong>
         <div className="weq-exp-detail-actions">
           {t.status === 'paused' && (t.canFinalize || t.journalPath) && onFinalize ? (
             <button
@@ -720,18 +731,29 @@ function TaskDetail({
           className={`weq-exp-detail-complete${resourceMissing ? ' is-warn' : ''}`}
           role={resourceMissing ? 'alert' : 'status'}
         >
-          生成资源已保存 {fmtCount(t.generatedResources.copied)} 项
-          {resourceMissing
-            ? ` · 缺失 ${fmtCount(t.generatedResources.missing)} 项，正文已保留`
-            : ''}
+          生成资源已保存{' '}
+          <span className="weq-number weq-number-inherit">
+            {fmtCount(t.generatedResources.copied)}
+          </span>{' '}
+          项
+          {resourceMissing ? (
+            <NumericText>{` · 缺失 ${fmtCount(t.generatedResources.missing)} 项，正文已保留`}</NumericText>
+          ) : (
+            ''
+          )}
         </p>
       ) : null}
 
       {t.mergeWarnings &&
       (t.mergeWarnings.conflictingMessages > 0 || t.mergeWarnings.sequenceGapCount > 0) ? (
         <p className="weq-exp-detail-complete is-warn" role="status">
-          保留原消息，未覆盖内容不同的 {t.mergeWarnings.conflictingMessages} 条记录；发现{' '}
-          {t.mergeWarnings.sequenceGapCount} 段可疑序号缺口
+          保留原消息，未覆盖内容不同的{' '}
+          <span className="weq-number weq-number-inherit">
+            {t.mergeWarnings.conflictingMessages}
+          </span>{' '}
+          条记录；发现{' '}
+          <span className="weq-number weq-number-inherit">{t.mergeWarnings.sequenceGapCount}</span>{' '}
+          段可疑序号缺口
           {t.reportPath ? '，详见完整性报告。' : '。'}
         </p>
       ) : null}
@@ -751,15 +773,22 @@ function TaskDetail({
             title="点击查看失败详情"
             onClick={() => onShowFailures(t, completion.failures)}
           >
-            媒体补全 成功 {fmtCount(completion.ok)} · 失败 {fmtCount(completion.failed)}
+            媒体补全 成功{' '}
+            <span className="weq-number weq-number-inherit">{fmtCount(completion.ok)}</span> · 失败{' '}
+            <span className="weq-number weq-number-inherit">{fmtCount(completion.failed)}</span>
           </button>
         ) : (
           <span
             className={`weq-exp-detail-complete${completion.failed > 0 ? ' is-warn' : ''}`}
             title="媒体补全结果"
           >
-            媒体补全 成功 {fmtCount(completion.ok)}
-            {completion.failed > 0 ? ` · 失败 ${fmtCount(completion.failed)}` : ''}
+            媒体补全 成功{' '}
+            <span className="weq-number weq-number-inherit">{fmtCount(completion.ok)}</span>
+            {completion.failed > 0 ? (
+              <NumericText>{` · 失败 ${fmtCount(completion.failed)}`}</NumericText>
+            ) : (
+              ''
+            )}
           </span>
         )
       ) : null}
@@ -912,12 +941,14 @@ export function TaskList({
         aria-expanded={hasTasks ? isExpanded : undefined}
       >
         <span className="weq-exp-tasks-title">导出任务</span>
-        <span className="weq-exp-tasks-count">{tasks.length}</span>
+        <span className="weq-exp-tasks-count">
+          <span className="weq-number weq-number-inherit">{tasks.length}</span>
+        </span>
         {/* 收拢时显示迷你进度指示 */}
         {!isExpanded && hasTasks && runningCount > 0 ? (
           <span className="weq-exp-tasks-mini-status">
             <Loader2 size={12} className="weq-exp-spin" />
-            {runningCount} 个导出中…
+            <span className="weq-number weq-number-inherit">{runningCount}</span> 个导出中…
           </span>
         ) : !isExpanded && hasTasks && completedCount === tasks.length ? (
           <span className="weq-exp-tasks-mini-status is-done">
@@ -925,7 +956,9 @@ export function TaskList({
             {hasMissingResources ? '已完成 · 部分资源缺失' : '全部完成'}
           </span>
         ) : !isExpanded && hasTasks ? (
-          <span className="weq-exp-tasks-mini-status">{overallProgress}%</span>
+          <span className="weq-exp-tasks-mini-status">
+            <span className="weq-number weq-number-inherit">{overallProgress}</span>%
+          </span>
         ) : null}
         {hasTasks && onToggleExpanded ? (
           <button

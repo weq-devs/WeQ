@@ -6610,7 +6610,12 @@ export function ChatPane({
           >
             {jumpingToLatest ? <Loader2 size={14} /> : <ChevronDown size={14} strokeWidth={2.8} />}
             {newMessagePill > 0 ? (
-              <span>{formatUnreadJumpCount(newMessagePill)} 条新消息</span>
+              <span>
+                <span className="weq-number weq-number-inherit">
+                  {formatUnreadJumpCount(newMessagePill)}
+                </span>{' '}
+                条新消息
+              </span>
             ) : null}
           </button>
         </div>
@@ -6624,7 +6629,12 @@ export function ChatPane({
           onClick={jumpToFirstUnreadMessage}
         >
           <ChevronsUp size={21} strokeWidth={2.8} />
-          <span>{formatUnreadJumpCount(unreadJump?.remaining ?? 0)} 条新消息</span>
+          <span>
+            <span className="weq-number weq-number-inherit">
+              {formatUnreadJumpCount(unreadJump?.remaining ?? 0)}
+            </span>{' '}
+            条新消息
+          </span>
         </button>
       ) : null}
 
@@ -6836,7 +6846,16 @@ export function ChatPane({
             <MessageSelectionBar
               count={selectionFlow.selectedCount}
               detail={
-                selectionFlow.gaps.length ? <span>{selectionFlow.gaps.length} 处缺口</span> : null
+                selectionFlow.gaps.length ? (
+                  <span>
+                    {
+                      <span className="weq-number weq-number-inherit">
+                        {selectionFlow.gaps.length}
+                      </span>
+                    }{' '}
+                    处缺口
+                  </span>
+                ) : null
               }
             >
               {intentActionAvailable ? (

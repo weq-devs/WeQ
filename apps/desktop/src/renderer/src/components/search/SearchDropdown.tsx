@@ -362,8 +362,10 @@ export function SearchDropdown({
       >
         <Settings2 size={14} />
         <span>
-          来源 {activeSources.length} · 类型{' '}
-          {visibleCategories.filter((category) => categories.includes(category)).length}
+          来源 <span className="weq-number weq-number-inherit">{activeSources.length}</span> · 类型{' '}
+          <span className="weq-number weq-number-inherit">
+            {visibleCategories.filter((category) => categories.includes(category)).length}
+          </span>
         </span>
         <span>{filtersExpanded ? '收起筛选' : '筛选'}</span>
       </button>

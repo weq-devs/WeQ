@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -86,12 +87,19 @@ function Summary({ value }: { value: WeqBackupSummary }) {
     <>
       <div className="weq-backup-summary">
         <span>
-          {eventTimeFormatter.format(new Date(value.createdAt))}
+          {
+            <span className="weq-number weq-number-inherit">
+              {eventTimeFormatter.format(new Date(value.createdAt))}
+            </span>
+          }
           （北京时间）
         </span>
         {value.parts.map((part) => (
           <span key={part.part}>
-            {LABELS[part.part]} · {part.files} 个文件 · {(part.bytes / 1024).toFixed(1)} KiB
+            {LABELS[part.part]} ·{' '}
+            <span className="weq-number weq-number-inherit">{part.files}</span> 个文件 ·{' '}
+            <span className="weq-number weq-number-inherit">{(part.bytes / 1024).toFixed(1)}</span>{' '}
+            KiB
           </span>
         ))}
       </div>
@@ -367,8 +375,9 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
           icon={<ArchiveRestore size={15} strokeWidth={1.8} />}
         >
           <p>
-            {result.error ||
-              `已应用 ${result.applied.length} 项，跳过 ${result.skipped.length} 项。`}
+            {result.error || (
+              <NumericText>{`已应用 ${result.applied.length} 项，跳过 ${result.skipped.length} 项。`}</NumericText>
+            )}
           </p>
           {result.warnings.length ? (
             <ul className="weq-backup-list">
@@ -683,7 +692,10 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
             <h4>确认恢复范围</h4>
             <Summary value={preview.summary} />
             <p>
-              将应用 {preview.planned.length} 项，跳过 {preview.skipped.length}{' '}
+              将应用{' '}
+              {<span className="weq-number weq-number-inherit">{preview.planned.length}</span>}{' '}
+              项，跳过{' '}
+              {<span className="weq-number weq-number-inherit">{preview.skipped.length}</span>}{' '}
               项。确认后关闭当前账号并刷新界面，无需重启 WeQ。请先保存正在编辑的内容。
             </p>
             <ul className="weq-backup-list">
@@ -873,7 +885,11 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
                   })
                 }
               >
-                {busy ? confirmation.progress : confirmation.action}
+                {busy ? (
+                  <span className="weq-number weq-number-inherit">{confirmation.progress}</span>
+                ) : (
+                  confirmation.action
+                )}
               </button>
             </div>
           </div>

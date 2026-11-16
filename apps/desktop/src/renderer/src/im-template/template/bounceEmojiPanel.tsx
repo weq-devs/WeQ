@@ -233,14 +233,24 @@ export function BounceEmojiPanel({
             )}
             {/* 与聊天窗口里的渲染对齐：只弹 1 个时 QQ 不画角标（见 QqEmojiBounce）。 */}
             {pick && parsed.count !== null && parsed.count > 1 ? (
-              <span className={cn('bounce-preview-count')}>×{formatBounceCount(parsed.count)}</span>
+              <span className={cn('bounce-preview-count')}>
+                ×
+                <span className="weq-number weq-number-inherit">
+                  {formatBounceCount(parsed.count)}
+                </span>
+              </span>
             ) : null}
           </div>
 
           <div className={cn('bounce-controls')}>
             <span className={cn('bounce-label')}>
               弹射个数
-              <em className={cn('bounce-range')}>1 – {BOUNCE_COUNT_MAX.toLocaleString('en-US')}</em>
+              <em className={cn('bounce-range')}>
+                1 –{' '}
+                <span className="weq-number weq-number-inherit">
+                  {BOUNCE_COUNT_MAX.toLocaleString('en-US')}
+                </span>
+              </em>
             </span>
             <div className={cn('bounce-count-row')}>
               <button
@@ -304,7 +314,14 @@ export function BounceEmojiPanel({
               <span className={cn('bounce-error')}>{parsed.error}</span>
             ) : (
               <span className={cn('bounce-summary')} title={summary}>
-                {summary}
+                {pick && parsed.count !== null ? (
+                  <>
+                    你弹射了<span className="weq-number weq-number-inherit">{parsed.count}</span>个[
+                    {name}]
+                  </>
+                ) : (
+                  summary
+                )}
               </span>
             )}
           </div>

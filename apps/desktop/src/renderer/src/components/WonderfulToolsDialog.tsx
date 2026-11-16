@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import { eventTimeFormatter } from '@weq/time';
 /**
  * 维护与诊断工具 —— 从设置中的对应入口打开。
@@ -615,7 +616,13 @@ export function WonderfulToolsDialog({
                         <h2 id="weq-wtools-title">密钥扫描</h2>
                         {!loading && accounts.length > 0 ? (
                           <span className="weq-wtools-total">
-                            {onlineCount} / {accounts.length} 在线
+                            <span className="weq-number weq-number-inherit">{onlineCount}</span> /{' '}
+                            {
+                              <span className="weq-number weq-number-inherit">
+                                {accounts.length}
+                              </span>
+                            }{' '}
+                            在线
                           </span>
                         ) : null}
                       </div>
@@ -668,7 +675,9 @@ export function WonderfulToolsDialog({
                                 </span>
                                 <span className="weq-wtools-card-id">
                                   <strong>{acc.userName || acc.uin}</strong>
-                                  <em>{acc.uin}</em>
+                                  <em>
+                                    <span className="weq-number weq-number-inherit">{acc.uin}</span>
+                                  </em>
                                 </span>
                                 <span className="weq-wtools-card-status">
                                   {busy ? (
@@ -697,11 +706,13 @@ export function WonderfulToolsDialog({
                         <span
                           className={`weq-wtools-online-badge${otherKeyOnline > 0 ? ' is-online' : ''}`}
                         >
-                          {fullModeEnabled
-                            ? otherKeyOnline > 0
-                              ? `${otherKeyOnline} 个在线实例可用`
-                              : '无在线实例'
-                            : 'QQ 在线能力未启用'}
+                          <NumericText>
+                            {fullModeEnabled
+                              ? otherKeyOnline > 0
+                                ? `${otherKeyOnline} 个在线实例可用`
+                                : '无在线实例'
+                              : 'QQ 在线能力未启用'}
+                          </NumericText>
                         </span>
                       </div>
                       <div className="weq-wtools-toolbar">
@@ -837,7 +848,11 @@ export function WonderfulToolsDialog({
                             </div>
                             {otherResult.pid ? (
                               <span className="weq-wtools-odev-pid">
-                                由在线实例 PID {otherResult.pid} 返回
+                                由在线实例 PID{' '}
+                                <span className="weq-number weq-number-inherit">
+                                  {otherResult.pid}
+                                </span>{' '}
+                                返回
                               </span>
                             ) : null}
                           </div>
@@ -939,9 +954,13 @@ export function WonderfulToolsDialog({
                 <strong id="weq-wtools-result-title" className="weq-wtools-result-name">
                   {scanTarget.userName || scanTarget.uin}
                 </strong>
-                <span className="weq-wtools-result-uin">QQ 号 {scanTarget.uin}</span>
+                <span className="weq-wtools-result-uin">
+                  QQ 号 <span className="weq-number weq-number-inherit">{scanTarget.uin}</span>
+                </span>
                 {scanTarget.pid ? (
-                  <span className="weq-wtools-result-pid">PID {scanTarget.pid}</span>
+                  <span className="weq-wtools-result-pid">
+                    PID <span className="weq-number weq-number-inherit">{scanTarget.pid}</span>
+                  </span>
                 ) : null}
 
                 <div className="weq-wtools-result-body">
@@ -953,7 +972,12 @@ export function WonderfulToolsDialog({
                           {scanProgress?.message ?? '正在扫描进程内存并验证密钥…'}
                         </span>
                         {scanProgress ? (
-                          <span className="weq-wtools-scan-pct">{scanProgress.percent}%</span>
+                          <span className="weq-wtools-scan-pct">
+                            <span className="weq-number weq-number-inherit">
+                              {scanProgress.percent}
+                            </span>
+                            %
+                          </span>
                         ) : null}
                       </div>
                       <div className="weq-wtools-scan-track">

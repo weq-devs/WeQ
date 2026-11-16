@@ -574,7 +574,10 @@ export function GroupChatPanel({
             {settingsSection === 'members' ? (
               <div className="weq-agentlab-field">
                 <div className="weq-clone-member-toolbar">
-                  <span>群内克隆体（{personaMembers.length}）</span>
+                  <span>
+                    群内克隆体（
+                    <span className="weq-number weq-number-inherit">{personaMembers.length}</span>）
+                  </span>
                   <button
                     type="button"
                     className="weq-set-btn weq-set-btn-soft"

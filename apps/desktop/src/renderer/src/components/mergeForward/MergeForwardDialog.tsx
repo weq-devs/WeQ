@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import { CompositionButton } from './CompositionButton';
 /**
  * MergeForwardDialog —— 合并转发的使用场景之一：在聊天里多选消息后「合并转发」。
@@ -147,12 +148,16 @@ export function MergeForwardDialog({
                 aria-label="聊天记录标题"
               />
             ) : (
-              <strong id="weq-mf-title">选择会话（{selected.size}）</strong>
+              <strong id="weq-mf-title">
+                选择会话（<span className="weq-number weq-number-inherit">{selected.size}</span>）
+              </strong>
             )}
             <span className="weq-mf-head-sub">
-              {step === 'edit'
-                ? `${draft.nodes.length} 条预览消息 · 右键可修改`
-                : '可多选，确认后一起转发'}
+              {step === 'edit' ? (
+                <NumericText>{`${draft.nodes.length} 条预览消息 · 右键可修改`}</NumericText>
+              ) : (
+                '可多选，确认后一起转发'
+              )}
             </span>
           </div>
           <CompositionButton

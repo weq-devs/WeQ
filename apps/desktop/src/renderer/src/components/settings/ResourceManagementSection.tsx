@@ -122,7 +122,9 @@ function ResourceManagementBody({ source }: { source: ResourceSource }) {
         </p>
       ) : progress && currentView !== 'overview' ? (
         <p className="weq-resource-status" role="status">
-          正在扫描{progress} · {scan.stats.length} / {RESOURCE_CATEGORIES.length + 1}
+          正在扫描<span className="weq-number weq-number-inherit">{progress}</span> ·{' '}
+          <span className="weq-number weq-number-inherit">{scan.stats.length}</span> /{' '}
+          <span className="weq-number weq-number-inherit">{RESOURCE_CATEGORIES.length + 1}</span>
         </p>
       ) : null}
       <RetainedTabs snapshotKey="resource-management" activeKey={currentView}>

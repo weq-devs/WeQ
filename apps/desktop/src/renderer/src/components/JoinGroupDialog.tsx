@@ -150,7 +150,7 @@ export function JoinGroupDialog(): ReactElement | null {
           </h2>
           <p className="weq-join-group-sub">
             <Users size={11} strokeWidth={2} aria-hidden />
-            群号 {data.groupCode}
+            群号 <span className="weq-number weq-number-inherit">{data.groupCode}</span>
           </p>
         </header>
 

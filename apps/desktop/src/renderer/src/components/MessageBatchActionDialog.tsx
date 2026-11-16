@@ -77,7 +77,10 @@ export function MessageBatchActionDialog({
           </div>
           <div className="weq-dialog-body">
             <p>
-              {batch.unsupported.length} 条消息不支持{label}，{batch.supported.length} 条可以继续。
+              {<span className="weq-number weq-number-inherit">{batch.unsupported.length}</span>}{' '}
+              条消息不支持{label}，
+              {<span className="weq-number weq-number-inherit">{batch.supported.length}</span>}{' '}
+              条可以继续。
             </p>
             <button type="button" className="weq-action-soft" onClick={() => setPreview(true)}>
               <Eye size={15} />
@@ -96,7 +99,8 @@ export function MessageBatchActionDialog({
           disabled={!batch.supported.length}
           onClick={() => onContinue(batch.supported)}
         >
-          仅{label}支持的 {batch.supported.length} 条
+          仅{label}支持的{' '}
+          <span className="weq-number weq-number-inherit">{batch.supported.length}</span> 条
         </button>
       </footer>
     </Modal>

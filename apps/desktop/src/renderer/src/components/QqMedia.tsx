@@ -651,7 +651,9 @@ export function QqVideo({
         )}
         <span className="qq-media-video-play" aria-hidden />
         {duration > 0 ? (
-          <span className="qq-media-video-duration">{formatDuration(duration)}</span>
+          <span className="qq-media-video-duration">
+            <span className="weq-number weq-number-inherit">{formatDuration(duration)}</span>
+          </span>
         ) : null}
       </VideoControl>
       {expandButton}
@@ -813,7 +815,7 @@ export function QqFile({
               ) : error ? (
                 `保存失败：${error}`
               ) : (
-                formatSize(size)
+                <span className="weq-number">{formatSize(size)}</span>
               )}
             </span>
           </span>
@@ -859,7 +861,13 @@ export function QqOnlineFile({ data, kind }: { data: Data; kind: 'file' | 'folde
       <div className="qq-media-file-meta">
         <div className="qq-media-file-name">{name || placeholder}</div>
         <div className="qq-media-file-size">
-          {size > 0 ? formatSize(size) : kind === 'folder' ? '在线文件夹' : '在线文件'}
+          {size > 0 ? (
+            <span className="weq-number">{formatSize(size)}</span>
+          ) : kind === 'folder' ? (
+            '在线文件夹'
+          ) : (
+            '在线文件'
+          )}
         </div>
       </div>
     </div>
@@ -1048,7 +1056,11 @@ export function QqVoice({
               <i key={i} style={{ height: `${20 + Math.round((v / 255) * 80)}%` }} />
             ))}
           </span>
-          {seconds > 0 ? <span className="qq-media-voice-time">{seconds}″</span> : null}
+          {seconds > 0 ? (
+            <span className="qq-media-voice-time">
+              <span className="weq-number weq-number-inherit">{seconds}</span>″
+            </span>
+          ) : null}
         </button>
         {canTranscribe && (shownTranscript === null || transcribeError) ? (
           <button

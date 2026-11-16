@@ -283,7 +283,9 @@ export function ShowEmojiTab({ ctx, onSent }: { ctx: SendContext; onSent: () => 
         <section className={cn('show-emoji-section')} key={group.type}>
           <h4>
             {group.typeName}
-            <span className={cn('show-emoji-count')}>{group.packs.length}</span>
+            <span className={cn('show-emoji-count')}>
+              <span className="weq-number weq-number-inherit">{group.packs.length}</span>
+            </span>
           </h4>
           <div className={cn('show-emoji-grid')}>
             {group.packs.map((pack) => (

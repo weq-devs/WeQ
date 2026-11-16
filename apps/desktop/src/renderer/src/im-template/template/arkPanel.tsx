@@ -711,7 +711,8 @@ export function ArkPanel({
                   }
                 />
                 <em className={cn('link-card-count')}>
-                  {signup.title.length}/{SIGNUP_TITLE_MAX_CHARS}
+                  {<span className="weq-number weq-number-inherit">{signup.title.length}</span>}/
+                  <span className="weq-number weq-number-inherit">{SIGNUP_TITLE_MAX_CHARS}</span>
                 </em>
               </span>
             </Field>
@@ -850,7 +851,8 @@ export function ArkPanel({
                   onChange={(event) => setTuwen({ ...tuwen, title: event.target.value })}
                 />
                 <em className={cn('link-card-count')}>
-                  {tuwen.title.length}/{LINK_CARD_MAX_TITLE_CHARS}
+                  {<span className="weq-number weq-number-inherit">{tuwen.title.length}</span>}/
+                  <span className="weq-number weq-number-inherit">{LINK_CARD_MAX_TITLE_CHARS}</span>
                 </em>
               </span>
             </Field>

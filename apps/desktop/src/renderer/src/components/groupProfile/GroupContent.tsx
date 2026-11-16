@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import { preciseTimeFormatter as eventTimeFormatter, formatDateTime, timeDate } from '@weq/time';
 import { useContext, useState } from 'react';
 import { CalendarDays, RefreshCw, Users } from 'lucide-react';
@@ -94,8 +95,13 @@ export function GroupIdentity({
           {group.memberCount > 0 || conversation.generated ? (
             <span className="weq-group-count">
               <Users size={13} />
-              {group.memberCount}
-              {group.maxMemberCount ? ` / ${group.maxMemberCount}` : ''} 位成员
+              <span className="weq-number weq-number-inherit">{group.memberCount}</span>
+              {group.maxMemberCount ? (
+                <NumericText>{` / ${group.maxMemberCount}`}</NumericText>
+              ) : (
+                ''
+              )}{' '}
+              位成员
             </span>
           ) : null}
         </div>

@@ -209,7 +209,9 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
           >
             {activeEditor.type === 'move' ? (
               <label>
-                将 {activeEditor.uids.length} 位好友移动到
+                将{' '}
+                {<span className="weq-number weq-number-inherit">{activeEditor.uids.length}</span>}{' '}
+                位好友移动到
                 <select
                   autoFocus
                   required
@@ -234,7 +236,8 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
                 <p>删除「{categories?.find((row) => row.id === activeEditor.id)?.name}」？</p>
                 {memberCount > 0 && (
                   <label>
-                    将 {memberCount} 位好友合并到
+                    将 <span className="weq-number weq-number-inherit">{memberCount}</span>{' '}
+                    位好友合并到
                     <select
                       required
                       value={mergeInto}

@@ -71,7 +71,7 @@ export function AccountSelector({
                 <span className="weq-account-info">
                   <strong>{acc.name}</strong>
                   <span className="weq-account-identity">
-                    {acc.uin}
+                    <span className="weq-number weq-number-inherit">{acc.uin}</span>
                     <span>
                       <Icon size={12} aria-hidden />
                       {accountSource(acc)}

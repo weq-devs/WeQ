@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import { EmptyState } from './EmptyState';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, Loader2, RefreshCw, Forward } from 'lucide-react';
@@ -123,8 +124,12 @@ export function QzoneForwardList({
       ) : null}
       {page ? (
         <p className="weq-qzn-status">
-          已读取 {people} 人
-          {page.reportedTotal === null ? '' : ` · 共 ${page.reportedTotal} 次转发`}
+          已读取 <span className="weq-number weq-number-inherit">{people}</span> 人
+          {page.reportedTotal === null ? (
+            ''
+          ) : (
+            <NumericText>{` · 共 ${page.reportedTotal} 次转发`}</NumericText>
+          )}
         </p>
       ) : null}
       {page?.nextCursor && !loading && !error && !paused ? (

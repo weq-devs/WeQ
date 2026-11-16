@@ -261,7 +261,9 @@ export function PersonalityHomeDialog({
                   />
                 ))}
               </span>
-              <strong>Lv.{level}</strong>
+              <strong>
+                Lv.<span className="weq-number weq-number-inherit">{level}</span>
+              </strong>
             </span>
           </div>
         ) : null}

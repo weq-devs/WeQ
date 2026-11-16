@@ -465,7 +465,9 @@ export function MailComposer({
               <span data-privacy-sensitive title={item.name}>
                 {item.name}
               </span>
-              <small>{formatMailSize(item.size)}</small>
+              <small>
+                <span className="weq-number weq-number-inherit">{formatMailSize(item.size)}</span>
+              </small>
               <button
                 type="button"
                 disabled={busy}

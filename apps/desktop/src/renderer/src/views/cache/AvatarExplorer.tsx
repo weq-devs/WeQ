@@ -75,7 +75,9 @@ export function AvatarExplorer(): ReactElement {
           >
             {SCOPE_META[s.scope].icon}
             <span>{SCOPE_META[s.scope].label}</span>
-            <em className="weq-cache-avatar-tabcount">{s.count}</em>
+            <em className="weq-cache-avatar-tabcount">
+              <span className="weq-number weq-number-inherit">{s.count}</span>
+            </em>
           </button>
         ))}
         {scopes.isLoading && scopeList.length === 0 ? (
@@ -155,7 +157,9 @@ function AvatarCard({ scope, entry }: { scope: AvatarScope; entry: AvatarEntry }
       </div>
       <figcaption className="weq-cache-avatar-meta">
         <span className="weq-cache-avatar-hash">{entry.hash.slice(0, 10)}…</span>
-        <span className="weq-cache-avatar-size">{fmtBytes(totalBytes)}</span>
+        <span className="weq-cache-avatar-size">
+          <span className="weq-number weq-number-inherit">{fmtBytes(totalBytes)}</span>
+        </span>
       </figcaption>
     </figure>
   );

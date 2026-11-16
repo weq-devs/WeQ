@@ -226,7 +226,9 @@ export function MutualMarkDialog({
           ) : null}
           {data.totalNum > 0 ? (
             <p className="weq-mutual-summary">
-              共 {data.totalNum} 个标识 · 已点亮 {data.lightUpNum} · 稀有 {data.rarityNum}
+              共 <span className="weq-number weq-number-inherit">{data.totalNum}</span> 个标识 ·
+              已点亮 <span className="weq-number weq-number-inherit">{data.lightUpNum}</span> · 稀有{' '}
+              <span className="weq-number weq-number-inherit">{data.rarityNum}</span>
             </p>
           ) : null}
           {categories.map((cat) => (
@@ -235,7 +237,8 @@ export function MutualMarkDialog({
                 <h3>
                   {cat.name}
                   <span className="weq-mutual-cat-count">
-                    {cat.lightUpNum}/{cat.totalNum}
+                    <span className="weq-number weq-number-inherit">{cat.lightUpNum}</span>/
+                    <span className="weq-number weq-number-inherit">{cat.totalNum}</span>
                   </span>
                 </h3>
               ) : null}

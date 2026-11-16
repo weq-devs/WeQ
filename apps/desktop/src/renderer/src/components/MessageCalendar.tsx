@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { beijingDay, messageDensity, type MessageDay } from '../lib/messageCalendar';
@@ -164,31 +165,42 @@ export function MessageCalendar({
                 onPick(day);
               }}
             >
-              <span>{date}</span>
+              <span>
+                <span className="weq-number weq-number-inherit">{date}</span>
+              </span>
               <small>
-                {future || reason
-                  ? ''
-                  : pending
-                    ? count > 0
-                      ? `${compactCount.format(count)}+`
-                      : paused
-                        ? '暂停'
-                        : '…'
-                    : count
-                      ? compactCount.format(count)
-                      : dayStatus
-                        ? '0'
-                        : ''}
+                {future || reason ? (
+                  ''
+                ) : pending ? (
+                  count > 0 ? (
+                    <NumericText>{`${compactCount.format(count)}+`}</NumericText>
+                  ) : paused ? (
+                    '暂停'
+                  ) : (
+                    '…'
+                  )
+                ) : count ? (
+                  <span className="weq-number weq-number-inherit">
+                    {compactCount.format(count)}
+                  </span>
+                ) : dayStatus ? (
+                  '0'
+                ) : (
+                  ''
+                )}
               </small>
             </button>
           );
         })}
       </div>
       <div className="weq-density-calendar-status" role="status">
-        {statusText ??
-          (loading
-            ? '正在读取消息数量…'
-            : `北京时间 · ${days.filter((day) => day.count > 0).length} 个有记录日期`)}
+        {statusText ?? (
+          <NumericText>
+            {loading
+              ? '正在读取消息数量…'
+              : `北京时间 · ${days.filter((day) => day.count > 0).length} 个有记录日期`}
+          </NumericText>
+        )}
       </div>
       {error ? <p role="alert">{error}</p> : null}
     </div>

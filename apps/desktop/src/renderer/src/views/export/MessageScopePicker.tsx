@@ -1,3 +1,4 @@
+import { NumericText } from '../../components/NumericText';
 import { useEffect, useState } from 'react';
 import { ChevronDown, Search } from 'lucide-react';
 import { client } from '../../trpc/client';
@@ -119,7 +120,11 @@ export function MessageScopePicker({
           ]}
         />
         <span>
-          {selected === undefined ? '按会话及条件导出' : `仅导出已选 ${selected.length} 条消息`}
+          {selected === undefined ? (
+            '按会话及条件导出'
+          ) : (
+            <NumericText>{`仅导出已选 ${selected.length} 条消息`}</NumericText>
+          )}
         </span>
       </div>
       {selected !== undefined ? (

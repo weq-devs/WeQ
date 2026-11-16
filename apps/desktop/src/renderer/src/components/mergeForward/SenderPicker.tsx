@@ -232,7 +232,9 @@ function PersonRow({
       <QqAvatar uin={person.uin} size={30} className="weq-mf-person-avatar" />
       <span className="weq-mf-person-name">{person.name}</span>
       {person.uin && person.uin !== '0' ? (
-        <span className="weq-mf-person-uin">{person.uin}</span>
+        <span className="weq-mf-person-uin">
+          <span className="weq-number weq-number-inherit">{person.uin}</span>
+        </span>
       ) : null}
     </CompositionButton>
   );

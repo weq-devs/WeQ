@@ -84,7 +84,9 @@ function QQExactLookupBody({
           {result.data.level !== null && (
             <>
               <dt>QQ 等级</dt>
-              <dd>{result.data.level}</dd>
+              <dd>
+                <span className="weq-number weq-number-inherit">{result.data.level}</span>
+              </dd>
             </>
           )}
           {result.data.category && (

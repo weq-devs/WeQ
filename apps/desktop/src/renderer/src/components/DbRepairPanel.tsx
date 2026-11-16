@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import * as timeFormat from '@weq/time';
 /**
  * 设置 → 数据维护 → 维护工具 → 数据库修复。
@@ -546,7 +547,9 @@ function RepairProgress({ progress }: { progress: ProgressView }): ReactElement 
           <Loader2 size={13} strokeWidth={2.4} className="weq-spin" aria-hidden />
           {progress.message || progress.phase}
         </span>
-        <span className="weq-rp-progress-pct">{progress.percent}%</span>
+        <span className="weq-rp-progress-pct">
+          <span className="weq-number weq-number-inherit">{progress.percent}</span>%
+        </span>
       </div>
       <div className="weq-rp-track">
         <div className="weq-rp-fill" style={{ width: `${progress.percent}%` }} />
@@ -680,18 +683,42 @@ function HistoryLightbox({
                         <span className="weq-rp-mono">{record.dbName}</span>
                         <Chip tone={badge.tone}>{badge.label}</Chip>
                         {kindBadge ? <Chip tone={kindBadge.tone}>{kindBadge.label}</Chip> : null}
-                        <span className="weq-rp-rec-time">{shortTime(record.at)}</span>
+                        <span className="weq-rp-rec-time">
+                          {
+                            <span className="weq-number weq-number-inherit">
+                              {shortTime(record.at)}
+                            </span>
+                          }
+                        </span>
                       </div>
                       <div className="weq-rp-rec-meta">
                         <span>
-                          {formatBytes(record.beforeBytes)} → {formatBytes(record.afterBytes)}
+                          <span className="weq-number weq-number-inherit">
+                            {formatBytes(record.beforeBytes)}
+                          </span>{' '}
+                          →{' '}
+                          <span className="weq-number weq-number-inherit">
+                            {formatBytes(record.afterBytes)}
+                          </span>
                         </span>
                         <span className="weq-rp-sep" aria-hidden />
-                        <span>{(record.durationMs / 1000).toFixed(1)}s</span>
+                        <span>
+                          <span className="weq-number weq-number-inherit">
+                            {(record.durationMs / 1000).toFixed(1)}
+                          </span>
+                          s
+                        </span>
                         {record.badPages.length > 0 ? (
                           <>
                             <span className="weq-rp-sep" aria-hidden />
-                            <span>坏页 {record.badPages.length}</span>
+                            <span>
+                              坏页{' '}
+                              {
+                                <span className="weq-number weq-number-inherit">
+                                  {record.badPages.length}
+                                </span>
+                              }
+                            </span>
                           </>
                         ) : null}
                         {record.strictPages ? (
@@ -1550,30 +1577,34 @@ export function DbRepairPanel({
             </span>
             <div className="weq-rp-hero-main">
               <h3 className="weq-rp-hero-title">
-                {scanning
-                  ? '正在体检数据库'
-                  : liveDbs.length === 0
-                    ? '没有可体检的数据库'
-                    : status?.keyPresent !== true
-                      ? '拿不到数据库密钥，体检跑不了'
-                      : problemDbs.length > 0
-                        ? `发现 ${problemDbs.length} 个数据库有问题`
-                        : scannedAll
-                          ? '一切健康'
-                          : '还没体检'}
+                {scanning ? (
+                  '正在体检数据库'
+                ) : liveDbs.length === 0 ? (
+                  '没有可体检的数据库'
+                ) : status?.keyPresent !== true ? (
+                  '拿不到数据库密钥，体检跑不了'
+                ) : problemDbs.length > 0 ? (
+                  <NumericText>{`发现 ${problemDbs.length} 个数据库有问题`}</NumericText>
+                ) : scannedAll ? (
+                  '一切健康'
+                ) : (
+                  '还没体检'
+                )}
               </h3>
               <p className="weq-rp-hero-sub">
-                {scanning
-                  ? `${scan.done} / ${scan.total} · 正在看 ${scan.current ?? '…'}`
-                  : liveDbs.length === 0
-                    ? '这个账号的数据库目录是空的（还没登录过 QQ，或者目录被清掉了）。'
-                    : status?.keyPresent !== true
-                      ? '先用 WeQ 打开一次这个账号，拿到密钥后回来重新体检。'
-                      : problemDbs.length > 0
-                        ? '坏库可以重建修复，没报错的库也能一起修 —— 点下面任意一行开始。'
-                        : scannedAll
-                          ? `${liveDbs.length} 个数据库都通过了结构与坏页检查。没坏就不用修；真要修，用右边那枚按钮。`
-                          : '点右边重新体检一遍，或者直接去选库。'}
+                {scanning ? (
+                  <NumericText>{`${scan.done} / ${scan.total} · 正在看 ${scan.current ?? '…'}`}</NumericText>
+                ) : liveDbs.length === 0 ? (
+                  '这个账号的数据库目录是空的（还没登录过 QQ，或者目录被清掉了）。'
+                ) : status?.keyPresent !== true ? (
+                  '先用 WeQ 打开一次这个账号，拿到密钥后回来重新体检。'
+                ) : problemDbs.length > 0 ? (
+                  '坏库可以重建修复，没报错的库也能一起修 —— 点下面任意一行开始。'
+                ) : scannedAll ? (
+                  <NumericText>{`${liveDbs.length} 个数据库都通过了结构与坏页检查。没坏就不用修；真要修，用右边那枚按钮。`}</NumericText>
+                ) : (
+                  '点右边重新体检一遍，或者直接去选库。'
+                )}
               </p>
             </div>
             <div className="weq-rp-hero-actions">
@@ -1679,11 +1710,22 @@ export function DbRepairPanel({
                             : '还没体检 —— 点这张卡片可以直接去修它。'}
                       </span>
                       <span className="weq-rp-db-foot">
-                        <span className="weq-rp-row-size">{formatBytes(row.bytes)}</span>
+                        <span className="weq-rp-row-size">
+                          <span className="weq-number weq-number-inherit">
+                            {formatBytes(row.bytes)}
+                          </span>
+                        </span>
                         {row.lastRecord ? (
                           <>
                             <span className="weq-rp-sep" aria-hidden />
-                            <span>上次 {shortTime(row.lastRecord.at)}</span>
+                            <span>
+                              上次{' '}
+                              {
+                                <span className="weq-number weq-number-inherit">
+                                  {shortTime(row.lastRecord.at)}
+                                </span>
+                              }
+                            </span>
                           </>
                         ) : null}
                       </span>
@@ -1743,11 +1785,13 @@ export function DbRepairPanel({
               体检结果
             </button>
             <span className="weq-rp-hint">
-              {problemDbs.length > 0
-                ? `${problemDbs.length} 个库有错误（已排在前面），其余收在下面。`
-                : liveDbs.length > 0 && checkedRows.length === liveDbs.length
-                  ? '所有库都完好 —— 真要修哪个，从这里选一个。'
-                  : '没有体检结论（跳过体检进来的），所以这里把所有库都列出来。'}
+              {problemDbs.length > 0 ? (
+                <NumericText>{`${problemDbs.length} 个库有错误（已排在前面），其余收在下面。`}</NumericText>
+              ) : liveDbs.length > 0 && checkedRows.length === liveDbs.length ? (
+                '所有库都完好 —— 真要修哪个，从这里选一个。'
+              ) : (
+                '没有体检结论（跳过体检进来的），所以这里把所有库都列出来。'
+              )}
             </span>
           </div>
 
@@ -1805,7 +1849,11 @@ export function DbRepairPanel({
                         {result ? result.summary : '还没体检过这个库。'}
                       </span>
                       <span className="weq-rp-pick-foot">
-                        <span className="weq-rp-row-size">{formatBytes(row.bytes)}</span>
+                        <span className="weq-rp-row-size">
+                          <span className="weq-number weq-number-inherit">
+                            {formatBytes(row.bytes)}
+                          </span>
+                        </span>
                       </span>
                     </button>
                   </li>
@@ -1827,7 +1875,11 @@ export function DbRepairPanel({
                 className={showOthers ? 'is-flip' : ''}
                 aria-hidden
               />
-              {showOthers ? '收起完好的数据库' : `其他数据库（${healthyCount}）`}
+              {showOthers ? (
+                '收起完好的数据库'
+              ) : (
+                <NumericText>{`其他数据库（${healthyCount}）`}</NumericText>
+              )}
             </button>
           ) : null}
 
@@ -1847,7 +1899,9 @@ export function DbRepairPanel({
                   <Chip>未体检</Chip>
                 )}
                 <span className="weq-rp-row-size">
-                  {formatBytes(currentRow?.bytes ?? preflight?.dbBytes ?? null)}
+                  <span className="weq-number weq-number-inherit">
+                    {formatBytes(currentRow?.bytes ?? preflight?.dbBytes ?? null)}
+                  </span>
                 </span>
               </header>
 
@@ -1877,10 +1931,16 @@ export function DbRepairPanel({
                       spaceBudgetReady ? (
                         <>
                           <span className="weq-rp-space-line">
-                            预计新增 {formatBytes(item.requiredBytes)}
+                            预计新增{' '}
+                            <span className="weq-number weq-number-inherit">
+                              {formatBytes(item.requiredBytes)}
+                            </span>
                           </span>
                           <span className="weq-rp-space-line">
-                            建议预留 {formatBytes(item.recommendedBytes)}
+                            建议预留{' '}
+                            <span className="weq-number weq-number-inherit">
+                              {formatBytes(item.recommendedBytes)}
+                            </span>
                           </span>
                         </>
                       ) : (
@@ -1939,7 +1999,11 @@ export function DbRepairPanel({
                 <span className="weq-rp-qq-dot" aria-hidden />
                 <span className="weq-rp-qq-text">
                   <strong>
-                    {qqOnline ? `QQ 在线（PID ${status?.qqPid}）` : 'QQ 没在跑这个账号'}
+                    {qqOnline ? (
+                      <NumericText>{`QQ 在线（PID ${status?.qqPid}）`}</NumericText>
+                    ) : (
+                      'QQ 没在跑这个账号'
+                    )}
                   </strong>
                   <em>
                     {qqOnline
@@ -2091,9 +2155,20 @@ export function DbRepairPanel({
                   <ul>
                     <li>
                       替换 <span className="weq-rp-mono">{dbName}</span>
-                      {currentRow ? `（${formatBytes(currentRow.bytes)}）` : ''}。
+                      {currentRow ? (
+                        <NumericText>{`（${formatBytes(currentRow.bytes)}）`}</NumericText>
+                      ) : (
+                        ''
+                      )}
+                      。
                     </li>
-                    <li>替换前先备份（保留最近 {preflight?.backupsKept ?? 3} 份），之后可回滚。</li>
+                    <li>
+                      替换前先备份（保留最近{' '}
+                      <span className="weq-number weq-number-inherit">
+                        {preflight?.backupsKept ?? 3}
+                      </span>{' '}
+                      份），之后可回滚。
+                    </li>
                     <li>
                       {confirmRepair === 'layout-migration'
                         ? '全部页按 standard 页号读出后写回 QQ 布局；读不出的 cell 仍会丢。'
@@ -2159,16 +2234,26 @@ export function DbRepairPanel({
                   {currentCheckup.pages.ran ? (
                     <>
                       <p>
-                        共 {currentCheckup.pages.report.pageCount} 页
-                        {currentCheckup.pages.report.badPages.length > 0
-                          ? ` · 坏页 ${currentCheckup.pages.report.badPages.length}`
-                          : ''}
-                        {currentCheckup.pages.report.zeroPages.length > 0
-                          ? ` · 全零页 ${currentCheckup.pages.report.zeroPages.length}`
-                          : ''}
-                        {currentCheckup.pages.report.trailingBytes > 0
-                          ? ` · 尾部残余 ${currentCheckup.pages.report.trailingBytes} B`
-                          : ''}
+                        共{' '}
+                        <span className="weq-number weq-number-inherit">
+                          {currentCheckup.pages.report.pageCount}
+                        </span>{' '}
+                        页
+                        {currentCheckup.pages.report.badPages.length > 0 ? (
+                          <NumericText>{` · 坏页 ${currentCheckup.pages.report.badPages.length}`}</NumericText>
+                        ) : (
+                          ''
+                        )}
+                        {currentCheckup.pages.report.zeroPages.length > 0 ? (
+                          <NumericText>{` · 全零页 ${currentCheckup.pages.report.zeroPages.length}`}</NumericText>
+                        ) : (
+                          ''
+                        )}
+                        {currentCheckup.pages.report.trailingBytes > 0 ? (
+                          <NumericText>{` · 尾部残余 ${currentCheckup.pages.report.trailingBytes} B`}</NumericText>
+                        ) : (
+                          ''
+                        )}
                         {currentCheckup.pages.report.usedHmac ? '' : ' · 未开启页 HMAC'}
                       </p>
                       {!currentCheckup.pages.report.usedHmac ? (
@@ -2179,12 +2264,18 @@ export function DbRepairPanel({
                             .slice(0, BAD_PAGE_PREVIEW)
                             .map((page) => (
                               <span key={page} className="weq-rp-page">
-                                {page}
+                                <span className="weq-number weq-number-inherit">{page}</span>
                               </span>
                             ))}
                           {currentCheckup.pages.report.badPages.length > BAD_PAGE_PREVIEW ? (
                             <span className="weq-rp-hint">
-                              …共 {currentCheckup.pages.report.badPages.length} 个
+                              …共{' '}
+                              {
+                                <span className="weq-number weq-number-inherit">
+                                  {currentCheckup.pages.report.badPages.length}
+                                </span>
+                              }{' '}
+                              个
                             </span>
                           ) : null}
                         </div>
@@ -2194,7 +2285,11 @@ export function DbRepairPanel({
                           {currentCheckup.pages.report.affected.map((item) => (
                             <li key={`${item.name}:${item.pagetype}`}>
                               <span className="weq-rp-mono">{item.name}</span>（{item.pagetype}
-                              ）命中 {item.badPageCount} 个坏页
+                              ）命中{' '}
+                              <span className="weq-number weq-number-inherit">
+                                {item.badPageCount}
+                              </span>{' '}
+                              个坏页
                             </li>
                           ))}
                         </ul>

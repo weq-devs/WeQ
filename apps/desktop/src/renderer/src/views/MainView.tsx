@@ -7703,7 +7703,8 @@ function MainWorkspace(): ReactElement {
         tone: 'success',
         title: (
           <span>
-            已将 {ids.length} 个会话标为{unread ? '未读' : '已读'}{' '}
+            已将 <span className="weq-number weq-number-inherit">{ids.length}</span> 个会话标为
+            {unread ? '未读' : '已读'}{' '}
             <button
               type="button"
               className="weq-toast-action"
@@ -11092,7 +11093,7 @@ function MainWorkspace(): ReactElement {
         '永久删除 AI 会话',
         <>
           <p>
-            将永久删除以下 {rows.length}{' '}
+            将永久删除以下 <span className="weq-number weq-number-inherit">{rows.length}</span>{' '}
             个会话，无法恢复，也不会进入“已删除会话”。克隆角色或克隆群及其数据会一并删除；助手仅删除所选独立会话。
           </p>
           <ul>

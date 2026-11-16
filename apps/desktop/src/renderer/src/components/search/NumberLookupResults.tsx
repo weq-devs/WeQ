@@ -80,8 +80,12 @@ export function NumberLookupResults({
                 ) : null}
                 {result.data ? (
                   <>
-                    <span>{result.data.id}</span>
-                    {result.data.level !== null ? <span>QQ 等级：{result.data.level}</span> : null}
+                    <span className="weq-number">{result.data.id}</span>
+                    {result.data.level !== null ? (
+                      <span>
+                        QQ 等级：<span className="weq-number">{result.data.level}</span>
+                      </span>
+                    ) : null}
                     {result.data.category ? <span>群分类：{result.data.category}</span> : null}
                   </>
                 ) : null}

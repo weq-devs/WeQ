@@ -8,6 +8,7 @@
  *      以图文 Ark 卡片发出（标题 = issue/pr #N，预览图 = 群头像）。
  */
 
+import { NumericText } from './NumericText';
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 import {
   Bug,
@@ -500,9 +501,11 @@ export function GroupBugDialog({
                 />
                 <div className="weq-group-bug-card-main">
                   <strong>
-                    {manualMode || !selectedIssue
-                      ? `${manualKind === 'pr' ? 'PR' : 'Issue'} #${manualNumber || '?'}`
-                      : `${selectedIssue.kind === 'pr' ? 'PR' : 'Issue'} #${selectedIssue.number}`}
+                    <NumericText>
+                      {manualMode || !selectedIssue
+                        ? `${manualKind === 'pr' ? 'PR' : 'Issue'} #${manualNumber || '?'}`
+                        : `${selectedIssue.kind === 'pr' ? 'PR' : 'Issue'} #${selectedIssue.number}`}
+                    </NumericText>
                   </strong>
                   <span>
                     {manualMode || !selectedIssue ? manualTitle || '标题' : selectedIssue.title}

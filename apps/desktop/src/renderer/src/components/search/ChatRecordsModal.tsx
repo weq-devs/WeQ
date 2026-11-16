@@ -696,7 +696,13 @@ export function ChatRecordsModal({
                                       {' · '}
                                     </>
                                   ) : null}
-                                  {formatTime(msg.sendTime)} · seq {msg.msgSeq}
+                                  <span className="weq-number weq-number-inherit">
+                                    {formatTime(msg.sendTime)}
+                                  </span>{' '}
+                                  · seq{' '}
+                                  <span className="weq-number weq-number-inherit">
+                                    {msg.msgSeq}
+                                  </span>
                                 </span>
                                 <span className="weq-chatrecords-msg-content">
                                   {highlightText(msg.content, keyword.trim())}

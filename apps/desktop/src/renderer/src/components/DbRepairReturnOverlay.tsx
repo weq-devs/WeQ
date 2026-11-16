@@ -10,6 +10,7 @@
  * `openAccount`（也就是从首页重新打开）就完全正常。所以这里不是"建议"，是必须。
  */
 
+import { NumericText } from './NumericText';
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { useQueryClient } from '@tanstack/react-query';
@@ -103,7 +104,7 @@ export function DbRepairReturnOverlay({
         <strong>{pending.title}</strong>
         <span>{pending.detail}</span>
         <span className="weq-rp-return-count">
-          {leaving ? '正在回到启动页…' : `${left} 秒后自动回到启动页`}
+          {leaving ? '正在回到启动页…' : <NumericText>{`${left} 秒后自动回到启动页`}</NumericText>}
         </span>
       </span>
       <button

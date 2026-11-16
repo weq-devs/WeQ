@@ -49,7 +49,11 @@ export function QqEmojiBounce({
   return (
     <span className="weq-emoji-bounce" title={summary || label}>
       <FaceEmoji element={{ faceId: emojiBounceId ?? 0, faceText: label }} size={BOUNCE_SIZE} />
-      {count ? <span className="weq-emoji-bounce-count">×{formatBounceCount(count)}</span> : null}
+      {count ? (
+        <span className="weq-emoji-bounce-count">
+          ×<span className="weq-number weq-number-inherit">{formatBounceCount(count)}</span>
+        </span>
+      ) : null}
     </span>
   );
 }

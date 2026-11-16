@@ -21,6 +21,7 @@
  *     本组件只负责渲染。
  */
 
+import { NumericText } from '../NumericText';
 import {
   Fragment,
   useCallback,
@@ -334,12 +335,18 @@ export function GapMessagesModal({
                         </button>
                       ) : hasMore ? (
                         <div ref={sentinelRef}>
-                          {preview
-                            ? `已加载 ${messages.length} 条 · 向下加载更早记录`
-                            : `已加载 ${messages.length} / 共 ${totalCount} 条 · 向下滚动加载更多`}
+                          {preview ? (
+                            <NumericText>{`已加载 ${messages.length} 条 · 向下加载更早记录`}</NumericText>
+                          ) : (
+                            <NumericText>{`已加载 ${messages.length} / 共 ${totalCount} 条 · 向下滚动加载更多`}</NumericText>
+                          )}
                         </div>
                       ) : (
-                        <span>已加载全部 {messages.length} 条</span>
+                        <span>
+                          已加载全部{' '}
+                          <span className="weq-number weq-number-inherit">{messages.length}</span>{' '}
+                          条
+                        </span>
                       )}
                     </div>
                   ) : null}

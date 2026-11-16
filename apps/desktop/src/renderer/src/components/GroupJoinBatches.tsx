@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import * as timeFormat from '@weq/time';
 /**
  * 入群批次：三小时里挤进来的人够多（≥ max(3, 群总人数 ÷ 20)）就算一批。
@@ -131,7 +132,7 @@ function FaceRow({
       ))}
       {members.length > show.length ? (
         <span className="gc-face-more" style={{ borderColor: tone }}>
-          +{members.length - show.length}
+          +<span className="weq-number weq-number-inherit">{members.length - show.length}</span>
         </span>
       ) : null}
     </div>
@@ -239,9 +240,11 @@ export function GroupJoinBatches({
 
       {report.batches.length === 0 ? (
         <p className="ga-placeholder">
-          {report.datedMemberCount === 0
-            ? '拿不到成员入群时间，这次分析跳过了。'
-            : `${windowHours} 小时内从没挤进过 ${report.threshold} 个人 —— 这个群的人是零散加进来的。`}
+          <NumericText>
+            {report.datedMemberCount === 0
+              ? '拿不到成员入群时间，这次分析跳过了。'
+              : `${windowHours} 小时内从没挤进过 ${report.threshold} 个人 —— 这个群的人是零散加进来的。`}
+          </NumericText>
         </p>
       ) : (
         <div className="gc-grid">
@@ -258,15 +261,19 @@ export function GroupJoinBatches({
                 style={{ '--gc-tone': tone } as CSSProperties}
               >
                 <div className="gc-card-head">
-                  <span className="gc-card-idx">{batch.index}</span>
+                  <span className="gc-card-idx">
+                    <span className="weq-number weq-number-inherit">{batch.index}</span>
+                  </span>
                   <div className="gc-card-title">
                     <strong>{rangeText(batch.startTime, batch.endTime)}</strong>
                     <small>
-                      {batch.members.length} 人 · {spanText(batch.spanSeconds)}
+                      <span className="weq-number weq-number-inherit">{batch.members.length}</span>{' '}
+                      人 · {spanText(batch.spanSeconds)}
                     </small>
                   </div>
                   <span className="gc-badge is-normal">
-                    <CalendarClock size={11} /> {windowHours}h 批
+                    <CalendarClock size={11} />{' '}
+                    <span className="weq-number weq-number-inherit">{windowHours}</span>h 批
                   </span>
                 </div>
 
@@ -312,7 +319,12 @@ export function GroupJoinBatches({
                           {batch.topSpeaker.displayName}
                         </span>
                       </ProfileAvatar>
-                      <small>{formatNumber(batch.topSpeaker.messageCount)} 条</small>
+                      <small>
+                        <span className="weq-number weq-number-inherit">
+                          {formatNumber(batch.topSpeaker.messageCount)}
+                        </span>{' '}
+                        条
+                      </small>
                     </span>
                   ) : (
                     <span className="gc-top is-empty">
@@ -328,7 +340,8 @@ export function GroupJoinBatches({
 
       {hidden > 0 ? (
         <p className="ga-placeholder gc-more">
-          还有 {hidden} 个批次没列 —— 时间在后面的那些，点开图片或滚动时间轴也能看到。
+          还有 <span className="weq-number weq-number-inherit">{hidden}</span> 个批次没列 ——
+          时间在后面的那些，点开图片或滚动时间轴也能看到。
         </p>
       ) : null}
     </div>

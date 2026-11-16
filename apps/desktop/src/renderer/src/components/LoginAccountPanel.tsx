@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import { eventTimeFormatter } from '@weq/time';
 /**
  * QQ 高级工具 → 登录记录与设备标识。
@@ -243,8 +244,12 @@ export function LoginAccountPanel(): ReactElement {
       {/* ── 账号列表工具条 ── */}
       <div className="weq-login-acc-bar">
         <span className="weq-login-acc-count">
-          共 {accounts.length} 个账号
-          {quickLoginCount > 0 ? ` · ${quickLoginCount} 个可快速登录` : ''}
+          共 <span className="weq-number weq-number-inherit">{accounts.length}</span> 个账号
+          {quickLoginCount > 0 ? (
+            <NumericText>{` · ${quickLoginCount} 个可快速登录`}</NumericText>
+          ) : (
+            ''
+          )}
         </span>
         {error && (
           <button
@@ -288,7 +293,9 @@ export function LoginAccountPanel(): ReactElement {
               <div className="weq-login-acc-info">
                 <div className="weq-login-acc-title">
                   <strong>{acc.userName || acc.uin}</strong>
-                  <span className="weq-login-acc-uin">{acc.uin}</span>
+                  <span className="weq-login-acc-uin">
+                    <span className="weq-number weq-number-inherit">{acc.uin}</span>
+                  </span>
                   {acc.hasA1 ? (
                     <span className="weq-login-acc-badge" title="login.db 里有缓存的 a1">
                       快速登录
@@ -296,8 +303,18 @@ export function LoginAccountPanel(): ReactElement {
                   ) : null}
                 </div>
                 <div className="weq-login-acc-meta">
-                  <span>上次登录 {humanTime(acc.lastLoginAt)}</span>
-                  {acc.dbPaths.length > 1 ? <span>{acc.dbPaths.length} 处登录记录</span> : null}
+                  <span>
+                    上次登录{' '}
+                    <span className="weq-number weq-number-inherit">
+                      {humanTime(acc.lastLoginAt)}
+                    </span>
+                  </span>
+                  {acc.dbPaths.length > 1 ? (
+                    <span>
+                      <span className="weq-number weq-number-inherit">{acc.dbPaths.length}</span>{' '}
+                      处登录记录
+                    </span>
+                  ) : null}
                   {acc.dataDir ? null : (
                     <span className="weq-login-acc-meta-warn">数据目录已不存在</span>
                   )}

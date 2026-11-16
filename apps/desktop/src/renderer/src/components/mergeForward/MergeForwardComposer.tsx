@@ -729,7 +729,8 @@ function NestedCard({ segs, action }: { segs: MfSeg[]; action?: ReactElement }):
         ))}
       </div>
       <div className="weq-mf-nested-foot">
-        <Layers size={13} /> {nodes.length} 条消息
+        <Layers size={13} /> <span className="weq-number weq-number-inherit">{nodes.length}</span>{' '}
+        条消息
         {action ? <span className="weq-mf-nested-foot-action">{action}</span> : null}
       </div>
     </div>
@@ -1193,7 +1194,9 @@ function RecordContent({
       <div className="weq-mf-nested-bar">
         <Layers size={14} />
         <span className="weq-mf-nested-bar-title">编辑聊天记录</span>
-        <span className="weq-mf-nested-bar-count">{count} 条消息</span>
+        <span className="weq-mf-nested-bar-count">
+          <span className="weq-number weq-number-inherit">{count}</span> 条消息
+        </span>
         <CompositionButton
           type="button"
           className="weq-mf-nested-done"
@@ -1897,7 +1900,11 @@ function AtPicker({
             >
               <QqAvatar uin={p.uin} size={22} />
               <span className="weq-mf-person-name">{p.name}</span>
-              {p.uin && p.uin !== '0' ? <span className="weq-mf-person-uin">{p.uin}</span> : null}
+              {p.uin && p.uin !== '0' ? (
+                <span className="weq-mf-person-uin">
+                  <span className="weq-number weq-number-inherit">{p.uin}</span>
+                </span>
+              ) : null}
             </CompositionButton>
           ))
         )}

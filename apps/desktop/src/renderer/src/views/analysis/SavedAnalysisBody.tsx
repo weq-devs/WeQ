@@ -158,7 +158,10 @@ export function SavedAnalysisBody({
         </span>
         {saved && saved.status !== 'completed' && (
           <span>
-            {saved.completed.length} / {request.kind === 'group' ? 3 : 1}
+            <span className="weq-number weq-number-inherit">{saved.completed.length}</span> /{' '}
+            <span className="weq-number weq-number-inherit">
+              {request.kind === 'group' ? 3 : 1}
+            </span>
           </span>
         )}
         {saved && (versions.data?.length ?? 0) > 1 ? (

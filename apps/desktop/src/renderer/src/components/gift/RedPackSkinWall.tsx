@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import { dateFormatter } from '@weq/time';
 /**
  * 红包封面展柜 —— 个性装扮里的「红包封面」一栏。
@@ -117,7 +118,11 @@ export function RedPackSkinWall(): ReactElement {
           ) : null}
         </form>
         <span className="weq-redpack-wall-count">
-          {keyword ? `命中 ${skins.length} / ${total}` : `共 ${total} 只`}
+          {keyword ? (
+            <NumericText>{`命中 ${skins.length} / ${total}`}</NumericText>
+          ) : (
+            <NumericText>{`共 ${total} 只`}</NumericText>
+          )}
           {updated ? <em> · 目录更新于 {updated}</em> : null}
         </span>
       </div>
@@ -178,7 +183,9 @@ export function RedPackSkinWall(): ReactElement {
                   </span>
                   <span className="weq-redpack-wall-meta">
                     <strong>{skin.name}</strong>
-                    <small>#{skin.id}</small>
+                    <small>
+                      #<span className="weq-number weq-number-inherit">{skin.id}</span>
+                    </small>
                   </span>
                 </button>
               );

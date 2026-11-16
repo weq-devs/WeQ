@@ -1,3 +1,4 @@
+import { NumericText } from '../../components/NumericText';
 import { useState } from 'react';
 import { Download, X } from 'lucide-react';
 import { Modal } from '../../components/Dialog';
@@ -60,7 +61,7 @@ export function CollectionExportDialog({
             <X size={16} />
           </button>
         </header>
-        <p>{cids ? `已选 ${cids.length} 条收藏` : '全部收藏'}</p>
+        <p>{cids ? <NumericText>{`已选 ${cids.length} 条收藏`}</NumericText> : '全部收藏'}</p>
         <label>
           文件格式{' '}
           <SegmentedControl

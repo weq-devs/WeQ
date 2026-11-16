@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import {
   useCallback,
   useEffect,
@@ -195,7 +196,9 @@ export function DataSaverMenu() {
               <div className="weq-data-saver-menu-body">
                 <p role="status">
                   {enabled ? '正在节省流量' : '正常加载'}
-                  {status?.temporary ? ` · ${temporaryLabel(status.temporary)}` : ''}
+                  <NumericText>
+                    {status?.temporary ? ` · ${temporaryLabel(status.temporary)}` : ''}
+                  </NumericText>
                 </p>
                 <div className="weq-data-saver-menu-field">
                   <span>基础设置</span>

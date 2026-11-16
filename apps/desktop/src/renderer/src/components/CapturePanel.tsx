@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import * as timeFormat from '@weq/time';
 /**
  * 维护与诊断工具「ntqq 抓包」面板。
@@ -310,8 +311,8 @@ function GroupDetail({ group }: { group: CaptureGroup }): ReactElement {
           {active?.cmd ?? '（无命令字）'}
         </span>
         <span className="weq-cap-hint">
-          seq {group.seq}
-          {active ? ` · ${fmtClock(active.ts)}` : ''}
+          seq <span className="weq-number weq-number-inherit">{group.seq}</span>
+          {active ? <NumericText>{` · ${fmtClock(active.ts)}`}</NumericText> : ''}
         </span>
       </header>
 
@@ -332,7 +333,15 @@ function GroupDetail({ group }: { group: CaptureGroup }): ReactElement {
               onClick={() => setDir(d.key)}
             >
               {d.label}
-              <em>{d.frame ? fmtBytes(hexToBytes(d.frame.rawHex).length) : '—'}</em>
+              <em>
+                {d.frame ? (
+                  <span className="weq-number weq-number-inherit">
+                    {fmtBytes(hexToBytes(d.frame.rawHex).length)}
+                  </span>
+                ) : (
+                  '—'
+                )}
+              </em>
             </button>
           ))}
         </div>
@@ -921,24 +930,36 @@ export function CapturePanel({
           className="weq-cap-env"
           title={session ? `${session.iface} · 端口 ${session.port}` : '未开始'}
         >
-          {session ? `${session.iface}:${session.port}` : '未连接'}
+          {session ? <NumericText>{`${session.iface}:${session.port}`}</NumericText> : '未连接'}
         </span>
 
         <span className="weq-cap-metrics">
           <span>
-            帧 <b>{groups.length}</b>
+            帧{' '}
+            <b>
+              <span className="weq-number weq-number-inherit">{groups.length}</span>
+            </b>
           </span>
           <span>
-            已解密 <b>{frameStats.ok}</b>
+            已解密{' '}
+            <b>
+              <span className="weq-number weq-number-inherit">{frameStats.ok}</span>
+            </b>
           </span>
           {frameStats.bad > 0 ? (
             <span className="is-warn">
-              未解密 <b>{frameStats.bad}</b>
+              未解密{' '}
+              <b>
+                <span className="weq-number weq-number-inherit">{frameStats.bad}</span>
+              </b>
             </span>
           ) : null}
           {dropped > 0 ? (
             <span className="is-warn">
-              丢 <b>{dropped}</b>
+              丢{' '}
+              <b>
+                <span className="weq-number weq-number-inherit">{dropped}</span>
+              </b>
             </span>
           ) : null}
         </span>
@@ -1164,12 +1185,16 @@ export function CapturePanel({
                     >
                       {dirGlyph(g)}
                     </span>
-                    <span className="is-seq">{g.seq}</span>
+                    <span className="is-seq">
+                      <span className="weq-number weq-number-inherit">{g.seq}</span>
+                    </span>
                     <span className={`is-size${failed ? ' is-bad' : ''}`}>
                       {failed ? '密文 ' : ''}
-                      {fmtBytes(totalBytes)}
+                      <span className="weq-number weq-number-inherit">{fmtBytes(totalBytes)}</span>
                     </span>
-                    <span className="is-id">{g.order + 1}</span>
+                    <span className="is-id">
+                      <span className="weq-number weq-number-inherit">{g.order + 1}</span>
+                    </span>
                   </button>
                 );
               })
@@ -1178,7 +1203,12 @@ export function CapturePanel({
 
           <div className="weq-cap-foot">
             <span>
-              共 {visible.length} 项{visible.length !== groups.length ? ` / ${groups.length}` : ''}
+              共 <span className="weq-number weq-number-inherit">{visible.length}</span> 项
+              {visible.length !== groups.length ? (
+                <NumericText>{` / ${groups.length}`}</NumericText>
+              ) : (
+                ''
+              )}
               {activeGroup ? '（选择 1 项）' : ''}
             </span>
             <span className="weq-cap-spacer" />

@@ -1,4 +1,5 @@
 /** 通用 API 用量：记录范围、请求状态、趋势与功能／服务商明细。 */
+import { NumericText } from '../../components/NumericText';
 import { useId, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { Activity, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatDateTime } from '@weq/time';
@@ -77,7 +78,9 @@ export function HourLine({
         <div className="weq-usage-line-yaxis" aria-hidden>
           {ticks.map((tick, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-            <span key={`${tick}-${index}`}>{fmt(tick)}</span>
+            <span key={`${tick}-${index}`}>
+              <span className="weq-number weq-number-inherit">{fmt(tick)}</span>
+            </span>
           ))}
         </div>
         <div className="weq-usage-line-plot" ref={plotRef}>
@@ -144,9 +147,15 @@ export function HourLine({
               }}
             >
               <strong>{activeDatum.hour}</strong>
-              <span>{fmt(activeDatum.tokens)} tokens</span>
-              <span>{activeDatum.calls} 次请求</span>
-              <span>用量未知 {activeDatum.unknownCalls ?? 0} 次</span>
+              <span>
+                <span className="weq-number">{fmt(activeDatum.tokens)}</span> tokens
+              </span>
+              <span>
+                <span className="weq-number">{activeDatum.calls}</span> 次请求
+              </span>
+              <span>
+                用量未知 <span className="weq-number">{activeDatum.unknownCalls ?? 0}</span> 次
+              </span>
             </div>
           ) : null}
           <div className="weq-usage-line-axis">
@@ -199,7 +208,11 @@ function UsagePagination({
   return (
     <nav className="weq-usage-pagination" aria-label={`${title}分页`}>
       <span>
-        {page * PAGE_SIZE + 1}–{Math.min(count, (page + 1) * PAGE_SIZE)} / {count}
+        <span className="weq-number weq-number-inherit">{page * PAGE_SIZE + 1}</span>–
+        <span className="weq-number weq-number-inherit">
+          {Math.min(count, (page + 1) * PAGE_SIZE)}
+        </span>{' '}
+        / <span className="weq-number weq-number-inherit">{count}</span>
       </span>
       <button
         type="button"
@@ -322,9 +335,19 @@ function UsageCells({
 }): ReactElement {
   return (
     <>
-      <td>{numberFormat.format(row.calls)}</td>
-      <td title={numberFormat.format(row.tokens)}>{knownTokens(row)}</td>
-      <td>{numberFormat.format(row.unknownCalls)}</td>
+      <td>
+        {<span className="weq-number weq-number-inherit">{numberFormat.format(row.calls)}</span>}
+      </td>
+      <td title={numberFormat.format(row.tokens)}>
+        <NumericText>{knownTokens(row)}</NumericText>
+      </td>
+      <td>
+        {
+          <span className="weq-number weq-number-inherit">
+            {numberFormat.format(row.unknownCalls)}
+          </span>
+        }
+      </td>
     </>
   );
 }
@@ -381,18 +404,22 @@ export function UsageReport({ data: d }: { data: UsageStats }): ReactElement {
             )}
           </p>
           <p>
-            当前账号 {d.accountCalls} 次 · 应用全局 {d.globalCalls} 次（模型测试与语音服务）
+            当前账号 <span className="weq-number weq-number-inherit">{d.accountCalls}</span> 次 ·
+            应用全局 <span className="weq-number weq-number-inherit">{d.globalCalls}</span>{' '}
+            次（模型测试与语音服务）
           </p>
         </div>
         <details className="weq-usage-retention">
           <summary>
-            每份账本最多保留 {d.ledgers[0]?.limit ?? 5000} 条
+            每份账本最多保留{' '}
+            <span className="weq-number weq-number-inherit">{d.ledgers[0]?.limit ?? 5000}</span> 条
             {d.ledgers.some((ledger) => ledger.atCapacity) ? ' · 已达保留上限' : ''}
           </summary>
           {d.ledgers.map((ledger) => (
             <p key={ledger.source}>
-              {ledger.source === 'account' ? '当前账号' : '应用全局'}：保留 {ledger.retainedCalls} /{' '}
-              {ledger.limit} 条
+              {ledger.source === 'account' ? '当前账号' : '应用全局'}：保留{' '}
+              <span className="weq-number weq-number-inherit">{ledger.retainedCalls}</span> /{' '}
+              <span className="weq-number weq-number-inherit">{ledger.limit}</span> 条
               {ledger.firstRecordAt !== null ? (
                 <>，最早 {formatDateTime(ledger.firstRecordAt)}</>
               ) : null}
@@ -413,22 +440,35 @@ export function UsageReport({ data: d }: { data: UsageStats }): ReactElement {
             <div>
               <dt>已知 token</dt>
               <dd title={numberFormat.format(d.totalTokens)}>
-                {d.knownCalls > 0 ? fmt(d.totalTokens) : '未知'}
+                <NumericText>{d.knownCalls > 0 ? fmt(d.totalTokens) : '未知'}</NumericText>
               </dd>
             </div>
             <div>
               <dt>请求次数</dt>
-              <dd>{numberFormat.format(d.totalCalls)}</dd>
+              <dd>
+                {
+                  <span className="weq-number weq-number-inherit">
+                    {numberFormat.format(d.totalCalls)}
+                  </span>
+                }
+              </dd>
             </div>
             <div>
               <dt>用量已返回</dt>
               <dd>
-                {d.knownCalls} / {d.totalCalls}
+                <span className="weq-number weq-number-inherit">{d.knownCalls}</span> /{' '}
+                <span className="weq-number weq-number-inherit">{d.totalCalls}</span>
               </dd>
             </div>
             <div>
               <dt>用量未知</dt>
-              <dd>{numberFormat.format(d.unknownCalls)}</dd>
+              <dd>
+                {
+                  <span className="weq-number weq-number-inherit">
+                    {numberFormat.format(d.unknownCalls)}
+                  </span>
+                }
+              </dd>
             </div>
           </dl>
           <dl className="weq-usage-status" aria-label="请求状态">
@@ -443,7 +483,9 @@ export function UsageReport({ data: d }: { data: UsageStats }): ReactElement {
             ).map(([label, count]) => (
               <div key={label}>
                 <dt>{label}</dt>
-                <dd>{count}</dd>
+                <dd>
+                  <span className="weq-number weq-number-inherit">{count}</span>
+                </dd>
               </div>
             ))}
           </dl>
@@ -485,15 +527,28 @@ export function UsageReport({ data: d }: { data: UsageStats }): ReactElement {
             <dl className="weq-usage-io">
               <div>
                 <dt>输入</dt>
-                <dd>{d.totalCalls > d.promptUnknownCalls ? fmt(d.promptTokens) : '未知'}</dd>
-                <small>未返回 {d.promptUnknownCalls} 次</small>
+                <dd>
+                  <NumericText>
+                    {d.totalCalls > d.promptUnknownCalls ? fmt(d.promptTokens) : '未知'}
+                  </NumericText>
+                </dd>
+                <small>
+                  未返回{' '}
+                  <span className="weq-number weq-number-inherit">{d.promptUnknownCalls}</span> 次
+                </small>
               </div>
               <div>
                 <dt>输出</dt>
                 <dd>
-                  {d.totalCalls > d.completionUnknownCalls ? fmt(d.completionTokens) : '未知'}
+                  <NumericText>
+                    {d.totalCalls > d.completionUnknownCalls ? fmt(d.completionTokens) : '未知'}
+                  </NumericText>
                 </dd>
-                <small>未返回 {d.completionUnknownCalls} 次</small>
+                <small>
+                  未返回{' '}
+                  <span className="weq-number weq-number-inherit">{d.completionUnknownCalls}</span>{' '}
+                  次
+                </small>
               </div>
             </dl>
           </section>

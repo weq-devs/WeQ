@@ -301,12 +301,20 @@ function RedBagDetailDialog({
             <div className="weq-redbag-detail-sheet">
               <div className="weq-redbag-detail-meta">
                 <span>
-                  已领取 {detail?.claimedCount ?? 0}/{detail?.totalNum || '?'} 个
+                  已领取{' '}
+                  <span className="weq-number weq-number-inherit">{detail?.claimedCount ?? 0}</span>
+                  /<span className="weq-number weq-number-inherit">{detail?.totalNum || '?'}</span>{' '}
+                  个
                 </span>
                 {detail?.totalAmount ? (
                   <span>
                     {detail.lucky ? '总金额' : '金额'}{' '}
-                    <span data-privacy-sensitive>¥{formatAmount(detail.totalAmount)}</span>
+                    <span data-privacy-sensitive>
+                      ¥
+                      <span className="weq-number weq-number-inherit">
+                        {formatAmount(detail.totalAmount)}
+                      </span>
+                    </span>
                   </span>
                 ) : null}
               </div>
@@ -343,11 +351,16 @@ function RedBagDetailDialog({
                         </ProfileAvatar>
                         <div className="weq-redbag-detail-item-main">
                           <span className="weq-redbag-detail-item-time">
-                            {formatTime(c.claimTime)}
+                            <span className="weq-number weq-number-inherit">
+                              {formatTime(c.claimTime)}
+                            </span>
                           </span>
                         </div>
                         <span className="weq-redbag-detail-item-amount">
-                          ¥{formatAmount(c.amount)}
+                          ¥
+                          <span className="weq-number weq-number-inherit">
+                            {formatAmount(c.amount)}
+                          </span>
                         </span>
                       </li>
                     );
@@ -392,12 +405,23 @@ function RedBagDetailDialog({
                 </div>
                 <div className="weq-redbag-detail-result">
                   <div className="weq-redbag-detail-result-amount">
-                    你领取到了 <strong>{formatAmount(result.amount)}</strong> 元
+                    你领取到了{' '}
+                    <strong>
+                      <span className="weq-number weq-number-inherit">
+                        {formatAmount(result.amount)}
+                      </span>
+                    </strong>{' '}
+                    元
                   </div>
                   {/* grab 响应的概况不带已领人数，拿不到就整行不显示。 */}
                   {result.claimedCount > 0 ? (
                     <div className="weq-redbag-detail-result-meta">
-                      已领取 {result.claimedCount}/{detail?.totalNum || '?'} 个
+                      已领取{' '}
+                      <span className="weq-number weq-number-inherit">{result.claimedCount}</span>/
+                      <span className="weq-number weq-number-inherit">
+                        {detail?.totalNum || '?'}
+                      </span>{' '}
+                      个
                     </div>
                   ) : null}
                 </div>

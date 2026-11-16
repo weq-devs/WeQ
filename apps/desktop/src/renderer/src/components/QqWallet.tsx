@@ -145,7 +145,9 @@ export function QqWallet({
             </svg>
           </div>
           <div className="weq-transfer-info">
-            <div className="weq-transfer-amount">{amount}</div>
+            <div className="weq-transfer-amount">
+              <span className="weq-number weq-number-inherit">{amount}</span>
+            </div>
             {prompt ? <div className="weq-transfer-remark">{prompt}</div> : null}
           </div>
         </div>

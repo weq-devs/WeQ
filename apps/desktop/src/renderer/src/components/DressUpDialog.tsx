@@ -690,7 +690,11 @@ export function DressUpDialog({
         </DressCardPreview>
         <div className="weq-dress-card-body">
           <strong title={item.name}>{item.name}</strong>
-          <small>{item.labels.slice(0, 2).join(' · ') || item.mallName || `#${item.itemId}`}</small>
+          <small>
+            {item.labels.slice(0, 2).join(' · ') || item.mallName || (
+              <span className="weq-number weq-number-inherit">#{item.itemId}</span>
+            )}
+          </small>
         </div>
         <div className="weq-dress-card-actions">
           <button
@@ -813,7 +817,14 @@ export function DressUpDialog({
                 <div className="weq-dress-current-info">
                   <span>{item.label}</span>
                   <strong>
-                    {item.itemId ? item.name || `${item.label} ${item.itemId}` : '未使用'}
+                    {item.itemId
+                      ? item.name || (
+                          <>
+                            {item.label}{' '}
+                            <span className="weq-number weq-number-inherit">{item.itemId}</span>
+                          </>
+                        )
+                      : '未使用'}
                   </strong>
                   {!item.itemId && item.kind !== 'callbg' ? <small>按消息记录还原</small> : null}
                 </div>
@@ -978,7 +989,14 @@ export function DressUpDialog({
                 onPointerUp={(e) => void commitOpacity(Number(e.currentTarget.value))}
                 onKeyUp={(e) => void commitOpacity(Number(e.currentTarget.value))}
               />
-              <em>{Math.round(opacityDraft * 100)}%</em>
+              <em>
+                {
+                  <span className="weq-number weq-number-inherit">
+                    {Math.round(opacityDraft * 100)}
+                  </span>
+                }
+                %
+              </em>
             </label>
           ) : null}
         </section>
@@ -1225,7 +1243,9 @@ export function DressUpDialog({
               title="只看已安装的装扮"
             >
               已装
-              <span className="weq-dress-chip-n">{mine.length}</span>
+              <span className="weq-dress-chip-n">
+                <span className="weq-number weq-number-inherit">{mine.length}</span>
+              </span>
             </button>
             {!mineOnly && !searching && rank.data?.source === 'static' ? (
               <span className="weq-dress-hint">离线目录</span>

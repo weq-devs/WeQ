@@ -55,7 +55,9 @@ export function StatsPanel({
         <img src={logoUrl} alt="" className="weq-stats-logo" width={56} height={56} />
         <div className="weq-stats-head-info">
           <span className="weq-stats-title-label">QQ 版本</span>
-          <span className="weq-stats-version">{install.version ?? '未知'}</span>
+          <span className="weq-stats-version">
+            <span className="weq-number weq-number-inherit">{install.version ?? '未知'}</span>
+          </span>
           {install.hasUserData ? (
             // The path itself is the control: click it anytime to re-pick the
             // QQ data directory (e.g. after moving QQ data to another disk).

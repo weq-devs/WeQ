@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import { useEffect, useRef, useState } from 'react';
 import { formatDateTimeInput, parseDateTimeInput } from '@weq/time';
 import type { MonitorMetric, MonitorPoint } from '@weq/service/performance';
@@ -275,7 +276,9 @@ export default function PerformanceMonitorView() {
             : '正在连接宿主'}
         </span>
         <span>
-          {time(range.from)} 至 {time(range.to)} · 北京时间{!live ? ' · 已暂停跟随' : ''}
+          {<span className="weq-number weq-number-inherit">{time(range.from)}</span>} 至{' '}
+          {<span className="weq-number weq-number-inherit">{time(range.to)}</span>} · 北京时间
+          {!live ? ' · 已暂停跟随' : ''}
         </span>
       </div>
       {(status.error || status.data?.error) && (
@@ -341,7 +344,10 @@ export default function PerformanceMonitorView() {
           </div>
           <div className="weq-perf-event-strip" aria-label="性能事件时间轴">
             <span>
-              事件 {history.data?.events.length ?? 0}
+              事件{' '}
+              <span className="weq-number weq-number-inherit">
+                {history.data?.events.length ?? 0}
+              </span>
               {history.data?.eventLimitReached ? '+' : ''}
             </span>
             <div>
@@ -367,9 +373,11 @@ export default function PerformanceMonitorView() {
             </div>
           </div>
           <div className="weq-perf-readout">
-            {hovered
-              ? `${hovered.label} · ${time(hovered.start)} 至 ${time(hovered.end)} · ${hovered.count} 次采样`
-              : ''}
+            {hovered ? (
+              <NumericText>{`${hovered.label} · ${time(hovered.start)} 至 ${time(hovered.end)} · ${hovered.count} 次采样`}</NumericText>
+            ) : (
+              ''
+            )}
           </div>
         </div>
         {inspector && (
@@ -394,7 +402,9 @@ export default function PerformanceMonitorView() {
                 {history.data?.events.length ? (
                   history.data.events.map((event) => (
                     <article id={`perf-event-${event.id}`} key={event.id}>
-                      <time>{time(event.at)}</time>
+                      <time>
+                        {<span className="weq-number weq-number-inherit">{time(event.at)}</span>}
+                      </time>
                       <strong>{eventLabels[event.event] ?? event.event}</strong>
                       {event.reason && <p>{event.reason}</p>}
                     </article>
@@ -434,8 +444,20 @@ export default function PerformanceMonitorView() {
                 ) : (
                   <>
                     <p className="weq-perf-caption">
-                      {time(detail.data.at)} · 同步 {detail.data.syncMs?.toFixed(1) ?? '—'} ms ·
-                      等待 {detail.data.waitMs?.toFixed(1) ?? '—'} ms
+                      {
+                        <span className="weq-number weq-number-inherit">
+                          {time(detail.data.at)}
+                        </span>
+                      }{' '}
+                      · 同步{' '}
+                      <span className="weq-number weq-number-inherit">
+                        {detail.data.syncMs?.toFixed(1) ?? '—'}
+                      </span>{' '}
+                      ms · 等待{' '}
+                      <span className="weq-number weq-number-inherit">
+                        {detail.data.waitMs?.toFixed(1) ?? '—'}
+                      </span>{' '}
+                      ms
                     </p>
                     <div className="weq-perf-detail-list">
                       {detail.data.processes
@@ -443,7 +465,8 @@ export default function PerformanceMonitorView() {
                         .map((proc) => (
                           <section key={proc.key}>
                             <h4>
-                              {proc.label} · {proc.pid}
+                              {proc.label} ·{' '}
+                              <span className="weq-number weq-number-inherit">{proc.pid}</span>
                             </h4>
                             <DetailTree
                               value={

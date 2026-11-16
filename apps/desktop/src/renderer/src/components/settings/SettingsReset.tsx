@@ -285,8 +285,19 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
               {results.length ? (
                 <div role="status">
                   <p>
-                    已完成 {results.filter((item) => item.ok).length} 项，失败{' '}
-                    {results.filter((item) => !item.ok).length} 项。
+                    已完成{' '}
+                    {
+                      <span className="weq-number weq-number-inherit">
+                        {results.filter((item) => item.ok).length}
+                      </span>
+                    }{' '}
+                    项，失败{' '}
+                    {
+                      <span className="weq-number weq-number-inherit">
+                        {results.filter((item) => !item.ok).length}
+                      </span>
+                    }{' '}
+                    项。
                   </p>
                   {results
                     .filter((item) => !item.ok)

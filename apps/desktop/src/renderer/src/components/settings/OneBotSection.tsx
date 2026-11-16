@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import { useEffect, useState, type FormEvent, type ReactElement } from 'react';
 import { nextOneBotPort } from '@weq/service/service-ports';
 import {
@@ -233,13 +234,17 @@ export function OneBotSection(): ReactElement {
           label="运行状态"
           control={
             <span>
-              {data?.running
-                ? `${data.servers.filter((server) => server.running).length} 个服务器运行中 · ${data.clients} 个连接`
-                : data?.enabled
-                  ? data.accountOpen
-                    ? '等待可用服务器'
-                    : '等待在线账号'
-                  : '已停止'}
+              {data?.running ? (
+                <NumericText>{`${data.servers.filter((server) => server.running).length} 个服务器运行中 · ${data.clients} 个连接`}</NumericText>
+              ) : data?.enabled ? (
+                data.accountOpen ? (
+                  '等待可用服务器'
+                ) : (
+                  '等待在线账号'
+                )
+              ) : (
+                '已停止'
+              )}
             </span>
           }
         />
@@ -343,7 +348,9 @@ export function OneBotSection(): ReactElement {
                   <span>{label}</span>
                   {server.port !== server.requestedPort ? (
                     <span className="weq-onebot-port-shift">
-                      原端口 {server.requestedPort} 被占用，已顺延
+                      原端口{' '}
+                      <span className="weq-number weq-number-inherit">{server.requestedPort}</span>{' '}
+                      被占用，已顺延
                     </span>
                   ) : null}
                 </div>

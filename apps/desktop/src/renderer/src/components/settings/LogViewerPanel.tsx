@@ -572,7 +572,14 @@ export function LogViewerPanel(): ReactElement {
         </div>
         <div className="weq-help-log-toolbar-right">
           <span className="weq-help-log-meta" title={selectedFile?.path ?? ''}>
-            {selectedFile ? `${fmtBytes(size)} · ${selectedFile.name}` : ''}
+            {selectedFile ? (
+              <>
+                <span className="weq-number weq-number-inherit">{fmtBytes(size)}</span> ·{' '}
+                {selectedFile.name}
+              </>
+            ) : (
+              ''
+            )}
             {lastUpdated ? <span className="weq-help-log-live" aria-hidden /> : null}
           </span>
         </div>

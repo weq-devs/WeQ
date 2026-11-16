@@ -5,6 +5,7 @@
  * 漂移。样式类名沿用 `.weq-cap-*`（两边共用同一套样式）。
  */
 
+import { NumericText } from './NumericText';
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { useRenderDocument } from '../lib/renderDocument';
@@ -54,11 +55,13 @@ export function HexDump({
       <div className="weq-cap-hexdump-body">{rows}</div>
       <div className="weq-cap-hexdump-foot">
         <span>
-          {bytes.length === 0
-            ? '空'
-            : showAll
-              ? `已显示全部 ${fmtBytes(bytes.length)}`
-              : `前 ${Math.min(bytes.length, HEX_PREVIEW_BYTES)} B / 共 ${fmtBytes(bytes.length)}`}
+          {bytes.length === 0 ? (
+            '空'
+          ) : showAll ? (
+            <NumericText>{`已显示全部 ${fmtBytes(bytes.length)}`}</NumericText>
+          ) : (
+            <NumericText>{`前 ${Math.min(bytes.length, HEX_PREVIEW_BYTES)} B / 共 ${fmtBytes(bytes.length)}`}</NumericText>
+          )}
         </span>
         {!showAll && bytes.length > HEX_PREVIEW_BYTES ? (
           <button type="button" className="weq-cap-more" onClick={() => setShowAll(true)}>

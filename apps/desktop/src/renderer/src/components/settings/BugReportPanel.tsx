@@ -509,7 +509,9 @@ export function BugReportPanel(): ReactElement {
           <div className="weq-help-bug-hex">
             <div className="weq-help-bug-hex-head">
               <span>{hexdump.name} · 前 200 字节</span>
-              <span>共 {hexdump.totalBytes} 字节</span>
+              <span>
+                共 <span className="weq-number weq-number-inherit">{hexdump.totalBytes}</span> 字节
+              </span>
             </div>
             <pre className="weq-help-bug-hex-body">{hexdump.raw}</pre>
           </div>

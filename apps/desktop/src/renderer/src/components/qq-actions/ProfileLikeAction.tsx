@@ -99,7 +99,9 @@ function ProfileLikeDialogBody({
                 disabled={a.disabled || self}
                 onClick={() => send(count)}
               >
-                <span>+{count}</span>
+                <span>
+                  +<span className="weq-number weq-number-inherit">{count}</span>
+                </span>
               </button>
             ))}
             <button

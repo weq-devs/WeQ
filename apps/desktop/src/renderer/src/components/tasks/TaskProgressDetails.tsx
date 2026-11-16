@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import { useEffect, useState } from 'react';
 import { formatDuration } from '@weq/time';
 import { TimeLabel } from '../TimeLabel';
@@ -39,13 +40,15 @@ export function TaskProgressDetails({
       <div className="weq-task-progress-metric">
         <span>任务进度</span>
         <strong>
-          {progress !== undefined
-            ? `${progress}%`
-            : status === 'running'
-              ? '处理中'
-              : status === 'pending'
-                ? '等待开始'
-                : '未提供进度'}
+          {progress !== undefined ? (
+            <NumericText>{`${progress}%`}</NumericText>
+          ) : status === 'running' ? (
+            '处理中'
+          ) : status === 'pending' ? (
+            '等待开始'
+          ) : (
+            '未提供进度'
+          )}
         </strong>
       </div>
       <TaskProgressBar value={progress} label={`${name}进度`} status={status} />
@@ -57,7 +60,10 @@ export function TaskProgressDetails({
           </span>
           {elapsed ? (
             <span>
-              耗时 {formatDuration(Math.max(0, Math.floor((elapsed - startedAt) / 1000)))}
+              耗时{' '}
+              <span className="weq-number weq-number-inherit">
+                {formatDuration(Math.max(0, Math.floor((elapsed - startedAt) / 1000)))}
+              </span>
             </span>
           ) : null}
         </div>

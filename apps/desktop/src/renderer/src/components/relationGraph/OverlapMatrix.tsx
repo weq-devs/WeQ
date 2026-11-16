@@ -9,6 +9,7 @@
  * 行列标签是群头像 + 群名，分别固定在顶部与左侧，另一轴跟随格子滚动。
  */
 
+import { NumericText } from '../NumericText';
 import { type CSSProperties, useMemo, useState } from 'react';
 import type { OverlapModel } from './graphModel';
 import type { OverlapPairSelection } from './OverlapPairCard';
@@ -105,7 +106,22 @@ export function OverlapMatrix({
     <div className="weq-ov-matrix">
       <div className="weq-ov-matrix-bar">
         <span className="weq-ov-matrix-hint" title={hint}>
-          {hint}
+          {hoverSummary ? (
+            <>
+              {hoverSummary.nameA} ↔ {hoverSummary.nameB} ·{' '}
+              <span className="weq-number weq-number-inherit">{hoverSummary.weight}</span> 人
+              {hoverSummary.percent > 0 ? (
+                <>
+                  （覆盖较小群的{' '}
+                  <span className="weq-number weq-number-inherit">{hoverSummary.percent}%</span>）
+                </>
+              ) : (
+                ''
+              )}
+            </>
+          ) : (
+            <NumericText>{hint}</NumericText>
+          )}
         </span>
         <span className="weq-ov-matrix-scale">
           <span>{direction === 'small' ? '重合多' : '重合少'}</span>
@@ -126,7 +142,7 @@ export function OverlapMatrix({
               className="weq-ov-matrix-corner"
               style={{ width: geom.labelW, height: geom.headH }}
             >
-              {direction === 'small' ? `≤ ${threshold} 人` : '共同成员'}
+              <NumericText>{direction === 'small' ? `≤ ${threshold} 人` : '共同成员'}</NumericText>
             </div>
             {groups.map((group, col) => (
               <button
@@ -225,7 +241,11 @@ export function OverlapMatrix({
                   }
                   title={`${rowGroup.name} ↔ ${colGroup.name}\n共同成员 ${weight} 人`}
                 >
-                  {showValues && geom.cell >= 22 && weight > 0 ? <span>{weight}</span> : null}
+                  {showValues && geom.cell >= 22 && weight > 0 ? (
+                    <span>
+                      <span className="weq-number weq-number-inherit">{weight}</span>
+                    </span>
+                  ) : null}
                 </button>
               );
             }),
@@ -234,8 +254,16 @@ export function OverlapMatrix({
       </div>
 
       <p className="weq-ov-matrix-foot">
-        {groups.length} 个群 · {model.pairs.filter((pair) => pair.weight > 0).length} 对群有交集
-        {hoverSummary ? ` · 当前这对覆盖 ${hoverSummary.percent}%` : ''}
+        <span className="weq-number weq-number-inherit">{groups.length}</span> 个群 ·{' '}
+        <span className="weq-number weq-number-inherit">
+          {model.pairs.filter((pair) => pair.weight > 0).length}
+        </span>{' '}
+        对群有交集
+        {hoverSummary ? (
+          <NumericText>{` · 当前这对覆盖 ${hoverSummary.percent}%`}</NumericText>
+        ) : (
+          ''
+        )}
       </p>
     </div>
   );

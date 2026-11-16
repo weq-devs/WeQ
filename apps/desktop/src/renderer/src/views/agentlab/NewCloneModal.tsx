@@ -13,6 +13,7 @@
  * 图片与自定义表情统一遵循克隆训练的图片处理偏好。
  */
 
+import { NumericText } from '../../components/NumericText';
 import { EmptyState } from '../../components/EmptyState';
 import { useMemo, useState, type ReactElement } from 'react';
 import type { AgentLabModels, AgentLabModelSelection } from '@weq/agentlab';
@@ -174,11 +175,13 @@ export function NewCloneModal({
             </span>
           )}
           <strong id="weq-new-clone-title">
-            {picking
-              ? '选择要克隆的好友'
-              : targets.length === 1
-                ? `配置克隆：${targets[0]!.label}`
-                : `批量克隆 ${targets.length} 位好友`}
+            {picking ? (
+              '选择要克隆的好友'
+            ) : targets.length === 1 ? (
+              `配置克隆：${targets[0]!.label}`
+            ) : (
+              <NumericText>{`批量克隆 ${targets.length} 位好友`}</NumericText>
+            )}
           </strong>
           <button
             className="weq-set-iconbtn"
@@ -230,7 +233,9 @@ export function NewCloneModal({
                     />
                     <span className="weq-exp-row-meta">
                       <strong title={b.label}>{b.label}</strong>
-                      <small>{b.uin}</small>
+                      <small>
+                        <span className="weq-number weq-number-inherit">{b.uin}</span>
+                      </small>
                     </span>
                     <span className="weq-clone-pick-check" aria-hidden>
                       {targets.some((item) => item.uid === b.uid) ? (
@@ -251,7 +256,11 @@ export function NewCloneModal({
                 disabled={!targets.length}
                 onClick={() => setPicking(false)}
               >
-                {targets.length ? `下一步（已选 ${targets.length} 位）` : '下一步'}
+                {targets.length ? (
+                  <NumericText>{`下一步（已选 ${targets.length} 位）`}</NumericText>
+                ) : (
+                  '下一步'
+                )}
               </button>
             </div>
           </div>

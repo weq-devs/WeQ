@@ -213,7 +213,7 @@ function PathRow({
       <span className="weq-avpath-field-label">
         {label}
         <span className={`weq-avpath-badge is-${on ? 'on' : 'off'}`}>
-          {on ? fmtBytes(bytes) : '缺失'}
+          {on ? <span className="weq-number weq-number-inherit">{fmtBytes(bytes)}</span> : '缺失'}
         </span>
       </span>
       <div className="weq-avpath-field-val weq-avpath-pathrow">

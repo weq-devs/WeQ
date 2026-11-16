@@ -285,7 +285,9 @@ export function AddMessageModal({
                 <QqAvatar uin={sender.uin} size={34} />
                 <span className="weq-compose-sender-name">{sender.name}</span>
                 {sender.uin && sender.uin !== '0' ? (
-                  <span className="weq-compose-sender-uin">{sender.uin}</span>
+                  <span className="weq-compose-sender-uin">
+                    <span className="weq-number weq-number-inherit">{sender.uin}</span>
+                  </span>
                 ) : null}
                 <span className="weq-compose-sender-swap">切换</span>
               </button>

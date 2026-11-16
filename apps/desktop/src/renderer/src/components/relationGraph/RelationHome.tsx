@@ -100,21 +100,33 @@ export function RelationHome({
                 <Users size={12} />
                 有跨群成员的群
               </dt>
-              <dd>{stats.groups.toLocaleString('zh-CN')}</dd>
+              <dd>
+                <span className="weq-number weq-number-inherit">
+                  {stats.groups.toLocaleString('zh-CN')}
+                </span>
+              </dd>
             </div>
             <div>
               <dt>
                 <Waypoints size={12} />
                 跨群群友
               </dt>
-              <dd>{stats.people.toLocaleString('zh-CN')}</dd>
+              <dd>
+                <span className="weq-number weq-number-inherit">
+                  {stats.people.toLocaleString('zh-CN')}
+                </span>
+              </dd>
             </div>
             <div>
               <dt>
                 <ArrowRight size={12} />
                 有交集的群对
               </dt>
-              <dd>{stats.pairs.toLocaleString('zh-CN')}</dd>
+              <dd>
+                <span className="weq-number weq-number-inherit">
+                  {stats.pairs.toLocaleString('zh-CN')}
+                </span>
+              </dd>
             </div>
           </dl>
         ) : null}

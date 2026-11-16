@@ -12,6 +12,7 @@
  * 面积不代表人数：弧段长度按 √群规模 分配，避免一个几千人大群吃掉整圈。
  */
 
+import { NumericText } from '../NumericText';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { OverlapGroup, OverlapModel } from './graphModel';
 import type { OverlapPairSelection } from './OverlapPairCard';
@@ -389,24 +390,32 @@ export function OverlapChord({
                     : focusGroup.name}
                 </text>
                 <text className="weq-ov-chord-center-big" x={cx} y={cy + 10} textAnchor="middle">
-                  {focusGroup.poolSize.toLocaleString('zh-CN')}
+                  <tspan className="weq-number weq-number-inherit">
+                    {focusGroup.poolSize.toLocaleString('zh-CN')}
+                  </tspan>
                 </text>
                 <text className="weq-ov-chord-center-sub" x={cx} y={cy + 32} textAnchor="middle">
                   位群友在此群
                 </text>
                 <text className="weq-ov-chord-center-tip" x={cx} y={cy + 54} textAnchor="middle">
-                  {direction === 'small'
-                    ? `${partners.length} 个群可比较 · 双击看最不重合的`
-                    : `${partners.length} 个群有交集 · 双击看最重合的`}
+                  {direction === 'small' ? (
+                    <NumericText as="tspan">{`${partners.length} 个群可比较 · 双击看最不重合的`}</NumericText>
+                  ) : (
+                    <NumericText as="tspan">{`${partners.length} 个群有交集 · 双击看最重合的`}</NumericText>
+                  )}
                 </text>
               </>
             ) : (
               <>
                 <text className="weq-ov-chord-center-big" x={cx} y={cy - 2} textAnchor="middle">
-                  {model.groups.length}
+                  {<tspan className="weq-number weq-number-inherit">{model.groups.length}</tspan>}
                 </text>
                 <text className="weq-ov-chord-center-sub" x={cx} y={cy + 20} textAnchor="middle">
-                  个群 · {model.totalPeople.toLocaleString('zh-CN')} 位群友
+                  个群 ·{' '}
+                  <tspan className="weq-number weq-number-inherit">
+                    {model.totalPeople.toLocaleString('zh-CN')}
+                  </tspan>{' '}
+                  位群友
                 </text>
                 <text className="weq-ov-chord-center-tip" x={cx} y={cy + 42} textAnchor="middle">
                   悬停弧段看交集，点击固定
@@ -423,10 +432,15 @@ export function OverlapChord({
           <header>
             <strong title={focusGroup.name}>{focusGroup.name}</strong>
             <span>
-              {focusGroup.memberCount.toLocaleString('zh-CN')} 人 ·{' '}
-              {direction === 'small'
-                ? `${partners.length} 个群可比较`
-                : `${partners.filter((row) => row.weight > 0).length} 个群有交集`}
+              <span className="weq-number weq-number-inherit">
+                {focusGroup.memberCount.toLocaleString('zh-CN')}
+              </span>{' '}
+              人 ·{' '}
+              {direction === 'small' ? (
+                <NumericText>{`${partners.length} 个群可比较`}</NumericText>
+              ) : (
+                <NumericText>{`${partners.filter((row) => row.weight > 0).length} 个群有交集`}</NumericText>
+              )}
             </span>
           </header>
           <div className="weq-ov-chord-panel-list">
@@ -455,7 +469,7 @@ export function OverlapChord({
                   {group.name}
                 </span>
                 <span className={`weq-ov-chord-pair-weight${weight === 0 ? ' is-zero' : ''}`}>
-                  {weight === 0 ? '无' : `${weight}`}
+                  <NumericText>{weight === 0 ? '无' : `${weight}`}</NumericText>
                 </span>
               </button>
             ))}
@@ -468,8 +482,14 @@ export function OverlapChord({
         <div className="weq-ov-chord-tip" style={{ left: tip.x, top: tip.y }}>
           <strong>{model.groups.find((group) => group.code === tip.code)?.name}</strong>
           <span>
-            {model.groups.find((group) => group.code === tip.code)?.poolSize ?? 0} 位群友 ·{' '}
-            {model.groups.find((group) => group.code === tip.code)?.overlapSum ?? 0} 次交集
+            <span className="weq-number weq-number-inherit">
+              {model.groups.find((group) => group.code === tip.code)?.poolSize ?? 0}
+            </span>{' '}
+            位群友 ·{' '}
+            <span className="weq-number weq-number-inherit">
+              {model.groups.find((group) => group.code === tip.code)?.overlapSum ?? 0}
+            </span>{' '}
+            次交集
           </span>
         </div>
       ) : null}

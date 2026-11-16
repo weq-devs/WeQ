@@ -95,7 +95,12 @@ export function GroupFileMessageResults({
             >
               <LocateFixed size={16} />
               <span>
-                {formatFileTime(Number(message.sendTime)) || '发送时间未知'} · 消息 {message.msgSeq}
+                {
+                  <span className="weq-number weq-number-inherit">
+                    {formatFileTime(Number(message.sendTime)) || '发送时间未知'}
+                  </span>
+                }{' '}
+                · 消息 <span className="weq-number weq-number-inherit">{message.msgSeq}</span>
               </span>
             </button>
           </li>

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Ban, CircleAlert, CircleCheck, Clock, Loader2, Pause } from 'lucide-react';
 import '../../styles/long-tasks.css';
 import { TaskProgressBar } from './TaskProgressBar';
+import { NumericText } from '../NumericText';
 
 export type LongTaskStatus =
   | 'pending'
@@ -85,7 +86,14 @@ export function LongTaskRow({
         <span className="weq-long-task-name">{task.name}</span>
         <span className="weq-long-task-meta">
           {task.kind}
-          {task.note ? ` · ${task.note}` : ''}
+          {task.note ? (
+            <>
+              {' '}
+              · <NumericText>{task.note}</NumericText>
+            </>
+          ) : (
+            ''
+          )}
         </span>
         <TaskProgressBar value={progress} label={`${task.name}进度`} status={task.status} />
       </span>
@@ -94,7 +102,11 @@ export function LongTaskRow({
           <Icon size={14} aria-hidden />
           {task.statusLabel ?? LABELS[task.status]}
         </span>
-        {progress !== undefined ? <small>{progress}%</small> : null}
+        {progress !== undefined ? (
+          <small>
+            <span className="weq-number weq-number-inherit">{progress}</span>%
+          </small>
+        ) : null}
       </span>
     </button>
   );

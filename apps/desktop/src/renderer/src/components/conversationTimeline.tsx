@@ -10,6 +10,7 @@
  * 北京时间对齐。这里只做展示与手势，不查库。
  */
 
+import { NumericText } from './NumericText';
 import {
   useMemo,
   useRef,
@@ -346,9 +347,21 @@ export function RangeTimeline({
     <div className="ca-range">
       <div className="ca-range-head">
         <div className="ca-range-labels">
-          <strong>{active ? fmtDate(active.start) : '—'}</strong>
+          <strong>
+            {active ? (
+              <span className="weq-number weq-number-inherit">{fmtDate(active.start)}</span>
+            ) : (
+              '—'
+            )}
+          </strong>
           <span aria-hidden>→</span>
-          <strong>{active ? fmtDate(active.end) : '—'}</strong>
+          <strong>
+            {active ? (
+              <span className="weq-number weq-number-inherit">{fmtDate(active.end)}</span>
+            ) : (
+              '—'
+            )}
+          </strong>
         </div>
         <span className="ca-range-hint">拖动把手或空白处选择区间 · 松手后重算</span>
       </div>
@@ -419,8 +432,12 @@ export function RangeTimeline({
         />
       </svg>
       <div className="ca-range-axis">
-        <span>{fmtDate(min)}</span>
-        <span>{fmtDate(max)}</span>
+        <span>
+          <span className="weq-number weq-number-inherit">{fmtDate(min)}</span>
+        </span>
+        <span>
+          <span className="weq-number weq-number-inherit">{fmtDate(max)}</span>
+        </span>
       </div>
     </div>
   );
@@ -487,12 +504,20 @@ export function PersonWeekCard({
           <strong title={name}>{name}</strong>
         </ProfileAvatar>
         <span className="ca-person-meta">
-          <em>{subtitle ?? `${formatNumber(count)} 条`}</em>
+          <em>
+            <NumericText>{subtitle ?? `${formatNumber(count)} 条`}</NumericText>
+          </em>
         </span>
-        {rank !== undefined ? <span className="ca-person-rank">{rank}</span> : null}
+        {rank !== undefined ? (
+          <span className="ca-person-rank">
+            <span className="weq-number weq-number-inherit">{rank}</span>
+          </span>
+        ) : null}
       </div>
       <WeekSpark weekly={weekly} accent={accent} />
-      <span className="ca-person-count">{formatNumber(count)} 条</span>
+      <span className="ca-person-count">
+        <span className="weq-number weq-number-inherit">{formatNumber(count)}</span> 条
+      </span>
     </div>
   );
 }

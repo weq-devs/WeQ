@@ -203,7 +203,8 @@ export function DatabasePlainExport({
         <div className="weq-db-actionbar-summary">
           {chosen.length ? (
             <span>
-              {chosen.length} 个数据库 · {fmtBytes(totalBytes)}
+              <span className="weq-number weq-number-inherit">{chosen.length}</span> 个数据库 ·{' '}
+              <span className="weq-number weq-number-inherit">{fmtBytes(totalBytes)}</span>
             </span>
           ) : (
             <span>先选中要解密的数据库</span>

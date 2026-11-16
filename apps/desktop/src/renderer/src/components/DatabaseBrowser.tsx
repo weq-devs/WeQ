@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import { useEffect, useRef, useState } from 'react';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
@@ -50,7 +51,13 @@ export default function DatabaseBrowser() {
         />
       ) : null}
       <div className="weq-database-browser-source" role="status">
-        {source ? `当前账号：${source.expectedAccountUin}` : uin ? '正在读取账号…' : '请先打开账号'}
+        {source ? (
+          <NumericText>{`当前账号：${source.expectedAccountUin}`}</NumericText>
+        ) : uin ? (
+          '正在读取账号…'
+        ) : (
+          '请先打开账号'
+        )}
       </div>
       {source && !config.error ? (
         <DbExplorer

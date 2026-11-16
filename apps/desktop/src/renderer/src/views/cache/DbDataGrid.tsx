@@ -324,7 +324,8 @@ export function DbDataGrid({
           {table}
         </span>
         <span className="weq-cache-data-meta">
-          {page.rows.length} 行{page.hasRowid ? '' : ' · 无 rowid（只读）'}
+          <span className="weq-number weq-number-inherit">{page.rows.length}</span> 行
+          {page.hasRowid ? '' : ' · 无 rowid（只读）'}
           {search ? ' · 已筛选' : ''}
         </span>
         <span className="weq-cache-spacer" />
@@ -448,7 +449,9 @@ export function DbDataGrid({
             {page.rows.map((row, ri) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
               <tr key={ri}>
-                <td className="weq-cache-grid-rownum">{ri + 1}</td>
+                <td className="weq-cache-grid-rownum">
+                  <span className="weq-number weq-number-inherit">{ri + 1}</span>
+                </td>
                 {row.map((cell, ci) => {
                   const editing = edit?.rowIndex === ri && edit?.colIndex === ci;
                   const editableCell = canEditRows && isCellEditable(cell);
@@ -551,7 +554,9 @@ export function DbDataGrid({
           <ChevronLeft size={14} />
           上一页
         </button>
-        <span className="weq-cache-pager-num">第 {pageIndex} 页</span>
+        <span className="weq-cache-pager-num">
+          第 <span className="weq-number weq-number-inherit">{pageIndex}</span> 页
+        </span>
         <button
           type="button"
           className="weq-cache-tool"

@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import * as timeFormat from '@weq/time';
 /**
  * RecalledMessagesModal — the "撤回列表": browse the messages that were recalled
@@ -269,7 +270,11 @@ export function RecalledMessagesModal({
         ) : null}
 
         <span className="weq-msglist-count">
-          {filtering ? `${filtered.length} / ${rows.length} 条` : `共 ${rows.length} 条`}
+          {filtering ? (
+            <NumericText>{`${filtered.length} / ${rows.length} 条`}</NumericText>
+          ) : (
+            <NumericText>{`共 ${rows.length} 条`}</NumericText>
+          )}
         </span>
       </div>
 

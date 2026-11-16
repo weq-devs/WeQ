@@ -91,7 +91,8 @@ export function MarketPackExplorer(): ReactElement {
       <div className="weq-mpack-bar">
         <span className="weq-cache-data-name">商城表情包</span>
         <span className="weq-cache-data-meta">
-          {list.length} 个 · 点击表情包在线获取表情列表并解密查看
+          <span className="weq-number weq-number-inherit">{list.length}</span> 个 ·
+          点击表情包在线获取表情列表并解密查看
         </span>
         <button
           type="button"
@@ -185,7 +186,9 @@ function PackCard({
         <span className="weq-mpack-foot">
           <code>#{pkg.packId}</code>
           {detail.data ? (
-            <span>{detail.data.count} 张</span>
+            <span>
+              <span className="weq-number weq-number-inherit">{detail.data.count}</span> 张
+            </span>
           ) : (
             <span className="weq-mpack-loading">…</span>
           )}
@@ -248,9 +251,13 @@ function PackDetail({
             <div className="weq-mpack-panel-row">
               <span className="weq-mpack-panel-label">上架时间</span>
               <span className="weq-mpack-panel-val weq-mpack-mono">
-                {detail.data.updateTime
-                  ? eventTimeFormatter.format(new Date(detail.data.updateTime * 1000))
-                  : '未知'}
+                {detail.data.updateTime ? (
+                  <span className="weq-number weq-number-inherit">
+                    {eventTimeFormatter.format(new Date(detail.data.updateTime * 1000))}
+                  </span>
+                ) : (
+                  '未知'
+                )}
               </span>
             </div>
             <div className="weq-mpack-panel-row">
@@ -262,7 +269,10 @@ function PackDetail({
                   <>
                     <code className="weq-mpack-key">{keyInfo.data.key}</code>
                     <em className="weq-mpack-key-src">
-                      {keySourceLabel(keyInfo.data.source)} · 时间戳 {keyInfo.data.timestamp}
+                      {keySourceLabel(keyInfo.data.source)} · 时间戳{' '}
+                      <span className="weq-number weq-number-inherit">
+                        {keyInfo.data.timestamp}
+                      </span>
                     </em>
                   </>
                 ) : keyInfo.isLoading ? (

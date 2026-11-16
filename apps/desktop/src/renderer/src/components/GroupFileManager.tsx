@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import {
   useCallback,
   useEffect,
@@ -735,7 +736,9 @@ function GroupFileManagerBody({
       </div>
       {chosen.length > 0 && (
         <div className="weq-file-selection-toolbar" role="toolbar" aria-label="群文件所选项目">
-          <span>已选 {chosen.length} 项</span>
+          <span>
+            已选 {<span className="weq-number weq-number-inherit">{chosen.length}</span>} 项
+          </span>
           {onSaveSelected && (
             <ActionIcon
               label="保存所选项目"
@@ -775,19 +778,28 @@ function GroupFileManagerBody({
       )}
       <div className="weq-file-manager-status">
         <span>
-          {chosen.length
-            ? `已选 ${chosen.length} 项`
-            : `${folders.length} 个文件夹 · ${files.length} 个文件`}
+          {chosen.length ? (
+            <NumericText>{`已选 ${chosen.length} 项`}</NumericText>
+          ) : (
+            <NumericText>{`${folders.length} 个文件夹 · ${files.length} 个文件`}</NumericText>
+          )}
         </span>
         {summary.data && Number.isFinite(summary.data.fileCount) && (
           <span>
-            {summary.data.fileCount}
-            {Number.isFinite(summary.data.maxCount) ? ` / ${summary.data.maxCount}` : ''} 个文件
-            {summary.data.usedSpace != null
-              ? ` · ${formatSize(summary.data.usedSpace)}${
-                  summary.data.totalSpace != null ? ` / ${formatSize(summary.data.totalSpace)}` : ''
-                }`
-              : ''}
+            <span className="weq-number weq-number-inherit">{summary.data.fileCount}</span>
+            {Number.isFinite(summary.data.maxCount) ? (
+              <NumericText>{` / ${summary.data.maxCount}`}</NumericText>
+            ) : (
+              ''
+            )}{' '}
+            个文件
+            {summary.data.usedSpace != null ? (
+              <NumericText>{` · ${formatSize(summary.data.usedSpace)}${
+                summary.data.totalSpace != null ? ` / ${formatSize(summary.data.totalSpace)}` : ''
+              }`}</NumericText>
+            ) : (
+              ''
+            )}
           </span>
         )}
       </div>
@@ -797,11 +809,13 @@ function GroupFileManagerBody({
         <div className="weq-file-manager-editor weq-qq-action-form" aria-label="文件操作编辑器">
           <div className="weq-file-manager-editor-heading">
             <strong>
-              {editor.mode === 'createFolder'
-                ? '新建文件夹'
-                : editor.mode === 'rename'
-                  ? `重命名 ${all.find((row) => row.key === editor.keys[0])?.name ?? '所选项目'}`
-                  : `移动 ${editor.keys.length} 个文件`}
+              {editor.mode === 'createFolder' ? (
+                '新建文件夹'
+              ) : editor.mode === 'rename' ? (
+                `重命名 ${all.find((row) => row.key === editor.keys[0])?.name ?? '所选项目'}`
+              ) : (
+                <NumericText>{`移动 ${editor.keys.length} 个文件`}</NumericText>
+              )}
             </strong>
             <ActionIcon
               label="取消文件操作"
@@ -1101,28 +1115,38 @@ function GroupFileManagerBody({
                       </button>
                       <small className="weq-file-manager-name-meta">
                         <span className="weq-file-manager-size-inline">
-                          {row.kind === 'folder'
-                            ? `${row.folder.totalFileCount} 个文件`
-                            : formatSize(row.file.fileSize)}{' '}
+                          {row.kind === 'folder' ? (
+                            <NumericText>{`${row.folder.totalFileCount} 个文件`}</NumericText>
+                          ) : (
+                            <span className="weq-number weq-number-inherit">
+                              {formatSize(row.file.fileSize)}
+                            </span>
+                          )}{' '}
                           ·{' '}
                         </span>
                         <span data-privacy-sensitive>
                           {row.kind === 'folder' ? row.folder.creatorName : row.file.uploaderName}
                         </span>
                         {' · '}
-                        {formatFileTime(
-                          row.kind === 'folder'
-                            ? row.folder.modifiedTime || row.folder.createTime
-                            : row.file.modifiedTime || row.file.uploadedTime,
-                        )}
+                        <span className="weq-number weq-number-inherit">
+                          {formatFileTime(
+                            row.kind === 'folder'
+                              ? row.folder.modifiedTime || row.folder.createTime
+                              : row.file.modifiedTime || row.file.uploadedTime,
+                          )}
+                        </span>
                       </small>
                     </span>
                   </div>
                 </td>
                 <td>
-                  {row.kind === 'folder'
-                    ? `${row.folder.totalFileCount} 个文件`
-                    : formatSize(row.file.fileSize)}
+                  {row.kind === 'folder' ? (
+                    <NumericText>{`${row.folder.totalFileCount} 个文件`}</NumericText>
+                  ) : (
+                    <span className="weq-number weq-number-inherit">
+                      {formatSize(row.file.fileSize)}
+                    </span>
+                  )}
                 </td>
                 <td>
                   <span data-privacy-sensitive>
@@ -1130,11 +1154,13 @@ function GroupFileManagerBody({
                   </span>
                 </td>
                 <td>
-                  {formatFileTime(
-                    row.kind === 'folder'
-                      ? row.folder.modifiedTime || row.folder.createTime
-                      : row.file.modifiedTime || row.file.uploadedTime,
-                  )}
+                  <span className="weq-number weq-number-inherit">
+                    {formatFileTime(
+                      row.kind === 'folder'
+                        ? row.folder.modifiedTime || row.folder.createTime
+                        : row.file.modifiedTime || row.file.uploadedTime,
+                    )}
+                  </span>
                 </td>
                 <td>
                   <div className="weq-file-row-tools">

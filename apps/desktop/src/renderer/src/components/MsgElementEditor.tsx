@@ -93,8 +93,13 @@ export function MsgElementEditor({
           <div className="weq-editor-title">
             <h3 id={titleId}>修改本地消息元件（不同步服务器）</h3>
             <code>
-              msgId: {msgId}
-              {msgSeq !== undefined && ` • seq: ${msgSeq}`}
+              msgId: <span className="weq-number weq-number-inherit">{msgId}</span>
+              {msgSeq !== undefined && (
+                <>
+                  {' '}
+                  • seq: <span className="weq-number weq-number-inherit">{msgSeq}</span>
+                </>
+              )}
             </code>
           </div>
           <button
@@ -115,7 +120,9 @@ export function MsgElementEditor({
               className={cn('weq-editor-tab', i === activeIndex && 'active')}
               onClick={() => setActiveIndex(i)}
             >
-              <span className="weq-editor-tab-index">#{i + 1}</span>
+              <span className="weq-editor-tab-index">
+                #<span className="weq-number weq-number-inherit">{i + 1}</span>
+              </span>
               <span className="weq-editor-tab-kind">{elements[i]?.kind || 'unknown'}</span>
             </button>
           ))}
@@ -137,7 +144,8 @@ export function MsgElementEditor({
               <ChevronLeft size={16} /> 上一个
             </button>
             <span className="weq-editor-pager-count">
-              {activeIndex + 1} / {elements.length}
+              <span className="weq-number weq-number-inherit">{activeIndex + 1}</span> /{' '}
+              <span className="weq-number weq-number-inherit">{elements.length}</span>
             </span>
             <button
               disabled={activeIndex >= elements.length - 1}
@@ -226,7 +234,9 @@ function ObjectEditor({
         {value.map((v, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: 数组项按位置展示,无稳定 id
           <div key={i} className="weq-array-item">
-            <div className="weq-array-index">[{i}]</div>
+            <div className="weq-array-index">
+              [<span className="weq-number weq-number-inherit">{i}</span>]
+            </div>
             <ValueEditor
               k={String(i)}
               val={v}

@@ -1,3 +1,4 @@
+import { NumericText } from '../../components/NumericText';
 import { useMemo } from 'react';
 import { RotateCw, X } from 'lucide-react';
 import { ConversationPicker } from './ConversationPicker';
@@ -58,7 +59,11 @@ export function ContactScopePicker({
           ]}
         />
         <small>
-          {selected === undefined ? conditionLabel : `已选 ${selected.length} 位联系人`}
+          {selected === undefined ? (
+            conditionLabel
+          ) : (
+            <NumericText>{`已选 ${selected.length} 位联系人`}</NumericText>
+          )}
         </small>
       </div>
       {error ? (
@@ -76,7 +81,10 @@ export function ContactScopePicker({
       ) : null}
       {!loading && outside.length > 0 ? (
         <div className="weq-export-contact-outside" role="status">
-          <span>当前列表之外仍选中 {outside.length} 位联系人</span>
+          <span>
+            当前列表之外仍选中{' '}
+            <span className="weq-number weq-number-inherit">{outside.length}</span> 位联系人
+          </span>
           <button
             type="button"
             title="清除列表外的选择"

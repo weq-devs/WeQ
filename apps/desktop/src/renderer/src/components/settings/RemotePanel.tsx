@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import { eventTimeFormatter, formatRelativeTime } from '@weq/time';
 import { TimeLabel } from '../TimeLabel';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -338,7 +339,15 @@ export function RemotePanel({
               <img src={qr.qr} width={240} height={240} alt="WeQ Remote 一次性配对二维码" />
               <div>
                 <h4>等待手机扫码</h4>
-                <p>有效期剩余 {Math.max(0, Math.ceil((qr.expiresAt - now) / 1000))} 秒</p>
+                <p>
+                  有效期剩余{' '}
+                  {
+                    <span className="weq-number weq-number-inherit">
+                      {Math.max(0, Math.ceil((qr.expiresAt - now) / 1000))}
+                    </span>
+                  }{' '}
+                  秒
+                </p>
                 <p>
                   {qr.pairingURL && new URL(qr.pairingURL).searchParams.has('authKey')
                     ? '含一次性入网密钥 · 请勿分享'
@@ -401,7 +410,9 @@ export function RemotePanel({
         <section className="weq-remote-band">
           <div className="weq-remote-heading">
             <h4>已配对设备</h4>
-            <span>{data?.devices.length ?? 0} 台</span>
+            <span>
+              <span className="weq-number weq-number-inherit">{data?.devices.length ?? 0}</span> 台
+            </span>
           </div>
           {!data?.devices.length ? (
             <p className="weq-remote-muted">暂无已配对设备</p>
@@ -452,17 +463,21 @@ export function RemotePanel({
                       <div>
                         <dt>系统版本</dt>
                         <dd>
-                          {device.deviceInfo
-                            ? `${device.deviceInfo.platform === 'ios' ? 'iOS / iPadOS' : 'Android'} ${device.deviceInfo.osVersion}`
-                            : '未上报'}
+                          {device.deviceInfo ? (
+                            <NumericText>{`${device.deviceInfo.platform === 'ios' ? 'iOS / iPadOS' : 'Android'} ${device.deviceInfo.osVersion}`}</NumericText>
+                          ) : (
+                            '未上报'
+                          )}
                         </dd>
                       </div>
                       <div>
                         <dt>Remote 版本</dt>
                         <dd>
-                          {device.deviceInfo
-                            ? `${device.deviceInfo.appVersion} (${device.deviceInfo.appBuild})`
-                            : '未上报'}
+                          {device.deviceInfo ? (
+                            <NumericText>{`${device.deviceInfo.appVersion} (${device.deviceInfo.appBuild})`}</NumericText>
+                          ) : (
+                            '未上报'
+                          )}
                         </dd>
                       </div>
                       <div>

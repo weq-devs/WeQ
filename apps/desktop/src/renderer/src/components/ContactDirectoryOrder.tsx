@@ -56,7 +56,9 @@ export function ContactDirectoryOrder({
           <small role="alert">{order.error}</small>
         ) : order.progress?.status === 'running' ? (
           <small role="status">
-            好友/群信息缓存更新中 {order.progress.done}/{order.progress.total}
+            好友/群信息缓存更新中{' '}
+            <span className="weq-number weq-number-inherit">{order.progress.done}</span>/
+            <span className="weq-number weq-number-inherit">{order.progress.total}</span>
           </small>
         ) : order.progress?.status === 'paused' ? (
           <small role="status">好友/群信息缓存更新已暂停，等待 QQ 在线</small>

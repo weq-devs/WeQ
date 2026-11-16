@@ -17,6 +17,7 @@
  * 查询用 staleTime:0 + refetchOnMount:'always'，避免重开弹窗看到旧值。
  */
 
+import { NumericText } from '../NumericText';
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
 import { pageValue } from '../../lib/pageSnapshots';
@@ -604,7 +605,11 @@ export function McpServerSection(): ReactElement {
             onClick={() => void onInstallAgents()}
           >
             <Download size={14} strokeWidth={1.8} />
-            {installToAgents.isLoading ? '正在安装…' : `安装到已选客户端（${selectedAgents.size}）`}
+            {installToAgents.isLoading ? (
+              '正在安装…'
+            ) : (
+              <NumericText>{`安装到已选客户端（${selectedAgents.size}）`}</NumericText>
+            )}
           </button>
         </div>
       </Card>

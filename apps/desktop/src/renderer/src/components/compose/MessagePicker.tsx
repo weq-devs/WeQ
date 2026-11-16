@@ -56,7 +56,9 @@ export function MessagePicker({
                 <div className="weq-msg-main">
                   <div className="weq-msg-meta">
                     <span className="weq-msg-sender">{resolveName(m.senderUid, m.senderUin)}</span>
-                    <span className="weq-msg-time">{fmtTime(m.sendTime)}</span>
+                    <span className="weq-msg-time">
+                      <span className="weq-number weq-number-inherit">{fmtTime(m.sendTime)}</span>
+                    </span>
                   </div>
                   <div className="weq-msg-preview">
                     <QqMessageContent

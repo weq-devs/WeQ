@@ -124,7 +124,9 @@ export function ConversationPicker({
           <X size={14} />
         </button>
         <span className="weq-exp-tools-spacer" />
-        <span className="weq-exp-tools-count">已选 {selected.size}</span>
+        <span className="weq-exp-tools-count">
+          已选 <span className="weq-number weq-number-inherit">{selected.size}</span>
+        </span>
       </div>
 
       <div className="weq-exp-list">
@@ -160,7 +162,11 @@ export function ConversationPicker({
                       <strong title={it.name}>{it.name}</strong>
                       {scopeSelections?.[it.id] !== undefined ? (
                         <small>
-                          精确选中 {scopeSelections[it.id]!.length} {scopeUnit}
+                          精确选中{' '}
+                          <span className="weq-number weq-number-inherit">
+                            {scopeSelections[it.id]!.length}
+                          </span>{' '}
+                          {scopeUnit}
                         </small>
                       ) : it.meta ? (
                         <small>{it.meta}</small>

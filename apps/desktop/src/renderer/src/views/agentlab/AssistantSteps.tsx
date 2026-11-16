@@ -6,6 +6,7 @@
  * JSON 预览可展开)。final/error 不在这里展示（final 是主答复气泡，error 走对话框）。
  */
 
+import { NumericText } from '../../components/NumericText';
 import { memo, useMemo, useState, type ReactElement } from 'react';
 import { Brain, Check, ChevronDown, ChevronRight, Loader2, Wrench, X, Copy } from 'lucide-react';
 import { copyTextToClipboard } from '../../im-template/template/clipboard';
@@ -95,7 +96,7 @@ export const AssistantSteps = memo(function AssistantSteps({
         {running ? <Loader2 size={13} className="weq-asst-spin" /> : <Brain size={13} />}
         <span>
           {running ? '思考中…' : '思考过程'}
-          {toolCount > 0 ? ` · 调用工具 ${toolCount} 次` : ''}
+          {toolCount > 0 ? <NumericText>{` · 调用工具 ${toolCount} 次`}</NumericText> : ''}
         </span>
       </button>
 

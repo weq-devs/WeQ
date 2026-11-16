@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 /**
  * 右下角可展开横幅，完成态停留时间由全局设置控制。
@@ -462,7 +463,11 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
       {toast.ttl > 0 ? (
         <div className="weq-toast-footer">
           <span className="weq-toast-timer-text">
-            {paused ? '已暂停自动关闭' : `将在 ${secondsLeft} 秒后关闭`}
+            {paused ? (
+              '已暂停自动关闭'
+            ) : (
+              <NumericText>{`将在 ${secondsLeft} 秒后关闭`}</NumericText>
+            )}
           </span>
 
           {/*<span className={`weq-toast-timer-action${paused ? ' paused' : ''}`}>*/}

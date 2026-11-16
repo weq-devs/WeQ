@@ -79,7 +79,7 @@ export function MessageProvenance({
       ) : null}
       {seq ? (
         <span className="weq-message-seq" title="会话内消息序号">
-          seq {seq}
+          seq <span className="weq-number weq-number-inherit">{seq}</span>
         </span>
       ) : null}
       {day || time ? (

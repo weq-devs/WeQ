@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import { Avatar } from '../im-template/template/primitives';
 import { CopyButton } from './CopyButton';
 
@@ -24,7 +25,9 @@ export function ConversationMenuTarget({
         <Avatar resolution="small" name={name} avatarUrl={avatarUrl} seed={identity} />
       ) : null}
       <span>
-        <strong title={name}>{count > 1 ? `已选 ${count} 个会话` : name}</strong>
+        <strong title={name}>
+          {count > 1 ? <NumericText>{`已选 ${count} 个会话`}</NumericText> : name}
+        </strong>
         <small>
           {count > 1 ? (
             `从 ${name} 打开`

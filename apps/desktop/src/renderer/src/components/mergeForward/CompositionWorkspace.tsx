@@ -684,8 +684,17 @@ export function CompositionWorkspace({
                           {entry.title || draftTitle(entry.nodes)}
                         </CompositionButton>
                         <span>
-                          {entry.nodes.length} 条 ·{' '}
-                          {eventTimeFormatter.format(new Date(entry.updatedAt * 1000))}
+                          {
+                            <span className="weq-number weq-number-inherit">
+                              {entry.nodes.length}
+                            </span>
+                          }{' '}
+                          条 ·{' '}
+                          {
+                            <span className="weq-number weq-number-inherit">
+                              {eventTimeFormatter.format(new Date(entry.updatedAt * 1000))}
+                            </span>
+                          }
                         </span>
                         <p data-privacy-sensitive>{compositionText(entry)}</p>
                         <div className="weq-composition-entry-actions">
@@ -917,7 +926,8 @@ export function CompositionWorkspace({
               </div>
               <footer className="weq-composition-actions">
                 <span>
-                  {working.nodes.length} 条 · {dirty ? '未保存' : persisted ? '已保存' : '新记录'}
+                  {<span className="weq-number weq-number-inherit">{working.nodes.length}</span>} 条
+                  · {dirty ? '未保存' : persisted ? '已保存' : '新记录'}
                 </span>
                 <CompositionButton
                   type="button"

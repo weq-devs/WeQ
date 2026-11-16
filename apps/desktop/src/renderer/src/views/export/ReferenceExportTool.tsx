@@ -65,7 +65,9 @@ export function ReferenceExportTool({
         <ServerSavePrompt name={save.serverLocation.name} onChoose={save.chooseServerLocation} />
       ) : null}
       <header className="weq-exp-tools weq-reference-export-head">
-        <h3>已选 {selected.size} 项内容</h3>
+        <h3>
+          已选 <span className="weq-number weq-number-inherit">{selected.size}</span> 项内容
+        </h3>
         <button
           type="button"
           className="weq-exp-tool"

@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { NumericText } from '../../components/NumericText';
 import { TimeLabel } from '../../components/TimeLabel';
 import { ReminderCount } from '../../components/ReminderBadge';
 import { occupationText } from '@weq/protocol/profile-values';
@@ -1512,7 +1513,9 @@ function GroupNotificationSection({
       >
         <ChevronRight className={cn('contact-cat-caret', open && 'is-open')} size={15} />
         <span className="contact-cat-name">{category.label}</span>
-        <span className="contact-cat-count">{category.items.length}</span>
+        <span className="contact-cat-count">
+          {<span className="weq-number weq-number-inherit">{category.items.length}</span>}
+        </span>
       </button>
       {expanded
         ? category.items.slice(0, visibleCount).map((conversation) => {
@@ -1585,11 +1588,13 @@ function GroupNotificationSection({
                     className={detail ? 'weq-directory-sort-detail' : undefined}
                     title={detail?.title ? `${detail.text}\n${detail.title}` : detail?.text}
                   >
-                    {detail
-                      ? detail.text
-                      : conversation.group.memberCount > 0
-                        ? `${conversation.group.memberCount} 位成员`
-                        : '人数未读取'}
+                    {detail ? (
+                      detail.text
+                    ) : conversation.group.memberCount > 0 ? (
+                      <NumericText>{`${conversation.group.memberCount} 位成员`}</NumericText>
+                    ) : (
+                      '人数未读取'
+                    )}
                   </span>
                 </span>
                 {conversationDirectory?.showContactUnreadCount &&

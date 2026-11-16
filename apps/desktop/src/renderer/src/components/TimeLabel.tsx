@@ -49,7 +49,11 @@ export function DurationLabel({ seconds }: { seconds: number }) {
       data-time-detail
       data-hover-delay="0"
     >
-      {formatDuration(seconds, 'approximate') || '-'}
+      {
+        <span className="weq-number weq-number-inherit">
+          {formatDuration(seconds, 'approximate') || '-'}
+        </span>
+      }
     </span>
   );
 }

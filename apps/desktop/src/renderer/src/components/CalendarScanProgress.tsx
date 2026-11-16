@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import { Pause, Play, RotateCw } from 'lucide-react';
 import { TaskProgressBar } from './tasks/TaskProgressBar';
 import type {
@@ -44,11 +45,13 @@ export function CalendarScanProgress({
             <div>
               <span>{label}</span>
               <strong>
-                {empty
-                  ? '未开始'
-                  : value
-                    ? `${value.completedSources} / ${value.totalSources}`
-                    : '准备中'}
+                {empty ? (
+                  '未开始'
+                ) : value ? (
+                  <NumericText>{`${value.completedSources} / ${value.totalSources}`}</NumericText>
+                ) : (
+                  '准备中'
+                )}
               </strong>
             </div>
             <div className="weq-calendar-progress-track">

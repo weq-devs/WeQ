@@ -29,7 +29,11 @@ export function CallRecorderBar({ recording }: { recording: RecordingState }) {
     <div className="weq-call-recording" role="status">
       <span className="weq-call-recording-dot" aria-hidden />
       <span className="weq-call-recording-label">录音中</span>
-      <span className="weq-call-recording-time">{formatDuration(recording.durationSec)}</span>
+      <span className="weq-call-recording-time">
+        <span className="weq-number weq-number-inherit">
+          {formatDuration(recording.durationSec)}
+        </span>
+      </span>
       <span className="weq-call-recording-mode">
         {MODE_LABEL[recording.mode]}
         {recording.systemAudio ? ' · 含电脑声音' : ''}
@@ -86,7 +90,11 @@ export function CallRecordingCard({
     <div className="weq-call-recording-card">
       <div className="weq-call-recording-head">
         <span className="weq-call-recording-label">通话录音</span>
-        <span className="weq-call-recording-time">{formatDuration(recording.durationSec)}</span>
+        <span className="weq-call-recording-time">
+          <span className="weq-number weq-number-inherit">
+            {formatDuration(recording.durationSec)}
+          </span>
+        </span>
         <button
           type="button"
           className="weq-call-recording-dismiss"

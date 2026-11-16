@@ -441,7 +441,9 @@ function DressMallPicker({
                   ) : null}
                 </span>
                 <span className="weq-mf-mall-name">{it.name}</span>
-                <span className="weq-mf-mall-id">#{it.itemId}</span>
+                <span className="weq-mf-mall-id">
+                  #<span className="weq-number weq-number-inherit">{it.itemId}</span>
+                </span>
               </CompositionButton>
             ))}
           </div>

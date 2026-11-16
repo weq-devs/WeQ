@@ -233,10 +233,12 @@ function GroupGiftCard({ gift, onOpen }: { gift: GroupGiftItem; onOpen: () => vo
         <small title={gift.slogan}>{gift.slogan || gift.description || '一份小小的心意'}</small>
         <span className="weq-gift-card-price">
           <Coins size={12} strokeWidth={2} />
-          {gift.price}
+          <span className="weq-number weq-number-inherit">{gift.price}</span>
           <span className="weq-group-gift-unit">金币</span>
           {gift.charm > 0 ? (
-            <span className="weq-group-gift-charm">魅力值 +{gift.charm}</span>
+            <span className="weq-group-gift-charm">
+              魅力值 +<span className="weq-number weq-number-inherit">{gift.charm}</span>
+            </span>
           ) : null}
         </span>
       </span>
@@ -290,12 +292,12 @@ function GroupGiftDetail({
 
         <div className="weq-gift-detail-price">
           <Coins size={16} strokeWidth={2} />
-          {gift.price}
+          <span className="weq-number weq-number-inherit">{gift.price}</span>
           <small>金币</small>
           {gift.charm > 0 ? (
             <span className="weq-group-gift-detail-charm">
               <Sparkles size={14} strokeWidth={2} />
-              魅力值 +{gift.charm}
+              魅力值 +<span className="weq-number weq-number-inherit">{gift.charm}</span>
             </span>
           ) : null}
         </div>

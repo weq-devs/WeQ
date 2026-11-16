@@ -1,5 +1,6 @@
 /** 搜索结果框内的分类分页结果，不创建独立弹窗。 */
 
+import { NumericText } from '../NumericText';
 import { EmptyState } from '../EmptyState';
 import {
   useCallback,
@@ -263,11 +264,13 @@ export function SearchMoreResults({
         ) : data ? (
           <>
             <div className="weq-search-more-total">
-              {data.changed
-                ? `已载入 ${data.items.length} 条 · 结果可能已更新${data.limited ? ' · 候选池有上限' : ''}`
-                : data.limited
-                  ? `当前候选 ${data.total} 条 · 超出本轮检索上限`
-                  : `共 ${data.total} 条结果`}
+              {data.changed ? (
+                <NumericText>{`已载入 ${data.items.length} 条 · 结果可能已更新${data.limited ? ' · 候选池有上限' : ''}`}</NumericText>
+              ) : data.limited ? (
+                <NumericText>{`当前候选 ${data.total} 条 · 超出本轮检索上限`}</NumericText>
+              ) : (
+                <NumericText>{`共 ${data.total} 条结果`}</NumericText>
+              )}
             </div>
             {data.changed ? (
               <div className="weq-search-failure" role="status">

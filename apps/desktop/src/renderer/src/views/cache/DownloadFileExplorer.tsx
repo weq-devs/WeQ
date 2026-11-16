@@ -7,6 +7,7 @@
  * are dimmed. Rendered as a list (paths matter here more than thumbnails).
  */
 
+import { NumericText } from '../../components/NumericText';
 import { useState, type ReactElement } from 'react';
 import { FolderOpen, ExternalLink, CheckCircle2, XCircle } from 'lucide-react';
 import { DesktopOnly, IS_ELECTRON } from '../../lib/target';
@@ -150,11 +151,13 @@ function DownloadRow({ entry }: { entry: DownloadFileEntry }): ReactElement {
           {entry.fileName || '[文件]'}
         </div>
         <div className={cn('weq-filerow-sub', msg && 'is-error')}>
-          {msg
-            ? msg
-            : `${fmtBytes(entry.fileSize)} · ${fmtDate(entry.timestamp)}${
-                entry.localPath ? ` · ${entry.localPath}` : ''
-              }`}
+          {msg ? (
+            msg
+          ) : (
+            <NumericText>{`${fmtBytes(entry.fileSize)} · ${fmtDate(entry.timestamp)}${
+              entry.localPath ? ` · ${entry.localPath}` : ''
+            }`}</NumericText>
+          )}
         </div>
       </div>
 

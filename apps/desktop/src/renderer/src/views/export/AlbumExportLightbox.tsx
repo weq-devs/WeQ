@@ -136,7 +136,9 @@ export function AlbumExportLightbox({
               反选
             </button>
             <span className="weq-exp-tools-spacer" />
-            <span className="weq-exp-tools-count">已选 {selection.size}</span>
+            <span className="weq-exp-tools-count">
+              已选 <span className="weq-number weq-number-inherit">{selection.size}</span>
+            </span>
           </section>
 
           <div className="weq-exp-album-list">
@@ -161,7 +163,10 @@ export function AlbumExportLightbox({
                   <AlbumCover album={album} />
                   <span className="weq-exp-row-meta">
                     <strong>{album.title || '未命名相册'}</strong>
-                    <small>{album.photoCount ?? 0} 张</small>
+                    <small>
+                      <span className="weq-number weq-number-inherit">{album.photoCount ?? 0}</span>{' '}
+                      张
+                    </small>
                   </span>
                   <span className="weq-exp-row-check">
                     {selection.has(album.id) ? <Check size={14} /> : null}

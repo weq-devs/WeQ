@@ -17,7 +17,7 @@ export async function runMessageLoadTask<T>(
   const content = () => (
     <span className="weq-message-load-task">
       <span>
-        {label} · 已加载 {count} 条消息
+        {label} · 已加载 <span className="weq-number weq-number-inherit">{count}</span> 条消息
       </span>
       <span className="weq-message-load-actions">
         <progress aria-label="消息加载进度" />

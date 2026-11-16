@@ -171,7 +171,7 @@ function WillingTab({
       </p>
       <label className="weq-agentlab-field">
         <span>
-          总体发言意愿：{level} · {levelHint}
+          总体发言意愿：<span className="weq-number weq-number-inherit">{level}</span> · {levelHint}
         </span>
         <input
           type="range"
@@ -203,7 +203,7 @@ function WillingTab({
       {typoOn ? (
         <label className="weq-agentlab-field">
           <span>
-            手滑频率：{typoPct}% · {typoHint}
+            手滑频率：<span className="weq-number weq-number-inherit">{typoPct}</span>% · {typoHint}
           </span>
           <input
             type="range"
@@ -422,7 +422,9 @@ function ExportRuntimeCard({ personaId }: { personaId: string }): ReactElement |
       <div className="weq-bot-runtime-head">
         <Globe size={14} />
         <span>运行配置 · 已导出</span>
-        <span className="weq-bot-runtime-port">端口 {data.port}</span>
+        <span className="weq-bot-runtime-port">
+          端口 <span className="weq-number weq-number-inherit">{data.port}</span>
+        </span>
       </div>
       <div className="weq-bot-keyrow">
         <KeyRound size={13} />

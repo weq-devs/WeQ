@@ -411,7 +411,8 @@ export function LoginPanel({
             <div>
               <h2 title={selected.name}>{selected.name}</h2>
               <span>
-                {selected.uin} · {accountSource(selected)}
+                <span className="weq-number weq-number-inherit">{selected.uin}</span> ·{' '}
+                {accountSource(selected)}
               </span>
             </div>
             {mode === 'new' && onDiagnostics && (

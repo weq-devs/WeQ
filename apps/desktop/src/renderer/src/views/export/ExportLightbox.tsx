@@ -16,6 +16,7 @@
  *   6. 扩展功能 —— 导出后自动保存、语音转写（需已配置转录模型）。
  */
 
+import { NumericText } from '../../components/NumericText';
 import {
   useEffect,
   useId,
@@ -1053,17 +1054,17 @@ export function ExportLightbox({
             id={validationId}
             role={selectionError ? 'status' : undefined}
           >
-            {selectionError
-              ? selectionError
-              : isMessageFlow
-                ? `${formats.length ? `${formats.length} 种格式` : '仅资源'}${opts.exportMedia ? ' · 含媒体' : ''}${opts.exportAvatar ? ' · 头像' : ''}${
-                    opts.dress.bubble || opts.dress.font || opts.dress.widget ? ' · 装扮' : ''
-                  }`
-                : isQzone
-                  ? `${wantQzonePosts ? '空间' : ''}${wantQzonePosts && wantQzoneAlbums ? ' + ' : ''}${wantQzoneAlbums ? '相册' : ''} · ${formats.length} 种格式${opts.exportMedia ? ' · 含媒体' : ''}${wantQzonePosts && opts.qzoneInteractions ? ' · 含评论/赞' : ''}`
-                  : isContacts
-                    ? `${formats.length} 种格式${opts.exportAvatar ? ' · 含头像' : ''}`
-                    : null}
+            {selectionError ? (
+              selectionError
+            ) : isMessageFlow ? (
+              <NumericText>{`${formats.length ? `${formats.length} 种格式` : '仅资源'}${opts.exportMedia ? ' · 含媒体' : ''}${opts.exportAvatar ? ' · 头像' : ''}${
+                opts.dress.bubble || opts.dress.font || opts.dress.widget ? ' · 装扮' : ''
+              }`}</NumericText>
+            ) : isQzone ? (
+              <NumericText>{`${wantQzonePosts ? '空间' : ''}${wantQzonePosts && wantQzoneAlbums ? ' + ' : ''}${wantQzoneAlbums ? '相册' : ''} · ${formats.length} 种格式${opts.exportMedia ? ' · 含媒体' : ''}${wantQzonePosts && opts.qzoneInteractions ? ' · 含评论/赞' : ''}`}</NumericText>
+            ) : isContacts ? (
+              <NumericText>{`${formats.length} 种格式${opts.exportAvatar ? ' · 含头像' : ''}`}</NumericText>
+            ) : null}
           </span>
           <button type="button" className="weq-exp-btn" onClick={onClose} disabled={submitting}>
             取消

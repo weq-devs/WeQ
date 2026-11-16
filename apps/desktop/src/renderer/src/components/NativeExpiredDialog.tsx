@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import * as timeFormat from '@weq/time';
 /**
  * native 组件过期时的阻断弹窗。
@@ -119,7 +120,7 @@ export function NativeExpiredDialog({
                 ) : phase === 'downloading' ? (
                   <button type="button" className="weq-set-btn" disabled>
                     <Loader2 size={14} strokeWidth={2} className="weq-spin" aria-hidden />
-                    下载中 {pct}%
+                    下载中 <span className="weq-number weq-number-inherit">{pct}</span>%
                   </button>
                 ) : phase === 'available' ? (
                   <button
@@ -150,11 +151,15 @@ export function NativeExpiredDialog({
                     ) : (
                       <RefreshCw size={14} strokeWidth={1.8} aria-hidden />
                     )}
-                    {phase === 'checking'
-                      ? mirrorCount
-                        ? `测速中（${mirrorCount} 个源）`
-                        : '检查中'
-                      : '检查更新'}
+                    {phase === 'checking' ? (
+                      mirrorCount ? (
+                        <NumericText>{`测速中（${mirrorCount} 个源）`}</NumericText>
+                      ) : (
+                        '检查中'
+                      )
+                    ) : (
+                      '检查更新'
+                    )}
                   </button>
                 )}
               </div>

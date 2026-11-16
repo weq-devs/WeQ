@@ -416,7 +416,10 @@ export function GroupKeywordEditor({
                       </span>
                     ))}
                     {selected.length > 8 ? (
-                      <span className="group-keyword-member-more">+{selected.length - 8}</span>
+                      <span className="group-keyword-member-more">
+                        +
+                        <span className="weq-number weq-number-inherit">{selected.length - 8}</span>
+                      </span>
                     ) : null}
                   </div>
                 ) : null}

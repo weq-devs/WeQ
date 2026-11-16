@@ -111,7 +111,9 @@ function PhraseChips({ items }: { items: Array<{ phrase: string; count: number }
       {items.map((item) => (
         <span className="ga-chip" key={item.phrase}>
           <span>{item.phrase}</span>
-          <small>{item.count}</small>
+          <small>
+            <span className="weq-number weq-number-inherit">{item.count}</span>
+          </small>
         </span>
       ))}
     </div>
@@ -129,7 +131,9 @@ function EmojiChips({
       {items.map((item) => (
         <span className="ga-chip ga-emoji-chip" key={item.faceId} title={item.faceText}>
           <FaceEmoji element={{ faceId: item.faceId, faceText: item.faceText }} size={22} />
-          <small>{item.count}</small>
+          <small>
+            <span className="weq-number weq-number-inherit">{item.count}</span>
+          </small>
         </span>
       ))}
     </div>
@@ -280,7 +284,13 @@ export function BuddyAnalyticsDialog({
         </ProfileAvatar>
         <div className="ba-hero-info">
           <span>
-            {formatDate(stats.firstMessageTime)} — {formatDate(stats.lastMessageTime)}
+            <span className="weq-number weq-number-inherit">
+              {formatDate(stats.firstMessageTime)}
+            </span>{' '}
+            —{' '}
+            <span className="weq-number weq-number-inherit">
+              {formatDate(stats.lastMessageTime)}
+            </span>
           </span>
         </div>
       </div>
@@ -313,22 +323,32 @@ export function BuddyAnalyticsDialog({
       <div className="ba-stat-grid">
         <div className="ba-stat">
           <MessageSquare size={16} />
-          <strong>{formatNumber(stats.totalMessages)}</strong>
+          <strong>
+            <span className="weq-number weq-number-inherit">
+              {formatNumber(stats.totalMessages)}
+            </span>
+          </strong>
           <small>总消息</small>
         </div>
         <div className="ba-stat">
           <Clock size={16} />
-          <strong>{stats.activeDays}</strong>
+          <strong>
+            <span className="weq-number weq-number-inherit">{stats.activeDays}</span>
+          </strong>
           <small>聊天天数</small>
         </div>
         <div className="ba-stat ba-stat-flame">
           <Flame size={16} />
-          <strong>{data.streak?.longest ?? 0}</strong>
+          <strong>
+            <span className="weq-number weq-number-inherit">{data.streak?.longest ?? 0}</span>
+          </strong>
           <small>最长火花</small>
         </div>
         <div className="ba-stat">
           <Send size={16} />
-          <strong>{data.initiation?.total ?? 0}</strong>
+          <strong>
+            <span className="weq-number weq-number-inherit">{data.initiation?.total ?? 0}</span>
+          </strong>
           <small>对话次数</small>
         </div>
       </div>
@@ -423,7 +443,9 @@ export function BuddyAnalyticsDialog({
                     <span className="ba-langlegend-item" key={t.key} title={`${v} 条`}>
                       <i style={{ background: t.color }} />
                       <span className="lbl">{t.label}</span>
-                      <span className="pct">{pct}</span>
+                      <span className="pct">
+                        <span className="weq-number weq-number-inherit">{pct}</span>
+                      </span>
                     </span>
                   );
                 })}

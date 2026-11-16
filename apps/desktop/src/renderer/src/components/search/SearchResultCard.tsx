@@ -406,14 +406,21 @@ export function SearchResultCard({
         <span className="weq-search-muted">
           {hit.count > 0 || !hit.matchedBulletins ? (
             <>
-              查到<strong className="weq-search-strong">{hit.count}</strong>条包含
+              查到
+              <strong className="weq-search-strong">
+                <span className="weq-number weq-number-inherit">{hit.count}</span>
+              </strong>
+              条包含
               <span data-privacy-sensitive>{highlightText(keyword, keyword)}</span>的消息
             </>
           ) : null}
           {hit.matchedBulletins ? (
             <>
               {hit.count > 0 ? ' · ' : ''}匹配
-              <strong className="weq-search-strong">{hit.matchedBulletins}</strong>条群公告
+              <strong className="weq-search-strong">
+                <span className="weq-number weq-number-inherit">{hit.matchedBulletins}</span>
+              </strong>
+              条群公告
             </>
           ) : null}
         </span>

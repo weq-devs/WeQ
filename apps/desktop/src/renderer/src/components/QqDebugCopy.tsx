@@ -134,7 +134,11 @@ export function QqDebugCopy({
         <dl className="weq-qq-debug-details">
           <div>
             <dt>原安装</dt>
-            <dd>{data.sourceVersion ?? '未检测到'}</dd>
+            <dd>
+              <span className="weq-number weq-number-inherit">
+                {data.sourceVersion ?? '未检测到'}
+              </span>
+            </dd>
           </div>
           <div>
             <dt>副本位置</dt>

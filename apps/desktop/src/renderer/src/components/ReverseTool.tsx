@@ -1,4 +1,5 @@
-﻿import { formatDateTime } from '@weq/time';
+﻿import { NumericText } from './NumericText';
+import { formatDateTime } from '@weq/time';
 /**
  * 维护与诊断工具「Protobuf / JCE 逆向」面板。
  *
@@ -292,7 +293,8 @@ export function ReverseTool(): ReactElement {
           <div className="weq-wtools-rv-result-head">
             <span className={`weq-wtools-rv-kind is-${result.kind}`}>{result.kind}</span>
             <span className="weq-wtools-rv-meta">
-              {fieldCount} 个字段 · {bytesLabel(result.bytes)}
+              <span className="weq-number weq-number-inherit">{fieldCount}</span> 个字段 ·{' '}
+              <NumericText>{bytesLabel(result.bytes)}</NumericText>
             </span>
             {result.prefixNote ? (
               <span

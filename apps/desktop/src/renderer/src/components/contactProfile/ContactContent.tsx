@@ -582,7 +582,9 @@ function BotFeaturesRow({ person }: { person: ProfilePerson }) {
       {data?.commands.length ? (
         <ContactRow label="机器人命令">
           <details className="weq-contact-command-list">
-            <summary>共 {data.commands.length} 条</summary>
+            <summary>
+              共 {<span className="weq-number weq-number-inherit">{data.commands.length}</span>} 条
+            </summary>
             {data.commands.map((command) => (
               <p key={command.id}>
                 <code>{command.command}</code> {command.description}

@@ -6,6 +6,7 @@
  * 不受自己发送后的自动推荐开关限制，等待期间仍保留原候选。
  */
 
+import { NumericText } from '../NumericText';
 import { useEffect, useId, useRef, useState, type ReactElement } from 'react';
 import { Lightbulb, RefreshCw, ChevronUp, ChevronDown, Square, Info, Play } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
@@ -251,7 +252,10 @@ export function IntentSuggestionBar({
           ) : expiredAge !== null ? (
             <span className="weq-int-suggest-empty weq-int-suggest-expired" title={emptyText}>
               <span className="weq-int-suggest-expired-label">上次推荐已过期</span>
-              <span className="weq-int-suggest-expired-age"> · {expiredAge}前</span>
+              <span className="weq-int-suggest-expired-age">
+                {' '}
+                · <NumericText>{expiredAge}</NumericText>前
+              </span>
             </span>
           ) : list.length === 0 ? (
             <span className="weq-int-suggest-empty" title={error ?? emptyText}>

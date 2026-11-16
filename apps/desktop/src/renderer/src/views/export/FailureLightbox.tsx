@@ -59,7 +59,8 @@ export function FailureLightbox({
           <div className="weq-exp-dialog-title">
             <strong>导出失败详情</strong>
             <span title={taskName}>
-              {taskName} · 共 {failures.length} 个失败
+              {taskName} · 共{' '}
+              <span className="weq-number weq-number-inherit">{failures.length}</span> 个失败
             </span>
           </div>
           <button
@@ -80,7 +81,7 @@ export function FailureLightbox({
               className={`weq-exp-fail-chip${filter === 'all' ? ' is-active' : ''}`}
               onClick={() => setFilter('all')}
             >
-              全部 {failures.length}
+              全部 {<span className="weq-number weq-number-inherit">{failures.length}</span>}
             </button>
             {stages.map((s) => (
               <button
@@ -89,7 +90,12 @@ export function FailureLightbox({
                 className={`weq-exp-fail-chip${filter === s ? ' is-active' : ''}`}
                 onClick={() => setFilter(s)}
               >
-                {stageLabel(s)} {failures.filter((f) => f.stage === s).length}
+                {stageLabel(s)}{' '}
+                {
+                  <span className="weq-number weq-number-inherit">
+                    {failures.filter((f) => f.stage === s).length}
+                  </span>
+                }
               </button>
             ))}
           </div>

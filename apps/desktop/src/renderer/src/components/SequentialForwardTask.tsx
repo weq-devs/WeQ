@@ -91,20 +91,29 @@ export function startSequentialForward({
             <span className="weq-forward-time">
               <span>
                 已进行{' '}
-                {formatForwardDuration(
-                  (finished ? Math.ceil(elapsed / 1000) : Math.floor(elapsed / 1000)) * 1000,
-                )}
+                <span className="weq-number weq-number-inherit">
+                  {formatForwardDuration(
+                    (finished ? Math.ceil(elapsed / 1000) : Math.floor(elapsed / 1000)) * 1000,
+                  )}
+                </span>
               </span>
               {' / '}
               <span>
                 预计用时{' '}
-                {expected || finished
-                  ? formatForwardDuration(Math.ceil(expected / 1000) * 1000)
-                  : '待估'}
+                {expected || finished ? (
+                  <span className="weq-number weq-number-inherit">
+                    {formatForwardDuration(Math.ceil(expected / 1000) * 1000)}
+                  </span>
+                ) : (
+                  '待估'
+                )}
               </span>
             </span>
             <span className="weq-forward-count">
-              已处理 {completed} / {messages.length} 条 · 成功 {sent} · 失败 {failed}
+              已处理 <span className="weq-number weq-number-inherit">{completed}</span> /{' '}
+              {<span className="weq-number weq-number-inherit">{messages.length}</span>} 条 · 成功{' '}
+              <span className="weq-number weq-number-inherit">{sent}</span> · 失败{' '}
+              <span className="weq-number weq-number-inherit">{failed}</span>
             </span>
             {!finished ? (
               <button

@@ -6,6 +6,7 @@
  * 分区，复用详情导航。群聊 / 功能未开启时由挂载方（chatPane）负责不渲染。
  */
 
+import { NumericText } from '../NumericText';
 import { useContext, useEffect, useRef, useState } from 'react';
 import { Heart, Sparkles, Star, Zap, Flame } from 'lucide-react';
 import { trpc } from '../../trpc/client';
@@ -94,7 +95,11 @@ export function AffinityPill({
       }
     >
       <Icon size={13} strokeWidth={2.2} />
-      <span>{tier === null ? '互动画像' : `${meta.label} ${profile.data?.affinity}`}</span>
+      <span>
+        <NumericText>
+          {tier === null ? '互动画像' : `${meta.label} ${profile.data?.affinity}`}
+        </NumericText>
+      </span>
     </button>
   );
 }

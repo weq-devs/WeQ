@@ -140,7 +140,8 @@ export function KeyField({
 
       {mode === 'new' && !empty && !complete && (
         <p className="weq-keyfield-hint">
-          请填入 {KEY_LEN_HINT} 位数据库密钥（当前 {value.length} 位）
+          请填入 {KEY_LEN_HINT} 位数据库密钥（当前{' '}
+          <span className="weq-number weq-number-inherit">{value.length}</span> 位）
         </p>
       )}
     </div>

@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import { eventTimeFormatter } from '@weq/time';
 import { groupPermission, qqResourceOwnedBy } from '@weq/service/qq-permissions';
 import { useRef, type ReactElement } from 'react';
@@ -171,7 +172,9 @@ export function GroupEssenceDialog({
                       <header className="group-essence-header">
                         <span className="group-essence-sender">{item.senderName || 'Member'}</span>
                         <span className="group-essence-meta">
-                          {formatShortDate(item.createdAt)}
+                          <span className="weq-number weq-number-inherit">
+                            {formatShortDate(item.createdAt)}
+                          </span>
                           {item.operatorName ? ` · ${item.operatorName}` : ''}
                         </span>
                       </header>
@@ -185,7 +188,13 @@ export function GroupEssenceDialog({
                                 {element.type === 1 && element.text ? (
                                   <p className="essence-text">{element.text}</p>
                                 ) : element.type === 2 && element.faceIndex !== undefined ? (
-                                  <span className="essence-face">[表情{element.faceIndex}]</span>
+                                  <span className="essence-face">
+                                    [表情
+                                    <span className="weq-number weq-number-inherit">
+                                      {element.faceIndex}
+                                    </span>
+                                    ]
+                                  </span>
                                 ) : element.type === 3 && element.imageUrl ? (
                                   <span className="weq-media-inline">
                                     <ShimmerImage
@@ -198,12 +207,20 @@ export function GroupEssenceDialog({
                                 ) : element.type === 5 && element.fileName ? (
                                   <div className="essence-file">
                                     <FileText size={14} aria-hidden /> {element.fileName}
-                                    {element.fileSize
-                                      ? ` (${formatFileSize(element.fileSize)})`
-                                      : ''}
+                                    {element.fileSize ? (
+                                      <NumericText>{` (${formatFileSize(element.fileSize)})`}</NumericText>
+                                    ) : (
+                                      ''
+                                    )}
                                   </div>
                                 ) : (
-                                  <span className="essence-unknown">[类型 {element.type}]</span>
+                                  <span className="essence-unknown">
+                                    [类型{' '}
+                                    <span className="weq-number weq-number-inherit">
+                                      {element.type}
+                                    </span>
+                                    ]
+                                  </span>
                                 )}
                               </div>
                             );

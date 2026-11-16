@@ -87,7 +87,9 @@ function FlatCard({ kind, entry }: { kind: FlatKind; entry: FlatMediaEntry }): R
       </button>
       <figcaption className="weq-cache-avatar-meta">
         <span className="weq-cache-avatar-hash">{entry.name.slice(0, 10)}…</span>
-        <span className="weq-cache-avatar-size">{fmtBytes(entry.size)}</span>
+        <span className="weq-cache-avatar-size">
+          <span className="weq-number weq-number-inherit">{fmtBytes(entry.size)}</span>
+        </span>
       </figcaption>
     </figure>
   );
@@ -202,7 +204,9 @@ function MonthCard({ kind, entry }: { kind: MonthKind; entry: MonthMediaEntry })
       </button>
       <figcaption className="weq-cache-avatar-meta">
         <span className="weq-cache-avatar-hash">{entry.month}</span>
-        <span className="weq-cache-avatar-size">{fmtBytes(totalBytes)}</span>
+        <span className="weq-cache-avatar-size">
+          <span className="weq-number weq-number-inherit">{fmtBytes(totalBytes)}</span>
+        </span>
       </figcaption>
     </figure>
   );
@@ -426,7 +430,7 @@ function VoiceCard({
           ))}
         </span>
         <span className="weq-voice-dur">
-          {seconds}
+          <span className="weq-number weq-number-inherit">{seconds}</span>
           <em>″</em>
         </span>
       </button>
@@ -448,7 +452,9 @@ function VoiceCard({
             <span>{transcribe.isLoading ? '转写中' : '转文字'}</span>
           </button>
         ) : null}
-        <span className="weq-voice-size">{fmtBytes(entry.bytes)}</span>
+        <span className="weq-voice-size">
+          <span className="weq-number weq-number-inherit">{fmtBytes(entry.bytes)}</span>
+        </span>
       </figcaption>
       {hasResult ? (
         <div className={`weq-voice-t9n${transcribeError ? ' is-error' : ''}`}>

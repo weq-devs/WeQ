@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import { EmptyState } from '../EmptyState';
 import { useState } from 'react';
 import { curveStepAfter, line, scaleLinear, scaleTime } from 'd3';
@@ -53,10 +54,22 @@ export function FieldHistoryContent({
             <li key={row.id}>
               <div className="weq-field-record-time">
                 <time dateTime={new Date(row.first_at).toISOString()}>
-                  观察于 {preciseTimeFormatter.format(row.first_at)}
+                  观察于{' '}
+                  {
+                    <span className="weq-number weq-number-inherit">
+                      {preciseTimeFormatter.format(row.first_at)}
+                    </span>
+                  }
                 </time>
                 {row.last_at > row.first_at ? (
-                  <small>最近观察 {preciseTimeFormatter.format(row.last_at)}</small>
+                  <small>
+                    最近观察{' '}
+                    {
+                      <span className="weq-number weq-number-inherit">
+                        {preciseTimeFormatter.format(row.last_at)}
+                      </span>
+                    }
+                  </small>
                 ) : null}
               </div>
               {mode === 'gallery' ? (
@@ -65,7 +78,9 @@ export function FieldHistoryContent({
                 <CollectionRecord field={field} row={row} previous={previous} />
               ) : (
                 <div className="weq-field-record-value">
-                  <span>{fieldHistoryText(field, row.value)}</span>
+                  <span className={mode === 'trend' ? 'weq-number weq-number-inherit' : undefined}>
+                    {fieldHistoryText(field, row.value)}
+                  </span>
                   {mode === 'trend' && delta !== null ? (
                     <span className="weq-field-delta">
                       {delta > 0 ? (
@@ -74,7 +89,9 @@ export function FieldHistoryContent({
                         <ArrowDown size={12} />
                       ) : null}
                       {delta > 0 ? '+' : ''}
-                      {delta.toLocaleString('zh-CN')}
+                      <span className="weq-number weq-number-inherit">
+                        {delta.toLocaleString('zh-CN')}
+                      </span>
                     </span>
                   ) : null}
                 </div>
@@ -133,7 +150,10 @@ function FieldTrend({
   return (
     <figure className="weq-field-trend">
       <figcaption>
-        {label}观察趋势 <span>{points.length} 条已加载记录</span>
+        {label}观察趋势{' '}
+        <span>
+          <span className="weq-number weq-number-inherit">{points.length}</span> 条已加载记录
+        </span>
       </figcaption>
       <svg
         viewBox={`0 0 ${width} ${height}`}
@@ -153,7 +173,9 @@ function FieldTrend({
                 y2={y(value)}
               />
               <text x={44} y={y(value) + 4} textAnchor="end">
-                {value.toLocaleString('zh-CN', { notation: 'compact' })}
+                <tspan className="weq-number weq-number-inherit">
+                  {value.toLocaleString('zh-CN', { notation: 'compact' })}
+                </tspan>
               </text>
             </g>
           ))}
@@ -174,10 +196,10 @@ function FieldTrend({
             </circle>
           ))}
         <text x={52} y={height - 4}>
-          {axisTime(first)}
+          <NumericText as="tspan">{axisTime(first)}</NumericText>
         </text>
         <text x={width - 14} y={height - 4} textAnchor="end">
-          {axisTime(last)}
+          <NumericText as="tspan">{axisTime(last)}</NumericText>
         </text>
       </svg>
     </figure>
@@ -201,7 +223,7 @@ function ItemList({ items }: { items: HistoryItem[] }) {
           className="weq-profile-section-action"
           onClick={() => setLimit((v) => v + 20)}
         >
-          继续显示（{items.length - limit}）
+          继续显示（<span className="weq-number weq-number-inherit">{items.length - limit}</span>）
         </button>
       ) : null}
     </>
@@ -228,19 +250,25 @@ function CollectionRecord({
     <div className="weq-field-collection-changes">
       {changes.added.length ? (
         <div>
-          <strong>新增 {changes.added.length}</strong>
+          <strong>
+            新增 <span className="weq-number weq-number-inherit">{changes.added.length}</span>
+          </strong>
           <ItemList items={changes.added} />
         </div>
       ) : null}
       {changes.removed.length ? (
         <div>
-          <strong>不再出现 {changes.removed.length}</strong>
+          <strong>
+            不再出现 <span className="weq-number weq-number-inherit">{changes.removed.length}</span>
+          </strong>
           <ItemList items={changes.removed} />
         </div>
       ) : null}
       {changes.changed.length ? (
         <div>
-          <strong>变更 {changes.changed.length}</strong>
+          <strong>
+            变更 <span className="weq-number weq-number-inherit">{changes.changed.length}</span>
+          </strong>
           {changes.changed.map(({ before, after }) => (
             <div className="weq-field-item-change" key={after.key}>
               <ItemList items={[before]} />
@@ -254,7 +282,9 @@ function CollectionRecord({
         <span>条目内容未变</span>
       ) : null}
       <details>
-        <summary>本次完整记录（{items.length}）</summary>
+        <summary>
+          本次完整记录（{<span className="weq-number weq-number-inherit">{items.length}</span>}）
+        </summary>
         {items.length ? <ItemList items={items} /> : <span>无条目</span>}
       </details>
     </div>

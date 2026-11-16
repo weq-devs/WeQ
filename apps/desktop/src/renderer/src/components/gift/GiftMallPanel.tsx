@@ -410,7 +410,7 @@ function GiftCard({ gift, onOpen }: { gift: GiftItem; onOpen: () => void }) {
         <small title={blurb}>{blurb || '一份小小的心意'}</small>
         <span className="weq-gift-card-price">
           <Coins size={12} strokeWidth={2} />
-          {price}
+          <span className="weq-number weq-number-inherit">{price}</span>
           {discounted ? <s>{original}</s> : null}
         </span>
       </span>
@@ -512,7 +512,7 @@ function GiftDetail({
 
         <div className="weq-gift-detail-price">
           <Coins size={16} strokeWidth={2} />
-          {price}
+          <span className="weq-number weq-number-inherit">{price}</span>
           {discounted ? <s>{original}</s> : null}
           <small>{discounted ? 'SVIP 价' : '礼物价格'}</small>
         </div>

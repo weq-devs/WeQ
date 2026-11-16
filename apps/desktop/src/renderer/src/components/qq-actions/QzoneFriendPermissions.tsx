@@ -115,7 +115,9 @@ function PermissionKind({
       <header>
         <h4>{label}</h4>
         {!lists.error && lists.data && (
-          <span className="weq-qzone-permissions-count">{lists.data.length} 人</span>
+          <span className="weq-qzone-permissions-count">
+            {<span className="weq-number weq-number-inherit">{lists.data.length}</span>} 人
+          </span>
         )}
         <div className="weq-qzone-permissions-tools">
           <ActionIcon label={`添加到${label}`} disabled={disabled} onClick={() => setAdding(true)}>
@@ -237,7 +239,9 @@ function PermissionAdder({
               <QqAvatar uin={row.uin} size={24} />
               <span>
                 {row.remark || row.nick || row.uin}
-                <small>{row.uin}</small>
+                <small>
+                  <span className="weq-number weq-number-inherit">{row.uin}</span>
+                </small>
               </span>
               <Plus size={15} />
             </button>

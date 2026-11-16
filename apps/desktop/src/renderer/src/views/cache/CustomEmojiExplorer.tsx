@@ -102,7 +102,9 @@ export function CustomEmojiExplorer(): ReactElement {
           >
             {SCOPE_META[s.scope].icon}
             <span>{SCOPE_META[s.scope].label}</span>
-            <em className="weq-cache-avatar-tabcount">{s.count}</em>
+            <em className="weq-cache-avatar-tabcount">
+              <span className="weq-number weq-number-inherit">{s.count}</span>
+            </em>
           </button>
         ))}
         {scopes.isLoading && scopeList.length === 0 ? (
@@ -260,7 +262,9 @@ function CustomEmojiLightbox({
             </div>
             <figcaption className="weq-marketemoji-panel-cap">
               <strong>{p.label}</strong>
-              <span>{fmtBytes(p.size)}</span>
+              <span>
+                <span className="weq-number weq-number-inherit">{fmtBytes(p.size)}</span>
+              </span>
             </figcaption>
           </figure>
         ))

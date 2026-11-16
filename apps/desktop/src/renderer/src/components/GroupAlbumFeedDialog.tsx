@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import { eventTimeFormatter } from '@weq/time';
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Film, Images, Loader2, RefreshCw, X } from 'lucide-react';
@@ -67,7 +68,7 @@ function Comment({
     <li className="group-feed-comment" data-comment-id={row.id}>
       <div className="group-feed-comment-meta">
         <strong>{row.author.name || row.author.uin || '未知作者'}</strong>
-        <time>{date(row.time)}</time>
+        <time>{<span className="weq-number weq-number-inherit">{date(row.time)}</span>}</time>
       </div>
       <p>{row.content ? <FeedText content={row.content} onSpace={onSpace} /> : '（无文字内容）'}</p>
       {row.replies.length ? (
@@ -79,7 +80,8 @@ function Comment({
       ) : null}
       {row.totalReplies !== null && row.totalReplies > row.replies.length ? (
         <small>
-          已返回 {row.replies.length} / {row.totalReplies} 条回复
+          已返回 <span className="weq-number weq-number-inherit">{row.replies.length}</span> /{' '}
+          <span className="weq-number weq-number-inherit">{row.totalReplies}</span> 条回复
         </small>
       ) : null}
     </li>
@@ -268,7 +270,9 @@ function GroupAlbumFeedBody({ target, binding, groupName, onClose, onOpenAlbum }
           <div className="group-feed-overview">
             <div className="group-feed-meta">
               <span>{page?.author.name || page?.author.uin || ''}</span>
-              <time>{date(page?.time ?? null)}</time>
+              <time>
+                {<span className="weq-number weq-number-inherit">{date(page?.time ?? null)}</span>}
+              </time>
               <span>批次 {target.batchId}</span>
             </div>
             <div className="group-feed-tools">
@@ -367,18 +371,25 @@ function GroupAlbumFeedBody({ target, binding, groupName, onClose, onOpenAlbum }
                 </button>
               ) : null}
               <p className="group-feed-muted">
-                本次返回 {page.media.length} 项媒体
-                {page.totalMedia !== null && page.totalMedia > page.media.length
-                  ? ` / 共 ${page.totalMedia} 项`
-                  : ''}
-                {visibleMedia < page.media.length ? `，当前显示 ${visibleMedia} 项` : ''}
+                本次返回 <span className="weq-number weq-number-inherit">{page.media.length}</span>{' '}
+                项媒体
+                {page.totalMedia !== null && page.totalMedia > page.media.length ? (
+                  <NumericText>{` / 共 ${page.totalMedia} 项`}</NumericText>
+                ) : (
+                  ''
+                )}
+                <NumericText>
+                  {visibleMedia < page.media.length ? `，当前显示 ${visibleMedia} 项` : ''}
+                </NumericText>
               </p>
               <div className="group-feed-discussion-head">
                 <h3>评论</h3>
                 <span>
-                  {page.totalComments === null || page.totalComments < page.comments.length
-                    ? `已返回 ${page.comments.length} 条`
-                    : `已返回 ${page.comments.length} / ${page.totalComments} 条`}
+                  {page.totalComments === null || page.totalComments < page.comments.length ? (
+                    <NumericText>{`已返回 ${page.comments.length} 条`}</NumericText>
+                  ) : (
+                    <NumericText>{`已返回 ${page.comments.length} / ${page.totalComments} 条`}</NumericText>
+                  )}
                 </span>
               </div>
               {page.comments.length ? (

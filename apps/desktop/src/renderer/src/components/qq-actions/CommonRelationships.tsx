@@ -87,7 +87,11 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
           title="查看共同群列表"
           aria-label="查看共同群列表"
         >
-          {query.data?.groups?.length ?? '读取中…'}
+          {
+            <span className="weq-number weq-number-inherit">
+              {query.data?.groups?.length ?? '读取中…'}
+            </span>
+          }
         </button>
       </ContactRow>
       {open && (

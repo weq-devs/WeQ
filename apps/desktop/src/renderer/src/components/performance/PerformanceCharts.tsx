@@ -112,7 +112,12 @@ const fieldLabels: Record<string, string> = {
 export function DetailTree({ value }: { value: unknown }) {
   if (value === null || value === undefined)
     return <span className="weq-perf-caption">不可用</span>;
-  if (typeof value !== 'object') return <span>{String(value)}</span>;
+  if (typeof value !== 'object')
+    return (
+      <span className={typeof value === 'number' ? 'weq-number weq-number-inherit' : undefined}>
+        {String(value)}
+      </span>
+    );
   return (
     <dl className="weq-perf-values">
       {Object.entries(value).map(([key, item]) => {
@@ -146,7 +151,9 @@ export function DetailTree({ value }: { value: unknown }) {
         return (
           <div key={key}>
             <dt>{label}</dt>
-            <dd>{text}</dd>
+            <dd className={typeof item === 'number' ? 'weq-number weq-number-inherit' : undefined}>
+              {text}
+            </dd>
           </div>
         );
       })}
@@ -290,9 +297,14 @@ export function Chart({
           {metricLabels[metric]}
         </h3>
         <div className="weq-perf-chart-summary">
-          <strong>{valueLabel(currentValue?.mean, metric)}</strong>
+          <strong>
+            <span className="weq-number weq-number-inherit">
+              {valueLabel(currentValue?.mean, metric)}
+            </span>
+          </strong>
           <span>
-            {highlighted ? '所选均值' : '最新均值'} · 峰值 {valueLabel(peak, metric)}
+            {highlighted ? '所选均值' : '最新均值'} · 峰值{' '}
+            <span className="weq-number weq-number-inherit">{valueLabel(peak, metric)}</span>
           </span>
         </div>
       </header>
@@ -365,7 +377,7 @@ export function Chart({
           <g key={tick}>
             <line x1={left} x2={width - 12} y1={y(tick)} y2={y(tick)} className="weq-perf-grid" />
             <text x={left - 6} y={y(tick) + 4} textAnchor="end">
-              {valueLabel(tick, metric)}
+              <tspan className="weq-number weq-number-inherit">{valueLabel(tick, metric)}</tspan>
             </text>
           </g>
         ))}
@@ -399,12 +411,25 @@ export function Chart({
       </svg>
       {inspecting && highlighted && currentValue?.mean !== null && (
         <div className="weq-perf-chart-tooltip" role="status">
-          <time>{time(highlighted.lastAt)}</time>
+          <time>
+            {<span className="weq-number weq-number-inherit">{time(highlighted.lastAt)}</span>}
+          </time>
           <span>{highlighted.label}</span>
-          <strong>{valueLabel(currentValue?.mean, metric)}</strong>
+          <strong>
+            <span className="weq-number weq-number-inherit">
+              {valueLabel(currentValue?.mean, metric)}
+            </span>
+          </strong>
           {highlighted.count > 1 && (
             <span className="weq-perf-chart-tooltip-range">
-              范围 {valueLabel(currentValue?.min, metric)} 至 {valueLabel(currentValue?.max, metric)}
+              范围{' '}
+              <span className="weq-number weq-number-inherit">
+                {valueLabel(currentValue?.min, metric)}
+              </span>{' '}
+              至{' '}
+              <span className="weq-number weq-number-inherit">
+                {valueLabel(currentValue?.max, metric)}
+              </span>
             </span>
           )}
         </div>

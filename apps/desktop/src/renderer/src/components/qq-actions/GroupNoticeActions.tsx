@@ -222,7 +222,11 @@ function GroupNoticeActionsBody({
   return (
     <section className="weq-notice-management" aria-label="群公告内容">
       <div className="weq-content-toolbar">
-        {entries.length ? <span>{entries.length} 条历史公告</span> : null}
+        {entries.length ? (
+          <span>
+            <span className="weq-number weq-number-inherit">{entries.length}</span> 条历史公告
+          </span>
+        ) : null}
         {canManage && (
           <div>
             <button

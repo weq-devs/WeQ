@@ -1,5 +1,6 @@
 /** 本地备份的目录发现、账号预览与密钥确认；选择账号后才真正打开会话。 */
 
+import { NumericText } from '../../components/NumericText';
 import { useState, useRef, useEffect, useId, type ReactElement } from 'react';
 import { ArrowRight, Database, FolderSearch, KeyRound, Loader2, Smartphone, X } from 'lucide-react';
 import { client } from '../../trpc/client';
@@ -374,7 +375,8 @@ export function StaticBackupPanel({
           onClick={openPicker}
         >
           <FolderSearch size={15} aria-hidden />
-          {dirPath ? '切换' : '选择'}账号目录（{candidates.length}）
+          {dirPath ? '切换' : '选择'}账号目录（
+          <span className="weq-number weq-number-inherit">{candidates.length}</span>）
         </button>
       )}
       {pickerOpen && (
@@ -389,7 +391,7 @@ export function StaticBackupPanel({
           <div className="weq-dialog-head weq-backup-picker-head">
             <FolderSearch size={18} aria-hidden />
             <h3 className="weq-dialog-title" id={pickerTitleId}>
-              账号目录（{candidates.length}）
+              账号目录（<span className="weq-number weq-number-inherit">{candidates.length}</span>）
             </h3>
             <button
               type="button"
@@ -424,23 +426,31 @@ export function StaticBackupPanel({
                     )}
                     <span className="weq-backup-candidate-info">
                       <strong>
-                        {preview
-                          ? `${preview.displayName || preview.uin} · ${preview.uin}`
-                          : !candidate.probe
-                            ? '账号目录（正在识别）'
-                            : '加密账号（待验证）'}
+                        {preview ? (
+                          <NumericText>{`${preview.displayName || preview.uin} · ${preview.uin}`}</NumericText>
+                        ) : !candidate.probe ? (
+                          '账号目录（正在识别）'
+                        ) : (
+                          '加密账号（待验证）'
+                        )}
                       </strong>
                       <span className="weq-backup-path">{candidate.dirPath}</span>
                       <span>
-                        {candidate.databaseCount === null
-                          ? '正在读取数据库数量'
-                          : `${candidate.databaseCount} 个数据库`}{' '}
+                        {candidate.databaseCount === null ? (
+                          '正在读取数据库数量'
+                        ) : (
+                          <NumericText>{`${candidate.databaseCount} 个数据库`}</NumericText>
+                        )}{' '}
                         ·{' '}
-                        {candidate.databaseBytes === null
-                          ? candidate.sizePending
-                            ? '大小统计中'
-                            : '大小未能读取'
-                          : `${candidate.sizePending ? '已统计 ' : ''}${(candidate.databaseBytes / 1024 / 1024).toFixed(1)} MB`}{' '}
+                        {candidate.databaseBytes === null ? (
+                          candidate.sizePending ? (
+                            '大小统计中'
+                          ) : (
+                            '大小未能读取'
+                          )
+                        ) : (
+                          <NumericText>{`${candidate.sizePending ? '已统计 ' : ''}${(candidate.databaseBytes / 1024 / 1024).toFixed(1)} MB`}</NumericText>
+                        )}{' '}
                         · {candidate.mediaDir ? '含本地媒体' : '未找到媒体目录'}
                       </span>
                       {candidate.sizeError && (

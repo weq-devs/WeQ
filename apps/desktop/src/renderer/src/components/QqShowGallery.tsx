@@ -13,6 +13,7 @@
  * 展柜里只出现一张。
  */
 
+import { NumericText } from './NumericText';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ImageOff, Loader2, Maximize2, RefreshCw, Sparkles, X } from 'lucide-react';
 import { client } from '../trpc/client';
@@ -189,11 +190,13 @@ export function QqShowGallery({
         </header>
 
         <p className="weq-qqshow-gallery-hint">
-          {running
-            ? `从 #${START_REVISION} 起并发扫描，连续 ${EMPTY_STOP} 个版本取不到才收尾 · ${ceilingLabel}`
-            : truncated
-              ? `扫描到上限（#${scanned}）仍未收尾，结果可能不完整`
-              : `扫到 #${scanned}，${ceilingLabel} · 历史上传失败的版本会缺号，展柜跳过它们`}
+          <NumericText>
+            {running
+              ? `从 #${START_REVISION} 起并发扫描，连续 ${EMPTY_STOP} 个版本取不到才收尾 · ${ceilingLabel}`
+              : truncated
+                ? `扫描到上限（#${scanned}）仍未收尾，结果可能不完整`
+                : `扫到 #${scanned}，${ceilingLabel} · 历史上传失败的版本会缺号，展柜跳过它们`}
+          </NumericText>
         </p>
 
         <div className="weq-qqshow-gallery-body">
@@ -211,7 +214,8 @@ export function QqShowGallery({
               <ImageOff size={26} strokeWidth={1.6} />
               <p>没有找到历史形象</p>
               <span>
-                这个人可能没保存过 QQ 秀，或者历史图已被 CDN 清理（从 #{START_REVISION}{' '}
+                这个人可能没保存过 QQ 秀，或者历史图已被 CDN 清理（从 #
+                <span className="weq-number weq-number-inherit">{START_REVISION}</span>{' '}
                 起没有一张能取到）。
               </span>
             </div>
@@ -239,7 +243,9 @@ export function QqShowGallery({
                     </span>
                   </span>
                   <span className="weq-qqshow-gallery-meta">
-                    <strong>#{item.revision}</strong>
+                    <strong>
+                      #<span className="weq-number weq-number-inherit">{item.revision}</span>
+                    </strong>
                     {item.revision === highest ? <em>当前</em> : null}
                   </span>
                 </button>

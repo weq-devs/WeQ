@@ -1,3 +1,4 @@
+import { NumericText } from '../../components/NumericText';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, Search, X } from 'lucide-react';
 import type { ExportOutputPlan, ExportSavePolicy } from '@weq/service';
@@ -205,7 +206,13 @@ export function MailExportPane({
       <div className="weq-mail-export-preview">
         <header>
           <strong role="status">
-            {querying ? '正在查询邮件…' : items ? `待导出 ${items.length} 封邮件` : '待导出邮件'}
+            {querying ? (
+              '正在查询邮件…'
+            ) : items ? (
+              <NumericText>{`待导出 ${items.length} 封邮件`}</NumericText>
+            ) : (
+              '待导出邮件'
+            )}
           </strong>
           {querying ? (
             <button
@@ -242,7 +249,11 @@ export function MailExportPane({
                   <span data-privacy-sensitive title={`${item.sender.name} ${item.sender.email}`}>
                     {item.sender.name || item.sender.email}
                   </span>
-                  <time>{formatMailTime(item.time)}</time>
+                  <time>
+                    <span className="weq-number weq-number-inherit">
+                      {formatMailTime(item.time)}
+                    </span>
+                  </time>
                 </article>
               )}
             />

@@ -128,7 +128,15 @@ export function CloneGenerationPanel({
                   />
                   {invalidQuantity(key) ? (
                     <small role="alert">
-                      请输入 {CLONE_GENERATION[key].min}–{CLONE_GENERATION[key].max} 的整数。
+                      请输入{' '}
+                      <span className="weq-number weq-number-inherit">
+                        {CLONE_GENERATION[key].min}
+                      </span>
+                      –
+                      <span className="weq-number weq-number-inherit">
+                        {CLONE_GENERATION[key].max}
+                      </span>{' '}
+                      的整数。
                     </small>
                   ) : null}
                 </div>

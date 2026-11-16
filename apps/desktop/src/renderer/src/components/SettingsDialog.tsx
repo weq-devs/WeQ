@@ -1474,7 +1474,9 @@ function ColorPicker({
         >
           <span className="weq-cp-thumb" style={{ left: `${huePct}%` }} />
         </div>
-        <span className="weq-cp-bar-value">{Math.round(hsl.h)}°</span>
+        <span className="weq-cp-bar-value">
+          {<span className="weq-number weq-number-inherit">{Math.round(hsl.h)}</span>}°
+        </span>
       </div>
 
       <div className="weq-cp-bar-row">
@@ -1491,7 +1493,9 @@ function ColorPicker({
         >
           <span className="weq-cp-thumb" style={{ left: `${lightFraction * 100}%` }} />
         </div>
-        <span className="weq-cp-bar-value">{Math.round(hsl.l * 100)}%</span>
+        <span className="weq-cp-bar-value">
+          {<span className="weq-number weq-number-inherit">{Math.round(hsl.l * 100)}</span>}%
+        </span>
       </div>
 
       <div className="weq-cp-row">

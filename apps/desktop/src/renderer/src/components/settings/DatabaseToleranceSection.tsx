@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import * as timeFormat from '@weq/time';
 import { eventTimeFormatter } from '@weq/time';
 /**
@@ -346,7 +347,7 @@ export function DatabaseToleranceSection({
                   disabled={busy}
                   onClick={() => void changeLevel(pendingLossy)}
                 >
-                  确认启用级别 {pendingLossy}
+                  确认启用级别 <span className="weq-number weq-number-inherit">{pendingLossy}</span>
                 </button>
                 <button
                   type="button"
@@ -378,7 +379,16 @@ export function DatabaseToleranceSection({
                 <AlertTriangle size={12} strokeWidth={1.9} aria-hidden />
                 <span>{SALVAGE_AGGREGATE_CAVEAT}</span>
               </p>
-              {grantedAt && <p>授权时间：{eventTimeFormatter.format(new Date(grantedAt))}</p>}
+              {grantedAt && (
+                <p>
+                  授权时间：
+                  {
+                    <span className="weq-number weq-number-inherit">
+                      {eventTimeFormatter.format(new Date(grantedAt))}
+                    </span>
+                  }
+                </p>
+              )}
             </div>
           </details>
         </ToleranceGroup>
@@ -411,11 +421,13 @@ export function DatabaseToleranceSection({
           action={
             <>
               <span className="weq-database-record-count" role="status">
-                {summary
-                  ? `${summary.total} 次 · ${quarantine.data ? `${quarantined.length} 表隔离` : quarantine.error ? '隔离状态读取失败' : '隔离状态读取中'}`
-                  : tolerance.error
-                    ? '读取失败'
-                    : '待确认'}
+                <NumericText>
+                  {summary
+                    ? `${summary.total} 次 · ${quarantine.data ? `${quarantined.length} 表隔离` : quarantine.error ? '隔离状态读取失败' : '隔离状态读取中'}`
+                    : tolerance.error
+                      ? '读取失败'
+                      : '待确认'}
+                </NumericText>
               </span>
               <button
                 type="button"
@@ -451,9 +463,14 @@ export function DatabaseToleranceSection({
         >
           {hasLedger && summary ? (
             <p className="weq-set-desc">
-              共 {summary.total} 次：换了访问路径（未丢数据） {summary.indexRetreat} 次 · 跳过区间{' '}
-              {summary.skipped} 次 · 读不出来 {summary.unrecoverable} 次 · 放弃整表{' '}
-              {summary.quarantined} 次{summary.lastAt ? ` · 最近 ${shortTime(summary.lastAt)}` : ''}
+              共 <span className="weq-number weq-number-inherit">{summary.total}</span>{' '}
+              次：换了访问路径（未丢数据）{' '}
+              <span className="weq-number weq-number-inherit">{summary.indexRetreat}</span> 次 ·
+              跳过区间 <span className="weq-number weq-number-inherit">{summary.skipped}</span> 次 ·
+              读不出来{' '}
+              <span className="weq-number weq-number-inherit">{summary.unrecoverable}</span> 次 ·
+              放弃整表 <span className="weq-number weq-number-inherit">{summary.quarantined}</span>{' '}
+              次{summary.lastAt ? ` · 最近 ${shortTime(summary.lastAt)}` : ''}
             </p>
           ) : (
             <p className="weq-set-desc">
@@ -487,7 +504,13 @@ export function DatabaseToleranceSection({
                   // biome-ignore lint/suspicious/noArrayIndexKey: 账本按时间倒序渲染，同一毫秒可能重复
                   <li key={`${entry.at}:${index}`}>
                     <span className="weq-set-ledger-meta">
-                      <span className="weq-set-mono">{shortTime(entry.at)}</span>
+                      <span className="weq-set-mono">
+                        {
+                          <span className="weq-number weq-number-inherit">
+                            {shortTime(entry.at)}
+                          </span>
+                        }
+                      </span>
                       <span>{baseName(entry.dbPath)}</span>
                       <span
                         className={`weq-set-badge${kind.losesData ? ' weq-set-badge-warn' : ''}`}
@@ -496,7 +519,10 @@ export function DatabaseToleranceSection({
                         {kind.label}
                       </span>
                       {entry.errorCode != null ? (
-                        <span className="weq-set-mono">SQLite {entry.errorCode}</span>
+                        <span className="weq-set-mono">
+                          SQLite{' '}
+                          <span className="weq-number weq-number-inherit">{entry.errorCode}</span>
+                        </span>
                       ) : null}
                     </span>
                     {entry.kind === 'skipped-ranges' && entry.message ? (
@@ -504,7 +530,13 @@ export function DatabaseToleranceSection({
                         <span>{entry.message}</span>
                         {entry.skippedRangeCount != null ? (
                           <span className="weq-set-mono">
-                            {entry.skippedRangeCount} 处 · 键跨度 {entry.skippedSpanUpperBound ?? 0}
+                            <span className="weq-number weq-number-inherit">
+                              {entry.skippedRangeCount}
+                            </span>{' '}
+                            处 · 键跨度{' '}
+                            <span className="weq-number weq-number-inherit">
+                              {entry.skippedSpanUpperBound ?? 0}
+                            </span>
                           </span>
                         ) : null}
                       </span>
@@ -556,8 +588,13 @@ export function DatabaseToleranceSection({
                   <span>{baseName(entry.dbPath)}</span>
                   <span className="weq-set-badge weq-set-badge-warn">已放弃</span>
                   <span className="weq-set-mono">
-                    连续失败 {entry.failures} 次 ·{' '}
-                    {shortTime(new Date(entry.since * 1000).toISOString())}
+                    连续失败 <span className="weq-number weq-number-inherit">{entry.failures}</span>{' '}
+                    次 ·{' '}
+                    {
+                      <span className="weq-number weq-number-inherit">
+                        {shortTime(new Date(entry.since * 1000).toISOString())}
+                      </span>
+                    }
                   </span>
                   <button
                     type="button"

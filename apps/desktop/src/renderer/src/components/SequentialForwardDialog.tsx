@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import { useMemo, useRef, useState } from 'react';
 import { Eye, Forward, X } from 'lucide-react';
 import { Modal } from './Dialog';
@@ -127,7 +128,11 @@ export function SequentialForwardDialog({
         {!reviewOpen ? (
           <header>
             <strong id="weq-forward-title">
-              {messages.length === 1 ? '转发消息' : `逐条转发 · ${messages.length} 条`}
+              {messages.length === 1 ? (
+                '转发消息'
+              ) : (
+                <NumericText>{`逐条转发 · ${messages.length} 条`}</NumericText>
+              )}
             </strong>
             <button type="button" title="关闭" aria-label="关闭" onClick={onClose}>
               <X size={17} />
@@ -170,7 +175,9 @@ export function SequentialForwardDialog({
                   onClick={() => setReviewOpen(true)}
                 >
                   <Eye size={14} />
-                  查看将跳过的 {prepared.ignored.length} 条消息
+                  查看将跳过的{' '}
+                  {<span className="weq-number weq-number-inherit">{prepared.ignored.length}</span>}{' '}
+                  条消息
                 </button>
               ) : null}
               <div className="weq-forward-options">

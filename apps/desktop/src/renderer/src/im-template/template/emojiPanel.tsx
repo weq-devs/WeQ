@@ -567,7 +567,8 @@ function MarketPackDetail({
         <h3>{detail.data?.name || `表情包 ${packId}`}</h3>
         {detail.data ? (
           <span className={cn('emoji-count')}>
-            {detail.data.source === 'local' ? '本地' : '在线'} · {detail.data.count} 张
+            {detail.data.source === 'local' ? '本地' : '在线'} ·{' '}
+            <span className="weq-number weq-number-inherit">{detail.data.count}</span> 张
           </span>
         ) : null}
       </div>
@@ -628,7 +629,9 @@ function GifTab({
             onClick={() => setPicked(tag.keyword)}
           >
             {tag.keyword}
-            <em>{tag.count}</em>
+            <em>
+              <span className="weq-number weq-number-inherit">{tag.count}</span>
+            </em>
           </button>
         ))}
       </div>

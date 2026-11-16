@@ -20,6 +20,7 @@
 @import './export-save-actions.css';
 @import './conversation-list-row.css';
 @import './log-console-palette.css';
+@import './numeric-readouts.css';
 @import './frozen-lists.css';
 
 /* streamdown 代码块用 Tailwind `dark:` 工具类切换 shiki 明/暗配色，但本项目暗色靠
@@ -558,9 +559,7 @@ html[data-theme='dark'] .chat-empty {
 
   .weq-number,
   .weq-set-input:is([type='number'], [inputmode='numeric'], [inputmode='decimal']) {
-    font-family:
-      'Segoe UI Variable Display', 'SF Pro Display', 'DIN Alternate', 'Bahnschrift',
-      var(--font-sans);
+    font-family: var(--weq-font-number);
     font-weight: 500;
     letter-spacing: 0;
     font-variant-numeric: tabular-nums;

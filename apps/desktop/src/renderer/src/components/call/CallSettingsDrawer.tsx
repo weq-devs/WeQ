@@ -12,6 +12,7 @@
  * 同一份全局设置（`AppSettings.callRecording`）。
  */
 
+import { NumericText } from '../NumericText';
 import { useState } from 'react';
 import { ChevronDown, Settings2 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
@@ -66,15 +67,20 @@ export function CallSettingsDrawer({
               <div>
                 <dt>音频</dt>
                 <dd>
-                  {sentFrames} / {receivedFrames} 帧
+                  <span className="weq-number weq-number-inherit">{sentFrames}</span> /{' '}
+                  <span className="weq-number weq-number-inherit">{receivedFrames}</span> 帧
                 </dd>
               </div>
               {(videoSending || videoReceiving) && (
                 <div>
                   <dt>视频</dt>
                   <dd>
-                    {videoReceiving ? `${receivedVideoFrames} 帧` : '—'}
-                    {videoSize ? ` · ${videoSize.width}×${videoSize.height}` : ''}
+                    <NumericText>{videoReceiving ? `${receivedVideoFrames} 帧` : '—'}</NumericText>
+                    {videoSize ? (
+                      <NumericText>{` · ${videoSize.width}×${videoSize.height}`}</NumericText>
+                    ) : (
+                      ''
+                    )}
                   </dd>
                 </div>
               )}

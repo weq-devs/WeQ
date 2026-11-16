@@ -173,7 +173,14 @@ export function GroupReadTools({
         {!signing && firstPage && (
           <p>
             @全体成员：{firstPage.atAll.canAtAll ? '可用' : '不可用'} · 本账号剩余{' '}
-            {firstPage.atAll.remainCountForUin} 次 · 群剩余 {firstPage.atAll.remainCountForGroup} 次
+            <span className="weq-number weq-number-inherit">
+              {firstPage.atAll.remainCountForUin}
+            </span>{' '}
+            次 · 群剩余{' '}
+            <span className="weq-number weq-number-inherit">
+              {firstPage.atAll.remainCountForGroup}
+            </span>{' '}
+            次
           </p>
         )}
         <ul
@@ -188,7 +195,9 @@ export function GroupReadTools({
             const name = p.nick || uin;
             return (
               <li key={`${p.userId}:${p.time}`}>
-                <span className="weq-group-sign-rank">{p.rank}</span>
+                <span className="weq-group-sign-rank">
+                  <span className="weq-number weq-number-inherit">{p.rank}</span>
+                </span>
                 <ProfileAvatar
                   enabled={valid}
                   className="weq-group-sign-member"
@@ -202,7 +211,13 @@ export function GroupReadTools({
                   <QqAvatar uin={valid ? uin : undefined} size={22} />
                   <span>{name}</span>
                 </ProfileAvatar>
-                <time>{clockFormatter.format(new Date(p.time * 1000))}</time>
+                <time>
+                  {
+                    <span className="weq-number weq-number-inherit">
+                      {clockFormatter.format(new Date(p.time * 1000))}
+                    </span>
+                  }
+                </time>
               </li>
             );
           })}

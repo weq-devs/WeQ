@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import { eventTimeFormatter } from '@weq/time';
 import { useContext, useEffect, useRef, useState } from 'react';
 import {
@@ -81,7 +82,11 @@ export function ProfileLikeSummary({
   total?: string | null;
 }) {
   const summary = profileLikeSummary(users.length, total);
-  return summary ? <p className="weq-profile-like-summary">{summary}</p> : null;
+  return summary ? (
+    <p className="weq-profile-like-summary">
+      <NumericText>{summary}</NumericText>
+    </p>
+  ) : null;
 }
 export function ProfileLabelLikes({
   users,
@@ -106,9 +111,11 @@ export function ProfileLabelLikes({
         );
       })}
       <span className="weq-profile-label-like-total">
-        {total === null || total === undefined
-          ? '等人点赞'
-          : `${users.length ? '等 ' : ''}${total} 人点赞`}
+        {total === null || total === undefined ? (
+          '等人点赞'
+        ) : (
+          <NumericText>{`${users.length ? '等 ' : ''}${total} 人点赞`}</NumericText>
+        )}
       </span>
     </div>
   );
@@ -136,7 +143,13 @@ function CommentRows({
           qzone || reply || remove ? (
             <div className={qzone ? 'weq-qzn-comment-meta' : 'weq-profile-comment-tools'}>
               {qzone && item.time ? (
-                <time>{eventTimeFormatter.format(new Date(item.time * 1000))}</time>
+                <time>
+                  {
+                    <span className="weq-number weq-number-inherit">
+                      {eventTimeFormatter.format(new Date(item.time * 1000))}
+                    </span>
+                  }
+                </time>
               ) : null}
               {reply ? (
                 <button

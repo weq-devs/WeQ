@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import { EmptyState } from '../EmptyState';
 import { useEffect, useState } from 'react';
 import {
@@ -141,7 +142,7 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
                   <li key={t.name}>
                     <span>
                       {t.name}
-                      {t.count > 1 ? ` (${t.count} 条)` : ''}
+                      {t.count > 1 ? <NumericText>{` (${t.count} 条)`}</NumericText> : ''}
                     </span>
                     <ActionIcon
                       label="删除分类标签"

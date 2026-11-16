@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { NumericText } from '../../components/NumericText';
 import { EmptyState } from '../../components/EmptyState';
 import {
   Award,
@@ -447,9 +448,11 @@ export function GroupInfoPanel({
       <header className={cn('group-info-heading group-info-title-row')}>
         <strong>
           群聊成员{' '}
-          {searching
-            ? `${rows.length}/${memberSearch?.total ?? 0}`
-            : conversation.group.memberCount}
+          {searching ? (
+            <NumericText>{`${rows.length}/${memberSearch?.total ?? 0}`}</NumericText>
+          ) : (
+            <span className="weq-number weq-number-inherit">{conversation.group.memberCount}</span>
+          )}
         </strong>
         {onAddMember ? (
           <button
@@ -531,7 +534,9 @@ export function GroupInfoPanel({
         />
         {searching && rows.length > 0 && memberSearch?.hasMore ? (
           <div className={cn('group-info-member-hint')}>
-            已显示 {rows.length} / {memberSearch?.total ?? 0} 位匹配成员，继续滚动加载更多
+            已显示 <span className="weq-number weq-number-inherit">{rows.length}</span> /{' '}
+            <span className="weq-number weq-number-inherit">{memberSearch?.total ?? 0}</span>{' '}
+            位匹配成员，继续滚动加载更多
           </div>
         ) : null}
         {activeError ? (

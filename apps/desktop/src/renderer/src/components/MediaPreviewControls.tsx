@@ -71,7 +71,9 @@ export function MediaZoomControls({
       >
         <ZoomOut size={18} aria-hidden />
       </button>
-      <output aria-label="缩放比例">{Math.round(zoom.scale * 100)}%</output>
+      <output aria-label="缩放比例">
+        <span className="weq-number weq-number-inherit">{Math.round(zoom.scale * 100)}</span>%
+      </output>
       <button
         type="button"
         className="weq-lightbox-action"

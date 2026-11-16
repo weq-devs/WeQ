@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import { eventTimeFormatter } from '@weq/time';
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ArrowDownWideNarrow, ArrowUpWideNarrow, ImagePlus, RotateCcw, X } from 'lucide-react';
@@ -151,17 +152,19 @@ export function AvatarHistoryDialog({
       </div>
       <div className="weq-avatar-history-content" data-privacy-sensitive>
         <p className="weq-avatar-history-progress" role="status">
-          {complete
-            ? `共 ${items.length} 个头像`
-            : items.length
-              ? `已加载 ${items.length} 个${activity.enabled && !query.error && !warning ? '，继续读取中' : ''}`
-              : query.isFetching
-                ? '读取中…'
-                : !online
-                  ? '暂不可在线读取'
-                  : query.error
-                    ? '读取失败'
-                    : '暂无历史头像'}
+          {complete ? (
+            <NumericText>{`共 ${items.length} 个头像`}</NumericText>
+          ) : items.length ? (
+            `已加载 ${items.length} 个${activity.enabled && !query.error && !warning ? '，继续读取中' : ''}`
+          ) : query.isFetching ? (
+            '读取中…'
+          ) : !online ? (
+            '暂不可在线读取'
+          ) : query.error ? (
+            '读取失败'
+          ) : (
+            '暂无历史头像'
+          )}
         </p>
         {query.error || warning ? (
           <div className="weq-avatar-history-error" role="status">
@@ -217,8 +220,8 @@ export function AvatarHistoryDialog({
             const avatar = preview.items.find((avatar) => avatar.id === item.key)!;
             return (
               <span>
-                最早使用 {avatarHistoryTime(avatar.firstUsedAt)} · 最后使用{' '}
-                {avatarHistoryTime(avatar.lastUsedAt)}
+                最早使用 <NumericText>{avatarHistoryTime(avatar.firstUsedAt)}</NumericText> ·
+                最后使用 <NumericText>{avatarHistoryTime(avatar.lastUsedAt)}</NumericText>
               </span>
             );
           }}

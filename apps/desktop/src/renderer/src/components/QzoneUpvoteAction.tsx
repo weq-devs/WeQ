@@ -53,7 +53,7 @@ export function QzoneUpvoteAction({
           onClick={onClick}
         >
           <Heart size={16} fill={value?.upvoted ? 'currentColor' : 'none'} />推{' '}
-          {value?.count ?? '?'}
+          <span className="weq-number">{value?.count ?? '?'}</span>
         </button>
       }
     >

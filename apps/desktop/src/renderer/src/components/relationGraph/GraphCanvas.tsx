@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { NumericText } from '../NumericText';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw, Scan } from 'lucide-react';
 import { usePrivacyStore } from '../../state/privacy';
@@ -485,13 +486,22 @@ export function GraphCanvas({
             <strong data-privacy-sensitive>{hoverNode.label}</strong>
             {hoverNode.kind === 'person' ? (
               <span>
-                {hoverNode.isFriend ? '好友' : '群友'} · 共 {hoverNode.groupCount} 群
-                {hoverNode.intimacy ? ` · 亲密度 ${hoverNode.intimacy}` : ''}
+                {hoverNode.isFriend ? '好友' : '群友'} · 共{' '}
+                <span className="weq-number weq-number-inherit">{hoverNode.groupCount}</span> 群
+                <NumericText>
+                  {hoverNode.intimacy ? ` · 亲密度 ${hoverNode.intimacy}` : ''}
+                </NumericText>
               </span>
             ) : (
               <span>
-                {hoverNode.memberCount} 人 · 命中 {hoverNode.sharedCount} 位
-                {hoverNode.myLevel ? ` · 我的等级 ${hoverNode.myLevel}` : ''}
+                <span className="weq-number weq-number-inherit">{hoverNode.memberCount}</span> 人 ·
+                命中 <span className="weq-number weq-number-inherit">{hoverNode.sharedCount}</span>{' '}
+                位
+                {hoverNode.myLevel ? (
+                  <NumericText>{` · 我的等级 ${hoverNode.myLevel}`}</NumericText>
+                ) : (
+                  ''
+                )}
               </span>
             )}
           </>

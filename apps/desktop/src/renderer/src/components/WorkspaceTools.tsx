@@ -427,7 +427,11 @@ export function WorkspaceTools({
                 <Minimize2 size={16} />
               </button>
             )}
-            {running ? <small>{running} 项进行中</small> : null}
+            {running ? (
+              <small>
+                <span className="weq-number weq-number-inherit">{running}</span> 项进行中
+              </small>
+            ) : null}
             <div className="weq-workspace-menu-head-actions">
               <button type="button" title="关闭" aria-label="关闭完整面板" onClick={closeWorkspace}>
                 <X size={18} />
