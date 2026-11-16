@@ -122,7 +122,7 @@ export const trpc = {
                         seq: 1,
                         level: 'info' as const,
                         stage: 'c2c',
-                        text: '2026-11-08 · 私聊 · 漫游缓存｜已计 142 条消息，等待前序数据库查询结束',
+                        text: '2026-11-08 · 私聊 · 漫游缓存｜已计 142 条消息，等待可用读取连接，将自动继续',
                       },
                     ]
                   : undefined,

@@ -55,6 +55,10 @@ try {
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/calendar-statistics.html`,
   );
   await page.getByRole('group', { name: '统计内容', exact: true }).waitFor();
+  await page
+    .getByRole('status', { exact: true })
+    .filter({ hasText: '等待可用读取连接，将自动继续' })
+    .waitFor();
   if (
     (await page
       .getByRole('progressbar', { name: '2026-11-09 进度', exact: true })

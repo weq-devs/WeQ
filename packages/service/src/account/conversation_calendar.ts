@@ -214,6 +214,7 @@ export class ConversationCalendarJob {
   private detailBatches = 0;
   private dayFocus: string | undefined;
   private readonly pausedDays = new Set<string>();
+  private readonly connectionWaits = new WeakMap<Work, { retryAt: number; attempts: number }>();
   persistenceError: string | undefined;
   get day(): string | undefined {
     return this.selectedDay;
@@ -223,14 +224,16 @@ export class ConversationCalendarJob {
       Boolean(task.refresh) || !task.counted || (task.day === this.selectedDay && !task.detailed)
     );
   }
-  private nextWork(): Work | undefined {
+  private nextWork(readyOnly = false): Work | undefined {
     const pending = this.work.filter(
       (task) =>
         this.available(task) &&
         this.needsWork(task) &&
         !this.pausedDays.has(task.day) &&
         (!this.monthPaused || task.day === this.dayFocus) &&
-        !(task.refresh ?? task).error,
+        !(task.refresh ?? task).error &&
+        (!readyOnly ||
+          (this.connectionWaits.get(task.refresh ?? task)?.retryAt ?? 0) <= Date.now()),
     );
     const selected = pending.find((task) => task.day === this.selectedDay);
     const quickCount =
@@ -517,7 +520,7 @@ export class ConversationCalendarJob {
     if (task && state && this.enabled.has(task.source.kind)) {
       const label = {
         idle: '等待数据库空闲',
-        queued: '等待前序数据库查询结束',
+        queued: '等待可用读取连接',
         reading: '正在读取数据库',
       }[state];
       this.log(
@@ -544,7 +547,11 @@ export class ConversationCalendarJob {
     let retried = 0;
     for (const owner of this.work) {
       const task = owner.refresh ?? owner;
-      if (task.error !== '读取超出预算，统计已暂停') continue;
+      if (
+        task.error !== '读取超出预算，统计已暂停' &&
+        task.error !== '该来源读取持续超时，统计已暂停'
+      )
+        continue;
       task.error = undefined;
       task.failures = 0;
       task.successfulBatches = 0;
@@ -558,6 +565,7 @@ export class ConversationCalendarJob {
   }
   readonly metrics = {
     batches: 0,
+    waits: 0,
     timeouts: 0,
     pauses: 0,
     maxBatchMs: 0,
@@ -605,7 +613,9 @@ export class ConversationCalendarJob {
   }
   private logWork(task: Work): void {
     const progress = task.progress;
-    const phase = progress?.phase ?? '读取统计信息';
+    const phase = this.connectionWaits.has(task)
+      ? '等待可用读取连接，将自动继续'
+      : (progress?.phase ?? '读取统计信息');
     const count = task.count.toLocaleString('zh-CN');
     const scanned = progress
       ? `；已处理 ${progress.processed.toLocaleString('zh-CN')}${progress.total !== undefined ? `/${progress.total.toLocaleString('zh-CN')}` : ''} ${progress.unit}${progress.recordsScanned !== undefined ? `，已读 ${progress.recordsScanned.toLocaleString('zh-CN')} 条元数据` : ''}`
@@ -765,10 +775,31 @@ export class ConversationCalendarJob {
     }
     task.rows.clear();
   }
+  private wait(milliseconds: number): Promise<void> {
+    const signal = this.controller.signal;
+    if (signal.aborted) return Promise.resolve();
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', done);
+        resolve();
+      };
+      const timer = setTimeout(done, milliseconds);
+      signal.addEventListener('abort', done, { once: true });
+    });
+  }
   private async run(): Promise<void> {
     while (this.current()) {
-      const owner = this.nextWork();
-      if (!owner) return;
+      const owner = this.nextWork(true);
+      if (!owner) {
+        const pending = this.nextWork();
+        if (!pending) return;
+        this.activeWork = pending.refresh ?? pending;
+        this.observeState('queued');
+        const retryAt = this.connectionWaits.get(this.activeWork)?.retryAt ?? Date.now();
+        await this.wait(Math.max(1, Math.min(1000, retryAt - Date.now())));
+        continue;
+      }
       const task = owner.refresh ?? owner;
       const generation = owner.generation;
       if (this.activeWork !== task)
@@ -794,6 +825,7 @@ export class ConversationCalendarJob {
           if (!this.current()) return;
           if (owner.generation !== generation) continue;
           if (count !== null) {
+            this.connectionWaits.delete(task);
             task.count = count;
             task.counted = true;
             continue;
@@ -802,6 +834,7 @@ export class ConversationCalendarJob {
         const page = await task.source.page(task.start, task.end, task.cursor, task.limit);
         if (!this.current()) return;
         if (owner.generation !== generation) continue;
+        this.connectionWaits.delete(task);
         const applicable = page.rows.filter(
           (message) => message.time >= task.start && message.time < task.end,
         );
@@ -863,14 +896,25 @@ export class ConversationCalendarJob {
           }
         }
       } catch (error) {
-        task.successfulBatches = 0;
         if (!this.current()) return;
         if (owner.generation !== generation) continue;
         if (error instanceof Error && error.name === 'AbortError') {
           this.cancel();
           return;
         }
-        if (/database_query_(execution|wait)_timeout/.test(String(error))) {
+        if (String(error).includes('database_query_wait_timeout')) {
+          const attempts = (this.connectionWaits.get(task)?.attempts ?? 0) + 1;
+          this.connectionWaits.set(task, {
+            attempts,
+            retryAt: Date.now() + Math.min(1000, 50 * 2 ** Math.min(attempts - 1, 5)),
+          });
+          this.metrics.waits++;
+          this.observeState('queued');
+          continue;
+        }
+        this.connectionWaits.delete(task);
+        task.successfulBatches = 0;
+        if (String(error).includes('database_query_execution_timeout')) {
           this.metrics.timeouts++;
           // 计数超预算后直接进入可续查元数据路径，不反复重跑同一条 COUNT。
           task.source = { ...task.source, count: undefined };
@@ -882,8 +926,8 @@ export class ConversationCalendarJob {
           );
           if (++task.failures < 3) continue;
         }
-        task.error = /timeout/.test(String(error))
-          ? '读取超出预算，统计已暂停'
+        task.error = String(error).includes('database_query_execution_timeout')
+          ? '该来源读取持续超时，统计已暂停'
           : error instanceof Error
             ? error.message
             : '统计失败';
@@ -892,7 +936,7 @@ export class ConversationCalendarJob {
         if (this.current()) this.logWork(task);
         this.metrics.batches++;
         this.metrics.maxBatchMs = Math.max(this.metrics.maxBatchMs, performance.now() - began);
-        await new Promise<void>((done) => setTimeout(done, 20));
+        await this.wait(20);
       }
     }
     this.cancel();

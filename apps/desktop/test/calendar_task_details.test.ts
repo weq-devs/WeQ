@@ -129,7 +129,7 @@ it('任务详情包含日期、六组选择、当前扫描、双进度、按需�
         .querySelector('.weq-exp-detail-tasklog')!
         .compareDocumentPosition(host.querySelector('.weq-calendar-task-date')!),
     ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(host.textContent).toContain('等待前序数据库查询结束');
+    expect(host.textContent).toContain('等待可用读取连接，将自动继续');
     expect(host.textContent).toContain('漫游缓存');
     expect(host.textContent).toContain('测试会话');
     expect(fixture.query.mock.lastCall?.[0].includeLogs).toBe(false);

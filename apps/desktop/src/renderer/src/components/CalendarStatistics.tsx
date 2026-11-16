@@ -43,7 +43,7 @@ export function calendarReadLabel(snapshot?: CalendarSnapshot): string | undefin
   if (snapshot.enabledKinds && !snapshot.enabledKinds.length) return '未选择统计内容';
   const state = snapshot.readState?.state;
   if (state === 'idle') return '正在为其他数据库读取让路…';
-  if (state === 'queued') return '等待前序数据库查询结束…';
+  if (state === 'queued') return '等待可用读取连接，将自动继续…';
   if (state === 'reading') return '正在读取数据库…';
   if (!snapshot.activeScan && snapshot.controls?.day.state === 'paused') return '该日统计已暂停';
   if (!snapshot.activeScan && snapshot.controls?.month.state === 'paused') return '当月统计已暂停';

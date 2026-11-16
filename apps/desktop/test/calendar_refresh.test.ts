@@ -210,7 +210,7 @@ it('零次原生读取不再冒充等待空闲，实际排队状态明确显示'
   const view = mount();
   try {
     await tick();
-    expect(view.host.textContent).toContain('等待前序数据库查询结束');
+    expect(view.host.textContent).toContain('等待可用读取连接，将自动继续');
     expect(view.host.textContent).not.toContain('等待数据库空闲');
   } finally {
     view.close();
