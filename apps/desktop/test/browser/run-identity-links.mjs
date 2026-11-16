@@ -7,7 +7,8 @@ import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
+const browsers = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
+const browserType = browsers[process.env.WEQ_IDENTITY_BROWSER ?? 'chromium'];
 const server = await createServer({
   configFile: false,
   root,
@@ -33,7 +34,7 @@ let cases = 0;
 try {
   await server.listen();
   await mkdir(output, { recursive: true });
-  browser = await chromium.launch({
+  browser = await browserType.launch({
     headless: true,
     ...(process.env.WEQ_BROWSER_EXECUTABLE
       ? { executablePath: process.env.WEQ_BROWSER_EXECUTABLE }
@@ -104,6 +105,56 @@ try {
           await page.screenshot({ path: resolve(output, `${width}-${theme}.png`) });
         cases++;
       }
+  for (const width of [320, 390, 760]) {
+    await page.setViewportSize({ width, height: 850 });
+    for (const status of ['none', 'online', 'custom']) {
+      await page.goto(
+        `http://127.0.0.1:${server.httpServer.address().port}/test/browser/identity-links.html?action=profile&mobile&status=${status}${status === 'custom' ? '&long-name' : ''}`,
+      );
+      await page.locator('.weq-mobile-account > strong').waitFor();
+      for (const preset of ['classic', 'minimal', 'retro', 'qqnt']) {
+        for (const theme of ['light', 'dark']) {
+          await page.evaluate(
+            ({ preset, theme }) => {
+              document.documentElement.dataset.componentStyle = preset;
+              document.documentElement.dataset.theme = theme;
+            },
+            { preset, theme },
+          );
+          const metrics = await page.locator('.weq-mobile-self-identity').evaluate((identity) => {
+            const avatar = identity.querySelector('.avatar').getBoundingClientRect();
+            const name = identity.querySelector('strong').getBoundingClientRect();
+            const statusNode = identity.querySelector('.weq-mobile-online-status');
+            const status = statusNode?.getBoundingClientRect();
+            const bottom = status?.bottom ?? name.bottom;
+            return {
+              centerOffset: Math.abs(avatar.y + avatar.height / 2 - (name.y + bottom) / 2),
+              avatarRight: avatar.right,
+              nameLeft: name.left,
+              overlap: avatar.right > name.left || (status && name.bottom > status.top),
+              overflow: document.documentElement.scrollWidth > innerWidth,
+              statusPresent: Boolean(status),
+              statusIndependent:
+                !status ||
+                !document
+                  .elementFromPoint(status.x + status.width / 2, status.y + status.height / 2)
+                  ?.closest('.weq-mobile-account'),
+            };
+          });
+          const context = JSON.stringify({ width, status, preset, theme, metrics });
+          assert.ok(metrics.centerOffset <= 0.5, `头像未与右侧整体居中：${context}`);
+          assert.ok(!metrics.overlap && !metrics.overflow, context);
+          assert.equal(metrics.statusPresent, status !== 'none', context);
+          assert.ok(metrics.statusIndependent, `状态被名片入口覆盖：${context}`);
+          if (width === 390 && preset === 'classic')
+            await page.locator('.weq-mobile-header').screenshot({
+              path: resolve(output, `mobile-identity-${status}-${theme}.png`),
+            });
+          cases++;
+        }
+      }
+    }
+  }
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ cases, errors }));
 } finally {
