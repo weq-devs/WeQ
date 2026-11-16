@@ -4,7 +4,7 @@
  * 数据与开关都由应用层给：`open` 由 MainView 的 `shell.contactNotice` 驱动，
  * `requests` 是已经取好的申请列表。
  */
-import { ArrowLeft, Bell, Users } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { useRef } from 'react';
 import { cn } from '../im-template/template/classNames';
 import { Avatar, EmptyState } from '../im-template/template/primitives';
@@ -22,6 +22,9 @@ import { avatarFromUin } from '../lib/avatarResolver';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import '../styles/contact-notices.css';
 import { APP_NAVIGATION } from '../lib/appNavigation';
+
+const FriendNoticeIcon = APP_NAVIGATION['friend-notice'].icon;
+const GroupNoticeIcon = APP_NAVIGATION['group-notice'].icon;
 
 export type NoticeProfileHandler = (
   user: User,
@@ -66,7 +69,7 @@ function ContactNoticeDialogBody({
     >
       <PageShell
         title={APP_NAVIGATION['friend-notice'].label}
-        icon={<Bell size={15} />}
+        icon={<FriendNoticeIcon size={15} aria-hidden />}
         leading={
           <button
             className="weq-page-back"
@@ -90,7 +93,7 @@ function ContactNoticeDialogBody({
             <EmptyState
               title="暂无好友通知"
               body="收到或发出的好友申请会显示在这里。"
-              icon={<Bell />}
+              icon={<FriendNoticeIcon />}
             />
           ) : (
             cards.map(({ notice: request, operation }) => {
@@ -226,7 +229,7 @@ function GroupNoticeDialogBody({
     >
       <PageShell
         title={APP_NAVIGATION['group-notice'].label}
-        icon={<Users size={15} />}
+        icon={<GroupNoticeIcon size={15} aria-hidden />}
         leading={
           <button
             className="weq-page-back"
@@ -250,7 +253,7 @@ function GroupNoticeDialogBody({
             <EmptyState
               title="暂无群通知"
               body="入群申请和处理结果会显示在这里。"
-              icon={<Users />}
+              icon={<GroupNoticeIcon />}
             />
           ) : (
             cards.map(({ notice: request, operation }) => {

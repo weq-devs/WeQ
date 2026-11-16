@@ -31,7 +31,6 @@ import {
   Eye,
   EyeOff,
   KeyRound,
-  Plug,
   Power,
   Link,
   RefreshCw,
@@ -314,7 +313,7 @@ export function McpServerSection(): ReactElement {
   return (
     <div className="weq-set weq-service-settings">
       <SectionHeader
-        icon={<Plug size={16} strokeWidth={1.8} />}
+        page="mcp"
         title="MCP 服务器"
         desc="开启后，支持 MCP 的 AI 客户端可通过本地接口读取当前账号的聊天数据；也可以一键安装到本机已有的 AI 客户端。"
       />

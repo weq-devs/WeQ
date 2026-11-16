@@ -201,7 +201,7 @@ export function OneBotSection(): ReactElement {
     <div className="weq-set weq-set-onebot">
       <SectionHeader
         title="OneBot / cc-connect"
-        icon={<RadioTower size={16} strokeWidth={1.8} />}
+        page="onebot"
         desc="可同时运行多个 OneBot v11 WebSocket 与 HTTP API 服务器；每张卡片独立启停、端口和令牌。端口被占用时会自动顺延到附近空闲端口。"
       />
 

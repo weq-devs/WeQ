@@ -120,7 +120,7 @@ export default function LogPerformanceSettings() {
   };
   return (
     <div className="weq-set weq-log-performance-settings" data-setting-id="logs">
-      <SectionHeader title="日志与性能" icon={<Activity size={16} />} />
+      <SectionHeader title="日志与性能" page="logs" />
       <Card
         title="性能记录"
         icon={<Activity size={15} />}

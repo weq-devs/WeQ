@@ -110,7 +110,7 @@ export function AssistantSection() {
   }
   return (
     <div className="weq-set">
-      <SectionHeader icon={<Activity size={16} />} title="QQ 公众号推送" />
+      <SectionHeader page="assistant" title="QQ 公众号推送" />
       <Card
         title="推送与资源服务"
         icon={<Activity size={15} strokeWidth={1.8} />}

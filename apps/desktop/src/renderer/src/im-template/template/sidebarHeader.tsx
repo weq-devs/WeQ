@@ -1,9 +1,10 @@
 // @ts-nocheck
-import { Plus, Search, UserPlus, UsersRound, Download, Users, UserRound } from 'lucide-react';
+import { Plus, Search, UsersRound, Download, Users, UserRound } from 'lucide-react';
 import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { ContactDirectoryContext } from '../../lib/conversationDirectory';
 import { ContactRefreshButton } from '../../components/ContactRefreshButton';
 import { ReminderDot } from '../../components/ReminderBadge';
+import { NotificationSettingsLink } from '../../components/settings/NotificationSettingsLink';
 import { FriendGroupCreateMenu } from '../../components/FriendGroupCreateMenu';
 import { QQExactLookup, type QQExactLookupKind } from '../../components/QQExactLookup';
 import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
@@ -20,6 +21,9 @@ import type { ContactTab, MainView, User } from './types';
 import { displayUserName } from './user';
 import '../../styles/contact-navigation.css';
 import { APP_NAVIGATION } from '../../lib/appNavigation';
+
+const FriendNoticeIcon = APP_NAVIGATION['friend-notice'].icon;
+const GroupNoticeIcon = APP_NAVIGATION['group-notice'].icon;
 
 export function SidebarHeader({
   user,
@@ -281,7 +285,7 @@ export function SidebarHeader({
               onClick={onOpenFriendNotices}
             >
               <span className={cn('notice-entry-label')}>
-                <UserPlus size={15} aria-hidden />
+                <FriendNoticeIcon size={15} aria-hidden />
                 <span className="notice-entry-text">{APP_NAVIGATION['friend-notice'].label}</span>
                 {friendNoticeCount > 0 && (
                   <ReminderDot
@@ -300,7 +304,7 @@ export function SidebarHeader({
               onClick={onOpenGroupNotices}
             >
               <span className={cn('notice-entry-label')}>
-                <UsersRound size={15} aria-hidden />
+                <GroupNoticeIcon size={15} aria-hidden />
                 <span className="notice-entry-text">{APP_NAVIGATION['group-notice'].label}</span>
                 {groupNoticeCount > 0 && (
                   <ReminderDot
@@ -311,6 +315,9 @@ export function SidebarHeader({
                 )}
               </span>
             </button>
+            <NotificationSettingsLink compact settingId="contact-request-badge">
+              申请未读标记设置
+            </NotificationSettingsLink>
           </div>
           <div className="contact-list-controls">
             <div className={cn('contact-tab-switch')} role="tablist" aria-label="联系人类型">

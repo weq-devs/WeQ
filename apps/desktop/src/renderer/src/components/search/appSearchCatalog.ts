@@ -6,7 +6,15 @@ import type { ContactWorkspaceTab } from '../../lib/profileNavigation';
 import { SETTINGS_CATALOG, SETTINGS_PAGE_ALIASES } from '@weq/service/settings-catalog';
 import { isRemoteClient } from '../../lib/remoteClient';
 import { remoteSettingAvailable } from '../../../../shared/remote_capabilities';
-import { navigationEntries, type NavigationTool } from '../../lib/appNavigation';
+import { APP_NAVIGATION, navigationEntries, type NavigationTool } from '../../lib/appNavigation';
+import { ContactRound, Gift, UsersRound } from 'lucide-react';
+import {
+  DRESS_KIND_ICONS,
+  EXPORT_MODE_ICONS,
+  FEATURE_ICONS,
+  type FeatureIcon,
+} from '../../lib/featureIcons';
+import { SETTINGS_PAGE_ICONS } from '../settings/pageIcons';
 import {
   SETTINGS_PAGE_LABELS,
   resolveSettingsTarget,
@@ -65,6 +73,33 @@ const feature = (
   target,
   keywords,
 });
+
+export function appSearchIcon(target: AppSearchTarget): FeatureIcon {
+  switch (target.kind) {
+    case 'setting':
+      return SETTINGS_PAGE_ICONS[resolveSettingsTarget(target).section];
+    case 'tool':
+      return target.tool === 'export' && target.exportMode
+        ? EXPORT_MODE_ICONS[target.exportMode]
+        : APP_NAVIGATION[target.tool].icon;
+    case 'dressup':
+      return target.dressKind ? DRESS_KIND_ICONS[target.dressKind] : APP_NAVIGATION.dressup.icon;
+    case 'composition':
+      return APP_NAVIGATION.composition.icon;
+    case 'self-profile':
+      return target.tab === 'giftwall' ? Gift : ContactRound;
+    case 'clone-create':
+      return target.group ? UsersRound : FEATURE_ICONS.clone;
+    case 'conversation-directory':
+      return target.scope === 'virtual' ? FEATURE_ICONS.clone : FEATURE_ICONS.messages;
+    case 'view':
+      return (
+        Object.values(APP_NAVIGATION).find(
+          (entry) => entry.target.kind === 'view' && entry.target.view === target.view,
+        )?.icon ?? FEATURE_ICONS.messages
+      );
+  }
+}
 
 function uniqueEntries(entries: AppSearchEntry[]): AppSearchEntry[] {
   const unique = new Map<string, AppSearchEntry>();

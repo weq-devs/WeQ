@@ -36,7 +36,10 @@ import { useRenderDocument } from '../../lib/renderDocument';
 import { useSurfaceOutside } from '../../lib/surfaceOutside';
 import {
   Check,
-  Code2,
+  AtSign,
+  Braces,
+  CodeXml,
+  FileCode2,
   FileText,
   Film,
   Forward,
@@ -97,7 +100,7 @@ import {
 // 分段在编辑态下的元信息（菜单图标 / 标签 / 分类）。
 const SEG_META: Record<MfSegKind, { label: string; icon: ReactElement }> = {
   text: { label: '文本', icon: <Type size={15} /> },
-  at: { label: '@某人', icon: <span className="weq-mf-at">@</span> },
+  at: { label: '@某人', icon: <AtSign size={15} /> },
   reply: { label: '引用', icon: <Quote size={15} /> },
   face: { label: '表情', icon: <Smile size={15} /> },
   image: { label: '图片', icon: <ImageIcon size={15} /> },
@@ -105,9 +108,9 @@ const SEG_META: Record<MfSegKind, { label: string; icon: ReactElement }> = {
   video: { label: '视频', icon: <Film size={15} /> },
   file: { label: '文件', icon: <FileText size={15} /> },
   mface: { label: '商城表情', icon: <Sticker size={15} /> },
-  ark: { label: 'JSON 卡片', icon: <Code2 size={15} /> },
-  xml: { label: 'XML 卡片', icon: <Code2 size={15} /> },
-  markdown: { label: 'Markdown', icon: <Code2 size={15} /> },
+  ark: { label: 'JSON 卡片', icon: <Braces size={15} /> },
+  xml: { label: 'XML 卡片', icon: <CodeXml size={15} /> },
+  markdown: { label: 'Markdown', icon: <FileCode2 size={15} /> },
   emojiBounce: { label: '表情弹射', icon: <Sparkles size={15} /> },
   card: { label: '转发卡片', icon: <Forward size={15} /> },
   node: { label: '聊天记录', icon: <Layers size={15} /> },

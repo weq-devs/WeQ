@@ -9,7 +9,6 @@ import type {
 } from '@weq/agentlab';
 import { modelReasoningEfforts } from '@weq/agentlab/model-metadata';
 import {
-  Boxes,
   CheckCheck,
   DownloadCloud,
   FlaskConical,
@@ -741,7 +740,7 @@ export function AgentLabSection(): ReactElement {
 
   return (
     <div className="weq-set">
-      <SectionHeader icon={<Boxes size={18} strokeWidth={1.8} />} title="API 配置" />
+      <SectionHeader page="agentlab" title="API 配置" />
 
       <Card
         title="LLM"

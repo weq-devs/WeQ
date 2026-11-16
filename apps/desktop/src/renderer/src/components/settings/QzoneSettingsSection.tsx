@@ -1,4 +1,4 @@
-import { Forward, Globe, UserRound } from 'lucide-react';
+import { Forward, UserRound } from 'lucide-react';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { trpc } from '../../trpc/client';
 import { QzonePaginationSettings } from './QzonePaginationSettings';
@@ -16,7 +16,7 @@ export function QzoneSettingsSection() {
   });
   return (
     <div className="weq-set">
-      <SectionHeader icon={<Globe size={16} strokeWidth={1.8} />} title="QQ 空间" />
+      <SectionHeader page="qzone" title="QQ 空间" />
       <QzonePaginationSettings />
       <QzonePublicRefreshSettings />
       <Card

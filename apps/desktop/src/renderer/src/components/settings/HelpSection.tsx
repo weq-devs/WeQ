@@ -8,7 +8,7 @@
  */
 
 import { useState, type ReactElement } from 'react';
-import { Bug, HelpCircle, ScrollText } from 'lucide-react';
+import { SettingsPageIcon } from './pageIcons';
 import LogPerformanceSettings from './LogPerformanceSettings';
 import { FaqPanel } from './FaqPanel';
 import { BugReportPanel } from './BugReportPanel';
@@ -17,9 +17,9 @@ import '../../styles/help-settings.css';
 type HelpTabId = 'logs' | 'faq' | 'feedback';
 
 const HELP_TABS: ReadonlyArray<{ id: HelpTabId; label: string; icon: ReactElement }> = [
-  { id: 'logs', label: '日志', icon: <ScrollText size={14} strokeWidth={1.9} aria-hidden /> },
-  { id: 'faq', label: '常见问题', icon: <HelpCircle size={14} strokeWidth={1.9} aria-hidden /> },
-  { id: 'feedback', label: '反馈', icon: <Bug size={14} strokeWidth={1.9} aria-hidden /> },
+  { id: 'logs', label: '日志', icon: <SettingsPageIcon page="logs" /> },
+  { id: 'faq', label: '常见问题', icon: <SettingsPageIcon page="faq" /> },
+  { id: 'feedback', label: '反馈', icon: <SettingsPageIcon page="feedback" /> },
 ];
 
 export function HelpSection({ page }: { page?: HelpTabId } = {}): ReactElement {

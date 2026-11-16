@@ -1,21 +1,12 @@
 import type { ReactElement } from 'react';
-import {
-  ArrowRight,
-  ArrowUpRight,
-  Database,
-  DatabaseZap,
-  FolderOpen,
-  HardDrive,
-  KeyRound,
-  RefreshCw,
-  Trash2,
-} from 'lucide-react';
+import { ArrowRight, ArrowUpRight, HardDrive, RefreshCw } from 'lucide-react';
 import { Row, SectionHeader } from './controls';
 import { useTabActive } from '../RetainedTabs';
 import { trpc } from '../../trpc/client';
 import '../../styles/data-maintenance.css';
 import { useRemoteClient } from '../../lib/remoteClient';
 import { REMOTE_BLOCKED_MAINTENANCE_TOOLS } from '../../../../shared/remote_capabilities';
+import { MAINTENANCE_TOOL_ICONS } from '../../lib/featureIcons';
 
 /** 清单本身在 shared/remote_capabilities（导航、设置搜索、维护工具共用一份）。 */
 export const remoteUnsupportedTools: readonly MaintenanceTool[] = REMOTE_BLOCKED_MAINTENANCE_TOOLS;
@@ -39,7 +30,7 @@ export const MAINTENANCE_TOOLS = [
     label: '资源查看',
     actionLabel: '浏览资源',
     settingId: 'resource-viewer',
-    icon: FolderOpen,
+    icon: MAINTENANCE_TOOL_ICONS.cache,
     needsResources: true,
   },
   {
@@ -47,7 +38,7 @@ export const MAINTENANCE_TOOLS = [
     label: '数据库浏览',
     actionLabel: '打开数据库浏览',
     settingId: 'database-manager',
-    icon: Database,
+    icon: MAINTENANCE_TOOL_ICONS.database,
     needsResources: false,
   },
   {
@@ -55,7 +46,7 @@ export const MAINTENANCE_TOOLS = [
     label: '占用分析',
     actionLabel: '分析占用',
     settingId: 'qq-storage-analysis',
-    icon: HardDrive,
+    icon: MAINTENANCE_TOOL_ICONS.storage,
     needsResources: true,
   },
   {
@@ -63,7 +54,7 @@ export const MAINTENANCE_TOOLS = [
     label: '缓存清理',
     actionLabel: '打开清理工具',
     settingId: 'qq-storage-cleanup',
-    icon: Trash2,
+    icon: MAINTENANCE_TOOL_ICONS.cleanup,
     needsResources: true,
   },
   {
@@ -71,7 +62,7 @@ export const MAINTENANCE_TOOLS = [
     label: '检查与修复',
     actionLabel: '打开修复工具',
     settingId: 'database-repair',
-    icon: DatabaseZap,
+    icon: MAINTENANCE_TOOL_ICONS['db-repair'],
     needsResources: false,
   },
   {
@@ -79,7 +70,7 @@ export const MAINTENANCE_TOOLS = [
     label: '导出明文数据库',
     actionLabel: '打开导出工具',
     settingId: 'database-export',
-    icon: Database,
+    icon: MAINTENANCE_TOOL_ICONS['db-decrypt'],
     needsResources: false,
   },
   {
@@ -87,7 +78,7 @@ export const MAINTENANCE_TOOLS = [
     label: '密钥扫描',
     actionLabel: '打开密钥扫描',
     settingId: 'key-scan',
-    icon: KeyRound,
+    icon: MAINTENANCE_TOOL_ICONS['key-scan'],
     needsResources: false,
   },
   {
@@ -95,7 +86,7 @@ export const MAINTENANCE_TOOLS = [
     label: '其他设备密钥',
     actionLabel: '查看设备密钥',
     settingId: 'other-device-key',
-    icon: KeyRound,
+    icon: MAINTENANCE_TOOL_ICONS['other-device-key'],
     needsResources: false,
   },
   {
@@ -103,7 +94,7 @@ export const MAINTENANCE_TOOLS = [
     label: 'QQ 登录账号管理',
     actionLabel: '管理登录账号',
     settingId: 'qq-accounts',
-    icon: KeyRound,
+    icon: MAINTENANCE_TOOL_ICONS['login-accounts'],
     needsResources: false,
   },
 ] as const;
@@ -133,6 +124,7 @@ export function DataMaintenanceSection({
       {title ? (
         <SectionHeader
           title={title}
+          icon={<HardDrive size={16} strokeWidth={1.8} />}
           desc={tools?.includes('login-accounts') ? undefined : '当前账号'}
         />
       ) : null}

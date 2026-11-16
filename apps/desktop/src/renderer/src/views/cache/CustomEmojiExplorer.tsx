@@ -17,7 +17,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
-import { Heart, ImageOff, Search, Star } from 'lucide-react';
+import { Heart, ImageOff, Inbox } from 'lucide-react';
 import { EmptyState } from '../../components/EmptyState';
 import type {
   CustomEmojiEntry,
@@ -34,8 +34,8 @@ import { FavoriteActions } from '../../components/qq-actions/FavoriteActions';
 import { TabActivity, useTabActive } from '../../components/RetainedTabs';
 
 const SCOPE_META: Record<CustomEmojiScope, { label: string; icon: ReactElement }> = {
-  recv: { label: '收到的表情', icon: <Search size={14} /> },
-  personal: { label: '我的表情', icon: <Star size={14} /> },
+  recv: { label: '收到的表情', icon: <Inbox size={14} /> },
+  personal: { label: '我的表情', icon: <Heart size={14} /> },
 };
 
 /** weq-media URL for one custom-emoji file, or null when that variant is absent. */

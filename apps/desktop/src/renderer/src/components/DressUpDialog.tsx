@@ -32,15 +32,9 @@ import {
   Sparkles,
   WifiOff,
   Palette,
-  PhoneCall,
-  Type,
-  Image as ImageIcon,
-  Gem,
-  Wallet,
   Upload,
   Trophy,
   X,
-  Store,
   ChevronRight,
 } from 'lucide-react';
 import type { BubbleSkin, DressBackgroundSource, DressMallItem, DressScope } from '@weq/service';
@@ -70,6 +64,7 @@ import { MarketEmojiBrowserLightbox } from '../views/export/MarketEmojiBrowserLi
 import { RedPackSkinWall } from './gift/RedPackSkinWall';
 import '../styles/dressup.css';
 import { ShimmerImage } from './ShimmerImage';
+import { DRESS_KIND_ICONS } from '../lib/featureIcons';
 
 export type DressKind =
   | 'usage'
@@ -81,17 +76,22 @@ export type DressKind =
   | 'emoji'
   | 'redpack';
 
-const KINDS: Array<{ id: DressKind; label: string; icon: ReactElement }> = [
-  { id: 'usage', label: '使用', icon: <Check size={14} /> },
-  { id: 'bubble', label: '聊天气泡', icon: <Palette size={14} /> },
-  { id: 'font', label: '聊天字体', icon: <Type size={14} /> },
-  { id: 'widget', label: '头像挂件', icon: <Gem size={14} /> },
-  { id: 'callbg', label: '通话背景', icon: <PhoneCall size={14} /> },
-  { id: 'background', label: '聊天背景', icon: <ImageIcon size={14} /> },
-  { id: 'emoji', label: '商城表情', icon: <Store size={14} /> },
-  // 红包封面同样只读，且**完全离线**：只读仓库里的 resources/redpack/skins.json。
-  { id: 'redpack', label: '红包封面', icon: <Wallet size={14} /> },
-];
+const KINDS: { id: DressKind; label: string; icon: ReactElement }[] = (
+  [
+    { id: 'usage', label: '使用' },
+    { id: 'bubble', label: '聊天气泡' },
+    { id: 'font', label: '聊天字体' },
+    { id: 'widget', label: '头像挂件' },
+    { id: 'callbg', label: '通话背景' },
+    { id: 'background', label: '聊天背景' },
+    { id: 'emoji', label: '商城表情' },
+    // 红包封面同样只读，且**完全离线**：只读仓库里的 resources/redpack/skins.json。
+    { id: 'redpack', label: '红包封面' },
+  ] satisfies Omit<{ id: DressKind; label: string; icon: ReactElement }, 'icon'>[]
+).map((entry) => {
+  const Icon = DRESS_KIND_ICONS[entry.id];
+  return { ...entry, icon: <Icon size={14} aria-hidden /> };
+});
 
 /** 商城那几类共用一套列表 UI;聊天背景和表情包是各自独立的形状。 */
 type MallKind = 'bubble' | 'font' | 'widget' | 'callbg';

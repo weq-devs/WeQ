@@ -103,7 +103,7 @@ export function StartupSection() {
   }
   return (
     <div className="weq-set">
-      <SectionHeader icon={<Power size={16} />} title="启动与退出" />
+      <SectionHeader page="startup" title="启动与退出" />
       <Card title="开机启动" icon={<Power size={15} strokeWidth={1.8} />} remoteUnsupported>
         <Row
           settingId="startup-enabled"

@@ -16,6 +16,7 @@ export function InteractionProfileSection() {
   });
   return (
     <AiFeatureSettingsLayout
+      page="interaction-profile"
       imageFeature="profile"
       settings={settings}
       title="互动画像"

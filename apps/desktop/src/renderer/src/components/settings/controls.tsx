@@ -29,6 +29,8 @@ import {
 } from '../../../../shared/remote_capabilities';
 import { useRemoteClient } from '../../lib/remoteClient';
 import { findSettingDefinition } from '@weq/service/settings-catalog';
+import { SettingsPageIcon } from './pageIcons';
+import type { SettingsPageId } from './navigation';
 
 /** 查询失败不冒充空配置；有缓存时由调用方继续展示原数据。 */
 export function QueryError({
@@ -82,6 +84,7 @@ export function SectionHeader({
   title,
   desc,
   icon,
+  page,
   titleClassName,
   badge,
   actions,
@@ -90,6 +93,8 @@ export function SectionHeader({
   title: string;
   desc?: ReactNode;
   icon?: ReactNode;
+  /** 设置页面的标题与二级导航使用同一图标。 */
+  page?: SettingsPageId;
   titleClassName?: string;
   /** 标题旁的固定说明（例如「自动保存」），只描述保存方式，不放操作。 */
   badge?: ReactNode;
@@ -99,12 +104,13 @@ export function SectionHeader({
 }): ReactElement {
   const scope = useContext(SettingsScopeContext);
   const reset = useContext(SettingsResetContext);
+  const headingIcon = page ? <SettingsPageIcon page={page} /> : icon;
   return (
     <header className="weq-set-head">
       <div className="weq-set-head-title">
-        {icon ? (
+        {headingIcon ? (
           <span className="weq-set-head-icon" aria-hidden>
-            {icon}
+            {headingIcon}
           </span>
         ) : null}
         <h3 className={`weq-set-title${titleClassName ? ` ${titleClassName}` : ''}`}>{title}</h3>

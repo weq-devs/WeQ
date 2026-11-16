@@ -21,7 +21,7 @@ export function EnhancementPacksLink() {
 export function RecognitionSettingsSection() {
   return (
     <div className="weq-set weq-recognition-settings">
-      <SectionHeader title="识别与转写" icon={<ScanText size={18} strokeWidth={1.8} />} />
+      <SectionHeader title="识别与转写" page="recognition" />
       <Card title="图片文字识别" icon={<ScanText size={15} strokeWidth={1.8} />}>
         <RecognitionConcurrencySetting kind="ocr" />
         <OcrPrefilterSetting />

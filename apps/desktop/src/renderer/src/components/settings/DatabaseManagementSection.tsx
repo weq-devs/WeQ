@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowUpRight, Database, HardDrive } from 'lucide-react';
+import { ArrowUpRight, Database } from 'lucide-react';
 import { useTabActive } from '../RetainedTabs';
 import { ToolSurface } from '../ToolSurface';
 import { PageShell } from '../PageShell';
@@ -18,7 +18,7 @@ export function DatabaseManagementSection({ onOpen }: { onOpen: (tool: Maintenan
   }, [active]);
   return (
     <div className="weq-set weq-database-management">
-      <SectionHeader title="QQ 数据库管理" icon={<HardDrive size={16} />} />
+      <SectionHeader title="QQ 数据库管理" page="database-management" />
       <Card title="数据库浏览" icon={<Database size={15} />} settingId="database-manager">
         <Row
           label="库、表与记录"

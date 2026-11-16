@@ -22,8 +22,8 @@ import {
   FolderOpen,
   HardDrive,
   Loader2,
+  Shirt,
   RotateCcw,
-  Settings2,
   Trash2,
   User,
 } from 'lucide-react';
@@ -363,7 +363,17 @@ export function GlobalSettingsSection({
     <div className={`weq-set${section === 'storage' ? ' weq-storage-settings' : ''}`}>
       {heading && (
         <SectionHeader
-          icon={<Settings2 size={16} strokeWidth={1.8} />}
+          page={
+            (
+              {
+                general: 'global',
+                accounts: 'accounts',
+                storage: 'weq-storage',
+                logs: 'logs',
+                network: 'resource-loading',
+              } as const
+            )[section]
+          }
           title={
             {
               general: '通知与提醒',
@@ -513,7 +523,7 @@ export function GlobalSettingsSection({
       )}
       {section === 'network' && <DataSaverSettings />}
       {section === 'network' && (
-        <Card title="QQ 秀缓存" resetId="qqshow-cache">
+        <Card title="QQ 秀缓存" icon={<Shirt size={15} strokeWidth={1.8} />} resetId="qqshow-cache">
           <QqShowSettings cacheOnly />
         </Card>
       )}

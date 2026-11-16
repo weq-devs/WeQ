@@ -1,18 +1,7 @@
 /** Renders one unified-search hit as a card (dropdown row + "more" modal row). */
 
 import { useEffect, useState, type ReactElement } from 'react';
-import {
-  Bookmark,
-  Bot,
-  MessagesSquare,
-  File,
-  Globe,
-  Hash,
-  Images,
-  Mail,
-  Smile,
-  UsersRound,
-} from 'lucide-react';
+import { Bookmark, UsersRound } from 'lucide-react';
 import { fileIconUrl } from '../../lib/resourceUrl';
 import { cachedAvatarUrl } from '../../lib/avatarCache';
 import { resolveAvatar } from '../../lib/avatarResolver';
@@ -21,6 +10,7 @@ import { searchHitKey } from './types';
 import { PersonRelationshipStatus, GroupRelationshipStatus } from '../RelationshipStatus';
 import { classifyChatType } from '@weq/codec';
 import { isInlineSearchHit } from './searchNavigation';
+import { SEARCH_CATEGORY_ICONS } from './searchIcons';
 
 /** Group avatar CDN: https://p.qlogo.cn/gh/<code>/<code>/0 */
 export function groupAvatarSrc(groupCode: string): string | null {
@@ -277,25 +267,10 @@ export function SearchResultCard({
     case 'qzoneComment':
     case 'otherQzoneComment':
     case 'qzonePublicComment': {
-      const Icon =
-        hit.category === 'mailMessage'
-          ? Mail
-          : hit.category === 'groupFile' || hit.category === 'flashFile'
-            ? File
-            : hit.category === 'guildMessage'
-              ? Hash
-              : hit.category === 'marketEmoji'
-                ? Smile
-                : hit.category === 'groupBulletin' || hit.category === 'groupEssence'
-                  ? MessagesSquare
-                  : hit.target.kind === 'qzonePost' ||
-                      hit.target.kind === 'qzoneComment' ||
-                      hit.target.kind === 'qzonePublicComment'
-                    ? Globe
-                    : Images;
+      const Icon = SEARCH_CATEGORY_ICONS[hit.category];
       media = (
-        <span className="weq-search-avatar weq-search-source-icon">
-          <Icon size={22} />
+        <span className="weq-search-avatar weq-search-source-icon" aria-hidden>
+          <Icon size={22} strokeWidth={1.8} />
         </span>
       );
       title = hit.title;
@@ -336,9 +311,10 @@ export function SearchResultCard({
     }
     case 'cloneMessage':
     case 'assistantMessage': {
+      const Icon = SEARCH_CATEGORY_ICONS[hit.category];
       media = (
-        <span className="weq-search-avatar weq-search-source-icon">
-          {hit.kind === 'assistant' ? <Bot size={22} /> : <MessagesSquare size={22} />}
+        <span className="weq-search-avatar weq-search-source-icon" aria-hidden>
+          <Icon size={22} strokeWidth={1.8} />
         </span>
       );
       title = hit.kind === 'assistant' ? hit.sessionTitle : hit.title;

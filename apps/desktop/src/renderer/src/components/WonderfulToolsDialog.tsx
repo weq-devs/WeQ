@@ -50,6 +50,7 @@ import { ToolSurface, type ToolPresentation } from './ToolSurface';
 import { ReverseTool } from './ReverseTool';
 import { CapturePanel } from './CapturePanel';
 import { LoginAccountPanel } from './LoginAccountPanel';
+import { MAINTENANCE_TOOL_ICONS } from '../lib/featureIcons';
 
 interface AccountRow {
   uin: string;
@@ -92,13 +93,7 @@ const TOOLS: { id: ToolId; label: string; desc: string }[] = [
   { id: 'login-accounts', label: 'QQ 登录账号管理', desc: '快速登录 · 删除账号 · 更换设备标识' },
 ];
 
-const TOOL_ICONS: Record<ToolId, typeof KeyRound> = {
-  'key-scan': KeyRound,
-  'other-device-key': Database,
-  capture: Radio,
-  reverse: Braces,
-  'login-accounts': Fingerprint,
-};
+const TOOL_ICONS = MAINTENANCE_TOOL_ICONS;
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);

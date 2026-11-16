@@ -6,30 +6,21 @@ import { eventTimeFormatter } from '@weq/time';
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import { ReferenceExportTool } from './export/ReferenceExportTool';
+import { EXPORT_MODE_ICONS } from '../lib/featureIcons';
 import {
   Bookmark,
-  Bot,
   CalendarClock,
-  Contact,
-  Database,
   FileText,
   Film,
-  Globe,
   Image as ImageIcon,
-  Images,
-  FolderOpen,
   Layers,
   Link2,
   MapPin,
-  Mail,
-  MessagesSquare,
   Music,
   Pause,
   Play,
-  Radio,
   RotateCw,
   Search,
-  Smile,
   Trash2,
   X,
   Zap,
@@ -135,92 +126,85 @@ interface ModeDef {
   icon: ReactNode;
 }
 
-const MODES: ModeDef[] = [
-  {
-    id: 'persona-bot',
-    label: '克隆体机器人',
-    short: '机器人',
-    desc: 'OneBot 部署整包',
-    icon: <Bot size={18} />,
-  },
-  {
-    id: 'full',
-    label: '聊天消息导出',
-    short: '聊天消息',
-    desc: 'JSON / JSONL / XLSX / CSV / TXT / HTML',
-    icon: <MessagesSquare size={18} />,
-  },
-  {
-    id: 'guild',
-    label: '频道私聊数据',
-    short: '频道私聊',
-    desc: '本地频道私聊 · 完整消息格式（不支持漫游拉取）',
-    icon: <Radio size={18} />,
-  },
-  {
-    id: 'generated',
-    label: '克隆与助手对话',
-    short: '克隆与助手',
-    desc: '本地生成记录 · 按会话导出',
-    icon: <Bot size={18} />,
-  },
-  {
-    id: 'qzone',
-    label: 'QQ 空间导出',
-    short: 'QQ 空间',
-    desc: '说说 / 相册 · JSON / TXT / HTML',
-    icon: <Globe size={18} />,
-  },
-  {
-    id: 'contacts',
-    label: '导出联系人',
-    short: '联系人',
-    desc: '联系人名单 / 群聊名单 / 群成员名单',
-    icon: <Contact size={18} />,
-  },
-  {
-    id: 'collection',
-    label: '导出收藏',
-    short: '收藏',
-    desc: 'QQ 收藏导出为表格',
-    icon: <Bookmark size={18} />,
-  },
-  {
-    id: 'mail',
-    label: '邮件导出',
-    short: '邮件',
-    desc: '邮件正文 / 元数据 / 附件',
-    icon: <Mail size={18} />,
-  },
-  {
-    id: 'emojipack',
-    label: '导出表情包',
-    short: '表情包',
-    desc: '自己的 / 收到的自定义表情',
-    icon: <Smile size={18} />,
-  },
-  {
-    id: 'album',
-    label: '群相册导出',
-    short: '群相册',
-    desc: '批量下载群相册',
-    icon: <Images size={18} />,
-  },
-  {
-    id: 'groupfile',
-    label: '群文件导出',
-    short: '群文件',
-    desc: '批量下载群文件',
-    icon: <FolderOpen size={18} />,
-  },
-  {
-    id: 'database',
-    label: '明文数据库',
-    short: '数据库',
-    desc: '原始 SQLite 数据库副本',
-    icon: <Database size={18} />,
-  },
-];
+const MODES: ModeDef[] = (
+  [
+    {
+      id: 'persona-bot',
+      label: '克隆体机器人',
+      short: '机器人',
+      desc: 'OneBot 部署整包',
+    },
+    {
+      id: 'full',
+      label: '聊天消息导出',
+      short: '聊天消息',
+      desc: 'JSON / JSONL / XLSX / CSV / TXT / HTML',
+    },
+    {
+      id: 'guild',
+      label: '频道私聊数据',
+      short: '频道私聊',
+      desc: '本地频道私聊 · 完整消息格式（不支持漫游拉取）',
+    },
+    {
+      id: 'generated',
+      label: '克隆与助手对话',
+      short: '克隆与助手',
+      desc: '本地生成记录 · 按会话导出',
+    },
+    {
+      id: 'qzone',
+      label: 'QQ 空间导出',
+      short: 'QQ 空间',
+      desc: '说说 / 相册 · JSON / TXT / HTML',
+    },
+    {
+      id: 'contacts',
+      label: '导出联系人',
+      short: '联系人',
+      desc: '联系人名单 / 群聊名单 / 群成员名单',
+    },
+    {
+      id: 'collection',
+      label: '导出收藏',
+      short: '收藏',
+      desc: 'QQ 收藏导出为表格',
+    },
+    {
+      id: 'mail',
+      label: '邮件导出',
+      short: '邮件',
+      desc: '邮件正文 / 元数据 / 附件',
+    },
+    {
+      id: 'emojipack',
+      label: '导出表情包',
+      short: '表情包',
+      desc: '自己的 / 收到的自定义表情',
+    },
+    {
+      id: 'album',
+      label: '群相册导出',
+      short: '群相册',
+      desc: '批量下载群相册',
+    },
+    {
+      id: 'groupfile',
+      label: '群文件导出',
+      short: '群文件',
+      desc: '批量下载群文件',
+    },
+    {
+      id: 'database',
+      label: '明文数据库',
+      short: '数据库',
+      desc: '原始 SQLite 数据库副本',
+    },
+  ] satisfies Omit<ModeDef, 'icon'>[]
+).map((entry) => {
+  const Icon = EXPORT_MODE_ICONS[entry.id];
+  return { ...entry, icon: <Icon size={18} aria-hidden /> };
+});
 
 /** Recent-contact wire shape we actually read here. */
 interface ConvWire {

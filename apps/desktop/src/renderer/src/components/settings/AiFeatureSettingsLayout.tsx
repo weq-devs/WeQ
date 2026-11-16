@@ -1,4 +1,4 @@
-import { BrainCircuit, Settings2 } from 'lucide-react';
+import { Settings2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useTabActive } from '../RetainedTabs';
 import { Card, QueryError, SectionHeader } from './controls';
@@ -9,6 +9,7 @@ import { AiImagePreferenceSetting } from './AiImageSettings';
 
 export function AiFeatureSettingsLayout({
   title,
+  page,
   error,
   retrying,
   onRetry,
@@ -19,6 +20,7 @@ export function AiFeatureSettingsLayout({
   imageFeature,
 }: {
   title: string;
+  page: 'interaction-profile' | 'reply-suggestions' | 'intent-sense';
   error?: { message: string } | null;
   retrying?: boolean;
   onRetry: () => void;
@@ -31,7 +33,7 @@ export function AiFeatureSettingsLayout({
   const active = useTabActive();
   return (
     <div className="weq-set">
-      <SectionHeader title={title} icon={<BrainCircuit size={18} strokeWidth={1.8} />} />
+      <SectionHeader title={title} page={page} />
       {error ? (
         <QueryError
           message={error.message}

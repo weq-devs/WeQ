@@ -16,42 +16,24 @@ import {
   type ReactNode,
 } from 'react';
 import {
-  Activity,
   AlertTriangle,
   ArrowUpRight,
   ArrowLeft,
   Bell,
-  Bot,
-  Bug,
-  BrainCircuit,
   BookOpen,
   Check,
   ChevronRight,
   Code2,
-  Globe,
-  HardDrive,
   ImageIcon,
-  HelpCircle,
-  Lock,
   LockKeyhole,
-  Mail,
   Monitor,
   MessagesSquare,
   Moon,
-  Package,
   Palette,
-  PhoneCall,
-  Plug,
-  Power,
   Radio,
-  ScanText,
-  Settings2,
   Smile,
   Send,
-  ScanSearch,
   Sun,
-  User,
-  Users,
   X,
 } from 'lucide-react';
 import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
@@ -144,12 +126,15 @@ import { flushSettingsSaves, hasPendingSettingsSaves } from '../lib/settingsSave
 import { ContactCardSettings } from './settings/ContactCardSettings';
 import { useRemoteClient } from '../lib/remoteClient';
 import { remoteSettingAvailable } from '../../../shared/remote_capabilities';
+import { SettingsGroupIcon, SettingsPageIcon } from './settings/pageIcons';
+import { MAINTENANCE_TOOL_ICONS } from '../lib/featureIcons';
+
+const LoginAccountsIcon = MAINTENANCE_TOOL_ICONS['login-accounts'];
 
 /** 左侧导航的分区 id。导出出去是为了让别的界面能"直接打开某一屏"（例如损坏弹窗 → 数据库宽容）。 */
 interface SettingsSection {
   id: SettingsPageId;
   label: string;
-  icon: ReactElement;
   render: (onOpenMaintenance: (tool: MaintenanceTool) => void) => ReactNode;
 }
 
@@ -157,91 +142,76 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   {
     id: 'contact-card',
     label: '联系人名片',
-    icon: <User size={16} />,
     render: () => <ContactCardSettings />,
   },
   {
     id: 'backup',
     label: '配置备份与恢复',
-    icon: <HardDrive size={16} />,
     render: () => <BackupSection />,
   },
   {
     id: 'global',
     label: '通知与提醒',
-    icon: <Settings2 size={16} strokeWidth={1.8} />,
     render: () => <GlobalSettingsSection />,
   },
   {
     id: 'version',
     label: '版本与更新',
-    icon: <Package size={16} strokeWidth={1.8} />,
     render: () => <VersionSection />,
   },
   {
     id: 'appearance',
     label: '外观与布局',
-    icon: <Palette size={16} strokeWidth={1.8} />,
     render: () => <AppearanceSection page="theme" />,
   },
   {
     id: 'privacy',
     label: '隐私',
-    icon: <LockKeyhole size={16} strokeWidth={1.8} />,
     render: () => <PrivacySection />,
   },
   {
     id: 'account',
     label: '在线能力与授权',
-    icon: <Plug size={16} strokeWidth={1.8} />,
     render: () => <AccountBasicsSection />,
   },
   {
     id: 'accounts',
     label: 'WeQ 账号管理',
-    icon: <User size={16} />,
     render: () => <GlobalSettingsSection section="accounts" />,
   },
   {
     id: 'call-recording',
     label: '通话与录音',
-    icon: <PhoneCall size={16} strokeWidth={1.8} />,
     render: () => <CallRecordingSection />,
   },
   {
     id: 'qzone',
     label: 'QQ 空间',
-    icon: <Globe size={16} strokeWidth={1.8} />,
     render: () => <QzoneSettingsSection />,
   },
   {
     id: 'mail',
     label: 'QQ 邮箱',
-    icon: <Mail size={16} strokeWidth={1.8} />,
     render: () => <MailSettingsSection />,
   },
   {
     id: 'database-management',
     label: 'QQ 数据库管理',
-    icon: <HardDrive size={16} strokeWidth={1.8} />,
     render: (onOpen) => <DatabaseManagementSection onOpen={onOpen} />,
   },
   {
     id: 'qq-storage',
     label: 'QQ 资源管理',
-    icon: <HardDrive size={16} />,
     render: () => <ResourceManagementSection />,
   },
   {
     id: 'enhancement-packs',
     label: '增强包',
-    icon: <Package size={16} strokeWidth={1.8} />,
     render: () => <EnhancementPacksSection />,
   },
   {
     id: 'resource-loading',
     label: '资源加载',
-    icon: <Globe size={16} />,
     render: () => (
       <>
         <GlobalSettingsSection section="network" />
@@ -252,16 +222,14 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   {
     id: 'logs',
     label: '日志与性能',
-    icon: <Activity size={16} />,
     render: () => <LogPerformanceSettings />,
   },
   {
     id: 'diagnostics',
     label: 'QQ 高级工具',
-    icon: <ScanSearch size={16} />,
     render: (onOpen) => (
       <div className="weq-set">
-        <SectionHeader title="QQ 高级工具" icon={<ScanSearch size={16} strokeWidth={1.8} />} />
+        <SectionHeader title="QQ 高级工具" page="diagnostics" />
         <Card
           title="QQNT 抓包"
           icon={<Radio size={15} />}
@@ -285,7 +253,11 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
         >
           <ReverseTool />
         </Card>
-        <Card title="登录记录与设备标识" icon={<Users size={15} />} settingId="qq-accounts">
+        <Card
+          title="登录记录与设备标识"
+          icon={<LoginAccountsIcon size={15} />}
+          settingId="qq-accounts"
+        >
           <LoginAccountPanel />
         </Card>
       </div>
@@ -294,19 +266,16 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   {
     id: 'model-usage',
     label: 'API 用量',
-    icon: <Activity size={16} />,
     render: () => <ModelUsageSection />,
   },
   {
     id: 'recognition',
     label: '识别与转写',
-    icon: <ScanText size={16} strokeWidth={1.8} />,
     render: () => <RecognitionSettingsSection />,
   },
   {
     id: 'agentlab',
     label: 'API 配置',
-    icon: <Bot size={16} strokeWidth={1.8} />,
     render: () => (
       <>
         <AgentLabSection />
@@ -319,79 +288,66 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   {
     id: 'interaction-profile',
     label: '互动画像',
-    icon: <BrainCircuit size={16} />,
     render: () => <InteractionProfileSection />,
   },
   {
     id: 'reply-suggestions',
     label: '推荐回复',
-    icon: <BrainCircuit size={16} strokeWidth={1.8} />,
     render: () => <ReplySuggestionsSection />,
   },
   {
     id: 'intent-sense',
     label: '意图感知',
-    icon: <BrainCircuit size={16} strokeWidth={1.8} />,
     render: () => <IntentSenseSection />,
   },
   {
     id: 'mcp',
     label: 'MCP 服务器',
-    icon: <Plug size={16} strokeWidth={1.8} />,
     render: () => <McpServerSection />,
   },
   {
     id: 'onebot',
     label: 'OneBot / cc-connect',
-    icon: <Plug size={16} strokeWidth={1.8} />,
     render: () => <OneBotSection />,
   },
   {
     id: 'remote',
     label: 'Web 与 Remote',
-    icon: <Monitor size={16} strokeWidth={1.8} />,
     render: () => <RemoteSection />,
   },
   {
     id: 'assistant',
     label: 'QQ 公众号推送',
-    icon: <Radio size={16} />,
     render: () => <AssistantSection />,
   },
   {
     id: 'sse',
     label: 'SSE 推送',
-    icon: <Radio size={16} strokeWidth={1.8} />,
     render: () => <SsePushSection />,
   },
   {
     id: 'faq',
     label: '常见问题',
-    icon: <HelpCircle size={16} strokeWidth={1.8} />,
     render: () => <HelpSection page="faq" />,
   },
   {
     id: 'feedback',
     label: '反馈',
-    icon: <Bug size={16} strokeWidth={1.8} />,
     render: () => <HelpSection page="feedback" />,
   },
   {
     id: 'chat-messages',
     label: '会话列表',
-    icon: <MessagesSquare size={16} />,
     render: () => <AppearanceSection page="messages" category="reading" />,
   },
   {
     id: 'message-display',
     label: '消息阅读',
-    icon: <Monitor size={16} />,
     render: () => <AppearanceSection page="messages" category="display" />,
   },
   {
     id: 'chat-interaction',
     label: '互动与防撤回',
-    icon: <Send size={16} />,
     render: () => (
       <>
         <AppearanceSection page="messages" category="sending" />
@@ -402,17 +358,15 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   {
     id: 'startup',
     label: '启动与退出',
-    icon: <Power size={16} />,
     render: () => <StartupSection />,
   },
   {
     id: 'weq-storage',
     label: 'WeQ 存储管理',
-    icon: <HardDrive size={16} />,
     render: () => (
       <>
         <div className="weq-set">
-          <SectionHeader title="WeQ 存储管理" icon={<HardDrive size={16} strokeWidth={1.8} />} />
+          <SectionHeader title="WeQ 存储管理" page="weq-storage" />
         </div>
         <GlobalSettingsSection section="storage" heading={false} />
       </>
@@ -421,7 +375,6 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   {
     id: 'credentials',
     label: '凭据管理',
-    icon: <Lock size={16} />,
     render: (onOpen) => (
       <>
         <AccountBasicsSection page="credentials" />
@@ -699,7 +652,7 @@ function SettingsContent({
                     }}
                   >
                     <span className="weq-settings-nav-icon">
-                      {sections.find((section) => section.id === s.sections[0])!.icon}
+                      <SettingsGroupIcon group={s.id} />
                     </span>
                     <span className="weq-settings-nav-label">
                       {s.label}
@@ -727,7 +680,7 @@ function SettingsContent({
                   onClick={() => switchSection(section.id)}
                 >
                   <span className="weq-settings-subnav-icon" aria-hidden="true">
-                    {section.icon}
+                    <SettingsPageIcon page={section.id} />
                   </span>
                   <span className="weq-settings-subnav-label">{section.label}</span>
                   {updateAvailable && section.id === 'version' ? (
@@ -842,7 +795,7 @@ function SettingsContent({
 function ModelUsageSection(): ReactElement {
   return (
     <div className="weq-set weq-settings-model-usage">
-      <SectionHeader title="API 用量" icon={<Activity size={16} strokeWidth={1.8} />} />
+      <SectionHeader title="API 用量" page="model-usage" />
       <UsagePanel />
     </div>
   );
@@ -939,16 +892,14 @@ function AppearanceSection({
     <section className="weq-settings-section">
       {heading && (
         <SectionHeader
-          icon={
-            page === 'theme' ? (
-              <Palette size={16} strokeWidth={1.8} />
-            ) : category === 'reading' ? (
-              <MessagesSquare size={16} />
-            ) : category === 'sending' ? (
-              <Send size={16} />
-            ) : (
-              <Monitor size={16} />
-            )
+          page={
+            page === 'theme'
+              ? 'appearance'
+              : category === 'reading'
+                ? 'chat-messages'
+                : category === 'sending'
+                  ? 'chat-interaction'
+                  : 'message-display'
           }
           title={
             page === 'theme'

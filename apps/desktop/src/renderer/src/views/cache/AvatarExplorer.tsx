@@ -14,7 +14,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
-import { Users, UsersRound, Image as ImageIcon, Calculator } from 'lucide-react';
+import { UserRound, UsersRound, Image as ImageIcon, Calculator } from 'lucide-react';
 import type { AvatarEntry, AvatarScope, AvatarScopeInfo } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { AvatarPathDialog } from './AvatarPathDialog';
@@ -26,7 +26,7 @@ import { GridSkeleton, InlineSkeleton } from './CacheSkeleton';
 import { useTabActive } from '../../components/RetainedTabs';
 
 const SCOPE_META: Record<AvatarScope, { label: string; icon: ReactElement }> = {
-  user: { label: '好友头像', icon: <Users size={14} /> },
+  user: { label: '好友头像', icon: <UserRound size={14} /> },
   group: { label: '群头像', icon: <UsersRound size={14} /> },
   cover: { label: '封面', icon: <ImageIcon size={14} /> },
 };

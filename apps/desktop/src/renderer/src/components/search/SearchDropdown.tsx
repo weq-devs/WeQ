@@ -2,27 +2,7 @@
 
 import { EmptyState } from '../EmptyState';
 import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
-import {
-  Bookmark,
-  Bot,
-  File,
-  FolderOpen,
-  Globe,
-  Hash,
-  Images,
-  Layers,
-  Mail,
-  MessageSquare,
-  MessagesSquare,
-  RotateCw,
-  Settings2,
-  Sparkles,
-  Smile,
-  UserRound,
-  UsersRound,
-  type LucideIcon,
-  SearchX,
-} from 'lucide-react';
+import { Layers, RotateCw, Settings2, SearchX } from 'lucide-react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { isLookupNumber } from '../../hooks/useNumberLookup';
 import { NumberLookupResults, type OpenNumberProfile } from './NumberLookupResults';
@@ -40,6 +20,8 @@ import {
 import { AppSearchResults } from './AppSearchResults';
 import { appSearchEntryRank, searchAppEntries, type AppSearchEntry } from './appSearchCatalog';
 import { restoreSearchPosition, type SearchPosition } from './searchPosition';
+import { SEARCH_CATEGORY_ICONS, SEARCH_SOURCE_ICONS } from './searchIcons';
+import type { FeatureIcon } from '../../lib/featureIcons';
 import {
   CATEGORY_META,
   CONTENT_CATEGORY_ORDER,
@@ -56,47 +38,18 @@ import {
   type ContentSearchHit,
 } from './types';
 
-const scopeIcons: Record<SearchCategory, LucideIcon> = {
-  contact: UserRound,
-  group: UsersRound,
-  conversation: MessagesSquare,
-  friend: UserRound,
-  groupMember: UsersRound,
-  chatRecord: MessageSquare,
-  file: File,
-  qzone: Globe,
-  collection: Bookmark,
-  qzonePost: Globe,
-  qzoneAlbum: Globe,
-  otherQzonePost: Globe,
-  otherQzoneAlbum: Globe,
-  groupAlbum: Images,
-  groupFile: FolderOpen,
-  mailMessage: Mail,
-  guildMessage: Hash,
-  groupBulletin: MessagesSquare,
-  groupEssence: MessagesSquare,
-  flashFile: FolderOpen,
-  qzoneComment: Globe,
-  otherQzoneComment: Globe,
-  qzonePublicComment: Globe,
-  cloneMessage: MessagesSquare,
-  assistantMessage: Bot,
-  marketEmoji: Smile,
-};
-
 const scopeOptions = SEARCH_CATEGORY_ORDER.map((category) => ({
   id: category,
-  Icon: scopeIcons[category],
+  Icon: SEARCH_CATEGORY_ICONS[category],
   label: CATEGORY_META[category].label,
   categories: [category],
 }));
 const scopeIds = scopeOptions.map((option) => option.id);
-const sourceOptions: Array<{ id: SearchSource; Icon: LucideIcon; label: string }> = [
-  { id: 'qq', Icon: MessagesSquare, label: 'QQ' },
-  { id: 'clone', Icon: Bot, label: '克隆' },
-  { id: 'assistant', Icon: Sparkles, label: 'WeQ 助手' },
-  { id: 'app', Icon: Settings2, label: '功能与设置' },
+const sourceOptions: Array<{ id: SearchSource; Icon: FeatureIcon; label: string }> = [
+  { id: 'qq', Icon: SEARCH_SOURCE_ICONS.qq, label: 'QQ' },
+  { id: 'clone', Icon: SEARCH_SOURCE_ICONS.clone, label: '克隆' },
+  { id: 'assistant', Icon: SEARCH_SOURCE_ICONS.assistant, label: 'WeQ 助手' },
+  { id: 'app', Icon: SEARCH_SOURCE_ICONS.app, label: '功能与设置' },
 ];
 
 export function SearchDropdown({

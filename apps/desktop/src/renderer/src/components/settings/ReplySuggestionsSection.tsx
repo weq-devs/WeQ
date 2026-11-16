@@ -13,6 +13,7 @@ export function ReplySuggestionsSection() {
   const s = status.data;
   return (
     <AiFeatureSettingsLayout
+      page="reply-suggestions"
       imageFeature="suggestions"
       settings={settings}
       title="推荐回复"

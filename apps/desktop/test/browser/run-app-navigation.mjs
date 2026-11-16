@@ -74,8 +74,16 @@ try {
       assert.equal(await entry.getAttribute('title'), '好友通知');
       assert.equal(await entry.locator('.notice-entry-text').isVisible(), true);
       assert.equal(await page.getByText('新朋友', { exact: true }).count(), 0);
+      const noticeIcon = await entry.locator('svg').innerHTML();
       await entry.click();
       await page.getByRole('region', { name: '好友通知', exact: true }).waitFor();
+      assert.equal(
+        await page
+          .getByRole('region', { name: '好友通知', exact: true })
+          .locator('.weq-page-icon svg')
+          .innerHTML(),
+        noticeIcon,
+      );
       await page
         .getByRole('region', { name: '好友通知', exact: true })
         .getByRole('button', { name: '返回', exact: true })

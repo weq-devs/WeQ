@@ -11,6 +11,8 @@ import {
   Trash2,
   X,
   ListTodo,
+  Tags,
+  UsersRound,
 } from 'lucide-react';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
 import { Card, Row } from '../settings/controls';
@@ -64,10 +66,10 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
     <section className="weq-qq-actions" aria-label="更多 QQ 群操作">
       {/* 与设置页同一套 Card/Row 语言：章节标题由资料页给出，这里不再重复「群管理」。 */}
       <div className="weq-qq-action-form">
-        <Card title="加群方式">
+        <Card title="加群方式" icon={<UsersRound size={15} strokeWidth={1.8} />}>
           <GroupJoinSettings key={groupId} groupId={groupId} />
         </Card>
-        <Card title="分类标签">
+        <Card title="分类标签" icon={<Tags size={15} strokeWidth={1.8} />}>
           <section className="weq-group-tags" aria-label="群分类标签">
             <Row
               label="群分类"
@@ -187,7 +189,7 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
             ) : null}
           </section>
         </Card>
-        <Card title="其他操作">
+        <Card title="其他操作" icon={<MoreHorizontal size={15} strokeWidth={1.8} />}>
           <Row
             label="退出群聊"
             control={

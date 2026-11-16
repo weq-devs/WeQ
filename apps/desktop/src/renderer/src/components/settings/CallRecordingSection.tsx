@@ -71,7 +71,7 @@ export function CallRecordingSection(): ReactElement {
       <SectionHeader
         title="通话与录音"
         desc="配置通话连接方式、录音内容与保存位置，以及抓包排障选项。"
-        icon={<PhoneCall size={16} strokeWidth={1.8} />}
+        page="call-recording"
       />
 
       <Card title="录制内容" icon={<PhoneCall size={15} strokeWidth={1.8} />}>

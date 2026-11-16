@@ -341,7 +341,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   return (
     <div className="weq-set weq-backup" aria-busy={Boolean(busy)}>
       <SectionHeader
-        icon={<ArchiveRestore size={17} />}
+        page="backup"
         title="配置备份与恢复"
         actions={
           <button

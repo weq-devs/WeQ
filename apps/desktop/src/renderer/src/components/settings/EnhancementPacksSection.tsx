@@ -85,7 +85,7 @@ export function EnhancementPacksSection() {
   }
   return (
     <div className="weq-set">
-      <SectionHeader title="增强包" icon={<Package size={18} strokeWidth={1.8} />} />
+      <SectionHeader title="增强包" page="enhancement-packs" />
       <Card
         title="增强包自动更新"
         icon={<Settings2 size={15} />}

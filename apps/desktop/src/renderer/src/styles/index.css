@@ -24374,10 +24374,6 @@ html[data-theme='dark'] .weq-mf-preview {
   gap: 6px;
 }
 
-.weq-mf-at {
-  font-weight: 700;
-}
-
 /* @ 候选浮层：定位 / 层级由 PortaledPopover 的内联样式给（portal 到 body +
    useOverlayLayer 发层，静态 z-index 会被对话框压住），这里只管外观与内容约束。 */
 .weq-mf-at-menu {

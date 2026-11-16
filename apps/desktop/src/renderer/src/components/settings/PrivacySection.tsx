@@ -13,7 +13,7 @@ export function PrivacySection() {
   return (
     <>
       <div className="weq-set">
-        <SectionHeader title="隐私" icon={<EyeOff size={16} />} />
+        <SectionHeader title="隐私" page="privacy" />
       </div>
       <div className="weq-set">
         <Card

@@ -9,7 +9,7 @@ import { EditorDialog } from '../EditorDialog';
 import { ProfileNavigationContext, profileTargetUser } from '../../lib/profileNavigation';
 import { useTabActive } from '../RetainedTabs';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
-import { Plus, Search, X, UsersRound } from 'lucide-react';
+import { EyeOff, Plus, Search, ShieldBan, X, UsersRound } from 'lucide-react';
 import '../../styles/qzone-permissions.css';
 
 function PermissionProfile({ uin, name }: { uin: string; name: string }) {
@@ -101,6 +101,7 @@ function PermissionKind({
       </>
     );
   const disabled = action.disabled || !Array.isArray(lists.data) || Boolean(lists.error);
+  const PermissionIcon = kind === 'blocked' ? ShieldBan : EyeOff;
   const existing = new Set(lists.data?.map((row) => row.uin));
   const allowed = (uin: string) =>
     /^[1-9]\d{4,11}$/.test(uin) && uin !== action.binding?.expectedAccountUin && !existing.has(uin);
@@ -113,7 +114,12 @@ function PermissionKind({
   return (
     <section className="weq-qzone-permissions weq-set-card" aria-label={label}>
       <header>
-        <h4>{label}</h4>
+        <h4 className="weq-set-card-title">
+          <span className="weq-set-card-icon" aria-hidden>
+            <PermissionIcon size={15} strokeWidth={1.8} />
+          </span>
+          {label}
+        </h4>
         {!lists.error && lists.data && (
           <span className="weq-qzone-permissions-count">
             {<span className="weq-number weq-number-inherit">{lists.data.length}</span>} 人

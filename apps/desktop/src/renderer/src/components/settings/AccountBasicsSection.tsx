@@ -31,7 +31,6 @@ import {
   RefreshCw,
   Smartphone,
   Trash2,
-  User,
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
@@ -360,12 +359,12 @@ export function AccountBasicsSection({
     <div className="weq-set">
       {heading && (
         <SectionHeader
-          icon={
-            page === 'account' ? (
-              <Plug size={16} strokeWidth={1.8} />
-            ) : (
-              <User size={16} strokeWidth={1.8} />
-            )
+          page={
+            page === 'account' || page === 'credentials'
+              ? page
+              : page === 'media'
+                ? 'resource-loading'
+                : 'database-management'
           }
           title={
             {

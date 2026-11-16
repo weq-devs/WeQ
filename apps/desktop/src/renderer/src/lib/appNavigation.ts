@@ -1,9 +1,5 @@
-import type { ComponentType } from 'react';
 import {
   BarChart3,
-  Bookmark,
-  Bot,
-  Download,
   FileStack,
   FolderOpen,
   Grid2X2,
@@ -11,15 +7,10 @@ import {
   House,
   LayoutGrid,
   ListTodo,
-  Mail,
-  MessageCircle,
   Palette,
   Settings,
-  Sparkles,
-  UserPlus,
-  UsersRound,
 } from 'lucide-react';
-import { SiQzone } from 'react-icons/si';
+import { FEATURE_ICONS, type FeatureIcon } from './featureIcons';
 import type { MainView } from '../im-template/template/types';
 
 export type NavigationTool = 'export' | 'viewer' | 'analysis' | 'tasks' | 'assistant' | 'backfill';
@@ -34,7 +25,7 @@ export type NavigationSurface = 'rail' | 'mobile-tabs' | 'mobile-more' | 'worksp
 export interface AppNavigationEntry {
   id: string;
   label: string;
-  icon: ComponentType<{ size?: number; strokeWidth?: number; 'aria-hidden'?: boolean }>;
+  icon: FeatureIcon;
   target: AppNavigationTarget;
   workspace?: string;
   keywords: readonly string[];
@@ -52,21 +43,21 @@ export const APP_NAVIGATION = {
   },
   messages: {
     label: '消息',
-    icon: MessageCircle,
+    icon: FEATURE_ICONS.messages,
     target: { kind: 'view', view: 'messages' },
     keywords: ['聊天', '会话'],
     placements: { rail: 0, 'mobile-tabs': 0, search: 1 },
   },
   contacts: {
     label: '联系人',
-    icon: UsersRound,
+    icon: FEATURE_ICONS.contacts,
     target: { kind: 'view', view: 'contacts' },
     keywords: ['好友', '群聊'],
     placements: { rail: 1, 'mobile-tabs': 1, search: 2 },
   },
   collections: {
     label: '收藏',
-    icon: Bookmark,
+    icon: FEATURE_ICONS.collections,
     target: { kind: 'view', view: 'collections' },
     workspace: 'collections',
     keywords: [],
@@ -74,7 +65,7 @@ export const APP_NAVIGATION = {
   },
   qzone: {
     label: 'QQ 空间',
-    icon: SiQzone,
+    icon: FEATURE_ICONS.qzone,
     target: { kind: 'view', view: 'qzone' },
     workspace: 'qzone',
     keywords: ['说说', '相册'],
@@ -82,7 +73,7 @@ export const APP_NAVIGATION = {
   },
   mail: {
     label: 'QQ 邮箱',
-    icon: Mail,
+    icon: FEATURE_ICONS.mail,
     target: { kind: 'view', view: 'mail' },
     keywords: ['邮件'],
     placements: { rail: 4, 'mobile-more': 1, search: 5 },
@@ -97,7 +88,7 @@ export const APP_NAVIGATION = {
   },
   'guild-direct': {
     label: '频道私聊',
-    icon: Hash,
+    icon: FEATURE_ICONS.guildDirect,
     target: { kind: 'view', view: 'guild-direct' },
     workspace: 'guild-direct',
     keywords: [],
@@ -105,7 +96,7 @@ export const APP_NAVIGATION = {
   },
   annual: {
     label: '年度报告',
-    icon: Sparkles,
+    icon: FEATURE_ICONS.annual,
     target: { kind: 'view', view: 'annual' },
     workspace: 'annual',
     keywords: ['年度总结'],
@@ -128,7 +119,7 @@ export const APP_NAVIGATION = {
   },
   assistant: {
     label: 'WeQ 助手',
-    icon: Bot,
+    icon: FEATURE_ICONS.assistant,
     target: { kind: 'tool', tool: 'assistant' },
     keywords: ['AI 助手', '智能助手'],
     placements: { 'mobile-more': 8, search: 11 },
@@ -143,7 +134,7 @@ export const APP_NAVIGATION = {
   },
   export: {
     label: '导出',
-    icon: Download,
+    icon: FEATURE_ICONS.export,
     target: { kind: 'tool', tool: 'export' },
     workspace: 'export',
     keywords: ['导出聊天记录', '备份聊天'],
@@ -166,7 +157,7 @@ export const APP_NAVIGATION = {
   },
   backfill: {
     label: '拉取漫游消息',
-    icon: Download,
+    icon: FEATURE_ICONS.backfill,
     target: { kind: 'tool', tool: 'backfill' },
     workspace: 'backfill',
     keywords: ['漫游消息', '补全聊天记录'],
@@ -196,14 +187,14 @@ export const APP_NAVIGATION = {
   },
   'friend-notice': {
     label: '好友通知',
-    icon: UserPlus,
+    icon: FEATURE_ICONS.friendNotice,
     target: { kind: 'contact-notice', notice: 'friend' },
     keywords: [],
     placements: {},
   },
   'group-notice': {
     label: '群通知',
-    icon: UsersRound,
+    icon: FEATURE_ICONS.groupNotice,
     target: { kind: 'contact-notice', notice: 'group' },
     keywords: [],
     placements: {},
