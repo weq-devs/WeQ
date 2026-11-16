@@ -30,22 +30,25 @@ export function EnhancementPacksSection() {
   const dialog = useAppDialog();
   const navigate = useContext(SettingsNavigateContext);
   const utils = trpc.useUtils();
+  const check = trpc.bootstrap.checkEnhancementUpdates.useMutation();
   const query = trpc.bootstrap.enhancementPacks.useQuery(undefined, {
     enabled: active,
     staleTime: 0,
     refetchOnMount: 'always',
     refetchInterval: (data) =>
       active &&
-      data?.packs.some(
-        (pack) =>
-          pack.busy || pack.check?.phase === 'checking' || pack.check?.phase === 'waiting-network',
-      )
+      (check.isLoading ||
+        data?.packs.some(
+          (pack) =>
+            pack.busy ||
+            pack.check?.phase === 'checking' ||
+            pack.check?.phase === 'waiting-network',
+        ))
         ? 750
         : false,
   });
   const [error, setError] = useState<string | null>(null);
   const prepare = trpc.bootstrap.prepareEnhancementPacks.useMutation();
-  const check = trpc.bootstrap.checkEnhancementUpdates.useMutation();
   const remove = trpc.bootstrap.deleteEnhancementPack.useMutation();
   const settings = trpc.bootstrap.setEnhancementUpdates.useMutation();
   const pause = trpc.bootstrap.pauseEnhancementPack.useMutation();
@@ -135,7 +138,9 @@ export function EnhancementPacksSection() {
           {packs.map((pack) => {
             const Icon = ICONS[pack.id];
             const operation = pack.operation;
-            const checking = pack.check?.phase === 'checking';
+            const checking =
+              pack.check?.phase === 'checking' ||
+              (check.isLoading && check.variables?.ids.includes(pack.id));
             const percent = operation?.total
               ? Math.min(100, Math.max(0, (operation.received / operation.total) * 100))
               : undefined;
@@ -147,17 +152,18 @@ export function EnhancementPacksSection() {
                 : operation?.retryAt && operation.retryAt > Date.now()
                   ? '等待自动重试'
                   : (operation?.note ?? '正在准备')
-              : pack.check?.phase === 'waiting-network'
-                ? '等待网络允许检查'
-                : pack.needsRepair
-                  ? '待补齐'
-                  : pack.check?.phase === 'checked'
-                    ? pack.updateAvailable
-                      ? '有可用更新'
-                      : '已检查'
-                    : null;
+              : checking
+                ? '正在检查更新'
+                : pack.check?.phase === 'waiting-network'
+                  ? '等待网络允许检查'
+                  : pack.needsRepair
+                    ? '待补齐'
+                    : pack.check?.phase === 'checked'
+                      ? pack.updateAvailable
+                        ? '有可用更新'
+                        : '已检查'
+                      : null;
             const issue = pack.blocker ?? operation?.error ?? pack.check?.error;
-            const busy = pack.busy || checking;
             const missing = pack.missingComponents?.length
               ? `缺少或损坏：${pack.missingComponents.join('、')}`
               : undefined;
@@ -196,7 +202,7 @@ export function EnhancementPacksSection() {
                       className="weq-set-btn weq-set-btn-soft"
                       title={`${pack.needsRepair ? '补齐' : '下载'}${pack.name} · ${enhancementBytes(pack.downloadBytes)}${missing ? `\n${missing}` : ''}`}
                       aria-label={`${pack.needsRepair ? '补齐' : '下载'}${pack.name}`}
-                      disabled={busy || !!pack.blocker || prepare.isLoading}
+                      disabled={pack.busy || !!pack.blocker || prepare.isLoading}
                       onClick={() => void act(() => prepare.mutateAsync({ ids: [pack.id] }))}
                     >
                       <Download size={14} />
@@ -211,7 +217,7 @@ export function EnhancementPacksSection() {
                         : `检查${pack.name}更新`
                     }
                     aria-label={updating ? `更新${pack.name}` : `检查${pack.name}更新`}
-                    disabled={busy || check.isLoading}
+                    disabled={pack.busy || (updating && prepare.isLoading)}
                     onClick={() =>
                       void act(() =>
                         updating
@@ -228,7 +234,7 @@ export function EnhancementPacksSection() {
                       className="weq-set-btn weq-set-btn-soft"
                       title={`删除${pack.name}`}
                       aria-label={`删除${pack.name}`}
-                      disabled={busy || remove.isLoading}
+                      disabled={pack.busy || remove.isLoading}
                       onClick={() => void erase(pack.id)}
                     >
                       <Trash2 size={14} />
@@ -271,7 +277,7 @@ export function EnhancementPacksSection() {
                     ) : null}
                   </div>
                 ) : status ? (
-                  <span className="weq-enhancement-status" title={missing}>
+                  <span className="weq-enhancement-status" title={missing} role="status">
                     {status}
                   </span>
                 ) : null}

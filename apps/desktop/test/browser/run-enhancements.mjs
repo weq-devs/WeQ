@@ -128,6 +128,44 @@ try {
   for (const width of [1024, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     for (const theme of ['light', 'dark']) {
+      await page.goto(`${url}?state=checking`);
+      await page.evaluate((theme) => {
+        const state = window.enhancementTheme.getState();
+        state.setPreference(theme);
+        state.setComponentStyle('qqnt');
+        state.setAccent(theme === 'light' ? '#075c30' : '#fff3a1');
+      }, theme);
+      assert.equal(await page.getByRole('status').filter({ hasText: '正在检查更新' }).count(), 4);
+      assert.equal(await page.locator('.weq-enhancement-actions button:disabled').count(), 0);
+      await page.getByRole('button', { name: '检查本地文字识别更新', exact: true }).click();
+      await page.getByRole('button', { name: '下载本地语音转写', exact: true }).click();
+      await page.getByRole('button', { name: '删除本地语音转写', exact: true }).waitFor();
+      await page.getByRole('button', { name: '删除本地文字识别', exact: true }).click();
+      await confirmation.waitFor();
+      await confirmation.getByRole('button', { name: '取消', exact: true }).click();
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+        true,
+      );
+      await page.screenshot({
+        path: resolve(output, `checking-${theme}-${width}.png`),
+        fullPage: true,
+      });
+    }
+  }
+  for (const [state, label] of [
+    ['checking-update', '更新'],
+    ['checking-partial', '补齐'],
+  ]) {
+    await page.goto(`${url}?state=${state}`);
+    await page.getByRole('button', { name: `${label}本地文字识别`, exact: true }).click();
+  }
+  await page.goto(`${url}?state=manual-check`);
+  assert.equal(await page.getByRole('status').filter({ hasText: '正在检查更新' }).count(), 1);
+  assert.equal(await page.locator('.weq-enhancement-actions button:disabled').count(), 0);
+  for (const width of [1024, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const theme of ['light', 'dark']) {
       await page.goto(`${url}?state=retrying`);
       await page.evaluate(
         (theme) => window.enhancementTheme.getState().setPreference(theme),

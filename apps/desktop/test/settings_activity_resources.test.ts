@@ -12,6 +12,7 @@ type Progress = { kind?: string };
 const fixture = vi.hoisted(() => ({
   listeners: new Map<string, { path: string; onData: (value: Progress) => void }>(),
   enabled: new Map<string, boolean>(),
+  intervals: new Map<string, number | false>(),
   refetch: vi.fn(),
   invalidate: vi.fn(),
   mutate: vi.fn(async (_input: unknown) => true),
@@ -19,6 +20,9 @@ const fixture = vi.hoisted(() => ({
   ready: false,
   busy: false,
   partial: false,
+  updateAvailable: false,
+  checkPhase: 'unchecked' as 'unchecked' | 'checking' | 'waiting-network' | 'checked',
+  checkLoading: false,
   autoCheck: true,
   autoInstall: false,
   requiresWeqUpdate: false,
@@ -32,7 +36,15 @@ vi.mock('../src/renderer/src/trpc/client', () => {
       get: (_target, key) => {
         if (key === 'useUtils') return () => proxy();
         if (key === 'useQuery')
-          return (_input: unknown, options: { enabled?: boolean }) => {
+          return (
+            _input: unknown,
+            options: {
+              enabled?: boolean;
+              refetchInterval?: (data: {
+                packs: { busy: boolean; check: { phase: string } }[];
+              }) => number | false;
+            },
+          ) => {
             const name = path.at(-1)!;
             fixture.enabled.set(name, options?.enabled !== false);
             const packs = (['text', 'voice', 'intent', 'dress'] as const).map((id, index) => ({
@@ -46,7 +58,8 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               installed: fixture.ready,
               needsRepair: fixture.ready && fixture.partial,
               missingComponents: fixture.partial ? ['文字筛图模型'] : [],
-              updateAvailable: fixture.partial,
+              updateAvailable: fixture.partial || fixture.updateAvailable,
+              check: { phase: fixture.checkPhase },
               blocker: fixture.requiresWeqUpdate ? '需先更新 WeQ 至 v3.0.0' : null,
               requiresWeqUpdate: fixture.requiresWeqUpdate,
               downloadBytes: fixture.ready ? 0 : 1048576,
@@ -57,6 +70,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                 ? { phase: 'downloading', total: 1048576, received: 524288 }
                 : null,
             }));
+            fixture.intervals.set(name, options?.refetchInterval?.({ packs }) ?? false);
             return {
               data:
                 name === 'enhancementPacks'
@@ -83,7 +97,12 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               refetch: fixture.refetch,
             };
           };
-        if (key === 'useMutation') return () => ({ mutateAsync: fixture.mutate, isLoading: false });
+        if (key === 'useMutation')
+          return () => ({
+            mutateAsync: fixture.mutate,
+            isLoading: path.at(-1) === 'checkEnhancementUpdates' && fixture.checkLoading,
+            variables: { ids: ['text'] },
+          });
         if (key === 'invalidate') return () => fixture.invalidate(path.join('.'));
         if (key === 'subscribe')
           return (_input: unknown, options: { onData: (value: Progress) => void }) => {
@@ -100,6 +119,7 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   fixture.listeners.clear();
   fixture.enabled.clear();
+  fixture.intervals.clear();
   fixture.refetch.mockClear();
   fixture.invalidate.mockClear();
   fixture.mutate.mockClear();
@@ -107,6 +127,9 @@ beforeEach(() => {
   fixture.ready = false;
   fixture.busy = false;
   fixture.partial = false;
+  fixture.updateAvailable = false;
+  fixture.checkPhase = 'unchecked';
+  fixture.checkLoading = false;
   fixture.autoCheck = true;
   fixture.autoInstall = false;
   fixture.requiresWeqUpdate = false;
@@ -178,6 +201,93 @@ describe('增强设置与非活动页面资源', () => {
       expect(f.host.querySelector('progress')).toBeNull();
       expect(f.host.textContent).toContain('1.00 MiB');
       expect(f.host.querySelectorAll('button[aria-label^="删除"]')).toHaveLength(4);
+    } finally {
+      f.dispose();
+    }
+  });
+  it.each([false, true])(
+    '检查中显示状态，不锁下载、删除或重复检查（已安装：%s）',
+    async (ready) => {
+      fixture.ready = ready;
+      fixture.checkPhase = 'checking';
+      fixture.checkLoading = true;
+      const f = mount(h(EnhancementPacksSection));
+      try {
+        const row = f.host.querySelector('[data-setting-id="enhancement-text"]')!;
+        expect(row.querySelector('[role="status"]')?.textContent).toBe('正在检查更新');
+        const action = row.querySelector<HTMLButtonElement>(
+          `[aria-label="${ready ? '删除' : '下载'}本地文字识别"]`,
+        )!;
+        expect(action.disabled).toBe(false);
+        await act(async () => action.click());
+        expect(fixture.mutate).toHaveBeenLastCalledWith(ready ? { id: 'text' } : { ids: ['text'] });
+        const check = row.querySelector<HTMLButtonElement>('[aria-label="检查本地文字识别更新"]')!;
+        expect(check.disabled).toBe(false);
+        await act(async () => check.click());
+        expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
+      } finally {
+        f.dispose();
+      }
+    },
+  );
+  it('手动检查发出即显示在途状态并轮询，不等宿主快照；结束后恢复结果', () => {
+    fixture.ready = true;
+    fixture.checkLoading = true;
+    const f = mount(h(EnhancementPacksSection));
+    try {
+      const row = f.host.querySelector('[data-setting-id="enhancement-text"]')!;
+      expect(row.querySelector('[role="status"]')?.textContent).toBe('正在检查更新');
+      expect(f.host.querySelectorAll('[role="status"]')).toHaveLength(1);
+      expect(f.host.querySelectorAll('.weq-enhancement-actions button:disabled')).toHaveLength(0);
+      expect(fixture.intervals.get('enhancementPacks')).toBe(750);
+      f.render(false);
+      expect(fixture.intervals.get('enhancementPacks')).toBe(false);
+      fixture.checkLoading = false;
+      fixture.checkPhase = 'checked';
+      f.render(true);
+      expect(row.querySelector('[role="status"]')?.textContent).toBe('已检查');
+      expect(fixture.intervals.get('enhancementPacks')).toBe(false);
+    } finally {
+      f.dispose();
+    }
+  });
+  it.each([false, true])('检查中不锁已知更新或补齐操作（缺项：%s）', async (partial) => {
+    fixture.ready = true;
+    fixture.partial = partial;
+    fixture.updateAvailable = true;
+    fixture.checkPhase = 'checking';
+    fixture.checkLoading = true;
+    const f = mount(h(EnhancementPacksSection));
+    try {
+      const button = f.host.querySelector<HTMLButtonElement>(
+        `[aria-label="${partial ? '补齐' : '更新'}本地文字识别"]`,
+      )!;
+      expect(button.disabled).toBe(false);
+      await act(async () => button.click());
+      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
+    } finally {
+      f.dispose();
+    }
+  });
+  it('检查等网络时可主动检查，真正准备资源时仍禁用互斥操作', async () => {
+    fixture.ready = true;
+    fixture.checkPhase = 'waiting-network';
+    fixture.checkLoading = true;
+    const f = mount(h(EnhancementPacksSection));
+    try {
+      expect(f.host.textContent).toContain('等待网络允许检查');
+      const check = f.host.querySelector<HTMLButtonElement>('[aria-label="检查本地文字识别更新"]')!;
+      expect(check.disabled).toBe(false);
+      await act(async () => check.click());
+      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
+      fixture.busy = true;
+      f.render(false);
+      f.render(true);
+      expect(check.disabled).toBe(true);
+      expect(
+        f.host.querySelector<HTMLButtonElement>('[aria-label="删除本地文字识别"]')!.disabled,
+      ).toBe(true);
+      expect(f.host.textContent).not.toContain('等待网络允许检查');
     } finally {
       f.dispose();
     }
