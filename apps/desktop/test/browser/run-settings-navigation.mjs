@@ -176,7 +176,7 @@ try {
       ]);
       assert.deepEqual(
         await page.locator('.weq-settings-body .weq-set-card-title').allTextContents(),
-        ['实时监听', '读取性能', '自动进入完整模式', '长期授权'],
+        ['实时监听', '读取性能', '长期授权', '自动启用与提醒'],
       );
       assert.equal(
         await page.getByRole('spinbutton', { name: '数据库读取并发上限', exact: true }).count(),

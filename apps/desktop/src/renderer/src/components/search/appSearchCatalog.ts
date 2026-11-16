@@ -135,7 +135,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['account', '长期授权', '权限助手', '免重复提权', '管理员授权'],
   ['chat-messages', '向 QQ 服务器上报已读位置'],
   ['account', '手动标记时上报已读位置'],
-  ['account', '自动读取 QQ 内存（完整功能）', '完整模式'],
+  ['account', '自动启用完整功能', '自动读取 QQ 内存（完整功能）'],
   ['account', '进入受限模式时横幅提醒', '受限横幅'],
   ['anti-recall', '防撤回', 'anti-recall'],
   ['rkey', '外部 RKEY', '外部 rKey 服务器'],

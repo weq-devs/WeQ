@@ -475,6 +475,20 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     from: ['startup'],
   },
   {
+    id: 'full-features',
+    section: 'account',
+    label: '完整功能',
+    aliases: ['功能差异', '受限模式', '在线能力', '漫游消息', '发送消息'],
+    from: ['account'],
+  },
+  {
+    id: 'full-feature-routes',
+    section: 'account',
+    label: '启用方式',
+    aliases: ['原版 QQ', '读取路线', '完整功能启用'],
+    from: ['account'],
+  },
+  {
     id: 'auto-full-mode',
     section: 'account',
     label: '自动启用完整功能',

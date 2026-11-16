@@ -81,6 +81,7 @@ export function LongTermAuthorizationSection() {
   return (
     <Card
       title={development ? '长期授权（开发）' : '长期授权'}
+      desc="读取路线之外的共用授权工具，用于 QQ 内存读取与网卡抓包，减少重复授权。助手已连接不代表当前账号的完整功能已就绪。"
       icon={<ShieldCheck size={15} strokeWidth={1.8} />}
       settingId="long-term-authorization"
     >

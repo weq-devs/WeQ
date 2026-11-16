@@ -27,7 +27,6 @@ import {
   KeyRound,
   Plug,
   Radio,
-  Zap,
   RefreshCw,
   Smartphone,
   Trash2,
@@ -40,8 +39,7 @@ import { useDialog } from '../Dialog';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { LongTermAuthorizationSection } from './LongTermAuthorizationSection';
 import { DatabaseReadSettings } from './DatabaseReadSettings';
-import { QqDebugCopy } from '../QqDebugCopy';
-import { IS_WEB } from '../../lib/target';
+import { FullFunctionSetup } from './FullFunctionSetup';
 import { CopyButton } from '../CopyButton';
 
 /** rkey `type_` → human label. Mirrors media_download.ts scene constants. */
@@ -226,7 +224,6 @@ export function AccountBasicsSection({
   const clientKey = cfg?.clientKey;
   const settingsLoading = settings.isLoading;
   const attachAllowed = fullMode.data?.allowed === true;
-  // macOS 现在也能读内存（需 root 且关闭 SIP），开关不再置灰 —— 只在文案里提示门槛。
   const isMac = systemInfo.data?.platformKind === 'darwin';
 
   // Each toggle: flip locally for instant feedback, persist, then refetch so a
@@ -334,7 +331,7 @@ export function AccountBasicsSection({
         <Row
           settingId="read-sync"
           label="向 QQ 服务器上报已读位置"
-          desc="向 QQ 服务器上报在 WeQ 阅读和手动标记已读的位置，可能清除其他端的未读提醒。默认开启，仅在线完整模式生效；标为未读不能恢复其他端已清除的提醒。"
+          desc="向 QQ 服务器上报在 WeQ 阅读和手动标记已读的位置，可能清除其他端的未读提醒。默认开启，仅在完整功能已启用且账号在线时生效；标为未读不能恢复其他端已清除的提醒。"
           control={
             <Toggle
               checked={reportRead || manualReadReport}
@@ -581,11 +578,9 @@ export function AccountBasicsSection({
       {page === 'account' && (
         <>
           <DatabaseReadSettings />
-          <Card
-            title="自动进入完整模式"
-            icon={<Zap size={15} strokeWidth={1.8} />}
-            resetId="attach"
-          >
+          <FullFunctionSetup isMac={isMac} />
+          <LongTermAuthorizationSection />
+          <Card title="自动启用与提醒" icon={<Plug size={15} strokeWidth={1.8} />} resetId="attach">
             <Row
               settingId="auto-full-mode"
               label={
@@ -594,11 +589,7 @@ export function AccountBasicsSection({
                   自动启用完整功能
                 </span>
               }
-              desc={
-                isMac
-                  ? 'macOS 可保持 SIP 开启并使用 QQ 调试副本。开启后自动尝试采集 rKey / ClientKey 等凭证；关闭后仍可为当前来源手动启用，手动请求仅在本次运行有效。'
-                  : '开启后自动尝试读取登录中的 QQ 进程内存，采集 rKey / ClientKey 等凭证并启用在线能力。关闭后不再自动尝试，仍可在受限模式详情中为当前来源手动启用；手动请求仅在本次运行有效。'
-              }
+              desc="打开账号后自动尝试读取 QQ 会话凭据并启用完整功能。关闭后仍可在受限模式详情中为当前来源手动启用；手动请求仅在宿主本次运行中有效，不改变下次启动偏好。"
               control={
                 <Toggle
                   checked={autoAttach}
@@ -616,7 +607,7 @@ export function AccountBasicsSection({
             <Row
               settingId="restricted-mode-banner"
               label="进入受限模式时横幅提醒"
-              desc="仅控制被动提醒，状态详情、管理员授权请求、主动操作错误和进入进度仍会显示。"
+              desc="完整功能就绪后再次受限时显示横幅。仅控制被动提醒，状态详情、授权请求、主动操作错误和启用进度仍会显示。"
               control={
                 <Toggle
                   checked={restrictedBanner}
@@ -629,16 +620,6 @@ export function AccountBasicsSection({
               }
             />
           </Card>
-          <LongTermAuthorizationSection />
-          {isMac && !IS_WEB && (
-            <Card
-              title="QQ 调试副本"
-              icon={<Copy size={15} strokeWidth={1.8} />}
-              settingId="qq-debug-copy"
-            >
-              <QqDebugCopy />
-            </Card>
-          )}
         </>
       )}
       {/* 外部安卓图片缓存（放最下面，带引导文案） */}
