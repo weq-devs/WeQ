@@ -1,7 +1,6 @@
 /* 设置 → 诊断工具 → 「签名器」卡片。
  *
- * 只有一块键值表 + 两条提示，颜色全部走 design token，深浅模式共用一套规则；
- * 深色差异只在需要压住对比度时显式覆盖（见文件末尾）。 */
+ * 只有一块键值表 + 两条提示，颜色全部走 design token，深浅模式共用一套规则。 */
 
 .weq-signer-kv {
   display: grid;
@@ -9,7 +8,6 @@
   gap: 8px 16px;
   margin: 0;
   padding: 4px 0 12px;
-  border-top: 1px solid var(--weq-border-subtle);
 }
 
 .weq-signer-kv dt {
@@ -42,12 +40,6 @@
   .weq-signer-kv dt {
     margin-top: 6px;
   }
-}
-
-/* 深色下 `--weq-fg-secondary` 已经足够区分，这里只把边框压淡一点，
- * 免得在深色卡片上显得过白。 */
-html[data-theme='dark'] .weq-signer-kv {
-  border-top-color: color-mix(in srgb, var(--weq-border-subtle) 70%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {
