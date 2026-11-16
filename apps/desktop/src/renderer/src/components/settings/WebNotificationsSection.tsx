@@ -43,7 +43,7 @@ export function WebNotificationsSection() {
       {enabled && available && Notification.permission !== 'granted' && (
         <button
           type="button"
-          className="weq-set-btn"
+          className="weq-set-btn weq-set-btn-primary"
           disabled={busy}
           onClick={() => void authorize()}
         >

@@ -6243,15 +6243,16 @@ html[data-theme='dark'] .weq-set-agent-tag {
   gap: 8px;
 }
 
+/* 普通操作与工具入口默认中性；任务主动作显式添加 weq-set-btn-primary。 */
 .weq-set-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  border: 1px solid var(--weq-accent-ink, var(--weq-accent-effective));
+  border: 1px solid var(--weq-border-strong);
   border-radius: 7px;
-  background: var(--weq-accent-solid);
-  color: var(--weq-accent-solid-foreground);
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
   font-size: 13px;
   cursor: pointer;
   transition:
@@ -6260,19 +6261,19 @@ html[data-theme='dark'] .weq-set-agent-tag {
 }
 
 .weq-set-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-fg-primary) 5%, var(--weq-bg-surface));
   filter: none;
+}
+
+.weq-set-btn-primary {
+  background: var(--weq-accent-solid);
+  border-color: var(--weq-accent-ink, var(--weq-accent-effective));
+  color: var(--weq-accent-solid-foreground);
+}
+
+.weq-set-btn-primary:hover:not(:disabled) {
+  background: var(--weq-accent-solid-hover);
   box-shadow: inset 0 0 0 1px currentColor;
-}
-
-.weq-set-btn-soft {
-  background: transparent;
-  border-color: rgba(0, 0, 0, 0.14);
-  color: #4b5563;
-}
-
-.weq-set-btn-soft:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.04);
-  filter: none;
 }
 
 .weq-set-btn:disabled {
@@ -6295,9 +6296,7 @@ html[data-theme='dark'] .weq-set-agent-tag {
   background: var(--weq-danger-solid-hover);
 }
 
-/* 账号列表里的「删除」——soft 底 + 红字，比实心 danger 轻，避免整行视觉过重。
-   与 .weq-set-btn 连写提高特异性：深色态的 .weq-set-btn-soft 规则排在本段之后，
-   否则它的 color 会把这里的红字盖掉。 */
+/* 账号列表里的「删除」使用轻量危险样式，避免整行视觉过重。 */
 .weq-set-btn.weq-set-btn-del {
   color: #d32f2f;
   border-color: rgba(211, 47, 47, 0.24);
@@ -6635,7 +6634,6 @@ html[data-theme='dark'] .weq-set-rkey-val {
   background: #141920;
 }
 
-html[data-theme='dark'] .weq-set-btn-soft,
 html[data-theme='dark'] .weq-set-chk,
 html[data-theme='dark'] .weq-set-account-item {
   border-color: rgba(255, 255, 255, 0.1);
@@ -6643,7 +6641,6 @@ html[data-theme='dark'] .weq-set-account-item {
   background: rgba(255, 255, 255, 0.02);
 }
 
-html[data-theme='dark'] .weq-set-btn-soft:hover:not(:disabled),
 html[data-theme='dark'] .weq-set-chk:hover:not(:disabled),
 html[data-theme='dark'] .weq-set-account-item:hover {
   background: rgba(255, 255, 255, 0.05);

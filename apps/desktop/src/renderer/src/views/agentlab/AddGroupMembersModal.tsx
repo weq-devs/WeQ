@@ -169,7 +169,7 @@ export function AddGroupMembersModal({
         </button>
         <button
           type="button"
-          className="weq-set-btn"
+          className="weq-set-btn weq-set-btn-primary"
           disabled={disabled || additions.length === 0}
           onClick={() => void submit()}
         >

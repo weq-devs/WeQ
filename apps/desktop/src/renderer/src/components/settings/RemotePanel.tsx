@@ -205,7 +205,12 @@ export function RemotePanel({
                   {tailscaleRunning ? '停止服务' : '启动服务'}
                 </button>
                 {tailscale && data?.network.state === 'login' ? (
-                  <button type="button" className="weq-set-btn" disabled={busy} onClick={onLogin}>
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-primary"
+                    disabled={busy}
+                    onClick={onLogin}
+                  >
                     <ExternalLink size={14} />
                     登录 Tailscale
                   </button>
@@ -245,7 +250,7 @@ export function RemotePanel({
             <button
               ref={generateButton}
               type="button"
-              className="weq-set-btn"
+              className="weq-set-btn weq-set-btn-primary"
               disabled={!online || busy || (embedKey && !tailscaleAddress)}
               onClick={() => {
                 if (embedKey) setKeyPrompt(true);
@@ -326,7 +331,11 @@ export function RemotePanel({
                   >
                     取消
                   </button>
-                  <button type="submit" className="weq-set-btn" disabled={!authKey.trim() || busy}>
+                  <button
+                    type="submit"
+                    className="weq-set-btn weq-set-btn-primary"
+                    disabled={!authKey.trim() || busy}
+                  >
                     <QrCode size={14} />
                     生成配对码
                   </button>
@@ -398,7 +407,7 @@ export function RemotePanel({
               </button>
               <button
                 type="button"
-                className="weq-set-btn"
+                className="weq-set-btn weq-set-btn-primary"
                 disabled={busy}
                 onClick={() => onDecide(request.id, true)}
               >

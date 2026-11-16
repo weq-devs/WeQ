@@ -305,7 +305,7 @@ export function DataSaverMenu() {
                     ) : null}
                     <button
                       type="button"
-                      className="weq-set-btn"
+                      className="weq-set-btn weq-set-btn-primary"
                       disabled={
                         busy ||
                         (duration === 'minutes' && !validMinutes) ||

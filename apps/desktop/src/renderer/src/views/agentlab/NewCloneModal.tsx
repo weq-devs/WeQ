@@ -252,7 +252,7 @@ export function NewCloneModal({
               </button>
               <button
                 type="button"
-                className="weq-set-btn"
+                className="weq-set-btn weq-set-btn-primary"
                 disabled={!targets.length}
                 onClick={() => setPicking(false)}
               >
@@ -366,7 +366,11 @@ export function NewCloneModal({
               <button className="weq-set-btn weq-set-btn-soft" onClick={requestClose}>
                 取消
               </button>
-              <button className="weq-set-btn" onClick={onStartClick} disabled={!chatSel}>
+              <button
+                className="weq-set-btn weq-set-btn-primary"
+                onClick={onStartClick}
+                disabled={!chatSel}
+              >
                 开始克隆
               </button>
             </div>

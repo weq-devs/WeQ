@@ -113,7 +113,7 @@ export function RestrictedQqAction({
       <div className="weq-restricted-actions">
         <button
           type="button"
-          className="weq-set-btn weq-restricted-qq-primary"
+          className="weq-set-btn weq-set-btn-primary weq-restricted-qq-primary"
           disabled={working || blocked}
           aria-busy={working}
           onClick={() => void run()}

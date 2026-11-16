@@ -234,7 +234,7 @@ export function TypingStatusSettingsCard() {
                 actions={
                   <button
                     type="button"
-                    className="weq-set-btn"
+                    className="weq-set-btn weq-set-btn-primary"
                     disabled={unavailable || conversations.isLoading || !!conversations.error}
                     onClick={() => void onSave()}
                   >

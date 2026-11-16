@@ -201,7 +201,7 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
                     返回
                   </button>
                   <button
-                    className="weq-set-btn"
+                    className="weq-set-btn weq-set-btn-primary"
                     type="button"
                     onClick={() => {
                       const id = state?.result?.id;

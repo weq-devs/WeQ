@@ -99,6 +99,7 @@ pnpm ci:local --full      # 额外跑 web 打包冒烟（≈ CI 的 build-web）
 - **颜色一律走 design token，不写死。** token 定义在 `apps/desktop/src/renderer/src/styles/index.css`：一套 shadcn 风格的基础色（`--background`、`--foreground`、`--card`、`--muted`、`--border`、`--primary`、`--ring`、`--radius`），一套 WeQ 语义色（`--weq-bg-surface`、`--weq-fg-primary` / `--weq-fg-secondary` / `--weq-fg-muted`、`--weq-border-subtle` / `--weq-border-strong`、`--weq-shadow-soft` / `--weq-shadow-card`）。
   Tailwind 里直接用 `bg-background`、`text-foreground`、`text-muted-foreground`、`border-border`、`bg-primary` 这类工具类。
 - **主题色用 `--weq-accent-effective`**（用户在「设置 → 常规 → 主题与背景 → 主题色」里挑的自定义色优先，没挑就回落到预设 `--weq-accent`）。强调色、描边、高亮、图表取色都用它；要淡一点、要半透明就用 `color-mix(in srgb, var(--weq-accent-effective) 15%, transparent)`，**不要**写死 `#0099ff` 或自己另挑一支蓝。
+- **普通按钮默认中性，主题色只强调任务主动作。** `weq-set-btn` 为中性底色与描边，保存、提交、确认或流程核心下一步显式添加 `weq-set-btn-primary`；`weq-set-btn-soft` 保留为旧中性用法。打开工具、浏览、复制、返回、取消及普通刷新／重试不因可点击而使用主题色实底，一个独立任务区通常最多一个主按钮，也可以没有。开关开启和选中状态独立表达，不与行动层级混用；各外观、深浅主题和自定义主题色均遵循同一语义。
 - **深色模式的差异要显式写覆盖**，它是独立一套值而不是浅色取反。主题钩在 `html[data-theme="dark"]` 上（`state/theme.ts` 同时 toggle `.dark` 类，两个都认），所以写 `html[data-theme="dark"] .your-class { ... }`。
 - **危险按钮分两档**：只有全局恢复、永久删除整段历史、清理不可再生媒体等高风险操作用红色实底（`data-danger="solid"`）；清除已读记录、局部恢复、删除单项配置等用红色描边与文字（`data-danger="outline"`）。保留各外观的尺寸、圆角、描边厚度和阴影，危险色不跟随用户主题色；兼顾深浅主题、悬停、键盘焦点和禁用状态。
 - 危险等级由实际操作显式提供；通用确认使用 `danger` 选项，QQ 操作及菜单透传同一等级。不要按文案关键词、警告／错误提示的 `tone` 自动染红，也不要把搜索清空、选择清空、取消、关闭、返回或普通重试当作危险操作。

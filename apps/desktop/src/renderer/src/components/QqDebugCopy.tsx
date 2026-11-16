@@ -171,7 +171,7 @@ export function QqDebugCopy({
       <div className="weq-qq-debug-actions">
         <button
           type="button"
-          className="weq-set-btn"
+          className={`weq-set-btn${!ready ? ' weq-set-btn-primary' : ''}`}
           disabled={busy || !data?.sourceVersion || data.state === 'unmanaged' || running}
           onClick={() => void run('prepare')}
         >
@@ -180,7 +180,7 @@ export function QqDebugCopy({
         </button>
         <button
           type="button"
-          className="weq-set-btn"
+          className={`weq-set-btn${ready ? ' weq-set-btn-primary' : ''}`}
           disabled={busy || !ready}
           onClick={() => void run('launch')}
         >

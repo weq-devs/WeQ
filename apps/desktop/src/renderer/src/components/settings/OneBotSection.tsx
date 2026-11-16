@@ -543,7 +543,7 @@ export function OneBotSection(): ReactElement {
                   <X size={13} />
                   取消
                 </button>
-                <button type="submit" className="weq-set-btn" disabled={busy}>
+                <button type="submit" className="weq-set-btn weq-set-btn-primary" disabled={busy}>
                   {saveServer.isLoading ? (
                     <Loader2 size={13} className="weq-set-spin" />
                   ) : (

@@ -136,24 +136,33 @@ export function UpdateCard(): ReactElement {
         </div>
         <div className="weq-set-row-ctrl">
           {phase === 'installing' ? (
-            <button type="button" className="weq-set-btn" disabled aria-busy="true">
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-primary"
+              disabled
+              aria-busy="true"
+            >
               <Loader2 size={14} strokeWidth={2} className="weq-spin" aria-hidden />
               正在重启…
             </button>
           ) : phase === 'downloaded' ? (
-            <button type="button" className="weq-set-btn" onClick={() => void install()}>
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-primary"
+              onClick={() => void install()}
+            >
               <RotateCw size={14} strokeWidth={1.8} aria-hidden />
               重启并安装
             </button>
           ) : phase === 'downloading' ? (
-            <button type="button" className="weq-set-btn" disabled>
+            <button type="button" className="weq-set-btn weq-set-btn-primary" disabled>
               <Loader2 size={14} strokeWidth={2} className="weq-spin" aria-hidden />
               下载中 <span className="weq-number weq-number-inherit">{pct}</span>%
             </button>
           ) : phase === 'available' ? (
             <button
               type="button"
-              className="weq-set-btn"
+              className="weq-set-btn weq-set-btn-primary"
               onClick={() => void download()}
               disabled={isDev || isManaged}
               title={

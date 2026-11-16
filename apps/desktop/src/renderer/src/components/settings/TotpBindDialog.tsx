@@ -288,7 +288,7 @@ export function TotpBindDialog({
                 ) : (
                   <button
                     type="button"
-                    className="weq-set-btn"
+                    className="weq-set-btn weq-set-btn-primary"
                     disabled={!setup || busy}
                     onClick={() => setStep('verify')}
                   >

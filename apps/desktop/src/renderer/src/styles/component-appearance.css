@@ -132,7 +132,7 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
     .weq-action-soft,
     .secondary-button,
     .mode-button:not(.active),
-    .weq-set-btn-soft:not(.weq-set-btn-danger):not(.weq-set-btn-del)
+    .weq-set-btn:not(.weq-set-btn-primary):not(.weq-set-btn-danger):not(.weq-set-btn-del)
   ):not(:disabled):not([data-danger]):not(:where(html[data-component-style='qqnt'] button)) {
   border: solid var(--weq-skin-border);
   border-width: var(--weq-control-border-width, var(--weq-skin-border-width));
@@ -175,12 +175,9 @@ html[data-component-style][data-theme]:not(
     [data-component-style='qqnt']
   )
   body
-  :is(
-    .weq-action-primary,
-    .primary-button,
-    .composer-send,
-    .weq-set-btn:not(.weq-set-btn-soft):not(.weq-set-btn-danger):not(.weq-set-btn-del)
-  ):not(:disabled):not([data-danger]) {
+  :is(.weq-action-primary, .primary-button, .composer-send, .weq-set-btn-primary):not(
+    :disabled
+  ):not([data-danger]) {
   border-style: solid;
   border-width: var(--weq-skin-primary-border-width);
   border-color: var(--weq-skin-primary-border);

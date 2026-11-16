@@ -168,7 +168,7 @@ export function AuthorizationForm({
         onChange={(event) => setPassword(event.target.value)}
       />
       <div className="weq-restricted-actions">
-        <button type="submit" className="weq-set-btn" disabled={!password}>
+        <button type="submit" className="weq-set-btn weq-set-btn-primary" disabled={!password}>
           <KeyRound size={14} />
           提权
         </button>
@@ -652,7 +652,7 @@ export function RestrictedModeHost() {
         {!showDebugCopy && reasons.some((reason) => reason.code === 'offline') && (
           <button
             type="button"
-            className="weq-set-btn"
+            className="weq-set-btn weq-set-btn-primary"
             disabled={busy || launching}
             aria-busy={launching}
             onClick={() => void startQq()}
@@ -677,7 +677,7 @@ export function RestrictedModeHost() {
         {reasons.some((r) => r.code === 'disabled') && (
           <button
             type="button"
-            className="weq-set-btn"
+            className="weq-set-btn weq-set-btn-primary"
             disabled={busy || launching}
             onClick={() => void refresh(true)}
           >

@@ -389,7 +389,7 @@ export function SsePushSection(): ReactElement {
                     )}
                     测试连接
                   </button>
-                  <button type="submit" className="weq-set-btn" disabled={busy}>
+                  <button type="submit" className="weq-set-btn weq-set-btn-primary" disabled={busy}>
                     <Save size={13} aria-hidden="true" />
                     保存
                   </button>

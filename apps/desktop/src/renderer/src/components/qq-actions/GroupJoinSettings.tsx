@@ -105,7 +105,7 @@ export function GroupJoinSettings({ groupId }: { groupId: number }) {
         <button
           type="button"
           aria-label="保存加群方式"
-          className="weq-set-btn"
+          className="weq-set-btn weq-set-btn-primary"
           disabled={!canSave}
           onClick={() => {
             if (mode === '') return;

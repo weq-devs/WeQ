@@ -142,7 +142,7 @@ export function QqDebugCopyPermissions({
         </button>
         <button
           type="button"
-          className="weq-set-btn"
+          className="weq-set-btn weq-set-btn-primary"
           disabled={busy || pending || !canLaunch}
           onClick={onLaunch}
         >

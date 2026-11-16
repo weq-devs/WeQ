@@ -469,7 +469,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
         <div className="weq-backup-actions">
           <button
             type="button"
-            className="weq-set-btn"
+            className="weq-set-btn weq-set-btn-primary"
             disabled={Boolean(busy) || !inventory || !exportValid}
             onClick={() =>
               void act('正在导出', async () => {
@@ -666,7 +666,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
             <div className="weq-backup-actions">
               <button
                 type="button"
-                className="weq-set-btn"
+                className="weq-set-btn weq-set-btn-primary"
                 disabled={Boolean(busy) || Boolean(pending) || !importValid}
                 onClick={() =>
                   void act('正在校验恢复范围', async () => {
@@ -718,7 +718,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
               </button>
               <button
                 type="button"
-                className="weq-set-btn"
+                className="weq-set-btn weq-set-btn-primary"
                 disabled={Boolean(busy) || Boolean(pending)}
                 onClick={() =>
                   void act('正在恢复', async () => {
@@ -783,7 +783,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
             {pending.phase === 'ready' ? (
               <button
                 type="button"
-                className="weq-set-btn"
+                className="weq-set-btn weq-set-btn-primary"
                 disabled={Boolean(busy)}
                 onClick={() => openConfirmation('apply')}
               >

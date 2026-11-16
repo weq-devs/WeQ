@@ -556,7 +556,7 @@ export function TtsProvidersCard(): ReactElement {
             <div className="weq-provider-modal-actions">
               <button
                 type="button"
-                className="weq-set-btn"
+                className="weq-set-btn weq-set-btn-primary"
                 onClick={() => void onSave()}
                 disabled={saveProvider.isLoading}
               >

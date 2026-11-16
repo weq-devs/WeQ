@@ -271,7 +271,11 @@ export function AppLockSection({ heading = true }: { heading?: boolean }): React
                   }
                 />
                 <div className="weq-set-btn-group">
-                  <button type="button" className="weq-set-btn" onClick={() => void onRebind()}>
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-primary"
+                    onClick={() => void onRebind()}
+                  >
                     <RefreshCw size={13} aria-hidden />
                     重新绑定
                   </button>
@@ -291,7 +295,11 @@ export function AppLockSection({ heading = true }: { heading?: boolean }): React
                   绑定后即可在验证器 App（Google Authenticator / Microsoft Authenticator / 1Password
                   等）中生成动态验证码用于解锁。
                 </p>
-                <button type="button" className="weq-set-btn" onClick={() => setBindOpen(true)}>
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-primary"
+                  onClick={() => setBindOpen(true)}
+                >
                   <KeyRound size={13} aria-hidden />
                   开始绑定
                 </button>

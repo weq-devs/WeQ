@@ -115,7 +115,7 @@ export function NewGroupModal({
             </button>
             <button
               type="button"
-              className="weq-set-btn"
+              className="weq-set-btn weq-set-btn-primary"
               disabled={!canCreate}
               onClick={() => onCreate({ name: name.trim(), personaIds: selected })}
             >

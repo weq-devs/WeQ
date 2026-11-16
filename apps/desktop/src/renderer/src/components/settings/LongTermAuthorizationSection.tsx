@@ -126,7 +126,7 @@ export function LongTermAuthorizationSection() {
         <div className="weq-set-btn-group">
           <button
             type="button"
-            className="weq-set-btn"
+            className="weq-set-btn weq-set-btn-primary"
             disabled={Boolean(pending) || !canManage}
             onClick={() => void run('install')}
           >

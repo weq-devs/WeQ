@@ -674,7 +674,7 @@ export function PersonalityPhotoUploader({
         </button>
         {files.some((row) => row.state === 'ready' || row.state === 'failed') ? (
           <button
-            className="weq-set-btn"
+            className="weq-set-btn weq-set-btn-primary"
             type="button"
             disabled={!online || op.pending}
             onClick={() => void op.run(upload)}

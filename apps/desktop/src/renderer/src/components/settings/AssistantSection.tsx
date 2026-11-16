@@ -163,7 +163,7 @@ export function AssistantSection() {
               />
               <button
                 type="button"
-                className="weq-set-btn weq-set-btn-sm"
+                className="weq-set-btn weq-set-btn-primary weq-set-btn-sm"
                 disabled={busy || status.isLoading || !data}
                 onClick={() => void savePort()}
               >

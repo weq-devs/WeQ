@@ -457,7 +457,7 @@ function ExportRuntimeCard({ personaId }: { personaId: string }): ReactElement |
             placeholder="http://127.0.0.1:8090"
           />
           <button
-            className="weq-set-btn weq-set-btn-sm"
+            className="weq-set-btn weq-set-btn-primary weq-set-btn-sm"
             disabled={openMut.isLoading}
             onClick={() => void openConsole(urlInput)}
           >
@@ -732,7 +732,7 @@ export function ExportTab({
 
       <div className="weq-clone-actions">
         <button
-          className="weq-set-btn"
+          className="weq-set-btn weq-set-btn-primary"
           disabled={pending || !save.binding || save.settings.isLoading}
           onClick={() => void doExport()}
         >
@@ -908,7 +908,7 @@ function PersonaSettingsBody({
                 <span role="alert">{form.error}</span>
                 <button
                   type="button"
-                  className="weq-set-btn"
+                  className="weq-set-btn weq-set-btn-primary"
                   disabled={!form.valid || form.saving || deleting}
                   onClick={() => void form.flush()}
                 >

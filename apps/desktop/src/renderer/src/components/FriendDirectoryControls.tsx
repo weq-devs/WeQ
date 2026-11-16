@@ -282,7 +282,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
                 取消
               </button>
               <button
-                className={`weq-set-btn${activeEditor.type === 'delete' ? ' weq-set-btn-danger' : ''}`}
+                className={`weq-set-btn${activeEditor.type === 'delete' ? ' weq-set-btn-danger' : ' weq-set-btn-primary'}`}
                 type="submit"
                 disabled={
                   busy ||

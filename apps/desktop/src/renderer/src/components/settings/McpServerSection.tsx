@@ -409,7 +409,7 @@ export function McpServerSection(): ReactElement {
               />
               <button
                 type="button"
-                className="weq-set-btn weq-set-btn-sm"
+                className="weq-set-btn weq-set-btn-primary weq-set-btn-sm"
                 disabled={busy || status.isLoading || !data}
                 onClick={() => void onSavePort()}
               >
@@ -600,7 +600,7 @@ export function McpServerSection(): ReactElement {
         <div className="weq-set-actions">
           <button
             type="button"
-            className="weq-set-btn"
+            className="weq-set-btn weq-set-btn-primary"
             disabled={!selectedAgents.size || installToAgents.isLoading}
             onClick={() => void onInstallAgents()}
           >

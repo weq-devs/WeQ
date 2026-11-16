@@ -696,7 +696,7 @@ export function AntiRecallDialog({
                   actions={
                     editor !== 'records' ? (
                       <button
-                        className="weq-set-btn"
+                        className="weq-set-btn weq-set-btn-primary"
                         type="button"
                         disabled={busy || conversations.isLoading || !!conversations.error}
                         onClick={() => void (choosingProtection ? onSaveTargets() : onSaveNotify())}
@@ -870,7 +870,7 @@ export function AntiRecallDialog({
                 action={
                   <button
                     type="button"
-                    className="weq-set-btn weq-set-btn-sm"
+                    className="weq-set-btn weq-set-btn-primary weq-set-btn-sm"
                     disabled={busy || status.isLoading || !status.data}
                     onClick={() => void onSaveTargets()}
                   >
