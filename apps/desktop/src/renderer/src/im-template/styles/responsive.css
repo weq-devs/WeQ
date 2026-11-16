@@ -169,8 +169,8 @@
 
 .tools-detail-fields {
   display: grid;
-  border-top: 1px solid #eeeeee;
-  border-bottom: 1px solid #eeeeee;
+  border-top: 1px solid var(--weq-border-subtle);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .tools-detail-row {
@@ -179,7 +179,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  border-top: 1px solid #eeeeee;
+  border-top: 1px solid var(--weq-border-subtle);
 }
 
 .tools-detail-row:first-child {
@@ -287,7 +287,7 @@
   grid-template-rows: 1fr;
   gap: 0;
   padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
-  border-top: 0.5px solid #e4e6ec;
+  border-top: 1px solid var(--weq-border-subtle);
   border-right: 0;
   background: rgba(246, 246, 250, 0.97);
 }
@@ -707,7 +707,7 @@
 }
 
 :where(html[data-weq-layout='single']) .contact-tools > button + button {
-  border-top: 1px solid #eeeeee;
+  border-top: 1px solid var(--weq-border-subtle);
 }
 
 :where(html[data-weq-layout='single']) .contact-tab-switch {
@@ -794,7 +794,7 @@
   gap: 4px;
   min-height: var(--chat-header-height);
   padding: 0 8px;
-  border-bottom: 1px solid #e2e3e7;
+  border-bottom: 1px solid var(--weq-border-subtle);
   background: #f1f2f4;
 }
 
@@ -1402,7 +1402,7 @@ html:where([data-weq-layout='single'])[data-theme='dark']
   margin: 0;
   padding: 0;
   transform: translateX(-50%);
-  border-top: 1px solid #edf0f4;
+  border-top: 1px solid var(--weq-border-subtle);
   background: #f8f8f9;
 }
 
@@ -1569,7 +1569,7 @@ html:where([data-weq-layout='single'])[data-theme='dark']
   gap: 0;
   padding: 0 16px;
   border: 0;
-  border-bottom: 1px solid #eeeeee;
+  border-bottom: 1px solid var(--weq-border-subtle);
   border-radius: 0;
   background: #ffffff;
 }
@@ -1706,7 +1706,6 @@ html:where([data-weq-layout='single'])[data-theme='dark']
 
 html:where([data-weq-layout='single'])[data-theme='dark'] .app-rail {
   --mobile-tabbar-bg: #1c1e20;
-  border-top-color: #25272b;
   background: rgba(28, 30, 32, 0.97);
 }
 
@@ -1809,7 +1808,6 @@ html:where([data-weq-layout='single'])[data-theme='dark'] .contact-row.active {
   color: #eef0f3;
 }
 
-html:where([data-weq-layout='single'])[data-theme='dark'] .contact-tools > button + button,
 html:where([data-weq-layout='single'])[data-theme='dark'] .mobile-detail-row,
 html:where([data-weq-layout='single'])[data-theme='dark'] .mobile-detail-switch-row {
   border-color: #2b2d31;
@@ -1832,10 +1830,6 @@ html:where([data-weq-layout='single'])[data-theme='dark'] .notice-pane,
 html:where([data-weq-layout='single'])[data-theme='dark'] .tools-pane,
 html:where([data-weq-layout='single'])[data-theme='dark'] .mobile-conversation-details {
   background: #101112;
-}
-
-html:where([data-weq-layout='single'])[data-theme='dark'] .chat-header {
-  border-bottom-color: #25272b;
 }
 
 html:where([data-weq-layout='single'])[data-theme='dark'] .composer,

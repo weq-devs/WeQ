@@ -683,7 +683,7 @@
   gap: 8px;
   margin-top: 2px;
   padding-top: 10px;
-  border-top: 1px dashed var(--weq-border-subtle);
+  border-top: 1px solid var(--weq-border-subtle);
 }
 
 /* ---- 任务卡片 ---- */
@@ -871,7 +871,7 @@
 
 /* ---- 请求记录 ---- */
 .weq-roaming-receipts {
-  border-top: 1px dashed var(--weq-border-subtle);
+  border-top: 1px solid var(--weq-border-subtle);
   padding-top: 8px;
 }
 .weq-roaming-receipts summary {

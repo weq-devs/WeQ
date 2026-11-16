@@ -37,7 +37,7 @@
   margin: 0;
   padding: 0 0 10px;
   border-top: 0;
-  border-bottom: 1px dashed var(--weq-border-subtle);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .weq-set-details.weq-full-function-comparison-details > summary {
@@ -140,12 +140,6 @@
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-html[data-theme='dark'] .weq-full-function-section,
-html[data-theme='dark'] .weq-full-function-comparison-details,
-html[data-theme='dark'] .weq-full-function-comparison :is(th, td) {
-  border-color: var(--weq-border-strong);
 }
 
 @media (max-width: 600px) {

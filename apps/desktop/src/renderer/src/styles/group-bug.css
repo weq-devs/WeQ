@@ -155,7 +155,7 @@ html[data-theme='dark'] .weq-group-bug {
   display: inline-flex;
   gap: 2px;
   padding: 4px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--weq-border-subtle);
   background: var(--muted);
 }
 

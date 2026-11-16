@@ -210,10 +210,13 @@ html[data-theme='dark'] .rail-footer button:not(.weq-reminder-count):hover {
 }
 
 html[data-theme='dark'] .sidebar,
-html[data-theme='dark'] .sidebar-header,
 html[data-theme='dark'] .bot-management-sidebar {
   background: #191a1c;
   border-color: #1f1f1f;
+}
+
+html[data-theme='dark'] .sidebar-header {
+  background: #191a1c;
 }
 
 html[data-theme='dark'] .chat-header,
@@ -309,7 +312,6 @@ html[data-theme='dark'] .emoji-panel {
 }
 
 html[data-theme='dark'] .reaction-picker-head {
-  border-bottom-color: rgba(255, 255, 255, 0.08);
   color: #9da3ad;
 }
 
@@ -569,7 +571,6 @@ html[data-theme='dark'] .composer-toggle:focus-visible {
   color: #cfd2d6;
 }
 
-html[data-theme='dark'] .details-toggle-row,
 html[data-theme='dark'] .notice-card,
 html[data-theme='dark'] .auth-form input,
 html[data-theme='dark'] .mode-button,
@@ -581,7 +582,6 @@ html[data-theme='dark'] .invite-card {
   background: #272829;
 }
 
-html[data-theme='dark'] .details-toggle-row,
 html[data-theme='dark'] .contact-profile-fields,
 html[data-theme='dark'] .contact-profile-row,
 html[data-theme='dark'] .emoji-tabs,
@@ -718,12 +718,10 @@ html[data-theme='dark'] .contact-profile-actions .secondary-button {
 }
 
 html[data-theme='dark'] .details-toggle-row {
-  border-color: transparent;
   background: #252627;
 }
 
 html[data-theme='dark'] .details-toggle-row {
-  border-top-color: #38393b;
   color: #f1f3f5;
 }
 
@@ -803,9 +801,6 @@ html[data-theme='dark'] .mobile-settings-search {
   color: #eef0f3;
 }
 
-html[data-theme='dark'] .tools-row,
-html[data-theme='dark'] .tools-detail-fields,
-html[data-theme='dark'] .tools-detail-row,
 html[data-theme='dark'] .tools-detail-related button,
 html[data-theme='dark'] .mobile-profile-row,
 html[data-theme='dark'] .mobile-detail-row,

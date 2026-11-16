@@ -1471,7 +1471,7 @@ html[data-theme='dark'] .link-card-preview-card {
   display: flex;
   gap: 2px;
   padding: 6px 8px 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .ai-voice-panel-tabs button {
@@ -1510,7 +1510,7 @@ html[data-theme='dark'] .link-card-preview-card {
   align-items: center;
   gap: 8px;
   padding: 9px 10px 9px 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .ai-voice-head-title {
@@ -1758,7 +1758,7 @@ html[data-theme='dark'] .link-card-preview-card {
   align-items: center;
   gap: 8px;
   padding: 9px 12px;
-  border-top: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+  border-top: 1px solid var(--weq-border-subtle);
 }
 
 .ai-voice-hint {
@@ -1883,7 +1883,7 @@ html[data-theme='dark'] .ai-voice-chip {
   align-items: center;
   gap: 8px;
   padding: 9px 10px 9px 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .bounce-head-title {
@@ -2290,7 +2290,7 @@ html[data-theme='dark'] .ai-voice-chip {
   align-items: center;
   gap: 8px;
   padding: 9px 12px;
-  border-top: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+  border-top: 1px solid var(--weq-border-subtle);
 }
 
 .bounce-hint {
@@ -2428,7 +2428,7 @@ html[data-theme='dark'] .bounce-search {
   align-items: center;
   gap: 8px;
   padding: 9px 10px 9px 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .poke-head-title {
@@ -2655,7 +2655,7 @@ html[data-theme='dark'] .bounce-search {
   display: grid;
   gap: 8px;
   padding-top: 10px;
-  border-top: 1px dashed color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+  border-top: 1px solid var(--weq-border-subtle);
 }
 
 .poke-random-head {
@@ -2727,7 +2727,7 @@ html[data-theme='dark'] .bounce-search {
   align-items: center;
   gap: 8px;
   padding: 9px 12px;
-  border-top: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+  border-top: 1px solid var(--weq-border-subtle);
 }
 
 .poke-hint {
@@ -2860,7 +2860,7 @@ html[data-theme='dark'] .poke-combo-btn {
   align-items: center;
   gap: 8px;
   padding: 9px 10px 9px 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .redpacket-head-title {
@@ -3351,7 +3351,7 @@ html[data-theme='dark'] .poke-combo-btn {
   align-items: center;
   gap: 8px;
   padding: 9px 12px;
-  border-top: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
+  border-top: 1px solid var(--weq-border-subtle);
 }
 
 .redpacket-hint {
@@ -3460,7 +3460,7 @@ html[data-theme='dark'] .redpacket-step {
     justify-items: start;
     column-gap: 12px;
     padding-top: 10px;
-    border-top: 1px dashed color-mix(in srgb, var(--im-color-line, #dedede) 76%, transparent);
+    border-top: 1px solid var(--weq-border-subtle);
   }
 
   .redpacket-cover {
