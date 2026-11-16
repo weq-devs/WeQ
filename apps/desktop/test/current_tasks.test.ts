@@ -600,6 +600,22 @@ describe('统一当前任务', () => {
       await act(async () => button('删除导出缓存')!.click());
       expect(actions.resume).toHaveBeenCalledWith(paused);
       expect(actions.remove).toHaveBeenCalledWith(paused);
+      const download: UiTask = {
+        ...paused,
+        resource: { kind: 'group-files' },
+        resumeMode: 'restart',
+        networkPaused: true,
+      };
+      render(download);
+      expect(button('继续导出')).toBeNull();
+      await act(async () => button('重新下载')!.click());
+      await act(async () => button('取消下载')!.click());
+      expect(actions.resume).toHaveBeenLastCalledWith(download);
+      expect(actions.cancel).toHaveBeenLastCalledWith(download);
+      render({ ...download, status: 'running', canResume: false, networkPaused: false });
+      expect(button('暂停')).toBeNull();
+      expect(button('重新下载')).toBeNull();
+      expect(button('取消下载')).not.toBeNull();
       render({ ...base, status: 'pending' });
       expect(button('取消')?.disabled).toBe(false);
       render({ ...paused, isFinalizing: true });

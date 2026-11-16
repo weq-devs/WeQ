@@ -101,3 +101,52 @@ it('独立阶段支持单项跳过，正文没有跳过按钮', () => {
     host.remove();
   }
 });
+
+it('文件下载不提供假暂停，运行中和排队中均可取消，策略暂停可重新下载', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const resume = vi.fn(),
+    cancel = vi.fn();
+  const value: UiTask = {
+    ...task,
+    resource: { kind: 'media' },
+    resumeMode: 'restart',
+    networkPaused: true,
+    journalPath: undefined,
+    partialReady: false,
+  };
+  const render = (value: UiTask) =>
+    act(() =>
+      root.render(
+        h(TaskList, {
+          tasks: [value],
+          detailOnly: true,
+          onResume: resume,
+          onCancel: cancel,
+          onPause: vi.fn(),
+          onDownload: vi.fn(),
+          onDelete: vi.fn(),
+          onShowFailures: vi.fn(),
+        }),
+      ),
+    );
+  try {
+    render(value);
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="重新下载"]')!.click());
+    expect(resume).toHaveBeenCalledWith(value);
+    act(() => host.querySelector<HTMLButtonElement>('[title="取消下载"]')!.click());
+    expect(cancel).toHaveBeenCalledWith(value);
+    expect(host.querySelector('[aria-label="重新执行导出"]')).toBeNull();
+    for (const status of ['running', 'pending'] as const) {
+      const active = { ...value, status, canResume: false, networkPaused: false };
+      render(active);
+      expect(host.querySelector('[title="暂停"]')).toBeNull();
+      expect(host.querySelector('[aria-label="重新下载"]')).toBeNull();
+      act(() => host.querySelector<HTMLButtonElement>('[title="取消下载"]')!.click());
+      expect(cancel).toHaveBeenLastCalledWith(active);
+    }
+  } finally {
+    act(() => root.unmount());
+  }
+});

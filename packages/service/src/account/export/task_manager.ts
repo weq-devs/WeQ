@@ -1887,7 +1887,10 @@ export class ExportTaskManager extends EventEmitter {
       if (abort.signal.aborted) {
         if (task.status === 'running') task.status = 'paused';
         stage.status = 'pending';
-        task.error = '资源处理已中断；尚未生成完整结果，请重新选择资源创建任务。';
+        task.error =
+          this.tasks.get(task.id)?.status === 'cancelled'
+            ? undefined
+            : '资源处理已中断；尚未生成完整结果，请重新选择资源创建任务。';
       } else {
         task.status = 'failed';
         stage.status = 'failed';
@@ -6399,6 +6402,10 @@ export class ExportTaskManager extends EventEmitter {
     if (!task || task.status === 'completed' || this.finalizing.has(id)) return false;
     if (task.status === 'running') this.abortControllers.get(id)?.abort();
     task.status = 'cancelled';
+    if (task.resource) {
+      task.error = undefined;
+      task.networkPaused = false;
+    }
     task.updatedAt = Date.now();
     this.log(id, 'task', '任务已取消', 'warn');
     this.saveTasks();

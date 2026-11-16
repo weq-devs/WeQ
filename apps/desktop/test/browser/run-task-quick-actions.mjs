@@ -101,6 +101,14 @@ try {
       }),
     );
     if (overflow) throw new Error(`小菜单溢出: ${dark}/${width}`);
+    const paused = page.locator('.weq-long-task-entry').filter({ hasText: '合成暂停文件下载.zip' });
+    await paused.getByRole('button', { name: '重新下载', exact: true }).waitFor();
+    await paused.getByRole('button', { name: '取消下载', exact: true }).waitFor();
+    await paused.scrollIntoViewIfNeeded();
+    if (output)
+      await page.screenshot({
+        path: resolve(output, `resource-paused-${dark ? 'dark' : 'light'}-${width}.png`),
+      });
     const saved = page.locator('.weq-long-task-entry').filter({ hasText: '合成已保存结果' });
     if ((await saved.locator('.weq-task-quick-actions > button').count()) !== 3)
       throw new Error('常用按钮与更多按钮的数量不符合预期');
@@ -159,6 +167,13 @@ try {
     calls.filter((call) => call.action === 'account.flashOpenDownloadOutput').length !== 3
   )
     throw new Error(`结果快捷操作调用异常: ${JSON.stringify(calls)}`);
+  const resource = page.locator('.weq-long-task-entry').filter({ hasText: '合成暂停文件下载.zip' });
+  await resource.getByRole('button', { name: '重新下载', exact: true }).click();
+  if (await resource.getByRole('button', { name: '暂停', exact: true }).count())
+    throw new Error('不能断点继续的文件下载不应提供暂停入口');
+  await resource.getByRole('button', { name: '取消下载', exact: true }).click();
+  if (await resource.getByRole('button', { name: '重新下载', exact: true }).count())
+    throw new Error('取消后不应保留重新下载入口');
   const exported = page.locator('.weq-long-task-entry').filter({ hasText: '合成导出-long' });
   await exported.getByRole('button', { name: '暂停', exact: true }).click();
   await exported.getByRole('button', { name: '继续导出', exact: true }).click();

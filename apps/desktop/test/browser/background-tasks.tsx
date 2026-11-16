@@ -77,6 +77,20 @@ function Fixture() {
     compact
       ? [
           {
+            id: 'resource-paused',
+            name: '合成暂停文件下载.zip',
+            kind: 'c2c',
+            format: 'json',
+            resource: { kind: 'group-files' },
+            status: 'paused',
+            networkPaused: true,
+            canResume: true,
+            resumeMode: 'restart',
+            progress: 50,
+            current: 1,
+            total: 2,
+          },
+          {
             id: 'export-quick',
             name: '合成导出-long-conversation-name-for-compact-menu',
             kind: 'c2c',
@@ -112,7 +126,8 @@ function Fixture() {
           exports={tasks}
           exportActions={{
             pause: (task) => update(task, { status: 'paused', canResume: true }),
-            resume: (task) => update(task, { status: 'running', canResume: false }),
+            resume: (task) =>
+              update(task, { status: 'running', canResume: false, networkPaused: false }),
             cancel: (task) => update(task, { status: 'cancelled', canResume: false }),
             remove: (task) => setTasks((items) => items.filter((item) => item.id !== task.id)),
             save: (task) => {

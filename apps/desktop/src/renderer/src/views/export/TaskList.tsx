@@ -166,6 +166,34 @@ const STATUS_LABEL: Record<UiTask['status'], string> = {
   cancelled: '已取消',
 };
 
+export function isResourceDownload(t: UiTask): boolean {
+  return Boolean(
+    t.resource &&
+      [
+        'group-files',
+        'group-albums',
+        'qzone-albums',
+        'media',
+        'mail-attachment',
+        'market-image',
+        'decoration',
+      ].includes(t.resource.kind),
+  );
+}
+
+export function taskResumeActionLabel(t: UiTask): string {
+  if (t.status === 'completed') return '补传已跳过项目';
+  if (t.resumeMode === 'restart') {
+    if (isResourceDownload(t)) return '重新下载';
+    return t.resource ? '重新执行' : '重新执行导出';
+  }
+  return '继续导出';
+}
+
+export function taskCancelActionLabel(t: UiTask): string {
+  return isResourceDownload(t) ? '取消下载' : '取消';
+}
+
 /** Percent for one stage's bar. */
 function stagePct(s: UiStage): number {
   if (s.status === 'completed' || s.status === 'skipped') return 100;
@@ -558,19 +586,13 @@ function TaskDetail({
             <button
               type="button"
               title={
-                t.status === 'completed'
-                  ? '补传已跳过项目'
-                  : t.resumeMode === 'restart'
-                    ? '按原范围重新执行'
-                    : '继续导出'
+                t.resumeMode === 'restart' && t.status !== 'completed'
+                  ? isResourceDownload(t)
+                    ? '按原选择重新下载文件'
+                    : '按原范围重新执行'
+                  : taskResumeActionLabel(t)
               }
-              aria-label={
-                t.status === 'completed'
-                  ? '补传已跳过项目'
-                  : t.resumeMode === 'restart'
-                    ? '重新执行导出'
-                    : '继续导出'
-              }
+              aria-label={taskResumeActionLabel(t)}
               onClick={() => onResume(t)}
             >
               {t.resumeMode === 'restart' ? <RotateCw size={15} /> : <Play size={15} />}
@@ -586,7 +608,7 @@ function TaskDetail({
               <FileCheck size={15} />
             </button>
           ) : null}
-          {t.status === 'running' ? (
+          {t.status === 'running' && !isResourceDownload(t) ? (
             <button type="button" title="暂停" onClick={() => onPause(t)}>
               <Pause size={15} />
             </button>
@@ -632,10 +654,13 @@ function TaskDetail({
               <Download size={15} />
             </button>
           ) : null}
-          {t.status === 'paused' || t.status === 'failed' ? (
+          {t.status === 'paused' ||
+          t.status === 'failed' ||
+          (isResourceDownload(t) && ['pending', 'running'].includes(t.status)) ? (
             <button
               type="button"
-              title="取消"
+              title={taskCancelActionLabel(t)}
+              aria-label={taskCancelActionLabel(t)}
               disabled={t.isFinalizing}
               onClick={() => onCancel(t)}
             >

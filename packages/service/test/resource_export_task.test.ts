@@ -22,7 +22,7 @@ afterEach(() => {
 describe('独立资源沿用导出任务生命周期', () => {
   it('继续一个策略暂停任务只放行其执行上下文，小附件不按批量下载暂停', async () => {
     const f = fixture();
-    updateClientNetwork('manual-phone', networkCost(false, true, 'phone'));
+    updateClientNetwork('manual-phone', networkCost(true, true, 'phone'));
     const run = vi.fn(async () => {
       expect(networkScope.getStore()?.override).toBe(true);
       return { total: 0, ok: 0, failed: [] };
@@ -56,7 +56,7 @@ describe('独立资源沿用导出任务生命周期', () => {
   });
   it('受限手机创建的联网任务先暂停，其他端和本地任务继续，恢复后只启动策略暂停任务', async () => {
     const f = fixture();
-    updateClientNetwork('export-phone', networkCost(false, true, 'phone'));
+    updateClientNetwork('export-phone', networkCost(true, true, 'phone'));
     const run = vi.fn(async () => ({ total: 0, ok: 0, failed: [] }));
     const id = await networkScope.run(
       { clientId: 'export-phone', restricted: true, intent: 'interactive' },
@@ -500,6 +500,82 @@ describe('独立资源沿用导出任务生命周期', () => {
       expect(new ExportTaskManager({} as MsgService, f.cache).listTasks()[0]?.canResume).toBe(
         false,
       );
+      if (action === 'cancel') expect(f.manager.getTask(id)?.error).toBeUndefined();
     },
   );
+  it('暂停收尾期间不可重入，取消后即使旧运行器完成也不能恢复或发布', async () => {
+    const f = fixture();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const run = vi.fn(async () => {
+      await gate;
+      return { total: 0, ok: 0, failed: [] };
+    });
+    const id = await f.manager.startResourceExport({
+      name: '暂停收尾',
+      kind: 'group-files',
+      run,
+      savePolicy: { mode: 'before', directory: f.root },
+    });
+    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
+    expect(f.manager.pauseTask(id)).toBe(true);
+    expect(f.manager.listTasks()[0]?.canResume).toBe(false);
+    expect(f.manager.resumeTask(id)).toBe(false);
+    expect(f.manager.cancelTask(id)).toBe(true);
+    release();
+    await vi.waitFor(() =>
+      expect(readdirSync(f.cache).some((name) => name.endsWith('.partial'))).toBe(false),
+    );
+    expect(f.manager.getTask(id)?.status).toBe('cancelled');
+    expect(f.manager.resumeTask(id)).toBe(false);
+    expect(f.manager.getTask(id)?.bundleDir).toBeUndefined();
+  });
+  it('暂停完成后取消清除暂停提示，不再提供重新执行', async () => {
+    const f = fixture();
+    const run = vi.fn(async ({ signal }: { signal: AbortSignal }) => {
+      await new Promise<void>((_resolve, reject) =>
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+      );
+      return { total: 0, ok: 0, failed: [] };
+    });
+    const id = await f.manager.startResourceExport({
+      name: '暂停后取消',
+      kind: 'group-files',
+      run,
+      savePolicy: { mode: 'before', directory: f.root },
+    });
+    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
+    f.manager.pauseTask(id);
+    await vi.waitFor(() =>
+      expect(readdirSync(f.cache).some((name) => name.endsWith('.partial'))).toBe(false),
+    );
+    expect(f.manager.getTask(id)?.error).toContain('已中断');
+    expect(f.manager.cancelTask(id)).toBe(true);
+    expect(f.manager.getTask(id)?.error).toBeUndefined();
+    expect(f.manager.resumeTask(id)).toBe(false);
+  });
+  it('取消策略暂停的下载后清除暂停状态，网络恢复也不会重新开始', async () => {
+    const f = fixture();
+    updateClientNetwork('cancel-phone', networkCost(true, false, 'phone'));
+    const run = vi.fn(async () => ({ total: 0, ok: 0, failed: [] }));
+    const id = await networkScope.run(
+      { clientId: 'cancel-phone', restricted: true, intent: 'batch' },
+      () =>
+        f.manager.startResourceExport({
+          name: '取消受限下载',
+          kind: 'group-files',
+          run,
+          savePolicy: { mode: 'before', directory: f.root },
+        }),
+    );
+    await vi.waitFor(() => expect(f.manager.getTask(id)?.networkPaused).toBe(true));
+    expect(f.manager.cancelTask(id)).toBe(true);
+    expect(f.manager.getTask(id)).toMatchObject({ status: 'cancelled', networkPaused: false });
+    updateClientNetwork('cancel-phone', networkCost(false, false, 'phone'));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(f.manager.getTask(id)?.status).toBe('cancelled');
+    expect(run).not.toHaveBeenCalled();
+  });
 });

@@ -40,6 +40,9 @@ import {
   taskPct,
   taskTypeLabel,
   taskSaveActionLabel,
+  taskResumeActionLabel,
+  taskCancelActionLabel,
+  isResourceDownload,
   type UiTask,
 } from '../../views/export/TaskList';
 import { LongTaskRow, orderLongTasks, type LongTaskItem } from './LongTaskRow';
@@ -187,7 +190,7 @@ export function CurrentTaskList({
           secondary: true,
           run: () => exportActions.report!(task),
         });
-      if (task.status === 'running' || task.networkPaused)
+      if (!isResourceDownload(task) && (task.status === 'running' || task.networkPaused))
         actions.push({
           id: 'pause',
           label: task.networkPaused ? '保持暂停' : '暂停',
@@ -197,12 +200,7 @@ export function CurrentTaskList({
       if (task.canResume)
         actions.push({
           id: 'resume',
-          label:
-            task.status === 'completed'
-              ? '补传已跳过项目'
-              : task.resumeMode === 'restart'
-                ? '重新执行导出'
-                : '继续导出',
+          label: taskResumeActionLabel(task),
           icon: task.resumeMode === 'restart' ? <RotateCw size={14} /> : <Play size={14} />,
           disabled: saving || task.isFinalizing,
           run: () => exportActions.resume(task),
@@ -210,7 +208,7 @@ export function CurrentTaskList({
       if (['pending', 'running', 'paused', 'failed'].includes(task.status))
         actions.push({
           id: 'cancel',
-          label: '取消',
+          label: taskCancelActionLabel(task),
           icon: <Square size={14} />,
           disabled: task.isFinalizing,
           run: () => exportActions.cancel(task),
