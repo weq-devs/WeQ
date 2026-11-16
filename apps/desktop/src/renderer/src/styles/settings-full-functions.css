@@ -1,44 +1,14 @@
-.weq-full-function-section {
-  min-width: 0;
-  padding: 14px 0;
-  border-top: 1px solid var(--weq-border-subtle);
-  color: var(--weq-fg-primary);
-}
-
-.weq-full-function-heading {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin: 0 0 10px;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.5;
-}
-
-.weq-full-function-heading > svg {
-  flex: none;
-  color: var(--weq-accent-ink, var(--weq-accent-effective));
-}
-
-.weq-full-function-description {
-  margin: 8px 0 0;
-  color: var(--weq-fg-secondary);
-  font-size: 12px;
-  line-height: 1.65;
-  overflow-wrap: anywhere;
-}
-
 .weq-full-function-comparison {
   table-layout: fixed;
   width: 100%;
-  margin: 12px 0;
+  margin: 0;
   border-collapse: collapse;
   font-size: 12px;
-  line-height: 1.6;
+  line-height: 1.55;
 }
 
 .weq-full-function-comparison :is(th, td) {
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--weq-border-subtle);
   vertical-align: top;
   text-align: left;
@@ -63,27 +33,24 @@
 }
 
 .weq-full-function-route {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--weq-border-subtle);
+  display: grid;
+  gap: 8px;
   min-width: 0;
 }
 
-.weq-full-function-route h5 {
-  margin: 0 0 10px;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
+.weq-full-function-route + .weq-full-function-route {
+  padding-top: 12px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-full-function-route .weq-set-row-ctrl:empty {
+  display: none;
 }
 
 .weq-full-function-system {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 10px;
-  color: var(--weq-fg-secondary);
-  font-size: 12px;
 }
 
 .weq-full-function-route .weq-set-details > summary {
@@ -97,7 +64,7 @@
   border-radius: 4px;
 }
 
-html[data-theme='dark'] :is(.weq-full-function-section, .weq-full-function-route),
+html[data-theme='dark'] .weq-full-function-route + .weq-full-function-route,
 html[data-theme='dark'] .weq-full-function-comparison :is(th, td) {
   border-color: var(--weq-border-strong);
 }
@@ -109,5 +76,9 @@ html[data-theme='dark'] .weq-full-function-comparison :is(th, td) {
 
   .weq-full-function-comparison :is(th, td) {
     padding: 8px 6px;
+  }
+
+  .weq-full-function-comparison th:first-child {
+    width: 6.5em;
   }
 }

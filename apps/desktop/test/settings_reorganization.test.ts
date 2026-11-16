@@ -187,10 +187,21 @@ describe('设置归位后的实际页面', () => {
     const titles = () =>
       [...f.body().querySelectorAll('.weq-set-card-title')].map((node) => node.textContent);
     try {
-      expect(titles()).toEqual(['实时监听', '读取性能', '长期授权', '自动启用与提醒']);
+      expect(titles()).toEqual([
+        '实时监听',
+        '读取性能',
+        '完整功能',
+        '启用方式',
+        '长期授权',
+        '自动启用与提醒',
+      ]);
       const overview = f.body().querySelector('[data-setting-id="full-features"]')!;
       const routes = f.body().querySelector('[data-setting-id="full-feature-routes"]')!;
       expect(overview).not.toBeNull();
+      for (const section of [overview, routes]) {
+        expect(section.classList.contains('weq-set-card')).toBe(true);
+        expect(section.querySelector('.weq-set-card-title .weq-set-card-icon svg')).not.toBeNull();
+      }
       expect(overview.textContent).toContain('受限模式');
       expect(overview.textContent).toContain('漫游消息');
       expect(overview.textContent).toContain('发送消息');
@@ -221,7 +232,14 @@ describe('设置归位后的实际页面', () => {
       expect(f.body().querySelector('[data-setting-id="database-read-concurrency"]')).toBeNull();
       conditional.platform = 'linux';
       f.render('account');
-      expect(titles()).toEqual(['实时监听', '读取性能', '长期授权', '自动启用与提醒']);
+      expect(titles()).toEqual([
+        '实时监听',
+        '读取性能',
+        '完整功能',
+        '启用方式',
+        '长期授权',
+        '自动启用与提醒',
+      ]);
       expect(f.body().querySelector('[data-setting-id="qq-debug-copy"]')).toBeNull();
       expect(f.body().textContent).not.toContain('SIP');
       expect(f.body().querySelector('[data-setting-id="full-features"]')).not.toBeNull();

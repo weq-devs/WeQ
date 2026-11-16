@@ -88,6 +88,31 @@ try {
     await page.evaluate(() => window.fullFunctionsQa.saves),
     inlineReminder ? ['setAutoAttachQq', 'setRestrictedModeBannerEnabled'] : ['setAutoAttachQq'],
   );
+  for (const style of ['classic', 'minimal', 'retro', 'qqnt']) {
+    await page.evaluate(
+      (style) => window.fullFunctionsQa.theme.getState().setComponentStyle(style),
+      style,
+    );
+    const groups = await page.locator('main').evaluate((root) => {
+      const readStyle = (id) => {
+        const node = root.querySelector(`[data-setting-id="${id}"]`);
+        const style = getComputedStyle(node);
+        const title = getComputedStyle(node.querySelector('.weq-set-card-title'));
+        return {
+          radius: style.borderRadius,
+          padding: style.padding,
+          border: style.border,
+          background: style.backgroundColor,
+          title: [title.fontSize, title.fontWeight, title.lineHeight],
+          x: node.getBoundingClientRect().x,
+          width: node.getBoundingClientRect().width,
+        };
+      };
+      return ['database-read-concurrency', 'full-features', 'full-feature-routes'].map(readStyle);
+    });
+    assert.deepEqual(groups[1], groups[0], `${style}: 完整功能分组与设置基线不一致`);
+    assert.deepEqual(groups[2], groups[0], `${style}: 启用方式分组与设置基线不一致`);
+  }
   if (output) await mkdir(output, { recursive: true });
   let cases = 0;
   for (const width of [320, 390, 1180]) {
@@ -124,7 +149,7 @@ try {
             };
             const levels = [
               luminance(getComputedStyle(node).color),
-              luminance(getComputedStyle(node.closest('main')).backgroundColor),
+              luminance(getComputedStyle(node.closest('.weq-set-card')).backgroundColor),
             ].sort((a, b) => b - a);
             return (levels[0] + 0.05) / (levels[1] + 0.05);
           });
@@ -138,6 +163,14 @@ try {
           else await page.locator('.weq-qq-debug').waitFor({ state: 'detached' });
           const layout = await page.locator('main').evaluate((root) => ({
             overflow: root.scrollWidth > root.clientWidth + 1,
+            wrappedLabels: [
+              ...root.querySelectorAll('.weq-full-function-comparison tbody th'),
+            ].filter((node) => {
+              const range = document.createRange();
+              range.selectNodeContents(node);
+                const lines = [...range.getClientRects()].map((rect) => Math.round(rect.top));
+                return new Set(lines).size > 1;
+            }).length,
             clipped: [...root.querySelectorAll('th,td,h4,h5,button,.weq-set-row-main')]
               .filter((node) => node.scrollWidth > node.clientWidth + 1)
               .map((node) => node.textContent),
@@ -146,6 +179,7 @@ try {
           }));
           assert.deepEqual(layout, {
             overflow: false,
+            wrappedLabels: 0,
             clipped: [],
             nestedCards: 0,
             oldName: false,
@@ -168,7 +202,7 @@ try {
       assert.equal((await page.locator('main').textContent()).includes('SIP'), false);
     } else {
       await page
-        .getByText(query === '?sip-off' ? '当前系统：SIP 已关闭' : 'SIP 状态检测失败', {
+        .getByText(query === '?sip-off' ? 'SIP 已关闭' : 'SIP 状态检测失败', {
           exact: true,
         })
         .waitFor();
@@ -177,7 +211,7 @@ try {
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify(
-      { cases, platformCases: 4, toggles: true, debugManagement: true, errors },
+      { cases, platformCases: 4, styleCases: 4, toggles: true, debugManagement: true, errors },
       null,
       2,
     ),
