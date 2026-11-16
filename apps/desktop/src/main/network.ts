@@ -3,6 +3,21 @@ import { networkInterfaces } from 'node:os';
 import type { Readable } from 'node:stream';
 import { setNetworkTransport, clearSourceHealth, type NetworkFetch } from '@weq/network';
 
+function chromiumHeaders(source: Record<string, string | string[] | undefined>): Headers {
+  const headers = new Headers();
+  for (const [name, values] of Object.entries(source)) {
+    for (const value of Array.isArray(values) ? values : [values]) {
+      if (value === undefined) continue;
+      // Electron 可能将 UTF-8 头解成 Unicode；还原为 Fetch 接受的字节串，已有字节串不重编码。
+      headers.append(
+        name,
+        /[\u0100-\uffff]/.test(value) ? Buffer.from(value, 'utf8').toString('latin1') : value,
+      );
+    }
+  }
+  return headers;
+}
+
 function chromiumRead(url: string, method: string, headers: Headers, signal: AbortSignal) {
   return new Promise<Response>((resolve, reject) => {
     signal.throwIfAborted();
@@ -21,8 +36,8 @@ function chromiumRead(url: string, method: string, headers: Headers, signal: Abo
       if (finished) return;
       finished = true;
       cleanup();
-      if (controller) controller.error(error);
-      else reject(error);
+      controller?.error(error);
+      reject(error);
     };
     const abort = () => {
       fail(signal.reason);
@@ -31,60 +46,67 @@ function chromiumRead(url: string, method: string, headers: Headers, signal: Abo
     signal.addEventListener('abort', abort, { once: true });
     request.on('error', fail);
     request.on('redirect', (status, _method, redirectUrl, responseHeaders) => {
-      const next = new Headers();
-      for (const [name, values] of Object.entries(responseHeaders))
-        for (const value of values) next.append(name, value);
-      next.set('location', redirectUrl);
-      finished = true;
-      cleanup();
-      resolve(new Response(null, { status, headers: next }));
-      request.abort();
+      if (finished) return;
+      try {
+        const next = chromiumHeaders(responseHeaders);
+        next.set('location', new URL(redirectUrl, url).href);
+        const result = new Response(null, { status, headers: next });
+        finished = true;
+        cleanup();
+        resolve(result);
+        request.abort();
+      } catch (error) {
+        fail(error);
+        request.abort();
+      }
     });
     request.on('response', (incoming) => {
-      // Electron 声明遗漏了官方文档承诺的 Readable 接口方法。
-      const response = incoming as typeof incoming & Pick<Readable, 'pause' | 'resume'>;
-      response.pause();
-      const receivedHeaders = new Headers();
-      for (const [name, values] of Object.entries(response.headers)) {
-        for (const value of Array.isArray(values) ? values : [values])
-          if (value !== undefined) receivedHeaders.append(name, value);
+      if (finished) return;
+      try {
+        // Electron 声明遗漏了官方文档承诺的 Readable 接口方法。
+        const response = incoming as typeof incoming & Pick<Readable, 'pause' | 'resume'>;
+        response.pause();
+        const receivedHeaders = chromiumHeaders(response.headers);
+        const body =
+          method === 'HEAD' || [204, 205, 304].includes(response.statusCode)
+            ? null
+            : new ReadableStream<Uint8Array>(
+                {
+                  start(value) {
+                    controller = value;
+                  },
+                  pull() {
+                    response.resume();
+                  },
+                  cancel() {
+                    finished = true;
+                    cleanup();
+                    request.abort();
+                  },
+                },
+                { highWaterMark: 0 },
+              );
+        response.on('end', () => {
+          if (!finished) {
+            finished = true;
+            cleanup();
+            controller?.close();
+          }
+        });
+        response.on('data', (chunk) => {
+          if (!finished) {
+            response.pause();
+            controller?.enqueue(new Uint8Array(chunk));
+          }
+        });
+        response.on('error', fail);
+        response.on('aborted', () => fail(new TypeError('下载连接中断')));
+        resolve(new Response(body, { status: response.statusCode, headers: receivedHeaders }));
+        if (!body) response.resume();
+      } catch (error) {
+        fail(error);
+        request.abort();
       }
-      const body =
-        method === 'HEAD' || [204, 205, 304].includes(response.statusCode)
-          ? null
-          : new ReadableStream<Uint8Array>(
-              {
-                start(value) {
-                  controller = value;
-                },
-                pull() {
-                  response.resume();
-                },
-                cancel() {
-                  finished = true;
-                  cleanup();
-                  request.abort();
-                },
-              },
-              { highWaterMark: 0 },
-            );
-      response.on('data', (chunk) => {
-        if (!finished) {
-          response.pause();
-          controller?.enqueue(new Uint8Array(chunk));
-        }
-      });
-      response.on('end', () => {
-        if (!finished) {
-          finished = true;
-          cleanup();
-          controller?.close();
-        }
-      });
-      response.on('error', fail);
-      response.on('aborted', () => fail(new TypeError('下载连接中断')));
-      resolve(new Response(body, { status: response.statusCode, headers: receivedHeaders }));
-      if (!body) response.resume();
     });
     request.end();
   });
