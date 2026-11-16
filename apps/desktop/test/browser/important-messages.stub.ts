@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { IMPORTANT_MESSAGE_KINDS } from '../../src/renderer/src/im-template/template/unreadDock';
 
 const calls: Record<string, unknown>[] = [];
 Object.assign(window, { importantCalls: calls });
@@ -7,17 +8,7 @@ async function config() {
   await new Promise((resolve) => setTimeout(resolve, 100));
   return { uin: '10001', configId: 'fixture' };
 }
-const kinds = [
-  'atMe',
-  'replyMe',
-  'atAll',
-  'specialCare',
-  'groupKeyword',
-  'newFile',
-  'groupAnnouncement',
-  'redPacket',
-  'unknown',
-];
+const kinds = IMPORTANT_MESSAGE_KINDS;
 async function query(input: Record<string, unknown>) {
   calls.push(input);
   await new Promise((resolve) => setTimeout(resolve, 60));
@@ -37,6 +28,7 @@ async function query(input: Record<string, unknown>) {
         : index === 4
           ? '[图片]'
           : `周六活动 ${index + 1}：请在晚上八点前确认安排。`,
+    thumbnail: index === 4 ? { name: 'fixture.png', token: 'fixture' } : undefined,
     reasons: [
       {
         kind: kinds[index % kinds.length],
@@ -48,6 +40,8 @@ async function query(input: Record<string, unknown>) {
   })).filter(
     (row) =>
       (!input.kind || row.reasons.some((reason) => reason.kind === input.kind)) &&
+      (!Array.isArray(input.kinds) ||
+        row.reasons.some((reason) => (input.kinds as string[]).includes(reason.kind))) &&
       (!input.unreadOnly || row.unread) &&
       (!input.before || BigInt(row.msgSeq) < BigInt(String(input.before))),
   );
@@ -57,12 +51,35 @@ async function query(input: Record<string, unknown>) {
     contentUnavailable: false,
   };
 }
-export const client = { account: { listImportantGroupMessages: { query } } };
-export const trpc = {
-  account: {
-    getAccountConfig: {
-      useQuery: (_: unknown, options: { enabled: boolean }) =>
-        useQuery({ queryKey: ['important-config'], queryFn: config, ...options }),
+const fallback = (): unknown =>
+  new Proxy(() => fallback(), {
+    get: (_target, key) => {
+      if (key === 'useQuery') return () => ({ data: undefined, isLoading: false });
+      if (key === 'useMutation')
+        return () => ({ mutate: () => {}, mutateAsync: async () => ({}), isLoading: false });
+      if (key === 'query') return async () => [];
+      return fallback();
     },
-  },
-};
+  });
+export const client = new Proxy(fallback() as object, {
+  get: (_target, key) =>
+    key === 'account'
+      ? new Proxy(fallback() as object, {
+          get: (_target, key) => (key === 'listImportantGroupMessages' ? { query } : fallback()),
+        })
+      : fallback(),
+});
+export const trpc = new Proxy(fallback() as object, {
+  get: (_target, key) =>
+    key === 'account'
+      ? new Proxy(fallback() as object, {
+          get: (_target, key) =>
+            key === 'getAccountConfig'
+              ? {
+                  useQuery: (_: unknown, options: { enabled: boolean }) =>
+                    useQuery({ queryKey: ['important-config'], queryFn: config, ...options }),
+                }
+              : fallback(),
+        })
+      : fallback(),
+});

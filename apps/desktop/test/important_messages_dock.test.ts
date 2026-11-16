@@ -73,3 +73,82 @@ it('定位进行中不消耗跳转点，失败可重试，旧会话任务结束�
     vi.unstubAllGlobals();
   }
 });
+
+it('列表与队列共享定位进度，乱序选择只完成自身，重定位和失败不跳过其它提醒', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const demo = createTemplateDemoData();
+  const jump = vi.fn().mockResolvedValue(undefined);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const messages: [] = [];
+  const dock = {
+    unread: 3,
+    stops: [
+      { kind: 'atMe' as const, seq: '103' },
+      { kind: 'replyMe' as const, seq: '102' },
+      { kind: 'unread' as const, seq: '101' },
+    ],
+  };
+  let state!: ReturnType<typeof useChatTimelineNavigation>;
+  function Harness() {
+    state = useChatTimelineNavigation({
+      atLatest: false,
+      conversation: demo.conversations[0],
+      initialReadingPosition: undefined,
+      jumpRequest: undefined,
+      latestMessageSeq: undefined,
+      loadError: null,
+      loading: false,
+      loadingNewer: false,
+      timelineSettings: undefined,
+      messages,
+      onJumpToLatest: undefined,
+      onReadCurrentConversation: undefined,
+      parentJumpToSeq: jump,
+      selectionOrder: [],
+      tabActive: true,
+      unreadDock: dock,
+      user: demo.user,
+      visibleMessages: messages,
+    });
+    return null;
+  }
+  const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    await act(async () => root.render(h(Harness)));
+    let release!: () => void;
+    jump.mockReturnValueOnce(
+      new Promise<void>((done) => {
+        release = done;
+      }),
+    );
+    let earlier!: void | Promise<void>;
+    act(() => {
+      earlier = state.jumpToSeq({ seq: '103' });
+    });
+    await act(async () => state.jumpToSeq({ seq: '102', msgId: '900102' }));
+    await act(async () => {
+      release();
+      await earlier;
+    });
+    expect(state.locatedSeq).toBe('102');
+    expect(state.dockStop?.seq).toBe('103');
+    expect(state.dockRemaining).toBe(2);
+    await act(async () => state.jumpToSeq({ seq: '102' }));
+    expect(state.dockRemaining).toBe(2);
+    jump.mockRejectedValueOnce(new Error('fixture failure'));
+    await act(async () => state.jumpDockStop());
+    expect(state.dockRemaining).toBe(2);
+    expect(state.locatedSeq).toBe('102');
+    await act(async () => state.jumpDockStop());
+    expect(state.locatedSeq).toBe('103');
+    expect(state.dockStop?.seq).toBe('101');
+    expect(state.dockRemaining).toBe(1);
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+    log.mockRestore();
+    vi.unstubAllGlobals();
+  }
+});

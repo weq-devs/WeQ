@@ -3630,6 +3630,21 @@ export const accountRouter = router({
           ])
           .optional(),
         unreadOnly: z.boolean().default(false),
+        kinds: z
+          .array(
+            z.enum([
+              'atMe',
+              'atAll',
+              'replyMe',
+              'specialCare',
+              'groupKeyword',
+              'newFile',
+              'groupAnnouncement',
+              'redPacket',
+            ]),
+          )
+          .max(8)
+          .optional(),
         before: z
           .string()
           .regex(/^[1-9]\d{0,19}$/)
@@ -3649,7 +3664,7 @@ export const accountRouter = router({
         chatType: 2,
         uid: input.groupCode,
       });
-      // 只为当前页批量补摘要；原消息读取失败时仍交付已保存的定位信息。
+      // 只为当前页批量补摘要与缩图索引；不加载消息上下文或媒体本体。
       let messages: Awaited<ReturnType<typeof account.groupMsgs.listBySeqsInPartition>> = [];
       let contentUnavailable = false;
       try {
@@ -3673,14 +3688,26 @@ export const accountRouter = router({
         items: page.items.map((row) => {
           const candidates = messages.filter((message) => String(message.msgSeq) === row.msgSeq);
           const message = candidates.find((candidate) => candidate.msgType !== 1n) ?? candidates[0];
+          const elements = message ? toRenderElements(message.elements) : [];
+          const picture = elements.find(
+            (element) => element.type === 'pic' && !element.data.isFlash,
+          );
           return {
             ...row,
             msgId: message ? String(message.msgId) : undefined,
             senderUid: message?.senderUid || row.senderUid,
             sendTime: message ? String(message.sendTime) : row.sendTime,
-            preview: message
-              ? plainContentText(toRenderElements(message.elements)).slice(0, 512)
-              : '',
+            preview: plainContentText(elements).slice(0, 512),
+            thumbnail:
+              picture?.type === 'pic'
+                ? {
+                    name: picture.data.fileName,
+                    token: picture.data.fileToken,
+                    orig: picture.data.originalUrl,
+                    md5: picture.data.md5,
+                    recv: picture.data.subType === 1 ? 1 : 0,
+                  }
+                : undefined,
           };
         }),
       };

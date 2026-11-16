@@ -79,7 +79,7 @@ it('定位进行中防止重复请求，结束后可以再定位', async () => {
   await act(async () => release());
   expect(hit().disabled).toBe(false);
 });
-it('分页追加；切换类型与未读过滤重置游标，读取失败可重试', async () => {
+it('八类多选与全选清空沿用搜索选择方式，分页重置游标，失败可重试', async () => {
   rpc.query.mockResolvedValueOnce(page(['102'], '102'));
   await render();
   rpc.query.mockResolvedValueOnce(page(['101']));
@@ -90,13 +90,17 @@ it('分页追加；切换类型与未读过滤重置游标，读取失败可重�
   );
   expect(rpc.query.mock.calls.at(-1)?.[0].before).toBe('102');
   expect(host.querySelectorAll('li')).toHaveLength(2);
+  expect(host.textContent).not.toContain('仅未读');
+  expect(host.querySelector('select')).toBeNull();
+  expect(host.querySelector('[aria-label="刷新重要消息"]')).toBeNull();
+  expect(host.querySelectorAll('[data-weq-select-id]')).toHaveLength(8);
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="全部类型"]')!.click());
+  expect(host.textContent).toContain('未选择消息类型');
   rpc.query.mockRejectedValueOnce(new Error('合成查询失败'));
   await act(async () => {
-    const select = host.querySelector('select')!;
-    select.value = 'replyMe';
-    select.dispatchEvent(new Event('change', { bubbles: true }));
+    host.querySelector<HTMLButtonElement>('[data-weq-select-id="replyMe"]')!.click();
   });
-  expect(rpc.query.mock.calls.at(-1)?.[0]).toMatchObject({ kind: 'replyMe', before: undefined });
+  expect(rpc.query.mock.calls.at(-1)?.[0]).toMatchObject({ kinds: ['replyMe'], before: undefined });
   expect(host.textContent).toContain('合成查询失败');
   rpc.query.mockResolvedValueOnce(page([]));
   await act(async () =>
@@ -104,9 +108,27 @@ it('分页追加；切换类型与未读过滤重置游标，读取失败可重�
   );
   expect(host.textContent).toContain('暂无已记录的重要消息');
   rpc.query.mockResolvedValueOnce(page([]));
-  await act(async () => host.querySelector<HTMLInputElement>('input')!.click());
-  expect(rpc.query.mock.calls.at(-1)?.[0]).toMatchObject({ unreadOnly: true, before: undefined });
-  expect(host.textContent).toContain('暂无未读重要消息');
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('[data-weq-select-id="atMe"]')!.click(),
+  );
+  expect(rpc.query.mock.calls.at(-1)?.[0].kinds).toEqual(
+    expect.arrayContaining(['replyMe', 'atMe']),
+  );
+  expect(rpc.query.mock.calls.at(-1)?.[0].unreadOnly).toBeUndefined();
+});
+
+it('定位后保留列表并选中原条目，右键与单击共用精确定位', async () => {
+  rpc.query.mockResolvedValue(page(['102', '101']));
+  await render();
+  await act(async () => hit().click());
+  expect(hit().getAttribute('aria-current')).toBe('true');
+  act(() =>
+    hit().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 20, clientY: 30 })),
+  );
+  await act(async () => document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click());
+  expect(props.onLocate).toHaveBeenLastCalledWith({ seq: '102', msgId: '900102' });
+  expect(props.onClose).not.toHaveBeenCalled();
+  expect(host.querySelectorAll('li')).toHaveLength(2);
 });
 it('切换来源后丢弃迟到结果', async () => {
   let release!: (value: unknown) => void;
@@ -127,4 +149,24 @@ it('切换来源后丢弃迟到结果', async () => {
   );
   await act(async () => release(page(['102'])));
   expect(host.querySelectorAll('li')).toHaveLength(0);
+});
+
+it('关闭时不轮询；重新打开自动补新摘要，不丢已加载旧页或重复已有行', async () => {
+  rpc.query.mockResolvedValueOnce(page(['102', '101'], '101'));
+  await render();
+  await act(async () => root.render(h(ImportantMessagesList, { ...props, open: false })));
+  expect(rpc.query).toHaveBeenCalledOnce();
+  rpc.query.mockResolvedValueOnce(page(['103', '102'], '102'));
+  await act(async () => root.render(h(ImportantMessagesList, { ...props, open: true })));
+  expect(
+    [...host.querySelectorAll<HTMLElement>('[data-important-seq]')].map(
+      (row) => row.dataset.importantSeq,
+    ),
+  ).toEqual(['103', '102', '101']);
+  expect(rpc.query.mock.calls.at(-1)?.[0].before).toBeUndefined();
+  rpc.query.mockResolvedValueOnce(page(['100']));
+  await act(async () =>
+    [...host.querySelectorAll('button')].find((item) => item.textContent === '加载更多')!.click(),
+  );
+  expect(rpc.query.mock.calls.at(-1)?.[0].before).toBe('101');
 });

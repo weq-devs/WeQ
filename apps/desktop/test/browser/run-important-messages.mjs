@@ -14,6 +14,7 @@ const server = await createServer({
   root,
   cacheDir: resolve(root, 'node_modules/.vite-important-messages'),
   plugins: [react(), tailwind()],
+  define: { 'import.meta.env.VITE_WEQ_TARGET': JSON.stringify('web') },
   resolve: {
     alias: [
       {
@@ -46,11 +47,19 @@ try {
   });
   const page = await browser.newPage();
   page.on('pageerror', (error) => report.errors.push(error.message));
-  await page
-    .context()
-    .route('**/*', (route) =>
-      new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
-    );
+  await page.context().route('**/*', (route) =>
+    route.request().url().includes('/_media/pic?')
+      ? route.fulfill({
+          contentType: 'image/png',
+          body: Buffer.from(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==',
+            'base64',
+          ),
+        })
+      : new URL(route.request().url()).hostname === '127.0.0.1'
+        ? route.continue()
+        : route.abort(),
+  );
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto(
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/important-messages.html`,
@@ -73,6 +82,8 @@ try {
     ]) {
       await page.setViewportSize({ width, height });
       await open();
+      assert.equal(await page.getByLabel('刷新重要消息', { exact: true }).count(), 0);
+      assert.equal(await page.getByLabel('仅未读', { exact: true }).count(), 0);
       const metric = await page.locator('.weq-important-messages').evaluate((element) => {
         const rect = element.getBoundingClientRect();
         return {
@@ -99,6 +110,10 @@ try {
       );
       assert.ok(metric.scrollWidth <= width && !metric.rowOverflow, '内容横向溢出');
       assert.ok(metric.listScrolls, '长列表未滚动');
+      if (width > 760) {
+        const timeline = await page.locator('.chat-pane > .message-scroll').boundingBox();
+        assert.ok(timeline.x + timeline.width <= metric.left + 1, '重要消息不应遮住上下文');
+      }
       report.metrics.push({ theme, width, ...metric });
       await page.keyboard.press('Escape');
       await page.locator('.weq-important-messages').waitFor({ state: 'hidden' });
@@ -115,26 +130,79 @@ try {
   await page.waitForFunction(
     () => document.querySelectorAll('.weq-important-messages li').length === 14,
   );
-  await page.getByLabel('重要消息类型', { exact: true }).selectOption('replyMe');
+  await page.getByRole('button', { name: '全部类型', exact: true }).click();
+  await page.getByText('未选择消息类型', { exact: true }).waitFor();
+  await page.locator('[data-weq-select-id="replyMe"]').click();
   await page.waitForFunction(
     () => document.querySelectorAll('.weq-important-messages li').length === 3,
   );
-  await page.getByLabel('仅未读', { exact: true }).check();
-  await page.waitForFunction(
-    () => document.querySelectorAll('.weq-important-messages li').length === 2,
+  await page.keyboard.press('Escape');
+  await page.locator('.weq-important-messages').waitFor({ state: 'hidden' });
+  await open();
+  assert.equal(
+    await page.locator('[data-weq-select-id="replyMe"]').getAttribute('aria-pressed'),
+    'true',
+  );
+  assert.equal(
+    await page.locator('[data-weq-select-id="atMe"]').getAttribute('aria-pressed'),
+    'false',
   );
   await page.evaluate(() => {
     window.importantMode = 'error';
   });
-  await page.getByLabel('刷新重要消息', { exact: true }).click();
+  await page.locator('[data-weq-select-id="atMe"]').click();
   await page.getByRole('alert').waitFor();
   await page.evaluate(() => {
     window.importantMode = 'empty';
   });
   await page.getByRole('button', { name: '重试', exact: true }).click();
-  await page.getByText('暂无未读重要消息', { exact: true }).waitFor();
+  await page.getByText('暂无已记录的重要消息', { exact: true }).waitFor();
   await page.evaluate(() => window.changeImportantGroup('888'));
   await page.locator('.weq-important-messages').waitFor({ state: 'hidden' });
+  await page.evaluate(() => {
+    window.importantMode = 'ready';
+  });
+  await page.getByRole('button', { name: '展开重要消息列表', exact: true }).click();
+  await page.locator('.weq-important-row').first().waitFor();
+  await page.locator('[data-important-seq="1023"]').click();
+  await page.getByText('本次提醒 · 剩余 2/3', { exact: true }).waitFor();
+  assert.equal(
+    await page.locator('[data-important-seq="1023"]').getAttribute('aria-current'),
+    'true',
+  );
+  await page.getByTitle('下一条：有人@我', { exact: true }).click();
+  await page.getByText('本次提醒 · 剩余 1/3', { exact: true }).waitFor();
+  await page.locator('[data-important-seq="1024"]').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: '定位到原消息', exact: true }).click();
+  assert.equal(await page.locator('.weq-important-row').count(), 10);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: '预览会话', exact: true }).click();
+  await page.locator('.qa-preview .message-bubble').first().click({ button: 'right' });
+  await page.getByRole('menuitem', { name: '定位到原消息', exact: true }).click();
+  await page.locator('.qa-preview').waitFor({ state: 'hidden' });
+  await page.setViewportSize({ width: 390, height: 740 });
+  await open();
+  await page.locator('[data-important-seq="1022"]').click();
+  await page.locator('.weq-important-messages').waitFor({ state: 'hidden' });
+  await open();
+  assert.equal(
+    await page.locator('[data-important-seq="1022"]').getAttribute('aria-current'),
+    'true',
+  );
+  await page.locator('.weq-important-messages ul').evaluate((element) => {
+    element.scrollTop = 320;
+    element.dispatchEvent(new Event('scroll', { bubbles: true }));
+  });
+  const savedScroll = await page
+    .locator('.weq-important-messages ul')
+    .evaluate((element) => element.scrollTop);
+  await page.getByLabel('关闭重要消息', { exact: true }).click();
+  await open();
+  assert.equal(
+    await page.locator('.weq-important-messages ul').evaluate((element) => element.scrollTop),
+    savedScroll,
+    '抽屉重开保留列表位置',
+  );
   assert.deepEqual(report.errors, []);
   await writeFile(resolve(output, 'report.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report, null, 2));

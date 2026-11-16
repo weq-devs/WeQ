@@ -81,6 +81,23 @@ it('损坏的持久文件保留原件，不把读失败当作空索引覆盖', a
   expect(readFileSync(path, 'utf8')).toBe('{broken');
 });
 
+it('多选分类按并集过滤后分页，空选择不退化为全部，多个命中不重复条目', () => {
+  const store = new ImportantMessageStore();
+  store.observe(snapshot());
+  store.observe({
+    ...snapshot(),
+    highlights: [{ ...snapshot().highlights![0]!, msgSeq: 103, kind: 'unknown', rawKind: 9999 }],
+  });
+  const input = { chatType: 2, uid: '70001', limit: 1, kinds: ['atMe', 'replyMe'] as const };
+  const page = store.list(input);
+  expect(page.items.map((row) => row.msgSeq)).toEqual(['102']);
+  expect(page.nextBefore).toBe('102');
+  expect(store.list({ ...input, before: page.nextBefore! }).items.map((row) => row.msgSeq)).toEqual(
+    ['101'],
+  );
+  expect(store.list({ ...input, kinds: [] }).items).toEqual([]);
+});
+
 it('清除 QQ 提醒前持久保存；重启和更换同账号数据源后各自恢复', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'weq-important-'));
   dirs.push(dir);

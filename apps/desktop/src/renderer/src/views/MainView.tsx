@@ -11631,6 +11631,30 @@ function MainWorkspace(): ReactElement {
           previewRequest.current++;
           setPrivatePreview(null);
         }}
+        onLocateMessage={(target) => {
+          const conversation = resolvedPreviewConversation;
+          if (
+            !conversations.some((item) => item.id === conversation.id) &&
+            !hiddenConversationsById.has(conversation.id) &&
+            !deletedConversationsById.has(conversation.id)
+          )
+            setTemporaryConversations((current) => ({
+              ...current,
+              [conversation.id]: { conversation, appearedAt: Date.now() },
+            }));
+          previewRequest.current++;
+          setPrivatePreview(null);
+          setMemberCard(null);
+          setNumberGroupCard(null);
+          jumpToConvSeq(
+            conversation.type === 'group' ? 'group' : 'c2c',
+            conversation.id,
+            target.seq == null ? undefined : String(target.seq),
+            true,
+            undefined,
+            target.msgId,
+          );
+        }}
       />
     ) : null;
 

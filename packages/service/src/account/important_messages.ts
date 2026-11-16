@@ -71,6 +71,7 @@ export class ImportantMessageStore {
   list(
     input: UnreadInfoTarget & {
       kind?: HighlightKind;
+      kinds?: readonly HighlightKind[];
       unreadOnly?: boolean;
       readSeq?: string;
       before?: string;
@@ -86,6 +87,7 @@ export class ImportantMessageStore {
           row.uid === input.uid &&
           (!input.before || BigInt(row.msgSeq) < BigInt(input.before)) &&
           (!input.kind || row.reasons.some((reason) => reason.kind === input.kind)) &&
+          (!input.kinds || row.reasons.some((reason) => input.kinds!.includes(reason.kind))) &&
           (!input.unreadOnly || (input.readSeq !== undefined && BigInt(row.msgSeq) > floor)),
       )
       .sort((a, b) => (BigInt(a.msgSeq) > BigInt(b.msgSeq) ? -1 : 1));

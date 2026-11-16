@@ -89,6 +89,7 @@ import {
   Trash2,
   RotateCcw,
   ListPlus,
+  ListFilter,
   FileText,
   FolderOpen,
   UsersRound,
@@ -141,7 +142,10 @@ import {
   useState,
 } from 'react';
 import { ReplyJumpContext } from '../../components/QqMessageContent';
-import { ImportantMessagesButton } from '../../components/ImportantMessages';
+import {
+  ImportantMessagesButton,
+  ImportantMessagesPanel,
+} from '../../components/ImportantMessages';
 import { ChatMediaGallery } from '../../components/ChatMediaGallery';
 import { openMediaPreview } from '../../components/mediaPreviewStore';
 import { releaseObjectUrl } from '../../lib/objectUrl';
@@ -859,6 +863,17 @@ export function ChatPane({
   );
   const [groupInfoCollapsed, setGroupInfoCollapsed] = useState(loadGroupInfoCollapsed);
   const [mobileGroupInfoOpen, setMobileGroupInfoOpen] = useState(false);
+  const [importantMessagesOpen, setImportantMessagesOpen] = useState(false);
+  const [importantMessagesVisited, setImportantMessagesVisited] = useState<string | null>(null);
+  const importantMessagesActive =
+    importantMessagesOpen && importantMessagesVisited === conversation?.id;
+  useEffect(() => {
+    setImportantMessagesOpen(false);
+    setImportantMessagesVisited(null);
+  }, [conversation?.id]);
+  useEffect(() => {
+    if (!tabActive) setImportantMessagesOpen(false);
+  }, [tabActive]);
   const groupInfoTriggerRef = useRef<HTMLButtonElement>(null);
   useEffect(() => setMobileGroupInfoOpen(false), [conversation?.id, tabActive]);
   useEffect(() => {
@@ -1494,6 +1509,8 @@ export function ChatPane({
   const {
     leaveBottom,
     dockIndex,
+    dockRemaining,
+    locatedSeq,
     dockStop,
     dockVisible,
     endRef,
@@ -5941,11 +5958,14 @@ export function ChatPane({
       {...multi.rootProps}
       className={cn(
         'chat-pane',
+        importantMessagesActive && 'with-important-messages',
         !composerVisible && !selectionMode && 'without-composer',
         hasComposerExtensions && !selectionMode && 'has-composer-extensions',
         compactHeader && 'has-compact-header',
         conversation.type === 'group' ? 'with-group-info' : '',
-        conversation.type === 'group' && (groupInfoCollapsed || sidecarOpen)
+        conversation.type === 'group' &&
+          (groupInfoCollapsed || sidecarOpen) &&
+          !importantMessagesActive
           ? 'group-info-collapsed'
           : '',
         mobileGroupInfoOpen && 'is-mobile-group-info-open',
@@ -6079,11 +6099,11 @@ export function ChatPane({
             {!compactHeader ? headerAffinity : null}
             {conversation.type === 'group' && !restrictedSource ? (
               <ImportantMessagesButton
-                groupCode={conversation.id}
-                onLocate={jumpToSeq}
-                senderName={(uid) => {
-                  const member = conversation.members.find((item) => item.id === uid);
-                  return member ? displayUserName(member) : '';
+                open={importantMessagesActive}
+                onClick={() => {
+                  setImportantMessagesVisited(conversation.id);
+                  setImportantMessagesOpen((value) => !value);
+                  setMobileGroupInfoOpen(false);
                 }}
               />
             ) : null}
@@ -6610,36 +6630,57 @@ export function ChatPane({
 
       {/* 未读跳转坞：打开会话时按内存快照逐个引导跳转，跳完自动收起。
           高亮用告警/内容/红包三色区分，兜底的「新的 N 条未读消息」是中性蓝。 */}
-      {dockVisible && dockStop && unreadDock ? (
-        <button
+      {dockVisible && dockStop && unreadDock && !importantMessagesActive ? (
+        <div
           key={`${conversation.id}:${dockStop.kind}:${dockStop.seq}`}
-          className={cn('unread-dock-button', `tone-${dockStopTone(dockStop)}`)}
-          type="button"
-          title={`跳转到${dockStopLabel(dockStop, unreadDock.unread)}`}
-          disabled={dockJumping}
-          onClick={() => {
-            void jumpDockStop();
-          }}
-        >
-          {dockStop.kind === 'unread' ? (
-            <ChevronsUp size={13} strokeWidth={2.4} aria-hidden />
-          ) : (
-            <Sparkles size={13} strokeWidth={2.4} aria-hidden />
+          className={cn(
+            'unread-dock-button',
+            'weq-important-dock',
+            `tone-${dockStopTone(dockStop)}`,
           )}
-          <span className={cn('unread-dock-label')}>
-            {dockStopLabel(dockStop, unreadDock.unread)}
-          </span>
-          {unreadDock.stops.length > 1 ? (
-            <span className={cn('unread-dock-count')}>
-              {dockIndex + 1}/{unreadDock.stops.length}
+        >
+          <button
+            type="button"
+            title={`下一条：${dockStopLabel(dockStop, unreadDock.unread)}`}
+            disabled={dockJumping}
+            onClick={() => {
+              void jumpDockStop();
+            }}
+          >
+            {dockStop.kind === 'unread' ? (
+              <ChevronsUp size={13} strokeWidth={2.4} aria-hidden />
+            ) : (
+              <Sparkles size={13} strokeWidth={2.4} aria-hidden />
+            )}
+            <span className={cn('unread-dock-label')}>
+              下一条 · {dockStopLabel(dockStop, unreadDock.unread)}
             </span>
+            {unreadDock.stops.length > 1 ? (
+              <span className={cn('unread-dock-count')}>
+                剩余 {dockRemaining}/{unreadDock.stops.length}
+              </span>
+            ) : null}
+          </button>
+          {conversation.type === 'group' && !restrictedSource ? (
+            <button
+              type="button"
+              title="展开重要消息列表"
+              aria-label="展开重要消息列表"
+              onClick={() => {
+                setImportantMessagesVisited(conversation.id);
+                setImportantMessagesOpen(true);
+                setMobileGroupInfoOpen(false);
+              }}
+            >
+              <ListFilter size={14} />
+            </button>
           ) : null}
-        </button>
+        </div>
       ) : null}
 
       {conversation.type === 'group' ? (
         <>
-          {!sidecarOpen ? (
+          {!sidecarOpen && !importantMessagesActive ? (
             <button
               className={cn('group-info-toggle')}
               type="button"
@@ -6664,7 +6705,7 @@ export function ChatPane({
               }}
             />
           ) : null}
-          {!groupInfoCollapsed || mobileGroupInfoOpen ? (
+          {(!groupInfoCollapsed || mobileGroupInfoOpen) && !importantMessagesActive ? (
             <GroupInfoPanel
               hidden={sidecarOpen}
               conversation={conversation}
@@ -6703,6 +6744,36 @@ export function ChatPane({
             />
           ) : null}
         </>
+      ) : null}
+
+      {conversation.type === 'group' && importantMessagesVisited === conversation.id ? (
+        <ImportantMessagesPanel
+          key={conversation.id}
+          groupCode={conversation.id}
+          open={importantMessagesActive}
+          onClose={() => setImportantMessagesOpen(false)}
+          onLocate={jumpToSeq}
+          activeSeq={locatedSeq}
+          senderName={(uid) => {
+            const member = conversation.members.find((item) => item.id === uid);
+            return member ? displayUserName(member) : '';
+          }}
+          queue={
+            unreadDock
+              ? {
+                  dock: unreadDock,
+                  index: dockIndex,
+                  remaining: dockRemaining,
+                  pending: dockJumping,
+                  onNext: () => {
+                    void jumpDockStop().then((located) => {
+                      if (located && isSingleColumnLayout()) setImportantMessagesOpen(false);
+                    });
+                  },
+                }
+              : undefined
+          }
+        />
       ) : null}
 
       {/* 收纳输入区的把手 —— 与群资料栏同一个交互：贴在两个区域的交界线上，

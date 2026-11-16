@@ -42,6 +42,8 @@ import { MessageRow, grayTipOf } from '../../im-template/template/messageRow';
 import { resolveMessageSender } from '../../im-template/template/conversationDisplay';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
 import type { Conversation, Message, User } from '../../im-template/template/types';
+import type { ReplyJumpTarget } from '../../state/messageContext';
+import { useMessageLocateMenu } from '../../hooks/useMessageLocateMenu';
 
 const noop = (): void => {};
 
@@ -65,6 +67,7 @@ export function GapMessagesModal({
   title,
   backLabel = '返回资料',
   messageNotice,
+  onLocateMessage,
 }: {
   conversation: Conversation;
   user: User;
@@ -93,7 +96,9 @@ export function GapMessagesModal({
   backLabel?: string;
   /** 只读预览中逐条展示的附注，例如跳过发送的原因。 */
   messageNotice?: (message: Message) => string | undefined;
+  onLocateMessage?: (target: ReplyJumpTarget) => void | Promise<void>;
 }): ReactElement {
+  const locateMenu = useMessageLocateMenu(onLocateMessage, `${user.id}:${conversation.id}`);
   const openChat = useContext(ChatNavigationContext);
   const [memberCard, setMemberCard] = useState<{
     member: User;
@@ -214,6 +219,11 @@ export function GapMessagesModal({
             {notice}
           </p>
         ) : null}
+        {locateMenu.error ? (
+          <p role="alert" className="weq-preview-message-note">
+            {locateMenu.error}
+          </p>
+        ) : null}
 
         <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
           <ConvContext.Provider value={convKey}>
@@ -286,6 +296,15 @@ export function GapMessagesModal({
                         showSenderName={showSenderNames}
                         renderers={renderers}
                         onAvatarClick={preview ? openMember : undefined}
+                        onContextMenu={
+                          onLocateMessage
+                            ? (event) =>
+                                locateMenu.openMenu(event, {
+                                  seq: message.msgSeq,
+                                  msgId: message.msgId,
+                                })
+                            : undefined
+                        }
                       />
                     );
                     const note = messageNotice?.(message);
@@ -330,6 +349,7 @@ export function GapMessagesModal({
           </ConvContext.Provider>
         </ForwardKindContext.Provider>
       </div>
+      {locateMenu.menu}
       {memberCard ? (
         <MemberProfileCard
           member={memberCard.member}

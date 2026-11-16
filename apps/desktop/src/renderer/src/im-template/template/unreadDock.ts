@@ -20,6 +20,18 @@ import type {
   UnreadDockStop,
 } from './types';
 
+export const IMPORTANT_MESSAGE_KINDS = [
+  'atMe',
+  'atAll',
+  'replyMe',
+  'specialCare',
+  'groupKeyword',
+  'newFile',
+  'groupAnnouncement',
+  'redPacket',
+] as const satisfies readonly ConversationHighlightKind[];
+export type ImportantMessageKind = (typeof IMPORTANT_MESSAGE_KINDS)[number];
+
 /** 高亮类别的中文标签（跳转坞与提示共用）。 */
 const HIGHLIGHT_LABEL: Record<ConversationHighlightKind, string> = {
   atMe: '有人@我',

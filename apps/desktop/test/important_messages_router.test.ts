@@ -76,6 +76,40 @@ it('摘要读取失败保留重要消息，空页不读消息表', async () => {
   await api.listImportantGroupMessages(input);
   expect(rpc.read).not.toHaveBeenCalled();
 });
+
+it('多选类别交给索引分页，图片只返回被动缩略图索引，文件摘要保留文件名', async () => {
+  rpc.read.mockResolvedValueOnce([
+    {
+      msgSeq: 102n,
+      msgId: 900102n,
+      senderUid: 'u_peer',
+      sendTime: 11n,
+      elements: [
+        {
+          kind: 'pic',
+          fileName: '活动.png',
+          fileToken: 'token',
+          originalUrl: '/fixture',
+          md5: 'abcd',
+        },
+        { kind: 'file', fileName: '报名表.xlsx' },
+      ],
+    },
+  ]);
+  const result = await accountRouter
+    .createCaller({})
+    .listImportantGroupMessages({ ...input, kinds: ['atMe', 'replyMe'] });
+  expect(rpc.list).toHaveBeenLastCalledWith(
+    expect.objectContaining({ kinds: ['atMe', 'replyMe'] }),
+  );
+  expect(result.items[0]?.thumbnail).toMatchObject({
+    name: '活动.png',
+    token: 'token',
+    orig: '/fixture',
+    md5: 'abcd',
+  });
+  expect(result.items[0]?.preview).toContain('报名表.xlsx');
+});
 it('拒绝无来源、旧账号、旧数据源及查询中途切换后的结果', async () => {
   const api = accountRouter.createCaller({});
   await expect(api.listImportantGroupMessages({ groupCode: '777' } as never)).rejects.toThrow();
