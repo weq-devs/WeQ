@@ -6779,6 +6779,39 @@ export const accountRouter = router({
       }
     }),
 
+  /** 分享已有闪传文件集，由服务端生成新卡片，不走普通 Markdown 消息。 */
+  forwardFlashTransfer: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        fileSetId: z.string().trim().min(1),
+        tempGroupCode: z.string().min(1).optional(),
+        expectedAccountUin: z.string().min(1),
+        expectedAccountConfigId: z.string().min(1).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireQqOnlineForAlbum(services);
+      const configId = services.accountConfig.getRecord()?.configId;
+      return services.flashTransfer.forwardFlashTransfer({
+        ...input,
+        beforeSend: () => {
+          if (
+            requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+              services ||
+            services.accountConfig.getRecord()?.configId !== configId
+          )
+            throw new Error('账号数据源已切换，已停止发送');
+          requireQqOnlineForAlbum(services);
+        },
+      });
+    }),
+
   /**
    * 闪传（fileset）：把一组本地文件 + 可选封面发成一条闪传消息。
    *

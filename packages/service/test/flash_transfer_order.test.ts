@@ -73,7 +73,8 @@ function fakeNative() {
           encode(ApplyUpload.respSchema, { payload: { filesetWrap: FILESET_REF } }),
         );
       }
-      // 其余（0x93d0/0x93db/0x93d7/0x93d1）空 ack；0x12a9_100 不带 rkey ⇒ 秒传命中，
+      if (command === 0x93d7) return Buffer.from('0a101a0e0801120a0a08755f667269656e64', 'hex');
+      // 其余（0x93d0/0x93db/0x93d1）空 ack；0x12a9_100 不带 rkey ⇒ 秒传命中，
       // 跳过 sliceupload，不需要网络。
       return Buffer.alloc(0);
     },

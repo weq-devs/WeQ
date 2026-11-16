@@ -1,6 +1,6 @@
 // QQ 闪传(FlashTransfer / fileset)OIDB 请求/响应 protobuf schema。
-// port 自 SL proto-defs/oidb-actions/flash-transfer.ts;响应成功靠 OIDB envelope 的
-// errorCode=0,业务体无 retCode。force:true 对应 SL 的 pb_optional(0 值也上 wire)。
+// port 自 SL proto-defs/oidb-actions/flash-transfer.ts;多数操作靠 OIDB envelope 的
+// errorCode=0，0x93d7 还须检查业务体逐目标结果。force:true 对应 pb_optional(0 值也上 wire)。
 
 import { message } from '../../protobuf';
 
@@ -336,6 +336,12 @@ export const FLASH_SEND_REQ = message([
   { name: 'filesetUuid', tag: 2, type: 'string' },
 ]);
 
-export const FLASH_SEND_RESP_ECHO = message([{ name: 'target', tag: 3, type: FLASH_SEND_TARGET }]);
+export const FLASH_SEND_RESP_ECHO = message([
+  { name: 'result', tag: 1, type: 'int32' },
+  { name: 'msg', tag: 2, type: 'string' },
+  { name: 'target', tag: 3, type: FLASH_SEND_TARGET },
+]);
 
-export const FLASH_SEND_RESP = message([{ name: 'echo', tag: 1, type: FLASH_SEND_RESP_ECHO }]);
+export const FLASH_SEND_RESP = message([
+  { name: 'sendStatus', tag: 1, type: FLASH_SEND_RESP_ECHO, repeated: true },
+]);

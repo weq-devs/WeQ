@@ -234,6 +234,13 @@ export function forwardUnsupportedReason(elements: readonly RepeatElement[]): st
     content.every((element) => element.type === 'text' && !text(element.data?.textContent).trim())
   )
     return '消息没有可重发的内容';
+  if (
+    content.length > 1 &&
+    content.some(
+      (element) => element.type === 'markdown' && element.data?.flashTransferInfo != null,
+    )
+  )
+    return '闪传卡片不能与其他内容混合重发';
   return null;
 }
 
@@ -346,6 +353,14 @@ export function repeatSendPlan(
   const content = withoutEmptyTextElements(elements);
   const reason = forwardUnsupportedReason(content);
   if (reason) throw new Error(reason);
+  const flash = content.find(
+    (element) => element.type === 'markdown' && element.data?.flashTransferInfo != null,
+  );
+  if (flash) {
+    const info = flash.data!.flashTransferInfo as { fileSetId: string };
+    // Android 转发只提交文件集身份，由专用分享接口生成卡片，不重发收到的 Markdown。
+    return { kind: 'flashTransfer', fileSetId: info.fileSetId.trim() };
+  }
   const outgoing = content.map((element) => sendElement(element, stickers, group, images));
   if (outgoing.length === 1 && outgoing[0]?.kind === 'file') {
     if (typeof outgoing[0].source !== 'string' || !outgoing[0].source)

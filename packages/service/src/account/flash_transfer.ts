@@ -17,6 +17,7 @@
  */
 import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
+import { isDatalineUid } from '@weq/codec';
 import {
   createFlashFileset,
   GetFilesetDetail,
@@ -102,6 +103,37 @@ export class FlashTransferService {
     });
 
     return { filesetUuid: pending.filesetUuid, shareUrl: pending.shareUrl, uploaded };
+  }
+
+  /** 分享已有文件集；与 Android 的转发入口相同，不下载、重传或自行拼 Markdown。 */
+  async forwardFlashTransfer(params: {
+    peerType: 'c2c' | 'group';
+    targetId: string;
+    fileSetId: string;
+    tempGroupCode?: string;
+    beforeSend?: () => void;
+  }): Promise<{ ok: true; fileSetId: string }> {
+    const fileSetId = params.fileSetId.trim();
+    if (!fileSetId) throw new Error('闪传卡片缺少文件集身份。');
+    if (params.tempGroupCode) throw new Error('群临时会话暂不支持转发闪传。');
+    if (isDatalineUid(params.targetId.trim())) throw new Error('设备会话暂不支持转发闪传。');
+    const pid = this.resolvePid();
+    if (params.peerType === 'group') {
+      const groupId = Number(params.targetId.trim());
+      if (!Number.isSafeInteger(groupId) || groupId <= 0) {
+        throw new Error(`群号不合法：${params.targetId}`);
+      }
+      params.beforeSend?.();
+      await SendFlashMsg.invoke(this.nt, pid, { filesetUuid: fileSetId, groupId });
+    } else {
+      const targetUid = this.resolveUid(params.targetId);
+      params.beforeSend?.();
+      await SendFlashMsg.invoke(this.nt, pid, {
+        filesetUuid: fileSetId,
+        targetUid,
+      });
+    }
+    return { ok: true, fileSetId };
   }
 
   /**

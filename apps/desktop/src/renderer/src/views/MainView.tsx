@@ -9847,13 +9847,14 @@ function MainWorkspace(): ReactElement {
     // +「发送中」标识。本地媒体用 localPath / localPreviewUrl 直接预览。只活在
     // 前端 state 里，不写库、不落缓存文件。
     //
-    // **AI 声聊除外**（`0x929b_0` 合成即发送）：语音是**服务端**合成后直接落进群里的，
+    // **AI 声聊与已有闪传分享除外**：两者由服务端生成消息，分享不沿用原卡片做本地对账。
+    // AI 声聊（`0x929b_0` 合成即发送）：语音是**服务端**合成后直接落进群里的，
     // 我们这边那个 ptt 元素只是个占位（本地没有音频、回执也没有 random / seq 可对账），
     // 画一条假气泡只会和真消息重影 / 排错位置。等 QQ 同步回来就是真气泡；失败靠 toast。
     // 注意「文字转语音」（本机合成 → `sendVoice`）走的是 `voice` 计划，是一条**真消息**，
     // 照常乐观渲染。
     if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
-    const optimistic = plan.kind !== 'aiVoice';
+    const optimistic = plan.kind !== 'aiVoice' && plan.kind !== 'flashTransfer';
     const fileExistingMsgIds =
       plan.kind === 'file' ? loadedRef.current.map((message) => message.msgId) : [];
     const optimisticId = submission?.id ?? `optimistic-${mfId('msg')}`;
@@ -9930,7 +9931,16 @@ function MainWorkspace(): ReactElement {
           fontId: preparedChatFont?.fontId ?? 0,
         },
       });
-      if (plan.kind === 'file') {
+      if (plan.kind === 'flashTransfer') {
+        outcome = await client.account.forwardFlashTransfer.mutate({
+          expectedAccountUin: user.identityValue,
+          ...(expectedAccountConfigId ? { expectedAccountConfigId } : {}),
+          peerType: target.peerType,
+          targetId: target.targetId,
+          ...(target.tempGroupCode ? { tempGroupCode: target.tempGroupCode } : {}),
+          fileSetId: plan.fileSetId,
+        });
+      } else if (plan.kind === 'file') {
         if (target.tempGroupCode) {
           // 私聊文件走的是 trans0x211 路由（c2c 专用），临时会话还没验证过对应的文件
           // 管线：与其发一条大概率被拒的 c2c 文件，不如如实说清楚。
@@ -10059,8 +10069,8 @@ function MainWorkspace(): ReactElement {
       });
       return;
     }
-    if (plan.kind === 'aiVoice') {
-      // AI 声聊没有乐观条目可收（见上），回执也没有 random / seq 可对账 —— 到此为止。
+    if (plan.kind === 'aiVoice' || plan.kind === 'flashTransfer') {
+      // 两者均由服务端生成消息，没有 PbSendMsg 的 random / seq，不伪造普通消息对账。
       if (submission)
         setOptimisticMessages((current) => current.filter((item) => item.id !== optimisticId));
       return;

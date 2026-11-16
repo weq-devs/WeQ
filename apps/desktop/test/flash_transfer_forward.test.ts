@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSendElems, encode, ELEM, type SendElement } from '@weq/protocol';
+import { buildSendElems, encode, ELEM } from '@weq/protocol';
 import {
   codecElementToSeg,
   renderElementsToSegs,
@@ -7,6 +7,8 @@ import {
   segsToSendElements,
 } from '../src/renderer/src/components/mergeForward/model';
 import { forwardUnsupportedReason, repeatSendPlan } from '../src/renderer/src/lib/messageRepeat';
+import { buildComposerSendPlan } from '../src/renderer/src/im-template/template/composerSend';
+import { elementToToken } from '../src/renderer/src/im-template/template/draftElements';
 
 const flash = {
   type: 'markdown',
@@ -18,7 +20,7 @@ const flash = {
 };
 
 describe('闪传卡片转发', () => {
-  it.each([false, true])('忽略空文本占位并保留文件集 ID（群聊：%s）', (group) => {
+  it.each([false, true])('忽略空文本占位，生成专用分享计划而非 Markdown（群聊：%s）', (group) => {
     const elements = [
       { type: 'text', data: { textContent: '' } },
       flash,
@@ -27,13 +29,43 @@ describe('闪传卡片转发', () => {
     expect(forwardUnsupportedReason(elements)).toBeNull();
     const plan = repeatSendPlan(elements, new Map(), group);
     expect(plan).toEqual({
-      kind: 'elements',
-      elements: [{ kind: 'markdown', ...flash.data }],
+      kind: 'flashTransfer',
+      fileSetId: flash.data.flashTransferInfo.fileSetId,
     });
-    if (plan.kind !== 'elements') throw new Error('缺少闪传发送计划');
-    expect(() =>
-      buildSendElems(plan.elements as SendElement[], { scene: group ? 'group' : 'c2c' }),
-    ).not.toThrow();
+  });
+
+  it.each([false, true])('复制／草稿入口同样生成专用计划（复制：%s）', (copied) => {
+    expect(
+      buildComposerSendPlan({
+        body: elementToToken({
+          kind: 'markdown',
+          ...flash.data,
+          ...(copied ? { weqCopiedElement: true } : {}),
+        }),
+        locals: [],
+        superStickers: new Map(),
+      }),
+    ).toEqual({ kind: 'flashTransfer', fileSetId: flash.data.flashTransferInfo.fileSetId });
+  });
+
+  it('普通 Markdown 仍走元素发送，闪传不与其它内容混发或静默丢字', () => {
+    const plain = { type: 'markdown', data: { markdownContent: '**hello**' } };
+    expect(repeatSendPlan([plain], new Map(), false)).toEqual({
+      kind: 'elements',
+      elements: [{ kind: 'markdown', markdownContent: '**hello**' }],
+    });
+    expect(forwardUnsupportedReason([flash, plain])).toMatch(/闪传.*混合/);
+    const token = elementToToken({ kind: 'markdown', ...flash.data });
+    for (const body of [`正文${token}`, `${token}正文`]) {
+      expect(() => buildComposerSendPlan({ body, locals: [], superStickers: new Map() })).toThrow(
+        /闪传.*混合/,
+      );
+    }
+  });
+
+  it('闪传缺少文件集 ID 时不回退普通 Markdown', () => {
+    const invalid = { ...flash, data: { ...flash.data, flashTransferInfo: { fileSetId: ' ' } } };
+    expect(() => repeatSendPlan([invalid], new Map(), false)).toThrow(/文件集身份/);
   });
 
   it('原始元素、旧草稿、预览及合并转发转换均保留文件集 ID', () => {
