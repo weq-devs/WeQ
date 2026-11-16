@@ -194,7 +194,7 @@ function grayTipNodes(
   }
 
   if (kind === 'grayTipGroup') {
-    return [{ t: 'text', text: groupTipText(el) ?? '[群提示]' }];
+    return [{ t: 'text', text: groupTipText(el, self, displayNames) ?? '[群提示]' }];
   }
 
   // 戳一戳 / XML 类灰条（表情回应、入群邀请、…）：两种等价编码，XML 更常见。
@@ -216,16 +216,27 @@ function grayTipNodes(
  * 群提示（入群 / 群名修改 / 禁言 / 解散）。文案与聊天区 `elementText` 保持一致，
  * 字段来自 40051 自带的 groupTipType / user1Nick / user2Nick / muteInfo。
  */
-export function groupTipText(el: Rec): string | null {
+export function groupTipText(
+  el: Rec,
+  self: ReadonlySet<string> = NO_SELF,
+  displayNames: DisplayNames = new Map(),
+): string | null {
   const user1 = str(el.user1GroupNick) || str(el.user1Nick);
   const user2 = str(el.user2GroupNick) || str(el.user2Nick);
   const mute = el.muteInfo as Rec | undefined;
 
   if (mute && typeof mute === 'object') {
     const duration = num(mute.duration);
-    // mutedUser 为空 = 全员禁言（QQ 只填 operator）；有具体成员则是单人禁言。
-    const mutedUser = str((mute.mutedUser as Rec | undefined)?.groupNick) || user2;
-    if (mutedUser) return duration > 0 ? `${mutedUser} 被禁言` : `${mutedUser} 被解除禁言`;
+    const target = mute.mutedUser as Rec | undefined;
+    const targetUid = str(target?.uid).trim() || str(el.user2Uid).trim();
+    const targetNick = str(target?.groupNick).trim() || user2;
+    // 个人禁言可能只带 UID；不能把昵称缺失当成全员禁言。
+    if (targetUid || targetNick) {
+      const name = self.has(targetUid)
+        ? SELF_LABEL
+        : displayNames.get(targetUid) || targetNick || '某成员';
+      return duration > 0 ? `${name} 被禁言` : `${name} 被解除禁言`;
+    }
     return duration > 0 ? '开启了全员禁言' : '关闭了全员禁言';
   }
 
@@ -393,6 +404,18 @@ export function previewIdentityIds(preview: unknown, senderUid = ''): string[] {
     return [...ids];
   }
   if (!str(el.kind).startsWith('grayTip')) return [...ids];
+  if (el.kind === 'grayTipGroup') {
+    const mute = el.muteInfo as Rec | undefined;
+    for (const value of [
+      el.user1Uid,
+      el.user2Uid,
+      (mute?.operator as Rec | undefined)?.uid,
+      (mute?.mutedUser as Rec | undefined)?.uid,
+    ]) {
+      const uid = str(value).trim();
+      if (uid) ids.add(uid);
+    }
+  }
   for (const key of ['recallSenderUid', 'recallRevokeUid']) {
     const uid = str(el[key]);
     if (uid) ids.add(uid);
