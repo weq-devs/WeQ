@@ -435,6 +435,16 @@
   animation: weq-exp-pop 170ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+.weq-web-dialog-layer > .weq-exp-dialog {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+html[data-weq-input='touch'] .weq-exp-dialog-close {
+  min-width: 44px;
+  min-height: 44px;
+}
+
 /* 重构后的分板块宽灯箱 */
 .weq-exp-dialog.is-wide {
   width: min(920px, calc(100vw - 48px));

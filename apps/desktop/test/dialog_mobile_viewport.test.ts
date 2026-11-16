@@ -2,6 +2,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { Modal } from '../src/renderer/src/components/Dialog';
+import { OverlayLayer } from '../src/renderer/src/components/OverlayLayer';
 
 vi.mock('../src/renderer/src/lib/target', async (original) => ({
   ...(await original<object>()),
@@ -26,8 +27,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it('Web 弹窗自身跟随键盘可视视口，不依赖主页面的 CSS 变量继承', () => {
-  act(() => root.render(createElement(Modal, { centered: true }, '合成表单')));
+it.each([
+  ['Modal', Modal],
+  ['OverlayLayer', OverlayLayer],
+] as const)('Web 弹层 %s 自身跟随键盘可视视口，不依赖主页面的 CSS 变量继承', (_name, Surface) => {
+  act(() => root.render(createElement(Surface, {}, '合成表单')));
   const layer = document.querySelector<HTMLElement>('.weq-web-dialog-layer')!;
   expect(layer.parentElement).toBe(document.body);
   expect(layer.style.getPropertyValue('--weq-mobile-viewport-height')).toBe('844px');

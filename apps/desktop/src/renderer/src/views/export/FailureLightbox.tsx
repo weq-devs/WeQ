@@ -6,7 +6,7 @@
 import { EmptyState } from '../../components/EmptyState';
 import { useMemo, useState, type ReactElement } from 'react';
 import { FileWarning, X, CircleCheck } from 'lucide-react';
-import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
+import { OverlayLayer } from '../../components/OverlayLayer';
 import type { UiFailure } from './TaskList';
 
 /** Stage key → 中文标签（用于分组标题与筛选）。 */
@@ -37,8 +37,6 @@ export function FailureLightbox({
   failures: UiFailure[];
   onClose: () => void;
 }): ReactElement {
-  useEscapeToClose(onClose);
-
   // 各类型可用作筛选 chip：'all' + 出现过的 stage。
   const stages = useMemo(() => {
     const seen: string[] = [];
@@ -50,11 +48,7 @@ export function FailureLightbox({
   const shown = filter === 'all' ? failures : failures.filter((f) => f.stage === filter);
 
   return (
-    <div
-      className="modal-scrim weq-exp-modal-scrim"
-      role="presentation"
-      onMouseDown={closeFromScrim(onClose)}
-    >
+    <OverlayLayer className="modal-scrim weq-exp-modal-scrim" onClose={onClose}>
       <section
         className="weq-exp-dialog weq-exp-fail-dialog"
         role="dialog"
@@ -68,8 +62,14 @@ export function FailureLightbox({
               {taskName} · 共 {failures.length} 个失败
             </span>
           </div>
-          <button type="button" className="weq-exp-dialog-close" onClick={onClose} title="关闭">
-            <X size={18} />
+          <button
+            type="button"
+            className="weq-exp-dialog-close"
+            onClick={onClose}
+            title="关闭"
+            aria-label="关闭导出失败详情"
+          >
+            <X size={18} aria-hidden />
           </button>
         </header>
 
@@ -125,6 +125,6 @@ export function FailureLightbox({
           </button>
         </footer>
       </section>
-    </div>
+    </OverlayLayer>
   );
 }

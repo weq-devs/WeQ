@@ -473,6 +473,8 @@ html[data-theme='dark'] .weq-gift-dialog {
   flex: 1;
   min-height: 0;
   padding: 18px 22px 22px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .weq-gift-detail-back {
@@ -705,7 +707,6 @@ html[data-theme='dark'] .weq-gift-detail-result.is-ok {
   .weq-gift-detail {
     grid-template-columns: minmax(0, 1fr);
     gap: 16px;
-    overflow-y: auto;
   }
 
   .weq-gift-detail-preview {

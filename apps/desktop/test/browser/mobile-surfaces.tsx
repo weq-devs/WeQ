@@ -6,6 +6,7 @@ import { CollectionDialog } from '../../src/renderer/src/components/CollectionDi
 import { SettingsDialog } from '../../src/renderer/src/components/SettingsDialog';
 import { MailWorkspace } from '../../src/renderer/src/views/MailView';
 import { ChannelView } from '../../src/renderer/src/views/ChannelView';
+import { GuildDirectDialog } from '../../src/renderer/src/components/GuildDirectDialog';
 import { QzoneView } from '../../src/renderer/src/views/QzoneView';
 import { PageSnapshotScope } from '../../src/renderer/src/components/PageSnapshots';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
@@ -98,8 +99,16 @@ function Fixture() {
               {surface === 'lookup' && <QQExactLookup kind="user" onClose={noop} />}
               {surface === 'collections' && <CollectionDialog open embedded onClose={noop} />}
               {surface === 'mail' && <MailWorkspace active selfUin="10001" onUnreadChange={noop} />}
-              {(surface === 'channel' || surface === 'channel-direct') && (
-                <ChannelView selfUser={user} initialDirectOpen={surface === 'channel-direct'} />
+              {surface === 'channel' && (
+                <ChannelView onOpenDirect={() => setSurface('channel-direct')} />
+              )}
+              {surface === 'channel-direct' && (
+                <GuildDirectDialog
+                  open
+                  embedded
+                  selfUser={user}
+                  onClose={() => setSurface('channel')}
+                />
               )}
               {surface === 'qzone' && <QzoneView selfUin="10001" nickname="合成昵称" />}
               {surface.startsWith('settings') && (

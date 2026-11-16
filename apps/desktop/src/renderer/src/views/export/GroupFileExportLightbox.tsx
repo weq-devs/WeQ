@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import type { ExportSavePolicy } from '@weq/service';
 import '../../styles/resource-export.css';
-import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
+import { OverlayLayer } from '../../components/OverlayLayer';
 import { client } from '../../trpc/client';
 import { useToast } from '../../components/Toast';
 import { PickerListSkeleton } from './ExportSkeleton';
@@ -101,7 +101,6 @@ export function GroupFileExportLightbox({
   onClose: () => void;
   onConfirm: (result: GroupFileExportResult) => void;
 }): ReactElement {
-  useEscapeToClose(onClose);
   const [includeIntegrityReport, setIncludeIntegrityReport] = useState(false);
   const [archive, setArchive] = useState<ResourceArchiveOptions>({
     metadataFormat: 'json',
@@ -251,10 +250,9 @@ export function GroupFileExportLightbox({
   }
 
   return (
-    <div
+    <OverlayLayer
       className="modal-scrim weq-exp-modal-scrim weq-resource-export-scrim"
-      role="presentation"
-      onMouseDown={closeFromScrim(onClose)}
+      onClose={onClose}
     >
       <section
         className="weq-exp-dialog weq-exp-album-dialog weq-resource-export-dialog"
@@ -268,8 +266,14 @@ export function GroupFileExportLightbox({
             <strong>导出群文件</strong>
             <span title={groupName}>{groupName}</span>
           </div>
-          <button type="button" className="weq-exp-dialog-close" onClick={onClose} title="关闭">
-            <X size={18} />
+          <button
+            type="button"
+            className="weq-exp-dialog-close"
+            onClick={onClose}
+            title="关闭"
+            aria-label="关闭群文件导出"
+          >
+            <X size={18} aria-hidden />
           </button>
         </header>
 
@@ -487,6 +491,6 @@ export function GroupFileExportLightbox({
           </button>
         </footer>
       </section>
-    </div>
+    </OverlayLayer>
   );
 }

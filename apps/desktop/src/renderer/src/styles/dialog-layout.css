@@ -84,11 +84,15 @@ html[data-theme='dark'] .weq-message-modal .weq-dialog-foot .weq-action-soft:hov
 }
 
 @media (min-width: 0px) {
+  .weq-web-dialog-layer {
+    inset: 0;
+  }
+
   .weq-web-dialog-layer:not(.is-anchored-popover) {
     /* Chromium resize 期间 JS 视口值可能晚一帧，不用旧高度把居中弹窗推到屏外。 */
     --weq-dialog-viewport-height: min(var(--weq-mobile-viewport-height, 100dvh), 100dvh);
-    --weq-dialog-top-gap: max(12px, env(safe-area-inset-top, 0px));
-    --weq-dialog-bottom-gap: max(12px, env(safe-area-inset-bottom, 0px));
+    --weq-dialog-top-gap: max(12px, var(--weq-safe-top));
+    --weq-dialog-bottom-gap: max(12px, var(--weq-mobile-safe-bottom, var(--weq-safe-bottom)));
     --weq-dialog-max-height: calc(
       var(--weq-dialog-viewport-height) -
       var(--weq-dialog-top-gap) -
@@ -97,16 +101,16 @@ html[data-theme='dark'] .weq-message-modal .weq-dialog-foot .weq-action-soft:hov
     inset: var(--weq-mobile-viewport-top, 0px) 0 auto;
     height: var(--weq-dialog-viewport-height);
     min-height: 0;
-    padding: var(--weq-dialog-top-gap) max(12px, env(safe-area-inset-right, 0px))
-      var(--weq-dialog-bottom-gap) max(12px, env(safe-area-inset-left, 0px));
+    padding: var(--weq-dialog-top-gap) max(12px, var(--weq-safe-right)) var(--weq-dialog-bottom-gap)
+      max(12px, var(--weq-safe-left));
   }
 
-  .weq-web-dialog-layer:not(.is-anchored-popover) > .weq-modal {
+  .weq-web-dialog-layer:not(.is-anchored-popover) > :first-child {
     max-width: 100%;
     max-height: var(--weq-dialog-max-height);
   }
 
-  .weq-web-dialog-layer.is-anchored-popover > .weq-modal {
+  .weq-web-dialog-layer.is-anchored-popover > :first-child {
     max-width: calc(100vw - 16px);
     max-height: calc(var(--weq-mobile-viewport-height, 100dvh) - 16px);
     overflow: auto;

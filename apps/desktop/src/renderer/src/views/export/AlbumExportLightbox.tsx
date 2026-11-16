@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { Check, CheckCheck, FlipHorizontal2, Image, Loader2, X, Images } from 'lucide-react';
 import type { ExportSavePolicy } from '@weq/service';
 import '../../styles/resource-export.css';
-import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
+import { OverlayLayer } from '../../components/OverlayLayer';
 import { client } from '../../trpc/client';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import type { GroupAlbumWire } from '../../components/GroupAlbumDialog';
@@ -30,7 +30,6 @@ export function AlbumExportLightbox({
   onClose: () => void;
   onConfirm: (result: AlbumExportResult) => void;
 }): ReactElement {
-  useEscapeToClose(onClose);
   const [includeIntegrityReport, setIncludeIntegrityReport] = useState(false);
   const [archive, setArchive] = useState<ResourceArchiveOptions>({
     metadataFormat: 'json',
@@ -82,10 +81,9 @@ export function AlbumExportLightbox({
   });
 
   return (
-    <div
+    <OverlayLayer
       className="modal-scrim weq-exp-modal-scrim weq-resource-export-scrim"
-      role="presentation"
-      onMouseDown={closeFromScrim(onClose)}
+      onClose={onClose}
     >
       <section
         className="weq-exp-dialog weq-exp-album-dialog weq-resource-export-dialog"
@@ -99,8 +97,14 @@ export function AlbumExportLightbox({
             <strong>导出群相册</strong>
             <span title={groupName}>{groupName}</span>
           </div>
-          <button type="button" className="weq-exp-dialog-close" onClick={onClose} title="关闭">
-            <X size={18} />
+          <button
+            type="button"
+            className="weq-exp-dialog-close"
+            onClick={onClose}
+            title="关闭"
+            aria-label="关闭相册导出"
+          >
+            <X size={18} aria-hidden />
           </button>
         </header>
 
@@ -195,7 +199,7 @@ export function AlbumExportLightbox({
           </button>
         </footer>
       </section>
-    </div>
+    </OverlayLayer>
   );
 }
 

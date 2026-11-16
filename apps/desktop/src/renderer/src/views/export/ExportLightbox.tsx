@@ -70,7 +70,7 @@ import { SegmentedControl } from '../../components/SegmentedControl';
 import { CheckPillGroup } from '../../components/settings/controls';
 import { TimeRangePicker } from './TimeRangePicker';
 import type { CalendarTarget } from '../../lib/messageCalendar';
-import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
+import { OverlayLayer } from '../../components/OverlayLayer';
 import {
   DEFAULT_OPTIONS,
   DEFAULT_SCHEDULE,
@@ -265,9 +265,6 @@ export function ExportLightbox({
   onAuthorizationChange?: (state: ExportAuthorizationIndicatorState | null) => void;
 }): ReactElement {
   const remote = useRemoteClient();
-  useEscapeToClose(() => {
-    if (!embedded && !hidden) onClose();
-  });
   const [opts, setOpts] = usePageState<ExportOptions>(
     `export:options:${variant}:${contactScope}`,
     () => {
@@ -617,13 +614,14 @@ export function ExportLightbox({
     </div>
   ) : null;
 
+  const Surface = embedded ? 'div' : OverlayLayer;
   return (
-    <div
+    <Surface
       className={embedded ? 'weq-export-options' : 'modal-scrim weq-exp-modal-scrim'}
-      hidden={hidden}
-      style={hidden ? { display: 'none' } : undefined}
+      {...(embedded
+        ? { hidden, style: hidden ? { display: 'none' } : undefined }
+        : { open: !hidden, onClose })}
       role="presentation"
-      onMouseDown={embedded ? undefined : closeFromScrim(onClose)}
     >
       <section
         className="weq-exp-dialog is-wide"
@@ -1098,6 +1096,6 @@ export function ExportLightbox({
         />
       ) : null}
       {authorization.dialog}
-    </div>
+    </Surface>
   );
 }

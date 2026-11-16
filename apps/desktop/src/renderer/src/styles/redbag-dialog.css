@@ -1,0 +1,13 @@
+.weq-web-dialog-layer > .weq-redbag-qr {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.weq-web-dialog-layer > .weq-redbag-qr > :not(.weq-redbag-qr-close) {
+  flex-shrink: 0;
+}
+
+html[data-weq-input='touch'] .weq-redbag-qr-close {
+  width: 44px;
+  height: 44px;
+}
