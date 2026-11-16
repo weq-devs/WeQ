@@ -965,7 +965,7 @@ describe('设置归位后的实际页面', () => {
         ),
       ];
       expect(ids).toEqual([
-        'weq-config-management',
+        'settings-reset-startup',
         'startup-enabled',
         'startup-page',
         'window-close-behavior',

@@ -115,11 +115,7 @@ export function SectionHeader({
         <div
           className="weq-settings-page-reset"
           data-setting-id={
-            reset && pageReset
-              ? reset.page === 'startup'
-                ? 'weq-config-management'
-                : `settings-reset-${reset.page}`
-              : undefined
+            reset && pageReset ? `settings-reset-${reset.page}` : undefined
           }
         >
           {actions}

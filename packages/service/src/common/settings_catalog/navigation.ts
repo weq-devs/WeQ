@@ -413,8 +413,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   {
     id: 'weq-config-management',
-    section: 'startup',
-    label: '恢复本页默认设置',
+    section: 'backup',
+    label: '恢复全局默认设置',
     aliases: [
       '恢复默认设置',
       '重置与清除配置',
@@ -457,6 +457,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['mcp-install', 'mcp', '安装到本机 AI 客户端', '安装 MCP', 'MCP 自动配置'],
       ['sse-targets', 'sse', '已配置的推送目标', '推送地址', 'SSE access_token', '添加推送目标'],
       ['assistant-resource', 'assistant', '资源服务', '公众号资源地址'],
+      '全局恢复默认设置',
       ['assistant-port', 'assistant', 'QQ 公众号推送端口', '公众号端口'],
       ['chat-image-cache', 'message-display', '图片预览内存预算', '图片与表情', '内存缓存'],
     ] as const

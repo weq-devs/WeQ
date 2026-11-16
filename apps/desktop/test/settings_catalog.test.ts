@@ -231,7 +231,7 @@ describe('feature_search', () => {
       }
       expect(searchAppEntries('恢复默认设置')[0]?.target).toMatchObject({
         kind: 'setting',
-        section: 'startup',
+        section: 'backup',
         settingId: 'weq-config-management',
       });
     });

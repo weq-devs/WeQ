@@ -39,6 +39,20 @@ createRoot(document.getElementById('root')!).render(
           <BackupSection
             api={{
               ...backupApi,
+              defaultsInfo: async () => ({
+                hasApi: true,
+                paths: [
+                  {
+                    id: 'defaultExportDir',
+                    label: '导出目录',
+                    value: `/synthetic/${'long-path/'.repeat(12)}exports`,
+                  },
+                ],
+                connections: [{ id: 'webEnabled', label: 'Web 服务', value: '运行中' }],
+              }),
+              defaults: async () => {
+                throw new Error('合成恢复失败，可重新确认');
+              },
               inventory: async () => ({
                 accounts: [],
                 cloneScopes: [],
