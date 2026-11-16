@@ -15,7 +15,10 @@ vi.mock('../src/renderer/src/trpc/client', () => {
       { id: '182', desc: '/笑哭', shortcuts: ['xk'] },
       { id: '76', desc: '/赞', shortcuts: ['qiang', 'strong'] },
     ],
-    recent: [],
+    recent: [
+      { id: '297', usedAt: 10 },
+      { id: '182', usedAt: 20 },
+    ],
   };
   const proxy = (path = ''): unknown =>
     new Proxy(() => proxy(path), {
@@ -132,6 +135,21 @@ it('自动替换默认关闭，设置仅接受布尔值', () => {
   expect(preferenceDefaults.slashEmojiAutoReplace).toBe(false);
   expect(() => validatePreferencePatch({ slashEmojiAutoReplace: true })).not.toThrow();
   expect(() => validatePreferencePatch({ slashEmojiAutoReplace: 'true' })).toThrow();
+});
+
+it('只输入斜杠时优先选择最近使用的表情', () => {
+  const { editor, input, press, onSend, close } = composer();
+  try {
+    input('/');
+    expect(
+      [...document.querySelectorAll('[role="option"] code')].map((node) => node.textContent),
+    ).toEqual(['/xk', '/bx', '/qiang']);
+    press('Enter');
+    expect(editor.querySelector('img')?.dataset.chatToken).toBe('[[chat:face:182]]');
+    expect(onSend).not.toHaveBeenCalled();
+  } finally {
+    close();
+  }
 });
 
 it('开启后完整代码自动替换，前缀、撤销、输入法组合和关闭功能时不替换', () => {

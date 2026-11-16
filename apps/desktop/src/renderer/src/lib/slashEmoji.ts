@@ -36,8 +36,10 @@ const codeOrder = new Intl.Collator('zh-CN');
 export function searchSlashEmojis(
   faces: readonly SlashEmojiFace[],
   query: string,
+  recent: readonly { id: string; usedAt: number }[] = [],
 ): SlashEmojiMatch[] {
   const keyword = searchName(query);
+  const used = new Map(keyword ? [] : recent.map((item) => [item.id, item.usedAt]));
   const seen = new Set<string>();
   return faces
     .flatMap((face) => {
@@ -53,5 +55,10 @@ export function searchSlashEmojis(
         .sort(codeOrder.compare)[0];
       return code ? [{ ...face, code }] : [];
     })
-    .sort((a, b) => codeOrder.compare(a.code, b.code) || codeOrder.compare(a.id, b.id));
+    .sort(
+      (a, b) =>
+        (used.get(b.id) ?? 0) - (used.get(a.id) ?? 0) ||
+        codeOrder.compare(a.code, b.code) ||
+        codeOrder.compare(a.id, b.id),
+    );
 }

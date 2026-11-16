@@ -20,7 +20,11 @@ const catalog = {
       desc: `合成表情${index}`,
     })),
   ],
-  recent: [],
+  recent: [
+    { id: '14', usedAt: 10 },
+    { id: '76', usedAt: 30 },
+    { id: '182', usedAt: 20 },
+  ],
 };
 const account = { uin: '26113', configId: 'fixture' };
 const proxy = (path = ''): unknown =>

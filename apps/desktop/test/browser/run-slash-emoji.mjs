@@ -71,6 +71,11 @@ try {
       const menu = page.getByRole('listbox', { name: '表情候选' });
       await menu.waitFor();
       assert.ok((await menu.getByRole('option').count()) > 8);
+      assert.deepEqual((await menu.locator('code').allTextContents()).slice(0, 3), [
+        '/qiang',
+        '/xk',
+        '/:)',
+      ]);
       const box = await menu.boundingBox();
       assert.ok(box && box.width <= 224, '候选菜单过宽');
       const metrics = await menu

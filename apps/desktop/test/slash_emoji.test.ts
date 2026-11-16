@@ -31,6 +31,42 @@ describe('斜杠表情匹配', () => {
     expect(searchSlashEmojis(faces, '').map((item) => item.id)).toEqual(['1', '3', '2']);
     expect(searchSlashEmojis([{ id: '9', desc: '/打Call' }], 'call')).toEqual([]);
   });
+  it('空关键词按最近使用时间倒序，未使用或时间相同时按字典序补齐', () => {
+    const faces = [
+      { id: '1', desc: '/一', shortcuts: ['alpha'] },
+      { id: '2', desc: '/二', shortcuts: ['beta'] },
+      { id: '3', desc: '/三', shortcuts: ['gamma'] },
+      { id: '4', desc: '/四', shortcuts: ['delta'] },
+      { id: '5', desc: '/五', shortcuts: ['epsilon'] },
+    ];
+    const recent = [
+      { id: '2', usedAt: 10 },
+      { id: '99', usedAt: 999 },
+      { id: '3', usedAt: 30 },
+      { id: '4', usedAt: 30 },
+    ];
+    expect(searchSlashEmojis(faces, '', recent).map((item) => item.id)).toEqual([
+      '4',
+      '3',
+      '2',
+      '1',
+      '5',
+    ]);
+    expect(recent[0]).toEqual({ id: '2', usedAt: 10 });
+  });
+  it('输入关键词后，最近使用不影响前缀筛选及字典序', () => {
+    const faces = [
+      { id: '1', desc: '/强', shortcuts: ['strong'] },
+      { id: '2', desc: '/太阳', shortcuts: ['sun'] },
+      { id: '3', desc: '/测试', shortcuts: ['test'] },
+    ];
+    expect(
+      searchSlashEmojis(faces, 's', [
+        { id: '2', usedAt: 30 },
+        { id: '3', usedAt: 40 },
+      ]).map((item) => item.id),
+    ).toEqual(['1', '2']);
+  });
   it('QQ 实际英文短码可匹配，不把 bx 当作比心，也不擅自补全拼', () => {
     const faces = [
       { id: '297', desc: '/拜谢', shortcuts: ['bx'] },

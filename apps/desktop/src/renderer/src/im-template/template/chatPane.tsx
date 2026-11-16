@@ -1210,7 +1210,12 @@ export function ChatPane({
     },
   );
   const slashItems = useMemo(
-    () => searchSlashEmojis(shortcuts.data?.faces ?? [], slashMenu?.query ?? ''),
+    () =>
+      searchSlashEmojis(
+        shortcuts.data?.faces ?? [],
+        slashMenu?.query ?? '',
+        shortcuts.data?.recent ?? [],
+      ),
     [shortcuts.data, slashMenu?.query],
   );
   useEffect(() => {
