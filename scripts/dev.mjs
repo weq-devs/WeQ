@@ -59,8 +59,8 @@ export async function startDevelopment({
   childEnv.WEQ_NATIVE_DIR = join(repo, 'native');
   childEnv.NT_HELPER_DRESS_DIR = join(repo, 'resources/dress');
   childEnv.WEQ_REMOTE_HELPER = helper;
-  childEnv.WEQ_DEV_STDOUT_TTY = process.stdout.isTTY ? '1' : '0';
-  childEnv.WEQ_DEV_STDERR_TTY = process.stderr.isTTY ? '1' : '0';
+  childEnv.WEQ_DEV_STDOUT_TTY ??= process.stdout.isTTY ? '1' : '0';
+  childEnv.WEQ_DEV_STDERR_TTY ??= process.stderr.isTTY ? '1' : '0';
   const platform = nativePlatform();
   childEnv.WEQ_AUTHORIZATION_HELPER_PATH ??= join(repo, platform.directory, platform.helper);
   if (args.includes('--prepare-only')) {

@@ -6,17 +6,12 @@ import type { Readable } from 'node:stream';
 import {
   formatConsoleRecord,
   projectConsoleContext,
+  terminalColor,
   type LoggerContext,
   type LogLevel,
 } from '@weq/service/console-output';
 
-export function terminalColor(stream: 'stdout' | 'stderr', env = process.env): boolean {
-  const inherited = env[stream === 'stdout' ? 'WEQ_DEV_STDOUT_TTY' : 'WEQ_DEV_STDERR_TTY'];
-  return (
-    env.NO_COLOR === undefined &&
-    (inherited === undefined ? Boolean(process[stream].isTTY) : inherited === '1')
-  );
-}
+export { terminalColor };
 
 export function developmentRecord(
   level: LogLevel,

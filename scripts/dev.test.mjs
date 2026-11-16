@@ -255,6 +255,8 @@ test('一行入口按依赖、宿主、native、网络、启动顺序执行，�
       ELECTRON_RUN_AS_NODE: '1',
       ELECTRON_OVERRIDE_DIST_PATH: '/old',
       npm_execpath: '/pnpm.cjs',
+      WEQ_DEV_STDOUT_TTY: '1',
+      WEQ_DEV_STDERR_TTY: '0',
     },
     log: silent,
     dependencies: async () => events.push('dependencies'),
@@ -280,6 +282,8 @@ test('一行入口按依赖、宿主、native、网络、启动顺序执行，�
   assert.equal(launch.options.env.ELECTRON_RUN_AS_NODE, undefined);
   assert.equal(launch.options.env.ELECTRON_OVERRIDE_DIST_PATH, undefined);
   assert.equal(launch.options.env.WEQ_REMOTE_HELPER, '/network helper');
+  assert.equal(launch.options.env.WEQ_DEV_STDOUT_TTY, '1');
+  assert.equal(launch.options.env.WEQ_DEV_STDERR_TTY, '0');
   events.length = 0;
   await startDevelopment({ ...hooks, args: ['--prepare-only'] });
   assert.deepEqual(events, ['dependencies', 'electron', 'native', 'network', 'bot']);
@@ -445,6 +449,54 @@ test('启动日志与应用共用行头，分块中文、CR 进度和长行均�
     ['/path with spaces/pnpm.cjs', 'install'],
   ]);
 });
+
+for (const [name, tty, inherited, noColor, colors] of [
+  ['管道继承彩色终端', false, ['1', '1'], false, [true, true]],
+  ['管道不默认着色', false, [], false, [false, false]],
+  ['NO_COLOR 空值仍禁用颜色', false, ['1', '1'], true, [false, false]],
+  ['外层重定向优先于本层 TTY', true, ['0', '0'], false, [false, false]],
+  ['未继承时使用本层 TTY', true, [], false, [true, true]],
+  ['stdout 单独重定向', false, ['0', '1'], false, [false, true]],
+  ['stderr 单独重定向', false, ['1', '0'], false, [true, false]],
+]) {
+  for (const forward of [false, true]) {
+    test(`${forward ? '命令转发' : '启动日志'}：${name}`, () => {
+      const env = { ...process.env, WEQ_LOG_LEVEL: 'debug' };
+      for (const key of ['NO_COLOR', 'FORCE_COLOR', 'WEQ_DEV_STDOUT_TTY', 'WEQ_DEV_STDERR_TTY'])
+        delete env[key];
+      if (inherited[0] !== undefined) env.WEQ_DEV_STDOUT_TTY = inherited[0];
+      if (inherited[1] !== undefined) env.WEQ_DEV_STDERR_TTY = inherited[1];
+      if (noColor) env.NO_COLOR = '';
+      const child = spawnSync(
+        process.execPath,
+        [
+          '--input-type=module',
+          '-e',
+          `
+          import { startupLog, commandOutput } from ${JSON.stringify(new URL('./dev-process.mjs', import.meta.url).href)};
+          import { formatConsoleHeader } from ${JSON.stringify(new URL('../packages/service/src/common/console_header.mjs', import.meta.url).href)};
+          for (const stream of ['stdout', 'stderr'])
+            Object.defineProperty(process[stream], 'isTTY', { value: ${tty} });
+          for (const level of ['debug', 'info', 'warn', 'error']) {
+            if (${forward}) {
+              const output = commandOutput(() => { throw new Error('重复包装日志'); }, 'fixture', { env: process.env });
+              output.write(Buffer.from(formatConsoleHeader(level, 'ready', 'fixture', { now: 0, color: true }) + '\\n'));
+              output.end();
+            } else startupLog('ready', level, 'fixture');
+          }
+          `,
+        ],
+        { encoding: 'utf8', env },
+      );
+      assert.equal(child.status, 0, child.stderr);
+      for (const [index, stream] of ['stdout', 'stderr'].entries()) {
+        const lines = child[stream].trim().split('\n');
+        assert.equal(lines.length, 2);
+        for (const line of lines) assert.equal(line.includes('\x1b['), colors[index], line);
+      }
+    });
+  }
+}
 
 test('命令执行保留失败退出码、缺失工具及参数，失败输出不被吞掉', async () => {
   const lines = [];

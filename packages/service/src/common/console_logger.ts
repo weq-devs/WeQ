@@ -3,6 +3,7 @@ import { stripVTControlCharacters } from 'node:util';
 import { writeSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { consoleTimingLabels, formatConsoleRecord, type ConsoleSummary } from './console_format';
+import { terminalColor } from './console_header.mjs';
 
 const levels: LogLevel[] = ['debug', 'info', 'warn', 'error'];
 const secret =
@@ -176,12 +177,7 @@ export function createConsoleLogger(options: ConsoleLoggerOptions) {
       .map((v) => v.trim())
       .filter(Boolean),
   );
-  const color =
-    (options.color ??
-      (env.WEQ_DEV_STDERR_TTY === undefined
-        ? process.stderr.isTTY
-        : env.WEQ_DEV_STDERR_TTY === '1')) &&
-    env.NO_COLOR === undefined;
+  const color = (options.color ?? terminalColor('stderr', env)) && env.NO_COLOR === undefined;
   const pending = new Map<string, PendingSummary>();
   const stacks = new Map<string, number>();
   const details = minimum === 'debug';

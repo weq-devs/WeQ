@@ -60,6 +60,32 @@ test('开发首次构建，未变化时复用且子进程仍使用 production', 
   assert.equal(f.state.child.WEQ_DEV_WEB_CACHE, '1');
 });
 
+test('管道中的 Web 缓存命中日志继承外层终端颜色', async (t) => {
+  const f = await fixture(t);
+  await f.prepare();
+  const env = { ...process.env, WEQ_DEV_STDOUT_TTY: '1' };
+  delete env.NO_COLOR;
+  const output = execFileSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+      import { prepareWebAssets } from ${JSON.stringify(new URL('./dev-web.mjs', import.meta.url).href)};
+      await prepareWebAssets(${JSON.stringify(f.root)}, {
+        env: ${JSON.stringify(f.env)},
+        cache: true,
+        build() { throw new Error('缓存命中不应重建'); },
+      });
+      `,
+    ],
+    { encoding: 'utf8', env },
+  );
+  assert(output.includes('\x1b[32mINFO '));
+  assert(output.includes('\x1b[36mvite-web'));
+  assert.match(output, /内置 Web 资源未变化，复用已有构建/);
+});
+
 for (const name of [
   'apps/desktop/src/renderer/src/App.tsx',
   'apps/desktop/src/renderer/src/styles.css',

@@ -2,7 +2,10 @@ import { spawn } from 'node:child_process';
 import { constants } from 'node:os';
 import { StringDecoder } from 'node:string_decoder';
 import { stripVTControlCharacters } from 'node:util';
-import { formatConsoleHeader } from '../packages/service/src/common/console_header.mjs';
+import {
+  formatConsoleHeader,
+  terminalColor,
+} from '../packages/service/src/common/console_header.mjs';
 
 export function startupLog(
   message,
@@ -11,8 +14,9 @@ export function startupLog(
   { continuation = false } = {},
 ) {
   if (level === 'debug' && process.env.WEQ_LOG_LEVEL !== 'debug') return;
-  const sink = level === 'error' || level === 'warn' ? process.stderr : process.stdout;
-  const color = Boolean(sink.isTTY) && process.env.NO_COLOR === undefined;
+  const stream = level === 'error' || level === 'warn' ? 'stderr' : 'stdout';
+  const sink = process[stream];
+  const color = terminalColor(stream);
   for (const line of String(message).split(/\r?\n/)) {
     if (line.trim())
       sink.write(
@@ -43,10 +47,8 @@ export function commandOutput(log, scope, { env = process.env } = {}) {
       return;
     if (!debug && warnings && /^warning: .* generated \d+ warnings?/.test(text)) return;
     if (/^\d{2}:\d{2}:\d{2} (?:DEBUG|INFO |WARN |ERROR) /.test(text) || /^ {9}\S/.test(text)) {
-      const sink = /^\d{2}:\d{2}:\d{2} (?:WARN |ERROR) /.test(text)
-        ? process.stderr
-        : process.stdout;
-      sink.write(`${sink.isTTY && process.env.NO_COLOR === undefined ? original : text}\n`);
+      const stream = /^\d{2}:\d{2}:\d{2} (?:WARN |ERROR) /.test(text) ? 'stderr' : 'stdout';
+      process[stream].write(`${terminalColor(stream, env) ? original : text}\n`);
       return;
     }
     const level = /(?:^|\s)(?:error(?:\[|:)|fatal:|ERR_PNPM_|✘)/i.test(text)

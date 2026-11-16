@@ -118,6 +118,18 @@ describe('开发进程输出', () => {
     output.write('\x1b[32m12:34:56 INFO  startup  ready\x1b[0m\n');
     expect(sink).toHaveBeenCalledWith('12:34:56 INFO  startup  ready\n');
   });
+  it('彩色构建日志经过外层管道保留原颜色与时间，不重复包裹行头', () => {
+    const sink = vi.fn();
+    const output = createDevelopmentOutput(sink, true);
+    const line =
+      '\x1b[90m01:37:16\x1b[0m \x1b[32mINFO \x1b[0m \x1b[36mvite-web\x1b[0m  内置 Web 资源未变化';
+    const bytes = Buffer.from(`${line}\n`);
+    output.write(bytes.subarray(0, 4));
+    output.write(bytes.subarray(4));
+    output.end();
+    expect(sink).toHaveBeenCalledTimes(1);
+    expect(sink).toHaveBeenCalledWith(`${line}\n`);
+  });
   it('普通日志收起插件计时及明细，不吞掉后续警告', () => {
     vi.stubEnv('WEQ_LOG_LEVEL', 'info');
     onTestFinished(() => vi.unstubAllEnvs());
