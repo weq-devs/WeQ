@@ -6142,6 +6142,25 @@ export const accountRouter = router({
     });
   }),
 
+  /** 仅通知小表内容变化时推送；每次接入校准一次，覆盖断线期间的变化。 */
+  onContactNoticesChanged: procedure.input(exportAccountBindingInput).subscription(({ input }) => {
+    const services = requireExpectedAccount(
+      input.expectedAccountUin,
+      input.expectedAccountConfigId,
+    );
+    const session = getAppContext().account;
+    return observable<{ kind: 'friend' | 'group' }>((emit) => {
+      const handler = (change: { session: typeof session; kind: 'friend' | 'group' }) => {
+        if (change.session === session && getAppContext().services === services)
+          emit.next({ kind: change.kind });
+      };
+      dbEventBus.on('contact-notices-changed', handler);
+      emit.next({ kind: 'friend' });
+      emit.next({ kind: 'group' });
+      return () => dbEventBus.off('contact-notices-changed', handler);
+    });
+  }),
+
   /** 群成员、名片、角色与群资料所在的群资料库发生变化。 */
   onGroupInfoChanged: procedure.input(exportAccountBindingInput).subscription(({ input }) => {
     const services = requireExpectedAccount(

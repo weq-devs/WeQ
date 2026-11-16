@@ -221,6 +221,8 @@ import {
 } from '@weq/account';
 import { collectionItemToWire, collectionDetailToWire } from '../ipc/serde';
 import { mountGroupInfoWatch } from '../group_info_watch';
+import { mountContactNoticeWatch } from '../contact_notice_watch';
+import { CONTACT_NOTICE_LIMIT } from '../../shared/contact_notices';
 import { ContactDirectoryRuntime } from './contact_metrics';
 
 /**
@@ -232,6 +234,7 @@ import { ContactDirectoryRuntime } from './contact_metrics';
  *     inserted rows; reserved for unread / popup notifications.
  *   - 'roaming' — newly committed WeQ cache rows; never treated as QQ unread writes.
  *   - 'group-info-changed' — 群资料库变化，独立刷新群资料与成员缓存。
+ *   - 'contact-notices-changed' — 好友／群通知小表内容变化。
  * The account router turns each into a tRPC subscription.
  */
 export const dbEventBus = new EventEmitter();
@@ -336,6 +339,7 @@ const dbWatch = new DbWatchService();
 /** Handle for the currently-watched account db, if any. */
 let dbWatchHandle: DbWatchHandle | null = null;
 let groupInfoWatchHandle: DbWatchHandle | null = null;
+let contactNoticeWatchHandles: DbWatchHandle[] = [];
 let dbChangeNotification: ReturnType<typeof createDbChangeNotification<DbChange>> | null = null;
 /** SSE 消息推送服务（随账号开关），null = 未启用 / 无账号。 */
 let ssePush: SsePushService | null = null;
@@ -511,6 +515,29 @@ function cancelAnnualReportWarmup(): void {
  */
 function mountDbWatch(session: AccountSession): void {
   if (dbWatchHandle) return;
+  const isCurrent = () => getAppContext().account === session;
+  contactNoticeWatchHandles = [
+    {
+      kind: 'friend' as const,
+      dbPath: session.profileInfo.dbPath,
+      read: () => session.buddyReqs.listRequests(CONTACT_NOTICE_LIMIT),
+    },
+    {
+      kind: 'group' as const,
+      dbPath: session.groupMembers.dbPath,
+      read: async () =>
+        (
+          await Promise.all([
+            session.groupNotifies.listNormal(CONTACT_NOTICE_LIMIT),
+            session.groupNotifies.listDoubt(CONTACT_NOTICE_LIMIT),
+          ])
+        ).flat(),
+    },
+  ].map((source) =>
+    mountContactNoticeWatch(dbWatch, source, isCurrent, (kind) => {
+      dbEventBus.emit('contact-notices-changed', { session, kind });
+    }),
+  );
   groupInfoWatchHandle = mountGroupInfoWatch(
     dbWatch,
     session.groupMembers.dbPath,
@@ -550,6 +577,8 @@ function mountDbWatch(session: AccountSession): void {
 
 /** Stop watching the current account db, if any. */
 function unmountDbWatch(): void {
+  for (const handle of contactNoticeWatchHandles) handle.unmount();
+  contactNoticeWatchHandles = [];
   groupInfoWatchHandle?.unmount();
   groupInfoWatchHandle = null;
   dbChangeNotification?.dispose();

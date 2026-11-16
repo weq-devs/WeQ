@@ -43,6 +43,8 @@ import {
   type StartupQueryStage,
 } from '../lib/startupQueries';
 import { useContactOnlineStatuses } from '../hooks/useContactOnlineStatuses';
+import { useContactNoticeUpdates } from '../hooks/useContactNoticeUpdates';
+import { CONTACT_NOTICE_LIMIT } from '../../../shared/contact_notices';
 import { useEventContextValue } from '../hooks/useEventContextValue';
 import { useStableCallback } from '../hooks/useStableCallback';
 import { useMobilePageSettled } from '../hooks/useMobilePageSettled';
@@ -2259,6 +2261,7 @@ function MainWorkspace(): ReactElement {
   const pushToast = useToast((s) => s.push);
   const confirmReadState = useDialog((s) => s.confirm);
   const pinSession = useQQWriteSession('conversation-pin');
+  useContactNoticeUpdates(pinSession.binding);
   const messageScope = pinSession.binding
     ? JSON.stringify([
         pinSession.binding.expectedAccountUin,
@@ -2510,9 +2513,15 @@ function MainWorkspace(): ReactElement {
   const botUidList = trpc.account.botUids.useQuery(undefined, profileOptions);
   const categories = trpc.account.listCategories.useQuery(undefined, directoryOptions);
   const profiles = trpc.account.listProfiles.useQuery({ limit: 2000 }, profileOptions);
-  const noticeOptions = { enabled: contactsPageOpen, staleTime: 60_000 };
-  const buddyRequests = trpc.account.listBuddyRequests.useQuery({ limit: 2000 }, noticeOptions);
-  const groupNotifies = trpc.account.listGroupNotifies.useQuery({ limit: 2000 }, noticeOptions);
+  const noticeOptions = { enabled: secondaryReady || contactsPageOpen, staleTime: 60_000 };
+  const buddyRequests = trpc.account.listBuddyRequests.useQuery(
+    { limit: CONTACT_NOTICE_LIMIT },
+    noticeOptions,
+  );
+  const groupNotifies = trpc.account.listGroupNotifies.useQuery(
+    { limit: CONTACT_NOTICE_LIMIT },
+    noticeOptions,
+  );
   const openedUin = useViewState((s) => s.openedUin);
   const mailPreferences = trpc.mail.preferences.useQuery(
     { selfUin: openedUin ?? '' },
@@ -2936,8 +2945,6 @@ function MainWorkspace(): ReactElement {
         utils.account.listHiddenSessions.invalidate(),
         utils.account.listOfficialAccounts.invalidate(),
         utils.account.listServiceAccounts.invalidate(),
-        utils.account.listBuddyRequests.invalidate(),
-        utils.account.listGroupNotifies.invalidate(),
         utils.account.listConversationDraftTimes.invalidate(),
         utils.account.listDrafts.invalidate(),
       ]);
