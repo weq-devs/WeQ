@@ -36,7 +36,9 @@ function chart(values: Array<number | null>, width = 300, count = 1) {
   });
   const host = document.createElement('div'),
     root = createRoot(host),
-    select = vi.fn();
+    select = vi.fn(),
+    onHover = vi.fn(),
+    move = vi.fn();
   document.body.append(host);
   const render = (hover: MonitorPoint | null = null) =>
     act(() =>
@@ -50,9 +52,9 @@ function chart(values: Array<number | null>, width = 300, count = 1) {
           height: 100,
           selected: null,
           hover,
-          onHover: vi.fn(),
+          onHover,
           select,
-          move: vi.fn(),
+          move,
           zoom: vi.fn(),
         }),
       ),
@@ -65,6 +67,8 @@ function chart(values: Array<number | null>, width = 300, count = 1) {
   return {
     host,
     select,
+    onHover,
+    move,
     inspect() {
       render(points[0] ?? null);
       act(() =>
@@ -73,6 +77,53 @@ function chart(values: Array<number | null>, width = 300, count = 1) {
     },
   };
 }
+
+function pointerFixture(scale: number, offset: number) {
+  const fixture = chart([10, 20, 30, 40, 50, 60, 70]);
+  const svg = fixture.host.querySelector('svg')!;
+  Object.assign(svg, {
+    getBoundingClientRect: () => ({ left: 20, top: 0, width: 600, height: 100 }),
+    createSVGPoint: () => ({
+      x: 0,
+      y: 0,
+      matrixTransform(matrix: { a: number; e: number }) {
+        return { x: this.x * matrix.a + matrix.e, y: this.y };
+      },
+    }),
+    getScreenCTM: () => ({ inverse: () => ({ a: 1 / scale, e: -offset / scale }) }),
+    setPointerCapture: vi.fn(),
+  });
+  const dispatch = (type: string, x: number) =>
+    act(() =>
+      svg.dispatchEvent(
+        new PointerEvent(type, { bubbles: true, clientX: x * scale + offset, clientY: 40 }),
+      ),
+    );
+  return { ...fixture, dispatch };
+}
+
+it.each([
+  [1, 170],
+  [0.75, 110],
+])('悬停与点击按 SVG 实际变换定位采样（缩放 %s，偏移 %s）', (scale, offset) => {
+  const f = pointerFixture(scale, offset);
+  // 第二个点位于绘图区的 1/6，外框留白和 CSS 缩放不应改变所选采样。
+  const x = 76 + (288 - 76) / 6;
+  f.dispatch('pointermove', x);
+  expect(f.onHover).toHaveBeenLastCalledWith(expect.objectContaining({ id: 2 }));
+  f.dispatch('pointerdown', x);
+  f.dispatch('pointerup', x);
+  expect(f.select).toHaveBeenLastCalledWith(expect.objectContaining({ id: 2 }));
+});
+
+it('拖动距离按 SVG 绘图区时间比例换算，不包含坐标轴和外框留白', () => {
+  const f = pointerFixture(0.75, 110);
+  f.dispatch('pointerdown', 76 + (288 - 76) / 3);
+  f.dispatch('pointerup', 76 + (288 - 76) / 2);
+  expect(f.move).toHaveBeenCalledOnce();
+  expect(Math.abs(f.move.mock.calls[0]![0] + 30_000)).toBeLessThanOrEqual(1);
+  expect(f.select).not.toHaveBeenCalled();
+});
 
 it('单次采样不显示范围，多次采样即使最小值和最大值相同也保留范围', () => {
   for (const count of [1, 2]) {

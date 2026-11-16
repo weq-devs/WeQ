@@ -3,8 +3,8 @@ import {
   dateFormatter,
   clockFormatter,
 } from '@weq/time';
-import { useId, useMemo, useRef, useState } from 'react';
-import { area, curveMonotoneX, line, scaleLinear, scaleTime } from 'd3';
+import { type PointerEvent, useId, useMemo, useRef, useState } from 'react';
+import { area, curveMonotoneX, line, pointer, scaleLinear, scaleTime } from 'd3';
 import type { MonitorMetric, MonitorPoint } from '@weq/service/performance';
 export const labels = { off: '关闭', light: '轻量记录', full: '完整记录' } as const;
 export const metricLabels: Record<MonitorMetric, string> = {
@@ -184,7 +184,7 @@ export function Chart({
     bottom = 25;
   const clip = useId();
   const [inspecting, setInspecting] = useState(false);
-  const drag = useRef<number | null>(null);
+  const drag = useRef<{ clientX: number; at: number } | null>(null);
   const { x, y, paths } = useMemo(() => {
     const max = Math.max(1, ...points.map((point) => point.metrics[metric].max ?? 0));
     const x = scaleTime()
@@ -266,9 +266,10 @@ export function Chart({
       }),
     [paths, metric, x, y, height],
   );
-  const nearest = (clientX: number, element: SVGSVGElement) => {
-    const bounds = element.getBoundingClientRect();
-    const at = Number(x.invert(((clientX - bounds.left) / bounds.width) * width));
+  // SVG 可能因等比缩放而留白，使用实际变换矩阵与曲线共用坐标系。
+  const pointerTime = (event: PointerEvent<SVGSVGElement>) =>
+    Number(x.invert(pointer(event.nativeEvent, event.currentTarget)[0]));
+  const nearest = (at: number) => {
     return points.reduce<MonitorPoint | null>(
       (best, point) =>
         !best || Math.abs(point.lastAt - at) < Math.abs(best.lastAt - at) ? point : best,
@@ -323,14 +324,14 @@ export function Chart({
         }}
         onPointerMove={(event) => {
           setInspecting(true);
-          onHover(nearest(event.clientX, event.currentTarget));
+          onHover(nearest(pointerTime(event)));
         }}
         onPointerLeave={() => {
           setInspecting(false);
           onHover(null);
         }}
         onPointerDown={(event) => {
-          drag.current = event.clientX;
+          drag.current = { clientX: event.clientX, at: pointerTime(event) };
           event.currentTarget.setPointerCapture(event.pointerId);
         }}
         onPointerCancel={() => {
@@ -340,12 +341,12 @@ export function Chart({
           drag.current = null;
         }}
         onPointerUp={(event) => {
-          const delta = event.clientX - (drag.current ?? event.clientX);
+          const start = drag.current;
           drag.current = null;
-          if (Math.abs(delta) > 8)
-            move((-delta / event.currentTarget.getBoundingClientRect().width) * (to - from));
+          const at = pointerTime(event);
+          if (start && Math.abs(event.clientX - start.clientX) > 8) move(start.at - at);
           else {
-            const point = nearest(event.clientX, event.currentTarget);
+            const point = nearest(at);
             if (point) select(point);
           }
         }}

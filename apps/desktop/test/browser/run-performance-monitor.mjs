@@ -53,6 +53,25 @@ try {
     await target.getByRole('button', { name: label, exact: true }).click();
     await target.getByRole('option', { name: value, exact: true }).click();
   };
+  const assertCursorAlignment = async (monitor) => {
+    const svg = monitor.locator('.weq-perf-chart svg').first();
+    const target = await svg
+      .locator('path.weq-perf-line')
+      .first()
+      .evaluate((path) => {
+        const point = path.getPointAtLength(path.getTotalLength());
+        const screen = point.matrixTransform(path.getScreenCTM());
+        return { x: screen.x, y: screen.y };
+      });
+    await monitor.mouse.move(target.x, target.y);
+    await monitor.waitForFunction((x) => {
+      const cursors = [...document.querySelectorAll('.weq-perf-cursor')];
+      return (
+        cursors.length === 5 &&
+        cursors.every((cursor) => Math.abs(cursor.getBoundingClientRect().x - x) < 1)
+      );
+    }, target.x);
+  };
   for (const host of ['desktop', 'web']) {
     await page.goto(url + '?host=' + host);
     await page.getByRole('heading', { name: '日志与性能' }).waitFor();
@@ -164,6 +183,8 @@ try {
     monitor.on('pageerror', (error) => errors.push(error.message));
     await monitor.locator('.weq-perf-chart svg').first().waitFor();
     assert.equal(await monitor.locator('.weq-perf-chart').count(), 5);
+    await assertCursorAlignment(monitor);
+    await monitor.mouse.move(0, 0);
     await monitor.getByRole('button', { name: '显示指标', exact: true }).click();
     assert.equal(
       await monitor.getByRole('checkbox', { name: 'JS 外部内存', exact: true }).isChecked(),
@@ -262,6 +283,7 @@ try {
         });
     }
     for (const [width, height] of [
+      [1440, 900],
       [1060, 740],
       [720, 520],
       [390, 844],
@@ -295,6 +317,7 @@ try {
           true,
         );
         await monitor.locator('.weq-perf-chart').first().scrollIntoViewIfNeeded();
+        await assertCursorAlignment(monitor);
         if (output)
           await monitor.screenshot({
             path: resolve(output, host + '-' + width + '-' + theme + '.png'),
@@ -393,7 +416,7 @@ try {
   }
   assert.deepEqual(errors, []);
   console.log(
-    '日志与性能：配置分离、两个小型独立窗口、自动保存、现场保留、独立文档可见性、导出清空、四种尺寸及浅深主题通过',
+    '日志与性能：配置分离、两个小型独立窗口、自动保存、现场保留、独立文档可见性、导出清空、五种尺寸的光标对齐及浅深主题通过',
   );
 } finally {
   await browser?.close();
