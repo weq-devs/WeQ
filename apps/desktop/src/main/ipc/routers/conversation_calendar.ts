@@ -259,7 +259,9 @@ export const conversationCalendarRouter = router({
         targets: unique,
         readers: new Map<CalendarKind, CalendarMetadataDb>(),
       };
+      let tracked: Entry | undefined;
       const sources = createCalendarSources(value, native, () => {
+        tracked?.job.controller.signal.throwIfAborted();
         if (getAppContext().account !== value.session)
           throw new DOMException('账号已切换', 'AbortError');
       });
@@ -277,7 +279,6 @@ export const conversationCalendarRouter = router({
         }
         return true;
       };
-      let tracked: Entry | undefined;
       let lastSync = 0;
       const job = new ConversationCalendarJob(input.month, unique, sources, reserve, () => {
         if (tracked?.loaded) tracked.store?.schedule();

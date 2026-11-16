@@ -305,6 +305,7 @@ export class GapHistoryService {
     conv: string,
     limit: number,
     cursor?: { msgSeq: number; sendTime: number; msgId: string },
+    timeRange?: { start: number; end: number },
   ) {
     return this.cache.query(
       kind,
@@ -317,6 +318,7 @@ export class GapHistoryService {
       false,
       cursor,
       true,
+      timeRange,
     );
   }
 

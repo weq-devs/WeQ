@@ -54,6 +54,22 @@ it('缺失时间索引不做无界 COUNT', async () => {
   expect(await reader.count(['10'], 100, 102, [])).toBeNull();
   expect(spy.mock.calls.some(([, query]) => query.includes('COUNT(*)'))).toBe(false);
 });
+it('单会话复用已有会话时间索引，只读取匹配会话且游标保持路径；旧全表游标不切换', async () => {
+  const { reader, sql, nt } = fixture(true);
+  sql.exec('CREATE INDEX conv_time ON group_msg_table("40027","40050","40040")');
+  const read = vi.spyOn(nt, 'executeSql');
+  const first = await reader.page(100, 102, undefined, 2, false, '20');
+  expect(first.scanned).toBe(1);
+  expect(first.items.map((row) => row.id)).toEqual(['2']);
+  expect(first.cursor?.conv).toBe('20');
+  expect(await reader.count(['20'], 100, 102, [])).toBe(1);
+  const select = read.mock.calls.find(([, query]) => query.startsWith('SELECT rowid'))!;
+  const plan = sql.prepare(`EXPLAIN QUERY PLAN ${select[1]}`).all(...select[2]!);
+  expect(JSON.stringify(plan)).toContain('conv_time');
+  const old = await reader.page(100, 102, { time: 100, source: null, id: '1' }, 2, false, '20');
+  expect(old.items.map((row) => row.id)).toEqual(['2', '3']);
+  expect(old.cursor?.conv).toBeUndefined();
+});
 it('大范围过滤转为元数据续查，不拼接巨量 SQL 参数', async () => {
   const { reader, nt } = fixture(true);
   const spy = vi.spyOn(nt, 'executeSql');

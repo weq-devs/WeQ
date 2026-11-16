@@ -12,6 +12,7 @@ export interface CalendarCursor {
   time: number;
   source: string | null;
   id: string;
+  conv?: string;
 }
 export interface CalendarMetadata {
   id: string;
@@ -31,6 +32,7 @@ const columns: Record<CalendarTable, string> = {
 /** 只读取计数/定位元数据；卡片专用源须验证其现有 ARK-only 展示条件。 */
 export class CalendarMetadataDb {
   private indexed: Promise<boolean> | undefined;
+  private conversationIndexed: Promise<boolean> | undefined;
   constructor(
     private readonly qq: QqDb,
     readonly table: CalendarTable,
@@ -57,10 +59,21 @@ export class CalendarMetadataDb {
     return this.indexed;
   }
 
-  private filter(convs: string[], start: number, end: number, hidden: string[]) {
+  private conversationTimeIndex(): Promise<boolean> {
+    this.conversationIndexed ??= this.qq
+      .hasIndexPrefix(this.table, [columns[this.table], '40050', '40040'])
+      .catch((error: unknown) => {
+        this.conversationIndexed = undefined;
+        throw error;
+      });
+    return this.conversationIndexed;
+  }
+
+  private filter(convs: string[], start: number, end: number, hidden: string[], direct = false) {
     if (!convs.length) throw new Error('日历会话范围为空');
     const params: SqlValue[] = [BigInt(start), BigInt(end), ...convs];
-    let sql = `"40050">=? AND "40050"<? AND CAST("${columns[this.table]}" AS TEXT) IN (${convs.map(() => '?').join(',')})`;
+    const column = direct ? `"${columns[this.table]}"` : `CAST("${columns[this.table]}" AS TEXT)`;
+    let sql = `"40050">=? AND "40050"<? AND ${column} IN (${convs.map(() => '?').join(',')})`;
     if (hidden.length) {
       sql += ` AND CAST("40001" AS TEXT) NOT IN (${hidden.map(() => '?').join(',')})`;
       params.push(...hidden);
@@ -74,8 +87,10 @@ export class CalendarMetadataDb {
     end: number,
     hidden: string[],
   ): Promise<number | null> {
-    if (convs.length + hidden.length > 2048 || !(await this.timeIndex())) return null;
-    const filter = this.filter(convs, start, end, hidden);
+    if (convs.length + hidden.length > 2048) return null;
+    const scoped = convs.length === 1 && (await this.conversationTimeIndex());
+    if (!scoped && !(await this.timeIndex())) return null;
+    const filter = this.filter(convs, start, end, hidden, scoped);
     const rows = await this.qq.query(
       `SELECT COUNT(*) FROM ${this.table} WHERE ${filter.sql}`,
       filter.params,
@@ -89,17 +104,27 @@ export class CalendarMetadataDb {
     cursor: CalendarCursor | undefined,
     limit: number,
     ark = false,
+    conv?: string,
   ): Promise<{
     items: CalendarMetadata[];
     cursor: CalendarCursor | undefined;
     done: boolean;
     scanned: number;
   }> {
-    const indexed = await this.timeIndex();
+    // 仅在已有匹配索引时收窄 SQL；旧游标沿用原扫描路径，不能中途切换导致漏计或重计。
+    const scoped =
+      conv !== undefined &&
+      (!cursor || cursor.conv === conv) &&
+      (await this.conversationTimeIndex());
+    const indexed = scoped || (await this.timeIndex());
     const params: SqlValue[] = [];
     let where = '';
     if (indexed) {
       where = '"40050">=? AND "40050"<?';
+      if (scoped) {
+        where = `"${columns[this.table]}"=? AND ${where}`;
+        params.push(conv!);
+      }
       params.push(BigInt(start), BigInt(end));
       if (cursor) {
         if (cursor.source === null) {
@@ -137,6 +162,7 @@ export class CalendarMetadataDb {
             id: String(last[0]),
             time: Number(last[2]),
             source: last[4] === null ? null : String(last[4]),
+            ...(scoped ? { conv } : {}),
           }
         : cursor,
       done: rows.length < limit,

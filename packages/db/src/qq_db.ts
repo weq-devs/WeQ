@@ -197,7 +197,7 @@ export class QqDb {
       const current = () => !signal?.aborted && performance.now() - waitingSince < 1000;
       await waitForDatabaseQuiet(this.dbPath, current, 500, budget.onWait);
       if (signal?.aborted) throw new DOMException('日历统计已取消', 'AbortError');
-      await new Promise<void>((done) => setTimeout(done, 20));
+      await new Promise<void>((done) => setTimeout(done, 0));
       budget.onState?.('queued');
       return scheduleDatabase(
         this.dbPath,

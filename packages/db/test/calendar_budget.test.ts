@@ -25,6 +25,19 @@ function fixture() {
     db: new QqDb(native, { dbPath: join(tmpdir(), `synthetic-calendar-budget-${counter++}.db`) }),
   };
 }
+it('数据库已经空闲时短预算读取只让出事件循环，不再每条固定睡眠 20ms', async () => {
+  const { db, budgeted } = fixture();
+  const pending = withDatabasePriority('background', () =>
+    withDatabaseReadBudget(10, async () => {
+      await db.query('SELECT 1');
+      await db.query('SELECT 2');
+    }),
+  );
+  await vi.advanceTimersByTimeAsync(510);
+  expect(budgeted).toHaveBeenCalledTimes(2);
+  await vi.runAllTimersAsync();
+  await pending;
+});
 it('日历短预算不改变普通查询，前台活动后等待空闲再提交', async () => {
   const { db, ordinary, budgeted } = fixture();
   const observed: number[] = [];

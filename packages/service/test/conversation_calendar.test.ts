@@ -30,6 +30,63 @@ const message = (id: string, time = start, conv = target.conv) => ({
   time,
   anchor: { id, seq: id, time },
 });
+it('汇总页按真实条数累计，重试清除来源缓存，源缓存容量纳入总预算', async () => {
+  const invalidate = vi.fn();
+  const source: CalendarSource = {
+    kind: 'c2c',
+    cacheCapacityBytes: 128 * 1024,
+    invalidate,
+    count: async () => 0,
+    page: async () => ({ rows: [{ ...message('1'), count: 1025 }], done: true }),
+  };
+  const base = new ConversationCalendarJob(
+    '2026-11',
+    [target],
+    [{ ...source, cacheCapacityBytes: 0 }],
+  );
+  const job = new ConversationCalendarJob('2026-11', [target], [source]);
+  expect(job.memoryBytes - base.memoryBytes).toBe(source.cacheCapacityBytes);
+  job.keepAlive(day);
+  await finish(job);
+  expect(job.snapshot(day).rows[0]?.count).toBe(1025);
+  const restored = new ConversationCalendarJob('2026-11', [target], [source]);
+  expect(restored.restore(job.checkpoint())).toBe(true);
+  expect(restored.snapshot(day).rows[0]?.count).toBe(1025);
+  job.control('day', 'retry', day);
+  expect(invalidate).toHaveBeenCalledOnce();
+  job.cancel();
+  base.cancel();
+  restored.cancel();
+});
+
+it('当日明细连续读取时穿插其他日期快捷计数，月计数不必等明细结束', async () => {
+  const calls: string[] = [];
+  const job = new ConversationCalendarJob(
+    '2026-11',
+    [target],
+    [
+      {
+        kind: 'c2c',
+        count: async () => {
+          calls.push('count');
+          return 0;
+        },
+        page: async (_s, _e, cursor) => {
+          calls.push('detail');
+          const next = Number(cursor ?? 0) + 1;
+          return { rows: [message(String(next))], cursor: next, done: next >= 20 };
+        },
+      },
+    ],
+  );
+  job.keepAlive(day);
+  await vi.advanceTimersByTimeAsync(150);
+  expect(calls.slice(0, 5)).toEqual(['detail', 'detail', 'detail', 'detail', 'count']);
+  expect(job.snapshot(day).complete).toBe(false);
+  expect(job.snapshot(day).progress.completedSources).toBeGreaterThan(0);
+  job.cancel();
+  await finish(job);
+});
 it('取消勾选的来源停止后续批次并退出总数，再勾选保留原游标与计数', async () => {
   const cursors: unknown[] = [];
   const job = new ConversationCalendarJob(

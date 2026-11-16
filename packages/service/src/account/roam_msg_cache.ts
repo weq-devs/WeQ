@@ -190,6 +190,7 @@ export class RoamMsgCacheDb {
     includeHidden = false,
     cursor?: { msgSeq: number; sendTime: number; msgId: string },
     metadataOnly = false,
+    timeRange?: { start: number; end: number },
   ): Promise<GapFetchedMessage[]> {
     if (startSeq > endSeq) return [];
     if (metadataOnly) {
@@ -213,6 +214,7 @@ export class RoamMsgCacheDb {
       BigInt(startSeq),
       BigInt(endSeq),
       hidden,
+      ...(timeRange ? [BigInt(timeRange.start), BigInt(timeRange.end)] : []),
       ...(cursor
         ? [
             cursor.msgSeq,
@@ -226,6 +228,14 @@ export class RoamMsgCacheDb {
       size,
     ];
     const direction = descending ? 'DESC' : 'ASC';
+    const timeFilter = (column: string) =>
+      timeRange ? `AND CAST(${column} AS INTEGER)>=? AND CAST(${column} AS INTEGER)<?` : '';
+    // 原生记录可能纠正到另一天，日期筛选不能让旧协议副本重新进入统计。
+    const nativeOverride = timeRange
+      ? `AND ((json_extract(payload,'$.localSent')=1 AND json_type(payload,'$.recall')='object') OR NOT EXISTS (
+         SELECT 1 FROM ${NATIVE_TABLE} n WHERE n.kind=${PROTOCOL_TABLE}.kind AND n.conv=${PROTOCOL_TABLE}.conv
+         AND n.msg_seq=${PROTOCOL_TABLE}.msg_seq AND n.msg_id=${PROTOCOL_TABLE}.msg_id AND n.accepted=1))`
+      : '';
     // 正数用长度和字典序比较 uint64；负数仅在原生 int64 域内转型。
     const sign = "CASE WHEN substr(msg_id,1,1)='-' THEN 0 ELSE 1 END";
     const negative = "CASE WHEN substr(msg_id,1,1)='-' THEN CAST(msg_id AS INTEGER) ELSE 0 END";
@@ -255,18 +265,22 @@ export class RoamMsgCacheDb {
         WHERE kind = ? AND conv = ? AND msg_seq BETWEEN ? AND ?
           ${verifiedOnly ? 'AND nt_seq_verified = 1' : ''}
           AND (msg_seq || ':' || msg_id) NOT IN (SELECT value FROM json_each(?))
+        ${timeFilter('send_time')}
         ${keyset('send_time')}
         ${order('send_time')} LIMIT ?) AS page
        UNION ALL
        SELECT 1, payload, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM (
        SELECT ${projection('native')} AS payload FROM ${NATIVE_TABLE} WHERE kind = ? AND conv = ? AND accepted = 1 AND msg_seq BETWEEN ? AND ?
        AND (msg_seq || ':' || msg_id) NOT IN (SELECT value FROM json_each(?))
+       ${timeFilter("json_extract(payload,'$.sendTime')")}
        ${keyset("json_extract(payload,'$.sendTime')")}
        ${order("json_extract(payload,'$.sendTime')")} LIMIT ?)
        UNION ALL
        SELECT 2, payload, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM (
        SELECT ${projection('protocol')} AS payload FROM ${PROTOCOL_TABLE} WHERE kind=? AND conv=? AND msg_seq BETWEEN ? AND ?
        AND (msg_seq || ':' || msg_id) NOT IN (SELECT value FROM json_each(?))
+       ${timeFilter("json_extract(payload,'$.sendTime')")}
+       ${nativeOverride}
        ${verifiedOnly ? 'AND nt_seq_verified=1' : ''} ${keyset("json_extract(payload,'$.sendTime')")} ${order("json_extract(payload,'$.sendTime')")} LIMIT ?)`,
       [...params, ...params, ...params],
     );

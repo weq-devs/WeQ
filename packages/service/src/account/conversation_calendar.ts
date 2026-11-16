@@ -30,7 +30,7 @@ export interface CalendarRow {
   anchor: CalendarAnchor;
 }
 export interface CalendarBatch {
-  rows: Array<{ conv: string; time: number; anchor: CalendarAnchor }>;
+  rows: Array<{ conv: string; time: number; anchor: CalendarAnchor; count?: number }>;
   cursor?: unknown;
   done: boolean;
   progress?: CalendarScanProgress;
@@ -52,6 +52,8 @@ export interface CalendarLogLine {
 export const CALENDAR_LOG_LIMIT = 200;
 export interface CalendarSource {
   kind: CalendarKind;
+  cacheCapacityBytes?: number;
+  invalidate?(): void;
   count?(start: number, end: number): Promise<number | null>;
   page(start: number, end: number, cursor: unknown, limit: number): Promise<CalendarBatch>;
 }
@@ -82,7 +84,7 @@ export const CALENDAR_SOURCE_LABELS: Record<CalendarKind, string> = {
 export function calendarTargetKey(target: Pick<CalendarTarget, 'kind' | 'conv'>): string {
   return `${target.kind}:${target.conv}`;
 }
-function compareMessageIds(a: string, b: string): number {
+export function compareMessageIds(a: string, b: string): number {
   if (/^-?\d+$/.test(a) && /^-?\d+$/.test(b)) return BigInt(a) < BigInt(b) ? -1 : a === b ? 0 : 1;
   return a.localeCompare(b);
 }
@@ -208,6 +210,7 @@ export class ConversationCalendarJob {
   controller = new AbortController();
   private enabled = new Set<CalendarKind>(CALENDAR_SOURCE_ORDER);
   private monthPaused = false;
+  private detailBatches = 0;
   private dayFocus: string | undefined;
   private readonly pausedDays = new Set<string>();
   persistenceError: string | undefined;
@@ -228,11 +231,15 @@ export class ConversationCalendarJob {
         (!this.monthPaused || task.day === this.dayFocus) &&
         !(task.refresh ?? task).error,
     );
-    return (
-      pending.find((task) => task.refresh) ??
-      pending.find((task) => task.day === this.selectedDay) ??
-      pending[0]
-    );
+    const selected = pending.find((task) => task.day === this.selectedDay);
+    const quickCount =
+      this.detailBatches >= 4
+        ? pending.find(
+            (task) =>
+              task.day !== this.selectedDay && !task.counted && !task.cursor && task.source.count,
+          )
+        : undefined;
+    return pending.find((task) => task.refresh) ?? quickCount ?? selected ?? pending[0];
   }
   control(scope: 'month' | 'day', action: CalendarControlAction, day?: string): void {
     if (
@@ -261,6 +268,7 @@ export class ConversationCalendarJob {
         this.pausedDays.delete(day!);
       }
     } else {
+      for (const source of this.sources) source.invalidate?.();
       if (scope === 'month') {
         this.monthPaused = false;
       } else {
@@ -598,13 +606,15 @@ export class ConversationCalendarJob {
   constructor(
     readonly month: string,
     targets: CalendarTarget[],
-    sources: CalendarSource[],
+    private readonly sources: CalendarSource[],
     private readonly reserve?: (bytes: number) => boolean,
     private readonly onProgress?: () => void,
   ) {
     this.targets = new Map(targets.map((target) => [calendarTargetKey(target), target]));
     this.bytes =
-      new TextEncoder().encode(JSON.stringify(targets)).byteLength + CALENDAR_LOG_LIMIT * 1536;
+      new TextEncoder().encode(JSON.stringify(targets)).byteLength +
+      CALENDAR_LOG_LIMIT * 1536 +
+      sources.reduce((sum, source) => sum + (source.cacheCapacityBytes ?? 0), 0);
     if (this.bytes > CALENDAR_CACHE_BYTES || (reserve && !reserve(this.bytes)))
       throw new Error('日历会话范围超过缓存上限');
     const days = calendarMonthDays(month).reverse();
@@ -640,6 +650,7 @@ export class ConversationCalendarJob {
         if (this.running) this.cancel();
       }, 5000);
     if (day !== this.selectedDay) {
+      this.detailBatches = 0;
       this.dayFocus = day;
       this.log(
         'info',
@@ -750,6 +761,7 @@ export class ConversationCalendarJob {
         );
       this.activeWork = task;
       this.lastScan = task;
+      this.detailBatches = task.day === this.selectedDay ? this.detailBatches + 1 : 0;
       const began = performance.now();
       try {
         if (
@@ -797,7 +809,7 @@ export class ConversationCalendarJob {
           if (!target) continue;
           const previous = task.rows.get(key);
           if (previous) {
-            previous.count++;
+            previous.count += message.count ?? 1;
             if (
               message.time < previous.anchor.time ||
               (message.time === previous.anchor.time &&
@@ -806,7 +818,7 @@ export class ConversationCalendarJob {
               previous.anchor = message.anchor;
           } else {
             this.bytes += 512 + target.name.length * 2;
-            task.rows.set(key, { target, count: 1, anchor: message.anchor });
+            task.rows.set(key, { target, count: message.count ?? 1, anchor: message.anchor });
             let order = this.order.get(task.day);
             if (!order) {
               order = new Map();
