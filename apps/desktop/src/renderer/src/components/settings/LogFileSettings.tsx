@@ -59,7 +59,6 @@ export function LogFileSettings() {
         <Row
           settingId="log-retention"
           remoteUnsupported
-          label="日志保留时长"
           desc={days === 0 ? '永久保留全部日志。' : '按天自动清理，正在写入的当天日志始终保留。'}
           control={
             <IconPicker
@@ -86,7 +85,6 @@ export function LogFileSettings() {
       <DesktopOnly>
         <Row
           settingId="log-folder"
-          label="日志文件夹"
           control={
             <button
               type="button"

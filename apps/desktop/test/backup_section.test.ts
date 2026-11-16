@@ -10,10 +10,11 @@ import {
 } from '../src/renderer/src/components/settings/SettingsReset';
 import type { SettingsResetItem, SettingsResetResult } from '../src/shared/settings_reset';
 
-const reset = vi.hoisted(() => ({ preview: vi.fn(), restore: vi.fn() }));
+const reset = vi.hoisted(() => ({ preview: vi.fn(), restore: vi.fn(), snapshot: vi.fn() }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     settingsReset: { preview: { query: reset.preview }, restore: { mutate: reset.restore } },
+    clientState: { snapshot: { query: reset.snapshot } },
   },
   trpc: {
     useUtils: () => ({
@@ -40,6 +41,7 @@ beforeEach(() => {
     ],
   });
   reset.restore.mockReset().mockResolvedValue([{ id: 'web:enabled', ok: true }]);
+  reset.snapshot.mockReset().mockResolvedValue({ revision: 1, values: {}, records: {} });
 });
 afterEach(() => {
   for (const close of cleanups.splice(0)) close();

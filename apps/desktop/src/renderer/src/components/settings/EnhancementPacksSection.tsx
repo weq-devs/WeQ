@@ -94,7 +94,6 @@ export function EnhancementPacksSection() {
       >
         <Row
           settingId="enhancement-auto-check"
-          label="自动检查增强包更新"
           control={
             <Toggle
               label="自动检查增强包更新"
@@ -107,7 +106,6 @@ export function EnhancementPacksSection() {
         {preferences.autoCheck ? (
           <Row
             settingId="enhancement-auto-install"
-            label="自动安装增强包更新"
             control={
               <Toggle
                 label="自动安装增强包更新"

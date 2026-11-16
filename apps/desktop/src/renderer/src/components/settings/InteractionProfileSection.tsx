@@ -26,7 +26,6 @@ export function InteractionProfileSection() {
         <>
           <Row
             settingId="profile-enabled"
-            label="启用互动画像"
             desc="统计互动情况，分析好感度、MBTI 倾向与互动风格。"
             control={
               <Toggle

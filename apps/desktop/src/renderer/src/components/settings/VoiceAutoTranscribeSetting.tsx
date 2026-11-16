@@ -28,7 +28,7 @@ export function VoiceAutoTranscribeSetting() {
   );
   return (
     <>
-      <Row settingId="auto-transcribe-voice" label="语音消息自动转文字" control={toggle} />
+      <Row settingId="auto-transcribe-voice" control={toggle} />
       {error ? <p role="alert">{error}</p> : null}
     </>
   );

@@ -23,7 +23,6 @@ export function ReplySuggestionsSection() {
         <>
           <Row
             settingId="suggestions-enabled"
-            label="启用推荐回复"
             desc="候选只会填入草稿，不会自动发送。"
             control={
               <Toggle
@@ -81,7 +80,6 @@ export function ReplySuggestionsSection() {
             >
               <Row
                 settingId="suggestions-after-self"
-                label="自己发送后推荐回复"
                 control={
                   <Toggle
                     label="自己发送后推荐回复"

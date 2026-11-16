@@ -28,6 +28,7 @@ import {
   remoteSettingAvailable,
 } from '../../../../shared/remote_capabilities';
 import { useRemoteClient } from '../../lib/remoteClient';
+import { findSettingDefinition } from '@weq/service/settings-catalog';
 
 /** 查询失败不冒充空配置；有缓存时由调用方继续展示原数据。 */
 export function QueryError({
@@ -134,7 +135,7 @@ export function SectionHeader({
 /** A bordered card grouping related rows, with an optional title + action. */
 export function Card({
   settingId,
-  title,
+  title: titleOverride,
   desc,
   icon,
   action,
@@ -154,6 +155,10 @@ export function Card({
   children?: ReactNode;
 }): ReactElement | null {
   const reset = useContext(SettingsResetContext);
+  const title =
+    titleOverride ??
+    (resetId ? SETTINGS_RESET_CARDS.find(([, id]) => id === resetId)?.[2] : undefined);
+  const identity = settingId ?? (resetId && findSettingDefinition(resetId) ? resetId : undefined);
   const remote = useRemoteClient();
   const [statusSlot, setStatusSlot] = useState<HTMLElement | null>(null);
   const statusSlotTaken = useRef(false);
@@ -175,7 +180,7 @@ export function Card({
   const canReset = card && (!remote || remoteResetCardAvailable(card));
   return (
     <SettingsResetCardContext.Provider value={reset && card ? reset.saves(card) : null}>
-      <section className="weq-set-card" data-setting-id={settingId}>
+      <section className="weq-set-card" data-setting-id={identity}>
         {title || action || card ? (
           <div className="weq-set-card-head">
             <div className="weq-set-card-heading">
@@ -221,18 +226,20 @@ export function Row({
   remoteUnsupported = false,
 }: {
   settingId?: string;
-  label: ReactNode;
+  label?: ReactNode;
   desc?: ReactNode;
   control: ReactNode;
   indent?: boolean;
   remoteUnsupported?: boolean;
 }): ReactElement | null {
   const remote = useRemoteClient();
+  const definition = settingId ? findSettingDefinition(settingId) : undefined;
+  const rowLabel = label === undefined ? definition?.label : label;
   if (remote && (remoteUnsupported || !remoteSettingAvailable('', settingId))) return null;
   return (
     <div className={`weq-set-row${indent ? ' is-indent' : ''}`} data-setting-id={settingId}>
       <div className="weq-set-row-main">
-        <span className="weq-set-row-label">{label}</span>
+        <span className="weq-set-row-label">{rowLabel}</span>
         {desc ? <span className="weq-set-row-desc">{desc}</span> : null}
       </div>
       <div className="weq-set-row-ctrl">{control}</div>

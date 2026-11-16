@@ -43,7 +43,6 @@ export function NativeDebugLogSetting() {
     <>
       <Row
         settingId="native-debug-log"
-        label="原生调试日志"
         desc={
           state.data?.available === false
             ? '原生组件未就绪'

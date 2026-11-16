@@ -18,6 +18,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { databasePerformance } from '@weq/db';
+import { listSettings } from '@weq/service/settings-catalog';
 import { getAppContext, type AccountServices } from '../context/app_context';
 import { fullModeAllowed } from '../context/full_mode';
 import { assertAccountToolScope } from './account_scope';
@@ -662,6 +663,16 @@ function formatCst(unixSeconds: number): string {
 }
 
 export const AI_TOOLS: AiTool[] = [
+  tool({
+    name: 'list_settings',
+    description:
+      '列出 WeQ 设置项、稳定 ID、所属页面、搜索别名与恢复默认范围。与设置前端、全局搜索和文档共用同一注册表，可按 page 或 query 筛选。只返回公开定义，不读取当前设置值、账号资料或凭据，也不修改设置。',
+    input: z.object({
+      page: z.string().optional().describe('设置页面 ID；省略时列出全部页面'),
+      query: z.string().optional().describe('按设置名称、稳定 ID、别名或分类路径筛选'),
+    }),
+    run: async (input) => listSettings(input),
+  }),
   tool({
     name: 'search_messages',
     description:

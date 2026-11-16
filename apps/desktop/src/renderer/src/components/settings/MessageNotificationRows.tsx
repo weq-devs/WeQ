@@ -38,7 +38,6 @@ export function MessageNotificationRows() {
     <>
       <Row
         settingId="message-system-notifications"
-        label="新消息系统通知"
         control={
           <Toggle
             label="新消息系统通知"
@@ -50,7 +49,6 @@ export function MessageNotificationRows() {
       />
       <Row
         settingId="application-unread-badge"
-        label="应用图标未读角标"
         control={
           <Toggle
             label="应用图标未读角标"

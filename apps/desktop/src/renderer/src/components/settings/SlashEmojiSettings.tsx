@@ -8,7 +8,6 @@ export function SlashEmojiSettings() {
     <>
       <Row
         settingId="slash-emoji-input"
-        label="斜杠表情快捷输入"
         control={
           <SharedDisplayToggle name="slashEmojiEnabled" label="斜杠表情快捷输入" fallback={true} />
         }
@@ -16,7 +15,6 @@ export function SlashEmojiSettings() {
       {preferenceValue('slashEmojiEnabled') ? (
         <Row
           settingId="slash-emoji-auto-replace"
-          label="无需回车即自动替换"
           indent
           control={
             <SharedDisplayToggle

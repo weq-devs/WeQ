@@ -1004,7 +1004,6 @@ function AppearanceSection({
             <Card title="全部会话" icon={<MessagesSquare size={15} />}>
               <Row
                 settingId="all-conversations-include-hidden"
-                label="包含已隐藏会话"
                 control={
                   <SharedDisplayToggle
                     name="allConversationsIncludeHidden"
@@ -1015,7 +1014,6 @@ function AppearanceSection({
               />
               <Row
                 settingId="all-conversations-include-deleted"
-                label="包含已删除会话"
                 control={
                   <SharedDisplayToggle
                     name="allConversationsIncludeDeleted"
@@ -1104,7 +1102,6 @@ function AppearanceSection({
               {category === 'reading' ? (
                 <Row
                   settingId="keep-conversation-position-on-hover"
-                  label="鼠标停留时保持会话位置"
                   desc="鼠标位于会话列表内时，新消息仍正常更新，但不调整会话顺序；移出并关闭菜单后恢复排序。"
                   control={
                     <SharedDisplayToggle
@@ -1189,7 +1186,6 @@ function AppearanceSection({
             <Card title="引用回复" icon={<MessagesSquare size={15} />}>
               <Row
                 settingId="quote-auto-mention"
-                label="群聊引用时自动 @ 对方"
                 control={
                   <SharedDisplayToggle
                     name="autoMentionOnQuote"
@@ -1200,7 +1196,6 @@ function AppearanceSection({
               />
               <Row
                 settingId="quote-backspace-remove"
-                label="按退格键移除引用"
                 control={
                   <SharedDisplayToggle
                     name="backspaceRemovesQuote"
@@ -1221,7 +1216,6 @@ function AppearanceSection({
               >
                 <Row
                   settingId="message-seq"
-                  label="显示消息序号（seq）"
                   control={
                     <SharedDisplayToggle
                       name="showMessageSeq"
@@ -1233,7 +1227,6 @@ function AppearanceSection({
                 />
                 <Row
                   settingId="message-date"
-                  label="显示发送日期"
                   control={
                     <SharedDisplayToggle
                       name="showMessageDate"
@@ -1245,7 +1238,6 @@ function AppearanceSection({
                 />
                 <Row
                   settingId="message-time"
-                  label="显示发送时间"
                   control={
                     <SharedDisplayToggle
                       name="showMessageTime"
@@ -1314,7 +1306,6 @@ function AppearanceSection({
               <Card title="文本与链接" icon={<ScrollText size={15} strokeWidth={1.8} />}>
                 <Row
                   settingId="text-markdown"
-                  label="纯文本消息自动渲染为 Markdown"
                   desc={
                     <>
                       把普通文本消息里的 # 标题、**加粗**、代码块等语法渲染成富文本。这是 WeQ
@@ -1333,7 +1324,6 @@ function AppearanceSection({
                 />
                 <Row
                   settingId="link-preview"
-                  label="链接预览卡片"
                   desc={
                     <>
                       一条消息只有一个链接时，抓取网页标题、简介和封面渲染成卡片。会按链接访问
@@ -1354,7 +1344,6 @@ function AppearanceSection({
                 {linkCard ? (
                   <Row
                     settingId="link-screenshot"
-                    label="无封面时网页截图"
                     desc={
                       <>
                         网页没提供封面图时，在一个隔离的后台窗口里把它打开并截取首屏当封面。这会

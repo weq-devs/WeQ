@@ -3,7 +3,6 @@ import { RotateCcw, Loader2 } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { SegmentedControl } from '../SegmentedControl';
 import { client, trpc } from '../../trpc/client';
-import { DEFAULT_THEME_SETTINGS as themeDefaults, useThemeStore } from '../../state/theme';
 import {
   SETTINGS_RESET_CARDS,
   resetCards,
@@ -15,112 +14,9 @@ import {
 import { SettingsResetContext, type ResetSave } from './resetContext';
 import { SETTINGS_PAGE_LABELS } from './navigation';
 import '../../styles/settings-reset.css';
-import { changePreference, preferenceValue } from '../../lib/clientPreferences';
-import { preferenceDefaults, type PreferenceKey } from '@weq/service/client-preferences';
+import { acceptPreferences, settlePreferenceWrites } from '../../lib/clientPreferences';
 import { describeSettingsReset, formatResetValue } from '../../lib/settingsResetPreview';
 
-interface LocalEntry extends SettingsResetItem {
-  apply: () => void | Promise<void>;
-}
-function localEntries(target: SettingsResetTarget): LocalEntry[] {
-  const cards = new Set(resetCards(target).map(([, card]) => card));
-  const theme = useThemeStore.getState();
-  const all: Array<LocalEntry & { card: SettingsResetCardId }> = [];
-  const add = (
-    card: SettingsResetCardId,
-    id: string,
-    label: string,
-    current: unknown,
-    defaultValue: unknown,
-    apply: () => void | Promise<void>,
-  ) => all.push({ card, id: `${card}:${id}`, label, current, defaultValue, apply, scope: '全局' });
-  const resetPreference = async (name: PreferenceKey) => {
-    if (!(await changePreference(name, preferenceDefaults[name])))
-      throw new Error('设置未保存，请重试');
-  };
-  add('theme-mode', 'preference', '基础模式', theme.preference, themeDefaults.preference, () =>
-    resetPreference('preference'),
-  );
-  add('theme-accent', 'accent', '主题色', theme.accent, themeDefaults.accent, () =>
-    resetPreference('accent'),
-  );
-  add(
-    'theme-background',
-    'background',
-    '界面背景',
-    theme.background,
-    themeDefaults.background,
-    () => resetPreference('background'),
-  );
-  add(
-    'theme-components',
-    'style',
-    '组件风格',
-    theme.componentStyle,
-    themeDefaults.componentStyle,
-    () => resetPreference('componentStyle'),
-  );
-  add('theme-components', 'density', '界面密度', theme.density, themeDefaults.density, () =>
-    resetPreference('density'),
-  );
-  add(
-    'privacy-mode',
-    'enabled',
-    '隐私模式',
-    preferenceValue('privacyMode'),
-    preferenceDefaults.privacyMode,
-    () => resetPreference('privacyMode'),
-  );
-  add(
-    'privacy-mode',
-    'capture',
-    '截图临时隐私模式',
-    preferenceValue('capturePrivacy'),
-    preferenceDefaults.capturePrivacy,
-    () => resetPreference('capturePrivacy'),
-  );
-  add('web-notifications', 'enabled', '网页通知', preferenceValue('webNotifications'), false, () =>
-    resetPreference('webNotifications'),
-  );
-  add(
-    'reading',
-    'keepConversationPositionOnHover',
-    '鼠标停留时保持会话位置',
-    preferenceValue('keepConversationPositionOnHover'),
-    preferenceDefaults.keepConversationPositionOnHover,
-    () => resetPreference('keepConversationPositionOnHover'),
-  );
-  add(
-    'message-notifications',
-    'message-notifications',
-    '新消息系统通知',
-    preferenceValue('messageNotifications'),
-    false,
-    () => resetPreference('messageNotifications'),
-  );
-  for (const [card, key, label] of [
-    ['group-messages', 'showGroupMemberName', '显示群消息发送者名称'],
-    ['group-messages', 'showGroupMemberLevel', '显示群成员等级'],
-    ['group-messages', 'showGroupMemberTitle', '显示群成员头衔与身份'],
-    ['quote-replies', 'autoMentionOnQuote', '群聊引用时自动 @ 对方'],
-    ['quote-replies', 'backspaceRemovesQuote', '按退格键移除引用'],
-    ['emoji-shortcuts', 'slashEmojiEnabled', '斜杠表情快捷输入'],
-    ['emoji-shortcuts', 'slashEmojiAutoReplace', '无需回车即自动替换'],
-  ] as const) {
-    add(card, key, label, preferenceValue(key), preferenceDefaults[key], () =>
-      resetPreference(key),
-    );
-  }
-  add(
-    'message-notifications',
-    'application-badge',
-    '应用图标未读角标',
-    preferenceValue('applicationBadge'),
-    true,
-    () => resetPreference('applicationBadge'),
-  );
-  return all.filter((entry) => cards.has(entry.card));
-}
 const differs = (item: SettingsResetItem) =>
   JSON.stringify(item.current) !== JSON.stringify(item.defaultValue);
 export function SettingsResetButton({ card }: { card?: SettingsResetCardId }) {
@@ -189,17 +85,13 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
     setDirectories([]);
     setResults([]);
     try {
+      await settlePreferenceWrites();
       const preview = await client.settingsReset.preview.query(target);
       if (!alive.current) return;
       setDialog({
         target,
         source: preview.source,
-        items: [
-          ...preview.items.filter(
-            (item) => !localEntries(target).some((local) => local.id === item.id),
-          ),
-          ...localEntries(target).map(({ apply: _apply, ...item }) => item),
-        ],
+        items: preview.items,
       });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -217,29 +109,22 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
     setError('');
     try {
       await Promise.all(relevant.map((save) => save.suspend()));
-      const localIds = new Set(localEntries(active.target).map((item) => item.id));
+      await settlePreferenceWrites();
       const completed = await client.settingsReset.restore.mutate({
         ...active.target,
         source: active.source,
         directories,
-        retry: retry?.filter((id) => !localIds.has(id)),
+        retry,
       });
       if (!alive.current) return;
-      for (const item of localEntries(active.target)) {
-        if (!differs(item) || (retry && !retry.includes(item.id))) continue;
-        try {
-          await item.apply();
-          completed.push({ id: item.id, ok: true });
-        } catch (reason) {
-          completed.push({ id: item.id, ok: false, error: String(reason) });
-        }
-      }
       setResults((before) => [
         ...before.filter((item) => !completed.some((next) => next.id === item.id)),
         ...completed,
       ]);
       const cards = new Set(resetCards(active.target).map(([, card]) => card));
-      const refresh: Promise<unknown>[] = [];
+      const refresh: Promise<unknown>[] = [
+        client.clientState.snapshot.query().then(acceptPreferences),
+      ];
       if (active.target.page !== 'appearance')
         refresh.push(utils.bootstrap.getSettings.invalidate());
       if (cards.has('mcp')) refresh.push(utils.bootstrap.getMcpStatus.invalidate());

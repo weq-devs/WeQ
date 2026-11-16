@@ -74,7 +74,6 @@ export function UpdateCard(): ReactElement {
     <Card title="软件更新" icon={<Download size={15} strokeWidth={1.8} />}>
       <Row
         settingId="update-check-interval"
-        label="自动检查更新频率"
         desc="单位：分钟；-1 表示永不"
         control={
           <AutoSave
@@ -106,7 +105,6 @@ export function UpdateCard(): ReactElement {
       />
       <Row
         settingId="update-prerelease"
-        label="检查测试版"
         control={
           <Toggle
             label="检查测试版"

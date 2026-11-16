@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
+import { settingDefinition } from '@weq/service/settings-catalog';
 import { describe, expect, it } from 'vitest';
 import {
   APP_SEARCH_ENTRIES,
@@ -99,15 +100,27 @@ describe('功能目录与真实设置控件同步', () => {
         (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
         node.tagName.getText(source) === 'Row'
       ) {
+        let labelFound = false;
         for (const attr of node.attributes.properties) {
           if (
             ts.isJsxAttribute(attr) &&
             attr.name.getText(source) === 'label' &&
             attr.initializer &&
             ts.isStringLiteral(attr.initializer)
-          )
+          ) {
             labels.push(attr.initializer.text);
+            labelFound = true;
+          }
         }
+        if (!labelFound)
+          for (const attr of node.attributes.properties)
+            if (
+              ts.isJsxAttribute(attr) &&
+              attr.name.getText(source) === 'settingId' &&
+              attr.initializer &&
+              ts.isStringLiteral(attr.initializer)
+            )
+              labels.push(settingDefinition(attr.initializer.text).label);
       }
       ts.forEachChild(node, visit);
     }

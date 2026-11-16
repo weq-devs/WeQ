@@ -8,6 +8,7 @@
  * 「令牌持有者可以切换账号」这条语义。
  */
 const READ_ONLY_TOOLS = new Set([
+  'list_settings',
   'list_accounts',
   'switch_account',
   'search_messages',

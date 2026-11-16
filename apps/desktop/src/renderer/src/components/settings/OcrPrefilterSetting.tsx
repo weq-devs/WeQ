@@ -28,7 +28,6 @@ export function OcrPrefilterSetting() {
     <>
       <Row
         settingId="ocr-prefilter-enabled"
-        label="OCR 前先筛图"
         desc="自动识别前跳过无文字图片。手动文字识别不受影响；筛图不可用时继续识别。"
         control={
           <Toggle

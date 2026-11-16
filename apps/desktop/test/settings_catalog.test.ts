@@ -52,6 +52,7 @@ describe('basic_settings_navigation', () => {
         kind: 'setting',
         section: 'startup',
         item: '自启时显示窗口',
+        settingId: 'startup-show-window',
       });
     });
   });
@@ -190,6 +191,7 @@ describe('feature_search', () => {
         kind: 'setting',
         section: 'appearance',
         item: '基础模式',
+        settingId: 'theme-mode',
       });
       expect(searchAppEntries('消息序号')[0]?.target).toEqual({
         kind: 'setting',

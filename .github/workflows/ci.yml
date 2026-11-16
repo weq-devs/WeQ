@@ -62,6 +62,9 @@ jobs:
       - name: Format check
         run: pnpm format:check
 
+      - name: Check generated settings reference
+        run: pnpm settings:docs:check
+
   typecheck-suites:
     name: typecheck-${{ matrix.suite }}
     runs-on: ubuntu-latest

@@ -47,6 +47,35 @@ function server() {
   return response;
 }
 describe('独立客户端的偏好同步', () => {
+  it('恢复等待在途偏好写入，失败与超时均不提前放行', async () => {
+    const response = server();
+    const module = await page(new Storage(), 'web');
+    await module.initializePreferences();
+    let finish: (() => void) | undefined;
+    rpc.patch.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = () => resolve(response());
+        }),
+    );
+    const saving = module.changePreference('privacyMode', true);
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    const timedOut = module.settlePreferenceWrites(10);
+    await expect(timedOut).rejects.toThrow('超时');
+    let settled = false;
+    const waiting = module.settlePreferenceWrites().then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    finish?.();
+    await saving;
+    await waiting;
+    expect(settled).toBe(true);
+    rpc.patch.mockRejectedValueOnce(new Error('合成失败'));
+    expect(await module.changePreference('privacyMode', false)).toBe(false);
+    await expect(module.settlePreferenceWrites()).rejects.toThrow('仍有设置未保存');
+  });
   it('斜杠表情及自动替换采用同一份共享设置，跨端和切号保持一致', async () => {
     const response = server();
     const desktop = await page(new Storage(), 'desktop');

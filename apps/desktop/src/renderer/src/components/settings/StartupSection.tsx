@@ -107,7 +107,6 @@ export function StartupSection() {
       <Card title="开机启动" icon={<Power size={15} strokeWidth={1.8} />} remoteUnsupported>
         <Row
           settingId="startup-enabled"
-          label="开机自动启动"
           desc={
             data?.supported
               ? '登录系统时启动 WeQ，完全退出后不会在本次登录中重新拉起。'

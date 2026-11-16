@@ -15,7 +15,6 @@ export function SuggestionFallbackPanel({
     <Card title="回退内容" icon={<List size={15} strokeWidth={1.8} />}>
       <Row
         settingId="suggestions-fallback-enabled"
-        label="启用回退内容"
         control={
           <Toggle
             label="启用回退内容"
@@ -28,7 +27,6 @@ export function SuggestionFallbackPanel({
       />
       <Row
         settingId="suggestions-fallback-texts"
-        label="回退内容列表"
         control={
           <button
             type="button"

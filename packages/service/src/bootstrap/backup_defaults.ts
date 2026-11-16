@@ -1,39 +1,19 @@
 import { DEFAULT_APP_SETTINGS, type UserConfig } from './user_config';
 import { normalizeDressConfig } from '../account/dress_config';
-
-export const WEQ_DEFAULTS_PATHS = [
-  'tencentFilesRootOverride',
-  'cacheDirOverride',
-  'dbRepairCacheDir',
-  'defaultExportDir',
-  'externalChatpic',
-  'callRecording',
-] as const;
-export type WeqDefaultsPath = (typeof WEQ_DEFAULTS_PATHS)[number];
-export const WEQ_DEFAULTS_CONNECTIONS = [
-  'systemAutostart',
-  'showWindowOnAutostart',
-  'webServiceAutoStart',
-  'webEnabled',
-  'remoteEnabled',
-  'remoteMode',
-  'tailscaleEnabled',
-  'weqAssistant',
-] as const;
-export type WeqDefaultsConnection = (typeof WEQ_DEFAULTS_CONNECTIONS)[number];
-export interface WeqDefaultsChoice {
-  clearApi?: boolean;
-  resetPaths?: WeqDefaultsPath[];
-  resetConnections?: WeqDefaultsConnection[];
-}
-export const WEQ_DEFAULTS_PATH_LABELS: Record<WeqDefaultsPath, string> = {
-  tencentFilesRootOverride: 'QQ 数据根目录',
-  cacheDirOverride: '缓存目录',
-  dbRepairCacheDir: '修复临时目录',
-  defaultExportDir: '默认导出目录',
-  externalChatpic: '外部聊天图片目录',
-  callRecording: '通话录音目录',
-};
+import {
+  globalSettingsDefaults,
+  WEQ_DEFAULTS_PATHS,
+  WEQ_DEFAULTS_PATH_LABELS,
+  type WeqDefaultsChoice,
+} from '../common/settings_catalog/global';
+export {
+  WEQ_DEFAULTS_PATHS,
+  WEQ_DEFAULTS_PATH_LABELS,
+  WEQ_DEFAULTS_CONNECTIONS,
+  type WeqDefaultsPath,
+  type WeqDefaultsConnection,
+  type WeqDefaultsChoice,
+} from '../common/settings_catalog/global';
 
 export function weqDefaultsPaths(config: UserConfig) {
   return WEQ_DEFAULTS_PATHS.flatMap((id) => {
@@ -51,7 +31,7 @@ export function weqDefaultsPaths(config: UserConfig) {
 
 /** 恢复默认是替换，不使用备份导入的递归合并；身份与数据字段原样保留。 */
 export function weqDefaultsConfig(current: UserConfig, choice: WeqDefaultsChoice): UserConfig {
-  const settings = structuredClone(DEFAULT_APP_SETTINGS);
+  const settings = globalSettingsDefaults(current.settings, DEFAULT_APP_SETTINGS, choice);
   const previous = current.settings;
   settings.sharedPreferences.dress = normalizeDressConfig({
     ...previous?.sharedPreferences?.dress,
@@ -68,16 +48,10 @@ export function weqDefaultsConfig(current: UserConfig, choice: WeqDefaultsChoice
   if (!choice.clearApi) {
     if (previous?.sharedPreferences?.assistant)
       settings.sharedPreferences.assistant = structuredClone(previous.sharedPreferences.assistant);
-    for (const id of ['agentLab', 'mcp', 'oneBot', 'externalRkey', 'ssePush'] as const)
-      if (previous?.[id] !== undefined)
-        Object.assign(settings, { [id]: structuredClone(previous[id]) });
     settings.voiceTranscribe.ttsProviders = structuredClone(
       previous?.voiceTranscribe?.ttsProviders ?? [],
     ) as typeof settings.voiceTranscribe.ttsProviders;
   }
-  for (const id of ['showWindowOnAutostart', 'webServiceAutoStart', 'weqAssistant'] as const)
-    if (!choice.resetConnections?.includes(id) && previous?.[id] !== undefined)
-      Object.assign(settings, { [id]: structuredClone(previous[id]) });
   const result: UserConfig = {
     ...current,
     settings,

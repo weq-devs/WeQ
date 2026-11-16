@@ -3,6 +3,8 @@ import { DEFAULT_APP_SETTINGS, DEFAULT_INTENT_SENSE_CONFIG } from '@weq/service'
 import type { AppSettings } from '@weq/service';
 import { SETTINGS_RESET_CARDS, resetCards } from '../src/shared/settings_reset';
 import { settingsResetRouter } from '../src/main/ipc/routers/settings_reset';
+import { SETTINGS_FIELDS } from '@weq/service/settings-catalog';
+import { preferenceDefaults } from '@weq/service/client-preferences';
 
 const state = vi.hoisted(() => ({
   settings: {} as AppSettings,
@@ -108,6 +110,48 @@ beforeEach(() => {
 });
 const caller = () => settingsResetRouter.createCaller({});
 describe('分级恢复默认', () => {
+  it('所有登记的全局恢复字段均有真实适配器，不依赖设置控件是否挂载', async () => {
+    const api = settingsResetRouter.createCaller({ authorize: () => {} });
+    for (const page of new Set(SETTINGS_RESET_CARDS.map(([page]) => page))) {
+      const preview = await api.preview({ page });
+      const cards = new Set(resetCards({ page }).map(([, card]) => card));
+      for (const field of SETTINGS_FIELDS.filter(
+        (field) =>
+          cards.has(field.card) &&
+          field.scope === '全局' &&
+          !field.desktopOnly &&
+          field.id !== 'onebot-servers:servers',
+      ))
+        expect(
+          preview.items.some((item) => item.id === field.id),
+          field.id,
+        ).toBe(true);
+    }
+    expect(state.calls).toEqual([]);
+  });
+  it('斜杠表情、全部会话范围和 OCR 筛图均从统一字段目录恢复', async () => {
+    state.settings.sharedPreferences.client = {
+      slashEmojiEnabled: false,
+      slashEmojiAutoReplace: true,
+      allConversationsIncludeHidden: true,
+      allConversationsIncludeDeleted: true,
+    };
+    state.settings.ocr.prefilterEnabled = false;
+    for (const page of ['chat-interaction', 'chat-messages', 'recognition'] as const)
+      await caller().restore({ page, source: null });
+    for (const key of [
+      'slashEmojiEnabled',
+      'slashEmojiAutoReplace',
+      'allConversationsIncludeHidden',
+      'allConversationsIncludeDeleted',
+    ] as const)
+      expect(state.calls).toContainEqual(['clientPreferences', { [key]: preferenceDefaults[key] }]);
+    expect(state.calls).toContainEqual([
+      'setOcrPrefilterEnabled',
+      { enabled: DEFAULT_APP_SETTINGS.ocr.prefilterEnabled },
+    ]);
+  });
+
   it('窗口外观和关闭行为随各自页面恢复，不再互相影响', async () => {
     state.settings.windowsStyleControls = true;
     state.settings.windowCloseBehavior = 'quit';

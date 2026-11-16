@@ -330,7 +330,6 @@ export function AccountBasicsSection({
       <>
         <Row
           settingId="read-sync"
-          label="向 QQ 服务器上报已读位置"
           desc="向 QQ 服务器上报在 WeQ 阅读和手动标记已读的位置，可能清除其他端的未读提醒。默认开启，仅在完整功能已启用且账号在线时生效；标为未读不能恢复其他端已清除的提醒。"
           control={
             <Toggle
@@ -457,7 +456,6 @@ export function AccountBasicsSection({
                 {rkeys.map((r, i) => {
                   const exp = formatExpiry(r.createTime, r.ttlSeconds);
                   return (
-                    // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                     <li key={`${r.type}-${i}`} className="weq-set-rkey-item">
                       <div className="weq-set-rkey-head">
                         <span className="weq-set-rkey-type">

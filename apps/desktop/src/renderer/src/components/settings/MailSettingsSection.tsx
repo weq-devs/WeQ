@@ -78,7 +78,6 @@ export function MailSettingsSection() {
         >
           <Row
             settingId="mail-poll-interval"
-            label="邮件查询间隔"
             desc={
               <>
                 默认 1 分钟，可设 1–{MAX_MAIL_POLL_INTERVAL_MINUTES}{' '}

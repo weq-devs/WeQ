@@ -36,7 +36,6 @@ export function ChatImageCacheSettings() {
     <Card title="图片与表情" icon={<Image size={16} />}>
       <Row
         settingId="chat-image-cache"
-        label="图片预览内存预算"
         desc="按解码后像素估算，优先保留最近查看的图片与表情，超额时淘汰离屏项。0 表示不保留离屏预览。可见图片和动画额外帧可能使实际内存高于预算。"
         control={
           <AutoSave

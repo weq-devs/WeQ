@@ -49,7 +49,6 @@ export function QqShowSettings() {
     <>
       <Row
         settingId="chat-qqshow"
-        label="聊天 QQ 秀替换头像"
         desc="用成员的 QQ 秀全身像替换头像与挂件。"
         control={
           <SharedDisplayToggle
@@ -62,7 +61,6 @@ export function QqShowSettings() {
       />
       <Row
         settingId="chat-qqshow-days"
-        label="QQ 秀缓存有效期"
         desc="默认 5 分钟，聊天与个性主页共用。"
         control={
           <AutoSave

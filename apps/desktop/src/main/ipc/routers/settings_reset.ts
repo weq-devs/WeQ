@@ -4,7 +4,13 @@ import {
   DEFAULT_MAIL_POLL_INTERVAL_MINUTES,
   mailPollIntervalMinutes,
 } from '@weq/service/mail-wire';
-import { INTENT_TUNING, type IntentTuningKey } from '@weq/service/intent-context';
+import {
+  APP_SETTING_FIELDS,
+  CLIENT_SETTING_FIELDS,
+  INTENT_SETTING_FIELDS,
+  SETTINGS_FIELDS,
+  settingsDefaults,
+} from '@weq/service/settings-catalog';
 import { procedure, router, type RpcContext } from '../trpc';
 import { getAppContext, closeSalvageConnections } from '../../context/app_context';
 import { bootstrapRouter } from './bootstrap';
@@ -24,6 +30,7 @@ import {
 import {
   SETTINGS_RESET_CARDS,
   resetCards,
+  planSettingsReset,
   type SettingsResetCardId,
   type SettingsResetTarget,
   type SettingsResetItem,
@@ -52,251 +59,170 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   const config = context.bootstrap?.userConfig;
   if (!config) throw new Error('配置尚未就绪');
   const current = config.getSettings();
-  const defaults = DEFAULT_APP_SETTINGS;
+  const defaults = settingsDefaults(DEFAULT_APP_SETTINGS);
   const b = bootstrapRouter.createCaller(ctx);
   const shared = sharedSettingsRouter.createCaller(ctx);
+  const r = remoteRouter.createCaller(ctx);
+  const appWriters = {
+    home: () => b.setHomeSettings(defaults.home),
+    contactCard: () => b.setContactCard(defaults.contactCard),
+    startupPage: () => b.setStartupPage({ page: defaults.startupPage }),
+    showWindowOnAutostart: () =>
+      b.setShowWindowOnAutostart({ enabled: defaults.showWindowOnAutostart }),
+    windowCloseBehavior: () => b.setWindowCloseBehavior({ behavior: defaults.windowCloseBehavior }),
+    windowsStyleControls: () =>
+      b.setWindowsStyleControls({ enabled: defaults.windowsStyleControls }),
+    autoLockMinutes: () => b.setAutoLockMinutes({ minutes: defaults.autoLockMinutes }),
+    showMessageUnreadBadge: () =>
+      b.setShowMessageUnreadBadge({ enabled: defaults.showMessageUnreadBadge }),
+    showContactUnreadCount: () =>
+      b.setShowContactUnreadCount({ enabled: defaults.showContactUnreadCount }),
+    showGroupAssistantMessageCount: () =>
+      b.setShowGroupAssistantMessageCount({ enabled: defaults.showGroupAssistantMessageCount }),
+    readFromFirstUnread: () => b.setReadFromFirstUnread({ enabled: defaults.readFromFirstUnread }),
+    jumpToLatestAfterSend: () =>
+      b.setJumpToLatestAfterSend({ enabled: defaults.jumpToLatestAfterSend }),
+    autoFollowLatestMessages: () =>
+      b.setAutoFollowLatestMessages({ enabled: defaults.autoFollowLatestMessages }),
+    showScrollToBottomButton: () =>
+      b.setShowScrollToBottomButton({ enabled: defaults.showScrollToBottomButton }),
+    reportReadEnabled: () => b.setReportReadEnabled({ enabled: defaults.reportReadEnabled }),
+    manualReadReportEnabled: () =>
+      b.setManualReadReportEnabled({ enabled: defaults.manualReadReportEnabled }),
+    showMessageSeq: () => b.setShowMessageSeq({ enabled: defaults.showMessageSeq }),
+    showMessageDate: () => b.setShowMessageDate({ enabled: defaults.showMessageDate }),
+    showMessageTime: () => b.setShowMessageTime({ enabled: defaults.showMessageTime }),
+    showAvatarPendant: () => b.setShowAvatarPendant({ enabled: defaults.showAvatarPendant }),
+    showChatQqShow: () => b.setShowChatQqShow({ enabled: defaults.showChatQqShow }),
+    qqShowCacheMinutes: () => b.setQqShowCacheMinutes({ minutes: defaults.qqShowCacheMinutes }),
+    showMsgDecoration: () => b.setShowMsgDecoration({ enabled: defaults.showMsgDecoration }),
+    showMessageBubble: () => b.setShowMessageBubble({ enabled: defaults.showMessageBubble }),
+    showMessageFont: () => b.setShowMessageFont({ enabled: defaults.showMessageFont }),
+    renderTextMarkdown: () => b.setRenderTextMarkdown({ enabled: defaults.renderTextMarkdown }),
+    linkPreview: () => b.setLinkPreview(defaults.linkPreview),
+    chatImageCacheMiB: () => b.setChatImageCacheMiB({ miB: defaults.chatImageCacheMiB }),
+    sendWithQqFont: () => b.setSendWithQqFont({ enabled: defaults.sendWithQqFont }),
+    callDisableP2P: () => b.setCallDisableP2P({ disabled: defaults.callDisableP2P }),
+    qzonePersonClickAction: () =>
+      b.setQzonePersonClickAction({ action: defaults.qzonePersonClickAction }),
+    qzoneForwardQuotePrevious: () =>
+      b.setQzoneForwardQuotePrevious({ enabled: defaults.qzoneForwardQuotePrevious }),
+    qzonePagination: () => b.setQzonePagination(defaults.qzonePagination),
+    qzonePublicRefreshCooldownMinutes: () =>
+      b.setQzonePublicRefreshCooldown({ minutes: defaults.qzonePublicRefreshCooldownMinutes }),
+    realtimeEnabled: () => b.setRealtimeEnabled({ enabled: defaults.realtimeEnabled }),
+    autoAttachQq: () => b.setAutoAttachQq({ enabled: defaults.autoAttachQq }),
+    restrictedModeBannerEnabled: () =>
+      b.setRestrictedModeBannerEnabled({ enabled: defaults.restrictedModeBannerEnabled }),
+    suppressDbDamageReminder: () =>
+      b.setSuppressDbDamageReminder({ suppressed: defaults.suppressDbDamageReminder }),
+    preferCdn: () => b.setPreferCdn({ enabled: defaults.preferCdn }),
+    logRetentionDays: () => b.setLogRetentionDays({ days: defaults.logRetentionDays }),
+    databaseReadConcurrency: () =>
+      b.setDatabaseReadConcurrency({ concurrency: defaults.databaseReadConcurrency }),
+    webServiceAutoStart: () => r.setWebAutoStart({ enabled: defaults.webServiceAutoStart }),
+  } satisfies Record<(typeof APP_SETTING_FIELDS)[number]['key'], () => Promise<unknown>>;
   const out: Entry[] = [];
-  function add(
-    card: SettingsResetCardId,
+  const definitions = new Map(SETTINGS_FIELDS.map((spec) => [spec.id, spec]));
+  function bind(
     id: string,
-    label: string,
     current: unknown,
     defaultValue: unknown,
     apply: () => Promise<unknown>,
-    extra: Partial<Pick<Entry, 'scope' | 'directory' | 'stopsService' | 'intentKey'>> = {},
+    instance?: { id: string; label: string },
   ) {
+    const spec = definitions.get(id);
+    if (!spec) throw new Error(`恢复适配器未登记：${id}`);
+    if (
+      !selected.has(spec.card) ||
+      (ctx.authorize && spec.desktopOnly) ||
+      (ctx.host?.remoteClient && spec.remoteUnsupported)
+    )
+      return;
     out.push({
-      card,
-      id: `${card}:${id}`,
-      label,
+      id: instance?.id ?? spec.id,
+      label: instance?.label ?? spec.label,
+      card: spec.card,
+      scope: spec.scope,
+      directory: spec.directory,
+      stopsService: spec.stopsService,
       current,
       defaultValue,
       apply,
-      scope: '全局',
-      ...extra,
+      ...(spec.source === 'intent'
+        ? { intentKey: spec.key as keyof typeof DEFAULT_INTENT_SENSE_CONFIG }
+        : {}),
     });
   }
-  function app<K extends keyof typeof defaults>(
-    card: SettingsResetCardId,
-    key: K,
-    label: string,
-    write: (value: (typeof defaults)[K]) => Promise<unknown>,
-  ) {
-    add(card, key, label, current[key], defaults[key], () => write(defaults[key]));
-  }
-  app('home', 'home', '主页显示与屏蔽词', (value) => b.setHomeSettings(value));
-  for (const [key, label] of [
-    ['autoCheck', '自动检查增强包更新'],
-    ['autoInstall', '自动安装增强包更新'],
-  ] as const) {
-    add(
-      'enhancement-updates',
-      key,
-      label,
+  for (const spec of APP_SETTING_FIELDS)
+    bind(spec.id, current[spec.key], defaults[spec.key], appWriters[spec.key]);
+
+  for (const key of ['autoCheck', 'autoInstall'] as const) {
+    bind(
+      `${'enhancement-updates'}:${key}`,
       current.enhancementUpdates[key],
       defaults.enhancementUpdates[key],
       () => b.setEnhancementUpdates({ [key]: defaults.enhancementUpdates[key] }),
     );
   }
-  app('contact-card', 'contactCard', '名片显示与顺序', (value) => b.setContactCard(value));
-  app('startup-page', 'startupPage', '启动时进入', (page) => b.setStartupPage({ page }));
-  app('startup-system', 'showWindowOnAutostart', '自启时显示窗口', (enabled) =>
-    b.setShowWindowOnAutostart({ enabled }),
-  );
+
   if (!ctx.authorize)
-    add('startup-system', 'autostart', '开机自动启动', undefined, false, () =>
-      b.setAutostart({ enabled: false }),
-    );
-  app('window', 'windowCloseBehavior', '关闭窗口时', (behavior) =>
-    b.setWindowCloseBehavior({ behavior }),
-  );
-  app('window-appearance', 'windowsStyleControls', '仿 Windows 窗口按钮', (enabled) =>
-    b.setWindowsStyleControls({ enabled }),
-  );
+    bind('startup-system:autostart', undefined, false, () => b.setAutostart({ enabled: false }));
+
   for (const kind of ['success', 'failure'] as const) {
     const key = kind === 'success' ? 'successSeconds' : 'failureSeconds';
-    add(
-      'toast',
-      key,
-      `${kind === 'success' ? '成功' : '失败'}通知停留时长`,
-      current.toastDurations[key],
-      defaults.toastDurations[key],
-      () => b.setToastDuration({ kind, seconds: defaults.toastDurations[key] }),
+    bind(`${'toast'}:${key}`, current.toastDurations[key], defaults.toastDurations[key], () =>
+      b.setToastDuration({ kind, seconds: defaults.toastDurations[key] }),
     );
   }
-  app('app-lock', 'autoLockMinutes', '自动锁定分钟', (minutes) =>
-    b.setAutoLockMinutes({ minutes }),
-  );
-  add('app-lock', 'enabled', '启用应用锁', current.appLock.enabled, defaults.appLock.enabled, () =>
+
+  bind('app-lock:enabled', current.appLock.enabled, defaults.appLock.enabled, () =>
     b.setAppLockEnabled({ enabled: defaults.appLock.enabled }),
   );
-  add('app-lock', 'method', '解锁方式', current.appLock.method, defaults.appLock.method, () =>
+  bind('app-lock:method', current.appLock.method, defaults.appLock.method, () =>
     b.setAppLockMethod({ method: defaults.appLock.method }),
   );
-  app('unread', 'showMessageUnreadBadge', '消息红点', (enabled) =>
-    b.setShowMessageUnreadBadge({ enabled }),
-  );
-  app('unread', 'showContactUnreadCount', '联系人未读数', (enabled) =>
-    b.setShowContactUnreadCount({ enabled }),
-  );
-  app('unread', 'showGroupAssistantMessageCount', '群助手计数', (enabled) =>
-    b.setShowGroupAssistantMessageCount({ enabled }),
-  );
-  app('reading', 'readFromFirstUnread', '从首条未读开始', (enabled) =>
-    b.setReadFromFirstUnread({ enabled }),
-  );
-  app('reading', 'jumpToLatestAfterSend', '发送后跳到最新', (enabled) =>
-    b.setJumpToLatestAfterSend({ enabled }),
-  );
-  app('reading', 'autoFollowLatestMessages', '自动跟随新消息', (enabled) =>
-    b.setAutoFollowLatestMessages({ enabled }),
-  );
-  app('reading', 'showScrollToBottomButton', '回到底部按钮', (enabled) =>
-    b.setShowScrollToBottomButton({ enabled }),
-  );
+
   const clientPreferences = config.getSharedPreference('client');
-  for (const [card, key, label] of [
-    ['group-messages', 'showGroupMemberName', '显示群消息发送者名称'],
-    ['group-messages', 'showGroupMemberLevel', '显示群成员等级'],
-    ['group-messages', 'showGroupMemberTitle', '显示群成员头衔与身份'],
-    ['quote-replies', 'autoMentionOnQuote', '群聊引用时自动 @ 对方'],
-    ['quote-replies', 'backspaceRemovesQuote', '按退格键移除引用'],
-  ] as const) {
-    add(
-      card,
-      key,
-      label,
-      clientPreferences[key] ?? preferenceDefaults[key],
-      preferenceDefaults[key],
-      () => clientStateRouter.createCaller(ctx).patch({ [key]: preferenceDefaults[key] }),
+  for (const spec of CLIENT_SETTING_FIELDS)
+    bind(
+      spec.id,
+      clientPreferences[spec.key] ?? preferenceDefaults[spec.key],
+      preferenceDefaults[spec.key],
+      () => clientStateRouter.createCaller(ctx).patch({ [spec.key]: preferenceDefaults[spec.key] }),
     );
-  }
-  for (const [key, label] of [
-    ['autoFetchMissingMessages', '查看时自动拉取缺失的消息'],
-    ['autoFetchMissingContext', '定位到缺失消息时自动拉取上下文'],
-    ['missingMessageContextCount', '自动拉取上下文条数'],
-  ] as const) {
-    add(
-      'reading',
-      key,
-      label,
-      clientPreferences[key] ?? preferenceDefaults[key],
-      preferenceDefaults[key],
-      () => clientStateRouter.createCaller(ctx).patch({ [key]: preferenceDefaults[key] }),
-    );
-  }
-  app('unread', 'reportReadEnabled', '自动阅读上报已读位置', (enabled) =>
-    b.setReportReadEnabled({ enabled }),
-  );
-  app('unread', 'manualReadReportEnabled', '手动标记上报已读位置', (enabled) =>
-    b.setManualReadReportEnabled({ enabled }),
-  );
-  app('message-time', 'showMessageSeq', '消息序号', (enabled) => b.setShowMessageSeq({ enabled }));
-  app('message-time', 'showMessageDate', '消息日期', (enabled) =>
-    b.setShowMessageDate({ enabled }),
-  );
-  app('message-time', 'showMessageTime', '消息时间', (enabled) =>
-    b.setShowMessageTime({ enabled }),
-  );
-  app('message-dress', 'showAvatarPendant', '头像挂件', (enabled) =>
-    b.setShowAvatarPendant({ enabled }),
-  );
-  app('message-dress', 'showChatQqShow', 'QQ 秀头像', (enabled) =>
-    b.setShowChatQqShow({ enabled }),
-  );
-  app('message-dress', 'qqShowCacheMinutes', 'QQ 秀缓存有效期', (minutes) =>
-    b.setQqShowCacheMinutes({ minutes }),
-  );
-  app('message-dress', 'showMsgDecoration', '消息装饰', (enabled) =>
-    b.setShowMsgDecoration({ enabled }),
-  );
-  app('message-dress', 'showMessageBubble', '消息气泡', (enabled) =>
-    b.setShowMessageBubble({ enabled }),
-  );
-  app('message-dress', 'showMessageFont', '消息字体', (enabled) =>
-    b.setShowMessageFont({ enabled }),
-  );
-  app('message-text', 'renderTextMarkdown', 'Markdown 文本', (enabled) =>
-    b.setRenderTextMarkdown({ enabled }),
-  );
-  app('message-text', 'linkPreview', '链接预览', (value) => b.setLinkPreview(value));
-  add(
-    'message-voice',
-    'autoTranscribe',
-    '语音自动转文字',
+
+  bind(
+    'message-voice:autoTranscribe',
     current.voiceTranscribe.autoTranscribe,
     defaults.voiceTranscribe.autoTranscribe,
     () => b.setAutoTranscribeVoice({ enabled: defaults.voiceTranscribe.autoTranscribe }),
   );
-  app('image-cache', 'chatImageCacheMiB', '图片预览内存预算', (miB) =>
-    b.setChatImageCacheMiB({ miB }),
-  );
-  app('sending', 'sendWithQqFont', 'QQ 个性字体发送', (enabled) =>
-    b.setSendWithQqFont({ enabled }),
-  );
-  add(
-    'typing',
-    'mode',
-    '隐藏正在输入状态',
-    current.typingStatus.mode,
-    defaults.typingStatus.mode,
-    () => b.setTypingStatusMode({ mode: defaults.typingStatus.mode }),
+
+  bind('typing:mode', current.typingStatus.mode, defaults.typingStatus.mode, () =>
+    b.setTypingStatusMode({ mode: defaults.typingStatus.mode }),
   );
   for (const key of ['mode', 'systemAudio', 'udpTrace'] as const) {
     const card = key === 'udpTrace' ? 'call-trace' : 'call-content';
-    add(
-      card,
-      key,
-      key === 'mode' ? '录制内容' : key === 'systemAudio' ? '电脑声音' : '记录 UDP 流量',
-      current.callRecording[key],
-      defaults.callRecording[key],
-      () => b.setCallRecording({ [key]: defaults.callRecording[key] }),
+    bind(`${card}:${key}`, current.callRecording[key], defaults.callRecording[key], () =>
+      b.setCallRecording({ [key]: defaults.callRecording[key] }),
     );
   }
-  add(
-    'call-directory',
-    'dir',
-    '通话录音目录',
-    current.callRecording.dir,
-    defaults.callRecording.dir,
-    () => b.setCallRecording({ dir: defaults.callRecording.dir }),
-    { directory: true },
+  bind('call-directory:dir', current.callRecording.dir, defaults.callRecording.dir, () =>
+    b.setCallRecording({ dir: defaults.callRecording.dir }),
   );
-  app('call-connection', 'callDisableP2P', '禁用 P2P', (disabled) =>
-    b.setCallDisableP2P({ disabled }),
+
+  bind('api-default:model', current.agentLab.defaultModel, defaults.agentLab.defaultModel, () =>
+    b.setAgentLabDefaultModel({ ref: defaults.agentLab.defaultModel }),
   );
-  app('qzone-person', 'qzonePersonClickAction', '人物入口', (action) =>
-    b.setQzonePersonClickAction({ action }),
-  );
-  app('qzone-forward', 'qzoneForwardQuotePrevious', '引用上一人文案', (enabled) =>
-    b.setQzoneForwardQuotePrevious({ enabled }),
-  );
-  app('qzone-pagination', 'qzonePagination', '在线翻页限速', (value) =>
-    b.setQzonePagination(value),
-  );
-  app('qzone-public-refresh', 'qzonePublicRefreshCooldownMinutes', '自动刷新冷却期', (minutes) =>
-    b.setQzonePublicRefreshCooldown({ minutes }),
-  );
-  add(
-    'api-default',
-    'model',
-    '默认聊天模型',
-    current.agentLab.defaultModel,
-    defaults.agentLab.defaultModel,
-    () => b.setAgentLabDefaultModel({ ref: defaults.agentLab.defaultModel }),
-  );
-  add(
-    'api-default',
-    'vision-model',
-    '默认视觉模型',
+  bind(
+    'api-default:vision-model',
     current.agentLab.defaultVisionModel,
     defaults.agentLab.defaultVisionModel,
     () => b.setDefaultVisionModel({ ref: defaults.agentLab.defaultVisionModel }),
   );
-  add(
-    'api-default',
-    'embedding-model',
-    '默认向量模型',
+  bind(
+    'api-default:embedding-model',
     current.agentLab.defaultEmbeddingModel,
     defaults.agentLab.defaultEmbeddingModel,
     () => b.setDefaultEmbeddingModel({ ref: defaults.agentLab.defaultEmbeddingModel }),
@@ -308,43 +234,25 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
       kind === 'voice'
         ? defaults.voiceTranscribe.onlineConcurrency
         : defaults.ocr.onlineConcurrency;
-    add(
-      `${kind}-online`,
-      'concurrency',
-      kind === 'voice' ? '转录并发' : '识别并发',
-      concurrency,
-      value,
-      () => b.setRecognitionConcurrency({ kind, concurrency: value }),
+    bind(`${`${kind}-online`}:${'concurrency'}`, concurrency, value, () =>
+      b.setRecognitionConcurrency({ kind, concurrency: value }),
     );
   }
-  app('realtime', 'realtimeEnabled', '数据库监听', (enabled) => b.setRealtimeEnabled({ enabled }));
-  app('attach', 'autoAttachQq', '自动启用完整功能', (enabled) => b.setAutoAttachQq({ enabled }));
-  app('attach', 'restrictedModeBannerEnabled', '受限模式横幅提醒', (enabled) =>
-    b.setRestrictedModeBannerEnabled({ enabled }),
-  );
-  add('auto-enter', 'account', '默认进入账号', config.getAutoEnter(), null, () =>
-    b.clearAutoEnter(),
-  );
-  app('db-tolerance', 'suppressDbDamageReminder', '损坏提醒', (suppressed) =>
-    b.setSuppressDbDamageReminder({ suppressed }),
-  );
-  app('cdn', 'preferCdn', '优先 CDN', (enabled) => b.setPreferCdn({ enabled }));
+
+  bind('auto-enter:account', config.getAutoEnter(), null, () => b.clearAutoEnter());
+
   if (selected.has('data-saver')) {
     const temporary = dataSaverSession.status().temporary;
-    add(
-      'data-saver',
-      'temporary',
-      '临时省流量设置',
+    bind(
+      'data-saver:temporary',
       temporary ? (temporary.enabled ? '临时开启' : '临时关闭') : '无临时设置',
       '无临时设置',
       async () => dataSaverSession.clearTemporary('settings'),
     );
     const saverDefaults = { dataSaverMode: 'auto' as const, ...dataSaverBehaviorDefaults };
     const saverCurrent = config.getSharedPreference('client');
-    add(
-      'data-saver',
-      'preferences',
-      '省流量模式与行为',
+    bind(
+      'data-saver:preferences',
       Object.fromEntries(
         Object.entries(saverDefaults).map(([key, value]) => [
           key,
@@ -355,55 +263,33 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
       () => clientStateRouter.createCaller(ctx).patch(saverDefaults),
     );
   }
-  add('rkey', 'enabled', '外部 RKEY 启用目标', current.externalRkey.enabledServerId, null, () =>
+  bind('rkey:enabled', current.externalRkey.enabledServerId, null, () =>
     b.setExternalRkeyEnabled({ serverId: null }),
   );
-  add(
-    'mcp',
-    'enabled',
-    'MCP 服务',
-    current.mcp.enabled,
-    defaults.mcp.enabled,
-    () => b.setMcpEnabled({ enabled: defaults.mcp.enabled }),
-    { stopsService: true },
+  bind('mcp:enabled', current.mcp.enabled, defaults.mcp.enabled, () =>
+    b.setMcpEnabled({ enabled: defaults.mcp.enabled }),
   );
-  add(
-    'onebot',
-    'enabled',
-    'OneBot 服务',
-    current.oneBot.enabled,
-    defaults.oneBot.enabled,
-    () => b.setOneBotEnabled({ enabled: defaults.oneBot.enabled }),
-    { stopsService: true },
+  bind('onebot:enabled', current.oneBot.enabled, defaults.oneBot.enabled, () =>
+    b.setOneBotEnabled({ enabled: defaults.oneBot.enabled }),
   );
   for (const [type, servers] of [
     ['ws', current.oneBot.webSocketServers],
     ['http', current.oneBot.httpServers],
   ] as const) {
     for (const server of servers)
-      add(
-        'onebot-servers',
-        `${type}:${server.id}`,
-        `${server.name} 启用状态`,
+      bind(
+        'onebot-servers:servers',
         server.enabled,
         false,
         () => b.setOneBotServerEnabled({ type, id: server.id, enabled: false }),
-        { stopsService: true },
+        { id: `onebot-servers:${type}:${server.id}`, label: `${server.name} 启用状态` },
       );
   }
-  add(
-    'sse-targets',
-    'enabled',
-    'SSE 推送',
-    current.ssePush.enabledServerId,
-    null,
-    () => b.setSsePushEnabled({ serverId: null }),
-    { stopsService: true },
+  bind('sse-targets:enabled', current.ssePush.enabledServerId, null, () =>
+    b.setSsePushEnabled({ serverId: null }),
   );
-  add(
-    'sse-tuning',
-    'tuning',
-    'SSE 推送调优',
+  bind(
+    'sse-tuning:tuning',
     { debounceMs: current.ssePush.debounceMs, massThreshold: current.ssePush.massThreshold },
     { debounceMs: defaults.ssePush.debounceMs, massThreshold: defaults.ssePush.massThreshold },
     () =>
@@ -412,58 +298,23 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
         massThreshold: defaults.ssePush.massThreshold,
       }),
   );
-  add(
-    'assistant',
-    'enabled',
-    'QQ 公众号推送',
-    current.weqAssistant.enabled,
-    defaults.weqAssistant.enabled,
-    () => b.setWeqAssistantEnabled({ enabled: defaults.weqAssistant.enabled }),
-    { stopsService: true },
+  bind('assistant:enabled', current.weqAssistant.enabled, defaults.weqAssistant.enabled, () =>
+    b.setWeqAssistantEnabled({ enabled: defaults.weqAssistant.enabled }),
   );
-  app('logs', 'logRetentionDays', '日志保留天数', (days) => b.setLogRetentionDays({ days }));
-  app('database-read', 'databaseReadConcurrency', '数据库读取并发上限', (concurrency) =>
-    b.setDatabaseReadConcurrency({ concurrency }),
-  );
+
   if (!ctx.authorize) {
-    const r = remoteRouter.createCaller(ctx);
     const u = updateRouter.createCaller(ctx);
-    add(
-      'web',
-      'enabled',
-      '本机浏览器访问',
-      undefined,
-      false,
-      () => r.setWebEnabled({ enabled: false }),
-      { stopsService: true },
-    );
-    app('web', 'webServiceAutoStart', 'Web 服务自动启动', (enabled) =>
-      r.setWebAutoStart({ enabled }),
-    );
-    add(
-      'remote',
-      'enabled',
-      'WeQ Remote',
-      undefined,
-      false,
-      () => r.setEnabled({ enabled: false }),
-      { stopsService: true },
-    );
-    add(
-      'update',
-      'interval',
-      '自动检查更新频率',
+    bind('web:enabled', undefined, false, () => r.setWebEnabled({ enabled: false }));
+
+    bind('remote:enabled', undefined, false, () => r.setEnabled({ enabled: false }));
+    bind(
+      'update:interval',
       current.updateCheckIntervalMinutes,
       defaults.updateCheckIntervalMinutes,
       () => u.setInterval({ minutes: defaults.updateCheckIntervalMinutes }),
     );
-    add(
-      'update',
-      'prerelease',
-      '检查测试版',
-      current.updateCheckPrerelease,
-      defaults.updateCheckPrerelease,
-      () => u.setPrerelease({ enabled: defaults.updateCheckPrerelease }),
+    bind('update:prerelease', current.updateCheckPrerelease, defaults.updateCheckPrerelease, () =>
+      u.setPrerelease({ enabled: defaults.updateCheckPrerelease }),
     );
   }
   const services = context.services;
@@ -471,129 +322,37 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     const intent = [...selected].some((card) => /^(intent|suggestion|profile)-/.test(card))
       ? sharedIntentStatus()
       : DEFAULT_INTENT_SENSE_CONFIG;
-    const groups: Partial<
-      Record<SettingsResetCardId, readonly (keyof typeof DEFAULT_INTENT_SENSE_CONFIG)[]>
-    > = {
-      'intent-basic': ['enabled', 'analysisMode', 'engine', 'providerRef'],
-      'intent-display': ['persistentDisplay', 'hoverDisplay', 'loadingAnimation'],
-      'intent-trigger': ['analyzeAfterSelf'],
-      'intent-analysis': [
-        'analysisContextMessages',
-        'backfillMessages',
-        'contextGapMinutes',
-        'contextSpanMinutes',
-      ],
-      'intent-model': ['analysisTemperature', 'apiBatchMessages'],
-      'intent-cache': ['apiTimeoutSeconds', 'apiCooldownSeconds', 'cacheEntries'],
-      'suggestion-basic': ['suggestionsEnabled', 'suggestionMode', 'suggestionProviderRef'],
-      'suggestion-trigger': ['suggestAfterSelf'],
-      'suggestion-content': [
-        'suggestionContextMessages',
-        'suggestionCount',
-        'suggestionTargetChars',
-      ],
-      'suggestion-generation': ['suggestionTemperature'],
-      'suggestion-cache': [
-        'suggestionCacheSeconds',
-        'suggestionExpiryMinutes',
-        'suggestionHistoryLimit',
-      ],
-      'suggestion-fallback': ['suggestionFallbackEnabled', 'suggestionFallbackTexts'],
-      'profile-basic': [
-        'profileEnabled',
-        'profileMode',
-        'profileEngine',
-        'profileProviderRef',
-        'profileLocalModelId',
-      ],
-      'profile-range': ['profileMessages', 'profileDecayDays', 'profileGapMinutes'],
-      'profile-model': [
-        'profileSamples',
-        'profileMinSamples',
-        'profileModelTopics',
-        'profileTemperature',
-      ],
-      'profile-display': ['profileTrendDays', 'profileTopicLimit'],
-      'profile-cache': [
-        'profileApiTimeoutSeconds',
-        'profileApiCooldownSeconds',
-        'profileCacheSeconds',
-      ],
-    };
-    for (const [card, keys] of Object.entries(groups))
-      for (const key of keys) {
-        const featureLabels: Record<string, string> = {
-          enabled: '启用意图感知',
-          analysisMode: '分析模式',
-          engine: '分析引擎',
-          providerRef: '分析模型',
-          persistentDisplay: '常驻显示',
-          hoverDisplay: '悬停显示',
-          loadingAnimation: '分析等待动画',
-          analyzeAfterSelf: '自己发送后分析',
-          suggestionsEnabled: '启用推荐回复',
-          suggestionMode: '推荐模式',
-          suggestionProviderRef: '推荐模型',
-          suggestAfterSelf: '自己发送后推荐',
-          suggestionFallbackEnabled: '启用回退内容',
-          suggestionFallbackTexts: '回退内容列表',
-          profileEnabled: '启用互动画像',
-          profileMode: '画像模式',
-          profileEngine: '画像引擎',
-          profileProviderRef: '画像模型',
-          profileLocalModelId: '画像本地模型',
-        };
-        const label =
-          key in INTENT_TUNING
-            ? INTENT_TUNING[key as IntentTuningKey].label
-            : (featureLabels[key] ?? key);
-        add(
-          card as SettingsResetCardId,
-          key,
-          label,
-          intent[key],
-          DEFAULT_INTENT_SENSE_CONFIG[key],
-          () =>
-            shared.intent.setConfig({
-              [key]: structuredClone(DEFAULT_INTENT_SENSE_CONFIG[key]),
-            }),
-          { intentKey: key },
-        );
-      }
+
+    for (const spec of INTENT_SETTING_FIELDS)
+      bind(spec.id, intent[spec.key], DEFAULT_INTENT_SENSE_CONFIG[spec.key], () =>
+        shared.intent.setConfig({
+          [spec.key]: structuredClone(DEFAULT_INTENT_SENSE_CONFIG[spec.key]),
+        }),
+      );
     const record = services?.accountConfig.getRecord();
     if (record) {
       const selectedHidden = current.typingStatus.hidden.filter(
         (item) => item.accountUin === record.uin && item.accountConfigId === record.configId,
       );
-      add(
-        'typing',
-        'selection',
-        '隐藏正在输入状态的会话选择',
-        selectedHidden,
-        [],
-        () =>
-          b.setTypingStatusHidden({
-            hidden: config
-              .getSettings()
-              .typingStatus.hidden.filter(
-                (item) =>
-                  item.accountUin !== record.uin || item.accountConfigId !== record.configId,
-              ),
-          }),
-        { scope: '当前账号' },
+      bind('typing:selection', selectedHidden, [], () =>
+        b.setTypingStatusHidden({
+          hidden: config
+            .getSettings()
+            .typingStatus.hidden.filter(
+              (item) => item.accountUin !== record.uin || item.accountConfigId !== record.configId,
+            ),
+        }),
       );
     }
     const mail = sharedMailPreferences();
-    add('mail', 'unread', '邮箱红点', mail.showUnread, true, async () => {
+    bind('mail:unread', mail.showUnread, true, async () => {
       await shared.mail.patch({ showUnread: true });
     });
-    add('mail', 'notifications', '邮件横幅提醒', mail.notifications, false, async () => {
+    bind('mail:notifications', mail.notifications, false, async () => {
       await shared.mail.patch({ notifications: false });
     });
-    add(
-      'mail',
-      'poll-interval',
-      '邮箱查询间隔',
+    bind(
+      'mail:poll-interval',
       mailPollIntervalMinutes(mail.pollIntervalMinutes),
       DEFAULT_MAIL_POLL_INTERVAL_MINUTES,
       async () => {
@@ -602,57 +361,30 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     );
     if (selected.has('recall-scope')) {
       const recall = await sharedAntiRecallStatus();
-      add(
-        'recall-scope',
-        'scope',
-        '防撤回启用范围',
-        recall.enabled ? recall.mode : 'off',
-        'off',
-        async () => shared.antiRecall.setScope({ scope: 'off' }),
+      bind('recall-scope:scope', recall.enabled ? recall.mode : 'off', 'off', async () =>
+        shared.antiRecall.setScope({ scope: 'off' }),
       );
-      add('recall-scope', 'notify', '撤回通知', recall.notifyEnabled, false, async () =>
+      bind('recall-scope:notify', recall.notifyEnabled, false, async () =>
         shared.antiRecall.setNotify({ enabled: false }),
       );
       if (services)
-        add(
-          'recall-scope',
-          'targets',
-          '防撤回会话选择',
-          recall.targets,
-          [],
-          async () => services.antiRecall.setTargets([]),
-          { scope: '当前账号' },
+        bind('recall-scope:targets', recall.targets, [], async () =>
+          services.antiRecall.setTargets([]),
         );
       if (services)
-        add(
-          'recall-scope',
-          'notify-targets',
-          '撤回通知会话选择',
-          recall.notifyTargets,
-          [],
-          async () => services.antiRecall.setNotify({ targets: [] }),
-          { scope: '当前账号' },
+        bind('recall-scope:notify-targets', recall.notifyTargets, [], async () =>
+          services.antiRecall.setNotify({ targets: [] }),
         );
     }
     if (context.dbTolerance)
-      add(
-        'db-tolerance',
-        'level',
-        '宽容级别',
-        context.dbTolerance.getConfig().level,
-        0,
-        async () => {
-          const result = context.dbTolerance!.setLevel(0, 'settings');
-          closeSalvageConnections(context);
-          return result;
-        },
-        { scope: '当前账号' },
-      );
+      bind('db-tolerance:level', context.dbTolerance.getConfig().level, 0, async () => {
+        const result = context.dbTolerance!.setLevel(0, 'settings');
+        closeSalvageConnections(context);
+        return result;
+      });
   }
-  add(
-    'external-chatpic',
-    'enabled',
-    '外部安卓图片缓存',
+  bind(
+    'external-chatpic:enabled',
     current.externalChatpic.enabled,
     defaults.externalChatpic.enabled,
     () =>
@@ -661,24 +393,20 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
         enabled: defaults.externalChatpic.enabled,
       }),
   );
-  add(
-    'external-chatpic',
-    'dir',
-    '外部安卓图片目录',
-    current.externalChatpic.dir,
-    defaults.externalChatpic.dir,
-    () =>
-      b.setExternalChatpic({
-        ...config.getSettings().externalChatpic,
-        dir: defaults.externalChatpic.dir,
-      }),
-    { directory: true },
+  bind('external-chatpic:dir', current.externalChatpic.dir, defaults.externalChatpic.dir, () =>
+    b.setExternalChatpic({
+      ...config.getSettings().externalChatpic,
+      dir: defaults.externalChatpic.dir,
+    }),
+  );
+  bind('ocr-online:prefilter', current.ocr.prefilterEnabled, defaults.ocr.prefilterEnabled, () =>
+    b.setOcrPrefilterEnabled({ enabled: defaults.ocr.prefilterEnabled }),
   );
   return out;
 }
 
 async function preview(ctx: RpcContext, input: SettingsResetTarget) {
-  const accountCards = new Set(['db-tolerance', 'recall-scope', 'typing']);
+  const accountCards = new Set(['db-tolerance', 'recall-scope', 'recall-notifications', 'typing']);
   const selected = new Set(
     resetCards(input)
       .filter(
@@ -732,16 +460,8 @@ export const settingsResetRouter = router({
       if (input.source !== null && input.source !== identity())
         throw new Error('账号或数据源已切换，请重新确认恢复范围');
       const result = await preview(ctx, input);
-      const allowed = new Set(result.items.map((item) => item.id));
-      if ([...input.directories, ...(input.retry ?? [])].some((id) => !allowed.has(id)))
-        throw new Error('恢复项目不属于当前范围');
       const results: SettingsResetResult[] = [];
-      const candidates = result.items.filter(
-        (entry) =>
-          (!input.retry || input.retry.includes(entry.id)) &&
-          (!entry.directory || input.directories.includes(entry.id)) &&
-          (input.retry || JSON.stringify(entry.current) !== JSON.stringify(entry.defaultValue)),
-      );
+      const candidates = planSettingsReset(result.items, input);
       const completed = new Set<string>();
       for (const entry of candidates) {
         if (completed.has(entry.id)) continue;

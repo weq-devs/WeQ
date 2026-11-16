@@ -87,6 +87,7 @@ const legacyAtStartup = Object.fromEntries(
   ]),
 );
 const pending = new Map<PreferenceKey, Pending>();
+const preferenceWrites = new Set<Promise<boolean>>();
 const retryActions = new Map<string, () => void | Promise<void>>();
 export function rememberClientRetry(key: string, run: () => void | Promise<void>) {
   retryActions.set(key, run);
@@ -144,7 +145,39 @@ export function preferenceValue<K extends PreferenceKey>(
     fallback ??
     preferenceDefaults[key]) as PreferenceValues[K];
 }
-export async function changePreference<K extends PreferenceKey>(
+export function changePreference<K extends PreferenceKey>(
+  key: K,
+  value: PreferenceValues[K],
+): Promise<boolean> {
+  const operation = savePreference(key, value);
+  preferenceWrites.add(operation);
+  const done = () => preferenceWrites.delete(operation);
+  void operation.then(done, done);
+  return operation;
+}
+
+/** 恢复前先收齐已发出的偏好写入，避免迟到的保存再次覆盖默认值。 */
+export async function settlePreferenceWrites(timeoutMs = 15_000): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      (async () => {
+        while (preferenceWrites.size) await Promise.all([...preferenceWrites]);
+      })(),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error('等待设置保存超时，请稍后重试恢复默认')),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+  if (pending.size) throw new Error('仍有设置未保存，请重试保存后再恢复默认');
+}
+
+async function savePreference<K extends PreferenceKey>(
   key: K,
   value: PreferenceValues[K],
 ): Promise<boolean> {

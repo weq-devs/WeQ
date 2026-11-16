@@ -51,7 +51,6 @@ export function IntentSenseSection() {
         <>
           <Row
             settingId="intent-enabled"
-            label="启用意图感知"
             desc="分析聊天消息的意图与情绪。"
             control={
               <Toggle
@@ -151,7 +150,6 @@ export function IntentSenseSection() {
             />
             <Row
               settingId="intent-persistent-display"
-              label="常驻显示"
               control={
                 <Toggle
                   label="常驻显示"
@@ -164,7 +162,6 @@ export function IntentSenseSection() {
             />
             <Row
               settingId="intent-hover-display"
-              label="悬停显示"
               control={
                 <Toggle
                   label="悬停显示"
@@ -180,7 +177,6 @@ export function IntentSenseSection() {
             <Card title="触发方式" icon={<MousePointerClick size={15} strokeWidth={1.8} />}>
               <Row
                 settingId="intent-after-self"
-                label="自己发送后分析"
                 control={
                   <Toggle
                     label="自己发送后分析"

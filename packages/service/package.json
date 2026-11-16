@@ -60,7 +60,11 @@
     "./report-assets": "./src/account/annual_report/report-assets.ts",
     "./report-mate": "./src/account/annual_report/report-mate.ts",
     "./search-index-retirement": "./src/common/search_index_retirement.ts",
-    "./signer-cache": "./src/bootstrap/signer_cache.ts"
+    "./signer-cache": "./src/bootstrap/signer_cache.ts",
+    "./settings-catalog": "./src/common/settings_catalog/index.ts",
+    "./settings-catalog/navigation": "./src/common/settings_catalog/navigation.ts",
+    "./settings-catalog/ai": "./src/common/settings_catalog/ai.ts",
+    "./settings-catalog/reset": "./src/common/settings_catalog/reset.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
