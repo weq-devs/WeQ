@@ -40,7 +40,7 @@ import { trpc, client } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
-import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
+import { Card, QueryError, Row, Toggle } from './controls';
 import '../../styles/settings-services.css';
 import {
   connectionTestKey,
@@ -221,45 +221,10 @@ export function ExternalRkeySection(): ReactElement {
   }
 
   return (
-    <div className="weq-set weq-service-settings">
-      <SectionHeader
-        pageReset={false}
-        icon={<CloudDownload size={18} strokeWidth={1.8} />}
-        title="外部 rKey"
-        desc="通过外部 rkey 服务器为本机补全缺失的聊天图片/表情。"
-      />
-
-      <details className="weq-set-about">
-        <summary>
-          <span className="weq-set-about-summary">
-            <CloudDownload size={15} strokeWidth={1.8} />
-            了解 RKEY 与外部服务器
-          </span>
-          <ChevronDown size={15} strokeWidth={1.8} className="weq-set-about-caret" />
-        </summary>
-        <ul className="weq-set-about-list">
-          <li>
-            <b>RKEY 是做什么的：</b>RKEY 是 QQ 下发的媒体下载凭证。聊天里的图片/表情如果
-            本地没有缓存，WeQ 可以用它从 QQ 的 CDN 拉取回来补全。
-          </li>
-          <li>
-            <b>为什么需要外部服务器：</b>WeQ 本身可以从你正在登录的 QQ 进程里自动获取
-            RKEY，但前提是本机有一个登录中的 QQ。QQ 不在线（比如看导入的数据）时，媒体
-            补全就用不了。外部 RKEY 服务器可以在没有在线 QQ 的情况下提供凭证，提升补全 成功率。
-          </li>
-          <li>
-            <b>适用范围：</b>私聊/群聊的图片与表情。视频、文件、语音走的是另一套协议， 无法通过 RKEY
-            补全。
-          </li>
-          <li>
-            <b>下载顺序：</b>优先使用本机在线 QQ 自己获取的 RKEY；本地没有或已过期时，
-            自动回退到启用的外部服务器（并缓存结果，过期前不重复请求）。
-          </li>
-        </ul>
-      </details>
-
+    <div className="weq-set weq-service-settings weq-rkey-settings">
       <Card
-        title="已导入的服务器"
+        title="外部 rKey 服务器"
+        desc="通过外部 rkey 服务器为本机补全缺失的聊天图片/表情。"
         resetId="rkey"
         icon={<Server size={15} strokeWidth={1.8} />}
         action={
@@ -274,6 +239,34 @@ export function ExternalRkeySection(): ReactElement {
           </button>
         }
       >
+        <details className="weq-set-about">
+          <summary>
+            <span className="weq-set-about-summary">
+              <CloudDownload size={15} strokeWidth={1.8} />
+              了解 RKEY 与外部服务器
+            </span>
+            <ChevronDown size={15} strokeWidth={1.8} className="weq-set-about-caret" />
+          </summary>
+          <ul className="weq-set-about-list">
+            <li>
+              <b>RKEY 是做什么的：</b>RKEY 是 QQ 下发的媒体下载凭证。聊天里的图片/表情如果
+              本地没有缓存，WeQ 可以用它从 QQ 的 CDN 拉取回来补全。
+            </li>
+            <li>
+              <b>为什么需要外部服务器：</b>WeQ 本身可以从你正在登录的 QQ 进程里自动获取
+              RKEY，但前提是本机有一个登录中的 QQ。QQ 不在线（比如看导入的数据）时，媒体
+              补全就用不了。外部 RKEY 服务器可以在没有在线 QQ 的情况下提供凭证，提升补全 成功率。
+            </li>
+            <li>
+              <b>适用范围：</b>私聊/群聊的图片与表情。视频、文件、语音走的是另一套协议， 无法通过
+              RKEY 补全。
+            </li>
+            <li>
+              <b>下载顺序：</b>优先使用本机在线 QQ 自己获取的 RKEY；本地没有或已过期时，
+              自动回退到启用的外部服务器（并缓存结果，过期前不重复请求）。
+            </li>
+          </ul>
+        </details>
         {settings.error ? (
           <QueryError
             message={`RKEY 配置读取失败：${settings.error.message}`}
@@ -363,14 +356,13 @@ export function ExternalRkeySection(): ReactElement {
             })}
           </ul>
         )}
-      </Card>
-
-      {form ? (
-        <Card
-          title={form.id ? '编辑配置' : '导入新配置'}
-          icon={<Pencil size={15} strokeWidth={1.8} />}
-        >
-          <form className="weq-set-server-form" onSubmit={(e) => void onSave(e)}>
+        {form ? (
+          <form
+            className="weq-set-server-form weq-set-server-form-wrap"
+            aria-label={form.id ? '编辑配置' : '导入新配置'}
+            onSubmit={(e) => void onSave(e)}
+          >
+            <div className="weq-set-server-form-title">{form.id ? '编辑配置' : '导入新配置'}</div>
             <Row
               label="名称"
               desc="可选，默认取服务器地址的主机名。"
@@ -449,8 +441,8 @@ export function ExternalRkeySection(): ReactElement {
               </button>
             </div>
           </form>
-        </Card>
-      ) : null}
+        ) : null}
+      </Card>
     </div>
   );
 }

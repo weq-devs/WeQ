@@ -101,3 +101,37 @@ html[data-theme] .weq-service-settings .weq-set-iconbtn:disabled {
 html[data-theme='dark'] .weq-service-settings .weq-set-agent-item:not(.is-on) {
   background: var(--weq-bg-elevated);
 }
+
+html[data-theme] .weq-rkey-settings .weq-set-about {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.weq-rkey-settings .weq-set-about summary {
+  padding: 6px 0;
+  color: var(--weq-fg-secondary);
+}
+
+html[data-theme] .weq-rkey-settings .weq-set-about summary:hover {
+  background: transparent;
+  color: var(--weq-fg-primary);
+}
+
+.weq-rkey-settings .weq-set-about-caret {
+  color: var(--weq-fg-muted);
+}
+
+.weq-rkey-settings .weq-set-about-list {
+  padding: 6px 0 0 22px;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-rkey-settings .weq-set-about-list b,
+html[data-theme] .weq-rkey-settings .weq-set-server-form-title {
+  color: var(--weq-fg-primary);
+}
+
+html[data-theme] .weq-rkey-settings .weq-set-server-form-wrap {
+  border-top: 1px solid var(--weq-border-subtle);
+}

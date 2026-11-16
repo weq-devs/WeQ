@@ -675,8 +675,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   {
     id: 'external-rkey',
     section: 'credentials',
-    label: '外部 rKey',
-    aliases: ['外部 RKEY', '已导入的服务器', 'HTTP 服务器地址', 'rKey access_token'],
+    label: '外部 rKey 服务器',
+    aliases: ['外部 rKey', '外部 RKEY', '已导入的服务器', 'HTTP 服务器地址', 'rKey access_token'],
     from: ['rkey', 'credentials'],
   },
   {

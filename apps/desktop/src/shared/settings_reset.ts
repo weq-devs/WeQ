@@ -65,7 +65,7 @@ export const SETTINGS_RESET_CARDS = [
   ['database-management', 'db-tolerance', '容错与修复'],
   ['resource-loading', 'cdn', '加载来源'],
   ['resource-loading', 'data-saver', '省流量模式'],
-  ['credentials', 'rkey', '已导入的服务器'],
+  ['credentials', 'rkey', '外部 rKey 服务器'],
   ['remote', 'web', '本机浏览器访问'],
   ['remote', 'remote', 'WeQ Remote'],
   ['mcp', 'mcp', '服务开关'],
