@@ -150,6 +150,7 @@ export function CloneGenerationPanel({
         {!adaptive ? (
           <Row
             label="生成温度"
+            indent
             control={
               <input
                 className="weq-set-input"

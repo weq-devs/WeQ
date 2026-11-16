@@ -3608,6 +3608,26 @@ export const accountRouter = router({
       return rows.map(unreadInfoToWire);
     }),
 
+  clearLocalReadRecords: procedure
+    .input(
+      z.object({
+        expectedAccountUin: z.string().min(1),
+        expectedAccountConfigId: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      await services.unreadInfo.clearLocalReadRecords();
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换');
+      return { cleared: true };
+    }),
+
   listImportantGroupMessages: procedure
     .input(
       z.object({

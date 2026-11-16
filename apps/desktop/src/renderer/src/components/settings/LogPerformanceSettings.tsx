@@ -170,6 +170,7 @@ export default function LogPerformanceSettings() {
           {value.mode === 'full' && (
             <Row
               label="完整记录时长"
+              indent
               desc={
                 settings?.mode === 'full'
                   ? settings.fullUntil

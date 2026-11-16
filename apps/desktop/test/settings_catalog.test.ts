@@ -45,7 +45,7 @@ describe('basic_settings_navigation', () => {
       expect(searchAppEntries('自定义消息显示')[0]?.target).toEqual({
         kind: 'setting',
         section: 'message-display',
-        item: '自定义消息显示',
+        item: '内容显示',
         settingId: 'custom-message-display',
       });
       expect(searchAppEntries('自启时显示窗口')[0]?.target).toEqual({

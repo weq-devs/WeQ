@@ -193,7 +193,7 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     );
 
   bind(
-    'message-voice:autoTranscribe',
+    'message-content:autoTranscribe',
     current.voiceTranscribe.autoTranscribe,
     defaults.voiceTranscribe.autoTranscribe,
     () => b.setAutoTranscribeVoice({ enabled: defaults.voiceTranscribe.autoTranscribe }),

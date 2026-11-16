@@ -12,6 +12,7 @@ const fixture = vi.hoisted(() => ({
   markLocalRead: vi.fn(),
   setReadState: vi.fn(),
   undoReadState: vi.fn(),
+  clearLocalReadRecords: vi.fn(),
   countsChanged: undefined as
     | ((targets: Array<{ chatType: number; uid: string }>) => void)
     | undefined,
@@ -27,6 +28,7 @@ vi.mock('../src/main/context/app_context', async () => {
       markLocalRead: fixture.markLocalRead,
       setReadState: fixture.setReadState,
       undoReadState: fixture.undoReadState,
+      clearLocalReadRecords: fixture.clearLocalReadRecords,
       onCountsChanged: (listener: typeof fixture.countsChanged) => {
         fixture.countsChanged = listener;
         return fixture.stopCounts;
@@ -68,6 +70,15 @@ beforeEach(() => {
 });
 
 describe('未读 IPC', () => {
+  it('清除 WeQ 已读记录要求当前账号及数据源，拒绝旧页面的请求', async () => {
+    const api = accountRouter.createCaller({});
+    const input = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
+    await expect(api.clearLocalReadRecords(input)).resolves.toEqual({ cleared: true });
+    expect(fixture.clearLocalReadRecords).toHaveBeenCalledOnce();
+    fixture.configId = 'source-b';
+    await expect(api.clearLocalReadRecords(input)).rejects.toThrow('数据源已切换');
+    expect(fixture.clearLocalReadRecords).toHaveBeenCalledOnce();
+  });
   it('共享小表快照变化只发目标，切号和退订后不回灌', async () => {
     const stream = await accountRouter.createCaller({}).onUnreadChanged({});
     const next = vi.fn();

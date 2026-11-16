@@ -20,7 +20,6 @@ import {
   AlertTriangle,
   ArrowUpRight,
   ArrowLeft,
-  AudioLines,
   Bell,
   Bot,
   Bug,
@@ -28,7 +27,6 @@ import {
   BookOpen,
   Check,
   ChevronRight,
-  Clock,
   Code2,
   Globe,
   HardDrive,
@@ -51,7 +49,6 @@ import {
   Smile,
   Send,
   ScanSearch,
-  ScrollText,
   Sun,
   User,
   Users,
@@ -93,6 +90,8 @@ import { MissingMessageSettings } from './settings/MissingMessageSettings';
 import { SlashEmojiSettings } from './settings/SlashEmojiSettings';
 import { QqShowSettings } from './settings/QqShowSettings';
 import { VoiceAutoTranscribeSetting } from './settings/VoiceAutoTranscribeSetting';
+import { ClearReadRecordsSetting } from './settings/ClearReadRecordsSetting';
+import { MessageDisplayOptions } from './settings/MessageDisplayOptions';
 import {
   Card,
   Row,
@@ -379,13 +378,13 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'chat-messages',
-    label: '阅读与未读',
-    icon: <BookOpen size={16} />,
+    label: '会话列表',
+    icon: <MessagesSquare size={16} />,
     render: () => <AppearanceSection page="messages" category="reading" />,
   },
   {
     id: 'message-display',
-    label: '消息显示',
+    label: '消息区域',
     icon: <Monitor size={16} />,
     render: () => <AppearanceSection page="messages" category="display" />,
   },
@@ -944,7 +943,7 @@ function AppearanceSection({
             page === 'theme' ? (
               <Palette size={16} strokeWidth={1.8} />
             ) : category === 'reading' ? (
-              <BookOpen size={16} />
+              <MessagesSquare size={16} />
             ) : category === 'sending' ? (
               <Send size={16} />
             ) : (
@@ -955,10 +954,10 @@ function AppearanceSection({
             page === 'theme'
               ? '外观与布局'
               : category === 'reading'
-                ? '阅读与未读'
+                ? '会话列表'
                 : category === 'sending'
                   ? '互动与防撤回'
-                  : '消息显示'
+                  : '消息区域'
           }
         />
       )}
@@ -1001,7 +1000,11 @@ function AppearanceSection({
       {page === 'messages' && (
         <>
           {category === 'reading' && (
-            <Card title="全部会话" icon={<MessagesSquare size={15} />}>
+            <Card
+              title="全部会话视图"
+              icon={<MessagesSquare size={15} />}
+              resetId="conversation-scope"
+            >
               <Row
                 settingId="all-conversations-include-hidden"
                 control={
@@ -1025,7 +1028,22 @@ function AppearanceSection({
             </Card>
           )}
           {category === 'reading' && (
-            <Card title="未读显示" icon={<Bell size={15} strokeWidth={1.8} />}>
+            <Card title="列表排序" icon={<MessagesSquare size={15} />} resetId="conversation-order">
+              <Row
+                settingId="keep-conversation-position-on-hover"
+                desc="鼠标位于会话列表内时，新消息仍正常更新，但不调整会话顺序；移出并关闭菜单后恢复排序。"
+                control={
+                  <SharedDisplayToggle
+                    name="keepConversationPositionOnHover"
+                    label="鼠标停留时保持会话位置"
+                    fallback={false}
+                  />
+                }
+              />
+            </Card>
+          )}
+          {category === 'reading' && (
+            <Card title="未读标记" icon={<Bell size={15} strokeWidth={1.8} />} resetId="unread">
               <Row
                 settingId="message-unread-badge"
                 label="在消息图标上显示红点"
@@ -1086,32 +1104,21 @@ function AppearanceSection({
                 />
               ))}
               <AccountBasicsSection page="read" heading={false} />
+              <ClearReadRecordsSetting />
             </Card>
           )}
-          {(category === 'reading' || category === 'sending') && (
+          {(category === 'display' || category === 'sending') && (
             <Card
-              title={category === 'reading' ? '阅读与定位' : '发送消息'}
+              title={category === 'display' ? '阅读与定位' : '发送消息'}
+              resetId={category === 'display' ? 'reading' : 'sending'}
               icon={
-                category === 'reading' ? (
+                category === 'display' ? (
                   <BookOpen size={15} strokeWidth={1.8} />
                 ) : (
                   <Send size={15} strokeWidth={1.8} />
                 )
               }
             >
-              {category === 'reading' ? (
-                <Row
-                  settingId="keep-conversation-position-on-hover"
-                  desc="鼠标位于会话列表内时，新消息仍正常更新，但不调整会话顺序；移出并关闭菜单后恢复排序。"
-                  control={
-                    <SharedDisplayToggle
-                      name="keepConversationPositionOnHover"
-                      label="鼠标停留时保持会话位置"
-                      fallback={false}
-                    />
-                  }
-                />
-              ) : null}
               {[
                 {
                   key: 'readFromFirstUnread' as const,
@@ -1174,7 +1181,7 @@ function AppearanceSection({
                     }
                   />
                 ))}
-              {category === 'reading' ? <MissingMessageSettings /> : null}
+              {category === 'display' ? <MissingMessageSettings /> : null}
             </Card>
           )}
           {category === 'sending' && (
@@ -1208,164 +1215,75 @@ function AppearanceSection({
           )}
           {readingError ? <p role="alert">{readingError}</p> : null}
           {category === 'display' && (
-            <>
-              <Card
-                title="时间与序号"
-                icon={<Clock size={15} strokeWidth={1.8} />}
-                settingId="custom-message-display"
-              >
-                <Row
-                  settingId="message-seq"
-                  control={
-                    <SharedDisplayToggle
-                      name="showMessageSeq"
-                      fallback={settings.data?.showMessageSeq ?? false}
-                      disabled={!settings.data}
-                      label="显示消息序号（seq）"
-                    />
-                  }
-                />
-                <Row
-                  settingId="message-date"
-                  control={
-                    <SharedDisplayToggle
-                      name="showMessageDate"
-                      fallback={settings.data?.showMessageDate ?? false}
-                      disabled={!settings.data}
-                      label="显示发送日期"
-                    />
-                  }
-                />
-                <Row
-                  settingId="message-time"
-                  control={
-                    <SharedDisplayToggle
-                      name="showMessageTime"
-                      fallback={settings.data?.showMessageTime ?? false}
-                      disabled={!settings.data}
-                      label="显示发送时间"
-                    />
-                  }
-                />
-              </Card>
-              <Card title="群消息" icon={<Users size={15} />}>
-                {(
-                  [
-                    ['showGroupMemberName', 'group-message-name', '显示群消息发送者名称'],
-                    ['showGroupMemberLevel', 'group-message-level', '显示群成员等级'],
-                    ['showGroupMemberTitle', 'group-message-title', '显示群成员头衔与身份'],
-                  ] as const
-                ).map(([name, settingId, label]) => (
-                  <Row
-                    key={settingId}
-                    settingId={settingId}
-                    label={label}
-                    control={<SharedDisplayToggle name={name} label={label} fallback={true} />}
+            <Card
+              title="内容显示"
+              icon={<Monitor size={15} />}
+              settingId="custom-message-display"
+              resetId="message-content"
+            >
+              <QqShowSettings />
+              <MessageDisplayOptions />
+              <VoiceAutoTranscribeSetting />
+              <Row
+                settingId="text-markdown"
+                label="文本消息自动渲染为 Markdown"
+                desc={
+                  <>
+                    把普通文本消息里的 # 标题、**加粗**、代码块等语法渲染成富文本。这是 WeQ
+                    自己的功能，关闭后默认显示原文，仍可右键手动选择「显示
+                    Markdown」。单条消息的手动选择优先，QQ 原生 Markdown 消息不受影响。
+                  </>
+                }
+                control={
+                  <Toggle
+                    checked={textMarkdown}
+                    disabled={settings.isLoading || setRenderTextMarkdown.isLoading}
+                    onChange={(next) => void onSetTextMarkdown(next)}
+                    label="文本消息自动渲染为 Markdown"
                   />
-                ))}
-              </Card>
-              <Card title="头像与装扮" icon={<Smile size={15} strokeWidth={1.8} />}>
-                {[
-                  {
-                    key: 'showAvatarPendant' as const,
-                    settingId: 'avatar-pendant',
-                    label: '聊天头像挂件',
-                  },
-                  {
-                    key: 'showMessageBubble' as const,
-                    settingId: 'message-bubble',
-                    label: '消息气泡',
-                  },
-                  {
-                    key: 'showMessageFont' as const,
-                    settingId: 'message-font',
-                    label: '消息字体',
-                  },
-                ].map(({ key, settingId, label }) => (
-                  <Row
-                    key={key}
-                    settingId={settingId}
-                    label={label}
-                    control={
-                      <SharedDisplayToggle
-                        name={key}
-                        fallback={
-                          settings.data?.[key] ??
-                          (key === 'showAvatarPendant'
-                            ? true
-                            : (settings.data?.showMsgDecoration ?? true))
-                        }
-                        disabled={!settings.data}
-                        label={label}
-                      />
-                    }
-                  />
-                ))}
-                <QqShowSettings />
-              </Card>
-              <Card title="文本与链接" icon={<ScrollText size={15} strokeWidth={1.8} />}>
+                }
+              />
+              <Row
+                settingId="link-preview"
+                desc={
+                  <>
+                    一条消息只有一个链接时，抓取网页标题、简介和封面渲染成卡片。会按链接访问
+                    对应网页（结果本地缓存），关掉后链接仍标蓝可点，但完全不出网。
+                  </>
+                }
+                control={
+                  <span data-setting-fallback={!linkCard ? 'link-screenshot' : undefined}>
+                    <Toggle
+                      checked={linkCard}
+                      disabled={settings.isLoading || setLinkPreview.isLoading}
+                      onChange={(next) => void onSetLinkCard(next)}
+                      label="链接预览卡片"
+                    />
+                  </span>
+                }
+              />
+              {linkCard ? (
                 <Row
-                  settingId="text-markdown"
+                  settingId="link-screenshot"
+                  indent
                   desc={
                     <>
-                      把普通文本消息里的 # 标题、**加粗**、代码块等语法渲染成富文本。这是 WeQ
-                      自己的功能，关闭后默认显示原文，仍可右键手动选择「显示
-                      Markdown」。单条消息的手动选择优先，QQ 原生 Markdown 消息不受影响。
+                      网页没提供封面图时，在一个隔离的后台窗口里把它打开并截取首屏当封面。这会
+                      真正运行对方页面的脚本（沙盒内、不落盘、退出即清），默认关闭。
                     </>
                   }
                   control={
                     <Toggle
-                      checked={textMarkdown}
-                      disabled={settings.isLoading || setRenderTextMarkdown.isLoading}
-                      onChange={(next) => void onSetTextMarkdown(next)}
-                      label="纯文本消息自动渲染为 Markdown"
+                      checked={linkShot}
+                      disabled={!linkCard || settings.isLoading || setLinkPreview.isLoading}
+                      onChange={(next) => void onSetLinkShot(next)}
+                      label="无封面时网页截图"
                     />
                   }
                 />
-                <Row
-                  settingId="link-preview"
-                  desc={
-                    <>
-                      一条消息只有一个链接时，抓取网页标题、简介和封面渲染成卡片。会按链接访问
-                      对应网页（结果本地缓存），关掉后链接仍标蓝可点，但完全不出网。
-                    </>
-                  }
-                  control={
-                    <span data-setting-fallback={!linkCard ? 'link-screenshot' : undefined}>
-                      <Toggle
-                        checked={linkCard}
-                        disabled={settings.isLoading || setLinkPreview.isLoading}
-                        onChange={(next) => void onSetLinkCard(next)}
-                        label="链接预览卡片"
-                      />
-                    </span>
-                  }
-                />
-                {linkCard ? (
-                  <Row
-                    settingId="link-screenshot"
-                    desc={
-                      <>
-                        网页没提供封面图时，在一个隔离的后台窗口里把它打开并截取首屏当封面。这会
-                        真正运行对方页面的脚本（沙盒内、不落盘、退出即清），默认关闭。
-                      </>
-                    }
-                    control={
-                      <Toggle
-                        checked={linkShot}
-                        disabled={!linkCard || settings.isLoading || setLinkPreview.isLoading}
-                        onChange={(next) => void onSetLinkShot(next)}
-                        label="无封面时网页截图"
-                      />
-                    }
-                  />
-                ) : null}
-              </Card>
-              <Card title="语音消息" icon={<AudioLines size={15} strokeWidth={1.8} />}>
-                <VoiceAutoTranscribeSetting />
-              </Card>
-              <ChatImageCacheSettings />
-            </>
+              ) : null}
+              <ChatImageCacheSettings embedded />
+            </Card>
           )}
         </>
       )}

@@ -181,7 +181,7 @@ describe('分级恢复默认', () => {
   it.each([
     [
       'message-display',
-      'group-messages',
+      'message-content',
       { showGroupMemberName: false, showGroupMemberLevel: false, showGroupMemberTitle: false },
     ],
     [
@@ -192,16 +192,17 @@ describe('分级恢复默认', () => {
   ] as const)('%s 恢复包含新增设置且不改其他偏好', async (page, card, patch) => {
     state.settings.sharedPreferences.client = { ...patch, mailListWidth: 400 };
     const preview = await caller().preview({ page, card });
-    expect(preview.items.map((item) => item.id)).toEqual(
+    const changed = preview.items.filter(
+      (item) => JSON.stringify(item.current) !== JSON.stringify(item.defaultValue),
+    );
+    expect(changed.map((item) => item.id)).toEqual(
       Object.keys(patch).map((key) => `${card}:${key}`),
     );
-    expect(
-      preview.items.every((item) => item.scope === '全局' && item.current !== item.defaultValue),
-    ).toBe(true);
+    expect(changed.every((item) => item.scope === '全局')).toBe(true);
     expect(state.calls).toEqual([]);
     await caller().restore({ page, card, source: null });
     expect(state.calls).toHaveLength(Object.keys(patch).length);
-    for (const item of preview.items) {
+    for (const item of changed) {
       expect(state.calls).toContainEqual([
         'clientPreferences',
         { [item.id.split(':')[1]!]: item.defaultValue },
@@ -232,7 +233,7 @@ describe('分级恢复默认', () => {
       autoFetchMissingContext: true,
       missingMessageContextCount: 80,
     };
-    const preview = await caller().preview({ page: 'chat-messages', card: 'reading' });
+    const preview = await caller().preview({ page: 'message-display', card: 'reading' });
     expect(preview.items).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

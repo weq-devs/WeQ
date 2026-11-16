@@ -106,6 +106,7 @@ export function EnhancementPacksSection() {
         {preferences.autoCheck ? (
           <Row
             settingId="enhancement-auto-install"
+            indent
             control={
               <Toggle
                 label="自动安装增强包更新"

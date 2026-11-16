@@ -117,6 +117,7 @@ export function IntentSenseSection() {
           {s?.engine === 'api' ? (
             <ApiModelRow
               settingId="intent-api-model"
+              indent
               label="意图感知 API 模型"
               value={s.providerRef}
               disabled={disabled}

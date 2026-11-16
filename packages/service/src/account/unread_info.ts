@@ -88,6 +88,7 @@ export class UnreadInfoService {
   private readonly readHistory = new Map<string, ManualReadEntry[]>();
   private readonly countListeners = new Set<(targets: UnreadInfoTarget[]) => void>();
   private manualRevision = 0;
+  private localResetRevision = 0;
 
   constructor(
     private readonly session: AccountSession,
@@ -178,6 +179,25 @@ export class UnreadInfoService {
     this.confirmed.clear();
     this.pending.clear();
     this.lastReport = { state: 'disabled' };
+  }
+
+  /** 只清除 WeQ 覆盖值，不回退 QQ 小表或服务器已经确认的已读位置。 */
+  async clearLocalReadRecords(): Promise<void> {
+    if (this.disposed) throw new Error('账号已关闭');
+    this.localResetRevision++;
+    this.manualRevision++;
+    this.cancelReports();
+    this.readHistory.clear();
+    this.writes.clear();
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
+    for (const [key, version] of this.targetVersions) this.targetVersions.set(key, version + 1);
+    this.local.clear();
+    const targets = [...this.snapshots.values()];
+    this.project(targets);
+    this.publish(targets);
+    await this.local.flush();
+    this.invalidate();
   }
 
   getUnreadInfo(chatType: number, uid: string): Promise<UnreadInfoResult | null> {
@@ -415,12 +435,18 @@ export class UnreadInfoService {
   }
 
   async markLocalRead(chatType: number, uid: string, latestSeq?: string): Promise<boolean> {
+    const resetRevision = this.localResetRevision;
     latestSeq = await this.readSequence(chatType, uid, latestSeq);
-    if (latestSeq === undefined) return false;
-    return (await this.saveLocalRead(chatType, uid, latestSeq)).changed;
+    if (latestSeq === undefined || resetRevision !== this.localResetRevision) return false;
+    return (await this.saveLocalRead(chatType, uid, latestSeq, resetRevision)).changed;
   }
 
-  private async saveLocalRead(chatType: number, uid: string, latestSeq?: string) {
+  private async saveLocalRead(
+    chatType: number,
+    uid: string,
+    latestSeq?: string,
+    resetRevision = this.localResetRevision,
+  ) {
     const snapshot =
       latestSeq === undefined || chatType === 2
         ? (await this.getUnreadInfos([{ chatType, uid }]))[0]
@@ -434,7 +460,7 @@ export class UnreadInfoService {
     if (this.disposed || sequence == null || snapshot?.readError) return unchanged();
     // 清除未读状态前先落盘提醒，写入失败时保留 QQ 原始提醒供重试。
     if (chatType === 2) await this.important.flush();
-    if (this.disposed) return unchanged();
+    if (this.disposed || resetRevision !== this.localResetRevision) return unchanged();
     const changed = this.local.markRead(chatType, uid, sequence);
     let version = this.targetVersions.get(this.key(target)) ?? 0;
     if (changed) {
@@ -448,11 +474,13 @@ export class UnreadInfoService {
   }
 
   async setReadState(targets: UnreadInfoTarget[], unread: boolean) {
+    const resetRevision = this.localResetRevision;
     const unique = [...new Map(targets.map((target) => [this.key(target), target])).values()];
     const snapshots = await this.readSnapshots(unique);
     if (this.disposed || snapshots.some((row) => row.readError))
       throw new Error('未读状态读取失败，请稍后重试');
     if (!unread && unique.some((target) => target.chatType === 2)) await this.important.flush();
+    if (resetRevision !== this.localResetRevision) throw new Error('已读记录已清除，请重新操作');
     this.manualRevision++;
     this.cancelReports();
     const changes: ManualReadEntry[] = snapshots.map((snapshot) => ({
@@ -466,7 +494,8 @@ export class UnreadInfoService {
     this.publish(unique);
     await this.local.flush();
     for (const row of changes) {
-      if (this.disposed || this.localOptions?.readOnly) continue;
+      if (this.disposed || this.localOptions?.readOnly || resetRevision !== this.localResetRevision)
+        continue;
       try {
         row.database = await this.writeTarget(row, row.version!, () =>
           this.session.unreadInfo.setReadState(
@@ -487,6 +516,7 @@ export class UnreadInfoService {
         );
       }
     }
+    if (resetRevision !== this.localResetRevision) throw new Error('已读记录已清除，请重新操作');
     if (this.readHistory.size >= 20) this.readHistory.delete(this.readHistory.keys().next().value!);
     const undoToken = randomUUID();
     this.readHistory.set(undoToken, changes);
@@ -496,9 +526,11 @@ export class UnreadInfoService {
   }
 
   async undoReadState(undoToken: string) {
+    const resetRevision = this.localResetRevision;
     const changes = this.readHistory.get(undoToken);
     if (!changes || this.disposed) throw new Error('撤销记录已失效');
     const snapshots = await this.readSnapshots(changes);
+    if (resetRevision !== this.localResetRevision) throw new Error('撤销记录已失效');
     this.manualRevision++;
     this.cancelReports();
     const restored: ManualReadEntry[] = [];
@@ -526,6 +558,7 @@ export class UnreadInfoService {
           continue;
         }
       }
+      if (resetRevision !== this.localResetRevision) throw new Error('撤销记录已失效');
       if (this.local.restoreManualRead(row.chatType, row.uid, row.change)) restored.push(row);
     }
     await this.local.flush();
@@ -597,11 +630,18 @@ export class UnreadInfoService {
    * recent-contact watermark when omitted.
    */
   async markRead(chatType: number, uid: string, latestSeq?: string): Promise<boolean> {
+    const resetRevision = this.localResetRevision;
     const sequence = await this.readSequence(chatType, uid, latestSeq);
-    if (sequence === undefined) return false;
+    if (sequence === undefined || resetRevision !== this.localResetRevision) return false;
     const target = { chatType, uid };
-    const { changed: local, version } = await this.saveLocalRead(chatType, uid, sequence);
-    if (this.disposed || this.localOptions?.readOnly) return local;
+    const { changed: local, version } = await this.saveLocalRead(
+      chatType,
+      uid,
+      sequence,
+      resetRevision,
+    );
+    if (this.disposed || this.localOptions?.readOnly || resetRevision !== this.localResetRevision)
+      return local;
     try {
       const changed = await this.writeTarget(target, version, () =>
         this.session.unreadInfo.markRead(chatType, uid, sequence),
@@ -630,7 +670,8 @@ export class UnreadInfoService {
     if (this.disposed || snapshot?.readError)
       return { changed: false, report: { state: 'unavailable' } };
     const sequence = await this.readSequence(chatType, uid, latestSeq);
-    if (sequence === undefined) return { changed: false, report: { state: 'skipped' } };
+    if (sequence === undefined || this.generation !== generation)
+      return { changed: false, report: { state: 'skipped' } };
     const changed = options?.write === false ? false : await this.markRead(chatType, uid, sequence);
     const finish = (status: ReadReportStatus) => {
       if (!this.disposed && this.generation === generation) this.lastReport = status;

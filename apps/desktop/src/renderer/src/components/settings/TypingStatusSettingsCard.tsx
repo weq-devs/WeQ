@@ -188,6 +188,7 @@ export function TypingStatusSettingsCard() {
           <div data-setting-id="typing-status-hidden">
             <Row
               label="隐藏正在输入状态的会话"
+              indent
               desc={
                 !accountUin || !accountConfigId
                   ? '当前没有打开的账号，暂时无法编辑隐藏会话。'

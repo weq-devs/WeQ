@@ -33,6 +33,7 @@ export function IntentModelsSection() {
     <>
       <Row
         settingId="intent-model-resources"
+        indent
         label="本地模型资源"
         control={
           <select
@@ -61,7 +62,7 @@ export function IntentModelsSection() {
           </select>
         }
       />
-      <Row label="本地增强资源" control={<EnhancementPacksLink />} />
+      <Row label="本地增强资源" indent control={<EnhancementPacksLink />} />
       {resources.error || engine.error ? (
         <QueryError
           message={(resources.error ?? engine.error)!.message}

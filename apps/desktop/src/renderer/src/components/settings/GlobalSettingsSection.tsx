@@ -42,6 +42,7 @@ import { MessageNotificationRows } from './MessageNotificationRows';
 import { groupStorage, mergeStorageEntries } from '../../lib/storage-groups';
 import '../../styles/storage-management.css';
 import { DataSaverSettings } from './DataSaverSettings';
+import { QqShowSettings } from './QqShowSettings';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -500,6 +501,11 @@ export function GlobalSettingsSection({
         </Card>
       )}
       {section === 'network' && <DataSaverSettings />}
+      {section === 'network' && (
+        <Card title="QQ 秀缓存" resetId="qqshow-cache">
+          <QqShowSettings cacheOnly />
+        </Card>
+      )}
       {/* WeQ 存储管理 */}
       {section === 'storage' && (
         <Card
