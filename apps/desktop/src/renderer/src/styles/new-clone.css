@@ -1,10 +1,64 @@
+.weq-modal.weq-clone-dialog {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: min(78dvh, var(--weq-dialog-max-height, calc(100dvh - 24px)));
+}
+.weq-clone-dialog > .weq-clone-modal {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  max-height: min(78dvh, var(--weq-dialog-max-height, calc(100dvh - 24px)));
+  overflow: hidden;
+}
+.weq-clone-modal-head {
+  flex: none;
+  min-width: 0;
+}
 .weq-clone-modal-head > strong {
   flex: 1;
   min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
   overflow-wrap: anywhere;
 }
-.weq-clone-modal-head > button {
+.weq-clone-modal-head > :is(button, .weq-clone-modal-icon) {
   flex: none;
+}
+.weq-clone-dialog > .weq-clone-modal > .weq-exp-picker {
+  min-width: 0;
+  overflow: hidden;
+}
+.weq-clone-dialog .weq-exp-search input {
+  min-width: 0;
+}
+.weq-clone-dialog :is(.weq-clone-config, .weq-clone-progress) {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+.weq-clone-dialog :is(.weq-clone-config, .weq-clone-progress) > * {
+  flex-shrink: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+/* 标题和操作区留在滚动区域外，列表与表单只占中间的剩余高度。 */
+.weq-clone-modal > .weq-clone-footer {
+  flex: none;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 12px 18px 16px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+.weq-clone-footer > button {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .weq-clone-group-list {
   max-height: 320px;
@@ -14,6 +68,7 @@
 /* 多选好友：复用导出页的选择行，选中态用勾选角标提示。 */
 .weq-clone-modal .weq-exp-row.is-selectable {
   position: relative;
+  flex-shrink: 0;
 }
 .weq-clone-modal .weq-exp-row.is-selectable.is-on {
   background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
@@ -37,4 +92,10 @@
 }
 .weq-exp-row.is-selectable + .weq-exp-row.is-selectable {
   margin-top: 2px;
+}
+
+@media (max-width: 480px) {
+  .weq-clone-dialog .weq-clone-degree {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
