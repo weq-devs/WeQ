@@ -141,6 +141,7 @@ import {
   useState,
 } from 'react';
 import { ReplyJumpContext } from '../../components/QqMessageContent';
+import { ImportantMessagesButton } from '../../components/ImportantMessages';
 import { ChatMediaGallery } from '../../components/ChatMediaGallery';
 import { openMediaPreview } from '../../components/mediaPreviewStore';
 import { releaseObjectUrl } from '../../lib/objectUrl';
@@ -1505,6 +1506,7 @@ export function ChatPane({
     jumpToBottomAndRead,
     jumpToFirstUnreadMessage,
     jumpToSeq,
+    dockJumping,
     jumpingToLatest,
     messageScrollRef,
     newMessagePill,
@@ -6075,6 +6077,16 @@ export function ChatPane({
         actions={
           <>
             {!compactHeader ? headerAffinity : null}
+            {conversation.type === 'group' && !restrictedSource ? (
+              <ImportantMessagesButton
+                groupCode={conversation.id}
+                onLocate={jumpToSeq}
+                senderName={(uid) => {
+                  const member = conversation.members.find((item) => item.id === uid);
+                  return member ? displayUserName(member) : '';
+                }}
+              />
+            ) : null}
             {onSearchChatRecords &&
             (conversation.type === 'group' || conversation.type === 'direct') ? (
               <button
@@ -6604,6 +6616,7 @@ export function ChatPane({
           className={cn('unread-dock-button', `tone-${dockStopTone(dockStop)}`)}
           type="button"
           title={`跳转到${dockStopLabel(dockStop, unreadDock.unread)}`}
+          disabled={dockJumping}
           onClick={() => {
             void jumpDockStop();
           }}

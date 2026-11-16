@@ -15,6 +15,7 @@ import type {
 import { randomUUID } from 'node:crypto';
 import type { ManualReadChange } from './local_unread';
 import type { UnreadCountSource } from './unread_count_source';
+import { ImportantMessageStore } from './important_messages';
 
 export type ReadReportState =
   | 'disabled'
@@ -52,6 +53,7 @@ interface ManualReadEntry extends UnreadInfoTarget {
 
 export class UnreadInfoService {
   private readonly local: LocalUnreadStore;
+  private readonly important: ImportantMessageStore;
   private disposed = false;
   private readonly reads = new AbortController();
   private readonly snapshots = new Map<string, UnreadInfoSnapshot>();
@@ -94,6 +96,9 @@ export class UnreadInfoService {
     private readonly countSource?: UnreadCountSource,
   ) {
     this.local = new LocalUnreadStore(localOptions?.statePath, session.selfUid);
+    this.important = new ImportantMessageStore(
+      localOptions?.statePath ? `${localOptions.statePath}.important.json` : undefined,
+    );
     if (typeof session.unreadInfo.getAllUnreadInfos === 'function')
       void this.refreshSnapshots().catch(() => {});
   }
@@ -165,6 +170,7 @@ export class UnreadInfoService {
     this.cancelReports();
     this.readHistory.clear();
     await this.local.flush();
+    await this.important.flush();
   }
 
   cancelReports(): void {
@@ -176,6 +182,12 @@ export class UnreadInfoService {
 
   getUnreadInfo(chatType: number, uid: string): Promise<UnreadInfoResult | null> {
     return this.session.unreadInfo.getUnreadInfo(chatType, uid);
+  }
+
+  async listImportantMessages(input: Parameters<ImportantMessageStore['list']>[0]) {
+    const [snapshot] = await this.getUnreadInfos([input]);
+    if (snapshot?.readError) throw new Error('提醒状态读取失败，请重试');
+    return this.important.list({ ...input, readSeq: snapshot?.readSeq });
   }
 
   async getUnreadInfos(
@@ -251,6 +263,7 @@ export class UnreadInfoService {
           if (!present.has(peer)) rows.push({ ...target, peer, latestSeq: null });
         for (const row of rows) {
           if (row.readError) continue;
+          this.important.observe(row);
           const before = this.snapshots.get(row.peer);
           if (JSON.stringify(before) === JSON.stringify(row)) continue;
           changed.push(row);
@@ -260,6 +273,9 @@ export class UnreadInfoService {
         this.updatedAt = Date.now();
         this.publish(changed);
         void this.local.flush().catch((error) => console.error('[unread] 操作保存失败', error));
+        void this.important
+          .flush()
+          .catch((error) => console.error('[unread] 重要消息保存失败', error));
       } catch (error) {
         this.dirty = true;
         throw error;
@@ -364,19 +380,34 @@ export class UnreadInfoService {
   }
 
   async markLocalRead(chatType: number, uid: string, latestSeq?: string): Promise<boolean> {
+    return (await this.saveLocalRead(chatType, uid, latestSeq)).changed;
+  }
+
+  private async saveLocalRead(chatType: number, uid: string, latestSeq?: string) {
     const snapshot =
-      latestSeq === undefined ? (await this.getUnreadInfos([{ chatType, uid }]))[0] : undefined;
+      latestSeq === undefined || chatType === 2
+        ? (await this.getUnreadInfos([{ chatType, uid }]))[0]
+        : undefined;
     const sequence = latestSeq ?? snapshot?.latestSeq;
-    if (this.disposed || sequence == null || snapshot?.readError) return false;
+    const target = { chatType, uid };
+    const unchanged = () => ({
+      changed: false,
+      version: this.targetVersions.get(this.key(target)) ?? 0,
+    });
+    if (this.disposed || sequence == null || snapshot?.readError) return unchanged();
+    // 清除未读状态前先落盘提醒，写入失败时保留 QQ 原始提醒供重试。
+    if (chatType === 2) await this.important.flush();
+    if (this.disposed) return unchanged();
     const changed = this.local.markRead(chatType, uid, sequence);
+    let version = this.targetVersions.get(this.key(target)) ?? 0;
     if (changed) {
       this.manualRevision++;
-      this.bumpTarget({ chatType, uid });
+      version = this.bumpTarget(target);
       this.project([{ chatType, uid }]);
       this.publish([{ chatType, uid }]);
       await this.local.flush();
     }
-    return changed;
+    return { changed, version };
   }
 
   async setReadState(targets: UnreadInfoTarget[], unread: boolean) {
@@ -384,6 +415,7 @@ export class UnreadInfoService {
     const snapshots = await this.readSnapshots(unique);
     if (this.disposed || snapshots.some((row) => row.readError))
       throw new Error('未读状态读取失败，请稍后重试');
+    if (!unread && unique.some((target) => target.chatType === 2)) await this.important.flush();
     this.manualRevision++;
     this.cancelReports();
     const changes: ManualReadEntry[] = snapshots.map((snapshot) => ({
@@ -534,9 +566,7 @@ export class UnreadInfoService {
     if (this.disposed || snapshot?.readError || sequence === undefined || sequence === null)
       return false;
     const target = { chatType, uid };
-    const saving = this.markLocalRead(chatType, uid, sequence);
-    const version = this.targetVersions.get(this.key(target)) ?? 0;
-    const local = await saving;
+    const { changed: local, version } = await this.saveLocalRead(chatType, uid, sequence);
     if (this.disposed || this.localOptions?.readOnly) return local;
     try {
       const changed = await this.writeTarget(target, version, () =>

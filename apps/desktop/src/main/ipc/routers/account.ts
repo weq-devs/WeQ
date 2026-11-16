@@ -3610,6 +3610,82 @@ export const accountRouter = router({
       return rows.map(unreadInfoToWire);
     }),
 
+  listImportantGroupMessages: procedure
+    .input(
+      z.object({
+        expectedAccountUin: z.string().min(1),
+        expectedAccountConfigId: z.string().min(1),
+        groupCode: z.string().regex(/^[1-9]\d*$/),
+        kind: z
+          .enum([
+            'atMe',
+            'atAll',
+            'replyMe',
+            'specialCare',
+            'groupKeyword',
+            'newFile',
+            'groupAnnouncement',
+            'redPacket',
+            'unknown',
+          ])
+          .optional(),
+        unreadOnly: z.boolean().default(false),
+        before: z
+          .string()
+          .regex(/^[1-9]\d{0,19}$/)
+          .optional(),
+        limit: z.number().int().min(1).max(100).default(50),
+      }),
+    )
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const account = getAppContext().account;
+      if (!account) throw new Error('账号已关闭');
+      const page = await services.unreadInfo.listImportantMessages({
+        ...input,
+        chatType: 2,
+        uid: input.groupCode,
+      });
+      // 只为当前页批量补摘要；原消息读取失败时仍交付已保存的定位信息。
+      let messages: Awaited<ReturnType<typeof account.groupMsgs.listBySeqsInPartition>> = [];
+      let contentUnavailable = false;
+      try {
+        if (page.items.length)
+          messages = await account.groupMsgs.listBySeqsInPartition(
+            input.groupCode,
+            page.items.map((row) => BigInt(row.msgSeq)),
+          );
+      } catch {
+        contentUnavailable = true;
+      }
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+          services ||
+        getAppContext().account !== account
+      )
+        throw new Error('账号数据源已切换');
+      return {
+        ...page,
+        contentUnavailable,
+        items: page.items.map((row) => {
+          const candidates = messages.filter((message) => String(message.msgSeq) === row.msgSeq);
+          const message = candidates.find((candidate) => candidate.msgType !== 1n) ?? candidates[0];
+          return {
+            ...row,
+            msgId: message ? String(message.msgId) : undefined,
+            senderUid: message?.senderUid || row.senderUid,
+            sendTime: message ? String(message.sendTime) : row.sendTime,
+            preview: message
+              ? plainContentText(toRenderElements(message.elements)).slice(0, 512)
+              : '',
+          };
+        }),
+      };
+    }),
+
   setConversationReadState: procedure
     .input(
       z.object({
@@ -3652,7 +3728,7 @@ export const accountRouter = router({
       if (!result) return null;
       return {
         msgSeq: result.msgSeq?.toString(),
-        // 提醒高亮（特别关心 / @我 / …）。各类别一条，seq 保留供上层使用。
+        // 提醒高亮保留同类别的全部命中，seq 供上层定位。
         highlights: result.highlights?.map((h) => ({
           kind: h.kind,
           rawKind: h.rawKind,
