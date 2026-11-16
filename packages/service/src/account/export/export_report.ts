@@ -1,8 +1,10 @@
 import type { ExportTask } from './task_manager';
 
 export function supportsExportReport(task: ExportTask): boolean {
-  return Boolean(task.databaseRecoveryRecords?.length) ||
-    (task.includeIntegrityReport ?? (!task.resource && !task.marketpack && !task.emojipack));
+  return (
+    Boolean(task.databaseRecoveryRecords?.length) ||
+    (task.includeIntegrityReport ?? (!task.resource && !task.marketpack && !task.emojipack))
+  );
 }
 
 export function exportReport(task: ExportTask) {

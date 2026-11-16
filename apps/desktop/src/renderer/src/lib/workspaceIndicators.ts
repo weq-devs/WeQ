@@ -36,7 +36,16 @@ export function summarizeWorkspaceTasks({
   background = [],
 }: {
   exports?: (Pick<ExportTask, 'id' | 'status' | 'save'> &
-    Partial<Pick<ExportTask, 'updatedAt' | 'resource' | 'autoOpenTaskList' | 'databaseRecovery' | 'databaseRecoveryRecords'>>)[];
+    Partial<
+      Pick<
+        ExportTask,
+        | 'updatedAt'
+        | 'resource'
+        | 'autoOpenTaskList'
+        | 'databaseRecovery'
+        | 'databaseRecoveryRecords'
+      >
+    >)[];
   clones?: Pick<CloneTask, 'personaId' | 'status'>[];
   roaming?: { id: string; status: RoamingJobStatus; updatedAt?: number }[];
   scanning?: boolean;
