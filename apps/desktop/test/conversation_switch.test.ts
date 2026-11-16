@@ -96,6 +96,16 @@ const f = vi.hoisted(() => ({
   markedRead: [] as Array<{ chatType: number; uid: string; latestSeq?: string }>,
   readCurrent: undefined as (() => void) | undefined,
   dbChanged: undefined as (() => void) | undefined,
+  notificationSubscriptions: { group: [], conversation: [] } as Record<
+    'group' | 'conversation',
+    Array<{ notify: () => void; unsubscribe: () => void }>
+  >,
+  notificationReads: { group: 0, conversation: 0 },
+  groupJumps: [] as Array<{ groupCode: string; msgSeq: string }>,
+  conversationJumps: [] as Array<{ kind: 'c2c' | 'group'; conv: string; seq?: string }>,
+  conversationJumpReply: undefined as
+    | (() => Promise<{ kind: 'c2c' | 'group'; conv: string } | null>)
+    | undefined,
   unreadChanged: undefined as ((targets: UnreadInput['targets']) => void) | undefined,
   refreshRows: undefined as TestMessage[] | undefined,
   gapRows: [] as TestMessage[],
@@ -192,6 +202,16 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         if (key === 'useSubscription') return () => {};
         if (key === 'query' || key === 'mutate' || key === 'invalidate')
           return async (input?: UnreadInput) => {
+            if (path.at(-1) === 'consumeGroupKeywordJump') {
+              f.notificationReads.group++;
+              return f.groupJumps.shift() ?? null;
+            }
+            if (path.at(-1) === 'consumeConversationJump') {
+              f.notificationReads.conversation++;
+              const reply = f.conversationJumpReply;
+              f.conversationJumpReply = undefined;
+              return reply ? reply() : (f.conversationJumps.shift() ?? null);
+            }
             if (path.at(-1) === 'markConversationRead') {
               f.markedRead.push(input as unknown as (typeof f.markedRead)[number]);
               return { changed: true, report: { state: 'disabled' } };
@@ -247,6 +267,15 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               ) => void;
             },
           ) => {
+            if (['onGroupKeywordJump', 'onConversationJump'].includes(path.at(-1) ?? '')) {
+              const subscription = {
+                notify: () => handlers.onData({}),
+                unsubscribe: vi.fn(),
+              };
+              const kind = path.at(-1) === 'onGroupKeywordJump' ? 'group' : 'conversation';
+              f.notificationSubscriptions[kind].push(subscription);
+              return subscription;
+            }
             if (path.at(-1) === 'latestPage')
               f.reads.push({ conv: input.conv, show: handlers.onData });
             if (path.at(-1) === 'onDbChanged') f.dbChanged = () => handlers.onData({});
@@ -402,6 +431,11 @@ afterEach(() => {
   f.unreadFailures = 0;
   f.unreadReply = undefined;
   f.dbChanged = undefined;
+  f.notificationSubscriptions = { group: [], conversation: [] };
+  f.notificationReads = { group: 0, conversation: 0 };
+  f.groupJumps = [];
+  f.conversationJumps = [];
+  f.conversationJumpReply = undefined;
   f.unreadChanged = undefined;
   f.refreshRows = undefined;
   f.gapRows = [];
@@ -1763,6 +1797,75 @@ it.each([
     }
   },
 );
+
+it('跳转订阅不随重绘重建，通知仍能连续切换会话，旧工作区迟到结果不回灌', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const render = (key = 'first') =>
+    act(async () =>
+      root.render(
+        h(
+          StrictMode,
+          null,
+          h(
+            QueryClientProvider,
+            { client },
+            h(ContentSelectionProvider, null, h(MainView, { key })),
+          ),
+        ),
+      ),
+    );
+  try {
+    await render();
+    const groups = f.notificationSubscriptions.group.length;
+    const conversations = f.notificationSubscriptions.conversation.length;
+    const reads = { ...f.notificationReads };
+    for (let round = 0; round < 5; round++) {
+      f.refreshing = !f.refreshing;
+      await render();
+    }
+    f.refreshing = false;
+    await render();
+    expect(f.notificationSubscriptions.group).toHaveLength(groups);
+    expect(f.notificationSubscriptions.conversation).toHaveLength(conversations);
+    expect(f.notificationReads).toEqual(reads);
+    const group = f.notificationSubscriptions.group.at(-1)!;
+    const conversation = f.notificationSubscriptions.conversation.at(-1)!;
+    f.groupJumps.push({ groupCode: '10002', msgSeq: '42' });
+    await act(async () => group.notify());
+    expect(JSON.parse(host.querySelector('output')!.textContent!).id).toBe('10002');
+    f.conversationJumps.push({ kind: 'c2c', conv: 'u_peer' });
+    await act(async () => conversation.notify());
+    expect(JSON.parse(host.querySelector('output')!.textContent!).id).toBe('u_peer');
+    expect(f.notificationSubscriptions.group).toHaveLength(groups);
+    expect(f.notificationSubscriptions.conversation).toHaveLength(conversations);
+    let resolve!: (jump: { kind: 'group'; conv: string }) => void;
+    f.conversationJumpReply = () =>
+      new Promise((done) => {
+        resolve = done;
+      });
+    await act(async () => conversation.notify());
+    await render('replacement');
+    const newReads = f.reads.length;
+    await act(async () => resolve({ kind: 'group', conv: '10001' }));
+    expect(f.reads).toHaveLength(newReads);
+    expect(JSON.parse(host.querySelector('output')!.textContent!).id).not.toBe('10001');
+    expect(group.unsubscribe).toHaveBeenCalledOnce();
+    expect(conversation.unsubscribe).toHaveBeenCalledOnce();
+    f.conversationJumps.push({ kind: 'group', conv: '10002' });
+    await act(async () => f.notificationSubscriptions.conversation.at(-1)!.notify());
+    expect(JSON.parse(host.querySelector('output')!.textContent!).id).toBe('10002');
+  } finally {
+    act(() => root.unmount());
+    client.clear();
+    host.remove();
+  }
+});
 
 it('切换会话立即更新目标并启动对应消息读取，返回时立即恢复窗口', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

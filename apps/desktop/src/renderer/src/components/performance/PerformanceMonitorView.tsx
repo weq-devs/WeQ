@@ -58,12 +58,19 @@ export default function PerformanceMonitorView() {
   });
   const history = trpc.performanceMonitor.history.useQuery(
     { ...range, buckets, process: processKey || undefined },
-    { enabled: activity.enabled, keepPreviousData: false, refetchOnWindowFocus: false },
+    {
+      enabled: activity.enabled,
+      // 实时范围每轮都是新 key，离开后不保留重叠的整份历史。
+      cacheTime: 0,
+      keepPreviousData: false,
+      refetchOnWindowFocus: false,
+    },
   );
   const detail = trpc.performanceMonitor.detail.useQuery(
     { id: selected ?? 1 },
     {
       enabled: activity.enabled && selected !== null && inspector === 'sample',
+      cacheTime: 0,
       refetchOnWindowFocus: false,
     },
   );

@@ -8319,7 +8319,7 @@ function MainWorkspace(): ReactElement {
 
   // Jump to a conversation, optionally centred on a message seq (files / chat
   // records). When no seq anchor exists, just open the chat (+toast on demand).
-  const jumpToConvSeq = useCallback(
+  const jumpToConvSeq = useStableCallback(
     (
       kind: 'group' | 'c2c',
       conv: string,
@@ -8373,7 +8373,6 @@ function MainWorkspace(): ReactElement {
       pendingSearchJumpRef.current = { conv, kind, seq, record, messageId };
       shell.selectConversation(conv);
     },
-    [centerWindowOnSeq, pushToast, shell, locateConversationInView],
   );
 
   const handleOpenGroupFiles = useCallback(
