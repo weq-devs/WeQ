@@ -975,17 +975,23 @@ export function DbRepairPanel({
   const cancelCheckup = trpc.dbRepair.cancelCheckup.useMutation();
   const cancelCheckupRef = useRef(cancelCheckup.mutateAsync);
   cancelCheckupRef.current = cancelCheckup.mutateAsync;
-  const checkupOwnerRef = useRef<{ uin: string | null } | null>(null);
+  const checkupOwnerRef = useRef<{ uin: string | null; id: string } | null>(null);
+  const checkupPageRef = useRef<{ uin: string | null; id: string } | null>(null);
   useEffect(() => {
-    const owner = { uin };
+    const owner =
+      checkupPageRef.current?.uin === uin
+        ? checkupPageRef.current
+        : { uin, id: createMediaId('db-checkup-page') };
+    checkupPageRef.current = owner;
     checkupOwnerRef.current = owner;
     return () => {
       const active = activeCheckupRef.current;
       const run = scanRunRef.current;
+      const pending = checkupTaskRef.current;
       checkupOwnerRef.current = null;
       // StrictMode 会立即重挂；只取消真正卸载或切换账号前的扫描。
       queueMicrotask(() => {
-        if (checkupOwnerRef.current?.uin === owner.uin) return;
+        if (checkupOwnerRef.current === owner) return;
         if (scanRunRef.current === run) {
           stopScanRef.current = true;
           scanRunRef.current = null;
@@ -994,6 +1000,14 @@ export function DbRepairPanel({
           setBusy((current) => (current === 'checkup' ? null : current));
         }
         if (active) void cancelCheckupRef.current(active).catch(() => {});
+        // 等发出的调用落地，避免关页请求先于任务注册到达主进程。
+        const ownerUin = owner.uin;
+        if (ownerUin)
+          void Promise.resolve(pending)
+            .then(() =>
+              client.dbRepair.releaseCheckups.mutate({ uin: ownerUin, ownerId: owner.id }),
+            )
+            .catch(() => {});
       });
     };
   }, [uin]);
@@ -1076,7 +1090,8 @@ export function DbRepairPanel({
    * 在排查「哪里不对」，让第一个错误把整张表打断反而更难用。
    */
   const runCheckup = async (names: string[]): Promise<void> => {
-    if (uin === null || names.length === 0) return;
+    const owner = checkupOwnerRef.current;
+    if (uin === null || names.length === 0 || owner?.uin !== uin) return;
     // 手动跑过也算「这个账号体检过了」，自动那次就不用再补。
     autoCheckedUins.add(uin);
     stopScanRef.current = false;
@@ -1099,6 +1114,7 @@ export function DbRepairPanel({
         try {
           const row = (await checkupRun.mutateAsync({
             ...request,
+            ownerId: owner.id,
             dbName: name,
           })) as DbRepairCheckupView;
           if (stopScanRef.current || scanRunRef.current !== run) break;

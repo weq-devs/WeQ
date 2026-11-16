@@ -70,7 +70,11 @@ export interface DbRepairTaskProgress extends DbRepairProgress {
 }
 
 const progressBus = new EventEmitter();
-const checkupTasks = new Map<string, { id: string; cancelled: boolean }>();
+const checkupTasks = new Map<
+  string,
+  { id: string; uin: string; taskId: string; ownerId?: string; cancelled: boolean }
+>();
+const checkupOwner = z.string().min(1).max(128);
 
 function cancelTrackedCheckup(uin: string, taskId: string) {
   const task = checkupTasks.get(`${uin}:${taskId}`);
@@ -537,7 +541,9 @@ export const dbRepairRouter = router({
    * 逐个库显示结果的 —— 一个慢库不会把其它库的结果一起扣着。
    */
   checkup: procedure
-    .input(targetRef.extend({ taskId: z.string().min(1).max(128) }))
+    .input(
+      targetRef.extend({ taskId: z.string().min(1).max(128), ownerId: checkupOwner.optional() }),
+    )
     .mutation(({ input }): Promise<DbRepairCheckup> => {
       const run = (): Promise<DbRepairCheckup> => {
         const target = service.resolveTarget(input.uin, input.dbName);
@@ -550,10 +556,17 @@ export const dbRepairRouter = router({
             name: `数据库体检 · ${input.dbName}`,
             scope: { uin: input.uin },
             destination: 'db-checkup',
+            ownerId: input.ownerId,
           },
           async (id) => {
             backgroundId = id;
-            const tracked = { id, cancelled: false };
+            const tracked = {
+              id,
+              uin: input.uin,
+              taskId: input.taskId,
+              ownerId: input.ownerId,
+              cancelled: false,
+            };
             checkupTasks.set(key, tracked);
             backgroundTasks.setActions(id, [
               {
@@ -592,6 +605,20 @@ export const dbRepairRouter = router({
   cancelCheckup: procedure
     .input(accountRef.extend({ taskId: z.string().min(1).max(128) }))
     .mutation(({ input }) => cancelTrackedCheckup(input.uin, input.taskId)),
+
+  releaseCheckups: procedure
+    .input(accountRef.extend({ ownerId: checkupOwner }))
+    .mutation(async ({ input }) => {
+      backgroundTasks.releaseOwner(input.ownerId, { uin: input.uin });
+      await Promise.all(
+        [...checkupTasks.values()].map((task) =>
+          task.uin === input.uin && task.ownerId === input.ownerId
+            ? cancelTrackedCheckup(input.uin, task.taskId)
+            : undefined,
+        ),
+      );
+      return true;
+    }),
 
   /**
    * 结束挡住该库的 QQ 进程。

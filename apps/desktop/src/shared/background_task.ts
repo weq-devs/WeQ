@@ -23,6 +23,8 @@ export interface BackgroundTask {
   kind: BackgroundTaskKind;
   name: string;
   scope?: BackgroundTaskScope;
+  /** 页面临时任务的归属标识；不设置时保留正常后台历史。 */
+  ownerId?: string;
   destination?: 'db-checkup' | 'enhancement-packs';
   status: BackgroundTaskStatus;
   statusLabel?: string;
@@ -74,6 +76,7 @@ export class BackgroundTaskRegistry {
   private actions = new Map<string, BackgroundTaskAction[]>();
   private autoLogs = new Set<string>();
   private checkpoints = new Map<string, { progress?: number; at: number }>();
+  private released = new Set<string>();
 
   constructor(private readonly historyLimit = 100) {}
 
@@ -83,7 +86,9 @@ export class BackgroundTaskRegistry {
     return () => this.listeners.delete(listener);
   };
 
-  start(input: Pick<BackgroundTask, 'name' | 'kind' | 'scope' | 'destination'> & TaskPatch) {
+  start(
+    input: Pick<BackgroundTask, 'name' | 'kind' | 'scope' | 'destination' | 'ownerId'> & TaskPatch,
+  ) {
     const now = Date.now();
     const task: BackgroundTask = {
       ...input,
@@ -128,6 +133,16 @@ export class BackgroundTaskRegistry {
         : task,
     );
     this.prune();
+    if (this.released.has(id)) this.remove(id);
+  }
+
+  /** 关闭页面不假装终止工作；在途回执等实际结束后再释放。 */
+  releaseOwner(ownerId: string, scope: BackgroundTaskScope) {
+    for (const task of this.tasks) {
+      if (task.ownerId !== ownerId || !backgroundTaskVisible(task, scope)) continue;
+      if (task.status === 'running') this.released.add(task.id);
+      else this.remove(task.id);
+    }
   }
 
   setActions(id: string, actions: BackgroundTaskAction[]) {
@@ -180,6 +195,7 @@ export class BackgroundTaskRegistry {
     this.actions.delete(id);
     this.autoLogs.delete(id);
     this.checkpoints.delete(id);
+    this.released.delete(id);
     this.emit();
     return true;
   }

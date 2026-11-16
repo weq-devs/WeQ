@@ -10,8 +10,9 @@ const fixture = vi.hoisted(() => ({
   pick: vi.fn(async () => ({ override: '/synthetic/changed' })),
   reset: vi.fn(async () => ({ override: null })),
   invalidate: vi.fn(async () => {}),
-  checkup: vi.fn<() => Promise<unknown>>(),
+  checkup: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
   cancelCheckup: vi.fn(async () => ({ cancelled: true })),
+  releaseCheckups: vi.fn(async () => true),
   start: vi.fn<() => Promise<unknown>>(),
   backup: vi.fn<() => Promise<unknown>>(),
 }));
@@ -75,7 +76,12 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         backup: mutation(fixture.backup),
       },
     },
-    client: { dbRepair: { onProgress: { subscribe: () => ({ unsubscribe() {} }) } } },
+    client: {
+      dbRepair: {
+        onProgress: { subscribe: () => ({ unsubscribe() {} }) },
+        releaseCheckups: { mutate: fixture.releaseCheckups },
+      },
+    },
   };
 });
 
@@ -105,6 +111,7 @@ beforeEach(() => {
   );
   fixture.checkup.mockClear();
   fixture.cancelCheckup.mockClear();
+  fixture.releaseCheckups.mockClear();
   fixture.start.mockImplementation(
     () =>
       new Promise((_, reject) => {
@@ -178,11 +185,61 @@ it('面板卸载会取消仍在运行的体检', async () => {
   await act(async () => root!.unmount());
   root = null;
   expect(fixture.cancelCheckup).toHaveBeenCalledOnce();
+  expect(fixture.releaseCheckups).not.toHaveBeenCalled();
+  await act(async () => finishCheckup());
+  expect(fixture.releaseCheckups).toHaveBeenCalledWith(
+    expect.objectContaining({ uin: `synthetic-${sequence}`, ownerId: expect.any(String) }),
+  );
+});
+
+it('体检已经结束时，关闭面板也会释放本页全部回执', async () => {
+  await act(async () => finishCheckup());
+  expect(fixture.releaseCheckups).not.toHaveBeenCalled();
+  const request = fixture.checkup.mock.calls[0]?.[0];
+  await act(async () => root!.unmount());
+  root = null;
+  expect(fixture.releaseCheckups).toHaveBeenCalledWith(
+    expect.objectContaining({ ownerId: (request as { ownerId: string }).ownerId }),
+  );
+});
+
+it('切换账号只取消与释放旧页面，新账号体检使用独立归属', async () => {
+  const oldRequest = fixture.checkup.mock.calls[0]?.[0] as { uin: string; ownerId: string };
+  const finishOld = finishCheckup;
+  const account = { uin: `synthetic-new-${sequence}`, name: '合成新账号', avatarUrl: '' };
+  await act(async () =>
+    root!.render(
+      h(
+        StrictMode,
+        null,
+        h(DbRepairPanel, {
+          currentUin: account.uin,
+          accounts: [account],
+          onRefreshAccounts() {},
+        }),
+      ),
+    ),
+  );
+  expect(fixture.cancelCheckup).toHaveBeenCalledWith(
+    expect.objectContaining({ uin: oldRequest.uin }),
+  );
+  await act(async () => finishOld());
+  expect(fixture.releaseCheckups).toHaveBeenCalledWith({
+    uin: oldRequest.uin,
+    ownerId: oldRequest.ownerId,
+  });
+  const newRequest = fixture.checkup.mock.calls.at(-1)?.[0] as { uin: string; ownerId: string };
+  expect(newRequest.uin).toBe(account.uin);
+  expect(newRequest.ownerId).not.toBe(oldRequest.ownerId);
+  expect(fixture.releaseCheckups).not.toHaveBeenCalledWith(
+    expect.objectContaining({ ownerId: newRequest.ownerId }),
+  );
 });
 
 it('StrictMode 模拟卸载不取消扫描，手动停止后也不接收迟到的成功结果', async () => {
   await act(async () => {});
   expect(fixture.cancelCheckup).not.toHaveBeenCalled();
+  expect(fixture.releaseCheckups).not.toHaveBeenCalled();
   expect(fixture.checkup).toHaveBeenCalledOnce();
   await act(async () => button('停止').click());
   await act(async () =>

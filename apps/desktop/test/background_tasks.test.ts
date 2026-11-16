@@ -2,6 +2,39 @@ import { describe, expect, it } from 'vitest';
 import { BackgroundTaskRegistry, backgroundTaskVisible } from '../src/shared/background_task';
 
 describe('轻量后台任务回执', () => {
+  it('关闭页面只释放本页本账号的临时任务，在途任务结束后再删除', () => {
+    const registry = new BackgroundTaskRegistry();
+    const scope = { uin: 'synthetic' };
+    const input = { kind: 'database' as const, name: '体检', scope, ownerId: 'page-a' };
+    const completed = registry.start(input);
+    const failed = registry.start(input);
+    const running = registry.start(input);
+    registry.finish(completed, 'completed');
+    registry.finish(failed, 'failed');
+    const otherPage = registry.start({ ...input, ownerId: 'page-b' });
+    const otherAccount = registry.start({ ...input, scope: { uin: 'other' } });
+    const persistent = registry.start({ kind: 'backup', name: '备份', scope });
+
+    registry.releaseOwner('page-a', scope);
+    expect(registry.snapshot().map((task) => task.id)).toEqual([
+      running,
+      otherPage,
+      otherAccount,
+      persistent,
+    ]);
+    expect(registry.remove(running)).toBe(false);
+    registry.finish(running, 'cancelled');
+    registry.setActions(running, [{ id: 'retry', label: '重试', run: () => {} }]);
+    registry.update(running, { progress: 100 });
+    expect(registry.snapshot().map((task) => task.id)).toEqual([
+      otherPage,
+      otherAccount,
+      persistent,
+    ]);
+    registry.releaseOwner('page-a', scope);
+    expect(registry.snapshot()).toHaveLength(3);
+  });
+
   it('各类任务自动保留开始、进度、暂停、继续与失败日志，操作刷新不刷屏', () => {
     const registry = new BackgroundTaskRegistry();
     const id = registry.start({ kind: 'backup', name: '备份数据库' });
