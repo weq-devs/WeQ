@@ -205,6 +205,13 @@ try {
       .locator('.weq-perf-chart svg')
       .first()
       .click({ position: { x: 220, y: 45 } });
+    const tooltip = monitor.locator('.weq-perf-chart-tooltip').first();
+    await tooltip.waitFor();
+    assert.equal((await tooltip.textContent()).includes('范围'), false);
+    assert.equal(
+      await tooltip.locator('strong').evaluate((value) => getComputedStyle(value).gridColumnStart),
+      'auto',
+    );
     await monitor.getByText('同步 1.2 ms', { exact: false }).waitFor();
     await monitor.getByLabel('明细类别').selectOption('resources');
     await monitor.getByText('受管图片', { exact: false }).waitFor();

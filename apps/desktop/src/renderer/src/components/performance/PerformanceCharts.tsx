@@ -401,9 +401,11 @@ export function Chart({
           <time>{time(highlighted.lastAt)}</time>
           <span>{highlighted.label}</span>
           <strong>{valueLabel(currentValue?.mean, metric)}</strong>
-          <span>
-            范围 {valueLabel(currentValue?.min, metric)} 至 {valueLabel(currentValue?.max, metric)}
-          </span>
+          {highlighted.count > 1 && (
+            <span className="weq-perf-chart-tooltip-range">
+              范围 {valueLabel(currentValue?.min, metric)} 至 {valueLabel(currentValue?.max, metric)}
+            </span>
+          )}
         </div>
       )}
       {!points.some((point) => point.metrics[metric].mean !== null) && (

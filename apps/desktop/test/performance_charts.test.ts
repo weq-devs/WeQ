@@ -10,7 +10,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function chart(values: Array<number | null>, width = 300) {
+function chart(values: Array<number | null>, width = 300, count = 1) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const points: MonitorPoint[] = values.map((value, i) => {
     const metric = { min: value, max: value, mean: value };
@@ -23,7 +23,7 @@ function chart(values: Array<number | null>, width = 300) {
       end: (i + 1) * 30_000,
       firstAt: i * 30_000,
       lastAt: i * 30_000,
-      count: 1,
+      count,
       intervalMs: 30_000,
       metrics: {
         cpuPercent: metric,
@@ -38,30 +38,53 @@ function chart(values: Array<number | null>, width = 300) {
     root = createRoot(host),
     select = vi.fn();
   document.body.append(host);
-  act(() =>
-    root.render(
-      h(Chart, {
-        metric: 'cpuPercent',
-        points,
-        from: 0,
-        to: 180_000,
-        width,
-        height: 100,
-        selected: null,
-        hover: null,
-        onHover: vi.fn(),
-        select,
-        move: vi.fn(),
-        zoom: vi.fn(),
-      }),
-    ),
-  );
+  const render = (hover: MonitorPoint | null = null) =>
+    act(() =>
+      root.render(
+        h(Chart, {
+          metric: 'cpuPercent',
+          points,
+          from: 0,
+          to: 180_000,
+          width,
+          height: 100,
+          selected: null,
+          hover,
+          onHover: vi.fn(),
+          select,
+          move: vi.fn(),
+          zoom: vi.fn(),
+        }),
+      ),
+    );
+  render();
   cleanups.push(() => {
     act(() => root.unmount());
     host.remove();
   });
-  return { host, select };
+  return {
+    host,
+    select,
+    inspect() {
+      render(points[0] ?? null);
+      act(() =>
+        host.querySelector('svg')!.dispatchEvent(new FocusEvent('focusin', { bubbles: true })),
+      );
+    },
+  };
 }
+
+it('单次采样不显示范围，多次采样即使最小值和最大值相同也保留范围', () => {
+  for (const count of [1, 2]) {
+    const f = chart([0.2], 300, count);
+    f.inspect();
+    const tooltip = f.host.querySelector('.weq-perf-chart-tooltip');
+    expect(tooltip).not.toBeNull();
+    expect(tooltip!.textContent).toContain('全部进程');
+    expect(tooltip!.textContent).toContain('0.2%');
+    expect(tooltip!.textContent!.includes('范围')).toBe(count > 1);
+  }
+});
 
 it('默认显示最新汇总值和区间峰值，低占用刻度仍有精度且曲线不跨缺测连接', () => {
   const { host } = chart([0.1, null, 0.3]);

@@ -243,7 +243,7 @@ html[data-theme='dark'] .weq-perf-band {
   overflow-wrap: anywhere;
 }
 .weq-perf-chart-tooltip time,
-.weq-perf-chart-tooltip > :last-child {
+.weq-perf-chart-tooltip-range {
   grid-column: 1 / -1;
   color: var(--weq-fg-secondary);
 }
