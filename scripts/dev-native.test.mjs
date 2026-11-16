@@ -1,8 +1,18 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { execFileSync, spawnSync } from 'node:child_process';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import {
   bundleMatches,
@@ -120,10 +130,16 @@ test('源码指纹包含未提交、新增、删除、被 Git 忽略的装扮输
     if (before) await writeFile(join(source, path), before);
     else await rm(join(source, path));
   }
-  assert.notEqual(
-    await nativeSourceFingerprint(source, { env: { ...process.env, RUSTFLAGS: '--cfg fixture' } }),
-    original,
-  );
+  for (const [name, value] of [
+    ['RUSTFLAGS', '--cfg fixture'],
+    ['CARGO_INCREMENTAL', '0'],
+    ['CARGO_PROFILE_WEQ_DEV_OPT_LEVEL', '1'],
+  ])
+    assert.notEqual(
+      await nativeSourceFingerprint(source, { env: { ...process.env, [name]: value } }),
+      original,
+      name,
+    );
   await rm(join(source, 'src/lib.rs'));
   assert.notEqual(await nativeSourceFingerprint(source), original);
 });
@@ -313,8 +329,14 @@ test('local 按目标编译、移除发布时间戳、保持成套验证，源�
     builds++;
     assert.equal(options.env.DRESS_KEY_SEED, packedSeed, 'native 使用缓存装扮的同一密钥');
     assert.equal(args[args.indexOf('--target') + 1], platform.target);
-    await mkdir(join(target, platform.target, 'release'), { recursive: true });
-    await writeFile(join(target, platform.target, 'release', platform.library), `native-${builds}`);
+    assert.equal(args[args.indexOf('--profile') + 1], 'weq-dev');
+    assert(!args.includes('--release'));
+    assert.equal(
+      args[args.indexOf('--config') + 1],
+      fileURLToPath(new URL('./dev-native.cargo.toml', import.meta.url)),
+    );
+    await mkdir(join(target, platform.target, 'weq-dev'), { recursive: true });
+    await writeFile(join(target, platform.target, 'weq-dev', platform.library), `native-${builds}`);
   };
   const options = {
     run,
@@ -332,13 +354,21 @@ test('local 按目标编译、移除发布时间戳、保持成套验证，源�
   assert.equal(builds, 1);
   assert.equal(packs, 1);
   assert.equal(verifications, 2);
+  const installed = await readJson(join(root, 'native/.installed.json'));
+  assert.equal(installed.localBuild.profile, 'weq-dev');
+  await writeJson(join(root, 'native/.installed.json'), {
+    ...installed,
+    localBuild: { ...installed.localBuild, profile: 'release' },
+  });
+  await prepareNative(root, config, options);
+  assert.equal(builds, 2, '旧 release 配置不能冒充快速开发构建');
   await writeFile(join(source, 'src/lib.rs'), 'changed');
   await prepareNative(root, config, options);
-  assert.equal(builds, 2);
+  assert.equal(builds, 3);
   assert.equal(packs, 1, '只改 native 源码不重新打包');
   await writeFile(join(root, nativeFiles(platform)[0]), 'broken');
   await prepareNative(root, config, options);
-  assert.equal(builds, 3);
+  assert.equal(builds, 4);
   assert.equal(packs, 1, 'native 损坏不重新打包');
   execFileSync(
     'git',
@@ -355,6 +385,148 @@ test('local 按目标编译、移除发布时间戳、保持成套验证，源�
   await prepareNative(root, config, options);
   assert.equal(packs, 3, '打包工具变化重新打包');
   assert.equal(await exists(join(target, '.weq-dev-build-lock')), false);
+});
+
+test('五个平台均安装 weq-dev 产物，不误取同目录的旧 release 库', async (t) => {
+  for (const [os, arch] of [
+    ['darwin', 'arm64'],
+    ['darwin', 'x64'],
+    ['linux', 'arm64'],
+    ['linux', 'x64'],
+    ['win32', 'x64'],
+  ]) {
+    const { root, source, directory } = await sourceFixture(t);
+    const platform = nativePlatform(os, arch);
+    const target = join(directory, 'target');
+    const run = async (command, args, options) => {
+      if (command === 'git') return runCommand(command, args, options);
+      if (args[0] === 'metadata') return JSON.stringify({ target_directory: target });
+      if (args[0] === 'run') return fakeDressPack(args, options);
+      assert.equal(args[args.indexOf('--target') + 1], platform.target);
+      assert.equal(args[args.indexOf('--profile') + 1], 'weq-dev');
+      for (const profile of ['release', 'weq-dev']) {
+        await mkdir(join(target, platform.target, profile), { recursive: true });
+        await writeFile(join(target, platform.target, profile, platform.library), profile);
+      }
+    };
+    await prepareNative(
+      root,
+      { mode: 'local', source, jobs: 2 },
+      { run, platform, log: silent, unused: noop, verify: noop },
+    );
+    assert.equal(
+      await readFile(join(root, platform.directory, 'nt_helper.node'), 'utf8'),
+      'weq-dev',
+    );
+  }
+});
+
+test('真实 Cargo 使用独立增量 profile，依赖保留优化且正式 release 配置不变', async (t) => {
+  const probe = spawnSync('cargo', ['--version'], { encoding: 'utf8', windowsHide: true });
+  if (probe.error?.code === 'ENOENT') return t.skip('未安装 Cargo');
+  assert.equal(probe.status, 0, probe.stderr);
+  const { source, platform } = await sourceFixture(t);
+  await writeFile(
+    join(source, 'Cargo.toml'),
+    `[package]
+name = "nt-helper"
+version = "0.0.0"
+edition = "2021"
+[lib]
+crate-type = ["cdylib"]
+[dependencies]
+fixture-dependency = { path = "dependency" }
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+`,
+  );
+  await mkdir(join(source, 'dependency/src'), { recursive: true });
+  await writeFile(
+    join(source, 'dependency/Cargo.toml'),
+    '[package]\nname="fixture-dependency"\nversion="0.0.0"\nedition="2021"\n',
+  );
+  await writeFile(join(source, 'dependency/src/lib.rs'), 'pub fn value() -> u32 { 42 }\n');
+  await writeFile(
+    join(source, 'src/lib.rs'),
+    '#[no_mangle]\npub extern "C" fn fixture() -> u32 { fixture_dependency::value() }\n',
+  );
+  const env = { ...process.env, CARGO_TERM_COLOR: 'never' };
+  for (const key of Object.keys(env))
+    if (
+      key.startsWith('CARGO_PROFILE_') ||
+      [
+        'CARGO_INCREMENTAL',
+        'CARGO_BUILD_INCREMENTAL',
+        'RUSTFLAGS',
+        'CARGO_ENCODED_RUSTFLAGS',
+        'CARGO_TARGET_DIR',
+        'CARGO_BUILD_TARGET',
+      ].includes(key)
+    )
+      delete env[key];
+  const build = (extra) => {
+    const result = spawnSync(
+      'cargo',
+      [
+        'build',
+        '--offline',
+        '--lib',
+        '--target',
+        platform.target,
+        '--message-format=json',
+        '-vv',
+        ...extra,
+      ],
+      { cwd: source, env, encoding: 'utf8', windowsHide: true, timeout: 120_000 },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const artifacts = result.stdout
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+      .filter((message) => message.reason === 'compiler-artifact');
+    return { ...result, artifacts };
+  };
+  const config = fileURLToPath(new URL('./dev-native.cargo.toml', import.meta.url));
+  const fast = build(['--profile', 'weq-dev', '--config', config]);
+  const main = fast.artifacts.find((message) => message.target.name === 'nt_helper');
+  const dependency = fast.artifacts.find((message) => message.target.name === 'fixture_dependency');
+  assert.equal(main.profile.opt_level, '2');
+  assert.equal(main.profile.debug_assertions, false);
+  assert.equal(dependency.profile.opt_level, '3');
+  assert(
+    (await Promise.all(main.filenames.map((path) => realpath(path)))).includes(
+      await realpath(join(source, 'target', platform.target, 'weq-dev', platform.library)),
+    ),
+  );
+  assert.match(fast.stderr, /codegen-units=16/);
+  assert.match(fast.stderr, /lto=off/);
+  assert.match(fast.stderr, /incremental=/);
+  const warm = build(['--locked', '--profile', 'weq-dev', '--config', config]);
+  assert(warm.artifacts.every((message) => message.fresh));
+  await writeFile(
+    join(source, 'src/lib.rs'),
+    '#[no_mangle]\npub extern "C" fn fixture() -> u32 { fixture_dependency::value() + 1 }\n',
+  );
+  const edited = build(['--locked', '--profile', 'weq-dev', '--config', config]);
+  assert.equal(
+    edited.artifacts.find((message) => message.target.name === 'nt_helper').fresh,
+    false,
+  );
+  assert.equal(
+    edited.artifacts.find((message) => message.target.name === 'fixture_dependency').fresh,
+    true,
+  );
+  assert.match(edited.stderr, /incremental=/);
+  const release = build(['--locked', '--release']);
+  assert.equal(
+    release.artifacts.find((message) => message.target.name === 'nt_helper').profile.opt_level,
+    '3',
+  );
+  assert.match(release.stderr, /codegen-units=1(?:\s|`)/);
+  assert.doesNotMatch(release.stderr, /incremental=|lto=off/);
 });
 
 test('local 编译失败复用通过校验的现有构建，不改来源记录，下次启动仍重试编译', async (t) => {

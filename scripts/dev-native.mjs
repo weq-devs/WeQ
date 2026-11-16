@@ -2,6 +2,7 @@ import { constants } from 'node:fs';
 import { copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   AUTHORIZATION_TARGETS,
   authorizationExecutable,
@@ -19,6 +20,8 @@ import { runCommand, startupLog } from './dev-process.mjs';
 import { prepareDress } from './dev-dress.mjs';
 
 const kinds = ['font', 'bubble', 'widget'];
+const devProfile = 'weq-dev';
+const devProfileConfig = fileURLToPath(new URL('./dev-native.cargo.toml', import.meta.url));
 const inputs = [
   'Cargo.toml',
   'Cargo.lock',
@@ -72,8 +75,9 @@ export async function nativeSourceFingerprint(
     ]),
   ].sort();
   const hash = createHash('sha256').update(
-    `weq-dev-native-v3\0${resolve(source)}\0${platform.target}\0`,
+    `weq-dev-native-v4\0${resolve(source)}\0${platform.target}\0${devProfile}\0`,
   );
+  hash.update(await readFile(devProfileConfig)).update('\0');
   for (const name of [
     'RUSTFLAGS',
     'CARGO_ENCODED_RUSTFLAGS',
@@ -82,7 +86,10 @@ export async function nativeSourceFingerprint(
     'CXX',
     'CFLAGS',
     'CXXFLAGS',
-  ])
+    'CARGO_INCREMENTAL',
+    'CARGO_BUILD_INCREMENTAL',
+    ...Object.keys(env).filter((name) => name.startsWith('CARGO_PROFILE_')),
+  ].sort())
     hash.update(`${name}=${env[name] ?? ''}\0`);
   for (const path of files) {
     hash.update(`${path}\0`);
@@ -276,6 +283,7 @@ export async function prepareNative(
     if (
       marker?.localBuild?.sourceFingerprint === sourceFingerprint &&
       marker.localBuild.platform === platform.key &&
+      marker.localBuild.profile === devProfile &&
       (await bundleMatches(root, marker, platform))
     ) {
       await verify(root, root, { ...options, local: true });
@@ -316,12 +324,19 @@ export async function prepareNative(
         });
         buildEnv.DRESS_KEY_SEED = dress.seed;
         const started = performance.now();
-        log(`正在编译本地 native（${commit.slice(0, 7)}；装扮资源已独立准备）`, 'info', 'native');
+        log(
+          `正在增量编译本地 native（${commit.slice(0, 7)}；${devProfile}；装扮资源已独立准备）`,
+          'info',
+          'native',
+        );
         await run(
           'cargo',
           [
             'build',
-            '--release',
+            '--profile',
+            devProfile,
+            '--config',
+            devProfileConfig,
             '--locked',
             '--lib',
             '--target',
@@ -338,7 +353,7 @@ export async function prepareNative(
         for (const path of nativeFiles(platform))
           await mkdir(dirname(join(staging, path)), { recursive: true });
         await copy(
-          join(target, platform.target, 'release', platform.library),
+          join(target, platform.target, devProfile, platform.library),
           join(staging, platform.directory, 'nt_helper.node'),
         );
         for (const kind of kinds)
@@ -351,6 +366,7 @@ export async function prepareNative(
           sourceFingerprint,
           commit,
           platform: platform.key,
+          profile: devProfile,
           pairedDress: true,
           dressFingerprint: dress.fingerprint,
           dressSeed: dress.seed,
