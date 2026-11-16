@@ -208,7 +208,7 @@ try {
       cases++;
     }
   await page.getByRole('button', { name: 'call-recording', exact: true }).click();
-  await page.getByRole('heading', { name: '通话录音', exact: true }).waitFor();
+  await page.getByRole('heading', { name: '通话与录音', exact: true }).waitFor();
   await page.getByRole('button', { name: '恢复本页默认设置' }).click();
   await page.screenshot({ path: resolve(output, 'directory-preview.png'), fullPage: true });
   assert.deepEqual(await page.locator('.weq-settings-reset-detail pre').allTextContents(), []);

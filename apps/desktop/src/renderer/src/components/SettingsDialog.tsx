@@ -203,7 +203,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'call-recording',
-    label: '通话录音',
+    label: '通话与录音',
     icon: <PhoneCall size={16} strokeWidth={1.8} />,
     render: () => <CallRecordingSection />,
   },

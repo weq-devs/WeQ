@@ -10,7 +10,7 @@ export const SETTINGS_PAGE_LABELS = {
   'chat-messages': '阅读与未读',
   'message-display': '消息显示',
   'chat-interaction': '互动与防撤回',
-  'call-recording': '通话录音',
+  'call-recording': '通话与录音',
   qzone: 'QQ 空间',
   mail: 'QQ 邮箱',
   agentlab: 'API 配置',

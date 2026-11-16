@@ -59,7 +59,7 @@ const PAGE_ALIASES: Partial<Record<SettingsPageId, string[]>> = {
   faq: ['帮助文档', '帮助'],
   'weq-storage': ['存储', 'storage', '数据清理', '缓存清理'],
   'chat-messages': ['聊天消息', '阅读设置', '未读设置'],
-  'call-recording': ['通话与录音'],
+  'call-recording': ['通话录音'],
   account: ['接入与监听', '账号接入与消息'],
   accounts: ['账号管理'],
   credentials: ['账号凭据'],

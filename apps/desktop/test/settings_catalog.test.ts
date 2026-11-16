@@ -12,12 +12,12 @@ import {
 } from '../src/renderer/src/components/search/appSearchCatalog';
 
 describe('basic_settings_navigation', () => {
-  describe('基础功能内的通话录音入口', () => {
-    it('基础功能位于常规之后，通话录音排在三项聊天设置后，深链身份与全局作用域不变', () => {
+  describe('基础功能内的通话与录音入口', () => {
+    it('基础功能位于常规之后，通话与录音排在三项聊天设置后，深链身份与全局作用域不变', () => {
       const group = settingsGroupFor('call-recording');
       expect(SETTINGS_GROUPS[1]?.label).toBe('基础功能');
       expect(group.label).toBe('基础功能');
-      // 联系人名片（7dded8b8 起）排在互动与防撤回之后，通话录音紧随其后。
+      // 联系人名片（7dded8b8 起）排在互动与防撤回之后，通话与录音紧随其后。
       expect(group.sections.slice(0, 3)).toEqual([
         'chat-messages',
         'message-display',
@@ -34,9 +34,9 @@ describe('basic_settings_navigation', () => {
     it('旧名和新名均可搜索到新位置，搜索只定位，不执行录音或目录选择', () => {
       for (const name of ['通话录音', '通话与录音']) {
         const result = searchAppEntries(name)[0]!;
-        expect(result.title).toBe('通话录音');
+        expect(result.title).toBe('通话与录音');
         expect(result.target).toEqual({ kind: 'setting', section: 'call-recording' });
-        expect(result.path).toBe('设置 / 基础功能 / 通话录音');
+        expect(result.path).toBe('设置 / 基础功能 / 通话与录音');
       }
       expect(searchAppEntries('消息显示')[0]?.target).toEqual({
         kind: 'setting',

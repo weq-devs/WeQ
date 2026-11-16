@@ -392,7 +392,7 @@ describe('设置归位后的实际页面', () => {
         '消息显示',
         '互动与防撤回',
         '联系人名片',
-        '通话录音',
+        '通话与录音',
         'QQ 空间',
         'QQ 邮箱',
       ]);
@@ -728,7 +728,7 @@ describe('设置归位后的实际页面', () => {
     }
   });
 
-  it('拆分后的聊天设置与通话录音、空间、邮箱同属基础功能', () => {
+  it('拆分后的聊天设置与通话与录音、空间、邮箱同属基础功能', () => {
     const f = mount('qzone');
     try {
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
@@ -741,16 +741,21 @@ describe('设置归位后的实际页面', () => {
         '消息显示',
         '互动与防撤回',
         '联系人名片',
-        '通话录音',
+        '通话与录音',
         'QQ 空间',
         'QQ 邮箱',
       ]);
       expect(f.body().querySelector('h3')?.textContent).toBe('QQ 空间');
       expect(f.host.textContent).not.toContain('QQ 空间设置');
       f.render('call-recording');
-      expect(f.body().querySelector('h3')?.textContent).toBe('通话录音');
+      expect(f.body().querySelector('h3')?.textContent).toBe('通话与录音');
+      expect(f.body().querySelector('.weq-set-desc')?.textContent).toBe(
+        '配置通话连接方式、录音内容与保存位置，以及抓包排障选项。',
+      );
       expect(f.body().textContent).toContain('录音来源');
       expect(f.body().textContent).toContain('同时录电脑声音');
+      expect(f.body().textContent).toContain('禁用 P2P 直连');
+      expect(f.body().textContent).toContain('记录 UDP 流量');
       expect(f.body().querySelector('.weq-settings-scope')).toBeNull();
       f.render('mail');
       expect(f.body().querySelector('[aria-label="在邮箱图标上显示红点"]')).not.toBeNull();
