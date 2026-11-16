@@ -347,7 +347,7 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
                     <div key={item.id} className="weq-settings-reset-item">
                       <strong>
                         {item.label}
-                        <small>{item.scope}</small>
+                        {item.scope !== '全局' && <small>{item.scope}</small>}
                       </strong>
                       <dl className="weq-settings-reset-preview">
                         {describeSettingsReset(item).map((line) => (

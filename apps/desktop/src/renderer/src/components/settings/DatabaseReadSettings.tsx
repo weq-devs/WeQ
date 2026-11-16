@@ -29,7 +29,6 @@ export function DatabaseReadSettings() {
       icon={<Database size={15} />}
       settingId="database-read-concurrency"
       resetId="database-read"
-      desc="全局"
     >
       {settings.error && (
         <QueryError

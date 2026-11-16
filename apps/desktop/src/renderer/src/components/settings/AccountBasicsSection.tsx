@@ -393,13 +393,7 @@ export function AccountBasicsSection({
         <SectionHeader
           icon={<User size={16} strokeWidth={1.8} />}
           title={{ account: '监听与读取', credentials: '凭据管理', media: '媒体来源' }[page]}
-          desc={
-            page === 'account'
-              ? '数据库监听与 QQ 内存读取开关为全局设置；当前账号资料不再在这里重复展示。'
-              : page === 'credentials'
-                ? '当前账号的敏感凭据，默认隐藏。'
-                : '本机媒体关联仅影响当前账号；外部安卓缓存为全局配置。'
-          }
+          desc={page === 'credentials' ? '当前账号的敏感凭据，默认隐藏。' : undefined}
         />
       )}
 

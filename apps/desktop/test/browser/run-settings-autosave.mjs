@@ -189,6 +189,7 @@ try {
       await input.press('Enter');
       await page.getByRole('button', { name: '恢复本页默认设置' }).click();
       await page.getByRole('button', { name: '确认恢复默认' }).waitFor();
+      assert.doesNotMatch(await page.getByRole('dialog').innerText(), /全局/);
       assert.equal(
         await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
         true,

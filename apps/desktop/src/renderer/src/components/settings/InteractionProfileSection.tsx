@@ -100,7 +100,7 @@ export function InteractionProfileSection() {
             <Row
               settingId="profile-local-model"
               label="本地模型资源"
-              desc={`画像模型设置在各账号和各端共享。${local.data?.available === false ? ' 当前宿主不支持本地画像模型。' : ''}`}
+              desc={local.data?.available === false ? '当前宿主不支持本地画像模型。' : undefined}
               control={
                 <select
                   className="weq-set-input"

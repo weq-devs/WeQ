@@ -40,7 +40,6 @@ export function AiImagePreferenceSetting({ feature }: { feature: AiImageFeature 
       <Row
         settingId={`ai-images-${feature}`}
         label="图片处理偏好"
-        desc={feature === 'cloneChat' ? '所有克隆体与连接本宿主的各端共用。' : undefined}
         control={
           <SegmentedControl<AiImageMode>
             label={`${featureLabels[feature]} 图片处理偏好`}

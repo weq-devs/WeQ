@@ -226,7 +226,7 @@ export function ExternalRkeySection(): ReactElement {
         pageReset={false}
         icon={<CloudDownload size={18} strokeWidth={1.8} />}
         title="外部 rKey"
-        desc="通过外部 rkey 服务器为本机补全缺失的聊天图片/表情。全局配置，一次设置所有账号通用。"
+        desc="通过外部 rkey 服务器为本机补全缺失的聊天图片/表情。"
       />
 
       <details className="weq-set-about">
@@ -246,10 +246,6 @@ export function ExternalRkeySection(): ReactElement {
             <b>为什么需要外部服务器：</b>WeQ 本身可以从你正在登录的 QQ 进程里自动获取
             RKEY，但前提是本机有一个登录中的 QQ。QQ 不在线（比如看导入的数据）时，媒体
             补全就用不了。外部 RKEY 服务器可以在没有在线 QQ 的情况下提供凭证，提升补全 成功率。
-          </li>
-          <li>
-            <b>全局生效：</b>RKEY 与账号权限关系不大，这里配置一次，所有账号通用，不用
-            每个账号单独设置。
           </li>
           <li>
             <b>适用范围：</b>私聊/群聊的图片与表情。视频、文件、语音走的是另一套协议， 无法通过 RKEY

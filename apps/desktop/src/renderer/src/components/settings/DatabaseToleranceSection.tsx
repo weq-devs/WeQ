@@ -424,7 +424,6 @@ export function DatabaseToleranceSection({
       {(page === 'damage' || embedded) && (
         <ToleranceGroup
           embedded={embedded}
-          scope="全局"
           title="损坏提醒"
           icon={<AlertTriangle size={15} strokeWidth={1.8} />}
           settingId="damage-reminder"
