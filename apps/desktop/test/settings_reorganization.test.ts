@@ -16,12 +16,14 @@ const conditional = vi.hoisted(() => ({
   settings: undefined as { linkPreview: { enabled: boolean; screenshot: boolean } } | undefined,
   save: vi.fn(),
   platform: 'linux',
+  sip: true as boolean | null,
 }));
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const queryData = (name: string) => {
     if (name === 'getSettings') return conditional.settings;
     if (name === 'systemInfo') return { platformKind: conditional.platform };
+    if (name === 'sipEnabled') return conditional.sip;
     if (name === 'getAccountConfig')
       return {
         uin: '10001',
@@ -71,6 +73,7 @@ afterEach(() => {
   conditional.settings = undefined;
   conditional.save.mockReset();
   conditional.platform = 'linux';
+  conditional.sip = true;
   vi.unstubAllGlobals();
 });
 
@@ -181,42 +184,48 @@ describe('设置归位后的实际页面', () => {
       f.close();
     }
   });
-  it('完整功能先说明差异再分启用路线，授权与自动策略独立展示', () => {
+  it('QQ 在线能力先说明差异再分启用路线，授权与自动策略独立展示', () => {
     conditional.platform = 'darwin';
     const f = mount('account');
     const titles = () =>
       [...f.body().querySelectorAll('.weq-set-card-title')].map((node) => node.textContent);
     try {
-      expect(titles()).toEqual([
-        '实时监听',
-        '读取性能',
-        '完整功能',
-        '启用方式',
-        '长期授权',
-        '自动启用与提醒',
-      ]);
+      expect(titles()).toEqual(['实时监听', '读取性能', 'QQ 在线能力', '长期授权']);
       const overview = f.body().querySelector('[data-setting-id="full-features"]')!;
       const routes = f.body().querySelector('[data-setting-id="full-feature-routes"]')!;
       expect(overview).not.toBeNull();
-      for (const section of [overview, routes]) {
-        expect(section.classList.contains('weq-set-card')).toBe(true);
-        expect(section.querySelector('.weq-set-card-title .weq-set-card-icon svg')).not.toBeNull();
-      }
+      expect(overview.classList.contains('weq-set-card')).toBe(true);
+      expect(
+        overview.querySelector<HTMLDetailsElement>('.weq-full-function-comparison-details')?.open,
+      ).toBe(false);
+      expect(overview.querySelectorAll('.weq-full-function-comparison td strong')).toHaveLength(4);
+      expect(overview.textContent).not.toContain('自动启用与提醒');
+      expect(overview.querySelector('.weq-set-card-title .weq-set-card-icon svg')).not.toBeNull();
+      expect(routes.closest('.weq-set-card')).toBe(overview);
+      expect(
+        f.body().querySelector('[data-setting-id="auto-full-mode"]')?.closest('.weq-set-card'),
+      ).toBe(overview);
+      expect(overview.querySelector('[data-setting-id="long-term-authorization"]')).toBeNull();
+      for (const label of ['QQ 调试副本路线', '原版 QQ 路线'])
+        expect(routes.querySelector(`section[aria-label="${label}"]`)).not.toBeNull();
       expect(overview.textContent).toContain('受限模式');
       expect(overview.textContent).toContain('漫游消息');
       expect(overview.textContent).toContain('发送消息');
       expect(overview.textContent).toContain('已有缓存和可用下载链路');
       expect(routes.textContent).toContain('QQ 调试副本');
       expect(routes.textContent).toContain('原版 QQ');
-      expect(routes.textContent).toContain('SIP 已关闭');
+      expect(routes.textContent).toContain('无需关闭 SIP');
+      expect(routes.textContent).toContain('需关闭 SIP');
+      expect(routes.textContent).toContain('启用方式（macOS）');
+      expect(routes.textContent).not.toContain('当前系统');
       expect(routes.querySelector('[data-setting-id="long-term-authorization"]')).toBeNull();
       expect(f.body().textContent).not.toContain('完整模式');
       expect(f.body().querySelector('.weq-set-card .weq-set-card')).toBeNull();
       const ordered = [
         'full-features',
+        'auto-full-mode',
         'full-feature-routes',
         'long-term-authorization',
-        'auto-full-mode',
       ];
       const nodes = ordered.map((id) => f.body().querySelector(`[data-setting-id="${id}"]`)!);
       for (let i = 1; i < nodes.length; i++)
@@ -232,18 +241,30 @@ describe('设置归位后的实际页面', () => {
       expect(f.body().querySelector('[data-setting-id="database-read-concurrency"]')).toBeNull();
       conditional.platform = 'linux';
       f.render('account');
-      expect(titles()).toEqual([
-        '实时监听',
-        '读取性能',
-        '完整功能',
-        '启用方式',
-        '长期授权',
-        '自动启用与提醒',
-      ]);
+      expect(titles()).toEqual(['实时监听', '读取性能', 'QQ 在线能力', '长期授权']);
       expect(f.body().querySelector('[data-setting-id="qq-debug-copy"]')).toBeNull();
       expect(f.body().textContent).not.toContain('SIP');
       expect(f.body().querySelector('[data-setting-id="full-features"]')).not.toBeNull();
-      expect(f.body().querySelector('[aria-label="自动启用完整功能"]')).not.toBeNull();
+      expect(f.body().querySelector('[aria-label="自动启用 QQ 在线能力"]')).not.toBeNull();
+    } finally {
+      f.close();
+    }
+  });
+  it.each([true, false, null])('按 SIP 检测结果标明适用于本机的路线：%s', (sip) => {
+    conditional.platform = 'darwin';
+    conditional.sip = sip;
+    const f = mount('account');
+    try {
+      const current = f.body().querySelectorAll('[data-applicable="true"]');
+      expect(current).toHaveLength(sip === null ? 0 : 1);
+      if (sip !== null) {
+        expect(current[0]?.getAttribute('aria-label')).toBe(
+          sip ? 'QQ 调试副本路线' : '原版 QQ 路线',
+        );
+        expect(current[0]?.textContent).toContain(
+          sip ? '无需关闭 SIP（适用于本机）' : '需关闭 SIP（适用于本机）',
+        );
+      }
     } finally {
       f.close();
     }
@@ -255,11 +276,11 @@ describe('设置归位后的实际页面', () => {
     'long-term-authorization',
     'auto-full-mode',
     'restricted-mode-banner',
-  ])('整理后的完整功能入口 %s 仍可通过搜索定位', (settingId) => {
+  ])('整理后的 QQ 在线能力入口 %s 仍可通过搜索定位', async (settingId) => {
     conditional.platform = 'darwin';
     const f = mount('account');
     try {
-      f.render('account', { section: 'account', settingId, revision: 1 });
+      await act(async () => f.render('account', { section: 'account', settingId, revision: 1 }));
       expect(
         f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
       ).toBe(settingId);

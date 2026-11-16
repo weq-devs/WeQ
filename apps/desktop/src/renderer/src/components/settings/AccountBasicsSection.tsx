@@ -330,7 +330,7 @@ export function AccountBasicsSection({
       <>
         <Row
           settingId="read-sync"
-          desc="向 QQ 服务器上报在 WeQ 阅读和手动标记已读的位置，可能清除其他端的未读提醒。默认开启，仅在完整功能已启用且账号在线时生效；标为未读不能恢复其他端已清除的提醒。"
+          desc="向 QQ 服务器上报在 WeQ 阅读和手动标记已读的位置，可能清除其他端的未读提醒。默认开启，仅在 QQ 在线能力已启用且账号在线时生效；标为未读不能恢复其他端已清除的提醒。"
           control={
             <Toggle
               checked={reportRead || manualReadReport}
@@ -417,9 +417,8 @@ export function AccountBasicsSection({
               <KeyValueRow label="guid" value={cfg?.guid} />
             </div>
             <p className="weq-set-note">
-              a1 来自 login.db，a2 / d2 / d2key / secToken 由在线 QQ
-              进程内存采集（需为当前来源启用完整功能）；guid
-              是本机设备标识。账号下线后会话物料会被清空。
+              a1 来自 login.db，a2 / d2 / d2key / secToken 由在线 QQ 进程内存采集（需为当前来源启用
+              QQ 在线能力）；guid 是本机设备标识。账号下线后会话物料会被清空。
             </p>
           </Card>
 
@@ -448,8 +447,8 @@ export function AccountBasicsSection({
                   : cfg?.qqOnline
                     ? attachAllowed
                       ? '在线实例已连接，正在等待获取 rKey…'
-                      : '本次运行尚未启用完整功能，不会获取 rKey。'
-                    : '未获取到 rKey（需要登录中的 QQ 在线，并为当前来源启用完整功能）。'}
+                      : '本次运行尚未启用 QQ 在线能力，不会获取 rKey。'
+                    : '未获取到 rKey（需要登录中的 QQ 在线，并为当前来源启用 QQ 在线能力）。'}
               </div>
             ) : (
               <ul className="weq-set-rkey-list">
@@ -511,8 +510,8 @@ export function AccountBasicsSection({
                   : cfg?.qqOnline
                     ? attachAllowed
                       ? '在线实例已连接，正在等待获取 ClientKey…'
-                      : '本次运行尚未启用完整功能，不会获取 ClientKey。'
-                    : '未获取到 ClientKey（需要登录中的 QQ 在线，并为当前来源启用完整功能）。'}
+                      : '本次运行尚未启用 QQ 在线能力，不会获取 ClientKey。'
+                    : '未获取到 ClientKey（需要登录中的 QQ 在线，并为当前来源启用 QQ 在线能力）。'}
               </div>
             ) : (
               <div className="weq-set-rkey-item">
@@ -576,18 +575,16 @@ export function AccountBasicsSection({
       {page === 'account' && (
         <>
           <DatabaseReadSettings />
-          <FullFunctionSetup isMac={isMac} />
-          <LongTermAuthorizationSection />
-          <Card title="自动启用与提醒" icon={<Plug size={15} strokeWidth={1.8} />} resetId="attach">
+          <FullFunctionSetup isMac={isMac}>
             <Row
               settingId="auto-full-mode"
               label={
                 <span className="weq-set-row-icon">
                   <Plug size={15} strokeWidth={1.8} aria-hidden />
-                  自动启用完整功能
+                  自动启用 QQ 在线能力
                 </span>
               }
-              desc="打开账号后自动尝试读取 QQ 会话凭据并启用完整功能。关闭后仍可在受限模式详情中为当前来源手动启用；手动请求仅在宿主本次运行中有效，不改变下次启动偏好。"
+              desc="打开账号后自动尝试读取 QQ 会话凭据并启用 QQ 在线能力。关闭后仍可在受限模式详情中为当前来源手动启用；手动请求仅在宿主本次运行中有效，不改变下次启动偏好。"
               control={
                 <Toggle
                   checked={autoAttach}
@@ -598,14 +595,14 @@ export function AccountBasicsSection({
                       () => setAutoAttachQq.mutateAsync({ enabled: v }),
                     )
                   }
-                  label="自动启用完整功能"
+                  label="自动启用 QQ 在线能力"
                 />
               }
             />
             <Row
               settingId="restricted-mode-banner"
               label="进入受限模式时横幅提醒"
-              desc="完整功能就绪后再次受限时显示横幅。仅控制被动提醒，状态详情、授权请求、主动操作错误和启用进度仍会显示。"
+              desc="QQ 在线能力就绪后再次受限时显示横幅。仅控制被动提醒，状态详情、授权请求、主动操作错误和启用进度仍会显示。"
               control={
                 <Toggle
                   checked={restrictedBanner}
@@ -617,7 +614,8 @@ export function AccountBasicsSection({
                 />
               }
             />
-          </Card>
+          </FullFunctionSetup>
+          <LongTermAuthorizationSection />
         </>
       )}
       {/* 外部安卓图片缓存（放最下面，带引导文案） */}

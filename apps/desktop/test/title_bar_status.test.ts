@@ -128,7 +128,7 @@ describe('标题栏在线状态', () => {
     expect(indicator.disabled).toBe(true);
     act(() => useRestrictedMode.setState({ enteringSince: Date.now() }));
     expect(indicator.getAttribute('aria-hidden')).toBeNull();
-    expect(indicator.textContent).toContain('正在启用完整功能');
+    expect(indicator.textContent).toContain('正在启用 QQ 在线能力');
     act(() => useRestrictedMode.setState({ enteringSince: null }));
     expect(indicator.getAttribute('aria-hidden')).toBe('true');
     expect(restriction.querySelector('button')).toBe(indicator);

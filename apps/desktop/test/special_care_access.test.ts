@@ -13,9 +13,9 @@ describe('特别关心在线前置状态', () => {
     expect(specialCareBlocker(ready)).toBeNull();
   });
 
-  it('状态未知、离线或完整模式关闭时不依赖残留的就绪标记', () => {
+  it('状态未知、离线或 QQ 在线能力关闭时不依赖残留的就绪标记', () => {
     expect(specialCareBlocker(undefined)).not.toBeNull();
     expect(specialCareBlocker({ ...ready, qqOnline: false })).toContain('QQ 未在线');
-    expect(specialCareBlocker({ ...ready, attachEnabled: false })).toContain('完整功能未启用');
+    expect(specialCareBlocker({ ...ready, attachEnabled: false })).toContain('QQ 在线能力未启用');
   });
 });

@@ -28,7 +28,7 @@ function fixture() {
   return { host, settings, status, probe, monitor };
 }
 
-it('助手就绪后请求本来源完整功能并准备凭据，不修改自动偏好或冒称准备成功', async () => {
+it('助手就绪后请求本来源 QQ 在线能力并准备凭据，不修改自动偏好或冒称准备成功', async () => {
   const f = fixture();
   expect(fullModeAllowed(f.host)).toBe(false);
   expect(await f.monitor.check()).toBe(f.status);

@@ -452,9 +452,9 @@ export const bootstrapRouter = router({
 
   // ---- 签名器（wrapper.node）诊断 ----
   //
-  // 完整模式发包要借 `wrapper.node` 里的 VM / sign core 算 `SecSign`。RVA 随
+  // QQ 在线能力发包要借 `wrapper.node` 里的 VM / sign core 算 `SecSign`。RVA 随
   // QQ 版本变化，所以定位结果按「版本 + 文件 hash」缓存；这里只读缓存状态，
-  // macOS 等账号完整模式确认实载模块后再预热，其他平台仍在启动期后台做。
+  // macOS 等账号 QQ 在线能力确认实载模块后再预热，其他平台仍在启动期后台做。
 
   /** 当前签名器状态：缓存是否命中、两条 RVA、上次确认时间。 */
   signerStatus: procedure.query(async () => {

@@ -520,7 +520,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   {
     id: 'full-features',
     section: 'account',
-    label: '完整功能',
+    label: 'QQ 在线能力',
     aliases: ['功能差异', '受限模式', '在线能力', '漫游消息', '发送消息'],
     from: ['account'],
   },
@@ -528,14 +528,14 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     id: 'full-feature-routes',
     section: 'account',
     label: '启用方式',
-    aliases: ['原版 QQ', '读取路线', '完整功能启用'],
+    aliases: ['原版 QQ', '读取路线', 'QQ 在线能力启用'],
     from: ['account'],
   },
   {
     id: 'auto-full-mode',
     section: 'account',
-    label: '自动启用完整功能',
-    aliases: ['自动读取 QQ 内存（完整功能）'],
+    label: '自动启用 QQ 在线能力',
+    aliases: ['自动读取 QQ 内存'],
     from: ['account'],
   },
   {

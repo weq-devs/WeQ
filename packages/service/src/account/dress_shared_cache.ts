@@ -266,7 +266,7 @@ export class DressSharedCache {
     try {
       online = this.resolvePid() > 0;
     } catch {
-      // 正式宿主离线或未开启完整功能时会抛错，静态索引仍可独立获取。
+      // 正式宿主离线或未开启 QQ 在线能力时会抛错，静态索引仍可独立获取。
     }
     return this.index
       ? this.index.resolve(this.ntHelper, kind, String(itemId), part, {

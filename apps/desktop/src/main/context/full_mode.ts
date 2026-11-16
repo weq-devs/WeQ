@@ -17,7 +17,7 @@ export function fullModeAllowed(host: FullModeHost, expected = host.account): bo
 
 export function requestFullMode(host: FullModeHost, expected: object): void {
   if (host.account !== expected || retiredSources.has(expected))
-    throw new Error('账号来源已切换或关闭，请重新启用完整功能');
+    throw new Error('账号来源已切换或关闭，请重新启用 QQ 在线能力');
   manualRequests.set(host, expected);
 }
 

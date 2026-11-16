@@ -75,7 +75,7 @@ export function RestrictedModeIndicator({ persistent = false }: { persistent?: b
     useRestrictedMode((s) => s.enteringSince !== null && s.requests.length === 0) &&
     !authorizationIssue;
   const awaitingAuthorization = requests.length > 0;
-  const title = awaitingAuthorization ? '待提权' : entering ? '正在启用完整功能' : '受限模式';
+  const title = awaitingAuthorization ? '待提权' : entering ? '正在启用 QQ 在线能力' : '受限模式';
   const visible = Boolean(reasons.length || requests.length || entering);
   if (!visible && !persistent) return null;
   return (
@@ -247,7 +247,7 @@ export function RestrictedModeHost() {
   });
   // 签名器降级（VM 定位失败 / 版本变了要重扫）后，签名会退回完整签名函数：
   // 功能还能用，但慢，而且只发 SecSign。这种「能用但退化了」的状态必须明确
-  // 告诉用户，不能等他们去翻诊断页。只在完整模式确认后提示一次。
+  // 告诉用户，不能等他们去翻诊断页。只在 QQ 在线能力确认后提示一次。
   const signer = trpc.bootstrap.signerStatus.useQuery(undefined, {
     enabled: active,
     staleTime: 60_000,
@@ -445,7 +445,7 @@ export function RestrictedModeHost() {
         title: awaitingAuthorization
           ? '待提权：请完成管理员授权'
           : entering
-            ? '正在启用完整功能'
+            ? '正在启用 QQ 在线能力'
             : `已进入受限模式：${reasons.map((r) => r.title).join('、')}`,
         loading: entering,
         durationKind: entering ? 'long' : 'failure',
@@ -471,9 +471,9 @@ export function RestrictedModeHost() {
       useRestrictedMode.getState().setOpen(false);
       useToast.getState().resolve(NOTICE_KEY);
       if (recoveryPending.current && fullModeConfirmed) {
-        useToast.getState().push({ tone: 'success', title: '已启用完整功能' });
+        useToast.getState().push({ tone: 'success', title: '已启用 QQ 在线能力' });
         recoveryPending.current = false;
-        // 刚刚确认完整模式：顺手把签名器降级的情况说清楚。
+        // 刚刚确认 QQ 在线能力：顺手把签名器降级的情况说清楚。
         if (signerDegraded && !signerWarned.current) {
           signerWarned.current = true;
           useToast.getState().push({
@@ -570,7 +570,7 @@ export function RestrictedModeHost() {
     if (operationBusy.current) return;
     const source = access.data?.source ? { ...access.data.source } : undefined;
     if (enable && (!active || !source || source.expectedAccountUin !== uin)) {
-      setError('当前来源尚未确认，请重新检查后再启用完整功能。');
+      setError('当前来源尚未确认，请重新检查后再启用 QQ 在线能力。');
       return;
     }
     operationBusy.current = true;
@@ -607,7 +607,7 @@ export function RestrictedModeHost() {
       ) {
         const refreshed = await client.account.refreshRkeys.mutate(source);
         if (!current()) return;
-        if (!refreshed) setError('尚未恢复完整功能，请检查 QQ 登录状态及授权请求后重试。');
+        if (!refreshed) setError('尚未恢复 QQ 在线能力，请检查 QQ 登录状态及授权请求后重试。');
       }
       await Promise.all([active ? access.refetch() : online.refetch(), sip.refetch()]);
     } catch (e) {
@@ -682,7 +682,7 @@ export function RestrictedModeHost() {
             onClick={() => void refresh(true)}
           >
             <KeyRound size={14} />
-            启用完整功能
+            启用 QQ 在线能力
           </button>
         )}
       </>
@@ -707,7 +707,7 @@ export function RestrictedModeHost() {
               ) : (
                 <ShieldAlert size={18} />
               )}
-              {awaitingAuthorization ? '待提权' : entering ? '正在启用完整功能' : '受限模式'}
+              {awaitingAuthorization ? '待提权' : entering ? '正在启用 QQ 在线能力' : '受限模式'}
             </h2>
             <button
               type="button"

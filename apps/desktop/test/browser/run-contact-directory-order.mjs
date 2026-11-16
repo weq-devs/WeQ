@@ -247,7 +247,7 @@ try {
   for (const [state, description] of [
     ['pending', '正在准备在线凭据…'],
     ['unready', '在线凭据尚未就绪，特别关心未更新'],
-    ['restricted', '完整功能未启用，特别关心未更新'],
+    ['restricted', 'QQ 在线能力未启用，特别关心未更新'],
     ['offline', 'QQ 未在线，特别关心未更新'],
     ['ready', '特关我的人数：3 人'],
   ]) {

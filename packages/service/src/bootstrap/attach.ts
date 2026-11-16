@@ -17,7 +17,7 @@
  * 忘掉某个 pid，好让失败后的下一次 `ensure` 重新读一遍（QQ 重启 / 换账号都会让
  * 上一轮的物料失效）。
  *
- * 所有会触发 attach 的调用方必须先检查宿主当前来源的有效完整功能状态（例如
+ * 所有会触发 attach 的调用方必须先检查宿主当前来源的有效 QQ 在线能力状态（例如
  * app_context 的 `requireAttachEnabled`）；自动偏好关闭时，显式手动请求仍可放行。
  * 不能直接用 `userConfig.getSettings().autoAttachQq` 代替来源/会话门控。
  * 独立入口：登录时的数据库密钥提取（bootstrap 的

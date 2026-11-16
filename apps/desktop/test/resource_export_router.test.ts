@@ -513,7 +513,7 @@ it('群文件入口固定精确选择，在任务私有缓存下载并保留部�
   expect(state.download).toHaveBeenCalledTimes(2);
   expect(state.download.mock.calls.every(([, path]) => path.includes('.partial'))).toBe(true);
 });
-it('完整功能未启用时不因缓存在线信息创建群文件任务', async () => {
+it('QQ 在线能力未启用时不因缓存在线信息创建群文件任务', async () => {
   state.automatic = false;
   await expect(
     accountRouter.createCaller({}).startGroupFileExport({
@@ -523,7 +523,7 @@ it('完整功能未启用时不因缓存在线信息创建群文件任务', asyn
       files: [{ fileId: 'one', fileName: 'file.txt', path: [] }],
       savePolicy: { mode: 'before', directory: roots[0]! },
     }),
-  ).rejects.toThrow(/离线|完整功能/);
+  ).rejects.toThrow(/离线|QQ 在线能力/);
   expect(manager.listTasks()).toEqual([]);
   expect(fileUrl).not.toHaveBeenCalled();
   expect(state.download).not.toHaveBeenCalled();

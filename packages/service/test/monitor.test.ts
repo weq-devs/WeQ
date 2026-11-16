@@ -185,7 +185,7 @@ describe('account monitor authorization and SSO readiness', () => {
     f.monitor.stop();
   });
 
-  it('按需登记失败不放行，关闭完整模式或会话结束后也不发布凭据', async () => {
+  it('按需登记失败不放行，关闭 QQ 在线能力或会话结束后也不发布凭据', async () => {
     const f = fixture(true);
     f.nt.setSsoSession.mockRejectedValueOnce(new Error('登记失败'));
     await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('登记失败');

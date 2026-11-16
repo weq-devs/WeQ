@@ -393,7 +393,7 @@ export function LoginPanel({
     }
   }
 
-  /** 「自动启用完整功能」的说明：窄/矮窗口里收成 title，不在页面上占行。 */
+  /** 「自动启用 QQ 在线能力」的说明：窄/矮窗口里收成 title，不在页面上占行。 */
   const fullModeHint = IS_MAC
     ? '开启后自动读取 QQ 进程采集凭证；SIP 开启时改用「QQ 调试副本」。'
     : '开启后自动读取登录中的 QQ 进程，采集 rKey / ClientKey 等凭证以启用在线能力。';
@@ -533,13 +533,13 @@ export function LoginPanel({
             </div>
             <div className="weq-login-option">
               <span className="weq-login-option-label" title={fullModeHint}>
-                自动启用完整功能
+                自动启用 QQ 在线能力
               </span>
               <Toggle
                 checked={settings.data?.autoAttachQq ?? false}
                 disabled={working || !settings.data || autoAttach.isLoading}
                 onChange={(next) => autoAttach.mutate({ enabled: next })}
-                label="自动启用完整功能"
+                label="自动启用 QQ 在线能力"
               />
             </div>
           </div>

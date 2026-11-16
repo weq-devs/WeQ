@@ -3924,7 +3924,7 @@ export const AI_TOOLS: AiTool[] = [
       if (!ck.clientKey) {
         return {
           ok: false,
-          error: 'clientKey 获取失败 —— 确认 QQ 在线且已开启「自动读取 QQ 内存（完整功能）」。',
+          error: 'clientKey 获取失败 —— 确认 QQ 在线且已开启「自动启用 QQ 在线能力」。',
         };
       }
       return { ok: true, clientKey: ck.clientKey, keyIndex: ck.keyIndex };

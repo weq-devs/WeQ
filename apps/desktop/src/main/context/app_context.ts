@@ -1354,7 +1354,7 @@ export function initAppContext(fileRoot?: string): AppContext {
   // 定时器是 unref 的，不阻止进程退出，因此这里不需要持有 stop 句柄。
   startLogRetention(() => userConfig.getSettings().logRetentionDays);
 
-  // macOS 启动时跳过未知目标的预热，待完整模式确认运行中 QQ 后再加载同一份模块。
+  // macOS 启动时跳过未知目标的预热，待 QQ 在线能力确认运行中 QQ 后再加载同一份模块。
   // 否则先载安装旧版、再载热更新版，会重复注册 Objective-C 类并刷满原生警告。
   if (platform.kind === 'darwin') primeSignerHints(platform.appDataRoot());
   signerWarmup = warmupSelectedSigner(platform);
@@ -1572,7 +1572,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // Keyed by the same (uin, dataDir) id the account record uses.
       const exportConfigId = accountConfigId(session.context.uin, metadata.dataDir);
       const resolveOnlinePid = (): number => {
-        if (!fullModeAllowed(this, session)) throw new Error('本次运行尚未启用完整功能。');
+        if (!fullModeAllowed(this, session)) throw new Error('本次运行尚未启用 QQ 在线能力。');
         const record = accountConfig.getRecord();
         if (!record?.qqOnline || !record.qqPid) {
           throw new Error('QQ account is not online.');
@@ -2541,7 +2541,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // elsewhere. The monitor (started at the end) records its pid, so this
       // resolves lazily per call — going online mid-session needs no reopen.
       const livePid = (): number => {
-        if (!fullModeAllowed(this, session)) throw new Error('本次运行尚未启用完整功能。');
+        if (!fullModeAllowed(this, session)) throw new Error('本次运行尚未启用 QQ 在线能力。');
         const pid = accountConfig.getRecord()?.qqPid;
         if (!pid) {
           throw new Error('QQ 未在线（静态账号需登录同一账号的 QQ 客户端后才能使用在线功能）。');
@@ -3533,11 +3533,11 @@ export function initAppContext(fileRoot?: string): AppContext {
       const record = services?.accountConfig.getRecord();
       if (!monitor || !record?.qqOnline || !record.qqPid)
         throw new Error('需要先登录该账号的 QQ 客户端。');
-      if (!fullModeAllowed(this)) throw new Error('本次运行尚未启用完整功能。');
+      if (!fullModeAllowed(this)) throw new Error('本次运行尚未启用 QQ 在线能力。');
       await monitor.ensureCredentialsReady(record.qqPid);
       if (accountMonitor !== monitor || this.services !== services)
         throw new Error('账号已切换，请重新读取。');
-      if (!fullModeAllowed(this)) throw new Error('本次运行尚未启用完整功能。');
+      if (!fullModeAllowed(this)) throw new Error('本次运行尚未启用 QQ 在线能力。');
     },
     applyFullModePolicy(): void {
       if (fullModeAllowed(this)) return;
@@ -3581,7 +3581,7 @@ export function getAppContext(): AppContext {
 export function requireAttachEnabled(): void {
   const ctx = getAppContext();
   if (!fullModeAllowed(ctx)) {
-    throw new Error('本次运行尚未启用完整功能，请在受限模式详情中启用后重试。');
+    throw new Error('本次运行尚未启用 QQ 在线能力，请在受限模式详情中启用后重试。');
   }
 }
 

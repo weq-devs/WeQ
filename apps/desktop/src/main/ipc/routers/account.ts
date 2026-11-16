@@ -1138,9 +1138,7 @@ function requireFreshClientKeyForAlbum(services = requireServices()): void {
     );
   }
   if (!state.clientKeyValid) {
-    throw new Error(
-      'ClientKey 未获取或已过期，请确认 QQ 在线且已开启「自动读取 QQ 内存（完整功能）」。',
-    );
+    throw new Error('ClientKey 未获取或已过期，请确认 QQ 在线且已开启「自动启用 QQ 在线能力」。');
   }
 }
 

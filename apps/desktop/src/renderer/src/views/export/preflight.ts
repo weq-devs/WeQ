@@ -105,8 +105,8 @@ export async function preflightMediaCompletion(dialog: AppDialogApi): Promise<bo
   }
   if (!attachOn) {
     const ok = await dialog.confirm(
-      '本次运行未启用完整功能',
-      '当前来源未启用完整功能或状态尚未确认，缺失的图片 / 表情无法从云端补全。是否仅使用本地资源继续导出？',
+      '本次运行未启用 QQ 在线能力',
+      '当前来源未启用 QQ 在线能力或状态尚未确认，缺失的图片 / 表情无法从云端补全。是否仅使用本地资源继续导出？',
       { okLabel: '继续导出', cancelLabel: '返回', tone: 'warning' },
     );
     if (!ok) return false;
@@ -315,7 +315,7 @@ export async function preflightMessageCompletion(dialog: AppDialogApi): Promise<
   if (!state.attachEnabled) {
     await dialog.info(
       '完全离线模式已开启',
-      '「自动读取 QQ 内存（完整功能）」已关闭，无法联网补拉服务端消息；将仅从本地漫游缓存读取。',
+      '「自动启用 QQ 在线能力」已关闭，无法联网补拉服务端消息；将仅从本地漫游缓存读取。',
     );
     return true;
   }

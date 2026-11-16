@@ -701,7 +701,7 @@ export function WonderfulToolsDialog({
                             ? otherKeyOnline > 0
                               ? `${otherKeyOnline} 个在线实例可用`
                               : '无在线实例'
-                            : '完整功能未启用'}
+                            : 'QQ 在线能力未启用'}
                         </span>
                       </div>
                       <div className="weq-wtools-toolbar">
@@ -791,7 +791,7 @@ export function WonderfulToolsDialog({
                           }
                           title={
                             !fullModeEnabled
-                              ? '本次运行未启用完整功能，无法向 QQ 请求密钥'
+                              ? '本次运行未启用 QQ 在线能力，无法向 QQ 请求密钥'
                               : otherKeyOnline === 0
                                 ? '没有可用的在线 QQ 实例，无法发包获取密钥'
                                 : '按 bootstrap 取密钥流程，向在线 QQ 请求该数据库的密钥'
@@ -808,7 +808,7 @@ export function WonderfulToolsDialog({
                           <span className="weq-wtools-odev-hint">
                             {fullModeEnabled
                               ? '无在线实例，按钮保持灰色：请先登录 QQ 并保持在线'
-                              : '本次运行未启用完整功能，无法向 QQ 请求密钥'}
+                              : '本次运行未启用 QQ 在线能力，无法向 QQ 请求密钥'}
                           </span>
                         ) : null}
                       </div>

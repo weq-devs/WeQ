@@ -38,7 +38,7 @@
 | ![image-20260911060130806](./.github/readme-assets/image-20260911060130806.png) | ![image-20260911060406735](./.github/readme-assets/image-20260911060406735.png) |
 
 
-> 完整功能请查看[使用手册](./docs/guide/index.md)，更多内容见 [文档中心](https://weq-devs.github.io/WeqDocs/)
+> 全部功能请查看[使用手册](./docs/guide/index.md)，更多内容见 [文档中心](https://weq-devs.github.io/WeqDocs/)
 
 ## 使用方法
 

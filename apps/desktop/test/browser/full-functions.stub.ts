@@ -14,6 +14,7 @@ let settings = {
 export const saves: string[] = [];
 const bootstrap = new Proxy(Reflect.get(baseTrpc as object, 'bootstrap'), {
   get(target, key) {
+    if (key === 'getWelcomeAcknowledged') return { useQuery: () => ({ data: false }) };
     if (key === 'systemInfo')
       return { useQuery: () => ({ data: { platformKind: params.get('platform') ?? 'darwin' } }) };
     if (key === 'sipEnabled')

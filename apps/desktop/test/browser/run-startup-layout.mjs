@@ -219,7 +219,7 @@ try {
       });
       await page.locator('.weq-restricted-indicator').waitFor({ state: 'detached' });
       const footer = await page.locator('.weq-account-actions').boundingBox();
-      assert(Math.abs(height - footer.y - footer.height - 12) <= 1, '完整模式操作栏同样靠底');
+      assert(Math.abs(height - footer.y - footer.height - 12) <= 1, 'QQ 在线能力操作栏同样靠底');
       if (process.env.WEQ_STARTUP_ARTIFACTS) {
         await page.screenshot({
           path: resolve(

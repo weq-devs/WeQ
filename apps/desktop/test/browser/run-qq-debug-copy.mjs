@@ -224,7 +224,7 @@ try {
       await page.waitForFunction(() =>
         document
           .querySelector('.weq-restricted-indicator')
-          ?.textContent.includes('正在启用完整功能'),
+          ?.textContent.includes('正在启用 QQ 在线能力'),
       );
       await page.evaluate(() => window.debugCopyQa.restrictedStore.getState().setOpen(true));
       const panel = page.locator('.weq-restricted-panel');

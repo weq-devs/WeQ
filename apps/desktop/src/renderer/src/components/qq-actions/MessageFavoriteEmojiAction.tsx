@@ -45,7 +45,7 @@ export function MessageFavoriteEmojiAction({
       aria-label="添加到表情"
       title={
         !action.available
-          ? 'QQ 在线并启用完整功能后可添加到表情'
+          ? 'QQ 在线并启用 QQ 在线能力后可添加到表情'
           : action.pending
             ? '正在添加到表情'
             : mediaLabel

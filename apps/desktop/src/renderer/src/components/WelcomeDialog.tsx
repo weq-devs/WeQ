@@ -48,7 +48,7 @@ export function WelcomeDialog(): ReactElement | null {
   // Hide immediately on confirm even before the persist round-trips, so the
   // button never feels laggy. The query result gates the *first* show.
   const [dismissed, setDismissed] = useState(false);
-  // 默认勾选（推荐）：告知用户可以关闭，但大多数人的目标就是完整体验。
+  // 默认勾选（推荐）：告知用户可以关闭，但大多数人的目标就是 QQ 在线能力。
   const [allowMemoryScan, setAllowMemoryScan] = useState(true);
 
   // Wait for a definitive `false` before showing — while loading (`undefined`)
@@ -74,7 +74,7 @@ export function WelcomeDialog(): ReactElement | null {
         <header className="weq-welcome-hero">
           <span className="weq-welcome-badge">
             <Sparkles size={13} strokeWidth={2} aria-hidden />
-            新版本 · 完整体验
+            新版本 · QQ 在线能力
           </span>
           <img src={logoUrl} alt="" width={52} height={52} className="weq-welcome-logo" />
           <h2 id="weq-welcome-title" className="weq-welcome-title">
@@ -111,7 +111,7 @@ export function WelcomeDialog(): ReactElement | null {
                 <ShieldCheck size={18} strokeWidth={1.9} aria-hidden />
               </span>
               <div className="weq-welcome-scan-head-text">
-                <strong>开启完整体验（推荐）</strong>
+                <strong>开启 QQ 在线能力（推荐）</strong>
                 <p>扫描登录中的 QQ 进程内存可获得在线能力。不开启也能正常浏览与导出。</p>
               </div>
             </header>
@@ -138,7 +138,7 @@ export function WelcomeDialog(): ReactElement | null {
                 <span>允许扫描 QQ 内存</span>
                 <small>
                   凭证只在本机处理，不上传；Linux / macOS 首次可能需要一次管理员密码。随时可在
-                  「设置 → 账号与消息 → 接入与监听」关闭。
+                  「设置 → 凭据与数据 → 监听与读取」关闭。
                 </small>
               </div>
               <Toggle
@@ -174,7 +174,7 @@ export function WelcomeDialog(): ReactElement | null {
             {acknowledge.isLoading ? (
               <Loader2 size={14} strokeWidth={2} className="animate-spin" aria-hidden />
             ) : null}
-            {allowMemoryScan ? '开启完整体验并开始使用' : '以离线模式开始使用'}
+            {allowMemoryScan ? '开启 QQ 在线能力并开始使用' : '以离线模式开始使用'}
           </button>
         </footer>
       </div>

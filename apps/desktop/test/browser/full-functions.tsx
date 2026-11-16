@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { AccountBasicsSection } from '../../src/renderer/src/components/settings/AccountBasicsSection';
 import { DialogHost } from '../../src/renderer/src/components/Dialog';
+import { WelcomeDialog } from '../../src/renderer/src/components/WelcomeDialog';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import { setFixture } from './qq-debug-copy.stub';
 import { saves } from './full-functions.stub';
@@ -18,9 +19,13 @@ createRoot(document.getElementById('root')!).render(
       .full-functions-fixture.weq-settings-dialog{display:block;width:100%;height:auto;min-width:0;border:0;border-radius:0;box-shadow:none}
       @media(max-width:600px){.full-functions-fixture{padding:16px}}
     `}</style>
-    <main className="weq-settings-dialog full-functions-fixture">
-      <AccountBasicsSection />
-    </main>
+    {new URLSearchParams(location.search).has('welcome') ? (
+      <WelcomeDialog />
+    ) : (
+      <main className="weq-settings-dialog full-functions-fixture">
+        <AccountBasicsSection />
+      </main>
+    )}
     <DialogHost />
   </>,
 );
