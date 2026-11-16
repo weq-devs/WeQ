@@ -51,7 +51,24 @@ export interface LinkPreview {
 }
 
 /** 网页预截图钩子（app 层注入）；返回 PNG 字节，失败返回 null。 */
-export type ScreenshotHook = (url: string) => Promise<Buffer | null>;
+export interface LinkScreenshotResource {
+  bytes: Buffer;
+  contentType: string;
+  url: string;
+}
+export interface LinkScreenshotRequest {
+  url: string;
+  html: string;
+  signal: AbortSignal;
+  fetchResource: (url: string) => Promise<LinkScreenshotResource | null>;
+}
+export type ScreenshotHook = (request: LinkScreenshotRequest) => Promise<Buffer | null>;
+export const LINK_SCREENSHOT_LIMITS = {
+  timeoutMs: 8000,
+  maxRequests: 64,
+  maxResourceBytes: 4 * 1024 * 1024,
+  maxTotalBytes: 16 * 1024 * 1024,
+} as const;
 
 interface CacheEntry {
   preview: LinkPreview | null;
@@ -191,6 +208,7 @@ async function urlAllowed(raw: string): Promise<Allowed | null> {
 function pinnedRequest(
   target: Allowed,
   headers: Record<string, string>,
+  signal?: AbortSignal,
 ): Promise<{
   status: number;
   headers: Record<string, string | string[] | undefined>;
@@ -217,11 +235,15 @@ function pinnedRequest(
     },
   };
   return new Promise((resolve, reject) => {
+    signal?.throwIfAborted();
     const req = (https ? httpsRequest : httpRequest)(options as never, (res) => {
       resolve({ status: res.statusCode ?? 0, headers: res.headers, stream: res });
     });
     req.on('timeout', () => req.destroy(new Error('link preview timeout')));
     req.on('error', reject);
+    const abort = () => req.destroy(new Error('link preview cancelled'));
+    signal?.addEventListener('abort', abort, { once: true });
+    req.once('close', () => signal?.removeEventListener('abort', abort));
     req.end();
   });
 }
@@ -258,15 +280,24 @@ function decompress(stream: IncomingMessage): Readable {
  * 逐跳跟随重定向，每跳都重新过 {@link urlAllowed}（并各自钉住自己那一跳的 IP）。
  * 任何一跳越界（内网 / 非 http / 怪端口）整条链路作废。
  */
-async function guardedFetch(start: Allowed, accept: string): Promise<GuardedHit | null> {
+async function guardedFetch(
+  start: Allowed,
+  accept: string,
+  signal?: AbortSignal,
+): Promise<GuardedHit | null> {
   let current = start;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    const res = await pinnedRequest(current, {
-      'User-Agent': uaFor(current.url.hostname),
-      Accept: accept,
-      'Accept-Language': 'zh-CN,zh;q=0.9',
-      'Accept-Encoding': 'gzip, deflate, br',
-    });
+    signal?.throwIfAborted();
+    const res = await pinnedRequest(
+      current,
+      {
+        'User-Agent': uaFor(current.url.hostname),
+        Accept: accept,
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+      },
+      signal,
+    );
     if (res.status < 300 || res.status >= 400) {
       const ct = res.headers['content-type'];
       return {
@@ -657,7 +688,7 @@ export class LinkPreviewService {
     let image = parsed.imageUrl ? await this.cacheImage(parsed.imageUrl) : '';
     let imageKind: LinkPreview['imageKind'] = image ? 'og' : '';
     if (!image && this.screenshot && this.userConfig.getSettings().linkPreview.screenshot) {
-      image = await this.cacheShot(hit.url.toString());
+      image = await this.cacheShot(hit.url.toString(), decodeHtml(bytes, hit.contentType));
       if (image) imageKind = 'shot';
     }
 
@@ -700,13 +731,68 @@ export class LinkPreviewService {
   }
 
   /** 没有 og:image 时，请 app 层截一张网页图。 */
-  private async cacheShot(url: string): Promise<string> {
+  private async cacheShot(url: string, html: string): Promise<string> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), LINK_SCREENSHOT_LIMITS.timeoutMs);
+    let requests = 0;
+    let totalBytes = 0;
     try {
-      const png = await this.screenshot?.(url);
+      const fetchResource = async (raw: string): Promise<LinkScreenshotResource | null> => {
+        if (controller.signal.aborted) return null;
+        if (++requests > LINK_SCREENSHOT_LIMITS.maxRequests) {
+          controller.abort();
+          return null;
+        }
+        let hit: GuardedHit | null = null;
+        try {
+          const target = await urlAllowed(raw);
+          if (!target || controller.signal.aborted) return null;
+          hit = await guardedFetch(target, '*/*', controller.signal);
+          if (hit?.status !== 200 || controller.signal.aborted) return null;
+          const type = hit.contentType.split(';')[0]?.trim().toLowerCase() ?? '';
+          if (
+            !/^(?:text\/(?:css|javascript|plain)|application\/(?:javascript|x-javascript|json|font-woff|vnd\.ms-fontobject)|font\/[\w.+-]+|image\/(?:png|jpeg|gif|webp|avif|bmp|x-icon|vnd\.microsoft\.icon))$/.test(
+              type,
+            )
+          )
+            return null;
+          const chunks: Buffer[] = [];
+          let length = 0;
+          for await (const rawChunk of hit.stream) {
+            controller.signal.throwIfAborted();
+            const chunk = Buffer.isBuffer(rawChunk) ? rawChunk : Buffer.from(rawChunk);
+            length += chunk.length;
+            totalBytes += chunk.length;
+            if (
+              length > LINK_SCREENSHOT_LIMITS.maxResourceBytes ||
+              totalBytes > LINK_SCREENSHOT_LIMITS.maxTotalBytes
+            ) {
+              controller.abort();
+              return null;
+            }
+            chunks.push(chunk);
+          }
+          return { bytes: Buffer.concat(chunks), contentType: hit.contentType, url: hit.url.href };
+        } catch {
+          return null;
+        } finally {
+          hit?.stream.destroy();
+        }
+      };
+      const aborted = new Promise<null>((resolve) =>
+        controller.signal.addEventListener('abort', () => resolve(null), { once: true }),
+      );
+      const png = await Promise.race([
+        this.screenshot?.({ url, html, signal: controller.signal, fetchResource }),
+        aborted,
+      ]);
       if (!png || imageExt(png) !== 'png') return '';
       return await this.store(`${this.key(`shot:${url}`)}.png`, png);
     } catch {
       return '';
+    } finally {
+      clearTimeout(timer);
+      controller.abort();
     }
   }
 

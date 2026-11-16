@@ -2,7 +2,9 @@ const mode = new URLSearchParams(location.search).get('mode');
 export const trpc = {
   account: {
     getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: 'fixture' } }) },
+    getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
   },
+  useUtils: () => ({}),
 };
 const preview = Array.from({ length: 5 }, (_, index) => ({
   uin: String(10003 + index),
@@ -15,16 +17,35 @@ export const client = {
   account: {
     qzone: {
       cancel: { mutate: async () => {} },
-      upvotes: {
+      archiveState: {
         query: async () => {
           if (mode === 'error' && ++reads === 1) throw new Error('暂时无法读取推预览');
-          return mode === 'unknown'
-            ? null
-            : {
-                count: mode === 'empty' ? 0 : 199,
-                upvoted: false,
-                users: mode === 'empty' ? [] : preview,
-              };
+          const upvote =
+            mode === 'unknown'
+              ? null
+              : {
+                  count: mode === 'empty' ? 0 : 199,
+                  upvoted: false,
+                  users: mode === 'empty' ? [] : preview,
+                };
+          return {
+            rawStatus: mode === 'manage' ? 0 : 2,
+            capabilitiesObserved: true,
+            tag:
+              mode === 'tag'
+                ? {
+                    text: '空友爱看',
+                    iconUrl: '',
+                    targetUrl: 'mqzone://arouse/publicrecommend/feeds?source=4',
+                  }
+                : null,
+            statusLabel: '',
+            showUpvote: mode !== 'manage',
+            canContribute: mode === 'manage',
+            canUncontribute: false,
+            canUnarchive: false,
+            upvote,
+          };
         },
       },
       people: {

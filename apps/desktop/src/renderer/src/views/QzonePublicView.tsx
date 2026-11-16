@@ -1093,6 +1093,7 @@ function PublicFeedDetail({
       className="weq-qzn-interaction weq-qzn-public-detail"
       aria-label="空友动态评论"
     >
+      <p className="weq-qzn-status">该内容来自「空友爱看」</p>
       {focusParent && comments && !focusFound && !loading && !hasMore ? (
         <p role="alert">未找到搜索中的评论，可能已移除；原搜索结果仍保留</p>
       ) : null}

@@ -1,6 +1,12 @@
 import { useChatTimelineNavigation } from './useChatTimelineNavigation';
 import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
 import {
+  searchSlashEmojis,
+  type SlashEmojiFace,
+  type SlashEmojiTrigger,
+} from '../../lib/slashEmoji';
+import { SlashEmojiMenu } from '../../components/SlashEmojiMenu';
+import {
   useContentMultiSelect,
   useRequestContentExport,
   useRequestContentAnalysis,
@@ -128,6 +134,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -240,7 +247,7 @@ import {
 import { cn } from './classNames';
 import { PROJECT_GROUP_IDS } from '../../../../shared/project_groups';
 import { chatHeaderTitle, isBotConversation, resolveMessageSender } from './conversationDisplay';
-import { createEmojiToken, parseMessageParts } from './emojiPacks';
+import { createEmojiToken, parseMessageParts, systemFaceItem } from './emojiPacks';
 import type { EmojiItem } from './emojiPacks';
 import {
   elementToToken,
@@ -264,6 +271,7 @@ import {
   createComposerLineBreak,
   focusComposerEnd,
   getActiveComposerMentionTrigger,
+  getActiveComposerSlashTrigger,
   insertComposerNode,
   isNodeInside,
   replaceComposerTextRange,
@@ -954,7 +962,10 @@ export function ChatPane({
     // 一次，于是「最近使用」还是旧顺序（刚点的表情排不到第一）。带 all 就在写入后
     // 直接把缓存刷成新数据，下一次打开读到的就是对的。
     onSuccess: () =>
-      emojiUtils.account.emojiPanel.overview.invalidate(undefined, { refetchType: 'all' }),
+      Promise.all([
+        emojiUtils.account.emojiPanel.overview.invalidate(undefined, { refetchType: 'all' }),
+        emojiUtils.account.emojiPanel.shortcuts.invalidate(),
+      ]),
   });
   // 轻互动：戳一戳（0xED3_1）与群消息贴表情（0x9082）。都需要在线且已注入的 QQ。
   const sendPoke = trpc.account.sendPoke.useMutation();
@@ -1085,7 +1096,10 @@ export function ChatPane({
   } = selection;
   const recallAccount = trpc.account.getAccountConfig.useQuery(undefined, {
     enabled:
-      (conversation?.type === 'group' || selectionMode || Boolean(contextMenu)) &&
+      (conversation?.type === 'group' ||
+        selectionMode ||
+        Boolean(contextMenu) ||
+        (tabActive && preferenceValue('slashEmojiEnabled'))) &&
       !restrictedSource,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -1175,6 +1189,50 @@ export function ChatPane({
   // only backs the clear-conversation action.
   const [hiddenMessageIds, setHiddenMessageIds] = useState<Set<string>>(new Set());
   const [mentionMenu, setMentionMenu] = useState<MentionMenuState | null>(null);
+  const [mobileComposerExpanded, setMobileComposerExpanded] = useState(false);
+  const [slashMenu, setSlashMenu] = useState<
+    (SlashEmojiTrigger & { editor: HTMLDivElement; activeIndex: number }) | null
+  >(null);
+  const slashDismissed = useRef<string | null>(null);
+  const composerComposing = useRef(false);
+  const slashEnabled = preferenceValue('slashEmojiEnabled') && !readOnly;
+  const slashMenuId = useId();
+  const shortcuts = trpc.account.emojiPanel.shortcuts.useQuery(
+    { ...recallBinding },
+    {
+      enabled: tabActive && slashEnabled && Boolean(recallBinding),
+      staleTime: 30_000,
+    },
+  );
+  const slashItems = useMemo(
+    () =>
+      searchSlashEmojis(
+        shortcuts.data?.faces ?? [],
+        shortcuts.data?.recent ?? [],
+        slashMenu?.query ?? '',
+      ),
+    [shortcuts.data, slashMenu?.query],
+  );
+  useEffect(() => {
+    setSlashMenu(null);
+    slashDismissed.current = null;
+    composerComposing.current = false;
+  }, [conversation?.id, tabActive, slashEnabled, mobileComposerExpanded, composerCollapsed]);
+  const slashEditor = slashMenu?.editor;
+  const slashOpen = Boolean(slashMenu && slashItems.length && slashEnabled && tabActive);
+  useEffect(() => {
+    if (!slashEditor) return;
+    const close = (event: PointerEvent) => {
+      if (
+        event.target instanceof Element &&
+        (event.target.closest('.weq-slash-emoji-menu') || slashEditor.contains(event.target))
+      )
+        return;
+      setSlashMenu(null);
+    };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, [slashEditor]);
   const atAllMention = useAtAllMention(
     Boolean(mentionMenu && tabActive && conversation?.type === 'group' && !restrictedSource),
     Number(conversation?.group?.identityValue),
@@ -1201,7 +1259,6 @@ export function ChatPane({
       : onOpenGroupMember;
   const [mobileComposerEditorHeight, setMobileComposerEditorHeight] = useState(42);
   const [mobileComposerLong, setMobileComposerLong] = useState(false);
-  const [mobileComposerExpanded, setMobileComposerExpanded] = useState(false);
   useEffect(() => {
     setComposerMenu(null);
   }, [tabActive, mobileComposerExpanded, composerCollapsed]);
@@ -2668,6 +2725,45 @@ export function ChatPane({
       scheduleMobileComposerMeasure(editor);
     }
     updateMentionMenu(editor);
+    updateSlashMenu(editor);
+  }
+
+  function updateSlashMenu(editor = currentComposerEditor()) {
+    if (!editor || !tabActive || !slashEnabled || composerComposing.current) {
+      setSlashMenu(null);
+      return;
+    }
+    const trigger = getActiveComposerSlashTrigger(editor, composerSelectionRef.current);
+    const key = trigger ? `${trigger.start}:${trigger.end}:${trigger.query}` : null;
+    if (slashDismissed.current && slashDismissed.current !== key) slashDismissed.current = null;
+    if (!trigger || key === slashDismissed.current) {
+      setSlashMenu(null);
+      return;
+    }
+    setSlashMenu((current) => ({
+      ...trigger,
+      editor,
+      activeIndex:
+        current?.query === trigger.query && current.start === trigger.start
+          ? current.activeIndex
+          : 0,
+    }));
+  }
+
+  function insertSlashEmoji(item: SlashEmojiFace) {
+    if (!slashMenu || currentPreference.blocked || sending) return;
+    const trigger = getActiveComposerSlashTrigger(slashMenu.editor, composerSelectionRef.current);
+    if (
+      !trigger ||
+      trigger.start !== slashMenu.start ||
+      trigger.end !== slashMenu.end ||
+      trigger.query !== slashMenu.query
+    ) {
+      setSlashMenu(null);
+      return;
+    }
+    insertEmoji(systemFaceItem(item.id, item.desc), trigger);
+    setSlashMenu(null);
   }
 
   function insertComposerText(value: string, focus = true) {
@@ -3329,7 +3425,7 @@ export function ChatPane({
     syncComposerBody(editor);
   }
 
-  function insertEmoji(item: EmojiItem) {
+  function insertEmoji(item: EmojiItem, replaceRange?: { start: number; end: number }) {
     if (currentPreference.blocked || sending) {
       return;
     }
@@ -3375,7 +3471,10 @@ export function ChatPane({
         : 'composer-token-image composer-inline-emoji',
     );
 
-    const range = insertComposerNode(editor, image, composerSelectionRef.current, focus);
+    let range: Range | undefined;
+    if (replaceRange)
+      replaceComposerTextRange(editor, replaceRange.start, replaceRange.end, [image], true);
+    else range = insertComposerNode(editor, image, composerSelectionRef.current, focus);
     syncComposerBody();
     if (!focus && range) composerSelectionRef.current = range;
     if (!mobileEmojiMode) {
@@ -4025,6 +4124,7 @@ export function ChatPane({
     // 编辑器，按「当前该用哪个」去猜会在切换瞬间扫错对象。
     saveComposerSelection(event.currentTarget);
     updateMentionMenu(event.currentTarget);
+    updateSlashMenu(event.currentTarget);
   }
 
   function handleComposerKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
@@ -4037,6 +4137,7 @@ export function ChatPane({
       return;
     }
     if (
+      composerComposing.current ||
       event.nativeEvent.isComposing ||
       event.nativeEvent.keyCode === 229 ||
       event.key === 'Process'
@@ -4044,6 +4145,40 @@ export function ChatPane({
       return;
     }
 
+    if (slashMenu && slashItems.length) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        slashDismissed.current = `${slashMenu.start}:${slashMenu.end}:${slashMenu.query}`;
+        setSlashMenu(null);
+        return;
+      }
+      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+        event.preventDefault();
+        const delta = event.key === 'ArrowUp' ? -1 : 1;
+        setSlashMenu((current) =>
+          current
+            ? {
+                ...current,
+                activeIndex: (current.activeIndex + delta + slashItems.length) % slashItems.length,
+              }
+            : null,
+        );
+        return;
+      }
+      if (
+        (event.key === 'Enter' || event.key === 'Tab') &&
+        !event.shiftKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey
+      ) {
+        event.preventDefault();
+        const selected = slashItems[Math.min(slashMenu.activeIndex, slashItems.length - 1)];
+        if (selected) insertSlashEmoji(selected);
+        return;
+      }
+    }
     if (mentionMenu) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault();
@@ -7197,6 +7332,18 @@ export function ChatPane({
               onSelect={insertMention}
             />
           ) : null}
+          {slashMenu && !mobileComposerExpanded && slashEnabled && tabActive ? (
+            <SlashEmojiMenu
+              id={slashMenuId}
+              items={slashItems}
+              activeIndex={Math.min(slashMenu.activeIndex, Math.max(0, slashItems.length - 1))}
+              editor={slashMenu.editor}
+              onSelect={insertSlashEmoji}
+              onActiveIndexChange={(activeIndex) =>
+                setSlashMenu((current) => (current ? { ...current, activeIndex } : null))
+              }
+            />
+          ) : null}
           <div
             ref={composerEditorRef}
             className={cn(
@@ -7206,12 +7353,27 @@ export function ChatPane({
             role="textbox"
             aria-multiline="true"
             aria-label="消息"
+            aria-autocomplete={slashEnabled ? 'list' : undefined}
+            aria-controls={slashOpen ? slashMenuId : undefined}
+            aria-activedescendant={
+              slashOpen
+                ? `${slashMenuId}-${Math.min(slashMenu?.activeIndex ?? 0, slashItems.length - 1)}`
+                : undefined
+            }
             enterKeyHint="send"
             aria-disabled={readOnly || currentPreference.blocked}
             contentEditable={!readOnly && !currentPreference.blocked}
             suppressContentEditableWarning
             onPointerDown={prepareMobileComposerKeyboard}
             onInput={() => syncComposerBody(composerEditorRef.current)}
+            onCompositionStart={() => {
+              composerComposing.current = true;
+              setSlashMenu(null);
+            }}
+            onCompositionEnd={() => {
+              composerComposing.current = false;
+              syncComposerBody(composerEditorRef.current);
+            }}
             onMouseDown={prepareComposerImagePreview}
             onClick={previewComposerImage}
             onKeyDown={handleComposerKeyDown}
@@ -7219,10 +7381,12 @@ export function ChatPane({
             onMouseUp={() => {
               saveComposerSelection(composerEditorRef.current);
               updateMentionMenu(composerEditorRef.current);
+              updateSlashMenu(composerEditorRef.current);
             }}
             onFocus={() => {
               saveComposerSelection(composerEditorRef.current);
               updateMentionMenu(composerEditorRef.current);
+              updateSlashMenu(composerEditorRef.current);
             }}
             onBlur={() => saveComposerSelection(composerEditorRef.current)}
             onPaste={handleComposerPaste}
@@ -7275,12 +7439,27 @@ export function ChatPane({
               role="textbox"
               aria-multiline="true"
               aria-label="消息"
+              aria-autocomplete={slashEnabled ? 'list' : undefined}
+              aria-controls={slashOpen ? slashMenuId : undefined}
+              aria-activedescendant={
+                slashOpen
+                  ? `${slashMenuId}-${Math.min(slashMenu?.activeIndex ?? 0, slashItems.length - 1)}`
+                  : undefined
+              }
               enterKeyHint="enter"
               aria-disabled={readOnly || currentPreference.blocked}
               contentEditable={!readOnly && !currentPreference.blocked}
               suppressContentEditableWarning
               onPointerDown={prepareMobileComposerKeyboard}
               onInput={() => syncComposerBody(expandedComposerEditorRef.current)}
+              onCompositionStart={() => {
+                composerComposing.current = true;
+                setSlashMenu(null);
+              }}
+              onCompositionEnd={() => {
+                composerComposing.current = false;
+                syncComposerBody(expandedComposerEditorRef.current);
+              }}
               onMouseDown={prepareComposerImagePreview}
               onClick={previewComposerImage}
               onKeyDown={handleComposerKeyDown}
@@ -7288,10 +7467,12 @@ export function ChatPane({
               onMouseUp={() => {
                 saveComposerSelection(expandedComposerEditorRef.current);
                 updateMentionMenu(expandedComposerEditorRef.current);
+                updateSlashMenu(expandedComposerEditorRef.current);
               }}
               onFocus={() => {
                 saveComposerSelection(expandedComposerEditorRef.current);
                 updateMentionMenu(expandedComposerEditorRef.current);
+                updateSlashMenu(expandedComposerEditorRef.current);
               }}
               onBlur={() => saveComposerSelection(expandedComposerEditorRef.current)}
               onPaste={handleComposerPaste}
@@ -7308,6 +7489,18 @@ export function ChatPane({
                   setMentionMenu((current) => (current ? { ...current, activeIndex } : current))
                 }
                 onSelect={insertMention}
+              />
+            ) : null}
+            {slashMenu && slashEnabled && tabActive ? (
+              <SlashEmojiMenu
+                id={slashMenuId}
+                items={slashItems}
+                activeIndex={Math.min(slashMenu.activeIndex, Math.max(0, slashItems.length - 1))}
+                editor={slashMenu.editor}
+                onSelect={insertSlashEmoji}
+                onActiveIndexChange={(activeIndex) =>
+                  setSlashMenu((current) => (current ? { ...current, activeIndex } : null))
+                }
               />
             ) : null}
             <div className={cn('mobile-composer-expanded-tools')}>

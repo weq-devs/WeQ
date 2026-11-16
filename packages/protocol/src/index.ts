@@ -268,3 +268,6 @@ export {
   GetGroupOperationInfo,
   type GroupOperationInfo,
 } from './oidb/group-admin/get-group-operation-info';
+export { SetQzoneFeedStatus } from './qzone/feed-status';
+export type { QzoneArchiveAction } from './qzone/feed-status';
+export type { QzoneArchiveState } from './qzone/feed-media-detail';

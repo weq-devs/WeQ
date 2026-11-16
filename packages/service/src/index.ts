@@ -99,7 +99,12 @@ export type {
 } from './bootstrap/media_cache';
 
 export { LinkPreviewService } from './bootstrap/link_preview';
-export type { LinkPreview, ScreenshotHook } from './bootstrap/link_preview';
+export type {
+  LinkPreview,
+  ScreenshotHook,
+  LinkScreenshotRequest,
+  LinkScreenshotResource,
+} from './bootstrap/link_preview';
 
 export { GlobalConfigService } from './bootstrap/global_config';
 export type {
@@ -1364,3 +1369,9 @@ export {
   installContactHistoryCapture,
   CONTACT_HISTORY_CAPTURE,
 } from './account/contact_history_capture';
+export {
+  QZONE_ARCHIVE_DEFAULTS,
+  qzoneArchiveConfig,
+  projectQzoneArchive,
+} from './common/qzone_archive';
+export type { QzoneArchiveConfig } from './common/qzone_archive';

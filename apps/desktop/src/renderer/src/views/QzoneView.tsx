@@ -94,6 +94,7 @@ import { ContentReferenceToolbar } from '../components/ContentReferenceToolbar';
 import { contentReferenceKey, type ContentReference } from '../../../shared/content_selection';
 import { QzoneLikesPopover } from '../components/QzoneLikesPopover';
 import { QzonePostUpvotes } from '../components/QzoneUpvoteAction';
+import { QzonePublicNavigationContext } from '../lib/qzoneNavigation';
 import { QzoneRelatedRound, qzoneSelfLiked, type QzoneReplyTarget } from '../lib/qzoneActions';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
@@ -763,7 +764,9 @@ export function QzoneView({
           }));
         }}
       >
-        {workspace}
+        <QzonePublicNavigationContext.Provider value={() => setTab('public')}>
+          {workspace}
+        </QzonePublicNavigationContext.Provider>
         {settingsOpen && active ? (
           <Modal
             presentation="panel"

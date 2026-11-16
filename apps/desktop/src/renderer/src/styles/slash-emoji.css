@@ -1,0 +1,42 @@
+.weq-slash-emoji-menu {
+  position: fixed;
+  padding: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  box-shadow: var(--weq-shadow-soft);
+}
+.weq-slash-emoji-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 36px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.weq-slash-emoji-menu button[aria-selected='true'] {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+}
+.weq-slash-emoji-menu img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  flex: none;
+}
+.weq-slash-emoji-menu span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-theme='dark'] .weq-slash-emoji-menu {
+  background: var(--weq-bg-surface);
+}

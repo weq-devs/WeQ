@@ -24,6 +24,7 @@ export function SharedDisplayToggle({
     | 'showGroupMemberTitle'
     | 'autoMentionOnQuote'
     | 'backspaceRemovesQuote'
+    | 'slashEmojiEnabled'
     | 'keepConversationPositionOnHover'
     | 'allConversationsIncludeHidden'
     | 'allConversationsIncludeDeleted';

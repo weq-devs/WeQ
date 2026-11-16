@@ -4,25 +4,49 @@
  *
  * Fixed CSS z-index breaks any combination the author didn't anticipate: a
  * lightbox (120) opened from inside a modal (140) renders behind the modal that
- * spawned it. Layers that opt into this hook get a monotonically increasing
- * value instead, so nesting works in any order.
+ * spawned it. Active layers are ranked in open order and released on close;
+ * repeated opens cannot grow their CSS values beyond the notification layer.
  *
  * The CSS numbers stay as the floor: BASE sits above all of them, so an
  * opted-in layer never falls below a layer that still uses static CSS.
  */
 
-import { createContext, useContext, useRef } from 'react';
+import { createContext, useContext, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
 
 /** Portal 保留 React 上下文：子浮层始终高于所属父窗的最新层级。 */
 export const OverlayLayerContext = createContext<number | undefined>(undefined);
 
 /** Above every static overlay in CSS (highest is .weq-ra-layer at 1200), but
  *  below the toast host (4000), which must stay on top of everything. */
-const BASE = 1200;
-let counter = BASE;
-
-export function claimOverlayLayer(): number {
-  return ++counter;
+export const OVERLAY_BASE_LAYER = 1200;
+export const OVERLAY_TOAST_LAYER = 4000;
+const layers: symbol[] = [];
+const listeners = new Set<() => void>();
+const subscribe = (listener: () => void) => {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+};
+const notify = () => {
+  for (const listener of listeners) listener();
+};
+function layerFor(key: symbol): number | undefined {
+  const index = layers.indexOf(key);
+  return index < 0 ? undefined : OVERLAY_BASE_LAYER + index + 1;
+}
+function release(key: symbol) {
+  const index = layers.indexOf(key);
+  if (index < 0) return;
+  layers.splice(index, 1);
+  notify();
+}
+function activate(key: symbol, front = false) {
+  const index = layers.indexOf(key);
+  if (index >= 0 && (!front || index === layers.length - 1)) return;
+  if (index >= 0) layers.splice(index, 1);
+  if (layers.length >= OVERLAY_TOAST_LAYER - OVERLAY_BASE_LAYER - 1)
+    throw new Error('同时打开的浮层过多。');
+  layers.push(key);
+  notify();
 }
 
 /** 底层页面快捷键不能穿透工具遮罩；保留但隐藏的工具不算活动对话框。 */
@@ -38,22 +62,32 @@ export function hasActiveModal(
 }
 
 /**
- * Claim a z-index for a layer while `active`. Claimed once per open; reopening
- * claims a fresh (higher) value. Returns undefined when inactive so callers can
- * fall back to their CSS value.
+ * Rank a layer while active. Reopening moves it above current siblings;
+ * closing releases its slot. Inactive callers can fall back to their CSS value.
  */
 export function useOverlayLayer(active: boolean, revision = 0): number | undefined {
   const parentLayer = useContext(OverlayLayerContext);
-  const claimed = useRef<number | undefined>(undefined);
+  const key = useRef(Symbol('overlay')).current;
   const previousRevision = useRef(revision);
-  if (
-    active &&
-    (claimed.current === undefined ||
-      revision !== previousRevision.current ||
-      (parentLayer !== undefined && claimed.current <= parentLayer))
-  )
-    claimed.current = claimOverlayLayer();
-  else if (!active && claimed.current !== undefined) claimed.current = undefined;
-  previousRevision.current = revision;
-  return claimed.current;
+  const layer = useSyncExternalStore(
+    subscribe,
+    () => layerFor(key),
+    () => undefined,
+  );
+  useLayoutEffect(() => {
+    if (active) activate(key);
+    else release(key);
+    return () => release(key);
+  }, [active, key]);
+  // 子组件的 layout effect 先执行；父层注册或重新置前后再校准子层。
+  useLayoutEffect(() => {
+    if (active)
+      activate(
+        key,
+        revision !== previousRevision.current ||
+          (parentLayer !== undefined && (layerFor(key) ?? 0) <= parentLayer),
+      );
+    previousRevision.current = revision;
+  }, [active, key, parentLayer, revision]);
+  return active ? layer : undefined;
 }

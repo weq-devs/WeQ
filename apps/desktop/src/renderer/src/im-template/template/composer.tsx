@@ -4,6 +4,7 @@ import { parseMessageParts } from './emojiPacks';
 import type { EmojiItem } from './emojiPacks';
 import { cn } from './classNames';
 import { elementLabel, elementPreviewSrc, tokenToElement } from './draftElements';
+import { slashEmojiTrigger } from '../../lib/slashEmoji';
 
 export type ComposerMentionTrigger = {
   start: number;
@@ -127,11 +128,23 @@ export function getActiveComposerMentionTrigger(
   };
 }
 
+export function getActiveComposerSlashTrigger(editor: HTMLElement, savedRange: Range | null) {
+  const range = getReadableComposerRange(editor, savedRange);
+  if (!range) return null;
+  const beforeRange = document.createRange();
+  beforeRange.selectNodeContents(editor);
+  beforeRange.setEnd(range.startContainer, range.startOffset);
+  return slashEmojiTrigger(
+    serializeComposerNode(beforeRange.cloneContents()).replace(/\u200b/g, ''),
+  );
+}
+
 export function replaceComposerTextRange(
   editor: HTMLElement,
   start: number,
   end: number,
   nodes: Node[],
+  preserveUndo = false,
 ) {
   editor.focus();
 
@@ -140,6 +153,15 @@ export function replaceComposerTextRange(
   const range = document.createRange();
   range.setStart(startPosition.node, startPosition.offset);
   range.setEnd(endPosition.node, endPosition.offset);
+  if (preserveUndo && typeof editor.ownerDocument.execCommand === 'function') {
+    const selection = editor.ownerDocument.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    const fragment = editor.ownerDocument.createElement('div');
+    for (const node of nodes) fragment.append(node.cloneNode(true));
+    // insertHTML 将短词替换作为一次原生编辑事务，撤销可以完整恢复 /关键词。
+    if (editor.ownerDocument.execCommand('insertHTML', false, fragment.innerHTML)) return;
+  }
   range.deleteContents();
 
   nodes.forEach((node) => {

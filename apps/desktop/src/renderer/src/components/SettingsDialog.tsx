@@ -1210,6 +1210,21 @@ function AppearanceSection({
             </Card>
           )}
           {category === 'sending' && (
+            <Card title="表情输入" icon={<Smile size={15} />} resetId="emoji-shortcuts">
+              <Row
+                settingId="slash-emoji-input"
+                label="斜杠表情快捷输入"
+                control={
+                  <SharedDisplayToggle
+                    name="slashEmojiEnabled"
+                    label="斜杠表情快捷输入"
+                    fallback={true}
+                  />
+                }
+              />
+            </Card>
+          )}
+          {category === 'sending' && (
             <Card title="引用回复" icon={<MessagesSquare size={15} />}>
               <Row
                 settingId="quote-auto-mention"

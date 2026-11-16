@@ -150,9 +150,13 @@ export interface ResolvedSettingsTarget extends SettingsTarget {
 /** 旧聊天设置条目按稳定身份归位，页面导航与搜索使用同一份目录。 */
 function chatMessagePageFor(settingId: string): SettingsPageId {
   if (
-    ['typing-status', 'send-with-qq-font', 'quote-auto-mention', 'quote-backspace-remove'].includes(
-      settingId,
-    )
+    [
+      'typing-status',
+      'send-with-qq-font',
+      'quote-auto-mention',
+      'quote-backspace-remove',
+      'slash-emoji-input',
+    ].includes(settingId)
   )
     return 'chat-interaction';
   if (
@@ -525,6 +529,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['scroll-to-bottom-button', '向下滚动时显示定位到底部按钮', '快速到底部'],
       ['send-with-qq-font', '使用 QQ 账号设置的个性字体发送消息'],
       ['quote-auto-mention', '群聊引用时自动 @ 对方', '引用自动提及'],
+      ['slash-emoji-input', '斜杠表情快捷输入', '系统表情快捷搜索'],
       ['quote-backspace-remove', '按退格键移除引用', '退格取消引用', 'Backspace'],
       ['auto-transcribe-voice', '语音消息自动转文字', '语音自动识别'],
       ['custom-message-display', '自定义消息显示'],
