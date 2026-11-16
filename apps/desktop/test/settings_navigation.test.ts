@@ -37,15 +37,15 @@ describe('设置的两级导航', () => {
       'startup',
       'appearance',
       'global',
-      'weq-storage',
       'privacy',
     ]);
     expect(SETTINGS_PAGE_LABELS.startup).toBe('启动与主页');
     expect(settingsSectionFor('home')).toBe('startup');
   });
-  it('关于包含版本后的配置备份，旧帮助和更新提醒深链归到新页面', () => {
+  it('关于第二项为 WeQ 存储管理，旧帮助和更新提醒深链归到新页面', () => {
     expect(settingsGroupFor('version').sections).toEqual([
       'version',
+      'weq-storage',
       'accounts',
       'backup',
       'logs',
@@ -57,6 +57,17 @@ describe('设置的两级导航', () => {
     for (const id of ['version', 'faq', 'logs', 'feedback', 'help', 'updates'] as const) {
       expect(settingsGroupFor(id).id).toBe('help');
     }
+  });
+  it.each(['weq-storage', 'storage'] as const)('存储入口 %s 定位关于中的第二项', (id) => {
+    expect(settingsSectionFor(id)).toBe('weq-storage');
+    expect(settingsGroupFor(id).id).toBe('help');
+    expect(settingsGroupFor(id).sections[1]).toBe('weq-storage');
+    expect(settingsGroupFor('startup').sections).not.toContain('weq-storage');
+  });
+  it.each(['WeQ 存储管理', '桌面缓存'])('%s 搜索显示关于中的存储管理路径', (keyword) => {
+    const entry = searchAppEntries(keyword)[0];
+    expect(entry?.path).toBe('设置 / 关于 WeQ / WeQ 存储管理');
+    expect(entry?.target).toMatchObject({ kind: 'setting', section: 'weq-storage' });
   });
   it('模型保留单个一级分类，克隆设置不再占用独立页面', () => {
     expect(SETTINGS_GROUPS.map((group) => group.label)).toEqual([
@@ -103,7 +114,7 @@ describe('设置的两级导航', () => {
     expect(settingsGroupFor('backup')).toEqual({
       id: 'help',
       label: '关于 WeQ',
-      sections: ['version', 'accounts', 'backup', 'logs', 'faq', 'feedback'],
+      sections: ['version', 'weq-storage', 'accounts', 'backup', 'logs', 'faq', 'feedback'],
     });
     for (const id of ['database', 'database-status', 'maintenance'] as const) {
       expect(settingsGroupFor(id)).toEqual({

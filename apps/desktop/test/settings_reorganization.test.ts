@@ -324,7 +324,15 @@ describe('设置归位后的实际页面', () => {
       );
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((node) => node.textContent),
-      ).toEqual(['版本与更新', 'WeQ 账号管理', '配置备份与恢复', '日志与性能', '常见问题', '反馈']);
+      ).toEqual([
+        '版本与更新',
+        'WeQ 存储管理',
+        'WeQ 账号管理',
+        '配置备份与恢复',
+        '日志与性能',
+        '常见问题',
+        '反馈',
+      ]);
       expect(f.onOpenMaintenance).not.toHaveBeenCalled();
     } finally {
       f.close();
@@ -667,7 +675,15 @@ describe('设置归位后的实际页面', () => {
     try {
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((item) => item.textContent),
-      ).toEqual(['版本与更新', 'WeQ 账号管理', '配置备份与恢复', '日志与性能', '常见问题', '反馈']);
+      ).toEqual([
+        '版本与更新',
+        'WeQ 存储管理',
+        'WeQ 账号管理',
+        '配置备份与恢复',
+        '日志与性能',
+        '常见问题',
+        '反馈',
+      ]);
       expect(f.body().querySelector('h3')?.textContent).toBe('版本与更新');
       expect(f.body().textContent).toContain('内置组件');
       expect(f.body().textContent).not.toContain('监控新版本发布');
@@ -751,6 +767,15 @@ describe('设置归位后的实际页面', () => {
         expect(f.body().textContent).not.toContain(title);
       expect(f.host.querySelector('.weq-settings-scope')).toBeNull();
       f.render('storage');
+      expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
+        '关于 WeQ',
+      );
+      expect(f.host.querySelectorAll('.weq-settings-subnav-item')[1]?.textContent).toBe(
+        'WeQ 存储管理',
+      );
+      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
+        'WeQ 存储管理',
+      );
       expect(f.body().textContent).not.toContain('缓存目录');
       expect(f.body().textContent).toContain('WeQ 存储管理');
       expect(f.body().textContent).not.toContain('现有配置');
@@ -823,7 +848,7 @@ describe('设置归位后的实际页面', () => {
       expect(f.body().querySelector('h3')?.textContent).toBe('启动与主页');
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((node) => node.textContent),
-      ).toEqual(['启动与主页', '主题与背景', '提醒与窗口', 'WeQ 存储管理', '隐私']);
+      ).toEqual(['启动与主页', '主题与背景', '提醒与窗口', '隐私']);
       const ids = [...f.body().querySelectorAll('[data-setting-id]')].map((node) =>
         node.getAttribute('data-setting-id'),
       );

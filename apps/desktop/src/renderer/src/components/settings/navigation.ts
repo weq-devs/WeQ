@@ -70,7 +70,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
   {
     id: 'general',
     label: '常规',
-    sections: ['startup', 'appearance', 'global', 'weq-storage', 'privacy'],
+    sections: ['startup', 'appearance', 'global', 'privacy'],
   },
   {
     id: 'basic',
@@ -118,7 +118,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
   {
     id: 'help',
     label: '关于 WeQ',
-    sections: ['version', 'accounts', 'backup', 'logs', 'faq', 'feedback'],
+    sections: ['version', 'weq-storage', 'accounts', 'backup', 'logs', 'faq', 'feedback'],
   },
 ];
 
