@@ -1,6 +1,6 @@
 import { controlCompositionWindow } from './composition_window';
 import { flushConversationCalendarResults } from './ipc/routers/conversation_calendar';
-import { applicationToolPopupOptions } from './tool_window';
+import { applicationToolPopupOptions, createToolWindowRegistry } from './tool_window';
 import { installCallDisplayMediaHandler } from './call_display_media';
 import {
   appImageRelaunchCommand,
@@ -169,6 +169,7 @@ const logger = getLogger().child({ scope: 'desktop-main' });
 /** Created once; reopening attaches a window without registering IPC again. */
 let mainIpcHandler: { attachWindow(win: BrowserWindow): void } | null = null;
 const compositionWindows = new Map<number, BrowserWindow>();
+const toolWindows = createToolWindowRegistry();
 /** System-tray icon; null until built (or if creation failed). */
 let tray: Tray | null = null;
 /** Set true right before a *real* quit so the `close` handler stops intercepting
@@ -265,6 +266,9 @@ function registerWindowLayoutIpc(): void {
   ipcMain.on('composition:control', (event, action: unknown) => {
     const child = compositionWindows.get(event.sender.id);
     if (child) controlCompositionWindow(child, action);
+  });
+  ipcMain.on('tool-window:focus', (event, name: unknown) => {
+    toolWindows.focus(event.sender.id, name);
   });
   ipcMain.handle('window:set-layout', (event, layout: WindowLayout) => {
     const win = BrowserWindow.fromWebContents(event.sender);
@@ -664,6 +668,7 @@ function createWindow(
   });
   const recoveryId = win.webContents.id;
   win.once('closed', () => {
+    toolWindows.clear(recoveryId);
     rendererRecoveries.delete(recoveryId);
     recovery.dispose();
   });
@@ -713,6 +718,7 @@ function createWindow(
     const composition = details.frameName === 'weq-compose';
     if (!composition) installWindowControls(child, details.options.frame === false);
     const owner = win.webContents.id;
+    toolWindows.register(owner, details.frameName, child);
     if (composition) compositionWindows.set(owner, child);
     const reportState = () => {
       if (!win.isDestroyed() && !child.isDestroyed())

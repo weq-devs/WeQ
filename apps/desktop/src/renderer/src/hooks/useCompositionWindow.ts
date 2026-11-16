@@ -20,6 +20,13 @@ export type ToolWindowName =
   | 'weq-database-browser'
   | GroupResourceWindowName;
 
+export function focusToolPopup(name: ToolWindowName, popup: Window | null): void {
+  if (!popup || popup.closed) return;
+  const ipc = !IS_WEB && window.electron?.ipcRenderer;
+  if (ipc) ipc.send('tool-window:focus', name);
+  else popup.focus();
+}
+
 /** 在触发点击中先创建空白窗口，避免浏览器把后续 React effect 当成弹窗拦截。 */
 export function openToolPopup(name: ToolWindowName, width: number, height: number) {
   if (prefersInlineToolWindow()) return null;
@@ -126,7 +133,7 @@ export function useToolWindow({
     }
     const existing = owned.current;
     if (existing && !existing.closed) {
-      existing.focus();
+      focusToolPopup(name, existing);
       setPopup(existing);
       return existing;
     }

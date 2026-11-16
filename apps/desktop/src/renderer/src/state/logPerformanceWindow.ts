@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { openToolPopup } from '../hooks/useCompositionWindow';
+import { focusToolPopup, openToolPopup } from '../hooks/useCompositionWindow';
 import { useAppLock } from './lock';
 import { MONITOR_WINDOWS, type MonitorTab } from '../../../shared/monitor_window';
 
@@ -29,7 +29,7 @@ export const useLogPerformanceWindow = create<MonitorWindowState>((set, get) => 
             MONITOR_WINDOWS[tab].width,
             MONITOR_WINDOWS[tab].height,
           );
-    popup?.focus();
+    focusToolPopup(MONITOR_WINDOWS[tab].name, popup);
     const generation =
       request && request.popup === popup ? request.generation : (request?.generation ?? 0) + 1;
     set((state) => ({ requests: { ...state.requests, [tab]: { popup, generation } } }));

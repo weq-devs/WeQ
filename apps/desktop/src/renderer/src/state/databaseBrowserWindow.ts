@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { openToolPopup } from '../hooks/useCompositionWindow';
+import { focusToolPopup, openToolPopup } from '../hooks/useCompositionWindow';
 import { useAppLock } from './lock';
 import { DATABASE_BROWSER_WINDOW } from '../../../shared/database_window';
 
@@ -25,7 +25,7 @@ export const useDatabaseBrowserWindow = create<{
             DATABASE_BROWSER_WINDOW.width,
             DATABASE_BROWSER_WINDOW.height,
           );
-    popup?.focus();
+    focusToolPopup(DATABASE_BROWSER_WINDOW.name, popup);
     const generation =
       previous && previous.popup === popup ? previous.generation : ++nextGeneration;
     set({ request: { popup, generation } });

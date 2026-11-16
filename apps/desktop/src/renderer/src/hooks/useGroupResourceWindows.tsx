@@ -6,7 +6,7 @@ import {
   readGroupResourceWindowName,
   type GroupResourceKind,
 } from '../../../shared/group_resource_window';
-import { openToolPopup, useToolWindow } from './useCompositionWindow';
+import { focusToolPopup, openToolPopup, useToolWindow } from './useCompositionWindow';
 import { RenderDocumentContext } from '../lib/renderDocument';
 import { useAppLock } from '../state/lock';
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
@@ -137,7 +137,7 @@ export function useGroupResourceWindows({ ownerKey }: { ownerKey: string }) {
       if (!readGroupResourceWindowName(key)) return false;
       const existing = registry.current.get(key);
       if (existing && !existing.popup?.closed) {
-        existing.popup?.focus();
+        focusToolPopup(key, existing.popup);
         return true;
       }
       const entry: Entry = {
