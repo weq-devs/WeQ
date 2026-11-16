@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
 import { useMobileBack } from '../hooks/useMobileNavigation';
 
 function layerPath(element: HTMLElement): number[] {
@@ -104,7 +104,7 @@ export function useSurfaceEscapeDismissal(
   }, [ref, onClose, active]);
 }
 
-/** 非模态页面只处理自身焦点内的 Escape；模态层只允许最上层处理。 */
+/** 页面只处理自身焦点内的 Escape；独立弹窗失焦后仍由最上层处理。 */
 export function useSurfaceEscape(
   ref: RefObject<HTMLElement | null>,
   onClose: (() => void) | undefined,
@@ -112,6 +112,7 @@ export function useSurfaceEscape(
   modal: boolean,
   mobilePriority: number | false = 100,
 ) {
+  const returnFocus = useRef<Element | null>(null);
   useMobileBack(
     active && Boolean(onClose) && mobilePriority !== false,
     () => onClose?.(),
@@ -124,15 +125,16 @@ export function useSurfaceEscape(
     if (!active || !element) return;
     const document = element.ownerDocument;
     const previous = document.activeElement;
-    if (
+    returnFocus.current = previous;
+    const focusedAbove =
       previous instanceof HTMLElement &&
-      previous.closest(
-        '[aria-modal="true"], .weq-dialog-layer, .weq-overlay-layer, .weq-window-layer, .weq-forward-window',
+      Boolean(
+        previous.closest(
+          '[aria-modal="true"], .weq-dialog-layer, .weq-overlay-layer, .weq-window-layer, .weq-forward-window',
+        ),
       ) &&
-      compareLayerPaths(layerPath(previous), layerPath(element)) > 0
-    )
-      return;
-    if (!element.contains(previous) && !previous?.closest('[role="tablist"]')) {
+      compareLayerPaths(layerPath(previous), layerPath(element)) > 0;
+    if (!focusedAbove && !element.contains(previous) && !previous?.closest('[role="tablist"]')) {
       const focusable = element.querySelector<HTMLElement>(
         'input:not([disabled]), button:not([disabled]), [tabindex="0"]',
       );
@@ -193,7 +195,16 @@ export function useSurfaceEscape(
         return;
       }
       if (!onClose) return;
-      if (!modal && !element.contains(document.activeElement)) return;
+      // 轻弹窗点击空白或选中文字后焦点可能回到 body，也可能仍在背后的触发点。
+      // 主动聚焦其他背景控件时仍保留非模态面板，普通页面始终要求自身焦点。
+      const focused = document.activeElement;
+      if (
+        !modal &&
+        !element.contains(focused) &&
+        (!surfaceRoot(element).matches(SHELLS) ||
+          (focused !== document.body && focused !== returnFocus.current))
+      )
+        return;
       event.preventDefault();
       event.stopImmediatePropagation();
       onClose?.();
