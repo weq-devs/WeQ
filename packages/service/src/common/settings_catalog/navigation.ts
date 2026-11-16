@@ -8,7 +8,7 @@ export const SETTINGS_PAGE_LABELS = {
   startup: '启动与退出',
   'weq-storage': 'WeQ 存储管理',
   'chat-messages': '会话列表',
-  'message-display': '消息区域',
+  'message-display': '消息阅读',
   'chat-interaction': '互动与防撤回',
   'call-recording': '通话与录音',
   qzone: 'QQ 空间',

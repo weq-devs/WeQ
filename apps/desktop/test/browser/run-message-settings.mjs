@@ -48,7 +48,7 @@ try {
       await page.setViewportSize({ width, height: 1000 });
       for (const [section, title] of [
         ['chat-messages', '会话列表'],
-        ['message-display', '消息区域'],
+        ['message-display', '消息阅读'],
       ]) {
         await page.goto(`${base}?section=${section}`);
         await page.locator('.weq-settings-body h3').filter({ hasText: title }).waitFor();

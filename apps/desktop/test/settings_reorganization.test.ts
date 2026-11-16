@@ -473,7 +473,7 @@ describe('设置归位后的实际页面', () => {
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((node) => node.textContent),
       ).toEqual([
         '会话列表',
-        '消息区域',
+        '消息阅读',
         '互动与防撤回',
         '联系人名片',
         '通话与录音',
@@ -515,7 +515,7 @@ describe('设置归位后的实际页面', () => {
       expect(f.body().querySelector('[data-setting-id="anti-recall"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="text-markdown"]')).toBeNull();
       const tabs = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')];
-      act(() => tabs.find((tab) => tab.textContent === '消息区域')!.click());
+      act(() => tabs.find((tab) => tab.textContent === '消息阅读')!.click());
       const display = f.body();
       expect(display.querySelector('.weq-set-card .weq-set-card')).toBeNull();
       expect(
@@ -580,7 +580,7 @@ describe('设置归位后的实际页面', () => {
       } as const;
       f.render('chat-messages', target);
       expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
-        '消息区域',
+        '消息阅读',
       );
       expect(
         f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
@@ -656,9 +656,9 @@ describe('设置归位后的实际页面', () => {
     ['maintenance', '密钥扫描', 'key-scan', '凭据管理'],
     ['maintenance', '其它设备密钥', 'other-device-key', '凭据管理'],
     ['message-display', '显示消息汇总红点', 'message-unread-badge', '会话列表'],
-    ['chat-messages', '纯文本消息自动渲染为 Markdown', 'text-markdown', '消息区域'],
-    ['chat-messages', '语音消息自动转文字', 'auto-transcribe-voice', '消息区域'],
-    ['chat-messages', '图片预览内存预算', 'chat-image-cache', '消息区域'],
+    ['chat-messages', '纯文本消息自动渲染为 Markdown', 'text-markdown', '消息阅读'],
+    ['chat-messages', '语音消息自动转文字', 'auto-transcribe-voice', '消息阅读'],
+    ['chat-messages', '图片预览内存预算', 'chat-image-cache', '消息阅读'],
     ['chat-messages', '使用 QQ 账号设置的个性字体发送消息', 'send-with-qq-font', '互动与防撤回'],
     ['reply-suggestions', '常驻显示', 'intent-persistent-display', '意图感知'],
     ['reply-suggestions', '悬停显示', 'intent-hover-display', '意图感知'],
@@ -844,7 +844,7 @@ describe('设置归位后的实际页面', () => {
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((item) => item.textContent),
       ).toEqual([
         '会话列表',
-        '消息区域',
+        '消息阅读',
         '互动与防撤回',
         '联系人名片',
         '通话与录音',

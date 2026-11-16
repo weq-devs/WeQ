@@ -145,10 +145,10 @@ function mount() {
               '显示群成员等级',
               '显示群成员头衔与身份',
             ].includes(label)
-          ? '消息区域'
+          ? '消息阅读'
           : ['鼠标停留时保持会话位置', '在消息图标上显示红点', '在联系人界面显示未读消息数', '群助手显示总消息数'].includes(label)
             ? '会话列表'
-            : '消息区域';
+            : '消息阅读';
       act(() =>
         [...host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')]
           .find((button) => button.textContent === page)!

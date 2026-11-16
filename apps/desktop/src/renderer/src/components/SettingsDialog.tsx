@@ -384,7 +384,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'message-display',
-    label: '消息区域',
+    label: '消息阅读',
     icon: <Monitor size={16} />,
     render: () => <AppearanceSection page="messages" category="display" />,
   },
@@ -957,7 +957,7 @@ function AppearanceSection({
                 ? '会话列表'
                 : category === 'sending'
                   ? '互动与防撤回'
-                  : '消息区域'
+                  : '消息阅读'
           }
         />
       )}
