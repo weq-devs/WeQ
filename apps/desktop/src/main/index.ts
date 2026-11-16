@@ -56,6 +56,8 @@ import {
 } from './protocol_register';
 import { registerUdpCaptureStorage } from './udp_capture_register';
 import { getAppContext, accountEventBus } from './context/app_context';
+import { installDesktopNetwork } from './network';
+import { configureReleaseFeeds } from './update/release_feed';
 import { handleGroupKeywordHit } from './group_keyword_notify';
 import { handleRecallNotification } from './recall_notify';
 import { handleMailNotification } from './mail_notify';
@@ -799,6 +801,8 @@ void app.whenReady().then(async () => {
   // Order matters: AppContext (loads native + platform) before IPC handler.
   // The host bridge must be installed before any router runs.
   setHost(electronHost);
+  const stopNetwork = installDesktopNetwork();
+  app.once('will-quit', stopNetwork);
   accountEventBus.on('closing', () => electronHost.setApplicationBadge?.(0));
   await migrateLegacyAutostart().catch((error: unknown) => {
     logger.warn('legacy daemon migration failed', {
@@ -815,6 +819,7 @@ void app.whenReady().then(async () => {
     })
     .catch(() => undefined);
   const userConfig = getAppContext().bootstrap?.userConfig;
+  configureReleaseFeeds(userConfig?.appDataRoot() ?? app.getPath('userData'));
   installUpdateActions({
     getInterval: () => userConfig?.getSettings().updateCheckIntervalMinutes ?? 60,
     setInterval: (minutes) => {

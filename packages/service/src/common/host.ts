@@ -48,7 +48,10 @@ export interface HostBridge {
   readonly exportRoot?: string;
   registerDownload?(path: string, name: string, kind: 'file' | 'directory'): { url: string };
   /** 桌面保留原 Electron 会话的媒体读取，Web 缺省使用原生 fetch。 */
-  fetchMedia?(url: string, opts?: { signal?: AbortSignal }): Promise<Response>;
+  fetchMedia?(
+    url: string,
+    opts?: { signal?: AbortSignal; headers?: Record<string, string> },
+  ): Promise<Response>;
   /** Decode uploaded image bytes; absent when the host has no image decoder. */
   validateImageBuffer?(bytes: Uint8Array): Promise<boolean>;
   /** Decode a cached collection image; absent when the host cannot verify images. */

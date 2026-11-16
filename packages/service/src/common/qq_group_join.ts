@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * QQ 群「分享码 → authKey → 深链接」转换工具。
  *
@@ -220,7 +221,7 @@ export async function resolveGroupShareAuthKey(
   shareUrl: string,
   options: GroupShareResolveOptions = {},
 ): Promise<GroupShareTarget> {
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const fetchImpl = options.fetchImpl ?? networkFetch;
   const response = await fetchImpl(shareUrl, {
     redirect: 'manual',
     signal: withTimeout(options.timeoutMs ?? 10_000, options.signal),

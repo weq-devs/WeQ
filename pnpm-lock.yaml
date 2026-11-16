@@ -226,6 +226,9 @@ importers:
       '@weq/native':
         specifier: workspace:*
         version: link:../../packages/native
+      '@weq/network':
+        specifier: workspace:*
+        version: link:../../packages/network
       '@weq/platform':
         specifier: workspace:*
         version: link:../../packages/platform
@@ -443,6 +446,9 @@ importers:
       '@weq/native':
         specifier: workspace:*
         version: link:../../packages/native
+      '@weq/network':
+        specifier: workspace:*
+        version: link:../../packages/network
       '@weq/platform':
         specifier: workspace:*
         version: link:../../packages/platform
@@ -526,6 +532,9 @@ importers:
 
   packages/agentlab:
     dependencies:
+      '@weq/network':
+        specifier: workspace:*
+        version: link:../network
       '@weq/time':
         specifier: workspace:*
         version: link:../time
@@ -628,6 +637,22 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.20)(happy-dom@21.0.1)(jsdom@26.1.0(supports-color@7.2.0))(lightningcss@1.32.0)(supports-color@7.2.0)
 
+  packages/network:
+    dependencies:
+      semver:
+        specifier: 7.8.5
+        version: 7.8.5
+      undici:
+        specifier: 7.30.1
+        version: 7.30.1
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.6
+        version: 22.19.20
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.20)(happy-dom@21.0.1)(jsdom@26.1.0(supports-color@7.2.0))(lightningcss@1.33.0)(supports-color@7.2.0)
+
   packages/platform:
     dependencies:
       '@weq/native':
@@ -646,6 +671,9 @@ importers:
       '@weq/native':
         specifier: workspace:*
         version: link:../native
+      '@weq/network':
+        specifier: workspace:*
+        version: link:../network
       '@weq/time':
         specifier: workspace:*
         version: link:../time
@@ -686,6 +714,9 @@ importers:
       '@weq/native':
         specifier: workspace:*
         version: link:../native
+      '@weq/network':
+        specifier: workspace:*
+        version: link:../network
       '@weq/platform':
         specifier: workspace:*
         version: link:../platform
@@ -10670,8 +10701,7 @@ snapshots:
 
   undici-types@7.24.6: {}
 
-  undici@7.30.1:
-    optional: true
+  undici@7.30.1: {}
 
   unicode-trie@2.0.0:
     dependencies:

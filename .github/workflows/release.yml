@@ -1041,6 +1041,9 @@ jobs:
           gh release edit "${TAG}" --repo "${REPO}" --notes "${NOTES}"
 
   publish:
+    concurrency:
+      group: release-feed-${{ github.repository }}
+      cancel-in-progress: false
     permissions:
       contents: write
     needs: [gate, checks, prepare, windows, linux-x64, linux-arm64, macos-x64, macos-arm64, mac-merge-update-info, web, notes]
@@ -1049,6 +1052,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          submodules: recursive
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: pnpm install --filter @weq/network --frozen-lockfile --ignore-scripts
+      - name: Verify release metadata signer
+        env:
+          WEQ_RELEASE_SIGNING_KEY: ${{ secrets.WEQ_RELEASE_SIGNING_KEY }}
+        run: node scripts/publish-release-feed.mjs --check-key
       - name: Validate all assets and publish once
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -1058,6 +1071,12 @@ jobs:
           RELEASE_ID: ${{ needs.prepare.outputs.id }}
           RELEASE_NEEDS: ${{ toJSON(needs) }}
         run: node scripts/release-control.mjs publish
+      - name: Publish signed update index
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          WEQ_RELEASE_SIGNING_KEY: ${{ secrets.WEQ_RELEASE_SIGNING_KEY }}
+        run: node scripts/publish-release-feed.mjs
 
 
   # ============================ AUR ============================

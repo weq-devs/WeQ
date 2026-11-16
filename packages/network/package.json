@@ -1,0 +1,24 @@
+{
+  "name": "@weq/network",
+  "version": "2.7.2",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./mirrors": "./src/mirrors.mjs",
+    "./release-metadata": "./src/release_metadata.mjs",
+    "./release-keys": "./src/release_keys.json"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "semver": "7.8.5",
+    "undici": "7.30.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.6",
+    "vitest": "^2.1.8"
+  }
+}

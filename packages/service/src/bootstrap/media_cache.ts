@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * MediaCacheService — disk cache for remote media (avatars, dress assets, etc).
  *
@@ -269,7 +270,7 @@ export class MediaCacheService {
     subdir: CacheSubdir,
     refresh: boolean,
   ): Promise<MediaBlob> {
-    const res = await fetch(url, {
+    const res = await networkFetch(url, {
       headers: { Referer: '', 'User-Agent': 'Mozilla/5.0' },
     });
     if (!res.ok) {

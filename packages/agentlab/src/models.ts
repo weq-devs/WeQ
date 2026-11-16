@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 import type { AgentLabModelCapability, AgentLabProviderModel } from './types';
 import { mergeModelDetails, modelFromMetadata, record } from './model_metadata';
 
@@ -80,7 +81,7 @@ export async function fetchProviderModels(input: {
   const timer = setTimeout(() => controller.abort(), input.timeoutMs ?? 15_000);
   try {
     const request = async (target: string, body?: unknown): Promise<unknown> => {
-      const res = await fetch(target, {
+      const res = await networkFetch(target, {
         method: body === undefined ? 'GET' : 'POST',
         headers: {
           ...headers,

@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * MediaUrlService — resolve download URLs for group/private voice, video, and
  * file elements via the OIDB/NTV2 protocol.
@@ -426,6 +427,7 @@ export interface DownloadOptions {
   expectedSha256?: string;
   maxBytes?: number;
   timeoutMs?: number;
+  idleTimeoutMs?: number;
   /** 生成成果的静态依赖可包含样式及脚本；聊天媒体默认仍拒绝文本响应。 */
   allowText?: boolean;
   /** 宿主网络栈（桌面沿用 Electron 代理）；缺省使用当前 fetch。 */
@@ -479,15 +481,18 @@ export async function downloadUrlToFile(
     const temporary = `${dest}.${randomUUID()}.part`;
     const controller = new AbortController();
     const cancel = () => controller.abort(options.signal?.reason);
-    const timer = setTimeout(
-      () => controller.abort(new Error('媒体下载超时。')),
-      options.timeoutMs ?? 60_000,
-    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const armTimeout = (ms: number) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => controller.abort(new Error('媒体下载超时。')), ms);
+    };
+    armTimeout(options.timeoutMs ?? 15_000);
     options.signal?.addEventListener('abort', cancel, { once: true });
     let retry = true;
     try {
       options.signal?.throwIfAborted();
-      const res = await (options.fetcher ?? fetch)(url, { signal: controller.signal });
+      const res = await (options.fetcher ?? networkFetch)(url, { signal: controller.signal });
+      armTimeout(options.idleTimeoutMs ?? 30_000);
       const ct = (res.headers.get('content-type') ?? '').toLowerCase();
       if (
         !res.ok ||
@@ -512,6 +517,7 @@ export async function downloadUrlToFile(
         let prefix = Buffer.alloc(0);
         const inspect = new Transform({
           transform(chunk: Buffer, _encoding, done) {
+            armTimeout(options.idleTimeoutMs ?? 30_000);
             bytes += chunk.length;
             if (bytes > maxBytes) {
               done(new Error('媒体超过大小上限。'));
@@ -530,6 +536,7 @@ export async function downloadUrlToFile(
           createWriteStream(temporary, { flags: 'wx' }),
           { signal: controller.signal },
         );
+        clearTimeout(timer);
         retry = false;
         const sha256 = hash.digest('hex');
         if (

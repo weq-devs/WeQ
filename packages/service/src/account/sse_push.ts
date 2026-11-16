@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * SsePushService —— 把 QQ 新消息通过 HTTP 推送到用户配置的「推送地址」。
  *
@@ -533,7 +534,7 @@ export async function postSsePushEvents(
   const token = target.accessToken.trim();
   if (token) headers.Authorization = `Bearer ${token}`;
   const payload: SsePushPayload = { events };
-  return fetch(target.pushUrl, {
+  return networkFetch(target.pushUrl, {
     method: 'POST',
     headers,
     body: JSON.stringify(payload, bigintReplacer),

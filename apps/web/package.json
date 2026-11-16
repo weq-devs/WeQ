@@ -24,6 +24,7 @@
     "@weq/db": "workspace:*",
     "@weq/desktop": "workspace:*",
     "@weq/native": "workspace:*",
+    "@weq/network": "workspace:*",
     "@weq/platform": "workspace:*",
     "@weq/service": "workspace:*",
     "@weq/time": "workspace:*",

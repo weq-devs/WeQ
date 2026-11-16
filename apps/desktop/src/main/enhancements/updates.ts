@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import semver from 'semver';
@@ -13,7 +14,8 @@ import { networkScope, transferBehavior } from '@weq/service/network-scope';
 import { TransferGate, allowNetwork } from '@weq/service/data-saver';
 import { watchTransferPolicy, transferRestricted } from '@weq/service/transfer-policy';
 import { UpdateCheckScheduler } from '../update/scheduler';
-import { FILE_MIRRORS } from '../update/mirrors';
+import { getReleaseFeed } from '../update/release_feed';
+import { fetchSourceJson } from '@weq/network';
 import {
   ENHANCEMENT_PACK_IDS,
   parseEnhancementEngineManifest,
@@ -353,7 +355,7 @@ export class EnhancementUpdateController {
       this.requests.add(request);
       try {
         const feed = this.feeds.get(url);
-        const response = await (this.options.fetcher ?? fetch)(url, {
+        const response = await (this.options.fetcher ?? networkFetch)(url, {
           signal: AbortSignal.any([this.abort.signal, request.signal, AbortSignal.timeout(8000)]),
           headers: {
             Accept: 'application/vnd.github+json',
@@ -417,8 +419,35 @@ export class EnhancementUpdateController {
       );
   }
   private async fetchCatalog(repository: string, asset: string): Promise<EnhancementCatalog> {
+    const feed = getReleaseFeed(repository);
+    let signedIndex: Awaited<ReturnType<typeof feed.read>>;
+    for (;;) {
+      await this.gate?.wait(this.abort.signal);
+      const request = new AbortController();
+      this.requests.add(request);
+      try {
+        signedIndex = await feed.read(
+          true,
+          AbortSignal.any([this.abort.signal, request.signal]),
+          this.options.fetcher ?? networkFetch,
+        );
+        break;
+      } catch (error) {
+        if (request.signal.reason !== CHECK_PAUSED || this.abort.signal.aborted) throw error;
+      } finally {
+        this.requests.delete(request);
+      }
+    }
     const data = releaseList.parse(
-      await this.fetchJson(`https://api.github.com/repos/${repository}/releases?per_page=100`),
+      signedIndex
+        ? signedIndex.releases.map((release) => ({
+            tag_name: release.tag,
+            draft: false,
+            prerelease: release.prerelease,
+            published_at: release.publishedAt,
+            assets: release.assets,
+          }))
+        : await this.fetchJson(`https://api.github.com/repos/${repository}/releases?per_page=100`),
     );
     const includePrerelease = this.config.getSettings().updateCheckPrerelease;
     const isDress = repository.endsWith('/dress-resources');
@@ -440,47 +469,59 @@ export class EnhancementUpdateController {
     const unified = latest.assets.some((item) => item.name === asset);
     const baseUrl = `https://github.com/${repository}/releases/download/${encodeURIComponent(latest.tag_name)}`;
     const url = `${baseUrl}/${unified ? asset : legacyAsset}`;
-    let error: unknown;
-    for (const prefix of FILE_MIRRORS.slice(0, 4)) {
-      try {
-        let value = await this.fetchJson(`${prefix}${url}`);
-        if (!unified) {
-          if (isDress) {
-            const manifest = parseDressIndexManifest(value);
-            if (
-              manifest.baseUrl !== baseUrl ||
-              Object.values(manifest.parts).some(
-                (part) => !latest.assets.some((item) => item.name === part.asset),
-              )
+    const signed = signedIndex?.releases.find((release) => release.tag === latest.tag_name)
+      ?.catalogs[unified ? asset : legacyAsset];
+    const parse = (input: unknown) => {
+      let value = input;
+      if (!unified) {
+        if (isDress) {
+          const manifest = parseDressIndexManifest(value);
+          if (
+            manifest.baseUrl !== baseUrl ||
+            Object.values(manifest.parts).some(
+              (part) => !latest.assets.some((item) => item.name === part.asset),
             )
-              throw new Error('在线装扮清单与已发布资产不匹配');
-            value = {
-              schemaVersion: 1,
-              target: this.target,
-              packs: [createRelease('dress', [{ type: 'dress', manifest }])],
-            };
-          } else {
-            const manifest = parseEnhancementEngineManifest(value);
-            if (manifest.target !== this.target) throw new Error('增强包清单平台与当前宿主不匹配');
-            if (
-              manifest.engines.some(
-                (engine) => !latest.assets.some((item) => engine.url === `${baseUrl}/${item.name}`),
-              )
+          )
+            throw new Error('在线装扮清单与已发布资产不匹配');
+          value = {
+            schemaVersion: 1,
+            target: this.target,
+            packs: [createRelease('dress', [{ type: 'dress', manifest }])],
+          };
+        } else {
+          const manifest = parseEnhancementEngineManifest(value);
+          if (manifest.target !== this.target) throw new Error('增强包清单平台与当前宿主不匹配');
+          if (
+            manifest.engines.some(
+              (engine) => !latest.assets.some((item) => engine.url === `${baseUrl}/${item.name}`),
             )
-              throw new Error('在线引擎清单与已发布资产不匹配');
-            value = createEnhancementCatalog(manifest, this.options.legacyModels ?? []);
-          }
+          )
+            throw new Error('在线引擎清单与已发布资产不匹配');
+          value = createEnhancementCatalog(manifest, this.options.legacyModels ?? []);
         }
-        return parseEnhancementCatalogForHost(
-          isDress ? { ...(value as object), target: this.target } : value,
-          this.options.currentVersion(),
-          this.target,
-        );
-      } catch (failure) {
-        error = failure;
+      }
+      return parseEnhancementCatalogForHost(
+        isDress ? { ...(value as object), target: this.target } : value,
+        this.options.currentVersion(),
+        this.target,
+      );
+    };
+    if (signed) return parse(JSON.parse(signed));
+    for (;;) {
+      await this.gate?.wait(this.abort.signal);
+      const request = new AbortController();
+      this.requests.add(request);
+      try {
+        return await fetchSourceJson(url, parse, {
+          signal: AbortSignal.any([this.abort.signal, request.signal]),
+          fetcher: this.options.fetcher ?? networkFetch,
+        });
+      } catch (error) {
+        if (request.signal.reason !== CHECK_PAUSED || this.abort.signal.aborted) throw error;
+      } finally {
+        this.requests.delete(request);
       }
     }
-    throw error;
   }
   private save() {
     const text = JSON.stringify({

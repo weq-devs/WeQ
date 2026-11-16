@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * 首页个性装扮快照抓取。
  *
@@ -114,7 +115,7 @@ function tryPreview2(url: string): string {
 /** HEAD 检查 url 是否可访问（200–299）。失败返回 false。 */
 async function headOk(url: string): Promise<boolean> {
   try {
-    const r = await fetch(url, { method: 'HEAD' });
+    const r = await networkFetch(url, { method: 'HEAD' });
     return r.ok;
   } catch {
     return false;

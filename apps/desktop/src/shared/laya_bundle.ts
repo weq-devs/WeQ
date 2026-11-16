@@ -61,6 +61,12 @@ export function layaModelEntry(mirror = false, id = 'laya-multilingual'): ModelE
       key: file.local,
       name: file.local,
       url: `${host}/${file.repo}/${file.remote}`,
+      sources: mirror
+        ? [
+            `https://hf-mirror.com/${file.repo}/${file.remote}`,
+            `https://huggingface.co/${file.repo}/${file.remote}`,
+          ]
+        : [`${host}/${file.repo}/${file.remote}`],
       weight: file.size / LAYA_BUNDLE_BYTES,
       sizeBytes: file.size,
       sha256: file.sha256 || undefined,

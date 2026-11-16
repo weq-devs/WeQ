@@ -18,6 +18,8 @@ const developmentViteLogging: typeof import('./src/main/development_vite').devel
  * to `import "./index.ts"` at runtime.
  */
 const EXCLUDE_FROM_EXTERNAL = [
+  '@weq/network',
+  'undici',
   '@weq/agentlab',
   '@weq/account',
   '@weq/codec',

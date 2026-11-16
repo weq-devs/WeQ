@@ -30,7 +30,7 @@ const snapshot = () => {
     installed: downloaded.has(id),
     needsRepair: state === 'partial' && id === 'text',
     missingComponents: state === 'partial' && id === 'text' ? ['文字筛图模型'] : [],
-    busy: state === 'busy' && id === 'voice',
+    busy: (state === 'busy' || state === 'retrying') && id === 'voice',
     blocker: state === 'incompatible' && id === 'text' ? '需先更新 WeQ 至 v3.0.0' : null,
     requiresWeqUpdate: state === 'incompatible' && id === 'text',
     updateAvailable: (state === 'update' || state === 'partial') && id === 'text',
@@ -44,12 +44,15 @@ const snapshot = () => {
     deleteBytes: sizes[index]! * 1048576,
     sizeOnDisk: downloaded.has(id) ? sizes[index]! * 1048576 : 0,
     operation:
-      state === 'busy' && id === 'voice'
+      (state === 'busy' || state === 'retrying') && id === 'voice'
         ? {
             phase: 'downloading',
             total: sizes[index]! * 1048576,
             received: (sizes[index]! * 1048576) / 2,
             note: '正在下载',
+            source: 'github-proxy.memory-echoes.cn',
+            attempt: 2,
+            retryAt: state === 'retrying' ? Date.now() + 60000 : undefined,
           }
         : state === 'failed' && id === 'voice'
           ? { phase: 'failed', error: '网络连接中断' }

@@ -34,6 +34,8 @@ export interface ModelFile {
   name: string;
   /** Remote download URL. */
   url: string;
+  /** 已核实具有相同长度与 SHA-256 的原样下载来源。 */
+  sources?: string[];
   /** Fraction of the total download this file represents (weights sum to 1). */
   weight: number;
   /** 固定模型文件的完整性契约；旧注册项未提供时仍检查非空普通文件。 */
@@ -64,6 +66,9 @@ export interface ModelDiskState {
 
 /** Progress payload emitted during a download. */
 export interface ModelDownloadProgress {
+  source?: string;
+  attempt?: number;
+  retryAt?: number;
   paused?: boolean;
   pauseReasons?: string[];
   /** Model id being downloaded. */
@@ -101,7 +106,11 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
   /** In-flight downloads keyed by model id (de-dupes concurrent requests). */
   private readonly downloadTasks = new Map<string, Promise<{ success: boolean; error?: string }>>();
 
-  protected constructor(modelsRoot: string, entries: readonly T[]) {
+  protected constructor(
+    modelsRoot: string,
+    entries: readonly T[],
+    private readonly downloadOptions: { retryBaseMs?: number; maxAttempts?: number } = {},
+  ) {
     super();
     this.modelsRoot = modelsRoot;
     this.entries = entries;
@@ -207,7 +216,11 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
     if (!/^[a-f0-9]{64}$/.test(revision) || !this.entries.some((entry) => entry.id === model.id))
       throw new Error('模型版本身份无效');
     class Candidate extends ModelStore<T> {}
-    return new Candidate(join(this.modelsRoot, '.versions', revision), [model]);
+    return new Candidate(
+      join(this.modelsRoot, '.versions', revision),
+      [model],
+      this.downloadOptions,
+    );
   }
 
   async reuseInto(candidate: ModelStore<T>, id: string): Promise<void> {
@@ -435,7 +448,7 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
    */
   downloadModel(
     id: string,
-    sourceOverrides: Readonly<Record<string, string>> = {},
+    sourceOverrides: Readonly<Record<string, string | readonly string[]>> = {},
   ): Promise<{ success: boolean; error?: string }> {
     if (this.isRemoved(id))
       return Promise.resolve({ success: false, error: '模型已删除，请通过增强包重新下载' });
@@ -474,6 +487,7 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
         });
       };
       const transfer = new ManagedDownload({
+        ...this.downloadOptions,
         batch: true,
         total: model.sizeBytes,
         validate: async (path, _response, bytes) => {
@@ -486,7 +500,11 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
         state: (state) => {
           paused = state.paused;
           pauseReasons = state.reasons;
-          report(completedBytes + (fileDownloading ? state.received : 0));
+          report(completedBytes + (fileDownloading ? state.received : 0), {
+            source: state.source,
+            attempt: state.attempt,
+            retryAt: state.retryAt,
+          });
         },
       });
       this.transfers.set(id, transfer);
@@ -510,10 +528,11 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
           fileDownloading = true;
           try {
             await this.downloadToFile(
-              sourceOverrides[f.key] ?? f.url,
+              sourceOverrides[f.key] ?? f.sources ?? f.url,
               target,
               (downloaded, _total, speed) => report(completedBytes + downloaded, { speed }),
               transfer,
+              f,
             );
           } finally {
             fileDownloading = false;
@@ -566,11 +585,18 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
   }
 
   private downloadToFile(
-    url: string,
+    url: string | readonly string[],
     target: string,
     progress: (received: number, total: number, speed: number) => void,
     transfer: ManagedDownload,
+    file: ModelFile,
   ): Promise<void> {
-    return transfer.file(url, target, COMMON_HEADERS, progress);
+    return transfer.file(
+      url,
+      target,
+      COMMON_HEADERS,
+      progress,
+      file.sha256 && file.sizeBytes ? { sha256: file.sha256, size: file.sizeBytes } : undefined,
+    );
   }
 }

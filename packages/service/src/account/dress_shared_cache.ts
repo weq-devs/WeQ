@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * 装扮共享缓存管理 — 全局资源文件（bubbles/fonts/pendants）。
  *
@@ -1044,7 +1045,7 @@ export class DressSharedCache {
     }
     if (!url) return null;
     try {
-      const r = await fetch(url);
+      const r = await networkFetch(url);
       if (!r.ok) return null;
       const bytes = Buffer.from(await r.arrayBuffer());
       mkdirSync(this.bubblesDir, { recursive: true });
@@ -1165,7 +1166,7 @@ async function fetchBubbleConfig(
 > {
   if (!url) return undefined;
   try {
-    const res = await fetch(url);
+    const res = await networkFetch(url);
     if (!res.ok) return undefined;
     const json = (await res.json()) as {
       color?: unknown;
@@ -1213,7 +1214,7 @@ function readPendantSidecar(path: string): PendantSidecar | null {
 async function fetchPendantInterval(url: string | undefined): Promise<number | undefined> {
   if (!url) return undefined;
   try {
-    const res = await fetch(url);
+    const res = await networkFetch(url);
     if (!res.ok) return undefined;
     const text = await res.text();
     const match = text.match(/=\s*(\{[\s\S]*\})\s*;?\s*$/);

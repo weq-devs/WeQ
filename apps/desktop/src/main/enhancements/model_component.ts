@@ -120,7 +120,23 @@ export function createModelComponent<T extends ModelEntry>(
       target = {
         ...store.getModel(id)!,
         minWeqVersion: release.minWeqVersion ?? store.getModel(id)!.minWeqVersion,
-        files: release.files.map((file) => ({ ...file, weight: file.sizeBytes / sizeBytes })),
+        files: release.files.map((file) => {
+          const original = store.registeredModel(id)?.files.find((entry) => entry.key === file.key);
+          const previous = new URL(file.url);
+          const pinned = original && new URL(original.url);
+          const knownFloating =
+            original?.sha256 === file.sha256 &&
+            original?.sizeBytes === file.sizeBytes &&
+            (previous.hostname === 'modelscope.cn' || previous.hostname === 'www.modelscope.cn') &&
+            pinned?.hostname === 'modelscope.cn' &&
+            previous.pathname.replace('/resolve/master/', '/resolve/PIN/') ===
+              pinned.pathname.replace(/\/resolve\/[a-f0-9]{40}\//, '/resolve/PIN/');
+          return {
+            ...file,
+            ...(knownFloating ? { url: original!.url, sources: original!.sources } : {}),
+            weight: file.sizeBytes / sizeBytes,
+          };
+        }),
         sizeBytes,
       };
       revision = releaseContentVersion([release]);
@@ -148,6 +164,9 @@ export function createModelComponent<T extends ModelEntry>(
             total: target.sizeBytes - initial,
             paused: p.paused,
             pauseReasons: p.pauseReasons,
+            source: p.source,
+            attempt: p.attempt,
+            retryAt: p.retryAt,
             note: '准备模型文件',
           });
       };
@@ -155,7 +174,7 @@ export function createModelComponent<T extends ModelEntry>(
       try {
         const downloading = candidate.downloadModel(
           id,
-          Object.fromEntries(target.files.map((file) => [file.key, file.url])),
+          Object.fromEntries(target.files.map((file) => [file.key, file.sources ?? file.url])),
         );
         if (manuallyPaused) candidate.pauseDownload(id);
         else if (continued) candidate.continueDownload(id);

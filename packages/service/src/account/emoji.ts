@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * EmojiService — handles QQ "Market Face" (store emoji) decryption and fallback.
  */
@@ -683,7 +684,7 @@ export class EmojiService {
 
   private async fetchMarketPackDetail(id: string): Promise<MarketPackDetail | null> {
     const url = `https://i.gtimg.cn/club/item/parcel/${Number(id) % 10}/${id}_android.json`;
-    const res = await fetch(url, { headers: { Referer: '', 'User-Agent': 'Mozilla/5.0' } });
+    const res = await networkFetch(url, { headers: { Referer: '', 'User-Agent': 'Mozilla/5.0' } });
     if (!res.ok) return null;
     const j = (await res.json()) as {
       name?: string;
@@ -777,7 +778,9 @@ export class EmojiService {
       const url = `https://i.gtimg.cn/club/item/parcel/item/${prefix}/${hash}/${res}`;
       let ct: Uint8Array;
       try {
-        const r = await fetch(url, { headers: { Referer: '', 'User-Agent': 'Mozilla/5.0' } });
+        const r = await networkFetch(url, {
+          headers: { Referer: '', 'User-Agent': 'Mozilla/5.0' },
+        });
         if (!r.ok) continue;
         ct = new Uint8Array(await r.arrayBuffer());
       } catch {
@@ -931,7 +934,7 @@ export class EmojiService {
   /** Download CDN bytes and save as-is (CDN content is plaintext). */
   private async download(url: string, targetPath: string): Promise<string | null> {
     try {
-      const res = await fetch(url, {
+      const res = await networkFetch(url, {
         headers: { Referer: '', 'User-Agent': 'Mozilla/5.0' },
       });
       if (!res.ok) return null;

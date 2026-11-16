@@ -90,7 +90,11 @@ beforeEach(async () => {
     if (command === '/usr/bin/ditto') await mkdir(join(args.at(-1), 'weQ.app'));
     return { stdout: '', stderr: 'Signature=adhoc\n' };
   });
-  vi.stubGlobal('fetch', fixture.fetch);
+  vi.stubGlobal('fetch', (url: string | URL | Request, init?: RequestInit) =>
+    String(url).includes('/weq-update-feed/update-index.json')
+      ? Promise.resolve(new Response('', { status: 404 }))
+      : fixture.fetch(url, init),
+  );
   app = new EventEmitter();
   fixture.app.on.mockImplementation(app.on.bind(app));
   fixture.app.once.mockImplementation(app.once.bind(app));

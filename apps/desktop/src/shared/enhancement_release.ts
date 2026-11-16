@@ -22,6 +22,7 @@ const file = z.object({
   key: z.string().min(1),
   name: z.string().refine(safeEnhancementPath),
   url,
+  sources: z.array(url).min(1).max(8).optional(),
   sizeBytes: z
     .number()
     .int()

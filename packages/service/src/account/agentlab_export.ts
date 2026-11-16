@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * 把一个训练好的克隆体 persona 导出成自包含的 OneBot bot 产物文件夹。
  *
@@ -80,7 +81,7 @@ export async function probeBotWebUi(url: string): Promise<boolean> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 3000);
   try {
-    const res = await fetch(url, { method: 'GET', signal: controller.signal });
+    const res = await networkFetch(url, { method: 'GET', signal: controller.signal });
     return res.ok || res.status === 401;
   } catch {
     return false;

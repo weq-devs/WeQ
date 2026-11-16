@@ -144,7 +144,9 @@ export function EnhancementPacksSection() {
                 ? operation.pauseReasons?.includes('user')
                   ? '已暂停'
                   : '省流量模式已暂停'
-                : (operation?.note ?? '正在准备')
+                : operation?.retryAt && operation.retryAt > Date.now()
+                  ? '等待自动重试'
+                  : (operation?.note ?? '正在准备')
               : pack.check?.phase === 'waiting-network'
                 ? '等待网络允许检查'
                 : pack.needsRepair
@@ -262,7 +264,10 @@ export function EnhancementPacksSection() {
                       {operation?.paused ? <Play size={14} /> : <Pause size={14} />}
                     </button>
                     {operation?.total ? (
-                      <span className="weq-enhancement-phase">{status}</span>
+                      <span className="weq-enhancement-phase" title={operation?.source}>
+                        {status}
+                        {operation?.source ? ` · ${operation.source}` : ''}
+                      </span>
                     ) : null}
                   </div>
                 ) : status ? (

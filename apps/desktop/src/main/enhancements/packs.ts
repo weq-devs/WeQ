@@ -31,6 +31,9 @@ export interface EnhancementComponent {
       paused?: boolean;
       pauseReasons?: string[];
       note?: string;
+      source?: string;
+      attempt?: number;
+      retryAt?: number;
     }) => void,
   ): Promise<void>;
   check?(): Promise<void>;
@@ -61,6 +64,9 @@ export interface PackOperation {
   paused?: boolean;
   pauseReasons?: string[];
   note?: string;
+  source?: string;
+  attempt?: number;
+  retryAt?: number;
   error?: string;
 }
 
@@ -407,6 +413,9 @@ export class EnhancementPacks {
                   this.operations.set(pack.id, {
                     phase: 'downloading',
                     received: base + received,
+                    source: progress.source,
+                    attempt: progress.attempt,
+                    retryAt: progress.retryAt,
                     total,
                     paused: control.gate.paused || progress.paused,
                     pauseReasons: control.gate.paused

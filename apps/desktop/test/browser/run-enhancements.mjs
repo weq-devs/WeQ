@@ -125,6 +125,27 @@ try {
   );
   await page.goto(`${url}?state=busy`);
   assert.equal(await page.locator('progress').evaluate((node) => node.value), 50);
+  for (const width of [1024, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const theme of ['light', 'dark']) {
+      await page.goto(`${url}?state=retrying`);
+      await page.evaluate(
+        (theme) => window.enhancementTheme.getState().setPreference(theme),
+        theme,
+      );
+      await page
+        .getByText('等待自动重试 · github-proxy.memory-echoes.cn', { exact: true })
+        .waitFor();
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+        true,
+      );
+      await page.screenshot({
+        path: resolve(output, `retrying-${theme}-${width}.png`),
+        fullPage: true,
+      });
+    }
+  }
   await page.goto(`${url}?state=failed`);
   assert.equal(await page.getByRole('button', { name: '重试', exact: true }).count(), 1);
   await page.goto(`${url}?state=update`);

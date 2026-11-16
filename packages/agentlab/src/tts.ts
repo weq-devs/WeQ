@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * TtsService — account-independent text-to-speech, the second member of
  * `common/`. Mirrors the MaiBot `tts_voice_plugin` strategy pattern: a vendor
@@ -307,7 +308,7 @@ async function fetchWithTimeout(
     context.call = beginApiUsage(context.endpoint);
   }
   try {
-    const response = await fetch(url, { ...init, signal });
+    const response = await networkFetch(url, { ...init, signal });
     if (!response.ok) context?.call?.finish('failed');
     return response;
   } catch (error) {

@@ -1,7 +1,9 @@
+import { networkFetch } from '@weq/network';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { lstat } from 'node:fs/promises';
 import { z } from 'zod';
+import { getReleaseFeed } from './release_feed';
 
 const releaseSchema = z.object({
   tag_name: z.string(),
@@ -43,7 +45,17 @@ export async function fetchOfficialArchive(
   fileName: string,
   includePrerelease = false,
 ): Promise<OfficialArchive> {
-  const response = await fetch(
+  const feed = getReleaseFeed('weq-devs/WeQ');
+  let asset = await feed.archive(version, fileName);
+  if (!asset) {
+    await feed.read();
+    asset = await feed.archive(version, fileName);
+  }
+  if (asset) {
+    if (asset.prerelease && !includePrerelease) throw new Error('未开启检查测试版');
+    return { sha256: asset.sha256, size: asset.size };
+  }
+  const response = await networkFetch(
     `https://api.github.com/repos/weq-devs/WeQ/releases/tags/v${encodeURIComponent(version)}`,
     {
       signal: AbortSignal.timeout(20_000),

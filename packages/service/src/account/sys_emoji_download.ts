@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * SysEmojiDownloadService —— QQ 资源目录缺失时，自己下内置表情。
  *
@@ -330,7 +331,7 @@ function stripLeadingSegment(name: string, id: string): string | null {
 
 /** 下载整个响应体，拒绝超大响应。 */
 async function downloadBuffer(url: string): Promise<Buffer> {
-  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  const res = await networkFetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
   if (!res.ok) throw new Error(`download failed: ${res.status}`);
   const declared = Number(res.headers.get('content-length') ?? 0);
   if (declared > MAX_ZIP_BYTES) throw new Error('resource too large');

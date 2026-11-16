@@ -40,6 +40,12 @@ async function runManagedMediaDownload(
     signal: options.signal,
     maxBytes: options.maxBytes,
     timeoutMs: options.timeoutMs,
+    idleTimeoutMs: options.idleTimeoutMs,
+    maxAttempts: options.attempts,
+    identity:
+      options.expectedSha256 && options.expectedSize
+        ? { sha256: options.expectedSha256, size: options.expectedSize }
+        : undefined,
     fetcher: options.fetcher
       ? (input, init) =>
           options.fetcher!(String(input), {

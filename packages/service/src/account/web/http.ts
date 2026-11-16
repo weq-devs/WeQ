@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /** Shared bounded HTTP transport for QQ web cgis. */
 import { isQzonePageRequest, waitForQzonePage } from '../../common/qzone_pagination';
 import { OperationError } from '../../common/operation_error';
@@ -192,7 +193,7 @@ async function requestOnce(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const target = targetLabel(url);
   try {
-    const fetched = fetch(url, {
+    const fetched = networkFetch(url, {
       method,
       redirect: init.redirect,
       headers: {

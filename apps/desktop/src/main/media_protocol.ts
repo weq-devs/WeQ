@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * `weq-media://` — streams a chat message's on-disk media to the renderer.
  *
@@ -356,7 +357,7 @@ async function albumRemoteResponse(src: string): Promise<Response> {
   };
   const range = incoming?.headers.get('range');
   if (range) headers.Range = range;
-  const res = await fetch(src, { headers });
+  const res = await networkFetch(src, { headers });
   if (!res.ok) return new Response(`album image http ${res.status}`, { status: res.status });
   const contentType = res.headers.get('content-type') ?? '';
   // 视频原样回传：要保留 range 支持（上游 206 + content-range 直接透传），

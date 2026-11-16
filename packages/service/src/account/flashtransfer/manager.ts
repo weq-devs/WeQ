@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * 闪传下载任务管理器 —— 落盘持久化 + 并发下载 + 逐文件进度事件。
  *
@@ -60,7 +61,7 @@ async function downloadWithProgress(
 ): Promise<void> {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      const res = await fetch(url, { signal });
+      const res = await networkFetch(url, { signal });
       if (res.status === 429 || res.status >= 500) {
         if (attempt < DL_RETRIES) {
           await sleep(backoffMs(attempt));
