@@ -61,7 +61,8 @@ it('任务详情复用按天数的单一进度、默认展开日志、日期与�
       month: '2026-11',
       day: input.day ?? '2026-11-08',
       snapshot: {
-        enabledKinds: [...CALENDAR_SOURCE_ORDER],
+        enabledKinds: input.kinds,
+        emptyReason: input.kinds.length ? undefined : '未选择统计内容',
         controls: {
           month: { state: 'running', disabled: false },
           day: { state: 'running', disabled: false },
@@ -76,8 +77,8 @@ it('任务详情复用按天数的单一进度、默认展开日志、日期与�
           kind: 'c2c',
           progress: { phase: '漫游缓存', processed: 4, unit: '个会话' },
         },
-        rows: [{ target, anchor, count: 10 }],
-        totalRows: 1,
+        rows: input.kinds.length ? [{ target, anchor, count: 10 }] : [],
+        totalRows: input.kinds.length ? 1 : 0,
         complete: false,
         cancelled: false,
         logs: input.includeLogs
@@ -112,6 +113,26 @@ it('任务详情复用按天数的单一进度、默认展开日志、日期与�
     expect(host.querySelector('input[type="date"]')?.getAttribute('min')).toBe('2026-11-01');
     expect(host.querySelector('.weq-density-calendar-grid')).toBeNull();
     expect(host.querySelectorAll('[aria-label="统计内容"] button')).toHaveLength(8);
+    const allKinds = host.querySelector<HTMLButtonElement>('[aria-label="全部统计内容"]')!;
+    await act(async () => allKinds.click());
+    expect(fixture.query.mock.lastCall?.[0].kinds).toEqual([]);
+    expect(host.textContent).toContain('未选择统计内容');
+    expect(host.textContent).not.toContain('当天没有消息');
+    const c2c = host.querySelector<HTMLButtonElement>('[data-weq-select-id="c2c"]')!;
+    await act(async () => c2c.click());
+    expect(fixture.query.mock.lastCall?.[0].kinds).toEqual(['c2c']);
+    act(() => c2c.focus());
+    const escapeEvent = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => c2c.dispatchEvent(escapeEvent));
+    expect(escapeEvent.defaultPrevented).toBe(false);
+    expect(c2c.getAttribute('aria-pressed')).toBe('true');
+    expect(fixture.query.mock.lastCall?.[0].kinds).toEqual(['c2c']);
+    await act(async () => allKinds.click());
+    expect(fixture.query.mock.lastCall?.[0].kinds).toEqual(CALENDAR_SOURCE_ORDER);
     expect(host.querySelectorAll('progress')).toHaveLength(1);
     const pauseMonth = host.querySelector<HTMLButtonElement>('[aria-label="暂停当月统计"]')!;
     await act(async () => pauseMonth.click());
