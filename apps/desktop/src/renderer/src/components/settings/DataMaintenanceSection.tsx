@@ -44,7 +44,7 @@ export const MAINTENANCE_TOOLS = [
   },
   {
     id: 'database',
-    label: '数据库管理',
+    label: '数据库浏览',
     actionLabel: '打开数据库浏览',
     settingId: 'database-manager',
     icon: Database,
@@ -68,7 +68,7 @@ export const MAINTENANCE_TOOLS = [
   },
   {
     id: 'db-repair',
-    label: '数据库修复',
+    label: '检查与修复',
     actionLabel: '打开修复工具',
     settingId: 'database-repair',
     icon: DatabaseZap,

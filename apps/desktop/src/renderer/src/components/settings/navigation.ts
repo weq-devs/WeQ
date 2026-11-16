@@ -25,8 +25,6 @@ export const SETTINGS_PAGE_LABELS = {
   accounts: 'WeQ 账号管理',
   'qq-accounts': 'QQ 登录记录管理',
   diagnostics: 'QQ 协议工具',
-  'database-repair': '损坏与修复',
-  'database-tolerance': '数据库容错',
   'database-management': '数据库管理',
   'qq-storage': 'QQ 资源管理',
   media: '媒体来源',
@@ -56,6 +54,8 @@ export type SectionId =
   | 'rkey'
   | 'database'
   | 'database-status'
+  | 'database-repair'
+  | 'database-tolerance'
   | 'maintenance'
   | 'local-models'
   | 'intent-models'
@@ -106,14 +106,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
   {
     id: 'data',
     label: '资源与数据库',
-    sections: [
-      'resource-loading',
-      'media',
-      'qq-storage',
-      'database-management',
-      'database-tolerance',
-      'database-repair',
-    ],
+    sections: ['resource-loading', 'media', 'qq-storage', 'database-management'],
   },
   {
     id: 'services',
@@ -133,7 +126,7 @@ export interface SettingsScope {
 }
 
 export function settingsScopeFor(section: SectionId): SettingsScope | null {
-  if (['model-usage', 'database-tolerance'].includes(section)) return { label: '当前账号' };
+  if (section === 'model-usage') return { label: '当前账号' };
   // 混合作用域的页面在具体分区标注，不用页头把全局项误标为当前账号。
   return null;
 }
@@ -245,10 +238,10 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   { id: 'log-retention', section: 'logs', label: '日志保留时长', from: ['logs'] },
   {
     id: 'database-read-concurrency',
-    section: 'logs',
+    section: 'database-management',
     label: '数据库读取并发上限',
     aliases: ['连接池', '并行读取', '查询排队'],
-    from: ['logs'],
+    from: ['logs', 'database-management'],
   },
   { id: 'log-folder', section: 'logs', label: '日志文件夹', from: ['logs'], desktopOnly: true },
   {
@@ -664,28 +657,37 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   {
     id: 'damage-reminder',
-    section: 'database-repair',
+    section: 'database-management',
     label: '损坏提醒',
     aliases: ['数据库异常时弹窗提醒'],
-    from: ['database', 'database-repair'],
+    from: ['database', 'database-repair', 'database-management'],
+  },
+  {
+    id: 'db-tolerance',
+    section: 'database-management',
+    label: '容错级别',
+    aliases: ['数据库容错', '容错策略'],
+    from: ['database', 'database-tolerance', 'database-management'],
   },
   {
     id: 'tolerance-records',
-    section: 'database-tolerance',
+    section: 'database-management',
     label: '容错记录',
     aliases: ['降级账本', '已放弃的表（隔离中）'],
-    from: ['database-status', 'database-tolerance'],
+    from: ['database-status', 'database-tolerance', 'database-management'],
   },
   {
     id: 'database-repair',
-    section: 'database-repair',
-    label: '数据库修复',
-    from: ['maintenance', 'database-repair'],
+    section: 'database-management',
+    label: '检查与修复',
+    aliases: ['数据库修复', '损坏与修复'],
+    from: ['maintenance', 'database-repair', 'database-management'],
   },
   {
     id: 'database-manager',
     section: 'database-management',
-    label: '数据库管理',
+    label: '数据库浏览',
+    aliases: ['数据库管理'],
     from: ['maintenance', 'database-management'],
   },
   {
@@ -773,8 +775,10 @@ const SECTION_REDIRECTS: Partial<
   'anti-recall': { section: 'chat-interaction', settingId: 'anti-recall' },
   media: { section: 'media', settingId: 'linked-resources' },
   rkey: { section: 'credentials', settingId: 'external-rkey' },
-  database: { section: 'database-tolerance' },
-  'database-status': { section: 'database-tolerance', settingId: 'tolerance-records' },
+  database: { section: 'database-management', settingId: 'db-tolerance' },
+  'database-tolerance': { section: 'database-management', settingId: 'db-tolerance' },
+  'database-repair': { section: 'database-management', settingId: 'database-repair' },
+  'database-status': { section: 'database-management', settingId: 'tolerance-records' },
   maintenance: { section: 'database-management' },
   'local-models': { section: 'enhancement-packs' },
   'intent-models': { section: 'enhancement-packs', settingId: 'enhancement-intent' },

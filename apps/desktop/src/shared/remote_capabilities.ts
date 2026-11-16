@@ -83,8 +83,9 @@ export function remoteProcedureUnavailable(path: string, input: unknown): boolea
   return false;
 }
 
-const computerSettingsPages = new Set(['weq-storage', 'qq-accounts', 'database-repair', 'media']);
+const computerSettingsPages = new Set(['weq-storage', 'qq-accounts', 'media']);
 const computerSettingIds = new Set([
+  'database-repair',
   'weq-space-cleanup',
   'qq-storage-cleanup',
   'linked-resources',

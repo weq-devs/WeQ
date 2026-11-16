@@ -325,7 +325,7 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   add('auto-enter', 'account', '默认进入账号', config.getAutoEnter(), null, () =>
     b.clearAutoEnter(),
   );
-  app('damage-reminder', 'suppressDbDamageReminder', '损坏提醒', (suppressed) =>
+  app('db-tolerance', 'suppressDbDamageReminder', '损坏提醒', (suppressed) =>
     b.setSuppressDbDamageReminder({ suppressed }),
   );
   app('cdn', 'preferCdn', '优先 CDN', (enabled) => b.setPreferCdn({ enabled }));

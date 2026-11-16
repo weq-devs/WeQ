@@ -59,27 +59,7 @@ try {
     assert.deepEqual(await page.locator('.weq-set-card-title').allTextContents(), [
       '性能记录',
       '应用日志',
-      '数据库读取',
     ]);
-    const readConcurrency = page.getByRole('spinbutton', {
-      name: '数据库读取并发上限',
-      exact: true,
-    });
-    assert.equal(await readConcurrency.inputValue(), '4');
-    await readConcurrency.fill('8');
-    await readConcurrency.press('Enter');
-    await page.waitForFunction(() => window.performanceQa.databaseReadChanges.includes(8));
-    assert.equal(await readConcurrency.inputValue(), '8');
-    assert.equal(
-      await page.getByRole('button', { name: '增加数据库读取并发', exact: true }).isDisabled(),
-      true,
-    );
-    await readConcurrency.fill('9');
-    await readConcurrency.press('Enter');
-    assert.equal(await readConcurrency.inputValue(), '8');
-    await readConcurrency.fill('4');
-    await readConcurrency.press('Enter');
-    await page.waitForFunction(() => window.performanceQa.databaseReadChanges.at(-1) === 4);
     assert.equal(await page.locator('.weq-perf-chart').count(), 0);
     assert.equal(await page.getByRole('button', { name: '应用', exact: true }).count(), 0);
     assert.equal(await page.locator('select').count(), 0);
@@ -166,11 +146,6 @@ try {
       assert.equal(
         await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
         false,
-      );
-      assert.ok(
-        await page
-          .locator('[data-setting-id="database-read-concurrency"] .weq-set-row')
-          .evaluate((row) => row.getBoundingClientRect().height < 110),
       );
       if (output)
         await page.screenshot({
@@ -335,10 +310,6 @@ try {
       .waitFor();
     await monitor.close();
   }
-  await page.goto(url + '?state=legacy-native');
-  await page
-    .getByText('当前原生组件仅支持串行读取；保存的上限将在组件更新后生效。', { exact: true })
-    .waitFor();
   assert.deepEqual(errors, []);
   console.log(
     '日志与性能：配置分离、两个小型独立窗口、自动保存、现场保留、独立文档可见性、导出清空、四种尺寸及浅深主题通过',

@@ -187,8 +187,6 @@ try {
         '媒体来源',
         'QQ 资源管理',
         '数据库管理',
-        '数据库容错',
-        '损坏与修复',
       ]);
       await page.getByRole('button', { name: '媒体来源', exact: true }).click();
       await page.locator('.weq-settings-body [data-setting-id="external-chatpic"]').waitFor();

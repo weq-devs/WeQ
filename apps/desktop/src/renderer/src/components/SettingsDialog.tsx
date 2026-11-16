@@ -30,7 +30,6 @@ import {
   ChevronRight,
   Clock,
   Code2,
-  DatabaseZap,
   Globe,
   HardDrive,
   ImageIcon,
@@ -84,7 +83,6 @@ import { ExternalRkeySection } from './settings/ExternalRkeySection';
 import { SsePushSection } from './settings/SsePushSection';
 import { AssistantSection } from './settings/AssistantSection';
 import { StartupSection } from './settings/StartupSection';
-import { DatabaseSettingsSection } from './settings/DatabaseSettingsSection';
 import { DataMaintenanceSection, type MaintenanceTool } from './settings/DataMaintenanceSection';
 import { DatabaseManagementSection } from './settings/DatabaseManagementSection';
 import { ResourceManagementSection } from './settings/ResourceManagementSection';
@@ -239,22 +237,10 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <MailSettingsSection />,
   },
   {
-    id: 'database-repair',
-    label: '损坏与修复',
-    icon: <DatabaseZap size={16} strokeWidth={1.8} />,
-    render: (onOpen) => <DatabaseSettingsSection page="repair" onOpen={onOpen} />,
-  },
-  {
     id: 'database-management',
     label: '数据库管理',
     icon: <HardDrive size={16} strokeWidth={1.8} />,
-    render: () => <DatabaseManagementSection />,
-  },
-  {
-    id: 'database-tolerance',
-    label: '数据库容错',
-    icon: <DatabaseZap size={16} />,
-    render: (onOpen) => <DatabaseSettingsSection page="tolerance" onOpen={onOpen} />,
+    render: (onOpen) => <DatabaseManagementSection onOpen={onOpen} />,
   },
   {
     id: 'qq-storage',

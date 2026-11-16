@@ -20,11 +20,17 @@ it('设置入口不提前加载维护弹窗和导出工作区', () => {
   const entry = resolve(root, 'components/settings/DataMaintenanceSection.tsx');
   expect(runtimeImports(entry)).not.toContain('../../views/ExportView');
   expect(readFileSync(entry, 'utf8')).not.toContain('export function DataMaintenanceDialog');
-  for (const name of ['DataMaintenanceDialog', 'DatabaseManagementSection']) {
+  for (const name of ['DataMaintenanceDialog']) {
     const path = resolve(root, `components/settings/${name}.tsx`);
     expect(runtimeImports(path)).not.toContain('../../views/ExportView');
     expect(runtimeImports(path)).toContain('../lazyWorkspaces');
   }
+  expect(
+    runtimeImports(resolve(root, 'components/settings/DatabaseManagementSection.tsx')),
+  ).not.toContain('../../views/cache/DbExplorer');
+  expect(runtimeImports(resolve(root, 'components/DatabaseBrowser.tsx'))).toContain(
+    './lazyWorkspaces',
+  );
   const loaders = readFileSync(resolve(root, 'components/lazyWorkspaces.ts'), 'utf8');
   expect(loaders).toContain("import('./settings/DataMaintenanceDialog')");
   expect(loaders).not.toContain("import('./settings/DataMaintenanceSection')");

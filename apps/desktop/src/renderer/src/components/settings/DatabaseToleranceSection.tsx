@@ -32,7 +32,7 @@ import { eventTimeFormatter } from '@weq/time';
  *   - clearSalvageQuarantine   — 让它重新试一次
  */
 
-import { useState, type ReactElement } from 'react';
+import { useState, type ReactElement, type ReactNode, type ComponentProps } from 'react';
 import {
   AlertTriangle,
   ChevronDown,
@@ -57,6 +57,31 @@ import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useToast } from '../Toast';
 import { Card, Row, SectionHeader, Toggle } from './controls';
+
+function ToleranceGroup({
+  embedded,
+  scope,
+  ...props
+}: ComponentProps<typeof Card> & { embedded: boolean; scope?: string }) {
+  return embedded ? (
+    <section className="weq-database-setting-group" data-setting-id={props.settingId}>
+      <div className="weq-database-group-head">
+        <h4>{props.title}</h4>
+        {scope && <span>{scope}</span>}
+        {props.settingId === 'db-tolerance' && (
+          <span className="weq-set-exp-badge" title={SALVAGE_EXPERIMENTAL_NOTE}>
+            <FlaskConical size={11} aria-hidden />
+            {SALVAGE_EXPERIMENTAL_TAG}
+          </span>
+        )}
+        {props.action}
+      </div>
+      {props.children}
+    </section>
+  ) : (
+    <Card {...props} />
+  );
+}
 
 /** 账本里一条记录的渲染层视图。 */
 interface LedgerEntryView {
@@ -130,10 +155,13 @@ function shortTime(iso: string): string {
 export function DatabaseToleranceSection({
   page = 'policy',
   onOpenRecords,
+  repairAction,
 }: {
-  page?: 'policy' | 'status' | 'damage';
+  page?: 'policy' | 'status' | 'damage' | 'management';
   onOpenRecords?: () => void;
+  repairAction?: ReactNode;
 }): ReactElement {
+  const embedded = page === 'management';
   const pushToast = useToast((s) => s.push);
   const autoRefresh = useQQAutoRefresh(true);
   const utils = trpc.useUtils();
@@ -152,7 +180,7 @@ export function DatabaseToleranceSection({
   const [pendingLossy, setPendingLossy] = useState<number | null>(null);
   // 弹窗提醒开关。它存在 AppSettings 里（不是宽容级别那一套），所以单独查一次。
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
-    enabled: autoRefresh.enabled && page === 'damage',
+    enabled: autoRefresh.enabled && (page === 'damage' || embedded),
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -239,26 +267,34 @@ export function DatabaseToleranceSection({
 
   const busy = setLevel.isPending;
 
-  return (
+  const content = (
     <div className="weq-set">
-      <SectionHeader
-        title={page === 'policy' ? '数据库容错' : page === 'damage' ? '损坏与修复' : '容错记录'}
-        icon={<DatabaseZap size={16} strokeWidth={1.9} />}
-        desc={
-          page === 'damage' ? undefined : (
-            <>
-              <span className="weq-set-exp-badge" title={SALVAGE_EXPERIMENTAL_NOTE}>
-                <FlaskConical size={11} strokeWidth={2.2} aria-hidden />
-                {SALVAGE_EXPERIMENTAL_TAG}
-              </span>
-              QQ 数据库损坏时默认直接报错；也可以按需开启容错级别，接受「少读一点也能用」的代价。
-            </>
-          )
-        }
-      />
+      {!embedded && (
+        <SectionHeader
+          title={page === 'policy' ? '数据库容错' : page === 'damage' ? '损坏与修复' : '容错记录'}
+          icon={<DatabaseZap size={16} strokeWidth={1.9} />}
+          desc={
+            page === 'damage' ? undefined : (
+              <>
+                <span className="weq-set-exp-badge" title={SALVAGE_EXPERIMENTAL_NOTE}>
+                  <FlaskConical size={11} strokeWidth={2.2} aria-hidden />
+                  {SALVAGE_EXPERIMENTAL_TAG}
+                </span>
+                QQ 数据库损坏时默认直接报错；也可以按需开启容错级别，接受「少读一点也能用」的代价。
+              </>
+            )
+          }
+        />
+      )}
 
-      {page === 'policy' && (
-        <Card title="容错级别" icon={<ShieldCheck size={15} strokeWidth={1.8} />}>
+      {(page === 'policy' || embedded) && (
+        <ToleranceGroup
+          embedded={embedded}
+          scope="当前账号"
+          settingId="db-tolerance"
+          title="容错级别"
+          icon={<ShieldCheck size={15} strokeWidth={1.8} />}
+        >
           {/* 口径说明收进卡内可展开块：默认不占版面，要看时点开。 */}
           <details className="weq-set-details">
             <summary>
@@ -307,7 +343,7 @@ export function DatabaseToleranceSection({
                         role="radio"
                         aria-checked={active}
                         className={`weq-set-btn weq-set-btn-sm${active ? '' : ' weq-set-btn-soft'}`}
-                        disabled={busy || active}
+                        disabled={busy || active || !tolerance.data}
                         onClick={() => {
                           if (active) return;
                           if (copy.losesData) {
@@ -383,17 +419,19 @@ export function DatabaseToleranceSection({
               </span>
             </p>
           )}
-        </Card>
+        </ToleranceGroup>
       )}
-      {page === 'damage' && (
-        <Card
+      {(page === 'damage' || embedded) && (
+        <ToleranceGroup
+          embedded={embedded}
+          scope="全局"
           title="损坏提醒"
           icon={<AlertTriangle size={15} strokeWidth={1.8} />}
           settingId="damage-reminder"
         >
           <Row
             label="数据库异常时弹窗提醒"
-            desc="健康检查确认损坏后会显示提示，可点击「尝试修复」，或从设置 → 资源与数据库 → 损坏与修复进入。关闭提示后仍会记录日志并生成检查报告。"
+            desc="健康检查确认损坏后显示提醒；检查与修复入口在本页。关闭提醒后仍会记录日志并生成检查报告。"
             control={
               <Toggle
                 checked={remindOnDamage}
@@ -403,10 +441,12 @@ export function DatabaseToleranceSection({
               />
             }
           />
-        </Card>
+        </ToleranceGroup>
       )}
-      {page === 'policy' && onOpenRecords && (
-        <Card
+      {(page === 'policy' || embedded) && onOpenRecords && (
+        <ToleranceGroup
+          embedded={embedded}
+          scope="当前账号"
           title="容错记录"
           icon={<ScrollText size={15} strokeWidth={1.8} />}
           settingId="tolerance-records"
@@ -426,7 +466,7 @@ export function DatabaseToleranceSection({
                   ? '正在读取容错记录…'
                   : '暂无容错记录。'}
           </p>
-        </Card>
+        </ToleranceGroup>
       )}
       {page === 'status' && (
         <Card
@@ -567,5 +607,13 @@ export function DatabaseToleranceSection({
         </Card>
       ) : null}
     </div>
+  );
+  return embedded ? (
+    <Card title="容错与修复" icon={<DatabaseZap size={15} />} resetId="db-tolerance">
+      {content}
+      {repairAction}
+    </Card>
+  ) : (
+    content
   );
 }

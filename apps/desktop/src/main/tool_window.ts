@@ -4,6 +4,7 @@ import { floatingWindowTypeOption } from './linux_window_backend';
 import { windowDecorationOptions } from './window_controls_events';
 import { readGroupResourceWindowName } from '../shared/group_resource_window';
 import { MONITOR_WINDOWS } from '../shared/monitor_window';
+import { DATABASE_BROWSER_WINDOW } from '../shared/database_window';
 
 /** 仅放行明确登记的本地空白工具窗，不给子窗口增加 preload 或 Node 权限。 */
 export function applicationToolPopupOptions(
@@ -12,7 +13,9 @@ export function applicationToolPopupOptions(
 ): BrowserWindowConstructorOptions | null {
   const monitor =
     url === 'about:blank'
-      ? Object.values(MONITOR_WINDOWS).find((item) => item.name === frameName)
+      ? [...Object.values(MONITOR_WINDOWS), DATABASE_BROWSER_WINDOW].find(
+          (item) => item.name === frameName,
+        )
       : undefined;
   if (monitor)
     return {

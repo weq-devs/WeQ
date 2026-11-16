@@ -195,14 +195,7 @@ describe('设置归位后的实际页面', () => {
           ).toBeNull();
         }
       }
-      for (const page of [
-        'backup',
-        'faq',
-        'feedback',
-        'diagnostics',
-        'database-management',
-        'weq-storage',
-      ] as const) {
+      for (const page of ['backup', 'faq', 'feedback', 'diagnostics', 'weq-storage'] as const) {
         f.render(page);
         expect(f.body().querySelector('[aria-label="恢复本页默认设置"]'), page).toBeNull();
       }
@@ -500,7 +493,7 @@ describe('设置归位后的实际页面', () => {
     ['maintenance', '本地缓存', 'resource-viewer', 'QQ 资源管理'],
     ['maintenance', '存储占用', 'qq-storage-analysis', 'QQ 资源管理'],
     ['maintenance', '清理缓存', 'qq-storage-cleanup', 'QQ 资源管理'],
-    ['maintenance', '数据库修复', 'database-repair', '损坏与修复'],
+    ['maintenance', '数据库修复', 'database-repair', '数据库管理'],
     ['maintenance', '导出明文数据库', 'database-export', '数据库管理'],
     ['maintenance', '密钥扫描', 'key-scan', '凭据管理'],
     ['maintenance', '其它设备密钥', 'other-device-key', '凭据管理'],
@@ -512,7 +505,7 @@ describe('设置归位后的实际页面', () => {
     ['reply-suggestions', '常驻显示', 'intent-persistent-display', '意图感知'],
     ['reply-suggestions', '悬停显示', 'intent-hover-display', '意图感知'],
     ['intent-models', '意图模型资源', 'intent-engine', '意图感知'],
-    ['database', '数据库异常时弹窗提醒', 'damage-reminder', '损坏与修复'],
+    ['database', '数据库异常时弹窗提醒', 'damage-reminder', '数据库管理'],
   ] as const)('旧 %s / %s 定位实际控件而不执行工具', (section, item, settingId, page) => {
     const f = mount('appearance');
     try {
@@ -908,14 +901,16 @@ describe('设置归位后的实际页面', () => {
     }
   });
 
-  it('损坏提醒拆出后，容错记录通过入口弹窗查看，旧深链只定位不自动打开', () => {
+  it('数据库页面合并为三张卡片，容错记录通过入口查看，旧深链只定位不自动打开', () => {
     const f = mount('database');
     try {
       expect(f.body().textContent).toContain('容错级别');
-      expect(f.body().querySelector('.weq-set-head-title .weq-settings-scope')?.textContent).toBe(
-        '当前账号',
-      );
-      expect(f.body().textContent).not.toContain('数据库异常时弹窗提醒');
+      expect(
+        [...f.body().querySelectorAll('.weq-set-card-title')].map((node) => node.textContent),
+      ).toEqual(['数据库浏览', '读取性能', '容错与修复']);
+      expect(f.body().querySelector('.weq-cache-db')).toBeNull();
+      expect(f.body().querySelector('.weq-set-head-title .weq-settings-scope')).toBeNull();
+      expect(f.body().textContent).toContain('数据库异常时弹窗提醒');
       expect(f.body().textContent).not.toContain('降级账本');
       f.render('database-status');
       const entry = f.body().querySelector<HTMLElement>('[data-setting-id="tolerance-records"]')!;
@@ -940,7 +935,7 @@ describe('设置归位后的实际页面', () => {
           .querySelector('[data-setting-id="damage-reminder"]')
           ?.getAttribute('data-search-highlight'),
       ).toBe('true');
-      expect(f.body().textContent).not.toContain('容错级别');
+      expect(f.body().textContent).toContain('容错级别');
     } finally {
       f.close();
     }

@@ -1,13 +1,4 @@
-/* 本页内容（DbExplorer）自己撑满高度，不需要外层内边距；留白由页头负责，
- * 与普通设置页的 20px 对齐。必须带 html[data-theme] 才压得过
- * page-chrome.css 里 `html[data-theme] .weq-workspace-page .weq-settings-body`
- * 的 padding（那一条权重更高，否则这里会被打回 20px，顶部留白翻倍）。 */
-html[data-theme] .weq-settings-page.weq-settings-body[data-settings-page='database-management'] {
-  display: flex;
-  padding: 0;
-  overflow: hidden;
-}
-.weq-settings-database {
+.weq-database-browser-content {
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -15,41 +6,77 @@ html[data-theme] .weq-settings-page.weq-settings-body[data-settings-page='databa
   min-height: 0;
   color: var(--weq-fg-primary);
 }
-.weq-settings-database > .weq-set-head {
-  flex-shrink: 0;
-  /* 外层内边距已清零，留白全在这里给；与普通设置页的 20px 对齐。 */
-  padding: 20px 20px 12px;
-}
-.weq-settings-database > .weq-settings-query-error {
+.weq-database-browser-content > .weq-settings-query-error {
   flex-shrink: 0;
   margin: 0 20px 12px;
 }
-.weq-settings-database > .weq-cache-db {
+.weq-database-browser-content > .weq-cache-db {
   min-width: 0;
   overflow: hidden;
 }
-.weq-settings-database .weq-cache-panel {
+.weq-database-browser-content .weq-cache-panel {
   min-width: 0;
 }
-.weq-settings-database .weq-cache-panel-head {
+.weq-database-browser-content .weq-cache-panel-head {
   height: auto;
   min-height: 44px;
   flex-wrap: wrap;
   gap: 8px;
 }
-html[data-theme='dark'] .weq-settings-database {
+html[data-theme='dark'] .weq-database-browser-content {
   color: var(--weq-fg-primary);
 }
 @media (max-width: 600px) {
-  .weq-settings-database > .weq-set-head {
-    padding: 16px;
-  }
-  .weq-settings-database .weq-cache-db:not(.is-tree-collapsed) {
+  .weq-database-browser-content .weq-cache-db:not(.is-tree-collapsed) {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(80px, 30%) minmax(0, 1fr);
   }
-  .weq-settings-database .weq-cache-tree {
+  .weq-database-browser-content .weq-cache-tree {
     border-right: 0;
     border-bottom: 1px solid var(--weq-border-subtle);
+  }
+}
+.weq-database-setting-group {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.weq-database-setting-group + .weq-database-setting-group {
+  border-top: 1px solid var(--weq-border-subtle);
+  padding-top: 14px;
+}
+.weq-database-group-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.weq-database-group-head h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+.weq-database-group-head > span {
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+}
+.weq-database-group-head > button {
+  margin-left: auto;
+}
+.weq-database-read-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+.weq-database-read-controls input[type='number'] {
+  width: 76px;
+}
+@media (max-width: 520px) {
+  html[data-theme] .weq-database-management .weq-set-row {
+    align-items: flex-start;
+  }
+  .weq-database-group-head > button {
+    margin-left: 0;
   }
 }

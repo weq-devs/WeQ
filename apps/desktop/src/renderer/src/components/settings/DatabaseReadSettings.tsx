@@ -4,6 +4,7 @@ import { trpc } from '../../trpc/client';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import { AutoSave } from './AutoSave';
 import { Card, Row, QueryError } from './controls';
+import '../../styles/settings-database.css';
 
 export function DatabaseReadSettings() {
   const { enabled } = useQQReadActivity(true, { onlineOnly: false });
@@ -24,10 +25,11 @@ export function DatabaseReadSettings() {
   const disabled = saved === undefined || mutation.isLoading;
   return (
     <Card
-      title="数据库读取"
+      title="读取性能"
       icon={<Database size={15} />}
       settingId="database-read-concurrency"
       resetId="database-read"
+      desc="全局"
     >
       {settings.error && (
         <QueryError
@@ -57,7 +59,7 @@ export function DatabaseReadSettings() {
               : undefined
           }
           control={
-            <div className="weq-diagnostic-inline">
+            <div className="weq-database-read-controls">
               <button
                 type="button"
                 className="weq-set-iconbtn"

@@ -62,8 +62,7 @@ export const SETTINGS_RESET_CARDS = [
   ['accounts', 'auto-enter', '现有配置'],
   ['media', 'native-media', '关联资源目录'],
   ['media', 'external-chatpic', '外部安卓图片缓存'],
-  ['database-repair', 'damage-reminder', '损坏提醒'],
-  ['database-tolerance', 'db-tolerance', '容错级别'],
+  ['database-management', 'db-tolerance', '容错与修复'],
   ['resource-loading', 'cdn', '加载来源'],
   ['resource-loading', 'data-saver', '省流量模式'],
   ['credentials', 'rkey', '已导入的服务器'],
@@ -77,7 +76,7 @@ export const SETTINGS_RESET_CARDS = [
   ['assistant', 'assistant', '推送与资源服务'],
   ['version', 'update', '软件更新'],
   ['logs', 'logs', '应用日志'],
-  ['logs', 'database-read', '数据库读取'],
+  ['database-management', 'database-read', '读取性能'],
 ] as const;
 export type SettingsResetCardId = (typeof SETTINGS_RESET_CARDS)[number][1];
 export type SettingsResetPageId = (typeof SETTINGS_RESET_CARDS)[number][0];

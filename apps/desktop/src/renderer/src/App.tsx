@@ -32,6 +32,7 @@ import { ToastHost, useToast } from './components/Toast';
 import { DbRepairWindowHost } from './components/DbRepairWindow';
 import { CaptureWindowHost } from './components/CaptureWindow';
 import { LogPerformanceWindowHost } from './components/LogPerformanceWindow';
+import { DatabaseBrowserWindowHost } from './components/DatabaseBrowserWindow';
 import { WelcomeDialog } from './components/WelcomeDialog';
 import { JoinGroupDialog } from './components/JoinGroupDialog';
 import { CloseConfirmDialog } from './components/CloseConfirmDialog';
@@ -269,6 +270,7 @@ export default function App(): ReactElement {
             <DbRepairWindowHost />
             <CaptureWindowHost />
             <LogPerformanceWindowHost />
+            <DatabaseBrowserWindowHost />
             <DesktopOnly>
               <CloseConfirmDialog />
             </DesktopOnly>

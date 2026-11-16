@@ -109,14 +109,7 @@ describe('设置的两级导航', () => {
       expect(settingsGroupFor(id)).toEqual({
         id: 'data',
         label: '资源与数据库',
-        sections: [
-          'resource-loading',
-          'media',
-          'qq-storage',
-          'database-management',
-          'database-tolerance',
-          'database-repair',
-        ],
+        sections: ['resource-loading', 'media', 'qq-storage', 'database-management'],
       });
     }
   });
@@ -129,7 +122,7 @@ describe('设置的两级导航', () => {
     expect(settingsGroupFor('backup').id).toBe('help');
     expect(settingsSectionFor('rkey')).toBe('credentials');
     expect(SETTINGS_PAGE_LABELS.diagnostics).toBe('QQ 协议工具');
-    expect(SETTINGS_PAGE_LABELS['database-tolerance']).toBe('数据库容错');
+    expect(settingsSectionFor('database-tolerance')).toBe('database-management');
     expect(SETTINGS_PAGE_LABELS['qq-accounts']).toBe('QQ 登录记录管理');
     expect(SETTINGS_PAGE_LABELS['qq-storage']).toBe('QQ 资源管理');
     expect(SETTINGS_PAGE_LABELS.agentlab).toBe('API 配置');
@@ -139,7 +132,7 @@ describe('设置的两级导航', () => {
   it.each([
     ['诊断工具', 'QQ 协议工具', '凭据与账号'],
     ['QQ 账号管理', 'QQ 登录记录管理', '凭据与账号'],
-    ['数据库宽容', '数据库容错', '资源与数据库'],
+    ['数据库宽容', '数据库管理', '资源与数据库'],
     ['资源目录管理', 'QQ 资源管理', '资源与数据库'],
     ['已保存的 provider', '已保存的服务商', '增强功能'],
     ['优先使用 CDN', '优先直连 QQ 加载图片', '资源与数据库'],
