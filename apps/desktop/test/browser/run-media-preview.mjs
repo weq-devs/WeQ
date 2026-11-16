@@ -307,6 +307,30 @@ try {
           .evaluate((el) => el.contains(document.activeElement)),
         true,
       );
+      const previewClose = page.getByRole('button', { name: '关闭预览', exact: true });
+      const copyImage = page.getByRole('button', { name: '复制到剪贴板', exact: true });
+      assert.equal(await previewClose.evaluate((el) => document.activeElement === el), true);
+      await page.keyboard.press('Shift+Tab');
+      assert.equal(await copyImage.evaluate((el) => document.activeElement === el), true);
+      const controlCount = await page
+        .locator('.weq-unified-preview button:visible:enabled')
+        .count();
+      let visitedOcr = false;
+      for (let index = 0; index < controlCount * 2; index++) {
+        await page.keyboard.press('Tab');
+        const focus = await page.locator('.weq-unified-preview').evaluate((el) => ({
+          contained: el.contains(document.activeElement),
+          ocr: Boolean(document.activeElement?.closest('.weq-ocr-panel')),
+        }));
+        assert.equal(focus.contained, true, 'OCR 打开时 Tab 不得离开媒体预览');
+        visitedOcr ||= focus.ocr;
+      }
+      assert.equal(visitedOcr, true, 'Tab 必须可到达 OCR 结果操作');
+      if (output)
+        await page.screenshot({ path: resolve(output, `${theme}-${width}-ocr-focus.png`) });
+      await page.keyboard.press('Escape');
+      await page.locator('.weq-ocr-panel').waitFor({ state: 'detached' });
+      assert.equal(await page.getByRole('dialog').count(), 1, '首次 Esc 只退出 OCR');
       await close();
       assert.equal(await trigger.evaluate((el) => document.activeElement === el), true);
 

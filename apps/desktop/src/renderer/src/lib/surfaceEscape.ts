@@ -171,8 +171,10 @@ export function useSurfaceEscape(
     function handleEscape(event: KeyboardEvent) {
       if (!['Escape', 'Tab'].includes(event.key) || event.defaultPrevented || !element) return;
       if (event.key === 'Escape' && (event.isComposing || event.keyCode === 229)) return;
-      const top = topSurface(document);
-      if (top && surfaceRoot(element) !== top) return;
+      // 只处理 Esc 的轻量子层不接管 Tab，父模态仍负责整个窗口的焦点循环。
+      const includeEscapeSurfaces = event.key !== 'Tab';
+      const top = topSurface(document, includeEscapeSurfaces);
+      if (top && surfaceRoot(element, includeEscapeSurfaces) !== top) return;
       if (event.key === 'Tab') {
         if (!modal) return;
         const controls = [
