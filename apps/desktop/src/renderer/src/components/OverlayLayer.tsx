@@ -42,7 +42,7 @@ import {
   type ReactNode,
 } from 'react';
 import { cn } from '../im-template/template/classNames';
-import { OverlayLayerContext, useOverlayLayer } from '../lib/overlayStack';
+import { OverlayLayerContext, useOverlayLayerScope } from '../lib/overlayStack';
 import { OverlayAnchorContext, useOverlayAnchor } from '../lib/overlayAnchor';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { WorkspacePage } from './WorkspacePages';
@@ -129,7 +129,7 @@ function OpenOverlayLayer({
   portalTarget,
 }: Omit<OverlayLayerProps, 'open'>): ReactElement {
   const document = useRenderDocument();
-  const layer = useOverlayLayer(true);
+  const { layer, scope } = useOverlayLayerScope(true);
   const ref = useRef<HTMLDivElement>(null);
   const placement = useOverlayAnchor(
     ref,
@@ -142,7 +142,14 @@ function OpenOverlayLayer({
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const requestClose = useCallback(() => onCloseRef.current?.(), []);
-  useSurfaceEscape(ref, onClose ? requestClose : undefined, true, presentation === 'modal');
+  useSurfaceEscape(
+    ref,
+    onClose ? requestClose : undefined,
+    true,
+    presentation === 'modal',
+    100,
+    scope,
+  );
   useSurfaceOutside(ref, onClose ? requestClose : undefined, dismissOnOutside, {
     scrim: true,
     anchor: placement.anchor?.element,
@@ -172,7 +179,7 @@ function OpenOverlayLayer({
       onClickCapture={placement.capture}
       onMouseDown={handleScrimMouseDown}
     >
-      <OverlayLayerContext.Provider value={layer}>
+      <OverlayLayerContext.Provider value={scope}>
         <OverlayAnchorContext.Provider value={placement.trigger}>
           {children}
         </OverlayAnchorContext.Provider>

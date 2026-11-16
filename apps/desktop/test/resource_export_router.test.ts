@@ -190,15 +190,22 @@ beforeEach(() => {
     return { ok: true, reason: '' };
   });
 });
+async function settled() {
+  const pending = manager as unknown as {
+    queue: Promise<void>;
+    outputSaves: Map<string, Promise<string>>;
+  };
+  await pending.queue;
+  await Promise.all(pending.outputSaves.values());
+}
 afterEach(async () => {
   // 生成完成不代表自动保存完成；清空 mock 和删除目录前必须等全部文件写入收尾。
-  await vi.waitFor(() => {
-    for (const task of manager.listTasks()) {
-      expect(task.status).not.toMatch(/^(pending|running)$/);
-      expect(task.save?.status).not.toBe('saving');
-      if (task.status === 'completed') expect(task.save?.status).toBe('saved');
-    }
-  });
+  await settled();
+  for (const task of manager.listTasks()) {
+    expect(task.status).not.toMatch(/^(pending|running)$/);
+    expect(task.save?.status).not.toBe('saving');
+    if (task.status === 'completed') expect(task.save?.status).toBe('saved');
+  }
   vi.clearAllMocks();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
@@ -215,7 +222,8 @@ it.each([false, true])(
       files: [{ fileId: 'one', fileName: 'one.txt', path: [] }],
       savePolicy: { mode: 'before', directory: roots[0]! },
     });
-    await vi.waitFor(() => expect(manager.getTask(id)?.save?.status).toBe('saved'));
+    await settled();
+    expect(manager.getTask(id)?.save?.status).toBe('saved');
     const task = manager.getTask(id)!;
     expect(task.includeIntegrityReport).toBe(includeIntegrityReport);
     expect(readdirSync(task.save!.path!).includes('export-report.json')).toBe(
@@ -784,8 +792,12 @@ it('空间媒体任务取消会中止所有在途下载，半成品不发布', a
     savePolicy: { mode: 'before', directory: roots[0]! },
   });
   await vi.waitFor(() => expect(state.download).toHaveBeenCalledTimes(2));
-  manager.cancelTask(id!);
-  await vi.waitFor(() => expect(manager.getTask(id!)?.error).toContain('中断'));
+  expect(manager.cancelTask(id!)).toBe(true);
+  await (manager as unknown as { queue: Promise<void> }).queue;
+  expect(manager.getTask(id!)?.status).toBe('cancelled');
+  expect(manager.listTasks().find((task) => task.id === id)?.canResume).toBe(false);
+  expect(manager.resumeTask(id!)).toBe(false);
+  expect(manager.getTask(id!)?.error).toBeUndefined();
   expect(manager.getTask(id!)?.bundleDir).toBeUndefined();
   expect(manager.getTask(id!)?.filePath).toBeUndefined();
 });

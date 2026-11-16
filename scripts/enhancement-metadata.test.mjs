@@ -25,7 +25,7 @@ test('增强包准备按真实构建顺序导入，不等待完整账号服务�
         await tsImport('../apps/desktop/src/main/enhancements/release_catalog.ts', parent);
         await tsImport('../packages/service/src/common/ocr_models.ts', parent);
         await tsImport('../packages/service/src/common/voice_transcribe.ts', parent);
-        const { layaModelEntry } = await tsImport('../apps/desktop/src/main/intent_sense/model_files.ts', parent);
+        const { layaModelEntry } = await tsImport('../apps/desktop/src/shared/laya_bundle.ts', parent);
         const model = layaModelEntry();
         assert.ok(model.files.length > 0);
         assert.ok(model.files.every(file => file.sizeBytes > 0 && /^[a-f0-9]{64}$/.test(file.sha256)));

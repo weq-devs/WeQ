@@ -52,7 +52,7 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal(
     'matchMedia',
-    vi.fn(() => ({ matches: false })),
+    vi.fn(() => Object.assign(new EventTarget(), { matches: false })),
   );
   vi.stubGlobal(
     'ResizeObserver',

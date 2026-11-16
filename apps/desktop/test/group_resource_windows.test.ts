@@ -20,7 +20,8 @@ import {
 const state = vi.hoisted(() => ({ inline: false }));
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
 vi.mock('../src/renderer/src/lib/remoteClient', () => ({ isRemoteClient: () => state.inline }));
-vi.mock('../src/renderer/src/lib/responsiveLayout', () => ({
+vi.mock('../src/renderer/src/lib/responsiveLayout', async (original) => ({
+  ...(await original<typeof import('../src/renderer/src/lib/responsiveLayout')>()),
   isSingleColumnLayout: () => state.inline,
   isMobileClient: () => false,
 }));

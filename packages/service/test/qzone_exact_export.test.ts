@@ -66,9 +66,8 @@ it('说说目录完成后暂停，重启复用本次清单，不为继续互动�
     qzone: true,
     qzoneInteractions: true,
   });
-  await vi.waitFor(() =>
-    expect(manager.listTasks()[0]).toMatchObject({ status: 'paused', canResume: true }),
-  );
+  await (manager as unknown as { queue: Promise<void> }).queue;
+  expect(manager.listTasks()[0]).toMatchObject({ status: 'paused', canResume: true });
   fetchMsgList.mockRejectedValue(new Error('不应重新枚举已完成目录'));
   const restored = new ExportTaskManager({} as MsgService, root, dependencies);
   expect(restored.resumeTask(id)).toBe(true);

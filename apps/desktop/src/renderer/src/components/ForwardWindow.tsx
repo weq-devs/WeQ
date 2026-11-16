@@ -19,7 +19,7 @@ import {
   type ForwardWindowState,
   type ForwardRecordWire,
 } from '../state/forwardWindow';
-import { OverlayLayerContext, useOverlayLayer } from '../lib/overlayStack';
+import { OverlayLayerContext, useOverlayLayerScope } from '../lib/overlayStack';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { visibleViewport } from '../lib/visibleViewport';
 import { LoadingIndicator } from './LoadingIndicator';
@@ -366,12 +366,12 @@ export function ForwardMultiMsgPreview({
 export function ForwardWindowHost(): ReactElement | null {
   const windows = useForwardStore((s) => s.windows);
   const revision = useForwardStore((s) => s.zTop);
-  const layer = useOverlayLayer(windows.length > 0, revision);
+  const { layer, scope } = useOverlayLayerScope(windows.length > 0, revision);
   useEffect(() => () => useForwardStore.setState({ windows: [] }), []);
   if (typeof document === 'undefined' || windows.length === 0) return null;
   return createPortal(
     <div className="weq-forward-layer" style={{ zIndex: layer }} aria-live="polite">
-      <OverlayLayerContext.Provider value={layer}>
+      <OverlayLayerContext.Provider value={scope}>
         <Suspense fallback={windows.map((win) => <PendingWindow key={win.id} win={win} />)}>
           <Content windows={windows} />
         </Suspense>

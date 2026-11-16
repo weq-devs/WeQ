@@ -14,13 +14,14 @@
 import { createContext, useContext, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
 
 /** Portal 保留 React 上下文：子浮层始终高于所属父窗的最新层级。 */
-export const OverlayLayerContext = createContext<number | undefined>(undefined);
+export const OverlayLayerContext = createContext<symbol | undefined>(undefined);
 
 /** Above every static overlay in CSS (highest is .weq-ra-layer at 1200), but
  *  below the toast host (4000), which must stay on top of everything. */
 export const OVERLAY_BASE_LAYER = 1200;
 export const OVERLAY_TOAST_LAYER = 4000;
 const layers: symbol[] = [];
+const parents = new Map<symbol, symbol>();
 const listeners = new Set<() => void>();
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
@@ -37,15 +38,31 @@ function release(key: symbol) {
   const index = layers.indexOf(key);
   if (index < 0) return;
   layers.splice(index, 1);
+  parents.delete(key);
   notify();
 }
-function activate(key: symbol, front = false) {
+function descendsFrom(key: symbol, ancestor: symbol): boolean {
+  for (let parent = parents.get(key); parent; parent = parents.get(parent))
+    if (parent === ancestor) return true;
+  return false;
+}
+export function hasOverlayDescendant(scope: symbol): boolean {
+  return layers.some((key) => descendsFrom(key, scope));
+}
+function activate(key: symbol, parent: symbol | undefined, front = false) {
+  if (parent) parents.set(key, parent);
+  else parents.delete(key);
   const index = layers.indexOf(key);
-  if (index >= 0 && (!front || index === layers.length - 1)) return;
-  if (index >= 0) layers.splice(index, 1);
-  if (layers.length >= OVERLAY_TOAST_LAYER - OVERLAY_BASE_LAYER - 1)
+  if (index >= 0 && !front) return;
+  if (index < 0 && layers.length >= OVERLAY_TOAST_LAYER - OVERLAY_BASE_LAYER - 1)
     throw new Error('同时打开的浮层过多。');
-  layers.push(key);
+  // 父窗置前时整组移动，不能等子组件重渲染后才恢复父子顺序。
+  const children = layers.filter((item) => descendsFrom(item, key));
+  const branch = new Set([key, ...children]);
+  const next = [...layers.filter((item) => !branch.has(item)), key, ...children];
+  if (next.length === layers.length && next.every((item, offset) => item === layers[offset]))
+    return;
+  layers.splice(0, layers.length, ...next);
   notify();
 }
 
@@ -66,7 +83,12 @@ export function hasActiveModal(
  * closing releases its slot. Inactive callers can fall back to their CSS value.
  */
 export function useOverlayLayer(active: boolean, revision = 0): number | undefined {
-  const parentLayer = useContext(OverlayLayerContext);
+  return useOverlayLayerScope(active, revision).layer;
+}
+
+/** 外壳把稳定身份传给 Portal 子树，不以会随排序变化的层号标识父窗。 */
+export function useOverlayLayerScope(active: boolean, revision = 0) {
+  const parent = useContext(OverlayLayerContext);
   const key = useRef(Symbol('overlay')).current;
   const previousRevision = useRef(revision);
   const layer = useSyncExternalStore(
@@ -75,19 +97,13 @@ export function useOverlayLayer(active: boolean, revision = 0): number | undefin
     () => undefined,
   );
   useLayoutEffect(() => {
-    if (active) activate(key);
+    if (active) activate(key, parent);
     else release(key);
     return () => release(key);
-  }, [active, key]);
-  // 子组件的 layout effect 先执行；父层注册或重新置前后再校准子层。
+  }, [active, key, parent]);
   useLayoutEffect(() => {
-    if (active)
-      activate(
-        key,
-        revision !== previousRevision.current ||
-          (parentLayer !== undefined && (layerFor(key) ?? 0) <= parentLayer),
-      );
+    if (active && revision !== previousRevision.current) activate(key, parent, true);
     previousRevision.current = revision;
-  }, [active, key, parentLayer, revision]);
-  return active ? layer : undefined;
+  }, [active, key, parent, revision]);
+  return { layer: active ? layer : undefined, scope: key };
 }

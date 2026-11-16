@@ -59,6 +59,7 @@ import {ArkPanel} from '/src/renderer/src/im-template/template/arkPanel';
 import {ConfirmDialog} from '/src/renderer/src/im-template/template/chatPane';
 import {Modal} from '/src/renderer/src/components/Dialog';
 import {OverlayLayer} from '/src/renderer/src/components/OverlayLayer';
+import {GroupFeatureSurface} from '/src/renderer/src/components/GroupFeatureSurface';
 import {CommonRelationships} from '/src/renderer/src/components/qq-actions/CommonRelationships';
 import {useViewState} from '/src/renderer/src/state/view';
 import '/src/renderer/src/styles/index.css';
@@ -69,6 +70,18 @@ import '/src/renderer/src/im-template/styles.css';
 import logo from '@resources/brand/logo.png';
 useViewState.setState({openedUin: '10001'});
 function unexpected() { throw Error('Esc 不应发送、发表或删除'); }
+function NestedFixture({kind, onClose}) {
+  const [child, setChild] = useState(true);
+  const content = <>
+    <button data-parent onClick={() => setChild(true)}>父窗操作</button>
+    {child && (kind === 'floating' || kind === 'popover'
+      ? <Modal presentation={kind} dismissOnOutside={false} onClose={() => setChild(false)}><button data-child>子窗操作</button></Modal>
+      : <OverlayLayer presentation="popover" dismissOnOutside={kind === 'group'} onClose={() => setChild(false)}><button data-child>子窗操作</button></OverlayLayer>)}
+  </>;
+  return kind === 'group'
+    ? <GroupFeatureSurface presentation="popover" title="合成群功能" onClose={onClose}>{content}</GroupFeatureSurface>
+    : <Modal presentation="floating" title="合成父窗" onClose={onClose}>{content}</Modal>;
+}
 function Fixture() {
   const [kind, setKind] = useState('');
   const [ocr, setOcr] = useState(true);
@@ -77,6 +90,7 @@ function Fixture() {
   return <main style={{padding: 24}}>
     <button id="trigger">打开合成弹窗</button>
     <button id="background">背景控件</button>
+    {kind.startsWith('nested-') && <NestedFixture kind={kind.slice(7)} onClose={close} />}
     {kind === 'common' && <OverlayLayer presentation="popover" onClose={close}>
       <section role="dialog" aria-label="联系人资料"><CommonRelationships uin="10002" /></section>
     </OverlayLayer>}
@@ -332,6 +346,44 @@ try {
         await page.keyboard.press('Escape');
         await dialog.waitFor({ state: 'detached' });
         assert.equal(await page.evaluate(() => document.activeElement?.id), 'trigger');
+        cases++;
+      }
+      for (const kind of ['popover', 'floating', 'overlay', 'group']) {
+        await page.locator('#trigger').focus();
+        await page.evaluate((kind) => window.escapeQa.show(kind), `nested-${kind}`);
+        const child = page.locator('[data-child]');
+        const parent = page.locator('[data-parent]');
+        await child.waitFor();
+        assert.equal(await child.evaluate((node) => node === document.activeElement), true);
+        const assertOrder = async () =>
+          assert.equal(
+            await page.evaluate(() => {
+              const layer = (selector) =>
+                Number(
+                  document
+                    .querySelector(selector)
+                    .closest('.weq-window-layer, .weq-dialog-layer, .weq-overlay-layer').style
+                    .zIndex,
+                );
+              return layer('[data-child]') > layer('[data-parent]');
+            }),
+            true,
+          );
+        await assertOrder();
+        if (kind !== 'group') {
+          await parent.focus();
+          await parent.dispatchEvent('pointerdown');
+          await assertOrder();
+          await child.focus();
+        }
+        if (output)
+          await page.screenshot({ path: resolve(output, `nested-${kind}-${theme}-${width}.png`) });
+        await page.keyboard.press('Escape');
+        await child.waitFor({ state: 'detached' });
+        assert.equal(await parent.count(), 1);
+        await parent.focus();
+        await page.keyboard.press('Escape');
+        await parent.waitFor({ state: 'detached' });
         cases++;
       }
     }

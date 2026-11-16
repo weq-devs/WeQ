@@ -15,7 +15,7 @@ import { RenderDocumentContext, useRenderDocument } from '../lib/renderDocument'
 import { useTabActive } from './RetainedTabs';
 import { create } from 'zustand';
 import { AlertTriangle, Info, Lock, ShieldAlert, X } from 'lucide-react';
-import { OverlayLayerContext, useOverlayLayer } from '../lib/overlayStack';
+import { OverlayLayerContext, useOverlayLayerScope } from '../lib/overlayStack';
 import { OverlayAnchorContext, useOverlayAnchor } from '../lib/overlayAnchor';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { WorkspacePage } from './WorkspacePages';
@@ -210,7 +210,7 @@ export function Modal({
   const tabActive = useTabActive();
   const active = tabActive && open;
   const windowed = presentation === 'floating' || presentation === 'anchored';
-  const layer = useOverlayLayer(active && !windowed);
+  const { layer, scope } = useOverlayLayerScope(active && !windowed);
   const ref = useRef<HTMLDivElement>(null);
   useMobileWebViewport(
     ref,
@@ -228,6 +228,8 @@ export function Modal({
     onClose,
     active && !windowed && presentation !== 'page' && presentation !== 'sidecar',
     presentation === 'modal',
+    100,
+    scope,
   );
   useSurfaceOutside(
     ref,
@@ -294,7 +296,7 @@ export function Modal({
         style={width ? { width } : undefined}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <OverlayLayerContext.Provider value={layer}>
+        <OverlayLayerContext.Provider value={scope}>
           <OverlayAnchorContext.Provider value={placement.trigger}>
             <ContactFieldHistoryBoundary>{children}</ContactFieldHistoryBoundary>
           </OverlayAnchorContext.Provider>

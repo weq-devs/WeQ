@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
 import { useMobileBack } from '../hooks/useMobileNavigation';
+import { hasOverlayDescendant } from './overlayStack';
 
 function layerPath(element: HTMLElement): number[] {
   const path: number[] = [];
@@ -111,6 +112,7 @@ export function useSurfaceEscape(
   active: boolean,
   modal: boolean,
   mobilePriority: number | false = 100,
+  layerScope?: symbol,
 ) {
   const returnFocus = useRef<Element | null>(null);
   useMobileBack(
@@ -126,14 +128,16 @@ export function useSurfaceEscape(
     const document = element.ownerDocument;
     const previous = document.activeElement;
     returnFocus.current = previous;
+    // 同次挂载时子层已领号但 DOM 层号尚未提交，父窗不能夺走子窗刚取得的焦点。
     const focusedAbove =
-      previous instanceof HTMLElement &&
-      Boolean(
-        previous.closest(
-          '[aria-modal="true"], .weq-dialog-layer, .weq-overlay-layer, .weq-window-layer, .weq-forward-window',
-        ),
-      ) &&
-      compareLayerPaths(layerPath(previous), layerPath(element)) > 0;
+      (layerScope !== undefined && hasOverlayDescendant(layerScope)) ||
+      (previous instanceof HTMLElement &&
+        Boolean(
+          previous.closest(
+            '[aria-modal="true"], .weq-dialog-layer, .weq-overlay-layer, .weq-window-layer, .weq-forward-window',
+          ),
+        ) &&
+        compareLayerPaths(layerPath(previous), layerPath(element)) > 0);
     if (!focusedAbove && !element.contains(previous) && !previous?.closest('[role="tablist"]')) {
       const focusable = element.querySelector<HTMLElement>(
         'input:not([disabled]), button:not([disabled]), [tabindex="0"]',
@@ -158,7 +162,7 @@ export function useSurfaceEscape(
       )
         (previous as HTMLElement).focus({ preventScroll: true });
     };
-  }, [active, modal, ref]);
+  }, [active, modal, ref, layerScope]);
 
   useEffect(() => {
     const element = ref.current;

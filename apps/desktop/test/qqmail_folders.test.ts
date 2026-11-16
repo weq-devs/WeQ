@@ -114,7 +114,7 @@ beforeEach(() => {
   vi.stubGlobal('localStorage', new Storage());
   vi.stubGlobal(
     'matchMedia',
-    vi.fn(() => ({ matches: false }) as MediaQueryList),
+    vi.fn(() => Object.assign(new EventTarget(), { matches: false }) as MediaQueryList),
   );
   saveState.current = true;
   saveState.web = false;
@@ -388,7 +388,10 @@ describe('邮箱移动返回层级', () => {
   beforeEach(() => {
     saveState.web = true;
     vi.spyOn(window, 'matchMedia').mockImplementation(
-      (query) => ({ matches: query === '(max-width: 760px)' }) as MediaQueryList,
+      (query) =>
+        Object.assign(new EventTarget(), {
+          matches: query === '(max-width: 760px)',
+        }) as MediaQueryList,
     );
   });
 

@@ -72,9 +72,10 @@ it('导出空间日期与屏幕共用北京日历，跨年时不退回上一年'
         },
       },
     ]);
-    expect(html).toContain('2026年1月1日');
+    expect(html).toContain('2026 年 1 月 1 日');
     expect(html).toContain('2026 年');
     expect(html).not.toContain('2025年12月31日');
+    expect(html).not.toContain('2025 年 12 月 31 日');
   } finally {
     vi.unstubAllEnvs();
   }

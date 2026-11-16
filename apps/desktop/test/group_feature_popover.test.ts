@@ -107,6 +107,7 @@ it('Esc 只关闭最上层子菜单，再按一次才关闭群功能浮窗', () 
     );
   }
   mount(h(Fixture));
+  expect(document.activeElement).toBe(document.querySelector('[data-child]'));
   const pressEscape = () =>
     act(() => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));

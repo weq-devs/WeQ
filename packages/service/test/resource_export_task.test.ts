@@ -9,13 +9,29 @@ import { networkCost, UNKNOWN_NETWORK } from '../src/common/data_saver';
 import { networkScope } from '../src/common/network_scope';
 
 const roots: string[] = [];
+const managers: ExportTaskManager[] = [];
+async function settled(manager: ExportTaskManager) {
+  const pending = manager as unknown as {
+    queue: Promise<void>;
+    outputSaves: Map<string, Promise<string>>;
+  };
+  await pending.queue;
+  await Promise.all(pending.outputSaves.values());
+}
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'weq-resource-task-'));
   roots.push(root);
   const cache = join(root, 'cache');
-  return { root, cache, manager: new ExportTaskManager({} as MsgService, cache) };
+  const manager = new ExportTaskManager({} as MsgService, cache);
+  managers.push(manager);
+  return { root, cache, manager, done: () => settled(manager) };
 }
-afterEach(() => {
+afterEach(async () => {
+  for (const manager of managers.splice(0)) {
+    for (const task of manager.listTasks())
+      if (task.status === 'running' || task.status === 'pending') manager.cancelTask(task.id);
+    await settled(manager);
+  }
   updateTransferPolicy('auto', UNKNOWN_NETWORK);
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
@@ -81,8 +97,9 @@ describe('独立资源沿用导出任务生命周期', () => {
     });
     await vi.waitFor(() => expect(localRun).toHaveBeenCalledOnce());
     updateClientNetwork('export-phone', networkCost(false, false, 'phone'));
-    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
-    await vi.waitFor(() => expect(f.manager.getTask(id)?.status).toBe('completed'));
+    await f.done();
+    expect(run).toHaveBeenCalledOnce();
+    expect(f.manager.getTask(id)?.status).toBe('completed');
   });
   it('资源附加数据选择贯穿任务参数，不被归档默认选项覆盖', async () => {
     const f = fixture();
@@ -108,7 +125,8 @@ describe('独立资源沿用导出任务生命周期', () => {
         };
       },
     });
-    await vi.waitFor(() => expect(f.manager.getTask(id)?.save?.status).toBe('saved'));
+    await f.done();
+    expect(f.manager.getTask(id)?.save?.status).toBe('saved');
     const text = readFileSync(
       join(f.manager.getTask(id)!.bundleDir!, 'resource-results.json'),
       'utf8',
@@ -129,7 +147,8 @@ describe('独立资源沿用导出任务生命周期', () => {
         return { total: 1, ok: 1, failed: [] };
       },
     });
-    await vi.waitFor(() => expect(f.manager.getTask(id)?.save?.status).toBe('saved'));
+    await f.done();
+    expect(f.manager.getTask(id)?.save?.status).toBe('saved');
     const task = f.manager.getTask(id)!;
     expect(readdirSync(task.bundleDir!)).toEqual(['files']);
     expect(readFileSync(join(task.bundleDir!, 'files', 'resource.bin'), 'utf8')).toBe('chosen');
@@ -150,7 +169,8 @@ describe('独立资源沿用导出任务生命周期', () => {
           return { total: 2, ok: 2, failed: [] };
         },
       });
-      await vi.waitFor(() => expect(f.manager.getTask(id)?.save?.status).toBe('saved'));
+      await f.done();
+      expect(f.manager.getTask(id)?.save?.status).toBe('saved');
       const task = f.manager.getTask(id)!;
       const savedNames = readdirSync(task.save!.path!);
       expect(savedNames.includes('export-report.json')).toBe(includeIntegrityReport);
@@ -172,7 +192,8 @@ describe('独立资源沿用导出任务生命周期', () => {
         return { total: 1, ok: 1, failed: [], fileName: 'download.txt' };
       },
     });
-    await vi.waitFor(() => expect(f.manager.getTask(id)?.save?.status).toBe('saved'));
+    await f.done();
+    expect(f.manager.getTask(id)?.save?.status).toBe('saved');
     const task = f.manager.getTask(id)!;
     expect(task.reportVersion).toBeUndefined();
     expect(task.reportPath).toBeUndefined();
@@ -321,7 +342,8 @@ describe('独立资源沿用导出任务生命周期', () => {
         return { total: 1, ok: 1, failed: [], fileName: 'report.txt' };
       },
     });
-    await vi.waitFor(() => expect(f.manager.getTask(id)?.save?.status).toBe('saved'));
+    await f.done();
+    expect(f.manager.getTask(id)?.save?.status).toBe('saved');
     const originalPolicy = f.manager.getTask(id)?.save?.policy;
     const chosen = join(f.root, 'same.txt');
     writeFileSync(chosen, 'personal');
@@ -346,7 +368,8 @@ describe('独立资源沿用导出任务生命周期', () => {
         return { total: 1, ok: 1, failed: [], fileName: 'fixture.db' };
       },
     });
-    await vi.waitFor(() => expect(f.manager.getTask(id)?.save?.status).toBe('saved'));
+    await f.done();
+    expect(f.manager.getTask(id)?.save?.status).toBe('saved');
     const task = f.manager.getTask(id)!;
     expect(task.bundleDir).toBeUndefined();
     expect(task.filePath?.endsWith('.db')).toBe(true);
@@ -427,7 +450,8 @@ describe('独立资源沿用导出任务生命周期', () => {
         return { total: 2, ok: 1, failed: [{ fileName: 'missing.txt', error: '合成失败' }] };
       },
     });
-    await vi.waitFor(() => expect(f.manager.getTask(id)?.save?.status).toBe('saved'));
+    await f.done();
+    expect(f.manager.getTask(id)?.save?.status).toBe('saved');
     const task = f.manager.getTask(id)!;
     expect(task.resource?.failed).toBe(1);
     expect(task.stages[0]).toMatchObject({ failed: 1, current: 1, total: 2 });
@@ -466,7 +490,8 @@ describe('独立资源沿用导出任务生命周期', () => {
       savePolicy: { mode: 'preset', directory: target },
       run,
     });
-    await vi.waitFor(() => expect(f.manager.getTask(id)?.save?.status).toBe('saved'));
+    await f.done();
+    expect(f.manager.getTask(id)?.save?.status).toBe('saved');
     expect(
       readFileSync(join(f.manager.getTask(id)!.save!.path!, 'files', 'image.jpg'), 'utf8'),
     ).toBe('synthetic');
@@ -537,7 +562,12 @@ describe('独立资源沿用导出任务生命周期', () => {
   });
   it('非续作资源拒绝暂停，取消清除中断提示且不提供重新执行', async () => {
     const f = fixture();
+    let started!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      started = resolve;
+    });
     const run = vi.fn(async ({ signal }: { signal: AbortSignal }) => {
+      started();
       await new Promise<void>((_resolve, reject) =>
         signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
       );
@@ -549,12 +579,12 @@ describe('独立资源沿用导出任务生命周期', () => {
       run,
       savePolicy: { mode: 'before', directory: f.root },
     });
-    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
+    await entered;
+    expect(run).toHaveBeenCalledOnce();
     expect(f.manager.pauseTask(id)).toBe(false);
     expect(f.manager.cancelTask(id)).toBe(true);
-    await vi.waitFor(() =>
-      expect(readdirSync(f.cache).some((name) => name.endsWith('.partial'))).toBe(false),
-    );
+    await f.done();
+    expect(readdirSync(f.cache).some((name) => name.endsWith('.partial'))).toBe(false);
     expect(f.manager.getTask(id)?.error).toBeUndefined();
     expect(f.manager.resumeTask(id)).toBe(false);
   });

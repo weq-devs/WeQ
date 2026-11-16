@@ -154,9 +154,13 @@ it('捕获在途取消等待宿主收尾，不发布半成品或重复捕获', a
     savePolicy: { mode: 'before', directory: state.root },
   });
   await vi.waitFor(() => expect(release).toBeDefined());
-  manager.cancelTask(id!);
+  expect(manager.cancelTask(id!)).toBe(true);
   release(Buffer.from('synthetic-pdf'));
-  await vi.waitFor(() => expect(manager.getTask(id!)?.error).toContain('中断'));
+  await (manager as unknown as { queue: Promise<void> }).queue;
+  expect(manager.getTask(id!)?.status).toBe('cancelled');
+  expect(manager.listTasks().find((task) => task.id === id)?.canResume).toBe(false);
+  expect(manager.resumeTask(id!)).toBe(false);
+  expect(manager.getTask(id!)?.error).toBeUndefined();
   expect(manager.getTask(id!)?.filePath).toBeUndefined();
   expect(state.pdf).toHaveBeenCalledOnce();
 });
