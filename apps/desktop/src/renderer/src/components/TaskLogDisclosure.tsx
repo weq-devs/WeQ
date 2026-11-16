@@ -7,11 +7,13 @@ export function TaskLogDisclosure({
   onOpenChange,
   lines,
   error,
+  scrollable = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   lines: readonly TaskLogLine[];
   error?: string;
+  scrollable?: boolean;
 }) {
   return (
     <div className="weq-exp-detail-tasklog">
@@ -26,7 +28,7 @@ export function TaskLogDisclosure({
       </button>
       {open ? (
         <>
-          <TaskLogConsole lines={lines} collapsed={false} history />
+          <TaskLogConsole lines={lines} collapsed={false} history scrollable={scrollable} />
           {error ? <p role="alert">日志读取失败：{error}</p> : null}
         </>
       ) : null}

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { replaceEqualDeep } from '@tanstack/react-query';
 import { ListTodo, X } from 'lucide-react';
 import {
   filterCalendarTargets,
@@ -16,6 +17,7 @@ import { calendarTargetSetKey } from '../lib/calendarSourceRevision';
 import { Modal } from './Dialog';
 import { MessageCalendar } from './MessageCalendar';
 import { CalendarStatistics, calendarReadLabel } from './CalendarStatistics';
+import { CalendarStatisticsProgress } from './CalendarStatisticsProgress';
 import { useCalendarKinds } from '../hooks/useCalendarKinds';
 import { useTabActive } from './RetainedTabs';
 import '../styles/conversation-overview-calendar.css';
@@ -50,13 +52,19 @@ export function ConversationOverviewCalendar({
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [logOpen, setLogOpen] = useState(false);
+  const [logOpen, setLogOpen] = useState(true);
   const [revision, setRevision] = useState(0);
   const [controlRevision, setControlRevision] = useState(0);
   const [dirty, setDirty] = useState(false);
   const [autoRefreshPending, setAutoRefreshPending] = useState(false);
   const [visible, setVisible] = useState(document.visibilityState === 'visible');
   const active = useTabActive();
+  const today = beijingDay();
+  const currentYear = Number(today.slice(0, 4));
+  const yearOptions = useMemo(
+    () => Array.from({ length: currentYear - 1968 }, (_, index) => String(1970 + index)),
+    [currentYear],
+  );
   const live = useRef(true);
   const backgroundIds = useRef(new Set<string>());
   const [kinds] = useCalendarKinds();
@@ -208,7 +216,7 @@ export function ConversationOverviewCalendar({
           kinds,
         });
         if (cancelled || currentRequest.current !== request) return;
-        setSnapshot(result);
+        setSnapshot((previous) => replaceEqualDeep(previous, result));
         if (
           !result.cancelled &&
           result.controls?.month.state !== 'empty' &&
@@ -259,7 +267,7 @@ export function ConversationOverviewCalendar({
         day: selectedDay,
       });
       if (live.current && latestId.current === id) {
-        setSnapshot(result);
+        setSnapshot((previous) => replaceEqualDeep(previous, result));
         setControlRevision((value) => value + 1);
       }
     } catch (failure) {
@@ -275,39 +283,69 @@ export function ConversationOverviewCalendar({
       ),
     ),
   ];
-  const status = Object.fromEntries(
-    (snapshot?.days ?? []).map((value) => [
-      value.day,
-      {
-        complete: value.complete && !directoryError,
-        reason: value.emptyReason,
-        paused: value.paused,
-      },
-    ]),
+  const status = useMemo(
+    () =>
+      Object.fromEntries(
+        (snapshot?.days ?? []).map((value) => [
+          value.day,
+          {
+            complete: value.complete && !directoryError,
+            reason: value.emptyReason,
+            paused: value.paused,
+          },
+        ]),
+      ),
+    [snapshot?.days, directoryError],
   );
-  async function locate(target: CalendarTarget, anchor: CalendarAnchor) {
-    if (!id || !binding || busy) return;
-    setBusy(true);
-    try {
-      const result = await client.account.calendarOverview.locate.mutate({
-        ...binding,
-        id,
-        target,
-        anchor,
-      });
-      if (!live.current || latestId.current !== id) return;
-      onLocate(
-        selectedByKey.get(calendarTargetKey(result.target)) ?? result.target,
-        result.anchor,
-        result.record,
+  const pickDay = useCallback(
+    (value: string) => {
+      if (value === day) return;
+      setAutoRefreshPending(false);
+      setSnapshot((current) =>
+        current ? { ...current, rows: [], totalRows: 0, complete: false } : current,
       );
-      onClose();
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    } finally {
-      setBusy(false);
-    }
-  }
+      setDay(value);
+      setRowLimit(50);
+    },
+    [day],
+  );
+  const changeMonth = useCallback((value: string) => {
+    setSnapshot(undefined);
+    setMonth(value);
+    setDay(`${value}-01`);
+    setRowLimit(50);
+  }, []);
+  const loadedRows = snapshot?.rows.length ?? 0;
+  const totalRows = snapshot?.totalRows ?? 0;
+  const loadMore = useCallback(() => {
+    setRowLimit((limit) => (loadedRows >= limit ? Math.min(limit + 50, totalRows) : limit));
+  }, [loadedRows, totalRows]);
+  const locate = useCallback(
+    async (target: CalendarTarget, anchor: CalendarAnchor) => {
+      if (!id || !binding || busy) return;
+      setBusy(true);
+      try {
+        const result = await client.account.calendarOverview.locate.mutate({
+          ...binding,
+          id,
+          target,
+          anchor,
+        });
+        if (!live.current || latestId.current !== id) return;
+        onLocate(
+          selectedByKey.get(calendarTargetKey(result.target)) ?? result.target,
+          result.anchor,
+          result.record,
+        );
+        onClose();
+      } catch (failure) {
+        setError(failure instanceof Error ? failure.message : String(failure));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [id, binding, busy, onLocate, onClose, selectedByKey],
+  );
   async function background() {
     if (!id || !binding || busy) return;
     setBusy(true);
@@ -360,63 +398,47 @@ export function ConversationOverviewCalendar({
           </button>
         </header>
         <div className="weq-overview-calendar-body">
-          <MessageCalendar
-            maxDay={beijingDay()}
-            month={month}
-            onMonthChange={(value) => {
-              setSnapshot(undefined);
-              setMonth(value);
-              setDay(`${value}-01`);
-              setRowLimit(50);
-            }}
-            yearOptions={Array.from(
-              { length: Number(beijingDay().slice(0, 4)) - 1968 },
-              (_, index) => String(1970 + index),
-            )}
-            days={snapshot?.days}
-            dayStatus={status}
-            start={day}
-            allowEmpty
-            onPick={(value) => {
-              if (value === day) return;
-              setAutoRefreshPending(false);
-              setSnapshot((current) =>
-                current ? { ...current, rows: [], totalRows: 0, complete: false } : current,
-              );
-              setDay(value);
-              setRowLimit(50);
-            }}
-            loading={!ready || !snapshot}
-            statusText={
-              month > beijingDay().slice(0, 7)
-                ? '未来日期不统计'
-                : !snapshot
-                  ? '正在读取消息数量…'
-                  : errors.length
-                    ? '部分日期统计未完成'
-                    : (calendarReadLabel(snapshot) ?? (dirty ? '数据有变更' : undefined))
-            }
-          />
+          <div className="weq-overview-calendar-left">
+            <MessageCalendar
+              maxDay={today}
+              fixedWeekCount={false}
+              month={month}
+              onMonthChange={changeMonth}
+              yearOptions={yearOptions}
+              days={snapshot?.days}
+              dayStatus={status}
+              start={day}
+              allowEmpty
+              onPick={pickDay}
+              loading={!ready || !snapshot}
+              statusText=""
+            />
+            <CalendarStatisticsProgress
+              snapshot={snapshot}
+              busy={busy}
+              statusText={
+                month > today.slice(0, 7)
+                  ? '未来日期不统计'
+                  : !snapshot
+                    ? '正在读取消息数量…'
+                    : errors.length
+                      ? '部分日期统计未完成'
+                      : (calendarReadLabel(snapshot) ?? (dirty ? '数据有变更' : undefined))
+              }
+              logOpen={logOpen}
+              onLogOpenChange={setLogOpen}
+              onControl={(scope, action, day) => void control(scope, action, day)}
+            />
+          </div>
           <CalendarStatistics
-            onControl={(scope, action, day) => void control(scope, action, day)}
             snapshot={snapshot}
             day={day}
             id={id}
             busy={busy}
-            error={
-              day > beijingDay() ? '未来日期不统计' : !ready ? '正在读取会话目录…' : directoryError
-            }
-            logOpen={logOpen}
-            onLogOpenChange={setLogOpen}
+            error={day > today ? '未来日期不统计' : !ready ? '正在读取会话目录…' : directoryError}
             targets={selectedByKey}
-            onLocate={(target, anchor) => void locate(target, anchor)}
-            onLoadMore={() =>
-              setRowLimit((limit) =>
-                snapshot && snapshot.rows.length >= limit
-                  ? Math.min(limit + 50, snapshot.totalRows)
-                  : limit,
-              )
-            }
+            onLocate={locate}
+            onLoadMore={loadMore}
           />
         </div>
         <div className="weq-overview-calendar-errors">

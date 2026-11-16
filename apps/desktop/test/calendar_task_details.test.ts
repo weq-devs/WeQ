@@ -34,7 +34,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-it('任务详情包含日期、六组选择、当前扫描、双进度、按需日志、会话数和原消息定位，不包含日历网格', async () => {
+it('任务详情复用按天数的单一进度、默认展开日志、日期与会话定位，不包含日历网格', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const saved = new Map<string, string>();
   vi.stubGlobal('localStorage', {
@@ -112,16 +112,14 @@ it('任务详情包含日期、六组选择、当前扫描、双进度、按需�
     expect(host.querySelector('input[type="date"]')?.getAttribute('min')).toBe('2026-11-01');
     expect(host.querySelector('.weq-density-calendar-grid')).toBeNull();
     expect(host.querySelectorAll('[aria-label="统计内容"] button')).toHaveLength(8);
-    expect(host.querySelectorAll('progress')).toHaveLength(2);
-    const pauseDay = host.querySelector<HTMLButtonElement>('[aria-label="暂停2026-11-09统计"]')!;
-    await act(async () => pauseDay.click());
+    expect(host.querySelectorAll('progress')).toHaveLength(1);
+    const pauseMonth = host.querySelector<HTMLButtonElement>('[aria-label="暂停当月统计"]')!;
+    await act(async () => pauseMonth.click());
     expect(fixture.control).toHaveBeenCalledWith(
-      expect.objectContaining({ scope: 'day', action: 'pause', day: '2026-11-09', id: 'job' }),
+      expect.objectContaining({ scope: 'month', action: 'pause', id: 'job' }),
     );
     expect(fixture.refetch).toHaveBeenCalled();
-    expect(
-      host.querySelector('progress[aria-label="2026-11-09 进度"]')?.getAttribute('value'),
-    ).toBe('0');
+    expect(host.querySelector('progress[aria-label="当月进度"]')?.getAttribute('value')).toBe('0');
     expect(host.querySelector('input[type="date"]')?.getAttribute('value')).toBe('2026-11-08');
     expect(host.querySelector('h4')?.textContent).toBe('统计进度');
     expect(
@@ -132,10 +130,11 @@ it('任务详情包含日期、六组选择、当前扫描、双进度、按需�
     expect(host.textContent).toContain('等待可用读取连接，将自动继续');
     expect(host.textContent).toContain('漫游缓存');
     expect(host.textContent).toContain('测试会话');
-    expect(fixture.query.mock.lastCall?.[0].includeLogs).toBe(false);
+    expect(fixture.query.mock.lastCall?.[0].includeLogs).toBe(true);
     const logs = host.querySelector<HTMLButtonElement>('.weq-exp-detail-tasklog-head')!;
     await act(async () => logs.click());
-    expect(fixture.query.mock.lastCall?.[0].includeLogs).toBe(true);
+    expect(fixture.query.mock.lastCall?.[0].includeLogs).toBe(false);
+    await act(async () => logs.click());
     expect(host.textContent).toContain('已计 10 条消息');
     const row = host.querySelector<HTMLButtonElement>('.weq-overview-calendar-row')!;
     await act(async () => row.click());

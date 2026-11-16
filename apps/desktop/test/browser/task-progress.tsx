@@ -109,8 +109,11 @@ function Fixture() {
               onShowFailures={() => {}}
             />
             <CalendarScanProgress
-              day="2026-11-16"
-              progress={{ completedSources: 42, totalSources: 100 }}
+              days={Array.from({ length: 10 }, (_, index) => ({
+                day: `2020-11-${String(index + 1).padStart(2, '0')}`,
+                complete: index < 3,
+                errors: [],
+              }))}
             />
           </div>
         </div>

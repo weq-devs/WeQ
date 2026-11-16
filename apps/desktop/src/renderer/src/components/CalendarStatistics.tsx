@@ -1,11 +1,9 @@
 import { NumericText } from './NumericText';
 import {
   CALENDAR_SOURCE_ORDER,
-  CALENDAR_SOURCE_LABELS,
   type CalendarTarget,
   type CalendarAnchor,
   type ConversationCalendarJob,
-  type CalendarControlAction,
 } from '@weq/service/conversation-calendar';
 import { useCalendarKinds } from '../hooks/useCalendarKinds';
 import { useMultiSelection } from '../hooks/useMultiSelection';
@@ -22,9 +20,7 @@ import {
 import type { CalendarKind } from '@weq/service/conversation-calendar';
 import '../styles/search-scope.css';
 import { beijingDay } from '../lib/messageCalendar';
-import { CalendarScanProgress } from './CalendarScanProgress';
 import { CalendarConversationList } from './CalendarConversationList';
-import { TaskLogDisclosure } from './TaskLogDisclosure';
 
 export type CalendarSnapshot = ReturnType<ConversationCalendarJob['snapshot']>;
 const contentOptions = [
@@ -59,13 +55,10 @@ export function CalendarStatistics({
   targets,
   busy,
   error,
-  logOpen,
-  onLogOpenChange,
   onLocate,
   onLoadMore,
   month,
   onDayChange,
-  onControl,
   locateDisabled = false,
 }: {
   snapshot?: CalendarSnapshot;
@@ -74,13 +67,10 @@ export function CalendarStatistics({
   targets: Map<string, CalendarTarget>;
   busy: boolean;
   error?: string;
-  logOpen: boolean;
-  onLogOpenChange: (open: boolean) => void;
   onLocate: (target: CalendarTarget, anchor: CalendarAnchor) => void;
   onLoadMore: () => void;
   month?: string;
   onDayChange?: (day: string) => void;
-  onControl?: (scope: 'month' | 'day', action: CalendarControlAction, day?: string) => void;
   locateDisabled?: boolean;
 }) {
   const [kinds, setKinds] = useCalendarKinds();
@@ -102,7 +92,6 @@ export function CalendarStatistics({
   });
   return (
     <section className="weq-overview-calendar-conversations" aria-label="当天会话">
-      <h4>统计进度</h4>
       <div
         className="weq-search-scope weq-calendar-kinds"
         role="group"
@@ -130,43 +119,6 @@ export function CalendarStatistics({
           </button>
         ))}
       </div>
-      <CalendarScanProgress
-        day={snapshot?.scanDayProgress?.day ?? snapshot?.activeScan?.day ?? day}
-        progress={snapshot?.progress}
-        controls={snapshot?.controls}
-        busy={busy}
-        onControl={onControl}
-        dayProgress={
-          snapshot?.scanDayProgress ??
-          (snapshot?.activeScan && snapshot.activeScan.day !== day
-            ? undefined
-            : snapshot?.dayProgress)
-        }
-      />
-      <p role="status">
-        {error ?? (
-          <NumericText>
-            {calendarReadLabel(snapshot) ??
-              (snapshot?.complete ? `${snapshot.totalRows} 个会话` : '正在统计当天会话…')}
-          </NumericText>
-        )}
-      </p>
-      {snapshot?.activeScan ? (
-        <p>
-          <span className="weq-number weq-number-inherit">{snapshot.activeScan.day}</span> ·{' '}
-          {CALENDAR_SOURCE_LABELS[snapshot.activeScan.kind]}
-          {snapshot.activeScan.progress ? (
-            <NumericText>{` · ${snapshot.activeScan.progress.phase} · 已处理 ${snapshot.activeScan.progress.processed.toLocaleString('zh-CN')} ${snapshot.activeScan.progress.unit}`}</NumericText>
-          ) : (
-            ''
-          )}
-        </p>
-      ) : null}
-      <TaskLogDisclosure
-        open={logOpen}
-        onOpenChange={onLogOpenChange}
-        lines={snapshot?.logs ?? []}
-      />
       {onDayChange && month ? (
         <label className="weq-calendar-task-date">
           列表日期
@@ -188,20 +140,24 @@ export function CalendarStatistics({
       ) : (
         <h4 className="weq-calendar-list-date">{day}</h4>
       )}
-      {snapshot?.dayProgress && !snapshot.emptyReason ? (
-        <p>
-          {snapshot.complete ? (
+      <p role="status">
+        {error ??
+          snapshot?.emptyReason ??
+          (snapshot?.dayProgress ? (
+            <>
+              <NumericText>{`${snapshot.totalRows}${snapshot.complete ? '' : '+'} 个会话`}</NumericText>{' '}
+              · 已计{' '}
+              <span className="weq-number weq-number-inherit">
+                {snapshot.dayProgress.count.toLocaleString('zh-CN')}
+              </span>{' '}
+              条{snapshot.dayProgress.paused ? ' · 该日已暂停' : ''}
+            </>
+          ) : snapshot?.complete ? (
             <NumericText>{`${snapshot.totalRows} 个会话`}</NumericText>
           ) : (
-            <NumericText>{`已完成 ${snapshot.dayProgress.completedSources}/${snapshot.dayProgress.totalSources} 个来源`}</NumericText>
-          )}{' '}
-          · 已计{' '}
-          <span className="weq-number weq-number-inherit">
-            {snapshot.dayProgress.count.toLocaleString('zh-CN')}
-          </span>{' '}
-          条{snapshot.dayProgress.paused ? ' · 该日已暂停' : ''}
-        </p>
-      ) : null}
+            '正在统计当天会话…'
+          ))}
+      </p>
       <CalendarConversationList
         key={`${id}:${day}`}
         rows={snapshot?.rows ?? []}
@@ -213,18 +169,6 @@ export function CalendarStatistics({
         onLocate={onLocate}
         onLoadMore={onLoadMore}
       />
-      {[
-        ...new Set(
-          [
-            snapshot?.persistenceError,
-            ...(snapshot?.days.flatMap((item) => item.errors) ?? []),
-          ].filter(Boolean),
-        ),
-      ].map((message) => (
-        <p role="alert" key={message}>
-          {message}
-        </p>
-      ))}
     </section>
   );
 }

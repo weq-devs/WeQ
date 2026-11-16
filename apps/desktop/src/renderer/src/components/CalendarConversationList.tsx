@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { memo, useCallback, useEffect, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { LoadingIndicator } from './LoadingIndicator';
 import {
@@ -10,7 +10,7 @@ import {
 } from '@weq/service/conversation-calendar';
 
 type Rows = ReturnType<ConversationCalendarJob['snapshot']>['rows'];
-export function CalendarConversationList({
+export const CalendarConversationList = memo(function CalendarConversationList({
   rows,
   total,
   complete,
@@ -94,4 +94,4 @@ export function CalendarConversationList({
       {showEmpty && complete && !rows.length ? <p>当天没有消息</p> : null}
     </div>
   );
-}
+});

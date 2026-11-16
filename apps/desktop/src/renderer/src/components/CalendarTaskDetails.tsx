@@ -9,6 +9,7 @@ import { client, trpc } from '../trpc/client';
 import { useCalendarKinds } from '../hooks/useCalendarKinds';
 import { CalendarNavigationContext } from '../lib/calendarNavigation';
 import { CalendarStatistics } from './CalendarStatistics';
+import { CalendarStatisticsProgress } from './CalendarStatisticsProgress';
 
 const targets = new Map<string, CalendarTarget>();
 export function CalendarTaskDetails({
@@ -22,7 +23,7 @@ export function CalendarTaskDetails({
 }) {
   const [day, setDay] = useState<string>();
   const [limit, setLimit] = useState(50);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [kinds] = useCalendarKinds();
@@ -79,8 +80,15 @@ export function CalendarTaskDetails({
   }
   return (
     <div className="weq-calendar-task-details" data-privacy-sensitive>
-      <CalendarStatistics
+      <CalendarStatisticsProgress
         onControl={(scope, action, day) => void control(scope, action, day)}
+        snapshot={value?.snapshot}
+        busy={busy}
+        statusText={error || query.error?.message}
+        logOpen={open}
+        onLogOpenChange={setOpen}
+      />
+      <CalendarStatistics
         snapshot={value?.snapshot}
         day={selectedDay}
         month={value?.month}
@@ -93,8 +101,6 @@ export function CalendarTaskDetails({
         busy={busy}
         locateDisabled={!navigate}
         error={error || query.error?.message}
-        logOpen={open}
-        onLogOpenChange={setOpen}
         onLocate={(target, anchor) => void locate(target, anchor)}
         onLoadMore={() =>
           setLimit((current) => Math.min(current + 50, value?.snapshot.totalRows ?? current))

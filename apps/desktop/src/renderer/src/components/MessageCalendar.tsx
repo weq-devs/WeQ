@@ -1,5 +1,5 @@
 import { NumericText } from './NumericText';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { beijingDay, messageDensity, type MessageDay } from '../lib/messageCalendar';
 import '../styles/message-calendar.css';
@@ -7,7 +7,7 @@ import '../styles/message-calendar.css';
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
 const compactCount = Intl.NumberFormat('zh-CN', { notation: 'compact', maximumFractionDigits: 1 });
 
-export function MessageCalendar({
+export const MessageCalendar = memo(function MessageCalendar({
   days = [],
   start = '',
   end = '',
@@ -24,6 +24,7 @@ export function MessageCalendar({
   yearOptions,
   statusText,
   maxDay,
+  fixedWeekCount = true,
 }: {
   days?: readonly MessageDay[];
   start?: string;
@@ -41,6 +42,7 @@ export function MessageCalendar({
   yearOptions?: string[];
   statusText?: string;
   maxDay?: string;
+  fixedWeekCount?: boolean;
 }) {
   const [localMonth, setLocalMonth] = useState((start || beijingDay()).slice(0, 7));
   const month = controlledMonth ?? localMonth;
@@ -63,6 +65,7 @@ export function MessageCalendar({
   const [year = 2026, mon = 1] = month.split('-').map(Number);
   const leadingDays = new Date(Date.UTC(year, mon - 1, 1)).getUTCDay();
   const length = new Date(Date.UTC(year, mon, 0)).getUTCDate();
+  const cellCount = fixedWeekCount ? 42 : Math.ceil((leadingDays + length) / 7) * 7;
   const years = [
     ...new Set([...(yearOptions ?? []), ...days.map((day) => day.day.slice(0, 4)), String(year)]),
   ].sort();
@@ -114,7 +117,7 @@ export function MessageCalendar({
             {day}
           </span>
         ))}
-        {Array.from({ length: 42 }, (_, index) => {
+        {Array.from({ length: cellCount }, (_, index) => {
           const date = index - leadingDays + 1;
           const key = `${month}-${index}`;
           if (date < 1 || date > length) return <span key={key} />;
@@ -205,4 +208,4 @@ export function MessageCalendar({
       {error ? <p role="alert">{error}</p> : null}
     </div>
   );
-}
+});

@@ -1,5 +1,6 @@
 import { act, createElement, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   calendarMonthDays,
@@ -39,6 +40,10 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
   Modal: ({ children }: { children: ReactNode }) => createElement('div', null, children),
 }));
 vi.mock('../src/renderer/src/components/RetainedTabs', () => ({ useTabActive: () => true }));
+vi.mock('@tanstack/react-virtual', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-virtual')>();
+  return { ...actual, useVirtualizer: vi.fn(actual.useVirtualizer) };
+});
 
 const month = '2026-11';
 function snapshot(complete: boolean, selectedMonth = month) {
@@ -289,23 +294,24 @@ it('后台交接失败时显示错误，直接关闭仍然停止任务', async (
   }
   expect(fixture.stop).toHaveBeenCalledTimes(1);
 });
-it('日历中同样通过任务日志折叠栏展开，按需读取且不重建统计', async () => {
+it('进度和默认展开的日志放在左下，右侧只保留类型和当日会话', async () => {
   const view = mount();
   try {
     await tick();
     const button = view.host.querySelector<HTMLButtonElement>('.weq-exp-detail-tasklog-head')!;
-    expect(button.closest('.weq-overview-calendar-conversations')).not.toBeNull();
-    expect(
-      view.host.querySelector(
-        '.weq-overview-calendar-conversations .weq-overview-calendar-progress',
-      ),
-    ).not.toBeNull();
-    expect(button.getAttribute('aria-expanded')).toBe('false');
-    expect(fixture.poll.mock.calls.at(-1)?.[0].includeLogs).toBe(false);
-    act(() => button.click());
-    await tick();
+    expect(button.closest('.weq-overview-calendar-left')).not.toBeNull();
+    const right = view.host.querySelector('.weq-overview-calendar-conversations')!;
+    expect(right.querySelector('[aria-label="统计内容"]')).not.toBeNull();
+    expect(right.querySelector('[aria-label="当天会话列表"]')).not.toBeNull();
+    expect(right.querySelector('.weq-overview-calendar-progress')).toBeNull();
+    expect(right.querySelector('.weq-exp-detail-tasklog')).toBeNull();
+    expect(view.host.querySelectorAll('progress')).toHaveLength(1);
     expect(button.getAttribute('aria-expanded')).toBe('true');
     expect(fixture.poll.mock.calls.at(-1)?.[0].includeLogs).toBe(true);
+    act(() => button.click());
+    await tick();
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(fixture.poll.mock.calls.at(-1)?.[0].includeLogs).toBe(false);
     expect(fixture.start).toHaveBeenCalledTimes(1);
   } finally {
     view.close();
@@ -326,6 +332,46 @@ it('再次点击当前日期不清空已完成的当天会话状态', async () =
     await tick();
     expect(status.textContent).toBe('0 个会话');
   } finally {
+    view.close();
+  }
+});
+it('扫描状态和日志连续更新时复用会话数据，不重新渲染列表或改写月历节点', async () => {
+  let processed = 0;
+  fixture.poll.mockImplementation(async () => ({
+    ...structuredClone(state),
+    activeScan: {
+      day: '2026-11-01',
+      kind: 'group',
+      progress: { phase: '本地元数据', processed: ++processed, unit: '条元数据' },
+    },
+    logs: [{ seq: 1, ts: 0, stage: 'group', level: 'info', text: `已处理 ${processed} 条` }],
+  }));
+  const view = mount();
+  const changed = vi.fn();
+  let observer: MutationObserver | undefined;
+  try {
+    await tick();
+    const listRenders = vi.mocked(useVirtualizer).mock.calls.length;
+    const grid = view.host.querySelector('.weq-density-calendar')!;
+    observer = new MutationObserver(changed);
+    observer.observe(grid, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      characterData: true,
+    });
+    await tick(2500);
+    expect(processed).toBeGreaterThan(3);
+    expect(view.host.textContent).toContain(`已处理 ${processed} 条`);
+    expect(vi.mocked(useVirtualizer).mock.calls.length).toBe(listRenders);
+    expect(changed).not.toHaveBeenCalled();
+    expect(view.host.querySelector('.weq-density-calendar')).toBe(grid);
+    state.days[0]!.count = 123;
+    await tick(500);
+    expect(grid.textContent).toContain('123+');
+    expect(vi.mocked(useVirtualizer).mock.calls.length).toBe(listRenders);
+  } finally {
+    observer?.disconnect();
     view.close();
   }
 });

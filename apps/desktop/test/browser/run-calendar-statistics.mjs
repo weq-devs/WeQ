@@ -59,12 +59,13 @@ try {
     .getByRole('status', { exact: true })
     .filter({ hasText: '等待可用读取连接，将自动继续' })
     .waitFor();
+  if ((await page.getByRole('progressbar').count()) !== 1) throw new Error('未使用单一按天数进度');
   if (
     (await page
-      .getByRole('progressbar', { name: '2026-11-09 进度', exact: true })
-      .getAttribute('value')) !== '0'
+      .getByRole('button', { name: '任务日志', exact: true })
+      .getAttribute('aria-expanded')) !== 'true'
   )
-    throw new Error('当日进度未跟随实际扫描日');
+    throw new Error('任务日志未默认展开');
   if ((await page.getByLabel('列表日期', { exact: true }).inputValue()) !== '2026-11-08')
     throw new Error('列表日期被扫描日覆盖');
   await mkdir(output, { recursive: true });
@@ -79,19 +80,9 @@ try {
           dark ? '#80c6a9' : '#96315f',
         );
       }, dark);
-      await page.getByRole('button', { name: '任务日志', exact: true }).click();
       await page.getByRole('button', { name: '暂停当月统计', exact: true }).click();
       await page.getByRole('button', { name: '继续当月统计', exact: true }).waitFor();
-      if (
-        !(await page.getByRole('button', { name: '暂停2026-11-09统计', exact: true }).isEnabled())
-      )
-        throw new Error('月暂停错误地禁用了日控制');
-      await page.getByRole('button', { name: '暂停2026-11-09统计', exact: true }).click();
-      await page.getByRole('button', { name: '继续2026-11-09统计', exact: true }).click();
-      await page.getByRole('button', { name: '继续当月统计', exact: true }).waitFor();
       await page.getByRole('button', { name: '继续当月统计', exact: true }).click();
-      await page.getByRole('button', { name: '暂停2026-11-09统计', exact: true }).click();
-      await page.getByRole('button', { name: '继续2026-11-09统计', exact: true }).click();
       await page
         .getByRole('group', { name: '统计内容', exact: true })
         .getByRole('button', { name: '公众号/服务号', exact: true })
@@ -121,6 +112,7 @@ try {
         fullPage: true,
       });
       await page.getByRole('button', { name: '任务日志', exact: true }).click();
+      await page.getByRole('button', { name: '任务日志', exact: true }).click();
     }
   const mine = page.getByRole('button', { name: '我的设备', exact: true });
   await mine.click();
@@ -135,19 +127,164 @@ try {
   const oldRow = await page.locator('.weq-overview-calendar-row').first().innerText();
   await monthRetry.click();
   await page.getByRole('button', { name: '暂停当月统计', exact: true }).waitFor();
-  const dayRetry = page.getByRole('button', { name: '重试2026-11-09统计', exact: true });
-  if (!(await dayRetry.isEnabled())) throw new Error('完成后当日重试被禁用');
-  await dayRetry.click();
-  await page.getByRole('button', { name: '暂停2026-11-09统计', exact: true }).waitFor();
   if ((await page.locator('.weq-overview-calendar-row').first().innerText()) !== oldRow)
     throw new Error('重试时清除了原有结果');
+  await page.goto(
+    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/calendar-statistics.html?overview=1`,
+  );
+  await page.getByRole('dialog', { name: '会话日历', exact: true }).waitFor();
+  await page.waitForFunction(() => Number(document.documentElement.dataset.calendarPolls) >= 2);
+  const left = page.locator('.weq-overview-calendar-left');
+  const right = page.locator('.weq-overview-calendar-conversations');
+  if (
+    (await left.getByRole('progressbar').count()) !== 1 ||
+    (await right.getByRole('progressbar').count())
+  )
+    throw new Error('统计进度未完整移至左下');
+  if (await right.getByRole('button', { name: '任务日志', exact: true }).count())
+    throw new Error('右侧仍有任务日志');
+  for (const width of [1100, 620, 390, 320])
+    for (const dark of [false, true]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ reducedMotion: dark ? 'reduce' : 'no-preference' });
+      await page.evaluate((dark) => {
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        document.documentElement.dataset.background = dark ? 'grid' : 'paper';
+        document.documentElement.style.setProperty(
+          '--weq-accent-effective',
+          dark ? '#80c6a9' : '#96315f',
+        );
+      }, dark);
+      await page.evaluate(
+        () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+      );
+      await page.evaluate(() =>
+        Promise.all(
+          document
+            .getAnimations()
+            .filter((animation) => animation.effect?.getTiming().iterations !== Infinity)
+            .map((animation) => animation.finished.catch(() => {})),
+        ),
+      );
+      const state = await page.evaluate(() => {
+        const dialog = document.querySelector('[role="dialog"]');
+        const grid = document.querySelector('.weq-density-calendar');
+        const rows = document.querySelector('.weq-overview-calendar-rows');
+        const rect = dialog.getBoundingClientRect();
+        const mutations = { grid: 0, rows: 0 };
+        const gridObserver = new MutationObserver((items) => {
+          mutations.grid += items.length;
+        });
+        const rowObserver = new MutationObserver((items) => {
+          mutations.rows += items.length;
+        });
+        gridObserver.observe(grid, {
+          subtree: true,
+          childList: true,
+          attributes: true,
+          characterData: true,
+        });
+        rowObserver.observe(rows, {
+          subtree: true,
+          childList: true,
+          attributes: true,
+          characterData: true,
+        });
+        window.calendarStability = {
+          mutations,
+          gridObserver,
+          rowObserver,
+          rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+          grid,
+          rows,
+        };
+        return { polls: Number(document.documentElement.dataset.calendarPolls) };
+      });
+      await page.waitForFunction(
+        (polls) => Number(document.documentElement.dataset.calendarPolls) >= polls + 4,
+        state.polls,
+      );
+      const stability = await page.evaluate(() => {
+        const { mutations, gridObserver, rowObserver, rect, grid, rows } = window.calendarStability;
+        gridObserver.disconnect();
+        rowObserver.disconnect();
+        const current = document.querySelector('[role="dialog"]').getBoundingClientRect();
+        return {
+          mutations,
+          before: rect,
+          after: { x: current.x, y: current.y, width: current.width, height: current.height },
+          sameNodes:
+            grid === document.querySelector('.weq-density-calendar') &&
+            rows === document.querySelector('.weq-overview-calendar-rows'),
+          shifted: ['x', 'y', 'width', 'height'].some(
+            (key) => Math.abs(current[key] - rect[key]) > 1,
+          ),
+          overflow:
+            document.documentElement.scrollWidth > innerWidth ||
+            [...document.querySelectorAll('button,input,progress')].some((element) => {
+              const box = element.getBoundingClientRect();
+              return box.right > innerWidth + 1 || box.left < -1;
+            }),
+        };
+      });
+      if (
+        stability.mutations.grid ||
+        stability.mutations.rows ||
+        !stability.sameNodes ||
+        stability.shifted ||
+        stability.overflow
+      )
+        throw new Error(`日历刷新不稳定 ${width}/${dark}: ${JSON.stringify(stability)}`);
+      if (width > 620) {
+        const layout = await page.evaluate(() => {
+          const body = document.querySelector('.weq-overview-calendar-body');
+          const rows = document.querySelector('.weq-overview-calendar-rows');
+          const log = document.querySelector('.weq-calendar-statistics-progress .weq-exp-log');
+          const calendar = document.querySelector('.weq-density-calendar');
+          const progress = document.querySelector('.weq-calendar-statistics-progress');
+          const bottom = body.getBoundingClientRect().bottom;
+          return {
+            outerScroll: body.scrollHeight > body.clientHeight + 1,
+            rowsGap: bottom - rows.getBoundingClientRect().bottom,
+            logGap: bottom - log.getBoundingClientRect().bottom,
+            logHeight: log.clientHeight,
+            calendarGap:
+              progress.getBoundingClientRect().top - calendar.getBoundingClientRect().bottom,
+          };
+        });
+        if (
+          layout.outerScroll ||
+          Math.abs(layout.rowsGap) > 2 ||
+          Math.abs(layout.logGap) > 2 ||
+          layout.logHeight < 140 ||
+          layout.calendarGap > 13
+        )
+          throw new Error(`剩余空间未填满: ${JSON.stringify(layout)}`);
+      } else {
+        const overlap = await page.evaluate(() => {
+          const left = document
+            .querySelector('.weq-overview-calendar-left')
+            .getBoundingClientRect();
+          const right = document
+            .querySelector('.weq-overview-calendar-conversations')
+            .getBoundingClientRect();
+          return right.top < left.bottom + 15;
+        });
+        if (overlap) throw new Error(`窄屏左右两栏内容重叠: ${width}/${dark}`);
+      }
+      await page.screenshot({
+        path: resolve(output, `overview-${width}-${dark ? 'dark' : 'light'}.png`),
+        fullPage: true,
+      });
+    }
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(
     JSON.stringify({
-      cases: 6,
+      cases: 14,
       overflow: false,
       selectionRemembered: true,
       navigation: true,
+      stablePolling: true,
       output,
     }),
   );
