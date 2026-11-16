@@ -1133,11 +1133,11 @@ export function DbRepairPanel({
         pushToast({
           tone: 'success',
           title: '已结束 QQ 进程',
-          detail: `pid ${holder.pid} 已退出，库的占用也释放了（等了 ${result.waitedMs}ms）。`,
+          detail: `pid ${holder.pid} 已退出，库的占用也释放了（等了 ${result.waitedMs} ms）。`,
         });
       } else {
         // 杀了但还占着 —— 这就是「下一步要修也修不了」的原因，不能只写在底部。
-        const text = `已结束 pid ${holder.pid}，但库仍被占用（等了 ${result.waitedMs}ms）。可能还有别的 QQ 进程或别的东西在用，先把它关掉再试。`;
+        const text = `已结束 pid ${holder.pid}，但库仍被占用（等了 ${result.waitedMs} ms）。可能还有别的 QQ 进程或别的东西在用，先把它关掉再试。`;
         pushToast({ tone: 'warning', title: 'QQ 已结束，但库仍被占用', detail: text });
         setNotice(text);
       }

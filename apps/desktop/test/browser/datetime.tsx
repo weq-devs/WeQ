@@ -1,9 +1,20 @@
 import { createRoot } from 'react-dom/client';
 import { useState } from 'react';
-import { formatChatTime, formatConversationTime, formatDateTime, formatTimeRange } from '@weq/time';
-import { TimeLabel } from '../../src/renderer/src/components/TimeLabel';
+import {
+  formatChatTime,
+  formatChineseDate,
+  formatConversationTime,
+  formatDateTime,
+  formatDuration,
+  formatRelativeTime,
+  formatTimeRange,
+} from '@weq/time';
+import { DurationLabel, TimeLabel } from '../../src/renderer/src/components/TimeLabel';
 import { HoverTooltip } from '../../src/renderer/src/components/HoverTooltip';
 import { NodeTimeInput } from '../../src/renderer/src/components/mergeForward/NodeTimeInput';
+import { ContactBirthdayRow } from '../../src/renderer/src/components/ContactBirthdayRow';
+import { contactBirth } from '../../src/renderer/src/lib/contactBirth';
+import { ComposerSendButton } from '../../src/renderer/src/im-template/template/composerSendButton';
 import '../../src/renderer/src/styles/index.css';
 
 const now = Date.parse('2026-03-04T15:00:00+08:00');
@@ -24,6 +35,32 @@ function Fixture() {
       }}
     >
       <h1 style={{ fontSize: 20 }}>时间记录</h1>
+      <section data-testid="spaced-copy" style={{ overflowWrap: 'anywhere' }}>
+        <p data-testid="chinese-date">{formatChineseDate(stamp)}</p>
+        <p data-testid="relative-time">{formatRelativeTime(now - 180_000, now)}</p>
+        <p data-testid="duration">{formatDuration(90061)}</p>
+        <p>
+          <DurationLabel seconds={0} />
+        </p>
+        <ContactBirthdayRow
+          birth={contactBirth({ birthYear: 2010, birthMonth: 1, birthDay: 20 })}
+        />
+        <ContactBirthdayRow
+          birth={contactBirth(
+            { age: 16, extInfo: { constellation: 1 } },
+            new Date('2026-11-11T12:00:00+08:00'),
+          )}
+        />
+        <ComposerSendButton
+          variant="desktop"
+          disabled
+          title="发送"
+          restriction={{ kind: 'personal', until: Date.now() / 1000 + 28 * 86400 + 23 * 3600 }}
+          active={false}
+          onSend={() => {}}
+        />
+        <p data-testid="source-text">{'原文2026年11月16日，耗时3秒，QQ12345'}</p>
+      </section>
       <button
         type="button"
         data-testid="row"

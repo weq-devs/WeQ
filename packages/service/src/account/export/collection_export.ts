@@ -238,7 +238,7 @@ function timeText(ms: number): string {
   return ms ? timeFormat.formatDateTime(ms, 'millisecond') : '';
 }
 
-/** 秒 → `M:SS` / `S"`（0/空留空）。 */
+/** 秒 → 带数字间距的中文时长（0/空留空）。 */
 function durationText(sec: number): string {
   return sec > 0 ? timeFormat.formatDuration(sec) : '';
 }
@@ -254,7 +254,7 @@ function sizeText(raw: string): string {
     v /= 1024;
     i += 1;
   }
-  return `${v >= 10 || i === 0 ? Math.round(v) : v.toFixed(1)}${units[i]}`;
+  return `${v >= 10 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
 }
 
 /** 把一组图片拍成用竖线分隔的 URL 串（导出到单元格）。 */

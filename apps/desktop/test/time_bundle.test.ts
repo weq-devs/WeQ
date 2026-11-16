@@ -22,6 +22,7 @@ describe('内嵌 Bot 时间运行时', () => {
     expect(
       runInNewContext(`${source};formatDateTime('2026-03-04T06:05:06.789Z','millisecond')`),
     ).toBe('2026-03-04 14:05:06.789');
-    expect(runInNewContext(`${source};formatDuration(119.9,'approximate')`)).toBe('2分');
+    expect(runInNewContext(`${source};formatDuration(119.9,'approximate')`)).toBe('2 分钟');
+    expect(runInNewContext(`${source};formatChineseDate('2026-03-04')`)).toBe('2026 年 3 月 4 日');
   });
 });

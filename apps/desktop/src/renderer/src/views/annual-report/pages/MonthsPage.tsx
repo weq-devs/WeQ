@@ -50,7 +50,7 @@ export function MonthsPage({ page, data, active }: ReportPageProps<MonthsPageDat
     <PageFrame page={page} active={active} ghost={data.year} tone="#b04864">
       <div className="weq-mo" data-has-champion={champion ? 'yes' : 'no'}>
         <header className="weq-mo-kicker weq-report-line" style={{ '--i': 1 } as CSSProperties}>
-          <span>{reportEraLabel(data.year)} · 陪你走过12个月</span>
+          <span>{reportEraLabel(data.year)} · 陪你走过 12 个月</span>
           <span className="weq-mo-kicker-meta">
             <b className="weq-number">{fmt(data.friendCount)}</b> 位好友
             <i aria-hidden>/</i>

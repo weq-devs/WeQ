@@ -193,7 +193,7 @@ export function SsePushSection(): ReactElement {
     const label = `${form?.name.trim() || 'SSE'} · ${(form?.id || draftId).slice(-8)}`;
     void runConnectionTest(testKey, label, async () => {
       const result = await client.bootstrap.testSsePushServer.mutate(input);
-      return { detail: `已发送 ping 事件，耗时 ${result.latencyMs}ms` };
+      return { detail: `已发送 ping 事件，耗时 ${result.latencyMs} ms` };
     });
   }
 

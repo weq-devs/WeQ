@@ -98,7 +98,7 @@ export function MessageCalendar({
         >
           {Array.from({ length: 12 }, (_, i) => i + 1).map((monthNumber) => (
             <option key={monthNumber} value={monthNumber}>
-              {monthNumber}月
+              {monthNumber} 月
             </option>
           ))}
         </select>

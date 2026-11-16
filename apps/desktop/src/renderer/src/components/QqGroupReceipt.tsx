@@ -180,7 +180,7 @@ export function QqGroupReceipt({
             <div className="weq-group-receipt-amount">
               {myAmount !== null
                 ? `你需支付${formatAmount(myAmount)}元`
-                : `共${payers.length}人收款`}
+                : `共 ${payers.length} 人收款`}
             </div>
           </div>
         </div>

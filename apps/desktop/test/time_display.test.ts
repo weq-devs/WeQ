@@ -64,7 +64,7 @@ describe('功能接入统一格式', () => {
     host.innerHTML = renderToStaticMarkup(createElement(TimeLabel, { value: '2026-03-04' }));
     expect(host.querySelector('time')?.getAttribute('datetime')).toBe('2026-03-04');
     expect(renderToStaticMarkup(createElement(DurationLabel, { seconds: 0.25 }))).toContain(
-      'title="0.25秒"',
+      'title="0.25 秒"',
     );
   });
   it('到期时刻显示完整日期，缺失的签发时间或到期时间不伪造 epoch', () => {

@@ -83,7 +83,9 @@ export function plainElementText(
       return media('文件夹');
     case 'ptt': {
       const duration =
-        typeof data.pttDuration === 'number' && data.pttDuration > 0 ? `${data.pttDuration}秒` : '';
+        typeof data.pttDuration === 'number' && data.pttDuration > 0
+          ? `${data.pttDuration} 秒`
+          : '';
       const transcript = text(data.pttTranscript);
       return `${media('语音', fileName || duration)}${transcript ? `\n[语音转写]\n${transcript}` : ''}`;
     }

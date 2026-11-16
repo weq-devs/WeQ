@@ -2140,7 +2140,7 @@ function monthsSlide(data: Record<string, unknown>): string {
   const calendar = cells
     .map((cell) => {
       const top = cell.top ?? null;
-      const label = monthLabels[Number(cell.month ?? 0) - 1] ?? `${cell.month}月`;
+      const label = monthLabels[Number(cell.month ?? 0) - 1] ?? `${cell.month} 月`;
       const ours = champion && top && top.peerUid === champion.peerUid ? ' ours' : '';
       const quiet = top ? '' : ' quiet';
       const carried = 'carried' in cell && cell.carried;
@@ -2159,7 +2159,7 @@ function monthsSlide(data: Record<string, unknown>): string {
   return `${slideOpen(String(year))}
     <div class="mo">
       <div class="mo-kicker">
-        <span>${escapeHtml(reportEraLabel(year))} · 陪你走过12个月</span>
+        <span>${escapeHtml(reportEraLabel(year))} · 陪你走过 12 个月</span>
         <span class="mo-kicker-meta"><b>${fmt(Number(data.friendCount ?? 0))}</b> 位好友 / <b>${fmt(
           Number(data.totalMessages ?? 0),
         )}</b> 条私聊</span>

@@ -296,20 +296,20 @@ describe('新消息按钮已读行为', () => {
         render([first, second]);
         expect(scroll.scrollTop).toBe(enabled === false ? 800 : 1200);
         if (enabled === false) {
-          expect(host.querySelector('.new-message-pill')?.textContent).toContain('1条新消息');
+          expect(host.querySelector('.new-message-pill')?.textContent).toContain('1 条新消息');
           const own = { ...first, id: 'own', senderId: demo.user.id };
           render([first, second, own]);
-          expect(host.querySelector('.new-message-pill')?.textContent).toContain('1条新消息');
+          expect(host.querySelector('.new-message-pill')?.textContent).toContain('1 条新消息');
           expect(scroll.scrollTop).toBe(800);
           act(() => host.querySelector<HTMLButtonElement>('.new-message-bottom')!.click());
           expect(scroll.scrollTop).toBe(1200);
           expect(host.querySelector('.new-message-pill')).toBeNull();
           render([first, second, own, { ...first, id: 'third' }]);
-          expect(host.querySelector('.new-message-pill')?.textContent).toContain('1条新消息');
+          expect(host.querySelector('.new-message-pill')?.textContent).toContain('1 条新消息');
           // 重开跟随不打断已经保留的阅读位置，回到底部后再开始跟随。
           settings.value = { autoFollowLatestMessages: true };
           render([first, second, own, { ...first, id: 'third' }]);
-          expect(host.querySelector('.new-message-pill')?.textContent).toContain('1条新消息');
+          expect(host.querySelector('.new-message-pill')?.textContent).toContain('1 条新消息');
           act(() => host.querySelector<HTMLButtonElement>('.new-message-bottom')!.click());
           render([first, second, own, { ...first, id: 'fourth' }]);
           expect(host.querySelector('.new-message-pill')).toBeNull();
@@ -321,7 +321,7 @@ describe('新消息按钮已读行为', () => {
           });
           render([first, second, { ...first, id: 'third' }]);
           expect(scroll.scrollTop).toBe(100);
-          expect(host.querySelector('.new-message-pill')?.textContent).toContain('1条新消息');
+          expect(host.querySelector('.new-message-pill')?.textContent).toContain('1 条新消息');
         }
       } finally {
         act(() => root.unmount());
@@ -403,9 +403,9 @@ describe('新消息按钮已读行为', () => {
         render({ messages: [first, own] });
         expect(pill()).toBeNull();
         render({ messages: [first, own, { ...first, id: 'new' }, { ...own, id: 'own-2' }] });
-        expect(pill()?.textContent).toContain('1条新消息');
+        expect(pill()?.textContent).toContain('1 条新消息');
         move(400);
-        expect(pill()?.textContent).toContain('1条新消息');
+        expect(pill()?.textContent).toContain('1 条新消息');
         render({ conversation: { ...conversation, id: 'other' } });
         expect(pill()).toBeNull();
       } finally {
@@ -644,7 +644,7 @@ describe('新消息按钮已读行为', () => {
       expect(scroll.scrollTop).toBe(100);
       const pillText = host.querySelector('.new-message-pill')?.textContent ?? '';
       if (sender === 'self') expect(pillText).not.toContain('条新消息');
-      else expect(pillText).toContain('1条新消息');
+      else expect(pillText).toContain('1 条新消息');
       expect(read).not.toHaveBeenCalled();
       act(() =>
         root.render(
@@ -718,14 +718,14 @@ describe('新消息按钮已读行为', () => {
         root.render(createElement(ChatPane, { ...props, latestMessageSeq: '9007199254740995' })),
       );
       const pill = () => host.querySelector('.new-message-pill');
-      expect(pill()?.textContent).toContain('2条新消息');
+      expect(pill()?.textContent).toContain('2 条新消息');
       act(() =>
         root.render(createElement(ChatPane, { ...props, latestMessageSeq: '9007199254740994' })),
       );
       act(() =>
         root.render(createElement(ChatPane, { ...props, latestMessageSeq: '9007199254740995' })),
       );
-      expect(pill()?.textContent).toContain('2条新消息');
+      expect(pill()?.textContent).toContain('2 条新消息');
       act(() =>
         host
           .querySelector('.message-scroll')!
@@ -740,7 +740,7 @@ describe('新消息按钮已读行为', () => {
       act(() =>
         root.render(createElement(ChatPane, { ...props, latestMessageSeq: '9007199254740994' })),
       );
-      expect(pill()?.textContent).toContain('2条新消息');
+      expect(pill()?.textContent).toContain('2 条新消息');
       const frames: FrameRequestCallback[] = [];
       vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
         frames.push(callback);

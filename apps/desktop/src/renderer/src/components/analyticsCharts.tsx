@@ -56,7 +56,7 @@ export function formatDate(ts: number | null): string {
   return ts && ts > 0 ? timeFormat.formatUnixTime(ts) || '-' : '-';
 }
 
-/** Human-readable duration from seconds: 12秒 / 3分20秒 / 1.5小时 / 2天. */
+/** 秒数转换为带数字间距的中文时长。 */
 export function formatDuration(sec: number): string {
   return timeFormat.formatDuration(sec, 'approximate') || '-';
 }
@@ -199,18 +199,18 @@ export function HourlyBarChart({
 /* ------------------------------------------------------------------ */
 
 const MONTH_NAMES = [
-  '1月',
-  '2月',
-  '3月',
-  '4月',
-  '5月',
-  '6月',
-  '7月',
-  '8月',
-  '9月',
-  '10月',
-  '11月',
-  '12月',
+  '1 月',
+  '2 月',
+  '3 月',
+  '4 月',
+  '5 月',
+  '6 月',
+  '7 月',
+  '8 月',
+  '9 月',
+  '10 月',
+  '11 月',
+  '12 月',
 ];
 const DAY_MS = 86400000;
 /** The heatmap always renders a full trailing year (53 weeks ≈ 371 days). */

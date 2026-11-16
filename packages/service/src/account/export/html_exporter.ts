@@ -231,8 +231,8 @@ function renderGrayTipGroupText(el: RenderElement): string {
         const days = Math.floor(dur / 86400);
         const hours = Math.floor((dur % 86400) / 3600);
         const minutes = Math.floor((dur % 3600) / 60);
-        const durStr = days > 0 ? `${days}天` : hours > 0 ? `${hours}小时` : `${minutes}分钟`;
-        return `${target} 被 ${op} 禁言了${durStr}`;
+        const durStr = days > 0 ? `${days} 天` : hours > 0 ? `${hours} 小时` : `${minutes} 分钟`;
+        return `${target} 被 ${op} 禁言了 ${durStr}`;
       }
       return `${op} 结束了 ${target} 的禁言`;
     }
