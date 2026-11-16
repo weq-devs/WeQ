@@ -39,7 +39,8 @@ describe('独立资源沿用导出任务生命周期', () => {
     );
     await vi.waitFor(() => expect(f.manager.getTask(id)?.networkPaused).toBe(true));
     expect(f.manager.resumeTask(id)).toBe(true);
-    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
+    await (f.manager as unknown as { queue: Promise<void> }).queue;
+    expect(run).toHaveBeenCalledOnce();
     const small = vi.fn(async () => ({ total: 0, ok: 0, failed: [] }));
     await networkScope.run(
       { clientId: 'manual-phone', restricted: true, intent: 'interactive' },
@@ -52,7 +53,8 @@ describe('独立资源沿用导出任务生命周期', () => {
           savePolicy: { mode: 'before', directory: f.root },
         }),
     );
-    await vi.waitFor(() => expect(small).toHaveBeenCalledOnce());
+    await (f.manager as unknown as { queue: Promise<void> }).queue;
+    expect(small).toHaveBeenCalledOnce();
   });
   it('受限手机创建的联网任务先暂停，其他端和本地任务继续，恢复后只启动策略暂停任务', async () => {
     const f = fixture();
@@ -470,7 +472,7 @@ describe('独立资源沿用导出任务生命周期', () => {
     ).toBe('synthetic');
   });
   it.each(['pause', 'cancel'] as const)(
-    '运行中 %s 后停止且不发布未完成目录，不冒称可续传',
+    '非续作资源 %s 不提供虚假暂停，取消后不发布未完成目录',
     async (action) => {
       const f = fixture();
       let started = false;
@@ -488,12 +490,13 @@ describe('独立资源沿用导出任务生命周期', () => {
         },
       });
       await vi.waitFor(() => expect(started).toBe(true));
-      expect(action === 'pause' ? f.manager.pauseTask(id) : f.manager.cancelTask(id)).toBe(true);
+      if (action === 'pause') expect(f.manager.pauseTask(id)).toBe(false);
+      expect(f.manager.cancelTask(id)).toBe(true);
       await vi.waitFor(() =>
         expect(readdirSync(f.cache).some((name) => name.endsWith('.partial'))).toBe(false),
       );
       expect(f.manager.getTask(id)).toMatchObject({
-        status: action === 'pause' ? 'paused' : 'cancelled',
+        status: 'cancelled',
       });
       expect(f.manager.getTask(id)?.bundleDir).toBeUndefined();
       expect(f.manager.resumeTask(id)).toBe(false);
@@ -503,7 +506,7 @@ describe('独立资源沿用导出任务生命周期', () => {
       if (action === 'cancel') expect(f.manager.getTask(id)?.error).toBeUndefined();
     },
   );
-  it('暂停收尾期间不可重入，取消后即使旧运行器完成也不能恢复或发布', async () => {
+  it('非续作资源不能手动暂停，取消后即使旧运行器完成也不能恢复或发布', async () => {
     const f = fixture();
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
@@ -520,7 +523,7 @@ describe('独立资源沿用导出任务生命周期', () => {
       savePolicy: { mode: 'before', directory: f.root },
     });
     await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
-    expect(f.manager.pauseTask(id)).toBe(true);
+    expect(f.manager.pauseTask(id)).toBe(false);
     expect(f.manager.listTasks()[0]?.canResume).toBe(false);
     expect(f.manager.resumeTask(id)).toBe(false);
     expect(f.manager.cancelTask(id)).toBe(true);
@@ -532,7 +535,7 @@ describe('独立资源沿用导出任务生命周期', () => {
     expect(f.manager.resumeTask(id)).toBe(false);
     expect(f.manager.getTask(id)?.bundleDir).toBeUndefined();
   });
-  it('暂停完成后取消清除暂停提示，不再提供重新执行', async () => {
+  it('非续作资源拒绝暂停，取消清除中断提示且不提供重新执行', async () => {
     const f = fixture();
     const run = vi.fn(async ({ signal }: { signal: AbortSignal }) => {
       await new Promise<void>((_resolve, reject) =>
@@ -547,12 +550,11 @@ describe('独立资源沿用导出任务生命周期', () => {
       savePolicy: { mode: 'before', directory: f.root },
     });
     await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
-    f.manager.pauseTask(id);
+    expect(f.manager.pauseTask(id)).toBe(false);
+    expect(f.manager.cancelTask(id)).toBe(true);
     await vi.waitFor(() =>
       expect(readdirSync(f.cache).some((name) => name.endsWith('.partial'))).toBe(false),
     );
-    expect(f.manager.getTask(id)?.error).toContain('已中断');
-    expect(f.manager.cancelTask(id)).toBe(true);
     expect(f.manager.getTask(id)?.error).toBeUndefined();
     expect(f.manager.resumeTask(id)).toBe(false);
   });

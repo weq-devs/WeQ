@@ -243,7 +243,9 @@ it('公共任务取消中止原下载，不把半成品标为已保存', async (
     .saveAttachment({ ...input, savePolicy: { mode: 'before', directory: root } });
   await vi.waitFor(() => expect(active).toBeDefined());
   manager.cancelTask(id);
-  await vi.waitFor(() => expect(manager.getTask(id)?.error).toContain('中断'));
+  await (manager as unknown as { queue: Promise<void> }).queue;
+  expect(manager.getTask(id)?.status).toBe('cancelled');
+  expect(manager.getTask(id)?.error).toBeUndefined();
   expect(active?.aborted).toBe(true);
   expect(manager.getTask(id)?.filePath).toBeUndefined();
   expect(manager.getTask(id)?.save?.status).not.toBe('saved');

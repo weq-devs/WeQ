@@ -288,13 +288,15 @@ describe('联系人精确条目导出', () => {
     expect(task.formatCounts).toEqual({ json: 1, txt: 1 });
     expect(existsSync(join(task.bundleDir!, '合成多格式.txt'))).toBe(true);
   });
-  it('暂停后可在重启读取记录后按原精确目标重新执行，不冒充断点继续', async () => {
+  it('暂停后可在重启读取记录后按原精确目标续作', async () => {
     const { deps } = fixture();
     const cache = dirname(output());
     let release!: () => void;
     let reading = false,
       first = true;
+    let reads = 0;
     deps.listBuddies = async () => {
+      reads++;
       if (first) {
         first = false;
         reading = true;
@@ -327,11 +329,12 @@ describe('联系人精确条目导出', () => {
       cache,
       withExportSaveDirectory(cache, { contacts: deps }),
     );
-    expect(restored.listTasks()[0]).toMatchObject({ canResume: true, resumeMode: 'restart' });
+    expect(restored.listTasks()[0]).toMatchObject({ canResume: true, resumeMode: 'checkpoint' });
     expect(restored.resumeTask(id)).toBe(true);
     await (restored as unknown as { queue: Promise<void> }).queue;
     expect(restored.getTask(id)?.status).toBe('completed');
     expect(exportedUids(restored.getTask(id)!.filePath!)).toEqual(['b']);
+    expect(reads).toBe(1);
   });
   it('相同名称的联系人任务各自保留产物，不覆盖先前文件', async () => {
     const { deps } = fixture();

@@ -398,20 +398,45 @@ describe('收藏包导出任务', () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
-  it('排队后 QQ PID 改变时不再导出旧账号资源', async () => {
-    const f = fixture();
-    await f.caller.favoriteExport({
-      ...binding,
-      savePolicy: { mode: 'before', directory: '/fixture/export' },
-    });
-    f.record.qqPid++;
-    const run = f.s.exportManager.startResourceExport.mock.calls[0]![0].run;
-    await expect(
-      run({ directory: '/unused', signal: new AbortController().signal, progress: vi.fn() }),
-    ).rejects.toThrow('运行时');
-    expect(f.s.emoji.fetchOnlineFavoriteIds).not.toHaveBeenCalled();
-    expect(f.s.emoji.addFavorite).not.toHaveBeenCalled();
-  });
+  it.each([false, true])(
+    '排队后 QQ 重连可使用当前服务，切换账号或数据源则拒绝：%s',
+    async (switched) => {
+      const f = fixture();
+      const emojiId = (await f.s.emoji.fetchOnlineFavoriteIds())[0]!;
+      f.s.emoji.fetchOnlineFavoriteIds.mockClear();
+      f.s.emoji.fetchOnlineFavoriteDetails.mockResolvedValue([
+        { emojiId, desc: '重连后仍属原账号' },
+      ]);
+      await f.caller.favoriteExport({
+        ...binding,
+        savePolicy: { mode: 'before', directory: '/fixture/export' },
+      });
+      f.record.qqPid++;
+      if (switched) f.switchAccount();
+      const run = f.s.exportManager.startResourceExport.mock.calls[0]![0].run;
+      const directory = await mkdtemp(join(tmpdir(), 'weq-favorite-reconnect-'));
+      try {
+        const execution = run({
+          directory,
+          signal: new AbortController().signal,
+          progress: vi.fn(),
+        });
+        if (switched) {
+          await expect(execution).rejects.toThrow('账号');
+          expect(f.s.emoji.fetchOnlineFavoriteIds).not.toHaveBeenCalled();
+        } else {
+          const result = await execution;
+          expect(
+            readFavoriteEmojiBundle(await readFile(join(directory, result.fileName!)))[0]?.emojiId,
+          ).toBe(emojiId);
+          expect(f.s.emoji.fetchOnlineFavoriteIds).toHaveBeenCalledOnce();
+        }
+        expect(f.s.emoji.addFavorite).not.toHaveBeenCalled();
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 describe('加群方式读回', () => {

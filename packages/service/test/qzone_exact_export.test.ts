@@ -39,6 +39,45 @@ function deps() {
   const fetchInteractions = vi.fn(async () => new Map());
   return { fetchMsgList, fetchPostDetail, fetchInteractions } satisfies QzoneExportDeps;
 }
+
+it('说说目录完成后暂停，重启复用本次清单，不为继续互动重新枚举整个空间', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-qzone-enumeration-'));
+  roots.push(root);
+  let manager: ExportTaskManager;
+  let paused = false;
+  const fetchMsgList = vi.fn(async () => ({ total: 2, list: [row('a'), row('b')] }));
+  const fetchInteractions = vi.fn(async () => {
+    if (!paused) {
+      paused = true;
+      manager.pauseTask(manager.listTasks()[0]!.id);
+    }
+    return new Map();
+  });
+  const dependencies = withExportSaveDirectory(root, {
+    qzone: { fetchMsgList, fetchInteractions },
+  });
+  manager = new ExportTaskManager({} as MsgService, root, dependencies);
+  const id = await manager.startTask({
+    kind: 'c2c',
+    conv: '10001',
+    name: '合成全空间',
+    format: 'json',
+    total: 2,
+    qzone: true,
+    qzoneInteractions: true,
+  });
+  await vi.waitFor(() =>
+    expect(manager.listTasks()[0]).toMatchObject({ status: 'paused', canResume: true }),
+  );
+  fetchMsgList.mockRejectedValue(new Error('不应重新枚举已完成目录'));
+  const restored = new ExportTaskManager({} as MsgService, root, dependencies);
+  expect(restored.resumeTask(id)).toBe(true);
+  await (restored as unknown as { queue: Promise<void> }).queue;
+  expect(restored.getTask(id)?.status, restored.getTask(id)?.error).toBe('completed');
+  expect(fetchMsgList).toHaveBeenCalledOnce();
+  expect(fetchInteractions).toHaveBeenCalledOnce();
+  expect(restored.getTask(id)?.current).toBe(2);
+});
 it('空间离散 tid 精确读取，不被日期或旧缓存扩大范围，互动只处理选中条目', async () => {
   const source = deps();
   const data = await collectQzone(
@@ -154,7 +193,7 @@ it('实际空间多格式任务保存 tid 快照，不导出未选历史，按�
   ).toEqual(['a', 'c']);
 });
 
-it('空间暂停保持原 tid，在新管理器中按原范围重新执行', async () => {
+it('空间暂停保持原 tid，在新管理器中按原范围续作', async () => {
   const root = mkdtempSync(join(tmpdir(), 'weq-qzone-exact-resume-'));
   roots.push(root);
   const source = deps();
@@ -164,11 +203,14 @@ it('空间暂停保持原 tid，在新管理器中按原范围重新执行', asy
     withExportSaveDirectory(root, { qzone: source }),
   );
   let paused = false;
-  manager.on('progress', (event) => {
-    if (!paused && event.status === 'running') {
+  const readDetail = source.fetchPostDetail.getMockImplementation()!;
+  source.fetchPostDetail.mockImplementation(async (uin, tid) => {
+    const result = await readDetail(uin, tid);
+    if (!paused) {
       paused = true;
-      manager.pauseTask(event.taskId);
+      manager.pauseTask(manager.listTasks()[0]!.id);
     }
+    return result;
   });
   const id = await manager.startTask({
     kind: 'c2c',
@@ -182,8 +224,8 @@ it('空间暂停保持原 tid，在新管理器中按原范围重新执行', asy
   for (let i = 0; i < 400 && !manager.listTasks()[0]?.canResume; i++)
     await new Promise((resolve) => setTimeout(resolve, 10));
   expect(manager.getTask(id)?.status).toBe('paused');
-  expect(manager.listTasks()[0]?.resumeMode).toBe('restart');
-  expect(source.fetchPostDetail).not.toHaveBeenCalled();
+  expect(manager.listTasks()[0]?.resumeMode).toBe('checkpoint');
+  expect(source.fetchPostDetail.mock.calls.map((call) => call[1])).toEqual(['a']);
   const restored = new ExportTaskManager(
     {} as MsgService,
     root,

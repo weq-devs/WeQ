@@ -7,13 +7,12 @@ import { exportExtraInput } from '../../../shared/export_content';
 import { describeExportOutput, exportOutputFileName, getHost } from '@weq/service';
 import {
   MailFailure,
-  exportMailMessages,
-  exportAllMailMessages,
   previewMailExport,
   type MailEvent,
   type QQMailService,
 } from '@weq/service/mail';
 import { getAppContext } from '../../context/app_context';
+import { runResumableExport } from '../../resumable_exports';
 import { pickedBrowserFiles } from '../../browser_files';
 import { procedure, router } from '../trpc';
 import { rememberMail } from '../../search_content';
@@ -132,35 +131,26 @@ export const mailRouter = router({
           throw new MailFailure('auth', '账号或数据源已切换，请重新选择邮件。');
       };
       check();
+      const resume = {
+        type: 'mail' as const,
+        ids: input.ids,
+        filter: input.filter,
+        expandThreads: input.expandThreads,
+        archive: {
+          extra: input.extra,
+          profile: input.profile,
+          incrementalSupport: input.incrementalSupport,
+          format: input.format,
+          accountUin: input.selfUin,
+        },
+      };
       return services.exportManager.startResourceExport({
         kind: 'mail-messages',
+        resume,
         includeIntegrityReport: input.includeIntegrityReport,
         name: input.ids === null ? '所有邮件' : `邮件导出-${input.ids.length}封`,
         savePolicy: input.savePolicy,
-        run: (context) =>
-          input.ids === null
-            ? exportAllMailMessages(mail, context, check, input.filter, {
-                extra: input.extra,
-                profile: input.profile,
-                incrementalSupport: input.incrementalSupport,
-                format: input.format,
-                accountUin: input.selfUin,
-              })
-            : exportMailMessages(
-                mail,
-                input.ids,
-                context,
-                check,
-                input.filter,
-                input.expandThreads,
-                {
-                  extra: input.extra,
-                  profile: input.profile,
-                  incrementalSupport: input.incrementalSupport,
-                  format: input.format,
-                  accountUin: input.selfUin,
-                },
-              ),
+        run: (context) => runResumableExport(services, resume, context, check),
       });
     }),
   saveAttachment: procedure

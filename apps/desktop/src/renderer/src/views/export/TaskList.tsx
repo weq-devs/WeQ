@@ -34,7 +34,7 @@ import {
   Trash2,
   Users,
   UserRound,
-  X,
+  Square,
   SkipForward,
 } from 'lucide-react';
 import { fmtCount } from './types';
@@ -154,6 +154,7 @@ export interface UiTask {
   /** 频道私聊导出（guild_msg.db；无漫游消息）。 */
   isGuild?: boolean;
   isGenerated?: boolean;
+  canPause?: boolean;
   generatedResources?: { total: number; copied: number; missing: number };
 }
 
@@ -181,13 +182,17 @@ export function isResourceDownload(t: UiTask): boolean {
   );
 }
 
+export function taskCanPause(t: UiTask): boolean {
+  return t.canPause ?? !t.resource;
+}
+
 export function taskResumeActionLabel(t: UiTask): string {
   if (t.status === 'completed') return '补传已跳过项目';
   if (t.resumeMode === 'restart') {
     if (isResourceDownload(t)) return '重新下载';
     return t.resource ? '重新执行' : '重新执行导出';
   }
-  return '继续导出';
+  return t.isMarketPack || isResourceDownload(t) ? '继续下载' : '继续导出';
 }
 
 export function taskCancelActionLabel(t: UiTask): string {
@@ -608,8 +613,14 @@ function TaskDetail({
               <FileCheck size={15} />
             </button>
           ) : null}
-          {t.status === 'running' && !isResourceDownload(t) ? (
-            <button type="button" title="暂停" onClick={() => onPause(t)}>
+          {t.status === 'running' && taskCanPause(t) ? (
+            <button
+              type="button"
+              title="暂停"
+              aria-label="暂停"
+              disabled={t.isFinalizing}
+              onClick={() => onPause(t)}
+            >
               <Pause size={15} />
             </button>
           ) : null}
@@ -656,7 +667,7 @@ function TaskDetail({
           ) : null}
           {t.status === 'paused' ||
           t.status === 'failed' ||
-          (isResourceDownload(t) && ['pending', 'running'].includes(t.status)) ? (
+          (!taskCanPause(t) && ['pending', 'running'].includes(t.status)) ? (
             <button
               type="button"
               title={taskCancelActionLabel(t)}
@@ -664,7 +675,7 @@ function TaskDetail({
               disabled={t.isFinalizing}
               onClick={() => onCancel(t)}
             >
-              <X size={15} />
+              <Square size={15} />
             </button>
           ) : null}
           {t.status !== 'running' ? (

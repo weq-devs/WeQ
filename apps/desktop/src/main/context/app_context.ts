@@ -19,6 +19,7 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { runResumableExport } from '../resumable_exports';
 import { sharedPreferencePersistence } from '@weq/service/shared-preferences';
 import { createContactsExportDeps } from './export_contacts';
 import { createDbChangeNotification } from '../db_change_notification';
@@ -1919,6 +1920,20 @@ export function initAppContext(fileRoot?: string): AppContext {
           new MsgService(session, undefined, undefined, exportSalvageSource(this.dbTolerance)),
           userConfig.cacheDir(join('export', exportConfigId)),
           {
+            resumeResource: (request, context) => {
+              const services = this.services;
+              const current = () => {
+                if (
+                  !services ||
+                  this.account !== session ||
+                  this.services !== services ||
+                  services.accountConfig.getRecord()?.configId !== exportConfigId
+                )
+                  throw new Error('导出所属账号或数据源已关闭。');
+              };
+              current();
+              return runResumableExport(services!, request, context, current);
+            },
             generatedResource: (ref) => {
               const services = this.services;
               if (
@@ -2832,6 +2847,20 @@ export function initAppContext(fileRoot?: string): AppContext {
             marketFace: (pack, hash, localOnly) =>
               emojiService.getMarketFace(pack, hash, localOnly),
             marketFaceVariants: (pack, hash) => emojiService.localMarketFaceVariants(pack, hash),
+            resumeResource: (request, context) => {
+              const services = this.services;
+              const current = () => {
+                if (
+                  !services ||
+                  this.account !== session ||
+                  this.services !== services ||
+                  services.accountConfig.getRecord()?.configId !== exportConfigId
+                )
+                  throw new Error('导出所属账号或数据源已关闭。');
+              };
+              current();
+              return runResumableExport(services!, request, context, current);
+            },
             generatedResource: (ref) => {
               const services = this.services;
               if (

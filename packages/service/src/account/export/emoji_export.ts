@@ -22,6 +22,7 @@ import { copyFile, mkdir, open, readFile, readdir, rename, stat } from 'node:fs/
 import { basename, extname, join } from 'node:path';
 import { sanitizeSegment, uniqueName } from '../../common/path_sanitize';
 import type { MediaFailure, StageLog } from './media_export';
+import type { ExportCheckpoint } from './checkpoint';
 
 /** 导出表情包的来源：自己的 / 收到的。 */
 export type EmojiExportScope = 'own' | 'received';
@@ -308,6 +309,7 @@ export async function resolveOwnOriginals(
   hooks: EmojiExportHooks = {},
   signal?: AbortSignal,
   concurrency = 6,
+  checkpoint?: ExportCheckpoint,
 ): Promise<EmojiResolveResult> {
   const candidates = items.filter((it) => !it.oriPath && it.remoteUrl);
   const result: EmojiResolveResult = {
@@ -329,13 +331,27 @@ export async function resolveOwnOriginals(
       if (!item) return;
       const raw = join(downloadDir, `${item.key}.part`);
       try {
-        const ok = await download(item.remoteUrl!, raw, signal);
-        if (ok) {
-          const head = (await readFile(raw)).subarray(0, 16);
-          const ext = sniffImageExt(head) ?? '.png';
-          const named = join(downloadDir, `${item.key}${ext}`);
-          await rename(raw, named);
-          const target = result.items.find((r) => r.key === item.key);
+        const resolve = async () => {
+          const ok = await download(item.remoteUrl!, raw, signal);
+          if (ok) {
+            const head = (await readFile(raw)).subarray(0, 16);
+            const ext = sniffImageExt(head) ?? '.png';
+            const named = join(downloadDir, `${item.key}${ext}`);
+            await rename(raw, named);
+            return named;
+          }
+          return null;
+        };
+        const named = checkpoint
+          ? await checkpoint.run(
+              ['emoji-original', item.key],
+              resolve,
+              (path) => (path ? [path] : []),
+              (path) => path !== null,
+            )
+          : await resolve();
+        if (named) {
+          const target = result.items.find((row) => row.key === item.key);
           if (target) target.oriPath = named;
           result.downloaded += 1;
           hooks.onLog?.(`补全原图 ${item.key.slice(0, 12)}…（${done + 1}/${candidates.length}）`);
@@ -371,6 +387,7 @@ export async function writeEmojiBundle(
   hooks: EmojiExportHooks = {},
   signal?: AbortSignal,
   concurrency = 8,
+  checkpoint?: ExportCheckpoint,
 ): Promise<EmojiWriteResult> {
   const dir = join(outDir, scopeDirName(scope));
   await mkdir(dir, { recursive: true });
@@ -386,6 +403,14 @@ export async function writeEmojiBundle(
   if (items.length === 0) return result;
 
   const used = new Set<string>();
+  const targets = new Map<string, string>();
+  const assignNames = async () => {
+    for (const item of items) targets.set(item.key, uniqueName(await fileNameFor(item), used));
+    return targets;
+  };
+  const names = checkpoint
+    ? await checkpoint.run(['emoji-names', scope], assignNames)
+    : await assignNames();
   const fail = (fileName: string, error: string): void => {
     if (result.failures.length < 200) result.failures.push({ stage: 'emoji', fileName, error });
   };
@@ -399,15 +424,31 @@ export async function writeEmojiBundle(
       const item = items[idx];
       if (!item) return;
       try {
-        const target = join(dir, uniqueName(await fileNameFor(item), used));
-        if (item.oriPath) {
-          await copyFile(item.oriPath, target);
-          result.copiedOri += 1;
-          result.written += 1;
-        } else if (item.thumbPath) {
-          await copyFile(item.thumbPath, target);
-          result.fromThumb += 1;
-          result.written += 1;
+        const target = join(dir, names.get(item.key)!);
+        const copy = async () => {
+          if (item.oriPath) {
+            await copyFile(item.oriPath, target);
+            return 'original' as const;
+          } else if (item.thumbPath) {
+            await copyFile(item.thumbPath, target);
+            return 'thumb' as const;
+          }
+          return 'missing' as const;
+        };
+        const copied = checkpoint
+          ? await checkpoint.run(
+              ['emoji-write', scope, item.key],
+              copy,
+              (value) => (value !== 'missing' ? [target] : []),
+              (value) => value !== 'missing',
+            )
+          : await copy();
+        if (copied === 'original') {
+          result.copiedOri++;
+          result.written++;
+        } else if (copied === 'thumb') {
+          result.fromThumb++;
+          result.written++;
           hooks.onLog?.(`缩略图补全 ${basename(target)}`, 'warn');
         } else {
           result.skipped += 1;

@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
-import { basename, extname, join } from 'node:path';
+import { realpath } from 'node:fs/promises';
+import { basename, extname, join, relative } from 'node:path';
 import type { GeneratedContentSnapshot } from '../generated_content';
 import { sanitizeSegment } from '../../common/path_sanitize';
 import { inventoryExportOutput, saveExportOutput } from './save_output';
 import { localizeArtifact, type OfflineArtifactManifest } from './offline_artifact';
+import type { ExportCheckpoint } from './checkpoint';
 
 export interface GeneratedResourceReference {
   key: string;
@@ -139,6 +141,7 @@ export function resolveGeneratedResource(
 
 /** 已复制的资源有独立校验快照；恢复只读该快照，不再次查原会话或调用模型。 */
 export async function bundleGeneratedResources(options: {
+  outputCheckpoint?: ExportCheckpoint;
   cache: GeneratedResourceCache[];
   privateDirectory: string;
   outputDirectory: string;
@@ -187,26 +190,42 @@ export async function bundleGeneratedResources(options: {
         captured.inventory.some(([path, hash]) => current.get(path) !== hash)
       )
         throw new Error('已保存资源快照校验失败；未回读原件替换。');
-      const directory = await saveExportOutput(
-        { name: ref.key, bundleDir: captured.directory },
-        join(options.outputDirectory, 'resources'),
-        options.signal,
-      );
-      const relativeRoot = `resources/${basename(directory)}`;
-      const offline =
-        ref.kind === 'artifact' &&
-        (ref.artifactKind === 'html' || ref.artifactKind === 'markdown') &&
-        captured.entry
-          ? await localizeArtifact({
-              entry: join(captured.directory, captured.entry),
-              sourcePath: captured.sourcePath ?? join(captured.directory, captured.entry),
-              outputEntry: join(directory, captured.entry),
-              cacheDirectory: join(options.privateDirectory, `offline-${ref.key}`),
-              signal: options.signal,
-            })
-          : undefined;
+      const prepareOutput = async () => {
+        const directory = await saveExportOutput(
+          { name: ref.key, bundleDir: captured.directory },
+          options.outputCheckpoint
+            ? join(options.outputDirectory, 'resources', ref.key)
+            : join(options.outputDirectory, 'resources'),
+          options.signal,
+        );
+        const relativeRoot = relative(
+          await realpath(options.outputDirectory),
+          directory,
+        ).replaceAll('\\', '/');
+        const offline =
+          ref.kind === 'artifact' &&
+          (ref.artifactKind === 'html' || ref.artifactKind === 'markdown') &&
+          captured.entry
+            ? await localizeArtifact({
+                entry: join(captured.directory, captured.entry),
+                sourcePath: captured.sourcePath ?? join(captured.directory, captured.entry),
+                outputEntry: join(directory, captured.entry),
+                cacheDirectory: join(options.privateDirectory, `offline-${ref.key}`),
+                signal: options.signal,
+              })
+            : undefined;
+        const publishedInventory = await inventoryExportOutput(directory, options.signal);
+        return { relativeRoot, offline, publishedInventory };
+      };
+      const { relativeRoot, offline, publishedInventory } = options.outputCheckpoint
+        ? await options.outputCheckpoint.file(
+            ['generated-resource', ref.key],
+            join(options.outputDirectory, 'resources', ref.key),
+            prepareOutput,
+            (output) => output.offline?.complete !== false,
+          )
+        : await prepareOutput();
       if (offline && !offline.complete) manifest.complete = false;
-      const publishedInventory = await inventoryExportOutput(directory, options.signal);
       manifest.entries.push({
         ...ref,
         status: 'copied',

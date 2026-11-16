@@ -69,14 +69,21 @@ it.each(['jsonl', 'jsonl.gz'] as const)(
       total: 3,
       generated: snapshot,
     });
-    await vi.waitFor(() => expect(manager.getTask(id)?.save?.status).toBe('saved'));
+    const pending = manager as unknown as {
+      queue: Promise<void>;
+      outputSaves: Map<string, Promise<string>>;
+    };
+    await pending.queue;
+    await pending.outputSaves.get(id);
+    expect(manager.getTask(id)?.save?.status).toBe('saved');
     const saved = manager.getTask(id)!.save!.path!;
     const path = join(saved, `合成生成对话.${format}`);
     const prefix = readFileSync(path);
     f.get.mockClear();
     f.messages.length = 0;
     expect(manager.resumeTask(id, true)).toBe(true);
-    await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
+    await pending.queue;
+    expect(manager.getTask(id)?.status).toBe('completed');
     expect(manager.getTask(id)?.error).toBeUndefined();
     expect(manager.getTask(id)?.filePath).toBe(path);
     expect(readFileSync(path).subarray(0, prefix.length)).toEqual(prefix);
@@ -217,7 +224,7 @@ it('实际生成内容任务写多格式、自动保存和恢复快照，不读 
   );
 });
 
-it('暂停后可在新管理器按同一份快照重新执行，不重新读取生成来源', async () => {
+it('暂停后可在新管理器按同一份快照续作，不重新读取生成来源', async () => {
   const f = fixture();
   const root = mkdtempSync(join(tmpdir(), 'weq-generated-resume-'));
   roots.push(root);
@@ -245,7 +252,7 @@ it('暂停后可在新管理器按同一份快照重新执行，不重新读取�
   for (let i = 0; i < 400 && !manager.listTasks()[0]?.canResume; i++)
     await new Promise((resolve) => setTimeout(resolve, 10));
   expect(manager.getTask(id)?.status).toBe('paused');
-  expect(manager.listTasks()[0]?.resumeMode).toBe('restart');
+  expect(manager.listTasks()[0]?.resumeMode).toBe('checkpoint');
   f.messages.length = 0;
   const restored = new ExportTaskManager({} as MsgService, root, withExportSaveDirectory(root));
   expect(restored.resumeTask(id)).toBe(true);

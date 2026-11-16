@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { parseCustomFaceId } from '@weq/protocol';
 import { canonicalHash, type FavEmojiRow } from './export/emoji_export';
 import { webRequestBytes } from './web/http';
+import type { ExportCheckpoint } from './export/checkpoint';
 import {
   createFavoriteEmojiBundle,
   FAVORITE_EMOJI_MAX_IMAGE_BYTES,
@@ -43,6 +44,7 @@ export async function exportOnlineFavoriteEmojiBundle(
     readRemote?: (url: string, signal?: AbortSignal) => Promise<Uint8Array | null>;
     signal?: AbortSignal;
     progress?: (done: number, total: number) => void;
+    checkpoint?: ExportCheckpoint;
   },
 ) {
   const current = () => {
@@ -50,20 +52,27 @@ export async function exportOnlineFavoriteEmojiBundle(
     options.current();
   };
   current();
-  const ids = await port.fetchOnlineFavoriteIds();
-  current();
-  if (ids.length > FAVORITE_EMOJI_MAX_ITEMS) throw new Error('收藏条目数超过单包上限，本次未导出');
-  if (new Set(ids).size !== ids.length) throw new Error('远端收藏列表含重复标识，请刷新');
-  const refs = ids.map(parseCustomFaceId);
-  const details = await port.fetchOnlineFavoriteDetails(refs);
-  current();
-  const sources: FavoriteEmojiExportSource[] = refs.map((ref, index) => {
-    const matches = details.filter((detail) => detail.emojiId === ref.emojiId);
-    if (matches.length !== 1) throw new Error('收藏备注读取不完整，请刷新后重试');
-    return { ...ref, description: matches[0]!.desc, position: index + 1 };
-  });
-  const rows = await port.listFavEmojiRows();
-  current();
+  const capture = async () => {
+    const ids = await port.fetchOnlineFavoriteIds();
+    current();
+    if (ids.length > FAVORITE_EMOJI_MAX_ITEMS)
+      throw new Error('收藏条目数超过单包上限，本次未导出');
+    if (new Set(ids).size !== ids.length) throw new Error('远端收藏列表含重复标识，请刷新');
+    const refs = ids.map(parseCustomFaceId);
+    const details = await port.fetchOnlineFavoriteDetails(refs);
+    current();
+    const sources: FavoriteEmojiExportSource[] = refs.map((ref, index) => {
+      const matches = details.filter((detail) => detail.emojiId === ref.emojiId);
+      if (matches.length !== 1) throw new Error('收藏备注读取不完整，请刷新后重试');
+      return { ...ref, description: matches[0]!.desc, position: index + 1 };
+    });
+    const rows = await port.listFavEmojiRows();
+    current();
+    return { sources, rows };
+  };
+  const { sources, rows } = options.checkpoint
+    ? await options.checkpoint.run('favorite-selection', capture)
+    : await capture();
   const byHash = new Map<string, FavEmojiRow[]>();
   for (const row of rows) {
     const key = canonicalHash(row.hash);
@@ -102,7 +111,7 @@ export async function exportOnlineFavoriteEmojiBundle(
       }
       return null;
     },
-    { signal: options.signal, progress: options.progress },
+    { signal: options.signal, progress: options.progress, checkpoint: options.checkpoint },
   );
   current();
   return result;

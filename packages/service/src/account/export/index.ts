@@ -190,6 +190,9 @@ export {
   type EmojiPackDeps,
   type EmojiPackScope,
   type EmojiPackFormat,
+  type ResourceExportRunContext,
+  type ResourceExportSummary,
+  type ResumableResourceRequest,
 } from './task_manager';
 export {
   backfillConversationMessages,

@@ -11,6 +11,8 @@ import {
 } from '../src/account/mail/export';
 import type { MailDetail } from '../src/account/mail/types';
 import { object, readArchive } from '../src/account/export/archive';
+import { ExportCheckpoint } from '../src/account/export/checkpoint';
+import { MailAttachmentRegistry } from '../src/account/mail/attachments';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -43,6 +45,118 @@ async function context() {
   roots.push(directory);
   return { directory, signal: new AbortController().signal, progress: vi.fn() };
 }
+
+it('全邮箱暂停后恢复固定分页及邮件详情，只下载剩余附件且不重写已完成正文', async () => {
+  const ctx = await context();
+  const state = join(ctx.directory, '.checkpoint');
+  const abort = new AbortController();
+  const mail = {
+    folders: vi.fn(async () => [{ id: 1, locked: false }]),
+    list: vi.fn(async () => ({
+      items: [
+        { ...detail, id: 'one' },
+        { ...detail, id: 'two' },
+      ],
+      hasMore: false,
+    })),
+    read: vi.fn(async (id: string) => ({ ...structuredClone(detail), id })),
+    download: vi.fn(async (_id: string, path: string) => {
+      await writeFile(path, 'fixture');
+    }),
+  };
+  const first = {
+    ...ctx,
+    signal: abort.signal,
+    checkpoint: new ExportCheckpoint(state, abort.signal),
+    progress: (done: number) => {
+      if (done === 1) abort.abort();
+    },
+  };
+  await expect(
+    exportAllMailMessages(
+      mail as unknown as Parameters<typeof exportAllMailMessages>[0],
+      first,
+      () => {},
+    ),
+  ).rejects.toThrow();
+  const restored = { ...ctx, checkpoint: new ExportCheckpoint(state, ctx.signal) };
+  await expect(
+    exportAllMailMessages(
+      mail as unknown as Parameters<typeof exportAllMailMessages>[0],
+      restored,
+      () => {},
+    ),
+  ).resolves.toMatchObject({ total: 2, ok: 2, failed: [] });
+  expect(mail.folders).toHaveBeenCalledOnce();
+  expect(mail.list).toHaveBeenCalledOnce();
+  expect(mail.read.mock.calls.map(([id]) => id)).toEqual(['one', 'two']);
+  expect(mail.download).toHaveBeenCalledTimes(2);
+  expect((await readdir(ctx.directory)).filter((name) => /^000[12]-/.test(name))).toHaveLength(2);
+});
+
+it.each([false, true])(
+  '同封邮件续作刷新临时句柄，拒绝同名同大小但来源不同的附件：%s',
+  async (changed) => {
+    const ctx = await context();
+    const state = join(ctx.directory, '.checkpoint');
+    const abort = new AbortController();
+    let epoch = 'old';
+    const read = vi.fn(async () => ({
+      ...structuredClone(detail),
+      attachments: [0, 1].map((index) => ({
+        id: `${epoch}-${index}`,
+        sourceKey:
+          epoch === 'new' && changed && index === 1 ? 'different-source' : `source-${index}`,
+        name: `${index}.txt`,
+        size: 7,
+        big: false,
+        available: true,
+      })),
+    }));
+    const download = vi.fn(async (id: string, path: string) => {
+      expect(id.startsWith(epoch)).toBe(true);
+      await writeFile(path, 'fixture');
+      if (id === 'old-0') abort.abort();
+    });
+    await expect(
+      exportMailMessages(
+        { read, download },
+        ['fixture'],
+        { ...ctx, signal: abort.signal, checkpoint: new ExportCheckpoint(state, abort.signal) },
+        () => {},
+      ),
+    ).rejects.toThrow();
+    epoch = 'new';
+    const result = await exportMailMessages(
+      { read, download },
+      ['fixture'],
+      { ...ctx, checkpoint: new ExportCheckpoint(state) },
+      () => {},
+    );
+    expect(result.failed).toHaveLength(changed ? 1 : 0);
+    expect(download.mock.calls.map(([id]) => id)).toEqual(changed ? ['old-0'] : ['old-0', 'new-1']);
+    expect(read).toHaveBeenCalledTimes(2);
+  },
+);
+
+it('附件身份取自来源 fileId，不依赖临时 UUID，也不以同名同大小判断相同来源', () => {
+  const registry = new MailAttachmentRegistry();
+  const source = {
+    mailId: 'one',
+    fileId: 'first',
+    name: 'same.txt',
+    size: 7,
+    big: false,
+    available: true,
+  };
+  const first = registry.register(source);
+  registry.clear();
+  const second = registry.register(source);
+  const different = registry.register({ ...source, fileId: 'second' });
+  expect(first.id).not.toBe(second.id);
+  expect(first.sourceKey).toBe(second.sourceKey);
+  expect(first.sourceKey).not.toBe(different.sourceKey);
+});
 it('导出基本信息、正文与附件，去重、路径安全且不主动标已读', async () => {
   const ctx = await context();
   const read = vi.fn(async () => structuredClone(detail));

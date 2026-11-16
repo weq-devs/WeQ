@@ -17,6 +17,7 @@ import type { GuildDirectService, RenderGuildDirectMsg } from '../guild_direct';
 import type { RenderC2cMsg } from '../msg';
 import type { MessageFilter } from '../message_filter';
 import type { GuildMessageCursor } from '@weq/db';
+import type { MessageJournal } from './message_journal';
 
 /** 频道私聊导出任务的身份快照（全部 JSON 可序列化，随任务持久化）。 */
 export interface GuildExportTaskMeta {
@@ -71,6 +72,7 @@ function toC2cRender(m: RenderGuildDirectMsg, meta: GuildExportTaskMeta): Render
  * 任务管理器在 guild 任务上用它替换 `this.msgs`（见 task_manager.msgsFor）。
  */
 export class GuildMsgSource {
+  exportJournal?: MessageJournal;
   constructor(
     private readonly svc: GuildDirectService,
     private readonly meta: GuildExportTaskMeta,

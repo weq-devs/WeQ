@@ -1087,7 +1087,12 @@ export type {
   EmojiWriteResult,
   FavEmojiRow,
 } from './account/export';
-export { ExportTaskManager } from './account/export/task_manager';
+export {
+  ExportTaskManager,
+  type ResourceExportRunContext,
+  type ResourceExportSummary,
+  type ResumableResourceRequest,
+} from './account/export/task_manager';
 export {
   describeViewerFile,
   discoverViewerSources,

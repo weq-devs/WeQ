@@ -59,8 +59,10 @@ function rowCursor(row: SqlRow): GuildMessageCursor {
 /** 频道私聊 message-table accessor (guild_msg.db). */
 export class GuildDirectMsgDb {
   private readonly qq: QqDb;
+  readonly sourcePath: string;
 
   constructor(nt: NtHelperBinding, opts: GuildDirectMsgDbOptions) {
+    this.sourcePath = opts.dbPath;
     this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
   }
 

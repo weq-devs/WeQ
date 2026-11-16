@@ -42,7 +42,7 @@ import {
   taskSaveActionLabel,
   taskResumeActionLabel,
   taskCancelActionLabel,
-  isResourceDownload,
+  taskCanPause,
   type UiTask,
 } from '../../views/export/TaskList';
 import { LongTaskRow, orderLongTasks, type LongTaskItem } from './LongTaskRow';
@@ -190,11 +190,12 @@ export function CurrentTaskList({
           secondary: true,
           run: () => exportActions.report!(task),
         });
-      if (!isResourceDownload(task) && (task.status === 'running' || task.networkPaused))
+      if (taskCanPause(task) && (task.status === 'running' || task.networkPaused))
         actions.push({
           id: 'pause',
           label: task.networkPaused ? '保持暂停' : '暂停',
           icon: <Pause size={14} />,
+          disabled: task.isFinalizing,
           run: () => exportActions.pause(task),
         });
       if (task.canResume)

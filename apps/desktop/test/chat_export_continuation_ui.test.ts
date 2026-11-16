@@ -150,3 +150,98 @@ it('文件下载不提供假暂停，运行中和排队中均可取消，策略�
     act(() => root.unmount());
   }
 });
+
+it.each([
+  'database',
+  'assistant-artifact',
+  'annual-report',
+  'analytics-report',
+  'persona-bot',
+  'composition',
+] as const)('%s 详情运行时使用方形取消图标，不再显示暂停', (kind) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const cancel = vi.fn();
+  const value: UiTask = {
+    ...task,
+    status: 'running',
+    canPause: false,
+    canResume: false,
+    journalPath: undefined,
+    partialReady: false,
+    resource: { kind },
+  };
+  try {
+    act(() =>
+      root.render(
+        h(TaskList, {
+          tasks: [value],
+          detailOnly: true,
+          onPause: vi.fn(),
+          onCancel: cancel,
+          onDownload: vi.fn(),
+          onDelete: vi.fn(),
+          onShowFailures: vi.fn(),
+        }),
+      ),
+    );
+    expect(host.querySelector('[title="暂停"]')).toBeNull();
+    const button = host.querySelector<HTMLButtonElement>('[aria-label="取消"]')!;
+    expect(button.querySelector('svg.lucide-square')).not.toBeNull();
+    act(() => button.click());
+    expect(cancel).toHaveBeenCalledWith(value);
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
+it.each(['favorite-emoji', 'mail-messages'] as const)(
+  '%s 按实际能力提供暂停和播放图标续作，不使用重新执行图标',
+  (kind) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const pause = vi.fn(),
+      resume = vi.fn();
+    const base: UiTask = {
+      ...task,
+      journalPath: undefined,
+      partialReady: false,
+      resource: { kind },
+      canPause: true,
+      canResume: false,
+      status: 'running',
+      resumeMode: 'checkpoint',
+    };
+    const render = (value: UiTask) =>
+      act(() =>
+        root.render(
+          h(TaskList, {
+            tasks: [value],
+            detailOnly: true,
+            onPause: pause,
+            onResume: resume,
+            onCancel: vi.fn(),
+            onDownload: vi.fn(),
+            onDelete: vi.fn(),
+            onShowFailures: vi.fn(),
+          }),
+        ),
+      );
+    try {
+      render(base);
+      act(() => host.querySelector<HTMLButtonElement>('[aria-label="暂停"]')!.click());
+      expect(pause).toHaveBeenCalledWith(base);
+      const paused = { ...base, status: 'paused' as const, canResume: true };
+      render(paused);
+      const button = host.querySelector<HTMLButtonElement>('[aria-label="继续导出"]')!;
+      expect(button.querySelector('svg.lucide-play')).not.toBeNull();
+      expect(host.querySelector('[aria-label="重新执行"]')).toBeNull();
+      act(() => button.click());
+      expect(resume).toHaveBeenCalledWith(paused);
+    } finally {
+      act(() => root.unmount());
+    }
+  },
+);
