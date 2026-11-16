@@ -48,7 +48,9 @@ declare global {
         | 'downloaded'
         | 'private'
         | 'record'
-        | 'saved-media',
+        | 'saved-media'
+        | 'unsupported'
+        | 'offline',
     ) => void;
     menuActions: string[];
   }
@@ -84,19 +86,21 @@ function Fixture() {
     setState({
       forwardTarget: mode === 'record' ? { elementIndex: 0, resId: 'fixture' } : undefined,
       message:
-        mode === 'record'
-          ? { ...message, qqElements: [{ type: 'multiMsg', data: { resId: 'fixture' } }] }
-          : mode === 'voice' || mode === 'mixed'
-            ? {
-                ...message,
-                qqElements: [
-                  ...(mode === 'mixed' ? message.qqElements : []),
-                  { type: 'ptt', data: { fileName: 'fixture.amr', fileToken: 'fixture' } },
-                ],
-              }
-            : mode === 'sparse'
-              ? { ...message, qqElements: [{ type: 'file', data: { fileName: 'fixture.zip' } }] }
-              : message,
+        mode === 'unsupported'
+          ? { ...message, qqElements: [{ type: 'wallet', data: {} }] }
+          : mode === 'record'
+            ? { ...message, qqElements: [{ type: 'multiMsg', data: { resId: 'fixture' } }] }
+            : mode === 'voice' || mode === 'mixed'
+              ? {
+                  ...message,
+                  qqElements: [
+                    ...(mode === 'mixed' ? message.qqElements : []),
+                    { type: 'ptt', data: { fileName: 'fixture.amr', fileToken: 'fixture' } },
+                  ],
+                }
+              : mode === 'sparse'
+                ? { ...message, qqElements: [{ type: 'file', data: { fileName: 'fixture.zip' } }] }
+                : message,
       x,
       y,
       variant: mobile ? 'mobile' : 'desktop',
@@ -129,6 +133,7 @@ function Fixture() {
             setState(null);
           }}
           onForward={run('转发')}
+          forwardBlockedReason={mode === 'offline' ? 'QQ 在线能力暂不可用' : null}
           onMultiSelect={run('多选')}
           onReply={run('引用')}
           onRepeat={run('+1')}

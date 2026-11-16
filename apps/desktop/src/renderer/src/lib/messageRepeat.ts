@@ -3,6 +3,7 @@ import { FaceSubType } from '@weq/codec';
 import { cleanNtPath, codecElementToSeg, segToSendElement } from '../components/mergeForward/model';
 import type { ComposerSendPlan, SuperStickerEntry } from '../im-template/template/composerSend';
 import { localFileUrl, mediaUrl } from './resourceUrl';
+import { flashPicUrl } from './cdn';
 
 /** 本地路径经账号代理验证；路径失效时回退消息图片代理，不直接读取路径字符串。 */
 export async function repeatImageSources(
@@ -15,16 +16,18 @@ export async function repeatImageSources(
   for (const element of elements) {
     if (element.type !== 'pic') continue;
     const data = element.data ?? {};
-    const url = mediaUrl('pic', {
-      t: time,
-      name: text(data.fileName),
-      token: text(data.fileToken),
-      orig: text(data.originalUrl),
-      md5: digest(data),
-      recv: data.subType === 1 ? 1 : 0,
-    });
+    const url = isFlashPhoto(element)
+      ? flashPicUrl(text(data.fileToken), 0)
+      : mediaUrl('pic', {
+          t: time,
+          name: text(data.fileName),
+          token: text(data.fileToken),
+          orig: text(data.originalUrl),
+          md5: digest(data),
+          recv: data.subType === 1 ? 1 : 0,
+        });
     const path = cleanNtPath(text(data.localPath) || text(data.filePath));
-    for (const candidate of [...(path ? [localFileUrl(path)] : []), url]) {
+    for (const candidate of [...(path ? [localFileUrl(path)] : []), ...(url ? [url] : [])]) {
       let response: Response;
       try {
         response = signal ? await fetch(candidate, { signal }) : await fetch(candidate);
@@ -66,6 +69,12 @@ function text(value: unknown): string {
 function digest(data: Record<string, unknown>): string {
   return text(data.md5 || data.md5Bytes || data.contentHash).toLowerCase();
 }
+function isFlashPhoto(element: RepeatElement): boolean {
+  return (
+    element.type === 'pic' &&
+    (element.data?.isFlash === true || text(element.data?.fileToken).startsWith('/'))
+  );
+}
 function elementIdentity(element: RepeatElement): unknown[] | null {
   const data = element.data ?? {};
   switch (element.type) {
@@ -86,9 +95,13 @@ function elementIdentity(element: RepeatElement): unknown[] | null {
         ? ['mface', data.emojiPackId, text(data.marketEmoticonIdHex).toLowerCase()]
         : null;
     case 'pic':
+      return digest(data) ? ['pic', digest(data), data.subType ?? 0, isFlashPhoto(element)] : null;
     case 'video':
+    case 'bubbleVideo':
     case 'ptt':
-      return digest(data) ? [element.type, digest(data), data.subType ?? 0] : null;
+      return digest(data)
+        ? [element.type, digest(data), data.subType ?? 0, data.templateName ?? '']
+        : null;
     case 'reply':
       return [
         'reply',
@@ -100,7 +113,7 @@ function elementIdentity(element: RepeatElement): unknown[] | null {
     case 'ark':
       return ['ark', text(data.arkData)];
     case 'markdown':
-      return ['markdown', text(data.markdownContent)];
+      return ['markdown', text(data.markdownContent), data.flashTransferInfo ?? null];
     case 'multiMsg':
       return data.resId || data.multiMsgResId || data.xmlContent
         ? ['multiMsg', data.resId ?? data.multiMsgResId, data.xmlContent]
@@ -160,10 +173,15 @@ function repeatElementSegment(element: RepeatElement) {
   return codecElementToSeg(
     {
       ...data,
-      ...(['ptt', 'video', 'file'].includes(element.type ?? '') && text(data.localPath)
+      ...(['ptt', 'video', 'bubbleVideo', 'file'].includes(element.type ?? '') &&
+      text(data.localPath)
         ? { filePath: cleanNtPath(text(data.localPath)) }
         : {}),
-      kind: element.type,
+      // 封面路径不能冒充视频原文件；圆形视频复用视频资源转换，但发送类型单独保留。
+      ...(['video', 'bubbleVideo'].includes(element.type ?? '')
+        ? { videoCoverLocalPath: undefined, fileThumbLocalPath: undefined }
+        : {}),
+      kind: element.type === 'bubbleVideo' ? 'video' : element.type,
       ...(element.type === 'mface' ? { marketEmoticonId: data.marketEmoticonIdHex } : {}),
     },
     element,
@@ -184,6 +202,11 @@ export function forwardUnsupportedReason(elements: readonly RepeatElement[]): st
   for (const element of content) {
     if (element.type === 'pic') continue;
     const data = element.data ?? {};
+    if (element.type === 'markdown' && data.flashTransferInfo != null) {
+      const info = data.flashTransferInfo;
+      if (typeof info !== 'object' || !('fileSetId' in info) || !text(info.fileSetId).trim())
+        return '闪传卡片缺少文件集身份';
+    }
     if (element.type === 'at') {
       if (!data.atTargetUid && !data.atTargetUin) return '提及缺少目标身份';
       continue;
@@ -221,6 +244,11 @@ function sendElement(
   images: Map<RepeatElement, Uint8Array>,
 ): SendElement {
   const data = element.data ?? {};
+  if (isFlashPhoto(element)) {
+    const source = images.get(element);
+    if (!source?.length) throw new Error('闪照原文件不可用，未发送。');
+    return { kind: 'flashPhoto', source };
+  }
   if (element.type === 'pic' && images.has(element))
     return {
       kind: 'image',
@@ -286,6 +314,15 @@ function sendElement(
     throw new Error(`此类内容尚不能等价重发：${element.type ?? '未知元素'}`);
   if (segment.t === 'video' && text(data.thumbLocalPath))
     segment.thumbPath = cleanNtPath(text(data.thumbLocalPath));
+  if (element.type === 'bubbleVideo' && segment.t === 'video') {
+    const video = segToSendElement(segment);
+    if (video.kind !== 'video') throw new Error('圆形视频转换失败');
+    return {
+      ...video,
+      kind: 'bubbleVideo',
+      ...(text(data.templateName) ? { templateName: text(data.templateName) } : {}),
+    };
+  }
   return segToSendElement(segment);
 }
 
@@ -307,7 +344,8 @@ export function repeatSendPlan(
   images = new Map<RepeatElement, Uint8Array>(),
 ): ComposerSendPlan {
   const content = withoutEmptyTextElements(elements);
-  if (!content.length) throw new Error('消息没有可重发的内容。');
+  const reason = forwardUnsupportedReason(content);
+  if (reason) throw new Error(reason);
   const outgoing = content.map((element) => sendElement(element, stickers, group, images));
   if (outgoing.length === 1 && outgoing[0]?.kind === 'file') {
     if (typeof outgoing[0].source !== 'string' || !outgoing[0].source)

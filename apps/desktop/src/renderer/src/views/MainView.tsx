@@ -477,6 +477,7 @@ import {
   repeatNeedsStickerCatalog,
   type RepeatElement,
 } from '../lib/messageRepeat';
+import { forwardMessageBlockReason, partitionForwardMessages } from '../lib/sequentialForward';
 import {
   resolveMentionLabels,
   resolveSendMentions,
@@ -9650,6 +9651,8 @@ function MainWorkspace(): ReactElement {
   ) {
     const isCurrent = () => !signal.aborted && account === useViewState.getState().openedUin;
     if (!isCurrent()) throw new Error('账号已切换或转发已停止');
+    const reason = forwardMessageBlockReason(message);
+    if (reason) throw new Error(reason);
     const destination = conversations.find((item) => item.id === target.id);
     if (!destination || destination.type === 'merged') throw new Error('目标会话已不存在');
     // 引用指针属于来源会话，不能指向目标会话中同序号的另一条消息。
@@ -12540,13 +12543,22 @@ function MainWorkspace(): ReactElement {
                           onAddMessage={handleAddMessage}
                           onMergeForward={handleMergeForward}
                           onAddToComposition={handleAddToComposition}
-                          onForwardMessages={(messages) =>
+                          onForwardMessages={(messages) => {
+                            const prepared = partitionForwardMessages(messages);
+                            if (!prepared.sendable.length) {
+                              pushToast({
+                                tone: 'warning',
+                                title: '没有可转发的消息',
+                                detail: prepared.ignored[0]?.reason,
+                              });
+                              return;
+                            }
                             setForwardBatch({
                               account: user.identityValue,
                               messages: structuredClone(messages),
                               conversation: selectedConversation ?? undefined,
-                            })
-                          }
+                            });
+                          }}
                           onViewDeleted={handleViewDeleted}
                           onViewRecalled={handleViewRecalled}
                           onOpenGapMessages={handleOpenGapMessages}

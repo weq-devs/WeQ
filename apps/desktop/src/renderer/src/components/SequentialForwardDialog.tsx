@@ -13,9 +13,9 @@ import {
   estimateForwardDuration,
   formatForwardDuration,
   forwardMessageContent,
+  partitionForwardMessages,
 } from '../lib/sequentialForward';
 import { startSequentialForward } from './SequentialForwardTask';
-import { forwardUnsupportedReason } from '../lib/messageRepeat';
 import { GapMessagesModal } from './compose/GapMessagesModal';
 import { qqMessageRenderer } from './QqMessageContent';
 import { trpc } from '../trpc/client';
@@ -60,13 +60,7 @@ export function SequentialForwardDialog({
   const [previewCount, setPreviewCount] = useState(50);
   const picked = targets.filter((target) => selected.has(target.id));
   const prepared = useMemo(() => {
-    const sendable: Message[] = [];
-    const ignored: { message: Message; reason: string }[] = [];
-    messages.forEach((message) => {
-      const reason = forwardUnsupportedReason(message.qqElements ?? []);
-      if (reason) ignored.push({ message, reason });
-      else sendable.push(message);
-    });
+    const { sendable, ignored } = partitionForwardMessages(messages);
     return {
       sendable,
       ignored,
@@ -166,7 +160,9 @@ export function SequentialForwardDialog({
         ) : (
           <div className="weq-forward-config">
             <fieldset disabled={started}>
-              <MergeForwardTargets targets={targets} selected={selected} onChange={setSelected} />
+              {prepared.sendable.length ? (
+                <MergeForwardTargets targets={targets} selected={selected} onChange={setSelected} />
+              ) : null}
               {prepared.ignored.length ? (
                 <button
                   type="button"

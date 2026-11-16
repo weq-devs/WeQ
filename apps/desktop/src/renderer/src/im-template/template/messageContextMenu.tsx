@@ -25,7 +25,7 @@ import { MessageMenuFeedbackContext } from '../../lib/messageMenuFeedback';
 import { MessageMenuButton, MessageMenuContext } from '../../components/MessageMenuButton';
 import type { Message } from './types';
 import { cn } from './classNames';
-import { canRepeatMessage } from '../../lib/messageRepeat';
+import { canRepeatMessage, forwardUnsupportedReason } from '../../lib/messageRepeat';
 import { messageMediaTarget } from '../../lib/messageMediaTarget';
 import { useSurfaceOutside } from '../../lib/surfaceOutside';
 import { useTabActive } from '../../components/RetainedTabs';
@@ -62,6 +62,7 @@ type Props = {
   onClose?: () => void;
   onCopy: (message: Message) => void | Promise<void>;
   onForward?: (message: Message) => void;
+  forwardBlockedReason?: string | null;
   onMultiSelect?: (message: Message) => void;
   onReply?: (message: Message) => void;
   replyBlockedReason?: string | null;
@@ -359,7 +360,15 @@ export function MessageContextMenu(props: Props) {
                   call(props.onReply),
                   props.replyBlockedReason,
                 ),
-                action('forward', '转发', <Forward {...icon} />, call(props.onForward)),
+                action(
+                  'forward',
+                  '转发',
+                  <Forward {...icon} />,
+                  call(props.onForward),
+                  props.forwardBlockedReason,
+                  Boolean(props.onForward) &&
+                    forwardUnsupportedReason(message.qqElements ?? []) === null,
+                ),
                 action(
                   'repeat',
                   '+1',

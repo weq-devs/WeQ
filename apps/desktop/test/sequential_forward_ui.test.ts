@@ -221,7 +221,7 @@ it('全部消息均需跳过时仍可预览，但不能创建发送队列', () =
         }),
       ),
     );
-    act(() => document.querySelector<HTMLButtonElement>('.weq-mf-target')!.click());
+    expect(document.querySelector('.weq-mf-target')).toBeNull();
     expect(
       document.querySelector<HTMLButtonElement>('.weq-sequential-forward footer button')?.disabled,
     ).toBe(true);

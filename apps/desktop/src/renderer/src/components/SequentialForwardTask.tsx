@@ -1,13 +1,13 @@
 import { Square } from 'lucide-react';
 import type { Message } from '../im-template/template/types';
 import type { MfTarget } from './mergeForward/model';
-import { forwardUnsupportedReason } from '../lib/messageRepeat';
 import {
   forwardMessageContent,
   forwardSequentially,
   validateForwardOptions,
   estimateForwardDuration,
   formatForwardDuration,
+  forwardMessageBlockReason,
   type ForwardOptions,
 } from '../lib/sequentialForward';
 import { useToast } from './Toast';
@@ -32,7 +32,7 @@ export function startSequentialForward({
   scope: BackgroundTaskScope;
 }): { controller: AbortController; done: Promise<void> } {
   validateForwardOptions(options);
-  if (messages.some((message) => forwardUnsupportedReason(message.qqElements ?? [])))
+  if (messages.some((message) => forwardMessageBlockReason(message)))
     throw new Error('请先确认跳过不可等价重发的消息');
   if (!messages.length || !targets.length) throw new Error('没有可发送的消息或目标');
   const controller = new AbortController();

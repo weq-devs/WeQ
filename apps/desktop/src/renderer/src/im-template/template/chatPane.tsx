@@ -7808,6 +7808,10 @@ export function ChatPane({
                 }
               : undefined
           }
+          forwardBlockedReason={
+            outgoingActionBlockReason(contextMenu.message) ||
+            (!sendAvailable ? sendBlockedReason || 'QQ 在线能力暂不可用' : null)
+          }
           onDownloadImage={downloadMessageImage}
           onSaveMedia={
             contextMenu.mediaTarget && messageMediaSaveSource(contextMenu.mediaTarget)
