@@ -234,6 +234,89 @@ describe('设置二级页现场与活动生命周期', () => {
       f.dispose();
     }
   });
+  it.each(['未编辑', '取消导入', '保存配置'] as const)(
+    'rKey %s 后重建凭据管理，离页与关闭不误报未保存',
+    async (operation) => {
+      const f = mount('credentials');
+      try {
+        if (operation !== '未编辑') {
+          act(() =>
+            f
+              .body()
+              .querySelector<HTMLButtonElement>('.weq-rkey-settings .weq-set-card-action button')!
+              .click(),
+          );
+          if (operation === '保存配置') {
+            inputValue(
+              f.body().querySelector<HTMLInputElement>('[aria-label="RKEY HTTP 地址"]')!,
+              'https://example.invalid',
+            );
+            inputValue(
+              f.body().querySelector<HTMLInputElement>('[aria-label="RKEY access_token"]')!,
+              'synthetic-token',
+            );
+            await act(async () =>
+              f
+                .body()
+                .querySelector('form')!
+                .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
+            );
+          } else {
+            act(() =>
+              f
+                .body()
+                .querySelector<HTMLButtonElement>('.weq-rkey-settings .weq-set-card-action button')!
+                .click(),
+            );
+          }
+        }
+        f.render(undefined, undefined, 1);
+        const navigate = vi.fn();
+        f.navigate(navigate);
+        expect(navigate).toHaveBeenCalledOnce();
+        f.render('media');
+        expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
+          '资源加载',
+        );
+        expect(document.body.textContent).not.toContain('当前设置尚未保存');
+        act(() => f.host.querySelector<HTMLButtonElement>('.weq-settings-close')!.click());
+        expect(f.onClose).toHaveBeenCalledOnce();
+        expect(useDialog.getState().current).toBeNull();
+      } finally {
+        f.dispose();
+      }
+    },
+  );
+  it('rKey 真正未保存的配置继续拦截离页并在重建后保留', () => {
+    const f = mount('credentials');
+    try {
+      act(() =>
+        f
+          .body()
+          .querySelector<HTMLButtonElement>('.weq-rkey-settings .weq-set-card-action button')!
+          .click(),
+      );
+      inputValue(
+        f.body().querySelector<HTMLInputElement>('[aria-label="RKEY 名称"]')!,
+        '未保存服务器',
+      );
+      const navigate = vi.fn();
+      f.navigate(navigate);
+      expect(navigate).not.toHaveBeenCalled();
+      expect(document.body.textContent).toContain('当前设置尚未保存');
+      chooseNavigation('暂时离开');
+      expect(navigate).toHaveBeenCalledOnce();
+      f.render(undefined, undefined, 1);
+      expect(f.body().querySelector<HTMLInputElement>('[aria-label="RKEY 名称"]')?.value).toBe(
+        '未保存服务器',
+      );
+      f.navigate(navigate);
+      expect(navigate).toHaveBeenCalledOnce();
+      expect(document.body.textContent).toContain('当前设置尚未保存');
+    } finally {
+      f.dispose();
+    }
+  });
   it('未保存时拦截二级页切换，先保存留在原页，暂时离开保留草稿', () => {
     fixture.mcpPort = 48765;
     const f = mount('mcp');

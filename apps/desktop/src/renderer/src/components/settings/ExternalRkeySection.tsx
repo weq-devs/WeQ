@@ -19,7 +19,7 @@ import * as timeFormat from '@weq/time';
 
 import { useEffect, useState, type FormEvent, type ReactElement } from 'react';
 import { z } from 'zod';
-import { usePageState } from '../PageSnapshots';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
 import {
   CheckCircle2,
   ChevronDown,
@@ -100,6 +100,7 @@ export function ExternalRkeySection(): ReactElement {
       .nullable(),
     true,
   );
+  usePageDraftConfirmation('rkey:form', null);
   const [revealToken, setRevealToken] = useState(false);
   useEffect(() => {
     if (!active) setRevealToken(false);

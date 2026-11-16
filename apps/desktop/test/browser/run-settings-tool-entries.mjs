@@ -151,8 +151,23 @@ try {
       assert(Object.values(rkeyLayout).every(Boolean), JSON.stringify(rkeyLayout));
       if (output)
         await page.screenshot({ path: resolve(output, `rkey-form-${width}-${theme}.png`) });
+      await page.getByRole('button', { name: '资源加载', exact: true }).click();
+      await page.getByText('当前设置尚未保存', { exact: true }).waitFor();
+      await page.getByRole('button', { name: '先保存', exact: true }).click();
+      assert.equal(
+        await rkeyCard.getByLabel('RKEY HTTP 地址').inputValue(),
+        'https://example.invalid',
+      );
       await rkeyCard.getByRole('button', { name: '取消', exact: true }).click();
       assert.equal(await rkeyCard.locator('form').count(), 0);
+      await page.getByRole('button', { name: '资源加载', exact: true }).click();
+      assert.equal(await page.locator('.weq-message-modal').count(), 0);
+      assert.equal(await rkey.count(), 0);
+      await page.getByRole('button', { name: '凭据管理', exact: true }).click();
+      assert.equal(await rkeyCard.locator('form').count(), 0);
+      await page.getByRole('button', { name: '资源加载', exact: true }).click();
+      assert.equal(await page.locator('.weq-message-modal').count(), 0);
+      assert.equal(await rkey.count(), 0);
       if (!rkeyOnly) {
         await page.getByRole('button', { name: 'QQ 数据库管理', exact: true }).click();
         await checkButton('database-repair', '打开修复工具', '容错与修复', 'db-repair');
