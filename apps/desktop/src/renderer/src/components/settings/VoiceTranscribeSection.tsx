@@ -221,6 +221,7 @@ export function TtsProvidersCard(): ReactElement {
     if (!selectedId) return;
     const ok = await dialog.confirm('删除 TTS 服务商', `确认删除「${selectedId}」？`, {
       okLabel: '删除',
+      danger: 'outline',
       cancelLabel: '返回',
       tone: 'warning',
     });
@@ -579,6 +580,7 @@ export function TtsProvidersCard(): ReactElement {
               >
                 <Trash2 size={14} />
                 删除
+                data-danger="outline"
               </button>
             </div>
           </div>

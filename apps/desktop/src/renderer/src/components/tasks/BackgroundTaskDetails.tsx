@@ -239,6 +239,7 @@ function TaskDetails({
         ) : null}
         {task.status !== 'running' ? (
           <button
+            data-danger="outline"
             type="button"
             className="weq-set-btn weq-set-btn-soft"
             disabled={busy}

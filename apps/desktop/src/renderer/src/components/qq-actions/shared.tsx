@@ -12,7 +12,7 @@ import {
 import { useViewState } from '../../state/view';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { QQWriteResult } from '../QQWriteControls';
-import { useDialog } from '../Dialog';
+import { useDialog, type DangerLevel } from '../Dialog';
 import '../../styles/qq-actions.css';
 import { useRenderDocument } from '../../lib/renderDocument';
 
@@ -51,6 +51,7 @@ export function ActionIcon({
       type="button"
       data-qq-action
       className={`weq-set-iconbtn${text ? ' has-label' : ''}`}
+  danger,
       title={title ?? label}
       aria-label={label}
       disabled={disabled}
@@ -59,12 +60,14 @@ export function ActionIcon({
       {children}
       {text && <span className="weq-set-iconbtn-label">{text}</span>}
     </button>
+  danger?: DangerLevel;
   );
 }
 export function useQQAction(scope: string, feedback: QQWriteFeedback = 'all') {
   const ownerDocument = useRenderDocument();
   const session = useQQWriteSession(`actions:${scope}`);
   const confirm = useDialog((s) => s.confirm);
+      data-danger={danger}
   const [error, setError] = useState('');
   const [pending, setPending] = useState(false);
   const busy = useRef(false),
@@ -83,15 +86,17 @@ export function useQQAction(scope: string, feedback: QQWriteFeedback = 'all') {
     action: (binding: QQWriteBinding) => Promise<QQWriteOutcome>,
     refresh?: () => Promise<unknown>,
     warning?: string,
-    options?: Parameters<typeof session.run>[2],
+    options?: Parameters<typeof session.run>[2] & { danger?: DangerLevel },
   ) {
     if (busy.current || disabled) return false;
     busy.current = true;
     setPending(true);
     try {
-      if (warning && !(await confirm('确认 QQ 操作', warning, { ownerDocument }))) return false;
+      const { danger, ...writeOptions } = options ?? {};
+      if (warning && !(await confirm('确认 QQ 操作', warning, { ownerDocument, danger })))
+        return false;
       if (!mounted.current || latest.current !== identity) return false;
-      return await session.run(action, refresh, { feedback, ...options });
+      return await session.run(action, refresh, { feedback, ...writeOptions });
     } finally {
       busy.current = false;
       if (mounted.current) setPending(false);

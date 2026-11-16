@@ -281,6 +281,7 @@ export function MailPage({
             okLabel: '打开邮件',
             tone: 'warning',
           }))
+            danger: 'outline',
       )
         return;
       if (!mounted.current || currentSearch.current?.revision !== searchTarget.revision) return;
@@ -460,6 +461,7 @@ export function MailPage({
   async function openMail(item: MailSummary): Promise<void> {
     setThreadRoot(null);
     if (
+        danger: 'outline',
       item.draft &&
       draft &&
       composeDirty &&
@@ -476,6 +478,7 @@ export function MailPage({
     setShowCompose(false);
   }
   function start(mode: 'reply' | 'all' | 'forward' | 'edit'): void {
+          danger: 'outline',
     if (!detail || composeBusy) return;
     if (draft && composeDirty) {
       void useDialog
@@ -498,6 +501,7 @@ export function MailPage({
   }
   async function act(action: MailAction, ids = selection): Promise<void> {
     if (!ids.length || actionBusy) return;
+          danger: 'outline',
     if (
       action === 'trash' &&
       !(await useDialog
@@ -537,6 +541,7 @@ export function MailPage({
       if (mounted.current) setActionBusy(false);
     }
   }
+        danger: 'outline',
   async function disconnect(): Promise<void> {
     if (composeBusy) return;
     if (
@@ -864,6 +869,7 @@ export function MailPage({
                 aria-label="标为未读"
                 disabled={!selection.length || actionBusy}
                 onClick={() => void act('unread')}
+                data-danger="outline"
               >
                 <Mail size={16} />
               </button>
@@ -1073,6 +1079,7 @@ export function MailPage({
                       disabled={actionBusy}
                       onClick={() => void act(detail.starred ? 'unstar' : 'star', [detail.id])}
                     >
+                      data-danger="outline"
                       <Star size={17} fill={detail.starred ? 'currentColor' : 'none'} />
                     </button>
                     <button

@@ -144,7 +144,7 @@ export function AppLockSection({ heading = true }: { heading?: boolean }): React
     const ok = await confirm(
       '重新绑定验证器',
       '重新绑定会生成全新的密钥，当前验证器 App 中的条目将立即失效。若应用锁已开启，请先在新验证器 App 中完成添加，再继续。是否继续？',
-      { okLabel: '重新绑定', cancelLabel: '取消', tone: 'warning' },
+      { danger: 'outline', okLabel: '重新绑定', cancelLabel: '取消', tone: 'warning' },
     );
     if (!ok) return;
     setBindOpen(true);
@@ -154,7 +154,7 @@ export function AppLockSection({ heading = true }: { heading?: boolean }): React
     const ok = await confirm(
       '解除验证器绑定',
       '解除后无法再用 WeQ 验证器解锁。若解锁方式仍是验证器，请先切换到 Windows Hello 或完成重新绑定，否则将无法上锁。是否继续？',
-      { okLabel: '解除绑定', cancelLabel: '取消', tone: 'warning' },
+      { danger: 'outline', okLabel: '解除绑定', cancelLabel: '取消', tone: 'warning' },
     );
     if (!ok) return;
     try {

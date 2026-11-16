@@ -386,6 +386,7 @@ function GroupNoticeActionsBody({
           onClose={() => setMenu(null)}
           actions={[
             {
+              danger: 'outline',
               label: '删除公告',
               icon: <Trash2 size={15} />,
               disabled: a.disabled || !menu.entry.noticeId,
@@ -402,6 +403,7 @@ function GroupNoticeActionsBody({
                   refresh,
                   `删除公告「${selected.text.slice(0, 40)}」？不能撤销。`,
                   {
+                    danger: 'outline',
                     readback: async () => {
                       const result = await notices.refetch();
                       if (result.error) throw result.error;

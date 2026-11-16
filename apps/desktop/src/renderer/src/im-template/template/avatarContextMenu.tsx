@@ -185,6 +185,7 @@ export function AvatarContextMenu({
       ) : null}
       {showKick && onKick ? (
         <button
+          data-danger="outline"
           type="button"
           title={moderationBlockedReason ?? '踢出群聊'}
           disabled={moderationDisabled}

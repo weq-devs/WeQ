@@ -536,6 +536,7 @@ export function UdpCapturePanel(): ReactElement {
           <Download size={14} /> 全量 pcapng
         </button>
         <button
+          data-danger="outline"
           type="button"
           className="weq-udp-btn"
           onClick={() => {

@@ -119,6 +119,7 @@ export function QQWriteTextRow({
                 inlineEditor ? 'weq-profile-field-tool weq-profile-field-save' : 'weq-set-iconbtn'
               }
               aria-label={actionLabel}
+              data-danger={clearingUnknown ? 'outline' : undefined}
               title={actionLabel}
               disabled={
                 disabled ||

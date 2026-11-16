@@ -108,6 +108,7 @@ export function DataSaverSettings() {
       action={
         reset ? undefined : (
           <button
+            data-danger="outline"
             type="button"
             className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
             title="恢复省流量默认设置"

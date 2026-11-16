@@ -158,7 +158,13 @@ export function GroupMemberKickDialog({
           <button type="button" onClick={onCancel} disabled={busy}>
             取消
           </button>
-          <button type="button" className="is-danger" onClick={onConfirm} disabled={busy}>
+          <button
+            data-danger="solid"
+            type="button"
+            className="is-danger"
+            onClick={onConfirm}
+            disabled={busy}
+          >
             {busy ? '处理中…' : '踢出'}
           </button>
         </footer>

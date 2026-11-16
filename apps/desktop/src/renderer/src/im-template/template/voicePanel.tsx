@@ -1198,7 +1198,12 @@ function VoiceReview({
       ) : null}
 
       <div className={cn('voice-review-actions')}>
-        <button type="button" className={cn('voice-btn ghost')} onClick={onDiscard}>
+        <button
+          data-danger="outline"
+          type="button"
+          className={cn('voice-btn ghost')}
+          onClick={onDiscard}
+        >
           <Trash2 size={14} /> 删除
         </button>
         {trimmed ? (

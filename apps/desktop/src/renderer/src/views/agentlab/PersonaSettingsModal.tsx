@@ -70,6 +70,7 @@ function MemoryTab({ personaId }: { personaId: string }): ReactElement {
 
   async function onClear(): Promise<void> {
     const ok = await dialog.confirm('清空记忆', '确认清空这个克隆体对你的全部记忆？', {
+      danger: 'solid',
       okLabel: '清空',
       cancelLabel: '返回',
       tone: 'warning',
@@ -111,6 +112,7 @@ function MemoryTab({ personaId }: { personaId: string }): ReactElement {
       {list.length > 0 && (
         <div className="weq-clone-actions">
           <button
+            data-danger="solid"
             className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
             onClick={() => void onClear()}
           >
@@ -882,6 +884,7 @@ function PersonaSettingsBody({
                         </p>
                         {onDelete ? (
                           <button
+                            data-danger="solid"
                             type="button"
                             className="weq-set-btn weq-set-btn-soft"
                             disabled={deleting}

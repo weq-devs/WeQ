@@ -790,6 +790,7 @@ export function CompositionWorkspace({
                                   if (dirtyRef.current)
                                     await persist(structuredClone(working), binding);
                                   if (dirtyRef.current)
+                            data-danger="outline"
                                     throw new Error('内容仍在更新，请稍后再删除');
                                   await serial.current.catch(() => {});
                                   const removed = await resolveDraftSave(

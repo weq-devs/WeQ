@@ -1149,7 +1149,11 @@ function PublicFeedDetail({
                       回复
                     </button>
                     {mine(comment) ? (
-                      <button type="button" onClick={() => void remove(comment)}>
+                      <button
+                        data-danger="outline"
+                        type="button"
+                        onClick={() => void remove(comment)}
+                      >
                         删除
                       </button>
                     ) : null}
@@ -1183,7 +1187,11 @@ function PublicFeedDetail({
                             回复
                           </button>
                           {mine(reply) ? (
-                            <button type="button" onClick={() => void remove(comment, reply)}>
+                            <button
+                              data-danger="outline"
+                              type="button"
+                              onClick={() => void remove(comment, reply)}
+                            >
                               删除
                             </button>
                           ) : null}

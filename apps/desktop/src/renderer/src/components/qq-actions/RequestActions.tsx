@@ -56,6 +56,7 @@ export function RequestActions({ operation }: { operation: NoticeOperation }) {
               type="button"
               key={String(approve)}
               aria-label={approve ? '同意申请' : '拒绝申请'}
+              data-danger={approve ? undefined : 'outline'}
               disabled={a.disabled}
               onClick={() =>
                 void a.perform(
@@ -76,6 +77,7 @@ export function RequestActions({ operation }: { operation: NoticeOperation }) {
                   },
                   `${approve ? '同意' : '拒绝'} ${operation.name}${operation.groupId ? ` 加入 ${operation.groupName}` : ' 的好友申请'}？`,
                   {
+                    danger: approve ? undefined : 'outline',
                     readback: async () => {
                       const rows = await client.account.qqActions.requests.query({
                         ...a.binding!,

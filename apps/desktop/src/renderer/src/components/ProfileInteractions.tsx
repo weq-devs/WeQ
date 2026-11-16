@@ -164,6 +164,7 @@ function CommentRows({
               ) : null}
               {remove && canRemove?.(item) ? (
                 <button
+                  data-danger="outline"
                   type="button"
                   title="删除评论"
                   aria-label={`删除评论：${item.text}`}
@@ -362,7 +363,12 @@ export function SignatureInteractions({
               online
                 ? (comment) =>
                     void op.run(async () => {
-                      if (!(await confirm('删除评论', `删除“${comment.text}”？`))) return;
+                      if (
+                        !(await confirm('删除评论', `删除“${comment.text}”？`, {
+                          danger: 'outline',
+                        }))
+                      )
+                        return;
                       await client.account.qqActions.deleteSignatureComment.mutate({
                         ...args,
                         commentId: comment.id,

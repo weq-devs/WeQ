@@ -27,6 +27,14 @@ import '../styles/dialog-layout.css';
 import { ContactFieldHistoryBoundary } from '../lib/contactFieldHistoryContext';
 
 export type DialogTone = 'error' | 'warning' | 'info';
+export type DangerLevel = 'outline' | 'solid';
+export interface ConfirmDialogOptions {
+  okLabel?: string;
+  cancelLabel?: string;
+  tone?: DialogTone;
+  danger?: DangerLevel;
+  ownerDocument?: Document;
+}
 
 interface DialogRequest {
   id: number;
@@ -34,7 +42,12 @@ interface DialogRequest {
   title: string;
   message: ReactNode;
   /** When set, this is a confirm dialog; resolve receives the choice. */
-  confirm?: { okLabel: string; cancelLabel: string; resolve: (ok: boolean) => void };
+  confirm?: {
+    okLabel: string;
+    cancelLabel: string;
+    danger?: DangerLevel;
+    resolve: (ok: boolean) => void;
+  };
   /** When set, this is a secure password prompt; resolve receives the value or null. */
   password?: {
     okLabel: string;
@@ -56,11 +69,7 @@ interface DialogStore {
     opts?: { dismissible?: boolean; ownerDocument?: Document },
   ): void;
   showInfo(title: string, message: ReactNode, opts?: { ownerDocument?: Document }): void;
-  confirm(
-    title: string,
-    message: ReactNode,
-    opts?: { okLabel?: string; cancelLabel?: string; tone?: DialogTone; ownerDocument?: Document },
-  ): Promise<boolean>;
+  confirm(title: string, message: ReactNode, opts?: ConfirmDialogOptions): Promise<boolean>;
   promptPassword(
     title: string,
     message: ReactNode,
@@ -121,6 +130,7 @@ export const useDialog = create<DialogStore>((set, get) => ({
           dismissible: true,
           ownerDocument: opts?.ownerDocument,
           confirm: {
+            danger: opts?.danger,
             okLabel: opts?.okLabel ?? '确定',
             cancelLabel: opts?.cancelLabel ?? '取消',
             resolve,
@@ -403,6 +413,7 @@ export function DialogHost(): ReactElement | null {
                     </button>
                     <button
                       className="weq-action-primary"
+                      data-danger={current.confirm.danger}
                       onClick={() => {
                         current.confirm?.resolve(true);
                         close(current.id);

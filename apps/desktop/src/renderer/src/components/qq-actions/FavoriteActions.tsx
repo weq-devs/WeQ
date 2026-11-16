@@ -125,7 +125,11 @@ function FavoriteActionsBody() {
               disabled={a.pending}
               onClick={() =>
                 void (async () => {
-                  if (picture && !(await confirm('放弃添加表情', '放弃当前选中的图片？'))) return;
+                  if (
+                    picture &&
+                    !(await confirm('放弃添加表情', '放弃当前选中的图片？', { danger: 'outline' }))
+                  )
+                    return;
                   setPicture(null);
                   setAdding(false);
                 })()
@@ -280,7 +284,9 @@ function FavoriteRow({
                 void (async () => {
                   if (
                     value !== desc &&
-                    !(await confirm('放弃修改备注', '放弃当前未保存的表情备注？'))
+                    !(await confirm('放弃修改备注', '放弃当前未保存的表情备注？', {
+                      danger: 'outline',
+                    }))
                   )
                     return;
                   setDraft(null);
@@ -331,6 +337,7 @@ function FavoriteRow({
                 ),
             },
             {
+              danger: 'outline',
               label: '删除收藏表情',
               icon: <Trash2 size={15} />,
               disabled,
@@ -342,6 +349,7 @@ function FavoriteRow({
                   onChanged,
                   `从 QQ 收藏中删除这张表情${desc ? `「${desc}」` : ''}？`,
                   {
+                    danger: 'outline',
                     readback: async () => {
                       const rows = await client.account.qqActions.favorites.query({
                         ...a.binding!,

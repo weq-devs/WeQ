@@ -614,6 +614,7 @@ function PickStage({
             className="weq-clean-go is-danger"
             disabled={!anySel}
             onClick={onConfirmCustom}
+            data-danger="outline"
           >
             <Trash2 size={15} /> 清理所选
           </button>
@@ -634,6 +635,7 @@ function PickStage({
             type="button"
             className={`weq-clean-mode${p.danger ? ' is-danger' : ''}${p.extreme ? ' is-extreme' : ''}`}
             onClick={() => onPickPreset(p)}
+            data-danger={p.danger ? 'outline' : undefined}
             disabled={empty || loading}
           >
             <span className="weq-clean-mode-icon">{p.icon}</span>
@@ -777,6 +779,7 @@ function ConfirmStage({
           className={`weq-clean-go${preset.danger ? ' is-danger' : ''}`}
           disabled={nothing || !phraseOk || disabled}
           onClick={onRun}
+          data-danger={preset.danger ? 'solid' : 'outline'}
         >
           <Trash2 size={15} /> 确认清理{' '}
           <span className="weq-number weq-number-inherit">{fmtBytes(bytes)}</span>

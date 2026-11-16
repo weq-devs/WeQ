@@ -51,9 +51,15 @@ it('红色清除按钮与用途说明，确认后绑定当前账号并刷新未�
   const f = mount();
   try {
     expect(f.button().classList.contains('weq-set-btn-danger')).toBe(true);
+    expect(f.button().dataset.danger).toBe('outline');
     expect(f.host.textContent).toContain('当未读标记出现异常时使用');
     await act(async () => f.button().click());
     expect(fixture.clear).toHaveBeenCalledOnce();
+    expect(fixture.confirm).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      expect.objectContaining({ danger: 'outline' }),
+    );
     expect(fixture.clear).toHaveBeenCalledWith({
       expectedAccountUin: '10001',
       expectedAccountConfigId: 'source-a',

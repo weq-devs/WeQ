@@ -696,6 +696,7 @@ export function MessageBubble({
             aria-label={isQqDeleted ? 'QQ删除的消息' : '已删除的消息'}
           >
             <StatusTag {...statusProps} className={cn('weq-msg-deleted-badge', reeditClass)}>
+                data-danger="outline"
               {reeditArmed && reeditClass ? '重新编辑' : isQqDeleted ? 'QQ删除' : '已删除'}
             </StatusTag>
             {!isQqDeleted && !selectionMode && onRestore ? (

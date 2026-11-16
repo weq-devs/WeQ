@@ -64,6 +64,7 @@ export function useDraftClose(onClose: () => void, value: unknown, busy = false)
       const discard = await useDialog
         .getState()
         .confirm('放弃未保存的修改？', '关闭后，本次尚未保存的内容将丢失。', {
+          danger: 'outline',
           okLabel: '放弃修改',
           cancelLabel: '继续编辑',
           tone: 'warning',

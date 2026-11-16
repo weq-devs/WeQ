@@ -162,6 +162,7 @@ function FavoritePickerTabBody({
           onClose={() => setMenu(null)}
           actions={[
             {
+              danger: 'outline',
               label: '删除',
               icon: <Trash2 size={15} />,
               disabled,
@@ -179,6 +180,7 @@ function FavoritePickerTabBody({
                   refresh,
                   `从 QQ 收藏中删除这张表情${menu.desc ? `「${menu.desc}」` : ''}？`,
                   {
+                    danger: 'outline',
                     readback: () => readback((rows) => !rows.some((row) => row.emojiId === id)),
                   },
                 );

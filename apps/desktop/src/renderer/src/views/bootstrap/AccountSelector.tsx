@@ -120,6 +120,7 @@ export function AccountSelector({
         >
           <div className="weq-acct-ctx-menu" role="menu" aria-label="账号操作">
             <button
+              data-danger="outline"
               type="button"
               role="menuitem"
               onClick={() => {

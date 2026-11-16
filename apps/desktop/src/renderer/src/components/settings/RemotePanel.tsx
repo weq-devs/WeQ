@@ -386,6 +386,7 @@ export function RemotePanel({
                 <code className="weq-remote-code">{request.code}</code>
               </div>
               <button
+                data-danger="outline"
                 type="button"
                 className="weq-set-iconbtn"
                 title="拒绝配对"
@@ -508,6 +509,7 @@ export function RemotePanel({
                   </details>
                 </div>
                 <button
+                  data-danger="outline"
                   type="button"
                   className="weq-set-iconbtn"
                   title="撤销设备授权"

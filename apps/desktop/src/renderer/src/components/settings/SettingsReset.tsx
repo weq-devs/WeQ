@@ -29,6 +29,7 @@ export function SettingsResetButton({ card }: { card?: SettingsResetCardId }) {
     <button
       type="button"
       className="weq-set-btn weq-set-btn-soft weq-settings-reset-button"
+      data-danger="outline"
       aria-label={label}
       title={label}
       onClick={() => context.open({ page: context.page })}
@@ -352,6 +353,7 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
               <button
                 type="button"
                 className="weq-set-btn"
+                data-danger="outline"
                 disabled={
                   busy ||
                   (!changed.length && !results.some((item) => !item.ok)) ||

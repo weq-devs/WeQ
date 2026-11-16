@@ -100,6 +100,8 @@ pnpm ci:local --full      # 额外跑 web 打包冒烟（≈ CI 的 build-web）
   Tailwind 里直接用 `bg-background`、`text-foreground`、`text-muted-foreground`、`border-border`、`bg-primary` 这类工具类。
 - **主题色用 `--weq-accent-effective`**（用户在「设置 → 常规 → 主题与背景 → 主题色」里挑的自定义色优先，没挑就回落到预设 `--weq-accent`）。强调色、描边、高亮、图表取色都用它；要淡一点、要半透明就用 `color-mix(in srgb, var(--weq-accent-effective) 15%, transparent)`，**不要**写死 `#0099ff` 或自己另挑一支蓝。
 - **深色模式的差异要显式写覆盖**，它是独立一套值而不是浅色取反。主题钩在 `html[data-theme="dark"]` 上（`state/theme.ts` 同时 toggle `.dark` 类，两个都认），所以写 `html[data-theme="dark"] .your-class { ... }`。
+- **危险按钮分两档**：只有全局恢复、永久删除整段历史、清理不可再生媒体等高风险操作用红色实底（`data-danger="solid"`）；清除已读记录、局部恢复、删除单项配置等用红色描边与文字（`data-danger="outline"`）。保留各外观的尺寸、圆角、描边厚度和阴影，危险色不跟随用户主题色；兼顾深浅主题、悬停、键盘焦点和禁用状态。
+- 危险等级由实际操作显式提供；通用确认使用 `danger` 选项，QQ 操作及菜单透传同一等级。不要按文案关键词、警告／错误提示的 `tone` 自动染红，也不要把搜索清空、选择清空、取消、关闭、返回或普通重试当作危险操作。
 - **别用 Tailwind 的 `dark:` 工具类。** 本项目的暗色钩子是 `data-theme`，`dark:` variant 只被桥接给 streamdown 用过（见 `styles/index.css` 里 `@custom-variant dark` 的注释），别处一律不生效。
 - 顺带检查那些「浅色下没事、深色下就废」的写法：`rgba(255, 255, 255, …)` 遮罩、白底渐变、写死的浅灰描边、`--weq-bar-surface` 这类半透明玻璃质感栏。
 - 界面背景会换掉聊天画布（`data-background`：plain / paper / grid / dots / wash / telegram → `--weq-chat-bg`）。浮层、卡片如果贴在画布上，让它跟着透出底色，别自己铺一层不透明底。

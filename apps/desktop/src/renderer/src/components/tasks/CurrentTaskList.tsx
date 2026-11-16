@@ -313,6 +313,7 @@ export function CurrentTaskList({
             ) : null}
             <button
               type="button"
+              data-danger="outline"
               className="weq-set-btn weq-set-btn-soft"
               disabled={task.status === 'running'}
               onClick={() => dismissCloneTask(task.personaId)}
@@ -384,7 +385,12 @@ export function CurrentTaskList({
       disabled: busy,
       run: async () => {
         const binding = bindingRef.current;
-        if (!(await confirm('移除任务？', '仅移除任务与断点，已经取得的漫游消息会保留。'))) return;
+        if (
+          !(await confirm('移除任务？', '仅移除任务与断点，已经取得的漫游消息会保留。', {
+            danger: 'outline',
+          }))
+        )
+          return;
         if (
           !mounted.current ||
           bindingRef.current?.expectedAccountUin !== binding?.expectedAccountUin ||
@@ -827,7 +833,11 @@ export function CurrentTaskList({
       const ok = await confirm(
         '清理已结束任务',
         `确定清除 ${finished.length} 项已结束任务？只移除任务记录和导出缓存，不删除已保存的文件、克隆体或聊天记录。${unsaved ? `其中 ${unsaved} 项导出尚未保存，清除后将无法从任务列表取回结果。` : ''}`,
-        { okLabel: `清除 ${finished.length} 项`, cancelLabel: '保留' },
+        {
+          danger: unsaved ? 'solid' : 'outline',
+          okLabel: `清除 ${finished.length} 项`,
+          cancelLabel: '保留',
+        },
       );
       if (!ok || !current()) return;
       const result = await client.account.clearFinishedTasks.mutate({
@@ -897,6 +907,7 @@ export function CurrentTaskList({
             title="清理已结束任务"
             aria-label="清理已结束任务"
             disabled={clearing || loading || !cleanupBinding || !finished.length}
+            data-danger="outline"
             onClick={() => void clearFinished()}
           >
             <Trash2 size={14} />

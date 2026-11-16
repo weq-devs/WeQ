@@ -387,6 +387,7 @@ export function GroupKeywordEditor({
                     )}
                   </button>
                   <button
+                    data-danger="outline"
                     type="button"
                     className="group-keyword-item-remove"
                     title="删除关键词"

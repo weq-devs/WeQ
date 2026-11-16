@@ -3312,6 +3312,7 @@ export function ChatPane({
           .confirm(
             '撤回所选消息',
             `将依次向 QQ 提交 ${messages.length} 条消息的撤回请求，是否继续？`,
+            { danger: 'outline' },
           )) ||
         !current()
       )
@@ -5191,6 +5192,7 @@ export function ChatPane({
       const replace = await useDialog
         .getState()
         .confirm('替换当前草稿？', '输入框已有内容，重新编辑将替换当前草稿。', {
+          danger: 'outline',
           okLabel: '替换并编辑',
           cancelLabel: '保留草稿',
         });
@@ -6951,6 +6953,7 @@ export function ChatPane({
               </button>
               {!restrictedSource ? (
                 <button
+                  data-danger="outline"
                   type="button"
                   className={cn('selection-action')}
                   aria-label="撤回所选消息"
@@ -6964,6 +6967,7 @@ export function ChatPane({
                 </button>
               ) : null}
               <button
+                data-danger="outline"
                 type="button"
                 className={cn('selection-action')}
                 aria-label="删除"

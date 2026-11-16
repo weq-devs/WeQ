@@ -242,6 +242,7 @@ export function MsgDressEditor({
                 商城
               </CompositionButton>
               <CompositionButton
+                data-danger="outline"
                 type="button"
                 className="weq-mf-dress-clear"
                 title="清除"
@@ -261,6 +262,7 @@ export function MsgDressEditor({
 
         <footer className="weq-mf-dress-foot">
           <CompositionButton
+            data-danger="outline"
             type="button"
             className="weq-mf-soft"
             disabled={!hasAny}

@@ -990,7 +990,13 @@ function SegRow({
           >
             ↓
           </CompositionButton>
-          <CompositionButton type="button" className="danger" onClick={onRemove} title="删除">
+          <CompositionButton
+            data-danger="outline"
+            type="button"
+            className="danger"
+            onClick={onRemove}
+            title="删除"
+          >
             <Trash2 size={13} />
           </CompositionButton>
         </div>
@@ -1394,6 +1400,7 @@ function RecordMessages({
                       ↓
                     </CompositionButton>
                     <CompositionButton
+                      data-danger="outline"
                       type="button"
                       className="danger"
                       onClick={() => remove(msg.id)}
@@ -2194,7 +2201,13 @@ function NodeMenu({
       <CompositionButton type="button" role="menuitem" onClick={onChangeSender}>
         <UserCog size={15} /> 修改发送人
       </CompositionButton>
-      <CompositionButton type="button" role="menuitem" className="danger" onClick={onDelete}>
+      <CompositionButton
+        data-danger="outline"
+        type="button"
+        role="menuitem"
+        className="danger"
+        onClick={onDelete}
+      >
         <X size={15} /> 删除这条
       </CompositionButton>
     </div>,

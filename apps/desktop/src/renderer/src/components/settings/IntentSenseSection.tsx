@@ -199,6 +199,7 @@ export function IntentSenseSection() {
               desc={clearedHint ?? '清除当前账号的意图分析与推荐回复缓存，不影响互动画像。'}
               control={
                 <button
+                  data-danger="outline"
                   type="button"
                   className="weq-set-btn"
                   disabled={disabled || inactive || !hasAccount || clearCache.isLoading}

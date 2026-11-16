@@ -274,6 +274,7 @@ function GroupAlbumMediaActionsBody({
         />
         {canDelete && (
           <ActionIcon
+            danger="outline"
             label="删除相册媒体"
             disabled={a.disabled || !deletionId}
             onClick={() =>
@@ -288,6 +289,7 @@ function GroupAlbumMediaActionsBody({
                 async () => onChanged(),
                 '从 QQ 群相册删除这项媒体？不能撤销。',
                 {
+                  danger: 'solid',
                   readback: async () => {
                     const rows = await client.account.listGroupAlbumMedia.query({
                       groupCode: String(groupId),

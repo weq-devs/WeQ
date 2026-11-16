@@ -260,7 +260,7 @@ export function DbDataGrid({
     const ok = await dialog.confirm(
       '删除该行',
       '此操作将直接从实时数据库删除该行，无法撤销。建议先确保 QQ 已关闭。确认删除？',
-      { okLabel: '删除', cancelLabel: '取消', tone: 'warning' },
+      { danger: 'solid', okLabel: '删除', cancelLabel: '取消', tone: 'warning' },
     );
     if (!ok) return;
     try {
@@ -515,6 +515,7 @@ export function DbDataGrid({
                 {canEditRows ? (
                   <td className="weq-cache-grid-actions">
                     <button
+                      data-danger="solid"
                       type="button"
                       className="weq-cache-row-btn is-danger"
                       onClick={() => void deleteRow(ri)}

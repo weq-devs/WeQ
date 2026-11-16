@@ -113,6 +113,7 @@ export function SuggestionFallbackDialog({
                       }
                     />
                     <button
+                      data-danger="outline"
                       type="button"
                       className="weq-set-iconbtn"
                       title="删除回退内容"

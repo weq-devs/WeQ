@@ -250,7 +250,7 @@ export function AccountBasicsSection({
         !(await confirm(
           '向 QQ 服务器上报已读位置',
           '开启后，自动阅读与手动标记已读都会向 QQ 服务器上报已读位置，可能清除其他客户端的未读提醒。标为未读不能恢复已清除的提醒。',
-          { okLabel: '开启上报' },
+          { danger: 'outline', okLabel: '开启上报' },
         ))
       )
         return;

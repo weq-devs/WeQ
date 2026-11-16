@@ -106,7 +106,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
       !(await confirm(
         '移除已保存账号？',
         `从 WeQ 移除「${acc.name}」的配置，QQ 聊天记录和备份文件不会删除。`,
-        { okLabel: '移除配置' },
+        { danger: 'outline', okLabel: '移除配置' },
       ))
     )
       return;

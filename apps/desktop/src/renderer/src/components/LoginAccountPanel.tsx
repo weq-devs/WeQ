@@ -322,6 +322,7 @@ export function LoginAccountPanel(): ReactElement {
               </div>
               <div className="weq-login-acc-actions">
                 <button
+                  data-danger="outline"
                   type="button"
                   className="weq-set-btn weq-set-btn-soft"
                   disabled={!canWrite || busy !== null || !acc.hasA1}

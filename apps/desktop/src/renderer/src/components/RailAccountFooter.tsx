@@ -455,6 +455,7 @@ export function RailAccountFooter({
             onMouseDown={(e) => e.stopPropagation()}
           >
             <button
+              data-danger="outline"
               type="button"
               onClick={() => void deleteAccount(ctxMenu.configId)}
               disabled={busy}

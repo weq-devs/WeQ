@@ -895,6 +895,7 @@ export function RoamingBackfillPanel({
                         </button>
                       ) : null}
                       <button
+                        data-danger="outline"
                         type="button"
                         className="weq-roaming-iconbtn is-danger"
                         title="移除任务，保留已取得的消息"
@@ -904,6 +905,7 @@ export function RoamingBackfillPanel({
                           void confirm(
                             '移除任务？',
                             '仅移除任务与断点，已经取得的漫游消息会保留。',
+                            { danger: 'outline' },
                           ).then((ok) => {
                             if (ok) remove.mutate({ id: job.id });
                           });

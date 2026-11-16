@@ -78,6 +78,7 @@ export default function LogPerformanceSettings() {
       if (
         preview.needsPrune &&
         !(await dialog.confirm('调整性能历史保存策略？', performancePruneMessage(preview), {
+          danger: 'outline',
           okLabel: '保存并删除',
           tone: 'warning',
         }))
@@ -278,7 +279,7 @@ export default function LogPerformanceSettings() {
                   !(await dialog.confirm(
                     '清空性能历史？',
                     '会删除此宿主的全部性能采样记录，此操作不可撤销。',
-                    { okLabel: '清空历史', tone: 'error' },
+                    { danger: 'outline', okLabel: '清空历史', tone: 'error' },
                   ))
                 )
                   return;

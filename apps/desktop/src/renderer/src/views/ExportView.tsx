@@ -1075,7 +1075,7 @@ function ExportToolBody({
       const confirmed = await dialog.confirm(
         '删除尚未保存的结果',
         `「${t.name}」尚未保存到目标位置，删除会移除任务及其导出缓存。`,
-        { okLabel: '删除', cancelLabel: '保留', tone: 'warning' },
+        { danger: 'solid', okLabel: '删除', cancelLabel: '保留', tone: 'warning' },
       );
       if (!confirmed) return;
     }
@@ -1831,7 +1831,7 @@ function ExportToolBody({
     const ok = await dialog.confirm(
       '删除定时任务',
       `确认删除「${s.name}」？该调度将不再触发；历史已生成的导出任务不会被删除。`,
-      { okLabel: '删除', cancelLabel: '返回', tone: 'warning' },
+      { danger: 'outline', okLabel: '删除', cancelLabel: '返回', tone: 'warning' },
     );
     if (!ok) return;
     try {
@@ -3332,3 +3332,4 @@ function ScheduleRow({
     </div>
   );
 }
+          data-danger="outline"

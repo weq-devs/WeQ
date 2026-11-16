@@ -39,7 +39,10 @@ export function LongTermAuthorizationSection() {
               (kind === 'install'
                 ? '将请求系统管理员批准，安装全机共享的原生权限助手，授权当前系统用户的 QQ 内存读取和网卡抓包。不复制 Electron、Node 或聊天数据，不保存管理员密码，不修改 SIP 或全局 ptrace 保护。'
                 : '将撤销当前系统用户的长期授权，正在使用权限助手的操作会中断，之后可继续临时授权。最后一位用户撤销时移除此通道的共享组件。'),
-            { okLabel: kind === 'install' ? '继续授权' : '撤销授权' },
+            {
+              danger: kind === 'remove' ? 'outline' : undefined,
+              okLabel: kind === 'install' ? '继续授权' : '撤销授权',
+            },
           );
           if (!approved || !mounted.current) return;
         }

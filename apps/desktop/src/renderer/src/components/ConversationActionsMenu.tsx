@@ -3,6 +3,7 @@ import { OverlayLayer } from './OverlayLayer';
 import '../styles/conversation-actions.css';
 import { useRenderDocument } from '../lib/renderDocument';
 import { RemoteShellMenuItem } from './RemoteShellMenus';
+import type { DangerLevel } from './Dialog';
 
 export function ConversationActionsMenu({
   x,
@@ -21,6 +22,7 @@ export function ConversationActionsMenu({
     icon: ReactNode;
     action: () => void;
     disabled?: boolean;
+    danger?: DangerLevel;
     reason?: string;
     separatorBefore?: boolean;
     keepOpen?: boolean;
@@ -95,6 +97,7 @@ export function ConversationActionsMenu({
             key={item.label}
             type="button"
             role="menuitem"
+            data-danger={item.danger}
             disabled={item.disabled}
             className={item.separatorBefore ? 'has-separator' : undefined}
             title={item.reason ?? item.label}

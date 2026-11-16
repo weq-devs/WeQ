@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { useDialog, type DialogTone } from '../components/Dialog';
+import { useDialog, type ConfirmDialogOptions } from '../components/Dialog';
 import { useToast } from '../components/Toast';
 
 export interface AppDialogApi {
@@ -7,11 +7,7 @@ export interface AppDialogApi {
   error(title: string, message: ReactNode): void;
   /** Transient bottom-right success toast (auto-dismiss); for save/copy/delete OK. */
   success(title: string, message?: ReactNode): void;
-  confirm(
-    title: string,
-    message: ReactNode,
-    opts?: { okLabel?: string; cancelLabel?: string; tone?: DialogTone },
-  ): Promise<boolean>;
+  confirm(title: string, message: ReactNode, opts?: ConfirmDialogOptions): Promise<boolean>;
 }
 
 export function useAppDialog(): AppDialogApi {

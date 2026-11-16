@@ -715,6 +715,7 @@ export function AgentLabSection(): ReactElement {
     if (!selectedId) return;
     const ok = await dialog.confirm('删除服务商', `确认删除「${selectedId}」？`, {
       okLabel: '删除',
+      danger: 'outline',
       cancelLabel: '返回',
       tone: 'warning',
     });
@@ -1093,6 +1094,7 @@ export function AgentLabSection(): ReactElement {
                       <button
                         type="button"
                         className="weq-set-iconbtn weq-provider-model-remove"
+                        data-danger="outline"
                         onClick={() => removeModel(index)}
                         aria-label={`删除模型 ${index + 1}`}
                         title={`删除模型 ${index + 1}`}
@@ -1192,6 +1194,7 @@ export function AgentLabSection(): ReactElement {
               <button
                 type="button"
                 className="weq-set-btn weq-set-btn-soft"
+                data-danger="outline"
                 onClick={() => void onDelete()}
                 disabled={!selectedId || deleteProvider.isLoading || detectingModel !== null}
               >

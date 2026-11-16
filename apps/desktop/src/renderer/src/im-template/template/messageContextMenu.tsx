@@ -258,7 +258,7 @@ export function MessageContextMenu(props: Props) {
           aria-label={item.label}
           title={item.reason || item.label}
           disabled={!item.run || Boolean(item.reason)}
-          data-danger={item.danger || undefined}
+          data-danger={item.danger ? 'outline' : undefined}
           onClick={item.run}
         >
           {item.icon}

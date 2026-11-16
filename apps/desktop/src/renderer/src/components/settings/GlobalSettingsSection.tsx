@@ -157,6 +157,9 @@ export function GlobalSettingsSection({
   const cacheMulti = useMultiSelection({
     ids: storageEntries.filter(({ item }) => item.clearable).map(({ item }) => item.id),
     selected: pickedCats,
+  const cleanupDanger = selectedItems.some((item) => item.requiresExit || item.action === 'data')
+    ? 'solid'
+    : 'outline';
     onChange: setPickedCats,
     disabled: cleanupBusy || cacheUsage.isFetching,
   });
@@ -243,7 +246,14 @@ export function GlobalSettingsSection({
       risky
         ? `将永久删除「${label}」，预计清除约 ${formatBytes(willFree)}。只删除所选路径中的数据，不会额外清理其它 QQ 数据目录。先清除可直接清除的项目；若有占用项，会另行询问是否重启。\n\n${extra.join('\n\n')}\n\n确认清除？`
         : `将删除「${label}」，预计释放约 ${formatBytes(willFree)}。需要时会重新下载或生成；保留数据不受影响。${extra.length ? `\n\n${extra.join('\n')}\n\n` : ''}是否继续？`,
-      { okLabel: risky ? '清除' : '清理', cancelLabel: '取消', tone: 'warning' },
+      {
+        danger: targets.some((item) => item.requiresExit || item.action === 'data')
+          ? 'solid'
+          : 'outline',
+        okLabel: risky ? '清除' : '清理',
+        cancelLabel: '取消',
+        tone: 'warning',
+      },
     );
     if (!ok) return;
     setCleaning(true);
@@ -278,7 +288,7 @@ export function GlobalSettingsSection({
     const ok = await confirm(
       '剩余项目被占用',
       `可直接清除的项目已经处理。仅「${labels.join('、')}」仍被占用，是否退出 WeQ 后继续清除这些项目？完成后会自动重新打开 WeQ。取消将保留剩余项目，不影响已完成的清理。若由 QQ 等其他程序占用，请先关闭对应程序。`,
-      { okLabel: '重启并继续清除', cancelLabel: '暂不重启', tone: 'warning' },
+      { danger: 'solid', okLabel: '重启并继续清除', cancelLabel: '暂不重启', tone: 'warning' },
     );
     if (!ok) return;
     await clearStorageData.mutateAsync({ ids, acknowledgeRisk: true, afterExit: true });
@@ -321,7 +331,7 @@ export function GlobalSettingsSection({
     const ok = await confirm(
       '删除账号配置',
       `将删除「${label}」在 WeQ 中保存的配置（数据库密钥、数据目录等），下次需要重新获取密钥。QQ 本体的聊天记录不受影响。是否继续？`,
-      { okLabel: '删除', cancelLabel: '取消', tone: 'warning' },
+      { danger: 'outline', okLabel: '删除', cancelLabel: '取消', tone: 'warning' },
     );
     if (!ok) return;
     try {
@@ -477,6 +487,7 @@ export function GlobalSettingsSection({
 
       {section === 'network' && (
         <Card title="加载来源" icon={<Cloud size={15} strokeWidth={1.8} />} settingId="prefer-cdn">
+                data-danger="outline"
           <Row
             label={
               <span className="weq-set-row-icon">
@@ -553,6 +564,7 @@ export function GlobalSettingsSection({
             </button>
           )}
           <div className="weq-set-cache-list" {...cacheMulti.rootProps}>
+              data-danger="solid"
             {cacheUsage.isLoading ? (
               <div className="weq-set-empty" role="status">
                 读取存储占用中…
@@ -613,6 +625,7 @@ export function GlobalSettingsSection({
       {section === 'logs' && <LogFileSettings />}
     </div>
   );
+              data-danger={cleanupDanger}
 }
 import { formatBytes } from '../../lib/format';
 import { LogFileSettings } from './LogFileSettings';

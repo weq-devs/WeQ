@@ -160,6 +160,7 @@ function GroupFileManagerBody({
     }
     if (editor || uploads.some((item) => item.state !== 'accepted'))
       return confirm('离开当前目录', '未完成的文件操作和待上传列表将被清理，仍要离开？', {
+        danger: 'outline',
         ownerDocument: renderDocument,
       });
     return true;
@@ -252,6 +253,7 @@ function GroupFileManagerBody({
       editor &&
       (editor.name || editor.mode === 'move') &&
       !(await confirm('放弃文件操作', '放弃当前未提交的文件操作？', {
+        danger: 'outline',
         ownerDocument: renderDocument,
       }))
     )
@@ -268,6 +270,7 @@ function GroupFileManagerBody({
     if (
       editor &&
       !(await confirm('切换文件操作', '放弃当前未提交的文件操作？', {
+        danger: 'outline',
         ownerDocument: renderDocument,
       }))
     )
@@ -395,6 +398,7 @@ function GroupFileManagerBody({
         refresh,
         warning,
         {
+          danger: mode === 'delete' ? 'solid' : undefined,
           readback: async () => {
             if (!a.binding) return false;
             const source = await listing(a.binding, directory);
@@ -765,6 +769,7 @@ function GroupFileManagerBody({
             <FolderInput size={17} />
           </ActionIcon>
           <ActionIcon
+            danger="outline"
             label="删除所选项目"
             disabled={locked || !selectedManageable}
             onClick={() => void operate('delete', [...selected])}
@@ -1263,6 +1268,7 @@ function GroupFileManagerBody({
               action: () => void openEditor('move', menu.keys),
             },
             {
+              danger: 'outline',
               label: '删除',
               icon: <Trash2 size={16} />,
               disabled: locked || !menuManageable,

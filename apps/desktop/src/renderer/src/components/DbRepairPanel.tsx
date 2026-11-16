@@ -762,6 +762,7 @@ function HistoryLightbox({
                               className="weq-set-btn weq-set-btn-sm weq-set-btn-danger"
                               disabled={!preview?.backupExists || busy}
                               onClick={() => onRestore(record, preview?.matchesAfter === false)}
+                              data-danger={preview?.matchesAfter === false ? 'solid' : 'outline'}
                             >
                               {preview?.matchesAfter === false ? '丢弃新内容并回滚' : '确认回滚'}
                             </button>
@@ -1632,7 +1633,7 @@ export function DbRepairPanel({
                   {problemDbs.length > 0 ? (
                     <button
                       type="button"
-                      className="weq-set-btn weq-set-btn-danger"
+                      className="weq-set-btn"
                       disabled={busy !== null}
                       onClick={() => goRepair(problemDbs[0]!.dbName)}
                     >
@@ -2199,6 +2200,7 @@ export function DbRepairPanel({
                         (marginShort && !allowLowSpace)
                       }
                       onClick={() => void handleRepair(confirmRepair === 'layout-migration')}
+                      data-danger="solid"
                     >
                       <Play size={13} strokeWidth={2} aria-hidden />
                       {marginShort

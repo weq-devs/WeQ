@@ -1148,6 +1148,7 @@ export function ConversationList({
           })()}
         />
       ) : null}
+                      danger: 'solid',
       {batch.confirmation}
     </div>
   );
@@ -2412,6 +2413,7 @@ const ContactListContent = memo(function ContactListContent({
             },
             {
               label: '移到最后',
+              danger: 'outline',
               icon: <ChevronRight size={16} />,
               disabled: !friendDirectory?.available || friendDirectory.busy,
               action: () => friendDirectory?.sort(categoryMenu.id, 'last'),

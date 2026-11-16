@@ -62,7 +62,7 @@ export function QqDebugCopy({
         !(await confirm(
           '移除 QQ 调试副本',
           '只移除 WeQ 创建的 QQ 副本，保留原 QQ、账号登录态和聊天数据。',
-          { okLabel: '移除副本' },
+          { danger: 'outline', okLabel: '移除副本' },
         ))
       )
         return;
@@ -212,6 +212,7 @@ export function QqDebugCopy({
         )}
         {managed && (
           <button
+            data-danger="outline"
             type="button"
             className="weq-set-btn"
             disabled={busy || running}

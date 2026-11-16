@@ -751,6 +751,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
         <div className="weq-backup-actions">
           <button
             type="button"
+            data-danger="solid"
             className="weq-set-btn weq-set-btn-soft"
             disabled={
               Boolean(busy) || !inventory || Boolean(pending) || Boolean(result?.clientPending)
@@ -847,6 +848,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
               <button
                 type="button"
                 className="weq-action-primary"
+                data-danger={confirm === 'defaults' || confirm === 'apply' ? 'solid' : undefined}
                 disabled={Boolean(busy) || (confirm === 'defaults' && !defaultsInfo)}
                 onClick={() =>
                   void act(confirmation.progress, async () => {

@@ -55,6 +55,7 @@ function GroupAlbumManagementBody({
         ? `删除相册「${album?.title}」及其中全部照片和视频？此操作不可恢复。`
         : undefined,
       {
+        danger: action === 'delete' ? 'solid' : undefined,
         requireReadback: true,
         readbackSuccessText: action === 'delete' ? '相册已删除' : '相册已保存',
         readback: async () => {
@@ -99,6 +100,7 @@ function GroupAlbumManagementBody({
       )}
       {album && canDelete && (
         <ActionIcon
+          danger="solid"
           label="删除相册"
           disabled={a.disabled}
           onClick={() => {

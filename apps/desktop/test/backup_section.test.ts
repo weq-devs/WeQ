@@ -174,10 +174,12 @@ it('配置备份页保留全局恢复入口，先读取范围、取消不提交�
   const f = fixture();
   const ui = await mount(f.api);
   expect(ui.host.querySelector('[data-setting-id="weq-config-management"]')).not.toBeNull();
+  expect(ui.button('恢复全局默认设置').dataset.danger).toBe('solid');
   await ui.click('恢复全局默认设置');
   expect(f.api.defaultsInfo).toHaveBeenCalledOnce();
   expect(f.api.defaults).not.toHaveBeenCalled();
   const modal = document.querySelector('[role="dialog"]')!;
+  expect(ui.button('确认恢复默认').dataset.danger).toBe('solid');
   expect(modal.textContent).toContain('所有账号');
   expect(modal.textContent).toContain('默认保留');
   expect(document.activeElement).toBe(ui.button('取消'));
@@ -325,6 +327,7 @@ it('全局恢复的 API、服务与目录仅在显式选择后重置，重新打
 it('恢复默认需二次确认，未变化的命令仍可再次主动执行', async () => {
   const ui = await mountReset();
   expect(ui.button('恢复本页默认设置').disabled).toBe(false);
+  expect(ui.button('恢复本页默认设置').dataset.danger).toBe('outline');
   await ui.click('恢复本页默认设置');
   expect(reset.restore).not.toHaveBeenCalled();
   await ui.click('确认恢复默认');

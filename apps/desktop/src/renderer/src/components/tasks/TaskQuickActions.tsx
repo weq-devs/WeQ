@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { MoreHorizontal } from 'lucide-react';
-import { useDialog } from '../Dialog';
+import { useDialog, type DangerLevel } from '../Dialog';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
 
 export interface TaskQuickAction {
@@ -9,6 +9,7 @@ export interface TaskQuickAction {
   icon: ReactNode;
   disabled?: boolean;
   secondary?: boolean;
+  danger?: DangerLevel;
   run: () => unknown;
 }
 
@@ -51,6 +52,7 @@ export function TaskQuickActions({ actions }: { actions: TaskQuickAction[] }) {
           key={action.id}
           type="button"
           className="weq-set-btn weq-set-btn-soft"
+          data-danger={action.danger}
           title={action.label}
           aria-label={action.label}
           disabled={busy || action.disabled}
@@ -94,6 +96,8 @@ export function TaskQuickActions({ actions }: { actions: TaskQuickAction[] }) {
             label: action.label,
             icon: action.icon,
             disabled: busy || action.disabled,
+            danger:
+              action.danger ?? (['remove', 'delete'].includes(action.id) ? 'outline' : undefined),
             action: () => void act(action),
           }))}
         />

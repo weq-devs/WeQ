@@ -490,7 +490,13 @@ function SegmentRow({
           onChange={(e) => onText(e.target.value)}
           autoFocus
         />
-        <button type="button" className="weq-compose-seg-x" onClick={onRemove} title="删除">
+        <button
+          data-danger="outline"
+          type="button"
+          className="weq-compose-seg-x"
+          onClick={onRemove}
+          title="删除"
+        >
           <X size={13} />
         </button>
       </div>
@@ -513,7 +519,13 @@ function SegmentRow({
           </>
         )}
       </span>
-      <button type="button" className="weq-compose-seg-x" onClick={onRemove} title="删除">
+      <button
+        data-danger="outline"
+        type="button"
+        className="weq-compose-seg-x"
+        onClick={onRemove}
+        title="删除"
+      >
         <X size={13} />
       </button>
     </div>

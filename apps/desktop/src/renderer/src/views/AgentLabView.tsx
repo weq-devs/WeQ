@@ -508,6 +508,7 @@ export function AgentLabView({
 
   async function onDeleteAssistantSession(sessionId: string): Promise<void> {
     const ok = await dialog.confirm('删除对话', '确认删除这段对话？删除后无法恢复。', {
+      danger: 'solid',
       okLabel: '删除',
       tone: 'warning',
     });
@@ -575,11 +576,7 @@ export function AgentLabView({
     const ok = await dialog.confirm(
       '删除克隆体',
       `永久删除「${settingsPersona?.name}」及其全部私聊历史和记忆，无法恢复，也不会进入“已删除会话”。正在进行的回答会先停止并等待写入结束；群聊中的既有消息会保留。`,
-      {
-        okLabel: '删除',
-        cancelLabel: '返回',
-        tone: 'warning',
-      },
+      { danger: 'solid', okLabel: '删除', cancelLabel: '返回', tone: 'warning' },
     );
     if (!ok) return;
     try {
@@ -674,6 +671,7 @@ export function AgentLabView({
                       role="button"
                       tabIndex={0}
                       aria-label="删除对话"
+                      data-danger="outline"
                       onClick={(e) => {
                         e.stopPropagation();
                         void onDeleteAssistantSession(s.id);

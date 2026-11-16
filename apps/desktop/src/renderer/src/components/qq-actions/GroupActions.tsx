@@ -145,6 +145,7 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
                       {t.count > 1 ? <NumericText>{` (${t.count} 条)`}</NumericText> : ''}
                     </span>
                     <ActionIcon
+                      danger="outline"
                       label="删除分类标签"
                       disabled={a.disabled || !canManage || category === null}
                       onClick={() =>
@@ -163,6 +164,7 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
                           },
                           `删除分类标签「${t.name}」？`,
                           {
+                            danger: 'outline',
                             readback: async () => {
                               const result = await tags.refetch();
                               if (result.error) throw result.error;
@@ -190,6 +192,7 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
             label="退出群聊"
             control={
               <button
+                data-danger="solid"
                 type="button"
                 className="weq-set-btn weq-set-btn-danger"
                 aria-label="退出群聊"
@@ -205,6 +208,7 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
                     undefined,
                     `退出 QQ 群 ${groupId}？重新加入需要再次申请，不能自动恢复。`,
                     {
+                      danger: 'solid',
                       readback: async () => {
                         const rows = await client.account.listAllGroups.query();
                         return !rows.some((row) => String(row.groupCode) === String(groupId));

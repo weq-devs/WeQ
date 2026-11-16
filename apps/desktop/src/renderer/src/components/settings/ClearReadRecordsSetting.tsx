@@ -34,7 +34,7 @@ export function ClearReadRecordsSetting() {
         !(await dialog.confirm(
           '清除 WeQ 已读记录？',
           '清除当前账号在 WeQ 保存的阅读位置和手动已读、未读标记，随后按 QQ 数据库重新显示未读状态。不会删除消息，也不会修改 QQ 数据库或其他端已确认的已读位置。',
-          { okLabel: '清除', cancelLabel: '取消', tone: 'warning' },
+          { danger: 'outline', okLabel: '清除', cancelLabel: '取消', tone: 'warning' },
         ))
       )
         return;
@@ -61,6 +61,7 @@ export function ClearReadRecordsSetting() {
         desc="当未读标记出现异常时使用"
         control={
           <button
+            data-danger="outline"
             type="button"
             className="weq-set-btn weq-set-btn-danger"
             disabled={busy || !account.data?.uin || !account.data?.configId || !!account.error}

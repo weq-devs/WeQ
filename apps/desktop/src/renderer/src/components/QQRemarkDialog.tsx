@@ -36,7 +36,11 @@ function QQRemarkDialogBody({ target, onClose }: { target: RoamingTarget; onClos
   const label = target.kind === 'group' ? '群备注' : '好友备注';
   async function close() {
     if (session.busy) return;
-    if (dirty && !(await confirm('放弃备注修改？', '尚未保存的备注将不会提交到 QQ。'))) return;
+    if (
+      dirty &&
+      !(await confirm('放弃备注修改？', '尚未保存的备注将不会提交到 QQ。', { danger: 'outline' }))
+    )
+      return;
     onClose();
   }
   return (

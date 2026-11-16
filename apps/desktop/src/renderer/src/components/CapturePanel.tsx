@@ -1053,6 +1053,7 @@ export function CapturePanel({
           className="weq-cap-iconbtn"
           onClick={clearList}
           disabled={frames.length === 0}
+          data-danger="outline"
           title="清空当前列表（不影响抓包）"
         >
           <Trash2 size={13} />

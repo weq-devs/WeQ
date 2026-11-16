@@ -136,6 +136,7 @@ export function MailComposer({
       !(await useDialog.getState().confirm('放弃未保存的邮件？', '当前内容尚未保存到草稿箱。', {
         okLabel: '放弃',
         cancelLabel: '继续编辑',
+        danger: 'outline',
         tone: 'warning',
       }))
     )

@@ -79,7 +79,7 @@ export function EnhancementPacksSection() {
     const confirmed = await dialog.confirm(
       `删除${pack.name}？`,
       `将移除 ${enhancementBytes(pack.deleteBytes)} 本地资源，下次使用需重新下载。功能设置、已有识别与分析结果、具体装扮素材，以及其他能力使用的共享资源会保留。`,
-      { okLabel: '删除', cancelLabel: '取消', tone: 'warning' },
+      { danger: 'outline', okLabel: '删除', cancelLabel: '取消', tone: 'warning' },
     );
     if (confirmed) await act(() => remove.mutateAsync({ id }));
   }
@@ -229,6 +229,7 @@ export function EnhancementPacksSection() {
                   </button>
                   {pack.downloaded || pack.installed || pack.sizeOnDisk > 0 ? (
                     <button
+                      data-danger="outline"
                       type="button"
                       className="weq-set-btn weq-set-btn-soft"
                       title={`删除${pack.name}`}

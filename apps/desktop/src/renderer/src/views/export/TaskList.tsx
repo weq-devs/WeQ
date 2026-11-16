@@ -696,6 +696,7 @@ function TaskDetail({
           ) : null}
           {t.status !== 'running' ? (
             <button
+              data-danger="outline"
               type="button"
               title="删除导出缓存"
               disabled={t.save?.status === 'saving' || t.isFinalizing}

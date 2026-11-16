@@ -75,7 +75,7 @@ function useAssistantParameters() {
         confirmUnrestricted = await dialog.confirm(
           '开启任意权限？',
           '助手将以当前系统用户的权限执行操作，包括运行命令和修改外部文件。',
-          { okLabel: '开启任意权限', cancelLabel: '取消', tone: 'warning' },
+          { danger: 'solid', okLabel: '开启任意权限', cancelLabel: '取消', tone: 'warning' },
         );
         if (!confirmUnrestricted) {
           clearPending({ permissionMode: patch.permissionMode });
@@ -278,6 +278,7 @@ function NumberSetting({
             />
           ) : null}
           <button
+            data-danger="outline"
             type="button"
             className="weq-set-iconbtn"
             title={`恢复${label}默认值`}
@@ -328,6 +329,7 @@ function TextSetting({
       <div className="weq-setting-field-head">
         <label htmlFor={id}>{label}</label>
         <button
+          data-danger="outline"
           type="button"
           className="weq-set-iconbtn"
           title={`恢复${label}默认值`}
