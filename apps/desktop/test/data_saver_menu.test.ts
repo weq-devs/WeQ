@@ -5,7 +5,7 @@ import { DataSaverSession, networkCost, UNKNOWN_NETWORK } from '@weq/service/dat
 import { DataSaverMenu } from '../src/renderer/src/components/DataSaverMenu';
 import { DataSaverSettings } from '../src/renderer/src/components/settings/DataSaverSettings';
 import { applyDataSaverStatus, useDataSaver } from '../src/renderer/src/lib/dataSaver';
-import { useClientPreferences } from '../src/renderer/src/lib/clientPreferences';
+import { acceptPreferences, useClientPreferences } from '../src/renderer/src/lib/clientPreferences';
 import { useToast } from '../src/renderer/src/components/Toast';
 import { OPEN_SETTINGS_COMMAND } from '../src/renderer/src/lib/callSettingsBridge';
 import { readFileSync } from 'node:fs';
@@ -15,6 +15,7 @@ const fixture = vi.hoisted(() => ({
   session: null as DataSaverSession | null,
   revision: 0,
   fail: false,
+  preferences: { dataSaverMode: 'auto' as 'auto' | 'always' | 'never', dataSaverOnMetered: false },
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
@@ -38,13 +39,24 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
     clientState: {
       patch: {
-        mutate: async (values: { dataSaverMode?: 'auto' | 'always' | 'never' }) => {
+        mutate: async (values: {
+          dataSaverMode?: 'auto' | 'always' | 'never';
+          dataSaverOnMetered?: boolean;
+        }) => {
+          if (fixture.fail) throw new Error('合成保存失败');
+          Object.assign(fixture.preferences, values);
           fixture.session!.update(
-            values.dataSaverMode ?? fixture.session!.status().mode,
+            fixture.preferences.dataSaverMode,
             fixture.session!.status().host,
+            fixture.preferences.dataSaverOnMetered,
           );
           fixture.session!.clearTemporary('settings');
-          return { epoch: 'menu-fixture', revision: ++fixture.revision, values, records: {} };
+          return {
+            epoch: 'menu-fixture',
+            revision: ++fixture.revision,
+            values: { ...fixture.preferences },
+            records: {},
+          };
         },
       },
     },
@@ -57,6 +69,16 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   fixture.session = new DataSaverSession();
   fixture.fail = false;
+  fixture.preferences = { dataSaverMode: 'auto', dataSaverOnMetered: false };
+  acceptPreferences(
+    {
+      epoch: 'menu-fixture',
+      revision: ++fixture.revision,
+      values: { dataSaverMode: 'auto', dataSaverOnMetered: false },
+      records: {},
+    },
+    false,
+  );
   useDataSaver.setState({
     enabled: false,
     host: UNKNOWN_NETWORK,
@@ -123,6 +145,16 @@ it('首次确认跟随系统开启时提醒，不受之前的手动设置原因�
   expect(fixture.session!.status().reason).toBe('settings');
   applyDataSaverStatus(fixture.session!.status());
   expect(useToast.getState().toasts[0].title).toBe('已自动进入省流量模式');
+});
+it('计费触发初次提醒说明实际原因，默认关闭时不弹自动开启提醒', () => {
+  const cost = networkCost(false, true, 'fixture');
+  fixture.session!.update('auto', cost);
+  applyDataSaverStatus(fixture.session!.status());
+  expect(useToast.getState().toasts).toHaveLength(0);
+  useDataSaver.setState({ status: null });
+  fixture.session!.update('auto', cost, true);
+  applyDataSaverStatus(fixture.session!.status());
+  expect(useToast.getState().toasts[0].detail).toBe('使用流量时自动启用');
 });
 it('省流量关闭且无系统限制时隐藏入口，系统仍限制时保留', async () => {
   await mountMenu();
@@ -193,4 +225,46 @@ it('两组三选一改用分段选择，加载来源位于省流量前', async (
   expect(source.indexOf('<Card title="加载来源"')).toBeLessThan(
     source.indexOf("{section === 'network' && <DataSaverSettings />}"),
   );
+});
+it('计费选项默认关闭且仅跟随系统显示，设置和菜单共享值，切换模式保留选择', async () => {
+  fixture.session!.update('auto', networkCost(false, true, 'fixture'));
+  applyDataSaverStatus(fixture.session!.status());
+  await act(async () =>
+    root.render(
+      createElement('div', null, createElement(DataSaverSettings), createElement(DataSaverMenu)),
+    ),
+  );
+  const selector = '[role="switch"][aria-label="使用流量时自动启用"]';
+  expect(host.querySelector(selector)?.getAttribute('aria-checked')).toBe('false');
+  expect(useDataSaver.getState().enabled).toBe(false);
+  await click('省流量菜单');
+  const menuToggle = () =>
+    document.querySelector<HTMLButtonElement>(`.weq-data-saver-panel ${selector}`);
+  expect(menuToggle()?.getAttribute('aria-checked')).toBe('false');
+  await act(async () => menuToggle()!.click());
+  expect(menuToggle()?.getAttribute('aria-checked')).toBe('true');
+  expect(host.querySelector(selector)?.getAttribute('aria-checked')).toBe('true');
+  expect(useDataSaver.getState().enabled).toBe(true);
+  const modeButtons = () => [
+    ...document.querySelectorAll<HTMLButtonElement>(
+      '.weq-data-saver-panel [aria-label="省流量基础设置"] [role="radio"]',
+    ),
+  ];
+  for (const mode of ['关闭', '开启']) {
+    await act(async () =>
+      modeButtons()
+        .find((button) => button.textContent === mode)!
+        .click(),
+    );
+    expect(document.querySelectorAll(selector)).toHaveLength(0);
+  }
+  await act(async () =>
+    modeButtons()
+      .find((button) => button.textContent === '跟随系统')!
+      .click(),
+  );
+  expect(document.querySelectorAll(selector)).toHaveLength(2);
+  expect(menuToggle()?.getAttribute('aria-checked')).toBe('true');
+  await act(async () => host.querySelector<HTMLButtonElement>(selector)!.click());
+  expect(menuToggle()?.getAttribute('aria-checked')).toBe('false');
 });

@@ -4,6 +4,7 @@ import {
   dataSaverSession,
   transferCanResume,
   transferRestricted,
+  updateClientNetwork,
   updateTransferPolicy,
 } from '../src/common/transfer_policy';
 import { scopedNetworkAllowed } from '../src/common/network_scope';
@@ -37,6 +38,54 @@ it('基础三态、宿主和本端系统状态分别计算，unknown 不产生�
   expect(session.status('phone').enabled).toBe(false);
   session.update('always', normal);
   expect(session.status().enabled).toBe(true);
+});
+it('计费网络默认不触发，启用选项后宿主和手机分别生效，系统低数据始终跟随', () => {
+  const metered = networkCost(false, true, 'fixture');
+  session.update('auto', normal);
+  session.updateClient('phone', metered);
+  expect(session.status('phone').enabled).toBe(false);
+  session.update('auto', normal, true);
+  expect(session.status('phone').enabled).toBe(true);
+  expect(session.status().enabled).toBe(false);
+  session.update('auto', metered, true);
+  expect(session.status().enabled).toBe(true);
+  session.update('auto', metered, false);
+  expect(session.status('phone').enabled).toBe(false);
+  session.updateClient('phone', restricted);
+  expect(session.status('phone').enabled).toBe(true);
+  session.update('never', restricted, true);
+  expect(session.status('phone').enabled).toBe(false);
+  session.update('always', normal, false);
+  expect(session.status().enabled).toBe(true);
+});
+it('关闭计费触发立即解除宿主和客户端任务等待，unknown 不冒充网络恢复', () => {
+  const metered = networkCost(false, true, 'fixture');
+  updateClientNetwork('metered-toggle', metered);
+  updateTransferPolicy('auto', metered, { dataSaverOnMetered: true });
+  expect(transferRestricted('metered-toggle')).toBe(true);
+  expect(transferCanResume('metered-toggle')).toBe(false);
+  updateTransferPolicy('auto', metered, { dataSaverOnMetered: false });
+  expect(transferRestricted('metered-toggle')).toBe(false);
+  expect(transferCanResume('metered-toggle')).toBe(true);
+  expect(transferCanResume()).toBe(true);
+  updateClientNetwork('metered-toggle', restricted);
+  updateClientNetwork('metered-toggle', UNKNOWN_NETWORK);
+  expect(transferRestricted('metered-toggle')).toBe(true);
+  expect(transferCanResume('metered-toggle')).toBe(false);
+});
+it('计费选项关闭后真实暂停的传输自动继续，不必等待网络被标记为免费', async () => {
+  vi.useRealTimers();
+  const cost = networkCost(false, true, 'fixture');
+  updateTransferPolicy('auto', cost, { dataSaverOnMetered: true });
+  const download = new ManagedDownload({ batch: true });
+  const done = vi.fn();
+  const reading = download.response(new Response('metered fixture')).text().then(done);
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(done).not.toHaveBeenCalled();
+  updateTransferPolicy('auto', cost, { dataSaverOnMetered: false });
+  await reading;
+  expect(done).toHaveBeenCalledWith('metered fixture');
 });
 it('临时关闭优先于系统限制并由所有端共用，到期恢复当时系统状态', async () => {
   session.update('auto', restricted);

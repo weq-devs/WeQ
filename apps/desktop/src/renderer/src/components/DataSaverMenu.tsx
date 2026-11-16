@@ -23,6 +23,7 @@ import { requestOpenSettings } from '../lib/callSettingsBridge';
 import { useOverlayLayer } from '../lib/overlayStack';
 import { useSurfaceEscapeDismissal } from '../lib/surfaceEscape';
 import { SegmentedControl } from './SegmentedControl';
+import { Toggle } from './settings/controls';
 import '../styles/data-saver-menu.css';
 
 function temporaryLabel(value: DataSaverTemporary) {
@@ -214,6 +215,25 @@ export function DataSaverMenu() {
                     }
                   />
                 </div>
+                {(status?.mode ?? preferenceValue('dataSaverMode')) === 'auto' ? (
+                  <div className="weq-data-saver-menu-metered">
+                    <span>使用流量时自动启用</span>
+                    <Toggle
+                      label="使用流量时自动启用"
+                      checked={preferenceValue('dataSaverOnMetered')}
+                      disabled={busy || !status}
+                      onChange={(value) =>
+                        void perform(async () => {
+                          if (!(await changePreference('dataSaverOnMetered', value)))
+                            throw new Error(
+                              useClientPreferences.getState().error || '省流量设置未保存，请重试',
+                            );
+                          await refreshDataSaverStatus();
+                        })
+                      }
+                    />
+                  </div>
+                ) : null}
                 <div className="weq-data-saver-menu-actions">
                   <button
                     type="button"

@@ -38,7 +38,14 @@ try {
       : {}),
   });
   const page = await browser.newPage();
-  await page.addInitScript(() => localStorage.clear());
+  await page.addInitScript(() => {
+    localStorage.clear();
+    window.weqRemoteLinks = {
+      networkPreference: (mode) => {
+        window.fixtureNativeMode = mode;
+      },
+    };
+  });
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   const small = await sharp({
@@ -141,6 +148,61 @@ try {
           .getAttribute('aria-checked'),
         'false',
       );
+      const autoLabel = '使用流量时自动启用';
+      const settingToggle = page
+        .locator('.weq-set-card')
+        .getByRole('switch', { name: autoLabel, exact: true });
+      await settingToggle.waitFor();
+      assert.equal(await settingToggle.getAttribute('aria-checked'), 'false');
+      await page.evaluate(() =>
+        window.fixtureDataSaver.update('auto', {
+          state: 'restricted',
+          constrained: false,
+          metered: true,
+          source: 'fixture',
+        }),
+      );
+      await page.waitForFunction(() => window.fixtureNativeMode === 'never');
+      await settingToggle.click();
+      await page.waitForFunction(() => window.fixtureNativeMode === 'always');
+      await page.getByRole('button', { name: '省流量菜单', exact: true }).click();
+      const autoMenu = page.getByRole('dialog', { name: '省流量模式', exact: true });
+      const menuToggle = autoMenu.getByRole('switch', { name: autoLabel, exact: true });
+      assert.equal(await menuToggle.getAttribute('aria-checked'), 'true');
+      await menuToggle.click();
+      await page.waitForFunction(() => window.fixtureNativeMode === 'never');
+      assert.equal(await settingToggle.getAttribute('aria-checked'), 'false');
+      await menuToggle.click();
+      await page.waitForFunction(() => window.fixtureNativeMode === 'always');
+      await page.screenshot({ path: resolve(output, `${width}-${theme}-metered-menu.png`) });
+      await autoMenu.getByRole('radio', { name: '关闭', exact: true }).click();
+      await settingToggle.waitFor({ state: 'hidden' });
+      await menuToggle.waitFor({ state: 'hidden' });
+      assert.equal(await page.getByRole('switch', { name: autoLabel, exact: true }).count(), 0);
+      await page.waitForFunction(() => window.fixtureNativeMode === 'never');
+      await autoMenu.getByRole('radio', { name: '开启', exact: true }).click();
+      assert.equal(await page.getByRole('switch', { name: autoLabel, exact: true }).count(), 0);
+      await autoMenu.getByRole('radio', { name: '跟随系统', exact: true }).click();
+      await settingToggle.waitFor();
+      await menuToggle.waitFor();
+      assert.equal(await settingToggle.getAttribute('aria-checked'), 'true');
+      assert.equal(await menuToggle.getAttribute('aria-checked'), 'true');
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+        false,
+      );
+      await page.keyboard.press('Escape');
+      await page.screenshot({
+        path: resolve(output, `${width}-${theme}-metered-settings.png`),
+        fullPage: true,
+      });
+      await page.getByLabel('恢复省流量默认设置', { exact: true }).click();
+      await page.waitForFunction(() => window.fixtureNativeMode === 'never');
+      assert.equal(await settingToggle.getAttribute('aria-checked'), 'false');
+      await page.screenshot({
+        path: resolve(output, `${width}-${theme}-metered-default.png`),
+        fullPage: true,
+      });
       await page.waitForLoadState('networkidle');
       await page
         .getByRole('radiogroup', { name: '省流量模式', exact: true })
@@ -211,7 +273,7 @@ try {
     }
   assert.deepEqual(errors, []);
   console.log(
-    '省流量浏览器验证通过：6 个桌面／移动浅深色场景，分段设置、临时期限、自动横幅、设置跳转、自动小图、点击加载及无横向溢出。',
+    '省流量浏览器验证通过：6 个桌面／移动浅深色场景，计费触发默认关闭、两处条件显示及同步、旧壳更新策略桥、临时期限、自动横幅、图片加载及无横向溢出。',
   );
 } finally {
   await browser?.close();

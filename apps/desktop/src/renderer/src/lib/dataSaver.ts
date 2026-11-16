@@ -95,14 +95,14 @@ function refresh() {
     local,
     enabled:
       useDataSaver.getState().status?.enabled ??
-      dataSaverEnabled(preferenceValue('dataSaverMode'), host, local),
+      dataSaverEnabled(preferenceValue('dataSaverMode'), [host, local], next.dataSaverOnMetered),
     behavior,
   });
   if (IS_WEB && useClientPreferences.getState().ready) {
     const native = window as NetworkWindow;
     try {
-      const mode =
-        useDataSaver.getState().status?.effectiveMode ?? preferenceValue('dataSaverMode');
+      // 传实际生效结果，旧手机壳也能遵循新的计费选项及宿主网络状态。
+      const mode = useDataSaver.getState().enabled ? 'always' : 'never';
       native.weqRemoteLinks?.networkPreference?.(mode);
       native.webkit?.messageHandlers?.weqShell?.postMessage({
         dataSaverMode: mode,
@@ -131,7 +131,9 @@ export function applyDataSaverStatus(status: DataSaverStatus) {
       : automatic && previous.enabled !== status.enabled
   ) {
     const reason = initial
-      ? '跟随系统省流量设置'
+      ? status.host.constrained || status.local.constrained
+        ? '跟随系统省流量设置'
+        : '使用流量时自动启用'
       : status.reason === 'expiry'
         ? '临时设置已到期'
         : status.reason === 'tasks'

@@ -133,6 +133,9 @@ export function DataSaverSettings() {
           />
         }
       />
+      {preferenceValue('dataSaverMode') === 'auto' ? (
+        <BooleanRow name="dataSaverOnMetered" label="使用流量时自动启用" />
+      ) : null}
       <div className="weq-data-saver-behavior">
         <h4>省流量模式下的行为</h4>
         <p>仅在省流量模式生效时应用，已有缓存照常使用。</p>

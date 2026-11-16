@@ -18,7 +18,7 @@ import {
 import { getAppContext, requireBootstrap, requirePlatform } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { pickedBrowserFiles } from '../../browser_files';
-import { dataSaverSession } from '@weq/service/transfer-policy';
+import { dataSaverSession, updateTransferPolicy } from '@weq/service/transfer-policy';
 
 const stores = new Map<string, ClientStateStore>();
 export const clientAccountBinding = z.object({
@@ -131,8 +131,13 @@ function savePreferences(input: PreferencePatch, receiptId?: string, seeded = fa
         : {}),
       ...(seeded ? { desktopPreferencesSeeded: true } : {}),
     });
-  if (input.dataSaverMode !== undefined) {
-    dataSaverSession.update(input.dataSaverMode, dataSaverSession.status().host);
+  if (input.dataSaverMode !== undefined || input.dataSaverOnMetered !== undefined) {
+    const preferences = config.getSharedPreference('client');
+    updateTransferPolicy(
+      preferences.dataSaverMode ?? 'auto',
+      dataSaverSession.status().host,
+      preferences,
+    );
     dataSaverSession.clearTemporary('settings');
   }
   return preferenceSnapshot();

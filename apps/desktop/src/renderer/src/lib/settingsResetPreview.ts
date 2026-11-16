@@ -121,6 +121,7 @@ export function describeSettingsReset(item: SettingsResetItem): ResetPreviewLine
     const next = item.defaultValue as Record<string, unknown>;
     const names = {
       dataSaverMode: '省流量模式',
+      dataSaverOnMetered: '使用流量时自动启用',
       dataSaverImageLoading: '聊天图片自动加载',
       dataSaverAvatars: '自动加载未缓存的头像',
       dataSaverEmoji: '自动下载表情图片',
