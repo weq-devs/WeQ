@@ -1,4 +1,4 @@
-import { observeSlowDatabaseOperations } from '@weq/db';
+import { observeSlowDatabaseOperations, SLOW_DATABASE_OPERATION_MS } from '@weq/db';
 import { configureConsoleLogger, getLogger } from './logger';
 
 let stopSlow: (() => void) | undefined;
@@ -20,10 +20,27 @@ export function configureDevelopmentLogging(development: boolean, processName: s
   });
   stopSlow?.();
   stopSlow = observeSlowDatabaseOperations((sample) => {
-    getLogger()[sample.outcome === 'cancelled' ? 'debug' : 'warn']('数据库等待超过阈值', {
-      scope: 'database',
-      event: 'database-slow',
-      ...sample,
-    });
+    const slow = sample.nativePromiseAwaitMs > SLOW_DATABASE_OPERATION_MS;
+    if (!slow && sample.outcome === 'ok') return;
+    getLogger()[sample.outcome === 'cancelled' ? 'debug' : 'warn'](
+      slow ? '数据库慢操作' : sample.outcome === 'failed' ? '数据库操作失败' : '数据库操作已取消',
+      {
+        scope: 'database',
+        event: slow
+          ? 'database-slow'
+          : sample.outcome === 'failed'
+            ? 'database-failed'
+            : 'database-cancelled',
+        caller: sample.caller,
+        nativePromiseAwaitMs: sample.nativePromiseAwaitMs,
+        ...(sample.affectedQueryCount
+          ? { affectedQueryCount: sample.affectedQueryCount, maxBlockedMs: sample.maxBlockedMs }
+          : {}),
+        jsQueueWaitMs: sample.jsQueueWaitMs,
+        priority: sample.priority,
+        outcome: sample.outcome,
+        fingerprint: sample.fingerprint,
+      },
+    );
   });
 }

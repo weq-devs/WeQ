@@ -164,10 +164,10 @@ describe('开发终端', () => {
     expect(lines).toHaveLength(6);
     expect(lines[2]).toContain('耗时 8.6s');
     expect(lines[4]).toContain('耗时 1.4s');
-    expect(lines[3]).toContain('排队 8.6s');
     expect(lines[3]).toContain('原生等待 8.7s');
-    expect(lines[3]).toContain('指纹 query-fixture');
-    expect(lines[3]).toContain('调用点 fixture.ts:12');
+    expect(lines[3]).toContain('慢操作  fixture.ts:12');
+    expect(lines[3]).not.toContain('指纹');
+    expect(lines[3]).not.toContain('排队');
     f.logger.flush();
     expect(f.lines).toHaveLength(6);
   });

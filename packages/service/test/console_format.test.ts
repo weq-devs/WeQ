@@ -87,6 +87,60 @@ describe('终端可读排版', () => {
     ])
       expect(line).not.toContain(noise);
   });
+  it('数据库慢操作沿用通用行头与操作位置，默认只显示自身等待及阻塞影响', () => {
+    const context = {
+      scope: 'database',
+      event: 'database-slow',
+      caller: 'FixtureReader.read',
+      fingerprint: 'aaaaaaaaaaaaaaaa',
+      nativePromiseAwaitMs: 3200,
+      jsQueueWaitMs: 900,
+      affectedQueryCount: 28,
+      maxBlockedMs: 3100,
+      priority: 'background',
+      outcome: 'ok',
+    };
+    const plain = formatConsoleRecord('warn', '数据库慢操作', context, options);
+    expect(plain).toBe(
+      '00:00:00 WARN  database  慢操作  FixtureReader.read  原生等待 3.2s  受影响查询 28  最长阻塞 3.1s\n',
+    );
+    expect(
+      stripVTControlCharacters(
+        formatConsoleRecord('warn', '数据库慢操作', context, { ...options, color: true }),
+      ),
+    ).toBe(plain);
+    const details = formatConsoleRecord('warn', '数据库慢操作', context, {
+      ...options,
+      details: true,
+    });
+    expect(details).toContain('指纹 aaaaaaaaaaaaaaaa');
+    expect(details).toContain('排队 900ms');
+    expect(details).toContain('优先级 后台');
+    expect(details.match(/FixtureReader.read/g)).toHaveLength(1);
+    const fallback = formatConsoleRecord(
+      'warn',
+      '数据库慢操作',
+      { ...context, caller: 'unknown', affectedQueryCount: 0, maxBlockedMs: 0 },
+      options,
+    );
+    expect(fallback).toContain('指纹 aaaaaaaaaaaaaaaa');
+    expect(fallback).not.toContain('unknown');
+    expect(fallback).not.toContain('受影响查询');
+    expect(fallback).not.toContain('最长阻塞');
+  });
+  it.each([
+    ['failed', '慢操作失败'],
+    ['cancelled', '慢操作已取消'],
+  ])('数据库慢操作 %s 不被普通慢操作标题掩盖', (outcome, title) => {
+    expect(
+      formatConsoleRecord(
+        'warn',
+        '数据库慢操作',
+        { scope: 'database', event: 'database-slow', outcome },
+        options,
+      ),
+    ).toBe(`00:00:00 WARN  database  ${title}\n`);
+  });
   it('级别、模块、数值与时间使用不同颜色，关闭颜色后内容相同', () => {
     for (const [level, code] of [
       ['debug', 90],

@@ -14,6 +14,9 @@ export interface SlowDatabaseOperation {
   priority: DatabasePriority;
   jsQueueWaitMs: number;
   nativePromiseAwaitMs: number;
+  affectedQueryCount?: number;
+  /** 仅本操作占用队列期间造成的阻塞，不含此前排队及取消后的时间。 */
+  maxBlockedMs?: number;
   outcome: 'ok' | 'failed' | 'cancelled';
   fingerprint?: string;
   caller?: string;
@@ -115,6 +118,9 @@ function summary(data: Series) {
 interface Job {
   trace?: QueryTrace;
   at: number;
+  startedAtMs?: number;
+  cancelledQueryCount?: number;
+  maxCancelledBlockMs?: number;
   priority: DatabasePriority;
   signal?: AbortSignal;
   start(): Promise<void>;
@@ -260,6 +266,14 @@ export function scheduleDatabase<T>(
       const pending = state[job.priority].indexOf(job);
       if (pending < 0) return;
       state[job.priority].splice(pending, 1);
+      const running = state.current;
+      if (running?.startedAtMs !== undefined) {
+        const blockedMs = performance.now() - Math.max(job.at, running.startedAtMs);
+        if (blockedMs > 0) {
+          running.cancelledQueryCount = (running.cancelledQueryCount ?? 0) + 1;
+          running.maxCancelledBlockMs = Math.max(running.maxCancelledBlockMs ?? 0, blockedMs);
+        }
+      }
       if (job.trace) {
         job.trace.endedAtMs = performance.now();
         job.trace.outcome = 'cancelled';
@@ -278,6 +292,7 @@ export function scheduleDatabase<T>(
         const jsQueueWaitMs = performance.now() - job.at;
         record(data.wait, jsQueueWaitMs);
         const began = performance.now();
+        if (notifySlow) job.startedAtMs = began;
         let outcome: SlowDatabaseOperation['outcome'] = 'ok';
         if (job.trace) {
           job.trace.priority = job.priority;
@@ -300,16 +315,34 @@ export function scheduleDatabase<T>(
           data.failed++;
           reject(error);
         } finally {
-          if (job.trace) job.trace.endedAtMs = performance.now();
-          const nativePromiseAwaitMs = performance.now() - began;
+          const ended = performance.now();
+          if (job.trace) job.trace.endedAtMs = ended;
+          job.startedAtMs = undefined;
+          const nativePromiseAwaitMs = ended - began;
           record(data.nativeAwait, nativePromiseAwaitMs);
           if (jsQueueWaitMs > observationThreshold || nativePromiseAwaitMs > observationThreshold) {
+            let affectedQueryCount = job.cancelledQueryCount ?? 0;
+            let maxBlockedMs = job.maxCancelledBlockMs ?? 0;
+            // 只在慢操作结束时扫描其真实队列；快查询不增加逐请求关联或遍历。
+            if (nativePromiseAwaitMs > observationThreshold) {
+              for (const pending of [state.interactive, state.background]) {
+                for (const waiting of pending) {
+                  const blockedMs = ended - Math.max(waiting.at, began);
+                  if (blockedMs <= 0) continue;
+                  affectedQueryCount++;
+                  maxBlockedMs = Math.max(maxBlockedMs, blockedMs);
+                }
+              }
+            }
             notifySlow?.({
               priority: job.priority,
               jsQueueWaitMs,
               nativePromiseAwaitMs,
               outcome,
               ...(job.trace?.source ?? source ?? {}),
+              ...(nativePromiseAwaitMs > observationThreshold && affectedQueryCount
+                ? { affectedQueryCount, maxBlockedMs }
+                : {}),
             });
           }
           if (job.priority === 'interactive') data.lastInteractiveAt = performance.now();

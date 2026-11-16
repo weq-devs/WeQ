@@ -35,7 +35,14 @@ it('慢诊断独立区分排队和 native 等待，不开启 SQL 诊断，回调
     release();
     expect(await Promise.all([first, second])).toEqual([undefined, 42]);
     expect(samples).toEqual([
-      { priority: 'interactive', jsQueueWaitMs: 0, nativePromiseAwaitMs: 600, outcome: 'ok' },
+      {
+        priority: 'interactive',
+        jsQueueWaitMs: 0,
+        nativePromiseAwaitMs: 600,
+        outcome: 'ok',
+        affectedQueryCount: 1,
+        maxBlockedMs: 600,
+      },
       { priority: 'interactive', jsQueueWaitMs: 600, nativePromiseAwaitMs: 0, outcome: 'ok' },
     ]);
     stop();

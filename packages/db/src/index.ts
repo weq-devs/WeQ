@@ -24,6 +24,7 @@ export type { QqDbOptions } from './qq_db';
 export {
   scheduleDatabase,
   observeSlowDatabaseOperations,
+  SLOW_DATABASE_OPERATION_MS,
   promoteDatabaseSignal,
   withDatabasePriority,
   withDatabaseSignal,

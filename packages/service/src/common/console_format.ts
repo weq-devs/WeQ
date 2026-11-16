@@ -38,6 +38,8 @@ const labels: Record<string, string> = {
   port: '端口',
   reason: '原因',
   ...consoleTimingLabels,
+  affectedQueryCount: '受影响查询',
+  maxBlockedMs: '最长阻塞',
   count: '共',
   artifactCount: '产物数',
   groupCount: '群数',
@@ -119,6 +121,11 @@ const eventTitles: Record<string, Record<string, string>> = {
     'online-probe-failed': 'QQ 在线检测暂不可用',
   },
   'mcp-server': { 'mcp-start': 'MCP 服务已启动', 'mcp-stop': 'MCP 服务已停止' },
+  database: {
+    'database-slow': '慢操作',
+    'database-failed': '操作失败',
+    'database-cancelled': '操作已取消',
+  },
 };
 const duration = (value: number) =>
   value < 1000 ? `${Math.round(value)}ms` : `${Number((value / 1000).toFixed(2))}s`;
@@ -172,12 +179,23 @@ export function formatConsoleRecord(
       context = { ...context, errorMessage: firstLine };
   }
   const scope = typeof context.scope === 'string' ? plain(context.scope) : 'app';
+  const databaseOperation =
+    scope === 'database' && Object.hasOwn(eventTitles.database ?? {}, String(context.event));
+  const databaseCaller =
+    databaseOperation && typeof context.caller === 'string' && !placeholders.has(context.caller)
+      ? plain(context.caller)
+      : undefined;
   let title = eventTitles[scope]?.[String(context.event)] ?? plain(message);
+  if (databaseOperation && context.event === 'database-slow' && context.outcome !== 'ok') {
+    if (context.outcome === 'failed') title = '慢操作失败';
+    else if (context.outcome === 'cancelled') title = '慢操作已取消';
+  }
   if (context.event === 'request-slow') title = '慢请求';
   if (context.event === 'request-failed')
     title = context.outcome === 'cancelled' ? '请求已取消' : '请求失败';
   const parts: string[] = [];
   if (typeof context.path === 'string') parts.push(paint(36, plain(context.path)));
+  else if (databaseCaller) parts.push(paint(36, databaseCaller));
   if (typeof context.platform === 'string')
     parts.push(
       paint(
@@ -221,6 +239,12 @@ export function formatConsoleRecord(
     'exitCode',
     ...Object.keys(labels),
   ])) {
+    if (databaseCaller && key === 'caller' && typeof context.path !== 'string') continue;
+    if (databaseOperation && !options.details) {
+      if (key === 'priority') continue;
+      if (context.event === 'database-slow' && key === 'jsQueueWaitMs') continue;
+    }
+    if ((key === 'affectedQueryCount' || key === 'maxBlockedMs') && !context[key]) continue;
     if (key === 'logDir' && scope === 'app-context' && context.event === 'init-app-context')
       continue;
     if (key === 'port' && typeof (context.address ?? context.url) === 'string') {
@@ -233,7 +257,7 @@ export function formatConsoleRecord(
     if (
       debugOnly.has(key) &&
       !options.details &&
-      !(context.event === 'database-slow' && (key === 'fingerprint' || key === 'caller'))
+      !(databaseOperation && key === 'fingerprint' && !databaseCaller)
     )
       continue;
     if (options.summary && key in consoleTimingLabels) continue;
