@@ -188,17 +188,12 @@ html:where([data-weq-layout='single'])[data-theme] .contact-row.active .row-main
   color: var(--weq-fg-primary);
 }
 
-html:where([data-weq-layout='single'])[data-theme] :is(.conversation-row, .contact-row).active {
-  box-shadow: none;
-}
-
 html:where([data-weq-layout='single'])[data-theme]
   :is(.conversation-row, .contact-row).active
   :is(
     .row-preview-line,
     .row-meta,
     .row-muted,
-    .row-pinned,
     .row-hidden,
     .row-draft svg,
     .contact-card-status,

@@ -621,25 +621,6 @@
   color: var(--weq-fg-primary);
 }
 
-@media (hover: hover) and (pointer: fine) {
-  :where(html[data-weq-layout='single']) .conversation-row:hover,
-  :where(html[data-weq-layout='single']) .contact-row:hover {
-    background: #f2f3f6;
-  }
-}
-
-:where(html[data-weq-layout='single']) .conversation-row.active,
-:where(html[data-weq-layout='single']) .contact-row.active {
-  background: transparent;
-  color: var(--weq-fg-primary);
-}
-
-:where(html[data-weq-layout='single']) .conversation-row.active .row-preview-line,
-:where(html[data-weq-layout='single']) .conversation-row.active .row-meta,
-:where(html[data-weq-layout='single']) .contact-row.active .row-main span {
-  color: #969aa3;
-}
-
 :where(html[data-weq-layout='single']) .conversation-row .avatar,
 :where(html[data-weq-layout='single']) .contact-row .avatar {
   width: 54px;
@@ -1781,8 +1762,6 @@ html:where([data-weq-layout='single'])[data-theme='dark']
   border-color: transparent;
 }
 
-html:where([data-weq-layout='single'])[data-theme='dark'] .conversation-row,
-html:where([data-weq-layout='single'])[data-theme='dark'] .contact-row,
 html:where([data-weq-layout='single'])[data-theme='dark'] .contact-tools,
 html:where([data-weq-layout='single'])[data-theme='dark'] .contact-tools > button,
 html:where([data-weq-layout='single'])[data-theme='dark'] .contact-tab-switch {
@@ -1793,19 +1772,6 @@ html:where([data-weq-layout='single'])[data-theme='dark'] .contact-tab-switch {
 html:where([data-weq-layout='single'])[data-theme='dark'] .contact-tools > button:hover,
 html:where([data-weq-layout='single'])[data-theme='dark'] .contact-tools > button.active {
   background: #23272a;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  html:where([data-weq-layout='single'])[data-theme='dark'] .conversation-row:hover,
-  html:where([data-weq-layout='single'])[data-theme='dark'] .contact-row:hover {
-    background: #23272a;
-  }
-}
-
-html:where([data-weq-layout='single'])[data-theme='dark'] .conversation-row.active,
-html:where([data-weq-layout='single'])[data-theme='dark'] .contact-row.active {
-  background: transparent;
-  color: #eef0f3;
 }
 
 html:where([data-weq-layout='single'])[data-theme='dark'] .mobile-detail-row,

@@ -401,16 +401,11 @@ html:where([data-weq-layout='single'])[data-theme='dark'] .weq-web-shell .compos
 
 :where(html[data-weq-layout='single'])
   :is(.weq-web-shell .app-shell, .weq-conversation-list)
-  :is(.conversation-row, .contact-row),
-:where(html[data-weq-layout='single'])
-  :is(.weq-web-shell .app-shell, .weq-conversation-list)
-  :is(.conversation-row, .contact-row).active {
+  :is(.conversation-row, .contact-row) {
   min-height: var(--weq-conversation-row-height);
   grid-template-columns: 50px minmax(0, 1fr) 48px;
   gap: 12px;
   padding: 10px 16px;
-  background: var(--weq-bg-surface);
-  color: var(--weq-fg-primary);
 }
 
 :where(html[data-weq-layout='single'])
@@ -421,21 +416,8 @@ html:where([data-weq-layout='single'])[data-theme='dark'] .weq-web-shell .compos
   height: 50px;
 }
 
-:where(html[data-weq-layout='single'])
-  :is(.weq-web-shell .app-shell, .weq-conversation-list)
-  :is(.conversation-row, .contact-row).active {
-  background: color-mix(in srgb, var(--weq-accent-effective) 12%, var(--weq-bg-surface));
-  box-shadow: inset 3px 0 var(--weq-accent-effective);
-}
-
 :where(html[data-weq-layout='single']) .weq-mobile-navigation button:active {
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
-}
-
-html:where([data-weq-layout='single'])[data-theme='dark']
-  :is(.weq-web-shell .app-shell, .weq-conversation-list)
-  :is(.conversation-row, .contact-row).active {
-  background: color-mix(in srgb, var(--weq-accent-effective) 18%, var(--weq-bg-surface));
 }
 
 :where(html[data-weq-layout='single'])

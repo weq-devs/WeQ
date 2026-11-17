@@ -294,22 +294,6 @@ html[data-component-style='qqnt'][data-theme]
   border-radius: 8px;
 }
 
-@media (hover: hover) and (pointer: fine) {
-  html[data-component-style='qqnt'][data-theme]
-    body
-    :is(.conversation-row, .contact-row):hover:not(.active, .is-multiselected) {
-    background: color-mix(in srgb, var(--weq-qqnt-selection) 60%, var(--weq-qqnt-canvas));
-    box-shadow: var(--weq-skin-selection-shadow);
-  }
-}
-
-html[data-component-style='qqnt'][data-theme]
-  body
-  :is(.conversation-row, .contact-row).active:not(.is-multiselected) {
-  background: var(--weq-skin-selection);
-  box-shadow: var(--weq-skin-selection-shadow);
-}
-
 html[data-component-style='qqnt'][data-theme]
   body
   .message-content:not(
@@ -364,26 +348,6 @@ html[data-component-style='qqnt'][data-theme]
   html[data-component-style='qqnt'][data-theme] body [data-merged-kind='groupAssistant'] {
     animation: none;
     will-change: auto;
-  }
-}
-
-html:where(
-    :is([data-weq-layout='single'], [data-weq-input='touch'])
-  )[data-component-style='qqnt'][data-theme]
-  body
-  :is(.weq-web-shell .app-shell, .weq-conversation-list)
-  .conversation-row:not(.active, .is-multiselected) {
-  background: transparent;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  html:where(
-      :is([data-weq-layout='single'], [data-weq-input='touch'])
-    )[data-component-style='qqnt'][data-theme]
-    body
-    :is(.weq-web-shell .app-shell, .weq-conversation-list)
-    .conversation-row:not(.active, .is-multiselected):hover {
-    background: color-mix(in srgb, var(--weq-qqnt-selection) 60%, var(--weq-qqnt-canvas));
   }
 }
 

@@ -186,13 +186,6 @@ html[data-theme='dark'] .bot-list-row.active {
   background: #3f4144;
 }
 
-@media (hover: hover) and (pointer: fine) {
-  html[data-theme='dark'] .conversation-row:hover,
-  html[data-theme='dark'] .contact-row:hover {
-    background: #3f4144;
-  }
-}
-
 html[data-theme='dark'] .sidebar-add {
   background: #242629;
   color: #c9cdd4;
@@ -283,12 +276,6 @@ html[data-theme='dark'] .empty-state svg {
 html[data-theme='dark'] .loading-spinner {
   border-color: #2a2d30;
   border-top-color: #26a8ff;
-}
-
-html[data-theme='dark'] .conversation-row.active,
-html[data-theme='dark'] .contact-row.active {
-  background: var(--weq-list-selected-background);
-  color: var(--weq-fg-primary);
 }
 
 html[data-theme='dark'] .contact-tools > button + button {

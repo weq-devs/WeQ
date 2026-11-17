@@ -1,4 +1,45 @@
-/* 主消息目录与群助手共用行尺寸，具体预设通过 conversation-row 的同一组规则生效。 */
+/* 主消息目录与群助手共用行尺寸和状态，布局样式只调整几何，不覆盖状态颜色。 */
+:root {
+  --weq-list-row-hover-background: color-mix(in srgb, var(--weq-accent-effective) 5%, transparent);
+  --weq-list-row-hover-shadow: none;
+  --weq-list-row-selected-background: var(--weq-list-selected-background);
+  --weq-list-row-selected-shadow: inset 2px 0 var(--weq-accent-ink, var(--weq-fg-primary));
+}
+html[data-component-style]:not([data-component-style='classic']) {
+  --weq-list-row-selected-background: var(--weq-skin-selection);
+  --weq-list-row-selected-shadow: var(--weq-skin-selection-shadow);
+}
+html[data-component-style='qqnt'] {
+  --weq-list-row-hover-background: color-mix(
+    in srgb,
+    var(--weq-qqnt-selection) 60%,
+    var(--weq-qqnt-canvas)
+  );
+  --weq-list-row-hover-shadow: var(--weq-skin-selection-shadow);
+}
+
+html[data-theme] :is(.conversation-row, .contact-row).active:not(.is-multiselected) {
+  background: var(--weq-list-row-selected-background);
+  color: var(--weq-skin-selection-fg, var(--weq-fg-primary));
+  box-shadow: var(--weq-list-row-selected-shadow);
+}
+html[data-theme] .conversation-row.pinned:not(.active, .is-multiselected) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+}
+html[data-theme] .conversation-row .row-pinned {
+  flex: 0 0 auto;
+  color: var(--weq-accent-ink, var(--weq-fg-secondary));
+}
+@media (hover: hover) and (pointer: fine) {
+  html[data-theme] :is(.conversation-row, .contact-row):hover:not(.active, .is-multiselected) {
+    background: var(--weq-list-row-hover-background);
+    box-shadow: var(--weq-list-row-hover-shadow);
+  }
+  html[data-theme] .conversation-row.pinned:hover:not(.active, .is-multiselected) {
+    background: color-mix(in srgb, var(--weq-accent-effective) 11%, transparent);
+  }
+}
+
 .weq-conversation-list {
   background: var(--weq-bg-surface);
 }

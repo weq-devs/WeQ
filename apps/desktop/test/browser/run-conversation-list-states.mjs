@@ -9,6 +9,36 @@ import { createServer } from 'vite';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
 const output = process.env.WEQ_STYLE_ARTIFACTS;
+const sample = (row) =>
+  row.evaluate((node) => {
+    const css = getComputedStyle(node);
+    const rect = node.getBoundingClientRect();
+    return {
+      width: rect.width,
+      height: rect.height,
+      radius: css.borderRadius,
+      background: css.backgroundColor,
+      shadow: css.boxShadow,
+      clip: css.backgroundClip,
+      pinColor: node.querySelector('.row-pinned')
+        ? getComputedStyle(node.querySelector('.row-pinned')).color
+        : null,
+    };
+  });
+const checkMultiSelection = async (pinned, normal) => {
+  for (const row of [pinned, normal])
+    await row.evaluate((node) => node.classList.add('is-multiselected'));
+  try {
+    const selected = await sample(pinned);
+    const regular = await sample(normal);
+    for (const property of ['background', 'shadow'])
+      assert.equal(selected[property], regular[property], `多选应优先于置顶：${property}`);
+    return selected;
+  } finally {
+    for (const row of [pinned, normal])
+      await row.evaluate((node) => node.classList.remove('is-multiselected'));
+  }
+};
 const server = await createServer({
   configFile: false,
   root,
@@ -49,6 +79,7 @@ try {
   );
   if (output) await mkdir(output, { recursive: true });
   const results = [];
+  const wideStates = new Map();
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(
@@ -76,19 +107,6 @@ try {
             },
             { theme, style, density },
           );
-          const sample = (row) =>
-            row.evaluate((node) => {
-              const css = getComputedStyle(node);
-              const rect = node.getBoundingClientRect();
-              return {
-                width: rect.width,
-                height: rect.height,
-                radius: css.borderRadius,
-                background: css.backgroundColor,
-                shadow: css.boxShadow,
-                clip: css.backgroundClip,
-              };
-            });
           const active = page.locator('.weq-conversation-directory [data-conversation-id="10001"]');
           const inactive = page.locator(
             '.weq-conversation-directory [data-conversation-id="10002"]',
@@ -96,8 +114,42 @@ try {
           await page.locator('.weq-merged-overlay').evaluate((node) => {
             node.style.visibility = 'hidden';
           });
+          await page.mouse.move(width - 1, 899);
+          const pinned = page.locator('.weq-conversation-directory [data-conversation-id="10003"]');
+          const pinnedIdle = await sample(pinned);
+          const normalIdle = await sample(inactive);
+          const activeIdle = await sample(active);
+          assert.notEqual(
+            pinnedIdle.background,
+            normalIdle.background,
+            `${width}/${theme}/${style}/${density}: 置顶会话应保留主题色底色`,
+          );
+          const key = `${theme}/${style}/${density}`;
+          const multi = await checkMultiSelection(pinned, inactive);
+          assert.notEqual(multi.background, pinnedIdle.background, '多选应与仅置顶区分');
+          const states = { pinned: pinnedIdle, active: activeIdle, multi };
+          if (width === 1280) wideStates.set(key, states);
+          else {
+            for (const state of ['pinned', 'active', 'multi'])
+              for (const property of ['background', 'shadow', 'pinColor'])
+                assert.equal(
+                  states[state][property],
+                  wideStates.get(key)[state][property],
+                  `${key}/${state}: 横竖屏应共用 ${property}`,
+                );
+          }
+          await pinned.hover();
+          const pinnedHover = await sample(pinned);
+          assert.notEqual(pinnedHover.background, pinnedIdle.background, '置顶悬停应有独立反馈');
+          await active.hover();
+          assert.equal(
+            (await sample(active)).background,
+            activeIdle.background,
+            '悬停不覆盖选中态',
+          );
           await inactive.hover();
           const hovered = await sample(inactive);
+          assert.equal(pinnedHover.shadow, hovered.shadow, '置顶与普通行悬停应共用行内缩');
           const selected = await sample(active);
           for (const key of ['width', 'height', 'radius', 'clip'])
             assert.equal(
@@ -124,6 +176,14 @@ try {
             node.style.visibility = 'visible';
           });
           const assistant = page.locator('.weq-conversation-list [data-conversation-id="10002"]');
+          const assistantPinned = page.locator(
+            '.weq-conversation-list [data-conversation-id="10003"]',
+          );
+          assert.equal(
+            (await sample(assistantPinned)).background,
+            pinnedIdle.background,
+            `${key}: 群助手应共用置顶底色`,
+          );
           await assistant.click({ button: 'right' });
           await page.getByRole('menu').waitFor();
           assert.equal(
@@ -165,11 +225,70 @@ try {
   );
   await reducedCopy.getByRole('status').waitFor({ state: 'detached' });
   await page.keyboard.press('Escape');
+  const touchContext = await browser.newContext({ hasTouch: true });
+  const touchPage = await touchContext.newPage();
+  touchPage.on('pageerror', (error) => errors.push(error.message));
+  await touchPage.route('**/*', (route) =>
+    new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
+  );
+  let touchCases = 0;
+  for (const width of [844, 390]) {
+    await touchPage.setViewportSize({ width, height: width === 844 ? 390 : 844 });
+    await touchPage.goto(
+      `http://127.0.0.1:${server.httpServer.address().port}/test/browser/conversation-list-states.html`,
+    );
+    await touchPage.locator('.weq-conversation-directory .conversation-row').first().waitFor();
+    for (const theme of ['light', 'dark']) {
+      for (const style of ['qqnt', 'classic', 'minimal', 'retro']) {
+        for (const density of ['comfortable', 'compact']) {
+          await touchPage.evaluate(
+            (theme) => window.conversationStatesQa.store.getState().setPreference(theme),
+            theme,
+          );
+          await touchPage.waitForFunction(
+            (theme) => document.documentElement.dataset.theme === theme,
+            theme,
+          );
+          await touchPage.evaluate(
+            ({ theme, style, density }) => {
+              const store = window.conversationStatesQa.store.getState();
+              store.setComponentStyle(style);
+              store.setDensity(density);
+              store.setAccent(theme === 'light' ? '#075c30' : '#fff3a1');
+            },
+            { theme, style, density },
+          );
+          assert.equal(
+            await touchPage.evaluate(() => document.documentElement.dataset.weqInput),
+            'touch',
+          );
+          const row = (id) =>
+            touchPage.locator(`.weq-conversation-directory [data-conversation-id="${id}"]`);
+          const states = {
+            pinned: await sample(row('10003')),
+            active: await sample(row('10001')),
+            multi: await checkMultiSelection(row('10003'), row('10002')),
+          };
+          const key = `${theme}/${style}/${density}`;
+          for (const state of ['pinned', 'active', 'multi'])
+            for (const property of ['background', 'shadow', 'pinColor'])
+              assert.equal(
+                states[state][property],
+                wideStates.get(key)[state][property],
+                `${width}/${key}/${state}: 触屏与鼠标应共用 ${property}`,
+              );
+          touchCases++;
+        }
+      }
+    }
+  }
+  await touchContext.close();
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify(
       {
         cases: results.length,
+        touchCases,
         widths: [1280, 390],
         themes: ['light', 'dark'],
         styles: ['qqnt', 'classic', 'minimal', 'retro'],

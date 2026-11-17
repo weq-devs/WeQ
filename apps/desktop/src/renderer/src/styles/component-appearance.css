@@ -188,7 +188,15 @@ html[data-component-style][data-theme]:not(
 html[data-component-style='retro']
   body
   :is(.conversation-row.active, .contact-row.active):not(.is-multiselected)
-  :is(.row-main, .row-main strong, .row-main span, .row-preview-line, .row-meta, .row-muted) {
+  :is(
+    .row-main,
+    .row-main strong,
+    .row-main span,
+    .row-preview-line,
+    .row-meta,
+    .row-muted,
+    .row-pinned
+  ) {
   color: var(--weq-skin-selection-fg);
 }
 html[data-component-style='retro'] body :is(.conversation-row, .contact-row) .avatar {
@@ -234,13 +242,6 @@ html[data-component-style='retro'][data-theme]
   box-shadow: var(--weq-skin-input-shadow);
 }
 
-html[data-component-style][data-theme]:not([data-component-style='classic'])
-  body
-  :is(.conversation-row.active, .contact-row.active):not(.is-multiselected) {
-  background: var(--weq-skin-selection);
-  color: var(--weq-skin-selection-fg);
-  box-shadow: var(--weq-skin-selection-shadow);
-}
 html[data-component-style][data-theme]:not([data-component-style='classic'])
   body
   :is(.weq-set-toggle-track, .weq-set-toggle-knob) {
