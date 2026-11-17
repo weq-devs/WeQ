@@ -1,4 +1,4 @@
-/** 数据库维护以账号与数据源为单位；窗口和任务列表只查看宿主持有的结果。 */
+/** 数据库维护以账号与数据源为单位；独立窗口查看宿主持有的结果，不登记任务列表。 */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
@@ -30,10 +30,6 @@ import {
   type DbRepairRecord,
 } from '@weq/service';
 import { writeFileAtomic } from '@weq/service/atomic-write';
-import {
-  databaseMaintenanceStatusLabel,
-  databaseMaintenanceRowAbnormal,
-} from '@weq/service/db-checkup';
 import type { RecoverReport } from '@weq/native';
 import {
   closeSalvageConnections,
@@ -42,7 +38,6 @@ import {
   requirePlatform,
 } from '../../context/app_context';
 import { procedure as baseProcedure, router } from '../trpc';
-import { backgroundTasks, runBackgroundTask } from '../../background_tasks';
 import { runDatabaseMaintenanceWorker } from '../../db_maintenance_worker_client';
 import { DatabaseMaintenanceLock } from '../../db_maintenance_lock';
 
@@ -60,7 +55,6 @@ const targetRef = accountRef.extend({ dbName: z.string().min(1) });
 const recordRef = accountRef.extend({ recordId: z.string().min(1) });
 const reportRef = accountRef.extend({ reportId: z.string().min(1) });
 const progressBus = new EventEmitter();
-const backgroundIds = new Map<string, string>();
 const maintenanceLocks = new Map<string, DatabaseMaintenanceLock>();
 let closedAccountDuringRun = false;
 
@@ -250,59 +244,6 @@ export const databaseMaintenance = new DatabaseMaintenance({
   reports,
   changed: (snapshot) => {
     progressBus.emit('maintenance', snapshot);
-    const op = snapshot.operation;
-    if (!op) return;
-    let taskId = backgroundIds.get(op.id);
-    if (!taskId) {
-      taskId = backgroundTasks.start({
-        kind: 'database',
-        name: { scan: '数据库常规扫描', checkup: '数据库深度体检', repair: '数据库批量修复' }[
-          op.kind
-        ],
-        scope: { uin: snapshot.uin, configId: snapshot.configId },
-        destination: 'db-checkup',
-        reportId: op.id,
-      });
-      backgroundIds.set(op.id, taskId);
-      backgroundTasks.setActions(taskId, [
-        {
-          id: 'stop',
-          label: op.kind === 'repair' ? '停止修复' : '停止检查',
-          run: () => databaseMaintenance.stop(snapshot),
-        },
-      ]);
-    }
-    const row =
-      snapshot.databases.find((item) => item.dbName === op.currentDb) ??
-      snapshot.databases.findLast((item) => item.progress);
-    const abnormal =
-      op.kind === 'repair' ? 0 : snapshot.databases.filter(databaseMaintenanceRowAbnormal).length;
-    const patch = {
-      reportId: op.id,
-      databaseProgress: snapshot.progress ?? row?.progress,
-      progress: undefined,
-      databaseBatch: { ...op, locked: snapshot.locked },
-      diagnosticAbnormal: abnormal > 0,
-      statusLabel: op.stopping
-        ? '停止收尾中'
-        : op.status === 'running'
-          ? row?.progress?.current.message
-          : databaseMaintenanceStatusLabel[op.status],
-      note: `${op.completedDatabases} / ${op.totalDatabases} 个数据库已完成${op.failedDatabases ? `，${op.failedDatabases} 个未完成` : ''}${abnormal ? `，${abnormal} 个库发现异常` : ''}${op.error ? `；${op.error}` : ''}`,
-    };
-    backgroundTasks.update(taskId, patch);
-    if (op.status !== 'running') {
-      backgroundTasks.finish(
-        taskId,
-        op.status === 'cancelled'
-          ? 'cancelled'
-          : op.status === 'partial' || op.status === 'failed'
-            ? 'failed'
-            : 'completed',
-        patch,
-      );
-      backgroundTasks.setActions(taskId, []);
-    }
   },
 });
 export const isDbRepairBusy = () => service.isBusy() || databaseMaintenance.active().length > 0;
@@ -522,36 +463,29 @@ export const dbRepairRouter = router({
     .query(({ input }) => service.restorePreview(input.uin, input.recordId)),
   backup: procedure
     .input(targetRef)
-    .mutation(({ input }) =>
-      runBackgroundTask(
-        { kind: 'database', name: `数据库备份 · ${input.dbName}`, scope: input },
-        () => service.backup(input.uin, input.dbName),
-      ),
-    ),
+    .mutation(({ input }) => service.backup(input.uin, input.dbName)),
   restore: procedure
     .input(recordRef.extend({ force: z.boolean().optional() }))
     .mutation(({ input }) => {
       assertIdle();
-      return runBackgroundTask({ kind: 'database', name: '数据库恢复', scope: input }, () => {
+      closedAccountDuringRun = false;
+      try {
+        return {
+          ok: true as const,
+          record: service.restore(input.uin, input.recordId, { force: input.force }),
+          closedAccount: closedAccountDuringRun,
+        };
+      } catch (error) {
+        logger.warn('database restore failed', { error: String(error) });
+        return {
+          ok: false as const,
+          error: error instanceof Error ? error.message : String(error),
+          code: error instanceof DbRepairError ? error.code : 'recover-failed',
+          closedAccount: closedAccountDuringRun,
+        };
+      } finally {
         closedAccountDuringRun = false;
-        try {
-          return {
-            ok: true as const,
-            record: service.restore(input.uin, input.recordId, { force: input.force }),
-            closedAccount: closedAccountDuringRun,
-          };
-        } catch (error) {
-          logger.warn('database restore failed', { error: String(error) });
-          return {
-            ok: false as const,
-            error: error instanceof Error ? error.message : String(error),
-            code: error instanceof DbRepairError ? error.code : 'recover-failed',
-            closedAccount: closedAccountDuringRun,
-          };
-        } finally {
-          closedAccountDuringRun = false;
-        }
-      });
+      }
     }),
   deleteBackup: procedure.input(recordRef).mutation(({ input }) => {
     assertIdle();

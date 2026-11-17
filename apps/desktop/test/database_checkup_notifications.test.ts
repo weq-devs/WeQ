@@ -2,6 +2,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { DbRepairService } from '@weq/service';
 import { dbRepairRouter, databaseMaintenance } from '../src/main/ipc/routers/db_repair';
 import { backgroundTasks } from '../src/main/background_tasks';
 import { databaseMaintenanceNotification } from '../src/renderer/src/lib/databaseMaintenanceNotification';
@@ -101,6 +102,7 @@ beforeEach(() => {
 afterEach(async () => {
   await databaseMaintenance.shutdown();
   for (const task of [...backgroundTasks.snapshot()]) backgroundTasks.remove(task.id);
+  vi.restoreAllMocks();
   rmSync(fixture.root, { recursive: true, force: true });
 });
 
@@ -112,9 +114,7 @@ it('打开和查看结果只读取状态；扫描正常完成及结束维护静�
   expect(fixture.run).not.toHaveBeenCalled();
   const result = await caller.scanAccount({ ...input, kind: 'scan' });
   expect(databaseMaintenanceNotification(result)).toBeNull();
-  expect(backgroundTasks.snapshot()).toEqual([
-    expect.objectContaining({ status: 'completed', reportId: result.operation!.id, actions: [] }),
-  ]);
+  expect(backgroundTasks.snapshot()).toEqual([]);
   const saved = await caller.report({ ...input, reportId: result.operation!.id });
   await caller.endMaintenance(input);
   expect(await caller.report({ ...input, reportId: result.operation!.id })).toEqual(saved);
@@ -124,18 +124,13 @@ it('打开和查看结果只读取状态；扫描正常完成及结束维护静�
 });
 
 it.each(['pages', 'structure'] as const)(
-  '成功执行且发现 %s 异常，任务仍是执行完成，通知直接携带原报告目标',
+  '成功执行且发现 %s 异常，不创建列表任务，通知仍携带原报告目标',
   async (part) => {
     fixture.bad = part === 'pages';
     fixture.healthy = part !== 'structure';
     const result = await dbRepairRouter.createCaller({}).scanAccount({ ...input, kind: 'checkup' });
     expect(result.operation?.status).toBe('completed');
-    expect(backgroundTasks.snapshot().at(-1)).toMatchObject({
-      status: 'completed',
-      destination: 'db-checkup',
-      reportId: result.operation!.id,
-      diagnosticAbnormal: true,
-    });
+    expect(backgroundTasks.snapshot()).toEqual([]);
     expect(databaseMaintenanceNotification(result)).toMatchObject({
       event: 'databaseDamage',
       title: '深度体检已完成，发现数据库异常',
@@ -153,14 +148,31 @@ it('实际扫描失败留部分完成报告及失败提醒，不添加会覆盖�
     scanStatus: 'failed',
     scanError: '合成 worker 退出',
   });
-  expect(backgroundTasks.snapshot().at(-1)).toMatchObject({
-    status: 'failed',
-    actions: [],
-    reportId: result.operation!.id,
-  });
+  expect(backgroundTasks.snapshot()).toEqual([]);
   expect(databaseMaintenanceNotification(result)).toMatchObject({
     event: 'databaseDamage',
     tone: 'error',
     account: { ...input, reportId: result.operation!.id },
+  });
+});
+
+it('修复执行及失败只更新维护进度和报告，不创建列表任务', async () => {
+  const caller = dbRepairRouter.createCaller({});
+  await caller.scanAccount({ ...input, kind: 'scan' });
+  vi.spyOn(DbRepairService.prototype, 'repair').mockImplementationOnce(async () => {
+    expect(databaseMaintenance.current(input)?.state).toBe('repairing');
+    expect(backgroundTasks.snapshot()).toEqual([]);
+    throw new Error('合成修复失败');
+  });
+  const { snapshot } = await caller.repairSelected({ ...input, dbNames: ['nt_msg.db'] });
+  expect(snapshot).toMatchObject({
+    locked: false,
+    operation: { kind: 'repair', status: 'failed' },
+    databases: [{ repair: { status: 'failed', error: '合成修复失败' } }],
+  });
+  expect(backgroundTasks.snapshot()).toEqual([]);
+  expect(await caller.report({ ...input, reportId: snapshot.operation!.id })).toMatchObject({
+    operation: { id: snapshot.operation!.id, kind: 'repair', status: 'failed' },
+    databases: [{ repair: { status: 'failed', error: '合成修复失败' } }],
   });
 });
