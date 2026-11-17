@@ -125,7 +125,7 @@ it('重复打开仅聚焦并保留现场，换来源重新挂载，旧来源关�
   }
 });
 
-it('无法开窗时只提供重试，不在设置页内挂载抓包面板', async () => {
+it('无法开窗时提供重试和关闭，不在设置页内挂载抓包面板', async () => {
   vi.spyOn(window, 'open').mockReturnValue(null);
   const host = document.createElement('div'),
     root = createRoot(host);
@@ -135,6 +135,12 @@ it('无法开窗时只提供重试，不在设置页内挂载抓包面板', asyn
     expect(document.body.textContent).toContain('无法打开 QQNT 抓包窗口');
     expect(document.querySelector('[aria-label="完整抓包面板"]')).toBeNull();
     expect(f.read).not.toHaveBeenCalled();
+    act(() =>
+      document.querySelector<HTMLButtonElement>('[aria-label="关闭抓包窗口提示"]')!.click(),
+    );
+    expect(useCaptureWindow.getState().request).toBeNull();
+    expect(document.body.textContent).not.toContain('无法打开 QQNT 抓包窗口');
+    act(() => useCaptureWindow.getState().open('account:source-a', '10001'));
     act(() => useAppLock.getState().lock());
     expect(document.body.textContent).not.toContain('无法打开 QQNT 抓包窗口');
   } finally {

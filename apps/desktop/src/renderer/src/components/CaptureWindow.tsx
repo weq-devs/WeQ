@@ -12,6 +12,7 @@ import { client } from '../trpc/client';
 import { lazyPanel } from '../lib/lazyPanel';
 import { TabActivity } from './RetainedTabs';
 import { Modal } from './Dialog';
+import { PageShell } from './PageShell';
 import { ToastHost } from './Toast';
 import { notificationContent, notificationSource } from '../lib/notificationNavigation';
 import { HoverTooltip } from './HoverTooltip';
@@ -206,19 +207,29 @@ export function CaptureWindowHost() {
   const popup = tool.popup && !tool.popup.closed ? tool.popup : null;
   if (tool.fallback && request && !locked)
     return (
-      <Modal width={360} centered onClose={dismiss}>
-        <div className="weq-capture-window-error" role="alert">
-          <h3>无法打开 QQNT 抓包窗口</h3>
-          <button
-            type="button"
-            className="weq-set-btn"
-            onClick={() => {
-              if (!useAppLock.getState().locked) open();
-            }}
+      <Modal width={360} centered onClose={dismiss} labelledBy="weq-capture-window-error-title">
+        <PageShell
+          title="无法打开 QQNT 抓包窗口"
+          titleId="weq-capture-window-error-title"
+          onClose={dismiss}
+          closeLabel="关闭抓包窗口提示"
+        >
+          <div
+            className="weq-capture-window-error"
+            role="alert"
+            aria-labelledby="weq-capture-window-error-title"
           >
-            重新打开
-          </button>
-        </div>
+            <button
+              type="button"
+              className="weq-set-btn"
+              onClick={() => {
+                if (!useAppLock.getState().locked) open();
+              }}
+            >
+              重新打开
+            </button>
+          </div>
+        </PageShell>
       </Modal>
     );
   return popup && request

@@ -87,6 +87,10 @@ it('弹窗不可用时使用全屏工具页', async () => {
     expect(
       host.querySelector('input') ?? document.querySelector('[aria-label="合成数据库浏览"]'),
     ).not.toBeNull();
+    const close = host.querySelector<HTMLButtonElement>('[aria-label="关闭数据库浏览"]');
+    expect(close).not.toBeNull();
+    act(() => close!.click());
+    expect(useDatabaseBrowserWindow.getState().request).toBeNull();
   } finally {
     act(() => root.unmount());
     await Promise.resolve();

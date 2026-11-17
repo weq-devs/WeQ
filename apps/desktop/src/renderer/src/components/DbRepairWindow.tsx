@@ -11,6 +11,7 @@ import { lazyPanel } from '../lib/lazyPanel';
 import { DbRepairReturnOverlay } from './DbRepairReturnOverlay';
 import { TabActivity } from './RetainedTabs';
 import { Modal } from './Dialog';
+import { PageShell } from './PageShell';
 import { HoverTooltip } from './HoverTooltip';
 import { ToastHost } from './Toast';
 import { NotificationSourceProvider, notificationSource } from '../lib/notificationNavigation';
@@ -60,13 +61,23 @@ export function DbRepairWindowHost() {
     <>
       <DbRepairReturnOverlay ownerDocument={!locked && popup ? popup.document : document} />
       {tool.fallback ? (
-        <Modal width={360} onClose={close} centered>
-          <div className="weq-db-repair-window-error" role="alert">
-            <h3>无法打开数据库修复窗口</h3>
-            <button type="button" className="weq-set-btn" onClick={() => tool.open()}>
-              重新打开
-            </button>
-          </div>
+        <Modal width={360} onClose={close} centered labelledBy="weq-repair-window-error-title">
+          <PageShell
+            title="无法打开数据库修复窗口"
+            titleId="weq-repair-window-error-title"
+            onClose={close}
+            closeLabel="关闭数据库修复提示"
+          >
+            <div
+              className="weq-db-repair-window-error"
+              role="alert"
+              aria-labelledby="weq-repair-window-error-title"
+            >
+              <button type="button" className="weq-set-btn" onClick={() => tool.open()}>
+                重新打开
+              </button>
+            </div>
+          </PageShell>
         </Modal>
       ) : popup && account ? (
         createPortal(

@@ -4,7 +4,8 @@ import { AnnualReportView } from '../annual-report/AnnualReportView';
 import { analysisTitle, type AnalysisReportRequest } from './model';
 import { SavedAnalysisBody } from './SavedAnalysisBody';
 import '../../styles/analysis-tool.css';
-import { BarChart3, Users, UserRound } from 'lucide-react';
+import '../../styles/page-shell.css';
+import { BarChart3, Users, UserRound, X } from 'lucide-react';
 
 /** 年度报告只作旧请求的兼容渲染（新入口在侧栏「年度报告」）。 */
 const REPORT_ICONS = {
@@ -40,6 +41,15 @@ export function AnalysisReportPage({
               {request.kind === 'annual' ? ' · 年度报告' : ''}
             </small>
           </span>
+          <button
+            type="button"
+            className="weq-page-close"
+            onClick={onClose}
+            title="关闭分析报告"
+            aria-label="关闭分析报告"
+          >
+            <X size={18} />
+          </button>
         </header>
         <div className="weq-analysis-result-body">
           {request.kind === 'annual' ? (

@@ -1,26 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
 import { useMobileBack } from '../hooks/useMobileNavigation';
 import { hasOverlayDescendant } from './overlayStack';
-
-function layerPath(element: HTMLElement): number[] {
-  const path: number[] = [];
-  for (let parent: HTMLElement | null = element; parent; parent = parent.parentElement) {
-    const value = Number.parseInt(
-      element.ownerDocument.defaultView?.getComputedStyle(parent).zIndex ?? '',
-      10,
-    );
-    if (Number.isFinite(value)) path.push(value);
-  }
-  return path.reverse();
-}
-
-function compareLayerPaths(left: number[], right: number[]): number {
-  for (let index = 0; index < Math.max(left.length, right.length); index++) {
-    const difference = (left[index] ?? 0) - (right[index] ?? 0);
-    if (difference !== 0) return difference;
-  }
-  return 0;
-}
+import { compareSurfaceLayers } from './surfaceOrder';
 
 const ESCAPE_SURFACE = '[data-weq-escape-surface]';
 const SURFACES =
@@ -54,7 +35,7 @@ export function topSurface(
       }
     }
     if (visible) {
-      const order = top ? compareLayerPaths(layerPath(root), layerPath(top)) : 1;
+      const order = top ? compareSurfaceLayers(root, top) : 1;
       if (!top || order > 0 || (order === 0 && !root.contains(top))) top = root;
     }
   }
@@ -137,7 +118,7 @@ export function useSurfaceEscape(
             '[aria-modal="true"], .weq-dialog-layer, .weq-overlay-layer, .weq-window-layer, .weq-forward-window',
           ),
         ) &&
-        compareLayerPaths(layerPath(previous), layerPath(element)) > 0);
+        compareSurfaceLayers(previous, element) > 0);
     if (!focusedAbove && !element.contains(previous) && !previous?.closest('[role="tablist"]')) {
       const focusable = element.querySelector<HTMLElement>(
         'input:not([disabled]), button:not([disabled]), [tabindex="0"]',
