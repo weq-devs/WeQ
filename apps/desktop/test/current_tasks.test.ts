@@ -113,6 +113,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
   trpc: {
+    dbRepair: { maintenance: { useQuery: () => ({ data: null }) } },
     backgroundTasks: {
       details: { useQuery: () => ({ data: [] }) },
       logs: { useQuery: () => ({ data: [] }) },
@@ -329,7 +330,7 @@ describe('统一当前任务', () => {
     expect(backgroundTaskNavigation(task)).toBeNull();
   });
   it.each(['running', 'completed', 'failed'] as const)(
-    '数据库体检任务在 %s 状态可从快捷列表和详情打开原账号体检窗口',
+    '数据库检查记录在 %s 状态可从快捷列表和详情打开原账号、数据源及报告',
     async (status) => {
       vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
       fixture.background = [
@@ -338,13 +339,15 @@ describe('统一当前任务', () => {
           kind: 'database',
           name: '数据库体检 · synthetic.db',
           destination: 'db-checkup',
-          scope: { uin: fixture.accountId },
+          scope: { uin: fixture.accountId, configId: 'fixture-config' },
+          reportId: 'fixture-report',
           status,
           actions: [],
           startedAt: 1,
           updatedAt: 1,
         },
       ];
+      const navigation = backgroundTaskNavigation(fixture.background[0]!)!;
       const host = document.createElement('div');
       const root = createRoot(host);
       const expand = vi.fn();
@@ -365,16 +368,20 @@ describe('统一当前任务', () => {
               layout === 'compact' ? '.weq-long-task-entry' : '.weq-long-task',
             ),
           ].find((item) => item.textContent?.includes('数据库体检'))!;
-          if (layout === 'compact') await clickQuick(row, '打开数据库体检');
+          if (layout === 'compact') await clickQuick(row, navigation.label);
           else {
             act(() => (row as HTMLButtonElement).click());
             const open = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
-              (button) => button.textContent?.trim() === '打开数据库体检',
+              (button) => button.textContent?.trim() === navigation.label,
             );
             expect(open).toBeDefined();
             act(() => open!.click());
           }
-          expect(useDbRepairWindow.getState().request?.uin).toBe(fixture.accountId);
+          expect(useDbRepairWindow.getState().request).toMatchObject({
+            uin: fixture.accountId,
+            configId: 'fixture-config',
+            reportId: 'fixture-report',
+          });
           useDbRepairWindow.getState().dismiss();
         }
         expect(expand).not.toHaveBeenCalled();

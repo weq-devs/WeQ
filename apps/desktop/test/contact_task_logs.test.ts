@@ -25,7 +25,10 @@ vi.mock('../src/renderer/src/trpc/client', async () => {
     };
   }
   return {
-    trpc: { backgroundTasks: { details: query('details'), logs: query('logs') } },
+    trpc: {
+      backgroundTasks: { details: query('details'), logs: query('logs') },
+      dbRepair: { maintenance: { useQuery: () => ({ data: null }) } },
+    },
     client: {},
   };
 });

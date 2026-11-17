@@ -20,14 +20,12 @@ export function backgroundTaskNavigation(task: BackgroundTask): TaskQuickAction 
     label: '查看数据库检查结果',
     icon: <ExternalLink size={14} />,
     run: () =>
-      useDbRepairWindow
-        .getState()
-        .open({
-          uin,
-          configId: task.scope?.configId,
-          reportId: task.reportId,
-          name: uin,
-          avatarUrl: '',
-        }),
+      useDbRepairWindow.getState().open({
+        uin,
+        configId: task.scope?.configId,
+        reportId: task.reportId,
+        name: uin,
+        avatarUrl: '',
+      }),
   };
 }
