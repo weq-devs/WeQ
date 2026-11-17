@@ -62,13 +62,14 @@ try {
   await page.getByRole('button', { name: '开始扫描', exact: true }).waitFor();
   assert.equal(await page.evaluate(() => window.maintenanceQa.calls.scan.length), 0);
   const checkScanAlignment = async () => {
-    const mode = await page.getByRole('radiogroup', { name: '体检模式' }).boundingBox();
+    const group = await page.getByRole('radiogroup', { name: '体检模式' }).boundingBox();
+    const mode = await page.getByRole('radio', { checked: true }).boundingBox();
     const action = await page
       .getByRole('button', { name: /^(开始扫描|继续扫描|暂停扫描)$/ })
       .boundingBox();
-    assert.ok(Math.abs(mode.height - action.height) <= 1, '模式与操作按钮等高');
-    assert.ok(Math.abs(mode.y - action.y) <= 1, '模式与操作按钮垂直对齐');
-    assert.ok(action.x - mode.x - mode.width >= 8, '模式与操作按钮保留间距');
+    assert.ok(Math.abs(mode.height - action.height) <= 1, '模式选中块与操作按钮等高');
+    assert.ok(Math.abs(mode.y - action.y) <= 1, '模式选中块与操作按钮垂直对齐');
+    assert.ok(action.x - group.x - group.width >= 8, '分段底槽与操作按钮保留间距');
   };
   await checkScanAlignment();
   await capture('scan-controls-desktop');

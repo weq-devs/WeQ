@@ -348,11 +348,7 @@ html[data-theme='dark'] .weq-dbm {
 .weq-dbm-scan-controls > .weq-segmented {
   box-sizing: border-box;
   flex-wrap: nowrap;
-  gap: 0;
-  height: 38px;
-  padding: 0;
-  border: 0;
-  background: transparent;
+  height: 46px;
 }
 
 .weq-dbm-scan-controls > .weq-segmented > button {
@@ -363,38 +359,11 @@ html[data-theme='dark'] .weq-dbm {
   height: 38px;
   min-height: 0;
   padding: 6px 12px;
-  border: 1px solid var(--weq-border-strong);
-  border-radius: 0;
   font-family: inherit;
   font-size: 13px;
   font-weight: 500;
   line-height: 18px;
   white-space: nowrap;
-}
-
-.weq-dbm-scan-controls > .weq-segmented > button + button {
-  margin-left: -1px;
-}
-
-.weq-dbm-scan-controls > .weq-segmented > button:first-child {
-  border-radius: 7px 0 0 7px;
-}
-
-.weq-dbm-scan-controls > .weq-segmented > button:last-child {
-  border-radius: 0 7px 7px 0;
-}
-
-.weq-dbm-scan-controls > .weq-segmented > button[aria-checked='true'] {
-  position: relative;
-  border-color: var(--weq-accent-ink, var(--weq-accent-effective));
-}
-
-.weq-dbm-scan-controls > .weq-segmented > button:not([aria-checked='true']) {
-  background: var(--weq-bg-surface);
-}
-
-.weq-dbm-scan-controls > .weq-segmented > button:not([aria-checked='true']):hover:not(:disabled) {
-  background: color-mix(in srgb, var(--weq-fg-primary) 5%, var(--weq-bg-surface));
 }
 
 .weq-dbm-hero-actions .weq-set-btn {
@@ -405,12 +374,6 @@ html[data-theme='dark'] .weq-dbm {
   font-weight: 500;
   line-height: 18px;
   white-space: nowrap;
-}
-
-html[data-component-style='retro'][data-theme] body .weq-dbm-scan-controls > .weq-segmented {
-  border: 0;
-  background: transparent;
-  box-shadow: none;
 }
 
 .weq-dbm .weq-set-btn {
