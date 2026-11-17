@@ -97,11 +97,17 @@ export function DatabaseMaintenanceProgress({
   batch,
   connectionError,
   compact = false,
+  showBatch = true,
+  showMaintained = true,
 }: {
   progress: DatabaseTaskProgress;
   batch?: DatabaseMaintenanceOperation & { locked: boolean };
   connectionError?: boolean;
   compact?: boolean;
+  /** 批次摘要已由外层页头表达时关闭，避免同一条计数出现两次。 */
+  showBatch?: boolean;
+  /** 维护锁提示由外层状态卡表达时关闭。 */
+  showMaintained?: boolean;
 }) {
   const [now, setNow] = useState(Date.now);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -133,7 +139,7 @@ export function DatabaseMaintenanceProgress({
         <strong>{progress.dbName}</strong>
         <span>总耗时 {duration(elapsed)}</span>
       </header>
-      {batch ? (
+      {batch && showBatch ? (
         <div className="weq-db-progress-batch">
           <span>
             已完成 {batch.completedDatabases} / {batch.totalDatabases} 个数据库
@@ -275,7 +281,7 @@ export function DatabaseMaintenanceProgress({
           );
         })}
       </ol>
-      {batch?.locked && batch.status !== 'running' ? (
+      {showMaintained && batch?.locked && batch.status !== 'running' ? (
         <p className="weq-db-progress-maintained" role="status">
           <LockKeyhole size={14} />
           数据库仍在维护中，等待决定

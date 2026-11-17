@@ -71,7 +71,7 @@ try {
   await capture('deep-active-desktop');
 
   await page.evaluate(() => window.maintenanceQa.complete());
-  await page.getByText('数据库仍在维护中，等待决定', { exact: true }).waitFor();
+  await page.getByText(/数据库仍在维护中，等待决定/).waitFor();
   await page.setViewportSize({ width: 680, height: 780 });
   await page.evaluate(() => {
     window.maintenanceQa.theme.getState().setPreference('dark');
@@ -96,7 +96,7 @@ try {
   await page.evaluate(() => window.maintenanceQa.theme.getState().setPreference('light'));
   await capture('repair-desktop');
   await page.getByRole('button', { name: '停止修复', exact: true }).click();
-  await page.getByRole('button', { name: '开始扫描', exact: true }).waitFor({ state: 'visible' });
+  await page.getByRole('button', { name: '重新扫描', exact: true }).waitFor({ state: 'visible' });
   assert.equal(await page.evaluate(() => window.maintenanceQa.snapshot().locked), false);
   assert.deepEqual(errors, []);
   console.log('数据库维护：主动启动、深度步骤、持锁等待、健康库勾选、停止修复及三处代表布局通过。');
