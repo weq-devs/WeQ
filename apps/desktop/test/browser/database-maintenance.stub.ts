@@ -33,6 +33,67 @@ const result = () => ({
 });
 
 export const maintenanceQa = {
+  checkupOutcome(mode: 'normal' | 'abnormal' | 'unverified' | 'failed' | 'diagnosing') {
+    checkupTracker = new DatabaseProgressTracker('checkup', 'nt_msg.db');
+    checkupTracker.update('checkup', { step: 'opening', message: '打开只读体检进程' });
+    checkupTracker.update('checkup', { step: 'integrity', message: '检查数据库整体结构' });
+    checkupTracker.update('checkup', {
+      step: 'integrity-pages',
+      message: '检查页结构与引用',
+      completed: mode === 'abnormal' || mode === 'diagnosing' ? 4336384 : 4567177,
+      total: 4567177,
+      unit: 'pages',
+    });
+    if (mode === 'abnormal' || mode === 'diagnosing')
+      checkupTracker.update('checkup', {
+        step: 'integrity-tables',
+        message: '逐表定位结构异常',
+        objectName: 'group_msg_table',
+        completed: mode === 'diagnosing' ? 17 : 34,
+        total: 34,
+        unit: 'tables',
+        outcome: 'abnormal',
+      });
+    let maintenance: ReturnType<typeof checkupTracker.update>;
+    if (mode === 'diagnosing') {
+      maintenance = checkupTracker.update('checkup', {
+        step: 'integrity-tables',
+        message: '逐表定位结构异常',
+        objectName: 'group_msg_table',
+        completed: 17,
+        total: 34,
+        unit: 'tables',
+        outcome: 'abnormal',
+      });
+    } else {
+      checkupTracker.update('checkup', {
+        step: 'integrity',
+        message: '检查数据库整体结构',
+        status: mode === 'failed' ? 'failed' : 'completed',
+        outcome: mode === 'abnormal' ? 'abnormal' : mode === 'failed' ? 'unverified' : 'normal',
+        detail:
+          mode === 'abnormal'
+            ? '异常表：group_msg_table'
+            : mode === 'failed'
+              ? '无法读取数据库，结构结果未判定。'
+              : undefined,
+      });
+      maintenance = checkupTracker.update('checkup', {
+        step: 'pages',
+        message: '检查页签名',
+        completed: mode === 'unverified' ? 0 : 182400,
+        total: 524288,
+        unit: 'pages',
+        status: mode === 'unverified' ? 'skipped' : 'running',
+        outcome:
+          mode === 'unverified' ? 'unverified' : mode === 'abnormal' ? 'abnormal' : undefined,
+        badPages: mode === 'abnormal' ? 3 : undefined,
+        detail: mode === 'unverified' ? '未开启页 HMAC，无法判断页签名是否正常。' : undefined,
+      });
+    }
+    for (const listener of listeners)
+      listener.onData({ ...checkupRequest, kind: 'checkup', maintenance });
+  },
   structure() {
     checkupTracker.update('checkup', { step: 'opening', message: '打开只读体检进程' });
     const maintenance = checkupTracker.update('checkup', {

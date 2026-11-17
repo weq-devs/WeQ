@@ -41,6 +41,29 @@ function countText(step: DatabaseStepProgress): string | undefined {
   return `${count(step.completed)}${step.total === undefined ? '' : ` / ${count(step.total)}`}${suffix ? ` ${suffix}` : ''}`;
 }
 
+function needsAttention(step: DatabaseStepProgress): boolean {
+  return step.status === 'failed' || step.status === 'incomplete' || step.outcome === 'abnormal';
+}
+
+function stepLabel(step: DatabaseStepProgress, checkup: boolean, cancelled: boolean): string {
+  const outcome =
+    step.outcome && { normal: '正常', abnormal: '异常', unverified: '未判定' }[step.outcome];
+  if (step.status === 'incomplete') return '提前结束';
+  if (step.status === 'failed')
+    return outcome === '异常' ? '异常 · 检查中断' : checkup ? '检查失败' : '未完成';
+  if (step.status === 'skipped')
+    return cancelled ? '已停止' : outcome === '未判定' ? '无法校验' : '已跳过';
+  if (step.status === 'completed')
+    return outcome ?? (checkup && step.step.startsWith('integrity-') ? '已检查' : '已完成');
+  const pct = databaseStepPercent(step);
+  const activity = pct === undefined ? '检查中' : `${pct.toFixed(1)}%`;
+  return outcome === '异常'
+    ? `${activity} · 异常`
+    : pct === undefined && !checkup
+      ? '处理中'
+      : activity;
+}
+
 export function DatabaseMaintenanceProgress({
   progress,
   connectionError,
@@ -66,9 +89,10 @@ export function DatabaseMaintenanceProgress({
   const recentStart = Math.max(0, progress.steps.length - 4);
   const earlierCount = progress.steps
     .slice(0, recentStart)
-    .filter((item) => item.status !== 'failed').length;
+    .filter((item) => !needsAttention(item) && item.status !== 'running').length;
   const visibleSteps = progress.steps.filter(
-    (item, index) => showEarlier || index >= recentStart || item.status === 'failed',
+    (item, index) =>
+      showEarlier || index >= recentStart || needsAttention(item) || item.status === 'running',
   );
   const quiet = Math.max(0, at - step.updatedAt);
   const statusLabel = {
@@ -114,33 +138,30 @@ export function DatabaseMaintenanceProgress({
           const current = item === progress.steps[progress.steps.length - 1];
           const active = current && running && item.status === 'running';
           const pct = databaseStepPercent(item);
+          const barPercent =
+            progress.kind === 'repair' && progress.status === 'completed' ? 100 : pct;
           const count = countText(item);
-          const Icon =
-            item.status === 'failed'
-              ? AlertTriangle
-              : item.status === 'completed'
-                ? Check
-                : item.status === 'skipped'
-                  ? Minus
-                  : Loader2;
+          const Icon = needsAttention(item)
+            ? AlertTriangle
+            : item.status === 'completed' && item.outcome !== 'unverified'
+              ? progress.kind === 'checkup' && item.step.startsWith('integrity') && !item.outcome
+                ? Circle
+                : Check
+              : item.status === 'skipped' || item.outcome === 'unverified'
+                ? Minus
+                : Loader2;
           const label =
             current && connectionError
               ? '连接中断'
-              : item.status === 'completed'
-                ? '已完成'
-                : item.status === 'failed'
-                  ? '未完成'
-                  : item.status === 'skipped'
-                    ? current && progress.status === 'cancelled'
-                      ? '已停止'
-                      : '已跳过'
-                    : pct === undefined
-                      ? '处理中'
-                      : `${pct.toFixed(1)}%`;
+              : stepLabel(
+                  item,
+                  progress.kind === 'checkup',
+                  current && progress.status === 'cancelled',
+                );
           return (
             <li
               key={`${item.phase}:${item.step}:${item.startedAt}`}
-              className={`weq-db-progress-entry is-${item.status ?? 'running'}${active ? ' is-current' : ''}`}
+              className={`weq-db-progress-entry is-${item.status ?? 'running'}${item.outcome ? ` is-${item.outcome}` : ''}${active ? ' is-current' : ''}`}
               aria-current={active ? 'step' : undefined}
             >
               <span className="weq-db-progress-node" aria-hidden>
@@ -154,9 +175,10 @@ export function DatabaseMaintenanceProgress({
                 {item.objectName ? (
                   <p className="weq-db-progress-object">{item.objectName}</p>
                 ) : null}
-                {current ? (
+                {item.detail ? <p className="weq-db-progress-detail">{item.detail}</p> : null}
+                {current && (running || barPercent !== undefined) ? (
                   <TaskProgressBar
-                    value={progress.status === 'completed' ? 100 : pct}
+                    value={barPercent}
                     status={connectionError ? 'paused' : progress.status}
                     label="当前步骤进度"
                     valueText={count ?? (running ? label : statusLabel)}

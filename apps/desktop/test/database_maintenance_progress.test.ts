@@ -169,3 +169,85 @@ it('较早的失败步骤不随已完成步骤一起收起', async () => {
     await act(async () => root.unmount());
   }
 });
+
+it('未扫完的阶段显示提前结束，异常在继续定位和历史折叠后仍然可见', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const tracker = new DatabaseProgressTracker('checkup', 'synthetic.db');
+  tracker.update('checkup', { step: 'integrity', message: '检查数据库整体结构' });
+  tracker.update('checkup', {
+    step: 'integrity-pages',
+    message: '检查页结构与引用',
+    completed: 4336384,
+    total: 4567177,
+    unit: 'pages',
+  });
+  const progress = tracker.update('checkup', {
+    step: 'integrity-tables',
+    message: '逐表定位结构异常',
+    completed: 17,
+    total: 34,
+    unit: 'tables',
+    outcome: 'abnormal',
+  });
+  try {
+    await act(async () => root.render(h(DatabaseMaintenanceProgress, { progress })));
+    const partial = host.querySelector('.is-incomplete');
+    expect(partial?.textContent).toContain('提前结束');
+    expect(partial?.textContent).toContain('4,336,384 / 4,567,177 页');
+    expect(partial?.querySelector('.lucide-check')).toBeNull();
+    expect(host.querySelector('[aria-current="step"]')?.textContent).toContain('异常');
+    tracker.update('checkup', {
+      step: 'integrity',
+      message: '检查数据库整体结构',
+      status: 'completed',
+      outcome: 'abnormal',
+    });
+    for (let index = 0; index < 8; index++)
+      tracker.update('checkup', {
+        step: `mapping-${index}`,
+        message: `定位步骤 ${index}`,
+      });
+    await act(async () =>
+      root.render(
+        h(DatabaseMaintenanceProgress, {
+          progress: tracker.update('checkup', { step: 'mapping', message: '归属分析' }),
+        }),
+      ),
+    );
+    expect(host.querySelector('.is-abnormal')?.textContent).toContain('异常');
+    expect(host.querySelector('.is-incomplete')).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it.each([
+  ['normal', '正常'],
+  ['abnormal', '异常'],
+  ['unverified', '未判定'],
+] as const)('检查结果 %s 有明确文字，不以完成勾代替', async (outcome, label) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const tracker = new DatabaseProgressTracker('checkup', 'synthetic.db');
+  const progress = tracker.update('checkup', {
+    step: 'pages',
+    message: '检查页签名',
+    status: 'completed',
+    outcome,
+    detail: '合成检查结果',
+    completed: 4,
+    total: 4,
+    unit: 'pages',
+  });
+  try {
+    await act(async () => root.render(h(DatabaseMaintenanceProgress, { progress })));
+    expect(host.querySelector('.weq-db-progress-step strong')?.textContent).toBe(label);
+    expect(host.textContent).toContain('合成检查结果');
+    if (outcome !== 'normal') expect(host.querySelector('.lucide-check')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

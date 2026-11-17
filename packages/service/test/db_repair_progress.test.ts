@@ -73,3 +73,104 @@ it('已跳过的步骤不会在任务结束时被改成已完成，历史保持�
   expect(end?.steps).toHaveLength(64);
   expect(end?.current.status).toBe('skipped');
 });
+
+it('体检切换到异常定位不把未扫完的页标成完成，结构检查持续显示异常', () => {
+  const tracker = new DatabaseProgressTracker('checkup', 'synthetic.db');
+  tracker.update('checkup', { step: 'integrity', message: '检查数据库整体结构' });
+  tracker.update('checkup', {
+    step: 'integrity-pages',
+    message: '检查页结构与引用',
+    completed: 4336384,
+    total: 4567177,
+    unit: 'pages',
+  });
+  const next = tracker.update('checkup', {
+    step: 'integrity-tables',
+    message: '逐表定位结构异常',
+    completed: 17,
+    total: 34,
+    unit: 'tables',
+    outcome: 'abnormal',
+  });
+  expect(next.steps[0]).toMatchObject({ status: 'running', outcome: 'abnormal' });
+  expect(next.steps[1]).toMatchObject({
+    status: 'incomplete',
+    completed: 4336384,
+    total: 4567177,
+    outcome: 'unverified',
+  });
+  expect(next.current).toMatchObject({ status: 'running', outcome: 'abnormal' });
+});
+
+it('结构最终结果更新原步骤而非追加，正常结果不能掩盖未完成计数', () => {
+  const tracker = new DatabaseProgressTracker('checkup', 'synthetic.db');
+  tracker.update('checkup', { step: 'integrity', message: '检查数据库整体结构' });
+  tracker.update('checkup', {
+    step: 'integrity-pages',
+    message: '检查页结构与引用',
+    completed: 4,
+    total: 4,
+  });
+  tracker.update('checkup', {
+    step: 'integrity-records-2',
+    message: '检查记录与索引对应',
+    completed: 2,
+    total: 4,
+  });
+  const done = tracker.update('checkup', {
+    step: 'integrity',
+    message: '检查数据库整体结构',
+    status: 'completed',
+    outcome: 'normal',
+  });
+  expect(done.steps).toHaveLength(3);
+  expect(done.steps[0]).toMatchObject({ status: 'completed', outcome: 'normal' });
+  expect(done.steps[1]).toMatchObject({ status: 'completed', outcome: 'normal' });
+  expect(done.current).toMatchObject({ status: 'incomplete', outcome: 'unverified', completed: 2 });
+  expect(tracker.finish('completed')?.current.status).toBe('incomplete');
+});
+
+it('任务返回也不把未确认的末次计数补满，停止会结束仍在等待子阶段的结构行', () => {
+  const tracker = new DatabaseProgressTracker('checkup', 'synthetic.db');
+  tracker.update('checkup', { step: 'pages', message: '检查页签名', completed: 3, total: 4 });
+  expect(tracker.finish('completed')?.current).toMatchObject({
+    status: 'incomplete',
+    completed: 3,
+  });
+  const cancelled = new DatabaseProgressTracker('checkup', 'synthetic.db');
+  cancelled.update('checkup', { step: 'integrity', message: '检查数据库整体结构' });
+  cancelled.update('checkup', {
+    step: 'integrity-pages',
+    message: '检查页结构与引用',
+    completed: 3,
+    total: 4,
+  });
+  expect(cancelled.finish('cancelled')?.steps.map((step) => step.status)).toEqual([
+    'skipped',
+    'skipped',
+  ]);
+});
+
+it('大量结构子阶段后仍保留原始结构结论，结果回填不丢失且历史有界', () => {
+  const tracker = new DatabaseProgressTracker('checkup', 'synthetic.db');
+  tracker.update('checkup', { step: 'integrity', message: '检查数据库整体结构' });
+  for (let index = 0; index < 100; index++)
+    tracker.update('checkup', {
+      step: `integrity-records-${index}`,
+      message: '检查记录与索引对应',
+      completed: 4,
+      total: 4,
+    });
+  const result = tracker.update('checkup', {
+    step: 'integrity',
+    message: '结构检查发现异常',
+    status: 'completed',
+    outcome: 'abnormal',
+  });
+  expect(result.steps).toHaveLength(64);
+  expect(result.steps[0]).toMatchObject({
+    step: 'integrity',
+    status: 'completed',
+    outcome: 'abnormal',
+  });
+});

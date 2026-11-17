@@ -155,6 +155,32 @@ try {
       await page.getByText('25.0%', { exact: true }).waitFor();
       await page.getByText('500 / 2,000 条记录', { exact: true }).waitFor();
       await capture('structure-records');
+      for (const mode of ['diagnosing', 'normal', 'abnormal', 'unverified', 'failed']) {
+        await page.evaluate((mode) => window.maintenanceQa.checkupOutcome(mode), mode);
+        const timeline = page.locator('.weq-db-progress');
+        if (mode === 'diagnosing' || mode === 'abnormal') {
+          await timeline.getByText('提前结束', { exact: true }).waitFor();
+          await timeline.getByText('4,336,384 / 4,567,177 页', { exact: true }).waitFor();
+          assert.equal(await timeline.locator('.is-incomplete .lucide-check').count(), 0);
+          assert.ok((await timeline.locator('.is-abnormal').count()) > 0);
+          await strip.getByText('已发现异常', { exact: true }).waitFor();
+          assert.equal(
+            await strip
+              .locator('.weq-rp-chip.is-warn')
+              .evaluate((node) => getComputedStyle(node).display),
+            'flex',
+          );
+          await page.getByText('已发现异常，仍在继续体检。', { exact: true }).waitFor();
+          assert.match(await page.locator('.weq-rp-batch').innerText(), /已发现异常\s+1 个/);
+        }
+        if (mode === 'normal') await timeline.getByText('正常', { exact: true }).first().waitFor();
+        if (mode === 'unverified') await timeline.getByText('无法校验', { exact: true }).waitFor();
+        if (mode === 'failed') {
+          await timeline.getByText('检查失败', { exact: true }).waitFor();
+          await strip.getByText('部分检查失败', { exact: true }).waitFor();
+        }
+        await capture(`outcome-${mode}`);
+      }
       await strip.locator('button').last().focus();
       assert.ok((await strip.evaluate((node) => node.scrollLeft)) > 0);
       await strip.evaluate((node) => {

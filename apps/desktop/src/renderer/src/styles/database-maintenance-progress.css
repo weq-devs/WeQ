@@ -89,11 +89,14 @@
   padding-top: 3px;
 }
 .weq-db-progress-step > span {
+  min-width: 0;
   overflow-wrap: anywhere;
   font-weight: 500;
 }
 .weq-db-progress-step > strong {
-  flex: none;
+  flex: 0 1 auto;
+  max-width: 50%;
+  overflow-wrap: anywhere;
   font-size: 12px;
   font-weight: 500;
   color: var(--weq-fg-secondary);
@@ -111,7 +114,11 @@
   color: var(--weq-accent-effective);
 }
 .weq-db-progress-entry.is-failed .weq-db-progress-node,
-.weq-db-progress-entry.is-failed .weq-db-progress-step > strong {
+.weq-db-progress-entry.is-failed .weq-db-progress-step > strong,
+.weq-db-progress-entry.is-incomplete .weq-db-progress-node,
+.weq-db-progress-entry.is-incomplete .weq-db-progress-step > strong,
+.weq-db-progress-entry.is-abnormal .weq-db-progress-node,
+.weq-db-progress-entry.is-abnormal .weq-db-progress-step > strong {
   color: var(--weq-warn-fg);
 }
 .weq-db-progress-entry.is-pending {
@@ -120,11 +127,13 @@
 .weq-db-progress-entry.is-pending .weq-db-progress-node {
   border-color: transparent;
 }
-.weq-db-progress-object {
+.weq-db-progress-object,
+.weq-db-progress-detail {
   margin: 0;
   overflow-wrap: anywhere;
   color: var(--weq-fg-secondary);
   font-size: 12px;
+  line-height: 1.6;
 }
 .weq-db-progress .weq-task-progress-track {
   height: 5px;
@@ -159,6 +168,15 @@ html[data-theme='dark'] .weq-db-progress-entry.is-current .weq-db-progress-node 
   gap: 12px;
   padding: 12px 0;
   border-bottom: 1px solid var(--weq-border-subtle);
+}
+.weq-rp-db-top .weq-rp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.weq-rp-db-top .weq-rp-chip svg {
+  flex: none;
 }
 .weq-rp-batch > div {
   display: grid;

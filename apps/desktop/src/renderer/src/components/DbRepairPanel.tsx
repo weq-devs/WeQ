@@ -1517,6 +1517,15 @@ export function DbRepairPanel({
   const healthyCount = liveDbs.length - problemDbs.length;
   const scannedAll = liveDbs.length > 0 && checkedRows.length === liveDbs.length;
   const scanning = scan !== null;
+  const activeCheckupSteps =
+    checkupProgress && scan?.current === checkupProgress.dbName && !checkups[checkupProgress.dbName]
+      ? checkupProgress.steps
+      : [];
+  const activeCheckupAbnormal = activeCheckupSteps.some((step) => step.outcome === 'abnormal');
+  const activeCheckupFailed = activeCheckupSteps.some((step) => step.status === 'failed');
+  const abnormalCount =
+    checkedRows.filter((row) => row.verdict === 'pages-bad' || row.verdict === 'corrupted').length +
+    (activeCheckupAbnormal ? 1 : 0);
   /** 当前选中的那一行（未选就是 null —— 修复按钮看它）。 */
   const currentRow =
     dbName === null ? null : (existingDbs.find((row) => row.dbName === dbName) ?? null);
@@ -1737,7 +1746,8 @@ export function DbRepairPanel({
                 const result = checkups[row.dbName];
                 const checking = scanning && result === undefined && scan.current === row.dbName;
                 const badge = result ? checkupBadge(result) : null;
-                const tone: Tone = badge ? badge.tone : 'muted';
+                const issue = checking && (activeCheckupAbnormal || activeCheckupFailed);
+                const tone: Tone = badge ? badge.tone : issue ? 'warn' : 'muted';
                 return (
                   <li key={row.dbName}>
                     <button
@@ -1755,9 +1765,13 @@ export function DbRepairPanel({
                           )}
                         </span>
                         {checking ? (
-                          <Chip tone="run">
+                          <Chip tone={issue ? 'warn' : 'run'}>
                             <Loader2 size={10} className="weq-spin" aria-hidden />
-                            体检中
+                            {activeCheckupAbnormal
+                              ? '已发现异常'
+                              : activeCheckupFailed
+                                ? '部分检查失败'
+                                : '体检中'}
                           </Chip>
                         ) : badge ? (
                           <Chip tone={badge.tone}>{badge.label}</Chip>
@@ -1770,7 +1784,11 @@ export function DbRepairPanel({
                         {result
                           ? result.summary
                           : checking
-                            ? '正在体检这个数据库。'
+                            ? activeCheckupAbnormal
+                              ? '已发现异常，仍在继续体检。'
+                              : activeCheckupFailed
+                                ? '部分检查失败，仍在继续其余检查。'
+                                : '正在体检这个数据库。'
                             : scanning
                               ? '等待前面的数据库检查结束。'
                               : '还没体检 —— 点这张卡片可以直接去修它。'}
@@ -1809,13 +1827,8 @@ export function DbRepairPanel({
                   <strong>正在体检数据库</strong>
                   <p>
                     已处理 {scan.done} / {scan.total} 个库 · 通过{' '}
-                    {checkedRows.filter((row) => row.verdict === 'healthy').length} 个 · 异常{' '}
-                    {
-                      checkedRows.filter(
-                        (row) => row.verdict === 'pages-bad' || row.verdict === 'corrupted',
-                      ).length
-                    }{' '}
-                    个
+                    {checkedRows.filter((row) => row.verdict === 'healthy').length} 个 · 已发现异常{' '}
+                    {abnormalCount} 个
                   </p>
                 </div>
                 <button

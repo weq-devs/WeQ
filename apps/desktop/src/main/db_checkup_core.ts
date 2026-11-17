@@ -26,7 +26,14 @@ export async function inspectDatabase(
       target.key,
       target.algo,
       (error, tick) => {
-        if (!error && checkingStructure) onProgress(tick);
+        if (!error && checkingStructure)
+          onProgress({
+            ...tick,
+            // 只有整库已返回异常才会进入这一定位分支，不根据进度百分比猜结论。
+            ...(tick.step === 'integrity-tables' && tick.message === '逐表定位结构异常'
+              ? { outcome: 'abnormal' as const }
+              : {}),
+          });
       },
     );
     checkingStructure = false;
@@ -34,10 +41,22 @@ export async function inspectDatabase(
       step: 'integrity',
       message: health.healthy ? '结构检查通过' : '结构检查发现异常',
       status: 'completed',
+      outcome: health.healthy ? 'normal' : 'abnormal',
+      detail: health.healthy
+        ? undefined
+        : health.corruptedTables.length
+          ? `异常表：${health.corruptedTables.join('、')}`
+          : '整体结构检查发现异常，未能定位到具体表。',
     });
     integrity = { ran: true, healthy: health.healthy, corruptedTables: health.corruptedTables };
   } catch (error) {
-    onProgress({ step: 'integrity', message: '结构检查未完成', status: 'failed' });
+    onProgress({
+      step: 'integrity',
+      message: '结构检查未完成',
+      status: 'failed',
+      outcome: isLikelyCorruptionError(error) ? 'abnormal' : 'unverified',
+      detail: error instanceof Error ? error.message : String(error),
+    });
     integrity = {
       ran: false,
       error: error instanceof Error ? error.message : String(error),
@@ -46,11 +65,24 @@ export async function inspectDatabase(
   }
   checkingStructure = false;
   let pages: DbRepairCheckup['pages'];
+  let foundBadPages = false;
   try {
     onProgress({ step: 'pages', message: '检查页签名' });
-    pages = { ran: true, report: await scanDatabaseBadPages(nt, target, onProgress) };
+    pages = {
+      ran: true,
+      report: await scanDatabaseBadPages(nt, target, (tick) => {
+        if (tick.badPages && tick.badPages > 0) foundBadPages = true;
+        onProgress(tick);
+      }),
+    };
   } catch (error) {
-    onProgress({ step: 'pages', message: '页签名检查未完成', status: 'failed' });
+    onProgress({
+      step: 'pages',
+      message: '页签名检查未完成',
+      status: 'failed',
+      outcome: foundBadPages ? 'abnormal' : 'unverified',
+      detail: error instanceof Error ? error.message : String(error),
+    });
     pages = { ran: false, error: error instanceof Error ? error.message : String(error) };
   }
   return {
