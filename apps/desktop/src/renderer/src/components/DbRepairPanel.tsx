@@ -426,7 +426,7 @@ export function DbRepairPanel({
           .getState()
           .confirm(
             '修复所选数据库？',
-            `${names.join('、')} 将使用当前维护中已有的扫描结果重建并替换。${backup ? '修复前保留备份。' : '本次不保留备份。'}${allowLowSpace ? '本次允许在预留空间不足时尝试修复；实际空间不足时会返回查看结果。' : ''}修复过程中可以停止，已成功的库不会回退。`,
+            `${names.join('、')} 将使用当前维护中已有的扫描结果重建并替换。${backup ? '修复前保留备份，本次维护中已成功的备份会直接复用。' : '本次不保留备份。'}${allowLowSpace ? '本次允许在预留空间不足时尝试修复；实际空间不足时会返回查看结果。' : ''}修复过程中可以停止，已成功的库不会回退。`,
             { okLabel: '开始修复', cancelLabel: '继续查看', ownerDocument },
           ))
       ) {
@@ -1202,7 +1202,7 @@ export function DbRepairPanel({
               ) : null}
               {surface === 'settings' ? (
                 <section className="weq-dbm-cache">
-                  <h3>重建缓存位置</h3>
+                  <h3>备份与修复工作区位置</h3>
                   <p>{cache.data?.override ?? '默认 WeQ 缓存目录'}</p>
                   {cache.error ? (
                     <p className="weq-dbm-alert" role="alert">
@@ -1701,7 +1701,7 @@ function RepairStorageWarning({
   if (!tight.length && !previousWarning)
     return budget.error && enabled ? (
       <p className="weq-dbm-alert" role="alert">
-        无法检查缓存空间：{budget.error.message}
+        无法检查备份与修复工作区空间：{budget.error.message}
       </p>
     ) : null;
   const grouped = new Map<string, (typeof tight)[number]>();
@@ -1728,15 +1728,17 @@ function RepairStorageWarning({
               : '磁盘可用空间偏低'}
         </strong>
       </div>
-      <p>请清理磁盘或更改重建缓存位置。空间不足时会保留维护锁和扫描结果，返回查看结果后可重试。</p>
+      <p>
+        请清理磁盘或更改备份与修复工作区位置。空间不足时会保留维护锁和扫描结果，返回查看结果后可重试。
+      </p>
       <dl>
         <div>
-          <dt>当前缓存位置</dt>
+          <dt>备份与修复工作区位置</dt>
           <dd>{estimates[0]?.cachePath}</dd>
         </div>
         {volumes.map((volume) => (
           <div key={volume.paths.join(':')}>
-            <dt>{volume.paths.includes(volume.cachePath) ? '缓存卷' : '原数据库卷'}</dt>
+            <dt>{volume.paths.includes(volume.cachePath) ? '工作区所在卷' : '原数据库卷'}</dt>
             <dd>
               <span className="weq-dbm-path">{volume.paths.join('、')}</span>
               <span>
@@ -1756,7 +1758,7 @@ function RepairStorageWarning({
           title={cacheDisabled ? '当前重建结束并返回查看结果后可更改位置' : undefined}
         >
           <FolderOpen size={14} />
-          更改缓存位置
+          更改位置
         </button>
         <button
           type="button"

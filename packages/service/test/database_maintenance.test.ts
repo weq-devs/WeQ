@@ -71,7 +71,7 @@ function fixture() {
   );
   const changed = vi.fn();
   const maintenance = new DatabaseMaintenance({
-    acquire: vi.fn(async () => ({ release, signal: lease.signal })),
+    acquire: vi.fn(async () => ({ id: 'held-lock', release, signal: lease.signal })),
     scan,
     deep,
     repair,
@@ -131,7 +131,9 @@ it('普通进度每两秒保存报告，期间继续推送进度；单库完成�
 
 it('未提交的可恢复问题返回查看结果，锁与扫描保留，重试不重复处理已成功库', async () => {
   const h = fixture();
+  expect(h.maintenance.leaseId(scope)).toBeUndefined();
   await h.maintenance.scan(scope, h.targets, 'scan');
+  expect(h.maintenance.leaseId(scope)).toBe('held-lock');
   h.repair.mockImplementationOnce(
     async (target) =>
       ({ id: 'applied', dbName: target.dbName, state: 'applied' }) as DbRepairRecord,
@@ -146,6 +148,8 @@ it('未提交的可恢复问题返回查看结果，锁与扫描保留，重试�
     operation: { status: 'waiting', completedDatabases: 1 },
   });
   expect(result.databases[1]?.repair?.status).toBe('waiting');
+  expect(h.maintenance.leaseId(scope)).toBe('held-lock');
+  expect(h.maintenance.leaseId({ ...scope, configId: 'another-source' })).toBeUndefined();
   expect(h.release).not.toHaveBeenCalled();
   expect(() => h.maintenance.repair(scope, ['msg.db'])).toThrow('支持修复');
   const retried = await h.maintenance.repair(scope, ['profile.db']);
@@ -161,6 +165,7 @@ it('未提交的可恢复问题返回查看结果，锁与扫描保留，重试�
     'profile.db',
   ]);
   expect(h.release).toHaveBeenCalledOnce();
+  expect(h.maintenance.leaseId(scope)).toBeUndefined();
 });
 
 it('报告写满磁盘不打断维护，空间恢复后补存原报告', async () => {

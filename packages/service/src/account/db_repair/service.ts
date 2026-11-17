@@ -224,6 +224,10 @@ export interface DbRepairBackupResult {
 /** 库里一次修复的"体检"等需要的库文件名列表由调用方给（白名单在 service 层之上）。 */
 export class DbRepairService {
   private readonly histories = new Map<string, DbRepairHistory>();
+  private readonly retryBackups = new Map<
+    string,
+    { maintenanceId: string; backup: DbRepairBackupResult }
+  >();
   private readonly log = getLogger().child({ scope: 'db-repair' });
   /** 当前正在跑的修复（同一时刻只允许一个：两个任务互相覆盖是灾难）。 */
   private running: { dbPath: string; startedAt: string } | null = null;
@@ -326,7 +330,7 @@ export class DbRepairService {
    * `unknown-lock` 不阻断（探测失败 ≠ 没锁）：真正的把关在替换前那道复核。
    * `self-hold`（只有 WeQ 自己拿着句柄）同样不阻断 —— 见 {@link classifyLock}。
    */
-  preflight(uin: string, dbName: string, backup = true): DbRepairPreflight {
+  preflight(uin: string, dbName: string, backup = true, maintenanceId?: string): DbRepairPreflight {
     this.assertScratchAvailable();
     const target = this.resolveTarget(uin, dbName);
     const lock = this.classifyLock(target.dbPath, uin);
@@ -339,7 +343,7 @@ export class DbRepairService {
       cacheDir: dirname(paths.workDir),
       dbBytes,
       walBytes,
-      backup,
+      backup: backup && !this.reusableBackup(target, maintenanceId),
       optimized: storageOptimized,
       probe: this.deps.diskSpace,
     });
@@ -361,6 +365,25 @@ export class DbRepairService {
       backupsKept: this.countBackups(uin),
       pendingWalBytes: pendingWalBytes(target.dbPath),
     };
+  }
+
+  /** 结束持续维护后不再复用旧备份，文件及其历史记录继续保留。 */
+  endMaintenance(maintenanceId: string): void {
+    for (const [path, saved] of this.retryBackups)
+      if (saved.maintenanceId === maintenanceId) this.retryBackups.delete(path);
+  }
+
+  private reusableBackup(
+    target: DbRepairTarget,
+    maintenanceId?: string,
+  ): DbRepairBackupResult | null {
+    const saved = this.retryBackups.get(target.dbPath);
+    if (!maintenanceId || saved?.maintenanceId !== maintenanceId) return null;
+    if (fileBytes(saved.backup.path) !== saved.backup.bytes) {
+      this.retryBackups.delete(target.dbPath);
+      return null;
+    }
+    return saved.backup;
   }
 
   /** 手动备份（界面上独立的"立即备份"按钮）。 */
@@ -395,6 +418,11 @@ export class DbRepairService {
       // 只有持续锁内、尚未进入提交且未发现源库变化，才允许继续消费同一份扫描结果。
       failure.sourceUnchanged =
         !!request.maintenanceId && !committing && failure.code !== 'changed-during-repair';
+      if (!failure.sourceUnchanged || request.signal?.aborted) {
+        const path = request.sourceScan?.dbPath;
+        if (path && this.retryBackups.get(path)?.maintenanceId === request.maintenanceId)
+          this.retryBackups.delete(path);
+      }
       throw failure;
     }
   }
@@ -422,7 +450,14 @@ export class DbRepairService {
     request.signal?.throwIfAborted();
     const layoutMigration =
       request.layoutMigration === true || request.sourceScan.sourceLayout === 'standard';
-    const preflight = this.preflight(uin, request.dbName, request.backup !== false);
+    const retryBackup =
+      request.backup === false ? null : this.reusableBackup(target, request.maintenanceId);
+    const preflight = this.preflight(
+      uin,
+      request.dbName,
+      request.backup !== false,
+      request.maintenanceId,
+    );
     const initialStorage: RepairStorageStatus = {
       cachePath: preflight.cachePath,
       phase: 'backup',
@@ -440,7 +475,7 @@ export class DbRepairService {
     onProgress({
       phase: 'backup',
       percent: 0,
-      message: '检查重建缓存空间',
+      message: '检查备份与修复工作区空间',
       storage: initialStorage,
     });
     const shortage = preflight.space.find(
@@ -530,7 +565,10 @@ export class DbRepairService {
             rebuiltBytes: working.rebuilt,
             productBytes,
             backupRemainingBytes:
-              latest.phase.toLowerCase() === 'backup' && request.backup !== false
+              latest.phase.toLowerCase() === 'backup' &&
+              request.backup !== false &&
+              !retryBackup &&
+              !backup
                 ? Math.max(
                     0,
                     preflight.dbBytes - (fileBytes(paths.backupFile(stamp, target.dbName)) ?? 0),
@@ -546,7 +584,7 @@ export class DbRepairService {
         spaceAbort.abort(
           spaceError(
             'insufficient-space',
-            `剩余磁盘空间不足（${low.paths.join('、')}）：后续新增峰值约 ${formatMb(low.requiredBytes)}，当前可用 ${formatMb(low.freeBytes!)}。已保留维护锁和扫描结果，请清理磁盘或更改缓存位置后重试。`,
+            `剩余磁盘空间不足（${low.paths.join('、')}）：后续新增峰值约 ${formatMb(low.requiredBytes)}，当前可用 ${formatMb(low.freeBytes!)}。已保留维护锁和扫描结果，请清理磁盘或更改备份与修复工作区位置后重试。`,
             storage,
           ),
         );
@@ -599,7 +637,7 @@ export class DbRepairService {
       if (pendingWal > 0) emit({ phase: 'wal', percent: 0, message: '合并预写日志' });
       walMerged = request.maintenanceId ? true : await this.mergePendingWal(target, pendingWal);
 
-      emit({ phase: 'backup', percent: 0, message: '备份到 WeQ 缓存…' });
+      emit({ phase: 'backup', percent: 0, message: '准备修复备份' });
       if (request.backup === false) {
         before = await fingerprintFile(target.dbPath, (completed, total) =>
           emit({
@@ -615,6 +653,30 @@ export class DbRepairService {
             },
           }),
         );
+      } else if (retryBackup) {
+        try {
+          const fingerprint = await fingerprintFile(retryBackup.path, (completed, total) =>
+            emit({
+              phase: 'backup',
+              percent: 0,
+              message: '校验并复用本次维护的已有备份',
+              detail: {
+                step: 'backup',
+                message: '校验并复用本次维护的已有备份',
+                completed,
+                total,
+                unit: 'bytes',
+              },
+            }),
+          );
+          if (fingerprint.sha256 !== retryBackup.sha256 || fingerprint.bytes !== retryBackup.bytes)
+            throw new DbRepairError('no-backup', '已有备份校验未通过，请重试以重新备份。');
+        } catch (error) {
+          if (!spaceAbort.signal.aborted) this.retryBackups.delete(target.dbPath);
+          throw error;
+        }
+        backup = retryBackup;
+        before = { bytes: backup.bytes, sha256: backup.sha256 };
       } else {
         const fingerprint = await backupFileAndHash(
           target.dbPath,
@@ -635,11 +697,15 @@ export class DbRepairService {
         );
         backup = this.writeBackup(target, paths, stamp, fingerprint);
         before = { bytes: backup.bytes, sha256: backup.sha256 };
+        if (request.maintenanceId)
+          this.retryBackups.set(target.dbPath, { maintenanceId: request.maintenanceId, backup });
       }
       emit({
         phase: 'backup',
         percent: 1,
-        message: backup ? `已备份 ${formatMb(backup.bytes)}` : '已跳过备份（按请求）',
+        message: backup
+          ? `${retryBackup ? '已复用备份' : '已备份'} ${formatMb(backup.bytes)}`
+          : '已跳过备份（按请求）',
       });
 
       // 原生工作在子进程中；即使某个步骤不再发进度，也继续观测文件增长与可用空间。
@@ -745,6 +811,7 @@ export class DbRepairService {
       request.signal?.throwIfAborted();
       // 提交开始后完成替换与验证；停止不回退已经提交成功的数据库。
       committing = true;
+      this.retryBackups.delete(target.dbPath);
       onCommit();
       const removedSidecars = request.maintenanceId
         ? removeSqliteSidecars(target.dbPath, ['-wal', '-journal'])
@@ -1007,7 +1074,8 @@ export class DbRepairService {
     if (!record) throw new DbRepairError('not-found', `找不到修复记录：${recordId}`);
     // 先删记录再删目录：即使删目录失败，界面上这条也已经不在了（不会留半截）。
     const removed = history.remove(recordId);
-    if (record.backupPath) removeDirQuietly(dirname(record.backupPath));
+    if (record.backupPath && !history.list().some((item) => item.backupPath === record.backupPath))
+      removeDirQuietly(dirname(record.backupPath));
     this.log.info('db repair record deleted', {
       event: 'db-repair-record-deleted',
       accountUin: uin,
@@ -1051,9 +1119,12 @@ export class DbRepairService {
   }
 
   private countBackups(uin: string): number {
-    return this.history(uin)
-      .list()
-      .filter((record) => record.backupPath !== null && record.purgedAt === undefined).length;
+    return new Set(
+      this.history(uin)
+        .list()
+        .filter((record) => record.backupPath !== null && record.purgedAt === undefined)
+        .map((record) => record.backupPath),
+    ).size;
   }
 
   /** 把源库拷进缓存（含 sha256 + meta）。 */
@@ -1095,7 +1166,7 @@ export class DbRepairService {
     if (scratch && !isDirectory(scratch)) {
       throw new DbRepairError(
         'not-found',
-        '自定义修复缓存目录不可用，请重新选择；不会创建替代目录',
+        '自定义备份与修复工作区位置不可用，请重新选择；不会创建替代目录',
       );
     }
   }

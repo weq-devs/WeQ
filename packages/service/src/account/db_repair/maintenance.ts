@@ -68,6 +68,13 @@ export class DatabaseMaintenance {
   private readonly sessions = new Map<string, Session>();
   constructor(private readonly deps: DatabaseMaintenanceDeps) {}
 
+  leaseId(scope: DatabaseMaintenanceScope): string | undefined {
+    const session = this.sessions.get(keyFor(scope));
+    return session?.snapshot.locked && !session.lease?.signal?.aborted
+      ? session.lease?.id
+      : undefined;
+  }
+
   current(scope: DatabaseMaintenanceScope): DatabaseMaintenanceSnapshot | null {
     const session = this.sessions.get(keyFor(scope));
     if (session?.unsavedReports.size) this.flushReports(session);

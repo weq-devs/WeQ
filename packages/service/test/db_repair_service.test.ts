@@ -401,6 +401,109 @@ describe('DbRepairService.repair 成功路径', () => {
 // ────────────────────────── 中止与失败 ──────────────────────────
 
 describe('修复空间与自定义缓存', () => {
+  it('持锁失败后复用成功备份，换工作区及连续重试只预算后续占用，共用备份按文件保留', async () => {
+    let free = 1e12;
+    let scratch: string | null = null;
+    let attempts = 0;
+    const h = createHarness({
+      storageOptimized: () => true,
+      scratchDir: () => scratch,
+      diskSpace: () => ({ volume: 'same', freeBytes: free }),
+      recover: async (options) => {
+        if (++attempts <= 4) throw new Error('ENOSPC: synthetic rebuild failure');
+        writeFileSync(options.outPath, repairedBytes());
+        return makeReport();
+      },
+    });
+    const request = {
+      uin: REF,
+      dbName: 'nt_msg.db',
+      maintenanceId: 'held-lock',
+      allowLowSpace: true,
+    };
+    const initialPeak = h.service.preflight(REF, request.dbName).requiredBytes;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      await expect(h.repair(request, collect(h.progress))).rejects.toMatchObject({
+        sourceUnchanged: true,
+      });
+      const retry = h.service.preflight(REF, request.dbName, true, request.maintenanceId);
+      expect(retry.requiredBytes).toBe(initialPeak - originalBytes().length);
+      free = retry.requiredBytes;
+      if (attempt === 0) scratch = tmpDir('retry-workspace');
+    }
+    const failed = h.service.listRecords(REF);
+    const backupPath = failed[0]!.backupPath!;
+    expect(new Set(failed.map((record) => record.backupPath)).size).toBe(1);
+    expect(failed.every((record) => record.purgedAt === undefined)).toBe(true);
+    h.progress.length = 0;
+    const result = await h.repair(request, collect(h.progress));
+    expect(result.backupPath).toBe(backupPath);
+    expect(readFileSync(backupPath)).toEqual(originalBytes());
+    expect(readFileSync(h.dbPath)).toEqual(repairedBytes());
+    expect(existsSync(h.paths().backupsDir)).toBe(false);
+    expect(h.progress[0]?.storage?.space[0]?.requiredBytes).toBe(
+      initialPeak - originalBytes().length,
+    );
+    expect(h.service.preflight(REF, request.dbName).backupsKept).toBe(1);
+    expect(
+      h.service.preflight(REF, request.dbName, true, request.maintenanceId).requiredBytes,
+    ).toBe(h.service.preflight(REF, request.dbName).requiredBytes);
+    h.service.deleteRecord(REF, failed[0]!.id);
+    expect(existsSync(backupPath)).toBe(true);
+    h.service.deleteBackup(REF, result.id);
+    expect(existsSync(backupPath)).toBe(false);
+    expect(h.service.listRecords(REF).every((record) => !!record.purgedAt)).toBe(true);
+  });
+
+  it.each(['ended', 'different-lease', 'missing'] as const)(
+    '备份不再可复用时重新预算并创建新备份：%s',
+    async (reason) => {
+      let failed = false;
+      const h = createHarness({
+        recover: async (options) => {
+          if (!failed) {
+            failed = true;
+            throw new Error('synthetic failure');
+          }
+          writeFileSync(options.outPath, repairedBytes());
+          return makeReport();
+        },
+      });
+      const request = { uin: REF, dbName: 'nt_msg.db', maintenanceId: 'held-lock' };
+      const full = h.service.preflight(REF, request.dbName).requiredBytes;
+      await expect(h.repair(request, () => {})).rejects.toThrow('synthetic failure');
+      const previous = h.service.listRecords(REF)[0]!.backupPath!;
+      if (reason === 'ended') h.service.endMaintenance(request.maintenanceId);
+      if (reason === 'different-lease') request.maintenanceId = 'new-lock';
+      if (reason === 'missing') rmSync(previous);
+      expect(
+        h.service.preflight(REF, request.dbName, true, request.maintenanceId).requiredBytes,
+      ).toBe(full);
+      const result = await h.repair(request, () => {});
+      expect(result.backupPath).not.toBe(previous);
+      expect(readFileSync(result.backupPath!)).toEqual(originalBytes());
+    },
+  );
+
+  it('复用前校验备份内容，同长度损坏也不进入重建，随后恢复完整备份预算', async () => {
+    const h = createHarness({
+      recover: async () => {
+        throw new Error('synthetic failure');
+      },
+    });
+    const request = { uin: REF, dbName: 'nt_msg.db', maintenanceId: 'held-lock' };
+    const full = h.service.preflight(REF, request.dbName).requiredBytes;
+    await expect(h.repair(request, () => {})).rejects.toThrow('synthetic failure');
+    const previous = h.service.listRecords(REF)[0]!.backupPath!;
+    writeFileSync(previous, Buffer.alloc(originalBytes().length));
+    await expect(h.repair(request, () => {})).rejects.toMatchObject({ code: 'no-backup' });
+    expect(h.calls.recover).toBe(1);
+    expect(readFileSync(h.dbPath)).toEqual(originalBytes());
+    expect(
+      h.service.preflight(REF, request.dbName, true, request.maintenanceId).requiredBytes,
+    ).toBe(full);
+  });
+
   it('已写出的重建文件和随后删除的临时件不会让中途检查重复索取整轮空间', async () => {
     let free = 1e12;
     const h = createHarness({
