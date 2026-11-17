@@ -4,6 +4,8 @@
 
 **WeQ** 是面向 QQ NT 聊天记录的本地查看、导出与分析工具。
 
+[下载](https://github.com/weq-devs/WeQ/releases) · [文档站](https://weq-devs.github.io/WeqDocs/) · [快速上手](https://weq-devs.github.io/WeqDocs/guide/getting-started) · [问题反馈](https://github.com/weq-devs/WeQ/issues) · [免责声明与使用说明](#免责声明与使用说明)
+
 如果你需要导出和分析**微信聊天记录**：[WeChatDataAnalysis](https://github.com/LifeArchiveProject/WeChatDataAnalysis)   是相当不错的选择
 
 欢迎加入**QQ交流群**讨论交流： [![WeQ交流群](https://img.shields.io/badge/WeQ交流群-Join-blue)](https://qm.qq.com/q/ysMZoAcC1a)
@@ -38,11 +40,18 @@
 | ![image-20260911060130806](./.github/readme-assets/image-20260911060130806.png) | ![image-20260911060406735](./.github/readme-assets/image-20260911060406735.png) |
 
 
-> 全部功能请查看[使用手册](./docs/guide/index.md)，更多内容见 [文档中心](https://weq-devs.github.io/WeqDocs/)
+> 全部功能请查看[在线使用手册](https://weq-devs.github.io/WeqDocs/guide/)，手机连接见 [WeQ Remote](https://github.com/weq-devs/WeQ-Remote)。
+
+## 免责声明与使用说明
+
+- **非官方项目**：WeQ 由独立开发者维护，不是腾讯或 QQ 官方产品，与其不存在官方隶属或背书关系。
+- **数据与素材使用**：请仅处理本人或已获合法授权的数据。项目许可证不授予对第三方软件、素材、个人信息或人格形象的额外使用、复制和传播权利。
+- **编辑与 AI 内容**：本地编辑、新增消息和 AI 模拟内容不等同于原始聊天记录，也不代表对应联系人真实发言；分享时应明确标注。
+- **实际操作影响**：消息编辑、删除及数据库修复等操作可能写入本地数据库，操作前请备份原始数据；发送消息、群管理等 QQ 在线操作会真实作用于 QQ，不能视为离线模拟。
+
+功能可用性会受系统、QQ 版本、凭据及在线接口变化影响，具体支持情况以对应版本说明和实际检测为准。详细说明见[文档站的免责声明与使用说明](https://weq-devs.github.io/WeqDocs/guide/disclaimer)。
 
 ## 使用方法
-
-WeQ 是非腾讯官方项目。请仅处理本人或已获合法授权的数据；项目许可证不授予对第三方软件、素材、个人信息或人格形象的额外使用、复制和传播权利。
 
 1. 前往 [Releases](https://github.com/weq-devs/WeQ/releases) 下载最新版本
 2. 按照引导操作获取数据库密钥 
