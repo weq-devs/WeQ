@@ -29,12 +29,7 @@ export function WindowAppearanceCard() {
     >
       <Row
         settingId="windows-style-controls"
-        label={
-          <span className="weq-set-row-icon">
-            <PanelsTopLeft size={15} strokeWidth={1.8} aria-hidden />
-            使用仿 Windows 窗口按钮
-          </span>
-        }
+        label="使用仿 Windows 窗口按钮"
         desc={`在右上角使用最小化、最大化和关闭按钮，替代系统窗口按钮；账号选择页保持统一样式。${platform === 'linux' ? '主窗口重新进入账号后生效，独立窗口下次打开时生效。' : '主窗口立即生效，独立窗口下次打开时生效。'}`}
         control={
           <Toggle

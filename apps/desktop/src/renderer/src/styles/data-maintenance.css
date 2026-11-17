@@ -6,17 +6,6 @@
   gap: 12px;
   min-width: 0;
 }
-.weq-maintenance-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.weq-maintenance-label > svg {
-  flex: none;
-  color: var(--weq-fg-secondary);
-}
 .weq-maintenance-status {
   display: flex;
   align-items: center;

@@ -26,7 +26,6 @@ import {
   EyeOff,
   FolderOpen,
   KeyRound,
-  Plug,
   Radio,
   RefreshCw,
   Smartphone,
@@ -599,12 +598,7 @@ export function AccountBasicsSection({
         >
           <Row
             settingId="realtime-enabled"
-            label={
-              <span className="weq-set-row-icon">
-                <Database size={15} strokeWidth={1.8} aria-hidden />
-                启用数据库监听
-              </span>
-            }
+            label="启用数据库监听"
             desc="监听 QQ 数据库变化以实时显示新消息、撤回与表情回应。"
             control={
               <Toggle
@@ -628,12 +622,7 @@ export function AccountBasicsSection({
           <FullFunctionSetup isMac={isMac}>
             <Row
               settingId="auto-full-mode"
-              label={
-                <span className="weq-set-row-icon">
-                  <Plug size={15} strokeWidth={1.8} aria-hidden />
-                  自动启用 QQ 在线能力
-                </span>
-              }
+              label="自动启用 QQ 在线能力"
               desc="打开账号后自动尝试读取 QQ 会话凭据并启用 QQ 在线能力。关闭后仍可在「在线能力受限」详情中为当前来源手动启用；手动请求仅在宿主本次运行中有效，不改变下次启动偏好。"
               control={
                 <Toggle
@@ -690,12 +679,7 @@ export function AccountBasicsSection({
           settingId="external-chatpic"
         >
           <Row
-            label={
-              <span className="weq-set-row-icon">
-                <Smartphone size={15} strokeWidth={1.8} aria-hidden />
-                允许使用外部安卓图片缓存
-              </span>
-            }
+            label="允许使用外部安卓图片缓存"
             desc={
               externalChatpicDir
                 ? `聊天图片在本机找不到时，会先到该备份目录按 md5 寻址，再回退到网络下载。 ${externalChatpicDir}`

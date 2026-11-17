@@ -140,18 +140,13 @@ export function DataMaintenanceSection({
       <div className="weq-maintenance-rows">
         {visibleTools
           .filter(({ id }) => !remote || !remoteUnsupportedTools.includes(id))
-          .map(({ id, label, actionLabel, settingId, icon: Icon, needsResources }) => {
+          .map(({ id, label, actionLabel, settingId, needsResources }) => {
             const unavailable = needsResources && account.data?.static;
             const OpenIcon = id === 'db-repair' || id === 'database' ? ArrowUpRight : ArrowRight;
             return (
               <Row
                 key={id}
-                label={
-                  <span className="weq-maintenance-label">
-                    <Icon size={15} aria-hidden />
-                    {label}
-                  </span>
-                }
+                label={label}
                 desc={unavailable ? '静态账号不可用' : undefined}
                 control={
                   <button

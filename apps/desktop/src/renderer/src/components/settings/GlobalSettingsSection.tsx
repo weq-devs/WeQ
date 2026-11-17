@@ -499,12 +499,7 @@ export function GlobalSettingsSection({
       {section === 'network' && (
         <Card title="加载来源" icon={<Cloud size={15} strokeWidth={1.8} />} settingId="prefer-cdn">
           <Row
-            label={
-              <span className="weq-set-row-icon">
-                <Cloud size={15} strokeWidth={1.8} aria-hidden />
-                优先直连 QQ 加载图片
-              </span>
-            }
+            label="优先直连 QQ 加载图片"
             desc={`桌面端与 Web 共用。${
               preferCdn
                 ? '头像与聊天图片、视频封面由界面直接向 QQ 服务器获取，不经 WeQ 中转。本地已存的头像和媒体缓存会被绕过（离线时看不到），获取失败会自动回退到原来的方式。'
