@@ -1908,7 +1908,6 @@ export class UserConfigService {
   cacheDir(category: string): string {
     const dir = join(this.cacheBaseDir(), category);
     mkdirSync(dir, { recursive: true });
-    this.logger.debug('ensured cache directory', { event: 'cache-dir', category, dir });
     return dir;
   }
 
