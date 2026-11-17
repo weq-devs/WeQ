@@ -17730,7 +17730,6 @@ html[data-theme='dark'] .weq-rp-body {
   padding: 11px 12px 10px;
   border: 1px solid var(--weq-border-subtle);
   border-top-width: 3px;
-  border-top-color: transparent;
   border-radius: 11px;
   background: var(--rp-card);
   color: var(--weq-fg-secondary);

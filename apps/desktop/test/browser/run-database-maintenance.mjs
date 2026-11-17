@@ -87,6 +87,25 @@ try {
           });
         cases++;
       };
+      const assertCardBorders = async (selector) => {
+        const missing = await page.locator(selector).evaluateAll((cards) => {
+          const context = document.createElement('canvas').getContext('2d');
+          return cards.flatMap((card) => {
+            const style = getComputedStyle(card);
+            return ['Top', 'Right', 'Bottom', 'Left'].flatMap((side) => {
+              context.clearRect(0, 0, 1, 1);
+              context.fillStyle = style[`border${side}Color`];
+              context.fillRect(0, 0, 1, 1);
+              return Number.parseFloat(style[`border${side}Width`]) > 0 &&
+                style[`border${side}Style`] !== 'none' &&
+                context.getImageData(0, 0, 1, 1).data[3] > 0
+                ? []
+                : [`${card.querySelector('.weq-rp-mono')?.textContent}: ${side}`];
+            });
+          });
+        });
+        assert.deepEqual(missing, [], '数据库卡片的四边均应可见');
+      };
       const strip = page.getByRole('list', { name: '体检数据库列表' });
       const stripLayout = await strip.evaluate((node) => {
         const boxes = [...node.children].map((item) => item.getBoundingClientRect());
@@ -130,6 +149,7 @@ try {
         0,
       );
       await capture('structure');
+      await assertCardBorders('.weq-rp-db');
       await page.getByText('39.1%', { exact: true }).waitFor();
       await page.evaluate(() => window.maintenanceQa.structureRecords());
       await page.getByText('25.0%', { exact: true }).waitFor();
@@ -144,6 +164,7 @@ try {
       await page.getByText('34.8%', { exact: true }).waitFor();
       await capture('checkup');
       await page.getByRole('button', { name: '跳过体检，直接选数据库 →' }).click();
+      await assertCardBorders('.weq-rp-pick');
       await page.locator('.weq-rp-pick').first().click();
       await page.getByRole('button', { name: '开始修复', exact: true }).click();
       await page.getByRole('button', { name: '确认替换并修复', exact: true }).click();
