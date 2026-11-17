@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:f
 import { join } from 'node:path';
 import { writeFileAtomicSync } from '../../common/atomic_write';
 import type { DatabaseMaintenanceReport } from './maintenance_types';
+import type { DbRepairRecord } from './types';
 import {
   databaseRepairSupportLabel,
   databaseMaintenanceKindLabel,
@@ -67,6 +68,32 @@ function escapeHtml(text: string): string {
       })[char]!,
   );
 }
+
+function repairResultLines(record: DbRepairRecord): string[] {
+  const bytes = (value: number | null) => (value === null ? '未知' : `${value} 字节`);
+  const pages = (values: number[]) => (values.length ? values.join('、') : '无');
+  const lines = [
+    `修复前后体积：${bytes(record.beforeBytes)} → ${bytes(record.afterBytes)}`,
+    `修复前页签名异常：${pages(record.badPages)}`,
+    `修复前全零页：${pages(record.zeroPages)}`,
+    `修复耗时：${(record.durationMs / 1000).toFixed(3)} 秒`,
+  ];
+  for (const phase of record.phases)
+    lines.push(`阶段耗时（${phase.phase}）：${(phase.ms / 1000).toFixed(3)} 秒`);
+  const check = record.verification;
+  if (!check) return [...lines, '产物自检：没有自检结果'];
+  const unverified = check.complete === false || !!check.unverifiedTables?.length;
+  lines.push(
+    `产物自检：${!check.healthy || check.badPages.length ? '未通过' : unverified ? '已检查部分通过，仍有未核验项' : '通过'}`,
+    `产物异常表：${check.corruptedTables.join('、') || '无'}`,
+    `产物页签名异常：${pages(check.badPages)}`,
+    `产物表／索引数量：${check.tables} / ${check.indexes}`,
+  );
+  if (unverified)
+    lines.push(`产物未核验结构：${check.unverifiedTables?.join('、') || '部分结构检查'}`);
+  return lines;
+}
+
 export function renderDatabaseMaintenanceReport(
   report: DatabaseMaintenanceReport,
   format: 'html' | 'md' | 'json',
@@ -115,7 +142,8 @@ export function renderDatabaseMaintenanceReport(
       lines.push(
         `修复结果：${databaseRepairStatusLabel[row.repair.status]}${row.repair.error ? `：${row.repair.error}` : ''}`,
       );
-    if (row.repair?.record) lines.push(`修复记录：${row.repair.record.id}`);
+    if (row.repair?.record)
+      lines.push(`修复记录：${row.repair.record.id}`, ...repairResultLines(row.repair.record));
     if (row.progress)
       for (const step of row.progress.steps)
         lines.push(

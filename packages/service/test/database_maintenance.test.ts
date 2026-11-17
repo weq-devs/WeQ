@@ -9,9 +9,11 @@ import type { BadPageScanReport } from '../src/account/bad_pages';
 import type { DbRepairTarget, DbRepairRecord } from '../src/account/db_repair/types';
 import type { DbRepairCheckupIntegrity } from '../src/account/db_repair/checkup';
 import { DbRepairError } from '../src/account/db_repair/service';
+import type { DatabaseWorkProgress } from '../src/account/db_repair/progress';
 
 const roots: string[] = [];
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 function fixture() {
@@ -32,7 +34,7 @@ function fixture() {
     async (
       target: DbRepairTarget,
       _signal: AbortSignal,
-      _progress: (tick: never) => void,
+      _progress: (tick: DatabaseWorkProgress) => void,
     ): Promise<BadPageScanReport> => ({
       dbName: target.dbName,
       dbPath: target.dbPath,
@@ -67,16 +69,65 @@ function fixture() {
       corruptedTables: ['broken'],
     }),
   );
+  const changed = vi.fn();
   const maintenance = new DatabaseMaintenance({
     acquire: vi.fn(async () => ({ release, signal: lease.signal })),
     scan,
     deep,
     repair,
     reports: () => reports,
+    changed,
   });
-  return { maintenance, targets, scan, deep, repair, release, reports, lease };
+  return { maintenance, targets, scan, deep, repair, release, reports, lease, changed };
 }
 const scope = { uin: '10001', configId: 'source-a' };
+
+it('普通进度每两秒保存报告，期间继续推送进度；单库完成和停止立即保存', async () => {
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(10000);
+  const h = fixture();
+  const save = vi.spyOn(h.reports, 'save');
+  let emit!: (tick: DatabaseWorkProgress) => void;
+  let entered!: () => void;
+  const started = new Promise<void>((done) => {
+    entered = done;
+  });
+  h.scan.mockImplementationOnce(h.scan.getMockImplementation()!);
+  h.scan.mockImplementationOnce(
+    (_target, signal, progress) =>
+      new Promise((_done, reject) => {
+        emit = progress;
+        entered();
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      }),
+  );
+  const run = h.maintenance.scan(scope, h.targets, 'scan');
+  await started;
+  const id = h.maintenance.current(scope)!.operation!.id;
+  expect(h.reports.get(id)?.databases[0]?.scanStatus).toBe('completed');
+  save.mockClear();
+  h.changed.mockClear();
+  const tick = (at: number, completed: number) => {
+    clock.mockReturnValue(at);
+    emit({ step: 'pages', message: 'scan', completed, total: 10, unit: 'pages' });
+    expect(h.maintenance.current(scope)?.progress?.current.completed).toBe(completed);
+  };
+  tick(10500, 1);
+  tick(11999, 2);
+  expect(save).not.toHaveBeenCalled();
+  expect(h.changed).toHaveBeenCalledTimes(2);
+  tick(12000, 3);
+  expect(save).toHaveBeenCalledOnce();
+  expect(h.reports.get(id)?.databases[1]?.progress?.current.completed).toBe(3);
+  tick(12001, 4);
+  expect(save).toHaveBeenCalledOnce();
+  await h.maintenance.stop(scope);
+  await run;
+  expect(save).toHaveBeenCalledWith(
+    expect.objectContaining({ operation: expect.objectContaining({ stopping: true }) }),
+  );
+  expect(h.reports.get(id)?.operation.status).toBe('cancelled');
+  await h.maintenance.end(scope);
+});
 
 it('未提交的可恢复问题返回查看结果，锁与扫描保留，重试不重复处理已成功库', async () => {
   const h = fixture();
@@ -203,6 +254,81 @@ it('历史报告三种格式使用同一份完整结果，HTML 转义来源文�
   expect(html).not.toContain('<script>');
   await h.maintenance.end(scope);
   expect(h.reports.get(result.operation!.id)).toEqual(report);
+});
+
+it('HTML／Markdown 直接导出已有修复指标、耗时和自检结果，不额外读取数据库', async () => {
+  const h = fixture();
+  const record: DbRepairRecord = {
+    id: 'repair-detail',
+    at: '2026-11-18T00:00:00+08:00',
+    uin: scope.uin,
+    dataDir: null,
+    dbName: 'msg.db',
+    dbPath: h.targets[0]!.dbPath,
+    state: 'applied',
+    backupPath: null,
+    backupBytes: null,
+    beforeSha: 'before',
+    beforeBytes: 12345,
+    afterSha: 'after',
+    afterBytes: 9876,
+    badPages: [7, 11],
+    zeroPages: [13],
+    pageSize: 4096,
+    headerOffset: 1024,
+    strictPages: false,
+    sourcePages: 20,
+    outputPages: 18,
+    scannedCells: 31,
+    phases: [
+      { phase: 'Decrypt', ms: 1234 },
+      { phase: 'Repair', ms: 4321 },
+    ],
+    verification: {
+      healthy: true,
+      complete: false,
+      unverifiedTables: ['qq_fts<script>'],
+      corruptedTables: [],
+      badPages: [],
+      tables: 17,
+      indexes: 23,
+      ms: 456,
+    },
+    pendingWalBytes: 0,
+    walMerged: false,
+    durationMs: 12345,
+    reportPath: null,
+  };
+  h.repair.mockResolvedValueOnce(record);
+  await h.maintenance.scan(scope, h.targets, 'scan');
+  const result = await h.maintenance.repair(scope, ['msg.db']);
+  const report = h.reports.get(result.operation!.id)!;
+  expect(JSON.parse(renderDatabaseMaintenanceReport(report, 'json'))).toEqual(report);
+  for (const format of ['md', 'html'] as const) {
+    const output = renderDatabaseMaintenanceReport(report, format);
+    for (const value of [
+      '12345 字节',
+      '9876 字节',
+      '7、11',
+      '13',
+      '1.234 秒',
+      '4.321 秒',
+      '12.345 秒',
+      '17 / 23',
+      '未核验项',
+    ])
+      expect(output).toContain(value);
+  }
+  const html = renderDatabaseMaintenanceReport(report, 'html');
+  expect(html).toContain('qq_fts&lt;script&gt;');
+  expect(html).not.toContain('<script>');
+  expect(h.scan).toHaveBeenCalledTimes(3);
+  expect(h.deep).not.toHaveBeenCalled();
+  expect(h.repair).toHaveBeenCalledOnce();
+  report.databases[0]!.repair!.record = { ...record, afterBytes: null, verification: null };
+  const unknown = renderDatabaseMaintenanceReport(report, 'md');
+  expect(unknown).toContain('12345 字节 → 未知');
+  expect(unknown).toContain('没有自检结果');
 });
 
 it('打开状态不扫描；全账号先锁定，扫描结果在等待和继续深度体检时保留', async () => {

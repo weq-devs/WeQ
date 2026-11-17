@@ -674,6 +674,15 @@ export class DbRepairService {
       }
       request.signal?.throwIfAborted();
 
+      // 已知不合格的产物不进入替换，也不为此触发原库还原。
+      if (!recovered.verification.healthy || recovered.verification.badPages.length > 0) {
+        verification = recovered.verification;
+        throw new DbRepairError(
+          'verify-failed',
+          '修复产物自检未通过，已在替换前中止，原数据库保持不变（详情见修复报告）',
+        );
+      }
+
       // 旧产物会静默忽略未知参数：迁移请求传下去后，它仍按 QQ 布局读 standard 源，
       // 产出一个看似成功、实际错位的库。native 新版本会把实际使用的布局回显在报告
       // 里；没回显（或不是 standard → qq）就在替换之前中止，源库一个字节不动。

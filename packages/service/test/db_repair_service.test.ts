@@ -573,6 +573,65 @@ describe('修复空间与自定义缓存', () => {
 });
 
 describe('DbRepairService.repair 中止 / 失败', () => {
+  it.each([
+    { healthy: false, badPages: [], backup: true },
+    { healthy: false, badPages: [], backup: false },
+    { healthy: true, badPages: [3], backup: true },
+    { healthy: true, badPages: [3], backup: false },
+  ])('原生自检不通过时替换前中止（%j），不触发最终复核或还原', async (check) => {
+    const report = makeReport();
+    report.verification = {
+      ...report.verification,
+      healthy: check.healthy,
+      badPages: check.badPages,
+    };
+    const h = createHarness({
+      recover: async (options) => {
+        writeFileSync(options.outPath, repairedBytes());
+        return report;
+      },
+    });
+    const journal = `${h.dbPath}-journal`;
+    writeFileSync(journal, 'source-sidecar');
+    await expect(
+      h.repair(
+        { uin: REF, dbName: 'nt_msg.db', backup: check.backup, maintenanceId: 'held-lock' },
+        collect(h.progress),
+      ),
+    ).rejects.toMatchObject({ code: 'verify-failed', sourceUnchanged: true });
+    expect(readFileSync(h.dbPath)).toEqual(originalBytes());
+    expect(readFileSync(journal, 'utf8')).toBe('source-sidecar');
+    expect(h.calls.released).toBe(0);
+    expect(h.calls.verify).toBe(0);
+    expect(h.progress.some((tick) => tick.phase === 'swapping')).toBe(false);
+    expect(readdirSync(h.dbDir).filter((name) => name.includes('.weq-repair-'))).toEqual([]);
+    const record = h.service.listRecords(REF)[0]!;
+    expect(record).toMatchObject({
+      state: 'apply-failed',
+      afterSha: null,
+      afterBytes: null,
+      verification: report.verification,
+    });
+    if (check.backup) expect(readFileSync(record.backupPath!)).toEqual(originalBytes());
+    else expect(record.backupPath).toBeNull();
+  });
+
+  it('原生自检部分未核验但未发现异常时保留原处理，仍执行替换后的最终复核', async () => {
+    const report = makeReport();
+    report.verification.complete = false;
+    report.verification.unverifiedTables = ['qq_fts'];
+    const h = createHarness({
+      recover: async (options) => {
+        writeFileSync(options.outPath, repairedBytes());
+        return report;
+      },
+    });
+    const record = await h.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {});
+    expect(record.state).toBe('applied');
+    expect(h.calls.verify).toBe(1);
+    expect(record.verification).toMatchObject({ complete: false, unverifiedTables: ['qq_fts'] });
+  });
+
   it('native 报错：源库不动、记录为失败、按原生信息透传', async () => {
     const h = createHarness({
       recover: async () => {

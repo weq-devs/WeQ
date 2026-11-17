@@ -497,7 +497,7 @@ export class DatabaseMaintenance {
     if (session.pending) {
       session.snapshot.operation!.stopping = true;
       session.abort!.abort(new DOMException('已停止数据库维护操作。', 'AbortError'));
-      this.publish(session);
+      this.publish(session, true);
       await session.pending;
     }
     return this.current(scope);
@@ -654,7 +654,7 @@ export class DatabaseMaintenance {
         session.snapshot.databases.some((item) => item.scanStatus === 'completed') ||
         (op.status !== 'running' && op.status !== 'cancelled')) &&
       session.finalizedReportId !== op.id &&
-      (force || Date.now() - session.lastSaved >= 500)
+      (force || Date.now() - session.lastSaved >= 2000)
     ) {
       session.unsavedReports.set(
         op.id,
