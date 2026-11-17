@@ -72,6 +72,7 @@ import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { QqAvatar } from './QqAvatar';
 import { useToast } from './Toast';
 import '../styles/db-repair-storage.css';
+import '../styles/db-repair-layout.css';
 import { DatabaseMaintenanceProgress } from './DatabaseMaintenanceProgress';
 import type { DatabaseTaskProgress } from '@weq/service/db-progress';
 
@@ -1617,38 +1618,6 @@ export function DbRepairPanel({
       {stage === 'scan' ? (
         /* ── ① 体检：打开就跑，结论直接铺出来 ─────────────────────────────── */
         <div className="weq-wtools-pane-body weq-rp-body">
-          {scanning ? (
-            <div className="weq-rp-batch">
-              <div>
-                <strong>正在体检数据库</strong>
-                <p>
-                  已处理 {scan.done} / {scan.total} 个库 · 通过{' '}
-                  {checkedRows.filter((row) => row.verdict === 'healthy').length} 个 · 异常{' '}
-                  {
-                    checkedRows.filter(
-                      (row) => row.verdict === 'pages-bad' || row.verdict === 'corrupted',
-                    ).length
-                  }{' '}
-                  个
-                </p>
-              </div>
-              <button
-                type="button"
-                className="weq-set-btn weq-set-btn-sm"
-                disabled={stoppingScan}
-                onClick={() => void stopCheckup()}
-              >
-                <Square size={12} aria-hidden />
-                {stoppingScan ? '正在停止…' : '停止'}
-              </button>
-            </div>
-          ) : null}
-          {scanning && checkupProgress ? (
-            <DatabaseMaintenanceProgress
-              progress={checkupProgress}
-              connectionError={progressDisconnected}
-            />
-          ) : null}
           <div
             hidden={scanning}
             className={`weq-rp-hero is-${
@@ -1763,7 +1732,7 @@ export function DbRepairPanel({
           </div>
 
           {liveDbs.length > 0 ? (
-            <ol className="weq-rp-list">
+            <ol className="weq-rp-list" aria-label="体检数据库列表">
               {liveDbs.map((row) => {
                 const result = checkups[row.dbName];
                 const checking = scanning && result === undefined && scan.current === row.dbName;
@@ -1801,7 +1770,7 @@ export function DbRepairPanel({
                         {result
                           ? result.summary
                           : checking
-                            ? (checkupProgress?.current.message ?? '正在检查…')
+                            ? '正在体检这个数据库。'
                             : scanning
                               ? '等待前面的数据库检查结束。'
                               : '还没体检 —— 点这张卡片可以直接去修它。'}
@@ -1831,6 +1800,41 @@ export function DbRepairPanel({
                 );
               })}
             </ol>
+          ) : null}
+
+          {scanning ? (
+            <div className="weq-rp-checkup-task">
+              <div className="weq-rp-batch">
+                <div>
+                  <strong>正在体检数据库</strong>
+                  <p>
+                    已处理 {scan.done} / {scan.total} 个库 · 通过{' '}
+                    {checkedRows.filter((row) => row.verdict === 'healthy').length} 个 · 异常{' '}
+                    {
+                      checkedRows.filter(
+                        (row) => row.verdict === 'pages-bad' || row.verdict === 'corrupted',
+                      ).length
+                    }{' '}
+                    个
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-sm"
+                  disabled={stoppingScan}
+                  onClick={() => void stopCheckup()}
+                >
+                  <Square size={12} aria-hidden />
+                  {stoppingScan ? '正在停止…' : '停止'}
+                </button>
+              </div>
+              {checkupProgress ? (
+                <DatabaseMaintenanceProgress
+                  progress={checkupProgress}
+                  connectionError={progressDisconnected}
+                />
+              ) : null}
+            </div>
           ) : null}
 
           {/* 跳过体检：一行小字，点了直接去选库（代价写在旁边）。 */}

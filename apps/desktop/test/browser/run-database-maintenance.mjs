@@ -58,9 +58,9 @@ try {
         const store = window.maintenanceQa.theme.getState();
         store.setPreference(theme);
         store.setAccent(theme === 'light' ? '#006d50' : '#ffe593');
-        window.maintenanceQa.checkup();
+        window.maintenanceQa.structure();
       }, theme);
-      await page.getByText('34.8%', { exact: true }).waitFor();
+      await page.getByText('检查数据库整体结构', { exact: true }).waitFor();
       const capture = async (name) => {
         assert.equal(
           await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
@@ -87,6 +87,56 @@ try {
           });
         cases++;
       };
+      const strip = page.getByRole('list', { name: '体检数据库列表' });
+      const stripLayout = await strip.evaluate((node) => {
+        const boxes = [...node.children].map((item) => item.getBoundingClientRect());
+        return {
+          rows: new Set(boxes.map((box) => box.y)).size,
+          scrolls: node.scrollWidth > node.clientWidth,
+          bottom: node.getBoundingClientRect().bottom,
+        };
+      });
+      assert.equal(stripLayout.rows, 1);
+      assert.equal(stripLayout.scrolls, true);
+      const taskBox = await page.locator('.weq-rp-checkup-task').boundingBox();
+      assert.ok(taskBox && taskBox.y >= stripLayout.bottom);
+      const header = await page.locator('.weq-rp-head').evaluate((node) => ({
+        left: getComputedStyle(node).paddingLeft,
+        right: getComputedStyle(node).paddingRight,
+      }));
+      assert.equal(header.left, header.right);
+      const identity = await page.locator('.weq-rp-account').evaluate((node) => ({
+        tag: node.tagName,
+        focusable: node.tabIndex >= 0,
+        border: getComputedStyle(node).borderTopWidth,
+        background: getComputedStyle(node).backgroundColor,
+      }));
+      assert.deepEqual(identity, {
+        tag: 'SPAN',
+        focusable: false,
+        border: '0px',
+        background: 'rgba(0, 0, 0, 0)',
+      });
+      assert.equal(await page.locator('.weq-db-progress-timeline').count(), 1);
+      assert.equal(
+        await page.locator('.weq-db-progress-groups, .weq-db-progress-history').count(),
+        0,
+      );
+      assert.equal(
+        await page
+          .locator('.weq-db-progress')
+          .getByText(/进度更新|本步骤/)
+          .count(),
+        0,
+      );
+      await capture('structure');
+      await strip.locator('button').last().focus();
+      assert.ok((await strip.evaluate((node) => node.scrollLeft)) > 0);
+      await strip.evaluate((node) => {
+        node.scrollLeft = 0;
+      });
+      await page.evaluate(() => window.maintenanceQa.checkup());
+      await page.getByText('34.8%', { exact: true }).waitFor();
       await capture('checkup');
       await page.getByRole('button', { name: '跳过体检，直接选数据库 →' }).click();
       await page.locator('.weq-rp-pick').first().click();
@@ -101,11 +151,23 @@ try {
       await page.evaluate(() => window.maintenanceQa.repair('Repair'));
       assert.equal(
         await page
-          .locator('.weq-db-progress > .weq-task-progress-track progress')
+          .locator('.weq-db-progress .weq-task-progress-track progress')
           .getAttribute('value'),
         null,
       );
       await capture('rebuild');
+      await page.evaluate(() => window.maintenanceQa.longRepair());
+      const current = page.locator('.weq-db-progress-entry[aria-current="step"]');
+      await current.waitFor();
+      const currentBox = await current.boundingBox();
+      assert.ok(currentBox && currentBox.y + currentBox.height < 780);
+      assert.equal(await page.getByText('恢复已完成表 0', { exact: true }).count(), 0);
+      const earlier = page.locator('.weq-db-progress-expand button');
+      await earlier.click();
+      await page.getByText('恢复已完成表 0', { exact: true }).waitFor();
+      assert.equal(await page.getByText('恢复表数据', { exact: true }).count(), 1);
+      await earlier.click();
+      await capture('long-repair');
       await page.evaluate(() => window.maintenanceQa.disconnect());
       await page
         .getByText('进度连接中断，正在重新连接；任务结果尚未确认。', { exact: true })

@@ -33,6 +33,15 @@ const result = () => ({
 });
 
 export const maintenanceQa = {
+  structure() {
+    checkupTracker.update('checkup', { step: 'opening', message: '打开只读体检进程' });
+    const maintenance = checkupTracker.update('checkup', {
+      step: 'integrity',
+      message: '检查数据库整体结构',
+    });
+    for (const listener of listeners)
+      listener.onData({ ...checkupRequest, kind: 'checkup', maintenance });
+  },
   checkup() {
     const maintenance = checkupTracker.update('checkup', {
       step: 'pages',
@@ -74,6 +83,16 @@ export const maintenanceQa = {
         message: maintenance.current.message,
         maintenance,
       });
+  },
+  longRepair() {
+    repairTracker = new DatabaseProgressTracker('repair', repairRequest!.dbName);
+    for (let index = 0; index < 8; index++) {
+      repairTracker.update('Repair', {
+        step: `table-${index}`,
+        message: `恢复已完成表 ${index}`,
+      });
+    }
+    maintenanceQa.repair('Repair');
   },
   disconnect() {
     for (const listener of listeners) listener.onError(new Error('synthetic disconnect'));

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, Check, ChevronDown, Loader2, Minus } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, ChevronUp, Circle, Loader2, Minus } from 'lucide-react';
 import {
   databaseStepPercent,
   type DatabaseTaskProgress,
@@ -51,6 +51,7 @@ export function DatabaseMaintenanceProgress({
   compact?: boolean;
 }) {
   const [now, setNow] = useState(Date.now);
+  const [showEarlier, setShowEarlier] = useState(false);
   const running = progress.status === 'running';
   useEffect(() => {
     if (!running) return;
@@ -59,13 +60,17 @@ export function DatabaseMaintenanceProgress({
   }, [running]);
   const step = progress.current;
   const at = running ? Math.max(now, step.updatedAt) : (step.finishedAt ?? progress.updatedAt);
-  const pct = databaseStepPercent(step);
-  const count = countText(step);
   const groups = progress.kind === 'repair' ? REPAIR_GROUPS : CHECKUP_GROUPS;
   const indexFor = progress.kind === 'repair' ? groupIndex : checkupGroupIndex;
   const group = indexFor(step);
+  const recentStart = Math.max(0, progress.steps.length - 4);
+  const earlierCount = progress.steps
+    .slice(0, recentStart)
+    .filter((item) => item.status !== 'failed').length;
+  const visibleSteps = progress.steps.filter(
+    (item, index) => showEarlier || index >= recentStart || item.status === 'failed',
+  );
   const quiet = Math.max(0, at - step.updatedAt);
-  const finishedSteps = progress.steps.filter((item) => item.status === 'completed').length;
   const statusLabel = {
     running: '进行中',
     completed: '已完成',
@@ -83,128 +88,117 @@ export function DatabaseMaintenanceProgress({
     >
       <header className="weq-db-progress-heading">
         <strong>{progress.dbName}</strong>
-        <span>
-          {statusLabel} · 已用 {duration(at - progress.startedAt)}
-        </span>
+        <span>已用 {duration(at - progress.startedAt)}</span>
       </header>
       <ol
-        className="weq-db-progress-groups"
-        aria-label={progress.kind === 'repair' ? '修复阶段' : '体检阶段'}
+        className="weq-db-progress-timeline"
+        aria-label={progress.kind === 'repair' ? '修复步骤' : '体检步骤'}
       >
-        {groups.map((label, index) => (
-          <li
-            key={label}
-            aria-current={index === group ? 'step' : undefined}
-            className={
-              index === group
-                ? 'is-current'
-                : index < group || progress.status === 'completed'
-                  ? 'is-done'
-                  : ''
-            }
-          >
-            {progress.steps.some((item) => indexFor(item) === index && item.status === 'failed') ? (
-              <AlertTriangle size={12} aria-label="此阶段未完成" />
-            ) : index < group || progress.status === 'completed' ? (
-              <Check size={12} aria-hidden />
-            ) : null}
-            {label}
+        {earlierCount > 0 ? (
+          <li className="weq-db-progress-expand">
+            <button
+              type="button"
+              aria-expanded={showEarlier}
+              onClick={() => setShowEarlier((value) => !value)}
+            >
+              {showEarlier ? (
+                <ChevronUp size={13} aria-hidden />
+              ) : (
+                <ChevronDown size={13} aria-hidden />
+              )}
+              {showEarlier ? '收起较早步骤' : `展开此前 ${earlierCount} 个步骤`}
+            </button>
           </li>
-        ))}
-      </ol>
-      <p className="weq-db-progress-mobile-phase">
-        {groups[group]} · 阶段 {group + 1}/{groups.length}
-      </p>
-      <div className="weq-db-progress-step">
-        <span role="status">{step.message}</span>
-        <strong>
-          {connectionError
-            ? '连接中断'
-            : !running
-              ? statusLabel
-              : pct === undefined
-                ? '处理中'
-                : `${pct.toFixed(1)}%`}
-        </strong>
-      </div>
-      {step.objectName ? <p className="weq-db-progress-object">{step.objectName}</p> : null}
-      <TaskProgressBar
-        value={progress.status === 'completed' ? 100 : pct}
-        status={connectionError ? 'paused' : progress.status}
-        label={`${step.message}进度`}
-        valueText={count ?? (running ? step.message : statusLabel)}
-      />
-      <div className="weq-db-progress-readouts">
-        <span>{count ?? (running ? '正在处理当前步骤' : `已完成 ${finishedSteps} 个步骤`)}</span>
-        {step.badPages !== undefined ? (
-          <span>已发现 {step.badPages.toLocaleString('zh-CN')} 个坏页</span>
         ) : null}
-        {step.zeroPages ? <span>{step.zeroPages.toLocaleString('zh-CN')} 个全零页</span> : null}
-        {rate ? <span>近期速度 {rate}</span> : null}
-        <span>
-          本步骤{running ? '已用' : '用时'} {duration(at - step.startedAt)}
-        </span>
-      </div>
+        {visibleSteps.map((item) => {
+          const current = item === progress.steps[progress.steps.length - 1];
+          const active = current && running && item.status === 'running';
+          const pct = databaseStepPercent(item);
+          const count = countText(item);
+          const Icon =
+            item.status === 'failed'
+              ? AlertTriangle
+              : item.status === 'completed'
+                ? Check
+                : item.status === 'skipped'
+                  ? Minus
+                  : Loader2;
+          const label =
+            current && connectionError
+              ? '连接中断'
+              : item.status === 'completed'
+                ? '已完成'
+                : item.status === 'failed'
+                  ? '未完成'
+                  : item.status === 'skipped'
+                    ? current && progress.status === 'cancelled'
+                      ? '已停止'
+                      : '已跳过'
+                    : pct === undefined
+                      ? '处理中'
+                      : `${pct.toFixed(1)}%`;
+          return (
+            <li
+              key={`${item.phase}:${item.step}:${item.startedAt}`}
+              className={`weq-db-progress-entry is-${item.status ?? 'running'}${active ? ' is-current' : ''}`}
+              aria-current={active ? 'step' : undefined}
+            >
+              <span className="weq-db-progress-node" aria-hidden>
+                <Icon size={13} className={active && !connectionError ? 'weq-spin' : undefined} />
+              </span>
+              <div className="weq-db-progress-entry-body">
+                <div className="weq-db-progress-step">
+                  <span role={active ? 'status' : undefined}>{item.message}</span>
+                  <strong>{label}</strong>
+                </div>
+                {item.objectName ? (
+                  <p className="weq-db-progress-object">{item.objectName}</p>
+                ) : null}
+                {current ? (
+                  <TaskProgressBar
+                    value={progress.status === 'completed' ? 100 : pct}
+                    status={connectionError ? 'paused' : progress.status}
+                    label="当前步骤进度"
+                    valueText={count ?? (running ? label : statusLabel)}
+                  />
+                ) : null}
+                {count || item.badPages !== undefined || item.zeroPages || (active && rate) ? (
+                  <div className="weq-db-progress-readouts">
+                    {count ? <span>{count}</span> : null}
+                    {item.badPages !== undefined ? (
+                      <span>已发现 {item.badPages.toLocaleString('zh-CN')} 个坏页</span>
+                    ) : null}
+                    {item.zeroPages ? (
+                      <span>{item.zeroPages.toLocaleString('zh-CN')} 个全零页</span>
+                    ) : null}
+                    {active && rate ? <span>近期速度 {rate}</span> : null}
+                  </div>
+                ) : null}
+              </div>
+            </li>
+          );
+        })}
+        {running
+          ? groups.slice(group + 1).map((label) => (
+              <li key={label} className="weq-db-progress-entry is-pending">
+                <span className="weq-db-progress-node" aria-hidden>
+                  <Circle size={8} />
+                </span>
+                <div className="weq-db-progress-entry-body">
+                  <div className="weq-db-progress-step">
+                    <span>{label}</span>
+                    <strong>待开始</strong>
+                  </div>
+                </div>
+              </li>
+            ))
+          : null}
+      </ol>
       {connectionError ? (
         <p className="weq-db-progress-warning" role="alert">
           进度连接中断，正在重新连接；任务结果尚未确认。
         </p>
-      ) : running && quiet >= 10_000 ? (
-        <p className="weq-db-progress-activity">
-          本步骤持续 {duration(at - step.startedAt)}，最近一次进度更新在 {duration(quiet)}前。
-        </p>
       ) : null}
-      <details
-        className="weq-db-progress-history"
-        open={progress.status === 'failed' ? true : undefined}
-      >
-        <summary>
-          <ChevronDown size={13} aria-hidden />
-          <span>
-            {compact ? '步骤详情' : progress.kind === 'checkup' ? '检查过程' : '执行过程'}
-          </span>
-          <span>已完成 {finishedSteps} 个步骤</span>
-        </summary>
-        <ol>
-          {progress.steps.map((item) => {
-            const Icon =
-              item.status === 'failed'
-                ? AlertTriangle
-                : item.status === 'completed'
-                  ? Check
-                  : item.status === 'skipped'
-                    ? Minus
-                    : Loader2;
-            return (
-              <li
-                key={`${item.phase}:${item.step}:${item.startedAt}`}
-                className={`is-${item.status ?? 'running'}`}
-              >
-                <Icon
-                  size={13}
-                  aria-hidden
-                  className={item.status === 'running' && !connectionError ? 'weq-spin' : undefined}
-                />
-                <div>
-                  <span>{item.message}</span>
-                  {item.objectName ? (
-                    <span className="weq-db-progress-history-object">{item.objectName}</span>
-                  ) : null}
-                  <span className="weq-db-progress-history-count">
-                    {countText(item)}
-                    {item.status === 'skipped'
-                      ? progress.status === 'cancelled' && item === progress.current
-                        ? ' · 已停止'
-                        : ' · 已跳过'
-                      : ''}
-                  </span>
-                </div>
-                <span>{duration((item.finishedAt ?? at) - item.startedAt)}</span>
-              </li>
-            );
-          })}
-        </ol>
-      </details>
     </section>
   );
 }
