@@ -584,7 +584,7 @@ export function CurrentTaskList({
                   ? (task.downloadedBytes / task.fileSize) * 100
                   : undefined
             }
-            note={task.error}
+            note={task.error ? '下载未完成，原因见下方明细。' : undefined}
             startedAt={task.createdAt}
             finishedAt={task.finishedAt}
           />
@@ -635,7 +635,13 @@ export function CurrentTaskList({
                       : file.status
                   }
                 />
-                {file.error ? <p role="alert">{file.error}</p> : null}
+                {[...new Set([...(file.resolutionErrors ?? []), file.error].filter(Boolean))].map(
+                  (message) => (
+                    <p role="alert" key={message}>
+                      {message}
+                    </p>
+                  ),
+                )}
               </li>
             ))}
           </ul>

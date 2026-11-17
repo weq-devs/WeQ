@@ -98,7 +98,7 @@ function describe(cost: NetworkCost) {
 }
 export function DataSaverSettings() {
   const reset = useContext(SettingsResetContext);
-  const { error } = useClientPreferences();
+  useClientPreferences((state) => state.tick);
   const { host, local, enabled } = useDataSaver();
   return (
     <Card
@@ -125,7 +125,7 @@ export function DataSaverSettings() {
       }
     >
       <Row
-        label="省流量模式"
+        label="启用方式"
         desc={`${enabled ? '正在节省流量' : '正常加载'} · 本端：${describe(local)}${IS_WEB ? ` · 宿主：${describe(host)}` : ''}`}
         control={
           <SegmentedControl<DataSaverMode>
@@ -172,11 +172,6 @@ export function DataSaverSettings() {
         label="限制解除后自动继续任务"
         desc="仅恢复因省流量策略暂停的任务，手动暂停的任务保持暂停。"
       />
-      {error ? (
-        <p className="weq-set-note" role="alert">
-          {error}
-        </p>
-      ) : null}
     </Card>
   );
 }

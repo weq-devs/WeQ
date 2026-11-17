@@ -810,7 +810,7 @@ export function AntiRecallDialog({
       <div className="group-keyword-body weq-ar-body">
         {tab === 'protect' ? (
           <>
-            <Card title="启用范围" icon={<ListFilter size={15} strokeWidth={1.8} />}>
+            <Card title="保护规则" icon={<ListFilter size={15} strokeWidth={1.8} />}>
               <Row
                 label="启用范围"
                 desc={

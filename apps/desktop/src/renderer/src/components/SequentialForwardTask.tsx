@@ -155,7 +155,7 @@ export function startSequentialForward({
       toast.update(id, { title: progress() });
       localBackgroundTasks.update(taskId, {
         progress: ((sent + failed) / messages.length) * 100,
-        note: `${label} · 已处理 ${sent + failed} / ${messages.length} · 成功 ${sent} · 失败 ${failed} · 已用时 ${formatForwardDuration(Date.now() - startedAt)}`,
+        note: `${label} · 已处理 ${sent + failed} / ${messages.length} · 成功 ${sent} · 失败 ${failed}`,
         details: [...failures],
       });
     };

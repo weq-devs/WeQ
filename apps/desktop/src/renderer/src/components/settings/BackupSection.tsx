@@ -796,7 +796,6 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
                   disabled={Boolean(busy)}
                 />
               ) : null}
-              {confirm === 'defaults' && busy ? <p role="status">{busy}</p> : null}
               <p>{confirmation.message}</p>
               {error ? (
                 <p role="alert" className="weq-backup-error">

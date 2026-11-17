@@ -101,9 +101,8 @@ function rowTone(row: DatabaseMaintenanceRow): Tone {
 }
 function rowSummary(row: DatabaseMaintenanceRow): string {
   if (row.repair?.status === 'running') return '正在重建这个数据库，期间不要打开这个账号的 QQ。';
-  if (row.repair?.status === 'failed') return row.repair.error ?? '修复没有完成。';
-  if (row.repair?.status === 'waiting')
-    return row.repair.error ?? '已保留扫描结果，等待处理后重试。';
+  if (row.repair?.status === 'failed') return '修复没有完成，原因见问题明细。';
+  if (row.repair?.status === 'waiting') return '已保留扫描结果，处理问题后可重试。';
   if (row.repair?.status === 'cancelled') return '本轮修复已停止，这个库没有提交替换。';
   if (row.repair?.status === 'completed')
     return row.repair.record?.verification?.healthy === false
@@ -114,7 +113,7 @@ function rowSummary(row: DatabaseMaintenanceRow): string {
     const current = row.progress?.current;
     return current?.message ? `${current.message}…` : '正在检查页签名。';
   }
-  if (row.scanStatus === 'failed') return row.scanError ?? '扫描没有跑完，暂时没有可用结论。';
+  if (row.scanStatus === 'failed') return '扫描没有完成，暂时没有可用结论。';
   if (row.scan?.plaintext) return '明文数据库，当前重建工具不支持处理它。';
   if (row.deepStatus === 'running') return '正在做结构体检，页扫描结果已经保留。';
   if (row.deepStatus === 'partial')
@@ -125,7 +124,7 @@ function rowSummary(row: DatabaseMaintenanceRow): string {
   if (row.integrity?.ran && row.integrity.complete === false)
     return '已检查的结构部分没有发现异常，但仍有未核验项，不能认定整库正常。';
   const diagnostic = row.issues.filter((issue) => issue.diagnostic !== false);
-  if (diagnostic.length) return diagnostic[0]!.message;
+  if (diagnostic.length) return `发现 ${diagnostic.length} 项需要查看的问题。`;
   if (row.scan) {
     if (row.scan.badPages.length)
       return `扫出 ${row.scan.badPages.length.toLocaleString('zh-CN')} 个坏页，重建会把它们排除在外。`;
@@ -923,7 +922,7 @@ export function DbRepairPanel({
             </button>
           </p>
         ))}
-        {connectionError && running ? (
+        {connectionError && running && !activeProgress ? (
           <p className="weq-dbm-alert" role="alert">
             <AlertTriangle size={15} aria-hidden />
             <span>进度连接中断，正在重新连接；任务结果尚未确认。</span>
@@ -1037,13 +1036,11 @@ export function DbRepairPanel({
                 {running ? <Loader2 size={14} className="weq-spin" /> : <History size={14} />}
                 {running ? '执行进度' : '本次执行过程'}
               </span>
-              <span className="weq-dbm-process-hint">
-                {running
-                  ? '阶段、当前步骤与处理数量'
-                  : operation
-                    ? `${operationLabels[operation.kind]} · ${operationStates[operation.status]} · ${operation.completedDatabases} / ${operation.totalDatabases} 个数据库`
-                    : '查看阶段与步骤'}
-              </span>
+              {!running && operation ? (
+                <span className="weq-dbm-process-hint">
+                  {`${operationLabels[operation.kind]} · ${operationStates[operation.status]} · ${operation.completedDatabases} / ${operation.totalDatabases} 个数据库`}
+                </span>
+              ) : null}
               <ChevronDown size={14} className="weq-dbm-chevron" aria-hidden />
             </summary>
             <div className="weq-dbm-process-body">
@@ -1503,6 +1500,22 @@ function DatabaseDetail({
   bytes: number | null | undefined;
 }) {
   const tone = rowTone(row);
+  const issues = new Map(row.issues.map((issue) => [issue.message, issue]));
+  if (row.scan?.plaintext) {
+    const original = row.issues.find(
+      (issue) => issue.message === '此数据库为明文库，当前重建工具仅支持加密库。',
+    );
+    if (original) issues.delete(original.message);
+    const message = '明文数据库，没有加密页签名可校验；当前重建工具不支持处理它。';
+    issues.set(message, { message, support: 'unsupported', diagnostic: false });
+  }
+  for (const message of [
+    row.integrity && !row.integrity.ran ? row.integrity.error : undefined,
+    row.scanError,
+    row.repair?.error,
+  ]) {
+    if (message && !issues.has(message)) issues.set(message, { message, support: row.support });
+  }
   const integrityText = row.integrity
     ? row.integrity.ran
       ? row.integrity.healthy
@@ -1531,7 +1544,7 @@ function DatabaseDetail({
         <Chip tone={tone}>{rowLabel(row)}</Chip>
         <span className="weq-dbm-detail-support">{databaseRepairSupportLabel[row.support]}</span>
       </header>
-      <p className="weq-dbm-verdict">{rowSummary(row)}</p>
+      {!row.scan?.plaintext ? <p className="weq-dbm-verdict">{rowSummary(row)}</p> : null}
       <dl className="weq-dbm-metrics">
         <div>
           <dt>文件大小</dt>
@@ -1564,27 +1577,15 @@ function DatabaseDetail({
           </dd>
         </div>
       </dl>
-      {row.scan?.plaintext ? (
-        <p className="weq-dbm-note">
-          <Info size={14} aria-hidden />
-          明文数据库，没有加密页签名可校验；当前重建工具也不支持这个库。
-        </p>
-      ) : null}
       {row.integrity?.ran && row.integrity.unverifiedTables?.length ? (
         <p className="weq-dbm-note">
           <Info size={14} aria-hidden />
           未核验结构：{row.integrity.unverifiedTables.join('、')}
         </p>
       ) : null}
-      {row.integrity && !row.integrity.ran && row.integrity.error ? (
-        <p className="weq-dbm-note is-warn">
-          <AlertTriangle size={14} aria-hidden />
-          {row.integrity.error}
-        </p>
-      ) : null}
-      {row.issues.length ? (
+      {issues.size ? (
         <ul className="weq-dbm-issues">
-          {row.issues.map((issue) => (
+          {[...issues.values()].map((issue) => (
             <li key={`${issue.stage ?? 'scan'}:${issue.message}`}>
               <span
                 className="weq-dbm-issue-icon"
@@ -1598,18 +1599,6 @@ function DatabaseDetail({
             </li>
           ))}
         </ul>
-      ) : null}
-      {row.scanError ? (
-        <p className="weq-dbm-note is-warn">
-          <AlertTriangle size={14} aria-hidden />
-          扫描没有完成：{row.scanError}
-        </p>
-      ) : null}
-      {row.repair?.error ? (
-        <p className="weq-dbm-note is-warn">
-          <AlertTriangle size={14} aria-hidden />
-          {row.repair.error}
-        </p>
       ) : null}
       {row.repair?.record?.verification ? (
         <div className="weq-dbm-verify">
@@ -1915,6 +1904,7 @@ function ReportView({
               progress={progress}
               batch={{ ...operation, locked: view.locked }}
               showBatch={false}
+              showBatchError={false}
               showMaintained={false}
             />
           </div>
