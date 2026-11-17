@@ -277,29 +277,28 @@ export async function prepareNative(
   const options = { env, run, platform };
   if (config.mode === 'local') {
     const source = config.source;
-    if (!(await exists(join(source, 'Cargo.toml'))))
-      throw new Error(`找不到 native 源码：${source}`);
-    const sourceFingerprint = await nativeSourceFingerprint(source, options);
-    if (
-      marker?.localBuild?.sourceFingerprint === sourceFingerprint &&
-      marker.localBuild.platform === platform.key &&
-      marker.localBuild.profile === devProfile &&
-      (await bundleMatches(root, marker, platform))
-    ) {
-      await verify(root, root, { ...options, local: true });
-      log('本地 native 与源码一致，复用现有构建', 'debug', 'native');
-      return;
-    }
     await unused(root, options);
-    const buildEnv = {
-      ...env,
-      NT_HELPER_PACK_DRESS: '0',
-      CARGO_TERM_COLOR: 'never',
-    };
-    delete buildEnv.BUILD_TIMESTAMP;
-    delete buildEnv.CARGO_BUILD_TARGET;
-    let building = true;
     try {
+      if (!(await exists(join(source, 'Cargo.toml'))))
+        throw new Error(`找不到 native 源码：${source}`);
+      const sourceFingerprint = await nativeSourceFingerprint(source, options);
+      if (
+        marker?.localBuild?.sourceFingerprint === sourceFingerprint &&
+        marker.localBuild.platform === platform.key &&
+        marker.localBuild.profile === devProfile &&
+        (await bundleMatches(root, marker, platform))
+      ) {
+        await verify(root, root, { ...options, local: true });
+        log('本地 native 与源码一致，复用现有构建', 'debug', 'native');
+        return;
+      }
+      const buildEnv = {
+        ...env,
+        NT_HELPER_PACK_DRESS: '0',
+        CARGO_TERM_COLOR: 'never',
+      };
+      delete buildEnv.BUILD_TIMESTAMP;
+      delete buildEnv.CARGO_BUILD_TARGET;
       const metadata = JSON.parse(
         await run('cargo', ['metadata', '--no-deps', '--format-version', '1', '--locked'], {
           cwd: source,
@@ -342,7 +341,6 @@ export async function prepareNative(
           ],
           { cwd: source, env: buildEnv, log, scope: 'native' },
         );
-        building = false;
         if (sourceFingerprint !== (await nativeSourceFingerprint(source, options)))
           throw new Error('编译期间 native 输入发生变化，未安装，请重试');
         staging = await mkdtemp(join(target, '.weq-dev-native-'));
@@ -388,7 +386,8 @@ export async function prepareNative(
         await release();
       }
     } catch (error) {
-      if (!building || [130, 143].includes(error.exitCode)) throw error;
+      // 安装恢复未完成时保留恢复文件与错误，不尝试继续启动。
+      if (error instanceof AggregateError || [130, 143].includes(error.exitCode)) throw error;
       const local = Boolean(marker?.localBuild);
       try {
         if (
@@ -403,7 +402,7 @@ export async function prepareNative(
         throw error;
       }
       log(
-        `本地 native 编译失败：${error.message}；复用现有构建继续启动（未包含本次源码改动）`,
+        `本地 native 更新失败：${error.message}；复用现有构建继续启动（未包含本次源码改动）`,
         'warn',
         'native',
       );

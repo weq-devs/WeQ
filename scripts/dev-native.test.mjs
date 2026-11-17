@@ -622,7 +622,67 @@ test('local 构建准备失败也可复用；没有可用旧构建或主动中�
   }
 });
 
-test('local 无可用旧构建时编译失败、编译期间源码变化不替换，并释放构建锁', async (t) => {
+test('local 源码检查、新产物缺失、验证及安装失败均保留并复用旧构建', async (t) => {
+  for (const stage of ['source-missing', 'fingerprint', 'output-missing', 'verify', 'install']) {
+    const { root, source, directory, platform } = await sourceFixture(t);
+    await fill(root, platform, 'old');
+    const old = await marker(root, platform, { localBuild: { commit: 'old' } });
+    await writeJson(join(root, 'native/.installed.json'), old);
+    if (stage === 'source-missing') await rm(join(source, 'Cargo.toml'));
+    const target = join(directory, 'target');
+    let reused = 0;
+    let builds = 0;
+    let replacements = 0;
+    const result = await prepareNative(
+      root,
+      { mode: 'local', source, jobs: 2 },
+      {
+        log: silent,
+        unused: noop,
+        run: async (command, args, options) => {
+          if (command === 'git') {
+            if (stage === 'fingerprint') throw new Error('cannot read source');
+            return runCommand(command, args, options);
+          }
+          assert.equal(command, 'cargo', '不切换到发布版下载');
+          if (args[0] === 'metadata') return JSON.stringify({ target_directory: target });
+          if (args[0] === 'run') return fakeDressPack(args, options);
+          builds++;
+          if (stage === 'output-missing') return;
+          await mkdir(join(target, platform.target, 'weq-dev'), { recursive: true });
+          await writeFile(join(target, platform.target, 'weq-dev', platform.library), 'new');
+        },
+        verify: async (bundle, _root, flags) => {
+          assert.equal(flags.local, true);
+          if (bundle === root) reused++;
+          else if (stage === 'verify') throw new Error('invalid new native');
+        },
+        install: (options) =>
+          installNativeBundle({
+            ...options,
+            replace: async (...args) => {
+              if (stage === 'install' && ++replacements === 2) throw new Error('install failed');
+              return rename(...args);
+            },
+          }),
+      },
+    );
+    assert.deepEqual(result, { fallback: true }, stage);
+    assert.equal(reused, 1, stage);
+    assert.equal(builds, ['source-missing', 'fingerprint'].includes(stage) ? 0 : 1, stage);
+    assert.deepEqual(await readJson(join(root, 'native/.installed.json')), old, stage);
+    assert.equal(await bundleMatches(root, old, platform), true, stage);
+    assert(!(await readdir(join(root, 'native'))).some((path) => path.startsWith('.dev-')));
+    if (await exists(target))
+      assert(
+        !(await readdir(target)).some(
+          (path) => path.startsWith('.weq-dev-native-') || path === '.weq-dev-build-lock',
+        ),
+      );
+  }
+});
+
+test('local 无可用旧构建时保留编译错误；编译期间源码变化复用旧构建并释放构建锁', async (t) => {
   for (const changed of [false, true]) {
     const { root, source, directory, platform } = await sourceFixture(t);
     await fill(root, platform, 'old');
@@ -637,7 +697,8 @@ test('local 无可用旧构建时编译失败、编译期间源码变化不替�
       if (changed) await writeFile(join(source, 'src/lib.rs'), 'changed during build');
       else throw new Error('compile failed');
     };
-    await assert.rejects(
+    let verifications = 0;
+    const prepare = () =>
       prepareNative(
         root,
         { mode: 'local', source, jobs: 2 },
@@ -645,11 +706,15 @@ test('local 无可用旧构建时编译失败、编译期间源码变化不替�
           run,
           log: silent,
           unused: noop,
-          verify: async () => assert.fail('编译失败后的过期产物及输入变化均不尝试加载旧构建'),
+          verify: async () => {
+            assert(changed, '编译失败后的过期产物不尝试加载');
+            verifications++;
+          },
         },
-      ),
-      changed ? /输入发生变化/ : /compile failed/,
-    );
+      );
+    if (changed) assert.deepEqual(await prepare(), { fallback: true });
+    else await assert.rejects(prepare(), /compile failed/);
+    assert.equal(verifications, changed ? 1 : 0);
     assert.equal(await bundleMatches(root, old, platform), true);
     assert.deepEqual(await readJson(join(root, 'native/.installed.json')), old);
     assert.equal(await exists(join(target, '.weq-dev-build-lock')), false);
