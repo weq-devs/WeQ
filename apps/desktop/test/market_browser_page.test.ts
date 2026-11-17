@@ -12,11 +12,16 @@ import {
 import type { ExportSavePolicy } from '@weq/service';
 
 const saveState = vi.hoisted(() => ({
+  developmentTools: true,
   prepare: vi.fn(
     async (intent?: ExportSavePolicy) =>
       intent ?? { mode: 'before' as const, directory: '/fixture/export' },
   ),
   download: vi.fn(async (_input: unknown) => 'task-a'),
+}));
+
+vi.mock('../src/renderer/src/hooks/useDevelopmentDressTools', () => ({
+  useDevelopmentDressTools: () => saveState.developmentTools,
 }));
 
 vi.mock('../src/renderer/src/trpc/client', () => ({
@@ -119,6 +124,24 @@ it('商城表情复用装扮顶部搜索，离线可提交、清空，切换页�
     act(() => root.unmount());
     host.remove();
     vi.unstubAllGlobals();
+  }
+});
+
+it('普通模式的商城直达不挂载目录、不发起在线详情与密钥请求', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  saveState.developmentTools = false;
+  const search = vi.mocked(client.account.marketEmoji.searchCatalog.query);
+  search.mockClear();
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(h(MarketEmojiBrowserLightbox, { embedded: true })));
+    expect(host.textContent).toContain('商城表情浏览不可用');
+    expect(search).not.toHaveBeenCalled();
+    expect(host.querySelector('button[title="下载"]')).toBeNull();
+  } finally {
+    saveState.developmentTools = true;
+    act(() => root.unmount());
   }
 });
 vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({

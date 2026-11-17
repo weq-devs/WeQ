@@ -275,10 +275,11 @@ test('一行入口按依赖、宿主、native、网络、启动顺序执行，�
       launch = { args, options: { env: environment } };
     },
   };
-  await startDevelopment({ ...hooks, args: ['--', '--foo=space value'] });
+  await startDevelopment({ ...hooks, args: ['--', '--foo=space value', '--enable-dress-tools'] });
   assert.deepEqual(events, ['dependencies', 'electron', 'native', 'network', 'bot', 'launch']);
   assert(launch.args.includes(`--user-data-dir=${join(root, '.dev-profile')}`));
   assert(launch.args.includes('--foo=space value'));
+  assert(launch.args.includes('--enable-dress-tools'));
   assert.equal(launch.options.env.ELECTRON_RUN_AS_NODE, undefined);
   assert.equal(launch.options.env.ELECTRON_OVERRIDE_DIST_PATH, undefined);
   assert.equal(launch.options.env.WEQ_REMOTE_HELPER, '/network helper');

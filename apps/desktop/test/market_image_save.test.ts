@@ -18,6 +18,7 @@ vi.mock('../src/main/context/app_context', () => ({
 vi.mock('@weq/service', async (original) => ({
   ...(await original<typeof import('@weq/service')>()),
   getHost: () => ({ registerDownload: state.register }),
+  requireDevelopmentDressTools: vi.fn(),
 }));
 let root: string, source: string, manager: ExportTaskManager;
 const input = {

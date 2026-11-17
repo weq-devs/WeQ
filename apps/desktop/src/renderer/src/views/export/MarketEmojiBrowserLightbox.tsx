@@ -18,6 +18,7 @@ import { trpc, client } from '../../trpc/client';
 import { useMultiSelection, type MultiSelectionItemProps } from '../../hooks/useMultiSelection';
 import { useContentMultiSelect } from '../../state/contentSelection';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
+import { useDevelopmentDressTools } from '../../hooks/useDevelopmentDressTools';
 import { DirectoryToolbar } from '../../components/DirectoryToolbar';
 import { WorkspacePage } from '../../components/WorkspacePages';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
@@ -275,21 +276,34 @@ function PackCard({
   );
 }
 
-export function MarketEmojiBrowserLightbox({
+interface MarketEmojiBrowserProps {
+  onClose?: () => void;
+  initialPackId?: string;
+  initialPackName?: string;
+  embedded?: boolean;
+  searchQuery?: string;
+}
+
+export function MarketEmojiBrowserLightbox(props: MarketEmojiBrowserProps): ReactElement {
+  const enabled = useDevelopmentDressTools();
+  if (enabled) return <DevelopmentMarketEmojiBrowser {...props} />;
+  const empty = <EmptyState icon={<Store />} title="商城表情浏览不可用" />;
+  return props.embedded ? (
+    empty
+  ) : (
+    <WorkspacePage title="商城表情" onClose={props.onClose} standalone>
+      {empty}
+    </WorkspacePage>
+  );
+}
+
+function DevelopmentMarketEmojiBrowser({
   onClose,
   initialPackId,
   initialPackName,
   embedded = false,
   searchQuery,
-}: {
-  onClose?: () => void;
-  initialPackId?: string;
-  initialPackName?: string;
-  /** 嵌在「个性装扮 → 表情」页签里：不套 WorkspacePage、不渲染标题与关闭按钮。 */
-  embedded?: boolean;
-  /** 个性装扮顶部搜索框提交的关键词；独立页面仍使用目录工具栏搜索。 */
-  searchQuery?: string;
-}): ReactElement {
+}: MarketEmojiBrowserProps): ReactElement {
   const utils = trpc.useUtils();
   const dialog = useAppDialog();
   const report = useExportReportDialog();

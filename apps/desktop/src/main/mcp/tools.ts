@@ -54,6 +54,7 @@ import {
   fetchDownloadRkeys,
   fetchWebTokens,
   getHost,
+  requireDevelopmentDressTools,
   HonorType,
   localOcrBlocker,
   normalizeMallItems,
@@ -4903,6 +4904,7 @@ export const AI_TOOLS: AiTool[] = [
       pageSize: z.number().int().min(1).max(50).default(20).describe('每页条数'),
     }),
     run: async ({ kind, mode, keyword, pageIndex, pageSize }): Promise<unknown> => {
+      requireDevelopmentDressTools();
       const appId =
         kind === 'bubble'
           ? DressAppId.Bubble
@@ -4956,6 +4958,7 @@ export const AI_TOOLS: AiTool[] = [
       name: z.string().min(1).describe('部件名（如 config.json / static.zip / main / fzfont）'),
     }),
     run: async ({ kind, itemId, name }) => {
+      requireDevelopmentDressTools();
       const r = ntHelper().queryDressResourceUrl(kind, itemId.trim(), name.trim());
       if (!r) {
         return {
@@ -5010,6 +5013,7 @@ export const AI_TOOLS: AiTool[] = [
       cursor: z.string().default('').describe('翻页游标（上一页返回的 nextCursor）'),
     }),
     run: async ({ keyword, feeTypes, limit, cursor }) => {
+      requireDevelopmentDressTools();
       const page = searchCatalog({
         keyword,
         ...(feeTypes.length ? { feeTypes } : {}),
@@ -5071,6 +5075,7 @@ export const AI_TOOLS: AiTool[] = [
         .describe('手动指定种子时间戳（unix 秒；不传=自动恢复）'),
     }),
     run: async ({ packId, timestamp }) => {
+      requireDevelopmentDressTools();
       const key = await services().emoji.getMarketPackKey(
         packId.trim(),
         timestamp && timestamp > 0 ? timestamp : undefined,
@@ -5104,6 +5109,7 @@ export const AI_TOOLS: AiTool[] = [
       keyOverride: z.string().optional().describe('手动密钥（16 位；不传=自动恢复）'),
     }),
     run: async ({ packId, hash, keyOverride }) => {
+      requireDevelopmentDressTools();
       const path = await services().emoji.getMarketPackImage(
         packId.trim(),
         hash.trim(),

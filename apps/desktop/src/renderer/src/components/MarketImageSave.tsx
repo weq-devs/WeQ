@@ -3,6 +3,7 @@ import { Download, Loader2 } from 'lucide-react';
 import type { ExportSavePolicy } from '@weq/service';
 import { client } from '../trpc/client';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
+import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
 import { IS_WEB } from '../lib/target';
 import { ServerSavePrompt } from './ServerSavePrompt';
 import { useToast } from './Toast';
@@ -18,6 +19,7 @@ export function MarketImageSave({
   hash: string;
   name: string;
 }) {
+  const enabled = useDevelopmentDressTools();
   const save = useExportSavePolicy();
   const pushToast = useToast((state) => state.push);
   const identity = `${save.binding?.expectedAccountUin}:${save.binding?.expectedAccountConfigId}:${packId}:${hash}`;
@@ -56,6 +58,7 @@ export function MarketImageSave({
     }
   }
   const disabled = busy || !save.binding || save.settings.isLoading;
+  if (!enabled) return null;
   return (
     <>
       <div className="weq-save-action-group">

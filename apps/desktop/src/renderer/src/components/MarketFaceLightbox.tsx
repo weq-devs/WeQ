@@ -13,6 +13,7 @@ import { trpc } from '@renderer/trpc/client';
 import { mediaUrl } from '@renderer/lib/resourceUrl';
 import { useToast } from './Toast';
 import { MarketImageSave } from './MarketImageSave';
+import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
 import { RenderDocumentContext, useRenderDocument } from '../lib/renderDocument';
 import { useViewState } from '../state/view';
 import { useSurfaceEscapeDismissal } from '../lib/surfaceEscape';
@@ -29,6 +30,7 @@ const FEE_META: Record<MarketPackFeeType, { label: string; tone: string }> = {
 
 /** 浏览已由用户主动打开；不让整包预览依赖密钥恢复完成。 */
 function usePackImage(packId: string, hash: string, key?: string) {
+  const developmentDressTools = useDevelopmentDressTools();
   const [encrypted, setEncrypted] = useState(false);
   const [broken, setBroken] = useState(false);
   const src = mediaUrl('mface', {
@@ -46,7 +48,7 @@ function usePackImage(packId: string, hash: string, key?: string) {
     src,
     broken,
     encrypted,
-    onError: () => (encrypted ? setBroken(true) : setEncrypted(true)),
+    onError: () => (!developmentDressTools || encrypted ? setBroken(true) : setEncrypted(true)),
     retry: () => {
       setEncrypted(false);
       setBroken(false);
@@ -285,7 +287,11 @@ export function MarketFaceDetail({
   embedded?: boolean;
 }): ReactElement {
   const pushToast = useToast((s) => s.push);
-  const keyInfo = trpc.account.marketEmoji.getPackKey.useQuery({ packId });
+  const developmentDressTools = useDevelopmentDressTools();
+  const keyInfo = trpc.account.marketEmoji.getPackKey.useQuery(
+    { packId },
+    { enabled: developmentDressTools },
+  );
   const key = keyInfo.data?.key ?? '';
   const { src, broken, encrypted, onError, retry } = usePackImage(
     packId,
@@ -298,12 +304,11 @@ export function MarketFaceDetail({
       { label: 'pack', value: packId },
       { label: 'hash', value: item.hash },
       { label: 'enc', value: encrypted ? 'tea' : '无（缓存／明文）' },
-      {
-        label: 'key',
-        value: key || (keyInfo.isLoading ? '恢复中…' : '未恢复（可用时间戳手动派生）'),
-      },
+      ...(developmentDressTools
+        ? [{ label: 'key', value: key || (keyInfo.isLoading ? '恢复中…' : '未恢复') }]
+        : []),
     ],
-    [packId, item.hash, key, keyInfo.isLoading, encrypted],
+    [packId, item.hash, key, keyInfo.isLoading, encrypted, developmentDressTools],
   );
 
   async function copy(value: string, label: string): Promise<void> {

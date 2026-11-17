@@ -17,6 +17,8 @@ import { eventTimeFormatter } from '@weq/time';
 
 import { useState, type ReactElement } from 'react';
 import { useDebouncedLoading } from '../../hooks/useDebouncedLoading';
+import { useDevelopmentDressTools } from '../../hooks/useDevelopmentDressTools';
+import { MarketEmojiExplorer } from './MarketEmojiExplorer';
 import {
   ArrowLeft,
   KeyRound,
@@ -49,6 +51,11 @@ function packImageUrl(packId: string, hash: string): string {
 }
 
 export function MarketPackExplorer(): ReactElement {
+  const enabled = useDevelopmentDressTools();
+  return enabled ? <DevelopmentMarketPackExplorer /> : <MarketEmojiExplorer />;
+}
+
+function DevelopmentMarketPackExplorer(): ReactElement {
   const visible = useTabActive();
   const [openPackId, setOpenPackId] = useState<string | null>(null);
   const [showKeyTool, setShowKeyTool] = useState(false);

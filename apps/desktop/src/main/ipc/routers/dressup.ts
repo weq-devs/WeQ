@@ -16,7 +16,11 @@
  * 聊天背景与浮屏挂件则**一律离线可用**:QQ 同款背景的直链 bootstrap 时已存进 config,
  * 自定义背景是本地图片 / 视频,浮屏挂件是仓库里 bundle 的 Lottie。
  */
-import { OperationError } from '@weq/service';
+import {
+  OperationError,
+  developmentDressToolsEnabled,
+  requireDevelopmentDressTools,
+} from '@weq/service';
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { pickedBrowserFiles } from '../../browser_files';
@@ -187,7 +191,11 @@ export const dressupRouter = router({
 
   getState: procedure.query(() => {
     const services = requireServices();
-    const manifest = services.dressInstall.read();
+    const savedManifest = services.dressInstall.read();
+    // 保留已装清单与用户选择，普通模式仅停止任意装扮覆盖，不删除缓存和配置。
+    const manifest = developmentDressToolsEnabled()
+      ? savedManifest
+      : { ...savedManifest, activeBubble: 0, activeFont: 0, activeWidget: 0 };
     const record = services.accountConfig.getRecord();
     return {
       qqOnline: qqOnline(services),
@@ -237,6 +245,7 @@ export const dressupRouter = router({
   rank: procedure
     .input(z.object({ kind: kindInput, pageIndex: z.number().int().min(1).optional() }))
     .query(async ({ input }) => {
+      requireDevelopmentDressTools();
       const services = requireServices();
       if (!STATIC_ONLY_KINDS.has(input.kind) && webQqOnline(services)) {
         try {
@@ -263,6 +272,7 @@ export const dressupRouter = router({
       }),
     )
     .query(async ({ input }) => {
+      requireDevelopmentDressTools();
       const services = requireServices();
       if (!webQqOnline(services)) throw new Error(OFFLINE_HINT);
       return services.webQuery.searchDress(
@@ -290,6 +300,7 @@ export const dressupRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
+      requireDevelopmentDressTools();
       const skin = await requireServices().dressInstall.installBubble(input.itemId, {
         name: input.name,
         previewUrl: input.previewUrl,
@@ -317,6 +328,7 @@ export const dressupRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
+      requireDevelopmentDressTools();
       return requireServices().dressInstall.installFont(input.itemId, input.name, input.previewUrl);
     }),
 
@@ -336,6 +348,7 @@ export const dressupRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
+      requireDevelopmentDressTools();
       return requireServices().dressInstall.installWidget(
         input.itemId,
         input.name,
@@ -353,6 +366,7 @@ export const dressupRouter = router({
       z.object({ kind: z.enum(['bubble', 'font', 'widget']), itemId: z.number().int().min(0) }),
     )
     .mutation(({ input }) => {
+      if (input.itemId) requireDevelopmentDressTools();
       return requireServices().dressInstall.setActive(input.kind, input.itemId);
     }),
 
@@ -360,6 +374,7 @@ export const dressupRouter = router({
   setScope: procedure
     .input(z.object({ scope: z.enum(['mine', 'fallback', 'all']) }))
     .mutation(({ input }) => {
+      requireDevelopmentDressTools();
       return requireServices().dressInstall.setScope(input.scope);
     }),
 
@@ -411,6 +426,7 @@ export const dressupRouter = router({
       }),
     )
     .mutation(({ input }) => {
+      if (input.itemId) requireDevelopmentDressTools();
       const services = requireServices();
       const record = services.accountConfig.getRecord();
       const dress = record?.homeDress;
@@ -510,6 +526,7 @@ export const dressupRouter = router({
         .extend(exportAccountBindingInput.shape),
     )
     .mutation(async ({ input }) => {
+      requireDevelopmentDressTools();
       const services = requireServices();
       const context = getAppContext();
       const current = bindExportSaveRequest(

@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ExportSavePolicy } from '@weq/service';
 import { MarketImageSave } from '../src/renderer/src/components/MarketImageSave';
+vi.mock('../src/renderer/src/hooks/useDevelopmentDressTools', () => ({
+  useDevelopmentDressTools: () => true,
+}));
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 

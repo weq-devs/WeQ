@@ -50,6 +50,7 @@ import {
 import { bubblePreviewCss } from '../lib/dressSkin';
 import { syncDressSkin, syncDressSkinPreloaded } from '../hooks/useDressSkin';
 import { useNearViewport } from '../hooks/useNearViewport';
+import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
 import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
 import { useVideoPlaybackSlot } from '../hooks/useVideoPlaybackSlot';
 import { fontFaces } from '../lib/fontFaces';
@@ -279,12 +280,14 @@ export function DressUpDialog({
   initialEmojiPackName?: string;
 }): ReactElement {
   const mobile = useMobileWebLayout();
+  const developmentDressTools = useDevelopmentDressTools();
   const dialog = useAppDialog();
   const decorationSave = useDecorationSave();
   const mediaSave = useMediaSave();
   const utils = trpc.useUtils();
 
-  const [kind, setKind] = useState<DressKind>(initialKind);
+  const [selectedKind, setKind] = useState<DressKind>(initialKind);
+  const kind = developmentDressTools ? selectedKind : 'background';
   /** 输入框里的草稿。回车提交后才变成 keyword,避免每敲一个字打一次接口。 */
   const [draft, setDraft] = useState('');
   const [keyword, setKeyword] = useState('');
@@ -1160,7 +1163,7 @@ export function DressUpDialog({
           </div>
 
           <div className="weq-dress-kinds" role="tablist" aria-label="装扮类别">
-            {KINDS.map((k) => (
+            {KINDS.filter((k) => developmentDressTools || k.id === 'background').map((k) => (
               <button
                 key={k.id}
                 type="button"

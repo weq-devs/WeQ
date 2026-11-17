@@ -2,6 +2,9 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { DressUpDialog } from '../src/renderer/src/components/DressUpDialog';
+vi.mock('../src/renderer/src/hooks/useDevelopmentDressTools', () => ({
+  useDevelopmentDressTools: () => true,
+}));
 import { PLAYBACK_LIMIT } from '../src/renderer/src/hooks/useVideoPlaybackSlot';
 
 /**

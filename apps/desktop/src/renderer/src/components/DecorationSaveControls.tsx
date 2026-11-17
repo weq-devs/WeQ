@@ -3,6 +3,7 @@ import { Loader2, Save } from 'lucide-react';
 import type { ExportSavePolicy } from '@weq/service';
 import { client } from '../trpc/client';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
+import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
 import { IS_WEB } from '../lib/target';
 import { ServerSavePrompt } from './ServerSavePrompt';
 import { useToast } from './Toast';
@@ -18,6 +19,7 @@ interface DecorationSaveInput {
 
 /** 每个装扮面板共用一份保存准备与在途锁，不为每个商城条目创建查询观察者。 */
 export function useDecorationSave() {
+  const developmentDressTools = useDevelopmentDressTools();
   const save = useExportSavePolicy();
   const pushToast = useToast((state) => state.push);
   const identity = `${save.binding?.expectedAccountUin}:${save.binding?.expectedAccountConfigId}`;
@@ -29,6 +31,7 @@ export function useDecorationSave() {
     intent?: ExportSavePolicy,
     browser = false,
   ) {
+    if (!developmentDressTools) return;
     if (!save.binding || pending.current === identity || save.settings.isLoading) return;
     const selected = { ...input, ...save.binding };
     pending.current = identity;
@@ -75,7 +78,11 @@ export function useDecorationSave() {
   return {
     run,
     savingKey: operation?.identity === identity ? operation.key : '',
-    disabled: !save.binding || save.settings.isLoading || operation?.identity === identity,
+    disabled:
+      !developmentDressTools ||
+      !save.binding ||
+      save.settings.isLoading ||
+      operation?.identity === identity,
     prompt: save.serverLocation ? (
       <ServerSavePrompt name={save.serverLocation.name} onChoose={save.chooseServerLocation} />
     ) : null,
@@ -97,6 +104,8 @@ export function DecorationSaveControls({
   disabled: boolean;
   onSave: (intent?: ExportSavePolicy, browser?: boolean) => void;
 }) {
+  const developmentDressTools = useDevelopmentDressTools();
+  if (!developmentDressTools) return null;
   return (
     <div className="weq-save-action-group">
       <button

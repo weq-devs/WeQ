@@ -9,6 +9,7 @@ import {
   useDecorationSave,
 } from '../src/renderer/src/components/DecorationSaveControls';
 const state = vi.hoisted(() => ({
+  developmentTools: true,
   web: false,
   current: true,
   prepare: vi.fn(
@@ -27,6 +28,9 @@ const state = vi.hoisted(() => ({
     > => ({ mode: 'task', taskId: 'fixture' }),
   ),
   toast: vi.fn(),
+}));
+vi.mock('../src/renderer/src/hooks/useDevelopmentDressTools', () => ({
+  useDevelopmentDressTools: () => state.developmentTools,
 }));
 vi.mock('../src/renderer/src/lib/target', () => ({
   get IS_WEB() {
@@ -69,12 +73,23 @@ function BrowserHarness() {
 }
 const cleanup: Array<() => void> = [];
 beforeEach(() => {
+  state.developmentTools = true;
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   state.web = false;
   state.current = true;
   state.prepare.mockClear();
   state.toast.mockClear();
   state.mutate.mockReset().mockResolvedValue({ mode: 'task', taskId: 'fixture' });
+});
+
+it('普通模式不显示独立装扮保存按钮，保存方法也不创建任务', async () => {
+  state.developmentTools = false;
+  const host = await mount();
+  expect(host.querySelector('button')).toBeNull();
+  const browser = await mount(true);
+  await act(async () => browser.querySelector<HTMLButtonElement>('button')!.click());
+  expect(state.prepare).not.toHaveBeenCalled();
+  expect(state.mutate).not.toHaveBeenCalled();
 });
 afterEach(() => {
   for (const fn of cleanup.splice(0)) fn();

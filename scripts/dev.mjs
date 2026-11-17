@@ -92,7 +92,7 @@ export async function startDevelopment({
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
     console.log(
-      '用法：pnpm dev [--prepare-only] [-- Electron 参数]\n自动补齐依赖、准备 native 与构建后启动。\n默认读取 weq.dev.json 和 weq.dev.local.json；native.mode 为 release 或 local。\n--prepare-only 只准备环境，不启动应用。',
+      '用法：pnpm dev [--prepare-only] [-- Electron 参数]\n自动补齐依赖、准备 native 与构建后启动。\n默认读取 weq.dev.json 和 weq.dev.local.json；native.mode 为 release 或 local。\n--prepare-only 只准备环境，不启动应用。\n--enable-dress-tools 仅在开发运行环境启用装扮实验工具。',
     );
   } else {
     try {

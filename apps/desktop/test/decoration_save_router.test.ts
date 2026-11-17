@@ -31,11 +31,13 @@ vi.mock('../src/main/ipc/routers/dressup_export', () => ({
 vi.mock('@weq/service', async (original) => ({
   ...(await original<typeof import('@weq/service')>()),
   getHost: () => ({
+    isPackaged: () => false,
     exportRoot: state.web ? state.root : undefined,
     registerDownload: () => ({ url: '/download' }),
     pickSaveTarget: async (input: unknown) => (state.selected ? state.pick(input) : null),
     pickDirectory: async () => state.root,
   }),
+  requireDevelopmentDressTools: vi.fn(),
 }));
 let manager: ExportTaskManager;
 const input = {

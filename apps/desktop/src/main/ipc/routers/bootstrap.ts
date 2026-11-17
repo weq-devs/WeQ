@@ -12,7 +12,7 @@
  * underlying `AsyncIterable<KeyEvent>` converted to an `observable`.
  * superjson moves `bigint`s through unscathed.
  */
-import { OperationError } from '@weq/service';
+import { OperationError, developmentDressToolsEnabled } from '@weq/service';
 
 import { observable } from '@trpc/server/observable';
 import { consumeNotificationClick, notificationClickEvents } from '../../notification_click_bus';
@@ -647,6 +647,10 @@ export const bootstrapRouter = router({
       isDev: !host.isPackaged(),
     };
   }),
+
+  getDevelopmentFeatures: procedure.query(() => ({
+    dressTools: developmentDressToolsEnabled(),
+  })),
 
   /**
    * 内置 native 组件的构建信息（构建时间 / 过期时间 / 有效期长度）。

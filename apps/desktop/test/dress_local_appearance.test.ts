@@ -5,8 +5,12 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { DressManifest } from '@weq/service';
 import { DressUpDialog } from '../src/renderer/src/components/DressUpDialog';
+vi.mock('../src/renderer/src/hooks/useDevelopmentDressTools', () => ({
+  useDevelopmentDressTools: () => fixture.developmentTools,
+}));
 
 const fixture = vi.hoisted(() => ({
+  developmentTools: true,
   activate: vi.fn(),
   download: vi.fn(),
   mediaDownload: vi.fn(),
@@ -89,6 +93,7 @@ vi.mock('../src/renderer/src/views/export/MarketEmojiBrowserLightbox', () => ({
 
 afterEach(() => vi.unstubAllGlobals());
 beforeEach(() => {
+  fixture.developmentTools = true;
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   fixture.manifest = {
     bubbles: [],
@@ -156,6 +161,33 @@ it('默认打开使用页，三档范围保存并可取消当前气泡，商城�
     expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('聊天气泡');
     expect(host.querySelector('[role="radiogroup"]')).toBeNull();
     expect(host.querySelector('.weq-dress-local-note')).toBeNull();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+it('普通模式只保留聊天背景，商城直达不显示安装、覆盖或密钥工具', async () => {
+  fixture.developmentTools = false;
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(createElement(DressUpDialog, { initialKind: 'bubble', onClose: () => {} })),
+    );
+    expect(Array.from(host.querySelectorAll('[role="tab"]'), (tab) => tab.textContent)).toEqual([
+      '聊天背景',
+    ]);
+    expect(host.querySelector('.weq-dress-search')).toBeNull();
+    expect(host.querySelector('.weq-dress-use')).toBeNull();
+    expect(host.querySelector('[aria-label="装扮渲染范围"]')).toBeNull();
+    expect(host.textContent).not.toContain('商城表情');
+    expect(fixture.activate).not.toHaveBeenCalled();
+    const layout = process.env.WEQ_DRESS_LAYOUT;
+    if (layout) {
+      mkdirSync(layout, { recursive: true });
+      writeFileSync(resolve(layout, 'dress-normal.html'), host.innerHTML);
+    }
   } finally {
     act(() => root.unmount());
     host.remove();

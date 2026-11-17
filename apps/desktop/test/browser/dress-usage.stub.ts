@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import type { DressManifest } from '@weq/service';
 
 const empty = new URLSearchParams(location.search).has('empty');
+const dressTools = new URLSearchParams(location.search).has('tools');
 let manifest: DressManifest = {
   bubbles: [
     {
@@ -49,24 +50,26 @@ const proxy = (path = ''): unknown =>
           useSyncExternalStore(subscribe, () => revision);
           return {
             data:
-              path === 'account.dressup.getState'
-                ? snapshot()
-                : path === 'account.dressup.rank'
-                  ? {
-                      items: [
-                        {
-                          appId: 2,
-                          itemId: 11,
-                          name: '浅绿聊天气泡',
-                          previewUrl: '',
-                          previewLargeUrl: '',
-                          labels: [],
-                          price: 0,
-                          mallName: '',
-                        },
-                      ],
-                    }
-                  : undefined,
+              path === 'bootstrap.getDevelopmentFeatures'
+                ? { dressTools }
+                : path === 'account.dressup.getState'
+                  ? snapshot()
+                  : path === 'account.dressup.rank'
+                    ? {
+                        items: [
+                          {
+                            appId: 2,
+                            itemId: 11,
+                            name: '浅绿聊天气泡',
+                            previewUrl: '',
+                            previewLargeUrl: '',
+                            labels: [],
+                            price: 0,
+                            mallName: '',
+                          },
+                        ],
+                      }
+                    : undefined,
             isLoading: false,
             isInitialLoading: false,
           };

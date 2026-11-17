@@ -5,7 +5,7 @@
  * returned here — the renderer streams each file via the existing
  * `weq-media://mface?pack=<itemId>&hash=<hash>` protocol. Read-only.
  */
-import { OperationError } from '@weq/service';
+import { OperationError, requireDevelopmentDressTools } from '@weq/service';
 
 import { z } from 'zod';
 import { exportAccountBindingInput, exportSavePolicyInput } from './export_save';
@@ -56,6 +56,7 @@ export const marketEmojiRouter = router({
       }),
     )
     .mutation(({ input }) => {
+      requireDevelopmentDressTools();
       const services = requireServices(input.expectedAccountUin, input.expectedAccountConfigId);
       const check = () => {
         if (requireServices(input.expectedAccountUin, input.expectedAccountConfigId) !== services)
@@ -94,6 +95,7 @@ export const marketEmojiRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
+      requireDevelopmentDressTools();
       const host = getHost();
       if (!host.registerDownload) throw new Error('当前环境不支持浏览器下载');
       const services = requireServices(input.expectedAccountUin, input.expectedAccountConfigId);
@@ -153,6 +155,7 @@ export const marketEmojiRouter = router({
       }),
     )
     .query(({ input }) => {
+      requireDevelopmentDressTools();
       return requireServices().emoji.getMarketPackKey(input.packId, input.timestamp);
     }),
 
@@ -173,6 +176,7 @@ export const marketEmojiRouter = router({
       }),
     )
     .query(({ input }) => {
+      requireDevelopmentDressTools();
       return searchCatalog({
         keyword: input.keyword,
         feeTypes: input.feeTypes,
@@ -190,6 +194,7 @@ export const marketEmojiRouter = router({
   downloadPackToLocal: procedure
     .input(z.object({ packId: z.string().min(1), name: z.string().optional() }))
     .mutation(async ({ input }) => {
+      requireDevelopmentDressTools();
       const services = requireServices();
       const detail = await services.emoji.getMarketPackDetail(input.packId);
       if (!detail || detail.items.length === 0) {
@@ -253,6 +258,7 @@ export const marketEmojiRouter = router({
       }),
     )
     .mutation(({ input }) => {
+      requireDevelopmentDressTools();
       return requireServices(
         input.expectedAccountUin,
         input.expectedAccountConfigId,

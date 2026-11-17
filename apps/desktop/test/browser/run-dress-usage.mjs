@@ -61,7 +61,7 @@ try {
   for (const width of [1200, 768, 390, 320])
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize({ width, height: 850 });
-      await page.goto(`${url}?theme=${theme}`);
+      await page.goto(`${url}?theme=${theme}&tools=1`);
       await page.getByRole('heading', { name: '使用中的装扮' }).waitFor();
       assert.equal(
         await page.getByRole('tab', { name: '使用', exact: true }).getAttribute('aria-selected'),
@@ -108,7 +108,7 @@ try {
       await page.getByRole('tab', { name: '使用', exact: true }).click();
       await page.getByRole('button', { name: '取消使用聊天气泡', exact: true }).waitFor();
     }
-  await page.goto(`${url}?empty=1`);
+  await page.goto(`${url}?empty=1&tools=1`);
   await page.getByRole('heading', { name: '使用中的装扮' }).waitFor();
   assert.equal(await page.getByText('未使用', { exact: true }).count(), 4);
   assert.equal(await page.getByText('按消息记录还原', { exact: true }).count(), 3);
@@ -161,9 +161,32 @@ try {
           : [true, true, true, true],
     );
   }
+  for (const width of [1200, 390, 320])
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width, height: 850 });
+      await page.goto(`${url}?theme=${theme}`);
+      await page.getByRole('tab', { name: '聊天背景', exact: true }).waitFor();
+      assert.equal(await page.getByRole('tab').count(), 1);
+      assert.equal(
+        await page.locator('.weq-dress-use, .weq-dress-save, .weq-dress-search').count(),
+        0,
+      );
+      assert.equal(
+        await page.getByRole('button', { name: '选择聊天气泡', exact: true }).count(),
+        0,
+      );
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+        true,
+      );
+      await page.screenshot({
+        path: resolve(output, `normal-${theme}-${width}.png`),
+        fullPage: true,
+      });
+    }
   assert.deepEqual(errors, []);
   console.log(
-    'PASS: 使用页 8 组深浅色/宽窄屏、三档切换、键盘单选、取消/使用、空状态及原始装扮 CSS 渲染',
+    'PASS: 开发工具 8 组深浅色/宽窄屏、三档切换、键盘单选、取消/使用、原始装扮 CSS；普通模式 6 组仅保留背景',
   );
 } finally {
   await browser?.close();

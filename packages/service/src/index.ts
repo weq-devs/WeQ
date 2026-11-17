@@ -1245,6 +1245,10 @@ export { logRequest, logTransportError } from './common/request_log';
 export { OperationError } from './common/operation_error';
 export type { Logger, LoggerContext, LogLevel } from './common/logger';
 export { getHost, setHost, withHost } from './common/host';
+export {
+  developmentDressToolsEnabled,
+  requireDevelopmentDressTools,
+} from './common/development_dress';
 export type { AppAutostartStatus, HostBridge, SaveTarget } from './common/host';
 export { JsonStore, readJsonFile, writeJsonFileAtomic } from './common/json_store';
 export {

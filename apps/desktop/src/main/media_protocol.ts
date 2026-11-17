@@ -58,6 +58,7 @@ import {
   GROUP_PTT_RKEY_TYPE,
   managedMediaDownload as downloadUrlToFile,
   resolveChatpicFile,
+  developmentDressToolsEnabled,
   chatpicRelPaths,
   type AvatarLocalFile,
   type MediaElement,
@@ -956,6 +957,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           // 密钥（或前端手动输入时间戳派生的 key）解密成 GIF。解密失败时回退到
           // 明文 CDN（raw GIF / PNG）与本地缓存路径，保证贴纸仍可显示。
           if (q.get('enc') === 'tea') {
+            if (!developmentDressToolsEnabled()) return notFound('market pack tools disabled');
             const key = q.get('key') ?? '';
             let path = await services.emoji.getMarketPackImage(pack, hash, key || undefined);
             if (!path) path = await services.emoji.getMarketFace(pack, hash);

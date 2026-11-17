@@ -10,6 +10,7 @@ import { type AccountSession, algoFor } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import type { NtHelperBinding } from '@weq/native';
 import { scopedNetworkAllowed } from '../common/network_scope';
+import { developmentDressToolsEnabled } from '../common/development_dress';
 import {
   AddCustomFace,
   DeleteCustomFace,
@@ -748,6 +749,7 @@ export class EmojiService {
    * 会话内按 packId 缓存（手动派生不缓存，因用户会试不同值）。
    */
   async getMarketPackKey(packId: string, timestamp?: number): Promise<MarketPackKey | null> {
+    if (!developmentDressToolsEnabled()) return null;
     const id = String(packId).trim();
     if (!/^\d+$/.test(id)) return null;
 
@@ -782,6 +784,7 @@ export class EmojiService {
     hash: string,
     keyOverride?: string,
   ): Promise<string | null> {
+    if (!developmentDressToolsEnabled()) return null;
     const id = String(packId).trim();
     if (!/^\d+$/.test(id) || !/^[0-9a-f]{6,64}$/i.test(hash)) return null;
 
