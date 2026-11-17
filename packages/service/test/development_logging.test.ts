@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { scheduleDatabase, SLOW_DATABASE_OPERATION_MS } from '@weq/db';
 import { configureDevelopmentLogging } from '../src/common/development_logging';
-import { configureConsoleLogger, flushConsoleLogger, initLogger } from '../src/common/logger';
+import {
+  configureConsoleLogger,
+  flushConsoleLogger,
+  getLogger,
+  initLogger,
+} from '../src/common/logger';
 import { currentOperationId, withLogOperation } from '../src/common/operation_log';
 import { logRequest } from '../src/common/request_log';
 
@@ -63,6 +68,39 @@ function fixture() {
         .filter((record) => record.context?.scope === scope),
   };
 }
+
+it('终端精简和启动投影不改变文件中的原始事件与字段', () => {
+  const f = fixture();
+  configureConsoleLogger({
+    development: true,
+    processName: 'desktop-main',
+    env: {},
+    color: false,
+    detailEvents: new Set(['logger:init']),
+    startup: { startedAt: Date.now() - 100, restarting: true, warning: false },
+    sink: (line) => f.lines.push(line),
+  });
+  getLogger().info('fixture detail', { scope: 'logger', event: 'init', logDir: '/fixture/logs' });
+  getLogger().info('fixture ready', {
+    scope: 'desktop-main',
+    event: 'app-ready',
+    fixtureField: 'kept',
+  });
+  expect(f.lines).toHaveLength(1);
+  expect(f.lines[0]).toContain('应用重启就绪');
+  expect(f.records('logger')).toContainEqual(
+    expect.objectContaining({
+      message: 'fixture detail',
+      context: { scope: 'logger', event: 'init', logDir: '/fixture/logs' },
+    }),
+  );
+  expect(f.records('desktop-main')).toEqual([
+    expect.objectContaining({
+      message: 'fixture ready',
+      context: { scope: 'desktop-main', event: 'app-ready', fixtureField: 'kept' },
+    }),
+  ]);
+});
 
 it('一次慢操作在终端和文件中仅记一条，定位真实操作并汇总其排队影响', async () => {
   const f = fixture();

@@ -23,7 +23,7 @@ test('真实 electron-vite 监听：主进程成功才重启，语法错误保�
   const log = join(root, 'started.jsonl');
   const main = join(root, 'main.js');
   const source = (value) =>
-    `import {appendFileSync} from 'node:fs'; appendFileSync(${JSON.stringify(log)}, JSON.stringify({value:${value},pid:process.pid,url:process.env.ELECTRON_RENDERER_URL})+'\\n'); setInterval(()=>{},1000);`;
+    `import {appendFileSync} from 'node:fs'; appendFileSync(${JSON.stringify(log)}, JSON.stringify({value:${value},pid:process.pid,url:process.env.ELECTRON_RENDERER_URL,restarting:process.env.WEQ_DEV_RESTART})+'\\n'); setInterval(()=>{},1000);`;
   await writeFile(main, source(1));
   await writeFile(join(root, 'preload.js'), 'export const value = 1;');
   const { stdout } = await run(
@@ -48,9 +48,14 @@ test('真实 electron-vite 监听：主进程成功才重启，语法错误保�
     join(root, 'electron.vite.config.mjs'),
     `
     import {successfulDevelopmentReload} from ${JSON.stringify(fileURLToPath(new URL('../apps/desktop/src/main/development_reload.ts', import.meta.url)))};
+    import {tsImport} from ${JSON.stringify(pathToFileURL(createRequire(import.meta.url).resolve('tsx/esm/api')).href)};
+    const {developmentBuildSummary, developmentViteLogging} = await tsImport(${JSON.stringify(fileURLToPath(new URL('../apps/desktop/src/main/development_vite.ts', import.meta.url)))}, import.meta.url);
+    const summary = developmentBuildSummary();
+    const mainLogging = developmentViteLogging('main', process.env, undefined, undefined, summary);
+    const preloadLogging = developmentViteLogging('preload', process.env, undefined, undefined, summary);
     export default {
-      main: {plugins:[successfulDevelopmentReload()], build: {watch: ${JSON.stringify(watch.main)}, rollupOptions: {input: ${JSON.stringify(main)}}}},
-      preload: {plugins:[successfulDevelopmentReload()], build: {watch: ${JSON.stringify(watch.preload)}, rollupOptions: {input: ${JSON.stringify(join(root, 'preload.js'))}}}},
+      main: {...mainLogging.config, plugins:[...mainLogging.plugins, successfulDevelopmentReload('main')], build: {watch: ${JSON.stringify(watch.main)}, rollupOptions: {input: ${JSON.stringify(main)}}}},
+      preload: {...preloadLogging.config, plugins:[...preloadLogging.plugins, successfulDevelopmentReload('preload')], build: {watch: ${JSON.stringify(watch.preload)}, rollupOptions: {input: ${JSON.stringify(join(root, 'preload.js'))}}}},
       renderer: {root: ${JSON.stringify(root)}, server: {host:'127.0.0.1',port:0}, build:{rollupOptions:{input:${JSON.stringify(join(root, 'index.html'))}}}}
     };
   `,
@@ -64,6 +69,8 @@ test('真实 electron-vite 监听：主进程成功才重启，语法错误保�
     ELECTRON_EXEC_PATH: process.execPath,
     ELECTRON_MAJOR_VER: '44',
     ELECTRON_ENTRY: join(root, 'out/main/main.js'),
+    WEQ_DEV_CONSOLE: '1',
+    WEQ_LOG_LEVEL: 'info',
   };
   for (const key of [
     'ELECTRON_RUN_AS_NODE',
@@ -72,6 +79,7 @@ test('真实 electron-vite 监听：主进程成功才重启，语法错误保�
     'V8_INSPECTOR_PORT',
     'V8_INSPECTOR_BRK_PORT',
     'NO_SANDBOX',
+    'WEQ_DEV_RESTART',
   ])
     delete env[key];
   const child = spawn(process.execPath, [bin, 'dev'], {
@@ -117,14 +125,20 @@ test('真实 electron-vite 监听：主进程成功才重启，语法错误保�
   };
   await until(async () => (await starts()).length === 1);
   const first = (await starts())[0];
+  assert.equal(first.restarting, undefined);
+  assert.match(output, /初始构建完成/);
+  assert.doesNotMatch(output, /watching for file changes|build started|built in \d+ms/);
   await writeFile(main, 'export const = ;');
   await until(() => /Expected|PARSE_ERROR|Unexpected/.test(output));
   await new Promise((resolve) => setTimeout(resolve, 400));
   assert.equal((await starts()).length, 1, output);
+  assert.match(output, /仍运行上次成功构建/);
   process.kill(first.pid, 0);
   await writeFile(main, source(2));
   await until(async () => (await starts()).length === 2);
   assert.equal((await starts())[1].value, 2);
+  assert.equal((await starts())[1].restarting, '1');
+  assert.match(output, /主进程增量构建完成（构建已恢复）/);
   const client = await (await fetch(`${first.url}/@vite/client`)).text();
   const token = /const wsToken = "([^"]+)"/.exec(client)?.[1];
   const { default: WebSocket } = await import(pathToFileURL(require.resolve('ws')).href);

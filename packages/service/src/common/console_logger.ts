@@ -154,6 +154,8 @@ export interface ConsoleLoggerOptions {
   sink?: (line: string) => void;
   color?: boolean;
   infoScopes?: ReadonlySet<string>;
+  detailEvents?: ReadonlySet<string>;
+  startup?: { startedAt: number; restarting: boolean; warning: boolean };
 }
 
 export function createConsoleLogger(options: ConsoleLoggerOptions) {
@@ -181,6 +183,14 @@ export function createConsoleLogger(options: ConsoleLoggerOptions) {
   const pending = new Map<string, PendingSummary>();
   const stacks = new Map<string, number>();
   const details = minimum === 'debug';
+  let starting = Boolean(options.startup);
+  let startupWarning = options.startup?.warning ?? false;
+  const restartDetails = new Set([
+    'desktop-main:startup',
+    'app-context:open-account-success',
+    'app-context:open-static-account-success',
+    'mcp-server:mcp-start',
+  ]);
   const output = (
     level: LogLevel,
     message: string,
@@ -243,6 +253,11 @@ export function createConsoleLogger(options: ConsoleLoggerOptions) {
     });
   return {
     write(level: LogLevel, message: string, context: LoggerContext = {}) {
+      const event = `${context.scope}:${context.event}`;
+      const ready = starting && event === 'desktop-main:app-ready';
+      if (starting && (level === 'warn' || level === 'error')) startupWarning = true;
+      const startupDetail = starting && options.startup?.restarting && restartDetails.has(event);
+      if (ready) starting = false;
       if (!enabled || levels.indexOf(level) < levels.indexOf(minimum)) return;
       if (
         (level === 'info' || level === 'debug') &&
@@ -258,7 +273,26 @@ export function createConsoleLogger(options: ConsoleLoggerOptions) {
         !options.infoScopes.has(context.scope ?? 'app')
       )
         return;
-      const projected = projectConsoleContext(context) as LoggerContext;
+      if (
+        level === 'info' &&
+        !details &&
+        !scopes.size &&
+        (options.detailEvents?.has(event) || startupDetail)
+      )
+        return;
+      const projected = projectConsoleContext(
+        ready && !details
+          ? {
+              ...context,
+              event: startupWarning
+                ? 'app-ready-with-warnings'
+                : options.startup?.restarting
+                  ? 'app-restart-ready'
+                  : context.event,
+              durationMs: Math.max(0, now() - options.startup!.startedAt),
+            }
+          : context,
+      ) as LoggerContext;
       let stackRepeated = false;
       if (!details && (level === 'warn' || level === 'error')) {
         const nestedError = projected.error;

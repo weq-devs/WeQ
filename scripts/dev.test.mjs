@@ -314,6 +314,52 @@ test('一行入口按依赖、宿主、native、网络、启动顺序执行，�
   assert(!launch.args.some((arg) => arg.startsWith('--user-data-dir')));
 });
 
+test('缓存启动仅报环境摘要与停止，native 回退及 prepare-only 不误称源码已就绪', async (t) => {
+  const root = await fixture(t);
+  const lines = [];
+  let environment;
+  const hooks = {
+    repo: root,
+    env: { WEQ_DEV_RESTART: '1', WEQ_DEV_STARTUP_WARNING: '1' },
+    log: (...line) => lines.push(line),
+    unused: async () => {},
+    dependencies: async () => {},
+    electron: async () => '/electron',
+    native: async () => {},
+    network: async () => '/network',
+    bot: async () => {},
+    launch: async (_args, env) => {
+      environment = env;
+      return 0;
+    },
+  };
+  await startDevelopment(hooks);
+  assert.equal(lines.length, 2);
+  assert.match(lines[0][0], /^运行环境就绪/);
+  assert.equal(lines[1][0], '开发服务已停止');
+  assert.equal(environment.WEQ_DEV_RESTART, undefined);
+  assert.equal(environment.WEQ_DEV_STARTUP_WARNING, undefined);
+  assert(Number(environment.WEQ_DEV_STARTED_AT) > 0);
+  lines.length = 0;
+  await startDevelopment({ ...hooks, native: async () => ({ fallback: true }) });
+  assert.match(lines[0][0], /使用旧 native，本次源码改动未生效/);
+  assert.equal(environment.WEQ_DEV_STARTUP_WARNING, '1');
+  lines.length = 0;
+  await startDevelopment({
+    ...hooks,
+    native: async () => ({ fallback: true }),
+    args: ['--prepare-only'],
+  });
+  assert.equal(lines.length, 1);
+  assert.match(lines[0][0], /未启动应用；使用旧 native/);
+  lines.length = 0;
+  await assert.rejects(startDevelopment({ ...hooks, launch: async () => 7 }), { exitCode: 7 });
+  assert(!lines.some(([text]) => text.includes('开发服务已停止')));
+  lines.length = 0;
+  await assert.rejects(startDevelopment({ ...hooks, launch: async () => 130 }), { exitCode: 130 });
+  assert.equal(lines.at(-1)[0], '开发服务已停止');
+});
+
 test('网络辅助程序复用构建计划并校验缓存，源码与二进制变化均重建', async (t) => {
   const root = await fixture(t);
   await mkdir(join(root, 'tools/remote-network'), { recursive: true });
@@ -555,6 +601,25 @@ test('默认收起 Cargo 过程和命令回显，保留诊断续行；debug 保�
   unknown.write(Buffer.from('Running network check\nDownloading helper\n'));
   unknown.end();
   assert.equal(other.length, 2);
+});
+
+test('失败时只展开有界的工具尾部，成功不展开，未知输出仍直接保留', () => {
+  const lines = [];
+  const output = commandOutput((...row) => lines.push(row), 'native', { env: {} });
+  for (let i = 0; i < 1000; i++) output.write(Buffer.from(`   Compiling fixture-${i}\n`));
+  assert.equal(lines.length, 0);
+  output.write(Buffer.from('unknown output\nerror[E000]: broken\n  --> src/lib.rs:3\n'));
+  output.end({ failed: true });
+  assert.equal(lines[0][0], 'unknown output');
+  assert(lines.some(([text]) => text === 'error[E000]: broken'));
+  assert(lines.some(([text]) => text.includes('fixture-999')));
+  assert(!lines.some(([text]) => text.includes('fixture-0')));
+  assert(lines.length <= 16);
+  const success = [];
+  const cached = commandOutput((...row) => success.push(row), 'native', { env: {} });
+  cached.write(Buffer.from('   Compiling fixture\n'));
+  cached.end();
+  assert.equal(success.length, 0);
 });
 
 test('安静构建期间低频报告进度，退出后停止计时且原始错误保留', {

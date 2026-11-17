@@ -8,10 +8,12 @@ import { successfulDevelopmentReload } from './src/main/development_reload';
 import { tsImport } from 'tsx/esm/api';
 
 // 配置加载器会外置裸包导入；仅开发摘要需要通过现有 TS 加载器读取工作区源码。
-const developmentViteLogging: typeof import('./src/main/development_vite').developmentViteLogging =
+const developmentLogging: typeof import('./src/main/development_vite') | undefined =
   process.env.WEQ_DEV_CONSOLE === '1' && process.env.WEQ_LOG_LEVEL !== 'debug'
-    ? (await tsImport('./src/main/development_vite.ts', import.meta.url)).developmentViteLogging
-    : () => ({ config: {}, plugins: [] });
+    ? await tsImport('./src/main/development_vite.ts', import.meta.url)
+    : undefined;
+const developmentViteLogging =
+  developmentLogging?.developmentViteLogging ?? (() => ({ config: {}, plugins: [] }));
 
 /**
  * Workspace packages export TS source directly (no build step). They must
@@ -46,8 +48,21 @@ const EXCLUDE_FROM_EXTERNAL = [
 
 let remoteWebBuilt = false;
 const development = process.env.NODE_ENV_ELECTRON_VITE === 'development';
-const mainLogging = developmentViteLogging('main');
-const preloadLogging = developmentViteLogging('preload');
+const initialSummary = developmentLogging?.developmentBuildSummary();
+const mainLogging = developmentViteLogging(
+  'main',
+  process.env,
+  undefined,
+  undefined,
+  initialSummary,
+);
+const preloadLogging = developmentViteLogging(
+  'preload',
+  process.env,
+  undefined,
+  undefined,
+  initialSummary,
+);
 const rendererLogging = developmentViteLogging('renderer');
 
 // Wayland 会话默认让 Electron 走 XWayland（平铺合成器会把 `type: 'toolbar'` 平铺掉）。
@@ -68,7 +83,7 @@ export default defineConfig({
     clearScreen: false,
     plugins: [
       ...mainLogging.plugins,
-      successfulDevelopmentReload(),
+      successfulDevelopmentReload('main'),
       {
         name: 'weq-remote-web-assets',
         async buildStart() {
@@ -149,7 +164,11 @@ export default defineConfig({
   preload: {
     ...preloadLogging.config,
     clearScreen: false,
-    plugins: [...preloadLogging.plugins, successfulDevelopmentReload(), externalizeDepsPlugin()],
+    plugins: [
+      ...preloadLogging.plugins,
+      successfulDevelopmentReload('preload'),
+      externalizeDepsPlugin(),
+    ],
     build: { watch: development ? { buildDelay: 200 } : null },
   },
   renderer: {

@@ -33,6 +33,7 @@ export function commandOutput(log, scope, { env = process.env } = {}) {
   let pending = '';
   let diagnostic;
   let warnings = 0;
+  const recent = [];
   const emit = () => {
     const original = pending;
     const text = stripVTControlCharacters(pending);
@@ -43,8 +44,11 @@ export function commandOutput(log, scope, { env = process.env } = {}) {
       !debug &&
       ((scope === 'native' && /^ {3,}(?:Compiling|Checking|Finished|Running|Fresh)\s/.test(text)) ||
         /^\$ node scripts\/build-bot\.mjs\b/.test(text))
-    )
+    ) {
+      recent.push(text.slice(-2048));
+      if (recent.length > 12) recent.shift();
       return;
+    }
     if (!debug && warnings && /^warning: .* generated \d+ warnings?/.test(text)) return;
     if (/^\d{2}:\d{2}:\d{2} (?:DEBUG|INFO |WARN |ERROR) /.test(text) || /^ {9}\S/.test(text)) {
       const stream = /^\d{2}:\d{2}:\d{2} (?:WARN |ERROR) /.test(text) ? 'stderr' : 'stdout';
@@ -73,9 +77,14 @@ export function commandOutput(log, scope, { env = process.env } = {}) {
   };
   return {
     write: (chunk) => consume(decoder.write(chunk)),
-    end() {
+    end({ failed = false } = {}) {
       consume(decoder.end());
       emit();
+      if (failed && recent.length) {
+        log('最近的工具输出：', 'info', scope);
+        for (const line of recent) log(line, 'info', scope, { continuation: true });
+      }
+      recent.length = 0;
     },
   };
 }
@@ -109,14 +118,11 @@ export function runCommand(
     const err = commandOutput(log, scope, { env });
     const started = performance.now();
     const progress =
-      !capture &&
-      command === 'cargo' &&
-      ['build', 'run'].includes(args[0]) &&
-      env.WEQ_LOG_LEVEL !== 'debug'
+      !capture && env.WEQ_LOG_LEVEL !== 'debug'
         ? setInterval(
             () =>
               log(
-                `构建任务仍在进行（已耗时 ${Math.round((performance.now() - started) / 1000)}s）`,
+                `${command === 'cargo' ? '构建任务' : '任务'}仍在进行（已耗时 ${Math.round((performance.now() - started) / 1000)}s）`,
                 'info',
                 scope,
               ),
@@ -159,22 +165,22 @@ export function runCommand(
     const onTerm = () => signal('SIGTERM');
     process.on('SIGINT', onInt);
     process.on('SIGTERM', onTerm);
-    const cleanup = () => {
+    const cleanup = (failed) => {
       clearInterval(progress);
       clearTimeout(timer);
       process.off('SIGINT', onInt);
       process.off('SIGTERM', onTerm);
       if (!capture) {
-        out.end();
-        err.end();
+        out.end({ failed });
+        err.end({ failed });
       }
     };
     child.once('error', (error) => {
-      cleanup();
+      cleanup(true);
       reject(error);
     });
     child.once('close', (status, exitSignal) => {
-      cleanup();
+      cleanup(status !== 0 && !interrupted && !exitSignal);
       const code = interrupted || exitSignal;
       if (status === 0 && !code) resolve(stdout);
       else

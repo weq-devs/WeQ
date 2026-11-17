@@ -229,14 +229,17 @@ function hook(
 }
 describe('开发构建摘要', () => {
   it('开发服务生命周期不误进入打包状态，Web 与桌面热更新持续输出', () => {
+    vi.useFakeTimers();
+    onTestFinished(() => vi.useRealTimers());
     for (const target of ['web', 'renderer'] as const) {
       const sink = vi.fn();
       const logging = developmentViteLogging(target, { WEQ_DEV_CONSOLE: '1' }, sink);
       hook(logging.plugins[0]!, 'configResolved', { command: 'serve' });
       hook(logging.plugins[0]!, 'buildStart');
       logging.config.customLogger!.info('(client) hmr update /App.tsx');
+      vi.advanceTimersByTime(100);
       expect(sink.mock.calls).toHaveLength(1);
-      expect(sink.mock.calls[0]![0]).toContain(`vite-${target}  热更新 /App.tsx`);
+      expect(sink.mock.calls[0]![0]).toContain(`vite-${target}  已推送热更新 1 个文件`);
     }
   });
   it('真实 Vite 大包告警只显示阈值摘要，不输出通用建议', async () => {
@@ -294,20 +297,20 @@ describe('开发构建摘要', () => {
         ],
       };
       await build(config);
-      expect(sink.mock.calls).toHaveLength(2);
-      expect(sink.mock.calls[0]![0]).toContain('内置 Web 构建开始');
-      expect(sink.mock.calls[1]![0]).toContain('内置 Web 构建完成');
-      expect(sink.mock.calls[1]![0]).not.toContain('产物数');
+      expect(sink.mock.calls).toHaveLength(1);
+      expect(sink.mock.calls[0]![0]).toContain('内置 Web 构建完成');
+      expect(sink.mock.calls[0]![0]).not.toContain('产物数');
       expect(sink.mock.calls.flat().join('')).not.toContain('fixture-');
       sink.mockClear();
       await writeFile(join(directory, 'entry.js'), 'export const = ;');
       await expect(build(config)).rejects.toThrow();
       expect(sink.mock.calls.flat().join('')).not.toContain('构建完成');
+      expect(sink.mock.calls.flat().join('')).toContain(join(directory, 'entry.js'));
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
   });
-  it('大量产物仅输出开始和成功摘要，真实警告、错误及定位保留', () => {
+  it('大量产物仅输出成功摘要，发生错误时展开有界尾部，真实诊断保留', () => {
     const sink = vi.fn();
     let time = 0;
     const logging = developmentViteLogging('web', { WEQ_DEV_CONSOLE: '1' }, sink, () => time);
@@ -318,6 +321,9 @@ describe('开发构建摘要', () => {
     logging.config.customLogger!.warn('真实警告\n位置 fixture.ts:3');
     logging.config.customLogger!.error('真实错误\n    at fixture.ts:4', { error });
     expect(logging.config.customLogger!.hasErrorLogged(error)).toBe(true);
+    hook(plugin, 'closeBundle');
+    expect(sink.mock.calls.flat().join('')).not.toContain('构建完成');
+    hook(plugin, 'buildStart');
     time = 2400;
     hook(
       plugin,
@@ -326,12 +332,16 @@ describe('开发构建摘要', () => {
       Object.fromEntries(Array.from({ length: 1000 }, (_, i) => [`asset-${i}`, {}])),
     );
     hook(plugin, 'closeBundle');
-    expect(sink.mock.calls).toHaveLength(6);
+    expect(sink.mock.calls.length).toBeLessThanOrEqual(20);
+    expect(sink.mock.calls.flat().join('')).not.toContain('asset-0.js');
+    expect(sink.mock.calls.flat().join('')).toContain('asset-999.js');
     expect(sink.mock.calls.flat().join('')).toContain('耗时 2.4s');
     expect(sink.mock.calls.flat().join('')).not.toContain('产物数');
     expect(sink.mock.calls.flat().join('')).toContain('位置 fixture.ts:3');
   });
-  it('构建失败不产生完成摘要，热更新去重但保留每次记录及不同路径', () => {
+  it('构建失败不产生完成摘要，同轮热更新合并但保留后续批次', () => {
+    vi.useFakeTimers();
+    onTestFinished(() => vi.useRealTimers());
     const sink = vi.fn();
     const failed = developmentViteLogging('main', { WEQ_DEV_CONSOLE: '1' }, sink);
     hook(failed.plugins[0]!, 'buildStart');
@@ -339,11 +349,13 @@ describe('开发构建摘要', () => {
     hook(failed.plugins[0]!, 'closeBundle');
     expect(sink.mock.calls.flat().join('')).not.toContain('构建完成');
     const renderer = developmentViteLogging('renderer', { WEQ_DEV_CONSOLE: '1' }, sink);
-    for (let i = 0; i < 2; i++)
+    for (let i = 0; i < 2; i++) {
       renderer.config.customLogger!.info('(client) hmr update /a.tsx, /b.css, /a.tsx');
+      vi.advanceTimersByTime(100);
+    }
     expect(sink.mock.calls.slice(-2).map(([line]) => line)).toEqual([
-      expect.stringContaining('热更新 /a.tsx, /b.css'),
-      expect.stringContaining('热更新 /a.tsx, /b.css'),
+      expect.stringContaining('已推送热更新 2 个文件'),
+      expect.stringContaining('已推送热更新 2 个文件'),
     ]);
   });
   it('DEBUG 和非开发启动完全保留 Vite 默认 logger 与构建行为', () => {
@@ -364,12 +376,12 @@ describe('开发构建摘要', () => {
     logger.warn(warning('../../db/index.ts'));
     logger.warn(warning('src/ai_images.ts'));
     hook(plugin, 'closeBundle');
-    expect(sink.mock.calls).toHaveLength(2);
-    expect(sink.mock.calls[1]![0]).toContain('2 项动态导入未形成分包：index.ts、ai_images.ts');
-    expect(sink.mock.calls[1]![0]).not.toContain('long/path');
+    expect(sink.mock.calls).toHaveLength(1);
+    expect(sink.mock.calls[0]![0]).toContain('2 项动态导入未形成分包：index.ts、ai_images.ts');
+    expect(sink.mock.calls[0]![0]).not.toContain('long/path');
     hook(plugin, 'buildStart');
     hook(plugin, 'closeBundle');
-    expect(sink.mock.calls).toHaveLength(3);
+    expect(sink.mock.calls).toHaveLength(1);
     logger.warn('[INEFFECTIVE_DYNAMIC_IMPORT] unknown format\nfixture.ts:3');
     expect(sink.mock.calls.flat().join('')).toContain('fixture.ts:3');
   });

@@ -104,12 +104,16 @@ const eventTitles: Record<string, Record<string, string>> = {
   'desktop-main': {
     'tray-create': '托盘已创建',
     'app-ready': '应用已就绪',
+    'app-restart-ready': '应用重启就绪',
+    'app-ready-with-warnings': '界面已就绪（启动存在异常，见前文）',
     'create-window': '主窗口已创建',
   },
   'app-context': {
     'init-app-context': '应用上下文初始化',
     'open-account-start': '正在打开账号',
     'open-account-success': '账号已打开',
+    'open-static-account-start': '正在打开静态账号',
+    'open-static-account-success': '静态账号已打开',
     'apply-group-keyword': '群关键词规则已应用',
   },
   'account-monitor': {

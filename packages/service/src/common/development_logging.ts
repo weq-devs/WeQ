@@ -6,6 +6,31 @@ export function configureDevelopmentLogging(development: boolean, processName: s
   configureConsoleLogger({
     development,
     processName,
+    detailEvents: new Set([
+      'logger:init',
+      'startup:native-ready',
+      'desktop-main:tray-create',
+      'desktop-main:create-window',
+      'app-context:init-app-context',
+      'app-context:open-account-start',
+      'app-context:open-static-account-start',
+      'app-context:apply-group-keyword',
+      'account-monitor:monitor-start',
+      'account-monitor:monitor-stop',
+    ]),
+    ...(processName === 'desktop-main' && process.env.WEQ_DEV_CONSOLE === '1'
+      ? {
+          startup: {
+            startedAt:
+              Number.isFinite(Number(process.env.WEQ_DEV_STARTED_AT)) &&
+              Number(process.env.WEQ_DEV_STARTED_AT) > 0
+                ? Number(process.env.WEQ_DEV_STARTED_AT)
+                : Date.now(),
+            restarting: process.env.WEQ_DEV_RESTART === '1',
+            warning: process.env.WEQ_DEV_STARTUP_WARNING === '1',
+          },
+        }
+      : {}),
     infoScopes: new Set([
       'startup',
       'logger',

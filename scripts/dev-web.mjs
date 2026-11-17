@@ -36,7 +36,7 @@ export function developmentWeb(root) {
           if (process.env.WEQ_DEV_WEB_URL === url) delete process.env.WEQ_DEV_WEB_URL;
           void web.close();
         });
-        startupLog('内置 Web 热更新已就绪（沿用原 Web／Remote 地址）', 'info', 'vite-web');
+        startupLog('内置 Web 热更新已就绪（沿用原 Web／Remote 地址）', 'debug', 'vite-web');
       } catch (error) {
         await web.close();
         throw error;

@@ -36,6 +36,68 @@ afterEach(() => {
   vi.useRealTimers();
 });
 describe('开发终端', () => {
+  it.each(['info', 'debug'])('内部阶段仅在详细模式展示，%s 不过滤同事件的异常', (level) => {
+    const lines: string[] = [];
+    const logger = createConsoleLogger({
+      development: true,
+      processName: 'test',
+      env: { WEQ_LOG_LEVEL: level },
+      color: false,
+      detailEvents: new Set(['logger:init']),
+      sink: (line) => lines.push(line),
+    });
+    disposals.push(logger.dispose);
+    logger.write('info', 'initialized', { scope: 'logger', event: 'init' });
+    logger.write('warn', 'init failed', { scope: 'logger', event: 'init' });
+    expect(lines).toHaveLength(level === 'debug' ? 2 : 1);
+    expect(lines.at(-1)).toContain('WARN');
+  });
+  it.each([false, true])(
+    '重启只收起首屏前的常规阶段，恢复后账号和 MCP 事件继续显示；warning=%s',
+    (warning) => {
+      const lines: string[] = [];
+      const logger = createConsoleLogger({
+        development: true,
+        processName: 'desktop-main',
+        env: {},
+        color: false,
+        startup: { startedAt: 1000, restarting: true, warning },
+        now: () => 2500,
+        sink: (line) => lines.push(line),
+      });
+      disposals.push(logger.dispose);
+      logger.write('info', 'WeQ startup', { scope: 'desktop-main', event: 'startup' });
+      logger.write('info', 'opened', { scope: 'app-context', event: 'open-account-success' });
+      expect(lines).toEqual([]);
+      logger.write('info', 'ready', { scope: 'desktop-main', event: 'app-ready' });
+      expect(lines[0]).toContain(warning ? '启动存在异常' : '应用重启就绪');
+      expect(lines[0]).toContain('耗时 1.5s');
+      logger.write('info', 'opened', { scope: 'app-context', event: 'open-account-success' });
+      logger.write('info', 'MCP', { scope: 'mcp-server', event: 'mcp-start' });
+      expect(lines).toHaveLength(3);
+    },
+  );
+  it('启动期间实际发生的异常保留，并使首屏就绪不冒称全部正常', () => {
+    const lines: string[] = [];
+    const logger = createConsoleLogger({
+      development: true,
+      processName: 'desktop-main',
+      env: {},
+      color: false,
+      startup: { startedAt: 1000, restarting: false, warning: false },
+      now: () => 2000,
+      sink: (line) => lines.push(line),
+    });
+    disposals.push(logger.dispose);
+    logger.write('error', '账号打开失败，返回选择页', {
+      scope: 'app-context',
+      event: 'account-failed',
+    });
+    logger.write('info', 'ready', { scope: 'desktop-main', event: 'app-ready' });
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain('账号打开失败');
+    expect(lines[1]).toContain('界面已就绪（启动存在异常');
+  });
   it('开发默认 info，正式关闭，支持显式打开和关闭', () => {
     const dev = fixture();
     dev.logger.write('debug', 'hidden');

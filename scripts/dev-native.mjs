@@ -324,11 +324,7 @@ export async function prepareNative(
         });
         buildEnv.DRESS_KEY_SEED = dress.seed;
         const started = performance.now();
-        log(
-          `正在增量编译本地 native（${commit.slice(0, 7)}；${devProfile}；装扮资源已独立准备）`,
-          'info',
-          'native',
-        );
+        log(`正在构建本地 native（${commit.slice(0, 7)}；${devProfile}）`, 'info', 'native');
         await run(
           'cargo',
           [
@@ -411,6 +407,7 @@ export async function prepareNative(
         'warn',
         'native',
       );
+      return { fallback: true };
     }
     return;
   }

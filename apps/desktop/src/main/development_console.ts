@@ -118,6 +118,8 @@ export function createDevelopmentOutput(
       'restarting electron app...': '正在重启应用',
       'reloading electron renderer...': '正在重新加载界面',
     };
+    if (!debug && ['starting electron app...', 'restarting electron app...'].includes(text.trim()))
+      return;
     const message = system
       ? `${system[1]}: ${system[2]}`
       : vite
