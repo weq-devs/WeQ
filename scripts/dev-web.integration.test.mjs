@@ -1,13 +1,19 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { once } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
+import { tsImport } from 'tsx/esm/api';
 import { developmentWeb } from './dev-web.mjs';
+
+const { developmentSourceMaps } = await tsImport(
+  '../apps/web/scripts/development-assets.ts',
+  import.meta.url,
+);
 
 test('真实 Vite 开发服务持续推送源码更新，并随桌面服务关闭；不写正式产物', {
   timeout: 20_000,
@@ -17,15 +23,15 @@ test('真实 Vite 开发服务持续推送源码更新，并随桌面服务关�
   const directory = join(root, 'apps/web');
   await mkdir(directory, { recursive: true });
   await writeFile(join(directory, 'package.json'), '{"type":"module"}');
+  await mkdir(join(directory, 'node_modules'));
   await symlink(
-    new URL('../apps/web/node_modules', import.meta.url),
-    join(directory, 'node_modules'),
+    await realpath(new URL('../apps/web/node_modules/vite', import.meta.url)),
+    join(directory, 'node_modules/vite'),
     process.platform === 'win32' ? 'junction' : 'dir',
   );
   await writeFile(
     join(directory, 'vite.config.ts'),
-    `import {developmentSourceMaps} from ${JSON.stringify(fileURLToPath(new URL('../apps/web/scripts/development-assets.ts', import.meta.url)))};
-    export default { plugins: [developmentSourceMaps()], root: ${JSON.stringify(directory)}, cacheDir: ${JSON.stringify(join(root, 'vite-cache'))}, server: { watch: { usePolling: true, interval: 20 } } };`,
+    `export default { root: ${JSON.stringify(directory)}, cacheDir: ${JSON.stringify(join(root, 'vite-cache'))}, server: { watch: { usePolling: true, interval: 20 } } };`,
   );
   await writeFile(join(directory, 'index.html'), '<script type="module" src="/entry.js"></script>');
   const entry = join(directory, 'entry.js');
@@ -39,7 +45,7 @@ test('真实 Vite 开发服务持续推送源码更新，并随桌面服务关�
     if (old === undefined) delete process.env.WEQ_DEV_WEB_URL;
     else process.env.WEQ_DEV_WEB_URL = old;
   });
-  const plugin = developmentWeb(root);
+  const plugin = developmentWeb(root, { plugins: [developmentSourceMaps()] });
   assert.equal(plugin.apply, 'serve');
   await plugin.configureServer({ httpServer: desktop });
   const url = process.env.WEQ_DEV_WEB_URL;

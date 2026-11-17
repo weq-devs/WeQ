@@ -121,7 +121,9 @@ describe('设置中的已读上报开关', () => {
     });
     const f = mount('account');
     const toggle = () =>
-      f.host.querySelector<HTMLButtonElement>('[aria-label="进入受限模式时通知"]')!;
+      f.host.querySelector<HTMLButtonElement>(
+        '[data-setting-id="restricted-mode-banner"] [role="switch"]',
+      )!;
     try {
       expect(toggle().getAttribute('aria-checked')).toBe('true');
       await act(async () => toggle().click());

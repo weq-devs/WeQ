@@ -55,9 +55,9 @@ test('真实 electron-vite 监听：成功后等待点击，连续构建合并�
   await writeFile(
     join(root, 'electron.vite.config.mjs'),
     `
-    import {createDevelopmentReload,successfulDevelopmentReload} from ${JSON.stringify(fileURLToPath(new URL('../apps/desktop/src/main/development_reload.ts', import.meta.url)))};
     import {tsImport} from ${JSON.stringify(pathToFileURL(createRequire(import.meta.url).resolve('tsx/esm/api')).href)};
-    const {developmentBuildSummary, developmentViteLogging} = await tsImport(${JSON.stringify(fileURLToPath(new URL('../apps/desktop/src/main/development_vite.ts', import.meta.url)))}, import.meta.url);
+    const {createDevelopmentReload,successfulDevelopmentReload} = await tsImport(${JSON.stringify(new URL('../apps/desktop/src/main/development_reload.ts', import.meta.url).href)}, import.meta.url);
+    const {developmentBuildSummary, developmentViteLogging} = await tsImport(${JSON.stringify(new URL('../apps/desktop/src/main/development_vite.ts', import.meta.url).href)}, import.meta.url);
     const summary = developmentBuildSummary();
     const mainLogging = developmentViteLogging('main', process.env, undefined, undefined, summary);
     const preloadLogging = developmentViteLogging('preload', process.env, undefined, undefined, summary);
