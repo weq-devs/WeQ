@@ -52,7 +52,8 @@ import { qqDynamicElementProps } from './QqDynamic.shared';
 import { QqEmojiBounce } from './QqEmojiBounce';
 import { QqLinkCard } from './QqLinkCard';
 import { QqInlineKeyboard, type KeyboardButton } from './QqInlineKeyboard';
-import { splitLinks, soleLink, openLink } from '../lib/linkify';
+import { soleLink } from '../lib/linkify';
+import { QqTextLinks } from './QqTextLinks';
 import { parseFlashShareCode } from '../lib/flashShare';
 import { ProfileNavigationContext, profileTargetUser } from '../lib/profileNavigation';
 import { cn } from '@renderer/lib/utils';
@@ -404,33 +405,9 @@ function ElementNode({
   }
   const text = inlineLabel(element);
   if (!text) return null;
-  // 纯文本里的链接标蓝加下划线并可点开（走系统浏览器，见 lib/linkify）。用 <button>
-  // 而不是 <a href>：真 href 一旦被中键/拖拽触发就会在应用内导航，而这里的地址来自
-  // 完全不可信的聊天文本。
-  const parts = splitLinks(text);
-  if (parts.length === 1 && parts[0]!.kind === 'text') return <span>{text}</span>;
   return (
     <span>
-      {parts.map((part, i) =>
-        part.kind === 'link' ? (
-          <button
-            // biome-ignore lint/suspicious/noArrayIndexKey: 按位置切分,无稳定唯一键
-            key={`lk-${i}`}
-            type="button"
-            className="qq-link"
-            title={part.href}
-            onClick={(e) => {
-              e.stopPropagation();
-              openLink(part.href);
-            }}
-          >
-            {part.text}
-          </button>
-        ) : (
-          // biome-ignore lint/suspicious/noArrayIndexKey: 按位置切分,无稳定唯一键
-          <span key={`tx-${i}`}>{part.text}</span>
-        ),
-      )}
+      <QqTextLinks text={text} />
     </span>
   );
 }

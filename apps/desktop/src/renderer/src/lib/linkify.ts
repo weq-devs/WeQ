@@ -10,11 +10,11 @@
  *   · 用户点的链接若指向可执行/安装包后缀，先弹一次确认。浏览器不会自动运行下载物，
  *     但「点一下就开始下 .exe」本身值得让人先看清域名——这一步是给人看的，不是给
  *     浏览器看的。
- *   · 走 `window.open` → 主进程 `setWindowOpenHandler` 已把所有 target=_blank 转成
- *     `shell.openExternal` 并 deny 掉窗口，所以应用内不会有任何远程页面被加载。
+ *   · 复用跨端外链入口：桌面通过 IPC 交给系统浏览器，Web / Remote 在点击设备打开。
  */
 
 import { LinkifyIt } from 'linkify-it';
+import { openExternalLink } from './openExternalLink';
 
 // 邮件也交给解析器消费，但不生成链接，避免把邮箱的域名截成独立网址。
 const linkify = new LinkifyIt({ fuzzyLink: true, fuzzyIP: false, fuzzyEmail: true }).add(
@@ -68,7 +68,7 @@ const RISKY_EXT =
  * 用系统浏览器打开一个链接。非 http(s) 直接拒绝；指向可执行/压缩包后缀时先确认。
  * 返回是否真的打开了。
  */
-export function openLink(href: string): boolean {
+export async function openLink(href: string): Promise<boolean> {
   let url: URL;
   try {
     url = new URL(href);
@@ -77,13 +77,22 @@ export function openLink(href: string): boolean {
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
   if (RISKY_EXT.test(url.pathname + url.search)) {
-    const name = decodeURIComponent(url.pathname.split('/').pop() ?? '');
+    const rawName = url.pathname.split('/').pop() ?? '';
+    let name = rawName;
+    try {
+      name = decodeURIComponent(rawName);
+    } catch {
+      // 非法百分号编码仍按原始文件名确认，不让链接点击抛出异常。
+    }
     const ok = window.confirm(
       `这个链接指向一个可执行文件或压缩包，打开后浏览器可能直接开始下载。\n\n` +
         `站点：${url.hostname}\n文件：${name}\n\n确定要在浏览器中打开吗？`,
     );
     if (!ok) return false;
   }
-  window.open(url.toString(), '_blank', 'noopener,noreferrer');
-  return true;
+  try {
+    return (await openExternalLink(url.toString())).ok;
+  } catch {
+    return false;
+  }
 }

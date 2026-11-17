@@ -10,6 +10,8 @@ const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwrig
 const server = await createServer({
   configFile: false,
   root,
+  resolve: { alias: { '@transport': resolve(root, 'test/support/transport.stub.ts') } },
+  define: { 'import.meta.env.VITE_WEQ_TARGET': JSON.stringify('web') },
   cacheDir: resolve(root, 'node_modules/.vite-bare-links'),
   plugins: [tailwind()],
   optimizeDeps: { entries: ['test/browser/bare-links.html'] },

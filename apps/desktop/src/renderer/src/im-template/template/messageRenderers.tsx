@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { QqTextLinks } from '../../components/QqTextLinks';
 import type { Conversation, Message, User } from './types';
 
 export type MessageRendererContext = {
@@ -29,7 +30,11 @@ export type ComposeMessageRenderersOptions = {
  * selectMessageContent() 靠它做长按选中。
  */
 export function renderDefaultMessageContent(message: Message) {
-  return <span className="message-content qq-message-inline qq-text-run">{message.body}</span>;
+  return (
+    <span className="message-content qq-message-inline qq-text-run">
+      <QqTextLinks text={message.body} />
+    </span>
+  );
 }
 
 export const defaultMessageRenderers: MessageRenderer[] = [
