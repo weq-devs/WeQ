@@ -89,6 +89,7 @@ export class OnlineStatusService {
   constructor(
     private readonly session: { misc: Pick<AccountSession['misc'], 'getUserOnlineStatus'> },
     private readonly online?: OnlineStatusOnlineDeps,
+    private readonly selfPresence?: { uid: string; uin: string; isOnline: () => boolean },
   ) {}
 
   private requireOnline(): OnlineStatusOnlineDeps {
@@ -114,6 +115,19 @@ export class OnlineStatusService {
    */
   async getOnlineStatus(uid: string): Promise<FormattedOnlineStatus | null> {
     const raw = await this.session.misc.getUserOnlineStatus(uid);
+    // 本人下线后 misc.db 仍会保留上次状态，不能用它覆盖账号监测的当前结论。
+    if (uid === this.selfPresence?.uid && !this.selfPresence.isOnline()) {
+      const typeName = ONLINE_TYPE_NAMES[OnlineType.OFFLINE]!;
+      return {
+        uid,
+        uin: this.selfPresence.uin,
+        type: OnlineType.OFFLINE,
+        typeName,
+        subType: 0,
+        subTypeName: '',
+        displayStatus: typeName,
+      };
+    }
     if (!raw) return null;
 
     const typeName = ONLINE_TYPE_NAMES[raw.type] || '未知';

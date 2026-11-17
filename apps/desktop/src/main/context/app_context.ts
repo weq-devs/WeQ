@@ -1871,10 +1871,18 @@ export function initAppContext(fileRoot?: string): AppContext {
             userConfig.cacheDir(join('search-index', exportConfigId)),
           ),
         }),
-        onlineStatus: new OnlineStatusService(session, {
-          nt: platform.native.ntHelper,
-          resolvePid: resolveOnlinePid,
-        }),
+        onlineStatus: new OnlineStatusService(
+          session,
+          { nt: platform.native.ntHelper, resolvePid: resolveOnlinePid },
+          {
+            uid: session.selfUid,
+            uin: session.context.uin,
+            isOnline: () => {
+              const record = accountConfig.getRecord();
+              return Boolean(record?.qqOnline && record.qqPid);
+            },
+          },
+        ),
         collection: collectionSvc,
         redbag: redbagSvc,
         dressInstall,
@@ -2771,10 +2779,18 @@ export function initAppContext(fileRoot?: string): AppContext {
             userConfig.cacheDir(join('search-index', exportConfigId)),
           ),
         }),
-        onlineStatus: new OnlineStatusService(session, {
-          nt: platform.native.ntHelper,
-          resolvePid: livePid,
-        }),
+        onlineStatus: new OnlineStatusService(
+          session,
+          { nt: platform.native.ntHelper, resolvePid: livePid },
+          {
+            uid: session.selfUid,
+            uin: session.context.uin,
+            isOnline: () => {
+              const record = accountConfig.getRecord();
+              return Boolean(record?.qqOnline && record.qqPid);
+            },
+          },
+        ),
         collection: collectionSvc,
         redbag: redbagSvc,
         dressInstall,

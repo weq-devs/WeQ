@@ -45,6 +45,7 @@ const SUB_ICONS: Record<number, string> = {
 };
 
 const TYPE_ICONS: Record<number, () => React.ReactNode> = {
+  0: () => <Circle size={10} fill="currentColor" stroke="currentColor" />,
   10: () => <Circle size={10} fill="#52c41a" stroke="#52c41a" />,
   60: () => <Smile size={12} stroke="#faad14" />,
   30: () => <Clock size={12} stroke="#8c8c8c" />,

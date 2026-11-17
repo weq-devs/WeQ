@@ -33,7 +33,7 @@
   flex: none;
 }
 
-.weq-online-status:is(.weq-title-online-status, .weq-mobile-online-status),
+:is(.weq-title-online-status, .weq-mobile-online-status),
 :is(.weq-title-online-status, .weq-mobile-online-status) > .weq-online-status {
   display: inline-flex;
   align-items: center;
