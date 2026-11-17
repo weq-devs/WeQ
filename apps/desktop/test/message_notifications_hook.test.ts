@@ -4,6 +4,8 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { useMessageNotifications } from '../src/renderer/src/hooks/useMessageNotifications';
 import type { NewMessagesWire } from '../src/main/ipc/routers/account';
 
+const originalVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+
 const f = vi.hoisted(() => ({
   web: false,
   values: { messageNotifications: false, applicationBadge: true, privacyMode: false },
@@ -53,6 +55,8 @@ afterEach(() => {
   f.web = false;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  if (originalVisibility) Object.defineProperty(document, 'visibilityState', originalVisibility);
+  else Reflect.deleteProperty(document, 'visibilityState');
   f.values.messageNotifications = false;
   f.values.applicationBadge = true;
   f.values.privacyMode = false;
@@ -218,7 +222,7 @@ it.each(['unmount', 'reading', 'disabled'])(
   async (state) => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.spyOn(Document.prototype, 'hasFocus').mockReturnValue(true);
-    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
     f.values.messageNotifications = true;
     let finish!: (name: string) => void;
     const resolveGroupSenderName = () => new Promise<string>((resolve) => (finish = resolve));
@@ -263,7 +267,7 @@ it('默认不开实时订阅，角标使用现成计数，开关互不影响', a
 it('去重、历史、免打扰、群助手、前台阅读与隐私状态共同约束通知', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.spyOn(Document.prototype, 'hasFocus').mockReturnValue(true);
-  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+  Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
   f.values.messageNotifications = true;
   const root = createRoot(document.createElement('div'));
   try {
@@ -303,6 +307,7 @@ it('去重、历史、免打扰、群助手、前台阅读与隐私状态共同�
 });
 
 it('乱序批次与缺失序号不改变第一条可定位消息的目标', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   f.values.messageNotifications = true;
   const root = createRoot(document.createElement('div'));
   try {

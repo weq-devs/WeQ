@@ -95,11 +95,21 @@ try {
           radius: style.borderTopLeftRadius,
         };
       });
-    const disabledNeutral = [...document.querySelectorAll('button[data-danger]:disabled')].every((node) => {
-      const style = getComputedStyle(node);
-      return style.backgroundColor === getComputedStyle(document.querySelector('[data-danger="outline"]:disabled')).backgroundColor && style.cursor === 'not-allowed';
-    });
-    return { metrics, disabledNeutral, overflow: document.documentElement.scrollWidth > innerWidth };
+      const disabledNeutral = [...document.querySelectorAll('button[data-danger]:disabled')].every(
+        (node) => {
+          const style = getComputedStyle(node);
+          return (
+            style.backgroundColor ===
+              getComputedStyle(document.querySelector('[data-danger="outline"]:disabled'))
+                .backgroundColor && style.cursor === 'not-allowed'
+          );
+        },
+      );
+      return {
+        metrics,
+        disabledNeutral,
+        overflow: document.documentElement.scrollWidth > innerWidth,
+      };
     });
   for (const width of [1180, 390]) {
     await page.setViewportSize({ width, height: 900 });
@@ -131,7 +141,10 @@ try {
           }
           if (result.overflow) failures.push({ label, reason: '页面溢出' });
           if (!result.disabledNeutral) failures.push({ label, reason: '禁用状态未统一' });
-          if (output && accent === '#075c30') await page.screenshot({ path: resolve(output, `${width}-${theme}-${style}-controls.png`) });
+          if (output && accent === '#075c30')
+            await page.screenshot({
+              path: resolve(output, `${width}-${theme}-${style}-controls.png`),
+            });
           await page.getByRole('button', { name: '清除 WeQ 已读记录', exact: true }).click();
           const dialog = page.getByRole('dialog');
           assert.equal(

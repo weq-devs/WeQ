@@ -187,9 +187,7 @@ it('通用偏好和背景只备份一次，账号备份保留规则与数据源�
       ),
     }).getStatus(),
   ).toMatchObject({ enabled: true, analysisTemperature: 0.3 });
-  expect(
-    new DbToleranceService().getConfig().level,
-  ).toBe(1);
+  expect(new DbToleranceService().getConfig().level).toBe(1);
   expect(
     JSON.parse(
       readFileSync(weqAccountSettingPath(f.root, f.cache, f.local, 'anti-recall.json'), 'utf8'),

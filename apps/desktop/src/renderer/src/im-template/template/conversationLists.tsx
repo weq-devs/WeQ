@@ -1140,6 +1140,7 @@ export function ConversationList({
                 conversationSupportsAction(actionMenu.conversation, 'delete'))
                 ? [
                     {
+                      danger: 'solid',
                       label: '永久删除',
                       icon: <Trash2 size={16} />,
                       disabled:
@@ -1153,7 +1154,6 @@ export function ConversationList({
           })()}
         />
       ) : null}
-                      danger: 'solid',
       {batch.confirmation}
     </div>
   );
@@ -2405,6 +2405,7 @@ const ContactListContent = memo(function ContactListContent({
               action: () => friendDirectory?.edit('rename', categoryMenu.id),
             },
             {
+              danger: 'outline',
               label: '删除分组',
               icon: <Trash2 size={16} />,
               disabled: !categoryMenu.id || !friendDirectory?.available || friendDirectory.busy,
@@ -2418,7 +2419,6 @@ const ContactListContent = memo(function ContactListContent({
             },
             {
               label: '移到最后',
-              danger: 'outline',
               icon: <ChevronRight size={16} />,
               disabled: !friendDirectory?.available || friendDirectory.busy,
               action: () => friendDirectory?.sort(categoryMenu.id, 'last'),

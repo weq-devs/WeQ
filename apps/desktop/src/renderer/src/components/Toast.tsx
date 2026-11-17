@@ -388,7 +388,6 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
   const update = useToast((s) => s.update);
   const leaving = useToast((s) => s.leaving.includes(toast.id));
 
-
   const [shown, setShown] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [paused, setPaused] = useState(false);

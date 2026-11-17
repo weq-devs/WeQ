@@ -111,3 +111,17 @@ it.each([
   expect(matches.length).toBeGreaterThan(0);
   expect(matches.every((button) => button.danger === danger)).toBe(true);
 });
+
+it.each([
+  ['永久删除', 'solid'],
+  ['删除分组', 'outline'],
+])('会话目录菜单的 %s 使用 %s 级别，不把属性写成界面正文', (label, danger) => {
+  expect(
+    menus.filter(
+      (menu) => menu.file === 'im-template/template/conversationLists.tsx' && menu.label === label,
+    ),
+  ).toEqual([{ file: 'im-template/template/conversationLists.tsx', label, danger }]);
+  expect(
+    readFileSync(join(root, 'im-template/template/conversationLists.tsx'), 'utf8'),
+  ).not.toMatch(/\) : null}\s*danger:/);
+});
