@@ -2,6 +2,16 @@ import { constants } from 'node:fs';
 import { chmod, copyFile, lstat, mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
+/**
+ * marker（`.installed.json`）里的路径一律写正斜杠。
+ *
+ * 这份记录要跨平台比对：`fetch-native` 用 `join()` 造路径，Windows 上会得到
+ * `native\win32\x64\nt_helper.node`，而 `dev-native` 的 `nativeFiles()` 用模板字符串
+ * 得到正斜杠版本，两边精确匹配就永远失败（表现为每次 `pnpm dev` 重下 native 后报
+ * 「文件清单不完整」）。统一成 POSIX 分隔符，`join()` 落盘时也能正确解析。
+ */
+export const markerPath = (path) => path.replaceAll('\\', '/');
+
 /** 原生文件、配套资源与 marker 共用一笔安装事务，失败时恢复内容与原权限。 */
 export async function installNativeFiles({ root, files, verify, replace = rename }) {
   const native = join(root, 'native');

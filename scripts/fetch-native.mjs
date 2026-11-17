@@ -73,7 +73,7 @@ import {
   validateNativeBuildInfo,
 } from '../packages/native/authorization.mjs';
 import { verifyAuthorizationHelper } from './check-authorization-helper.mjs';
-import { installNativeFiles } from './native-install.mjs';
+import { installNativeFiles, markerPath } from './native-install.mjs';
 import { RETRYABLE_HTTP_STATUS, RetryableHttpError, withRetry } from './retry.mjs';
 
 // ─────────────────────────── 常量 ───────────────────────────
@@ -578,7 +578,7 @@ function planFiles(manifest, platforms) {
     if (!meta) throw new Error(`manifest（tag=${manifest.tag}）里没有平台 ${name}`);
     files.push({
       label: name,
-      path: join(spec.dir, 'nt_helper.node'),
+      path: markerPath(join(spec.dir, 'nt_helper.node')),
       asset: meta.asset ?? spec.asset,
       sha256: meta.sha256,
       size: meta.size,
@@ -594,7 +594,7 @@ function planFiles(manifest, platforms) {
       if (!meta) throw new Error(`manifest（tag=${manifest.tag}）里没有装扮资源 ${part}`);
       files.push({
         label: `dress/${part}`,
-        path: join(DRESS_DIR, `${part}.dat`),
+        path: markerPath(join(DRESS_DIR, `${part}.dat`)),
         asset: meta.asset ?? `dress-${part}.dat`,
         sha256: meta.sha256,
         size: meta.size,
@@ -650,7 +650,7 @@ async function install(manifest, files, localDir) {
 
     if (dryRun) return undefined;
     const hostFile = files.find(
-      (entry) => entry.path === join(PLATFORMS[hostTag]?.dir ?? '', 'nt_helper.node'),
+      (entry) => entry.path === markerPath(join(PLATFORMS[hostTag]?.dir ?? '', 'nt_helper.node')),
     );
     const buildInfo = hostFile
       ? readAddon(join(staging, hostFile.asset), false).buildInfo
@@ -691,10 +691,12 @@ async function createMarker(manifest, files, buildInfo) {
   const previous = await readMarker();
   const merged = new Map();
   if (previous?.tag === manifest.tag) {
-    for (const entry of previous.files ?? []) merged.set(entry.path, entry);
+    // 旧记录可能是 Windows 反斜杠写法，读进来就归一化，写回去时顺带修正。
+    for (const entry of previous.files ?? [])
+      merged.set(markerPath(entry.path), { ...entry, path: markerPath(entry.path) });
   }
   for (const entry of files) {
-    merged.set(entry.path, { path: entry.path, sha256: entry.sha256 });
+    merged.set(markerPath(entry.path), { path: markerPath(entry.path), sha256: entry.sha256 });
   }
 
   const validity = manifestValidity(manifest, buildInfo);
@@ -714,7 +716,13 @@ async function readMarker() {
   const file = join(root, MARKER);
   if (!existsSync(file)) return undefined;
   try {
-    return JSON.parse(await readFile(file, 'utf8'));
+    const marker = JSON.parse(await readFile(file, 'utf8'));
+    // 旧版在 Windows 上写进反斜杠，读出来就归一化，比较与回写都用正斜杠。
+    if (Array.isArray(marker?.files))
+      marker.files = marker.files.map((entry) =>
+        typeof entry?.path === 'string' ? { ...entry, path: markerPath(entry.path) } : entry,
+      );
+    return marker;
   } catch {
     return undefined;
   }
@@ -749,7 +757,9 @@ async function check(manifest, pin, files) {
   }
   if (!pin) problems.push(`缺版本锚 ${PIN}（跑一次 pnpm native:fetch --write-pin 生成）`);
   if (marker.tag !== manifest.tag) problems.push(`落后：本地 ${marker.tag}，远端 ${manifest.tag}`);
-  const hostAddon = PLATFORMS[hostTag] ? join(PLATFORMS[hostTag].dir, 'nt_helper.node') : undefined;
+  const hostAddon = PLATFORMS[hostTag]
+    ? markerPath(join(PLATFORMS[hostTag].dir, 'nt_helper.node'))
+    : undefined;
   if (hostAddon && !(marker.files ?? []).some((entry) => entry.path === hostAddon)) {
     problems.push(`本机平台的 .node 没装：${hostAddon}（跑 pnpm native:fetch）`);
   }
