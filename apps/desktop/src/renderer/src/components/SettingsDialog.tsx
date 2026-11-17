@@ -246,6 +246,13 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
             </button>
           }
         />
+        <Card
+          title="登录记录与设备标识"
+          icon={<LoginAccountsIcon size={15} />}
+          settingId="qq-accounts"
+        >
+          <LoginAccountPanel />
+        </Card>
         <SignerStatusCard />
         <Card
           title="Protobuf / JCE 逆向"
@@ -253,13 +260,6 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
           settingId="reverse-tool"
         >
           <ReverseTool />
-        </Card>
-        <Card
-          title="登录记录与设备标识"
-          icon={<LoginAccountsIcon size={15} />}
-          settingId="qq-accounts"
-        >
-          <LoginAccountPanel />
         </Card>
       </div>
     ),

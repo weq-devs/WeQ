@@ -8,6 +8,7 @@ import tailwind from '@tailwindcss/vite';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const rkeyOnly = process.argv.includes('--rkey-only');
+const advancedOnly = process.argv.includes('--advanced-only');
 const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
 const server = await createServer({
   configFile: false,
@@ -102,9 +103,27 @@ try {
       await openCategory('凭据与数据');
       if (!rkeyOnly) {
         await page.getByRole('button', { name: 'QQ 高级工具', exact: true }).click();
+        assert.deepEqual(
+          await page.locator('.weq-settings-body .weq-set-card-title').allTextContents(),
+          ['QQNT 抓包', '登录记录与设备标识', '签名器（wrapper.node）', 'Protobuf / JCE 逆向'],
+        );
         await checkButton('qqnt-capture', '打开抓包', 'QQNT 抓包', 'capture');
         if (output)
           await page.screenshot({ path: resolve(output, `capture-${width}-${theme}.png`) });
+        if (advancedOnly) {
+          const loginRecords = page.locator('[data-setting-id="qq-accounts"]');
+          await loginRecords.scrollIntoViewIfNeeded();
+          await loginRecords.getByText('合成登录账号', { exact: true }).waitFor();
+          assert.equal(
+            await loginRecords.evaluate((node) => node.scrollWidth > node.clientWidth),
+            false,
+          );
+          if (output)
+            await page.screenshot({ path: resolve(output, `login-records-${width}-${theme}.png`) });
+          await page.close();
+          cases++;
+          continue;
+        }
       }
       await page.getByRole('button', { name: '凭据管理', exact: true }).click();
       if (!rkeyOnly) {
@@ -205,7 +224,12 @@ try {
   }
   assert.deepEqual(errors, []);
   console.log(
-    JSON.stringify({ cases, rkeyCases: cases, toolActivations: rkeyOnly ? 0 : cases * 4, errors }),
+    JSON.stringify({
+      cases,
+      rkeyCases: advancedOnly ? 0 : cases,
+      toolActivations: rkeyOnly ? 0 : cases * (advancedOnly ? 1 : 4),
+      errors,
+    }),
   );
 } finally {
   await browser?.close();
