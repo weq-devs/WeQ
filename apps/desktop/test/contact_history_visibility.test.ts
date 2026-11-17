@@ -3,11 +3,9 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createQueryRoot } from './support/query_root';
 import { ContactHistory } from '../src/renderer/src/components/ContactHistory';
 import { ContactRow } from '../src/renderer/src/components/contactProfile/ContactRow';
-import {
-  ContactFieldHistoryProvider,
-  useContactFieldHistoryAvailable,
-} from '../src/renderer/src/components/contactProfile/ContactFieldHistory';
-import { ContactFieldHistoryContext } from '../src/renderer/src/lib/contactFieldHistoryContext';
+import { ContactFieldHistoryProvider } from '../src/renderer/src/components/contactProfile/ContactFieldHistory';
+import { useContactFieldHistoryAvailable } from '../src/renderer/src/components/contactProfile/ContactFieldHistory.shared';
+import { ContactFieldHistoryContext } from '../src/renderer/src/lib/contactFieldHistoryContext.shared';
 import { CONTACT_HISTORY_DISPLAY_ENABLED } from '../src/renderer/src/lib/contactHistoryVisibility';
 import { SelfAvatarHistory } from '../src/renderer/src/components/SelfAvatarHistory';
 import { ProfileExtras } from '../src/renderer/src/components/ProfileExtras';

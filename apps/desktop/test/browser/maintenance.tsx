@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
-import { BackupSection, backupApi } from '../../src/renderer/src/components/settings/BackupSection';
+import { BackupSection } from '../../src/renderer/src/components/settings/BackupSection';
+import { backupApi } from '../../src/renderer/src/components/settings/BackupSection.shared';
 import { GlobalSettingsSection } from '../../src/renderer/src/components/settings/GlobalSettingsSection';
 import { DialogHost } from '../../src/renderer/src/components/Dialog';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';

@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Gift as GiftIcon, Loader2, WifiOff } from 'lucide-react';
+import { Gift as GiftIcon, Loader2, WifiOff, RefreshCw } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { giftImageUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../ShimmerImage';
@@ -121,7 +121,9 @@ export function GiftWall() {
           </button>
         </div>
         {items.length > 0 ? (
-          <span className="weq-gift-wall-count">已加载 {items.length} 个</span>
+          <span className="weq-gift-wall-count">
+            已加载 <span className="weq-number weq-number-inherit">{items.length}</span> 个
+          </span>
         ) : null}
       </div>
 
@@ -143,7 +145,12 @@ export function GiftWall() {
             <p>礼物墙没打开</p>
             <span>{error}</span>
             <div className="weq-gift-wall-more">
-              <button type="button" onClick={() => void loadPage('reset', isSend)}>
+              <button
+                type="button"
+                onClick={() => void loadPage('reset', isSend)}
+                className="weq-retry-button"
+              >
+                <RefreshCw size={14} aria-hidden />
                 重试
               </button>
             </div>
@@ -243,7 +250,9 @@ function WallCard({
             <span className="weq-gift-wall-time">· {item.time}</span>
           </small>
         </span>
-        <span className="weq-gift-wall-price">{item.giftPrice}</span>
+        <span className="weq-gift-wall-price">
+          <span className="weq-number weq-number-inherit">{item.giftPrice}</span>
+        </span>
       </div>
     </div>
   );

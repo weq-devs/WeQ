@@ -6,7 +6,7 @@ import { GrayTipPokeMessage } from '../src/renderer/src/components/GrayTipPokeMe
 import { GrayTipGroupMessage } from '../src/renderer/src/components/GrayTipGroupMessage';
 import { GrayTipXmlMessage } from '../src/renderer/src/components/GrayTipXmlMessage';
 import { GrayTipRevokeMessage } from '../src/renderer/src/components/GrayTipRevokeMessage';
-import { ReplyJumpContext } from '../src/renderer/src/components/QqMessageContent';
+import { ReplyJumpContext } from '../src/renderer/src/state/messageContext';
 import { GrayTipLine } from '../src/renderer/src/im-template/template/messageRow';
 import { grayTipProfileTarget } from '../src/renderer/src/lib/grayTipProfile';
 import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
@@ -70,6 +70,28 @@ function mount(content: ReactNode, navigation = true) {
   });
   return { host, open, people: () => [...host.querySelectorAll<HTMLButtonElement>('button')] };
 }
+
+it.each([
+  [60, '1 分钟'],
+  [3600, '1 小时'],
+  [86400, '1 天'],
+])('生成的群禁言灰条统一数字与时长间距：%s 秒', (duration, expected) => {
+  const f = mount(
+    h(GrayTipGroupMessage, {
+      element: {
+        type: 'grayTipGroup',
+        data: {
+          groupTipType: TipGroupElementType.KSHUTUP,
+          user1GroupNick: '管理员123',
+          user2GroupNick: '成员456',
+          muteInfo: { duration, mutedUser: { groupNick: '成员456' } },
+        },
+      },
+    }),
+  );
+  expect(f.host.textContent).toContain(`禁言了 ${expected}`);
+  expect(f.host.textContent).toContain('成员456');
+});
 
 it('戳一戳灰条中同名的两个人分别打开自己的名片', () => {
   const f = mount(

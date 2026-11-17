@@ -8,6 +8,7 @@
  *      以图文 Ark 卡片发出（标题 = issue/pr #N，预览图 = 群头像）。
  */
 
+import { NumericText } from './NumericText';
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 import {
   Bug,
@@ -25,8 +26,9 @@ import {
 import { Streamdown } from 'streamdown';
 import remarkGfm from 'remark-gfm';
 import { trpc, client } from '../trpc/client';
-import { Modal, useDialog } from './Dialog';
-import { useToast } from './Toast';
+import { Modal } from './Dialog';
+import { useDialog } from './Dialog.shared';
+import { useToast } from './Toast.shared';
 import { IconPicker } from './ui/iconPicker';
 import { shikiCodeHighlighter } from '../views/agentlab/shikiHighlighter';
 import { useThemeStore } from '../state/theme';
@@ -500,9 +502,11 @@ export function GroupBugDialog({
                 />
                 <div className="weq-group-bug-card-main">
                   <strong>
-                    {manualMode || !selectedIssue
-                      ? `${manualKind === 'pr' ? 'PR' : 'Issue'} #${manualNumber || '?'}`
-                      : `${selectedIssue.kind === 'pr' ? 'PR' : 'Issue'} #${selectedIssue.number}`}
+                    <NumericText>
+                      {manualMode || !selectedIssue
+                        ? `${manualKind === 'pr' ? 'PR' : 'Issue'} #${manualNumber || '?'}`
+                        : `${selectedIssue.kind === 'pr' ? 'PR' : 'Issue'} #${selectedIssue.number}`}
+                    </NumericText>
                   </strong>
                   <span>
                     {manualMode || !selectedIssue ? manualTitle || '标题' : selectedIssue.title}

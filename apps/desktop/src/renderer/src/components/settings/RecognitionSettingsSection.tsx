@@ -1,6 +1,7 @@
 import { useContext } from 'react';
 import { AudioLines, Package, ScanText } from 'lucide-react';
-import { Card, SectionHeader, SettingsNavigateContext } from './controls';
+import { Card, SectionHeader } from './controls';
+import { SettingsNavigateContext } from './controls.shared';
 import { RecognitionConcurrencySetting } from './RecognitionConcurrencySetting';
 import { OcrPrefilterSetting } from './OcrPrefilterSetting';
 
@@ -21,7 +22,7 @@ export function EnhancementPacksLink() {
 export function RecognitionSettingsSection() {
   return (
     <div className="weq-set weq-recognition-settings">
-      <SectionHeader title="识别与转写" icon={<ScanText size={18} strokeWidth={1.8} />} />
+      <SectionHeader title="识别与转写" page="recognition" />
       <Card title="图片文字识别" icon={<ScanText size={15} strokeWidth={1.8} />}>
         <RecognitionConcurrencySetting kind="ocr" />
         <OcrPrefilterSetting />

@@ -1,0 +1,59 @@
+.weq-asst-run-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-asst-run-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 50%;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  cursor: pointer;
+}
+
+.weq-asst-run-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-fg-primary) 8%, var(--weq-bg-surface));
+}
+
+.weq-asst-run-button:active:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-fg-primary) 14%, var(--weq-bg-surface));
+}
+
+.weq-asst-run-button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 3px;
+}
+
+.weq-asst-run-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+html[data-theme='dark'] .weq-asst-run-button {
+  border-color: var(--weq-border-strong);
+  background: var(--weq-bg-surface);
+}
+
+html[data-theme='dark'] .weq-asst-run-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-fg-primary) 12%, var(--weq-bg-surface));
+}
+
+@media (pointer: coarse) {
+  .weq-asst-run-button {
+    flex-basis: 44px;
+    width: 44px;
+    height: 44px;
+  }
+}

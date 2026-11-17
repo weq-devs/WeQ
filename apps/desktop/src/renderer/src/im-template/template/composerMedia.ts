@@ -144,15 +144,21 @@ function readImageSize(url: string): Promise<{ width: number; height: number }> 
   });
 }
 
-function readVideoMeta(url: string): Promise<{ width: number; height: number; duration: number }> {
+export function readVideoMeta(
+  url: string,
+): Promise<{ width: number; height: number; duration: number }> {
   return new Promise((resolve) => {
     const video = document.createElement('video');
     video.preload = 'metadata';
     const finish = (meta: { width: number; height: number; duration: number }) => {
+      clearTimeout(timer);
+      video.onloadedmetadata = null;
+      video.onerror = null;
       video.removeAttribute('src');
       video.load();
       resolve(meta);
     };
+    const timer = setTimeout(() => finish({ width: 0, height: 0, duration: 0 }), 5000);
     video.onloadedmetadata = () =>
       finish({
         width: video.videoWidth,

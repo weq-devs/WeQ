@@ -5,17 +5,14 @@ import type { DbRepairAccountOption } from '../DbRepairPanel';
 import { DbRepairWindowRequest } from '../DbRepairWindow';
 import { CaptureWindowRequest } from '../CaptureWindow';
 import { CacheView } from '../../views/cache/CacheView';
-import { DbExplorer } from '../../views/cache/DbExplorer';
+import { DatabaseBrowserWindowRequest } from '../DatabaseBrowserWindow';
 import { ResourceAnalyticsDialog } from '../../views/cache/ResourceAnalyticsDialog';
 import { ResourceCleanupDialog } from '../../views/cache/ResourceCleanupDialog';
 import { WonderfulToolsDialog } from '../WonderfulToolsDialog';
 import { ExportTool } from '../lazyWorkspaces';
 import { useRemoteClient } from '../../lib/remoteClient';
-import {
-  MAINTENANCE_TOOLS,
-  remoteUnsupportedTools,
-  type MaintenanceTool,
-} from './DataMaintenanceSection';
+import { MAINTENANCE_TOOLS, remoteUnsupportedTools } from './DataMaintenanceSection.shared';
+import type { MaintenanceTool } from './DataMaintenanceSection';
 import '../../styles/cache.css';
 import '../../styles/data-maintenance.css';
 
@@ -34,6 +31,7 @@ export function DataMaintenanceDialog({
   const remote = useRemoteClient();
   if (!tool) return null;
   if (remote && remoteUnsupportedTools.includes(tool)) return null;
+  if (tool === 'database') return <DatabaseBrowserWindowRequest onRequested={onClose} />;
   if (tool === 'db-repair') return <DbRepairWindowRequest key={account.uin} account={account} />;
   if (tool === 'capture')
     return (
@@ -59,7 +57,7 @@ export function DataMaintenanceDialog({
   if (tool === 'cleanup')
     return <ResourceCleanupDialog open presentation="modal" onClose={onClose} />;
   const label = MAINTENANCE_TOOLS.find((entry) => entry.id === tool)?.label ?? '数据与维护';
-  const flush = tool === 'database' || tool === 'cache';
+  const flush = tool === 'cache';
   return (
     <ToolSurface title={label} onClose={onClose} presentation="modal">
       {(requestClose) => (
@@ -77,8 +75,6 @@ export function DataMaintenanceDialog({
             <div className={`weq-maintenance-body${flush ? ' is-flush' : ''}`}>
               {tool === 'cache' ? (
                 <CacheView />
-              ) : tool === 'database' ? (
-                <DbExplorer />
               ) : tool === 'db-decrypt' ? (
                 <ExportTool initialMode="database" lockMode />
               ) : null}

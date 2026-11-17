@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 import { z } from 'zod';
 import { basename, extname, join } from 'node:path';
 import { stat, open, unlink } from 'node:fs/promises';
@@ -107,7 +108,7 @@ async function openUrl(raw: string, signal?: AbortSignal, check?: () => void): P
   if (url.protocol !== 'https:' && url.protocol !== 'http:')
     throw new Error('这份媒体尚未落盘，暂时无法保存');
   const host = getHost();
-  return host.fetchMedia ? host.fetchMedia(url.href, { signal }) : fetch(url, { signal });
+  return host.fetchMedia ? host.fetchMedia(url.href, { signal }) : networkFetch(url, { signal });
 }
 function assertCompleteResponse(response: Response) {
   if (!response.ok || response.status === 206 || !response.body)

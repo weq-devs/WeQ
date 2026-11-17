@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { MailFailure, type MailAttachment } from './types';
 import {
   MAIL_ORIGIN,
@@ -61,6 +61,15 @@ export class MailAttachmentRegistry {
     this.entries.set(id, source);
     return {
       id,
+      ...(source.fileId || source.key
+        ? {
+            sourceKey: createHash('sha256')
+              .update(
+                JSON.stringify([source.mailId ?? null, source.big, source.fileId || source.key]),
+              )
+              .digest('hex'),
+          }
+        : {}),
       name: source.name,
       size: source.size,
       big: source.big,

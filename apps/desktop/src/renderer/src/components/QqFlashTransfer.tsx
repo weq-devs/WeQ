@@ -22,81 +22,9 @@ import { useMemo, useState, type ReactElement } from 'react';
 import { cachedAvatarUrl } from '../lib/avatarCache';
 import { FlashShareDialog } from './FlashShareDialog';
 import { FlashTransferViewer } from './FlashTransferViewer';
-import { useToast } from './Toast';
+import { useToast } from './Toast.shared';
 import { formatBytes } from '../lib/format';
-
-// ---- parsing (ported from the demo) --------------------------------------
-
-/** Pull the `json` param out of the `[闪传](mqqapi://markdown/node?...)` link. */
-function parseMqqUrlJson(rawStr: string): Record<string, unknown> | null {
-  try {
-    const urlMatch = rawStr.match(/mqqapi:\/\/markdown\/node\?([^)]+)/);
-    if (!urlMatch?.[1]) return null;
-    const params = new URLSearchParams(urlMatch[1]);
-    const json = params.get('json');
-    if (!json) return null;
-    return JSON.parse(json) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
-/** 万能打平：递归把嵌套的 rich-ui 属性树压成 viewId → node 强索引字典。 */
-function flattenAttributes(
-  attrArray: unknown,
-  dict: Record<string, Record<string, unknown>> = {},
-): Record<string, Record<string, unknown>> {
-  if (!Array.isArray(attrArray)) return dict;
-  for (const item of attrArray as Array<Record<string, unknown>>) {
-    if (item && typeof item.viewId === 'string') dict[item.viewId] = item;
-    if (item?.attributes) flattenAttributes(item.attributes, dict);
-  }
-  return dict;
-}
-
-/** The bits the card actually shows, lifted out of the rich-ui tree. */
-export interface FlashTransferView {
-  title: string;
-  coverImg: string;
-  failedSrc: string;
-  tailIcon: string;
-  tailText: string;
-  /** desc straight from the JSON (often an empty string — caller may default). */
-  descText: string;
-  /** Internal click route (mqqrouter://…) — 可从中兜底解析 fileset_id。 */
-  schema: string;
-}
-
-/** Decode + flatten a flash-transfer markdownContent into its render materials. */
-export function parseFlashTransfer(markdownContent: string): FlashTransferView | null {
-  const rawJson = parseMqqUrlJson(markdownContent);
-  const attrs = rawJson?.attributes as Record<string, unknown> | undefined;
-  if (!attrs) return null;
-
-  const top = attrs.attributes;
-  const ui = flattenAttributes(top);
-  const fileRoute = Array.isArray(top)
-    ? (top as Array<Record<string, unknown>>).find((i) => i?.viewId === 'file')
-    : undefined;
-
-  const str = (node: Record<string, unknown> | undefined, key: string): string =>
-    node && typeof node[key] === 'string' ? (node[key] as string) : '';
-
-  return {
-    title: str(ui.title, 'text') || '未知文件',
-    coverImg: str(ui.image, 'src'),
-    failedSrc: str(ui.image, 'failedSrc'),
-    tailIcon: str(ui.tailIcon, 'src'),
-    tailText: str(ui.tailText, 'text') || 'QQ闪传',
-    descText: str(ui.desc, 'text'),
-    schema: typeof fileRoute?.schema === 'string' ? (fileRoute.schema as string) : '',
-  };
-}
-
-/** Short title for the conversation-list preview (null if not a flash card). */
-export function flashTransferTitle(markdownContent: string): string | null {
-  return parseFlashTransfer(markdownContent)?.title ?? null;
-}
+import { parseFlashTransfer } from './QqFlashTransfer.shared';
 
 // ---- desc fallback from the real flashTransferInfo -----------------------
 
@@ -291,3 +219,4 @@ export function QqFlashTransferLink({ code }: { code: string }): ReactElement {
     </>
   );
 }
+export type { FlashTransferView } from './QqFlashTransfer.shared';

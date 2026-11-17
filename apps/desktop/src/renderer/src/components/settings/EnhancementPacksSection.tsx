@@ -13,16 +13,15 @@ import {
   Settings2,
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { useAppDialog } from '../../lib/dialogUtils';
 import type { EnhancementPackId } from '../../../../shared/enhancement_manifest';
-import { Card, QueryError, SectionHeader, Row, Toggle, SettingsNavigateContext } from './controls';
+import { Card, QueryError, SectionHeader, Row, Toggle } from './controls';
+import { SettingsNavigateContext } from './controls.shared';
 import { LoadingIndicator } from '../LoadingIndicator';
 import '../../styles/enhancement-packs.css';
+import { enhancementBytes } from './EnhancementPacksSection.shared';
 
-export function enhancementBytes(bytes: number) {
-  return `${(bytes / 1024 / 1024).toFixed(2)} MiB`;
-}
 const ICONS = { text: ScanText, voice: AudioLines, intent: BrainCircuit, dress: Palette };
 
 export function EnhancementPacksSection() {
@@ -30,22 +29,25 @@ export function EnhancementPacksSection() {
   const dialog = useAppDialog();
   const navigate = useContext(SettingsNavigateContext);
   const utils = trpc.useUtils();
+  const check = trpc.bootstrap.checkEnhancementUpdates.useMutation();
   const query = trpc.bootstrap.enhancementPacks.useQuery(undefined, {
     enabled: active,
     staleTime: 0,
     refetchOnMount: 'always',
     refetchInterval: (data) =>
       active &&
-      data?.packs.some(
-        (pack) =>
-          pack.busy || pack.check?.phase === 'checking' || pack.check?.phase === 'waiting-network',
-      )
+      (check.isLoading ||
+        data?.packs.some(
+          (pack) =>
+            pack.busy ||
+            pack.check?.phase === 'checking' ||
+            pack.check?.phase === 'waiting-network',
+        ))
         ? 750
         : false,
   });
   const [error, setError] = useState<string | null>(null);
   const prepare = trpc.bootstrap.prepareEnhancementPacks.useMutation();
-  const check = trpc.bootstrap.checkEnhancementUpdates.useMutation();
   const remove = trpc.bootstrap.deleteEnhancementPack.useMutation();
   const settings = trpc.bootstrap.setEnhancementUpdates.useMutation();
   const pause = trpc.bootstrap.pauseEnhancementPack.useMutation();
@@ -76,13 +78,13 @@ export function EnhancementPacksSection() {
     const confirmed = await dialog.confirm(
       `删除${pack.name}？`,
       `将移除 ${enhancementBytes(pack.deleteBytes)} 本地资源，下次使用需重新下载。功能设置、已有识别与分析结果、具体装扮素材，以及其他能力使用的共享资源会保留。`,
-      { okLabel: '删除', cancelLabel: '取消', tone: 'warning' },
+      { danger: 'outline', okLabel: '删除', cancelLabel: '取消', tone: 'warning' },
     );
     if (confirmed) await act(() => remove.mutateAsync({ id }));
   }
   return (
     <div className="weq-set">
-      <SectionHeader title="增强包" icon={<Package size={18} strokeWidth={1.8} />} />
+      <SectionHeader title="增强包" page="enhancement-packs" />
       <Card
         title="增强包自动更新"
         icon={<Settings2 size={15} />}
@@ -91,7 +93,6 @@ export function EnhancementPacksSection() {
       >
         <Row
           settingId="enhancement-auto-check"
-          label="自动检查增强包更新"
           control={
             <Toggle
               label="自动检查增强包更新"
@@ -104,7 +105,7 @@ export function EnhancementPacksSection() {
         {preferences.autoCheck ? (
           <Row
             settingId="enhancement-auto-install"
-            label="自动安装增强包更新"
+            indent
             control={
               <Toggle
                 label="自动安装增强包更新"
@@ -135,7 +136,9 @@ export function EnhancementPacksSection() {
           {packs.map((pack) => {
             const Icon = ICONS[pack.id];
             const operation = pack.operation;
-            const checking = pack.check?.phase === 'checking';
+            const checking =
+              pack.check?.phase === 'checking' ||
+              (check.isLoading && check.variables?.ids.includes(pack.id));
             const percent = operation?.total
               ? Math.min(100, Math.max(0, (operation.received / operation.total) * 100))
               : undefined;
@@ -144,18 +147,21 @@ export function EnhancementPacksSection() {
                 ? operation.pauseReasons?.includes('user')
                   ? '已暂停'
                   : '省流量模式已暂停'
-                : (operation?.note ?? '正在准备')
-              : pack.check?.phase === 'waiting-network'
-                ? '等待网络允许检查'
-                : pack.needsRepair
-                  ? '待补齐'
-                  : pack.check?.phase === 'checked'
-                    ? pack.updateAvailable
-                      ? '有可用更新'
-                      : '已检查'
-                    : null;
+                : operation?.retryAt && operation.retryAt > Date.now()
+                  ? '等待自动重试'
+                  : (operation?.note ?? '正在准备')
+              : checking
+                ? '正在检查更新'
+                : pack.check?.phase === 'waiting-network'
+                  ? '等待网络允许检查'
+                  : pack.needsRepair
+                    ? '待补齐'
+                    : pack.check?.phase === 'checked'
+                      ? pack.updateAvailable
+                        ? '有可用更新'
+                        : '已检查'
+                      : null;
             const issue = pack.blocker ?? operation?.error ?? pack.check?.error;
-            const busy = pack.busy || checking;
             const missing = pack.missingComponents?.length
               ? `缺少或损坏：${pack.missingComponents.join('、')}`
               : undefined;
@@ -194,7 +200,7 @@ export function EnhancementPacksSection() {
                       className="weq-set-btn weq-set-btn-soft"
                       title={`${pack.needsRepair ? '补齐' : '下载'}${pack.name} · ${enhancementBytes(pack.downloadBytes)}${missing ? `\n${missing}` : ''}`}
                       aria-label={`${pack.needsRepair ? '补齐' : '下载'}${pack.name}`}
-                      disabled={busy || !!pack.blocker || prepare.isLoading}
+                      disabled={pack.busy || !!pack.blocker || prepare.isLoading}
                       onClick={() => void act(() => prepare.mutateAsync({ ids: [pack.id] }))}
                     >
                       <Download size={14} />
@@ -209,7 +215,7 @@ export function EnhancementPacksSection() {
                         : `检查${pack.name}更新`
                     }
                     aria-label={updating ? `更新${pack.name}` : `检查${pack.name}更新`}
-                    disabled={busy || check.isLoading}
+                    disabled={pack.busy || (updating && prepare.isLoading)}
                     onClick={() =>
                       void act(() =>
                         updating
@@ -222,11 +228,12 @@ export function EnhancementPacksSection() {
                   </button>
                   {pack.downloaded || pack.installed || pack.sizeOnDisk > 0 ? (
                     <button
+                      data-danger="outline"
                       type="button"
                       className="weq-set-btn weq-set-btn-soft"
                       title={`删除${pack.name}`}
                       aria-label={`删除${pack.name}`}
-                      disabled={busy || remove.isLoading}
+                      disabled={pack.busy || remove.isLoading}
                       onClick={() => void erase(pack.id)}
                     >
                       <Trash2 size={14} />
@@ -262,11 +269,14 @@ export function EnhancementPacksSection() {
                       {operation?.paused ? <Play size={14} /> : <Pause size={14} />}
                     </button>
                     {operation?.total ? (
-                      <span className="weq-enhancement-phase">{status}</span>
+                      <span className="weq-enhancement-phase" title={operation?.source}>
+                        {status}
+                        {operation?.source ? ` · ${operation.source}` : ''}
+                      </span>
                     ) : null}
                   </div>
                 ) : status ? (
-                  <span className="weq-enhancement-status" title={missing}>
+                  <span className="weq-enhancement-status" title={missing} role="status">
                     {status}
                   </span>
                 ) : null}
@@ -293,9 +303,10 @@ export function EnhancementPacksSection() {
                         {' '}
                         <button
                           type="button"
-                          className="weq-enhancement-retry"
+                          className="weq-enhancement-retry weq-retry-button"
                           onClick={() => void act(() => prepare.mutateAsync({ ids: [pack.id] }))}
                         >
+                          <RefreshCw size={14} aria-hidden />
                           重试
                         </button>
                       </>

@@ -3,9 +3,10 @@ import { X } from 'lucide-react';
 import type { RoamingTarget } from '@weq/service';
 import { trpc } from '../trpc/client';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
-import { Modal, useDialog } from './Dialog';
+import { Modal } from './Dialog';
+import { useDialog } from './Dialog.shared';
 import { QQWriteResult, QQWriteTextRow } from './QQWriteControls';
-import { withQQAccountScope } from './qq-actions/shared';
+import { withQQAccountScope } from './qq-actions/shared.shared';
 import '../styles/qq-remark.css';
 
 function QQRemarkDialogBody({ target, onClose }: { target: RoamingTarget; onClose: () => void }) {
@@ -36,7 +37,11 @@ function QQRemarkDialogBody({ target, onClose }: { target: RoamingTarget; onClos
   const label = target.kind === 'group' ? '群备注' : '好友备注';
   async function close() {
     if (session.busy) return;
-    if (dirty && !(await confirm('放弃备注修改？', '尚未保存的备注将不会提交到 QQ。'))) return;
+    if (
+      dirty &&
+      !(await confirm('放弃备注修改？', '尚未保存的备注将不会提交到 QQ。', { danger: 'outline' }))
+    )
+      return;
     onClose();
   }
   return (

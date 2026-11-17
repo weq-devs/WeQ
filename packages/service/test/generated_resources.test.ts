@@ -86,11 +86,14 @@ it('部分静态依赖保存后可从任务补缺，不回读原件、不重下�
   const completed = await wait(restored, id);
   expect(completed.generatedResourceReport?.complete).toBe(true);
   expect(resolve).toHaveBeenCalledOnce();
-  expect(fetcher.mock.calls.map((call) => call[0])).toEqual([
-    'https://fixture.invalid/a.png',
-    'https://fixture.invalid/b.png',
-    'https://fixture.invalid/b.png',
-  ]);
+  expect(
+    fetcher.mock.calls
+      .slice(0, 2)
+      .map((call) => call[0])
+      .sort(),
+  ).toEqual(['https://fixture.invalid/a.png', 'https://fixture.invalid/b.png']);
+  expect(fetcher.mock.calls).toHaveLength(3);
+  expect(fetcher.mock.calls.at(-1)?.[0]).toBe('https://fixture.invalid/b.png');
   expect(existsSync(join(dir, 'cache', `generated-resources-${id}`))).toBe(false);
   const copied = await bundleGeneratedResources({
     cache: completed.generatedResourceCache!,
@@ -301,55 +304,65 @@ it('助手附件目录使用现有校验保存链路，保留内部相对资源�
   expect(relative(dir, task.bundleDir!)).not.toMatch(/^\.\./);
 });
 
-it('暂停后从持久资源快照恢复，原文件被删除也不重新查源；完成后不留重复私有副本', async () => {
-  const dir = root(),
-    source = join(dir, 'source.wav'),
-    cache = join(dir, 'cache');
-  writeFileSync(source, 'original-synthetic-voice');
-  const input = snapshot();
-  input.messages = [{ id: 'a', text: '[[voice:abcd.wav]]', ts: 1 }];
-  const manager = new ExportTaskManager(
-    {} as MsgService,
-    cache,
-    withExportSaveDirectory(cache, {
-      generatedResource: () => ({ filePath: source }),
-    }),
-  );
-  let paused = false;
-  manager.on('progress', (event) => {
-    if (!paused && manager.getTask(event.taskId)?.generatedResourceCache?.[0]?.snapshot) {
-      paused = true;
-      manager.pauseTask(event.taskId);
-    }
-  });
-  const id = await manager.startTask({
-    kind: 'c2c',
-    conv: 'generated',
-    name: '合成恢复',
-    format: 'json',
-    total: 1,
-    generated: input,
-  });
-  for (let i = 0; i < 400 && !manager.listTasks()[0]?.canResume; i++)
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  expect(manager.getTask(id)?.status).toBe('paused');
-  rmSync(source);
-  const restored = new ExportTaskManager(
-    {} as MsgService,
-    cache,
-    withExportSaveDirectory(cache, {
-      generatedResource: () => {
-        throw new Error('不应回读原件');
-      },
-    }),
-  );
-  expect(restored.resumeTask(id)).toBe(true);
-  const task = await wait(restored, id);
-  const entry = task.generatedResourceReport!.entries[0]!;
-  expect(entry.status).toBe('copied');
-  expect(readFileSync(join(task.bundleDir!, entry.path!), 'utf8')).toBe('original-synthetic-voice');
-  expect(readdirSync(cache).some((name) => name.startsWith('generated-resources-'))).toBe(false);
-});
+it.each([0, 1])(
+  '资源阶段第 %s 项提交后暂停，重启复用快照及完成文件，完成后不留重复私有副本',
+  async (after) => {
+    const dir = root(),
+      source = join(dir, 'source.wav'),
+      cache = join(dir, 'cache');
+    writeFileSync(source, 'original-synthetic-voice');
+    const input = snapshot();
+    input.messages = [{ id: 'a', text: '[[voice:abcd.wav]]', ts: 1 }];
+    const manager = new ExportTaskManager(
+      {} as MsgService,
+      cache,
+      withExportSaveDirectory(cache, {
+        generatedResource: () => ({ filePath: source }),
+      }),
+    );
+    let paused = false;
+    manager.on('progress', (event) => {
+      if (
+        !paused &&
+        manager.getTask(event.taskId)?.generatedResourceCache?.[0]?.snapshot &&
+        (manager.getTask(event.taskId)?.stages.find((stage) => stage.key === 'media')?.current ??
+          0) >= after
+      ) {
+        paused = true;
+        manager.pauseTask(event.taskId);
+      }
+    });
+    const id = await manager.startTask({
+      kind: 'c2c',
+      conv: 'generated',
+      name: '合成恢复',
+      format: 'json',
+      total: 1,
+      generated: input,
+    });
+    for (let i = 0; i < 400 && !manager.listTasks()[0]?.canResume; i++)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(manager.getTask(id)?.status).toBe('paused');
+    rmSync(source);
+    const restored = new ExportTaskManager(
+      {} as MsgService,
+      cache,
+      withExportSaveDirectory(cache, {
+        generatedResource: () => {
+          throw new Error('不应回读原件');
+        },
+      }),
+    );
+    expect(restored.resumeTask(id)).toBe(true);
+    const task = await wait(restored, id);
+    const entry = task.generatedResourceReport!.entries[0]!;
+    expect(entry.status).toBe('copied');
+    expect(readFileSync(join(task.bundleDir!, entry.path!), 'utf8')).toBe(
+      'original-synthetic-voice',
+    );
+    expect(readdirSync(cache).some((name) => name.startsWith('generated-resources-'))).toBe(false);
+  },
+);
 
 it('改动过的私有资源快照明确标成缺失，不回读原件掩盖校验失败', async () => {
   const dir = root(),

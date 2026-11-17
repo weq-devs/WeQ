@@ -64,6 +64,14 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
     { getState: () => ({ confirm: state.confirm }) },
   ),
 }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
+  Modal: ({ children }: { children: ReactNode }) => h('div', { role: 'dialog' }, children),
+  useDialog: Object.assign(
+    (selector: (s: { confirm: typeof state.confirm }) => unknown) =>
+      selector({ confirm: state.confirm }),
+    { getState: () => ({ confirm: state.confirm }) },
+  ),
+}));
 vi.mock('../src/renderer/src/components/OverlayLayer', () => ({
   OverlayLayer: ({ open = true, children }: { open?: boolean; children: ReactNode }) =>
     open ? children : null,

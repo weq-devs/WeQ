@@ -15,7 +15,7 @@ import { ImagePlus, Loader2 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { cn } from './classNames';
 import { qqShowUrl } from '../../lib/resourceUrl';
-import { useToast } from '../../components/Toast';
+import { useToast } from '../../components/Toast.shared';
 
 /** 单张图片上限 10 MB —— 与 IPC 侧的限制保持一致。 */
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -283,7 +283,9 @@ export function ShowEmojiTab({ ctx, onSent }: { ctx: SendContext; onSent: () => 
         <section className={cn('show-emoji-section')} key={group.type}>
           <h4>
             {group.typeName}
-            <span className={cn('show-emoji-count')}>{group.packs.length}</span>
+            <span className={cn('show-emoji-count')}>
+              <span className="weq-number weq-number-inherit">{group.packs.length}</span>
+            </span>
           </h4>
           <div className={cn('show-emoji-grid')}>
             {group.packs.map((pack) => (

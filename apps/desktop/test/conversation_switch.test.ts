@@ -29,11 +29,11 @@ import * as conversationOrder from '@weq/service/conversation-order';
 import * as conversationRows from '../src/renderer/src/lib/conversationListOrder';
 import { timelineViewport } from '../src/renderer/src/lib/timelineViewport';
 import type { QQWriteBinding } from '../src/renderer/src/hooks/useQQWriteSession';
-import {
-  ReplyJumpContext,
-  type ReplyJumpTarget,
-} from '../src/renderer/src/components/QqMessageContent';
+import { ReplyJumpContext } from '../src/renderer/src/state/messageContext';
+import type { ReplyJumpTarget } from '../src/renderer/src/components/QqMessageContent';
 import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
+import { elementToToken } from '../src/renderer/src/im-template/template/draftElements';
 
 beforeAll(() => LazyGapMessagesModal.preload());
 
@@ -93,7 +93,19 @@ const f = vi.hoisted(() => ({
   unreadReads: [] as UnreadInput[],
   unreadFailures: 0,
   unreadReply: undefined as (() => Promise<unknown>) | undefined,
+  markedRead: [] as Array<{ chatType: number; uid: string; latestSeq?: string }>,
+  readCurrent: undefined as (() => void) | undefined,
   dbChanged: undefined as (() => void) | undefined,
+  notificationSubscriptions: { group: [], conversation: [] } as Record<
+    'group' | 'conversation',
+    Array<{ notify: () => void; unsubscribe: () => void }>
+  >,
+  notificationReads: { group: 0, conversation: 0 },
+  groupJumps: [] as Array<{ groupCode: string; msgSeq: string }>,
+  conversationJumps: [] as Array<{ kind: 'c2c' | 'group'; conv: string; seq?: string }>,
+  conversationJumpReply: undefined as
+    | (() => Promise<{ kind: 'c2c' | 'group'; conv: string } | null>)
+    | undefined,
   unreadChanged: undefined as ((targets: UnreadInput['targets']) => void) | undefined,
   refreshRows: undefined as TestMessage[] | undefined,
   gapRows: [] as TestMessage[],
@@ -110,6 +122,10 @@ const f = vi.hoisted(() => ({
     | { uid: string; uin: string; card: string; nick: string; adminFlag: number; joinTime: string }
     | undefined,
   messages: [] as ComponentProps<typeof ChatMainContent>['messages'],
+  send: undefined as ComponentProps<typeof ChatMainContent>['onSend'] | undefined,
+  sendCalls: [] as string[],
+  sendPending: false,
+  sendError: undefined as string | undefined,
   messageCommits: [] as Array<{ id?: string; rows: string[] }>,
   atLatest: true as ComponentProps<typeof ChatMainContent>['atLatest'],
   commit: undefined as (() => void) | undefined,
@@ -143,7 +159,15 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             if (path.join('.') === 'account.listRecentContacts')
               f.headEnabled = options?.enabled === true;
             if (path.join('.') === 'bootstrap.getSettings')
-              return { ...empty, data: { readFromFirstUnread: f.readFromFirstUnread } };
+              return {
+                ...empty,
+                data: {
+                  readFromFirstUnread: f.readFromFirstUnread,
+                  voiceTranscribe: { modelId: '' },
+                },
+              };
+            if (path.at(-1) === 'getGroupAlbumAccessState' && (f.sendPending || f.sendError))
+              return { ...empty, data: { qqOnline: true, attachEnabled: true } };
             return path.join('.') === 'account.getAccountConfig'
               ? config
               : path.join('.') === 'account.listProfiles'
@@ -190,6 +214,33 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         if (key === 'useSubscription') return () => {};
         if (key === 'query' || key === 'mutate' || key === 'invalidate')
           return async (input?: UnreadInput) => {
+            if (path.at(-1) === 'peerQqShow') return null;
+            if (
+              [
+                'prepareChatDecoration',
+                'sendElements',
+                'sendAiVoice',
+                'forwardFlashTransfer',
+              ].includes(path.at(-1) ?? '')
+            ) {
+              f.sendCalls.push(path.at(-1)!);
+              if (f.sendError) throw new Error(f.sendError);
+              if (f.sendPending) return new Promise(() => {});
+            }
+            if (path.at(-1) === 'consumeGroupKeywordJump') {
+              f.notificationReads.group++;
+              return f.groupJumps.shift() ?? null;
+            }
+            if (path.at(-1) === 'consumeConversationJump') {
+              f.notificationReads.conversation++;
+              const reply = f.conversationJumpReply;
+              f.conversationJumpReply = undefined;
+              return reply ? reply() : (f.conversationJumps.shift() ?? null);
+            }
+            if (path.at(-1) === 'markConversationRead') {
+              f.markedRead.push(input as unknown as (typeof f.markedRead)[number]);
+              return { changed: true, report: { state: 'disabled' } };
+            }
             if (path.at(-1) === 'memberDetails') return f.memberDetails;
             if (path.at(-1) === 'listBefore') return f.beforeRows;
             if (path.at(-1) === 'listAfter') return f.afterReply?.() ?? [];
@@ -241,6 +292,15 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               ) => void;
             },
           ) => {
+            if (['onGroupKeywordJump', 'onConversationJump'].includes(path.at(-1) ?? '')) {
+              const subscription = {
+                notify: () => handlers.onData({}),
+                unsubscribe: vi.fn(),
+              };
+              const kind = path.at(-1) === 'onGroupKeywordJump' ? 'group' : 'conversation';
+              f.notificationSubscriptions[kind].push(subscription);
+              return subscription;
+            }
             if (path.at(-1) === 'latestPage')
               f.reads.push({ conv: input.conv, show: handlers.onData });
             if (path.at(-1) === 'onDbChanged') f.dbChanged = () => handlers.onData({});
@@ -298,6 +358,10 @@ vi.mock('../src/renderer/src/im-template/template/chatMainContent', async (impor
     ChatMainContent: (props: ComponentProps<typeof ChatMainContent>) => {
       f.jump = useContext(ReplyJumpContext);
       f.messages = props.messages;
+      f.send = props.onSend;
+      f.readCurrent = () => {
+        if (props.activeConversation) props.onReadCurrentConversation?.(props.activeConversation);
+      };
       f.atLatest = props.atLatest;
       f.deletionSets = { deleted: props.deletedIds, hidden: props.hiddenDeletedIds };
       useLayoutEffect(() => {
@@ -393,6 +457,11 @@ afterEach(() => {
   f.unreadFailures = 0;
   f.unreadReply = undefined;
   f.dbChanged = undefined;
+  f.notificationSubscriptions = { group: [], conversation: [] };
+  f.notificationReads = { group: 0, conversation: 0 };
+  f.groupJumps = [];
+  f.conversationJumps = [];
+  f.conversationJumpReply = undefined;
   f.unreadChanged = undefined;
   f.refreshRows = undefined;
   f.gapRows = [];
@@ -407,12 +476,149 @@ afterEach(() => {
   f.bots = [];
   f.memberDetails = undefined;
   f.messages = [];
+  f.send = undefined;
+  f.sendCalls = [];
+  f.sendPending = false;
+  f.sendError = undefined;
   f.messageCommits = [];
+  f.markedRead = [];
+  f.readCurrent = undefined;
   f.atLatest = true;
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
+
+it('电脑请求不返回时，发送内容仍立即在本端回显且不查询装扮', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  f.sendPending = true;
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    await act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+        .find((button) => button.textContent === '10001')!
+        .click(),
+    );
+    await act(async () => f.reads.at(-1)!.show({ complete: true, rows: [] }));
+    await act(async () => {
+      void f.send!('本地立即显示');
+    });
+    expect(
+      f.messages.some((row) => row.body === '本地立即显示' && row.optimistic === 'sending'),
+    ).toBe(true);
+    expect(host.textContent).toContain('本地立即显示');
+    expect(f.sendCalls).not.toContain('prepareChatDecoration');
+  } finally {
+    await act(async () => root.unmount());
+    client.clear();
+    host.remove();
+  }
+});
+
+it.each(['video', 'aiVoice', 'flashTransfer'])(
+  '%s 在媒体读取或电脑请求未完成时也保留本地回显',
+  async (kind) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    useViewState.getState().setOpenedUin('90001');
+    f.sendPending = true;
+    const file = new File(['video'], 'slow.mp4');
+    Object.defineProperty(file, 'arrayBuffer', { value: () => new Promise(() => {}) });
+    const body = elementToToken(
+      kind === 'video'
+        ? { kind: 'video', localPreviewUrl: 'blob:slow', fileName: 'slow.mp4' }
+        : kind === 'aiVoice'
+          ? { kind: 'ptt', isAiVoice: true, pttTranscript: '合成语音', pttVoiceId: 'voice' }
+          : { kind: 'markdown', flashTransferInfo: { fileSetId: 'fileset' } },
+    );
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    try {
+      await act(async () =>
+        root.render(
+          h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+        ),
+      );
+      await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+      await act(async () =>
+        [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+          .find((button) => button.textContent === '10001')!
+          .click(),
+      );
+      await act(async () => f.reads.at(-1)!.show({ complete: true, rows: [] }));
+      await act(async () => {
+        void f.send!(body, [{ key: 'blob:slow', name: file.name, file, previewUrl: 'blob:slow' }]);
+      });
+      expect(f.messages).toHaveLength(1);
+      expect(f.messages[0]?.optimistic).toBe('sending');
+      expect(f.sendCalls).not.toContain('prepareChatDecoration');
+      if (kind === 'video') expect(f.sendCalls).not.toContain('sendElements');
+    } finally {
+      await act(async () => root.unmount());
+      client.clear();
+      host.remove();
+    }
+  },
+);
+
+it.each(['传给电脑失败', '请求超时，操作结果暂未确认，请刷新核对。'])(
+  '发送请求异常时保留失败消息并显示失败横幅：%s',
+  async (reason) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    useViewState.getState().setOpenedUin('90001');
+    useToast.setState({ toasts: [], leaving: [] });
+    f.sendError = reason;
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    try {
+      await act(async () =>
+        root.render(
+          h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+        ),
+      );
+      await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+      await act(async () =>
+        [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+          .find((button) => button.textContent === '10001')!
+          .click(),
+      );
+      await act(async () => f.reads.at(-1)!.show({ complete: true, rows: [] }));
+      await act(async () => {
+        void f.send!('不能丢失的内容');
+      });
+      const failed = f.messages.find((row) => row.body === '不能丢失的内容');
+      expect(failed?.optimistic).toBe('failed');
+      expect(failed?.optimisticError).toBe(reason);
+      expect(
+        useToast
+          .getState()
+          .toasts.some((toast) => toast.tone === 'error' && toast.detail === reason),
+      ).toBe(true);
+      expect(f.sendCalls.filter((call) => call === 'sendElements')).toHaveLength(1);
+    } finally {
+      await act(async () => root.unmount());
+      client.clear();
+      host.remove();
+      useToast.setState({ toasts: [], leaving: [] });
+    }
+  },
+);
 
 it.each(['10001', 'u_peer'])(
   '会话 %s 的同序号戳一戳灰条不等待未读变化或一秒目录校准',
@@ -528,6 +734,97 @@ it.each(['10001', 'u_peer'])(
       act(() => root.unmount());
       client.clear();
       host.remove();
+    }
+  },
+);
+
+it.each([
+  { summarySeq: '900', mismatch: 'none' },
+  { summarySeq: '50', mismatch: 'none' },
+  { summarySeq: '900', mismatch: 'uid' },
+  { summarySeq: '900', mismatch: 'chatType' },
+  { summarySeq: '900', mismatch: 'switched' },
+])(
+  '自动已读只用目标会话小表水位：摘要 $summarySeq，快照身份 $mismatch',
+  async ({ summarySeq, mismatch }) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    useViewState.getState().setOpenedUin('90001');
+    f.unreadMode = true;
+    const contact = f.recent.find((row) => row.targetUid === '10002')!;
+    const originalSeq = contact.msgSeq;
+    contact.msgSeq = summarySeq;
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    try {
+      await act(async () =>
+        root.render(
+          h(
+            QueryClientProvider,
+            { client: queryClient },
+            h(ContentSelectionProvider, null, h(MainView)),
+          ),
+        ),
+      );
+      await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+      await act(async () =>
+        [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+          .find((button) => button.textContent === '10002')!
+          .click(),
+      );
+      await act(async () =>
+        f.reads.at(-1)!.show({
+          complete: true,
+          rows: [
+            {
+              msgId: 'target-message',
+              msgSeq: '100',
+              sendTime: '1794200000',
+              senderUid: 'u_peer',
+              senderUin: '20001',
+              elements: [{ type: 'text', data: { textContent: '目标会话' } }],
+            },
+          ],
+        }),
+      );
+      f.markedRead = [];
+      let release: (() => void) | undefined;
+      if (mismatch === 'switched')
+        f.unreadReply = () =>
+          new Promise((resolve) => {
+            release = () =>
+              resolve([{ chatType: 2, uid: '10002', latestSeq: '100', unreadCount: 0 }]);
+          });
+      else if (mismatch !== 'none')
+        f.unreadReply = async () => [
+          {
+            chatType: mismatch === 'chatType' ? 1 : 2,
+            uid: mismatch === 'uid' ? '10001' : '10002',
+            latestSeq: '100',
+            unreadCount: 0,
+          },
+        ];
+      await act(async () => f.readCurrent?.());
+      if (mismatch === 'switched') {
+        expect(release).toBeTypeOf('function');
+        await act(async () =>
+          [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+            .find((button) => button.textContent === '10001')!
+            .click(),
+        );
+        await act(async () => release!());
+      }
+      if (mismatch === 'none') {
+        expect(f.markedRead).toHaveLength(1);
+        expect(f.markedRead[0]).toMatchObject({ chatType: 2, uid: '10002', latestSeq: '100' });
+      } else expect(f.markedRead).toHaveLength(0);
+    } finally {
+      act(() => root.unmount());
+      queryClient.clear();
+      host.remove();
+      contact.msgSeq = originalSeq;
     }
   },
 );
@@ -1661,6 +1958,75 @@ it.each([
     }
   },
 );
+
+it('跳转订阅不随重绘重建，通知仍能连续切换会话，旧工作区迟到结果不回灌', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const render = (key = 'first') =>
+    act(async () =>
+      root.render(
+        h(
+          StrictMode,
+          null,
+          h(
+            QueryClientProvider,
+            { client },
+            h(ContentSelectionProvider, null, h(MainView, { key })),
+          ),
+        ),
+      ),
+    );
+  try {
+    await render();
+    const groups = f.notificationSubscriptions.group.length;
+    const conversations = f.notificationSubscriptions.conversation.length;
+    const reads = { ...f.notificationReads };
+    for (let round = 0; round < 5; round++) {
+      f.refreshing = !f.refreshing;
+      await render();
+    }
+    f.refreshing = false;
+    await render();
+    expect(f.notificationSubscriptions.group).toHaveLength(groups);
+    expect(f.notificationSubscriptions.conversation).toHaveLength(conversations);
+    expect(f.notificationReads).toEqual(reads);
+    const group = f.notificationSubscriptions.group.at(-1)!;
+    const conversation = f.notificationSubscriptions.conversation.at(-1)!;
+    f.groupJumps.push({ groupCode: '10002', msgSeq: '42' });
+    await act(async () => group.notify());
+    expect(JSON.parse(host.querySelector('output')!.textContent!).id).toBe('10002');
+    f.conversationJumps.push({ kind: 'c2c', conv: 'u_peer' });
+    await act(async () => conversation.notify());
+    expect(JSON.parse(host.querySelector('output')!.textContent!).id).toBe('u_peer');
+    expect(f.notificationSubscriptions.group).toHaveLength(groups);
+    expect(f.notificationSubscriptions.conversation).toHaveLength(conversations);
+    let resolve!: (jump: { kind: 'group'; conv: string }) => void;
+    f.conversationJumpReply = () =>
+      new Promise((done) => {
+        resolve = done;
+      });
+    await act(async () => conversation.notify());
+    await render('replacement');
+    const newReads = f.reads.length;
+    await act(async () => resolve({ kind: 'group', conv: '10001' }));
+    expect(f.reads).toHaveLength(newReads);
+    expect(JSON.parse(host.querySelector('output')!.textContent!).id).not.toBe('10001');
+    expect(group.unsubscribe).toHaveBeenCalledOnce();
+    expect(conversation.unsubscribe).toHaveBeenCalledOnce();
+    f.conversationJumps.push({ kind: 'group', conv: '10002' });
+    await act(async () => f.notificationSubscriptions.conversation.at(-1)!.notify());
+    expect(JSON.parse(host.querySelector('output')!.textContent!).id).toBe('10002');
+  } finally {
+    act(() => root.unmount());
+    client.clear();
+    host.remove();
+  }
+});
 
 it('切换会话立即更新目标并启动对应消息读取，返回时立即恢复窗口', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

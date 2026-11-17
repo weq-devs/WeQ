@@ -40,6 +40,7 @@ export interface RequestOptions {
   /** Mounted at /trpc — created in index.ts so this file stays transport-only. */
   trpc: (req: http.IncomingMessage, res: http.ServerResponse) => void;
   hostBridge?: HostBridge;
+  development?: (req: http.IncomingMessage, res: http.ServerResponse) => Promise<void>;
 }
 
 export interface ServerOptions extends RequestOptions {
@@ -138,17 +139,28 @@ export async function handleRequest(
 
   for (const route of PROTOCOL_ROUTES) {
     if (path !== route.prefix && !path.startsWith(`${route.prefix}/`)) continue;
-    const protoReq = toProtocolRequest(req, route.scheme, route.prefix);
-    if (!protoReq) return send(res, 400, 'bad request');
-    const out = await route.handle(protoReq);
-    // 浏览器复用五分钟，避免切页逐个验证头像和静态资源；桌面协议仍即时检查文件更新。
-    if (
-      (path === '/_media/avatar' || route.prefix === '/_asset') &&
-      (out.status === 200 || out.status === 304) &&
-      out.headers.get('Cache-Control') === 'no-cache'
-    )
-      out.headers.set('Cache-Control', 'private, max-age=300');
-    return writeResponse(res, out);
+    const controller = new AbortController();
+    const abort = () => controller.abort(new Error('客户端已断开媒体请求'));
+    res.once('close', abort);
+    try {
+      const protoReq = toProtocolRequest(req, route.scheme, route.prefix, controller.signal);
+      if (!protoReq) return send(res, 400, 'bad request');
+      const out = await route.handle(protoReq);
+      if (res.destroyed) {
+        await out.body?.cancel();
+        return;
+      }
+      // 浏览器复用五分钟，避免切页逐个验证头像和静态资源；桌面协议仍即时检查文件更新。
+      if (
+        (path === '/_media/avatar' || route.prefix === '/_asset') &&
+        (out.status === 200 || out.status === 304) &&
+        out.headers.get('Cache-Control') === 'no-cache'
+      )
+        out.headers.set('Cache-Control', 'private, max-age=300');
+      return await writeResponse(res, out);
+    } finally {
+      res.off('close', abort);
+    }
   }
 
   if (path.startsWith('/_download/')) {
@@ -176,6 +188,8 @@ export async function handleRequest(
     }
     return writeResponse(res, new Response(out.body, { status: out.status, headers }));
   }
+
+  if (opts.development) return opts.development(req, res);
 
   await serveStatic(
     res,

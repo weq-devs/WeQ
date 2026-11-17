@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { GapMessagesModal } from '../src/renderer/src/components/compose/GapMessagesModal';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { GRAY_TIP_KINDS } from '../src/renderer/src/im-template/template/messageRow';
+import { GRAY_TIP_KINDS } from '../src/renderer/src/im-template/template/messageRow.shared';
 import { createTemplateDemoData } from './support/templateDemoData';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
@@ -88,6 +88,66 @@ it('预览的普通富消息继续交给宿主消息渲染器', () => {
   );
   expect(html).toContain('data-rich-preview');
   expect(render).toHaveBeenCalledOnce();
+});
+it.each(['direct', 'group'])('%s 会话预览右键精确定位原消息，关闭菜单不触发定位', async (kind) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const demo = createTemplateDemoData();
+  const conversation = demo.conversations.find((item) => item.type === kind)!;
+  const message = {
+    ...demo.messages[0]!,
+    id: 'preview-target',
+    msgId: '9007199254740999',
+    msgSeq: '123',
+  };
+  const locate = vi.fn();
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(
+        createElement(GapMessagesModal, {
+          preview: true,
+          embedded: true,
+          conversation,
+          user: demo.user,
+          messages: [message],
+          loading: false,
+          loadingMore: false,
+          error: null,
+          hasMore: false,
+          moreFailed: false,
+          totalCount: 1,
+          onLoadMore: vi.fn(),
+          onClose: vi.fn(),
+          onLocateMessage: locate,
+        }),
+      ),
+    );
+    const open = () =>
+      act(() =>
+        host
+          .querySelector('[data-message-id="preview-target"] .message-bubble')!
+          .dispatchEvent(
+            new MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 50 }),
+          ),
+      );
+    open();
+    expect(document.querySelector('[role="menuitem"]')?.textContent).toBe('定位到原消息');
+    await act(async () => document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click());
+    expect(locate).toHaveBeenCalledOnce();
+    expect(locate).toHaveBeenCalledWith({ seq: '123', msgId: '9007199254740999' });
+    open();
+    await act(async () =>
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }),
+      ),
+    );
+    expect(locate).toHaveBeenCalledOnce();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
 });
 it.each(['direct', 'group'])('%s 消息预览初次贴底，向上加载并按新增高度保持阅读锚点', (kind) => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

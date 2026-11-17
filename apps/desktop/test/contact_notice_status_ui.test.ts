@@ -10,7 +10,27 @@ vi.mock('../src/renderer/src/components/OverlayLayer', () => ({
 vi.mock('../src/renderer/src/components/qq-actions/shared', () => ({
   withQQAccountScope: <P extends object>(Component: ComponentType<P>) => Component,
 }));
+vi.mock('../src/renderer/src/components/qq-actions/shared.shared', () => ({
+  withQQAccountScope: <P extends object>(Component: ComponentType<P>) => Component,
+}));
 vi.mock('../src/renderer/src/components/qq-actions/RequestActions', () => ({
+  useNoticeOperations: () => ({
+    operations: [
+      {
+        kind: 'friend',
+        token: 'u_peer',
+        uid: 'u_peer',
+        uin: '',
+        groupId: '',
+        name: '申请人',
+        groupName: '',
+        message: '你好',
+      },
+    ],
+  }),
+  RequestActions: () => createElement('button', { 'aria-label': '同意申请' }),
+}));
+vi.mock('../src/renderer/src/components/qq-actions/RequestActions.shared', () => ({
   useNoticeOperations: () => ({
     operations: [
       {

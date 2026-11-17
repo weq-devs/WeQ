@@ -17,6 +17,7 @@
  * protocol (see main/resource_protocol.ts) — nothing crosses tRPC but metadata.
  */
 
+import { NumericText } from '../../components/NumericText';
 import { EmptyState } from '../../components/EmptyState';
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { RefreshCw, Smile, Download, ImageOff } from 'lucide-react';
@@ -25,9 +26,10 @@ import { trpc, client } from '../../trpc/client';
 import { emojiUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { useAppDialog } from '../../lib/dialogUtils';
-import { BlobDialog, CURSOR_PAGE, GridFooter, useCursorPaged } from './CacheShared';
+import { BlobDialog, GridFooter } from './CacheShared';
+import { CURSOR_PAGE, useCursorPaged } from './CacheShared.shared';
 import { GridSkeleton } from './CacheSkeleton';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 
 /** weq-asset URL for one face's file in a given format dir. */
 function faceUrl(name: string, fmt: 'png' | 'apng' | 'lottie', file: string): string {
@@ -84,7 +86,8 @@ export function SysEmojiExplorer(): ReactElement {
       <div className="weq-cache-sysemoji-bar">
         <span className="weq-cache-data-name">系统表情</span>
         <span className="weq-cache-data-meta">
-          {total ?? entries.length} 个 · 默认动图(APNG)预览，点击查看全部格式
+          <span className="weq-number weq-number-inherit">{total ?? entries.length}</span> 个 ·
+          默认动图(APNG)预览，点击查看全部格式
           {status && !status.qqRoot ? ' · QQ 资源目录缺失，已改用下载补全' : ''}
           {status?.usingFallback ? ' · emoji.db 无表情数据，用内置地址表兜底' : ''}
         </span>
@@ -97,7 +100,7 @@ export function SysEmojiExplorer(): ReactElement {
             title="从官方 CDN 下载缺失的内置表情"
           >
             {filling ? <RefreshCw size={13} className="is-spin" /> : <Download size={13} />}
-            {filling ? '补全中…' : `补全 ${missing} 个`}
+            <NumericText>{filling ? '补全中…' : `补全 ${missing} 个`}</NumericText>
           </button>
         ) : null}
       </div>

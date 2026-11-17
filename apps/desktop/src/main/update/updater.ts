@@ -127,7 +127,10 @@ export async function checkForUpdate(force = false): Promise<UpdateState> {
 
   // Let the UI show "testing N mirrors…" instead of a blank 4–6s wait: this is
   // the slow phase (every dead mirror burns its full screen timeout).
-  updateBus.emit('event', { kind: 'checking', mirrors: FILE_MIRRORS.length } satisfies UpdateEvent);
+  updateBus.emit('event', {
+    kind: 'checking',
+    mirrors: Math.min(3, FILE_MIRRORS.length),
+  } satisfies UpdateEvent);
   const best = await resolveBestMirror(undefined, includePrerelease, !(await hostDataSaver()));
   if (revision !== preferenceRevision) throw new Error('更新检查选项已改变，请重新检查');
   const hasUpdate = isNewer(best.version, current);
@@ -238,6 +241,8 @@ function attemptDownload(base: string): Promise<void> {
       .checkForUpdates()
       .then((result) => {
         if (!result?.updateInfo) throw new Error('未获取到更新信息');
+        if (result.updateInfo.version !== getUpdateState()?.latest)
+          throw new Error('下载源返回了不同版本的更新清单');
         const token = result.cancellationToken;
         if (!token) throw new Error('更新器未提供可取消的下载任务');
         cancelDownload = () => token.cancel();
@@ -323,6 +328,10 @@ export async function startDownload(): Promise<void> {
     total = progress.total;
     received = progress.transferred;
     updatePolicy();
+    backgroundTasks.update(taskId, {
+      progress: total > 0 ? (received / total) * 100 : undefined,
+      note: `${(received / 1048576).toFixed(1)} / ${total > 0 ? (total / 1048576).toFixed(1) : '未知'} MiB`,
+    });
   };
   updateSizePolicy = (bytes) => {
     total = bytes;
@@ -368,7 +377,7 @@ async function downloadUpdate(): Promise<void> {
 
   let lastErr: Error | null = null;
   let success = false;
-  for (const base of ranked) {
+  for (const base of ranked.slice(0, 8)) {
     try {
       // Let the UI name the mirror that's actually serving this attempt — the
       // first choice can fail mid-download and we silently fall back here.

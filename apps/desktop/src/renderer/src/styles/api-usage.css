@@ -285,13 +285,14 @@
 
 .weq-usage-accounting-table {
   min-width: 0;
-  overflow-x: auto;
-  scrollbar-color: var(--weq-border-strong) transparent;
+  /* 固定布局会换行；不要用横向滚动容器截断表头对设置页的吸顶。 */
+  overflow: visible;
 }
 
 .weq-usage-accounting-table table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 12px;
   table-layout: fixed;
 }
@@ -311,9 +312,16 @@
 }
 
 .weq-usage-accounting-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   font-weight: 500;
   color: var(--weq-fg-secondary);
   background: color-mix(in srgb, var(--weq-bg-surface) 70%, var(--muted));
+}
+
+.weq-usage-accounting-table button {
+  scroll-margin-top: 72px;
 }
 
 .weq-usage-accounting-table tbody th {
@@ -326,6 +334,44 @@
 
 .weq-usage-accounting-table tbody tr:last-child > * {
   border-bottom: 0;
+}
+
+.weq-usage-category-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.weq-usage-category-toggle svg {
+  flex: 0 0 16px;
+}
+
+.weq-usage-category-toggle span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.weq-usage-category-details th:first-child {
+  padding-left: 34px;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-usage-accounting-table .weq-usage-category tr > * {
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-usage-category:has(+ .weq-usage-category-details:not([hidden])) tr > * {
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .weq-usage-accounting-table small,
@@ -353,6 +399,10 @@ html[data-theme='dark'] .weq-usage-accounting-table thead th {
 
   .weq-usage-accounting-table th:first-child {
     width: 42%;
+  }
+
+  .weq-usage-category-details th:first-child {
+    padding-left: 26px;
   }
 }
 

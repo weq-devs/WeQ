@@ -1,12 +1,12 @@
 import { act, createElement as h, useState, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
 import {
-  ContentSelectionProvider,
   useContentMultiSelect,
   useContentSelectionScope,
   useCurrentContentSelection,
-} from '../src/renderer/src/state/contentSelection';
+} from '../src/renderer/src/state/contentSelection.shared';
 import { useMultiSelection } from '../src/renderer/src/hooks/useMultiSelection';
 import {
   contentReferenceKey,

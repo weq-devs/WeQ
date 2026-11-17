@@ -99,7 +99,12 @@ export type {
 } from './bootstrap/media_cache';
 
 export { LinkPreviewService } from './bootstrap/link_preview';
-export type { LinkPreview, ScreenshotHook } from './bootstrap/link_preview';
+export type {
+  LinkPreview,
+  ScreenshotHook,
+  LinkScreenshotRequest,
+  LinkScreenshotResource,
+} from './bootstrap/link_preview';
 
 export { GlobalConfigService } from './bootstrap/global_config';
 export type {
@@ -698,6 +703,7 @@ export {
   isQqProcessName,
   isSelfProcessName,
   makeStamp,
+  probeDbLayout,
   productTempPath,
   renderDbRepairReportMarkdown,
   resolveAccountDbDir,
@@ -734,18 +740,6 @@ export type {
   DbRepairTarget,
   DbRepairWalCheckpoint,
 } from './account/db_repair';
-export {
-  SALVAGE_AGGREGATE_CAVEAT,
-  SALVAGE_EXPERIMENTAL_NOTE,
-  SALVAGE_EXPERIMENTAL_TAG,
-  SALVAGE_LEVEL_COPY,
-  SALVAGE_SKIPPED_SPAN_CAVEAT,
-  salvageLevelCopy,
-  salvageLevelToast,
-  salvageLevelsAscending,
-} from './account/db_tolerance_copy';
-export type { SalvageLevelCopy } from './account/db_tolerance_copy';
-
 // A process-wide singleton (NOT bound to AccountSession): a single polling
 // loop you mount/unmount db-watch tasks onto to watch their size for changes.
 export { DbWatchService } from './account/db_watch';
@@ -916,7 +910,12 @@ export type {
   AlbumPhotoUrl,
 } from './account/group_album_media';
 
-export { MediaUrlService, mediaNodeFromElement, downloadUrlToFile } from './account/media_url';
+export {
+  MediaUrlService,
+  mediaNodeFromElement,
+  downloadUrlToFile,
+  mediaSignature,
+} from './account/media_url';
 export { managedMediaDownload } from './account/managed_media_download';
 export { prepareFavoriteEmojiElements } from './account/favorite_emoji_send';
 export type { MediaElement, GroupFileDownload, DownloadOutcome } from './account/media_url';
@@ -1082,7 +1081,12 @@ export type {
   EmojiWriteResult,
   FavEmojiRow,
 } from './account/export';
-export { ExportTaskManager } from './account/export/task_manager';
+export {
+  ExportTaskManager,
+  type ResourceExportRunContext,
+  type ResourceExportSummary,
+  type ResumableResourceRequest,
+} from './account/export/task_manager';
 export {
   describeViewerFile,
   discoverViewerSources,
@@ -1242,6 +1246,10 @@ export { logRequest, logTransportError } from './common/request_log';
 export { OperationError } from './common/operation_error';
 export type { Logger, LoggerContext, LogLevel } from './common/logger';
 export { getHost, setHost, withHost } from './common/host';
+export {
+  developmentDressToolsEnabled,
+  requireDevelopmentDressTools,
+} from './common/development_dress';
 export type { AppAutostartStatus, HostBridge, SaveTarget } from './common/host';
 export { JsonStore, readJsonFile, writeJsonFileAtomic } from './common/json_store';
 export {
@@ -1364,3 +1372,27 @@ export {
   installContactHistoryCapture,
   CONTACT_HISTORY_CAPTURE,
 } from './account/contact_history_capture';
+export {
+  QZONE_ARCHIVE_DEFAULTS,
+  qzoneArchiveConfig,
+  projectQzoneArchive,
+} from './common/qzone_archive';
+export type { QzoneArchiveConfig } from './common/qzone_archive';
+export { DatabaseProgressTracker, databaseStepPercent } from './account/db_repair/progress';
+export type {
+  DatabaseTaskProgress,
+  DatabaseStepProgress,
+  DatabaseWorkProgress,
+} from './account/db_repair/progress';
+export {
+  DatabaseMaintenance,
+  DatabaseMaintenanceReports,
+  renderDatabaseMaintenanceReport,
+} from './account/db_repair';
+export type {
+  DatabaseMaintenanceSnapshot,
+  DatabaseMaintenanceReport,
+  DatabaseMaintenanceScope,
+  DatabaseMaintenanceRow,
+  DatabaseMaintenanceOperation,
+} from './account/db_repair/maintenance_types';

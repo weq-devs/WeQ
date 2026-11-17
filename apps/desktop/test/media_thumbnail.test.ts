@@ -7,6 +7,9 @@ const state = vi.hoisted(() => ({ open: vi.fn() }));
 vi.mock('../src/renderer/src/components/mediaPreviewStore', () => ({
   openMediaPreview: state.open,
 }));
+vi.mock('../src/renderer/src/components/mediaPreviewStore.shared', () => ({
+  openMediaPreview: state.open,
+}));
 const roots: ReturnType<typeof createRoot>[] = [];
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

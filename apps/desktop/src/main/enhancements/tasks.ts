@@ -74,7 +74,7 @@ export function trackEnhancementPreparation(
           progress: operation?.total
             ? Math.min(99, (operation.received / operation.total) * 100)
             : undefined,
-          note: `${operation?.note ?? (operation?.phase === 'queued' ? '等待准备' : '检查资源')}${operation?.total ? ` · ${(operation.received / 1048576).toFixed(1)} / ${(operation.total / 1048576).toFixed(1)} MiB` : ''}`,
+          note: `${operation?.retryAt && operation.retryAt > Date.now() ? '等待自动重试' : (operation?.note ?? (operation?.phase === 'queued' ? '等待准备' : '检查资源'))}${operation?.source ? ` · ${operation.source}` : ''}${operation?.total ? ` · ${(operation.received / 1048576).toFixed(1)} / ${(operation.total / 1048576).toFixed(1)} MiB` : ''}`,
         });
       };
       const timer = setInterval(() => {

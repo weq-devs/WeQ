@@ -79,7 +79,7 @@ export function ContactCardSettings() {
       <div className="weq-set weq-contact-card-settings" data-setting-id="contact-card">
         <SectionHeader
           title="联系人名片"
-          icon={<UserRound size={16} strokeWidth={1.8} />}
+          page="contact-card"
           desc="控制联系人与群名片上显示哪些字段、按什么顺序显示；拖动行首把手可调整顺序。"
         />
         <Card

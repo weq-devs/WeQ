@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, Copy, LoaderCircle, Play, RefreshCw, Settings, Trash2 } from 'lucide-react';
 import { client, trpc } from '../trpc/client';
-import { useDialog } from './Dialog';
-import { useTabActive } from './RetainedTabs';
+import { useDialog } from './Dialog.shared';
+import { useTabActive } from './RetainedTabs.shared';
 import { QqDebugCopyPermissions } from './QqDebugCopyPermissions';
 import type { QqDebugCopyAction, QqDebugCopyPhase } from '../../../shared/qq_debug_copy';
 import '../styles/qq-debug-copy.css';
@@ -62,7 +62,7 @@ export function QqDebugCopy({
         !(await confirm(
           '移除 QQ 调试副本',
           '只移除 WeQ 创建的 QQ 副本，保留原 QQ、账号登录态和聊天数据。',
-          { okLabel: '移除副本' },
+          { danger: 'outline', okLabel: '移除副本' },
         ))
       )
         return;
@@ -134,7 +134,11 @@ export function QqDebugCopy({
         <dl className="weq-qq-debug-details">
           <div>
             <dt>原安装</dt>
-            <dd>{data.sourceVersion ?? '未检测到'}</dd>
+            <dd>
+              <span className="weq-number weq-number-inherit">
+                {data.sourceVersion ?? '未检测到'}
+              </span>
+            </dd>
           </div>
           <div>
             <dt>副本位置</dt>
@@ -167,7 +171,7 @@ export function QqDebugCopy({
       <div className="weq-qq-debug-actions">
         <button
           type="button"
-          className="weq-set-btn"
+          className={`weq-set-btn${!ready ? ' weq-set-btn-primary' : ''}`}
           disabled={busy || !data?.sourceVersion || data.state === 'unmanaged' || running}
           onClick={() => void run('prepare')}
         >
@@ -176,7 +180,7 @@ export function QqDebugCopy({
         </button>
         <button
           type="button"
-          className="weq-set-btn"
+          className={`weq-set-btn${ready ? ' weq-set-btn-primary' : ''}`}
           disabled={busy || !ready}
           onClick={() => void run('launch')}
         >
@@ -208,6 +212,7 @@ export function QqDebugCopy({
         )}
         {managed && (
           <button
+            data-danger="outline"
             type="button"
             className="weq-set-btn"
             disabled={busy || running}

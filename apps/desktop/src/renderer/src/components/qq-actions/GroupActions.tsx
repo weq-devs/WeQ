@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import { EmptyState } from '../EmptyState';
 import { useEffect, useState } from 'react';
 import {
@@ -10,6 +11,8 @@ import {
   Trash2,
   X,
   ListTodo,
+  Tags,
+  UsersRound,
 } from 'lucide-react';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
 import { Card, Row } from '../settings/controls';
@@ -29,13 +32,8 @@ import '../../styles/qq-management.css';
 import { client, trpc } from '../../trpc/client';
 import { useQQAutoRefresh, useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import { GroupJoinSettings } from './GroupJoinSettings';
-import {
-  ActionFeedback,
-  ActionIcon,
-  useQQAction,
-  useQQGroupPermissions,
-  withQQAccountScope,
-} from './shared';
+import { ActionFeedback, ActionIcon } from './shared';
+import { useQQAction, useQQGroupPermissions, withQQAccountScope } from './shared.shared';
 
 function GroupActionsBody({ groupId }: { groupId: number }) {
   const a = useQQAction(`group:${groupId}`);
@@ -63,10 +61,10 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
     <section className="weq-qq-actions" aria-label="更多 QQ 群操作">
       {/* 与设置页同一套 Card/Row 语言：章节标题由资料页给出，这里不再重复「群管理」。 */}
       <div className="weq-qq-action-form">
-        <Card title="加群方式">
+        <Card title="加群方式" icon={<UsersRound size={15} strokeWidth={1.8} />}>
           <GroupJoinSettings key={groupId} groupId={groupId} />
         </Card>
-        <Card title="分类标签">
+        <Card title="分类标签" icon={<Tags size={15} strokeWidth={1.8} />}>
           <section className="weq-group-tags" aria-label="群分类标签">
             <Row
               label="群分类"
@@ -141,9 +139,10 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
                   <li key={t.name}>
                     <span>
                       {t.name}
-                      {t.count > 1 ? ` (${t.count} 条)` : ''}
+                      {t.count > 1 ? <NumericText>{` (${t.count} 条)`}</NumericText> : ''}
                     </span>
                     <ActionIcon
+                      danger="outline"
                       label="删除分类标签"
                       disabled={a.disabled || !canManage || category === null}
                       onClick={() =>
@@ -162,6 +161,7 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
                           },
                           `删除分类标签「${t.name}」？`,
                           {
+                            danger: 'outline',
                             readback: async () => {
                               const result = await tags.refetch();
                               if (result.error) throw result.error;
@@ -184,11 +184,12 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
             ) : null}
           </section>
         </Card>
-        <Card title="其他操作">
+        <Card title="其他操作" icon={<MoreHorizontal size={15} strokeWidth={1.8} />}>
           <Row
             label="退出群聊"
             control={
               <button
+                data-danger="solid"
                 type="button"
                 className="weq-set-btn weq-set-btn-danger"
                 aria-label="退出群聊"
@@ -204,6 +205,7 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
                     undefined,
                     `退出 QQ 群 ${groupId}？重新加入需要再次申请，不能自动恢复。`,
                     {
+                      danger: 'solid',
                       readback: async () => {
                         const rows = await client.account.listAllGroups.query();
                         return !rows.some((row) => String(row.groupCode) === String(groupId));
@@ -223,7 +225,11 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
     </section>
   );
 }
-export const GroupActions = withQQAccountScope(GroupActionsBody);
+export const GroupActions = withQQAccountScope(GroupActionsBody, (props) => ({
+  kind: 'group',
+  id: String(props.groupId),
+  section: 'management',
+}));
 function GroupTodosBody({
   groupId,
   groupName,
@@ -560,7 +566,11 @@ function GroupTodosBody({
     </>
   );
 }
-const ScopedGroupTodos = withQQAccountScope(GroupTodosBody);
+const ScopedGroupTodos = withQQAccountScope(GroupTodosBody, (props) => ({
+  kind: 'group',
+  id: String(props.groupId),
+  section: 'todos',
+}));
 export function GroupTodos(props: Parameters<typeof GroupTodosBody>[0]) {
   return <ScopedGroupTodos key={props.groupId} {...props} />;
 }

@@ -21,6 +21,16 @@ it('lists the real registry without exposing SQL writes, messaging, wallet, cred
     expect(names).toContain('search_messages');
     expect(names).toContain('get_messages');
     expect(names).toContain('get_message_performance');
+    expect(names).toContain('list_settings');
+    const settings = await client.callTool({
+      name: 'list_settings',
+      arguments: { page: 'appearance', query: '深色' },
+    });
+    expect(settings.isError).not.toBe(true);
+    const definitions = JSON.parse((settings.content as Array<{ text: string }>)[0]!.text);
+    expect(definitions.map((item: { id: string }) => item.id)).toEqual(['theme-mode']);
+    expect(definitions[0].reset[0].defaultSource).toBe('client:preference');
+    expect(definitions[0]).not.toHaveProperty('current');
     const snapshot = await client.callTool({ name: 'get_message_performance', arguments: {} });
     expect(snapshot.isError).not.toBe(true);
     const text = (snapshot.content as Array<{ type: string; text?: string }>)[0]?.text ?? '';

@@ -21,6 +21,10 @@ vi.mock('../src/renderer/src/components/QqMessageContent', async () => {
   const { createContext } = await import('react');
   return { MsgDecorationEnabledContext: createContext({ bubble: true, font: true, widget: true }) };
 });
+vi.mock('../src/renderer/src/state/messageAppearance', async () => {
+  const { createContext } = await import('react');
+  return { MsgDecorationEnabledContext: createContext({ bubble: true, font: true, widget: true }) };
+});
 afterEach(() => vi.unstubAllGlobals());
 it('离开可见范围、隐藏标签或卸载时释放，重新可见仍可开播', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

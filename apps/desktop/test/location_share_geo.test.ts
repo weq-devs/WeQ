@@ -7,8 +7,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { offsetLatLng } from '../src/renderer/src/im-template/template/locationShareJoystick';
-import { fitView } from '../src/renderer/src/im-template/template/locationShareMap';
+import { offsetLatLng } from '../src/renderer/src/im-template/template/locationShareJoystick.shared';
+import { fitView } from '../src/renderer/src/im-template/template/locationShareMap.shared';
 
 describe('offsetLatLng', () => {
   it('向北 111.32 米约等于 +0.001 度纬度', () => {

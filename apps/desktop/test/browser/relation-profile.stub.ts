@@ -18,12 +18,29 @@ export const relationData = {
   builtAt: 0,
 };
 const noop = () => {};
+const statusMode = new URLSearchParams(location.search).get('status');
+const onlineStatus =
+  statusMode === 'online' || statusMode === 'custom'
+    ? {
+        uid: 'u_self',
+        type: 10,
+        typeName: '在线',
+        subType: statusMode === 'custom' ? 2000 : 0,
+        displayStatus: statusMode === 'custom' ? '很长的自定义状态用于验证窄屏省略' : '在线',
+        customStatus: { text: '很长的自定义状态用于验证窄屏省略', faceType: 0 },
+      }
+    : undefined;
 function proxy(path = ''): unknown {
   return new Proxy(noop, {
     get: (_target, key) => {
       if (key === 'useQuery')
         return () => ({
-          data: path === 'account.getRelationGraph' ? relationData : undefined,
+          data:
+            path === 'account.getRelationGraph'
+              ? relationData
+              : path === 'account.getOnlineStatus'
+                ? onlineStatus
+                : undefined,
           isLoading: false,
           isFetching: false,
         });

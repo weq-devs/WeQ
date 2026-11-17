@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { z } from 'zod';
-import { usePageSnapshotKey } from '../components/PageSnapshots';
+import { usePageSnapshotKey } from '../components/PageSnapshots.shared';
 import { captureReadingPosition } from '../lib/conversationReadingPosition';
 import { pageSnapshots } from '../lib/pageSnapshots';
 import { timelineRowKey } from '../../../shared/roaming_timeline';

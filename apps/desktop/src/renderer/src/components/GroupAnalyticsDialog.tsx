@@ -16,6 +16,7 @@
  * 用同一个组件把卡片重新渲染（840px 长图口径）并拍下来 —— 屏幕上全程零变化。
  * 导出窗口里靠 `exportMode` + `initialData` 复用这里（见 ./export/main.tsx）。
  */
+import { NumericText } from './NumericText';
 import { EmptyState } from './EmptyState';
 import {
   CalendarDays,
@@ -41,11 +42,10 @@ import {
   ContributionHeatmap,
   HourlyBarChart,
   WordCloud,
-  formatDate,
-  formatNumber,
   type DailyActivityItem,
   type WordCloudItem,
 } from './analyticsCharts';
+import { formatDate, formatNumber } from './analyticsCharts.shared';
 import { GroupJoinBatches, type JoinBatchReport } from './GroupJoinBatches';
 import { GroupConversationGraph, type ConversationGraphReport } from './GroupConversationGraph';
 import { useAnalyticsExport } from './useAnalyticsExport';
@@ -364,25 +364,32 @@ export function GroupAnalyticsDialog({
         <div className="ga-ov-hero-info">
           <span>
             {dateRange ? `${dateRange.from} — ${dateRange.to}` : '暂无聊天记录'}
-            {overview ? ` · 共 ${formatNumber(overview.total)} 条消息` : ''}
+            {overview ? (
+              <NumericText>{` · 共 ${formatNumber(overview.total)} 条消息`}</NumericText>
+            ) : (
+              ''
+            )}
           </span>
           <div className="ga-ov-hero-chips">
             {memberCount ? (
               <span className="ga-ov-chip">
                 <Users size={11} />
-                {memberCount.toLocaleString('en-US')} 位成员
+                <span className="weq-number weq-number-inherit">
+                  {memberCount.toLocaleString('en-US')}
+                </span>{' '}
+                位成员
               </span>
             ) : null}
             {overview ? (
               <span className="ga-ov-chip">
                 <CalendarDays size={11} />
-                活跃 {overview.activeDays} 天
+                活跃 <span className="weq-number weq-number-inherit">{overview.activeDays}</span> 天
               </span>
             ) : null}
             {overview && overview.speakers > 0 ? (
               <span className="ga-ov-chip">
                 <MessageSquare size={11} />
-                {overview.speakers} 人冒过泡
+                <span className="weq-number weq-number-inherit">{overview.speakers}</span> 人冒过泡
               </span>
             ) : null}
           </div>
@@ -419,22 +426,32 @@ export function GroupAnalyticsDialog({
         <div className="ga-ov-stat-grid">
           <div className="ga-ov-stat">
             <MessageSquare size={16} />
-            <strong>{formatNumber(overview.total)}</strong>
+            <strong>
+              <span className="weq-number weq-number-inherit">{formatNumber(overview.total)}</span>
+            </strong>
             <small>总消息</small>
           </div>
           <div className="ga-ov-stat">
             <CalendarDays size={16} />
-            <strong>{overview.activeDays}</strong>
+            <strong>
+              <span className="weq-number weq-number-inherit">{overview.activeDays}</span>
+            </strong>
             <small>活跃天数</small>
           </div>
           <div className="ga-ov-stat is-peak">
             <Flame size={16} />
-            <strong>{overview.peak ? `${overview.peak.hour} 点` : '—'}</strong>
+            <strong>
+              <NumericText>{overview.peak ? `${overview.peak.hour} 点` : '—'}</NumericText>
+            </strong>
             <small>最活跃时段</small>
           </div>
           <div className="ga-ov-stat">
             <TrendingUp size={16} />
-            <strong>{formatNumber(overview.avgPerDay)}</strong>
+            <strong>
+              <span className="weq-number weq-number-inherit">
+                {formatNumber(overview.avgPerDay)}
+              </span>
+            </strong>
             <small>日均消息</small>
           </div>
         </div>
@@ -492,7 +509,10 @@ export function GroupAnalyticsDialog({
         <h3>
           <Medal size={15} />
           发言排行
-          <small>所选区间 · 前 {RANKING_LIMIT} 名 · 每周发言</small>
+          <small>
+            所选区间 · 前 <span className="weq-number weq-number-inherit">{RANKING_LIMIT}</span> 名
+            · 每周发言
+          </small>
         </h3>
         {reportError ? (
           <AnalyticsRetry
@@ -545,7 +565,11 @@ export function GroupAnalyticsDialog({
           活跃时段
           {overview?.peak ? (
             <small>
-              高峰 {overview.peak.hour}:00 · {formatNumber(overview.peak.count)} 条
+              高峰 <span className="weq-number weq-number-inherit">{overview.peak.hour}</span>:00 ·{' '}
+              <span className="weq-number weq-number-inherit">
+                {formatNumber(overview.peak.count)}
+              </span>{' '}
+              条
             </small>
           ) : null}
         </h3>

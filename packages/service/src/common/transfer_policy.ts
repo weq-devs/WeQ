@@ -4,6 +4,7 @@ import {
   type NetworkCost,
   type DataSaverBehavior,
   DataSaverSession,
+  networkRestricted,
 } from './data_saver';
 import { networkScope, setBackgroundNetworkRestriction } from './network_scope';
 
@@ -22,8 +23,9 @@ export function updateTransferPolicy(
   mode = nextMode;
   if (nextHost.state !== 'unknown' || host.state === 'unknown') host = nextHost;
   behavior = nextBehavior;
-  if (host.state !== 'unknown') hostAwaitingClear = host.state === 'restricted';
-  dataSaverSession.update(mode, host);
+  if (host.state !== 'unknown')
+    hostAwaitingClear = networkRestricted(host, behavior.dataSaverOnMetered);
+  dataSaverSession.update(mode, host, behavior.dataSaverOnMetered);
   notifyPolicy();
 }
 function notifyPolicy() {
@@ -54,7 +56,11 @@ export function transferCanResume(clientId?: string): boolean {
   const effectiveMode = dataSaverSession.status(clientId).effectiveMode;
   if (effectiveMode === 'never') return true;
   if (effectiveMode === 'always' || hostAwaitingClear) return false;
-  return !clientId || clients.get(clientId)?.cost.state === 'unrestricted';
+  if (!clientId) return true;
+  const cost = clients.get(clientId)?.cost;
+  return Boolean(
+    cost && cost.state !== 'unknown' && !networkRestricted(cost, behavior.dataSaverOnMetered),
+  );
 }
 export function watchTransferPolicy(listener: () => void) {
   listeners.add(listener);

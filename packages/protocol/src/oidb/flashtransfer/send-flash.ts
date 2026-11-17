@@ -1,6 +1,6 @@
 // OIDB 0x93d7_1 — 发送闪传文件给用户(send_flash_msg)。
 // 请求 f1={f1:1, f2:{f1:targetUid}}, f2=filesetUuid(私聊);
-//      f1={f1:2, f3:{f1:groupId}}, f2=filesetUuid(群聊)。响应仅回显目标,无 message_id。
+//      f1={f1:2, f3:{f1:groupId}}, f2=filesetUuid(群聊)。响应逐目标返回状态,无 message_id。
 // 0x93d7 是「分享 fileset 给用户」(对端通过 fileset 链接下载),非传统消息。
 
 import { invokeOidb, type OidbSpec } from '../invoke';
@@ -36,8 +36,18 @@ export namespace SendFlashMsg {
     };
   };
 
-  export const deserialize = (_body: Record<string, unknown>): void => {
-    // 响应仅回显目标 uid,无 message_id。
+  export const deserialize = (body: Record<string, unknown>): void => {
+    // Android 9.3.85 libkernel 的响应解码器：repeated tag 1 -> result(1)/msg(2)/target(3)。
+    const statuses = body.sendStatus as
+      | { result?: number; msg?: string; target?: unknown }[]
+      | undefined;
+    if (!statuses?.length) throw new Error('闪传分享未确认：服务端未返回目标发送状态。');
+    for (const status of statuses) {
+      const result = status.result ?? 0;
+      if (result !== 0)
+        throw new Error(`闪传分享失败（${result}）${status.msg ? `：${status.msg}` : ''}`);
+      if (!status.target) throw new Error('闪传分享未确认：服务端未返回发送目标。');
+    }
   };
 
   export const invoke = (nt: OidbNative, pid: number, params: SendFlashMsgParams): Promise<void> =>

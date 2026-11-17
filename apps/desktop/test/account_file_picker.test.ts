@@ -11,6 +11,7 @@ const f = vi.hoisted(() => ({
   discard: vi.fn(),
 }));
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true }));
 vi.mock('../src/renderer/src/state/view', () => ({
   useViewState: { getState: () => ({ openedUin: f.uin }) },
 }));

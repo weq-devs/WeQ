@@ -29,6 +29,8 @@ import { clientStateRouter, boundClientState } from '../src/main/ipc/routers/cli
 import { createWebHost } from '../src/main/web/host';
 import { getAppContext } from '../src/main/context/app_context';
 import { pickedBrowserFiles } from '../src/main/browser_files';
+import { networkCost } from '@weq/service/data-saver';
+import { dataSaverSession, updateTransferPolicy } from '@weq/service/transfer-policy';
 beforeEach(() => {
   context.root = mkdtempSync(join(tmpdir(), 'weq-sync-router-'));
   context.uin = '10001';
@@ -37,6 +39,26 @@ beforeEach(() => {
   context.assistantSessions = [];
 });
 afterEach(() => rmSync(context.root, { recursive: true, force: true }));
+it('计费自动启用默认关闭，经真实共享路由修改后立即生效并跨账号保留', async () => {
+  const client = clientStateRouter.createCaller({});
+  const normal = networkCost(false, false, 'fixture');
+  updateTransferPolicy('auto', normal);
+  dataSaverSession.updateClient('metered-router', networkCost(false, true, 'fixture'));
+  try {
+    expect((await client.snapshot()).values.dataSaverOnMetered).toBe(false);
+    expect(dataSaverSession.status('metered-router').enabled).toBe(false);
+    await client.patch({ dataSaverOnMetered: true });
+    expect(dataSaverSession.status('metered-router').enabled).toBe(true);
+    context.uin = '10002';
+    context.configId = '10002_other';
+    context.config = new UserConfigService({ appDataRoot: () => context.root });
+    expect((await client.snapshot()).values.dataSaverOnMetered).toBe(true);
+    await client.patch({ dataSaverOnMetered: false });
+    expect(dataSaverSession.status('metered-router').enabled).toBe(false);
+  } finally {
+    updateTransferPolicy('auto', normal);
+  }
+});
 it('移除副本查询接口，旧客户端也不能通过保存接口重建副本', async () => {
   expect(clientStateRouter._def.procedures).not.toHaveProperty('draftCopies');
   const client = clientStateRouter.createCaller({});

@@ -9,6 +9,7 @@ import { calendarParts, calendarStart, formatDate } from '@weq/time';
 import { JsonStore } from '../common/json_store';
 import type { AgentLabUsage } from '@weq/agentlab';
 import { resolve } from 'node:path';
+import { classifyApiUsage } from './api_usage_categories';
 
 export interface TokenUsageRecord extends AgentLabUsage {
   ts: number;
@@ -60,6 +61,14 @@ export interface TokenStats {
   byPersona: Array<{ personaId: string; tokens: number; calls: number; unknownCalls: number }>;
   byScope: Array<{ scope: string; tokens: number; calls: number; unknownCalls: number }>;
   byFeature: Array<{ feature: string; tokens: number; calls: number; unknownCalls: number }>;
+  /** 业务大类及其用途明细；每条请求只归入一个大类和一个小类。 */
+  byCategory: Array<
+    UsageBucket & {
+      category: string;
+      label: string;
+      features: Array<UsageBucket & { feature: string; label: string }>;
+    }
+  >;
   /** 最近 7／30 天的已知 token、请求与未知次数，包含北京时间的空白天。 */
   byDay: Array<UsageBucket & { day: string }>;
   /** 最近 24 个小时桶（含当前小时），空白小时补零。 */
@@ -202,6 +211,15 @@ export class TokenUsageStore {
     const byPersona = new Map<string, UsageBucket>();
     const byScope = new Map<string, UsageBucket>();
     const byFeature = new Map<string, UsageBucket>();
+    const categories = new Map<
+      string,
+      {
+        label: string;
+        features: Map<string, UsageBucket>;
+        labels: Map<string, string>;
+      }
+    >();
+    const byCategory = new Map<string, UsageBucket>();
     const byDayMap = new Map<string, UsageBucket>();
     const byHourMap = new Map<string, UsageBucket>();
     let totalTokens = 0;
@@ -248,6 +266,15 @@ export class TokenUsageStore {
       );
       bump(byScope, r.scope, tokens, unknown);
       bump(byFeature, r.feature ?? r.scope, tokens, unknown);
+      const { category, categoryLabel, feature, featureLabel } = classifyApiUsage(r);
+      let group = categories.get(category);
+      if (!group) {
+        group = { label: categoryLabel, features: new Map(), labels: new Map() };
+        categories.set(category, group);
+      }
+      group.labels.set(feature, featureLabel);
+      bump(group.features, feature, tokens, unknown);
+      bump(byCategory, category, tokens, unknown);
       bump(byDayMap, formatDate(r.ts), tokens, unknown);
       bump(byHourMap, String(Math.floor(r.ts / 3_600_000)), tokens, unknown);
     }
@@ -288,6 +315,19 @@ export class TokenUsageStore {
       byPersona: toSorted(byPersona).map(([personaId, v]) => ({ personaId, ...v })),
       byScope: toSorted(byScope).map(([scope, v]) => ({ scope, ...v })),
       byFeature: toSorted(byFeature).map(([feature, v]) => ({ feature, ...v })),
+      byCategory: toSorted(byCategory).map(([category, v]) => {
+        const group = categories.get(category)!;
+        return {
+          category,
+          label: group.label,
+          ...v,
+          features: toSorted(group.features).map(([feature, bucket]) => ({
+            feature,
+            label: group.labels.get(feature)!,
+            ...bucket,
+          })),
+        };
+      }),
       byDay,
       byHour,
     };

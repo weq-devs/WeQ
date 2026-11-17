@@ -30,6 +30,49 @@ vi.mock('../src/renderer/src/views/export/preflight', () => ({
 }));
 afterEach(() => vi.unstubAllGlobals());
 
+it('只导出相册隐藏说说互动，切回说说恢复原选择，HTML 说说保留强制状态', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const confirm = vi.fn();
+  const render = (qzoneContent: 'posts' | 'albums', html = false) =>
+    act(() =>
+      root.render(
+        h(ExportLightbox, {
+          key: String(html),
+          embedded: true,
+          variant: 'qzone',
+          headline: '空间导出',
+          summary: '合成空间',
+          qzoneContent,
+          initialOptions: { qzoneInteractions: true },
+          initialFormats: html ? ['html'] : ['json'],
+          onClose: vi.fn(),
+          onConfirm: confirm,
+        }),
+      ),
+    );
+  const interaction = () =>
+    host.querySelector('[aria-label="评论与点赞"]')?.closest('.weq-exp-master');
+  try {
+    render('albums');
+    await act(async () => {});
+    expect(interaction()).toBeUndefined();
+    render('posts');
+    expect(interaction()?.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe(
+      'true',
+    );
+    expect(confirm).not.toHaveBeenCalled();
+    render('posts', true);
+    await act(async () => {});
+    expect(interaction()?.querySelector<HTMLButtonElement>('[role="switch"]')?.disabled).toBe(true);
+    expect(interaction()?.textContent).toContain('强制开启');
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
 it.each([false, true])('设为默认按钮可撤销，确认时携带对应保存意图（撤销：%s）', async (undo) => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');

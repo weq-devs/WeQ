@@ -1,5 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import type { NtHelperBinding } from '@weq/native';
+import { QqDb } from '../src/qq_db';
+import { maintainDatabases } from '../src/maintenance';
 import {
   aliasDatabaseBinding,
   databasePerformance,
@@ -12,6 +15,39 @@ import {
 } from '../src/query_schedule';
 
 afterEach(() => vi.useRealTimers());
+it('维护中前台写入立即拒绝，后台写入在队列外暂停，读取仍可完成且暂停可取消', async () => {
+  const path = '/synthetic/maintenance-write.db';
+  const write = vi.fn(async () => 1);
+  const nt = {
+    executeSql: vi.fn(async () => [[1]]),
+    executeSqlWrite: write,
+    closeDb: vi.fn(),
+  } as unknown as NtHelperBinding;
+  const db = new QqDb(nt, { dbPath: path });
+  const release = maintainDatabases([path]);
+  try {
+    await expect(db.write('INSERT INTO t VALUES(1)')).rejects.toThrow('维护中');
+    const pending = withDatabasePriority('background', () => db.write('INSERT INTO t VALUES(2)'));
+    await Promise.resolve();
+    expect(await db.query('SELECT 1')).toEqual([[1]]);
+    expect(write).not.toHaveBeenCalled();
+    const abort = new AbortController();
+    const cancelled = withDatabasePriority(
+      'background',
+      () => db.write('INSERT INTO t VALUES(3)'),
+      abort.signal,
+    );
+    const stopped = expect(cancelled).rejects.toMatchObject({ name: 'AbortError' });
+    abort.abort();
+    await stopped;
+    release();
+    await expect(pending).resolves.toBe(1);
+    expect(write).toHaveBeenCalledOnce();
+  } finally {
+    release();
+    db.close();
+  }
+});
 it('慢诊断独立区分排队和 native 等待，不开启 SQL 诊断，回调可清理且异常不影响队列', async () => {
   vi.stubEnv('WEQ_DATABASE_DIAGNOSTICS', '0');
   let clock = 0;
@@ -35,7 +71,14 @@ it('慢诊断独立区分排队和 native 等待，不开启 SQL 诊断，回调
     release();
     expect(await Promise.all([first, second])).toEqual([undefined, 42]);
     expect(samples).toEqual([
-      { priority: 'interactive', jsQueueWaitMs: 0, nativePromiseAwaitMs: 600, outcome: 'ok' },
+      {
+        priority: 'interactive',
+        jsQueueWaitMs: 0,
+        nativePromiseAwaitMs: 600,
+        outcome: 'ok',
+        affectedQueryCount: 1,
+        maxBlockedMs: 600,
+      },
       { priority: 'interactive', jsQueueWaitMs: 600, nativePromiseAwaitMs: 0, outcome: 'ok' },
     ]);
     stop();

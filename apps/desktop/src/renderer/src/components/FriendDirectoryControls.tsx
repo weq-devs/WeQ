@@ -1,14 +1,14 @@
-import { createContext, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useEventContextValue } from '../hooks/useEventContextValue';
 import { X, Save } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { useViewState } from '../state/view';
-import { useToast } from './Toast';
+import { useToastApi } from './Toast.shared';
 import { Modal } from './Dialog';
 import '../styles/friend-directory.css';
+import { FriendDirectoryContext } from './FriendDirectoryControls.shared';
 
-type Category = { id: number; name: string; buddyCount: number | null; sortOrder: number | null };
 type Operation =
   | { type: 'create'; name: string }
   | { type: 'rename'; id: number; name: string }
@@ -20,20 +20,10 @@ type Editor = { scope: string } & (
   | { type: 'rename' | 'delete'; id: number }
   | { type: 'move'; uids: string[] }
 );
-export const FriendDirectoryContext = createContext<{
-  categories: Category[] | null;
-  assignments: Map<string, number>;
-  busy: boolean;
-  available: boolean;
-  error?: string;
-  retry?: () => void;
-  create: () => void;
-  edit: (type: 'rename' | 'delete', id: number) => void;
-  move: (uids: string[], categoryId?: number) => void;
-  sort: (id: number, target: number | 'first' | 'last', position?: 'before' | 'after') => void;
-} | null>(null);
 
 export function FriendDirectoryControls({ children }: { children: ReactNode }) {
+  const titleId = useId();
+  const notificationToast = useToastApi();
   const session = useQQWriteSession('friend-directory');
   const view = useViewState((state) => state.openedUin);
   const scope = `${view}:${session.binding?.expectedAccountConfigId ?? ''}`;
@@ -79,9 +69,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
       ]);
       if (current.current !== captured) return;
       if (result.state !== 'confirmed') throw new Error('操作已提交，读回尚未确认，请刷新后核对');
-      useToast
-        .getState()
-        .push({ title: '好友分组已更新', tone: 'success', durationKind: 'success' });
+      notificationToast.push({ title: '好友分组已更新', tone: 'success', durationKind: 'success' });
       setEditor(null);
     } catch (cause) {
       if (current.current !== captured) return;
@@ -89,7 +77,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
       if (current.current !== captured) return;
       const message = cause instanceof Error ? cause.message : String(cause);
       setError(message);
-      useToast.getState().push({ title: message, tone: 'warning', durationKind: 'failure' });
+      notificationToast.push({ title: message, tone: 'warning', durationKind: 'failure' });
     } finally {
       running.current = false;
       setBusy(false);
@@ -158,6 +146,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
         <Modal
           centered
           width={400}
+          labelledBy={titleId}
           onClose={() => {
             if (!busy) setEditor(null);
           }}
@@ -165,7 +154,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
           title="好友分组"
         >
           <header>
-            <h3>
+            <h3 id={titleId}>
               {activeEditor.type === 'move'
                 ? '移动分组'
                 : activeEditor.type === 'create'
@@ -175,14 +164,14 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
                     : '删除分组'}
             </h3>
             <button
-              className="icon-button"
+              className="weq-set-iconbtn"
               type="button"
               title="关闭"
               aria-label="关闭"
               disabled={busy}
               onClick={() => setEditor(null)}
             >
-              <X size={18} />
+              <X size={18} aria-hidden />
             </button>
           </header>
           <form
@@ -209,8 +198,13 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
           >
             {activeEditor.type === 'move' ? (
               <label>
-                将 {activeEditor.uids.length} 位好友移动到
+                <span>
+                  将{' '}
+                  <span className="weq-number weq-number-inherit">{activeEditor.uids.length}</span>{' '}
+                  位好友移动到
+                </span>
                 <select
+                  className="weq-set-select"
                   autoFocus
                   required
                   value={mergeInto}
@@ -234,8 +228,12 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
                 <p>删除「{categories?.find((row) => row.id === activeEditor.id)?.name}」？</p>
                 {memberCount > 0 && (
                   <label>
-                    将 {memberCount} 位好友合并到
+                    <span>
+                      将 <span className="weq-number weq-number-inherit">{memberCount}</span>{' '}
+                      位好友合并到
+                    </span>
                     <select
+                      className="weq-set-select"
                       required
                       value={mergeInto}
                       disabled={busy}
@@ -259,6 +257,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
               <label>
                 分组名称
                 <input
+                  className="weq-set-input"
                   autoFocus
                   required
                   maxLength={255}
@@ -279,7 +278,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
                 取消
               </button>
               <button
-                className={`weq-set-btn${activeEditor.type === 'delete' ? ' weq-set-btn-danger' : ''}`}
+                className={`weq-set-btn${activeEditor.type === 'delete' ? ' weq-set-btn-danger' : ' weq-set-btn-primary'}`}
                 type="submit"
                 disabled={
                   busy ||
@@ -305,5 +304,3 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
     </FriendDirectoryContext.Provider>
   );
 }
-
-export const useFriendDirectory = () => useContext(FriendDirectoryContext);

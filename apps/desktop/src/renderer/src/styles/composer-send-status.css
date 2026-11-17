@@ -1,0 +1,46 @@
+.composer-send[data-muted] {
+  width: 160px;
+}
+
+.composer-send[data-muted] svg,
+.composer-send-expanded[data-muted] svg {
+  flex-shrink: 0;
+}
+
+.composer-send[data-muted] strong,
+.composer-send-expanded[data-muted] strong {
+  font: inherit;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+:where(html:not([data-weq-layout='single']))
+  .composer:has(> .composer-send[data-muted])
+  > .composer-editor {
+  padding-right: 188px;
+}
+
+:where(html[data-weq-layout='single'])
+  .mobile-composer-expanded-tools
+  .composer-send-expanded[data-muted] {
+  display: inline-flex;
+  width: 160px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+:where(html[data-weq-layout='single']) .composer.has-single-send > .composer-send[data-muted] {
+  display: inline-flex;
+  width: 160px;
+}
+
+:where(html[data-weq-layout='single'])
+  .composer.has-single-send
+  > .composer-send[data-muted]
+  strong {
+  display: inline;
+}

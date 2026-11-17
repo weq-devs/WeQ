@@ -2,7 +2,7 @@ import { EyeOff } from 'lucide-react';
 import { usePrivacyStore } from '../../state/privacy';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { AppLockSection } from './AppLockSection';
-import { IS_WEB } from '../../lib/target';
+import { IS_WEB } from '../../lib/target.shared';
 import { WebNotificationsSection } from './WebNotificationsSection';
 
 export function PrivacySection() {
@@ -13,7 +13,7 @@ export function PrivacySection() {
   return (
     <>
       <div className="weq-set">
-        <SectionHeader title="隐私" icon={<EyeOff size={16} />} />
+        <SectionHeader title="隐私" page="privacy" />
       </div>
       <div className="weq-set">
         <Card
@@ -28,7 +28,6 @@ export function PrivacySection() {
           />
           <Row
             settingId="privacy-menu-capture"
-            label="在菜单中截图瞬间临时启用隐私模式"
             desc="仅影响菜单中的窗口截图，截图结束后恢复为当前隐私偏好，不改变普通导出的内容。"
             control={
               <Toggle

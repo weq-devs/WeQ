@@ -144,6 +144,12 @@ export class LocalUnreadStore {
     return this.positions.get(`${chatType}_${uid}`)?.operation === change.operation;
   }
 
+  clear(): void {
+    this.positions.clear();
+    this.pendingOutgoing.clear();
+    this.revision++;
+  }
+
   resolve(snapshot: UnreadInfoSnapshot): ResolvedUnreadInfo {
     if (snapshot.readError) return snapshot;
     const row = this.positions.get(snapshot.peer);

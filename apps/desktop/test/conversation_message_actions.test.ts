@@ -5,10 +5,8 @@ import { ConversationMessageActions } from '../src/renderer/src/components/Conve
 import { createTemplateDemoData } from './support/templateDemoData';
 import type { Conversation } from '../src/renderer/src/im-template/template/types';
 import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
-import {
-  ContentSelectionProvider,
-  useContentExportRequest,
-} from '../src/renderer/src/state/contentSelection';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
+import { useContentExportRequest } from '../src/renderer/src/state/contentSelection.shared';
 
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: { account: { roamingBackfill: { list: { useQuery: () => ({ data: { jobs: [] } }) } } } },

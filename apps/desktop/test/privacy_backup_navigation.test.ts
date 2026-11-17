@@ -18,7 +18,7 @@ describe('隐私与备份迁移后的搜索入口', () => {
     }
     expect(searchAppEntries('恢复默认设置')[0]?.target).toMatchObject({
       kind: 'setting',
-      section: 'startup',
+      section: 'backup',
       settingId: 'weq-config-management',
     });
   });

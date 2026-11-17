@@ -10,7 +10,7 @@
 import { useContext, useInsertionEffect, useLayoutEffect, useState, type RefObject } from 'react';
 import type { ResolvedWidget, MessageBubbleSkin } from '@weq/service';
 import { trpc } from '../trpc/client';
-import { MsgDecorationEnabledContext } from '../components/QqMessageContent';
+import { MsgDecorationEnabledContext } from '../state/messageAppearance';
 import {
   injectBubbleCss,
   injectFontCss,
@@ -18,7 +18,7 @@ import {
   isMessageFontLoaded,
 } from '../lib/msgDecorationStyle';
 import { toFontFxSkin, type FontFxSkin } from '../lib/dressSkin';
-import { useTabActive } from '../components/RetainedTabs';
+import { useTabActive } from '../components/RetainedTabs.shared';
 import { messageBubble } from '../lib/messageBubbles';
 
 type DecorationIds =

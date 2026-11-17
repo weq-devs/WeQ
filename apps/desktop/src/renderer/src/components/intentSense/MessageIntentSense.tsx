@@ -19,7 +19,7 @@ import { useOverlayLayer } from '../../lib/overlayStack';
 import { intentPopoverPosition } from '../../lib/intentPopoverPosition';
 import { shouldDismissHoverHint } from '../../lib/hoverHint';
 import { useSurfaceEscapeDismissal } from '../../lib/surfaceEscape';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import {
   Award,
   Angry,
@@ -53,7 +53,8 @@ import {
   Zap,
   Loader2,
 } from 'lucide-react';
-import { useIntentSenseContext, type IntentAnalysis } from './context';
+import { useIntentSenseContext } from './context.shared';
+import type { IntentAnalysis } from './context';
 import { createLoadingIconSequence } from './loadingIconSequence';
 import { synchronizeLoadingAnimationPhase } from './loadingAnimationPhase';
 import '../../styles/intent-sense.css';
@@ -542,7 +543,11 @@ export function MessageIntentSense({
                     <span className="weq-intent-popover-bar">
                       <span style={{ width: `${Math.round(result.intensity)}%` }} />
                     </span>
-                    <span>{Math.round(result.intensity)}</span>
+                    <span>
+                      <span className="weq-number weq-number-inherit">
+                        {Math.round(result.intensity)}
+                      </span>
+                    </span>
                   </div>
                   <div className="weq-intent-popover-row is-metric">
                     <span>情感倾向</span>
@@ -559,8 +564,11 @@ export function MessageIntentSense({
                   </div>
                   <div className="weq-intent-popover-row is-footer">
                     <span className="weq-intent-confidence">
-                      置信度 {Math.round(result.confidence * 100)}% ·{' '}
-                      {result.engine === 'local' ? '本地模型' : 'API'}
+                      置信度{' '}
+                      <span className="weq-number weq-number-inherit">
+                        {Math.round(result.confidence * 100)}
+                      </span>
+                      % · {result.engine === 'local' ? '本地模型' : 'API'}
                     </span>
                   </div>
                 </>

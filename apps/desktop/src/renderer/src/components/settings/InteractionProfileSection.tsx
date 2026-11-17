@@ -16,6 +16,7 @@ export function InteractionProfileSection() {
   });
   return (
     <AiFeatureSettingsLayout
+      page="interaction-profile"
       imageFeature="profile"
       settings={settings}
       title="互动画像"
@@ -26,7 +27,6 @@ export function InteractionProfileSection() {
         <>
           <Row
             settingId="profile-enabled"
-            label="启用互动画像"
             desc="统计互动情况，分析好感度、MBTI 倾向与互动风格。"
             control={
               <Toggle
@@ -68,7 +68,7 @@ export function InteractionProfileSection() {
                     ? status.data.profileEngine === 'api'
                       ? 'profile-local-model'
                       : status.data.profileEngine === 'local'
-                        ? 'profile-api-model'
+                        ? 'profile-api-model intent-tuning-profileTemperature intent-tuning-profileModelTopics'
                         : 'profile-api-model profile-local-model'
                     : undefined
                 }
@@ -90,6 +90,7 @@ export function InteractionProfileSection() {
           {status.data?.profileEngine === 'api' ? (
             <ApiModelRow
               settingId="profile-api-model"
+              indent
               label="互动画像 API 模型"
               value={status.data.profileProviderRef}
               disabled={disabled}
@@ -99,8 +100,9 @@ export function InteractionProfileSection() {
           {status.data?.profileEngine === 'local' ? (
             <Row
               settingId="profile-local-model"
+              indent
               label="本地模型资源"
-              desc={`画像模型设置在各账号和各端共享。${local.data?.available === false ? ' 当前宿主不支持本地画像模型。' : ''}`}
+              desc={local.data?.available === false ? '当前宿主不支持本地画像模型。' : undefined}
               control={
                 <select
                   className="weq-set-input"
@@ -134,7 +136,7 @@ export function InteractionProfileSection() {
             />
           ) : null}
           {status.data?.profileEngine === 'local' ? (
-            <Row label="本地增强资源" control={<EnhancementPacksLink />} />
+            <Row label="本地增强资源" indent control={<EnhancementPacksLink />} />
           ) : null}
           {status.data?.profileEngine === 'local' && local.error ? (
             <QueryError

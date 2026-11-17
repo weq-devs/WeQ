@@ -119,7 +119,7 @@ async function postBlock(
     beforeSend?.();
     let response: Response;
     try {
-      response = await fetch(target, {
+      response = await networkFetch(target, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/octet-stream',
@@ -265,3 +265,4 @@ export async function sendDatalineFile(
     receipt,
   };
 }
+import { networkFetch } from '@weq/network';

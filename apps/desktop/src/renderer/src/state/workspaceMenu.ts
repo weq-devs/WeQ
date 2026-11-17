@@ -1,15 +1,10 @@
 import { create } from 'zustand';
 import type { AssistantActivity, WorkspaceTaskIndicator } from '../lib/workspaceIndicators';
 import { readWorkspaceResults, rememberWorkspaceResults } from '../lib/workspaceReadState';
+import type { NavigationTool } from '../lib/appNavigation';
 
 export const TASK_READ_LIMIT = 4096;
-export type MobileWorkspaceTool =
-  | 'tasks'
-  | 'assistant'
-  | 'analysis'
-  | 'export'
-  | 'viewer'
-  | 'composition';
+export type MobileWorkspaceTool = NavigationTool | 'composition';
 
 function retainTaskResults(results: Record<string, string>) {
   return Object.fromEntries(Object.entries(results).slice(-TASK_READ_LIMIT));

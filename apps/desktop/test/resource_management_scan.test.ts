@@ -86,13 +86,16 @@ it('隐藏时丢弃迟到统计并停止后续请求，重新激活后完成统�
   expect(page.current().stats).toHaveLength(0);
   expect(f.analyze).toHaveBeenCalledOnce();
   expect(f.targets).not.toHaveBeenCalled();
-  expect(localBackgroundTasks.snapshot().at(-1)?.status).toBe('cancelled');
+  expect(localBackgroundTasks.snapshot()).toHaveLength(0);
   await page.render();
   expect(page.current().complete).toBe(true);
   expect(f.analyze).toHaveBeenCalledTimes(9);
-  expect(localBackgroundTasks.snapshot().at(-1)?.status).toBe('completed');
+  expect(localBackgroundTasks.snapshot()).toHaveLength(0);
 });
-it('任务列表停止扫描等待在途请求返回，不继续读取下一目录且可重试', async () => {
+it('自动扫描及页内重新扫描只更新页面状态，不登记或通知后台任务', async () => {
+  const notify = vi.fn();
+  const unsubscribe = localBackgroundTasks.subscribe(notify);
+  cleanups.push(unsubscribe);
   let finish!: (value: ResourceStat) => void;
   f.analyze.mockImplementationOnce(
     () =>
@@ -101,16 +104,34 @@ it('任务列表停止扫描等待在途请求返回，不继续读取下一目�
       }),
   );
   const page = await mount();
-  const task = localBackgroundTasks.snapshot().at(-1)!;
-  await act(async () => localBackgroundTasks.act(task.id, 'stop'));
-  expect(localBackgroundTasks.snapshot().at(-1)?.status).toBe('running');
+  expect(page.current().scanningKey).toBe('pic');
+  expect(localBackgroundTasks.snapshot()).toHaveLength(0);
+  expect(notify).not.toHaveBeenCalled();
   await act(async () => finish(stat('pic')));
-  expect(f.analyze).toHaveBeenCalledOnce();
-  expect(f.targets).not.toHaveBeenCalled();
-  expect(localBackgroundTasks.snapshot().at(-1)?.status).toBe('cancelled');
+  expect(page.current().complete).toBe(true);
   expect(page.current().scanningKey).toBeNull();
   await act(async () => page.current().refresh());
-  expect(localBackgroundTasks.snapshot().at(-1)?.status).toBe('completed');
+  expect(page.current().revision).toBe(2);
+  expect(f.analyze).toHaveBeenCalledTimes(16);
+  expect(localBackgroundTasks.snapshot()).toHaveLength(0);
+  expect(notify).not.toHaveBeenCalled();
+});
+it('卸载后丢弃在途结果，不继续扫描或留下任务记录', async () => {
+  let finish!: (value: ResourceStat) => void;
+  f.analyze.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const page = await mount();
+  const previous = page.current();
+  cleanups.pop()!();
+  await act(async () => finish(stat('pic')));
+  expect(page.current()).toBe(previous);
+  expect(f.analyze).toHaveBeenCalledOnce();
+  expect(f.targets).not.toHaveBeenCalled();
+  expect(localBackgroundTasks.snapshot()).toHaveLength(0);
 });
 it('同号换源后旧统计及旧刷新回调都不能影响新来源', async () => {
   let finish!: (value: ResourceStat) => void;
@@ -139,6 +160,7 @@ it('错误不会自动循环扫描，显式重试和隐藏期间的刷新各只�
   const page = await mount();
   expect(page.current().error).toBe('合成目录失败');
   expect(page.current().complete).toBe(false);
+  expect(localBackgroundTasks.snapshot()).toHaveLength(0);
   expect(f.targets).not.toHaveBeenCalled();
   await page.render();
   expect(f.analyze).toHaveBeenCalledOnce();

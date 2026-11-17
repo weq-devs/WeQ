@@ -67,7 +67,7 @@ export interface UnreadHighlight {
   kind: HighlightKind;
   /** Raw 50000 code, preserved so unmapped categories are still identifiable. */
   rawKind: number;
-  /** Seq of the (latest) highlighted message in this category. */
+  /** Seq of one highlighted message; a category may contain multiple hits. */
   msgSeq: number;
   /** Uid of the sender. */
   senderUid: string;
@@ -707,9 +707,7 @@ type DecodedExt = NonNullable<
 >;
 
 /**
- * Flatten the 50060 highlight groups into one entry per category. Each group's
- * `50000` code maps to a `HighlightKind`; within a group the latest (highest
- * seq) 50040 item wins.
+ * 展平全部提醒项；同类较早的命中也要留给重要消息列表。
  */
 function extractHighlights(ext: DecodedExt | undefined): UnreadHighlight[] {
   const groups = ext?.highlight;
@@ -718,21 +716,17 @@ function extractHighlights(ext: DecodedExt | undefined): UnreadHighlight[] {
   const out: UnreadHighlight[] = [];
   for (const group of groups) {
     const rawKind = group.kind ?? -1;
-    let best: UnreadHighlight | undefined;
     for (const item of group.items ?? []) {
       if (item.msgSeq === undefined) continue;
-      if (!best || item.msgSeq > best.msgSeq) {
-        best = {
-          kind: HIGHLIGHT_KIND_BY_CODE[rawKind] ?? 'unknown',
-          rawKind,
-          msgSeq: item.msgSeq,
-          senderUid: item.senderUid ?? '',
-          sendTime: item.sendTime ?? 0,
-          text: item.text ?? '',
-        };
-      }
+      out.push({
+        kind: HIGHLIGHT_KIND_BY_CODE[rawKind] ?? 'unknown',
+        rawKind,
+        msgSeq: item.msgSeq,
+        senderUid: item.senderUid ?? '',
+        sendTime: item.sendTime ?? 0,
+        text: item.text ?? '',
+      });
     }
-    if (best) out.push(best);
   }
   return out;
 }

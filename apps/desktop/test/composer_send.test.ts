@@ -27,8 +27,8 @@ import {
   focusComposerEnd,
   restoreComposer,
   serializeComposer,
-} from '../src/renderer/src/im-template/template/composer';
-import { useDialog } from '../src/renderer/src/components/Dialog';
+} from '../src/renderer/src/im-template/template/composer.shared';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import {
   buildComposerSendPlan,
   buildOptimisticRender,

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { GetQzoneFeedMediaDetail } from '@weq/protocol';
+import { GetQzoneFeedMediaDetail, SetQzoneFeedStatus } from '@weq/protocol';
 import { QzoneMediaTypesService } from '../src/account/qzone_media_types';
 
 const target = { ownerUin: '10001', tid: 'post', time: 1700000000 };
@@ -12,6 +12,52 @@ afterEach(() => {
 const create = (resolvePid = () => 1) =>
   new QzoneMediaTypesService({ sendPacket: vi.fn() }, resolvePid);
 describe('空间媒体按需补全', () => {
+  it('状态写入使用原生 feedId，先重新核对再发送一次并读回', async () => {
+    const before = {
+      ...detail,
+      archive: { rawStatus: 0, tag: null },
+      archiveTarget: { feedId: 'native-feed-id', commonEligible: true, mediaKinds: [] },
+    };
+    const after = { ...before, archive: { rawStatus: 101, tag: null } };
+    const read = vi
+      .spyOn(GetQzoneFeedMediaDetail, 'invokeDetail')
+      .mockResolvedValueOnce(before)
+      .mockResolvedValue(after);
+    const send = vi.spyOn(SetQzoneFeedStatus, 'invoke').mockResolvedValue({ accepted: true });
+    const beforeSend = vi.fn();
+    const result = await create().setArchive(target, target.ownerUin, 'contribute', beforeSend);
+    expect(result.confirmed).toBe(true);
+    expect(beforeSend).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledWith(expect.anything(), 1, {
+      selfUin: target.ownerUin,
+      feedId: 'native-feed-id',
+      action: 'contribute',
+    });
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+  it('他人、缺字段和状态变化不发写包；已提交但读回失败不重发', async () => {
+    const read = vi.spyOn(GetQzoneFeedMediaDetail, 'invokeDetail').mockResolvedValue(detail);
+    const send = vi.spyOn(SetQzoneFeedStatus, 'invoke').mockResolvedValue({ accepted: true });
+    await expect(create().setArchive(target, '10002', 'contribute', () => {})).rejects.toThrow(
+      '自己的',
+    );
+    await expect(
+      create().setArchive(target, target.ownerUin, 'contribute', () => {}),
+    ).rejects.toThrow('不支持');
+    expect(send).not.toHaveBeenCalled();
+    read
+      .mockResolvedValueOnce({
+        ...detail,
+        archive: { rawStatus: 102, tag: null },
+        archiveTarget: { feedId: 'native', commonEligible: false, mediaKinds: [] },
+      })
+      .mockRejectedValueOnce(new Error('readback unavailable'));
+    expect(
+      await create().setArchive(target, target.ownerUin, 'uncontribute', () => {}),
+    ).toMatchObject({ accepted: true, confirmed: false, detail: null });
+    expect(send).toHaveBeenCalledOnce();
+  });
   it('推预览与媒体共用同一详情缓存，调用方不能改写缓存中的用户', async () => {
     const upvote = {
       count: 199,

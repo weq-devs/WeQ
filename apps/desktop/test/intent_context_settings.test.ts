@@ -51,6 +51,11 @@ vi.mock('../src/renderer/src/components/Dialog', async (importOriginal) => ({
   useDialog: (select: (state: { showError: typeof fixture.error }) => unknown) =>
     select({ showError: fixture.error }),
 }));
+vi.mock('../src/renderer/src/components/Dialog.shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/src/components/Dialog.shared')>()),
+  useDialog: (select: (state: { showError: typeof fixture.error }) => unknown) =>
+    select({ showError: fixture.error }),
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({

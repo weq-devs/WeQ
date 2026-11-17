@@ -46,6 +46,10 @@ extraResources:
     to: out/main/backupProbeWorker.mjs
   - from: out/main/dbCheckupWorker.mjs
     to: out/main/dbCheckupWorker.mjs
+  - from: out/main/dbMaintenanceWorker.mjs
+    to: out/main/dbMaintenanceWorker.mjs
+  - from: out/main/dbMaintenanceLockWorker.mjs
+    to: out/main/dbMaintenanceLockWorker.mjs
   - from: out/main/storageCleanupWorker.mjs
     to: out/main/storageCleanupWorker.mjs
   # 独立清除助手与主进程共享纯文件系统模块；子进程不能从 asar 里解析相邻 chunks。

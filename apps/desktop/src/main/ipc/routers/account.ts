@@ -22,7 +22,7 @@ import {
   assertResourceSource,
 } from './resource_source';
 import { exportContentPolicyInput, exportExtraInput } from '../../../shared/export_content';
-import { withDatabaseRequest } from '@weq/db';
+import { withDatabaseRequest, assertDatabaseWritable } from '@weq/db';
 import { clearFinishedTasks } from './clear_finished_tasks';
 import { cardDisplayNames } from './card_display_names';
 import { readContactSpecialCare } from './contact_special_care';
@@ -69,7 +69,6 @@ import { basename, dirname, extname, join } from 'node:path';
 import {
   getAppContext,
   requireBootstrap,
-  closeSalvageConnections,
   dbEventBus,
   accountEventBus,
   type AccountServices,
@@ -77,9 +76,12 @@ import {
 } from '../../context/app_context';
 import { fullModeAllowed, requestFullMode } from '../../context/full_mode';
 import { onlineTranscriber } from '../../online_transcribe';
-import type { QuarantinedTable } from '@weq/native';
-import type { SalvageLedgerEntry } from '@weq/db';
-import { databasePerformance, withDatabasePriority, type DatabasePriority } from '@weq/db';
+import {
+  databasePerformance,
+  withDatabasePriority,
+  withDatabaseWorkload,
+  type DatabasePriority,
+} from '@weq/db';
 import { MessageReadWindows } from '../message_reads';
 import type { MessagePageStage, MessageReadWindow } from '../../../shared/message_read';
 import { classifyChatType, ProtoMsg } from '@weq/codec';
@@ -99,6 +101,7 @@ import {
 } from '../../ocr/local';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
+import { outgoingProcedure, outgoingRouter } from '../outgoing_receipts';
 import { createQQWriteRouter } from './qq_write';
 import { createProfileExtrasRouter } from './profile_extras';
 import { createAnalysisReportsRouter } from './analysis_reports';
@@ -243,6 +246,14 @@ function requireExpectedAccount(expected?: string, expectedConfigId?: string): A
   if (expectedConfigId && ctx.services?.accountConfig.getRecord()?.configId !== expectedConfigId)
     throw new DOMException('账号数据源已切换，已停止操作', 'AbortError');
   return requireServices();
+}
+function assertCurrentAccountWritable(input: {
+  expectedAccountUin: string;
+  expectedAccountConfigId: string;
+}): void {
+  requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+  const account = getAppContext().account;
+  if (account) assertDatabaseWritable(account.msgDbPath);
 }
 
 async function scopedGroupRead<T>(
@@ -1133,9 +1144,7 @@ function requireFreshClientKeyForAlbum(services = requireServices()): void {
     );
   }
   if (!state.clientKeyValid) {
-    throw new Error(
-      'ClientKey 未获取或已过期，请确认 QQ 在线且已开启「自动读取 QQ 内存（完整功能）」。',
-    );
+    throw new Error('ClientKey 未获取或已过期，请确认 QQ 在线且已开启「自动启用 QQ 在线能力」。');
   }
 }
 
@@ -1889,6 +1898,7 @@ const browserFiles = new FileUploadStaging(30 * 60000, {
 });
 
 export const accountRouter = router({
+  outgoing: outgoingRouter,
   noticeRead: createNoticeReadRouter((input) => {
     const config = requireExpectedAccount(
       input.expectedAccountUin,
@@ -2053,6 +2063,7 @@ export const accountRouter = router({
       return services;
     },
     (input) => requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
+    assertCurrentAccountWritable,
   ),
   qqWrite: createQQWriteRouter(
     (input) => {
@@ -2064,6 +2075,7 @@ export const accountRouter = router({
       return services;
     },
     (input) => requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
+    assertCurrentAccountWritable,
   ),
   analysisReports: createAnalysisReportsRouter((input) =>
     requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
@@ -3605,6 +3617,129 @@ export const accountRouter = router({
       return rows.map(unreadInfoToWire);
     }),
 
+  clearLocalReadRecords: procedure
+    .input(
+      z.object({
+        expectedAccountUin: z.string().min(1),
+        expectedAccountConfigId: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      await services.unreadInfo.clearLocalReadRecords();
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换');
+      return { cleared: true };
+    }),
+
+  listImportantGroupMessages: procedure
+    .input(
+      z.object({
+        expectedAccountUin: z.string().min(1),
+        expectedAccountConfigId: z.string().min(1),
+        groupCode: z.string().regex(/^[1-9]\d*$/),
+        kind: z
+          .enum([
+            'atMe',
+            'atAll',
+            'replyMe',
+            'specialCare',
+            'groupKeyword',
+            'newFile',
+            'groupAnnouncement',
+            'redPacket',
+            'unknown',
+          ])
+          .optional(),
+        unreadOnly: z.boolean().default(false),
+        kinds: z
+          .array(
+            z.enum([
+              'atMe',
+              'atAll',
+              'replyMe',
+              'specialCare',
+              'groupKeyword',
+              'newFile',
+              'groupAnnouncement',
+              'redPacket',
+            ]),
+          )
+          .max(8)
+          .optional(),
+        before: z
+          .string()
+          .regex(/^[1-9]\d{0,19}$/)
+          .optional(),
+        limit: z.number().int().min(1).max(100).default(50),
+      }),
+    )
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const account = getAppContext().account;
+      if (!account) throw new Error('账号已关闭');
+      const page = await services.unreadInfo.listImportantMessages({
+        ...input,
+        chatType: 2,
+        uid: input.groupCode,
+      });
+      // 只为当前页批量补摘要与缩图索引；不加载消息上下文或媒体本体。
+      let messages: Awaited<ReturnType<typeof account.groupMsgs.listBySeqsInPartition>> = [];
+      let contentUnavailable = false;
+      try {
+        if (page.items.length)
+          messages = await account.groupMsgs.listBySeqsInPartition(
+            input.groupCode,
+            page.items.map((row) => BigInt(row.msgSeq)),
+          );
+      } catch {
+        contentUnavailable = true;
+      }
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+          services ||
+        getAppContext().account !== account
+      )
+        throw new Error('账号数据源已切换');
+      return {
+        ...page,
+        contentUnavailable,
+        items: page.items.map((row) => {
+          const candidates = messages.filter((message) => String(message.msgSeq) === row.msgSeq);
+          const message = candidates.find((candidate) => candidate.msgType !== 1n) ?? candidates[0];
+          const elements = message ? toRenderElements(message.elements) : [];
+          const picture = elements.find(
+            (element) => element.type === 'pic' && !element.data.isFlash,
+          );
+          return {
+            ...row,
+            msgId: message ? String(message.msgId) : undefined,
+            senderUid: message?.senderUid || row.senderUid,
+            sendTime: message ? String(message.sendTime) : row.sendTime,
+            preview: plainContentText(elements).slice(0, 512),
+            thumbnail:
+              picture?.type === 'pic'
+                ? {
+                    name: picture.data.fileName,
+                    token: picture.data.fileToken,
+                    orig: picture.data.originalUrl,
+                    md5: picture.data.md5,
+                    recv: picture.data.subType === 1 ? 1 : 0,
+                  }
+                : undefined,
+          };
+        }),
+      };
+    }),
+
   setConversationReadState: procedure
     .input(
       z.object({
@@ -3647,7 +3782,7 @@ export const accountRouter = router({
       if (!result) return null;
       return {
         msgSeq: result.msgSeq?.toString(),
-        // 提醒高亮（特别关心 / @我 / …）。各类别一条，seq 保留供上层使用。
+        // 提醒高亮保留同类别的全部命中，seq 供上层定位。
         highlights: result.highlights?.map((h) => ({
           kind: h.kind,
           rawKind: h.rawKind,
@@ -4422,25 +4557,11 @@ export const accountRouter = router({
       rkeys: record.rkeys ?? [],
       rkeyUpdatedAt: record.rkeyUpdatedAt ?? null,
       clientKey: record.clientKey ?? null,
-      // 静态账号：渲染层据此收窄本地资源页、置灰实时消息/防撤回，并展示
-      // 「关联本机媒体目录」。nativeMediaDir 为 null 表示本机没有同账号目录。
+      // 静态账号：渲染层据此收窄本地资源维护能力。
       static: record.static ?? false,
       mobile: record.mobile ?? false,
-      nativeMediaDir: record.nativeMediaDir ?? null,
-      nativeMediaEnabled: record.nativeMediaEnabled ?? true,
     };
   }),
-
-  /**
-   * 静态账号「关联本机原生目录」开关。关掉后所有媒体目录解析为 null，聊天里的
-   * 图片/语音自动回落到 CDN 补全。立即生效，无需重开账号。
-   */
-  setNativeMediaEnabled: procedure
-    .input(z.object({ enabled: z.boolean() }))
-    .mutation(({ input }) => {
-      requireServices().accountConfig.setNativeMediaEnabled(input.enabled);
-      return input.enabled;
-    }),
 
   /** List QQ buddies from profile_info.db. Omit input to fetch all (used by AgentLab). */
   listBuddies: directoryProcedure.input(pageInput.optional()).query(async ({ input }) => {
@@ -5237,13 +5358,15 @@ export const accountRouter = router({
       }),
     )
     .query(async ({ input }) => {
-      return requireServices().unifiedSearch.moreSearch(
-        input.category,
-        input.keyword,
-        input.offset,
-        input.limit,
-        input.conversationScope,
-        input.sources,
+      return withDatabaseWorkload('bulk', () =>
+        requireServices().unifiedSearch.moreSearch(
+          input.category,
+          input.keyword,
+          input.offset,
+          input.limit,
+          input.conversationScope,
+          input.sources,
+        ),
       );
     }),
 
@@ -5698,7 +5821,7 @@ export const accountRouter = router({
    * 路径，服务层按目标场景做 NTV2 上传。需要 QQ 在线且未开完全离线模式。
    * `nodes` 的形状见 @weq/service 的 `SendForwardNodeInput`（含嵌套 `innerForward`）。
    */
-  sendForward: procedure
+  sendForward: outgoingProcedure
     .input(
       z.object({
         expectedAccountUin: z.string().min(1).optional(),
@@ -6025,6 +6148,25 @@ export const accountRouter = router({
       return () => {
         dbEventBus.off('changed', handler);
       };
+    });
+  }),
+
+  /** 仅通知小表内容变化时推送；每次接入校准一次，覆盖断线期间的变化。 */
+  onContactNoticesChanged: procedure.input(exportAccountBindingInput).subscription(({ input }) => {
+    const services = requireExpectedAccount(
+      input.expectedAccountUin,
+      input.expectedAccountConfigId,
+    );
+    const session = getAppContext().account;
+    return observable<{ kind: 'friend' | 'group' }>((emit) => {
+      const handler = (change: { session: typeof session; kind: 'friend' | 'group' }) => {
+        if (change.session === session && getAppContext().services === services)
+          emit.next({ kind: change.kind });
+      };
+      dbEventBus.on('contact-notices-changed', handler);
+      emit.next({ kind: 'friend' });
+      emit.next({ kind: 'group' });
+      return () => dbEventBus.off('contact-notices-changed', handler);
     });
   }),
 
@@ -6480,7 +6622,7 @@ export const accountRouter = router({
       return decoration;
     }),
 
-  sendElements: procedure
+  sendElements: outgoingProcedure
     .input(
       z.object({
         peerType: z.enum(['c2c', 'group']),
@@ -6580,7 +6722,7 @@ export const accountRouter = router({
     ),
 
   /** 桌面文件走原路径；浏览器附件使用已完整接收、绑定当前账号的暂存句柄。 */
-  sendFile: procedure
+  sendFile: outgoingProcedure
     .input(
       z
         .object({
@@ -6643,7 +6785,7 @@ export const accountRouter = router({
    *
    * `tempGroupCode` 同 `sendElements`：群临时会话里给来源群号，走 grpTmp 路由。
    */
-  sendVoice: procedure
+  sendVoice: outgoingProcedure
     .input(
       z.object({
         peerType: z.enum(['c2c', 'group']),
@@ -6685,6 +6827,39 @@ export const accountRouter = router({
       }
     }),
 
+  /** 分享已有闪传文件集，由服务端生成新卡片，不走普通 Markdown 消息。 */
+  forwardFlashTransfer: outgoingProcedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        fileSetId: z.string().trim().min(1),
+        tempGroupCode: z.string().min(1).optional(),
+        expectedAccountUin: z.string().min(1),
+        expectedAccountConfigId: z.string().min(1).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireQqOnlineForAlbum(services);
+      const configId = services.accountConfig.getRecord()?.configId;
+      return services.flashTransfer.forwardFlashTransfer({
+        ...input,
+        beforeSend: () => {
+          if (
+            requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+              services ||
+            services.accountConfig.getRecord()?.configId !== configId
+          )
+            throw new Error('账号数据源已切换，已停止发送');
+          requireQqOnlineForAlbum(services);
+        },
+      });
+    }),
+
   /**
    * 闪传（fileset）：把一组本地文件 + 可选封面发成一条闪传消息。
    *
@@ -6699,7 +6874,7 @@ export const accountRouter = router({
    * **原图直通**（渲染层只校验大小与格式，不重绘不压缩），可能是 PNG 或 JPEG。
    * 这里只做大小与落盘，格式由协议层按 magic 探测。
    */
-  sendFlashTransfer: procedure
+  sendFlashTransfer: outgoingProcedure
     .input(
       z.object({
         peerType: z.enum(['c2c', 'group']),
@@ -6766,7 +6941,7 @@ export const accountRouter = router({
    * AI 声聊（TTS）：`0x929b_0` 合成即发送（只支持群聊），**没有第二步** ——
    * 不要再拼一条 ptt 元素手动发。见 `MessageSendService.sendAiVoice`。
    */
-  sendAiVoice: procedure
+  sendAiVoice: outgoingProcedure
     .input(
       z.object({ groupId: z.string().min(1), voiceId: z.string().min(1), text: z.string().min(1) }),
     )
@@ -6788,7 +6963,7 @@ export const accountRouter = router({
    *
    * `targetId` = 当前会话：群聊给群号，私聊给对方 QQ 号（或 uid）。
    */
-  sendArkCard: procedure
+  sendArkCard: outgoingProcedure
     .input(
       z.object({
         peerType: z.enum(['c2c', 'group']),
@@ -6811,7 +6986,7 @@ export const accountRouter = router({
    * 取自服务端的**业务 result** —— OIDB 外层 errorCode=0 也可能根本没下发出去
    * （见 `docs/develop/ark-send.md`），不要把「调用了」当「发成功」。
    */
-  sendTuwenArk: procedure
+  sendTuwenArk: outgoingProcedure
     .input(
       z.object({
         peerType: z.enum(['c2c', 'group']),
@@ -6859,7 +7034,7 @@ export const accountRouter = router({
    * `kind` = 卡片推荐**什么**（`qq` 好友 / `group` 群），`contactId` = 被推荐的
    * QQ 号 / 群号；别与 `targetId`（发到哪）填反。
    */
-  sendContactArkCard: procedure
+  sendContactArkCard: outgoingProcedure
     .input(
       z.object({
         peerType: z.enum(['c2c', 'group']),
@@ -6884,7 +7059,7 @@ export const accountRouter = router({
    * ⚠️ 已知缺口：PC/Linux 端会被服务端在 OIDB 外层以 `319 [oidb] rule type not
    * match appid` 拒绝（与图文 Ark 的 901501 同源），服务层会把错误翻译成人话再抛。
    */
-  sendGroupSignup: procedure
+  sendGroupSignup: outgoingProcedure
     .input(
       z.object({
         groupCode: z.string().regex(/^\d+$/),
@@ -6917,7 +7092,7 @@ export const accountRouter = router({
    * 给出 —— 地图组件不做逆地理（没有安全密钥），地址是用户自己填 / 改的。
    * 返回值里的 `hint` 会如实说明「响应无法判定业务结果」，不要当它是成功回执。
    */
-  sendLocationArkCard: procedure
+  sendLocationArkCard: outgoingProcedure
     .input(
       z.object({
         peerType: z.enum(['c2c', 'group']),
@@ -7322,14 +7497,37 @@ export const accountRouter = router({
 
   /** 全部下载任务（含历史，新在前）。 */
   flashListDownloadTasks: procedure.query(() => {
-    return requireServices().flashTransferFiles.downloads.list();
+    return requireServices()
+      .flashTransferFiles.downloads.list()
+      .map(({ logs: _logs, files, ...task }) => ({
+        ...task,
+        logVersion: files.reduce((total, file) => total + (file.logs?.at(-1)?.seq ?? 0), 0),
+        files: files.map(({ logs: _fileLogs, ...file }) => file),
+      }));
   }),
+
+  flashDownloadTaskLogs: procedure
+    .input(generatedAccountInput.extend({ taskId: z.string().min(1), version: z.number() }))
+    .query(({ input }) => {
+      const task = requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId)
+        .flashTransferFiles.downloads.list()
+        .find((task) => task.id === input.taskId);
+      if (!task) throw new Error('下载记录不存在');
+      return task.logs ?? [];
+    }),
 
   /** 取消单个下载任务（进行中的会中断下载）。 */
   flashCancelDownloadTask: procedure
     .input(z.object({ taskId: z.string().min(1) }))
     .mutation(async ({ input }) => {
       return requireServices().flashTransferFiles.downloads.cancel(input.taskId);
+    }),
+
+  flashRetryDownloadTask: procedure
+    .input(exportAccountBindingInput.required().extend({ taskId: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const svc = requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+      return svc.flashTransferFiles.downloads.retry(input.taskId);
     }),
 
   /** 清掉已结束（完成 / 失败 / 取消）的任务，进行中的保留。 */
@@ -8756,6 +8954,30 @@ export const accountRouter = router({
       requireServices().exportManager.resumeTask(input.taskId, input.incremental),
     ),
 
+  resolveExportDatabaseRecovery: procedure
+    .input(
+      exportAccountBindingInput.extend({
+        taskId: z.string().min(1),
+        requestId: z.string().uuid(),
+        decision: z.enum(['skip', 'repair', 'stop']),
+        skipRemaining: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const accepted = await services.exportManager.resolveDatabaseRecovery(
+        input.taskId,
+        input.requestId,
+        input.decision,
+        input.skipRemaining,
+      );
+      if (!accepted) throw new Error('任务的等待状态已变化，请刷新后重试。');
+      return true;
+    }),
+
   finalizeExportTask: procedure
     .input(z.object({ taskId: z.string().min(1) }))
     .mutation(({ input }) => requireServices().exportManager.finalizeTask(input.taskId)),
@@ -9288,131 +9510,7 @@ export const accountRouter = router({
         };
       },
     ),
-
-  /**
-   * 当前账号的宽容（salvage）配置 + 降级账本。
-   *
-   * 账本按时间倒序取最新 50 条；只含 SQL 指纹，不含参数值。
-   */
-  getDbTolerance: procedure.query((): DbToleranceSnapshot => {
-    const ctx = getAppContext();
-    const tolerance = ctx.dbTolerance;
-    if (!tolerance)
-      return { level: 0, grantedAt: null, summary: EMPTY_SALVAGE_SUMMARY, entries: [] };
-    const config = tolerance.getConfig();
-    return {
-      level: config.level,
-      grantedAt: config.grantedAt ?? null,
-      summary: tolerance.summary(),
-      entries: [...tolerance.listEntries()].reverse().slice(0, 50),
-    };
-  }),
-
-  /**
-   * 授权/调整宽容级别（0 = 回到严格）。
-   *
-   * 只有用户的显式动作会调用它：没有自动降级，也不会因为某次查询失败就偷偷改级别。
-   * 级别降回 0 时顺手释放 salvage 只读连接（严格连接不受影响）。
-   */
-  setDbToleranceLevel: procedure
-    .input(z.object({ level: z.number().int().min(0).max(3), source: z.string().optional() }))
-    .mutation(({ input }): { level: number; grantedAt: string | null; closedSalvage: number } => {
-      const ctx = getAppContext();
-      const tolerance = ctx.dbTolerance;
-      if (!tolerance) throw new Error('未打开账号');
-      const config = tolerance.setLevel(input.level, input.source ?? 'ipc');
-      const closedSalvage = config.level === 0 ? closeSalvageConnections(ctx) : 0;
-      return { level: config.level, grantedAt: config.grantedAt ?? null, closedSalvage };
-    }),
-
-  // 坏页扫描原本在这里（只能扫"当前打开的账号"）。它已经搬到 设置 → 数据维护 → 维护工具 → 数据库修复
-  // 的 `client.dbRepair.scanBadPages`：那边对**任意账号**可用，而且与修复共用同一份
-  // 实现（`@weq/service` 的 `bad_pages`），口径不会漂。设置页不再有扫描入口。
-
-  /**
-   * 当前进程内被 L3（整表放弃）隔离的表。
-   *
-   * 隔离是**进程内**的临时状态：条目有存活时间（默认 300 秒，到点自动失效重试），
-   * 所以这里既不落盘也不参与“记住该账号”的设置。它存在的意义只有一个 ——
-   * 让用户能看到“哪张表已经被放弃、为什么”，并且能手动让它再试一次。
-   */
-  listSalvageQuarantine: procedure.query((): QuarantinedTable[] => {
-    const platform = getAppContext().platform;
-    if (!platform) return [];
-    try {
-      return platform.native.ntHelper.listQuarantinedTables();
-    } catch {
-      // 原生侧不可用不应让设置页整个报错：隔离清单只是个只读的展示。
-      return [];
-    }
-  }),
-
-  /**
-   * 把隔离记录清掉，让那些表**立刻**再试一次。
-   *
-   * 三个粒度与 native 一致：只给 `dbName` 清该库，再加 `table` 只清那一张，都不给全清。
-   * `dbPath` 不接收渲染层传来的路径 —— 只能用于“当前确实被隔离的库”（路径由 native
-   * 自己报回来，按文件名匹配），否则就变成了一个任意路径的写入接口。
-   */
-  clearSalvageQuarantine: procedure
-    .input(z.object({ dbName: z.string().optional(), table: z.string().optional() }))
-    .mutation(({ input }): { cleared: number; remaining: number } => {
-      const platform = getAppContext().platform;
-      if (!platform) return { cleared: 0, remaining: 0 };
-      const helper = platform.native.ntHelper;
-      let dbPath: string | undefined;
-      if (input.dbName) {
-        const entry = helper
-          .listQuarantinedTables()
-          .find((item) => basename(item.dbPath) === input.dbName);
-        if (!entry) throw new Error(`${input.dbName} 当前没有被隔离的表`);
-        dbPath = entry.dbPath;
-      }
-      const cleared = helper.clearQuarantinedTables(dbPath, input.table);
-      return { cleared, remaining: helper.listQuarantinedTables().length };
-    }),
 });
-
-// ── 数据库宽容（salvage）：IPC 边界的形状与辅助 ────────────────────────
-
-/** 降级账本汇总。四种结局各自计数、**不合并** —— 它们在报告里的说法完全不同。 */
-export interface SalvageSummary {
-  total: number;
-  /** 换了访问路径后拿到结果（**不丢数据**）。 */
-  indexRetreat: number;
-  /** 损坏且替代路径也救不回来（本次读取没有结果）。 */
-  unrecoverable: number;
-  /**
-   * 分块扫描里跳过了若干区间：**拿到了结果但少了数据**。
-   *
-   * 这是唯一“看起来成功了、实际丢了东西”的一类，所以它必须独立计数，
-   * 不能归到“救不回来”里 —— 后者用户至少知道要重试。
-   */
-  skipped: number;
-  /** 该表已被 L3 整表放弃，本次压根没读。 */
-  quarantined: number;
-  databases: string[];
-  lastAt: string | null;
-}
-
-/** 设置页 / 弹窗需要的全部宽容状态。 */
-export interface DbToleranceSnapshot {
-  level: number;
-  grantedAt: string | null;
-  summary: SalvageSummary;
-  /** 最新 50 条账目（新→旧）。 */
-  entries: SalvageLedgerEntry[];
-}
-
-export const EMPTY_SALVAGE_SUMMARY: SalvageSummary = {
-  total: 0,
-  indexRetreat: 0,
-  unrecoverable: 0,
-  skipped: 0,
-  quarantined: 0,
-  databases: [],
-  lastAt: null,
-};
 
 /**
  * 克隆体 / 克隆群在会话列表上的「最近活动」：取最新会话的最后一条消息。

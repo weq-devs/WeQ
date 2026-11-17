@@ -4,10 +4,8 @@ import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from './support/templateDemoData';
-import {
-  ContentSelectionProvider,
-  useContentMultiSelect,
-} from '../src/renderer/src/state/contentSelection';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
+import { useContentMultiSelect } from '../src/renderer/src/state/contentSelection.shared';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>

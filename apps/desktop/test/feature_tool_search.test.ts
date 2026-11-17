@@ -19,6 +19,11 @@ vi.mock('../src/renderer/src/state/contentSelection', () => ({
   useContentAnalysisRequest: () => null,
   useCurrentContentSelection: () => null,
 }));
+vi.mock('../src/renderer/src/state/contentSelection.shared', () => ({
+  useContentExportRequest: () => null,
+  useContentAnalysisRequest: () => null,
+  useCurrentContentSelection: () => null,
+}));
 vi.mock('../src/renderer/src/hooks/useQQAutoRefresh', () => ({
   useQQReadActivity: () => ({ enabled: false }),
 }));
@@ -36,6 +41,13 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   },
 }));
 vi.mock('../src/renderer/src/components/lazyWorkspaces', () => ({
+  preloadWorkspace: vi.fn(),
+  ExportTool: ({ surface }: { surface?: string }) =>
+    h('div', { 'data-search-tool': surface === 'tasks' ? 'tasks' : 'export' }),
+  ExportViewer: () => h('div', { 'data-search-tool': 'viewer' }),
+  AnalysisTool: () => h('div', { 'data-search-tool': 'analysis' }),
+}));
+vi.mock('../src/renderer/src/components/lazyWorkspaces.shared', () => ({
   preloadWorkspace: vi.fn(),
   ExportTool: ({ surface }: { surface?: string }) =>
     h('div', { 'data-search-tool': surface === 'tasks' ? 'tasks' : 'export' }),

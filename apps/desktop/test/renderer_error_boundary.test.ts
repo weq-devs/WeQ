@@ -3,7 +3,49 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { RendererErrorBoundary } from '../src/renderer/src/components/RendererErrorBoundary';
 
-afterEach(() => vi.unstubAllGlobals());
+vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true }));
+
+afterEach(() => {
+  delete window.weqRemoteStartup;
+  delete window.weqRemoteStartupRetrying;
+  vi.unstubAllGlobals();
+});
+
+it('Remote 启动渲染异常立即上报，不把原始错误暴露给手机壳', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  const root = createRoot(host, { onCaughtError: () => {} });
+  window.weqRemoteStartup = { state: 'loading', message: '正在加载界面模块' };
+  function Broken(): null {
+    throw Error('private-message-and-token');
+  }
+  try {
+    act(() => root.render(h(RendererErrorBoundary, null, h(Broken))));
+    expect(window.weqRemoteStartup?.state).toBe('error');
+    expect(window.weqRemoteStartup?.message).not.toContain('private-message-and-token');
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
+it.each([true, false])('资源正在重试或已经就绪时不误报启动失败：retrying=%s', (retrying) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  const root = createRoot(host, { onCaughtError: () => {} });
+  const state = { state: retrying ? ('loading' as const) : ('ready' as const) };
+  window.weqRemoteStartup = state;
+  window.weqRemoteStartupRetrying = retrying;
+  function Broken(): null {
+    throw Error('fixture');
+  }
+  try {
+    act(() => root.render(h(RendererErrorBoundary, null, h(Broken))));
+    expect(window.weqRemoteStartup).toBe(state);
+  } finally {
+    act(() => root.unmount());
+  }
+});
 
 it.each(['render', 'effect'])('%s 异常保留恢复界面，不自动重载或重新执行子树', (phase) => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

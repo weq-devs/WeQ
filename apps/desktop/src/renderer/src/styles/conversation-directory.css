@@ -98,6 +98,13 @@
 .weq-directory-scope {
   position: static;
 }
+.weq-directory-toolbar > .weq-directory-scope {
+  display: flex;
+  align-self: stretch;
+}
+.weq-directory-toolbar > .weq-directory-scope > button {
+  height: auto;
+}
 .weq-directory-scope-menu {
   position: absolute;
   z-index: 100;

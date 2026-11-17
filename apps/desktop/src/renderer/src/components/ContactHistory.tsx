@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import { EmptyState } from './EmptyState';
 import { TimeLabel } from './TimeLabel';
 import { eventTimeFormatter } from '@weq/time';
@@ -5,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight, RefreshCw, History } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import '../styles/contact-history.css';
 import { contactHistorySection, type ContactWorkspaceSection } from '../lib/contactWorkspace';
 import { CONTACT_HISTORY_DISPLAY_ENABLED } from '../lib/contactHistoryVisibility';
@@ -321,7 +322,12 @@ function HistoryQuery({
       {categoriesQuery.error ? (
         <p role="alert">
           历史类别读取失败：{categoriesQuery.error.message}
-          <button type="button" onClick={() => void categoriesQuery.refetch()}>
+          <button
+            type="button"
+            onClick={() => void categoriesQuery.refetch()}
+            className="weq-retry-button"
+          >
+            <RefreshCw size={14} aria-hidden />
             重试
           </button>
         </p>
@@ -409,7 +415,9 @@ function HistoryQuery({
           >
             <ChevronLeft size={18} />
           </button>
-          <span>第 {cursors.length} 页</span>
+          <span>
+            第 {<span className="weq-number weq-number-inherit">{cursors.length}</span>} 页
+          </span>
           <button
             type="button"
             className="icon-button"
@@ -485,7 +493,8 @@ export function HistoryValue({ value }: { value: unknown }) {
         ))}
         {value.length > count ? (
           <button type="button" onClick={() => setCount((n) => n + 50)}>
-            继续显示（{value.length - count}）
+            继续显示（<span className="weq-number weq-number-inherit">{value.length - count}</span>
+            ）
           </button>
         ) : null}
       </div>
@@ -504,7 +513,9 @@ export function HistoryValue({ value }: { value: unknown }) {
             <dd>
               {item && typeof item === 'object' ? (
                 <details>
-                  <summary>{Array.isArray(item) ? `${item.length} 项` : '展开'}</summary>
+                  <summary>
+                    <NumericText>{Array.isArray(item) ? `${item.length} 项` : '展开'}</NumericText>
+                  </summary>
                   <HistoryValue value={item} />
                 </details>
               ) : (
@@ -515,7 +526,8 @@ export function HistoryValue({ value }: { value: unknown }) {
         ))}
         {entries.length > count ? (
           <button type="button" onClick={() => setCount((n) => n + 50)}>
-            继续显示（{entries.length - count}）
+            继续显示（
+            <span className="weq-number weq-number-inherit">{entries.length - count}</span>）
           </button>
         ) : null}
       </dl>
@@ -582,17 +594,22 @@ function HistoryChanges({
     return (
       <>
         <details>
-          <summary>新增 {added.length}</summary>
+          <summary>
+            新增 {<span className="weq-number weq-number-inherit">{added.length}</span>}
+          </summary>
           <HistoryValue value={added} />
         </details>
         <details>
           <summary>
-            {complete ? '退出／移除' : '本次未返回'} {removed.length}
+            {complete ? '退出／移除' : '本次未返回'}{' '}
+            {<span className="weq-number weq-number-inherit">{removed.length}</span>}
           </summary>
           <HistoryValue value={removed} />
         </details>
         <details>
-          <summary>变更 {changed.length}</summary>
+          <summary>
+            变更 {<span className="weq-number weq-number-inherit">{changed.length}</span>}
+          </summary>
           <HistoryValue value={changed} />
         </details>
       </>

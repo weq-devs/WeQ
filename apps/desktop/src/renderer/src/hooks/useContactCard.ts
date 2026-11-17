@@ -3,7 +3,7 @@ import { normalizeContactCard } from '@weq/service/contact-card';
 import { client, trpc } from '../trpc/client';
 import { useQQWriteSession } from './useQQWriteSession';
 import type { Contact, GroupMember, User } from '../im-template/template/types';
-import { useTabActive } from '../components/RetainedTabs';
+import { useTabActive } from '../components/RetainedTabs.shared';
 import { resolveAvatar } from '../lib/avatarResolver';
 
 import { PROFILE_QUERY_OPTIONS } from '../lib/profileQuery';

@@ -1,5 +1,6 @@
+import { NumericText } from '../NumericText';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { usePageSnapshotReset } from '../PageSnapshots';
+import { usePageSnapshotReset } from '../PageSnapshots.shared';
 import type {
   CapabilityProbeResult,
   AgentLabProviderModel,
@@ -8,7 +9,6 @@ import type {
 } from '@weq/agentlab';
 import { modelReasoningEfforts } from '@weq/agentlab/model-metadata';
 import {
-  Boxes,
   CheckCheck,
   DownloadCloud,
   FlaskConical,
@@ -26,7 +26,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { Modal } from '../../components/Dialog';
 import { Card, CheckPillGroup, QueryError, Row, SectionHeader } from './controls';
@@ -37,7 +37,7 @@ import {
   runConnectionTest,
   useConnectionTestTasks,
 } from '../../lib/connectionTestTask';
-import { useToast } from '../Toast';
+import { useToastApi } from '../Toast.shared';
 import { DefaultApiModelRow } from './DefaultApiModelRow';
 import { DefaultVisionModelRow } from './AiImageSettings';
 import '../../styles/search-scope.css';
@@ -110,6 +110,7 @@ function templateDisplayName(label: string | undefined): string {
 }
 
 export function AgentLabSection(): ReactElement {
+  const notificationToast = useToastApi();
   const active = useTabActive();
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
@@ -673,7 +674,7 @@ export function AgentLabSection(): ReactElement {
   /** 测试连通性：用表单里第一个带「聊天」能力的模型探活，把详细错误（状态码/响应体）展示出来。 */
   function onTest(): void {
     if (!form.baseUrl.trim()) {
-      useToast.getState().push({
+      notificationToast.push({
         tone: 'warning',
         durationKind: 'success',
         title: '无法测试',
@@ -685,7 +686,7 @@ export function AgentLabSection(): ReactElement {
       .find((m) => m.capabilities.includes('chat') && m.id.trim())
       ?.id.trim();
     if (!chatModel) {
-      useToast.getState().push({
+      notificationToast.push({
         tone: 'warning',
         title: '无法测试',
         detail: '请先添加并填写一个带「聊天」能力的模型。',
@@ -713,6 +714,7 @@ export function AgentLabSection(): ReactElement {
   async function onDelete(): Promise<void> {
     if (!selectedId) return;
     const ok = await dialog.confirm('删除服务商', `确认删除「${selectedId}」？`, {
+      danger: 'outline',
       okLabel: '删除',
       cancelLabel: '返回',
       tone: 'warning',
@@ -739,7 +741,7 @@ export function AgentLabSection(): ReactElement {
 
   return (
     <div className="weq-set">
-      <SectionHeader icon={<Boxes size={18} strokeWidth={1.8} />} title="API 配置" />
+      <SectionHeader page="agentlab" title="API 配置" />
 
       <Card
         title="LLM"
@@ -788,6 +790,7 @@ export function AgentLabSection(): ReactElement {
                 title={providerLabels.get(item.id)}
                 className={`weq-agentlab-provider-item${open && selectedId === item.id ? ' is-active' : ''}`}
                 onClick={() => editProvider(item.id)}
+                data-notification-record={`llm:${item.id}`}
               >
                 <span className="weq-agentlab-provider-name">
                   <Server
@@ -799,7 +802,8 @@ export function AgentLabSection(): ReactElement {
                   {providerLabels.get(item.id)}
                 </span>
                 <small>
-                  {item.models.length} 个模型 · {item.baseUrl}
+                  {<span className="weq-number weq-number-inherit">{item.models.length}</span>}{' '}
+                  个模型 · {item.baseUrl}
                 </small>
               </button>
             ))}
@@ -915,7 +919,7 @@ export function AgentLabSection(): ReactElement {
                     disabled={!vendorEntry?.models.length}
                   >
                     <Sparkles size={12} /> 导入模板推荐
-                    {newModelCount > 0 ? ` (${newModelCount})` : ''}
+                    {newModelCount > 0 ? <NumericText>{` (${newModelCount})`}</NumericText> : ''}
                   </button>
                   <button
                     type="button"
@@ -952,7 +956,15 @@ export function AgentLabSection(): ReactElement {
                       fontSize: 12,
                     }}
                   >
-                    <span style={{ fontWeight: 600 }}>拉取到 {fetchedModels.length} 个模型</span>
+                    <span style={{ fontWeight: 600 }}>
+                      拉取到{' '}
+                      {
+                        <span className="weq-number weq-number-inherit">
+                          {fetchedModels.length}
+                        </span>
+                      }{' '}
+                      个模型
+                    </span>
                     <span style={{ opacity: 0.7 }}>勾选要导入的（已添加的会跳过）</span>
                     <span style={{ flex: 1 }} />
                     <button
@@ -979,7 +991,13 @@ export function AgentLabSection(): ReactElement {
                       onClick={importFetchedModels}
                       disabled={checkedModelIds.length === 0}
                     >
-                      <Plus size={12} /> 导入选中 ({checkedModelIds.length})
+                      <Plus size={12} /> 导入选中 (
+                      {
+                        <span className="weq-number weq-number-inherit">
+                          {checkedModelIds.length}
+                        </span>
+                      }
+                      )
                     </button>
                     <button
                       type="button"
@@ -1075,6 +1093,7 @@ export function AgentLabSection(): ReactElement {
                         }
                       />
                       <button
+                        data-danger="outline"
                         type="button"
                         className="weq-set-iconbtn weq-provider-model-remove"
                         onClick={() => removeModel(index)}
@@ -1157,7 +1176,7 @@ export function AgentLabSection(): ReactElement {
             <div className="weq-provider-modal-actions">
               <button
                 type="button"
-                className="weq-set-btn"
+                className="weq-set-btn weq-set-btn-primary"
                 onClick={() => void onSave()}
                 disabled={saveProvider.isLoading || detectingModel !== null}
               >
@@ -1174,6 +1193,7 @@ export function AgentLabSection(): ReactElement {
                 测试连通性
               </button>
               <button
+                data-danger="outline"
                 type="button"
                 className="weq-set-btn weq-set-btn-soft"
                 onClick={() => void onDelete()}

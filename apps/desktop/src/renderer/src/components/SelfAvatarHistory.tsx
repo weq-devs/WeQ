@@ -1,6 +1,6 @@
-import { eventTimeFormatter } from '@weq/time';
+import { NumericText } from './NumericText';
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowDownWideNarrow, ArrowUpWideNarrow, ImagePlus, RotateCcw, X } from 'lucide-react';
+import { ArrowDownWideNarrow, ArrowUpWideNarrow, ImagePlus, RefreshCw, X } from 'lucide-react';
 import type { HistoricalAvatar } from '@weq/protocol';
 import { Modal } from './Dialog';
 import { MediaPreview } from './MediaPreview';
@@ -14,10 +14,7 @@ import { sortHistoricalAvatars } from '../lib/avatarHistory';
 import { pickAccountFile } from '../lib/accountFilePicker';
 import { refreshUserAvatar } from '../hooks/useAvatarUrl';
 import '../styles/avatar-history.css';
-
-const formatter = eventTimeFormatter;
-export const avatarHistoryTime = (value: number | null) =>
-  value === null ? '时间未记录' : formatter.format(value * 1000);
+import { avatarHistoryTime } from './SelfAvatarHistory.shared';
 
 export function SelfAvatarHistory({
   uin,
@@ -151,17 +148,19 @@ export function AvatarHistoryDialog({
       </div>
       <div className="weq-avatar-history-content" data-privacy-sensitive>
         <p className="weq-avatar-history-progress" role="status">
-          {complete
-            ? `共 ${items.length} 个头像`
-            : items.length
-              ? `已加载 ${items.length} 个${activity.enabled && !query.error && !warning ? '，继续读取中' : ''}`
-              : query.isFetching
-                ? '读取中…'
-                : !online
-                  ? '暂不可在线读取'
-                  : query.error
-                    ? '读取失败'
-                    : '暂无历史头像'}
+          {complete ? (
+            <NumericText>{`共 ${items.length} 个头像`}</NumericText>
+          ) : items.length ? (
+            `已加载 ${items.length} 个${activity.enabled && !query.error && !warning ? '，继续读取中' : ''}`
+          ) : query.isFetching ? (
+            '读取中…'
+          ) : !online ? (
+            '暂不可在线读取'
+          ) : query.error ? (
+            '读取失败'
+          ) : (
+            '暂无历史头像'
+          )}
         </p>
         {query.error || warning ? (
           <div className="weq-avatar-history-error" role="status">
@@ -172,7 +171,7 @@ export function AvatarHistoryDialog({
               disabled={!online || query.isFetching}
               onClick={retry}
             >
-              <RotateCcw size={14} />
+              <RefreshCw size={14} aria-hidden />
               重试
             </button>
           </div>
@@ -217,8 +216,8 @@ export function AvatarHistoryDialog({
             const avatar = preview.items.find((avatar) => avatar.id === item.key)!;
             return (
               <span>
-                最早使用 {avatarHistoryTime(avatar.firstUsedAt)} · 最后使用{' '}
-                {avatarHistoryTime(avatar.lastUsedAt)}
+                最早使用 <NumericText>{avatarHistoryTime(avatar.firstUsedAt)}</NumericText> ·
+                最后使用 <NumericText>{avatarHistoryTime(avatar.lastUsedAt)}</NumericText>
               </span>
             );
           }}

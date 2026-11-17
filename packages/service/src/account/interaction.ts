@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * InteractionService — 会话内的「轻互动」：戳一戳（0xED3_1）、群消息贴表情
  * （0x9082_1/2 贴 / 撤）与贴表情的**查询侧**（0x9083_1 某表情的回应人名单）。
@@ -125,7 +126,7 @@ export class InteractionService {
   private async resolveSignupImage(url: string): Promise<SendGroupSignupImage> {
     let res: Response;
     try {
-      res = await fetch(url, { signal: AbortSignal.timeout(SIGNUP_IMAGE_TIMEOUT_MS) });
+      res = await networkFetch(url, { signal: AbortSignal.timeout(SIGNUP_IMAGE_TIMEOUT_MS) });
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       throw new Error(`报名图片下载失败（${url}）：${reason}`);

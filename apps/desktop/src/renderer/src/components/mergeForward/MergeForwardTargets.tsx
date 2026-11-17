@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import { EmptyState } from '../EmptyState';
 import { CompositionButton } from './CompositionButton';
 /**
@@ -58,7 +59,11 @@ export function MergeForwardTargets({
           </CompositionButton>
           <strong>群助手</strong>
           <span>
-            {assistantSelected ? `已选 ${assistantSelected}` : `${assistantTargets.length} 个群`}
+            {assistantSelected ? (
+              `已选 ${assistantSelected}`
+            ) : (
+              <NumericText>{`${assistantTargets.length} 个群`}</NumericText>
+            )}
           </span>
         </div>
       ) : null}
@@ -85,7 +90,11 @@ export function MergeForwardTargets({
             </span>
             <span className="weq-mf-target-name">群助手</span>
             <span>
-              {assistantSelected ? `已选 ${assistantSelected}` : `${assistantTargets.length} 个群`}
+              {assistantSelected ? (
+                `已选 ${assistantSelected}`
+              ) : (
+                <NumericText>{`${assistantTargets.length} 个群`}</NumericText>
+              )}
             </span>
             <ChevronRight size={16} />
           </CompositionButton>

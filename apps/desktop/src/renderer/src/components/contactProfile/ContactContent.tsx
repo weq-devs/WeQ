@@ -42,7 +42,7 @@ import { ProfileLikeAction } from '../qq-actions/ProfileLikeAction';
 import { QQProfileField } from '../QQProfileField';
 import { VirtualConversationBadge } from '../VirtualConversationAvatar';
 import { QQGroupMemberControls } from '../QQGroupMemberControls';
-import { openMediaPreview } from '../mediaPreviewStore';
+import { openMediaPreview } from '../mediaPreviewStore.shared';
 import { QqShowGallery } from '../QqShowGallery';
 import { ProfileExtraDialog, ProfileLabelAlbum, type ProfileExtraView } from '../ProfileExtras';
 import {
@@ -53,12 +53,14 @@ import {
   ContactTechnicalDetails,
 } from './ContactRow';
 import '../../styles/contact-card.css';
-import { ContactFieldHistoryButton, useContactFieldHistoryAvailable } from './ContactFieldHistory';
+import { ContactFieldHistoryButton } from './ContactFieldHistory';
+import { useContactFieldHistoryAvailable } from './ContactFieldHistory.shared';
 import { useGroupMemberUnmute } from '../../hooks/useGroupMemberUnmute';
 import { CalendarNavigationContext } from '../../lib/calendarNavigation';
 import { useGroupMemberTimeNavigation } from '../../hooks/useGroupMemberTimeNavigation';
 import { previewMemberView } from '../../hooks/useGroupProfile';
-import { SelfProfileSlot, useSelfProfileFields } from '../SelfProfileFields';
+import { SelfProfileSlot } from '../SelfProfileFields';
+import { useSelfProfileFields } from '../SelfProfileFields.shared';
 import { ProfileDisplayEntry } from '../ProfileDisplaySettings';
 import { SelfAvatarHistory } from '../SelfAvatarHistory';
 import { SelfOnlineStatus } from '../SelfOnlineStatus';
@@ -67,9 +69,8 @@ import {
   ContactOnlineRegion,
   ContactOnlineSchool,
 } from './ContactOnlineFields';
-import { useTabActive } from '../RetainedTabs';
-
-export { contactCardFieldGroup, type ContactCardGroup } from '../../lib/contactCardSections';
+import { useTabActive } from '../RetainedTabs.shared';
+export type { ContactCardGroup } from '../../lib/contactCardSections';
 
 const automaticFields: readonly ContactCardContent[] = [
   'qqShow',
@@ -245,6 +246,7 @@ export function ContactIdentity({
           <ContactRow
             label={identityLabel}
             value={identity}
+            number
             copyValue={identity}
             activateTitle={`复制 ${identityLabel}${['ID', 'QID', 'UID'].includes(identityLabel) ? '' : ' 号码'}`}
           />
@@ -252,6 +254,7 @@ export function ContactIdentity({
             <ContactRow
               label="QID"
               value={person.qid}
+              number
               copyValue={person.qid ?? undefined}
               activateTitle="复制 QID"
             />
@@ -260,6 +263,7 @@ export function ContactIdentity({
             <ContactRow
               label="UID"
               value={person.uid || person.id}
+              number
               copyValue={person.uid || person.id}
               activateTitle="复制 UID"
             />
@@ -314,11 +318,11 @@ function IdentityNumber({ label, value }: { label: string; value: string }) {
       {label}{' '}
       <CopyButton
         text={value}
-        className="weq-contact-value weq-number"
+        className="weq-contact-value"
         title={`复制 ${label}`}
         aria-label={['ID', 'QID', 'UID'].includes(label) ? `复制 ${label}` : `复制 ${label} 号码`}
       >
-        {value}
+        <span className="weq-number">{value}</span>
       </CopyButton>
     </span>
   );
@@ -579,7 +583,9 @@ function BotFeaturesRow({ person }: { person: ProfilePerson }) {
       {data?.commands.length ? (
         <ContactRow label="机器人命令">
           <details className="weq-contact-command-list">
-            <summary>共 {data.commands.length} 条</summary>
+            <summary>
+              共 {<span className="weq-number weq-number-inherit">{data.commands.length}</span>} 条
+            </summary>
             {data.commands.map((command) => (
               <p key={command.id}>
                 <code>{command.command}</code> {command.description}

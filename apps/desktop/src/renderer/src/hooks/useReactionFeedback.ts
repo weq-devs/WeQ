@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SetEmojiItem } from '@weq/codec';
-import { useToast } from '../components/Toast';
+import { useToastApi } from '../components/Toast.shared';
 
 export const REACTION_SYNC_TIMEOUT_MS = 15_000;
 
@@ -21,6 +21,7 @@ export function useReactionFeedback(
   scope: string,
   messages: readonly { id: string; setEmojiList?: SetEmojiItem[] }[],
 ) {
+  const notificationToast = useToastApi();
   const [state, setState] = useState<{ task: ReactionTask; acknowledged: boolean } | null>(null);
   const active = useRef<ReactionTask | null>(null);
   const currentScope = useRef(scope);
@@ -79,14 +80,14 @@ export function useReactionFeedback(
     const timer = setTimeout(() => {
       if (active.current !== pending || currentScope.current !== pending.scope) return;
       clear(pending);
-      useToast.getState().push({
+      notificationToast.push({
         tone: 'warning',
         title: '表情回应同步较慢',
         detail: '请求已提交，但尚未读回更新后的消息，请稍后查看，无需重复操作。',
       });
     }, REACTION_SYNC_TIMEOUT_MS);
     return () => clearTimeout(timer);
-  }, [pending, state?.acknowledged, clear]);
+  }, [pending, state?.acknowledged, clear, notificationToast]);
 
   return { pending, begin };
 }

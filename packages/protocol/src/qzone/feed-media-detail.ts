@@ -27,7 +27,13 @@ const feed = message([
   {
     name: 'comm',
     tag: 1,
-    type: message([{ name: 'unionId', tag: 15, type: unionId }]),
+    type: message([
+      { name: 'feedId', tag: 4, type: 'string' },
+      { name: 'contributeType', tag: 12, type: 'int32' },
+      { name: 'contributeSubtype', tag: 13, type: 'int32' },
+      { name: 'contributeFlag', tag: 16, type: 'int32' },
+      { name: 'unionId', tag: 15, type: unionId },
+    ]),
   },
   {
     name: 'text',
@@ -54,6 +60,34 @@ const feed = message([
   },
   { name: 'comments', tag: 7, type: message([{ name: 'count', tag: 1, type: 'uint32' }]) },
   { name: 'likes', tag: 8, type: message([{ name: 'count', tag: 1, type: 'uint32' }]) },
+  {
+    name: 'extension',
+    tag: 33,
+    type: message([
+      {
+        name: 'archive',
+        tag: 4,
+        type: message([
+          {
+            name: 'state',
+            tag: 2,
+            type: message([
+              { name: 'rawStatus', tag: 1, type: 'int32' },
+              {
+                name: 'tag',
+                tag: 4,
+                type: message([
+                  { name: 'text', tag: 2, type: 'string' },
+                  { name: 'iconUrl', tag: 3, type: 'string' },
+                  { name: 'targetUrl', tag: 4, type: 'string' },
+                ]),
+              },
+            ]),
+          },
+        ]),
+      },
+    ]),
+  },
   {
     name: 'upvote',
     tag: 37,
@@ -105,6 +139,13 @@ export interface QzoneNativeDetail {
   likeCount?: number;
   /** 仅服务端预览，缺少 cell 不代表零人推。 */
   upvote?: QzoneUpvotePreview;
+  archive?: QzoneArchiveState;
+  /** 只从已核身份的原生 feed 取写入目标，不由前端拼造。 */
+  archiveTarget?: { feedId: string; commonEligible: boolean; mediaKinds: number[] };
+}
+export interface QzoneArchiveState {
+  rawStatus: number | null;
+  tag: { text: string; iconUrl: string; targetUrl: string } | null;
 }
 export interface QzoneUpvoteUser {
   uin: string;
@@ -222,6 +263,9 @@ export namespace GetQzoneFeedMediaDetail {
     const count = (value: unknown) =>
       typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
     const upvote = detail.upvote ? object(detail.upvote) : undefined;
+    const state = object(object(object(detail.extension).archive).state);
+    const archiveTag = state.tag ? object(state.tag) : null;
+    const common = object(detail.comm);
     const users = array(upvote?.users).map((entry) => object(object(entry).user));
     if (users.length > 256) throw new Error('空间推预览条目过多。');
     const string = (value: unknown) => (typeof value === 'string' ? value : '');
@@ -230,6 +274,39 @@ export namespace GetQzoneFeedMediaDetail {
       content,
       commentCount: count(object(detail.comments).count),
       likeCount: count(object(detail.likes).count),
+      ...(Object.keys(state).length
+        ? {
+            archive: {
+              rawStatus:
+                typeof state.rawStatus === 'number' && Number.isSafeInteger(state.rawStatus)
+                  ? state.rawStatus
+                  : null,
+              tag: archiveTag
+                ? {
+                    text: typeof archiveTag.text === 'string' ? archiveTag.text : '',
+                    iconUrl: typeof archiveTag.iconUrl === 'string' ? archiveTag.iconUrl : '',
+                    targetUrl: typeof archiveTag.targetUrl === 'string' ? archiveTag.targetUrl : '',
+                  }
+                : null,
+            },
+          }
+        : {}),
+      ...(typeof common.feedId === 'string' &&
+      common.feedId.length > 0 &&
+      common.feedId.length <= 1024
+        ? {
+            archiveTarget: {
+              feedId: common.feedId,
+              commonEligible:
+                common.contributeType === 1 &&
+                common.contributeSubtype === 1 &&
+                (common.contributeFlag ?? 0) === 0,
+              mediaKinds: items
+                .map((item) => object(item).type)
+                .map((value) => (typeof value === 'number' ? value : -1)),
+            },
+          }
+        : {}),
       ...(upvote
         ? {
             upvote: {

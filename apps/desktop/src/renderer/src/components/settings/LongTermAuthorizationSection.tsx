@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, RefreshCw, ShieldCheck, Trash2, Wrench } from 'lucide-react';
 import type { LongTermAuthorizationStatus } from '../../../../shared/long_term_authorization';
-import { useTabActive } from '../RetainedTabs';
-import { useDialog } from '../Dialog';
+import { useTabActive } from '../RetainedTabs.shared';
+import { useDialog } from '../Dialog.shared';
 import { Card, Row } from './controls';
 import { authorizationFailure, type AuthorizationFailure } from '../../lib/authorizationError';
-import { IS_WEB } from '../../lib/target';
+import { IS_WEB } from '../../lib/target.shared';
 
 const STATE_LABELS = {
   unavailable: '当前环境不可用',
@@ -39,7 +39,10 @@ export function LongTermAuthorizationSection() {
               (kind === 'install'
                 ? '将请求系统管理员批准，安装全机共享的原生权限助手，授权当前系统用户的 QQ 内存读取和网卡抓包。不复制 Electron、Node 或聊天数据，不保存管理员密码，不修改 SIP 或全局 ptrace 保护。'
                 : '将撤销当前系统用户的长期授权，正在使用权限助手的操作会中断，之后可继续临时授权。最后一位用户撤销时移除此通道的共享组件。'),
-            { okLabel: kind === 'install' ? '继续授权' : '撤销授权' },
+            {
+              danger: kind === 'remove' ? 'outline' : undefined,
+              okLabel: kind === 'install' ? '继续授权' : '撤销授权',
+            },
           );
           if (!approved || !mounted.current) return;
         }
@@ -81,6 +84,7 @@ export function LongTermAuthorizationSection() {
   return (
     <Card
       title={development ? '长期授权（开发）' : '长期授权'}
+      desc="读取路线之外的共用授权工具，用于 QQ 内存读取与网卡抓包，减少重复授权。助手已连接不代表当前账号的 QQ 在线能力已就绪。"
       icon={<ShieldCheck size={15} strokeWidth={1.8} />}
       settingId="long-term-authorization"
     >
@@ -122,7 +126,7 @@ export function LongTermAuthorizationSection() {
         <div className="weq-set-btn-group">
           <button
             type="button"
-            className="weq-set-btn"
+            className="weq-set-btn weq-set-btn-primary"
             disabled={Boolean(pending) || !canManage}
             onClick={() => void run('install')}
           >

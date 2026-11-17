@@ -22,31 +22,28 @@ import {
   FolderOpen,
   HardDrive,
   Loader2,
-  Minimize2,
-  PanelsTopLeft,
+  Shirt,
   RotateCcw,
-  Settings2,
-  ScrollText,
   Trash2,
   User,
 } from 'lucide-react';
-import type { WindowCloseBehavior, StorageUsageItem } from '@weq/service';
+import type { StorageUsageItem } from '@weq/service';
 import { client, trpc } from '../../trpc/client';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
-import { useDialog } from '../Dialog';
-import { useToast } from '../Toast';
+import { useDialog } from '../Dialog.shared';
+import { useToast } from '../Toast.shared';
 import { LoadingIndicator } from '../LoadingIndicator';
 import { useViewState } from '../../state/view';
 import { QqAvatar } from '../QqAvatar';
-import { Card, CheckPill, Row, SectionHeader, Toggle, SettingsNavigateContext } from './controls';
-import { useTabActive } from '../RetainedTabs';
+import { Card, CheckPill, Row, SectionHeader, Toggle } from './controls';
+import { SettingsNavigateContext } from './controls.shared';
+import { useTabActive } from '../RetainedTabs.shared';
 import { ToastSettingsCard } from './ToastSettingsCard';
 import { MessageNotificationRows } from './MessageNotificationRows';
-import { DesktopOnly, IS_WEB } from '../../lib/target';
 import { groupStorage, mergeStorageEntries } from '../../lib/storage-groups';
-import { supportsWindowsStyleControls } from '../../../../shared/window_controls';
 import '../../styles/storage-management.css';
 import { DataSaverSettings } from './DataSaverSettings';
+import { QqShowSettings } from './QqShowSettings';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -62,25 +59,6 @@ function backupDescription(item: StorageUsageItem): string | null {
   return `${date} · ${status === 'linked' ? '已关联修复记录' : status === 'orphan' ? '无关联修复记录' : '未识别备份'}`;
 }
 
-/** Human-readable byte size for the cache-cleanup card. */
-/** 点击关闭按钮（标题栏 ✕）时的行为。 */
-const CLOSE_BEHAVIOR_OPTIONS: ReadonlyArray<{ value: WindowCloseBehavior; label: string }> = [
-  { value: 'ask', label: '每次询问' },
-  { value: 'tray', label: '最小化到托盘' },
-  { value: 'quit', label: '直接退出' },
-];
-
-/** 日志保留时长档位（0 = 永久保留）。日志按天拆文件，所以档位用「天」最直观。 */
-const LOG_RETENTION_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
-  { value: 1, label: '1 天' },
-  { value: 3, label: '3 天' },
-  { value: 7, label: '7 天（默认）' },
-  { value: 14, label: '14 天' },
-  { value: 30, label: '30 天' },
-  { value: 90, label: '90 天' },
-  { value: 0, label: '永久保留' },
-];
-
 export function GlobalSettingsSection({
   section = 'general',
   heading = true,
@@ -95,10 +73,7 @@ export function GlobalSettingsSection({
   const pushToast = useToast((s) => s.push);
   // 用来把「当前已登录的账号」标出来并禁掉它的删除按钮。
   const openedUin = useViewState((s) => s.openedUin);
-  // 初值与 DEFAULT_APP_SETTINGS 保持一致，否则首次渲染会先显示旧档位再跳变。
-  const [closeBehavior, setCloseBehavior] = useState<WindowCloseBehavior>('tray');
   const [preferCdn, setPreferCdn] = useState(false);
-  const [logRetentionDays, setLogRetentionDays] = useState(7);
 
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
     enabled: active,
@@ -128,11 +103,7 @@ export function GlobalSettingsSection({
   const setAutoEnter = trpc.bootstrap.setAutoEnter.useMutation();
   const clearAutoEnter = trpc.bootstrap.clearAutoEnter.useMutation();
   const deleteAccount = trpc.bootstrap.deleteAccountConfig.useMutation();
-  const setWindowClose = trpc.bootstrap.setWindowCloseBehavior.useMutation();
-  const setWindowsStyle = trpc.bootstrap.setWindowsStyleControls.useMutation();
-  const platform = !IS_WEB ? window.electron?.process.platform : undefined;
   const setPreferCdnMut = trpc.bootstrap.setPreferCdn.useMutation();
-  const setLogRetention = trpc.bootstrap.setLogRetentionDays.useMutation();
 
   // 存储统计包含持久数据，选择与清理只针对后端明确标记的可清理项。
   const cacheUsage = trpc.bootstrap.listStorageUsage.useQuery(undefined, {
@@ -142,9 +113,6 @@ export function GlobalSettingsSection({
     refetchOnMount: 'always',
   });
   const clearStorageData = trpc.bootstrap.clearStorageData.useMutation();
-  const cleanupResult = trpc.bootstrap.storageCleanupResult.useQuery(undefined, {
-    enabled: active && section === 'storage',
-  });
   const [cleaning, setCleaning] = useState(false);
   const [restartIds, setRestartIds] = useState<string[]>([]);
   const cleanupBusy = cleaning || clearStorageData.isLoading;
@@ -181,34 +149,14 @@ export function GlobalSettingsSection({
     (sum, item) => sum + item.bytes,
     0,
   );
-
-  useEffect(() => {
-    const behavior = settings.data?.windowCloseBehavior;
-    if (behavior) setCloseBehavior(behavior);
-  }, [settings.data?.windowCloseBehavior]);
+  const cleanupDanger = selectedItems.some((item) => item.requiresExit || item.action === 'data')
+    ? 'solid'
+    : 'outline';
 
   useEffect(() => {
     const enabled = settings.data?.preferCdn;
     if (typeof enabled === 'boolean') setPreferCdn(enabled);
   }, [settings.data?.preferCdn]);
-
-  useEffect(() => {
-    const days = settings.data?.logRetentionDays;
-    if (typeof days === 'number') setLogRetentionDays(days);
-  }, [settings.data?.logRetentionDays]);
-
-  async function onOpenLogDir(): Promise<void> {
-    try {
-      await window.weq.openLogDir();
-      pushToast({
-        tone: 'success',
-        title: '已打开日志文件夹',
-        detail: '日志按日期拆分保存，反馈问题时可将最新日志一并附上。',
-      });
-    } catch (e) {
-      showError('打开日志文件夹失败', errMsg(e));
-    }
-  }
 
   const cacheMulti = useMultiSelection({
     ids: storageEntries.filter(({ item }) => item.clearable).map(({ item }) => item.id),
@@ -299,7 +247,14 @@ export function GlobalSettingsSection({
       risky
         ? `将永久删除「${label}」，预计清除约 ${formatBytes(willFree)}。只删除所选路径中的数据，不会额外清理其它 QQ 数据目录。先清除可直接清除的项目；若有占用项，会另行询问是否重启。\n\n${extra.join('\n\n')}\n\n确认清除？`
         : `将删除「${label}」，预计释放约 ${formatBytes(willFree)}。需要时会重新下载或生成；保留数据不受影响。${extra.length ? `\n\n${extra.join('\n')}\n\n` : ''}是否继续？`,
-      { okLabel: risky ? '清除' : '清理', cancelLabel: '取消', tone: 'warning' },
+      {
+        danger: targets.some((item) => item.requiresExit || item.action === 'data')
+          ? 'solid'
+          : 'outline',
+        okLabel: risky ? '清除' : '清理',
+        cancelLabel: '取消',
+        tone: 'warning',
+      },
     );
     if (!ok) return;
     setCleaning(true);
@@ -307,7 +262,6 @@ export function GlobalSettingsSection({
       const res = await clearStorageData.mutateAsync({ ids, acknowledgeRisk: true });
       setRestartIds(res.restartIds);
       await cacheUsage.refetch();
-      await cleanupResult.refetch();
       const failedIds = new Set(res.failed.flatMap((item) => (item.id ? [item.id] : [])));
       setPickedCats(
         new Set([
@@ -335,7 +289,7 @@ export function GlobalSettingsSection({
     const ok = await confirm(
       '剩余项目被占用',
       `可直接清除的项目已经处理。仅「${labels.join('、')}」仍被占用，是否退出 WeQ 后继续清除这些项目？完成后会自动重新打开 WeQ。取消将保留剩余项目，不影响已完成的清理。若由 QQ 等其他程序占用，请先关闭对应程序。`,
-      { okLabel: '重启并继续清除', cancelLabel: '暂不重启', tone: 'warning' },
+      { danger: 'solid', okLabel: '重启并继续清除', cancelLabel: '暂不重启', tone: 'warning' },
     );
     if (!ok) return;
     await clearStorageData.mutateAsync({ ids, acknowledgeRisk: true, afterExit: true });
@@ -378,28 +332,15 @@ export function GlobalSettingsSection({
     const ok = await confirm(
       '删除账号配置',
       `将删除「${label}」在 WeQ 中保存的配置（数据库密钥、数据目录等），下次需要重新获取密钥。QQ 本体的聊天记录不受影响。是否继续？`,
-      { okLabel: '删除', cancelLabel: '取消', tone: 'warning' },
+      { danger: 'outline', okLabel: '删除', cancelLabel: '取消', tone: 'warning' },
     );
     if (!ok) return;
     try {
       await deleteAccount.mutateAsync({ configId: acc.configId });
       await Promise.all([accounts.refetch(), autoEnter.refetch()]);
-      pushToast({ tone: 'success', title: '已删除', message: `账号配置「${label}」已移除` });
+      pushToast({ tone: 'success', title: `账号配置「${label}」已移除` });
     } catch (e) {
       showError('删除账号配置失败', errMsg(e));
-    }
-  }
-
-  async function onSetCloseBehavior(behavior: WindowCloseBehavior): Promise<void> {
-    const prev = closeBehavior;
-    setCloseBehavior(behavior);
-    try {
-      await setWindowClose.mutateAsync({ behavior });
-      await settings.refetch();
-    } catch (e) {
-      setCloseBehavior(prev);
-      await settings.refetch();
-      showError('保存关闭行为设置失败', errMsg(e));
     }
   }
 
@@ -416,20 +357,6 @@ export function GlobalSettingsSection({
     }
   }
 
-  // 保存后主进程会立即按新阈值清一轮，所以这里只是"回读一次真实值 + 失败回滚"。
-  async function onSetLogRetention(days: number): Promise<void> {
-    const prev = logRetentionDays;
-    setLogRetentionDays(days);
-    try {
-      await setLogRetention.mutateAsync({ days });
-      await settings.refetch();
-    } catch (e) {
-      setLogRetentionDays(prev);
-      await settings.refetch();
-      showError('保存日志保留时长失败', errMsg(e));
-    }
-  }
-
   const accountList = accounts.data ?? [];
   const autoEnterTarget = autoEnter.data;
 
@@ -437,10 +364,20 @@ export function GlobalSettingsSection({
     <div className={`weq-set${section === 'storage' ? ' weq-storage-settings' : ''}`}>
       {heading && (
         <SectionHeader
-          icon={<Settings2 size={16} strokeWidth={1.8} />}
+          page={
+            (
+              {
+                general: 'global',
+                accounts: 'accounts',
+                storage: 'weq-storage',
+                logs: 'logs',
+                network: 'resource-loading',
+              } as const
+            )[section]
+          }
           title={
             {
-              general: '提醒与窗口',
+              general: '通知与提醒',
               accounts: 'WeQ 账号管理',
               storage: 'WeQ 存储管理',
               logs: '日志',
@@ -450,85 +387,12 @@ export function GlobalSettingsSection({
         />
       )}
 
-      {/* Window close behavior */}
       {section === 'general' && (
         <>
           <Card title="消息提醒" icon={<Bell size={15} strokeWidth={1.8} />}>
             <MessageNotificationRows />
           </Card>
           <ToastSettingsCard />
-          <DesktopOnly>
-            <Card
-              title="窗口"
-              icon={<PanelsTopLeft size={15} strokeWidth={1.8} />}
-              remoteUnsupported
-            >
-              {platform && supportsWindowsStyleControls(platform) && (
-                <Row
-                  label={
-                    <span className="weq-set-row-icon">
-                      <PanelsTopLeft size={15} strokeWidth={1.8} aria-hidden />
-                      使用仿 Windows 窗口按钮
-                    </span>
-                  }
-                  desc={`在右上角使用最小化、最大化和关闭按钮，替代系统窗口按钮；账号选择页保持统一样式。${platform === 'linux' ? '主窗口重新进入账号后生效，独立窗口下次打开时生效。' : '主窗口立即生效，独立窗口下次打开时生效。'}`}
-                  control={
-                    <Toggle
-                      label="使用仿 Windows 窗口按钮"
-                      checked={settings.data?.windowsStyleControls ?? false}
-                      disabled={settings.isLoading || settings.isError || setWindowsStyle.isLoading}
-                      onChange={(enabled) => {
-                        void setWindowsStyle
-                          .mutateAsync({ enabled })
-                          .then(() => settings.refetch())
-                          .catch((error: unknown) =>
-                            showError('保存窗口按钮设置失败', errMsg(error)),
-                          );
-                      }}
-                    />
-                  }
-                />
-              )}
-              <Row
-                settingId="window-close-behavior"
-                label={
-                  <span className="weq-set-row-icon">
-                    <Minimize2 size={15} strokeWidth={1.8} aria-hidden />
-                    关闭按钮
-                  </span>
-                }
-                desc={
-                  closeBehavior === 'tray'
-                    ? '点击关闭按钮后最小化到系统托盘，进程常驻后台，可从托盘图标恢复。'
-                    : closeBehavior === 'quit'
-                      ? '点击关闭按钮后直接完全退出应用。'
-                      : '每次点击关闭按钮时弹窗询问，可选择最小化到托盘或完全退出。'
-                }
-                control={
-                  <div className="weq-set-seg" role="radiogroup" aria-label="关闭按钮行为">
-                    {CLOSE_BEHAVIOR_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        role="radio"
-                        aria-checked={closeBehavior === opt.value}
-                        className={`weq-set-seg-item${closeBehavior === opt.value ? ' is-on' : ''}`}
-                        disabled={settings.isLoading || setWindowClose.isLoading}
-                        onClick={() => void onSetCloseBehavior(opt.value)}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                }
-              />
-            </Card>
-          </DesktopOnly>
-          {IS_WEB ? (
-            <p className="weq-set-note" role="status">
-              浏览器模式下，窗口关闭行为由浏览器管理。
-            </p>
-          ) : null}
         </>
       )}
 
@@ -619,6 +483,7 @@ export function GlobalSettingsSection({
           {autoEnterTarget ? (
             <div className="weq-set-actions">
               <button
+                data-danger="outline"
                 type="button"
                 className="weq-set-btn weq-set-btn-soft"
                 onClick={() => void onClearAutoEnter()}
@@ -635,12 +500,7 @@ export function GlobalSettingsSection({
       {section === 'network' && (
         <Card title="加载来源" icon={<Cloud size={15} strokeWidth={1.8} />} settingId="prefer-cdn">
           <Row
-            label={
-              <span className="weq-set-row-icon">
-                <Cloud size={15} strokeWidth={1.8} aria-hidden />
-                优先直连 QQ 加载图片
-              </span>
-            }
+            label="优先直连 QQ 加载图片"
             desc={`桌面端与 Web 共用。${
               preferCdn
                 ? '头像与聊天图片、视频封面由界面直接向 QQ 服务器获取，不经 WeQ 中转。本地已存的头像和媒体缓存会被绕过（离线时看不到），获取失败会自动回退到原来的方式。'
@@ -658,6 +518,11 @@ export function GlobalSettingsSection({
         </Card>
       )}
       {section === 'network' && <DataSaverSettings />}
+      {section === 'network' && (
+        <Card title="QQ 秀缓存" icon={<Shirt size={15} strokeWidth={1.8} />} resetId="qqshow-cache">
+          <QqShowSettings cacheOnly />
+        </Card>
+      )}
       {/* WeQ 存储管理 */}
       {section === 'storage' && (
         <Card
@@ -688,25 +553,9 @@ export function GlobalSettingsSection({
               </button>
             </div>
           </div>
-          {cleanupResult.data && (
-            <div
-              className="weq-storage-result"
-              role={cleanupResult.data.failed.length ? 'alert' : 'status'}
-            >
-              <span>
-                上次清除：{cleanupResult.data.cleared.length} 项成功，
-                {cleanupResult.data.failed.length} 项失败，清除约{' '}
-                {formatBytes(cleanupResult.data.freedBytes)}。
-              </span>
-              {cleanupResult.data.failed.map((item) => (
-                <div key={item.label}>
-                  {item.label}：{item.error}
-                </div>
-              ))}
-            </div>
-          )}
           {restartIds.length > 0 && (
             <button
+              data-danger="solid"
               type="button"
               className="weq-set-btn"
               disabled={cleanupBusy}
@@ -767,6 +616,7 @@ export function GlobalSettingsSection({
                 cleanupBusy || cacheUsage.isFetching || cacheUsage.isError || cleanupBytes === 0
               }
               onClick={() => void onClearWeqCache()}
+              data-danger={cleanupDanger}
             >
               {cleanupBusy ? (
                 <Loader2 size={14} strokeWidth={1.8} className="weq-spin" aria-hidden />
@@ -779,51 +629,9 @@ export function GlobalSettingsSection({
         </Card>
       )}
 
-      {section === 'logs' && (
-        <Card title="日志文件" icon={<ScrollText size={15} strokeWidth={1.8} />} remoteUnsupported>
-          <Row
-            label="日志保留时长"
-            desc={
-              logRetentionDays > 0
-                ? `超过 ${logRetentionDays} 天的日志会在启动时与后台自动清理，日志文件夹不会一直变大。正在写入的当天日志永远保留。`
-                : '永久保留全部日志，不自动清理。日志文件夹会随着使用持续变大。'
-            }
-            control={
-              <select
-                className="weq-set-input"
-                value={String(logRetentionDays)}
-                disabled={settings.isLoading || setLogRetention.isLoading}
-                onChange={(e) => void onSetLogRetention(Number(e.target.value))}
-                aria-label="日志保留时长"
-              >
-                {/* 配置里存了非档位值（旧版本 / 手改）时补一个选项，避免 select 显示为空 */}
-                {logRetentionDays > 0 &&
-                !LOG_RETENTION_OPTIONS.some((o) => o.value === logRetentionDays) ? (
-                  <option value={String(logRetentionDays)}>{logRetentionDays} 天</option>
-                ) : null}
-                {LOG_RETENTION_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={String(opt.value)}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            }
-          />
-          <DesktopOnly>
-            <Row
-              label="日志文件夹"
-              desc="日志按日期拆分保存到 WeQ 缓存目录下的 logs 文件夹。"
-              control={
-                <button type="button" className="weq-set-btn" onClick={() => void onOpenLogDir()}>
-                  <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
-                  打开日志文件夹
-                </button>
-              }
-            />
-          </DesktopOnly>
-        </Card>
-      )}
+      {section === 'logs' && <LogFileSettings />}
     </div>
   );
 }
 import { formatBytes } from '../../lib/format';
+import { LogFileSettings } from './LogFileSettings';

@@ -1,7 +1,8 @@
+import { NumericText } from '../NumericText';
 import { eventTimeFormatter, formatRelativeTime } from '@weq/time';
 import { TimeLabel } from '../TimeLabel';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import {
   Check,
   ChevronRight,
@@ -204,7 +205,12 @@ export function RemotePanel({
                   {tailscaleRunning ? '停止服务' : '启动服务'}
                 </button>
                 {tailscale && data?.network.state === 'login' ? (
-                  <button type="button" className="weq-set-btn" disabled={busy} onClick={onLogin}>
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-primary"
+                    disabled={busy}
+                    onClick={onLogin}
+                  >
                     <ExternalLink size={14} />
                     登录 Tailscale
                   </button>
@@ -244,7 +250,7 @@ export function RemotePanel({
             <button
               ref={generateButton}
               type="button"
-              className="weq-set-btn"
+              className="weq-set-btn weq-set-btn-primary"
               disabled={!online || busy || (embedKey && !tailscaleAddress)}
               onClick={() => {
                 if (embedKey) setKeyPrompt(true);
@@ -325,7 +331,11 @@ export function RemotePanel({
                   >
                     取消
                   </button>
-                  <button type="submit" className="weq-set-btn" disabled={!authKey.trim() || busy}>
+                  <button
+                    type="submit"
+                    className="weq-set-btn weq-set-btn-primary"
+                    disabled={!authKey.trim() || busy}
+                  >
                     <QrCode size={14} />
                     生成配对码
                   </button>
@@ -338,7 +348,15 @@ export function RemotePanel({
               <img src={qr.qr} width={240} height={240} alt="WeQ Remote 一次性配对二维码" />
               <div>
                 <h4>等待手机扫码</h4>
-                <p>有效期剩余 {Math.max(0, Math.ceil((qr.expiresAt - now) / 1000))} 秒</p>
+                <p>
+                  有效期剩余{' '}
+                  {
+                    <span className="weq-number weq-number-inherit">
+                      {Math.max(0, Math.ceil((qr.expiresAt - now) / 1000))}
+                    </span>
+                  }{' '}
+                  秒
+                </p>
                 <p>
                   {qr.pairingURL && new URL(qr.pairingURL).searchParams.has('authKey')
                     ? '含一次性入网密钥 · 请勿分享'
@@ -377,6 +395,7 @@ export function RemotePanel({
                 <code className="weq-remote-code">{request.code}</code>
               </div>
               <button
+                data-danger="outline"
                 type="button"
                 className="weq-set-iconbtn"
                 title="拒绝配对"
@@ -388,7 +407,7 @@ export function RemotePanel({
               </button>
               <button
                 type="button"
-                className="weq-set-btn"
+                className="weq-set-btn weq-set-btn-primary"
                 disabled={busy}
                 onClick={() => onDecide(request.id, true)}
               >
@@ -401,7 +420,9 @@ export function RemotePanel({
         <section className="weq-remote-band">
           <div className="weq-remote-heading">
             <h4>已配对设备</h4>
-            <span>{data?.devices.length ?? 0} 台</span>
+            <span>
+              <span className="weq-number weq-number-inherit">{data?.devices.length ?? 0}</span> 台
+            </span>
           </div>
           {!data?.devices.length ? (
             <p className="weq-remote-muted">暂无已配对设备</p>
@@ -452,17 +473,21 @@ export function RemotePanel({
                       <div>
                         <dt>系统版本</dt>
                         <dd>
-                          {device.deviceInfo
-                            ? `${device.deviceInfo.platform === 'ios' ? 'iOS / iPadOS' : 'Android'} ${device.deviceInfo.osVersion}`
-                            : '未上报'}
+                          {device.deviceInfo ? (
+                            <NumericText>{`${device.deviceInfo.platform === 'ios' ? 'iOS / iPadOS' : 'Android'} ${device.deviceInfo.osVersion}`}</NumericText>
+                          ) : (
+                            '未上报'
+                          )}
                         </dd>
                       </div>
                       <div>
                         <dt>Remote 版本</dt>
                         <dd>
-                          {device.deviceInfo
-                            ? `${device.deviceInfo.appVersion} (${device.deviceInfo.appBuild})`
-                            : '未上报'}
+                          {device.deviceInfo ? (
+                            <NumericText>{`${device.deviceInfo.appVersion} (${device.deviceInfo.appBuild})`}</NumericText>
+                          ) : (
+                            '未上报'
+                          )}
                         </dd>
                       </div>
                       <div>
@@ -493,6 +518,7 @@ export function RemotePanel({
                   </details>
                 </div>
                 <button
+                  data-danger="outline"
                   type="button"
                   className="weq-set-iconbtn"
                   title="撤销设备授权"

@@ -90,7 +90,7 @@ try {
   );
   if (process.env.WEQ_NATIVE_CHECK_SUMMARY === '1') {
     const { tsImport } = await import('tsx/esm/api');
-    const { developmentRecord } = await tsImport(
+    const { developmentRecord, terminalColor } = await tsImport(
       '../apps/desktop/src/main/development_console.ts',
       import.meta.url,
     );
@@ -102,7 +102,7 @@ try {
           scope: 'startup',
           size: pages * pageSize,
         },
-        Boolean(process.stdout.isTTY) && process.env.NO_COLOR === undefined,
+        terminalColor('stdout'),
       ),
     );
   } else

@@ -165,8 +165,8 @@ import {
 } from '@renderer/lib/profileNavigation';
 import { client, trpc } from '@renderer/trpc/client';
 import { copyTextToClipboard } from '@renderer/im-template/template/clipboard';
+import { contactCardFieldGroup } from '../src/renderer/src/lib/contactCardSections';
 import {
-  contactCardFieldGroup,
   ContactContent,
   ContactIdentity,
 } from '@renderer/components/contactProfile/ContactContent';
@@ -998,5 +998,35 @@ describe('群成员资料卡浮层', () => {
     const card = layer().querySelector<HTMLElement>('.weq-member-pop')!;
     expect(Number.parseFloat(card.style.left) + 288).toBeLessThanOrEqual(window.innerWidth);
     expect(Number.parseFloat(card.style.left)).toBeGreaterThanOrEqual(0);
+  });
+  it('名片避开状态栏与横屏安全区，键盘改变可视视口后同步收窄并重新定位', async () => {
+    const style = document.documentElement.style;
+    const previous = style.cssText;
+    const viewport = Object.assign(new EventTarget(), {
+      width: 402,
+      height: 874,
+      offsetTop: 0,
+      offsetLeft: 0,
+      scale: 1,
+    });
+    vi.stubGlobal('visualViewport', viewport);
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(390);
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(720);
+    try {
+      for (const [side, value] of Object.entries({ top: 59, bottom: 34, left: 24, right: 16 }))
+        style.setProperty(`--weq-safe-${side}`, `${value}px`);
+      await mountCard(() => {}, { x: 0, y: 0 });
+      const card = layer().querySelector<HTMLElement>('.weq-member-pop')!;
+      expect(Number.parseFloat(card.style.top)).toBe(69);
+      expect(Number.parseFloat(card.style.left)).toBe(34);
+      expect(Number.parseFloat(card.style.maxWidth)).toBe(338);
+      viewport.height = 280;
+      viewport.offsetTop = 96;
+      act(() => viewport.dispatchEvent(new Event('resize')));
+      expect(Number.parseFloat(card.style.top)).toBe(165);
+      expect(Number.parseFloat(card.style.maxHeight)).toBe(197);
+    } finally {
+      style.cssText = previous;
+    }
   });
 });

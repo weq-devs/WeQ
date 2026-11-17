@@ -51,6 +51,22 @@ try {
   );
   await page.locator('.compact-time').waitFor();
   assert.equal(await page.locator('.compact-time').textContent(), '14:05');
+  assert.equal(await page.getByTestId('chinese-date').textContent(), '2026 年 3 月 4 日');
+  assert.equal(await page.getByTestId('relative-time').textContent(), '3 分钟前');
+  assert.equal(await page.getByTestId('duration').textContent(), '1 天 1 小时 1 分钟 1 秒');
+  assert.equal(
+    await page.locator('.weq-birth-details summary span').textContent(),
+    '2010 年（推断） · 水瓶座',
+  );
+  await page.locator('.weq-birth-details summary').click();
+  assert.equal(
+    await page.locator('.weq-birth-details p').textContent(),
+    '推断生日：2010 年 1 月 20 日至 2 月 18 日',
+  );
+  assert.equal(
+    await page.getByTestId('source-text').textContent(),
+    '原文2026年11月16日，耗时3秒，QQ12345',
+  );
   if (output) await mkdir(output, { recursive: true });
   for (const width of [1280, 390, 320])
     for (const theme of ['light', 'dark']) {
@@ -61,6 +77,14 @@ try {
       assert.equal(
         await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
         false,
+      );
+      assert.equal(
+        await page.locator('.composer-send strong').evaluate((node) => {
+          const label = node.getBoundingClientRect();
+          const button = node.closest('button').getBoundingClientRect();
+          return label.left >= button.left && label.right <= button.right;
+        }),
+        true,
       );
       await page.mouse.move(0, 0);
       await page.locator('.compact-time').hover();
@@ -104,6 +128,10 @@ try {
     timezone: 'America/New_York',
     checks: [
       'beijing-seconds',
+      'chinese-date-and-duration-spacing',
+      'birthday-inference-spacing',
+      'mute-label-fits',
+      'source-text-unchanged',
       'true-milliseconds',
       'no-overflow',
       'hover',

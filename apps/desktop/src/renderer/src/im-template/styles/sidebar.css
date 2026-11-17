@@ -38,7 +38,7 @@
   flex: 0 0 auto;
   padding: 12px 0 10px;
   background: var(--card, #ffffff);
-  border-bottom: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 72%, white);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .sidebar-header-contacts {
@@ -58,13 +58,8 @@
   margin-top: 0;
 }
 
-.mobile-sidebar-top,
-.mobile-notice-label {
+.mobile-sidebar-top {
   display: none;
-}
-
-.desktop-notice-label {
-  display: inline;
 }
 
 .search-row {
@@ -410,20 +405,6 @@
   cursor: pointer;
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .conversation-row:hover,
-  .contact-row:hover {
-    background: color-mix(in srgb, var(--weq-accent-effective) 5%, transparent);
-  }
-}
-
-.conversation-row.active,
-.contact-row.active {
-  background: var(--weq-list-selected-background);
-  color: var(--weq-fg-primary);
-  box-shadow: inset 2px 0 var(--weq-accent-ink, var(--weq-fg-primary));
-}
-
 .conversation-row.active .row-preview-line,
 .conversation-row.active .row-meta,
 .contact-row.active .row-main span {
@@ -564,26 +545,6 @@
   align-items: center;
   gap: 4px;
   white-space: nowrap;
-}
-
-.row-pinned {
-  flex: 0 0 auto;
-  color: var(--weq-accent-ink, var(--weq-fg-secondary));
-}
-
-/* 置顶会话：整行浅色底，与普通会话拉开层级（QQ 同款）。 */
-.conversation-row.pinned:not(.active) {
-  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .conversation-row.pinned:not(.active):hover {
-    background: color-mix(in srgb, var(--weq-accent-effective) 11%, transparent);
-  }
-}
-
-.conversation-row.active .row-pinned {
-  color: var(--weq-accent-ink, var(--weq-fg-secondary));
 }
 
 .conversation-row.active .row-draft svg {

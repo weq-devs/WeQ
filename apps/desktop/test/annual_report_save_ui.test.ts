@@ -32,6 +32,11 @@ vi.mock('../src/renderer/src/lib/target', () => ({
     return state.web;
   },
 }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({
+  get IS_WEB() {
+    return state.web;
+  },
+}));
 vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   useExportSavePolicy: () => {
     const configId = state.configId;
@@ -56,7 +61,14 @@ vi.mock('../src/renderer/src/views/annual-report/exportHtml', () => ({
   preloadReportAssets: state.preload,
   buildReportHtml: (year: number) => `<html>report-${year}</html>`,
 }));
-vi.mock('../src/renderer/src/components/Toast', () => ({ useToast: () => state.toast }));
+vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToastApi: () => ({ push: state.toast }),
+  useToast: () => state.toast,
+}));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
+  useToastApi: () => ({ push: state.toast }),
+  useToast: () => state.toast,
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     account: {

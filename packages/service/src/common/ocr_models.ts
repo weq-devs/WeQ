@@ -82,7 +82,8 @@ export type OcrModelStatus = OcrModelInfo & ModelDiskState;
 export type OcrDownloadProgress = ModelDownloadProgress;
 
 /** 上游仓库：RapidOCR 托管的 PP-OCR ONNX 模型（ModelScope）。 */
-const RAPIDOCR_ROOT = 'https://modelscope.cn/models/RapidAI/RapidOCR/resolve/master';
+export const RAPIDOCR_REVISION = '7d0781614ca1a83d5ad9603f713acb2e74855d72';
+const RAPIDOCR_ROOT = `https://modelscope.cn/models/RapidAI/RapidOCR/resolve/${RAPIDOCR_REVISION}`;
 
 /** 按字节数算每个文件的下载权重（和为 1），避免手写小数在改体积后漂移。 */
 function buildFiles(specs: readonly OcrFileSpec[]): ModelFile[] {
@@ -91,6 +92,10 @@ function buildFiles(specs: readonly OcrFileSpec[]): ModelFile[] {
     key: s.key,
     name: s.name,
     url: `${RAPIDOCR_ROOT}/${s.path}`,
+    sources: [
+      `${RAPIDOCR_ROOT}/${s.path}`,
+      `${RAPIDOCR_ROOT.replace('://modelscope.cn', '://www.modelscope.cn')}/${s.path}`,
+    ],
     weight: total > 0 ? s.bytes / total : 0,
     sizeBytes: s.bytes,
     sha256: s.sha256,

@@ -1,12 +1,14 @@
+import { NumericText } from '../NumericText';
 import { useEffect, useId, useRef, useState } from 'react';
-import { FileArchive, FolderOpen, ImageOff, Loader2, RotateCw, Upload, X } from 'lucide-react';
+import { FileArchive, FolderOpen, ImageOff, Loader2, RefreshCw, Upload, X } from 'lucide-react';
 import type { FavoriteEmojiImportPreview, FavoriteEmojiImportState } from '@weq/service';
 import type { QQWriteBinding } from '../../hooks/useQQWriteSession';
 import { client, trpc } from '../../trpc/client';
 import { localFileUrl } from '../../lib/resourceUrl';
 import { pickAccountFile } from '../../lib/accountFilePicker';
-import { Modal, useDialog } from '../Dialog';
-import { useTabActive } from '../RetainedTabs';
+import { Modal } from '../Dialog';
+import { useDialog } from '../Dialog.shared';
+import { useTabActive } from '../RetainedTabs.shared';
 import { ActionIcon } from './shared';
 import '../../styles/favorite-emoji-import.css';
 
@@ -271,7 +273,11 @@ export function FavoriteBundleImport({
             </div>
             <div className="weq-favorite-import-toolbar">
               <span>
-                {stage ? `${stage.items.length} 项 · 已选 ${selected.size} 项` : '选择收藏表情 ZIP'}
+                {stage ? (
+                  <NumericText>{`${stage.items.length} 项 · 已选 ${selected.size} 项`}</NumericText>
+                ) : (
+                  '选择收藏表情 ZIP'
+                )}
               </span>
               <div>
                 <ActionIcon
@@ -315,17 +321,24 @@ export function FavoriteBundleImport({
                       ? '正在停止，等待在途请求返回'
                       : '正在导入'
                     : '本批导入已结束'}{' '}
-                  · {done}/{total}
+                  · <span className="weq-number weq-number-inherit">{done}</span>/
+                  <span className="weq-number weq-number-inherit">{total}</span>
                 </span>
                 <progress aria-label="收藏表情导入进度" max={Math.max(1, total)} value={done} />
                 {stage.phase === 'finished' && (
                   <span>
                     已确认{' '}
-                    {stage.result?.items.filter((item) => item.state === 'confirmed').length ?? 0}{' '}
+                    <span className="weq-number weq-number-inherit">
+                      {stage.result?.items.filter((item) => item.state === 'confirmed').length ?? 0}
+                    </span>{' '}
                     项 · 失败或待核对{' '}
-                    {stage.result?.items.filter((item) =>
-                      ['failed', 'unconfirmed', 'metadata-failed', 'accepted'].includes(item.state),
-                    ).length ?? 0}{' '}
+                    <span className="weq-number weq-number-inherit">
+                      {stage.result?.items.filter((item) =>
+                        ['failed', 'unconfirmed', 'metadata-failed', 'accepted'].includes(
+                          item.state,
+                        ),
+                      ).length ?? 0}
+                    </span>{' '}
                     项
                   </span>
                 )}
@@ -347,7 +360,7 @@ export function FavoriteBundleImport({
                 disabled={pending || state.isFetching || !binding || !active}
                 onClick={() => void recheck()}
               >
-                <RotateCw size={16} />
+                <RefreshCw size={16} aria-hidden />
               </ActionIcon>
             ) : null}
             {stage?.phase === 'ready' && (
@@ -413,7 +426,8 @@ export function FavoriteBundleImport({
                           }}
                         >
                           <strong>
-                            {item.position}. {item.description || '未命名表情'}
+                            <span className="weq-number weq-number-inherit">{item.position}</span>.{' '}
+                            {item.description || '未命名表情'}
                           </strong>
                           <span>
                             {result
@@ -421,7 +435,11 @@ export function FavoriteBundleImport({
                               : stage.result && item.disposition === 'ready'
                                 ? '未选择'
                                 : planLabels[item.disposition]}
-                            {item.byteLength ? ` · ${Math.ceil(item.byteLength / 1024)} KiB` : ''}
+                            {item.byteLength ? (
+                              <NumericText>{` · ${Math.ceil(item.byteLength / 1024)} KiB`}</NumericText>
+                            ) : (
+                              ''
+                            )}
                           </span>
                           {(result?.issue || item.issue) && (
                             <span className="weq-favorite-import-error">

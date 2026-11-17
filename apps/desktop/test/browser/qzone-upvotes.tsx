@@ -24,7 +24,7 @@ function Scene() {
         <div className="weq-qzn-actions">
           <QzonePostUpvotes
             selfUin="10001"
-            hostUin="10002"
+            hostUin={query.get('mode') === 'manage' ? '10001' : '10002'}
             tid="fixture"
             time={1700000000}
             enabled

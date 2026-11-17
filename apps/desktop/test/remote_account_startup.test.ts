@@ -42,7 +42,18 @@ vi.mock('../src/renderer/src/lib/target', () => ({
   DesktopOnly: () => null,
   shellBridge: () => undefined,
 }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({
+  get IS_WEB() {
+    return api.web;
+  },
+  IS_MAC: true,
+  DesktopOnly: () => null,
+  shellBridge: () => undefined,
+}));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
+  useDialog: () => api.error,
+}));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
   useDialog: () => api.error,
 }));
 vi.mock('../src/renderer/src/lib/windowLayout', () => ({ setWindowLayout: vi.fn() }));

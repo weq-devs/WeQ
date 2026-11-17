@@ -1,9 +1,50 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import { readFile, readdir, rm, stat } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 import { hashFile, readCache, writeJson } from './dev-prepare.mjs';
 import { startupLog } from './dev-process.mjs';
+
+/** 跟随桌面开发服务启停，Electron 重启不重启 Web 的模块图与预构建。 */
+export function developmentWeb(root, { plugins = [] } = {}) {
+  return {
+    name: 'weq-development-web',
+    apply: 'serve',
+    async configureServer(desktop) {
+      if (!desktop.httpServer) throw new Error('桌面开发服务缺少 HTTP 监听');
+      const require = createRequire(join(root, 'apps/web/package.json'));
+      const { createServer } = await import(pathToFileURL(require.resolve('vite')).href);
+      const web = await createServer({
+        plugins,
+        configFile: join(root, 'apps/web/vite.config.ts'),
+        mode: 'development',
+        server: {
+          host: '127.0.0.1',
+          port: 0,
+          open: false,
+          ws: { path: '/_weq-dev/hmr' },
+        },
+      });
+      try {
+        await web.listen();
+        const address = web.httpServer.address();
+        if (!address || typeof address === 'string') throw new Error('Web 开发监听地址无效');
+        const url = `http://127.0.0.1:${address.port}`;
+        process.env.WEQ_DEV_WEB_URL = url;
+        desktop.httpServer.once('close', () => {
+          if (process.env.WEQ_DEV_WEB_URL === url) delete process.env.WEQ_DEV_WEB_URL;
+          void web.close();
+        });
+        startupLog('内置 Web 热更新已就绪（沿用原 Web／Remote 地址）', 'debug', 'vite-web');
+      } catch (error) {
+        await web.close();
+        throw error;
+      }
+    },
+  };
+}
 
 const inputs = [
   'apps/desktop/src/renderer',

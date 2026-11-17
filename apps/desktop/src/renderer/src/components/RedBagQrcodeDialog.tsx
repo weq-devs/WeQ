@@ -10,45 +10,10 @@
  */
 
 import type { ReactElement } from 'react';
-import { createPortal } from 'react-dom';
-import { create } from 'zustand';
 import { ScanLine, X } from 'lucide-react';
-import { useOverlayLayer } from '../lib/overlayStack';
-import { useEscapeToClose } from '../im-template/template/modalUtils';
-
-export interface RedBagQrcodeResult {
-  /** 二维码 PNG 的 base64（不含 data URL 前缀）。 */
-  qrcodeBase64: string;
-  /** 是否拼手气（false = 等额）。 */
-  lucky: boolean;
-  /** 是否口令红包。 */
-  password: boolean;
-  /** 红包个数。 */
-  totalNum: number;
-  /** 总金额，单位分。 */
-  totalAmount: number;
-}
-
-interface RedBagQrcodeStore {
-  result: RedBagQrcodeResult | null;
-  open(result: RedBagQrcodeResult): void;
-  close(): void;
-}
-
-const useRedBagQrcodeStore = create<RedBagQrcodeStore>((set) => ({
-  result: null,
-  open(result) {
-    set({ result });
-  },
-  close() {
-    set({ result: null });
-  },
-}));
-
-/** 命令式打开红包二维码灯箱。 */
-export function openRedBagQrcode(result: RedBagQrcodeResult): void {
-  useRedBagQrcodeStore.getState().open(result);
-}
+import { OverlayLayer } from './OverlayLayer';
+import '../styles/redbag-dialog.css';
+import { type RedBagQrcodeResult, useRedBagQrcodeStore } from './RedBagQrcodeDialog.shared';
 
 function formatAmount(cents: number): string {
   return (cents / 100).toFixed(2);
@@ -67,18 +32,8 @@ function RedBagQrcodeDialog({
   result: RedBagQrcodeResult;
   onClose: () => void;
 }): ReactElement {
-  useEscapeToClose(onClose);
-  const layer = useOverlayLayer(true);
-
-  return createPortal(
-    <div
-      className="weq-redbag-qr-layer weq-anim-fade"
-      style={layer ? { zIndex: layer } : undefined}
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
+  return (
+    <OverlayLayer className="weq-redbag-qr-layer weq-anim-fade" onClose={onClose}>
       <section
         className="weq-redbag-qr"
         role="dialog"
@@ -86,8 +41,14 @@ function RedBagQrcodeDialog({
         aria-label="红包支付二维码"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <button className="weq-redbag-qr-close" type="button" title="关闭" onClick={onClose}>
-          <X size={18} />
+        <button
+          className="weq-redbag-qr-close"
+          type="button"
+          title="关闭"
+          aria-label="关闭红包支付二维码"
+          onClick={onClose}
+        >
+          <X size={18} aria-hidden />
         </button>
 
         <div className="weq-redbag-qr-badge">
@@ -103,13 +64,19 @@ function RedBagQrcodeDialog({
         />
 
         <div className="weq-redbag-qr-meta">
-          <span className="weq-redbag-qr-amount">¥{formatAmount(result.totalAmount)}</span>
-          <span className="weq-redbag-qr-count">{result.totalNum} 个</span>
+          <span className="weq-redbag-qr-amount">
+            ¥
+            <span className="weq-number weq-number-inherit">
+              {formatAmount(result.totalAmount)}
+            </span>
+          </span>
+          <span className="weq-redbag-qr-count">
+            <span className="weq-number weq-number-inherit">{result.totalNum}</span> 个
+          </span>
         </div>
         <p className="weq-redbag-qr-hint">用手机 QQ 完成支付</p>
       </section>
-    </div>,
-    document.body,
+    </OverlayLayer>
   );
 }
 
@@ -120,3 +87,4 @@ export function RedBagQrcodeHost(): ReactElement | null {
   if (!result) return null;
   return <RedBagQrcodeDialog result={result} onClose={close} />;
 }
+export type { RedBagQrcodeResult } from './RedBagQrcodeDialog.shared';

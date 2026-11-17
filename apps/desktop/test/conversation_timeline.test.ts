@@ -4,7 +4,7 @@ import {
   normalizeRange,
   smoothLine,
   weeksInRange,
-} from '../src/renderer/src/components/conversationTimeline';
+} from '../src/renderer/src/components/conversationTimeline.shared';
 
 function day(year: number, month: number, date: number): number {
   return Math.floor(new Date(year, month - 1, date, 12).getTime() / 1000);

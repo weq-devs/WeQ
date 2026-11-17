@@ -23,6 +23,7 @@ export type QzoneCardTarget =
 export const QzoneCardNavigationContext = createContext<((target: QzoneCardTarget) => void) | null>(
   null,
 );
+export const QzonePublicNavigationContext = createContext<(() => void) | null>(null);
 
 /** 只接收可验证的空间永久链接，不从标题、摘要或图片链接推测身份。 */
 export function qzoneCardTarget(value: string, depth = 0): QzoneCardTarget | null {

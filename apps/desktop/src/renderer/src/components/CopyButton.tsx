@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ComponentPropsWithoutRef } from 'react';
 import { copyTextToClipboard } from '../im-template/template/clipboard';
-import { useToast } from './Toast';
+import { useToastApi } from './Toast.shared';
 import '../styles/copy-feedback.css';
 
 /** 字段复制共用就地反馈，不改变原按钮内容或布局。 */
@@ -10,6 +10,7 @@ export function CopyButton({
   className = '',
   ...props
 }: Omit<ComponentPropsWithoutRef<'button'>, 'onClick'> & { text: string }) {
+  const notificationToast = useToastApi();
   const [copied, setCopied] = useState(0);
   const pending = useRef(0);
   useEffect(() => {
@@ -40,9 +41,11 @@ export function CopyButton({
         if (ok) {
           setCopied(revision);
         } else {
-          useToast
-            .getState()
-            .push({ tone: 'error', title: '复制失败', detail: '无法写入剪贴板，请重试。' });
+          notificationToast.push({
+            tone: 'error',
+            title: '复制失败',
+            detail: '无法写入剪贴板，请重试。',
+          });
         }
       }}
     >

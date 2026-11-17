@@ -10,7 +10,7 @@ import { trpc, trpcClient } from './client';
 import { WebStartupCache } from '../lib/webStartupCache';
 import { installDevelopmentTiming } from '../lib/developmentTiming';
 import { configureBusinessCache } from '../lib/webBusinessCache';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import { createQueryClient } from './queryClient';
 
 export function TrpcProvider({ children }: { children: ReactNode }): ReactElement {

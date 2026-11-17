@@ -118,7 +118,7 @@ export class VipBadgeService {
         pid,
         seedPskey: seed ? { [VIP_PSKEY_DOMAIN]: seed } : undefined,
         beforeRequest: () => {
-          if (this.stopped || !this.allowOnline()) throw new Error('当前来源未启用完整功能');
+          if (this.stopped || !this.allowOnline()) throw new Error('当前来源未启用 QQ 在线能力');
         },
         onSeedInvalidated: (domain) => this.accountConfig.clearLoginPskey(domain),
       });

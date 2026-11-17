@@ -11,14 +11,14 @@ import {
 import type { PersonalityHomeProfile } from './PersonalityHomeDialog';
 import { MutualMarkDialog } from './MutualMarkDialog';
 import { IntentProfileDialog } from './intentSense/IntentProfileDialog';
-import { useIntentSenseStatus } from './intentSense/context';
+import { useIntentSenseStatus } from './intentSense/context.shared';
 import { usePersonRelationship } from '../lib/contactRelationship';
 import { ContactContent } from './contactProfile/ContactContent';
 import { ContactGroupWorkspace } from './contactProfile/ContactGroupWorkspace';
 import { ProfileDisclosure } from './contactProfile/ProfileDisclosure';
 import { ContactSection } from './contactProfile/ContactRow';
 import { ProfileExtrasContent } from './ProfileExtras';
-import { useSelfProfileFields } from './SelfProfileFields';
+import { useSelfProfileFields } from './SelfProfileFields.shared';
 import { ProfileDisplayEntry, ProfileDisplaySettingField } from './ProfileDisplaySettings';
 import { ProfileWorkspace } from './ProfileWorkspace';
 import { ContactDressRow } from './contactProfile/ContactDressRow';

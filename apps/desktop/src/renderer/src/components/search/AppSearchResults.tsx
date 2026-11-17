@@ -1,7 +1,7 @@
 import { EmptyState } from '../EmptyState';
-import { Settings2, SearchX } from 'lucide-react';
-import { highlightText } from './SearchResultCard';
-import { searchAppEntries, type AppSearchEntry } from './appSearchCatalog';
+import { SearchX } from 'lucide-react';
+import { highlightText } from './SearchResultCard.shared';
+import { appSearchIcon, searchAppEntries, type AppSearchEntry } from './appSearchCatalog';
 import '../../styles/app-search.css';
 
 export function AppSearchResults({
@@ -28,24 +28,27 @@ export function AppSearchResults({
         ) : null}
       </div>
       {!entries.length ? <EmptyState variant="inline" icon={<SearchX />} title="无结果" /> : null}
-      {(expanded ? entries : entries.slice(0, 6)).map((entry) => (
-        <button
-          key={entry.id}
-          type="button"
-          role="option"
-          className="weq-search-row"
-          data-search-hit-key={`app:${entry.id}`}
-          onClick={() => onSelect(entry)}
-        >
-          <span className="weq-search-avatar weq-search-source-icon">
-            <Settings2 size={20} />
-          </span>
-          <span className="weq-search-text">
-            <span className="weq-search-name">{highlightText(entry.title, keyword)}</span>
-            <span className="weq-search-snippet">{entry.path}</span>
-          </span>
-        </button>
-      ))}
+      {(expanded ? entries : entries.slice(0, 6)).map((entry) => {
+        const Icon = appSearchIcon(entry.target);
+        return (
+          <button
+            key={entry.id}
+            type="button"
+            role="option"
+            className="weq-search-row"
+            data-search-hit-key={`app:${entry.id}`}
+            onClick={() => onSelect(entry)}
+          >
+            <span className="weq-search-avatar weq-search-source-icon" aria-hidden>
+              <Icon size={20} strokeWidth={1.8} />
+            </span>
+            <span className="weq-search-text">
+              <span className="weq-search-name">{highlightText(entry.title, keyword)}</span>
+              <span className="weq-search-snippet">{entry.path}</span>
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }

@@ -1,7 +1,8 @@
 import { createRoot } from 'react-dom/client';
 import { Download, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { Card, Row } from '../../src/renderer/src/components/settings/controls';
-import { BackupSection, backupApi } from '../../src/renderer/src/components/settings/BackupSection';
+import { BackupSection } from '../../src/renderer/src/components/settings/BackupSection';
+import { backupApi } from '../../src/renderer/src/components/settings/BackupSection.shared';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/im-template/styles.css';
@@ -10,6 +11,7 @@ import '../../src/renderer/src/styles/backup.css';
 
 ensureThemeInitialized();
 Object.assign(window, { settingsActionsQa: useThemeStore });
+const restore = new URLSearchParams(location.search).get('restore');
 
 createRoot(document.getElementById('root')!).render(
   <>
@@ -39,10 +41,38 @@ createRoot(document.getElementById('root')!).render(
           <BackupSection
             api={{
               ...backupApi,
+              defaultsInfo: async () => ({
+                hasApi: true,
+                paths: [
+                  {
+                    id: 'defaultExportDir',
+                    label: '导出目录',
+                    value: `/synthetic/${'long-path/'.repeat(12)}exports`,
+                  },
+                ],
+                connections: [{ id: 'webEnabled', label: 'Web 服务', value: '运行中' }],
+              }),
+              defaults: async () => {
+                throw new Error('合成恢复失败，可重新确认');
+              },
               inventory: async () => ({
                 accounts: [],
                 cloneScopes: [],
-                restore: { pending: null, result: null },
+                restore: {
+                  pending: null,
+                  result: restore
+                    ? {
+                        id: 'synthetic-restore',
+                        status: restore === 'failed' ? 'failed' : 'applied',
+                        completedAt: '2026-11-16T00:00:00Z',
+                        applied: ['settings'],
+                        skipped: [],
+                        warnings: ['合成恢复提示'],
+                        clientPending: restore === 'pending',
+                        ...(restore === 'failed' ? { error: '合成恢复失败' } : {}),
+                      }
+                    : null,
+                },
                 canPickFile: true,
                 canRestart: false,
                 maxArchiveBytes: 260 * 1024 * 1024,

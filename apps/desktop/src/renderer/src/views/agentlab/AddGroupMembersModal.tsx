@@ -1,3 +1,4 @@
+import { NumericText } from '../../components/NumericText';
 import { EmptyState } from '../../components/EmptyState';
 import { useId, useRef, useState } from 'react';
 import { Search, UserPlus, X, SearchX, UsersRound } from 'lucide-react';
@@ -168,12 +169,12 @@ export function AddGroupMembersModal({
         </button>
         <button
           type="button"
-          className="weq-set-btn"
+          className="weq-set-btn weq-set-btn-primary"
           disabled={disabled || additions.length === 0}
           onClick={() => void submit()}
         >
           <UserPlus size={14} />
-          {submitting ? '添加中…' : `添加（${additions.length}）`}
+          {submitting ? '添加中…' : <NumericText>{`添加（${additions.length}）`}</NumericText>}
         </button>
       </footer>
     </Modal>

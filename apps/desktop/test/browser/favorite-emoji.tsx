@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { ChatPane } from '../../src/renderer/src/im-template/template/chatPane';
-import { qqMessageRenderer } from '../../src/renderer/src/components/QqMessageContent';
+import { qqMessageRenderer } from '../../src/renderer/src/components/QqMessageContent.shared';
 import { createTemplateDemoData } from '../support/templateDemoData';
 import type { Message } from '../../src/renderer/src/im-template/template/types';
 import { ToastHost } from '../../src/renderer/src/components/Toast';

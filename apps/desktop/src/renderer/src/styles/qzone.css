@@ -75,7 +75,7 @@
   padding: 0 26px 14px;
   justify-content: space-between;
   flex-wrap: wrap;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 .weq-qzn-navigation nav {
   gap: 4px;
@@ -124,7 +124,7 @@
 }
 .weq-qzn-post {
   padding: 22px 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 .weq-qzn-post:first-of-type {
   padding-top: 4px;
@@ -713,7 +713,7 @@
   flex-wrap: wrap;
   gap: 4px;
   margin-bottom: 16px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--weq-border-subtle);
   padding-bottom: 8px;
 }
 .weq-qzn-related-tabs button {
@@ -774,7 +774,7 @@
   transform: rotate(180deg);
 }
 .weq-qzn-related-detail {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--weq-border-subtle);
   padding: 10px 12px 12px 40px;
   font-size: 12px;
 }

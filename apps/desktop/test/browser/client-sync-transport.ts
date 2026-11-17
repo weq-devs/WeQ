@@ -1,5 +1,5 @@
 import { createWSClient, httpBatchLink, splitLink, wsLink } from '@trpc/client';
-import { IS_WEB } from '../../src/renderer/src/lib/target';
+import { IS_WEB } from '../../src/renderer/src/lib/target.shared';
 export function createLinks() {
   const ws = createWSClient({
     url: `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/trpc-ws`,

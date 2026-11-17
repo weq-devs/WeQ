@@ -7,6 +7,7 @@ import {
   restoreBackupClient,
   type BackupStartupState,
 } from '../src/renderer/src/lib/backupClientRestore';
+import { createPageSnapshotStorage, pageValue } from '../src/renderer/src/lib/pageSnapshots';
 
 const localStorage = new Storage();
 beforeEach(() => localStorage.clear());
@@ -57,13 +58,28 @@ it('恢复默认专用回执经启动交接应用，保留会话整理与草稿�
   localStorage.setItem('weq.contacts.order.10001.10001.friends', '{}');
   localStorage.setItem('chat-template:conversation-preferences', '合成置顶');
   localStorage.setItem('draft', '合成草稿');
+  const snapshots = createPageSnapshotStorage(() => localStorage);
+  const settings = JSON.stringify(['bootstrap-settings', 'settings:active']);
+  const scope = JSON.stringify(['10001', 'source-a']);
+  const scroll = JSON.stringify([JSON.stringify([scope, 'qzone']), 'scroll']);
+  const draft = JSON.stringify([scope, 'input']);
+  snapshots.write(settings, 'backup');
+  snapshots.write(scroll, 900);
+  snapshots.write(draft, '未发送草稿', true);
   await restoreBackupClient(f.api, localStorage);
   expect(localStorage.getItem('weq.contacts.order.10001.10001.friends')).toBeNull();
   expect(localStorage.getItem('chat-template:conversation-preferences')).toBe('合成置顶');
   expect(localStorage.getItem('draft')).toBe('合成草稿');
+  expect(snapshots.read(settings, pageValue.string)).toBeUndefined();
+  expect(snapshots.read(scroll, pageValue.number)).toBeUndefined();
+  expect(snapshots.read(draft, pageValue.string, true)).toBe('未发送草稿');
   localStorage.setItem('weq.contacts.order.10001.10001.friends', '{"sort":"qq"}');
+  snapshots.write(settings, 'startup');
+  snapshots.write(scroll, 120);
   await restoreBackupClient(f.api, localStorage);
   expect(localStorage.getItem('weq.contacts.order.10001.10001.friends')).toBe('{"sort":"qq"}');
+  expect(snapshots.read(settings, pageValue.string)).toBe('startup');
+  expect(snapshots.read(scroll, pageValue.number)).toBe(120);
 });
 it('无待恢复界面数据时不读取被浏览器禁用的 localStorage', async () => {
   const f = fixture();

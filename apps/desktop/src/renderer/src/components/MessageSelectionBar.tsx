@@ -22,7 +22,9 @@ export function MessageSelectionBar({
         aria-label={`已选 ${count} ${unit}${subject}`}
         aria-live="polite"
       >
-        <span className="selection-bar-count">{count}</span>
+        <span className="selection-bar-count">
+          <span className="weq-number weq-number-inherit">{count}</span>
+        </span>
         <span className="selection-bar-label">{unit}已选</span>
         {detail}
       </div>

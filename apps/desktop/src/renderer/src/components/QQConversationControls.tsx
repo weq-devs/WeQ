@@ -3,9 +3,7 @@ import {
   BellOff,
   MessageSquareText,
   Pin,
-  Sparkles,
   RefreshCw,
-  Star,
   UserRound,
   UserRoundCog,
   Wifi,
@@ -16,8 +14,9 @@ import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { useFriendSpecialCare } from '../hooks/useFriendSpecialCare';
 import { groupMemberEditing } from '../lib/groupMemberEditing';
+import { FEATURE_ICONS } from '../lib/featureIcons.shared';
 import { Card } from './settings/controls';
-import { useDialog } from './Dialog';
+import { useDialog } from './Dialog.shared';
 import { GroupActions } from './qq-actions/GroupActions';
 import { QzoneFriendPermissions } from './qq-actions/QzoneFriendPermissions';
 import {
@@ -25,15 +24,9 @@ import {
   QQWriteSelectRow,
   QQWriteTextRow,
   QQWriteToggleRow,
-  qqWriteNeedsConfirmation,
 } from './QQWriteControls';
-
-export const GROUP_MESSAGE_POLICY_OPTIONS = [
-  { value: 1, label: '正常提醒' },
-  { value: 4, label: '接收但不提醒' },
-  { value: 2, label: '收进群助手' },
-  { value: 3, label: '屏蔽消息' },
-] as const;
+import { qqWriteNeedsConfirmation } from './QQWriteControls.shared';
+import { GROUP_MESSAGE_POLICY_OPTIONS } from './QQConversationControls.shared';
 
 export function QQConversationControls({
   kind,
@@ -257,7 +250,7 @@ export function QQConversationControls({
                   />
                   <QQWriteToggleRow
                     label="特别关心"
-                    icon={<Sparkles size={14} strokeWidth={1.8} />}
+                    icon={<FEATURE_ICONS.specialCare size={14} strokeWidth={1.8} aria-hidden />}
                     initial={specialCare.enabled}
                     disabled={friendDisabled || specialCare.disabled}
                     onSave={specialCare.change}
@@ -278,7 +271,7 @@ export function QQConversationControls({
             </Card>
           )}
           {kind === 'c2c' && state.friend && state.friendUin && (
-            <Card title="空间" icon={<Star size={15} strokeWidth={1.9} />}>
+            <Card title="QQ 空间" icon={<FEATURE_ICONS.qzone size={15} aria-hidden />}>
               <QzoneFriendPermissions targetUin={state.friendUin} />
             </Card>
           )}
@@ -315,7 +308,7 @@ export function QQConversationControls({
               />
               <QQWriteTextRow
                 label="我的专属头衔"
-                icon={<Sparkles size={14} strokeWidth={1.8} />}
+                icon={<FEATURE_ICONS.groupTitle size={14} strokeWidth={1.8} aria-hidden />}
                 initial={state.selfTitle}
                 readOnly={state.role !== 'owner'}
                 disabled={disabled || !state.selfUid}

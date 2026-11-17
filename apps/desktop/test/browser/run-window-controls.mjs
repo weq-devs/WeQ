@@ -62,7 +62,7 @@ try {
       new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
     );
     await page.goto(`${origin}/test/browser/window-controls.html`);
-    await page.getByText('提醒与窗口', { exact: true }).waitFor();
+    if (platform !== 'win32') await page.getByText('窗口外观', { exact: true }).waitFor();
     assert.equal(
       await page.getByRole('switch', { name: '使用仿 Windows 窗口按钮' }).count(),
       platform === 'win32' ? 0 : 1,

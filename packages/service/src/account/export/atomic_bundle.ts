@@ -10,11 +10,18 @@ export interface AtomicExportBundle {
 }
 
 /** Build a complete directory privately, then expose it with one same-volume rename. */
-export function createAtomicExportBundle(root: string, id: string): AtomicExportBundle {
+export function createAtomicExportBundle(
+  root: string,
+  id: string,
+  resumable = false,
+): AtomicExportBundle {
   mkdirSync(root, { recursive: true });
   const finalDir = join(root, `bundle-${id}`);
-  const stageDir = join(root, `.bundle-${id}-${randomUUID()}.partial`);
-  mkdirSync(stageDir, { recursive: false, mode: 0o700 });
+  const stageDir = join(
+    root,
+    resumable ? `.bundle-${id}.partial` : `.bundle-${id}-${randomUUID()}.partial`,
+  );
+  mkdirSync(stageDir, { recursive: resumable, mode: 0o700 });
   let published = false;
   return {
     stageDir,

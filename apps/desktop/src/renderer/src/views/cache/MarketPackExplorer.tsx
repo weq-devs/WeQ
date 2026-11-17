@@ -17,6 +17,8 @@ import { eventTimeFormatter } from '@weq/time';
 
 import { useState, type ReactElement } from 'react';
 import { useDebouncedLoading } from '../../hooks/useDebouncedLoading';
+import { useDevelopmentDressTools } from '../../hooks/useDevelopmentDressTools';
+import { MarketEmojiExplorer } from './MarketEmojiExplorer';
 import {
   ArrowLeft,
   KeyRound,
@@ -28,11 +30,12 @@ import {
 } from 'lucide-react';
 import type { MarketEmoticonPackage, MarketPackFeeType } from '@weq/service';
 import { trpc } from '../../trpc/client';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { MarketKeyDialog } from './MarketKeyDialog';
 import { GridSkeleton, InfoPanelSkeleton } from './CacheSkeleton';
+import { keySourceLabel } from './MarketPackExplorer.shared';
 
 /** 来源徽章元信息（文案 + 色调 class 后缀）。 */
 const FEE_META: Record<MarketPackFeeType, { label: string; tone: string }> = {
@@ -49,6 +52,11 @@ function packImageUrl(packId: string, hash: string): string {
 }
 
 export function MarketPackExplorer(): ReactElement {
+  const enabled = useDevelopmentDressTools();
+  return enabled ? <DevelopmentMarketPackExplorer /> : <MarketEmojiExplorer />;
+}
+
+function DevelopmentMarketPackExplorer(): ReactElement {
   const visible = useTabActive();
   const [openPackId, setOpenPackId] = useState<string | null>(null);
   const [showKeyTool, setShowKeyTool] = useState(false);
@@ -91,7 +99,8 @@ export function MarketPackExplorer(): ReactElement {
       <div className="weq-mpack-bar">
         <span className="weq-cache-data-name">商城表情包</span>
         <span className="weq-cache-data-meta">
-          {list.length} 个 · 点击表情包在线获取表情列表并解密查看
+          <span className="weq-number weq-number-inherit">{list.length}</span> 个 ·
+          点击表情包在线获取表情列表并解密查看
         </span>
         <button
           type="button"
@@ -185,7 +194,9 @@ function PackCard({
         <span className="weq-mpack-foot">
           <code>#{pkg.packId}</code>
           {detail.data ? (
-            <span>{detail.data.count} 张</span>
+            <span>
+              <span className="weq-number weq-number-inherit">{detail.data.count}</span> 张
+            </span>
           ) : (
             <span className="weq-mpack-loading">…</span>
           )}
@@ -248,9 +259,13 @@ function PackDetail({
             <div className="weq-mpack-panel-row">
               <span className="weq-mpack-panel-label">上架时间</span>
               <span className="weq-mpack-panel-val weq-mpack-mono">
-                {detail.data.updateTime
-                  ? eventTimeFormatter.format(new Date(detail.data.updateTime * 1000))
-                  : '未知'}
+                {detail.data.updateTime ? (
+                  <span className="weq-number weq-number-inherit">
+                    {eventTimeFormatter.format(new Date(detail.data.updateTime * 1000))}
+                  </span>
+                ) : (
+                  '未知'
+                )}
               </span>
             </div>
             <div className="weq-mpack-panel-row">
@@ -262,7 +277,10 @@ function PackDetail({
                   <>
                     <code className="weq-mpack-key">{keyInfo.data.key}</code>
                     <em className="weq-mpack-key-src">
-                      {keySourceLabel(keyInfo.data.source)} · 时间戳 {keyInfo.data.timestamp}
+                      {keySourceLabel(keyInfo.data.source)} · 时间戳{' '}
+                      <span className="weq-number weq-number-inherit">
+                        {keyInfo.data.timestamp}
+                      </span>
                     </em>
                   </>
                 ) : keyInfo.isLoading ? (
@@ -344,18 +362,4 @@ function EmojiCell({
       {name ? <figcaption className="weq-mpack-emoji-name">{name}</figcaption> : null}
     </figure>
   );
-}
-
-/** 密钥来源 → 中文标签。 */
-export function keySourceLabel(source: string): string {
-  switch (source) {
-    case 'xydata':
-      return '元数据种子';
-    case 'brute-force':
-      return '时间窗爆破';
-    case 'manual':
-      return '手动派生';
-    default:
-      return source;
-  }
 }

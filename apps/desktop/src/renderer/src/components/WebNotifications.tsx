@@ -3,8 +3,6 @@ import { client, trpc } from '../trpc/client';
 import { useWebNotices } from '../state/webNotices';
 import { useViewState } from '../state/view';
 import { browserNoticeChannel } from '../lib/browserNotifications';
-
-export { WEB_NOTICE_OPEN } from '../lib/browserNotifications';
 export function WebNotifications() {
   const enabled = useWebNotices((state) => state.enabled);
   const uin = useViewState((state) => state.openedUin);

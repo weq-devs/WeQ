@@ -8,10 +8,8 @@ import {
   cloneChatConversation,
   cloneChatMessages,
 } from '../src/renderer/src/views/agentlab/cloneChatAdapter';
-import {
-  ContentSelectionProvider,
-  useContentExportRequest,
-} from '../src/renderer/src/state/contentSelection';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
+import { useContentExportRequest } from '../src/renderer/src/state/contentSelection.shared';
 
 const copied = vi.hoisted(() => vi.fn(async (_value: { text: string; html: string }) => true));
 vi.mock('../src/renderer/src/lib/mentionClipboard', async (importOriginal) => ({

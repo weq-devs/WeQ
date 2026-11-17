@@ -1,6 +1,6 @@
 import type { Message } from '../im-template/template/types';
 import { forwardResIdOf } from '../components/mergeForward/model';
-import { isArkMultiMsg } from '../components/ForwardWindow';
+import { isArkMultiMsg } from '../components/ForwardWindow.shared';
 
 export interface ForwardExportTarget {
   elementIndex: number;

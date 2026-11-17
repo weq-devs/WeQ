@@ -8,6 +8,25 @@ if (target.dbName === 'hang.db') {
   // 模拟卡在原生结构检查或逐页扫描，不处理任何取消消息。
   setInterval(() => {}, 1000);
 } else {
+  if (target.dbName === 'stream.db') {
+    const tick = Buffer.from(
+      `${JSON.stringify({
+        type: 'progress',
+        progress: {
+          step: 'pages',
+          message: '页检查',
+          completed: 2,
+          total: 4,
+          unit: 'pages',
+        },
+      })}\n`,
+    );
+    const split = tick.indexOf(Buffer.from('页')) + 1;
+    process.stdout.write(tick.subarray(0, split));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    process.stdout.write(tick.subarray(split));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
   process.stdout.write(
     JSON.stringify({
       dbName: target.dbName,

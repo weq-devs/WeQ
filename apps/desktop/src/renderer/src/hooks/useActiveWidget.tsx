@@ -19,39 +19,10 @@
  * 去重了。
  */
 
-import { createContext, useContext, type ReactElement, type ReactNode } from 'react';
-import type { DressScope, ResolvedWidget } from '@weq/service';
+import type { ReactElement, ReactNode } from 'react';
 import { trpc } from '../trpc/client';
 import { activeFontFxFromManifest, activeWidgetFromManifest } from './useDressSkin';
-import type { FontFxSkin } from '../lib/dressSkin';
-
-/** 生效挂件 + 作用范围。`widget` 为 null = 没选或清单里已查不到（回退 QQ 自己的挂件）。 */
-export interface ActiveWidgetInfo {
-  widget: ResolvedWidget | null;
-  scope: DressScope;
-  /** 本地使用中的字体（包括没有炫彩帧的普通款）优先于消息字体。 */
-  fontActive?: boolean;
-  /** 本地使用中的气泡优先于消息气泡。 */
-  bubbleActive?: boolean;
-}
-
-export const ActiveWidgetContext = createContext<ActiveWidgetInfo>({
-  widget: null,
-  scope: 'mine',
-});
-
-export function useActiveWidget(): ActiveWidgetInfo {
-  return useContext(ActiveWidgetContext);
-}
-
-/**
- * 生效字体的炫彩素材。null = 没选字体、或这款字体没有 `eimg`（绝大多数款如此）。
- */
-export const ActiveFontFxContext = createContext<FontFxSkin | null>(null);
-
-export function useActiveFontFx(): FontFxSkin | null {
-  return useContext(ActiveFontFxContext);
-}
+import { ActiveWidgetContext, ActiveFontFxContext } from './useActiveWidget.shared';
 
 /** 广播生效挂件。必须包住 ForwardWindowHost（转发窗口里的头像同样要叠）。 */
 export function ActiveWidgetProvider({
@@ -85,3 +56,4 @@ export function ActiveWidgetProvider({
     </ActiveWidgetContext.Provider>
   );
 }
+export type { ActiveWidgetInfo } from './useActiveWidget.shared';

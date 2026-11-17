@@ -1,15 +1,14 @@
 // @ts-nocheck
+import { NumericText } from '../../components/NumericText';
 import { EmptyState } from '../../components/EmptyState';
 import {
   Award,
   Bot,
   CalendarCheck,
   ChevronRight,
-  FolderOpen,
-  Images,
   MoreHorizontal,
   Search,
-  Sparkles,
+  RefreshCw,
   UserMinus,
   UserPlus,
   X,
@@ -30,12 +29,13 @@ import type { GroupConversationView } from './conversationDetailsTypes';
 import { useEventContextValue } from '../../hooks/useEventContextValue';
 import { displayUserName } from './user';
 import { cn } from './classNames';
+import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import { OverlayScrollbar } from '../../components/OverlayScrollbar';
 import { formatShortDate } from './format';
 import { GroupMessageBadge } from '../../components/GroupMessageBadge';
 import { GroupProfileMetrics } from '../../components/GroupProfileMetrics';
 import { VirtualConversationBadge } from '../../components/VirtualConversationAvatar';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import { RankingModal } from '../../components/relationGraph/RankingModal';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import '../../styles/conversation-actions.css';
@@ -416,7 +416,7 @@ export function GroupInfoPanel({
             aria-expanded={activeFeature === 'essence'}
             title="群精华"
           >
-            <Sparkles size={17} />
+            <FEATURE_ICONS.groupEssence size={17} aria-hidden />
             <span>精华</span>
           </button>
         ) : null}
@@ -426,7 +426,7 @@ export function GroupInfoPanel({
             onClick={(event) => onOpenAlbums(event.currentTarget)}
             title="群相册"
           >
-            <Images size={17} />
+            <FEATURE_ICONS.groupAlbum size={17} aria-hidden />
             <span>相册</span>
           </button>
         ) : null}
@@ -436,7 +436,7 @@ export function GroupInfoPanel({
             onClick={(event) => onOpenFiles(event.currentTarget)}
             title="群文件"
           >
-            <FolderOpen size={17} />
+            <FEATURE_ICONS.groupFile size={17} aria-hidden />
             <span>文件</span>
           </button>
         ) : null}
@@ -447,9 +447,11 @@ export function GroupInfoPanel({
       <header className={cn('group-info-heading group-info-title-row')}>
         <strong>
           群聊成员{' '}
-          {searching
-            ? `${rows.length}/${memberSearch?.total ?? 0}`
-            : conversation.group.memberCount}
+          {searching ? (
+            <NumericText>{`${rows.length}/${memberSearch?.total ?? 0}`}</NumericText>
+          ) : (
+            <span className="weq-number weq-number-inherit">{conversation.group.memberCount}</span>
+          )}
         </strong>
         {onAddMember ? (
           <button
@@ -531,7 +533,9 @@ export function GroupInfoPanel({
         />
         {searching && rows.length > 0 && memberSearch?.hasMore ? (
           <div className={cn('group-info-member-hint')}>
-            已显示 {rows.length} / {memberSearch?.total ?? 0} 位匹配成员，继续滚动加载更多
+            已显示 <span className="weq-number weq-number-inherit">{rows.length}</span> /{' '}
+            <span className="weq-number weq-number-inherit">{memberSearch?.total ?? 0}</span>{' '}
+            位匹配成员，继续滚动加载更多
           </div>
         ) : null}
         {activeError ? (
@@ -539,6 +543,7 @@ export function GroupInfoPanel({
             加载失败：{activeError}
             {!searching && onRetryMembers ? (
               <button type="button" disabled={fetching} onClick={onRetryMembers}>
+                <RefreshCw size={14} aria-hidden />
                 重新加载
               </button>
             ) : null}

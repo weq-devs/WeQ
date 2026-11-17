@@ -20,13 +20,11 @@ import { GroupAlbumManagement } from '../src/renderer/src/components/qq-actions/
 import { QQExactLookup } from '../src/renderer/src/components/QQExactLookup';
 import { CommonRelationships } from '../src/renderer/src/components/qq-actions/CommonRelationships';
 import { ContactList } from '../src/renderer/src/im-template/template/conversationLists';
-import { FriendDirectoryContext } from '../src/renderer/src/components/FriendDirectoryControls';
+import { FriendDirectoryContext } from '../src/renderer/src/components/FriendDirectoryControls.shared';
 import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
 import { sharedGroupConversation } from '../src/renderer/src/components/ark/groupShareCard';
-import {
-  ContentSelectionProvider,
-  useContentMultiSelect,
-} from '../src/renderer/src/state/contentSelection';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
+import { useContentMultiSelect } from '../src/renderer/src/state/contentSelection.shared';
 import { useViewState } from '../src/renderer/src/state/view';
 import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
@@ -53,6 +51,10 @@ const state = vi.hoisted(() => ({
   profiles: [] as Array<{ uin: string; uid: string; nick: string }>,
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
+  Modal: ({ children }: { children: ReactNode }) => h('div', { role: 'dialog' }, children),
+  useDialog: () => async () => state.confirm,
+}));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
   Modal: ({ children }: { children: ReactNode }) => h('div', { role: 'dialog' }, children),
   useDialog: () => async () => state.confirm,
 }));
@@ -311,7 +313,10 @@ describe('可接入功能交互回归', () => {
       state.permissions.blocked = [];
       return { state: 'unconfirmed' };
     });
-    await act(async () => remove.click());
+    await act(async () => {
+      remove.click();
+      await vi.dynamicImportSettled();
+    });
     expect(state.writeFeedback).toBe('failure-only');
     expect(state.writes).toHaveBeenCalledWith('permission', {
       expectedAccountUin: '10001',
@@ -349,35 +354,44 @@ describe('可接入功能交互回归', () => {
     state.confirm = false;
     const f = mount(() => h(QzoneFriendPermissions));
     capturePermissions(f.host, 'lists');
-    await act(async () =>
-      f.host.querySelector<HTMLButtonElement>('[aria-label^="从不让 ta 看我的空间移除"]')!.click(),
-    );
+    await act(async () => {
+      f.host.querySelector<HTMLButtonElement>('[aria-label^="从不让 ta 看我的空间移除"]')!.click();
+      await vi.dynamicImportSettled();
+    });
     expect(state.writes).not.toHaveBeenCalled();
     expect(f.host.querySelector('.weq-qzone-permission-profile[title*="10004"]')).not.toBeNull();
     expect(f.host.textContent).toContain('昵称未获取');
-    await act(async () =>
-      f.host.querySelector<HTMLButtonElement>('[aria-label="添加到不看 ta 的空间"]')!.click(),
-    );
+    await act(async () => {
+      f.host.querySelector<HTMLButtonElement>('[aria-label="添加到不看 ta 的空间"]')!.click();
+      await vi.dynamicImportSettled();
+    });
     setValue(f.host.querySelector('input')!, '合成');
     capturePermissions(f.host, 'adding');
   });
   it('空间名单可搜索添加好友，读回未确认时保留输入，确认后收起', async () => {
     const f = mount(() => h(QzoneFriendPermissions));
-    await act(async () =>
-      f.host.querySelector<HTMLButtonElement>('[aria-label="添加到不看 ta 的空间"]')!.click(),
-    );
+    await act(async () => {
+      f.host.querySelector<HTMLButtonElement>('[aria-label="添加到不看 ta 的空间"]')!.click();
+      await vi.dynamicImportSettled();
+    });
     setValue(f.host.querySelector('input')!, '合成');
     expect(f.host.querySelector('.weq-qzone-permission-candidates')?.textContent).not.toContain(
       '自己',
     );
     const add = () => f.host.querySelector<HTMLButtonElement>('[title="添加 好友备注"]')!;
-    await act(async () => add().click());
+    await act(async () => {
+      add().click();
+      await vi.dynamicImportSettled();
+    });
     expect(f.host.querySelector('input')?.value).toBe('合成');
     state.writes.mockImplementationOnce(async () => {
       state.permissions.hidden = [{ uin: '10002', name: '合成好友' }];
       return { state: 'unconfirmed' };
     });
-    await act(async () => add().click());
+    await act(async () => {
+      add().click();
+      await vi.dynamicImportSettled();
+    });
     expect(state.writes).toHaveBeenLastCalledWith('permission', {
       expectedAccountUin: '10001',
       expectedAccountConfigId: 'source-a',
@@ -390,9 +404,10 @@ describe('可接入功能交互回归', () => {
   it('空间名单拒绝重复、本人和无效号码，直接输入 QQ 号可添加；切数据源清空草稿', async () => {
     state.permissions.blocked = [{ uin: '10002', name: '已添加' }];
     const f = mount(() => h(QzoneFriendPermissions));
-    await act(async () =>
-      f.host.querySelector<HTMLButtonElement>('[aria-label="添加到不让 ta 看我的空间"]')!.click(),
-    );
+    await act(async () => {
+      f.host.querySelector<HTMLButtonElement>('[aria-label="添加到不让 ta 看我的空间"]')!.click();
+      await vi.dynamicImportSettled();
+    });
     for (const value of ['10001', '10002', '00003', '12', '1234567890123']) {
       setValue(f.host.querySelector('input')!, value);
       expect(f.host.querySelector<HTMLButtonElement>('[aria-label="添加此 QQ 号"]')!.disabled).toBe(
@@ -401,11 +416,12 @@ describe('可接入功能交互回归', () => {
       expect(f.host.querySelector('[title="添加 好友备注"]')).toBeNull();
     }
     setValue(f.host.querySelector('input')!, '10003');
-    await act(async () =>
+    await act(async () => {
       f.host
         .querySelector('form')!
-        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
-    );
+        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await vi.dynamicImportSettled();
+    });
     expect(state.writes).toHaveBeenCalledWith(
       'permission',
       expect.objectContaining({ kind: 'blocked', targetUin: '10003', enabled: true }),
@@ -449,10 +465,13 @@ describe('可接入功能交互回归', () => {
     await act(async () => {
       select.value = '14';
       select.dispatchEvent(new Event('change', { bubbles: true }));
+
+      await vi.dynamicImportSettled();
     });
-    await act(async () =>
-      f.host.querySelector<HTMLButtonElement>('[aria-label="保存职业"]')!.click(),
-    );
+    await act(async () => {
+      f.host.querySelector<HTMLButtonElement>('[aria-label="保存职业"]')!.click();
+      await vi.dynamicImportSettled();
+    });
     expect(state.writes).toHaveBeenCalledOnce();
     expect(state.writes).toHaveBeenCalledWith('profile', {
       expectedAccountUin: '10001',
@@ -477,13 +496,16 @@ describe('可接入功能交互回归', () => {
     await act(async () => {
       selects[1]!.value = '0';
       selects[1]!.dispatchEvent(new Event('change', { bubbles: true }));
+
+      await vi.dynamicImportSettled();
     });
     expect(selects.map((select) => select.value)).toEqual(['1', ...Array(layers - 1).fill('0')]);
     expect(selects[2]!.disabled).toBe(true);
     expect(selects[1]!.selectedOptions[0]!.textContent).toBe('不限');
-    await act(async () =>
-      f.host.querySelector<HTMLButtonElement>('[aria-label="保存地区"]')!.click(),
-    );
+    await act(async () => {
+      f.host.querySelector<HTMLButtonElement>('[aria-label="保存地区"]')!.click();
+      await vi.dynamicImportSettled();
+    });
     expect(saved).toHaveBeenCalledWith(['1', ...Array(layers - 1).fill('0')]);
   });
   it('未知地区不自动写为不限，选定国家后允许只保存国家', async () => {
@@ -504,9 +526,14 @@ describe('可接入功能交互回归', () => {
     await act(async () => {
       country.value = '1';
       country.dispatchEvent(new Event('change', { bubbles: true }));
+
+      await vi.dynamicImportSettled();
     });
     expect(save.disabled).toBe(false);
-    await act(async () => save.click());
+    await act(async () => {
+      save.click();
+      await vi.dynamicImportSettled();
+    });
     expect(saved).toHaveBeenCalledWith(['1', '0', '0']);
   });
   it('官方缺省省级仍保留可选城市，切换国家不会沿用旧城市', async () => {
@@ -527,6 +554,8 @@ describe('可接入功能交互回归', () => {
     await act(async () => {
       selects[0]!.value = '0';
       selects[0]!.dispatchEvent(new Event('change', { bubbles: true }));
+
+      await vi.dynamicImportSettled();
     });
     expect(selects.map((select) => select.value)).toEqual(['0', '0', '0', '0']);
     expect(selects.slice(1).every((select) => select.disabled)).toBe(true);
@@ -534,52 +563,58 @@ describe('可接入功能交互回归', () => {
   it('相册未确认时保留草稿与弹窗，不把已有同名相册误当成新增成功', async () => {
     const changed = vi.fn();
     const f = mount(() => h(GroupAlbumManagement, { groupCode: '123', onChanged: changed }));
-    await act(async () =>
-      f.host.querySelector<HTMLButtonElement>('[aria-label="新建相册"]')!.click(),
-    );
+    await act(async () => {
+      f.host.querySelector<HTMLButtonElement>('[aria-label="新建相册"]')!.click();
+      await vi.dynamicImportSettled();
+    });
     setValue(f.host.querySelector('input')!, '新相册');
     setValue(f.host.querySelector('textarea')!, '草稿');
-    await act(async () =>
+    await act(async () => {
       f.host
         .querySelector('form')!
-        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
-    );
+        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await vi.dynamicImportSettled();
+    });
     expect(f.host.querySelector('textarea')!.value).toBe('草稿');
     expect(changed).not.toHaveBeenCalled();
     state.albumConfirmed = true;
-    await act(async () =>
+    await act(async () => {
       f.host
         .querySelector('form')!
-        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
-    );
+        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await vi.dynamicImportSettled();
+    });
     // 新建的读回必须出现本次新增 ID；已有同名相册不能误判为新建成功。
     expect(changed).not.toHaveBeenCalled();
   });
   it('新建相册读回本次新增 ID 后才关闭编辑器', async () => {
     const changed = vi.fn();
     const f = mount(() => h(GroupAlbumManagement, { groupCode: '123', onChanged: changed }));
-    await act(async () =>
-      f.host.querySelector<HTMLButtonElement>('[aria-label="新建相册"]')!.click(),
-    );
+    await act(async () => {
+      f.host.querySelector<HTMLButtonElement>('[aria-label="新建相册"]')!.click();
+      await vi.dynamicImportSettled();
+    });
     setValue(f.host.querySelector('input')!, '新相册');
     setValue(f.host.querySelector('textarea')!, '草稿');
     state.writes.mockImplementationOnce(async () => {
       state.albumConfirmed = true;
       return { state: 'unconfirmed' };
     });
-    await act(async () =>
+    await act(async () => {
       f.host
         .querySelector('form')!
-        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
-    );
+        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await vi.dynamicImportSettled();
+    });
     expect(changed).toHaveBeenCalledOnce();
     expect(f.host.querySelector('form')).toBeNull();
   });
   it('相册编辑切数据源后不保留旧草稿', async () => {
     const f = mount(() => h(GroupAlbumManagement, { groupCode: '123', onChanged: vi.fn() }));
-    await act(async () =>
-      f.host.querySelector<HTMLButtonElement>('[aria-label="新建相册"]')!.click(),
-    );
+    await act(async () => {
+      f.host.querySelector<HTMLButtonElement>('[aria-label="新建相册"]')!.click();
+      await vi.dynamicImportSettled();
+    });
     setValue(f.host.querySelector('input')!, '旧来源');
     state.config = 'source-b';
     f.update();
@@ -595,11 +630,12 @@ describe('可接入功能交互回归', () => {
       );
       setValue(f.host.querySelector('input')!, '10002');
       expect(state.reads).not.toHaveBeenCalled();
-      await act(async () =>
+      await act(async () => {
         f.host
           .querySelector('form')!
-          .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
-      );
+          .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+        await vi.dynamicImportSettled();
+      });
       expect(state.reads).toHaveBeenCalledWith(expect.objectContaining({ kind, target: '10002' }));
       expect(f.host.textContent).toContain('合成资料');
       expect(f.host.textContent).not.toContain('添加成功');
@@ -618,33 +654,39 @@ describe('可接入功能交互回归', () => {
     ).toEqual(['3', '1']);
     expect(rows[1]!.querySelector('.weq-contact-value')).not.toBeNull();
     expect(f.host.textContent).not.toContain('合成共同群');
-    await act(async () =>
+    await act(async () => {
       [...f.host.querySelectorAll('button')]
         .find((node) => node.title === '查看共同群列表')!
-        .click(),
-    );
+        .click();
+      await vi.dynamicImportSettled();
+    });
     expect(f.host.textContent).toContain('合成共同群');
     expect(f.host.textContent).not.toContain('不完整');
   });
   it('共同群头像打开对应群名片，关闭名片后仍保留列表', async () => {
     const f = mount(() => h(CommonRelationships, { uin: '10002' }));
-    await act(async () =>
-      f.host.querySelector<HTMLButtonElement>('[title="查看共同群列表"]')!.click(),
-    );
+    await act(async () => {
+      f.host.querySelector<HTMLButtonElement>('[title="查看共同群列表"]')!.click();
+      await vi.dynamicImportSettled();
+    });
     const avatar = f.host.querySelector<HTMLButtonElement>(
       '[aria-label="查看 合成共同群 的群名片"]',
     );
     expect(avatar).not.toBeNull();
-    await act(async () => avatar!.click());
+    await act(async () => {
+      avatar!.click();
+      await vi.dynamicImportSettled();
+    });
     // 群名片是 portal 浮层，要在 document 上找；关闭按钮文案已统一为「关闭群资料」。
     const groupCard = document.querySelector('[aria-label="群资料"]');
     expect(groupCard?.textContent).toContain('合成共同群');
     expect(groupCard?.textContent).toContain('123');
     // 快速名片只给身份与成员数量，不展开成员列表（列表头是「群成员」浮层）。
     expect(groupCard?.querySelector('.weq-group-member-list-header')).toBeNull();
-    await act(async () =>
-      document.querySelector<HTMLButtonElement>('button[aria-label="关闭群资料"]')!.click(),
-    );
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>('button[aria-label="关闭群资料"]')!.click();
+      await vi.dynamicImportSettled();
+    });
     expect(document.querySelector('[aria-label="群资料"]')).toBeNull();
     expect(f.host.querySelector('[aria-label="查看 合成共同群 的群名片"]')).not.toBeNull();
   });
@@ -666,12 +708,14 @@ describe('可接入功能交互回归', () => {
         h(CommonRelationships, { uin: '10002' }),
       ),
     );
-    await act(async () =>
-      f.host.querySelector<HTMLButtonElement>('[title="查看共同群列表"]')!.click(),
-    );
-    await act(async () =>
-      f.host.querySelector<HTMLButtonElement>('[aria-label="查看 合成共同群 的群名片"]')!.click(),
-    );
+    await act(async () => {
+      f.host.querySelector<HTMLButtonElement>('[title="查看共同群列表"]')!.click();
+      await vi.dynamicImportSettled();
+    });
+    await act(async () => {
+      f.host.querySelector<HTMLButtonElement>('[aria-label="查看 合成共同群 的群名片"]')!.click();
+      await vi.dynamicImportSettled();
+    });
     const profile = document.querySelector('[aria-label="群资料"]')!;
     expect(profile.textContent).toContain('已收录的群');
     // 成员数在名片的「成员」分区行里，旧的成员列表头已移除。
@@ -687,7 +731,10 @@ describe('可接入功能交互回归', () => {
     const f = mount(() => h(CommonRelationships, { uin: '10002' }));
     const trigger = f.host.querySelector<HTMLButtonElement>('[title="查看共同群列表"]')!;
     expect(trigger.disabled).toBe(false);
-    await act(async () => trigger.click());
+    await act(async () => {
+      trigger.click();
+      await vi.dynamicImportSettled();
+    });
     expect(f.host.textContent).toContain('暂无共同群');
     state.config = 'source-b';
     f.update();
@@ -723,12 +770,16 @@ describe('可接入功能交互回归', () => {
         ),
       ),
     );
-    await act(async () => f.host.querySelector<HTMLButtonElement>('.contact-cat-header')!.click());
-    await act(async () =>
+    await act(async () => {
+      f.host.querySelector<HTMLButtonElement>('.contact-cat-header')!.click();
+      await vi.dynamicImportSettled();
+    });
+    await act(async () => {
       f.host
         .querySelector('.contact-cat-row')!
-        .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 30, clientY: 40 })),
-    );
+        .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 30, clientY: 40 }));
+      await vi.dynamicImportSettled();
+    });
     const labels = [...f.host.querySelectorAll('[role="menuitem"]')].map(
       (node) => node.textContent,
     );
@@ -797,19 +848,26 @@ describe('可接入功能交互回归', () => {
     const other = headers.find((node) => node.textContent?.includes('同学'))!;
     expect(headers.every((node) => node.getAttribute('aria-expanded') === 'false')).toBe(true);
     expect(f.host.querySelector('.contact-cat-row')).toBeNull();
-    await act(async () => normal.click());
+    await act(async () => {
+      normal.click();
+      await vi.dynamicImportSettled();
+    });
     expect(other.getAttribute('aria-expanded')).toBe('false');
     expect(normal.getAttribute('aria-expanded')).toBe('true');
-    await act(async () =>
+    await act(async () => {
       f.host
         .querySelector('.contact-cat-row')!
-        .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 30, clientY: 40 })),
-    );
+        .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 30, clientY: 40 }));
+      await vi.dynamicImportSettled();
+    });
     const moveEntry = [...f.host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
       (node) => node.textContent === '移动分组',
     );
     expect(moveEntry).toBeDefined();
-    await act(async () => moveEntry!.click());
+    await act(async () => {
+      moveEntry!.click();
+      await vi.dynamicImportSettled();
+    });
     expect(move).toHaveBeenCalledWith(['u_a', 'u_b']);
     move.mockClear();
     expect(special.getAttribute('draggable')).not.toBe('true');
@@ -822,6 +880,8 @@ describe('可接入功能交互回归', () => {
     await act(async () => {
       drag(f.host.querySelector('.contact-cat-row')!, 'dragstart');
       drag(other, 'drop');
+
+      await vi.dynamicImportSettled();
     });
     expect(move).toHaveBeenCalledWith(['u_a', 'u_b'], 5);
     move.mockClear();
@@ -830,43 +890,69 @@ describe('可接入功能交互回归', () => {
       top: 100,
       height: 100,
     } as DOMRect);
-    await act(async () => other.click());
+    await act(async () => {
+      other.click();
+      await vi.dynamicImportSettled();
+    });
     const insideRow = otherGroup.querySelector<HTMLElement>('.contact-cat-row')!;
     expect(insideRow).not.toBeNull();
     await act(async () => {
       drag(f.host.querySelector('.contact-cat-row')!, 'dragstart');
       drag(insideRow, 'dragover', 170);
+
+      await vi.dynamicImportSettled();
     });
     expect(otherGroup.classList.contains('is-contact-drop-target')).toBe(true);
     expect(otherGroup.dataset.dropPosition).toBeUndefined();
-    await act(async () => drag(insideRow, 'drop', 170));
+    await act(async () => {
+      drag(insideRow, 'drop', 170);
+      await vi.dynamicImportSettled();
+    });
     expect(move).toHaveBeenCalledWith(['u_a', 'u_b'], 5);
     expect(otherGroup.classList.contains('is-contact-drop-target')).toBe(false);
     await act(async () => {
       drag(normal, 'dragstart');
       drag(special, 'drop');
+
+      await vi.dynamicImportSettled();
     });
     expect(sort).not.toHaveBeenCalled();
     await act(async () => {
       drag(normal, 'dragstart');
       drag(insideRow, 'dragover', 120);
+
+      await vi.dynamicImportSettled();
     });
     expect(otherGroup.dataset.dropPosition).toBe('before');
     expect(otherGroup.classList.contains('is-contact-drop-target')).toBe(false);
     expect(other.style.outline).toBe('');
-    await act(async () => drag(insideRow, 'dragover', 180));
+    await act(async () => {
+      drag(insideRow, 'dragover', 180);
+      await vi.dynamicImportSettled();
+    });
     expect(otherGroup.dataset.dropPosition).toBe('after');
-    await act(async () => drag(insideRow, 'drop', 180));
+    await act(async () => {
+      drag(insideRow, 'drop', 180);
+      await vi.dynamicImportSettled();
+    });
     expect(sort).toHaveBeenCalledWith(0, 5, 'after');
     expect(otherGroup.dataset.dropPosition).toBeUndefined();
     await act(async () => {
       drag(normal, 'dragstart');
       drag(other, 'dragover', 110);
+
+      await vi.dynamicImportSettled();
     });
     expect(otherGroup.dataset.dropPosition).toBe('before');
-    await act(async () => drag(normal, 'dragend'));
+    await act(async () => {
+      drag(normal, 'dragend');
+      await vi.dynamicImportSettled();
+    });
     expect(otherGroup.dataset.dropPosition).toBeUndefined();
-    await act(async () => normal.click());
+    await act(async () => {
+      normal.click();
+      await vi.dynamicImportSettled();
+    });
     expect(normal.getAttribute('aria-expanded')).toBe('false');
     expect(other.getAttribute('aria-expanded')).toBe('true');
   });

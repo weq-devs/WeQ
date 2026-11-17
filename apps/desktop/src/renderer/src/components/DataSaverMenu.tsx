@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import {
   useCallback,
   useEffect,
@@ -23,6 +24,7 @@ import { requestOpenSettings } from '../lib/callSettingsBridge';
 import { useOverlayLayer } from '../lib/overlayStack';
 import { useSurfaceEscapeDismissal } from '../lib/surfaceEscape';
 import { SegmentedControl } from './SegmentedControl';
+import { Toggle } from './settings/controls';
 import '../styles/data-saver-menu.css';
 
 function temporaryLabel(value: DataSaverTemporary) {
@@ -34,7 +36,7 @@ function temporaryLabel(value: DataSaverTemporary) {
 }
 
 export function DataSaverMenu() {
-  const { enabled, host, local, status } = useDataSaver();
+  const { enabled, status } = useDataSaver();
   const preferences = useClientPreferences();
   const [open, setOpen] = useState(false);
   const [target, setTarget] = useState<boolean | null>(null);
@@ -51,11 +53,7 @@ export function DataSaverMenu() {
   const pending = useRef(false);
   const titleId = useId();
   const layer = useOverlayLayer(open);
-  const visible =
-    enabled ||
-    host.state === 'restricted' ||
-    local.state === 'restricted' ||
-    Boolean(status?.temporary);
+  const visible = enabled || Boolean(status?.temporary);
   const close = useCallback(() => {
     setOpen(false);
     setTarget(null);
@@ -194,7 +192,9 @@ export function DataSaverMenu() {
               <div className="weq-data-saver-menu-body">
                 <p role="status">
                   {enabled ? '正在节省流量' : '正常加载'}
-                  {status?.temporary ? ` · ${temporaryLabel(status.temporary)}` : ''}
+                  <NumericText>
+                    {status?.temporary ? ` · ${temporaryLabel(status.temporary)}` : ''}
+                  </NumericText>
                 </p>
                 <div className="weq-data-saver-menu-field">
                   <span>基础设置</span>
@@ -214,6 +214,25 @@ export function DataSaverMenu() {
                     }
                   />
                 </div>
+                {(status?.mode ?? preferenceValue('dataSaverMode')) === 'auto' ? (
+                  <div className="weq-data-saver-menu-metered">
+                    <span>使用流量时自动启用</span>
+                    <Toggle
+                      label="使用流量时自动启用"
+                      checked={preferenceValue('dataSaverOnMetered')}
+                      disabled={busy || !status}
+                      onChange={(value) =>
+                        void perform(async () => {
+                          if (!(await changePreference('dataSaverOnMetered', value)))
+                            throw new Error(
+                              useClientPreferences.getState().error || '省流量设置未保存，请重试',
+                            );
+                          await refreshDataSaverStatus();
+                        })
+                      }
+                    />
+                  </div>
+                ) : null}
                 <div className="weq-data-saver-menu-actions">
                   <button
                     type="button"
@@ -282,7 +301,7 @@ export function DataSaverMenu() {
                     ) : null}
                     <button
                       type="button"
-                      className="weq-set-btn"
+                      className="weq-set-btn weq-set-btn-primary"
                       disabled={
                         busy ||
                         (duration === 'minutes' && !validMinutes) ||

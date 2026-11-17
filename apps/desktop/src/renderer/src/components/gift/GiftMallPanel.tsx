@@ -26,6 +26,7 @@ import {
   Sparkles,
   WifiOff,
   X,
+  RefreshCw,
 } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { OverlayLayer } from '../OverlayLayer';
@@ -33,6 +34,7 @@ import { giftImageUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../ShimmerImage';
 import { cn } from '../../im-template/template/classNames';
 import '../../styles/gift-mall.css';
+import { type GiftItem, uniqueGiftItems } from './GiftMallPanel.shared';
 
 /** 与 `@weq/protocol` 的 GIFT_MALL_TABS 同一套文案（空串 = 全部）。 */
 const TABS = [
@@ -63,30 +65,6 @@ type SubTabName =
   | '主题'
   | '气泡'
   | '头像挂件';
-
-type GiftItem = {
-  giftId: number;
-  giftName: string;
-  giftDesc?: string;
-  desc?: string;
-  homepageDesc?: string;
-  giftPrice?: number;
-  svipDiscount?: number;
-  staticPic?: string;
-  squareStaticPic?: string;
-  backgroundColor?: string;
-  vecTags?: string[];
-};
-
-/** 接口翻页或切换推荐流时可能重发同一条，首屏和后续页都按礼物 ID 去重。 */
-export function uniqueGiftItems(items: GiftItem[]): GiftItem[] {
-  const seen = new Set<number>();
-  return items.filter((item) => {
-    if (seen.has(item.giftId)) return false;
-    seen.add(item.giftId);
-    return true;
-  });
-}
 
 /** 列表优先用方图（真机商城同款），没有才退回详情兜底图。 */
 function previewOf(gift: GiftItem): string {
@@ -328,9 +306,10 @@ export function GiftMallPanel({
                   <span>{error}</span>
                   <button
                     type="button"
-                    className="weq-gift-subtab"
+                    className="weq-gift-subtab weq-retry-button"
                     onClick={() => void loadPage('reset')}
                   >
+                    <RefreshCw size={14} aria-hidden />
                     重试
                   </button>
                 </div>
@@ -410,7 +389,7 @@ function GiftCard({ gift, onOpen }: { gift: GiftItem; onOpen: () => void }) {
         <small title={blurb}>{blurb || '一份小小的心意'}</small>
         <span className="weq-gift-card-price">
           <Coins size={12} strokeWidth={2} />
-          {price}
+          <span className="weq-number weq-number-inherit">{price}</span>
           {discounted ? <s>{original}</s> : null}
         </span>
       </span>
@@ -512,7 +491,7 @@ function GiftDetail({
 
         <div className="weq-gift-detail-price">
           <Coins size={16} strokeWidth={2} />
-          {price}
+          <span className="weq-number weq-number-inherit">{price}</span>
           {discounted ? <s>{original}</s> : null}
           <small>{discounted ? 'SVIP 价' : '礼物价格'}</small>
         </div>

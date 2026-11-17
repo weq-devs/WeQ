@@ -164,18 +164,18 @@ function renderHourly(report: WeqStatsReport, p: WeqPalette): string {
 // ── 每日热力图（绿墙，移植自 analyticsCharts.ContributionHeatmap） ────────────
 
 const MONTH_NAMES = [
-  '1月',
-  '2月',
-  '3月',
-  '4月',
-  '5月',
-  '6月',
-  '7月',
-  '8月',
-  '9月',
-  '10月',
-  '11月',
-  '12月',
+  '1 月',
+  '2 月',
+  '3 月',
+  '4 月',
+  '5 月',
+  '6 月',
+  '7 月',
+  '8 月',
+  '9 月',
+  '10 月',
+  '11 月',
+  '12 月',
 ];
 const DAY_MS = 86400000;
 const HEATMAP_DAYS = 371;

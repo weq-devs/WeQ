@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { useTabActive } from '../components/RetainedTabs';
+import { useTabActive } from '../components/RetainedTabs.shared';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { publishQQPeerUpdate } from '../lib/qqPeerUpdates';
-import { useToast } from '../components/Toast';
+import { useToastApi, sourceToastPush } from '../components/Toast.shared';
+import type { NotificationSource } from '../lib/notificationNavigation';
 
 export interface QQWriteBinding {
   expectedAccountUin: string;
@@ -26,6 +27,7 @@ export function qqWriteOutcomeText(result: QQWriteOutcome): string {
 
 /** 每次操作固定账号及数据源；迟到的结果不更新另一个会话。 */
 export function useQQWriteSession(scope: string, passive = false) {
+  const notificationToast = useToastApi();
   const active = useTabActive();
   const uin = useViewState((s) => s.openedUin);
   const config = trpc.account.getAccountConfig.useQuery(undefined, {
@@ -87,6 +89,7 @@ export function useQQWriteSession(scope: string, passive = false) {
       readbackSuccessText?: string;
       /** 有读回要求的开关不能在未同步时进入已提交锁定态。 */
       requireReadback?: boolean;
+      source?: NotificationSource;
     },
   ): Promise<boolean> {
     if (
@@ -105,7 +108,9 @@ export function useQQWriteSession(scope: string, passive = false) {
       mounted.current &&
       latest.current === captured &&
       useViewState.getState().openedUin === binding.expectedAccountUin;
-    const toast = useToast.getState();
+    const toast = options?.source
+      ? { ...notificationToast, push: sourceToastPush(options.source) }
+      : notificationToast;
     let toastId: number | undefined;
     const finish = (title: string, tone: 'success' | 'warning' | 'error' | 'info') => {
       if (options?.feedback === 'failure-only' && (tone === 'success' || tone === 'info')) return;

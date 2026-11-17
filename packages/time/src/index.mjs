@@ -94,16 +94,22 @@ function createTimeRuntime() {
 
   function formatChineseDate(value, withYear = true) {
     const p = calendarParts(value);
-    return p ? `${withYear ? `${p.year}年` : ''}${p.month}月${p.day}日` : '';
+    return p ? `${withYear ? `${p.year} 年 ` : ''}${p.month} 月 ${p.day} 日` : '';
   }
 
   function formatPartialDate({ year, month, day }) {
-    return `${Number.isInteger(year) && year > 0 ? `${year}年` : ''}${Number.isInteger(month) && month >= 1 && month <= 12 ? `${month}月` : ''}${Number.isInteger(day) && day >= 1 && day <= 31 ? `${day}日` : ''}`;
+    return [
+      Number.isInteger(year) && year > 0 ? `${year} 年` : '',
+      Number.isInteger(month) && month >= 1 && month <= 12 ? `${month} 月` : '',
+      Number.isInteger(day) && day >= 1 && day <= 31 ? `${day} 日` : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
   }
 
   function formatMonth(value) {
     const p = calendarParts(value);
-    return p ? `${p.year}年${p.month}月` : '';
+    return p ? `${p.year} 年 ${p.month} 月` : '';
   }
 
   function formatChatTime(value, now = Date.now()) {
@@ -177,23 +183,23 @@ function createTimeRuntime() {
         ? `${Number((seconds * 1000).toFixed(3))} ms`
         : `${Number(seconds.toFixed(3))} s`;
     if (style === 'approximate') {
-      if (seconds < 1) return '<1秒';
-      if (rounded >= 86400) return `${Number((seconds / 86400).toFixed(1))}天`;
-      if (rounded >= 3600) return `${Number((seconds / 3600).toFixed(1))}小时`;
+      if (seconds < 1) return '<1 秒';
+      if (rounded >= 86400) return `${Number((seconds / 86400).toFixed(1))} 天`;
+      if (rounded >= 3600) return `${Number((seconds / 3600).toFixed(1))} 小时`;
     }
     let rest = style === 'exact' ? Math.round(seconds * 1000) / 1000 : rounded;
     const parts = [];
     for (const [unit, size] of [
       ['天', 86400],
       ['小时', 3600],
-      ['分', 60],
+      ['分钟', 60],
       ['秒', 1],
     ]) {
       const amount = size === 1 ? Number(rest.toFixed(3)) : Math.floor(rest / size);
       rest = Number((rest % size).toFixed(3));
-      if (amount) parts.push(`${amount}${unit}`);
+      if (amount) parts.push(`${amount} ${unit}`);
     }
-    return parts.join('') || '0秒';
+    return parts.join(' ') || '0 秒';
   }
 
   function formatDateTimeInput(value, precision = 'second') {

@@ -37,6 +37,7 @@ vi.mock('../src/renderer/src/components/settings/SelfQQControls', () => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    bootstrap: { getSettings: { useQuery: () => ({ data: {} }) } },
     // 会员徽标是独立组件，另有测试覆盖；这里让它不渲染即可。
     useUtils: () => ({ account: { getSelfVip: { invalidate: () => {} } } }),
     account: {
@@ -128,7 +129,7 @@ describe('标题栏在线状态', () => {
     expect(indicator.disabled).toBe(true);
     act(() => useRestrictedMode.setState({ enteringSince: Date.now() }));
     expect(indicator.getAttribute('aria-hidden')).toBeNull();
-    expect(indicator.textContent).toContain('正在启用完整功能');
+    expect(indicator.textContent).toContain('正在启用 QQ 在线能力');
     act(() => useRestrictedMode.setState({ enteringSince: null }));
     expect(indicator.getAttribute('aria-hidden')).toBe('true');
     expect(restriction.querySelector('button')).toBe(indicator);

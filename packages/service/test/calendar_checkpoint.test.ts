@@ -320,6 +320,40 @@ it('无效检查点整份拒绝，不部分提交错误计数或超范围游标'
   expect(job.restore(other)).toBe(false);
   job.cancel();
 });
+it('重新打开仅续查超时来源，保留原游标与结果，不解除手动暂停或吞掉其他错误', async () => {
+  const page = vi.fn<CalendarSource['page']>(async (_s, _e, cursor) => {
+    if (!cursor) return { rows: [row('1')], cursor: 1, done: false };
+    throw new Error('database_query_execution_timeout');
+  });
+  const job = make({ kind: 'c2c', count: async () => 0, page });
+  job.keepAlive(day);
+  await finish(job);
+  const saved = job.checkpoint();
+  const bad = saved.work.find((work) => work.day === '2026-11-07')!;
+  bad.counted = false;
+  bad.error = 'synthetic corruption';
+  const read = vi.fn<CalendarSource['page']>(async () => ({ rows: [row('2')], done: true }));
+  const restored = make({ kind: 'c2c', count: async () => 0, page: read });
+  expect(restored.restore(saved)).toBe(true);
+  restored.control('day', 'pause', day);
+  restored.retryTimedOut();
+  restored.keepAlive(day);
+  await finish(restored);
+  expect(read).not.toHaveBeenCalled();
+  expect(restored.snapshot(day).rows[0]?.count).toBe(1);
+  expect(restored.snapshot(day).controls.day.state).toBe('paused');
+  expect(restored.checkpoint().work.find((work) => work.day === bad.day)?.error).toBe(
+    'synthetic corruption',
+  );
+  restored.control('day', 'continue', day);
+  restored.keepAlive(day);
+  await finish(restored);
+  expect(read).toHaveBeenCalledOnce();
+  expect(read.mock.calls[0]?.[2]).toBe(1);
+  expect(restored.snapshot(day).rows[0]?.count).toBe(2);
+  job.cancel();
+  restored.cancel();
+});
 
 it('重新获取的中间游标持久恢复，继续后不混入旧消息或重复计数', async () => {
   let rechecking = false;

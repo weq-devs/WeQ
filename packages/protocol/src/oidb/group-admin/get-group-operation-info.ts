@@ -42,7 +42,8 @@ function muteAllEnabled(value: unknown): boolean | null {
 
 export namespace GetGroupOperationInfo {
   export const command = 0x88d;
-  export const subCommand = 110;
+  // 110 是入群资料查询，成功回包也可能不返回全员禁言等操作字段。
+  export const subCommand = 0;
   export const reqSchema = message([
     { name: 'appId', tag: 1, type: 'uint32' },
     {

@@ -10,6 +10,7 @@ import { IntentSenseSection } from '../src/renderer/src/components/settings/Inte
 import { InteractionProfileSection } from '../src/renderer/src/components/settings/InteractionProfileSection';
 import { ReplySuggestionsSection } from '../src/renderer/src/components/settings/ReplySuggestionsSection';
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
+import { findSettingElement } from '../src/renderer/src/components/settings/searchTarget';
 
 const state = vi.hoisted(() => ({
   data: {} as Record<string, unknown>,
@@ -24,6 +25,10 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock('../src/renderer/src/components/Dialog', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/renderer/src/components/Dialog')>()),
+  useDialog: () => state.showError,
+}));
+vi.mock('../src/renderer/src/components/Dialog.shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/src/components/Dialog.shared')>()),
   useDialog: () => state.showError,
 }));
 vi.mock('../src/renderer/src/trpc/client', () => {
@@ -65,6 +70,61 @@ const pages: { title: string; component: ComponentType; enabled: string; model: 
   },
 ];
 const cleanups: (() => void)[] = [];
+
+it.each([
+  [
+    IntentSenseSection,
+    'analysisMode',
+    'analyzeAfterSelf',
+    '自己发送后分析',
+    'intent-after-self',
+    'intent-mode',
+  ],
+  [
+    ReplySuggestionsSection,
+    'suggestionMode',
+    'suggestAfterSelf',
+    '自己发送后推荐回复',
+    'suggestions-after-self',
+    'suggestions-mode',
+  ],
+] as const)(
+  '手动模式隐藏自动触发子项，搜索回到模式且切换保留值',
+  (component, mode, field, label, id, parent) => {
+    const data = state.data['settings.intent.getStatus'] as Record<string, unknown>;
+    Object.assign(data, { [mode]: 'manual', [field]: true });
+    const manual = mount(component);
+    expect(manual.host.querySelector(`[aria-label="${label}"]`)).toBeNull();
+    expect(findSettingElement(manual.host, { settingId: id })?.dataset.settingId).toBe(parent);
+    data[mode] = 'auto';
+    const automatic = mount(component);
+    expect(
+      automatic.host.querySelector(`[aria-label="${label}"]`)?.getAttribute('aria-checked'),
+    ).toBe('true');
+    expect(data[field]).toBe(true);
+    expect(state.save).not.toHaveBeenCalled();
+  },
+);
+
+it('本地引擎隐藏仅 API 使用的温度与话题参数，但保留共用采样设置及搜索入口', () => {
+  Object.assign(state.data['settings.intent.getStatus'] as object, {
+    engine: 'local',
+    profileEngine: 'local',
+  });
+  const intent = mount(IntentSenseSection);
+  const profile = mount(InteractionProfileSection);
+  for (const [view, key, parent] of [
+    [intent, 'analysisTemperature', 'intent-engine'],
+    [profile, 'profileTemperature', 'profile-engine'],
+    [profile, 'profileModelTopics', 'profile-engine'],
+  ] as const) {
+    const id = `intent-tuning-${key}`;
+    expect(view.host.querySelector(`[data-setting-id="${id}"]`)).toBeNull();
+    expect(findSettingElement(view.host, { settingId: id })?.dataset.settingId).toBe(parent);
+  }
+  expect(profile.host.querySelector('[aria-label="模型推断采样上限（条）"]')).not.toBeNull();
+  expect(state.save).not.toHaveBeenCalled();
+});
 
 it.each([
   ['意图感知', IntentSenseSection, 'analysisMode'],

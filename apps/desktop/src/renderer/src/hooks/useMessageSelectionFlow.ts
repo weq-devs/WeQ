@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Conversation, Message } from '../im-template/template/types';
-import type { useContentMultiSelect } from '../state/contentSelection';
-import { useDialog } from '../components/Dialog';
-import { useToast } from '../components/Toast';
+import type { useContentMultiSelect } from '../state/contentSelection.shared';
+import { useDialog } from '../components/Dialog.shared';
+import { useToastApi } from '../components/Toast.shared';
+import { conversationNotificationSource } from '../lib/notificationNavigation.shared';
 import { runMessageLoadTask } from '../components/MessageLoadTask';
-import { grayTipOf } from '../im-template/template/messageRow';
+import { grayTipOf } from '../im-template/template/messageRow.shared';
 import { createSelectionGapIndex } from '../lib/selectionGapIndex';
 import {
   messageSelectionItems,
@@ -42,6 +43,7 @@ export function useMessageSelectionFlow({
   missingJumpSeq?: string | null;
   active: boolean;
 }) {
+  const notificationToast = useToastApi();
   const owner = `${conversation?.type}:${conversation?.id}`;
   const cache = selection.messageCache;
   const seqOf = useCallback(
@@ -229,6 +231,7 @@ export function useMessageSelectionFlow({
         );
       },
       controller.signal,
+      conversationNotificationSource(conversation),
     );
     return received;
   };
@@ -289,7 +292,7 @@ export function useMessageSelectionFlow({
       selection.selectedIdsRef.current = next;
       selection.setSelectedIds(next);
       if ([...next].some((id) => parseSelectionGap(id))) {
-        useToast.getState().push({
+        notificationToast.push({
           tone: 'warning',
           durationKind: 'success',
           title: `所选缺口尚未补全，未执行${action}`,

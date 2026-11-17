@@ -1,41 +1,5 @@
-import {
-  cloneElement,
-  createContext,
-  useContext,
-  type ReactElement,
-  type ReactNode,
-  type ComponentProps,
-} from 'react';
-import type { SelfProfileField } from './SelfProfileField';
-
-export type SelfProfileKey =
-  | 'nickname'
-  | 'gender'
-  | 'signature'
-  | 'birthday'
-  | 'region'
-  | 'email'
-  | 'profession'
-  | 'hometown'
-  | 'company'
-  | 'personalNote'
-  | 'education'
-  | 'age'
-  | 'constellation'
-  | 'personalityLabels'
-  | 'anonymousQuestions';
-export type SelfProfileFields = Partial<
-  Record<SelfProfileKey, ReactElement<ComponentProps<typeof SelfProfileField>>>
->;
-export const SelfProfileFieldsContext = createContext<{
-  fields: SelfProfileFields;
-  uin: string;
-  feedback: ReactNode;
-} | null>(null);
-
-export function useSelfProfileFields() {
-  return useContext(SelfProfileFieldsContext);
-}
+import { cloneElement, type ReactNode } from 'react';
+import { type SelfProfileKey, useSelfProfileFields } from './SelfProfileFields.shared';
 
 /** 仅本人完整资料页提供编辑器；名片与其他联系人沿用原来的展示内容。 */
 export function SelfProfileSlot({
@@ -55,3 +19,4 @@ export function SelfProfileSlot({
   const editor = context?.fields[field];
   return editor ? cloneElement(editor, { renderValue, inline, valueHasAction }) : children;
 }
+export type { SelfProfileFields, SelfProfileKey } from './SelfProfileFields.shared';

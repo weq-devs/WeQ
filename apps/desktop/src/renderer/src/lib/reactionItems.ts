@@ -36,7 +36,7 @@ export function reactionItems(groups: readonly FaceGroup[]): ReactionItem[] {
 }
 
 // 使用现有系统表情资源；目录尚未返回时也能立即绘制默认回应。
-export const DEFAULT_REACTIONS: ReactionItem[] = [
+const defaultReactions: ReactionItem[] = [
   ['76', '赞'],
   ['66', '爱心'],
   ['14', '微笑'],
@@ -49,8 +49,10 @@ export function quickReactions(
   recent: readonly string[],
   catalog: readonly ReactionItem[],
 ): ReactionItem[] {
-  const items = new Map([...DEFAULT_REACTIONS, ...catalog].map((item) => [item.code, item]));
-  return [...new Set([...recent, ...DEFAULT_REACTIONS.map((item) => item.code)])]
+  const items = new Map([...defaultReactions, ...catalog].map((item) => [item.code, item]));
+  return [...new Set([...recent, ...defaultReactions.map((item) => item.code)])]
     .flatMap((code) => (items.has(code) ? [items.get(code)!] : []))
     .slice(0, 6);
 }
+
+export { defaultReactions as DEFAULT_REACTIONS };

@@ -4,7 +4,8 @@ import { Modal } from '../Dialog';
 import { client, trpc } from '../../trpc/client';
 import { useViewState } from '../../state/view';
 import { useContactStats } from '../../hooks/useContactCard';
-import { ActionFeedback, ActionIcon, useQQAction, withQQAccountScope } from './shared';
+import { ActionFeedback, ActionIcon } from './shared';
+import { useQQAction, withQQAccountScope } from './shared.shared';
 import '../../styles/profile-like.css';
 
 interface ProfileLikeProps {
@@ -99,7 +100,9 @@ function ProfileLikeDialogBody({
                 disabled={a.disabled || self}
                 onClick={() => send(count)}
               >
-                <span>+{count}</span>
+                <span>
+                  +<span className="weq-number weq-number-inherit">{count}</span>
+                </span>
               </button>
             ))}
             <button

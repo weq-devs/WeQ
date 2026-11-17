@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { QqDebugCopy } from '../src/renderer/src/components/QqDebugCopy';
 import { RestrictedQqAction } from '../src/renderer/src/components/RestrictedQqAction';
-import { useDialog } from '../src/renderer/src/components/Dialog';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import type { QqDebugCopyStatus } from '../src/shared/qq_debug_copy';
 
 const f = vi.hoisted(() => ({
@@ -119,7 +119,7 @@ it('创建期间禁用重复操作，完成只提示准备好，不冒称在线�
   expect(v.host.textContent).not.toContain('副本已准备好');
   await act(async () => finish());
   expect(v.host.textContent).toContain('副本已准备好，请启动并登录目标账号');
-  expect(v.host.textContent).not.toContain('完整功能已恢复');
+  expect(v.host.textContent).not.toContain('QQ 在线能力已恢复');
 });
 it('显示后台真实阶段，重开页面也不能并行操作', async () => {
   f.data!.phase = 'signing';
@@ -429,7 +429,7 @@ it('账号已在线时直接启用，环境查询失败不会阻断已有在线�
   f.data = undefined;
   f.error = new Error('synthetic environment failure');
   const v = await mountAction(false);
-  expect(v.primary().textContent).toBe('启用完整功能');
+  expect(v.primary().textContent).toBe('启用 QQ 在线能力');
   expect(v.primary().disabled).toBe(false);
   await act(async () => v.primary().click());
   expect(v.onEnable).toHaveBeenCalledOnce();

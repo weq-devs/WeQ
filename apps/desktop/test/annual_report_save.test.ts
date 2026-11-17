@@ -154,11 +154,18 @@ it('捕获在途取消等待宿主收尾，不发布半成品或重复捕获', a
     savePolicy: { mode: 'before', directory: state.root },
   });
   await vi.waitFor(() => expect(release).toBeDefined());
-  manager.cancelTask(id!);
+  expect(manager.cancelTask(id!)).toBe(true);
   release(Buffer.from('synthetic-pdf'));
-  await vi.waitFor(() => expect(manager.getTask(id!)?.error).toContain('中断'));
+  await (manager as unknown as { queue: Promise<void> }).queue;
+  expect(manager.getTask(id!)?.status).toBe('cancelled');
+  expect(manager.listTasks().find((task) => task.id === id)?.canResume).toBe(true);
+  expect(manager.getTask(id!)?.error).toBeUndefined();
   expect(manager.getTask(id!)?.filePath).toBeUndefined();
   expect(state.pdf).toHaveBeenCalledOnce();
+  expect(manager.resumeTask(id!)).toBe(true);
+  await (manager as unknown as { queue: Promise<void> }).queue;
+  expect(manager.getTask(id!)?.status).toBe('completed');
+  expect(state.pdf).toHaveBeenCalledTimes(2);
 });
 it('Web 报告只保存到服务器根内，保持实际 HTML 扩展名', async () => {
   state.serverRoot = join(state.root, 'server');

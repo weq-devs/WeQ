@@ -2,7 +2,8 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { BackupSection, backupApi } from '../src/renderer/src/components/settings/BackupSection';
+import { BackupSection } from '../src/renderer/src/components/settings/BackupSection';
+import { backupApi } from '../src/renderer/src/components/settings/BackupSection.shared';
 import { localBackgroundTasks } from '../src/renderer/src/state/backgroundTasks';
 import {
   SettingsResetButton,
@@ -10,10 +11,11 @@ import {
 } from '../src/renderer/src/components/settings/SettingsReset';
 import type { SettingsResetItem, SettingsResetResult } from '../src/shared/settings_reset';
 
-const reset = vi.hoisted(() => ({ preview: vi.fn(), restore: vi.fn() }));
+const reset = vi.hoisted(() => ({ preview: vi.fn(), restore: vi.fn(), snapshot: vi.fn() }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     settingsReset: { preview: { query: reset.preview }, restore: { mutate: reset.restore } },
+    clientState: { snapshot: { query: reset.snapshot } },
   },
   trpc: {
     useUtils: () => ({
@@ -40,6 +42,7 @@ beforeEach(() => {
     ],
   });
   reset.restore.mockReset().mockResolvedValue([{ id: 'web:enabled', ok: true }]);
+  reset.snapshot.mockReset().mockResolvedValue({ revision: 1, values: {}, records: {} });
 });
 afterEach(() => {
   for (const close of cleanups.splice(0)) close();
@@ -59,7 +62,13 @@ function fixture() {
   };
   const api = {
     ...backupApi,
-    defaultsInfo: vi.fn(async () => ({ hasApi: false, paths: [], connections: [] })),
+    defaultsInfo: vi.fn(
+      async (): Promise<Awaited<ReturnType<typeof backupApi.defaultsInfo>>> => ({
+        hasApi: false,
+        paths: [],
+        connections: [],
+      }),
+    ),
     inventory: vi.fn(async () => ({
       accounts: [],
       cloneScopes: [],
@@ -162,9 +171,164 @@ it('读取文件不直接写入，明确预览并确认后直接恢复；改选�
   await ui.click('确认恢复');
   expect(f.api.stage).toHaveBeenCalledWith('preview-1');
 });
+it('配置备份页保留全局恢复入口，先读取范围、取消不提交，确认才恢复全部设置', async () => {
+  const f = fixture();
+  const ui = await mount(f.api);
+  expect(ui.host.querySelector('[data-setting-id="weq-config-management"]')).not.toBeNull();
+  expect(ui.button('恢复全局默认设置').dataset.danger).toBe('solid');
+  await ui.click('恢复全局默认设置');
+  expect(f.api.defaultsInfo).toHaveBeenCalledOnce();
+  expect(f.api.defaults).not.toHaveBeenCalled();
+  const modal = document.querySelector('[role="dialog"]')!;
+  expect(ui.button('确认恢复默认').dataset.danger).toBe('solid');
+  expect(modal.textContent).toContain('所有账号');
+  expect(modal.textContent).toContain('默认保留');
+  expect(document.activeElement).toBe(ui.button('取消'));
+  await ui.click('取消');
+  expect(f.api.defaults).not.toHaveBeenCalled();
+  await ui.click('恢复全局默认设置');
+  await ui.click('确认恢复默认');
+  expect(f.api.defaults).toHaveBeenCalledWith(expect.any(String), {});
+  expect(reset.restore).not.toHaveBeenCalled();
+});
+it.each([{ warnings: [] }, { warnings: ['账号配置不包含 QQ 数据库，装扮资源需在本机重新获取。'] }])(
+  '恢复成功后不再显示常驻结果卡片（警告：%j）',
+  async ({ warnings }) => {
+    const f = fixture();
+    const result = { ...(await f.api.defaults()), warnings };
+    const ui = await mount({
+      ...f.api,
+      inventory: async () => ({
+        ...(await f.api.inventory()),
+        restore: { pending: null, result },
+      }),
+    });
+    expect(ui.host.textContent).not.toContain('最近一次恢复已应用');
+    expect(ui.host.textContent).not.toContain('已应用 1 项');
+    for (const warning of warnings) expect(ui.host.textContent).not.toContain(warning);
+    expect(ui.button('恢复全局默认设置').disabled).toBe(false);
+  },
+);
+it.each(['failed', 'clientPending'] as const)('恢复仍需处理时保留必要信息：%s', async (kind) => {
+  const f = fixture();
+  const result = {
+    ...(await f.api.defaults()),
+    status: kind === 'failed' ? ('failed' as const) : ('applied' as const),
+    clientPending: kind === 'clientPending',
+    error: kind === 'failed' ? '合成恢复失败' : undefined,
+  };
+  const ui = await mount({
+    ...f.api,
+    inventory: async () => ({
+      ...(await f.api.inventory()),
+      restore: { pending: null, result },
+    }),
+  });
+  if (kind === 'failed') {
+    expect(ui.host.textContent).toContain('最近一次恢复失败');
+    expect(ui.host.textContent).toContain('合成恢复失败');
+  } else {
+    expect(ui.host.textContent).toContain('界面偏好待恢复');
+    expect(ui.button('改在此设备恢复')).toBeDefined();
+    expect(ui.button('保留本机界面偏好')).toBeDefined();
+    expect(ui.button('恢复全局默认设置').disabled).toBe(true);
+  }
+});
+it('全局恢复读取失败不能提交，可重试', async () => {
+  const f = fixture();
+  f.api.defaultsInfo.mockRejectedValueOnce(new Error('合成范围读取失败'));
+  const ui = await mount(f.api);
+  await ui.click('恢复全局默认设置');
+  expect(ui.button('确认恢复默认').disabled).toBe(true);
+  expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain(
+    '合成范围读取失败',
+  );
+  await ui.click('重新读取恢复范围');
+  expect(ui.button('确认恢复默认').disabled).toBe(false);
+  expect(f.api.defaultsInfo).toHaveBeenCalledTimes(2);
+  await ui.click('取消');
+  expect(f.api.defaults).not.toHaveBeenCalled();
+});
+it('全局恢复读取及提交期间禁用取消和重复提交，提交失败保留弹窗与所选项', async () => {
+  const f = fixture();
+  let finishRead!: (value: Awaited<ReturnType<typeof backupApi.defaultsInfo>>) => void;
+  let failRestore!: (reason: Error) => void;
+  f.api.defaultsInfo.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishRead = resolve;
+      }),
+  );
+  f.api.defaults.mockImplementationOnce(
+    () =>
+      new Promise((_, reject) => {
+        failRestore = reject;
+      }),
+  );
+  const ui = await mount(f.api);
+  await ui.click('恢复全局默认设置');
+  expect(ui.button('取消').disabled).toBe(true);
+  expect(ui.button('正在恢复…').disabled).toBe(true);
+  await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+  await act(async () => finishRead({ hasApi: true, paths: [], connections: [] }));
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>('[aria-label="清除 API 配置"]')!.click(),
+  );
+  await ui.click('确认恢复默认');
+  expect(ui.button('取消').disabled).toBe(true);
+  await ui.click('正在恢复…');
+  expect(f.api.defaults).toHaveBeenCalledOnce();
+  await act(async () => failRestore(new Error('合成恢复失败')));
+  expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain(
+    '合成恢复失败',
+  );
+  expect(document.querySelector('[aria-label="清除 API 配置"]')?.getAttribute('aria-checked')).toBe(
+    'true',
+  );
+  await ui.click('确认恢复默认');
+  expect(f.api.defaults).toHaveBeenCalledTimes(2);
+  expect(f.api.defaults).toHaveBeenLastCalledWith(expect.any(String), { clearApi: true });
+});
+it('全局恢复的 API、服务与目录仅在显式选择后重置，重新打开恢复默认保留', async () => {
+  const f = fixture();
+  const info: Awaited<ReturnType<typeof backupApi.defaultsInfo>> = {
+    hasApi: true,
+    paths: [{ id: 'defaultExportDir', label: '导出目录', value: '/synthetic/exports' }],
+    connections: [{ id: 'webEnabled', label: 'Web 服务', value: '运行中' }],
+  };
+  const ui = await mount({ ...f.api, defaultsInfo: vi.fn(async () => info) });
+  await ui.click('恢复全局默认设置');
+  const modal = document.querySelector('[role="dialog"]')!;
+  const apiToggle = modal.querySelector<HTMLButtonElement>('[aria-label="清除 API 配置"]')!;
+  const services = modal.querySelector<HTMLButtonElement>('[aria-label="清除 WeQ 服务配置"]')!;
+  const directory = modal.querySelector<HTMLSelectElement>('[aria-label="导出目录"]')!;
+  expect(apiToggle.getAttribute('aria-checked')).toBe('false');
+  expect(services.getAttribute('aria-checked')).toBe('false');
+  expect(directory.value).toBe('keep');
+  await act(async () => apiToggle.click());
+  await act(async () => services.click());
+  await act(async () => {
+    directory.value = 'reset';
+    directory.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  expect(modal.textContent).toContain('断开');
+  expect(modal.textContent).toContain('不迁移或删除已有文件');
+  await ui.click('确认恢复默认');
+  expect(f.api.defaults).toHaveBeenCalledWith(expect.any(String), {
+    clearApi: true,
+    resetConnections: ['webEnabled'],
+    resetPaths: ['defaultExportDir'],
+  });
+  await ui.click('恢复全局默认设置');
+  expect(document.querySelector('[aria-label="清除 API 配置"]')?.getAttribute('aria-checked')).toBe(
+    'false',
+  );
+});
 it('恢复默认需二次确认，未变化的命令仍可再次主动执行', async () => {
   const ui = await mountReset();
   expect(ui.button('恢复本页默认设置').disabled).toBe(false);
+  expect(ui.button('恢复本页默认设置').dataset.danger).toBe('outline');
   await ui.click('恢复本页默认设置');
   expect(reset.restore).not.toHaveBeenCalled();
   await ui.click('确认恢复默认');
@@ -268,7 +432,7 @@ it('旧暂存任务可确认后直接应用，Web 同样不要求重启服务', 
   };
   const ui = await mount(api);
   expect(ui.host.textContent).toContain('存在待恢复数据');
-  expect(ui.button('恢复默认设置')).toBeUndefined();
+  expect(ui.button('恢复全局默认设置').disabled).toBe(true);
   expect(ui.button('重启 WeQ')).toBeUndefined();
   expect(api.apply).not.toHaveBeenCalled();
   await ui.click('应用恢复');

@@ -11,52 +11,29 @@ import {
   useMemo,
   useRef,
   useState,
-  lazy,
-  Suspense,
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
   type ReactNode,
 } from 'react';
 import {
-  Activity,
   AlertTriangle,
+  ArrowUpRight,
   ArrowLeft,
-  AudioLines,
   Bell,
-  Bot,
-  Bug,
-  BrainCircuit,
   BookOpen,
   Check,
   ChevronRight,
-  Clock,
   Code2,
-  DatabaseZap,
-  Globe,
-  HardDrive,
   ImageIcon,
-  HelpCircle,
-  Lock,
   LockKeyhole,
-  Mail,
   Monitor,
   MessagesSquare,
   Moon,
-  Package,
   Palette,
-  PhoneCall,
-  Plug,
-  Power,
   Radio,
-  ScanText,
-  Settings2,
   Smile,
   Send,
-  ScanSearch,
-  ScrollText,
   Sun,
-  User,
-  Users,
   X,
 } from 'lucide-react';
 import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
@@ -69,8 +46,9 @@ import { PrivacySection } from './settings/PrivacySection';
 import { TypingStatusSettingsCard } from './settings/TypingStatusSettingsCard';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
 import { ComponentAppearance } from './settings/ComponentAppearance';
+import { WindowAppearanceCard } from './settings/WindowAppearanceCard';
+import { DesktopOnly } from '../lib/target';
 import { SegmentedControl } from './SegmentedControl';
-import { PanelLoading } from './LoadingIndicator';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { IntentSenseSection } from './settings/IntentSenseSection';
 import { InteractionProfileSection } from './settings/InteractionProfileSection';
@@ -86,22 +64,18 @@ import { ExternalRkeySection } from './settings/ExternalRkeySection';
 import { SsePushSection } from './settings/SsePushSection';
 import { AssistantSection } from './settings/AssistantSection';
 import { StartupSection } from './settings/StartupSection';
-import { DatabaseSettingsSection } from './settings/DatabaseSettingsSection';
 import { DataMaintenanceSection, type MaintenanceTool } from './settings/DataMaintenanceSection';
 import { DatabaseManagementSection } from './settings/DatabaseManagementSection';
 import { ResourceManagementSection } from './settings/ResourceManagementSection';
 import { ChatImageCacheSettings } from './settings/ChatImageCacheSettings';
 import { MissingMessageSettings } from './settings/MissingMessageSettings';
+import { SlashEmojiSettings } from './settings/SlashEmojiSettings';
 import { QqShowSettings } from './settings/QqShowSettings';
 import { VoiceAutoTranscribeSetting } from './settings/VoiceAutoTranscribeSetting';
-import {
-  Card,
-  Row,
-  SectionHeader,
-  SettingsNavigateContext,
-  SettingsScopeContext,
-  Toggle,
-} from './settings/controls';
+import { ClearReadRecordsSetting } from './settings/ClearReadRecordsSetting';
+import { MessageDisplayOptions } from './settings/MessageDisplayOptions';
+import { Card, Row, SectionHeader, Toggle } from './settings/controls';
+import { SettingsNavigateContext, SettingsScopeContext } from './settings/controls.shared';
 import { trpc } from '../trpc/client';
 import { DEFAULT_ACCENT, normalizeHex } from '../../../shared/theme_colors';
 import { AntiRecallDialog } from './AntiRecallDialog';
@@ -115,21 +89,19 @@ import '../styles/settings-responsive.css';
 import '../styles/settings-navigation.css';
 import '../styles/app-search.css';
 import type { SettingsSearchTarget } from './settings/searchTarget';
-import { RetainedTabs, TabActivity, useTabActive } from './RetainedTabs';
-import {
-  PageSnapshotsFallback,
-  usePageSnapshotKey,
-  usePageSnapshotReset,
-  usePageState,
-} from './PageSnapshots';
+import { RetainedTabs, TabActivity } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
+import { PageSnapshotsFallback } from './PageSnapshots';
+import { usePageSnapshotKey, usePageSnapshotReset, usePageState } from './PageSnapshots.shared';
 import { pageSnapshots } from '../lib/pageSnapshots';
 import { DraftCloseContext, useDraftClose } from '../lib/draftClose';
-import { useToast } from './Toast';
+import { useToastApi } from './Toast.shared';
+import { SettingsNotificationSource } from '../lib/notificationNavigation';
 import { Modal } from './Dialog';
 import type { SettingsNavigation } from '../hooks/useSettingsNavigation';
 import { z } from 'zod';
 import { RetainedSettingsPage } from './settings/RetainedSettingsPage';
-const PerformanceMonitor = lazy(() => import('./settings/PerformanceMonitor'));
+import LogPerformanceSettings from './settings/LogPerformanceSettings';
 import { useAppLock } from '../state/lock';
 import {
   SETTINGS_GROUPS,
@@ -146,12 +118,15 @@ import { flushSettingsSaves, hasPendingSettingsSaves } from '../lib/settingsSave
 import { ContactCardSettings } from './settings/ContactCardSettings';
 import { useRemoteClient } from '../lib/remoteClient';
 import { remoteSettingAvailable } from '../../../shared/remote_capabilities';
+import { SettingsGroupIcon, SettingsPageIcon } from './settings/pageIcons';
+import { MAINTENANCE_TOOL_ICONS } from '../lib/featureIcons.shared';
+
+const LoginAccountsIcon = MAINTENANCE_TOOL_ICONS['login-accounts'];
 
 /** 左侧导航的分区 id。导出出去是为了让别的界面能"直接打开某一屏"（例如损坏弹窗 → 数据库宽容）。 */
 interface SettingsSection {
   id: SettingsPageId;
   label: string;
-  icon: ReactElement;
   render: (onOpenMaintenance: (tool: MaintenanceTool) => void) => ReactNode;
 }
 
@@ -159,158 +134,116 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   {
     id: 'contact-card',
     label: '联系人名片',
-    icon: <User size={16} />,
     render: () => <ContactCardSettings />,
   },
   {
     id: 'backup',
     label: '配置备份与恢复',
-    icon: <HardDrive size={16} />,
     render: () => <BackupSection />,
   },
   {
     id: 'global',
-    label: '提醒与窗口',
-    icon: <Settings2 size={16} strokeWidth={1.8} />,
+    label: '通知与提醒',
     render: () => <GlobalSettingsSection />,
   },
   {
     id: 'version',
     label: '版本与更新',
-    icon: <Package size={16} strokeWidth={1.8} />,
     render: () => <VersionSection />,
   },
   {
     id: 'appearance',
-    label: '主题与背景',
-    icon: <Palette size={16} strokeWidth={1.8} />,
+    label: '外观与布局',
     render: () => <AppearanceSection page="theme" />,
   },
   {
     id: 'privacy',
     label: '隐私',
-    icon: <LockKeyhole size={16} strokeWidth={1.8} />,
     render: () => <PrivacySection />,
   },
   {
     id: 'account',
-    label: '监听与读取',
-    icon: <User size={16} strokeWidth={1.8} />,
+    label: '在线能力与授权',
     render: () => <AccountBasicsSection />,
   },
   {
     id: 'accounts',
     label: 'WeQ 账号管理',
-    icon: <User size={16} />,
     render: () => <GlobalSettingsSection section="accounts" />,
   },
   {
-    id: 'media',
-    label: '媒体来源',
-    icon: <HardDrive size={16} />,
-    render: () => <AccountBasicsSection page="media" />,
-  },
-  {
-    id: 'qq-accounts',
-    label: 'QQ 登录记录管理',
-    icon: <Users size={16} />,
-    render: () => (
-      <div className="weq-set" data-setting-id="qq-accounts">
-        <SectionHeader title="QQ 登录记录管理" icon={<Users size={16} strokeWidth={1.8} />} />
-        <LoginAccountPanel />
-      </div>
-    ),
-  },
-  {
     id: 'call-recording',
-    label: '通话录音',
-    icon: <PhoneCall size={16} strokeWidth={1.8} />,
+    label: '通话与录音',
     render: () => <CallRecordingSection />,
   },
   {
     id: 'qzone',
     label: 'QQ 空间',
-    icon: <Globe size={16} strokeWidth={1.8} />,
     render: () => <QzoneSettingsSection />,
   },
   {
     id: 'mail',
     label: 'QQ 邮箱',
-    icon: <Mail size={16} strokeWidth={1.8} />,
     render: () => <MailSettingsSection />,
   },
   {
-    id: 'database-repair',
-    label: '损坏与修复',
-    icon: <DatabaseZap size={16} strokeWidth={1.8} />,
-    render: (onOpen) => <DatabaseSettingsSection page="repair" onOpen={onOpen} />,
-  },
-  {
     id: 'database-management',
-    label: '数据库管理',
-    icon: <HardDrive size={16} strokeWidth={1.8} />,
-    render: () => <DatabaseManagementSection />,
-  },
-  {
-    id: 'database-tolerance',
-    label: '数据库容错',
-    icon: <DatabaseZap size={16} />,
-    render: (onOpen) => <DatabaseSettingsSection page="tolerance" onOpen={onOpen} />,
+    label: 'QQ 数据库管理',
+    render: (onOpen) => <DatabaseManagementSection onOpen={onOpen} />,
   },
   {
     id: 'qq-storage',
     label: 'QQ 资源管理',
-    icon: <HardDrive size={16} />,
     render: () => <ResourceManagementSection />,
   },
   {
     id: 'enhancement-packs',
     label: '增强包',
-    icon: <Package size={16} strokeWidth={1.8} />,
     render: () => <EnhancementPacksSection />,
   },
   {
     id: 'resource-loading',
     label: '资源加载',
-    icon: <Globe size={16} />,
-    render: () => <GlobalSettingsSection section="network" />,
-  },
-  {
-    id: 'performance-monitor',
-    label: '性能监视',
-    icon: <Activity size={16} />,
     render: () => (
-      <Suspense
-        fallback={
-          <div className="weq-set">
-            <SectionHeader title="性能监视" icon={<Activity size={16} />} />
-            <PanelLoading />
-          </div>
-        }
-      >
-        <PerformanceMonitor />
-      </Suspense>
+      <>
+        <GlobalSettingsSection section="network" />
+        <AccountBasicsSection page="media" heading={false} />
+      </>
     ),
   },
   {
+    id: 'logs',
+    label: '日志与性能',
+    render: () => <LogPerformanceSettings />,
+  },
+  {
     id: 'diagnostics',
-    label: 'QQ 协议工具',
-    icon: <ScanSearch size={16} />,
+    label: 'QQ 高级工具',
     render: (onOpen) => (
       <div className="weq-set">
-        <SectionHeader title="QQ 协议工具" icon={<ScanSearch size={16} strokeWidth={1.8} />} />
-        <div className="weq-maintenance-list">
-          <button
-            type="button"
-            className="weq-maintenance-entry"
-            data-setting-id="qqnt-capture"
-            onClick={() => onOpen('capture')}
-          >
-            <Radio size={18} aria-hidden />
-            <span>QQNT 抓包</span>
-            <ChevronRight size={16} aria-hidden />
-          </button>
-        </div>
+        <SectionHeader title="QQ 高级工具" page="diagnostics" />
+        <Card
+          title="QQNT 抓包"
+          icon={<Radio size={15} />}
+          action={
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-soft"
+              data-setting-id="qqnt-capture"
+              onClick={() => onOpen('capture')}
+            >
+              打开抓包
+              <ArrowUpRight size={14} aria-hidden />
+            </button>
+          }
+        />
+        <Card
+          title="登录记录与设备标识"
+          icon={<LoginAccountsIcon size={15} />}
+          settingId="qq-accounts"
+        >
+          <LoginAccountPanel />
+        </Card>
         <SignerStatusCard />
         <Card
           title="Protobuf / JCE 逆向"
@@ -325,19 +258,16 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   {
     id: 'model-usage',
     label: 'API 用量',
-    icon: <Activity size={16} />,
     render: () => <ModelUsageSection />,
   },
   {
     id: 'recognition',
     label: '识别与转写',
-    icon: <ScanText size={16} strokeWidth={1.8} />,
     render: () => <RecognitionSettingsSection />,
   },
   {
     id: 'agentlab',
     label: 'API 配置',
-    icon: <Bot size={16} strokeWidth={1.8} />,
     render: () => (
       <>
         <AgentLabSection />
@@ -350,79 +280,66 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   {
     id: 'interaction-profile',
     label: '互动画像',
-    icon: <BrainCircuit size={16} />,
     render: () => <InteractionProfileSection />,
   },
   {
     id: 'reply-suggestions',
     label: '推荐回复',
-    icon: <BrainCircuit size={16} strokeWidth={1.8} />,
     render: () => <ReplySuggestionsSection />,
   },
   {
     id: 'intent-sense',
     label: '意图感知',
-    icon: <BrainCircuit size={16} strokeWidth={1.8} />,
     render: () => <IntentSenseSection />,
   },
   {
     id: 'mcp',
     label: 'MCP 服务器',
-    icon: <Plug size={16} strokeWidth={1.8} />,
     render: () => <McpServerSection />,
   },
   {
     id: 'onebot',
     label: 'OneBot / cc-connect',
-    icon: <Plug size={16} strokeWidth={1.8} />,
     render: () => <OneBotSection />,
   },
   {
     id: 'remote',
     label: 'Web 与 Remote',
-    icon: <Monitor size={16} strokeWidth={1.8} />,
     render: () => <RemoteSection />,
   },
   {
     id: 'assistant',
     label: 'QQ 公众号推送',
-    icon: <Radio size={16} />,
     render: () => <AssistantSection />,
   },
   {
     id: 'sse',
     label: 'SSE 推送',
-    icon: <Radio size={16} strokeWidth={1.8} />,
     render: () => <SsePushSection />,
   },
   {
     id: 'faq',
     label: '常见问题',
-    icon: <HelpCircle size={16} strokeWidth={1.8} />,
     render: () => <HelpSection page="faq" />,
   },
   {
     id: 'feedback',
     label: '反馈',
-    icon: <Bug size={16} strokeWidth={1.8} />,
     render: () => <HelpSection page="feedback" />,
   },
   {
     id: 'chat-messages',
-    label: '阅读与未读',
-    icon: <BookOpen size={16} />,
+    label: '会话列表',
     render: () => <AppearanceSection page="messages" category="reading" />,
   },
   {
     id: 'message-display',
-    label: '消息显示',
-    icon: <Monitor size={16} />,
+    label: '消息阅读',
     render: () => <AppearanceSection page="messages" category="display" />,
   },
   {
     id: 'chat-interaction',
     label: '互动与防撤回',
-    icon: <Send size={16} />,
     render: () => (
       <>
         <AppearanceSection page="messages" category="sending" />
@@ -432,18 +349,16 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'startup',
-    label: '启动与主页',
-    icon: <Power size={16} />,
+    label: '启动与退出',
     render: () => <StartupSection />,
   },
   {
     id: 'weq-storage',
     label: 'WeQ 存储管理',
-    icon: <HardDrive size={16} />,
     render: () => (
       <>
         <div className="weq-set">
-          <SectionHeader title="WeQ 存储管理" icon={<HardDrive size={16} strokeWidth={1.8} />} />
+          <SectionHeader title="WeQ 存储管理" page="weq-storage" />
         </div>
         <GlobalSettingsSection section="storage" heading={false} />
       </>
@@ -452,26 +367,23 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   {
     id: 'credentials',
     label: '凭据管理',
-    icon: <Lock size={16} />,
     render: (onOpen) => (
       <>
         <AccountBasicsSection page="credentials" />
-        <DataMaintenanceSection
-          title={null}
-          onOpen={onOpen}
-          tools={['key-scan', 'other-device-key']}
-        />
+        <div className="weq-set">
+          <Card title="密钥工具" icon={<LockKeyhole size={15} />}>
+            <DataMaintenanceSection
+              title={null}
+              onOpen={onOpen}
+              tools={['key-scan', 'other-device-key']}
+            />
+          </Card>
+        </div>
         <div data-setting-id="external-rkey">
           <ExternalRkeySection />
         </div>
       </>
     ),
-  },
-  {
-    id: 'logs',
-    label: '日志',
-    icon: <ScrollText size={16} />,
-    render: () => <HelpSection page="logs" />,
   },
 ];
 
@@ -523,6 +435,7 @@ function SettingsContent({
   isCurrentSource?: () => boolean;
   navigationGuard?: { current: SettingsNavigation | null };
 }): ReactElement | null {
+  const notificationToast = useToastApi();
   const remote = useRemoteClient();
   const target = useMemo(
     () => resolveSettingsTarget(searchTarget ?? { section: initialSection ?? 'startup' }),
@@ -558,9 +471,9 @@ function SettingsContent({
     try {
       pageSnapshots.write(activeKey, activeId);
     } catch {
-      useToast.getState().push({ tone: 'error', title: '设置页面位置保存失败' });
+      notificationToast.push({ tone: 'error', title: '设置页面位置保存失败' });
     }
-  }, [open, activeKey, activeId]);
+  }, [open, activeKey, activeId, notificationToast]);
   const activeSnapshots = usePageSnapshotReset('workspace:main:设置', `settings:${activeId}`);
   const [closing, setClosing] = useState(false);
   const guard = useDraftClose(() => setClosing(true), null);
@@ -623,9 +536,11 @@ function SettingsContent({
     try {
       snapshots.reset();
     } catch {
-      useToast
-        .getState()
-        .push({ tone: 'error', title: '设置页面状态清除失败', detail: '请检查本机存储后重试。' });
+      notificationToast.push({
+        tone: 'error',
+        title: '设置页面状态清除失败',
+        detail: '请检查本机存储后重试。',
+      });
       setClosing(false);
       return;
     }
@@ -633,7 +548,7 @@ function SettingsContent({
     setMobileCategoryOpen(false);
     onClose();
     setClosing(false);
-  }, [closing, snapshots, setActiveId, onClose]);
+  }, [closing, snapshots, setActiveId, onClose, notificationToast]);
   useEffect(() => {
     guard.drafts.add(snapshotDraft);
     return () => {
@@ -732,7 +647,7 @@ function SettingsContent({
                     }}
                   >
                     <span className="weq-settings-nav-icon">
-                      {sections.find((section) => section.id === s.sections[0])!.icon}
+                      <SettingsGroupIcon group={s.id} />
                     </span>
                     <span className="weq-settings-nav-label">
                       {s.label}
@@ -760,7 +675,7 @@ function SettingsContent({
                   onClick={() => switchSection(section.id)}
                 >
                   <span className="weq-settings-subnav-icon" aria-hidden="true">
-                    {section.icon}
+                    <SettingsPageIcon page={section.id} />
                   </span>
                   <span className="weq-settings-subnav-label">{section.label}</span>
                   {updateAvailable && section.id === 'version' ? (
@@ -777,30 +692,33 @@ function SettingsContent({
                       pageId={active.id}
                       target={target}
                       revision={searchTarget?.revision}
+                      recordId={searchTarget?.recordId}
                     >
-                      <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
-                        <SettingsNavigateContext.Provider
-                          value={(section) => switchSection(section as SettingsPageId)}
-                        >
-                          {active.id === 'chat-interaction' ? (
-                            <>
-                              {active.render(onOpenMaintenance)}
-                              <SettingsScopeContext.Provider value={null}>
-                                <AntiRecallDialog
-                                  embedded
-                                  onClose={() => {}}
-                                  onOpenRecalls={onOpenRecalls}
-                                  recallDetails={recallDetails}
-                                  onCloseRecalls={onCloseRecalls}
-                                  isCurrentSource={isCurrentSource}
-                                />
-                              </SettingsScopeContext.Provider>
-                            </>
-                          ) : (
-                            active.render(onOpenMaintenance)
-                          )}
-                        </SettingsNavigateContext.Provider>
-                      </SettingsScopeContext.Provider>
+                      <SettingsNotificationSource section={active.id}>
+                        <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
+                          <SettingsNavigateContext.Provider
+                            value={(section) => switchSection(section as SettingsPageId)}
+                          >
+                            {active.id === 'chat-interaction' ? (
+                              <>
+                                {active.render(onOpenMaintenance)}
+                                <SettingsScopeContext.Provider value={null}>
+                                  <AntiRecallDialog
+                                    embedded
+                                    onClose={() => {}}
+                                    onOpenRecalls={onOpenRecalls}
+                                    recallDetails={recallDetails}
+                                    onCloseRecalls={onCloseRecalls}
+                                    isCurrentSource={isCurrentSource}
+                                  />
+                                </SettingsScopeContext.Provider>
+                              </>
+                            ) : (
+                              active.render(onOpenMaintenance)
+                            )}
+                          </SettingsNavigateContext.Provider>
+                        </SettingsScopeContext.Provider>
+                      </SettingsNotificationSource>
                     </RetainedSettingsPage>
                   </RetainedTabs>
                 </PageSnapshotsFallback>
@@ -875,7 +793,7 @@ function SettingsContent({
 function ModelUsageSection(): ReactElement {
   return (
     <div className="weq-set weq-settings-model-usage">
-      <SectionHeader title="API 用量" icon={<Activity size={16} strokeWidth={1.8} />} />
+      <SectionHeader title="API 用量" page="model-usage" />
       <UsagePanel />
     </div>
   );
@@ -972,25 +890,23 @@ function AppearanceSection({
     <section className="weq-settings-section">
       {heading && (
         <SectionHeader
-          icon={
-            page === 'theme' ? (
-              <Palette size={16} strokeWidth={1.8} />
-            ) : category === 'reading' ? (
-              <BookOpen size={16} />
-            ) : category === 'sending' ? (
-              <Send size={16} />
-            ) : (
-              <Monitor size={16} />
-            )
+          page={
+            page === 'theme'
+              ? 'appearance'
+              : category === 'reading'
+                ? 'chat-messages'
+                : category === 'sending'
+                  ? 'chat-interaction'
+                  : 'message-display'
           }
           title={
             page === 'theme'
-              ? '主题与背景'
+              ? '外观与布局'
               : category === 'reading'
-                ? '阅读与未读'
+                ? '会话列表'
                 : category === 'sending'
                   ? '互动与防撤回'
-                  : '消息显示'
+                  : '消息阅读'
           }
         />
       )}
@@ -1025,15 +941,21 @@ function AppearanceSection({
           </Card>
 
           <ComponentAppearance />
+          <DesktopOnly>
+            <WindowAppearanceCard />
+          </DesktopOnly>
         </>
       )}
       {page === 'messages' && (
         <>
           {category === 'reading' && (
-            <Card title="全部会话" icon={<MessagesSquare size={15} />}>
+            <Card
+              title="全部会话视图"
+              icon={<MessagesSquare size={15} />}
+              resetId="conversation-scope"
+            >
               <Row
                 settingId="all-conversations-include-hidden"
-                label="包含已隐藏会话"
                 control={
                   <SharedDisplayToggle
                     name="allConversationsIncludeHidden"
@@ -1044,7 +966,6 @@ function AppearanceSection({
               />
               <Row
                 settingId="all-conversations-include-deleted"
-                label="包含已删除会话"
                 control={
                   <SharedDisplayToggle
                     name="allConversationsIncludeDeleted"
@@ -1056,7 +977,22 @@ function AppearanceSection({
             </Card>
           )}
           {category === 'reading' && (
-            <Card title="未读显示" icon={<Bell size={15} strokeWidth={1.8} />}>
+            <Card title="列表排序" icon={<MessagesSquare size={15} />} resetId="conversation-order">
+              <Row
+                settingId="keep-conversation-position-on-hover"
+                desc="鼠标位于会话列表内时，新消息仍正常更新，但不调整会话顺序；移出并关闭菜单后恢复排序。"
+                control={
+                  <SharedDisplayToggle
+                    name="keepConversationPositionOnHover"
+                    label="鼠标停留时保持会话位置"
+                    fallback={false}
+                  />
+                }
+              />
+            </Card>
+          )}
+          {category === 'reading' && (
+            <Card title="未读标记" icon={<Bell size={15} strokeWidth={1.8} />} resetId="unread">
               <Row
                 settingId="message-unread-badge"
                 label="在消息图标上显示红点"
@@ -1117,33 +1053,21 @@ function AppearanceSection({
                 />
               ))}
               <AccountBasicsSection page="read" heading={false} />
+              <ClearReadRecordsSetting />
             </Card>
           )}
-          {(category === 'reading' || category === 'sending') && (
+          {(category === 'display' || category === 'sending') && (
             <Card
-              title={category === 'reading' ? '阅读与定位' : '发送消息'}
+              title={category === 'display' ? '阅读与定位' : '发送消息'}
+              resetId={category === 'display' ? 'reading' : 'sending'}
               icon={
-                category === 'reading' ? (
+                category === 'display' ? (
                   <BookOpen size={15} strokeWidth={1.8} />
                 ) : (
                   <Send size={15} strokeWidth={1.8} />
                 )
               }
             >
-              {category === 'reading' ? (
-                <Row
-                  settingId="keep-conversation-position-on-hover"
-                  label="鼠标停留时保持会话位置"
-                  desc="鼠标位于会话列表内时，新消息仍正常更新，但不调整会话顺序；移出并关闭菜单后恢复排序。"
-                  control={
-                    <SharedDisplayToggle
-                      name="keepConversationPositionOnHover"
-                      label="鼠标停留时保持会话位置"
-                      fallback={false}
-                    />
-                  }
-                />
-              ) : null}
               {[
                 {
                   key: 'readFromFirstUnread' as const,
@@ -1206,14 +1130,18 @@ function AppearanceSection({
                     }
                   />
                 ))}
-              {category === 'reading' ? <MissingMessageSettings /> : null}
+              {category === 'display' ? <MissingMessageSettings /> : null}
+            </Card>
+          )}
+          {category === 'sending' && (
+            <Card title="表情输入" icon={<Smile size={15} />} resetId="emoji-shortcuts">
+              <SlashEmojiSettings />
             </Card>
           )}
           {category === 'sending' && (
             <Card title="引用回复" icon={<MessagesSquare size={15} />}>
               <Row
                 settingId="quote-auto-mention"
-                label="群聊引用时自动 @ 对方"
                 control={
                   <SharedDisplayToggle
                     name="autoMentionOnQuote"
@@ -1224,7 +1152,6 @@ function AppearanceSection({
               />
               <Row
                 settingId="quote-backspace-remove"
-                label="按退格键移除引用"
                 control={
                   <SharedDisplayToggle
                     name="backspaceRemovesQuote"
@@ -1237,145 +1164,57 @@ function AppearanceSection({
           )}
           {readingError ? <p role="alert">{readingError}</p> : null}
           {category === 'display' && (
-            <>
-              <Card
-                title="时间与序号"
-                icon={<Clock size={15} strokeWidth={1.8} />}
-                settingId="custom-message-display"
-              >
-                <Row
-                  settingId="message-seq"
-                  label="显示消息序号（seq）"
-                  control={
-                    <SharedDisplayToggle
-                      name="showMessageSeq"
-                      fallback={settings.data?.showMessageSeq ?? false}
-                      disabled={!settings.data}
-                      label="显示消息序号（seq）"
-                    />
-                  }
-                />
-                <Row
-                  settingId="message-date"
-                  label="显示发送日期"
-                  control={
-                    <SharedDisplayToggle
-                      name="showMessageDate"
-                      fallback={settings.data?.showMessageDate ?? false}
-                      disabled={!settings.data}
-                      label="显示发送日期"
-                    />
-                  }
-                />
-                <Row
-                  settingId="message-time"
-                  label="显示发送时间"
-                  control={
-                    <SharedDisplayToggle
-                      name="showMessageTime"
-                      fallback={settings.data?.showMessageTime ?? false}
-                      disabled={!settings.data}
-                      label="显示发送时间"
-                    />
-                  }
-                />
-              </Card>
-              <Card title="群消息" icon={<Users size={15} />}>
-                {(
-                  [
-                    ['showGroupMemberName', 'group-message-name', '显示群消息发送者名称'],
-                    ['showGroupMemberLevel', 'group-message-level', '显示群成员等级'],
-                    ['showGroupMemberTitle', 'group-message-title', '显示群成员头衔与身份'],
-                  ] as const
-                ).map(([name, settingId, label]) => (
-                  <Row
-                    key={settingId}
-                    settingId={settingId}
-                    label={label}
-                    control={<SharedDisplayToggle name={name} label={label} fallback={true} />}
+            <Card
+              title="内容显示"
+              icon={<Monitor size={15} />}
+              settingId="custom-message-display"
+              resetId="message-content"
+            >
+              <QqShowSettings />
+              <MessageDisplayOptions />
+              <VoiceAutoTranscribeSetting />
+              <Row
+                settingId="text-markdown"
+                label="文本消息自动渲染为 Markdown"
+                desc={
+                  <>
+                    把普通文本消息里的 # 标题、**加粗**、代码块等语法渲染成富文本。这是 WeQ
+                    自己的功能，关闭后默认显示原文，仍可右键手动选择「显示
+                    Markdown」。单条消息的手动选择优先，QQ 原生 Markdown 消息不受影响。
+                  </>
+                }
+                control={
+                  <Toggle
+                    checked={textMarkdown}
+                    disabled={settings.isLoading || setRenderTextMarkdown.isLoading}
+                    onChange={(next) => void onSetTextMarkdown(next)}
+                    label="文本消息自动渲染为 Markdown"
                   />
-                ))}
-              </Card>
-              <Card title="头像与装扮" icon={<Smile size={15} strokeWidth={1.8} />}>
-                {[
-                  {
-                    key: 'showAvatarPendant' as const,
-                    settingId: 'avatar-pendant',
-                    label: '聊天头像挂件',
-                  },
-                  {
-                    key: 'showMessageBubble' as const,
-                    settingId: 'message-bubble',
-                    label: '消息气泡',
-                  },
-                  {
-                    key: 'showMessageFont' as const,
-                    settingId: 'message-font',
-                    label: '消息字体',
-                  },
-                ].map(({ key, settingId, label }) => (
-                  <Row
-                    key={key}
-                    settingId={settingId}
-                    label={label}
-                    control={
-                      <SharedDisplayToggle
-                        name={key}
-                        fallback={
-                          settings.data?.[key] ??
-                          (key === 'showAvatarPendant'
-                            ? true
-                            : (settings.data?.showMsgDecoration ?? true))
-                        }
-                        disabled={!settings.data}
-                        label={label}
-                      />
-                    }
-                  />
-                ))}
-                <QqShowSettings />
-              </Card>
-              <Card title="文本与链接" icon={<ScrollText size={15} strokeWidth={1.8} />}>
-                <Row
-                  settingId="text-markdown"
-                  label="纯文本消息自动渲染为 Markdown"
-                  desc={
-                    <>
-                      把普通文本消息里的 # 标题、**加粗**、代码块等语法渲染成富文本。这是 WeQ
-                      自己的功能，关闭后默认显示原文，仍可右键手动选择「显示
-                      Markdown」。单条消息的手动选择优先，QQ 原生 Markdown 消息不受影响。
-                    </>
-                  }
-                  control={
-                    <Toggle
-                      checked={textMarkdown}
-                      disabled={settings.isLoading || setRenderTextMarkdown.isLoading}
-                      onChange={(next) => void onSetTextMarkdown(next)}
-                      label="纯文本消息自动渲染为 Markdown"
-                    />
-                  }
-                />
-                <Row
-                  settingId="link-preview"
-                  label="链接预览卡片"
-                  desc={
-                    <>
-                      一条消息只有一个链接时，抓取网页标题、简介和封面渲染成卡片。会按链接访问
-                      对应网页（结果本地缓存），关掉后链接仍标蓝可点，但完全不出网。
-                    </>
-                  }
-                  control={
+                }
+              />
+              <Row
+                settingId="link-preview"
+                desc={
+                  <>
+                    一条消息只有一个链接时，抓取网页标题、简介和封面渲染成卡片。会按链接访问
+                    对应网页（结果本地缓存），关掉后链接仍标蓝可点，但完全不出网。
+                  </>
+                }
+                control={
+                  <span data-setting-fallback={!linkCard ? 'link-screenshot' : undefined}>
                     <Toggle
                       checked={linkCard}
                       disabled={settings.isLoading || setLinkPreview.isLoading}
                       onChange={(next) => void onSetLinkCard(next)}
                       label="链接预览卡片"
                     />
-                  }
-                />
+                  </span>
+                }
+              />
+              {linkCard ? (
                 <Row
                   settingId="link-screenshot"
-                  label="无封面时网页截图"
+                  indent
                   desc={
                     <>
                       网页没提供封面图时，在一个隔离的后台窗口里把它打开并截取首屏当封面。这会
@@ -1391,12 +1230,9 @@ function AppearanceSection({
                     />
                   }
                 />
-              </Card>
-              <Card title="语音消息" icon={<AudioLines size={15} strokeWidth={1.8} />}>
-                <VoiceAutoTranscribeSetting />
-              </Card>
-              <ChatImageCacheSettings />
-            </>
+              ) : null}
+              <ChatImageCacheSettings embedded />
+            </Card>
           )}
         </>
       )}
@@ -1587,7 +1423,9 @@ function ColorPicker({
         >
           <span className="weq-cp-thumb" style={{ left: `${huePct}%` }} />
         </div>
-        <span className="weq-cp-bar-value">{Math.round(hsl.h)}°</span>
+        <span className="weq-cp-bar-value">
+          {<span className="weq-number weq-number-inherit">{Math.round(hsl.h)}</span>}°
+        </span>
       </div>
 
       <div className="weq-cp-bar-row">
@@ -1604,7 +1442,9 @@ function ColorPicker({
         >
           <span className="weq-cp-thumb" style={{ left: `${lightFraction * 100}%` }} />
         </div>
-        <span className="weq-cp-bar-value">{Math.round(hsl.l * 100)}%</span>
+        <span className="weq-cp-bar-value">
+          {<span className="weq-number weq-number-inherit">{Math.round(hsl.l * 100)}</span>}%
+        </span>
       </div>
 
       <div className="weq-cp-row">

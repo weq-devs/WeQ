@@ -5,7 +5,7 @@ import {
   ResourceRevisionContext,
   useCursorPaged,
   usePagedList,
-} from '../src/renderer/src/views/cache/CacheShared';
+} from '../src/renderer/src/views/cache/CacheShared.shared';
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 
 const read = vi.fn();

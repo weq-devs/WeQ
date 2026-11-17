@@ -15,6 +15,10 @@ const state = vi.hoisted(() => ({
   schedule: vi.fn(async (_input: unknown) => 'schedule-a'),
   meta: vi.fn(async (_node: string) => ({ nodeId: '123', peerTinyId: '456' })),
 }));
+vi.mock('@weq/service', async (original) => ({
+  ...(await original<typeof import('@weq/service')>()),
+  requireDevelopmentDressTools: vi.fn(),
+}));
 vi.mock('../src/main/context/app_context', () => {
   const services = {
     accountConfig: { getRecord: () => ({ configId: state.configId }) },

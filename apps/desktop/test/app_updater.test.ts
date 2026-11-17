@@ -102,6 +102,29 @@ describe.each(['win32', 'linux'])('更新安装动作（%s）', (platform) => {
   beforeEach(() => {
     Object.defineProperty(process, 'platform', { value: platform, configurable: true });
   });
+  it('下载事件同步任务列表的真实字节进度并保留过程日志', async () => {
+    const { updater, autoUpdater } = await ready();
+    const { updateTransferPolicy } = await import('@weq/service/transfer-policy');
+    const { UNKNOWN_NETWORK } = await import('@weq/service/data-saver');
+    const { backgroundTasks } = await import('../src/main/background_tasks');
+    updateTransferPolicy('never', UNKNOWN_NETWORK);
+    const download = fixture.downloadUpdate.getMockImplementation()!;
+    fixture.downloadUpdate.mockImplementationOnce(async () => {
+      autoUpdater.emit('download-progress', {
+        percent: 40,
+        transferred: 4 * 1048576,
+        total: 10 * 1048576,
+        bytesPerSecond: 1048576,
+      });
+      const task = backgroundTasks.snapshot().at(-1)!;
+      expect(task.progress).toBe(40);
+      expect(task.note).toContain('4.0 / 10.0 MiB');
+      expect(task.logs?.some((line) => line.text.includes('40%'))).toBe(true);
+      return download();
+    });
+    await updater.startDownload();
+    expect(backgroundTasks.snapshot().at(-1)?.progress).toBe(100);
+  });
   it.each(['version', 'file'])('Linux 拒绝下载回执与已检查身份不一致：%s', async (field) => {
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
     const { updater, autoUpdater, events } = await ready();

@@ -29,15 +29,15 @@ import * as timeFormat from '@weq/time';
 
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
-import { create } from 'zustand';
 import { Crown, RefreshCw, X, Gift } from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqAvatar } from './QqAvatar';
 import { ProfileAvatar } from './ProfileAvatar';
-import { useToast } from './Toast';
+import { useToast } from './Toast.shared';
 import { redbagSkinUrl, resourceUrl } from '../lib/resourceUrl';
 import { useOverlayLayer } from '../lib/overlayStack';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
+import { type RedBagDetailTarget, useRedBagStore } from './RedBagDetailDialog.shared';
 
 export interface RedBagClaimWire {
   uin: string;
@@ -77,16 +77,6 @@ export interface RedBagGrabWire {
   claimedCount: number;
 }
 
-export interface RedBagDetailTarget {
-  msgId: string;
-  kind: 'c2c' | 'group';
-  conv: string;
-  /** 自定义封面 id（存在时优先于通用封面）。 */
-  skinId?: number;
-  /** 发红包者头像用的 uin（拿不到时回退领取人 / 占位）。 */
-  senderUin?: string;
-}
-
 /** 分 → 元，保留两位（0.02 → 「0.02」）。 */
 function formatAmount(cents: number): string {
   return (cents / 100).toFixed(2);
@@ -105,29 +95,6 @@ function isExpectedDetailMiss(message: string): boolean {
 
 function formatTime(sec: number): string {
   return sec > 0 ? timeFormat.formatUnixTime(sec) : '';
-}
-
-// ---- store ----------------------------------------------------------------
-
-interface RedBagStore {
-  target: RedBagDetailTarget | null;
-  open(target: RedBagDetailTarget): void;
-  close(): void;
-}
-
-const useRedBagStore = create<RedBagStore>((set) => ({
-  target: null,
-  open(target) {
-    set({ target });
-  },
-  close() {
-    set({ target: null });
-  },
-}));
-
-/** 命令式打开红包灯箱（QqWallet 点击时调用）。 */
-export function openRedBagDetail(target: RedBagDetailTarget): void {
-  useRedBagStore.getState().open(target);
 }
 
 // ---- the dialog -----------------------------------------------------------
@@ -301,12 +268,20 @@ function RedBagDetailDialog({
             <div className="weq-redbag-detail-sheet">
               <div className="weq-redbag-detail-meta">
                 <span>
-                  已领取 {detail?.claimedCount ?? 0}/{detail?.totalNum || '?'} 个
+                  已领取{' '}
+                  <span className="weq-number weq-number-inherit">{detail?.claimedCount ?? 0}</span>
+                  /<span className="weq-number weq-number-inherit">{detail?.totalNum || '?'}</span>{' '}
+                  个
                 </span>
                 {detail?.totalAmount ? (
                   <span>
                     {detail.lucky ? '总金额' : '金额'}{' '}
-                    <span data-privacy-sensitive>¥{formatAmount(detail.totalAmount)}</span>
+                    <span data-privacy-sensitive>
+                      ¥
+                      <span className="weq-number weq-number-inherit">
+                        {formatAmount(detail.totalAmount)}
+                      </span>
+                    </span>
                   </span>
                 ) : null}
               </div>
@@ -343,11 +318,16 @@ function RedBagDetailDialog({
                         </ProfileAvatar>
                         <div className="weq-redbag-detail-item-main">
                           <span className="weq-redbag-detail-item-time">
-                            {formatTime(c.claimTime)}
+                            <span className="weq-number weq-number-inherit">
+                              {formatTime(c.claimTime)}
+                            </span>
                           </span>
                         </div>
                         <span className="weq-redbag-detail-item-amount">
-                          ¥{formatAmount(c.amount)}
+                          ¥
+                          <span className="weq-number weq-number-inherit">
+                            {formatAmount(c.amount)}
+                          </span>
                         </span>
                       </li>
                     );
@@ -392,12 +372,23 @@ function RedBagDetailDialog({
                 </div>
                 <div className="weq-redbag-detail-result">
                   <div className="weq-redbag-detail-result-amount">
-                    你领取到了 <strong>{formatAmount(result.amount)}</strong> 元
+                    你领取到了{' '}
+                    <strong>
+                      <span className="weq-number weq-number-inherit">
+                        {formatAmount(result.amount)}
+                      </span>
+                    </strong>{' '}
+                    元
                   </div>
                   {/* grab 响应的概况不带已领人数，拿不到就整行不显示。 */}
                   {result.claimedCount > 0 ? (
                     <div className="weq-redbag-detail-result-meta">
-                      已领取 {result.claimedCount}/{detail?.totalNum || '?'} 个
+                      已领取{' '}
+                      <span className="weq-number weq-number-inherit">{result.claimedCount}</span>/
+                      <span className="weq-number weq-number-inherit">
+                        {detail?.totalNum || '?'}
+                      </span>{' '}
+                      个
                     </div>
                   ) : null}
                 </div>
@@ -438,3 +429,4 @@ export function RedBagDetailHost(): ReactElement | null {
   if (!target) return null;
   return <RedBagDetailDialog target={target} onClose={close} />;
 }
+export type { RedBagDetailTarget } from './RedBagDetailDialog.shared';

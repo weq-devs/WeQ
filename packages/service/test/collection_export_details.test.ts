@@ -46,6 +46,22 @@ function output() {
 }
 
 describe('collection export detail hydration', () => {
+  it('中文时长与文件大小统一间距，正文及文件名不做混排改写', async () => {
+    const outputPath = output();
+    const source = rows(2);
+    source[0]!.kind = 'audio';
+    source[0]!.text = '原文3秒';
+    source[0]!.audio = { duration: 80000, stt: '' };
+    source[1]!.kind = 'file';
+    source[1]!.file = { name: '截图2026年.png', size: '1024', ext: 'png' };
+    await exportCollections({ format: 'txt', outputPath }, { listCollections: async () => source });
+    const text = readFileSync(outputPath, 'utf8');
+    expect(text).toContain('1 分钟 20 秒');
+    expect(text).toContain('截图2026年.png（1.0 KB）');
+    expect(text).toContain('原文3秒');
+    expect(source[0]!.audio.duration).toBe(80000);
+    expect(source[1]!.file.size).toBe('1024');
+  });
   it('renders source timestamps in Beijing time without rewriting raw source fields', async () => {
     const outputPath = output();
     const source = rows(1);

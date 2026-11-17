@@ -1,9 +1,7 @@
-import { createContext, useContext, useId, type ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 import { PageSnapshotScope } from './PageSnapshots';
 import { PageScrollSnapshot } from './PageScrollSnapshot';
-
-const TabActivityContext = createContext(true);
-export const useTabActive = () => useContext(TabActivityContext);
+import { useTabActive, TabActivityContext } from './RetainedTabs.shared';
 
 export function TabActivity({ active, children }: { active: boolean; children?: ReactNode }) {
   const parentActive = useTabActive();

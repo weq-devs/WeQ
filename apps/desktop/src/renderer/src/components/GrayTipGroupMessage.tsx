@@ -34,9 +34,9 @@ function formatMuteDuration(seconds: number): string {
   const hours = Math.floor((seconds % 86400) / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
 
-  if (days > 0) return `${days}天`;
-  if (hours > 0) return `${hours}小时`;
-  return `${minutes}分钟`;
+  if (days > 0) return `${days} 天`;
+  if (hours > 0) return `${hours} 小时`;
+  return `${minutes} 分钟`;
 }
 
 /** 灰条外壳，所有分支共用同一套居中样式。 */
@@ -180,7 +180,11 @@ export function GrayTipGroupMessage({
           {person(targetUid, targetNick, user2Uid)}
           <span> 被 </span>
           {person(operatorUid, operatorNick, user1Uid)}
-          <span> 禁言了{formatMuteDuration(duration)}</span>
+          <span>
+            {' '}
+            禁言了{' '}
+            <span className="weq-number weq-number-inherit">{formatMuteDuration(duration)}</span>
+          </span>
         </Tip>
       ) : (
         <Tip>

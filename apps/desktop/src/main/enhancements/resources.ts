@@ -31,6 +31,7 @@ import { EnhancementPacks, type EnhancementComponent } from './packs';
 import { createModelComponent } from './model_component';
 import { releaseContentVersion } from './release_catalog';
 import { EnhancementUpdateController } from './updates';
+import { configureReleaseFeeds } from '../update/release_feed';
 import { trackEnhancementPreparation } from './tasks';
 import type { EnhancementEngineKind } from '../../shared/enhancement_manifest';
 
@@ -73,6 +74,7 @@ export function createEnhancementResources(
   getIntentEngine: () => IntentSenseLocalEngineControl | null,
 ) {
   const root = platform.appDataRoot();
+  configureReleaseFeeds(root);
   const target = `${process.platform}-${process.arch}`;
   const resourceRoot = resolveResourceRoot();
   const developmentDirectory =
@@ -335,7 +337,20 @@ export function createEnhancementResources(
                   userConfig.getSharedPreference('intent').hfMirror !== false
                     ? 'hf-mirror.com'
                     : 'huggingface.co';
-              return { ...file, url: url.toString() };
+              const mirror = userConfig.getSharedPreference('intent').hfMirror !== false;
+              return {
+                ...file,
+                url: url.toString(),
+                sources:
+                  url.hostname === 'hf-mirror.com' || url.hostname === 'huggingface.co'
+                    ? mirror
+                      ? [
+                          url.toString(),
+                          url.toString().replace('://hf-mirror.com', '://huggingface.co'),
+                        ]
+                      : [url.toString()]
+                    : file.sources,
+              };
             }),
           });
         };
@@ -492,6 +507,9 @@ export function createEnhancementResources(
             total,
             paused: state.paused,
             pauseReasons: state.pauseReasons,
+            source: state.source,
+            attempt: state.attempt,
+            retryAt: state.retryAt,
             note: '准备装扮索引',
           });
         });

@@ -45,7 +45,7 @@ import {
   type ArkData,
 } from './arkCards';
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
-import { GroupProfileDialog } from '../../im-template/template/profilePanes';
+import { GroupProfileDialog } from '../lazyMainPanels';
 import {
   groupShareTarget,
   groupShareValues,

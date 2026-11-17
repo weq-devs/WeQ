@@ -6,6 +6,7 @@ import { GraphCanvas } from '../src/renderer/src/components/relationGraph/GraphC
 import {
   createGraphSimulation,
   fitGraphView,
+  type GraphView,
 } from '../src/renderer/src/components/relationGraph/graphLayout';
 import type { BuiltGraph, GNode } from '../src/renderer/src/components/relationGraph/types';
 
@@ -54,6 +55,7 @@ let root: Root;
 let resize: () => void;
 let animationFrame: FrameRequestCallback | undefined;
 let graph: BuiltGraph;
+let view: GraphView;
 const onSelect = vi.fn();
 const fit = vi.mocked(fitGraphView);
 const simulation = () =>
@@ -71,6 +73,21 @@ function pointer(type: string, x = 20, movement = 0) {
   const event = new PointerEvent(type, { bubbles: true, clientX: x, clientY: 20 });
   Object.defineProperties(event, {
     movementX: { value: movement },
+    movementY: { value: 0 },
+  });
+  act(() => host.querySelector('.weq-graph-canvas-wrap')!.dispatchEvent(event));
+}
+function touch(type: string, pointerId: number, x: number, y = 200) {
+  const event = new PointerEvent(type, {
+    bubbles: true,
+    pointerType: 'touch',
+    pointerId,
+    clientX: x,
+    clientY: y,
+  });
+  // 触屏不能依赖 movementX/Y，真实浏览器可能始终返回 0。
+  Object.defineProperties(event, {
+    movementX: { value: 0 },
     movementY: { value: 0 },
   });
   act(() => host.querySelector('.weq-graph-canvas-wrap')!.dispatchEvent(event));
@@ -132,7 +149,92 @@ beforeEach(() => {
   root = createRoot(host);
   render();
   expect(fit).toHaveBeenCalled();
+  view = fit.mock.results.at(-1)!.value;
   fit.mockClear();
+});
+
+describe('群交集触屏手势', () => {
+  it('单指按坐标差拖动画布，不依赖 movementX/Y', () => {
+    const before = { ...view };
+    touch('pointerdown', 1, 100);
+    touch('pointermove', 1, 130, 220);
+    touch('pointerup', 1, 130, 220);
+    expect(view).toEqual({ scale: before.scale, x: before.x + 30, y: before.y + 20 });
+    expect(onSelect).not.toHaveBeenCalled();
+    tick(0.5);
+    expect(fit).not.toHaveBeenCalled();
+  });
+
+  it('双指以手势中心为锚点缩放，同时平移，松手不误开名片', () => {
+    const before = { ...view };
+    touch('pointerdown', 1, 100);
+    touch('pointerdown', 2, 200);
+    touch('pointermove', 2, 300);
+    expect(view.scale).toBeCloseTo(before.scale * 2);
+    expect(view.x).toBeCloseTo(200 - (150 - before.x) * 2);
+    expect(view.y).toBeCloseTo(200 - (200 - before.y) * 2);
+    touch('pointerup', 2, 300);
+    const pinched = { ...view };
+    touch('pointermove', 1, 120, 210);
+    expect(view.x).toBeCloseTo(pinched.x + 20);
+    expect(view.y).toBeCloseTo(pinched.y + 10);
+    touch('pointerup', 1, 120, 210);
+    expect(onSelect).not.toHaveBeenCalled();
+    tick(0.5);
+    expect(fit).not.toHaveBeenCalled();
+  });
+
+  it('双指同向拖动只平移，第三指加入和离开不产生镜头跳动', () => {
+    const before = { ...view };
+    touch('pointerdown', 1, 100);
+    touch('pointerdown', 2, 200);
+    touch('pointermove', 1, 120);
+    touch('pointermove', 2, 220);
+    expect(view.scale).toBeCloseTo(before.scale);
+    expect(view.x).toBeCloseTo(before.x + 20);
+    expect(view.y).toBeCloseTo(before.y);
+    const translated = { ...view };
+    touch('pointerdown', 3, 300);
+    touch('pointermove', 3, 400);
+    touch('pointerup', 1, 120);
+    expect(view).toEqual(translated);
+    touch('pointerup', 3, 400);
+    touch('pointerup', 2, 220);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('节点拖动转双指时立即释放节点，剩余一指只拖动画布', () => {
+    const node = graph.nodes[0];
+    const x = node.x * view.scale + view.x;
+    const y = node.y * view.scale + view.y;
+    touch('pointerdown', 1, x, y);
+    expect(node.fx).not.toBeNull();
+    touch('pointerdown', 2, x + 100, y);
+    expect(node.fx).toBeNull();
+    touch('pointermove', 2, x + 120, y);
+    touch('pointerup', 2, x + 120, y);
+    touch('pointermove', 1, x + 10, y);
+    expect(node.fx).toBeNull();
+    touch('pointerup', 1, x + 10, y);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it.each(['pointercancel', 'lostpointercapture'])(
+    '%s 不触发点击，后续新手势可正常平移',
+    (type) => {
+      touch('pointerdown', 1, 100);
+      touch('pointerdown', 2, 200);
+      touch(type, 2, 200);
+      touch('pointerup', 1, 100);
+      expect(onSelect).not.toHaveBeenCalled();
+      const before = { ...view };
+      touch('pointerdown', 3, 100);
+      touch('pointermove', 3, 130);
+      touch('pointerup', 3, 130);
+      expect(view.x).toBeCloseTo(before.x + 30);
+      expect(onSelect).not.toHaveBeenCalled();
+    },
+  );
 });
 
 afterEach(() => {

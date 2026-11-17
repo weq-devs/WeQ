@@ -189,6 +189,7 @@ try {
       await input.press('Enter');
       await page.getByRole('button', { name: '恢复本页默认设置' }).click();
       await page.getByRole('button', { name: '确认恢复默认' }).waitFor();
+      assert.doesNotMatch(await page.getByRole('dialog').innerText(), /全局/);
       assert.equal(
         await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
         true,
@@ -207,7 +208,7 @@ try {
       cases++;
     }
   await page.getByRole('button', { name: 'call-recording', exact: true }).click();
-  await page.getByRole('heading', { name: '通话录音', exact: true }).waitFor();
+  await page.getByRole('heading', { name: '通话与录音', exact: true }).waitFor();
   await page.getByRole('button', { name: '恢复本页默认设置' }).click();
   await page.screenshot({ path: resolve(output, 'directory-preview.png'), fullPage: true });
   assert.deepEqual(await page.locator('.weq-settings-reset-detail pre').allTextContents(), []);

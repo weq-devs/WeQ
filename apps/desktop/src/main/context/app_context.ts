@@ -19,6 +19,7 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { runResumableExport } from '../resumable_exports';
 import { sharedPreferencePersistence } from '@weq/service/shared-preferences';
 import { createContactsExportDeps } from './export_contacts';
 import { createDbChangeNotification } from '../db_change_notification';
@@ -26,7 +27,7 @@ import { webNotices, type WebNotice } from '../web/notices';
 import { initBackupContext, resetBackupContextForRecovery } from './backup_context';
 import { clearFullMode, fullModeAllowed } from './full_mode';
 import { resolveSignerWrapper } from './signer_target';
-import { resolveBackupLocation, backupMediaRoots } from '../static_backup';
+import { resolveBackupLocation, backupResourceRoots } from '../static_backup';
 import { VipBadgeService } from '../vip_badge';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -220,6 +221,8 @@ import {
 } from '@weq/account';
 import { collectionItemToWire, collectionDetailToWire } from '../ipc/serde';
 import { mountGroupInfoWatch } from '../group_info_watch';
+import { mountContactNoticeWatch } from '../contact_notice_watch';
+import { CONTACT_NOTICE_LIMIT } from '../../shared/contact_notices';
 import { ContactDirectoryRuntime } from './contact_metrics';
 
 /**
@@ -231,6 +234,7 @@ import { ContactDirectoryRuntime } from './contact_metrics';
  *     inserted rows; reserved for unread / popup notifications.
  *   - 'roaming' — newly committed WeQ cache rows; never treated as QQ unread writes.
  *   - 'group-info-changed' — 群资料库变化，独立刷新群资料与成员缓存。
+ *   - 'contact-notices-changed' — 好友／群通知小表内容变化。
  * The account router turns each into a tRPC subscription.
  */
 export const dbEventBus = new EventEmitter();
@@ -253,6 +257,7 @@ export interface AccountForcedClosedEvent {
    * 数据库修复页，并把账号预选好。多账号下不传这个就会修到别人的库上。
    */
   uin: string;
+  configId?: string;
   title: string;
   message: string;
   details: string[];
@@ -335,6 +340,7 @@ const dbWatch = new DbWatchService();
 /** Handle for the currently-watched account db, if any. */
 let dbWatchHandle: DbWatchHandle | null = null;
 let groupInfoWatchHandle: DbWatchHandle | null = null;
+let contactNoticeWatchHandles: DbWatchHandle[] = [];
 let dbChangeNotification: ReturnType<typeof createDbChangeNotification<DbChange>> | null = null;
 /** SSE 消息推送服务（随账号开关），null = 未启用 / 无账号。 */
 let ssePush: SsePushService | null = null;
@@ -383,7 +389,12 @@ function notifyRecall(session: AccountSession, event: RecallNotifyEvent): void {
   recallNotifier?.(event);
 }
 function notifyMail(session: AccountSession, notice: MailNotice): void {
-  webNotice(session, { kind: 'mail', title: 'QQ 邮箱', body: '收到新邮件。' });
+  webNotice(session, {
+    kind: 'mail',
+    title: 'QQ 邮箱收到新邮件',
+    body: '',
+    mail: { folderId: notice.folderId, id: notice.id },
+  });
   mailNotifier?.(String(session.context.uin), notice);
 }
 let mailNotifier: ((uin: string, notice: MailNotice) => void) | null = null;
@@ -510,6 +521,29 @@ function cancelAnnualReportWarmup(): void {
  */
 function mountDbWatch(session: AccountSession): void {
   if (dbWatchHandle) return;
+  const isCurrent = () => getAppContext().account === session;
+  contactNoticeWatchHandles = [
+    {
+      kind: 'friend' as const,
+      dbPath: session.profileInfo.dbPath,
+      read: () => session.buddyReqs.listRequests(CONTACT_NOTICE_LIMIT),
+    },
+    {
+      kind: 'group' as const,
+      dbPath: session.groupMembers.dbPath,
+      read: async () =>
+        (
+          await Promise.all([
+            session.groupNotifies.listNormal(CONTACT_NOTICE_LIMIT),
+            session.groupNotifies.listDoubt(CONTACT_NOTICE_LIMIT),
+          ])
+        ).flat(),
+    },
+  ].map((source) =>
+    mountContactNoticeWatch(dbWatch, source, isCurrent, (kind) => {
+      dbEventBus.emit('contact-notices-changed', { session, kind });
+    }),
+  );
   groupInfoWatchHandle = mountGroupInfoWatch(
     dbWatch,
     session.groupMembers.dbPath,
@@ -549,6 +583,8 @@ function mountDbWatch(session: AccountSession): void {
 
 /** Stop watching the current account db, if any. */
 function unmountDbWatch(): void {
+  for (const handle of contactNoticeWatchHandles) handle.unmount();
+  contactNoticeWatchHandles = [];
   groupInfoWatchHandle?.unmount();
   groupInfoWatchHandle = null;
   dbChangeNotification?.dispose();
@@ -587,35 +623,9 @@ function unmountGroupKeyword(): void {
   groupKeyword = null;
 }
 
-/**
- * 导出链路的损坏宽容授权。
- *
- * 只有导出会用它（分页读真的报出损坏、且该账号已授权级别 ≥ 2 → 从当前游标切到
- * 容错续读）。宽容服务是**每个账号一份**的，所以这里必须传当前账号那一份；
- * 传 `null`（没打开账号 / 关账号时）就是严格 —— 这也是默认状态：级别为 0 时导出与
- * 以前逐字节相同。
- *
- * 注意：**不允许**让它退回"上一次打开的那个账号"的实例。静态账号与在线账号各有自己的
- * 配置，串用会让「A 账号开了宽容」顺带影响 B 账号（见 {@link AppContext.dbTolerance}）。
- */
+/** 导出消息源的无损读取策略；跳过区间与表的决策在任务内追加。 */
 function exportSalvageSource(tolerance: DbToleranceService | null): MsgSalvageSource | undefined {
   return tolerance ? { binding: tolerance.binding() } : undefined;
-}
-
-/**
- * 为某个账号建一份宽容配置服务（在线 / 静态各一份，按 `(uin, dataDir)` 隔离）。
- *
- * 路径与导出缓存同源（`accountConfigId`），所以同一账号的在线会话与导入目录各算一个
- * 账号 —— 与 `AccountConfigService`、导出任务的口径一致。
- */
-function createDbTolerance(
-  userConfig: UserConfigService,
-  uin: string,
-  dataDir: string | undefined,
-): DbToleranceService {
-  return new DbToleranceService(
-    join(userConfig.cacheDir(join('db_tolerance', accountConfigId(uin, dataDir))), 'config.json'),
-  );
 }
 
 async function createRoamingBackfill(
@@ -818,6 +828,7 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
         reason: 'database-damaged',
         kind: confirmed ? 'confirmed' : 'check-error',
         uin: session.context.uin,
+        configId: ctx.services?.accountConfig.getRecord()?.configId,
         title: confirmed ? '数据库损坏' : '数据库无法读取',
         message: confirmed
           ? '数据库健康检查检出了损坏，已生成检查报告；请保留原件并核对原因后再决定是否修复。'
@@ -856,6 +867,7 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
         reason: 'database-damaged',
         kind: 'check-error',
         uin: session.context.uin,
+        configId: ctx.services?.accountConfig.getRecord()?.configId,
         title: '数据库无法读取',
         message:
           '数据库健康检查未能完成，尚不能确认文件损坏。请先核对数据源、密钥和加密算法，并保留原库。',
@@ -1062,8 +1074,8 @@ export interface AppContext {
   /**
    * The Platform that resource lookups for the OPEN account must go through.
    * Same object as `platform` for an online account; for a static one it is the
-   * `withResourceRoots` wrapper pointing at the imported db folder (and at the
-   * native media dir only while bound). Anything resolving account resources
+   * `withResourceRoots` wrapper pointing at the imported db folder and its own
+   * media tree, if present. Anything resolving account resources
    * outside the service layer — e.g. `weq-asset://` in resource_protocol.ts —
    * must read this, not `platform`, or a static account leaks into the local
    * install's files. Null when no account is open.
@@ -1158,7 +1170,7 @@ export interface AppContext {
    */
   refreshRkeysNow(): Promise<boolean>;
   onlineCredentialsPending(): boolean;
-  /** 需要用户处理的凭据原因；有值时受限模式应直接展示，而不是继续等待。 */
+  /** 需要用户处理的凭据原因；有值时「在线能力受限」详情应直接展示，而不是继续等待。 */
   onlineCredentialsIssue(): OnlineCredentialIssue | null;
   /** 等待当前账号的原生 SSO 登记，不刷新在线票据。 */
   ensureOnlineCredentials(): Promise<void>;
@@ -1353,7 +1365,7 @@ export function initAppContext(fileRoot?: string): AppContext {
   // 定时器是 unref 的，不阻止进程退出，因此这里不需要持有 stop 句柄。
   startLogRetention(() => userConfig.getSettings().logRetentionDays);
 
-  // macOS 启动时跳过未知目标的预热，待完整模式确认运行中 QQ 后再加载同一份模块。
+  // macOS 启动时跳过未知目标的预热，待 QQ 在线能力确认运行中 QQ 后再加载同一份模块。
   // 否则先载安装旧版、再载热更新版，会重复注册 Objective-C 类并刷满原生警告。
   if (platform.kind === 'darwin') primeSignerHints(platform.appDataRoot());
   signerWarmup = warmupSelectedSigner(platform);
@@ -1531,9 +1543,8 @@ export function initAppContext(fileRoot?: string): AppContext {
       // the (otherwise unrun) full health check — not account-open. `this.account`
       // is only set after this resolves, so callbacks that fire mid-open (e.g.
       // the uid-map load) are ignored until the session is the current one.
-      // 账号级宽容（salvage）配置 + 降级账本：**默认严格**。这里只负责把它接好，
-      // 级别永远由用户显式动作决定（弹窗按钮 / 设置页），没有自动降级。
-      const dbTolerance = createDbTolerance(userConfig, accountCtx.uin, metadata.dataDir);
+      // 日常读取自动尝试无损访问路径；跳过区间与表只由导出任务按次询问。
+      const dbTolerance = new DbToleranceService();
       this.dbTolerance = dbTolerance;
       const session = await openAccount(
         platform,
@@ -1555,7 +1566,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           startDbHealthCheck(this, current, platform);
         },
         {
-          // 读取级别的实时来源 + 每次降级的落盘出口。级别为 0 时包装是纯透传。
+          // 账号读取固定为无损级别 1；异常记入普通诊断日志。
           level: () => dbTolerance.level,
           onEntry: (entry) => dbTolerance.recordLedgerEntry(entry),
         },
@@ -1571,7 +1582,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // Keyed by the same (uin, dataDir) id the account record uses.
       const exportConfigId = accountConfigId(session.context.uin, metadata.dataDir);
       const resolveOnlinePid = (): number => {
-        if (!fullModeAllowed(this, session)) throw new Error('本次运行尚未启用完整功能。');
+        if (!fullModeAllowed(this, session)) throw new Error('本次运行尚未启用 QQ 在线能力。');
         const record = accountConfig.getRecord();
         if (!record?.qqOnline || !record.qqPid) {
           throw new Error('QQ account is not online.');
@@ -1860,10 +1871,18 @@ export function initAppContext(fileRoot?: string): AppContext {
             userConfig.cacheDir(join('search-index', exportConfigId)),
           ),
         }),
-        onlineStatus: new OnlineStatusService(session, {
-          nt: platform.native.ntHelper,
-          resolvePid: resolveOnlinePid,
-        }),
+        onlineStatus: new OnlineStatusService(
+          session,
+          { nt: platform.native.ntHelper, resolvePid: resolveOnlinePid },
+          {
+            uid: session.selfUid,
+            uin: session.context.uin,
+            isOnline: () => {
+              const record = accountConfig.getRecord();
+              return Boolean(record?.qqOnline && record.qqPid);
+            },
+          },
+        ),
         collection: collectionSvc,
         redbag: redbagSvc,
         dressInstall,
@@ -1919,6 +1938,20 @@ export function initAppContext(fileRoot?: string): AppContext {
           new MsgService(session, undefined, undefined, exportSalvageSource(this.dbTolerance)),
           userConfig.cacheDir(join('export', exportConfigId)),
           {
+            resumeResource: (request, context) => {
+              const services = this.services;
+              const current = () => {
+                if (
+                  !services ||
+                  this.account !== session ||
+                  this.services !== services ||
+                  services.accountConfig.getRecord()?.configId !== exportConfigId
+                )
+                  throw new Error('导出所属账号或数据源已关闭。');
+              };
+              current();
+              return runResumableExport(services!, request, context, current);
+            },
             generatedResource: (ref) => {
               const services = this.services;
               if (
@@ -2480,8 +2513,8 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.scheduler = null;
 
       // Seed uin→uid BEFORE anything resolves a path: on linux the account
-      // directory is `nt_qq_<md5(md5(uid)+"nt_kernel")>`, so without this the
-      // native-media probe and `isQqLoggedIn` below can never resolve.
+      // directory is `nt_qq_<md5(md5(uid)+"nt_kernel")>`, so without this
+      // `isQqLoggedIn` below can never resolve.
       const selfUid = selfPreview.uid ?? '';
       if (selfUid) rememberAccountUid(selfPreview.uin, selfUid);
 
@@ -2489,7 +2522,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // 按 `(uin, dirPath)` 与在线会话分开存。以前这里不赋值，`dbTolerance` 会留着上一个
       // 账号的实例 —— 静态账号的导出会静默沿用别人的授权，设置页显示的也是别人那一份。
       // 级别默认 0（严格），所以不授权即与今天逐字节相同。
-      const dbTolerance = createDbTolerance(userConfig, selfPreview.uin, dirPath);
+      const dbTolerance = new DbToleranceService();
       this.dbTolerance = dbTolerance;
 
       // Static (backup) accounts are offline snapshots, not the live QQ
@@ -2517,24 +2550,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       const accountConfig = new AccountConfigService(session, platform.appDataRoot(), userConfig);
       const exportConfigId = accountConfigId(session.context.uin, dirPath);
 
-      // Does this machine also hold a native QQ directory for the same account?
-      // Re-probed on every open: the user may have changed the global data-dir
-      // override since last time, so the persisted path is display-only.
-      const nativeDir = platform.accountDir(session.context.uin);
-      const importedMedia = backup.mediaDir;
-      const nativeMediaOn = (): boolean =>
-        nativeDir !== null && (accountConfig.getRecord()?.nativeMediaEnabled ?? true);
-
-      // 数据库始终指向导入目录；媒体优先取备份自带的 nt_data，缺失时才使用
-      // 用户允许关联的本机同账号目录，否则由原有管线回退在线补全。
-      const staticPlatform = withResourceRoots(platform, () => ({
-        dbDir: dirPath,
-        media: importedMedia
-          ? backupMediaRoots(importedMedia, backup.accountDir)
-          : nativeMediaOn()
-            ? 'passthrough'
-            : 'none',
-      }));
+      const staticPlatform = withResourceRoots(platform, () => backupResourceRoots(backup));
       this.resourcePlatform = staticPlatform;
       this.accountIsStatic = true;
       this.accountIsAndroidBackup = options.mobile ?? false;
@@ -2543,7 +2559,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // elsewhere. The monitor (started at the end) records its pid, so this
       // resolves lazily per call — going online mid-session needs no reopen.
       const livePid = (): number => {
-        if (!fullModeAllowed(this, session)) throw new Error('本次运行尚未启用完整功能。');
+        if (!fullModeAllowed(this, session)) throw new Error('本次运行尚未启用 QQ 在线能力。');
         const pid = accountConfig.getRecord()?.qqPid;
         if (!pid) {
           throw new Error('QQ 未在线（静态账号需登录同一账号的 QQ 客户端后才能使用在线功能）。');
@@ -2763,10 +2779,18 @@ export function initAppContext(fileRoot?: string): AppContext {
             userConfig.cacheDir(join('search-index', exportConfigId)),
           ),
         }),
-        onlineStatus: new OnlineStatusService(session, {
-          nt: platform.native.ntHelper,
-          resolvePid: livePid,
-        }),
+        onlineStatus: new OnlineStatusService(
+          session,
+          { nt: platform.native.ntHelper, resolvePid: livePid },
+          {
+            uid: session.selfUid,
+            uin: session.context.uin,
+            isOnline: () => {
+              const record = accountConfig.getRecord();
+              return Boolean(record?.qqOnline && record.qqPid);
+            },
+          },
+        ),
         collection: collectionSvc,
         redbag: redbagSvc,
         dressInstall,
@@ -2832,6 +2856,20 @@ export function initAppContext(fileRoot?: string): AppContext {
             marketFace: (pack, hash, localOnly) =>
               emojiService.getMarketFace(pack, hash, localOnly),
             marketFaceVariants: (pack, hash) => emojiService.localMarketFaceVariants(pack, hash),
+            resumeResource: (request, context) => {
+              const services = this.services;
+              const current = () => {
+                if (
+                  !services ||
+                  this.account !== session ||
+                  this.services !== services ||
+                  services.accountConfig.getRecord()?.configId !== exportConfigId
+                )
+                  throw new Error('导出所属账号或数据源已关闭。');
+              };
+              current();
+              return runResumableExport(services!, request, context, current);
+            },
             generatedResource: (ref) => {
               const services = this.services;
               if (
@@ -3159,7 +3197,6 @@ export function initAppContext(fileRoot?: string): AppContext {
         backupAccountDir: backup.accountDir,
         ...(options.mobile ? { mobile: true } : {}),
         ...(selfUid ? { uid: selfUid } : {}),
-        ...(nativeDir ? { nativeMediaDir: nativeDir } : {}),
         ...(selfPreview.displayName ? { displayName: selfPreview.displayName } : {}),
         ...(selfPreview.avatarUrl ? { avatarUrl: selfPreview.avatarUrl } : {}),
       });
@@ -3175,8 +3212,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         durationMs: Math.round(performance.now() - openedAt),
         accountUin: session.context.uin,
         dirPath,
-        nativeMediaDir: nativeDir,
-        nativeMediaEnabled: nativeMediaOn(),
+        backupMediaDir: backup.mediaDir,
       });
 
       // A same-account QQ may still be running on this machine even though our
@@ -3476,7 +3512,21 @@ export function initAppContext(fileRoot?: string): AppContext {
           const storePath = tweetsStorePath(userConfig.cacheDir('weq-assistant'));
           const tweets = ensureDefaultTweets(storePath);
           const logo = resolveResource('brand', 'logo.png') ?? undefined;
-          await svc.syncTweets(boundPort, tweets, logo);
+          const syncingAccount = this.account;
+          const writes = new AbortController();
+          const closing = (account: AccountSession | null) => {
+            if (account === syncingAccount) writes.abort();
+          };
+          accountEventBus.on('closing', closing);
+          try {
+            await withDatabasePriority(
+              'background',
+              () => svc.syncTweets(boundPort, tweets, logo),
+              writes.signal,
+            );
+          } finally {
+            accountEventBus.off('closing', closing);
+          }
         } catch (error) {
           logger.error('failed to sync weq assistant tweets', {
             event: 'weq-ensure-failed',
@@ -3523,11 +3573,11 @@ export function initAppContext(fileRoot?: string): AppContext {
       const record = services?.accountConfig.getRecord();
       if (!monitor || !record?.qqOnline || !record.qqPid)
         throw new Error('需要先登录该账号的 QQ 客户端。');
-      if (!fullModeAllowed(this)) throw new Error('本次运行尚未启用完整功能。');
+      if (!fullModeAllowed(this)) throw new Error('本次运行尚未启用 QQ 在线能力。');
       await monitor.ensureCredentialsReady(record.qqPid);
       if (accountMonitor !== monitor || this.services !== services)
         throw new Error('账号已切换，请重新读取。');
-      if (!fullModeAllowed(this)) throw new Error('本次运行尚未启用完整功能。');
+      if (!fullModeAllowed(this)) throw new Error('本次运行尚未启用 QQ 在线能力。');
     },
     applyFullModePolicy(): void {
       if (fullModeAllowed(this)) return;
@@ -3571,7 +3621,7 @@ export function getAppContext(): AppContext {
 export function requireAttachEnabled(): void {
   const ctx = getAppContext();
   if (!fullModeAllowed(ctx)) {
-    throw new Error('本次运行尚未启用完整功能，请在受限模式详情中启用后重试。');
+    throw new Error('本次运行尚未启用 QQ 在线能力，请在「在线能力受限」详情中启用后重试。');
   }
 }
 

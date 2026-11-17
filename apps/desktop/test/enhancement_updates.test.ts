@@ -28,6 +28,13 @@ const roots: string[] = [];
 const controllers: EnhancementUpdateController[] = [];
 const sha = (text: string) => createHash('sha256').update(text).digest('hex');
 const nativeCommit = 'a'.repeat(40);
+// 本文件覆盖旧发布契约；新签名索引端点明确不存在，不消耗旧接口的失败注入。
+const legacyFetch =
+  (fetcher: typeof fetch): typeof fetch =>
+  (url, init) =>
+    String(url).includes('/weq-update-feed/update-index.json')
+      ? Promise.resolve(new Response('', { status: 404 }))
+      : fetcher(url, init);
 function release(revision: string, minWeqVersion = '2.6.1') {
   return createRelease(
     'dress',
@@ -127,7 +134,7 @@ async function fixture(installed = true, existingRoot?: string, currentVersion =
   const controller = new EnhancementUpdateController(packs, config, 'darwin-arm64', {
     currentVersion: () => currentVersion,
     nativeCommit: () => nativeCommit,
-    fetcher,
+    fetcher: legacyFetch(fetcher),
   });
   controllers.push(controller);
   await controller.ready();
@@ -435,7 +442,7 @@ it('线上旧引擎清单可准备语音包，但拒绝清单中未实际发布�
   const controller = new EnhancementUpdateController(packs, f.config, target, {
     currentVersion: () => '2.7.0',
     nativeCommit: () => nativeCommit,
-    fetcher,
+    fetcher: legacyFetch(fetcher),
     legacyModels: VOICE_MODELS,
   });
   controllers.push(controller);
@@ -596,14 +603,14 @@ it('等待两种发布来源检查完成后一次发布合并提醒，不提前�
   const controller = new EnhancementUpdateController(packs, f.config, 'darwin-arm64', {
     currentVersion: () => '2.7.0',
     nativeCommit: () => nativeCommit,
-    fetcher,
+    fetcher: legacyFetch(fetcher),
   });
   controllers.push(controller);
   const notices = vi.fn();
   controller.subscribeNotifications(notices);
   const checking = controller.check(['voice', 'dress'], true);
   try {
-    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(4));
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(8));
     expect(notices).toHaveBeenCalledTimes(1);
     expect(notices).toHaveBeenLastCalledWith([]);
   } finally {

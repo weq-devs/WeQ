@@ -4,9 +4,9 @@ import { afterEach, expect, it, vi } from 'vitest';
 import {
   ConvContext,
   ForwardKindContext,
-  QqMessageContent,
   ReplyJumpContext,
-} from '../src/renderer/src/components/QqMessageContent';
+} from '../src/renderer/src/state/messageContext';
+import { QqMessageContent } from '../src/renderer/src/components/QqMessageContent';
 import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 import { messageNodeClipboard } from '../src/renderer/src/lib/messageClipboard';
 

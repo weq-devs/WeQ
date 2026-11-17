@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * NapCat 外部 rkey 服务器客户端。
  *
@@ -62,7 +63,7 @@ export async function fetchNapcatRkeys(
   const url = `${normalized}/${ENDPOINT}?access_token=${encodeURIComponent(accessToken.trim())}`;
   let res: Response;
   try {
-    res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    res = await networkFetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   } catch (e) {
     logger.warn('external rkey server unreachable', {
       event: 'rkey-server-unreachable',

@@ -3,7 +3,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { BackgroundTaskEntry } from '../src/renderer/src/hooks/useBackgroundTasks';
-import type { BackgroundTaskScope } from '../src/shared/background_task';
+import type { BackgroundTaskScope, BackgroundTaskKind } from '../src/shared/background_task';
 import type { TaskLogLine } from '../src/renderer/src/components/TaskLogConsole';
 import { BackgroundTaskDetails } from '../src/renderer/src/components/tasks/BackgroundTaskDetails';
 
@@ -25,11 +25,15 @@ vi.mock('../src/renderer/src/trpc/client', async () => {
     };
   }
   return {
-    trpc: { backgroundTasks: { details: query('details'), logs: query('logs') } },
+    trpc: {
+      backgroundTasks: { details: query('details'), logs: query('logs') },
+      dbRepair: { maintenance: { useQuery: () => ({ data: null }) } },
+    },
     client: {},
   };
 });
 vi.mock('../src/renderer/src/components/Dialog', () => ({ useDialog: () => vi.fn() }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({ useDialog: () => vi.fn() }));
 vi.mock('../src/renderer/src/components/CalendarTaskDetails', () => ({
   CalendarTaskDetails: () => null,
 }));
@@ -53,7 +57,7 @@ function logs(count: number): TaskLogLine[] {
     text: `合成群名单日志 ${index + 1}`,
   }));
 }
-function mount() {
+function mount(kind: BackgroundTaskKind = 'contacts') {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -62,13 +66,15 @@ function mount() {
     source: 'host',
     task: {
       id: 'synthetic-task',
-      kind: 'contacts',
+      kind,
       name: '更新群成员名单',
       status: 'running',
       startedAt: 1,
       updatedAt: 1,
       actions: [],
-      subtasks: [{ label: '群聊', done: 1, total: 10, failed: 0 }],
+      progress: 10,
+      subtasks:
+        kind === 'contacts' ? [{ label: '群聊', done: 1, total: 10, failed: 0 }] : undefined,
     },
   };
   const render = async (
@@ -100,6 +106,27 @@ function mount() {
   });
   return { host, render };
 }
+it.each<BackgroundTaskKind>([
+  'analysis',
+  'model',
+  'update',
+  'database',
+  'backup',
+  'favorite-import',
+  'forward',
+  'album-upload',
+  'resource',
+])('%s 任务复用进度摘要与完整可滚动日志，不再只显示结果列表', async (kind) => {
+  const { host, render } = mount(kind);
+  await render();
+  expect(host.querySelector('.weq-task-progress-details progress')?.getAttribute('value')).toBe(
+    '10',
+  );
+  expect(host.querySelectorAll('.weq-task-activity [role="log"]')).toHaveLength(1);
+  expect(host.querySelectorAll('.weq-task-activity .weq-exp-log-line')).toHaveLength(8);
+  expect(fixture.logs).toHaveBeenCalled();
+});
+
 it('群成员任务仅显示一个可滚动日志框，历史记录在同一框中查看', async () => {
   const { host, render } = mount();
   await render();

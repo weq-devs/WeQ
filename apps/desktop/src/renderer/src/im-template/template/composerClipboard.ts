@@ -1,5 +1,5 @@
 import { messageNodeClipboard } from '../../lib/messageClipboard';
-import { restoreComposer, serializeComposer } from './composer';
+import { restoreComposer, serializeComposer } from './composer.shared';
 import { createMediaId, type ComposerAttachment } from './composerMedia';
 import { elementToToken, tokenToElement } from './draftElements';
 

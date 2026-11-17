@@ -13,7 +13,7 @@ import { X, Search, Clock, Package, Copy, Check, Eye } from 'lucide-react';
 import type { MarketPackKey } from '@weq/service';
 import { Modal } from '../../components/Dialog';
 import { client } from '../../trpc/client';
-import { keySourceLabel } from './MarketPackExplorer';
+import { keySourceLabel } from './MarketPackExplorer.shared';
 
 type Mode = 'timestamp' | 'packId';
 let lastInput: { mode: Mode; value: string } = { mode: 'timestamp', value: '' };
@@ -195,7 +195,9 @@ function KeyResult({
         <div className="weq-avpath-field">
           <span className="weq-avpath-field-label">时间戳</span>
           <div className="weq-avpath-field-val">
-            <span className="weq-avpath-mono">{result.timestamp}</span>
+            <span className="weq-avpath-mono">
+              <span className="weq-number weq-number-inherit">{result.timestamp}</span>
+            </span>
             <em className="weq-avpath-nick">（{keySourceLabel(result.source)}）</em>
           </div>
         </div>

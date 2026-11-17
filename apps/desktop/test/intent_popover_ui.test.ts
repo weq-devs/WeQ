@@ -37,6 +37,9 @@ const context = vi.hoisted(() => ({
 vi.mock('../src/renderer/src/components/intentSense/context', () => ({
   useIntentSenseContext: () => context,
 }));
+vi.mock('../src/renderer/src/components/intentSense/context.shared', () => ({
+  useIntentSenseContext: () => context,
+}));
 function Fixture() {
   const bubble = useRef<HTMLDivElement>(null);
   return createElement(

@@ -7,7 +7,7 @@ import { createTemplateDemoData } from './support/templateDemoData';
 import {
   focusComposerEnd,
   serializeComposer,
-} from '../src/renderer/src/im-template/template/composer';
+} from '../src/renderer/src/im-template/template/composer.shared';
 import { buildComposerSendPlan } from '../src/renderer/src/im-template/template/composerSend';
 import { resolveMentionLabels } from '../src/renderer/src/lib/mentionIdentity';
 import { mentionClipboardHtml } from '../src/renderer/src/lib/mentionClipboard';

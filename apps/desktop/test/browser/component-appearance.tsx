@@ -30,6 +30,46 @@ const conversations = Array.from({ length: 200 }, (_, index) => ({
   id: `fixture-${index}`,
 }));
 
+function MixedToggleFixture() {
+  const [values, setValues] = useState([true, false]);
+  const all = values.every(Boolean);
+  return (
+    <section className="mixed-toggle-fixture" data-mixed-toggle-fixture>
+      <Row
+        label="全部提醒示例"
+        control={
+          <Toggle
+            label="全部提醒示例"
+            checked={all}
+            mixed={!all && values.some(Boolean)}
+            onChange={(value) => setValues(values.map(() => value))}
+          />
+        }
+      />
+      {['提醒子项 1', '提醒子项 2'].map((label, index) => (
+        <Row
+          key={label}
+          label={label}
+          control={
+            <Toggle
+              label={label}
+              checked={values[index] ?? false}
+              onChange={(next) => setValues(values.map((item, i) => (i === index ? next : item)))}
+            />
+          }
+        />
+      ))}
+      <Row
+        label="禁用的部分开启"
+        control={<Toggle label="禁用的部分开启" checked mixed disabled onChange={() => {}} />}
+      />
+      <button type="button" className="weq-set-btn" onClick={() => setValues([true, false])}>
+        重置开关示例
+      </button>
+    </section>
+  );
+}
+
 function Fixture() {
   const [checked, setChecked] = useState(true);
   const [scope, setScope] = useState('all');
@@ -51,6 +91,7 @@ function Fixture() {
         .appearance-fixture .modal-card{padding:16px;margin-top:16px}
         .appearance-fixture table{width:100%;margin-top:16px;font-size:13px}
         .appearance-fixture td{padding:12px;border-bottom:1px solid var(--weq-border-subtle)}
+        .mixed-toggle-fixture{display:grid;gap:12px;margin:16px 0;min-width:0}
         .appearance-extended{display:grid;gap:12px;max-width:984px;margin:24px auto 0}
         .appearance-extended .weq-workspace-content{height:auto;overflow:visible}
         .appearance-extended .weq-workspace-page{height:auto;overflow:visible}
@@ -62,7 +103,7 @@ function Fixture() {
       <main className="appearance-fixture">
         <div className="appearance-columns">
           <section>
-            <h1>主题与背景</h1>
+            <h1>外观与布局</h1>
             <div className="weq-settings-dialog">
               <ComponentAppearance />
             </div>
@@ -88,6 +129,7 @@ function Fixture() {
               label="消息提醒"
               control={<Toggle checked={checked} onChange={setChecked} label="消息提醒" />}
             />
+            <MixedToggleFixture />
             <div className="app-shell-root weq-web-shell appearance-list-shell">
               <div className="app-shell">
                 <ConversationList
@@ -161,7 +203,7 @@ function Fixture() {
                 </label>
                 <button type="button" className="weq-settings-nav-item is-active">
                   <Palette size={16} />
-                  <span className="weq-settings-nav-label">主题与背景</span>
+                  <span className="weq-settings-nav-label">外观与布局</span>
                 </button>
                 <article className="weq-dress-card">装扮预览</article>
               </section>

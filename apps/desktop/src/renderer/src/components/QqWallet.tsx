@@ -22,7 +22,7 @@ import { useEffect, useState, type ReactElement } from 'react';
 import { redbagSkinUrl, resourceUrl } from '../lib/resourceUrl';
 import { QqAvatar } from './QqAvatar';
 import { client } from '../trpc/client';
-import { openRedBagDetail } from './RedBagDetailDialog';
+import { openRedBagDetail } from './RedBagDetailDialog.shared';
 import { useAppDialog } from '../lib/dialogUtils';
 
 // ---- helpers -------------------------------------------------------------
@@ -145,7 +145,9 @@ export function QqWallet({
             </svg>
           </div>
           <div className="weq-transfer-info">
-            <div className="weq-transfer-amount">{amount}</div>
+            <div className="weq-transfer-amount">
+              <span className="weq-number weq-number-inherit">{amount}</span>
+            </div>
             {prompt ? <div className="weq-transfer-remark">{prompt}</div> : null}
           </div>
         </div>

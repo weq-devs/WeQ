@@ -98,7 +98,14 @@ async function checkOneDatabase(
       session.context.dbKey,
       algo,
     );
-    if (result.healthy) return null;
+    if (result.healthy && result.complete !== false) return null;
+    if (result.healthy)
+      return {
+        dbName,
+        dbPath,
+        corruptedTables: [],
+        error: `部分结构未核验：${result.unverifiedTables?.join('、') || 'QQ 专用虚拟表或整体结构检查'}`,
+      };
     return {
       dbName,
       dbPath,
@@ -220,7 +227,7 @@ export function renderDbHealthReportMarkdown(input: DbHealthReportInput): string
   lines.push('   ```');
   lines.push('');
   lines.push(
-    '4. 修复完成后，用 WeQ 的「静态目录」方案（首页 → 新的开始 → 静态目录）打开修复后的数据库目录继续使用。',
+    '4. 修复完成后，用 WeQ 的「静态目录」方案（主页 → 新的开始 → 静态目录）打开修复后的数据库目录继续使用。',
   );
   lines.push('');
   lines.push('> 注意：解密密钥只存在于反馈包 db_key_and_algos.json 中，请勿公开分享该文件。');

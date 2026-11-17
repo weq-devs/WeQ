@@ -2,10 +2,8 @@ import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AnnualReportStage } from '../../src/renderer/src/views/annual-report/AnnualReportStage';
 import { CallWindow } from '../../src/renderer/src/components/CallWindow';
-import {
-  ClientDocumentPreview,
-  presentClientDocument,
-} from '../../src/renderer/src/components/ClientDocumentPreview';
+import { ClientDocumentPreview } from '../../src/renderer/src/components/ClientDocumentPreview';
+import { presentClientDocument } from '../../src/renderer/src/components/ClientDocumentPreview.shared';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/annual-report.css';

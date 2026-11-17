@@ -1,7 +1,7 @@
 import type { ProfileSimilarity } from '@weq/protocol';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { trpc } from '../trpc/client';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import { ContactInlineError, ContactRow } from './contactProfile/ContactRow';
 import { collectionImageUrl } from '../lib/resourceUrl';
 import { ShimmerImage } from './ShimmerImage';

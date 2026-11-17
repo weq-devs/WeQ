@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import {
   useCallback,
   useEffect,
@@ -25,20 +26,15 @@ import {
 } from 'lucide-react';
 import { ContactEmptyState } from './contactProfile/ContactRow';
 import { client, trpc } from '../trpc/client';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import { stageAccountFile } from '../lib/accountFilePicker';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { useMultiSelection } from '../hooks/useMultiSelection';
-import { useTabActive } from './RetainedTabs';
-import { useDialog } from './Dialog';
+import { useTabActive } from './RetainedTabs.shared';
+import { useDialog } from './Dialog.shared';
 import { ConversationActionsMenu } from './ConversationActionsMenu';
-import {
-  ActionFeedback,
-  ActionIcon,
-  useQQAction,
-  useQQGroupPermissions,
-  withQQAccountScope,
-} from './qq-actions/shared';
+import { ActionFeedback, ActionIcon } from './qq-actions/shared';
+import { useQQAction, useQQGroupPermissions, withQQAccountScope } from './qq-actions/shared.shared';
 import type { QQWriteBinding, QQWriteOutcome } from '../hooks/useQQWriteSession';
 import { fileIconUrl } from '../lib/resourceUrl';
 import { cn } from '../lib/utils';
@@ -159,6 +155,7 @@ function GroupFileManagerBody({
     }
     if (editor || uploads.some((item) => item.state !== 'accepted'))
       return confirm('离开当前目录', '未完成的文件操作和待上传列表将被清理，仍要离开？', {
+        danger: 'outline',
         ownerDocument: renderDocument,
       });
     return true;
@@ -251,6 +248,7 @@ function GroupFileManagerBody({
       editor &&
       (editor.name || editor.mode === 'move') &&
       !(await confirm('放弃文件操作', '放弃当前未提交的文件操作？', {
+        danger: 'outline',
         ownerDocument: renderDocument,
       }))
     )
@@ -267,6 +265,7 @@ function GroupFileManagerBody({
     if (
       editor &&
       !(await confirm('切换文件操作', '放弃当前未提交的文件操作？', {
+        danger: 'outline',
         ownerDocument: renderDocument,
       }))
     )
@@ -394,6 +393,7 @@ function GroupFileManagerBody({
         refresh,
         warning,
         {
+          danger: mode === 'delete' ? 'solid' : undefined,
           readback: async () => {
             if (!a.binding) return false;
             const source = await listing(a.binding, directory);
@@ -735,7 +735,9 @@ function GroupFileManagerBody({
       </div>
       {chosen.length > 0 && (
         <div className="weq-file-selection-toolbar" role="toolbar" aria-label="群文件所选项目">
-          <span>已选 {chosen.length} 项</span>
+          <span>
+            已选 {<span className="weq-number weq-number-inherit">{chosen.length}</span>} 项
+          </span>
           {onSaveSelected && (
             <ActionIcon
               label="保存所选项目"
@@ -762,6 +764,7 @@ function GroupFileManagerBody({
             <FolderInput size={17} />
           </ActionIcon>
           <ActionIcon
+            danger="outline"
             label="删除所选项目"
             disabled={locked || !selectedManageable}
             onClick={() => void operate('delete', [...selected])}
@@ -775,19 +778,28 @@ function GroupFileManagerBody({
       )}
       <div className="weq-file-manager-status">
         <span>
-          {chosen.length
-            ? `已选 ${chosen.length} 项`
-            : `${folders.length} 个文件夹 · ${files.length} 个文件`}
+          {chosen.length ? (
+            <NumericText>{`已选 ${chosen.length} 项`}</NumericText>
+          ) : (
+            <NumericText>{`${folders.length} 个文件夹 · ${files.length} 个文件`}</NumericText>
+          )}
         </span>
         {summary.data && Number.isFinite(summary.data.fileCount) && (
           <span>
-            {summary.data.fileCount}
-            {Number.isFinite(summary.data.maxCount) ? ` / ${summary.data.maxCount}` : ''} 个文件
-            {summary.data.usedSpace != null
-              ? ` · ${formatSize(summary.data.usedSpace)}${
-                  summary.data.totalSpace != null ? ` / ${formatSize(summary.data.totalSpace)}` : ''
-                }`
-              : ''}
+            <span className="weq-number weq-number-inherit">{summary.data.fileCount}</span>
+            {Number.isFinite(summary.data.maxCount) ? (
+              <NumericText>{` / ${summary.data.maxCount}`}</NumericText>
+            ) : (
+              ''
+            )}{' '}
+            个文件
+            {summary.data.usedSpace != null ? (
+              <NumericText>{` · ${formatSize(summary.data.usedSpace)}${
+                summary.data.totalSpace != null ? ` / ${formatSize(summary.data.totalSpace)}` : ''
+              }`}</NumericText>
+            ) : (
+              ''
+            )}
           </span>
         )}
       </div>
@@ -797,11 +809,13 @@ function GroupFileManagerBody({
         <div className="weq-file-manager-editor weq-qq-action-form" aria-label="文件操作编辑器">
           <div className="weq-file-manager-editor-heading">
             <strong>
-              {editor.mode === 'createFolder'
-                ? '新建文件夹'
-                : editor.mode === 'rename'
-                  ? `重命名 ${all.find((row) => row.key === editor.keys[0])?.name ?? '所选项目'}`
-                  : `移动 ${editor.keys.length} 个文件`}
+              {editor.mode === 'createFolder' ? (
+                '新建文件夹'
+              ) : editor.mode === 'rename' ? (
+                `重命名 ${all.find((row) => row.key === editor.keys[0])?.name ?? '所选项目'}`
+              ) : (
+                <NumericText>{`移动 ${editor.keys.length} 个文件`}</NumericText>
+              )}
             </strong>
             <ActionIcon
               label="取消文件操作"
@@ -928,7 +942,12 @@ function GroupFileManagerBody({
           ))}
         </div>
       )}
-      <div className="weq-file-manager-table-scroll">
+      <div
+        className="weq-file-manager-table-scroll"
+        tabIndex={0}
+        role="region"
+        aria-label="群文件列表"
+      >
         <table className="weq-file-manager-table">
           <thead>
             <tr>
@@ -1096,28 +1115,38 @@ function GroupFileManagerBody({
                       </button>
                       <small className="weq-file-manager-name-meta">
                         <span className="weq-file-manager-size-inline">
-                          {row.kind === 'folder'
-                            ? `${row.folder.totalFileCount} 个文件`
-                            : formatSize(row.file.fileSize)}{' '}
+                          {row.kind === 'folder' ? (
+                            <NumericText>{`${row.folder.totalFileCount} 个文件`}</NumericText>
+                          ) : (
+                            <span className="weq-number weq-number-inherit">
+                              {formatSize(row.file.fileSize)}
+                            </span>
+                          )}{' '}
                           ·{' '}
                         </span>
                         <span data-privacy-sensitive>
                           {row.kind === 'folder' ? row.folder.creatorName : row.file.uploaderName}
                         </span>
                         {' · '}
-                        {formatFileTime(
-                          row.kind === 'folder'
-                            ? row.folder.modifiedTime || row.folder.createTime
-                            : row.file.modifiedTime || row.file.uploadedTime,
-                        )}
+                        <span className="weq-number weq-number-inherit">
+                          {formatFileTime(
+                            row.kind === 'folder'
+                              ? row.folder.modifiedTime || row.folder.createTime
+                              : row.file.modifiedTime || row.file.uploadedTime,
+                          )}
+                        </span>
                       </small>
                     </span>
                   </div>
                 </td>
                 <td>
-                  {row.kind === 'folder'
-                    ? `${row.folder.totalFileCount} 个文件`
-                    : formatSize(row.file.fileSize)}
+                  {row.kind === 'folder' ? (
+                    <NumericText>{`${row.folder.totalFileCount} 个文件`}</NumericText>
+                  ) : (
+                    <span className="weq-number weq-number-inherit">
+                      {formatSize(row.file.fileSize)}
+                    </span>
+                  )}
                 </td>
                 <td>
                   <span data-privacy-sensitive>
@@ -1125,11 +1154,13 @@ function GroupFileManagerBody({
                   </span>
                 </td>
                 <td>
-                  {formatFileTime(
-                    row.kind === 'folder'
-                      ? row.folder.modifiedTime || row.folder.createTime
-                      : row.file.modifiedTime || row.file.uploadedTime,
-                  )}
+                  <span className="weq-number weq-number-inherit">
+                    {formatFileTime(
+                      row.kind === 'folder'
+                        ? row.folder.modifiedTime || row.folder.createTime
+                        : row.file.modifiedTime || row.file.uploadedTime,
+                    )}
+                  </span>
                 </td>
                 <td>
                   <div className="weq-file-row-tools">
@@ -1232,6 +1263,7 @@ function GroupFileManagerBody({
               action: () => void openEditor('move', menu.keys),
             },
             {
+              danger: 'outline',
               label: '删除',
               icon: <Trash2 size={16} />,
               disabled: locked || !menuManageable,
@@ -1244,7 +1276,15 @@ function GroupFileManagerBody({
     </section>
   );
 }
-const Scoped = withQQAccountScope(GroupFileManagerBody);
+const Scoped = withQQAccountScope(GroupFileManagerBody, (props) => ({
+  kind: 'group-resource',
+  request: {
+    kind: 'files',
+    groupCode: String(props.groupId),
+    groupName: String(props.groupId),
+    initialFolderId: props.directory,
+  },
+}));
 export function GroupFileManager(props: Props) {
   return <Scoped key={`${props.groupId}:${props.directory}`} {...props} />;
 }

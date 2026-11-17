@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import { create } from 'zustand';
-import { useToast } from '../components/Toast';
+import { useToast } from '../components/Toast.shared';
+import type { ToastAction } from '../components/Toast';
+import { notificationSource } from './notificationNavigation.shared';
 
 export const useConnectionTestTasks = create<{ running: ReadonlySet<string> }>(() => ({
   running: new Set(),
@@ -12,7 +14,7 @@ export function connectionTestKey(kind: 'llm' | 'tts' | 'rkey' | 'sse', id: stri
 
 type TestResult = {
   detail?: ReactNode;
-  action?: { label: string; run: () => void };
+  action?: ToastAction;
 };
 
 /** 只保存非敏感任务身份；输入快照由调用方捕获，不依赖编辑器的挂载状态。 */
@@ -24,6 +26,38 @@ export async function runConnectionTest(
   if (useConnectionTestTasks.getState().running.has(key)) return;
   useConnectionTestTasks.setState((state) => ({ running: new Set(state.running).add(key) }));
   const toast = useToast.getState();
+  let identity: unknown;
+  try {
+    identity = JSON.parse(key);
+  } catch {
+    identity = null;
+  }
+  const kind = Array.isArray(identity) ? identity[0] : undefined;
+  const recordId =
+    Array.isArray(identity) && typeof identity[1] === 'string' ? identity[1] : undefined;
+  const source =
+    recordId && (kind === 'llm' || kind === 'tts' || kind === 'rkey' || kind === 'sse')
+      ? notificationSource(
+          {
+            kind: 'app',
+            target: {
+              kind: 'setting',
+              section: kind === 'rkey' ? 'credentials' : kind === 'sse' ? 'sse' : 'agentlab',
+              settingId:
+                kind === 'rkey'
+                  ? 'external-rkey'
+                  : kind === 'tts'
+                    ? 'tts-providers'
+                    : kind === 'llm'
+                      ? 'llm-providers'
+                      : undefined,
+            },
+            recordId: `${kind}:${recordId}`,
+          },
+          `返回配置：${label}`,
+          null,
+        )
+      : undefined;
   const id = toast.push({
     key: `connection-test:${key}`,
     tone: 'info',
@@ -31,6 +65,7 @@ export async function runConnectionTest(
     title: `正在测试连接 · ${label}`,
     ttl: 0,
     dismissible: false,
+    source,
   });
   try {
     const result = await run();

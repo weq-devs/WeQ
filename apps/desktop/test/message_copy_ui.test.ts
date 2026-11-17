@@ -6,7 +6,7 @@ import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { QqMessageContent } from '../src/renderer/src/components/QqMessageContent';
 import { createTemplateDemoData } from './support/templateDemoData';
 import type { RepeatElement } from '../src/renderer/src/lib/messageRepeat';
-import { useToast } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 
 const copied = vi.hoisted(() => vi.fn(async (_value: { text: string; html: string }) => true));
 vi.mock('../src/renderer/src/lib/mentionClipboard', async (original) => ({

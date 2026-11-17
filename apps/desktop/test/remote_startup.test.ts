@@ -13,6 +13,7 @@ const query = vi.hoisted(() => ({
   install: { isSuccess: true, error: null },
 }));
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     account: {

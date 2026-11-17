@@ -17,6 +17,7 @@ const fixture = vi.hoisted(() => ({
   localAvailable: true,
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({ useDialog: () => vi.fn() }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({ useDialog: () => vi.fn() }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({
@@ -158,7 +159,12 @@ it.each(['api', 'local', 'heuristic'])(
             'intent-tuning-profileTemperature',
           ].includes(item.id));
       const node = findSettingElement(document.body, { settingId: item.id });
-      if (hidden) expect(node, item.id).toBeNull();
+      if (
+        mode === 'local' &&
+        ['intent-tuning-profileModelTopics', 'intent-tuning-profileTemperature'].includes(item.id)
+      )
+        expect(node?.dataset.settingId, item.id).toBe('profile-engine');
+      else if (hidden) expect(node, item.id).toBeNull();
       else expect(node, item.id).not.toBeNull();
       expect(
         searchAppEntries(item.label).some(

@@ -2,7 +2,8 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { runMessageLoadTask } from '../src/renderer/src/components/MessageLoadTask';
-import { ToastHost, useToast } from '../src/renderer/src/components/Toast';
+import { ToastHost } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 
 afterEach(() => {
   useToast.setState({ toasts: [], leaving: [], seq: 0 });

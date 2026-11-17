@@ -1,5 +1,7 @@
+import { networkFetch } from '@weq/network';
 import semver from 'semver';
 import { z } from 'zod';
+import { getReleaseFeed } from './release_feed';
 
 const releasesSchema = z.array(
   z.object({
@@ -31,11 +33,31 @@ export function selectUpdateRelease(data: unknown, includePrerelease: boolean, m
 }
 
 export async function resolveUpdateRelease(includePrerelease: boolean, manifest: string) {
-  const response = await fetch('https://api.github.com/repos/weq-devs/WeQ/releases?per_page=100', {
-    signal: AbortSignal.timeout(8000),
-    redirect: 'error',
-    headers: { Accept: 'application/vnd.github+json' },
-  });
+  const feed = getReleaseFeed('weq-devs/WeQ');
+  const index = await feed.read();
+  const release = index && feed.latest(includePrerelease, index);
+  if (release)
+    return selectUpdateRelease(
+      [
+        {
+          tag_name: release.tag,
+          draft: false,
+          prerelease: release.prerelease,
+          published_at: release.publishedAt,
+          assets: release.assets,
+        },
+      ],
+      includePrerelease,
+      manifest,
+    );
+  const response = await networkFetch(
+    'https://api.github.com/repos/weq-devs/WeQ/releases?per_page=100',
+    {
+      signal: AbortSignal.timeout(8000),
+      redirect: 'error',
+      headers: { Accept: 'application/vnd.github+json' },
+    },
+  );
   if (!response.ok) throw new Error(`无法读取发布版本（HTTP ${response.status}），请稍后重试`);
   return selectUpdateRelease(await response.json(), includePrerelease, manifest);
 }

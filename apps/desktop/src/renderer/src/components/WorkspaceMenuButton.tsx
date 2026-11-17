@@ -1,8 +1,9 @@
-import { Menu, Settings } from 'lucide-react';
+import { Menu } from 'lucide-react';
+import { APP_NAVIGATION } from '../lib/appNavigation';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { useUpdateStore } from '../state/update';
 import { WorkspaceStatusDot } from './WorkspaceStatusDot';
-import { preloadWorkspace } from './lazyWorkspaces';
+import { preloadWorkspace } from './lazyWorkspaces.shared';
 import '../styles/rail-navigation.css';
 import '../styles/workspace-menu.css';
 
@@ -38,15 +39,16 @@ export function WorkspaceMenuButton() {
 }
 
 export function WorkspaceSettingsButton({ onClick }: { onClick: () => void }) {
+  const { label, icon: Settings, workspace } = APP_NAVIGATION.settings;
   const update = useUpdateStore((state) => state.available);
   return (
     <button
       type="button"
       className="weq-workspace-control"
-      title={update ? '设置 · 有新版本可更新' : '设置'}
-      aria-label={update ? '设置，有新版本可更新' : '设置'}
-      onPointerEnter={() => preloadWorkspace('settings')}
-      onFocus={() => preloadWorkspace('settings')}
+      title={update ? `${label} · 有新版本可更新` : label}
+      aria-label={update ? `${label}，有新版本可更新` : label}
+      onPointerEnter={() => preloadWorkspace(workspace)}
+      onFocus={() => preloadWorkspace(workspace)}
       onClick={() => {
         useWorkspaceMenu.getState().close();
         onClick();

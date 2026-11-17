@@ -8,7 +8,7 @@ import { AgentLabSection } from '../src/renderer/src/components/settings/AgentLa
 import { ApiModelSelect } from '../src/renderer/src/components/settings/ApiModelSelect';
 import { TtsProvidersCard } from '../src/renderer/src/components/settings/VoiceTranscribeSection';
 import { providerDisplayLabels } from '../src/renderer/src/lib/providerDisplayLabels';
-import { useToast } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
 import { pageSnapshots } from '../src/renderer/src/lib/pageSnapshots';
 
@@ -29,6 +29,14 @@ const state = vi.hoisted(() => ({
   testTts: vi.fn(),
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
+  Modal: ({ children }: { children: ReactNode }) => children,
+  useDialog: Object.assign(
+    (select: (s: { confirm: typeof state.confirm }) => unknown) =>
+      select({ confirm: state.confirm }),
+    { getState: () => ({ confirm: state.confirm }) },
+  ),
+}));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
   Modal: ({ children }: { children: ReactNode }) => children,
   useDialog: Object.assign(
     (select: (s: { confirm: typeof state.confirm }) => unknown) =>

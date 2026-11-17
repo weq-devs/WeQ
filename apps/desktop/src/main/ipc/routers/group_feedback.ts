@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * `groupFeedback.*` — 项目交流群里的「反馈 bug」弹窗后端。
  *
@@ -79,7 +80,7 @@ async function fetchGithubIssues(): Promise<GithubIssueItem[]> {
   if (issuesCache && now - issuesCache.at < ISSUES_CACHE_TTL_MS) {
     return issuesCache.items;
   }
-  const resp = await fetch(`${GITHUB_API}?state=open&per_page=50&sort=updated`, {
+  const resp = await networkFetch(`${GITHUB_API}?state=open&per_page=50&sort=updated`, {
     headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'WeQ' },
     signal: AbortSignal.timeout(8000),
   });

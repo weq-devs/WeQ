@@ -2,7 +2,7 @@ import type { AgentLabModelCapability } from '@weq/agentlab';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../../shared/router';
 import { trpc } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 
 export const DEFAULT_API_MODEL_LABELS = {
   chat: '默认聊天模型',

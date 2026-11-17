@@ -276,7 +276,7 @@ try {
     await shot(`390-${theme}-categories`);
     const mobile = [];
     for (const [group, section, id] of [
-      ['常规', '主题与背景', 'appearance'],
+      ['常规', '外观与布局', 'appearance'],
       ['基础功能', 'QQ 邮箱', 'mail'],
       ['基础功能', '联系人名片', 'contact-card'],
       ['基础功能', '消息显示', 'message-display'],

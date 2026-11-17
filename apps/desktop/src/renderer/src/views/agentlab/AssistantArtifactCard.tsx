@@ -21,9 +21,10 @@ import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
-import { useToast } from '../../components/Toast';
-import { IS_WEB } from '../../lib/target';
-import { presentClientDocument } from '../../components/ClientDocumentPreview';
+import { useToast } from '../../components/Toast.shared';
+import { taskNotificationSource } from '../../lib/notificationNavigation.shared';
+import { IS_WEB } from '../../lib/target.shared';
+import { presentClientDocument } from '../../components/ClientDocumentPreview.shared';
 import '../../styles/assistant-artifact-save.css';
 
 function kindIcon(kind: AssistantArtifact['kind']): ReactElement {
@@ -176,6 +177,7 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
         pushToast({
           tone: 'info',
           title: '报告保存任务已创建',
+          source: taskNotificationSource(id),
         });
     } catch (e) {
       if (current()) setFailure({ identity, message: e instanceof Error ? e.message : String(e) });
@@ -233,7 +235,8 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
           {artifact.name}
         </span>
         <span className="weq-asst-artifact-sub">
-          {kindLabel(artifact.kind)} · {formatBytes(artifact.bytes)}
+          {kindLabel(artifact.kind)} ·{' '}
+          <span className="weq-number weq-number-inherit">{formatBytes(artifact.bytes)}</span>
           {stateLabel ? ` · ${stateLabel}` : ''}
         </span>
         {error && (

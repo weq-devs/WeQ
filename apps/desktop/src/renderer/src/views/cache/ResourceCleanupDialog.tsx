@@ -15,6 +15,7 @@
  * user's own downloaded files.
  */
 
+import { NumericText } from '../../components/NumericText';
 import { EmptyState } from '../../components/EmptyState';
 import {
   useCallback,
@@ -49,12 +50,12 @@ import {
 } from 'lucide-react';
 import type { CleanupTargetStat, CleanupVariant, CleanupResult } from '@weq/service';
 import { z } from 'zod';
-import { usePageState } from '../../components/PageSnapshots';
+import { usePageState } from '../../components/PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
 import { client, trpc } from '../../trpc/client';
 import { useMultiSelection, type MultiSelectionItemProps } from '../../hooks/useMultiSelection';
-import { fmtBytes } from './CacheShared';
-import { useTabActive } from '../../components/RetainedTabs';
+import { fmtBytes } from './CacheShared.shared';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import { useDraftProtection } from '../../lib/draftClose';
 import type { ResourceManagementSnapshot } from './resourceManagement';
 
@@ -85,7 +86,7 @@ const PRESETS: Preset[] = [
     id: 'safe',
     label: '完全安全清理',
     icon: <ShieldCheck size={20} />,
-    desc: '清理头像、商城表情、图片墙、QQ空间、关联表情等完全可再生的缓存，QQ 会在需要时自动重新下载。',
+    desc: '清理头像、商城表情、图片墙、QQ 空间、关联表情等完全可再生的缓存，QQ 会在需要时自动重新下载。',
     danger: false,
     build: (targets) =>
       targets.filter((t) => t.tier === 'safe').map((t) => ({ id: t.id, variant: 'all' })),
@@ -398,7 +399,9 @@ export function ResourceCleanupDialog({
         </div>
         <div className="weq-ra-head-actions">
           {loading ? <Loader2 size={14} className="weq-spin" /> : null}
-          <span className="weq-clean-total">共 {fmtBytes(totalBytes)}</span>
+          <span className="weq-clean-total">
+            共 <span className="weq-number weq-number-inherit">{fmtBytes(totalBytes)}</span>
+          </span>
           {!embedded ? (
             <button
               type="button"
@@ -563,7 +566,11 @@ function PickStage({
                     <small>{t.desc}</small>
                   </span>
                   <span className="weq-clean-target-size">
-                    {disabled ? '空' : fmtBytes(t.bytes)}
+                    {disabled ? (
+                      '空'
+                    ) : (
+                      <span className="weq-number weq-number-inherit">{fmtBytes(t.bytes)}</span>
+                    )}
                   </span>
                 </button>
                 {on && t.hasVariants ? (
@@ -593,14 +600,21 @@ function PickStage({
         </div>
         <div className="weq-clean-custom-foot">
           <span>
-            已选 <strong>{customInstructions.length}</strong> 项 · 预计清理{' '}
-            <strong>{fmtBytes(selBytes)}</strong>
+            已选{' '}
+            <strong>
+              <span className="weq-number weq-number-inherit">{customInstructions.length}</span>
+            </strong>{' '}
+            项 · 预计清理{' '}
+            <strong>
+              <span className="weq-number weq-number-inherit">{fmtBytes(selBytes)}</span>
+            </strong>
           </span>
           <button
             type="button"
             className="weq-clean-go is-danger"
             disabled={!anySel}
             onClick={onConfirmCustom}
+            data-danger="outline"
           >
             <Trash2 size={15} /> 清理所选
           </button>
@@ -621,6 +635,7 @@ function PickStage({
             type="button"
             className={`weq-clean-mode${p.danger ? ' is-danger' : ''}${p.extreme ? ' is-extreme' : ''}`}
             onClick={() => onPickPreset(p)}
+            data-danger={p.danger ? 'outline' : undefined}
             disabled={empty || loading}
           >
             <span className="weq-clean-mode-icon">{p.icon}</span>
@@ -710,7 +725,9 @@ function ConfirmStage({
           <p>{preset.desc}</p>
         </div>
         <span className="weq-clean-summary-size">
-          <b>{fmtBytes(bytes)}</b>
+          <b>
+            <span className="weq-number weq-number-inherit">{fmtBytes(bytes)}</span>
+          </b>
           <small>逻辑清理量</small>
         </span>
       </div>
@@ -729,7 +746,9 @@ function ConfirmStage({
               {t.hasVariants ? (
                 <em className="weq-clean-review-variant">{VARIANT_LABEL[variant]}</em>
               ) : null}
-              <span className="weq-clean-review-size">{fmtBytes(b)}</span>
+              <span className="weq-clean-review-size">
+                <span className="weq-number weq-number-inherit">{fmtBytes(b)}</span>
+              </span>
             </div>
           ))}
         </div>
@@ -760,8 +779,10 @@ function ConfirmStage({
           className={`weq-clean-go${preset.danger ? ' is-danger' : ''}`}
           disabled={nothing || !phraseOk || disabled}
           onClick={onRun}
+          data-danger={preset.danger ? 'solid' : 'outline'}
         >
-          <Trash2 size={15} /> 确认清理 {fmtBytes(bytes)}
+          <Trash2 size={15} /> 确认清理{' '}
+          <span className="weq-number weq-number-inherit">{fmtBytes(bytes)}</span>
         </button>
       </div>
     </div>
@@ -788,11 +809,17 @@ function DoneStage({
         <CheckCircle2 size={40} strokeWidth={1.5} />
       </span>
       <strong className="weq-clean-done-title">
-        已删除逻辑文件量 {fmtBytes(result.freedBytes)}
+        已删除逻辑文件量{' '}
+        <span className="weq-number weq-number-inherit">{fmtBytes(result.freedBytes)}</span>
       </strong>
       <p className="weq-clean-done-desc">
-        清理完成，共处理 {result.perTarget.length} 项资源。
-        {failed > 0 ? `部分目标未完全清理，失败计数 ${failed}，详见逐项结果。` : ''}
+        清理完成，共处理{' '}
+        <span className="weq-number weq-number-inherit">{result.perTarget.length}</span> 项资源。
+        {failed > 0 ? (
+          <NumericText>{`部分目标未完全清理，失败计数 ${failed}，详见逐项结果。`}</NumericText>
+        ) : (
+          ''
+        )}
       </p>
       <div className="weq-clean-review">
         {result.perTarget.map((item) => (
@@ -802,7 +829,8 @@ function DoneStage({
             </span>
             <em className="weq-clean-review-variant">{VARIANT_LABEL[item.variant]}</em>
             <span className="weq-clean-review-size">
-              {fmtBytes(item.freedBytes)} · 失败 {item.failed}
+              <span className="weq-number weq-number-inherit">{fmtBytes(item.freedBytes)}</span> ·
+              失败 <span className="weq-number weq-number-inherit">{item.failed}</span>
             </span>
           </div>
         ))}

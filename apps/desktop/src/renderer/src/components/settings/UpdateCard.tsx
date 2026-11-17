@@ -7,6 +7,7 @@
  * dev（未打包）下仅可检查；下载/安装会被后端拒绝，故按钮禁用并提示。
  */
 
+import { NumericText } from '../NumericText';
 import { CheckCircle2, Download, Gauge, Loader2, RefreshCw, RotateCw } from 'lucide-react';
 import { AutoSave } from './AutoSave';
 import type { ReactElement } from 'react';
@@ -74,7 +75,6 @@ export function UpdateCard(): ReactElement {
     <Card title="软件更新" icon={<Download size={15} strokeWidth={1.8} />}>
       <Row
         settingId="update-check-interval"
-        label="自动检查更新频率"
         desc="单位：分钟；-1 表示永不"
         control={
           <AutoSave
@@ -106,7 +106,6 @@ export function UpdateCard(): ReactElement {
       />
       <Row
         settingId="update-prerelease"
-        label="检查测试版"
         control={
           <Toggle
             label="检查测试版"
@@ -137,24 +136,33 @@ export function UpdateCard(): ReactElement {
         </div>
         <div className="weq-set-row-ctrl">
           {phase === 'installing' ? (
-            <button type="button" className="weq-set-btn" disabled aria-busy="true">
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-primary"
+              disabled
+              aria-busy="true"
+            >
               <Loader2 size={14} strokeWidth={2} className="weq-spin" aria-hidden />
               正在重启…
             </button>
           ) : phase === 'downloaded' ? (
-            <button type="button" className="weq-set-btn" onClick={() => void install()}>
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-primary"
+              onClick={() => void install()}
+            >
               <RotateCw size={14} strokeWidth={1.8} aria-hidden />
               重启并安装
             </button>
           ) : phase === 'downloading' ? (
-            <button type="button" className="weq-set-btn" disabled>
+            <button type="button" className="weq-set-btn weq-set-btn-primary" disabled>
               <Loader2 size={14} strokeWidth={2} className="weq-spin" aria-hidden />
-              下载中 {pct}%
+              下载中 <span className="weq-number weq-number-inherit">{pct}</span>%
             </button>
           ) : phase === 'available' ? (
             <button
               type="button"
-              className="weq-set-btn"
+              className="weq-set-btn weq-set-btn-primary"
               onClick={() => void download()}
               disabled={isDev || isManaged}
               title={
@@ -180,11 +188,15 @@ export function UpdateCard(): ReactElement {
               ) : (
                 <RefreshCw size={14} strokeWidth={1.8} aria-hidden />
               )}
-              {phase === 'checking'
-                ? mirrorCount
-                  ? `测速中（${mirrorCount} 个源）`
-                  : '检查中'
-                : '检查更新'}
+              {phase === 'checking' ? (
+                mirrorCount ? (
+                  <NumericText>{`测速中（${mirrorCount} 个源）`}</NumericText>
+                ) : (
+                  '检查中'
+                )
+              ) : (
+                '检查更新'
+              )}
             </button>
           )}
         </div>

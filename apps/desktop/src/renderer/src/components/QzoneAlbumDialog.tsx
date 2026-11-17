@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import * as timeFormat from '@weq/time';
 /**
  * QzoneAlbumDialog — 左栏「更多功能 → 空间相册」查看器（大灯箱卡片）。
@@ -26,12 +27,12 @@ import {
   type ReactElement,
   type SetStateAction,
 } from 'react';
-import { useContentMultiSelect } from '../state/contentSelection';
+import { useContentMultiSelect } from '../state/contentSelection.shared';
 import { ContentReferenceToolbar } from './ContentReferenceToolbar';
 import { contentReferenceKey, type ContentReference } from '../../../shared/content_selection';
 import { qzoneAlbumMediaKey } from '../../../shared/album_media_identity';
 import { mobileBack, useMobileBack } from '../hooks/useMobileNavigation';
-import { Check, Images, Inbox, Loader2, Play, X } from 'lucide-react';
+import { Check, Images, Inbox, Loader2, Play, X, RefreshCw } from 'lucide-react';
 import { Modal } from './Dialog';
 import type { QzoneAlbumRequest } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
@@ -538,7 +539,11 @@ export function QzoneAlbumDialog({
           </strong>
         </span>
         <span className="weq-qzn-page-count" style={{ flexShrink: 0 }}>
-          （已获取 {selected ? mediaPages.current.size : albumPages.current.size} 页）
+          （已获取{' '}
+          <span className="weq-number weq-number-inherit">
+            {selected ? mediaPages.current.size : albumPages.current.size}
+          </span>{' '}
+          页）
         </span>
         {!embedded ? (
           <button type="button" className="weq-compose-x" onClick={onClose} title="关闭">
@@ -567,7 +572,7 @@ export function QzoneAlbumDialog({
             <span>{offlineMode ? '完全离线模式已开启' : '需要登录 QQ 客户端'}</span>
             <small>
               {offlineMode
-                ? '已关闭「自动读取 QQ 内存（完整功能）」，空间相册需要在线 QQ 实例的 pskey 凭证才能访问。请在设置中开启后重试。'
+                ? '已关闭「自动启用 QQ 在线能力」，空间相册需要在线 QQ 实例的 pskey 凭证才能访问。请在设置中开启后重试。'
                 : '空间相册需要当前账号的 QQ 客户端在线以获取访问凭证（pskey）。请打开并登录 QQ 后重试。'}
             </small>
           </div>
@@ -578,7 +583,12 @@ export function QzoneAlbumDialog({
             <Inbox size={26} />
             <span>相册列表加载失败</span>
             <small>{albumsError}</small>
-            <button type="button" onClick={() => setAlbumRetry((value) => value + 1)}>
+            <button
+              type="button"
+              onClick={() => setAlbumRetry((value) => value + 1)}
+              className="weq-retry-button"
+            >
+              <RefreshCw size={14} aria-hidden />
               重试
             </button>
           </div>
@@ -620,13 +630,15 @@ export function QzoneAlbumDialog({
                 <button type="button" disabled={albumsLoading} onClick={() => void loadAlbumPage()}>
                   {albumsLoading ? <Loader2 size={13} className="weq-spin" /> : null}
                   {albumsError ? '重试加载相册' : '加载更多相册'}
-                  {`（已获取 ${albumPages.current.size} 页）`}
+                  <NumericText>{`（已获取 ${albumPages.current.size} 页）`}</NumericText>
                 </button>
               ) : (
                 <span className="weq-qzal-sentinel-text">
-                  {albumTotal === null
-                    ? '已到本次列表末尾（总数未知）'
-                    : `已加载 ${albums.length} / ${albumTotal} 个相册`}
+                  {albumTotal === null ? (
+                    '已到本次列表末尾（总数未知）'
+                  ) : (
+                    <NumericText>{`已加载 ${albums.length} / ${albumTotal} 个相册`}</NumericText>
+                  )}
                 </span>
               )}
             </div>
@@ -736,7 +748,8 @@ export function AlbumGridView({
               <span className="weq-qzal-album-meta">
                 <strong>{album.name || '未命名相册'}</strong>
                 <small>
-                  {album.mediaCount ?? 0} 个媒体
+                  <span className="weq-number weq-number-inherit">{album.mediaCount ?? 0}</span>{' '}
+                  个媒体
                   {album.desc ? (
                     <>
                       {' · '}
@@ -992,8 +1005,8 @@ export function MediaView({
           返回相册
         </button>
         <span className="weq-qzal-count">
-          {albumName} · {countText}
-          {total > photos.length ? ` · 共 ${total} 项` : ''}
+          {albumName} · <NumericText>{countText}</NumericText>
+          {total > photos.length ? <NumericText>{` · 共 ${total} 项`}</NumericText> : ''}
         </span>
       </div>
       <ContentReferenceToolbar
@@ -1066,10 +1079,17 @@ export function MediaView({
                       </span>
                       {detail?.width && detail.height ? (
                         <small>
-                          {detail.width} × {detail.height}
+                          <span className="weq-number weq-number-inherit">{detail.width}</span> ×{' '}
+                          <span className="weq-number weq-number-inherit">{detail.height}</span>
                         </small>
                       ) : null}
-                      {photo.uploadTime ? <time>{fmtDay(photo.uploadTime)}</time> : null}
+                      {photo.uploadTime ? (
+                        <time>
+                          <span className="weq-number weq-number-inherit">
+                            {fmtDay(photo.uploadTime)}
+                          </span>
+                        </time>
+                      ) : null}
                     </span>
                   </button>
                 </div>
@@ -1080,20 +1100,26 @@ export function MediaView({
             {loadFailed ? (
               <button
                 type="button"
-                className="weq-qzal-retry"
+                className="weq-qzal-retry weq-retry-button"
                 onClick={() => void triggerLoadMore()}
               >
+                <RefreshCw size={14} aria-hidden />
                 加载失败，点击重试
               </button>
             ) : loadingMore ? (
               <span className="weq-qzal-sentinel-text">
                 <Loader2 size={13} className="weq-spin" />
                 加载中…
-                {`（已获取 ${fetchedPages} 页）`}
+                <NumericText>{`（已获取 ${fetchedPages} 页）`}</NumericText>
               </span>
             ) : null}
           </div>
-          {!hasMore ? <div className="weq-qzal-end">已加载全部 {photos.length} 项媒体</div> : null}
+          {!hasMore ? (
+            <div className="weq-qzal-end">
+              已加载全部 <span className="weq-number weq-number-inherit">{photos.length}</span>{' '}
+              项媒体
+            </div>
+          ) : null}
         </>
       )}
     </div>

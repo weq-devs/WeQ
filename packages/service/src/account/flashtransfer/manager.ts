@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * 闪传下载任务管理器 —— 落盘持久化 + 并发下载 + 逐文件进度事件。
  *
@@ -60,7 +61,7 @@ async function downloadWithProgress(
 ): Promise<void> {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      const res = await fetch(url, { signal });
+      const res = await networkFetch(url, { signal });
       if (res.status === 429 || res.status >= 500) {
         if (attempt < DL_RETRIES) {
           await sleep(backoffMs(attempt));
@@ -172,12 +173,82 @@ export class FlashTransferDownloadManager extends EventEmitter {
   }
 
   private emitTask(task: FlashDownloadTask): void {
+    const previous = task.logs?.at(-1);
+    const stage = task.status;
+    const pct = task.fileSize > 0 ? Math.floor((task.downloadedBytes / task.fileSize) * 10) : 0;
+    const checkpoint = `${stage}:${pct}`;
+    if (
+      !previous ||
+      previous.stage.split(':')[0] !== stage ||
+      (stage === 'downloading' && previous.stage !== checkpoint && Date.now() - previous.ts >= 1000)
+    ) {
+      const label = {
+        pending: '等待下载',
+        resolving: '获取下载链接',
+        downloading: '下载中',
+        done: '文件已保存',
+        failed: '下载失败',
+        cancelled: '已取消下载',
+      }[stage];
+      task.logs = [
+        ...(task.logs ?? []).slice(-99),
+        {
+          ts: Date.now(),
+          seq: (previous?.seq ?? 0) + 1,
+          stage: checkpoint,
+          level: stage === 'failed' ? 'error' : stage === 'cancelled' ? 'warn' : 'info',
+          text: `${task.relativePath} · ${label}${stage === 'downloading' && task.fileSize > 0 ? ` · ${Math.min(100, pct * 10)}%` : ''}${task.error ? ` · ${task.error}` : ''}`.slice(
+            0,
+            4000,
+          ),
+        },
+      ];
+    }
     this.emit('task', task);
   }
 
   /** 按下载操作归并，文件明细保留在 files 中，新的在前。 */
   list(): FlashDownloadBatch[] {
-    return groupFlashDownloads(this.tasks).sort((a, b) => b.createdAt - a.createdAt);
+    return groupFlashDownloads(this.tasks)
+      .map((task) => ({
+        ...task,
+        canRetry:
+          task.files.some((file) => file.status === 'failed' || file.status === 'cancelled') &&
+          task.files.every(
+            (file) => FINISHED_FLASH_STATUSES.has(file.status) && !this.running.has(file.id),
+          ),
+      }))
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  /** 只重试失败或取消的文件；旧下载完全退出后才复用任务身份与路径。 */
+  retry(taskId: string): Promise<boolean> {
+    const request = this.startQueue.then(async () => {
+      await this.loading;
+      const batch = this.list().find((task) => task.id === taskId);
+      if (!batch?.canRetry) return false;
+      const files = batch.files.filter(
+        (file) => file.status === 'failed' || file.status === 'cancelled',
+      );
+      const previous = files.map((file) => ({ ...file }));
+      for (const file of files) {
+        file.status = 'pending';
+        file.error = undefined;
+        file.finishedAt = undefined;
+        file.downloadedBytes = 0;
+      }
+      try {
+        await this.persist(true);
+      } catch (error) {
+        for (const [index, file] of files.entries()) Object.assign(file, previous[index]);
+        throw error;
+      }
+      for (const file of files) this.emitTask(file);
+      void this.pump();
+      return true;
+    });
+    this.startQueue = request.catch(() => {});
+    return request;
   }
 
   /**

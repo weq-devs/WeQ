@@ -10,7 +10,7 @@ import type {
   MailStatus,
 } from '@weq/service/mail';
 import { client } from '../../trpc/client';
-import { IS_WEB } from '../../lib/target';
+import { IS_WEB } from '../../lib/target.shared';
 import { pickAccountFile } from '../../lib/accountFilePicker';
 import type { ExportSavePolicy } from '@weq/service';
 

@@ -6,6 +6,14 @@ import {
 } from '../src/common/message_plain_text';
 
 describe('统一消息纯文本', () => {
+  it('只格式化应用生成的单位，正文、昵称与文件名保留原始混排', () => {
+    const original = '2026年11月16日，3秒后打开QQ12345';
+    expect(plainContentText([{ type: 'text', data: { textContent: original } }])).toBe(original);
+    expect(plainSenderText({ name: '小明123', uin: '12345' })).toBe('小明123 (12345)');
+    expect(plainContentText([{ type: 'pic', data: { fileName: '截图2026年.png' } }])).toBe(
+      '[图片: 截图2026年.png]',
+    );
+  });
   it('固定北京时间，不受机器时区影响，保留正文换行与空行', () => {
     expect(
       plainMessageText({
@@ -50,7 +58,7 @@ describe('统一消息纯文本', () => {
         { type: 'ptt', data: { pttDuration: 5, pttTranscript: '好\n收到' } },
       ]),
     ).toBe(
-      '看这里\n[图片: a.png]\n附件：media/image/a.png\n后续文字\n[语音: 5秒]\n[语音转写]\n好\n收到',
+      '看这里\n[图片: a.png]\n附件：media/image/a.png\n后续文字\n[语音: 5 秒]\n[语音转写]\n好\n收到',
     );
   });
   it('卡片保留标题、描述、链接，但不重复兼容文本', () => {

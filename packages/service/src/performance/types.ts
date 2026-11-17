@@ -55,6 +55,8 @@ export interface MonitorRange {
   to: number;
   buckets: number;
   process?: string;
+  processGroup?: string;
+  aggregate?: boolean;
 }
 export interface MonitorPoint {
   process: string;
@@ -78,6 +80,7 @@ export interface MonitorEvent {
 }
 export interface MonitorHistory {
   points: MonitorPoint[];
+  processGroups?: string[];
   events: MonitorEvent[];
   eventLimitReached: boolean;
   pointLimitReached: boolean;
@@ -87,6 +90,15 @@ export interface MonitorStorageStatus {
   oldest: number | null;
   newest: number | null;
   records: number;
+}
+export interface MonitorPrunePreview extends MonitorStorageStatus {
+  cutoff: number;
+  retentionDays: number;
+  capacityMiB: MonitorSettings['capacityMiB'];
+  capacityBudgetBytes: number;
+  expiredRecords: number;
+  capacityExceeded: boolean;
+  needsPrune: boolean;
 }
 export interface MonitorStatus extends MonitorStorageStatus {
   host: 'desktop' | 'web';

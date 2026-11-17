@@ -23,6 +23,10 @@ it.each([390, 844, 1180])('Remote 设置与搜索按身份过滤电脑入口，�
   vi.stubGlobal('innerWidth', width);
   expect(searchAppEntries('开机自动启动')).toHaveLength(0);
   expect(searchAppEntries('关联资源目录')).toHaveLength(0);
+  expect(searchAppEntries('QQ 登录记录管理')).toHaveLength(0);
+  expect(searchAppEntries('外部安卓图片缓存')).toHaveLength(0);
+  expect(searchAppEntries('QQ 高级工具').length).toBeGreaterThan(0);
+  expect(searchAppEntries('资源加载').length).toBeGreaterThan(0);
   expect(searchAppEntries('资源清理')).toHaveLength(0);
   expect(searchAppEntries('导出明文数据库').length).toBeGreaterThan(0);
   expect(searchAppEntries('配置备份').length).toBeGreaterThan(0);

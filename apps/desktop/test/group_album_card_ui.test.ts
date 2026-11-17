@@ -145,14 +145,20 @@ function fixture() {
   return {
     host,
     render: async (node: ReactNode) => {
-      await act(async () => root.render(node));
+      await act(async () => {
+        root.render(node);
+        await vi.dynamicImportSettled();
+      });
     },
   };
 }
 const button = (label: string) =>
   document.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
 const click = async (element: HTMLElement) => {
-  await act(async () => element.click());
+  await act(async () => {
+    element.click();
+    await vi.dynamicImportSettled();
+  });
 };
 const nativeFeed =
   'mqzone://arouse/groupalbum/feeddetail?groupid=123456&albumid=synthetic_album&batchid=1700000000';
@@ -198,11 +204,12 @@ it('旧图文定位卡可用键盘进入精确批次和评论，旧定位串不�
       }),
     ),
   );
-  await act(async () =>
+  await act(async () => {
     f.host
       .querySelector<HTMLElement>('[role="link"]')!
-      .dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' })),
-  );
+      .dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }));
+    await vi.dynamicImportSettled();
+  });
   expect(rpc.feed.mock.calls[0]?.[0]).toEqual({
     ...binding,
     groupCode: '123456',
@@ -238,7 +245,10 @@ it('同号切来源立即关闭旧卡片，不把迟到响应放入新来源，�
   await click(f.host.querySelector<HTMLElement>('[role="link"]')!);
   rpc.configId = 'source-b';
   await render('source-b');
-  await act(async () => resolve?.(page()));
+  await act(async () => {
+    resolve?.(page());
+    await vi.dynamicImportSettled();
+  });
   expect(document.querySelector('.group-album-feed')).toBeNull();
   expect(rpc.feed).toHaveBeenCalledTimes(1);
   await click(f.host.querySelector<HTMLElement>('[role="link"]')!);
@@ -318,7 +328,10 @@ it('读取错误保持可重试，不误显示空评论；重试后恢复内容'
       onOpenAlbum: () => {},
     }),
   );
-  await act(async () => vi.advanceTimersByTimeAsync(3100));
+  await act(async () => {
+    vi.advanceTimersByTimeAsync(3100);
+    await vi.dynamicImportSettled();
+  });
   expect(document.body.textContent).toContain('synthetic-read-error');
   expect(document.body.textContent).not.toContain('暂无评论');
   rpc.feed.mockResolvedValue(page());
@@ -349,7 +362,10 @@ it('重复打开同一张卡只采用最新请求，旧响应不能覆盖新详�
   const link = f.host.querySelector<HTMLElement>('[role="link"]')!;
   await click(link);
   await click(link);
-  await act(async () => finish?.({ ...page(), albumName: '旧响应不应显示' }));
+  await act(async () => {
+    finish?.({ ...page(), albumName: '旧响应不应显示' });
+    await vi.dynamicImportSettled();
+  });
   expect(document.querySelector('.group-album-feed header')?.textContent).toContain('最新详情');
   expect(document.body.textContent).not.toContain('旧响应不应显示');
 });
@@ -429,7 +445,10 @@ it('分页失败后可再次点击加载同一页，不因游标未变而无响�
       (node) => node.textContent === '加载更多评论',
     )!;
   await click(more());
-  await act(async () => vi.advanceTimersByTimeAsync(3100));
+  await act(async () => {
+    vi.advanceTimersByTimeAsync(3100);
+    await vi.dynamicImportSettled();
+  });
   expect(document.body.textContent).toContain('synthetic-page-error');
   rpc.feed.mockResolvedValue({ ...page(), comments: [comment('c2')] });
   await click(more());
@@ -483,6 +502,8 @@ it('离线时暂停而不空转加载，网络恢复后才派发读取', async (
   await act(async () => {
     online.mockReturnValue(true);
     window.dispatchEvent(new Event('online'));
+
+    await vi.dynamicImportSettled();
   });
   expect(document.querySelector('[data-comment-id="c1"]')).not.toBeNull();
 });
@@ -584,6 +605,8 @@ it('相册卡离线尚未读取时不误报相册不存在，恢复网络后定�
   await act(async () => {
     online.mockReturnValue(true);
     window.dispatchEvent(new Event('online'));
+
+    await vi.dynamicImportSettled();
   });
   expect(rpc.media).toHaveBeenCalledWith({
     ...binding,

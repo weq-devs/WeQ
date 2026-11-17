@@ -1,16 +1,22 @@
 import { resolve } from 'node:path';
-import { prepareWebAssets } from '../../scripts/dev-web.mjs';
+import { developmentWeb, prepareWebAssets } from '../../scripts/dev-web.mjs';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { ozonePlatformArgs } from './src/main/linux_window_backend';
+import {
+  createDevelopmentReload,
+  successfulDevelopmentReload,
+} from './src/main/development_reload';
 import { tsImport } from 'tsx/esm/api';
 
 // 配置加载器会外置裸包导入；仅开发摘要需要通过现有 TS 加载器读取工作区源码。
-const developmentViteLogging: typeof import('./src/main/development_vite').developmentViteLogging =
+const developmentLogging: typeof import('./src/main/development_vite') | undefined =
   process.env.WEQ_DEV_CONSOLE === '1' && process.env.WEQ_LOG_LEVEL !== 'debug'
-    ? (await tsImport('./src/main/development_vite.ts', import.meta.url)).developmentViteLogging
-    : () => ({ config: {}, plugins: [] });
+    ? await tsImport('./src/main/development_vite.ts', import.meta.url)
+    : undefined;
+const developmentViteLogging =
+  developmentLogging?.developmentViteLogging ?? (() => ({ config: {}, plugins: [] }));
 
 /**
  * Workspace packages export TS source directly (no build step). They must
@@ -18,6 +24,8 @@ const developmentViteLogging: typeof import('./src/main/development_vite').devel
  * to `import "./index.ts"` at runtime.
  */
 const EXCLUDE_FROM_EXTERNAL = [
+  '@weq/network',
+  'undici',
   '@weq/agentlab',
   '@weq/account',
   '@weq/codec',
@@ -42,9 +50,24 @@ const EXCLUDE_FROM_EXTERNAL = [
 ];
 
 let remoteWebBuilt = false;
-const mainLogging = developmentViteLogging('main');
-const preloadLogging = developmentViteLogging('preload');
+const development = process.env.NODE_ENV_ELECTRON_VITE === 'development';
+const initialSummary = developmentLogging?.developmentBuildSummary();
+const mainLogging = developmentViteLogging(
+  'main',
+  process.env,
+  undefined,
+  undefined,
+  initialSummary,
+);
+const preloadLogging = developmentViteLogging(
+  'preload',
+  process.env,
+  undefined,
+  undefined,
+  initialSummary,
+);
 const rendererLogging = developmentViteLogging('renderer');
+const developmentReload = createDevelopmentReload();
 
 // Wayland 会话默认让 Electron 走 XWayland（平铺合成器会把 `type: 'toolbar'` 平铺掉）。
 // 这个开关**必须出现在 Electron 启动参数里**，`app.commandLine.appendSwitch` 在 ready
@@ -64,9 +87,11 @@ export default defineConfig({
     clearScreen: false,
     plugins: [
       ...mainLogging.plugins,
+      successfulDevelopmentReload('main', developmentReload),
       {
         name: 'weq-remote-web-assets',
         async buildStart() {
+          if (development) return;
           if (remoteWebBuilt) return;
           await prepareWebAssets(resolve(import.meta.dirname, '../..'));
           remoteWebBuilt = true;
@@ -80,6 +105,7 @@ export default defineConfig({
       },
     },
     build: {
+      watch: development ? { buildDelay: 200 } : null,
       rollupOptions: {
         // The voice-transcription recognizer runs in a forked child process,
         // so it must be a SEPARATE entry the main process can `fork()` by path.
@@ -106,6 +132,11 @@ export default defineConfig({
           storageCleanupWorker: resolve(import.meta.dirname, 'src/main/storage_cleanup_worker.ts'),
           backupProbeWorker: resolve(import.meta.dirname, 'src/main/backup_probe_worker.ts'),
           dbCheckupWorker: resolve(import.meta.dirname, 'src/main/db_checkup_worker.ts'),
+          dbMaintenanceWorker: resolve(import.meta.dirname, 'src/main/db_maintenance_worker.ts'),
+          dbMaintenanceLockWorker: resolve(
+            import.meta.dirname,
+            'src/main/db_maintenance_lock_worker.ts',
+          ),
           sourceSearchWorker: resolve(import.meta.dirname, 'src/main/source_search_worker.ts'),
           sourceSearchRetirementWorker: resolve(
             import.meta.dirname,
@@ -129,6 +160,8 @@ export default defineConfig({
             chunk.name === 'storageCleanupWorker' ||
             chunk.name === 'backupProbeWorker' ||
             chunk.name === 'dbCheckupWorker' ||
+            chunk.name === 'dbMaintenanceWorker' ||
+            chunk.name === 'dbMaintenanceLockWorker' ||
             chunk.name === 'sourceSearchWorker' ||
             chunk.name === 'sourceSearchRetirementWorker' ||
             chunk.name === 'macUpdateWorker' ||
@@ -142,7 +175,12 @@ export default defineConfig({
   preload: {
     ...preloadLogging.config,
     clearScreen: false,
-    plugins: [...preloadLogging.plugins, externalizeDepsPlugin()],
+    plugins: [
+      ...preloadLogging.plugins,
+      successfulDevelopmentReload('preload', developmentReload),
+      externalizeDepsPlugin(),
+    ],
+    build: { watch: development ? { buildDelay: 200 } : null },
   },
   renderer: {
     ...rendererLogging.config,
@@ -150,7 +188,15 @@ export default defineConfig({
     root: resolve(import.meta.dirname, 'src/renderer'),
     // Web 复用 renderer 源码，但不能覆盖桌面进程仍在使用的预构建分块。
     cacheDir: resolve(import.meta.dirname, 'node_modules/.vite-desktop'),
-    plugins: [...rendererLogging.plugins, react(), tailwindcss()],
+    plugins: [
+      ...rendererLogging.plugins,
+      developmentReload.rendererPlugin(),
+      developmentWeb(resolve(import.meta.dirname, '../..'), {
+        plugins: [createDevelopmentReload().rendererPlugin()],
+      }),
+      react(),
+      tailwindcss(),
+    ],
     resolve: {
       alias: {
         '@renderer': resolve(import.meta.dirname, 'src/renderer/src'),

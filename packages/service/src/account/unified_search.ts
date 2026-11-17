@@ -13,6 +13,7 @@ import {
 import { algoFor, type AccountSession } from '@weq/account';
 import {
   SourceMsgSearchDb,
+  withDatabaseWorkload,
   type SourceSearchQuery,
   type SourceSearchTable,
   type BuddyMsgFtsHit,
@@ -526,7 +527,7 @@ export class UnifiedSearchService {
     ): Promise<T[]> => {
       if (!enabled(category)) return [];
       try {
-        return await query();
+        return await withDatabaseWorkload('bulk', query);
       } catch (error) {
         failures.add(category);
         console.error(`[unified-search] ${category} failed:`, error);
@@ -1029,7 +1030,7 @@ export class UnifiedSearchService {
       fallback: T,
     ): Promise<T> => {
       try {
-        return await query();
+        return await withDatabaseWorkload('bulk', query);
       } catch (error) {
         if (!onFailure) throw error;
         onFailure(category, error);

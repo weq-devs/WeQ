@@ -10,9 +10,14 @@ export type MobileBackEntry = {
 export class MobileBackStack {
   private entries: MobileBackEntry[] = [];
 
+  constructor(
+    private compare = (left: MobileBackEntry, right: MobileBackEntry) =>
+      left.priority - right.priority,
+  ) {}
+
   get top(): MobileBackEntry | undefined {
     return this.entries.reduce<MobileBackEntry | undefined>(
-      (top, entry) => (!top || entry.priority >= top.priority ? entry : top),
+      (top, entry) => (!top || this.compare(entry, top) >= 0 ? entry : top),
       undefined,
     );
   }

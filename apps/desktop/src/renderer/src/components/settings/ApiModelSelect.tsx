@@ -1,7 +1,7 @@
 import type { AgentLabModelSelection } from '@weq/agentlab/model-selection';
 import { isDefaultModelSelection, modelSelectionKey } from '@weq/agentlab/model-selection';
 import { trpc } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { providerDisplayLabels } from '../../lib/providerDisplayLabels';
 import { Row, QueryError } from './controls';
 import { DEFAULT_API_MODEL_LABELS, useDefaultApiModel } from './useDefaultApiModel';
@@ -10,6 +10,7 @@ import { DEFAULT_API_MODEL_LABELS, useDefaultApiModel } from './useDefaultApiMod
 export function ApiModelRow({
   settingId,
   lastError,
+  indent,
   ...props
 }: {
   settingId: string;
@@ -18,10 +19,12 @@ export function ApiModelRow({
   onChange: (value: AgentLabModelSelection | null) => void;
   label: string;
   disabled?: boolean;
+  indent?: boolean;
 }) {
   return (
     <Row
       settingId={settingId}
+      indent={indent}
       label="服务商与模型"
       desc={`使用所选服务商与模型处理消息文本。${lastError ? ` 最近调用失败：${lastError}` : ''}`}
       control={<ApiModelSelect {...props} allowDefault />}

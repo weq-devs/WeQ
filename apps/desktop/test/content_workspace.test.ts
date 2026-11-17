@@ -1,10 +1,8 @@
 import { act, createElement, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  ContentSelectionProvider,
-  useContentMultiSelect,
-} from '../src/renderer/src/state/contentSelection';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
+import { useContentMultiSelect } from '../src/renderer/src/state/contentSelection.shared';
 import { Modal } from '../src/renderer/src/components/Dialog';
 import { hasActiveModal } from '../src/renderer/src/lib/overlayStack';
 import type { ContentOwner } from '../src/shared/content_selection';

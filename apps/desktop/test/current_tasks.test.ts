@@ -2,11 +2,8 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CurrentTaskList } from '../src/renderer/src/components/tasks/CurrentTaskList';
-import {
-  LongTaskRow,
-  orderLongTasks,
-  type LongTaskItem,
-} from '../src/renderer/src/components/tasks/LongTaskRow';
+import { LongTaskRow, type LongTaskItem } from '../src/renderer/src/components/tasks/LongTaskRow';
+import { orderLongTasks } from '../src/renderer/src/components/tasks/LongTaskRow.shared';
 import type { UiTask } from '../src/renderer/src/views/export/TaskList';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
@@ -15,7 +12,7 @@ import { dismissCloneTask, getCloneTasks } from '../src/renderer/src/views/agent
 import { localBackgroundTasks } from '../src/renderer/src/state/backgroundTasks';
 import type { BackgroundTask } from '../src/shared/background_task';
 import { TaskQuickActions } from '../src/renderer/src/components/tasks/TaskQuickActions';
-import { useToast } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { useDbRepairWindow } from '../src/renderer/src/state/dbRepairWindow';
 import { backgroundTaskNavigation } from '../src/renderer/src/components/tasks/backgroundTaskNavigation';
 import { onOpenSettingsRequest } from '../src/renderer/src/lib/callSettingsBridge';
@@ -26,6 +23,8 @@ const fixture = vi.hoisted(() => ({
   plannedSeqs: 100,
   flashStatus: 'pending',
   flashCount: 1,
+  flashCanRetry: false,
+  retryFlash: vi.fn(async () => true),
   web: false,
   confirm: vi.fn(async () => false),
   clear: vi.fn(async () => ({ removed: 3, skipped: 0, errors: [] as string[] })),
@@ -49,6 +48,11 @@ vi.mock('../src/renderer/src/lib/target', () => ({
     return fixture.web;
   },
 }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({
+  get IS_WEB() {
+    return fixture.web;
+  },
+}));
 vi.mock('../src/renderer/src/state/view', () => ({
   useViewState: (select: (state: { openedUin: string }) => unknown) =>
     select({ openedUin: fixture.accountId }),
@@ -57,6 +61,14 @@ vi.mock('../src/renderer/src/hooks/useQQAutoRefresh', () => ({
   useQQReadActivity: () => ({ enabled: true }),
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
+  useDialog: (select: (state: unknown) => unknown) =>
+    select({
+      confirm: fixture.confirm,
+      showInfo: fixture.info,
+      showError: fixture.error,
+    }),
+}));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
   useDialog: (select: (state: unknown) => unknown) =>
     select({
       confirm: fixture.confirm,
@@ -96,10 +108,12 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         remove: { mutate: fixture.removeRoaming },
       },
       flashCancelDownloadTask: { mutate: fixture.cancelFlash },
+      flashRetryDownloadTask: { mutate: fixture.retryFlash },
       flashOpenDownloadOutput: { mutate: fixture.openFlash },
     },
   },
   trpc: {
+    dbRepair: { maintenance: { useQuery: () => ({ data: null }) } },
     backgroundTasks: {
       details: { useQuery: () => ({ data: [] }) },
       logs: { useQuery: () => ({ data: [] }) },
@@ -120,6 +134,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
     }),
     account: {
+      flashDownloadTaskLogs: { useQuery: () => ({ data: [] }) },
       getAccountConfig: {
         useQuery: () => ({ data: { uin: fixture.accountId, configId: 'fixture-config' } }),
       },
@@ -150,6 +165,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
               id: 'same-id',
               name: '合成闪传',
               status: fixture.flashStatus,
+              canRetry: fixture.flashCanRetry,
               fileSize: 100,
               downloadedBytes: 0,
               filesetName: '合成集合',
@@ -189,6 +205,7 @@ afterEach(() => {
   fixture.plannedSeqs = 100;
   fixture.flashStatus = 'pending';
   fixture.flashCount = 1;
+  fixture.flashCanRetry = false;
   fixture.web = false;
   fixture.activeRoaming = null;
   getCloneTasks()[0]!.status = 'running';
@@ -216,6 +233,58 @@ async function clickQuick(row: Element, label: string) {
 }
 
 describe('统一当前任务', () => {
+  it('取消的导出、漫游和闪传在快捷列表中提供实际重试入口', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    fixture.flashStatus = 'cancelled';
+    fixture.flashCanRetry = true;
+    fixture.roamingStatus = 'cancelled';
+    const binding = {
+      expectedAccountUin: fixture.accountId,
+      expectedAccountConfigId: 'fixture-config',
+    };
+    const task: UiTask = {
+      id: 'retry-export',
+      name: '取消资源',
+      kind: 'c2c',
+      format: 'json',
+      status: 'cancelled',
+      current: 0,
+      total: 1,
+      progress: 0,
+      resource: { kind: 'group-files' },
+      canResume: true,
+      resumeMode: 'restart',
+    };
+    const actions = { pause: vi.fn(), resume: vi.fn(), cancel: vi.fn(), remove: vi.fn() };
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    try {
+      act(() =>
+        root.render(
+          h(CurrentTaskList, {
+            layout: 'compact',
+            cleanupBinding: binding,
+            exports: [task],
+            exportActions: actions,
+            renderExport: () => null,
+          }),
+        ),
+      );
+      const row = (name: string) =>
+        [...host.querySelectorAll('.weq-long-task-entry')].find((item) =>
+          item.textContent?.includes(name),
+        )!;
+      await clickQuick(row('取消资源'), '重新下载');
+      expect(actions.resume).toHaveBeenCalledWith(task);
+      await clickQuick(row('合成漫游'), '重试未补区间');
+      expect(fixture.startRoaming).toHaveBeenCalledWith({ id: 'same-id', retryRemaining: true });
+      await clickQuick(row('合成闪传'), '重试下载');
+      expect(fixture.retryFlash).toHaveBeenCalledWith({ ...binding, taskId: 'same-id' });
+      expect(fixture.cancelFlash).not.toHaveBeenCalled();
+    } finally {
+      act(() => root.unmount());
+    }
+  });
   it.each([false, true])('增强包下载任务可跳转设置，不依赖账号或下载状态（Web：%s）', (web) => {
     fixture.web = web;
     const open = vi.fn();
@@ -261,7 +330,7 @@ describe('统一当前任务', () => {
     expect(backgroundTaskNavigation(task)).toBeNull();
   });
   it.each(['running', 'completed', 'failed'] as const)(
-    '数据库体检任务在 %s 状态可从快捷列表和详情打开原账号体检窗口',
+    '数据库检查记录在 %s 状态可从快捷列表和详情打开原账号、数据源及报告',
     async (status) => {
       vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
       fixture.background = [
@@ -270,13 +339,15 @@ describe('统一当前任务', () => {
           kind: 'database',
           name: '数据库体检 · synthetic.db',
           destination: 'db-checkup',
-          scope: { uin: fixture.accountId },
+          scope: { uin: fixture.accountId, configId: 'fixture-config' },
+          reportId: 'fixture-report',
           status,
           actions: [],
           startedAt: 1,
           updatedAt: 1,
         },
       ];
+      const navigation = backgroundTaskNavigation(fixture.background[0]!)!;
       const host = document.createElement('div');
       const root = createRoot(host);
       const expand = vi.fn();
@@ -297,16 +368,20 @@ describe('统一当前任务', () => {
               layout === 'compact' ? '.weq-long-task-entry' : '.weq-long-task',
             ),
           ].find((item) => item.textContent?.includes('数据库体检'))!;
-          if (layout === 'compact') await clickQuick(row, '打开数据库体检');
+          if (layout === 'compact') await clickQuick(row, navigation.label);
           else {
             act(() => (row as HTMLButtonElement).click());
             const open = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
-              (button) => button.textContent?.trim() === '打开数据库体检',
+              (button) => button.textContent?.trim() === navigation.label,
             );
             expect(open).toBeDefined();
             act(() => open!.click());
           }
-          expect(useDbRepairWindow.getState().request?.uin).toBe(fixture.accountId);
+          expect(useDbRepairWindow.getState().request).toMatchObject({
+            uin: fixture.accountId,
+            configId: 'fixture-config',
+            reportId: 'fixture-report',
+          });
           useDbRepairWindow.getState().dismiss();
         }
         expect(expand).not.toHaveBeenCalled();
@@ -600,6 +675,22 @@ describe('统一当前任务', () => {
       await act(async () => button('删除导出缓存')!.click());
       expect(actions.resume).toHaveBeenCalledWith(paused);
       expect(actions.remove).toHaveBeenCalledWith(paused);
+      const download: UiTask = {
+        ...paused,
+        resource: { kind: 'group-files' },
+        resumeMode: 'restart',
+        networkPaused: true,
+      };
+      render(download);
+      expect(button('继续导出')).toBeNull();
+      await act(async () => button('重新下载')!.click());
+      await act(async () => button('取消下载')!.click());
+      expect(actions.resume).toHaveBeenLastCalledWith(download);
+      expect(actions.cancel).toHaveBeenLastCalledWith(download);
+      render({ ...download, status: 'running', canResume: false, networkPaused: false });
+      expect(button('暂停')).toBeNull();
+      expect(button('重新下载')).toBeNull();
+      expect(button('取消下载')).not.toBeNull();
       render({ ...base, status: 'pending' });
       expect(button('取消')?.disabled).toBe(false);
       render({ ...paused, isFinalizing: true });

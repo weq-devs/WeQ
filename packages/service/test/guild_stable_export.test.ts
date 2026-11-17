@@ -2,7 +2,7 @@ import { withExportSaveDirectory } from './support/export_save_fixture';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { createSqliteStub, fixtureDb, closeAllFixtureDbs } from '@weq/testkit';
 import { GuildDirectMsgDb } from '@weq/db';
 import type { AccountSession } from '@weq/account';
@@ -104,4 +104,34 @@ it('真实 SQLite 的同 seq 与 NULL seq 进入频道搜索、上下文和精�
     nodeId: '100',
     peerTinyId: '2',
   });
+  const cache = join(root, 'resumable');
+  const options = withExportSaveDirectory(cache, { guildDirect: svc });
+  const resumable = new ExportTaskManager({} as MsgService, cache, options);
+  let paused = false;
+  resumable.on('progress', (event) => {
+    if (!paused && resumable.getTask(event.taskId)?.formatCheckpoints?.json) {
+      paused = true;
+      resumable.pauseTask(event.taskId);
+    }
+  });
+  const resumeId = await resumable.startTask({
+    kind: 'c2c',
+    conv: '2',
+    name: '续作频道',
+    format: 'json',
+    formats: ['json', 'txt'],
+    total: 3,
+    guild: meta,
+  });
+  await vi.waitFor(() =>
+    expect(resumable.listTasks()[0]).toMatchObject({ status: 'paused', canResume: true }),
+  );
+  const restored = new ExportTaskManager({} as MsgService, cache, options);
+  expect(restored.resumeTask(resumeId)).toBe(true);
+  await (restored as unknown as { queue: Promise<void> }).queue;
+  expect(restored.getTask(resumeId)?.status, restored.getTask(resumeId)?.error).toBe('completed');
+  expect(restored.getTask(resumeId)?.formatCounts).toEqual({ json: 3, txt: 3 });
+  expect(
+    restored.listTasks()[0]?.logs.some((line) => line.text.includes('复用已校验的 JSON')),
+  ).toBe(true);
 });

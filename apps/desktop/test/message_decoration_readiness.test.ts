@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { FontFx } from '@weq/service';
 import { useMsgDecoration } from '../src/renderer/src/hooks/useMsgDecoration';
-import { MsgDecorationEnabledContext } from '../src/renderer/src/components/QqMessageContent';
+import { MsgDecorationEnabledContext } from '../src/renderer/src/state/messageAppearance';
 import { decorationImageCache } from '../src/renderer/src/lib/decodedImageCache';
 import { fontFaces } from '../src/renderer/src/lib/fontFaces';
 
@@ -35,6 +35,10 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   },
 }));
 vi.mock('../src/renderer/src/components/QqMessageContent', async () => {
+  const { createContext } = await import('react');
+  return { MsgDecorationEnabledContext: createContext({ bubble: true, font: true, widget: true }) };
+});
+vi.mock('../src/renderer/src/state/messageAppearance', async () => {
   const { createContext } = await import('react');
   return { MsgDecorationEnabledContext: createContext({ bubble: true, font: true, widget: true }) };
 });

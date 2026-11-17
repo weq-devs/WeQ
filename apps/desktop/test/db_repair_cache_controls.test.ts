@@ -2,302 +2,250 @@ import { act, createElement as h, StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { DbRepairPanel } from '../src/renderer/src/components/DbRepairPanel';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
+import { maintenanceQa } from './browser/database-maintenance.stub';
 
-const fixture = vi.hoisted(() => ({
-  freeBytes: 1,
-  detailedBudget: true,
-  needsMigration: false,
-  pick: vi.fn(async () => ({ override: '/synthetic/changed' })),
-  reset: vi.fn(async () => ({ override: null })),
-  invalidate: vi.fn(async () => {}),
-  checkup: vi.fn<() => Promise<unknown>>(),
-  cancelCheckup: vi.fn(async () => ({ cancelled: true })),
-  start: vi.fn<() => Promise<unknown>>(),
-  backup: vi.fn<() => Promise<unknown>>(),
-}));
-
+vi.mock(
+  '../src/renderer/src/trpc/client',
+  async () => await import('./browser/database-maintenance.stub'),
+);
 vi.mock('../src/renderer/src/components/QqAvatar', () => ({ QqAvatar: () => null }));
-vi.mock('../src/renderer/src/components/Toast', () => ({ useToast: () => vi.fn() }));
-vi.mock('../src/renderer/src/hooks/useQQAutoRefresh', () => ({
-  useQQAutoRefresh: () => ({ enabled: true }),
-}));
-vi.mock('../src/renderer/src/trpc/client', () => {
-  const query = (data: unknown) => ({ useQuery: () => ({ data }) });
-  const mutation = (mutateAsync: () => Promise<unknown> = async () => ({})) => ({
-    useMutation: () => ({ isLoading: false, mutateAsync }),
-  });
-  const database = { dbName: 'nt_msg.db', exists: true, bytes: 1024, lastRecord: null };
-  const status = { keyPresent: true, qqPid: null, busy: false, databases: [database] };
-  const utils = { invalidate: fixture.invalidate };
-  return {
-    trpc: {
-      useUtils: () => ({
-        dbRepair: {
-          status: utils,
-          preflight: utils,
-          detectLayout: utils,
-          history: utils,
-          cacheLocation: utils,
-        },
-      }),
-      dbRepair: {
-        status: query(status),
-        history: query([]),
-        detectLayout: { useQuery: () => ({ data: { needsMigration: fixture.needsMigration } }) },
-        preflight: {
-          useQuery: () => ({
-            data: {
-              readiness: 'ready',
-              qqHolders: [],
-              cachePath: '/synthetic/cache',
-              pendingWalBytes: 0,
-              dbBytes: 1024,
-              space: [
-                {
-                  paths: ['/synthetic/cache'],
-                  freeBytes: fixture.freeBytes,
-                  requiredBytes: 100,
-                  ...(fixture.detailedBudget ? { recommendedBytes: 125 } : {}),
-                },
-              ],
-            },
-          }),
-        },
-        cacheLocation: query({ override: '/synthetic/cache' }),
-        pickCacheLocation: mutation(fixture.pick),
-        resetCacheLocation: mutation(fixture.reset),
-        checkup: mutation(fixture.checkup),
-        cancelCheckup: mutation(fixture.cancelCheckup),
-        start: mutation(fixture.start),
-        killQq: mutation(),
-        restore: mutation(),
-        deleteRecord: mutation(),
-        backup: mutation(fixture.backup),
-      },
-    },
-    client: { dbRepair: { onProgress: { subscribe: () => ({ unsubscribe() {} }) } } },
-  };
-});
 
-let root: Root | null = null;
+let root: Root | null;
 let host: HTMLDivElement;
-let sequence = 0;
-let finishCheckup: (result?: unknown) => void;
-let finishRepair: () => void;
-let finishBackup: () => void;
-
-beforeEach(() => {
-  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  fixture.freeBytes = 1;
-  fixture.detailedBudget = true;
-  fixture.needsMigration = false;
-  fixture.pick.mockClear();
-  fixture.reset.mockClear();
-  fixture.invalidate.mockClear();
-  fixture.start.mockClear();
-  fixture.backup.mockClear();
-  fixture.checkup.mockImplementation(
-    () =>
-      new Promise((resolve, reject) => {
-        finishCheckup = (result) =>
-          result === undefined ? reject(new Error('synthetic checkup finished')) : resolve(result);
-      }),
-  );
-  fixture.checkup.mockClear();
-  fixture.cancelCheckup.mockClear();
-  fixture.start.mockImplementation(
-    () =>
-      new Promise((_, reject) => {
-        finishRepair = () => reject(new Error('synthetic repair finished'));
-      }),
-  );
-  finishRepair = () => {};
-  finishBackup = () => {};
-  fixture.backup.mockImplementation(
-    () =>
-      new Promise((_, reject) => {
-        finishBackup = () => reject(new Error('synthetic backup finished'));
-      }),
-  );
-  host = document.createElement('div');
-  document.body.append(host);
-  root = createRoot(host);
-  sequence += 1;
-  const account = { uin: `synthetic-${sequence}`, name: '合成账号', avatarUrl: '' };
-  act(() =>
+const account = { uin: 'synthetic', configId: 'source', name: '合成账号', avatarUrl: '' };
+async function mount(
+  reportId?: string,
+  resultRequest?: { uin: string; configId?: string; reportId?: string },
+) {
+  await act(async () =>
     root!.render(
       h(
         StrictMode,
         null,
-        h(DbRepairPanel, { currentUin: account.uin, accounts: [account], onRefreshAccounts() {} }),
+        h(DbRepairPanel, {
+          currentUin: account.uin,
+          accounts: [account],
+          reportId,
+          resultRequest,
+          onRefreshAccounts() {},
+        }),
       ),
     ),
   );
-});
-
-afterEach(async () => {
-  await act(async () => {
-    finishCheckup();
-    finishRepair();
-    finishBackup();
-  });
-  act(() => root?.unmount());
-  root = null;
-  host.remove();
-  vi.unstubAllGlobals();
-});
-
-function button(name: string): HTMLButtonElement {
-  const found = [...host.querySelectorAll('button')].find(
-    (item) => item.getAttribute('aria-label') === name || item.textContent?.trim() === name,
+}
+function button(name: string) {
+  const found = [...document.body.querySelectorAll('button')].find(
+    (item) => item.textContent?.trim() === name,
   );
   if (!found) throw new Error(`按钮不存在：${name}`);
   return found;
 }
-
-function selectDatabase(): void {
-  act(() => button('跳过体检，直接选数据库 →').click());
-  const pick = host.querySelector<HTMLButtonElement>('.weq-rp-pick');
-  if (!pick) throw new Error('数据库选项不存在');
-  act(() => pick.click());
+function iconButton(name: string) {
+  const found = document.body.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`);
+  if (!found) throw new Error(`按钮不存在：${name}`);
+  return found;
 }
-
-it('停止立即取消当前数据库体检，取消返回不记成检查失败，并可重新开始', async () => {
-  await act(async () => button('停止').click());
-  expect(fixture.cancelCheckup).toHaveBeenCalledWith(
-    expect.objectContaining({ taskId: expect.any(String) }),
-  );
-  await act(async () => finishCheckup());
-  expect(host.textContent).not.toContain('synthetic checkup finished');
-  expect(button('开始体检').disabled).toBe(false);
-  await act(async () => button('开始体检').click());
-  expect(fixture.checkup).toHaveBeenCalledTimes(2);
+function choice(name: string) {
+  const found = host.querySelector<HTMLInputElement>(`input[aria-label="修复 ${name}"]`);
+  if (!found) throw new Error(`数据库不存在：${name}`);
+  return found;
+}
+async function confirm(accepted: boolean) {
+  await act(async () => {
+    const request = useDialog.getState().current;
+    expect(request?.confirm).toBeDefined();
+    request!.confirm!.resolve(accepted);
+    useDialog.getState().close();
+  });
+}
+beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  maintenanceQa.reset();
+  host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+});
+afterEach(async () => {
+  await act(async () => {
+    maintenanceQa.complete();
+    useDialog.getState().close();
+  });
+  await act(async () => root?.unmount());
+  root = null;
+  host.remove();
+  maintenanceQa.reset();
+  vi.unstubAllGlobals();
 });
 
-it('面板卸载会取消仍在运行的体检', async () => {
+it('打开修复和 StrictMode 重挂载均不启动检查或修复', async () => {
+  await mount();
+  expect(maintenanceQa.calls.scan).toEqual([]);
+  expect(maintenanceQa.calls.repair).toEqual([]);
+  expect(button('开始扫描').disabled).toBe(false);
+  expect(button('深度体检').disabled).toBe(false);
+});
+
+it('扫描时不可切换模式，暂停后保留就绪库，切换深度体检后按当前来源继续', async () => {
+  await mount();
+  await act(async () => button('开始扫描').click());
+  expect(maintenanceQa.calls.scan).toEqual([
+    { uin: account.uin, configId: account.configId, kind: 'scan' },
+  ]);
+  expect(button('深度体检').disabled).toBe(true);
+  await act(async () => maintenanceQa.completeFirst());
+  await act(async () => button('暂停扫描').click());
+  expect(maintenanceQa.calls.stop).toBe(1);
+  expect(maintenanceQa.calls.end).toBe(0);
+  expect(choice('nt_msg.db').disabled).toBe(false);
+  expect(button('继续扫描').disabled).toBe(false);
+  expect(button('深度体检').disabled).toBe(false);
+  await act(async () => button('深度体检').click());
+  await act(async () => button('继续扫描').click());
+  expect(maintenanceQa.calls.scan[1]).toEqual({
+    uin: account.uin,
+    configId: account.configId,
+    kind: 'checkup',
+  });
+});
+
+it('界面卸载不取消扫描、不删除已有结果或结束维护', async () => {
+  await mount();
+  await act(async () => button('深度体检').click());
+  await act(async () => button('开始扫描').click());
   await act(async () => root!.unmount());
   root = null;
-  expect(fixture.cancelCheckup).toHaveBeenCalledOnce();
+  expect(maintenanceQa.calls.scan).toHaveLength(1);
+  expect(maintenanceQa.calls.stop).toBe(0);
+  expect(maintenanceQa.calls.end).toBe(0);
 });
 
-it('StrictMode 模拟卸载不取消扫描，手动停止后也不接收迟到的成功结果', async () => {
-  await act(async () => {});
-  expect(fixture.cancelCheckup).not.toHaveBeenCalled();
-  expect(fixture.checkup).toHaveBeenCalledOnce();
-  await act(async () => button('停止').click());
-  await act(async () =>
-    finishCheckup({ dbName: 'nt_msg.db', verdict: 'healthy', summary: '迟到结果' }),
+it('默认勾选支持修复的异常库，健康库可手选，不支持的库不能提交', async () => {
+  maintenanceQa.ready();
+  await mount();
+  expect(choice('nt_msg.db').checked).toBe(true);
+  expect(choice('profile.db').checked).toBe(false);
+  expect(choice('profile.db').disabled).toBe(false);
+  expect(host.querySelector('input[aria-label="修复 unsupported.db"]')).toBeNull();
+  await act(async () => choice('profile.db').click());
+  await act(async () => button('修复所选数据库').click());
+  expect(maintenanceQa.calls.repair).toHaveLength(0);
+  await confirm(true);
+  expect(maintenanceQa.calls.repair).toEqual([
+    expect.objectContaining({ dbNames: ['nt_msg.db', 'profile.db'], backup: true }),
+  ]);
+  expect(button('停止修复').disabled).toBe(false);
+  await act(async () => button('停止修复').click());
+  expect(maintenanceQa.calls.stop).toBe(1);
+  expect(maintenanceQa.snapshot()?.locked).toBe(false);
+});
+
+it('空间不足和持锁等待不阻止改缓存位置，开始修复后禁止更改', async () => {
+  maintenanceQa.lowSpace();
+  await mount();
+  await act(async () => button('开始扫描').click());
+  await act(async () => iconButton('数据库修复设置').click());
+  expect(button('更改位置').disabled).toBe(false);
+  await act(async () => button('更改位置').click());
+  expect(maintenanceQa.calls.pick).toBe(1);
+  await act(async () => maintenanceQa.complete());
+  expect(button('使用默认位置').disabled).toBe(false);
+  await act(async () => button('修复所选数据库').click());
+  await confirm(true);
+  expect(button('更改位置').disabled).toBe(true);
+  expect(button('使用默认位置').disabled).toBe(true);
+});
+
+it('查看历史结果与三种导出都不重新体检，导出仍指向原报告', async () => {
+  maintenanceQa.ready();
+  maintenanceQa.archive();
+  await mount('old-report');
+  for (const format of ['HTML', 'Markdown', 'JSON']) await act(async () => button(format).click());
+  expect(maintenanceQa.calls.scan).toHaveLength(0);
+  expect(maintenanceQa.calls.repair).toHaveLength(0);
+  expect(maintenanceQa.calls.export).toEqual(
+    ['html', 'md', 'json'].map((format) => ({
+      uin: account.uin,
+      configId: account.configId,
+      reportId: 'old-report',
+      format,
+    })),
   );
-  expect(host.textContent).not.toContain('一切健康');
-  expect(host.textContent).not.toContain('迟到结果');
-  expect(button('开始体检').disabled).toBe(false);
 });
 
-it('没有 randomUUID 的浏览器也能生成任务标识并重新体检', async () => {
-  await act(async () => button('停止').click());
-  await act(async () => finishCheckup());
-  vi.stubGlobal('crypto', {});
-  await act(async () => button('开始体检').click());
-  expect(fixture.checkup).toHaveBeenLastCalledWith(
-    expect.objectContaining({ taskId: expect.stringMatching(/^db-checkup-/) }),
-  );
+it('跨数据源查看报告不切换正在维护的账号，返回当前结果后导出恢复原来源', async () => {
+  maintenanceQa.ready();
+  maintenanceQa.archive({ uin: 'other', configId: 'other-source' });
+  await mount(undefined, { uin: 'other', configId: 'other-source', reportId: 'old-report' });
+  await act(async () => button('JSON').click());
+  expect(maintenanceQa.calls.export[0]).toMatchObject({
+    uin: 'other',
+    configId: 'other-source',
+    reportId: 'old-report',
+  });
+  expect(maintenanceQa.snapshot()?.uin).toBe(account.uin);
+  expect(maintenanceQa.snapshot()?.locked).toBe(true);
+  await act(async () => button('返回历史报告').click());
+  await act(async () => button('查看结果').click());
+  await act(async () => button('JSON').click());
+  expect(maintenanceQa.calls.export[1]).toMatchObject({
+    uin: account.uin,
+    configId: account.configId,
+    reportId: maintenanceQa.snapshot()?.operation?.id,
+  });
+  expect(maintenanceQa.calls.scan).toHaveLength(0);
 });
 
-it('体检尚未结束且空间不足时，仍可选择缓存位置或恢复默认，不启动修复', async () => {
-  selectDatabase();
-  expect(button('开始修复').disabled).toBe(true);
-  expect(button('选择修复缓存位置').disabled).toBe(false);
-  expect(button('恢复默认修复缓存位置').disabled).toBe(false);
-  await act(async () => button('选择修复缓存位置').click());
-  expect(fixture.pick).toHaveBeenCalledOnce();
-  await act(async () => button('恢复默认修复缓存位置').click());
-  expect(fixture.reset).toHaveBeenCalledOnce();
-  expect(fixture.start).not.toHaveBeenCalled();
+it('放弃扫描结果必须明确确认，取消继续持锁，确认后仍能查看历史结果', async () => {
+  maintenanceQa.ready();
+  await mount();
+  await act(async () => button('结束维护').click());
+  await confirm(false);
+  expect(maintenanceQa.calls.end).toBe(0);
+  expect(maintenanceQa.snapshot()?.locked).toBe(true);
+  await act(async () => button('结束维护').click());
+  await confirm(true);
+  expect(maintenanceQa.calls.end).toBe(1);
+  await act(async () => iconButton('历史报告与恢复').click());
+  expect(button('查看结果')).toBeDefined();
+  await act(async () => button('查看结果').click());
+  expect(maintenanceQa.calls.scan).toHaveLength(0);
 });
 
-it('体检完成后空间不足仍只拦修复，不拦缓存位置', async () => {
-  await act(async () => finishCheckup());
-  selectDatabase();
-  expect(button('开始修复').disabled).toBe(true);
-  expect(button('选择修复缓存位置').disabled).toBe(false);
+it('建议余量确认不沿用到取消后重新打开的修复', async () => {
+  maintenanceQa.ready();
+  await mount();
+  const input = [...host.querySelectorAll('label')]
+    .find((label) => label.textContent?.includes('接受磁盘建议余量不足'))!
+    .querySelector('input')!;
+  await act(async () => input.click());
+  await act(async () => button('修复所选数据库').click());
+  await confirm(false);
+  expect(input.checked).toBe(false);
+  await act(async () => button('修复所选数据库').click());
+  await confirm(true);
+  expect(maintenanceQa.calls.repair[0]?.allowLowSpace).toBe(false);
 });
 
-it('真正开始修复后，缓存选择与恢复默认仍保持禁用', async () => {
-  fixture.freeBytes = 1000;
-  await act(async () => finishCheckup());
-  selectDatabase();
-  act(() => button('开始修复').click());
-  await act(async () => button('确认替换并修复').click());
-  expect(fixture.start).toHaveBeenCalledOnce();
-  expect(button('选择修复缓存位置').disabled).toBe(true);
-  expect(button('恢复默认修复缓存位置').disabled).toBe(true);
-});
-
-it('仅建议余量不足时可以打开确认，明确接受风险后才提交强制继续', async () => {
-  fixture.freeBytes = 110;
-  await act(async () => finishCheckup());
-  selectDatabase();
-  expect(button('开始修复').disabled).toBe(false);
-  act(() => button('开始修复').click());
-  expect(button('仍要继续并修复').disabled).toBe(true);
-  const consent = host.querySelector<HTMLInputElement>('input[aria-label="余量不足时仍继续"]');
-  expect(consent).not.toBeNull();
-  act(() => consent!.click());
-  expect(button('仍要继续并修复').disabled).toBe(false);
-  await act(async () => button('仍要继续并修复').click());
-  expect(fixture.start).toHaveBeenCalledWith(expect.objectContaining({ allowLowSpace: true }));
-});
-
-it('热更新遇到旧主进程预算时明确提示重启，不把旧建议值冒称峰值或锁住缓存位置', async () => {
-  fixture.freeBytes = 110;
-  fixture.detailedBudget = false;
-  await act(async () => finishCheckup());
-  selectDatabase();
-  expect(host.textContent).toContain('主进程仍返回旧版空间预检结果');
-  expect(host.textContent).toContain('旧版预检值');
-  expect(button('开始修复').disabled).toBe(true);
-  expect(button('选择修复缓存位置').disabled).toBe(false);
-  expect(fixture.start).not.toHaveBeenCalled();
-});
-
-it('余量风险确认不沿用到取消后重新打开的修复', async () => {
-  fixture.freeBytes = 110;
-  await act(async () => finishCheckup());
-  selectDatabase();
-  act(() => button('开始修复').click());
-  const consent = host.querySelector<HTMLInputElement>('input[aria-label="余量不足时仍继续"]')!;
-  act(() => consent.click());
-  expect(button('仍要继续并修复').disabled).toBe(false);
-  act(() => button('取消').click());
-  act(() => button('开始修复').click());
-  expect(
-    host.querySelector<HTMLInputElement>('input[aria-label="余量不足时仍继续"]')!.checked,
-  ).toBe(false);
-  expect(button('仍要继续并修复').disabled).toBe(true);
-  expect(fixture.start).not.toHaveBeenCalled();
-});
-
-it('只备份正在使用缓存时，目录控件仍保持禁用', async () => {
-  await act(async () => finishCheckup());
-  selectDatabase();
-  await act(async () => button('只备份').click());
-  expect(fixture.backup).toHaveBeenCalledOnce();
-  expect(button('选择修复缓存位置').disabled).toBe(true);
-  expect(button('恢复默认修复缓存位置').disabled).toBe(true);
-});
-
-it('跳过体检后可确认布局迁移，等当前只读检查结束才真正提交', async () => {
-  fixture.freeBytes = 1000;
-  fixture.needsMigration = true;
-  selectDatabase();
-  expect(button('布局迁移').disabled).toBe(false);
-  act(() => button('布局迁移').click());
-  expect(button('确认迁移并替换').disabled).toBe(false);
-  await act(async () => button('确认迁移并替换').click());
-  expect(host.textContent).toContain('等待当前只读体检结束');
-  expect(fixture.start).not.toHaveBeenCalled();
-  expect(button('选择修复缓存位置').disabled).toBe(true);
-  await act(async () => finishCheckup());
-  expect(fixture.start).toHaveBeenCalledWith(expect.objectContaining({ layoutMigration: true }));
-  expect(button('选择修复缓存位置').disabled).toBe(true);
+it('历史报告独立打开，删除需确认且不会结束维护或重扫', async () => {
+  maintenanceQa.ready();
+  await mount();
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  await act(async () => iconButton('历史报告与恢复').click());
+  expect(document.querySelector('[role="dialog"][aria-label="历史报告与恢复"]')).not.toBeNull();
+  await act(async () => iconButton('删除报告').click());
+  await confirm(false);
+  expect(maintenanceQa.calls.delete).toHaveLength(0);
+  await act(async () => iconButton('删除报告').click());
+  await confirm(true);
+  expect(maintenanceQa.calls.delete).toEqual([
+    {
+      uin: account.uin,
+      configId: account.configId,
+      reportId: maintenanceQa.snapshot()?.operation?.id,
+    },
+  ]);
+  expect(maintenanceQa.snapshot()?.locked).toBe(true);
+  expect(maintenanceQa.calls.scan).toHaveLength(0);
+  expect(maintenanceQa.calls.end).toBe(0);
 });

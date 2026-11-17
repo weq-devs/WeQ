@@ -1,14 +1,13 @@
+import { NumericText } from '../../components/NumericText';
 import { useState } from 'react';
 import { Download, X } from 'lucide-react';
 import { Modal } from '../../components/Dialog';
-import { useToast } from '../../components/Toast';
+import { useToast } from '../../components/Toast.shared';
+import { taskNotificationSource } from '../../lib/notificationNavigation.shared';
 import { client } from '../../trpc/client';
 import { ExportReportControl } from './ExportReportControl';
-import {
-  StructuredExportControls,
-  structuredExportOptions,
-  type StructuredExportOptions,
-} from './StructuredExportControls';
+import { StructuredExportControls, type StructuredExportOptions } from './StructuredExportControls';
+import { structuredExportOptions } from './StructuredExportControls.shared';
 
 export function CollectionExportDialog({
   cids,
@@ -32,7 +31,7 @@ export function CollectionExportDialog({
     setBusy(true);
     setError('');
     try {
-      await client.account.startCollectionExport.mutate({
+      const taskId = await client.account.startCollectionExport.mutate({
         ...structuredExportOptions(structured, [format]),
         name: cids ? `收藏_${cids.length}条` : '全部收藏',
         format,
@@ -42,6 +41,7 @@ export function CollectionExportDialog({
       toast({
         tone: 'success',
         title: '收藏导出任务已开始',
+        source: taskNotificationSource(taskId),
         detail: '可在导出中心查看进度并保存结果。',
       });
       onClose();
@@ -60,7 +60,7 @@ export function CollectionExportDialog({
             <X size={16} />
           </button>
         </header>
-        <p>{cids ? `已选 ${cids.length} 条收藏` : '全部收藏'}</p>
+        <p>{cids ? <NumericText>{`已选 ${cids.length} 条收藏`}</NumericText> : '全部收藏'}</p>
         <label>
           文件格式{' '}
           <SegmentedControl

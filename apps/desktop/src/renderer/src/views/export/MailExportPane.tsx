@@ -1,19 +1,18 @@
+import { NumericText } from '../../components/NumericText';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, Search, X } from 'lucide-react';
 import type { ExportOutputPlan, ExportSavePolicy } from '@weq/service';
 import type { MailSummary } from '@weq/service/mail';
 import type { ContentSelection } from '../../../../shared/content_selection';
 import { client, trpc } from '../../trpc/client';
-import { useToast } from '../../components/Toast';
+import { useToastApi } from '../../components/Toast.shared';
+import { taskNotificationSource } from '../../lib/notificationNavigation.shared';
 import { WindowedList } from '../../components/WindowedList';
 import { formatMailTime } from '../mail/content';
 import '../../styles/mail-export.css';
-import { useExportReportDialog } from './ExportReportControl';
-import {
-  StructuredExportControls,
-  structuredExportOptions,
-  type StructuredExportOptions,
-} from './StructuredExportControls';
+import { useExportReportDialog } from './ExportReportControl.shared';
+import { StructuredExportControls, type StructuredExportOptions } from './StructuredExportControls';
+import { structuredExportOptions } from './StructuredExportControls.shared';
 
 export function MailExportPane({
   initialSelection,
@@ -31,6 +30,7 @@ export function MailExportPane({
   onStarted: () => void;
   disabled?: boolean;
 }) {
+  const notificationToast = useToastApi();
   const account = trpc.account.getAccountConfig.useQuery();
   const [selectedIds] = useState(() =>
     initialSelection?.owner.kind === 'mail-messages' && initialSelection.scope.type === 'items'
@@ -131,9 +131,17 @@ export function MailExportPane({
         name: `邮件导出-${items.length}封`,
       });
       if (!savePolicy || !isCurrent()) return;
-      await client.mail.exportMessages.mutate({ ...target, savePolicy, includeIntegrityReport });
+      const taskId = await client.mail.exportMessages.mutate({
+        ...target,
+        savePolicy,
+        includeIntegrityReport,
+      });
       if (isCurrent()) {
-        useToast.getState().push({ tone: 'info', title: '邮件导出任务已创建' });
+        notificationToast.push({
+          tone: 'info',
+          title: '邮件导出任务已创建',
+          source: taskNotificationSource(taskId),
+        });
         onStarted();
       }
     } catch (reason) {
@@ -205,7 +213,13 @@ export function MailExportPane({
       <div className="weq-mail-export-preview">
         <header>
           <strong role="status">
-            {querying ? '正在查询邮件…' : items ? `待导出 ${items.length} 封邮件` : '待导出邮件'}
+            {querying ? (
+              '正在查询邮件…'
+            ) : items ? (
+              <NumericText>{`待导出 ${items.length} 封邮件`}</NumericText>
+            ) : (
+              '待导出邮件'
+            )}
           </strong>
           {querying ? (
             <button
@@ -242,7 +256,11 @@ export function MailExportPane({
                   <span data-privacy-sensitive title={`${item.sender.name} ${item.sender.email}`}>
                     {item.sender.name || item.sender.email}
                   </span>
-                  <time>{formatMailTime(item.time)}</time>
+                  <time>
+                    <span className="weq-number weq-number-inherit">
+                      {formatMailTime(item.time)}
+                    </span>
+                  </time>
                 </article>
               )}
             />

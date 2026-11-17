@@ -3,7 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { SequentialForwardDialog } from '../src/renderer/src/components/SequentialForwardDialog';
 import { startSequentialForward } from '../src/renderer/src/components/SequentialForwardTask';
-import { ToastHost, useToast } from '../src/renderer/src/components/Toast';
+import { ToastHost } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { DEFAULT_FORWARD_OPTIONS } from '../src/renderer/src/lib/sequentialForward';
 import { MergeForwardTargets } from '../src/renderer/src/components/mergeForward/MergeForwardTargets';
 import { createTemplateDemoData } from './support/templateDemoData';
@@ -95,6 +96,11 @@ it('多个目标并行发送且群内保序，一个目标失败不会阻塞其�
   }
   expect(events).toEqual(['qa-group:text', 'second:text', 'second:media', 'qa-group:media']);
   expect(useToast.getState().toasts.map((toast) => toast.tone)).toEqual(['success', 'warning']);
+  const failed = localBackgroundTasks.snapshot().find((entry) => entry.name === second.name)!;
+  expect(useToast.getState().toasts[1]!.source?.target).toEqual({
+    kind: 'task',
+    id: `background:window:${failed.id}`,
+  });
 });
 
 it('不可等价发送的整条消息在发送前确认并可预览，取消不会发出任何消息', async () => {
@@ -173,11 +179,13 @@ it('未选目标就显示时分秒预估，多个并行目标不增加预估，�
         }),
       ),
     );
-    expect(document.querySelector('.weq-forward-estimate')?.textContent).toContain('预计用时 0秒');
+    expect(document.querySelector('.weq-forward-estimate')?.textContent).toContain('预计用时 0 秒');
     act(() =>
       document.querySelectorAll<HTMLButtonElement>('[aria-label="间隔方式"] button')[2]!.click(),
     );
-    expect(document.querySelector('.weq-forward-estimate')?.textContent).toContain('1小时1分1秒');
+    expect(document.querySelector('.weq-forward-estimate')?.textContent).toContain(
+      '1 小时 1 分钟 1 秒',
+    );
     const labels = [...document.querySelectorAll('label')];
     expect(
       labels.find((label) => label.textContent?.includes('最大间隔'))?.querySelector('input')
@@ -192,7 +200,9 @@ it('未选目标就显示时分秒预估，多个并行目标不增加预估，�
         button.click();
       }),
     );
-    expect(document.querySelector('.weq-forward-estimate')?.textContent).toContain('1小时1分1秒');
+    expect(document.querySelector('.weq-forward-estimate')?.textContent).toContain(
+      '1 小时 1 分钟 1 秒',
+    );
   } finally {
     act(() => root.unmount());
     host.remove();
@@ -217,7 +227,7 @@ it('全部消息均需跳过时仍可预览，但不能创建发送队列', () =
         }),
       ),
     );
-    act(() => document.querySelector<HTMLButtonElement>('.weq-mf-target')!.click());
+    expect(document.querySelector('.weq-mf-target')).toBeNull();
     expect(
       document.querySelector<HTMLButtonElement>('.weq-sequential-forward footer button')?.disabled,
     ).toBe(true);
@@ -417,7 +427,7 @@ it('先展示预估，卸载配置窗仍转发，等待与完成时均可点击�
     expect(
       labels.find((label) => label.textContent?.includes('非文本'))?.querySelector('input')?.value,
     ).toBe('5');
-    expect(document.querySelector('.weq-forward-estimate')?.textContent).toContain('7秒');
+    expect(document.querySelector('.weq-forward-estimate')?.textContent).toContain('7 秒');
     act(() =>
       document.querySelector<HTMLButtonElement>('.weq-sequential-forward footer button')!.click(),
     );
@@ -425,7 +435,7 @@ it('先展示预估，卸载配置窗仍转发，等待与完成时均可点击�
     expect(document.querySelector('.weq-sequential-forward')).toBeNull();
     expect(document.querySelector('.weq-forward-banner')).not.toBeNull();
     expect(document.querySelector('.weq-forward-time')?.textContent).toContain(
-      '已进行 0秒 / 预计用时 7秒',
+      '已进行 0 秒 / 预计用时 7 秒',
     );
     expect(document.querySelector('.weq-forward-count')?.textContent).toContain('0 / 2 条');
     act(() => document.querySelector<HTMLButtonElement>('.weq-toast-open')!.click());
@@ -436,14 +446,14 @@ it('先展示预估，卸载配置窗仍转发，等待与完成时均可点击�
       await vi.advanceTimersByTimeAsync(2000);
     });
     expect(send).toHaveBeenCalledTimes(1);
-    expect(document.querySelector('.weq-forward-time')?.textContent).toContain('已进行 2秒');
+    expect(document.querySelector('.weq-forward-time')?.textContent).toContain('已进行 2 秒');
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5000);
     });
     expect(send).toHaveBeenCalledTimes(2);
     expect(send.mock.calls[0]?.[2].aborted).toBe(false);
     expect(document.querySelector('.weq-forward-banner')?.textContent).toContain('转发完成');
-    expect(document.querySelector('.weq-forward-time')?.textContent).toContain('已进行 7秒');
+    expect(document.querySelector('.weq-forward-time')?.textContent).toContain('已进行 7 秒');
     expect(document.querySelector('.weq-forward-count')?.textContent).toContain('2 / 2 条');
     expect(document.querySelector('.weq-toast button[aria-label="关闭"]')).not.toBeNull();
     expect(document.querySelector('.weq-toast')).not.toBeNull();

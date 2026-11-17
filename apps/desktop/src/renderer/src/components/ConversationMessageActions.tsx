@@ -1,8 +1,6 @@
 import {
   BarChart3,
   CirclePlus,
-  CloudDownload,
-  Download,
   ListRestart,
   ListX,
   Loader2,
@@ -20,11 +18,15 @@ import {
   conversationSourceLabel,
 } from '../lib/conversationActions';
 import { ConversationDirectoryContext } from '../lib/conversationDirectory';
-import { useRequestContentExport } from '../state/contentSelection';
-import { useTabActive } from './RetainedTabs';
+import { useRequestContentExport } from '../state/contentSelection.shared';
+import { useTabActive } from './RetainedTabs.shared';
 import { trpc } from '../trpc/client';
 import { ConversationActionsMenu } from './ConversationActionsMenu';
 import '../styles/conversation-actions.css';
+import { FEATURE_ICONS } from '../lib/featureIcons.shared';
+
+const ExportIcon = FEATURE_ICONS.export;
+const BackfillIcon = FEATURE_ICONS.backfill;
 
 export function ConversationMessageActions({
   conversation,
@@ -99,7 +101,7 @@ export function ConversationMessageActions({
       ? [
           {
             label: '导出',
-            icon: <Download size={16} />,
+            icon: <ExportIcon size={16} />,
             action: () => requestExport?.(exportSelection),
             disabled: !requestExport,
           },
@@ -124,7 +126,7 @@ export function ConversationMessageActions({
       ? [
           {
             label: '拉取漫游消息',
-            icon: <CloudDownload size={16} />,
+            icon: <BackfillIcon size={16} />,
             action: () => onRoaming?.(conversation),
             disabled: generated,
             reason: unsupported,

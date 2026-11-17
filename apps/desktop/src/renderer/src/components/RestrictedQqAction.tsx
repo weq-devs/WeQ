@@ -1,8 +1,7 @@
-import { useEffect, useId, useRef, useState } from 'react';
-import { KeyRound, LoaderCircle, Play, RefreshCw, Settings, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { KeyRound, LoaderCircle, Play, RefreshCw, Settings } from 'lucide-react';
 import { client, trpc } from '../trpc/client';
-import { Modal } from './Dialog';
-import { QqDebugCopy } from './QqDebugCopy';
+import { QqDebugCopyDialog } from './QqDebugCopyDialog';
 import type { QqDebugCopyPhase } from '../../../shared/qq_debug_copy';
 import '../styles/qq-debug-copy.css';
 
@@ -17,7 +16,7 @@ const PHASE_LABELS: Record<QqDebugCopyPhase, string> = {
   removing: '正在移除 QQ 副本',
 };
 
-/** 受限详情只呈现下一步；副本管理复用设置中的完整面板。 */
+/** 受限详情只呈现下一步；副本设置与账号设置共用独立浮窗。 */
 export function RestrictedQqAction({
   needsQq,
   busy,
@@ -43,7 +42,6 @@ export function RestrictedQqAction({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const mounted = useRef(true);
   const locked = useRef(false);
-  const titleId = useId();
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -61,9 +59,9 @@ export function RestrictedQqAction({
   const label = working
     ? needsQq
       ? PHASE_LABELS[data?.phase && data.phase !== 'idle' ? data.phase : (pending ?? 'checking')]
-      : '正在启用完整功能'
+      : '正在启用 QQ 在线能力'
     : !needsQq
-      ? '启用完整功能'
+      ? '启用 QQ 在线能力'
       : data?.state === 'missing'
         ? '准备并打开 QQ'
         : data?.state === 'invalid'
@@ -115,7 +113,7 @@ export function RestrictedQqAction({
       <div className="weq-restricted-actions">
         <button
           type="button"
-          className="weq-set-btn weq-restricted-qq-primary"
+          className="weq-set-btn weq-set-btn-primary weq-restricted-qq-primary"
           disabled={working || blocked}
           aria-busy={working}
           onClick={() => void run()}
@@ -174,34 +172,7 @@ export function RestrictedQqAction({
           </div>
         </details>
       </div>
-      {settingsOpen && (
-        <Modal
-          open
-          centered
-          labelledBy={titleId}
-          className="weq-qq-debug-modal"
-          onClose={() => setSettingsOpen(false)}
-          width={520}
-        >
-          <div className="weq-dialog-head">
-            <h3 id={titleId} className="weq-dialog-title">
-              QQ 调试副本
-            </h3>
-            <button
-              type="button"
-              className="weq-dialog-x"
-              title="关闭"
-              aria-label="关闭副本设置"
-              onClick={() => setSettingsOpen(false)}
-            >
-              <X size={16} />
-            </button>
-          </div>
-          <div className="weq-dialog-body">
-            <QqDebugCopy />
-          </div>
-        </Modal>
-      )}
+      {settingsOpen && <QqDebugCopyDialog onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }

@@ -8,6 +8,7 @@
  * weq-media://mface?...&enc=tea（密钥后端自动恢复），不过 tRPC。
  */
 
+import { NumericText } from '../../components/NumericText';
 import { EmptyState } from '../../components/EmptyState';
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { MarketFaceDetail } from '../../components/MarketFaceLightbox';
@@ -15,8 +16,9 @@ import { ArrowLeft, Store, X, RefreshCw, Loader2, Download, SearchX, Sticker } f
 import type { MarketPackFeeType, ExportSavePolicy } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { useMultiSelection, type MultiSelectionItemProps } from '../../hooks/useMultiSelection';
-import { useContentMultiSelect } from '../../state/contentSelection';
+import { useContentMultiSelect } from '../../state/contentSelection.shared';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
+import { useDevelopmentDressTools } from '../../hooks/useDevelopmentDressTools';
 import { DirectoryToolbar } from '../../components/DirectoryToolbar';
 import { WorkspacePage } from '../../components/WorkspacePages';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
@@ -27,7 +29,7 @@ import '../../styles/market-browser.css';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { useAppDialog } from '../../lib/dialogUtils';
-import { useExportReportDialog } from './ExportReportControl';
+import { useExportReportDialog } from './ExportReportControl.shared';
 import { GridSkeleton } from './ExportSkeleton';
 
 const PAGE = 60;
@@ -119,7 +121,11 @@ function PackDetailPane({
           {detail.data?.name || name || `表情包 ${packId}`}
         </span>
         <em className={`weq-emb-fee is-${fee.tone}`}>{fee.label}</em>
-        {detail.data ? <span className="weq-mface-lb-count">{detail.data.count} 张</span> : null}
+        {detail.data ? (
+          <span className="weq-mface-lb-count">
+            <span className="weq-number weq-number-inherit">{detail.data.count}</span> 张
+          </span>
+        ) : null}
         <button
           type="button"
           className="weq-emb-download"
@@ -261,28 +267,43 @@ function PackCard({
         <span className="weq-emb-pack-mark">{entry.mark || ' '}</span>
       </span>
       <span className="weq-market-pack-foot">
-        <span>{detail.data ? `${detail.data.count} 张` : '表情包'}</span>
+        <span>
+          {detail.data ? <NumericText>{`${detail.data.count} 张`}</NumericText> : '表情包'}
+        </span>
         <span>{selected ? '已选中' : '查看表情'}</span>
       </span>
     </button>
   );
 }
 
-export function MarketEmojiBrowserLightbox({
+interface MarketEmojiBrowserProps {
+  onClose?: () => void;
+  initialPackId?: string;
+  initialPackName?: string;
+  embedded?: boolean;
+  searchQuery?: string;
+}
+
+export function MarketEmojiBrowserLightbox(props: MarketEmojiBrowserProps): ReactElement {
+  const enabled = useDevelopmentDressTools();
+  if (enabled) return <DevelopmentMarketEmojiBrowser {...props} />;
+  const empty = <EmptyState icon={<Store />} title="商城表情浏览不可用" />;
+  return props.embedded ? (
+    empty
+  ) : (
+    <WorkspacePage title="商城表情" onClose={props.onClose} standalone>
+      {empty}
+    </WorkspacePage>
+  );
+}
+
+function DevelopmentMarketEmojiBrowser({
   onClose,
   initialPackId,
   initialPackName,
   embedded = false,
   searchQuery,
-}: {
-  onClose?: () => void;
-  initialPackId?: string;
-  initialPackName?: string;
-  /** 嵌在「个性装扮 → 表情」页签里：不套 WorkspacePage、不渲染标题与关闭按钮。 */
-  embedded?: boolean;
-  /** 个性装扮顶部搜索框提交的关键词；独立页面仍使用目录工具栏搜索。 */
-  searchQuery?: string;
-}): ReactElement {
+}: MarketEmojiBrowserProps): ReactElement {
   const utils = trpc.useUtils();
   const dialog = useAppDialog();
   const report = useExportReportDialog();
@@ -507,9 +528,11 @@ export function MarketEmojiBrowserLightbox({
             </button>
           ) : null}
           <span className="weq-market-total" role="status">
-            {loading && entries.length === 0
-              ? '搜索中…'
-              : `共 ${total.toLocaleString('en-US')} 套${query || feeSel.size || latest ? ' · 已过滤' : ''}`}
+            {loading && entries.length === 0 ? (
+              '搜索中…'
+            ) : (
+              <NumericText>{`共 ${total.toLocaleString('en-US')} 套${query || feeSel.size || latest ? ' · 已过滤' : ''}`}</NumericText>
+            )}
           </span>
         </div>
       ) : (
@@ -530,9 +553,11 @@ export function MarketEmojiBrowserLightbox({
             <h2 id="weq-market-title">商城表情</h2>
             {total > 0 ? (
               <span className="weq-market-total">
-                {loading && entries.length === 0
-                  ? '搜索中…'
-                  : `共 ${total.toLocaleString('en-US')} 套${query || feeSel.size || latest ? ' · 已过滤' : ''}`}
+                {loading && entries.length === 0 ? (
+                  '搜索中…'
+                ) : (
+                  <NumericText>{`共 ${total.toLocaleString('en-US')} 套${query || feeSel.size || latest ? ' · 已过滤' : ''}`}</NumericText>
+                )}
               </span>
             ) : null}
           </div>
@@ -606,7 +631,9 @@ export function MarketEmojiBrowserLightbox({
           {selection.selectionMode ? (
             <div className="weq-market-selection-actions">
               <span>
-                {selection.selectedIds.size} / {MARKET_DOWNLOAD_MAX_PACKS} 套
+                <span className="weq-number weq-number-inherit">{selection.selectedIds.size}</span>{' '}
+                / <span className="weq-number weq-number-inherit">{MARKET_DOWNLOAD_MAX_PACKS}</span>{' '}
+                套
               </span>
               <div className="weq-save-action-group">
                 <button
@@ -667,7 +694,10 @@ export function MarketEmojiBrowserLightbox({
                     {loading ? <Loader2 size={14} className="weq-emb-spin" /> : '加载更多…'}
                   </div>
                 ) : (
-                  <div className="weq-emb-sentinel">已全部加载（{entries.length}）</div>
+                  <div className="weq-emb-sentinel">
+                    已全部加载（
+                    <span className="weq-number weq-number-inherit">{entries.length}</span>）
+                  </div>
                 )}
               </>
             )}

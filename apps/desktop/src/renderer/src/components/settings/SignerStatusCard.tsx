@@ -2,7 +2,7 @@ import * as timeFormat from '@weq/time';
 /**
  * 设置 → 诊断工具 → 「签名器」卡片。
  *
- * 完整模式发包要借 QQ `wrapper.node` 里的 VM / sign core 算 `SecSign`。两个入口
+ * QQ 在线能力发包要借 QQ `wrapper.node` 里的 VM / sign core 算 `SecSign`。两个入口
  * 的 RVA 随 QQ 版本变化，扫一次要 2.5–3 秒（140–200 MB 的模块），所以 WeQ 在
  * 启动期就把结果按「版本 + 文件 hash」缓存下来，命中时只 dlopen + 校验。
  *

@@ -74,6 +74,49 @@ function fixture(kind: 'official' | 'service') {
 }
 
 it.each(['official', 'service'] as const)(
+  '%s 暂停后重启复用已完成格式，消息日志保留含零 seq 的原消息',
+  async (kind) => {
+    const f = fixture(kind);
+    const cache = join(f.root, 'cache');
+    const manager = new ExportTaskManager(f.source, cache);
+    let paused = false;
+    manager.on('progress', (event) => {
+      if (!paused && manager.getTask(event.taskId)?.formatCheckpoints?.json) {
+        paused = true;
+        manager.pauseTask(event.taskId);
+      }
+    });
+    const id = await manager.startTask({
+      kind,
+      conv: f.conv,
+      name: '续作订阅',
+      format: 'json',
+      formats: ['json', 'txt'],
+      total: 3,
+      savePolicy: { mode: 'before', directory: f.root },
+    });
+    await vi.waitFor(() =>
+      expect(manager.listTasks()[0]).toMatchObject({
+        status: 'paused',
+        canResume: true,
+        resumeMode: 'checkpoint',
+      }),
+    );
+    const json = manager.getTask(id)!.formatCheckpoints!.json!.result.filePath;
+    f.rows.splice(0);
+    const restored = new ExportTaskManager(f.source, cache);
+    expect(restored.resumeTask(id)).toBe(true);
+    await (restored as unknown as { queue: Promise<void> }).queue;
+    expect(restored.getTask(id)?.status, restored.getTask(id)?.error).toBe('completed');
+    expect(
+      restored.listTasks()[0]?.logs.some((line) => line.text.includes('复用已校验的 JSON')),
+    ).toBe(true);
+    expect(readFileSync(join(dirname(json), '续作订阅.txt'), 'utf8')).toContain('合成普通文本消息');
+    expect(restored.getTask(id)?.formatCounts).toEqual({ json: 3, txt: 3 });
+  },
+);
+
+it.each(['official', 'service'] as const)(
   '%s 完整任务各格式使用真实消息源、保留来源元数据且不拉普通漫游',
   async (kind) => {
     const f = fixture(kind);
@@ -169,6 +212,7 @@ it.each(['official', 'service'] as const)(
       updatedAt: 1,
     };
     const legacy = manager as unknown as {
+      abortControllers: Map<string, AbortController>;
       exportMessagesOne(
         task: ExportTask,
         format: 'csv' | 'xlsx',
@@ -178,6 +222,7 @@ it.each(['official', 'service'] as const)(
         progress: () => void,
       ): Promise<ExportResult>;
     };
+    legacy.abortControllers.set(task.id, new AbortController());
     for (const format of ['csv', 'xlsx'] as const) {
       const path = join(f.root, `legacy.${format}`);
       const result = await legacy.exportMessagesOne(task, format, path, undefined, false, () => {});

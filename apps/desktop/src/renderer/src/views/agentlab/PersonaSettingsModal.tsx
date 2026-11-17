@@ -13,7 +13,8 @@ import { CloneUpdateButton } from './CloneUpdateButton';
 import '../../styles/persona-settings.css';
 import type { AgentLabModelSelection } from '@weq/agentlab';
 import { ApiModelSelect } from '../../components/settings/ApiModelSelect';
-import { TabActivity, useTabActive } from '../../components/RetainedTabs';
+import { TabActivity } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import { DraftCloseContext, useDraftClose, useDraftProtection } from '../../lib/draftClose';
 import {
   Download,
@@ -52,7 +53,7 @@ import { openExternalLink } from '../../lib/openExternalLink';
 import { isRemoteClient } from '../../lib/remoteClient';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
-import { useExportReportDialog } from '../export/ExportReportControl';
+import { useExportReportDialog } from '../export/ExportReportControl.shared';
 
 /** ④ 记忆 / 画像：克隆体「对你」记住的事（来自聊天蒸馏），可单条遗忘 / 全部清空。 */
 function MemoryTab({ personaId }: { personaId: string }): ReactElement {
@@ -70,6 +71,7 @@ function MemoryTab({ personaId }: { personaId: string }): ReactElement {
 
   async function onClear(): Promise<void> {
     const ok = await dialog.confirm('清空记忆', '确认清空这个克隆体对你的全部记忆？', {
+      danger: 'solid',
       okLabel: '清空',
       cancelLabel: '返回',
       tone: 'warning',
@@ -111,6 +113,7 @@ function MemoryTab({ personaId }: { personaId: string }): ReactElement {
       {list.length > 0 && (
         <div className="weq-clone-actions">
           <button
+            data-danger="solid"
             className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
             onClick={() => void onClear()}
           >
@@ -171,7 +174,7 @@ function WillingTab({
       </p>
       <label className="weq-agentlab-field">
         <span>
-          总体发言意愿：{level} · {levelHint}
+          总体发言意愿：<span className="weq-number weq-number-inherit">{level}</span> · {levelHint}
         </span>
         <input
           type="range"
@@ -203,7 +206,7 @@ function WillingTab({
       {typoOn ? (
         <label className="weq-agentlab-field">
           <span>
-            手滑频率：{typoPct}% · {typoHint}
+            手滑频率：<span className="weq-number weq-number-inherit">{typoPct}</span>% · {typoHint}
           </span>
           <input
             type="range"
@@ -422,7 +425,9 @@ function ExportRuntimeCard({ personaId }: { personaId: string }): ReactElement |
       <div className="weq-bot-runtime-head">
         <Globe size={14} />
         <span>运行配置 · 已导出</span>
-        <span className="weq-bot-runtime-port">端口 {data.port}</span>
+        <span className="weq-bot-runtime-port">
+          端口 <span className="weq-number weq-number-inherit">{data.port}</span>
+        </span>
       </div>
       <div className="weq-bot-keyrow">
         <KeyRound size={13} />
@@ -453,7 +458,7 @@ function ExportRuntimeCard({ personaId }: { personaId: string }): ReactElement |
             placeholder="http://127.0.0.1:8090"
           />
           <button
-            className="weq-set-btn weq-set-btn-sm"
+            className="weq-set-btn weq-set-btn-primary weq-set-btn-sm"
             disabled={openMut.isLoading}
             onClick={() => void openConsole(urlInput)}
           >
@@ -728,7 +733,7 @@ export function ExportTab({
 
       <div className="weq-clone-actions">
         <button
-          className="weq-set-btn"
+          className="weq-set-btn weq-set-btn-primary"
           disabled={pending || !save.binding || save.settings.isLoading}
           onClick={() => void doExport()}
         >
@@ -880,6 +885,7 @@ function PersonaSettingsBody({
                         </p>
                         {onDelete ? (
                           <button
+                            data-danger="solid"
                             type="button"
                             className="weq-set-btn weq-set-btn-soft"
                             disabled={deleting}
@@ -903,7 +909,7 @@ function PersonaSettingsBody({
                 <span role="alert">{form.error}</span>
                 <button
                   type="button"
-                  className="weq-set-btn"
+                  className="weq-set-btn weq-set-btn-primary"
                   disabled={!form.valid || form.saving || deleting}
                   onClick={() => void form.flush()}
                 >

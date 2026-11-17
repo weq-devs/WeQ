@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client';
-import { GlobalSettingsSection } from '../../src/renderer/src/components/settings/GlobalSettingsSection';
+import { WindowAppearanceCard } from '../../src/renderer/src/components/settings/WindowAppearanceCard';
 import { TitleBar } from '../../src/renderer/src/im-template/template/TitleBar';
 import { TitleBarSearch } from '../../src/renderer/src/components/TitleBarSearch';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
@@ -36,7 +36,7 @@ createRoot(document.getElementById('root')!).render(
         background: 'var(--weq-chat-bg)',
       }}
     >
-      <GlobalSettingsSection />
+      <WindowAppearanceCard />
     </main>
   ),
 );

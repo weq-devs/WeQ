@@ -10,7 +10,8 @@
 import { useId, type ReactNode } from 'react';
 import { CopyButton } from '../CopyButton';
 import { EmptyState } from '../EmptyState';
-import { ContactFieldHistoryButton, useContactFieldHistoryAvailable } from './ContactFieldHistory';
+import { ContactFieldHistoryButton } from './ContactFieldHistory';
+import { useContactFieldHistoryAvailable } from './ContactFieldHistory.shared';
 import '../../styles/profile-workspace.css';
 
 function isBlank(value: ReactNode): boolean {
@@ -27,6 +28,7 @@ export function ContactRow({
   children,
   empty,
   mono,
+  number,
   onActivate,
   activateTitle,
   valueClassName,
@@ -44,6 +46,8 @@ export function ContactRow({
   empty?: boolean;
   /** 等宽展示（编号、UUID 一类），仍然可选中复制。 */
   mono?: boolean;
+  /** 身份编号沿用专用数字字体，标签仍使用正文字体。 */
+  number?: boolean;
   /** 点值进入编辑/详情；拖动选择文本时不触发。 */
   onActivate?: (anchor: HTMLButtonElement) => void;
   activateTitle?: string;
@@ -70,7 +74,10 @@ export function ContactRow({
         {label}
         <ContactFieldHistoryButton label={label} field={historyField} />
       </span>
-      <div className={`weq-profile-data-value${mono ? ' is-mono' : ''}`} data-privacy-sensitive>
+      <div
+        className={`weq-profile-data-value${mono ? ' is-mono' : ''}${number ? ' weq-number' : ''}`}
+        data-privacy-sensitive
+      >
         {onActivate ? (
           <button
             type="button"

@@ -4,7 +4,7 @@ import {
   ConversationSettingsNavigationContext,
   type ConversationSettingsRequest,
 } from '../lib/conversationSettingsNavigation';
-import { ConversationSettingsDialog } from './ConversationSettingsDialog';
+import { ConversationSettingsDialog } from './lazyMainPanels';
 import '../styles/conversation-settings-button.css';
 
 export function ConversationSettingsButton({

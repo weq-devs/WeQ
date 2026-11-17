@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { EnhancementUpdateNotice } from '../../../shared/enhancement_release';
 import { client } from '../trpc/client';
-import { useDialog } from '../components/Dialog';
+import { useDialog } from '../components/Dialog.shared';
 import { requestOpenSettings } from '../lib/callSettingsBridge';
 
 function updateMessage(notices: EnhancementUpdateNotice[]) {

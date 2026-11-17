@@ -1027,7 +1027,9 @@ export function VoicePanel({
                   <>
                     {/* 录音中秒数是主角：大号数字占中间，松手提示只留一行小字垫在下面。 */}
                     <strong className={cn('voice-record-timer')}>
-                      {formatClipDuration(recorder.elapsedMs)}
+                      <span className="weq-number weq-number-inherit">
+                        {formatClipDuration(recorder.elapsedMs)}
+                      </span>
                     </strong>
                     <em className={cn('voice-record-note')}>松开结束</em>
                   </>
@@ -1135,7 +1137,11 @@ function VoiceReview({
           {playing ? <Pause size={18} /> : <Play size={18} />}
         </button>
         <VoiceReviewWave levels={clip.levels} />
-        <span className={cn('voice-review-time')}>{formatClipDuration(clip.durationMs)}</span>
+        <span className={cn('voice-review-time')}>
+          <span className="weq-number weq-number-inherit">
+            {formatClipDuration(clip.durationMs)}
+          </span>
+        </span>
         <span className={cn('voice-review-tag')}>
           {clip.source === 'tts' ? '合成语音' : '录音'}
         </span>
@@ -1192,7 +1198,12 @@ function VoiceReview({
       ) : null}
 
       <div className={cn('voice-review-actions')}>
-        <button type="button" className={cn('voice-btn ghost')} onClick={onDiscard}>
+        <button
+          data-danger="outline"
+          type="button"
+          className={cn('voice-btn ghost')}
+          onClick={onDiscard}
+        >
           <Trash2 size={14} /> 删除
         </button>
         {trimmed ? (
@@ -1426,7 +1437,8 @@ export function TtsComposer({
           </select>
         </label>
         <span className={cn('voice-tts-count')}>
-          {text.length}/{MAX_TTS_CHARS}
+          <span className="weq-number weq-number-inherit">{text.length}</span>/
+          <span className="weq-number weq-number-inherit">{MAX_TTS_CHARS}</span>
         </span>
       </div>
       <div className={cn('voice-tts-row')}>

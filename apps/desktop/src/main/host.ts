@@ -4,7 +4,7 @@
  * before any router runs.
  */
 
-import { app, dialog, shell, nativeImage, net, Notification } from 'electron';
+import { app, dialog, shell, nativeImage, Notification } from 'electron';
 import { makeSolidPng } from '@weq/protocol';
 import { applicationBadgeBitmap } from '../shared/message_notifications';
 import { getMainWindow } from './main_window';
@@ -17,6 +17,7 @@ import { DialogLocations } from './dialog_locations';
 import { AppAutostart } from './autostart';
 import { manualRestartArgs } from './startup_window';
 import { prepareDevelopmentRestart } from './development_restart';
+import { networkFetch } from '@weq/network';
 
 let startup: AppAutostart | null = null;
 const messageNotifications = new Set<Notification>();
@@ -191,7 +192,7 @@ export const electronHost: HostBridge = {
     } else app.relaunch({ args: manualRestartArgs(process.argv) });
     setTimeout(() => app.quit(), 200);
   },
-  fetchMedia: (url, opts) => net.fetch(url, { signal: opts?.signal }),
+  fetchMedia: (url, opts) => networkFetch(url, opts),
   async validateImageBuffer(bytes) {
     return !nativeImage.createFromBuffer(Buffer.from(bytes)).isEmpty();
   },

@@ -10,82 +10,55 @@
  * 底部，任务完成后也可展开查看。
  */
 
+import { NumericText } from '../../components/NumericText';
 import { useEffect, useState, type ReactElement } from 'react';
+import { TaskProgressBar } from '../../components/tasks/TaskProgressBar';
 import {
   Ban,
   Check,
-  Bookmark,
   ChevronDown,
   ChevronUp,
   CircleAlert,
   CircleCheck,
   Clock,
-  Contact,
   Download,
-  Globe,
   Loader2,
   Pause,
   Play,
-  RotateCw,
+  FilePlus2,
+  RefreshCw,
   FileCheck,
   ExternalLink,
   FolderOpen,
-  Sticker,
   Trash2,
-  Users,
-  UserRound,
-  X,
+  Square,
   SkipForward,
 } from 'lucide-react';
 import { fmtCount } from './types';
 import { TaskLogConsole as LogConsole } from '../../components/TaskLogConsole';
 import '../../styles/chat-export-continuation.css';
-
-export type StageStatus = 'pending' | 'running' | 'completed' | 'skipped' | 'failed';
-
-/** One failed media file, surfaced from a stage's `failures`. */
-export interface UiFailure {
-  stage: string;
-  fileName: string;
-  error: string;
-}
-
-export interface UiStage {
-  key: string;
-  label: string;
-  status: StageStatus;
-  current: number;
-  total: number;
-  failed?: number;
-  note?: string;
-  failures?: UiFailure[];
-}
-
-/** 一行任务日志（后端 ExportTaskManager 环形缓冲下发）。 */
-export interface UiLogLine {
-  ts: number;
-  seq: number;
-  stage: string;
-  level: 'info' | 'warn' | 'error';
-  text: string;
-}
+import {
+  DatabaseRecoveryPanel,
+  type RecoveryDecision,
+} from '../../components/tasks/DatabaseRecoveryPanel';
+import {
+  SKIPPABLE_STAGE_KEYS,
+  type UiStage,
+  type UiFailure,
+  type UiTask,
+  type UiLogLine,
+  taskPct,
+  taskTypeLabel,
+  taskIcon,
+  taskSaveActionLabel,
+  isResourceDownload,
+  taskResumeActionLabel,
+  taskCanPause,
+  taskCancelActionLabel,
+} from './TaskList.shared';
 
 /** The CDN-completion stages (download missing → bundle). */
 const COMPLETION_KEYS = new Set(['image', 'video', 'file', 'ptt']);
-export const SKIPPABLE_STAGE_KEYS = [
-  'backfill',
-  'dress',
-  'avatar',
-  'media',
-  'image',
-  'video',
-  'file',
-  'ptt',
-  'transcribe',
-  'ocrfilter',
-  'ocr',
-  'sysface',
-] as const;
 export type SkippableStage = (typeof SKIPPABLE_STAGE_KEYS)[number];
 
 /** Aggregate completion (image/video/file) success / fail across a task's stages. */
@@ -107,56 +80,6 @@ function completionSummary(stages: UiStage[] | undefined): {
   return { ok, failed, failures };
 }
 
-export interface UiTask {
-  networkPaused?: boolean;
-  resource?: import('@weq/service').ExportTask['resource'];
-  save?: import('@weq/service').ExportSaveState;
-  canResume?: boolean;
-  journalPath?: string;
-  canIncremental?: boolean;
-  canFinalize?: boolean;
-  resourceOnly?: boolean;
-  partialReady?: boolean;
-  isFinalizing?: boolean;
-  mergeWarnings?: import('@weq/service').ExportTask['mergeWarnings'];
-  resumeMode?: 'checkpoint' | 'restart';
-  reportPath?: string;
-  id: string;
-  kind: 'group' | 'c2c';
-  name: string;
-  format: string;
-  /** 多格式导出（同一任务多文件；缺省 = [format]）。 */
-  formats?: string[];
-  status: 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
-  progress: number;
-  current: number;
-  total: number;
-  error?: string;
-  filePath?: string;
-  /** Set when the output is an avatar bundle folder (saved as a folder). */
-  bundleDir?: string;
-  /** Number of sender avatars exported into the bundle. */
-  avatarCount?: number;
-  /** Per-stage progress (backfill → dress → message → media → record → image …). */
-  stages?: UiStage[];
-  /** 每子任务的滚动日志（后端下发）。 */
-  logs?: UiLogLine[];
-  /** 商城表情批量下载任务：隐藏格式标签、计数单位用「张」而非「条」。 */
-  isMarketPack?: boolean;
-  /** 导出表情包任务：隐藏格式标签、计数单位用「张」。 */
-  isEmojiPack?: boolean;
-  /** QQ 空间导出（图标 / 类型标签用）。 */
-  isQzone?: boolean;
-  /** 联系人导出。 */
-  isContacts?: boolean;
-  /** 收藏导出。 */
-  isCollection?: boolean;
-  /** 频道私聊导出（guild_msg.db；无漫游消息）。 */
-  isGuild?: boolean;
-  isGenerated?: boolean;
-  generatedResources?: { total: number; copied: number; missing: number };
-}
-
 const STATUS_LABEL: Record<UiTask['status'], string> = {
   pending: '排队中',
   running: '导出中',
@@ -171,50 +94,6 @@ function stagePct(s: UiStage): number {
   if (s.status === 'completed' || s.status === 'skipped') return 100;
   if (s.status === 'pending' || s.total <= 0) return 0;
   return Math.min(100, Math.max(0, Math.floor((s.current / s.total) * 100)));
-}
-
-/** 卡片波浪总进度（完成 100；排队 0）。 */
-export function taskPct(t: UiTask): number {
-  if (t.status === 'completed') return 100;
-  if (t.status === 'pending') return 0;
-  return Math.min(100, Math.max(0, Math.round(t.progress)));
-}
-
-/** 任务类型标签（卡片 title / 详情 meta）。 */
-export function taskTypeLabel(t: UiTask): string {
-  if (t.resourceOnly) return '资源导出';
-  if (t.resource?.kind === 'database') return '数据库明文导出';
-  if (t.resource?.kind === 'assistant-artifact') return '助手报告保存';
-  if (t.resource?.kind === 'market-image') return '商城单张表情保存';
-  if (t.resource?.kind === 'mail-attachment') return '邮件附件保存';
-  if (t.resource?.kind === 'mail-messages') return '邮件导出';
-  if (t.resource?.kind === 'decoration') return '装扮资源保存';
-  if (t.resource?.kind === 'qzone-albums') return '空间相册导出';
-  if (t.resource?.kind === 'favorite-emoji') return '收藏表情导出';
-  if (t.resource?.kind === 'annual-report') return '年度报告导出';
-  if (t.resource?.kind === 'analytics-report') return '分析长图导出';
-  if (t.resource?.kind === 'persona-bot') return '克隆体机器人导出';
-  if (t.resource?.kind === 'media') return '媒体文件保存';
-  if (t.resource) return t.resource.kind === 'group-albums' ? '群相册导出' : '群文件导出';
-  if (t.isMarketPack) return '商城表情下载';
-  if (t.isEmojiPack) return '导出表情包';
-  if (t.isQzone) return 'QQ 空间导出';
-  if (t.isContacts) return '联系人导出';
-  if (t.isCollection) return '收藏导出';
-  if (t.isGuild) return '消息导出 · 频道私聊';
-  if (t.isGenerated) return '本地生成对话导出';
-  return t.kind === 'group' ? '消息导出 · 群聊' : '消息导出 · 私聊';
-}
-
-/** 任务类型图标（消息 / 联系人 / QQ 空间 / 收藏 / 商城表情）。 */
-export function taskIcon(t: UiTask): ReactElement {
-  if (t.resource) return <FolderOpen size={15} />;
-  if (t.isMarketPack) return <Sticker size={15} />;
-  if (t.isEmojiPack) return <Sticker size={15} />;
-  if (t.isQzone) return <Globe size={15} />;
-  if (t.isContacts) return <Contact size={15} />;
-  if (t.isCollection) return <Bookmark size={15} />;
-  return t.kind === 'group' ? <Users size={15} /> : <UserRound size={15} />;
 }
 
 /** 详情 meta 用的格式标签：`HTML + JSON`。 */
@@ -308,17 +187,23 @@ export function StageRow({
             title="点击查看失败详情"
             onClick={() => onShowFailures(failures)}
           >
-            失败 {fmtCount(failures.length)}
+            失败 <span className="weq-number weq-number-inherit">{fmtCount(failures.length)}</span>
           </button>
         ) : null}
-        <span className="weq-exp-detail-stage-bar">
-          <span
-            className={`weq-exp-detail-stage-fill${stage.status === 'running' && !paused ? ' is-active' : ''}`}
-            style={{ width: `${pct}%` }}
-          />
-        </span>
+        <TaskProgressBar
+          className="weq-exp-detail-stage-bar"
+          value={stage.status === 'running' && !stage.total ? undefined : pct}
+          label={`${stage.label}进度`}
+          status={paused && stage.status === 'running' ? 'paused' : stage.status}
+        />
         <span className="weq-exp-detail-stage-pct">
-          {stage.status === 'pending' ? '–' : `${pct}%`}
+          {stage.status === 'pending' ? (
+            '–'
+          ) : stage.status === 'running' && !stage.total ? (
+            '处理中'
+          ) : (
+            <NumericText>{`${pct}%`}</NumericText>
+          )}
         </span>
         <span className="weq-exp-detail-stage-actions">
           {onSkip ? (
@@ -401,24 +286,6 @@ function TaskCard({
   );
 }
 
-/** 自动保存中的任务不重复提供手动入口，旧版未保存结果仍可取回。 */
-export function taskSaveActionLabel(task: UiTask): string | null {
-  if (task.status === 'completed') {
-    if (task.save?.status === 'failed' || task.save?.status === 'interrupted') return '重试保存';
-    if (
-      !task.save ||
-      (task.save.status === 'pending' &&
-        !task.save.policy?.directory &&
-        !task.save.policy?.filePath)
-    )
-      return '保存结果';
-    return null;
-  }
-  return task.status === 'paused' && task.partialReady && task.canResume && task.filePath
-    ? '保存现有进度'
-    : null;
-}
-
 /** 选中任务的详情：子任务进度条 + 每子任务日志 + 任务级日志。 */
 function TaskDetail({
   task: t,
@@ -434,6 +301,7 @@ function TaskDetail({
   onBrowserDownload,
   onDelete,
   onShowFailures,
+  onDatabaseRecovery,
 }: {
   task: UiTask;
   onPause: (t: UiTask) => void;
@@ -448,6 +316,11 @@ function TaskDetail({
   onBrowserDownload?: (t: UiTask) => void;
   onDelete: (t: UiTask) => void;
   onShowFailures: (t: UiTask, failures: UiFailure[]) => void;
+  onDatabaseRecovery?: (
+    t: UiTask,
+    decision: RecoveryDecision,
+    skipRemaining: boolean,
+  ) => Promise<void>;
 }): ReactElement {
   const overall = t.status === 'completed' ? 100 : Math.min(100, Math.max(0, t.progress));
   const completion = completionSummary(t.stages);
@@ -490,10 +363,12 @@ function TaskDetail({
           <strong>{t.name}</strong>
           <span className="weq-exp-detail-meta">
             {taskTypeLabel(t)}
-            {t.isMarketPack || t.isEmojiPack || t.resource ? null : ` · ${fmtFormats(t)}`}
+            {t.isMarketPack || t.isEmojiPack || t.resource ? null : (
+              <NumericText>{` · ${fmtFormats(t)}`}</NumericText>
+            )}
             {' · '}
-            {fmtCount(t.current)}
-            {t.total > 0 ? ` / ${fmtCount(t.total)}` : ''}{' '}
+            <span className="weq-number weq-number-inherit">{fmtCount(t.current)}</span>
+            {t.total > 0 ? <NumericText>{` / ${fmtCount(t.total)}`}</NumericText> : ''}{' '}
             {t.resource
               ? '个文件'
               : t.isMarketPack || t.isEmojiPack
@@ -501,7 +376,11 @@ function TaskDetail({
                 : t.isContacts
                   ? '位'
                   : '条'}
-            {t.avatarCount ? ` · 含头像 ${fmtCount(t.avatarCount)}` : ''}
+            {t.avatarCount ? (
+              <NumericText>{` · 含头像 ${fmtCount(t.avatarCount)}`}</NumericText>
+            ) : (
+              ''
+            )}
           </span>
         </div>
         <span
@@ -512,21 +391,27 @@ function TaskDetail({
           ) : (
             <StatusIcon status={t.status} />
           )}
-          {t.networkPaused
-            ? '省流量模式已暂停'
-            : t.isFinalizing
-              ? '收尾中'
-              : t.status === 'paused' && t.partialReady
-                ? '已收尾'
-                : t.status === 'paused' && !t.canResume
-                  ? pauseDraining
-                    ? '暂停收尾中'
-                    : '暂停中'
-                  : t.status === 'completed' && resourceMissing
-                    ? '已完成 · 资源缺失'
-                    : STATUS_LABEL[t.status]}
+          {t.databaseRecovery
+            ? '等待处理'
+            : t.networkPaused
+              ? '省流量模式已暂停'
+              : t.isFinalizing
+                ? '收尾中'
+                : t.status === 'paused' && t.partialReady
+                  ? '已收尾'
+                  : t.status === 'paused' && !t.canResume
+                    ? pauseDraining
+                      ? '暂停收尾中'
+                      : '暂停中'
+                    : t.status === 'completed' && t.databaseRecoveryRecords?.length
+                      ? '部分完成'
+                      : t.status === 'completed' && resourceMissing
+                        ? '已完成 · 资源缺失'
+                        : STATUS_LABEL[t.status]}
         </span>
-        <strong className="weq-exp-detail-overall">{overall}%</strong>
+        <strong className="weq-exp-detail-overall">
+          <span className="weq-number weq-number-inherit">{overall}</span>%
+        </strong>
         <div className="weq-exp-detail-actions">
           {t.status === 'paused' && (t.canFinalize || t.journalPath) && onFinalize ? (
             <button
@@ -551,29 +436,27 @@ function TaskDetail({
               disabled={t.save?.status === 'saving'}
               onClick={() => onIncremental(t)}
             >
-              <RotateCw size={15} />
+              <FilePlus2 size={15} aria-hidden />
             </button>
           ) : null}
           {t.canResume && onResume ? (
             <button
               type="button"
               title={
-                t.status === 'completed'
-                  ? '补传已跳过项目'
-                  : t.resumeMode === 'restart'
-                    ? '按原范围重新执行'
-                    : '继续导出'
+                t.resumeMode === 'restart' && t.status !== 'completed'
+                  ? isResourceDownload(t)
+                    ? '按原选择重新下载文件'
+                    : '按原范围重新执行'
+                  : taskResumeActionLabel(t)
               }
-              aria-label={
-                t.status === 'completed'
-                  ? '补传已跳过项目'
-                  : t.resumeMode === 'restart'
-                    ? '重新执行导出'
-                    : '继续导出'
-              }
+              aria-label={taskResumeActionLabel(t)}
               onClick={() => onResume(t)}
             >
-              {t.resumeMode === 'restart' ? <RotateCw size={15} /> : <Play size={15} />}
+              {t.resumeMode === 'restart' ? (
+                <RefreshCw size={15} aria-hidden />
+              ) : (
+                <Play size={15} />
+              )}
             </button>
           ) : null}
           {t.reportPath && onReport ? (
@@ -586,8 +469,14 @@ function TaskDetail({
               <FileCheck size={15} />
             </button>
           ) : null}
-          {t.status === 'running' ? (
-            <button type="button" title="暂停" onClick={() => onPause(t)}>
+          {t.status === 'running' && taskCanPause(t) ? (
+            <button
+              type="button"
+              title="暂停"
+              aria-label="暂停"
+              disabled={t.isFinalizing}
+              onClick={() => onPause(t)}
+            >
               <Pause size={15} />
             </button>
           ) : null}
@@ -632,18 +521,22 @@ function TaskDetail({
               <Download size={15} />
             </button>
           ) : null}
-          {t.status === 'paused' || t.status === 'failed' ? (
+          {t.status === 'paused' ||
+          t.status === 'failed' ||
+          (!taskCanPause(t) && ['pending', 'running'].includes(t.status)) ? (
             <button
               type="button"
-              title="取消"
+              title={taskCancelActionLabel(t)}
+              aria-label={taskCancelActionLabel(t)}
               disabled={t.isFinalizing}
               onClick={() => onCancel(t)}
             >
-              <X size={15} />
+              <Square size={15} />
             </button>
           ) : null}
           {t.status !== 'running' ? (
             <button
+              data-danger="outline"
               type="button"
               title="删除导出缓存"
               disabled={t.save?.status === 'saving' || t.isFinalizing}
@@ -655,6 +548,24 @@ function TaskDetail({
           ) : null}
         </div>
       </header>
+      <TaskProgressBar
+        value={overall}
+        label={`${t.name}总进度`}
+        status={t.networkPaused ? 'paused' : t.status}
+      />
+      {t.databaseRecovery && onDatabaseRecovery && (
+        <DatabaseRecoveryPanel
+          key={t.databaseRecovery.id}
+          request={t.databaseRecovery}
+          name={t.name}
+          onDecision={(decision, skipRemaining) => onDatabaseRecovery(t, decision, skipRemaining)}
+        />
+      )}
+      {t.databaseRecoveryRecords?.length ? (
+        <p className="weq-exp-detail-complete is-warn" role="status">
+          本次导出已跳过无法读取的内容，结果不完整；未读范围见任务日志与完整性报告。
+        </p>
+      ) : null}
       {t.status === 'completed' ? (
         <p className="weq-export-save-status" role="status">
           {t.save?.status === 'saved'
@@ -674,18 +585,29 @@ function TaskDetail({
           className={`weq-exp-detail-complete${resourceMissing ? ' is-warn' : ''}`}
           role={resourceMissing ? 'alert' : 'status'}
         >
-          生成资源已保存 {fmtCount(t.generatedResources.copied)} 项
-          {resourceMissing
-            ? ` · 缺失 ${fmtCount(t.generatedResources.missing)} 项，正文已保留`
-            : ''}
+          生成资源已保存{' '}
+          <span className="weq-number weq-number-inherit">
+            {fmtCount(t.generatedResources.copied)}
+          </span>{' '}
+          项
+          {resourceMissing ? (
+            <NumericText>{` · 缺失 ${fmtCount(t.generatedResources.missing)} 项，正文已保留`}</NumericText>
+          ) : (
+            ''
+          )}
         </p>
       ) : null}
 
       {t.mergeWarnings &&
       (t.mergeWarnings.conflictingMessages > 0 || t.mergeWarnings.sequenceGapCount > 0) ? (
         <p className="weq-exp-detail-complete is-warn" role="status">
-          保留原消息，未覆盖内容不同的 {t.mergeWarnings.conflictingMessages} 条记录；发现{' '}
-          {t.mergeWarnings.sequenceGapCount} 段可疑序号缺口
+          保留原消息，未覆盖内容不同的{' '}
+          <span className="weq-number weq-number-inherit">
+            {t.mergeWarnings.conflictingMessages}
+          </span>{' '}
+          条记录；发现{' '}
+          <span className="weq-number weq-number-inherit">{t.mergeWarnings.sequenceGapCount}</span>{' '}
+          段可疑序号缺口
           {t.reportPath ? '，详见完整性报告。' : '。'}
         </p>
       ) : null}
@@ -705,15 +627,22 @@ function TaskDetail({
             title="点击查看失败详情"
             onClick={() => onShowFailures(t, completion.failures)}
           >
-            媒体补全 成功 {fmtCount(completion.ok)} · 失败 {fmtCount(completion.failed)}
+            媒体补全 成功{' '}
+            <span className="weq-number weq-number-inherit">{fmtCount(completion.ok)}</span> · 失败{' '}
+            <span className="weq-number weq-number-inherit">{fmtCount(completion.failed)}</span>
           </button>
         ) : (
           <span
             className={`weq-exp-detail-complete${completion.failed > 0 ? ' is-warn' : ''}`}
             title="媒体补全结果"
           >
-            媒体补全 成功 {fmtCount(completion.ok)}
-            {completion.failed > 0 ? ` · 失败 ${fmtCount(completion.failed)}` : ''}
+            媒体补全 成功{' '}
+            <span className="weq-number weq-number-inherit">{fmtCount(completion.ok)}</span>
+            {completion.failed > 0 ? (
+              <NumericText>{` · 失败 ${fmtCount(completion.failed)}`}</NumericText>
+            ) : (
+              ''
+            )}
           </span>
         )
       ) : null}
@@ -769,6 +698,7 @@ export function TaskList({
   onSkipStage,
   onReport,
   onCancel,
+  onDatabaseRecovery,
   onDownload,
   onOpenSaved,
   onBrowserDownload,
@@ -787,6 +717,11 @@ export function TaskList({
   onSkipStage?: (t: UiTask, stage: SkippableStage) => void;
   onReport?: (t: UiTask) => void;
   onCancel: (t: UiTask) => void;
+  onDatabaseRecovery?: (
+    t: UiTask,
+    decision: RecoveryDecision,
+    skipRemaining: boolean,
+  ) => Promise<void>;
   onDownload: (t: UiTask) => void;
   onOpenSaved?: (t: UiTask, reveal: boolean) => void;
   onBrowserDownload?: (t: UiTask) => void;
@@ -837,6 +772,7 @@ export function TaskList({
   if (detailOnly) {
     return selected ? (
       <TaskDetail
+        onDatabaseRecovery={onDatabaseRecovery}
         key={selected.id}
         task={selected}
         onPause={onPause}
@@ -866,12 +802,14 @@ export function TaskList({
         aria-expanded={hasTasks ? isExpanded : undefined}
       >
         <span className="weq-exp-tasks-title">导出任务</span>
-        <span className="weq-exp-tasks-count">{tasks.length}</span>
+        <span className="weq-exp-tasks-count">
+          <span className="weq-number weq-number-inherit">{tasks.length}</span>
+        </span>
         {/* 收拢时显示迷你进度指示 */}
         {!isExpanded && hasTasks && runningCount > 0 ? (
           <span className="weq-exp-tasks-mini-status">
             <Loader2 size={12} className="weq-exp-spin" />
-            {runningCount} 个导出中…
+            <span className="weq-number weq-number-inherit">{runningCount}</span> 个导出中…
           </span>
         ) : !isExpanded && hasTasks && completedCount === tasks.length ? (
           <span className="weq-exp-tasks-mini-status is-done">
@@ -879,7 +817,9 @@ export function TaskList({
             {hasMissingResources ? '已完成 · 部分资源缺失' : '全部完成'}
           </span>
         ) : !isExpanded && hasTasks ? (
-          <span className="weq-exp-tasks-mini-status">{overallProgress}%</span>
+          <span className="weq-exp-tasks-mini-status">
+            <span className="weq-number weq-number-inherit">{overallProgress}</span>%
+          </span>
         ) : null}
         {hasTasks && onToggleExpanded ? (
           <button
@@ -926,6 +866,7 @@ export function TaskList({
           </div>
           {selected ? (
             <TaskDetail
+              onDatabaseRecovery={onDatabaseRecovery}
               task={selected}
               onPause={onPause}
               onResume={onResume}
@@ -946,3 +887,4 @@ export function TaskList({
     </section>
   );
 }
+export type { UiTask, UiStage, UiLogLine, StageStatus, UiFailure } from './TaskList.shared';

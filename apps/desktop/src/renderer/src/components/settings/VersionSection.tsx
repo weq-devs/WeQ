@@ -13,7 +13,7 @@ import * as timeFormat from '@weq/time';
  */
 
 import { useState, type ReactElement } from 'react';
-import { Boxes, Info, Package, RefreshCw } from 'lucide-react';
+import { Boxes, Info, RefreshCw } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { Card, SectionHeader } from './controls';
@@ -59,11 +59,7 @@ export function VersionSection(): ReactElement {
 
   return (
     <div className="weq-set">
-      <SectionHeader
-        icon={<Package size={16} strokeWidth={1.8} />}
-        title="版本与更新"
-        desc="WeQ 版本、内置组件时间与软件更新。"
-      />
+      <SectionHeader page="version" title="版本与更新" desc="WeQ 版本、内置组件时间与软件更新。" />
 
       {/* WeQ versions */}
       <Card>

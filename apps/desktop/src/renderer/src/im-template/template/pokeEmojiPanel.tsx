@@ -24,30 +24,9 @@ import type { RefObject } from 'react';
 import { Hand, SendHorizontal, Sparkles, X } from 'lucide-react';
 import { FaceEmoji } from '../../components/FaceEmoji';
 import { emojiUrl, resourceUrl } from '../../lib/resourceUrl';
-import {
-  clampPokeCombo,
-  POKE_COMBO_MAX,
-  POKE_FACE_IDS,
-  POKE_FACE_SUBTYPE,
-} from '../../lib/pokeFace';
+import { POKE_COMBO_MAX, POKE_FACE_IDS, POKE_FACE_SUBTYPE } from '../../lib/pokeFace';
 import { cn } from './classNames';
-import { elementToToken } from './draftElements';
-
-export type PokeEmojiDraft = {
-  /** 表情编号（0..6）。 */
-  pokeId: number;
-  /** 连击次数（0..3）。 */
-  combo: number;
-};
-
-/** 草稿 → 元素 token（chatPane 的 extraTokens 直接吃）。 */
-export function pokeEmojiToken(draft: PokeEmojiDraft): string {
-  return elementToToken({
-    kind: 'pokeEmoji',
-    pokeId: Number(draft.pokeId) || 0,
-    combo: clampPokeCombo(draft.combo),
-  });
-}
+import type { PokeEmojiDraft, RandomFaceDraft } from './pokeEmojiPanel.shared';
 
 /**
  * 一个「可指定结果」的随机/互动表情（骰子 / 包剪锤 / 篮球 / 活动表情）。
@@ -65,38 +44,6 @@ export type RandomFaceOption = {
   /** 可选的结果编号（innerId），如 `['1'..'6']`。 */
   innerIds: string[];
 };
-
-/** 选中的「随机表情 + 结果」草稿。 */
-export type RandomFaceDraft = {
-  faceId: number;
-  desc: string;
-  packId: string;
-  stickerId: string;
-  stickerType: number;
-  /** 结果编号（innerId）—— 写进 QFaceExtra.resultId。 */
-  innerId: string;
-};
-
-/**
- * 草稿 → 元素 token（chatPane 的 extraTokens 直接吃）。
- *
- * 与 pokeEmoji 不同，这枚走的是**普通系统表情**的 svc37 通路：把选中的结果写进
- * `superSticker.resultId`，收端就会渲染 `lottie/<faceId>_<innerId>.json`。
- */
-export function randomFaceToken(draft: RandomFaceDraft): string {
-  return elementToToken({
-    kind: 'face',
-    faceId: Number(draft.faceId) || 0,
-    faceText: draft.desc,
-    superSticker: {
-      packId: draft.packId,
-      stickerId: draft.stickerId,
-      ...(draft.stickerType ? { stickerType: draft.stickerType } : {}),
-      text: draft.desc,
-      resultId: draft.innerId,
-    },
-  });
-}
 
 /** 连击档位（0..3）——四枚按钮。 */
 const COMBO_STEPS = Array.from({ length: POKE_COMBO_MAX + 1 }, (_, index) => index);
@@ -347,3 +294,4 @@ export function PokeEmojiPanel({
     </div>
   );
 }
+export type { PokeEmojiDraft, RandomFaceDraft } from './pokeEmojiPanel.shared';

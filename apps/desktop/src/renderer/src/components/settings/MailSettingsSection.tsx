@@ -1,10 +1,10 @@
 import { formatDateTime } from '@weq/time';
 import { TimeLabel } from '../TimeLabel';
 import { useState } from 'react';
-import { BellRing, Mail } from 'lucide-react';
+import { BellRing } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { Card, Row, SectionHeader, Toggle } from './controls';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import {
   DEFAULT_MAIL_POLL_INTERVAL_MINUTES,
   MAX_MAIL_POLL_INTERVAL_MINUTES,
@@ -62,7 +62,7 @@ export function MailSettingsSection() {
 
   return (
     <div className="weq-set">
-      <SectionHeader icon={<Mail size={16} strokeWidth={1.8} />} title="QQ 邮箱" badge="自动保存" />
+      <SectionHeader page="mail" title="QQ 邮箱" badge="自动保存" />
       <Card title="邮箱同步与提醒" icon={<BellRing size={15} strokeWidth={1.8} />} resetId="mail">
         <AutoSave
           value={minutes.trim() ? interval : ''}
@@ -78,7 +78,6 @@ export function MailSettingsSection() {
         >
           <Row
             settingId="mail-poll-interval"
-            label="邮件查询间隔"
             desc={
               <>
                 默认 1 分钟，可设 1–{MAX_MAIL_POLL_INTERVAL_MINUTES}{' '}

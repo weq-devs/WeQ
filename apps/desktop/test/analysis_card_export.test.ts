@@ -2,7 +2,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { BuddyAnalyticsDialog } from '../src/renderer/src/components/BuddyAnalyticsDialog';
-import { formatDate } from '../src/renderer/src/components/analyticsCharts';
+import { formatDate } from '../src/renderer/src/components/analyticsCharts.shared';
 import { GroupJoinBatches } from '../src/renderer/src/components/GroupJoinBatches';
 import { useViewState } from '../src/renderer/src/state/view';
 

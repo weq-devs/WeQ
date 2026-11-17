@@ -225,7 +225,9 @@ function FriendIntimacyList({ onOpenMember }: { onOpenMember?: OpenMember }) {
         />
       </div>
       <footer className="weq-rank-foot">
-        <span>已加载 {items.length} 位好友</span>
+        <span>
+          已加载 <span className="weq-number weq-number-inherit">{items.length}</span> 位好友
+        </span>
         <span>亲密度排行</span>
       </footer>
     </>
@@ -290,7 +292,9 @@ function GroupActivityList() {
       </div>
       {!loading ? (
         <footer className="weq-rank-foot">
-          <span>共 {allItems.length} 群有活跃数据</span>
+          <span>
+            共 <span className="weq-number weq-number-inherit">{allItems.length}</span> 群有活跃数据
+          </span>
           {hasMore ? <span>下滑加载更多</span> : <span>已全部显示</span>}
         </footer>
       ) : null}
@@ -336,7 +340,9 @@ function MemberLevelList({
         <span className="weq-rank-groupname" title={group.name}>
           {group.name || groupCode}
         </span>
-        <span className="weq-rank-groupcount">{group.memberCount} 人</span>
+        <span className="weq-rank-groupcount">
+          <span className="weq-number weq-number-inherit">{group.memberCount}</span> 人
+        </span>
       </div>
       <div className="weq-rank-list" onScroll={onScroll}>
         {members.map((m, i) => (
@@ -361,7 +367,9 @@ function MemberLevelList({
         />
       </div>
       <footer className="weq-rank-foot">
-        <span>已加载 {members.length} 人</span>
+        <span>
+          已加载 <span className="weq-number weq-number-inherit">{members.length}</span> 人
+        </span>
         <span>等级排行</span>
       </footer>
     </>
@@ -412,7 +420,9 @@ function CommonGroupList({ nodes, onOpenMember }: { nodes: any[]; onOpenMember?:
         )}
       </div>
       <footer className="weq-rank-foot">
-        <span>共 {ranked.length} 人</span>
+        <span>
+          共 <span className="weq-number weq-number-inherit">{ranked.length}</span> 人
+        </span>
         {hasMore ? <span>下滑加载更多</span> : <span>已全部显示</span>}
       </footer>
     </>
@@ -471,7 +481,9 @@ function GroupChooser({ groups, onPick }: { groups: any[]; onPick: (g: any) => v
                 </span>
                 <span className="weq-rank-meta">
                   <strong title={g.name}>{g.name || g.code}</strong>
-                  <small>{g.memberCount} 人</small>
+                  <small>
+                    <span className="weq-number weq-number-inherit">{g.memberCount}</span> 人
+                  </small>
                 </span>
                 <ChevronLeft size={15} className="weq-rank-grouprow-go" />
               </button>
@@ -481,7 +493,9 @@ function GroupChooser({ groups, onPick }: { groups: any[]; onPick: (g: any) => v
       </div>
       <footer className="weq-rank-foot">
         <span>选择一个群聊查看等级排行</span>
-        <span>共 {groups.length} 群</span>
+        <span>
+          共 <span className="weq-number weq-number-inherit">{groups.length}</span> 群
+        </span>
       </footer>
     </>
   );
@@ -531,7 +545,9 @@ function RankRow({
   const top = rank <= 3 ? ` is-top is-top${rank}` : '';
   const body = (
     <>
-      <span className={`weq-rank-num${top}`}>{rank}</span>
+      <span className={`weq-rank-num${top}`}>
+        <span className="weq-number weq-number-inherit">{rank}</span>
+      </span>
       <span className="weq-rank-avatar">
         {avatar ? (
           <img src={avatar} alt="" referrerPolicy="no-referrer" />

@@ -33,6 +33,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   };
 });
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true }));
 vi.mock('../src/renderer/src/views/ExternalSiteView', () => ({
   ExternalSiteView: () => h('div', { 'data-channel-site': true }, '频道网站'),
 }));

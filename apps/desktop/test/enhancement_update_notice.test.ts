@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { EnhancementUpdateNotice } from '../src/shared/enhancement_release';
 import { useEnhancementUpdates } from '../src/renderer/src/hooks/useEnhancementUpdates';
-import { useDialog } from '../src/renderer/src/components/Dialog';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import { onOpenSettingsRequest } from '../src/renderer/src/lib/callSettingsBridge';
 
 const fixture = vi.hoisted(() => ({

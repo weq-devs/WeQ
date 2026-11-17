@@ -59,6 +59,7 @@ it('协议适配保留缓存验证和范围头，不透传认证凭据', () => {
         'if-modified-since': 'Wed, 11 Nov 2026 01:00:00 GMT',
         'if-none-match': '"fixture"',
         range: 'bytes=0-10',
+        'if-range': '"range-fixture"',
         authorization: 'secret',
       },
     } as IncomingMessage,
@@ -68,6 +69,7 @@ it('协议适配保留缓存验证和范围头，不透传认证凭据', () => {
   expect(request.headers.get('if-modified-since')).toBe('Wed, 11 Nov 2026 01:00:00 GMT');
   expect(request.headers.get('if-none-match')).toBe('"fixture"');
   expect(request.headers.get('range')).toBe('bytes=0-10');
+  expect(request.headers.get('if-range')).toBe('"range-fixture"');
   expect(request.headers.has('authorization')).toBe(false);
 });
 

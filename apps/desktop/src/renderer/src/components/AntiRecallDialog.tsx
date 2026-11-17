@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import * as timeFormat from '@weq/time';
 /**
  * 防撤回：设置来源展示页内摘要，选择与记录按需打开工具。
@@ -28,8 +29,8 @@ import {
   X,
 } from 'lucide-react';
 import { trpc } from '../trpc/client';
-import { useDialog } from './Dialog';
-import { useToast } from './Toast';
+import { useDialog } from './Dialog.shared';
+import { useToast } from './Toast.shared';
 import { LoadingIndicator } from './LoadingIndicator';
 import { Card, Row, QueryError, SettingsScopeBadge, Toggle } from './settings/controls';
 import { ConversationPicker } from '../views/export/ConversationPicker';
@@ -41,7 +42,7 @@ import { OverlayLayer } from './OverlayLayer';
 import { cn } from '../im-template/template/classNames';
 import { ToolSurface } from './ToolSurface';
 import { PageShell } from './PageShell';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import { useAppLock } from '../state/lock';
 import { useViewState } from '../state/view';
 import { acceptSettingsReply } from '../lib/clientPreferences';
@@ -477,7 +478,8 @@ export function AntiRecallDialog({
               <span className="weq-ar-record-meta">
                 <strong title={name}>{name}</strong>
                 <small>
-                  {fmtCount(row.count)} 条 · {formatWhen(row.lastTs) || (isGroup ? '群聊' : '私聊')}
+                  <span className="weq-number weq-number-inherit">{fmtCount(row.count)}</span> 条 ·{' '}
+                  {formatWhen(row.lastTs) || (isGroup ? '群聊' : '私聊')}
                 </small>
               </span>
               <ChevronRight size={16} />
@@ -579,15 +581,17 @@ export function AntiRecallDialog({
             }
             control={
               <span>
-                {!hasAccount
-                  ? '未打开账号'
-                  : isStaticPcOnly
-                    ? '离线快照'
-                    : !status.data
-                      ? '尚未读取'
-                      : installedCount
-                        ? `已安装（${installedCount} 张触发器）`
-                        : '未安装'}
+                {!hasAccount ? (
+                  '未打开账号'
+                ) : isStaticPcOnly ? (
+                  '离线快照'
+                ) : !status.data ? (
+                  '尚未读取'
+                ) : installedCount ? (
+                  <NumericText>{`已安装（${installedCount} 张触发器）`}</NumericText>
+                ) : (
+                  '未安装'
+                )}
               </span>
             }
           />
@@ -692,7 +696,7 @@ export function AntiRecallDialog({
                   actions={
                     editor !== 'records' ? (
                       <button
-                        className="weq-set-btn"
+                        className="weq-set-btn weq-set-btn-primary"
                         type="button"
                         disabled={busy || conversations.isLoading || !!conversations.error}
                         onClick={() => void (choosingProtection ? onSaveTargets() : onSaveNotify())}
@@ -843,7 +847,11 @@ export function AntiRecallDialog({
                       className={cn('weq-set-mcp-dot', installedCount > 0 && 'is-on')}
                       aria-hidden
                     />
-                    {installedCount > 0 ? `已安装（${installedCount} 张触发器）` : '未安装'}
+                    {installedCount > 0 ? (
+                      <NumericText>{`已安装（${installedCount} 张触发器）`}</NumericText>
+                    ) : (
+                      '未安装'
+                    )}
                   </span>
                 }
                 desc={
@@ -862,7 +870,7 @@ export function AntiRecallDialog({
                 action={
                   <button
                     type="button"
-                    className="weq-set-btn weq-set-btn-sm"
+                    className="weq-set-btn weq-set-btn-primary weq-set-btn-sm"
                     disabled={busy || status.isLoading || !status.data}
                     onClick={() => void onSaveTargets()}
                   >

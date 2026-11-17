@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * 打开导出 bot 的 WebUI 控制台窗口（本机 http 页面）。
  *
@@ -15,7 +16,7 @@ export async function probeBotWebUi(url: string): Promise<boolean> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 3000);
   try {
-    const res = await fetch(url, { method: 'GET', signal: controller.signal });
+    const res = await networkFetch(url, { method: 'GET', signal: controller.signal });
     return res.ok || res.status === 401; // 200 页面 或 401（服务在跑，只是缺鉴权）都算可达
   } catch {
     return false;

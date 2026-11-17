@@ -1,3 +1,4 @@
+import { NumericText } from '../components/NumericText';
 import { EmptyState } from '../components/EmptyState';
 import { eventTimeFormatter } from '@weq/time';
 import { useEffect, useRef, useState } from 'react';
@@ -15,14 +16,14 @@ import {
 } from 'lucide-react';
 import type { ExportViewerMessage, ExportViewerPart } from '@weq/service';
 import { client, trpc } from '../trpc/client';
-import { useTabActive } from '../components/RetainedTabs';
-import { openMediaPreview } from '../components/mediaPreviewStore';
+import { useTabActive } from '../components/RetainedTabs.shared';
+import { openMediaPreview } from '../components/mediaPreviewStore.shared';
 import { mediaUrl } from '../lib/resourceUrl';
-import { useDialog } from '../components/Dialog';
+import { useDialog } from '../components/Dialog.shared';
 import { FolderScanStatus } from '../components/FolderScanStatus';
 import '../styles/export-viewer.css';
 import type { ViewerScanEvent } from '../../../main/ipc/routers/export_viewer';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import { useRemoteClient } from '../lib/remoteClient';
 import { chooseBrowserFile, stageAccountFile } from '../lib/accountFilePicker';
 
@@ -44,7 +45,10 @@ function Part({
     return (
       <details className="weq-ev-forward">
         <summary>
-          合并转发{part.messages?.length ? ` · ${part.messages.length} 条` : ' · 未展开'}
+          合并转发
+          <NumericText>
+            {part.messages?.length ? ` · ${part.messages.length} 条` : ' · 未展开'}
+          </NumericText>
         </summary>
         {part.messages?.map((message) => (
           <Message key={message.key} message={message} id={id} onError={onError} />
@@ -126,7 +130,9 @@ function Message({
     <article className="weq-ev-message">
       <header>
         <strong>{message.sender}</strong>
-        <time>{time(message.sendTime)}</time>
+        <time>
+          {<span className="weq-number weq-number-inherit">{time(message.sendTime)}</span>}
+        </time>
         {onJump && /^\d+$/.test(message.msgId) ? (
           <button
             type="button"
@@ -470,14 +476,39 @@ export function ExportViewer({
                     : '会话未识别'}
                 </span>
                 <span>
-                  {item.messageCount === null ? '条数待统计' : `约 ${item.messageCount} 条`} ·{' '}
-                  {item.format.toUpperCase()} · {(item.bytes / 1048576).toFixed(1)} MiB
+                  {item.messageCount === null ? (
+                    '条数待统计'
+                  ) : (
+                    <NumericText>{`约 ${item.messageCount} 条`}</NumericText>
+                  )}{' '}
+                  · {item.format.toUpperCase()} ·{' '}
+                  <span className="weq-number weq-number-inherit">
+                    {(item.bytes / 1048576).toFixed(1)}
+                  </span>{' '}
+                  MiB
                 </span>
-                <span>{time(item.updatedAt / 1000)}</span>
+                <span>
+                  {
+                    <span className="weq-number weq-number-inherit">
+                      {time(item.updatedAt / 1000)}
+                    </span>
+                  }
+                </span>
                 {item.range ? (
                   <span>
-                    {item.range.start ? time(item.range.start) : '不限起点'} 至{' '}
-                    {item.range.end ? time(item.range.end) : '不限终点'}
+                    {item.range.start ? (
+                      <span className="weq-number weq-number-inherit">
+                        {time(item.range.start)}
+                      </span>
+                    ) : (
+                      '不限起点'
+                    )}{' '}
+                    至{' '}
+                    {item.range.end ? (
+                      <span className="weq-number weq-number-inherit">{time(item.range.end)}</span>
+                    ) : (
+                      '不限终点'
+                    )}
                   </span>
                 ) : null}
               </button>
@@ -567,9 +598,11 @@ export function ExportViewer({
                 <ArrowLeft size={16} />
               </button>
               <span>
-                {page.data?.total
-                  ? `${offset + 1}–${Math.min(offset + 100, page.data.total)} / ${page.data.total}`
-                  : '0 条'}
+                {page.data?.total ? (
+                  <NumericText>{`${offset + 1}–${Math.min(offset + 100, page.data.total)} / ${page.data.total}`}</NumericText>
+                ) : (
+                  '0 条'
+                )}
               </span>
               <button
                 type="button"

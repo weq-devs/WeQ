@@ -32,6 +32,7 @@
     "@weq/codec": "workspace:*",
     "@weq/db": "workspace:*",
     "@weq/native": "workspace:*",
+    "@weq/network": "workspace:*",
     "@weq/platform": "workspace:*",
     "@weq/protocol": "workspace:*",
     "@weq/service": "workspace:*",

@@ -187,7 +187,9 @@ export function ConversationBatchExportPane({
             disabled={busy}
           />
           <footer className="weq-conversation-batch-foot">
-            <span>{pending.length} 个待导出会话</span>
+            <span>
+              {<span className="weq-number weq-number-inherit">{pending.length}</span>} 个待导出会话
+            </span>
             <button
               type="button"
               className="weq-exp-primary"

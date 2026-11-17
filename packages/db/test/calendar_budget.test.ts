@@ -25,8 +25,38 @@ function fixture() {
     db: new QqDb(native, { dbPath: join(tmpdir(), `synthetic-calendar-budget-${counter++}.db`) }),
   };
 }
-it('日历短预算不改变普通查询，前台活动后等待空闲再提交', async () => {
+it('数据库已经空闲时短预算读取只让出事件循环，不再每条固定睡眠 20ms', async () => {
+  const { db, budgeted } = fixture();
+  const pending = withDatabasePriority('background', () =>
+    withDatabaseReadBudget(10, async () => {
+      await db.query('SELECT 1');
+      await db.query('SELECT 2');
+    }),
+  );
+  await vi.advanceTimersByTimeAsync(10);
+  expect(budgeted).toHaveBeenCalledTimes(2);
+  await vi.runAllTimersAsync();
+  await pending;
+});
+it('日历直接进入后台队列，已排队前台读取优先，不再逐批等待空闲窗口', async () => {
   const { db, ordinary, budgeted } = fixture();
+  let release!: () => void;
+  const order: string[] = [];
+  ordinary.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => resolve([[2n]]);
+      }),
+  );
+  ordinary.mockImplementationOnce(async () => {
+    order.push('foreground');
+    return [[2n]];
+  });
+  budgeted.mockImplementationOnce(async () => {
+    order.push('calendar');
+    return [[1n]];
+  });
+  const active = db.query('SELECT 2');
   const observed: number[] = [];
   const pending = withDatabasePriority('background', () =>
     withDatabaseReadBudget(
@@ -35,16 +65,37 @@ it('日历短预算不改变普通查询，前台活动后等待空闲再提交'
       (ms) => observed.push(ms),
     ),
   );
-  await vi.advanceTimersByTimeAsync(400);
+  await vi.advanceTimersByTimeAsync(10);
   expect(budgeted).not.toHaveBeenCalled();
-  expect(await db.query('SELECT 2')).toEqual([[2n]]);
-  await vi.advanceTimersByTimeAsync(400);
-  expect(budgeted).not.toHaveBeenCalled();
+  const foreground = db.query('SELECT 3');
+  release();
+  await active;
   await vi.runAllTimersAsync();
+  expect(await foreground).toEqual([[2n]]);
   expect(await pending).toEqual([[1n]]);
   expect(budgeted.mock.calls[0]?.[3]).toBe(10);
-  expect(ordinary).toHaveBeenCalledTimes(1);
+  expect(ordinary).toHaveBeenCalledTimes(2);
+  expect(order).toEqual(['foreground', 'calendar']);
   expect(observed).toHaveLength(1);
+});
+it('周期性前台轮询不会让每个日历小批次重复等待半秒或一秒', async () => {
+  const { db, budgeted } = fixture();
+  const polling = setInterval(() => {
+    void db.query('SELECT 2');
+  }, 100);
+  const pending = withDatabasePriority('background', () =>
+    withDatabaseReadBudget(10, async () => {
+      for (let index = 0; index < 20; index++) await db.query('SELECT 1');
+    }),
+  );
+  try {
+    await vi.advanceTimersByTimeAsync(250);
+    expect(budgeted).toHaveBeenCalledTimes(20);
+  } finally {
+    clearInterval(polling);
+    await vi.runAllTimersAsync();
+    await pending;
+  }
 });
 it('旧组件不能回退普通长查询', async () => {
   const { db, native, ordinary } = fixture();
@@ -166,10 +217,10 @@ it('空闲等待结束后报告排队和实际原生读取，不留下过期等�
     ),
   );
   await vi.advanceTimersByTimeAsync(1500);
-  expect(states).toEqual(['idle', 'queued']);
+  expect(states).toEqual(['queued']);
   release([]);
   await active;
   await vi.runAllTimersAsync();
   await pending;
-  expect(states).toEqual(['idle', 'queued', 'reading', undefined]);
+  expect(states).toEqual(['queued', 'reading', undefined]);
 });

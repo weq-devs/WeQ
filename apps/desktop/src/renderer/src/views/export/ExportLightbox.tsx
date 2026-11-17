@@ -16,6 +16,7 @@
  *   6. 扩展功能 —— 导出后自动保存、语音转写（需已配置转录模型）。
  */
 
+import { NumericText } from '../../components/NumericText';
 import {
   useEffect,
   useId,
@@ -26,7 +27,7 @@ import {
   type ReactNode,
 } from 'react';
 import { z } from 'zod';
-import { usePageState } from '../../components/PageSnapshots';
+import { usePageState } from '../../components/PageSnapshots.shared';
 import {
   CalendarClock,
   Check,
@@ -42,17 +43,14 @@ import {
 } from 'lucide-react';
 import { Card, Row, Toggle } from '../../components/settings/controls';
 import { client } from '../../trpc/client';
-import { useDialog } from '../../components/Dialog';
+import { useDialog } from '../../components/Dialog.shared';
 import { ocrReadiness, type OcrReadiness } from './preflight';
 import { useExportAuthorization, type ExportAuthorizationIndicatorState } from './authorization';
 import { BaselinePicker } from './BaselinePicker';
 import { useRemoteClient } from '../../lib/remoteClient';
 import { ExportReportControl } from './ExportReportControl';
-import {
-  BusinessExportDetails,
-  ExportFormatHint,
-  structuredExportOptions,
-} from './StructuredExportControls';
+import { BusinessExportDetails, ExportFormatHint } from './StructuredExportControls';
+import { structuredExportOptions } from './StructuredExportControls.shared';
 import { ExportContentSelector } from './ExportContentSelector';
 import {
   normalizeExportContent,
@@ -70,7 +68,7 @@ import { SegmentedControl } from '../../components/SegmentedControl';
 import { CheckPillGroup } from '../../components/settings/controls';
 import { TimeRangePicker } from './TimeRangePicker';
 import type { CalendarTarget } from '../../lib/messageCalendar';
-import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
+import { OverlayLayer } from '../../components/OverlayLayer';
 import {
   DEFAULT_OPTIONS,
   DEFAULT_SCHEDULE,
@@ -265,9 +263,6 @@ export function ExportLightbox({
   onAuthorizationChange?: (state: ExportAuthorizationIndicatorState | null) => void;
 }): ReactElement {
   const remote = useRemoteClient();
-  useEscapeToClose(() => {
-    if (!embedded && !hidden) onClose();
-  });
   const [opts, setOpts] = usePageState<ExportOptions>(
     `export:options:${variant}:${contactScope}`,
     () => {
@@ -617,13 +612,14 @@ export function ExportLightbox({
     </div>
   ) : null;
 
+  const Surface = embedded ? 'div' : OverlayLayer;
   return (
-    <div
+    <Surface
       className={embedded ? 'weq-export-options' : 'modal-scrim weq-exp-modal-scrim'}
-      hidden={hidden}
-      style={hidden ? { display: 'none' } : undefined}
+      {...(embedded
+        ? { hidden, style: hidden ? { display: 'none' } : undefined }
+        : { open: !hidden, onClose })}
       role="presentation"
-      onMouseDown={embedded ? undefined : closeFromScrim(onClose)}
     >
       <section
         className="weq-exp-dialog is-wide"
@@ -888,18 +884,20 @@ export function ExportLightbox({
                           disabled={htmlForced}
                           onChange={(v) => patch({ exportMedia: v })}
                         />
-                        <MasterRow
-                          icon={<Heart size={17} />}
-                          label="评论与点赞"
-                          desc={
-                            htmlForced
-                              ? 'HTML 导出包含评论与点赞，已随格式强制开启'
-                              : '按说说逐条补拉评论（含回复）与点赞用户，写进导出文件（尽力而为，可能不全）'
-                          }
-                          checked={wantQzonePosts && (htmlForced || opts.qzoneInteractions)}
-                          disabled={htmlForced || !wantQzonePosts}
-                          onChange={(v) => patch({ qzoneInteractions: v })}
-                        />
+                        {wantQzonePosts ? (
+                          <MasterRow
+                            icon={<Heart size={17} />}
+                            label="评论与点赞"
+                            desc={
+                              htmlForced
+                                ? 'HTML 导出包含评论与点赞，已随格式强制开启'
+                                : '按说说逐条补拉评论（含回复）与点赞用户，写进导出文件（尽力而为，可能不全）'
+                            }
+                            checked={wantQzonePosts && (htmlForced || opts.qzoneInteractions)}
+                            disabled={htmlForced || !wantQzonePosts}
+                            onChange={(v) => patch({ qzoneInteractions: v })}
+                          />
+                        ) : null}
                       </>
                     ) : isContacts ? (
                       contactScope === 'groups' ? null : (
@@ -1053,17 +1051,17 @@ export function ExportLightbox({
             id={validationId}
             role={selectionError ? 'status' : undefined}
           >
-            {selectionError
-              ? selectionError
-              : isMessageFlow
-                ? `${formats.length ? `${formats.length} 种格式` : '仅资源'}${opts.exportMedia ? ' · 含媒体' : ''}${opts.exportAvatar ? ' · 头像' : ''}${
-                    opts.dress.bubble || opts.dress.font || opts.dress.widget ? ' · 装扮' : ''
-                  }`
-                : isQzone
-                  ? `${wantQzonePosts ? '空间' : ''}${wantQzonePosts && wantQzoneAlbums ? ' + ' : ''}${wantQzoneAlbums ? '相册' : ''} · ${formats.length} 种格式${opts.exportMedia ? ' · 含媒体' : ''}${wantQzonePosts && opts.qzoneInteractions ? ' · 含评论/赞' : ''}`
-                  : isContacts
-                    ? `${formats.length} 种格式${opts.exportAvatar ? ' · 含头像' : ''}`
-                    : null}
+            {selectionError ? (
+              selectionError
+            ) : isMessageFlow ? (
+              <NumericText>{`${formats.length ? `${formats.length} 种格式` : '仅资源'}${opts.exportMedia ? ' · 含媒体' : ''}${opts.exportAvatar ? ' · 头像' : ''}${
+                opts.dress.bubble || opts.dress.font || opts.dress.widget ? ' · 装扮' : ''
+              }`}</NumericText>
+            ) : isQzone ? (
+              <NumericText>{`${wantQzonePosts ? '空间' : ''}${wantQzonePosts && wantQzoneAlbums ? ' + ' : ''}${wantQzoneAlbums ? '相册' : ''} · ${formats.length} 种格式${opts.exportMedia ? ' · 含媒体' : ''}${wantQzonePosts && opts.qzoneInteractions ? ' · 含评论/赞' : ''}`}</NumericText>
+            ) : isContacts ? (
+              <NumericText>{`${formats.length} 种格式${opts.exportAvatar ? ' · 含头像' : ''}`}</NumericText>
+            ) : null}
           </span>
           <button type="button" className="weq-exp-btn" onClick={onClose} disabled={submitting}>
             取消
@@ -1096,6 +1094,6 @@ export function ExportLightbox({
         />
       ) : null}
       {authorization.dialog}
-    </div>
+    </Surface>
   );
 }

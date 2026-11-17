@@ -8,7 +8,7 @@ import {
   type RefObject,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import { timelineViewport } from '../lib/timelineViewport';
 
 type OverlayScrollbarState = {

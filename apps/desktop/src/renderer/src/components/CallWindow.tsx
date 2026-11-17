@@ -15,7 +15,7 @@
  * 音频链路在 `hooks/useCallAudio.ts`，录音控制在 `hooks/useCallRecorder.ts`。
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { CallVideoEncoding } from '@weq/service';
 import { trpc } from '../trpc/client';
@@ -32,12 +32,15 @@ import { useCallScreen } from '../hooks/useCallScreen';
 import { useCallRecorder } from '../hooks/useCallRecorder';
 import { RenderDocumentContext } from '../lib/renderDocument';
 import { HoverTooltip } from './HoverTooltip';
-import { useToast } from './Toast';
+import { useToastApi } from './Toast.shared';
+import { notificationSource } from '../lib/notificationNavigation.shared';
 import { useAppLock } from '../state/lock';
 import { CallStage, type CallPeer, type CallState } from './call/CallStage';
 import { CallControls } from './call/CallControls';
-import { CallRecorderBar, CallRecordingCard, formatDuration } from './call/CallRecorderBar';
-import { CallSettingsDrawer, useCallRecordingSettings } from './call/CallSettingsDrawer';
+import { CallRecorderBar, CallRecordingCard } from './call/CallRecorderBar';
+import { formatDuration } from './call/CallRecorderBar.shared';
+import { CallSettingsDrawer } from './call/CallSettingsDrawer';
+import { useCallRecordingSettings } from './call/CallSettingsDrawer.shared';
 import '../styles/call.css';
 import '../styles/call-recorder.css';
 import '../styles/call-video.css';
@@ -152,6 +155,23 @@ function endText(reason: string | null): string {
  * 录音卡片要留给用户播放 / 打开目录。
  */
 export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: () => void }) {
+  const notificationWindow = useRef<Window | null>(null);
+  const notificationOrigin = useMemo(
+    () =>
+      notificationSource(
+        {
+          kind: 'local',
+          open: () => {
+            const popup = notificationWindow.current;
+            if (popup && !popup.closed) popup.focus();
+            else requestOpenSettings('callRecording');
+          },
+        },
+        '返回通话或录音设置',
+      ),
+    [],
+  );
+  const notificationToast = useToastApi(notificationOrigin);
   const locked = useAppLock((state) => state.locked);
   const [info, setInfo] = useState<CallInfo>(initial);
   const [muted, setMuted] = useState(false);
@@ -209,12 +229,12 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
   // 采集错误要告诉用户（权限被拒 / 没有设备 / 用户取消），否则会以为「点了没反应」。
   useEffect(() => {
     if (!capture.error) return;
-    useToast.getState().push({
+    notificationToast.push({
       tone: 'warning',
       message: screenSharing ? '无法共享屏幕' : '无法打开摄像头',
       detail: capture.error,
     });
-  }, [capture.error, screenSharing]);
+  }, [capture.error, screenSharing, notificationToast]);
 
   const settings = useCallRecordingSettings();
   const recorder = useCallRecorder({
@@ -252,6 +272,12 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
     height: 620,
     bodyClass: 'weq-call-window-body',
   });
+  useEffect(() => {
+    notificationWindow.current = tool.popup;
+    return () => {
+      notificationWindow.current = null;
+    };
+  }, [tool.popup]);
   const finishedRef = useRef(finished);
   finishedRef.current = finished;
   const hangupRef = useRef(hangup.mutate);
@@ -277,7 +303,7 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
     const popup = tool.open();
     if (!popup && !prefersInlineToolWindow()) {
       requestHangup();
-      useToast.getState().push({
+      notificationToast.push({
         tone: 'error',
         message: '无法打开通话窗口',
         detail: '已结束本次呼叫，请允许弹出窗口后重试。',
@@ -296,7 +322,7 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
         if (lifecycle.current === generation) requestHangup();
       });
     };
-  }, [tool.open, requestHangup, closeWindow]);
+  }, [tool.open, requestHangup, closeWindow, notificationToast]);
 
   /**
    * 布局切换时换窗口尺寸。
@@ -330,7 +356,7 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
   // 状态行：通话本身没问题，不该让状态文字变成报错。
   trpc.call.onCallError.useSubscription(undefined, {
     onData: (message) => {
-      useToast.getState().push({ tone: 'warning', message });
+      notificationToast.push({ tone: 'warning', message });
     },
     onError: (error) => console.error('[call] error subscription error', error),
   });
@@ -423,14 +449,14 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
       try {
         const result = await setVideoSource.mutateAsync({ source });
         if (!result.ok) {
-          useToast.getState().push({
+          notificationToast.push({
             tone: 'warning',
             message: source === 'screen' ? '无法开始共享屏幕' : '无法切回摄像头',
             detail: '通话可能已经结束。',
           });
         }
       } catch (error) {
-        useToast.getState().push({
+        notificationToast.push({
           tone: 'warning',
           message: source === 'screen' ? '无法开始共享屏幕' : '无法切回摄像头',
           detail: error instanceof Error ? error.message : String(error),
@@ -440,7 +466,7 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
         setSourceBusy(false);
       }
     },
-    [info.videoSource, setVideoSource],
+    [info.videoSource, setVideoSource, notificationToast],
   );
   switchSourceRef.current = switchSource;
 
@@ -474,7 +500,7 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
   const handleOpenFolder = useCallback(() => {
     const dir = settings.dir;
     if (!dir) {
-      useToast.getState().push({
+      notificationToast.push({
         tone: 'info',
         message: '暂时定位不到录音目录',
         detail: '账号还没打开，或录音目录不可用。',
@@ -482,7 +508,7 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
       return;
     }
     openFolder.mutate({ path: dir });
-  }, [openFolder, settings.dir]);
+  }, [openFolder, settings.dir, notificationToast]);
 
   const peers: CallPeer[] = [
     {

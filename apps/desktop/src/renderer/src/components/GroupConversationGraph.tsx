@@ -13,12 +13,12 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePrivacyStore } from '../state/privacy';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import { useThemeStore } from '../state/theme';
-import { usePrefersReducedMotion } from '../views/annual-report/Odometer';
+import { usePrefersReducedMotion } from '../views/annual-report/Odometer.shared';
 import * as d3 from 'd3';
 import { cachedAvatarUrl } from '../lib/avatarCache';
-import { formatNumber } from './analyticsCharts';
+import { formatNumber } from './analyticsCharts.shared';
 
 interface WireNode {
   uid: string;
@@ -656,19 +656,35 @@ export function GroupConversationGraph({
             <>
               <strong data-privacy-sensitive>{hoverNode.label}</strong>
               <span>
-                {formatNumber(hoverNode.messageCount)} 条发言 · 参与 {hoverNode.conversationCount}{' '}
+                <span className="weq-number weq-number-inherit">
+                  {formatNumber(hoverNode.messageCount)}
+                </span>{' '}
+                条发言 · 参与{' '}
+                <span className="weq-number weq-number-inherit">{hoverNode.conversationCount}</span>{' '}
                 段对话
               </span>
-              <span>拉力合计 {formatNumber(hoverNode.pull)}</span>
+              <span>
+                拉力合计{' '}
+                <span className="weq-number weq-number-inherit">
+                  {formatNumber(hoverNode.pull)}
+                </span>
+              </span>
             </>
           ) : null}
         </div>
         <div className="cg-legend">
           <span className="cg-legend-stat">
-            {model.nodes.length} 人 · {model.edges.length} 条拉力线 ·{' '}
-            {Math.max(...model.nodes.map((n) => n.community)) + 1} 个小圈子
+            <span className="weq-number weq-number-inherit">{model.nodes.length}</span> 人 ·{' '}
+            <span className="weq-number weq-number-inherit">{model.edges.length}</span> 条拉力线 ·{' '}
+            <span className="weq-number weq-number-inherit">
+              {Math.max(...model.nodes.map((n) => n.community)) + 1}
+            </span>{' '}
+            个小圈子
           </span>
-          <span className="cg-legend-hint">拖节点 / 滚轮缩放 · 会话边界 {windowMinutes} 分钟</span>
+          <span className="cg-legend-hint">
+            拖节点 / 滚轮缩放 · 会话边界{' '}
+            <span className="weq-number weq-number-inherit">{windowMinutes}</span> 分钟
+          </span>
         </div>
       </div>
     </div>

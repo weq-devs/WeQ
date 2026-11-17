@@ -6,6 +6,7 @@
  * 用户卡片 —— 头像、资料字段、私聊入口都与聊天里点成员完全一致。
  */
 
+import { NumericText } from '../NumericText';
 import { useMemo } from 'react';
 import { ArrowLeftRight, X } from 'lucide-react';
 import type { RawNode, RelationGraphData } from './types';
@@ -78,7 +79,11 @@ export function OverlapPairCard({
             {nameB}
           </strong>
           <span>
-            共同 <b>{selection.weight}</b> 人{percent > 0 ? ` · 覆盖较小群的 ${percent}%` : ''}
+            共同{' '}
+            <b>
+              <span className="weq-number weq-number-inherit">{selection.weight}</span>
+            </b>{' '}
+            人{percent > 0 ? <NumericText>{` · 覆盖较小群的 ${percent}%`}</NumericText> : ''}
           </span>
         </div>
       </div>
@@ -90,9 +95,20 @@ export function OverlapPairCard({
       </div>
 
       <div className="weq-ov-paircard-meta">
-        <span>{members.length} 位</span>
-        {friendCount > 0 ? <span>{friendCount} 位是好友</span> : null}
-        <span>{Math.max(0, Math.round((1 - ratio) * 100))}% 不重叠</span>
+        <span>
+          <span className="weq-number weq-number-inherit">{members.length}</span> 位
+        </span>
+        {friendCount > 0 ? (
+          <span>
+            <span className="weq-number weq-number-inherit">{friendCount}</span> 位是好友
+          </span>
+        ) : null}
+        <span>
+          <span className="weq-number weq-number-inherit">
+            {Math.max(0, Math.round((1 - ratio) * 100))}
+          </span>
+          % 不重叠
+        </span>
       </div>
 
       <div className="weq-ov-paircard-list">
@@ -130,7 +146,9 @@ export function OverlapPairCard({
               </span>
               {node.isFriend ? <span className="weq-ov-paircard-tag">好友</span> : null}
               {node.groupCount > 2 ? (
-                <span className="weq-ov-paircard-count">{node.groupCount} 群</span>
+                <span className="weq-ov-paircard-count">
+                  <span className="weq-number weq-number-inherit">{node.groupCount}</span> 群
+                </span>
               ) : null}
             </button>
           ))

@@ -36,7 +36,10 @@ import { useRenderDocument } from '../../lib/renderDocument';
 import { useSurfaceOutside } from '../../lib/surfaceOutside';
 import {
   Check,
-  Code2,
+  AtSign,
+  Braces,
+  CodeXml,
+  FileCode2,
   FileText,
   Film,
   Forward,
@@ -58,13 +61,14 @@ import {
   X,
 } from 'lucide-react';
 import { QqMessageContent } from '../QqMessageContent';
-import { GrayTipLine, grayTipOf } from '../../im-template/template/messageRow';
+import { GrayTipLine } from '../../im-template/template/messageRow';
+import { grayTipOf } from '../../im-template/template/messageRow.shared';
 import { FaceEmoji } from '../FaceEmoji';
 import { FacePicker } from '../compose/FacePicker';
 import { QqAvatar } from '../QqAvatar';
-import { useToast } from '../Toast';
+import { useToast } from '../Toast.shared';
 import { useMsgDecoration } from '../../hooks/useMsgDecoration';
-import { useActiveWidget } from '../../hooks/useActiveWidget';
+import { useActiveWidget } from '../../hooks/useActiveWidget.shared';
 import { localDressApplies } from '../../lib/dressSkin';
 import { useBubbleFontFx } from '../../hooks/useBubbleFontFx';
 import { useOverlayLayer } from '../../lib/overlayStack';
@@ -72,7 +76,8 @@ import { localFileUrl } from '../../lib/resourceUrl';
 import { trpc } from '../../trpc/client';
 import { pickAccountFile } from '../../lib/accountFilePicker';
 import { cn } from '../../im-template/template/classNames';
-import { dedupePersons, SenderPicker, type MfPerson } from './SenderPicker';
+import { dedupePersons } from './SenderPicker.shared';
+import { SenderPicker, type MfPerson } from './SenderPicker';
 import { MsgDressEditor } from './MsgDressEditor';
 import { moveCompositionNode } from './workspaceModel';
 import { NodeTimeInput } from './NodeTimeInput';
@@ -97,7 +102,7 @@ import {
 // 分段在编辑态下的元信息（菜单图标 / 标签 / 分类）。
 const SEG_META: Record<MfSegKind, { label: string; icon: ReactElement }> = {
   text: { label: '文本', icon: <Type size={15} /> },
-  at: { label: '@某人', icon: <span className="weq-mf-at">@</span> },
+  at: { label: '@某人', icon: <AtSign size={15} /> },
   reply: { label: '引用', icon: <Quote size={15} /> },
   face: { label: '表情', icon: <Smile size={15} /> },
   image: { label: '图片', icon: <ImageIcon size={15} /> },
@@ -105,9 +110,9 @@ const SEG_META: Record<MfSegKind, { label: string; icon: ReactElement }> = {
   video: { label: '视频', icon: <Film size={15} /> },
   file: { label: '文件', icon: <FileText size={15} /> },
   mface: { label: '商城表情', icon: <Sticker size={15} /> },
-  ark: { label: 'JSON 卡片', icon: <Code2 size={15} /> },
-  xml: { label: 'XML 卡片', icon: <Code2 size={15} /> },
-  markdown: { label: 'Markdown', icon: <Code2 size={15} /> },
+  ark: { label: 'JSON 卡片', icon: <Braces size={15} /> },
+  xml: { label: 'XML 卡片', icon: <CodeXml size={15} /> },
+  markdown: { label: 'Markdown', icon: <FileCode2 size={15} /> },
   emojiBounce: { label: '表情弹射', icon: <Sparkles size={15} /> },
   card: { label: '转发卡片', icon: <Forward size={15} /> },
   node: { label: '聊天记录', icon: <Layers size={15} /> },
@@ -729,7 +734,8 @@ function NestedCard({ segs, action }: { segs: MfSeg[]; action?: ReactElement }):
         ))}
       </div>
       <div className="weq-mf-nested-foot">
-        <Layers size={13} /> {nodes.length} 条消息
+        <Layers size={13} /> <span className="weq-number weq-number-inherit">{nodes.length}</span>{' '}
+        条消息
         {action ? <span className="weq-mf-nested-foot-action">{action}</span> : null}
       </div>
     </div>
@@ -989,7 +995,13 @@ function SegRow({
           >
             ↓
           </CompositionButton>
-          <CompositionButton type="button" className="danger" onClick={onRemove} title="删除">
+          <CompositionButton
+            data-danger="outline"
+            type="button"
+            className="danger"
+            onClick={onRemove}
+            title="删除"
+          >
             <Trash2 size={13} />
           </CompositionButton>
         </div>
@@ -1193,7 +1205,9 @@ function RecordContent({
       <div className="weq-mf-nested-bar">
         <Layers size={14} />
         <span className="weq-mf-nested-bar-title">编辑聊天记录</span>
-        <span className="weq-mf-nested-bar-count">{count} 条消息</span>
+        <span className="weq-mf-nested-bar-count">
+          <span className="weq-number weq-number-inherit">{count}</span> 条消息
+        </span>
         <CompositionButton
           type="button"
           className="weq-mf-nested-done"
@@ -1391,6 +1405,7 @@ function RecordMessages({
                       ↓
                     </CompositionButton>
                     <CompositionButton
+                      data-danger="outline"
                       type="button"
                       className="danger"
                       onClick={() => remove(msg.id)}
@@ -1897,7 +1912,11 @@ function AtPicker({
             >
               <QqAvatar uin={p.uin} size={22} />
               <span className="weq-mf-person-name">{p.name}</span>
-              {p.uin && p.uin !== '0' ? <span className="weq-mf-person-uin">{p.uin}</span> : null}
+              {p.uin && p.uin !== '0' ? (
+                <span className="weq-mf-person-uin">
+                  <span className="weq-number weq-number-inherit">{p.uin}</span>
+                </span>
+              ) : null}
             </CompositionButton>
           ))
         )}
@@ -2187,15 +2206,16 @@ function NodeMenu({
       <CompositionButton type="button" role="menuitem" onClick={onChangeSender}>
         <UserCog size={15} /> 修改发送人
       </CompositionButton>
-      <CompositionButton type="button" role="menuitem" className="danger" onClick={onDelete}>
+      <CompositionButton
+        data-danger="outline"
+        type="button"
+        role="menuitem"
+        className="danger"
+        onClick={onDelete}
+      >
         <X size={15} /> 删除这条
       </CompositionButton>
     </div>,
     document.body,
   );
-}
-
-/** 供外层对话框显示默认标题。 */
-export function composerDefaultTitle(draft: MfDraft): string {
-  return draft.title || draftTitle(draft.nodes);
 }

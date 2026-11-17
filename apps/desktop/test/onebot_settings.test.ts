@@ -74,11 +74,22 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   },
 }));
 vi.mock('../src/renderer/src/components/RetainedTabs', () => ({ useTabActive: () => true }));
-vi.mock('../src/renderer/src/components/Dialog', () => ({
+vi.mock('../src/renderer/src/components/RetainedTabs.shared', () => ({ useTabActive: () => true }));
+vi.mock('../src/renderer/src/components/Dialog', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/src/components/Dialog')>()),
+  useDialog: (select: (store: unknown) => unknown) => select({ showError: mocks.error }),
+}));
+vi.mock('../src/renderer/src/components/Dialog.shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/src/components/Dialog.shared')>()),
   useDialog: (select: (store: unknown) => unknown) => select({ showError: mocks.error }),
 }));
 vi.mock('../src/renderer/src/components/Toast', () => ({
   useToast: (select: (store: unknown) => unknown) => select({ push: mocks.toast }),
+  useToastApi: () => ({ push: mocks.toast }),
+}));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
+  useToast: (select: (store: unknown) => unknown) => select({ push: mocks.toast }),
+  useToastApi: () => ({ push: mocks.toast }),
 }));
 
 afterEach(() => {
@@ -132,7 +143,7 @@ it('renders independent WS and HTTP cards, toggles them and copies the selected 
   }
 });
 
-it('creates an HTTP server from a compact card editor', async () => {
+it('creates an HTTP server from an independent editor without adding a card to the grid', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -143,7 +154,10 @@ it('creates an HTTP server from a compact card editor', async () => {
       (button) => button.textContent?.trim() === 'HTTP',
     )!;
     await act(async () => addHttp.click());
-    const name = host.querySelector<HTMLInputElement>('[aria-label="OneBot 服务器名称"]')!;
+    expect(host.querySelectorAll('.weq-onebot-server-card')).toHaveLength(2);
+    const dialog = document.querySelector<HTMLElement>('.weq-editor-dialog')!;
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+    const name = dialog.querySelector<HTMLInputElement>('[aria-label="OneBot 服务器名称"]')!;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
         name,
@@ -151,7 +165,7 @@ it('creates an HTTP server from a compact card editor', async () => {
       );
       name.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    const form = host.querySelector<HTMLFormElement>('.weq-onebot-server-form')!;
+    const form = dialog.querySelector<HTMLFormElement>('.weq-onebot-server-form')!;
     await act(async () => form.dispatchEvent(new Event('submit', { bubbles: true })));
     expect(mocks.save).toHaveBeenCalledWith(
       expect.objectContaining({

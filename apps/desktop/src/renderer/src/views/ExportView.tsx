@@ -1,3 +1,5 @@
+import { NumericText } from '../components/NumericText';
+import { useDbRepairWindow } from '../state/dbRepairWindow';
 import * as timeFormat from '@weq/time';
 import { eventTimeFormatter } from '@weq/time';
 /** 统一导出工具：内容选择与执行配置；任务工具独立管理执行结果和计划。 */
@@ -5,30 +7,21 @@ import { eventTimeFormatter } from '@weq/time';
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import { ReferenceExportTool } from './export/ReferenceExportTool';
+import { EXPORT_MODE_ICONS } from '../lib/featureIcons.shared';
 import {
   Bookmark,
-  Bot,
   CalendarClock,
-  Contact,
-  Database,
   FileText,
   Film,
-  Globe,
   Image as ImageIcon,
-  Images,
-  FolderOpen,
   Layers,
   Link2,
   MapPin,
-  Mail,
-  MessagesSquare,
   Music,
   Pause,
   Play,
-  Radio,
-  RotateCw,
+  RefreshCw,
   Search,
-  Smile,
   Trash2,
   X,
   Zap,
@@ -36,13 +29,15 @@ import {
 } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
-import { useExportReportDialog } from './export/ExportReportControl';
+import { useExportReportDialog } from './export/ExportReportControl.shared';
 import {
   StructuredExportControls,
-  structuredExportOptions,
   type StructuredExportOptions,
 } from './export/StructuredExportControls';
-import { useToast } from '../components/Toast';
+import { structuredExportOptions } from './export/StructuredExportControls.shared';
+import { useToast } from '../components/Toast.shared';
+import { NotificationSourceProvider } from '../lib/notificationNavigation';
+import { notificationSource } from '../lib/notificationNavigation.shared';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { fixProfileAvatarUrl } from '../lib/avatarResolver';
 import { classifyChatType, datalineName, toChatTypeNumber } from '@weq/codec';
@@ -91,8 +86,8 @@ import '../styles/export.css';
 import { MessageScopePicker } from './export/MessageScopePicker';
 import { ServerSavePrompt } from '../components/ServerSavePrompt';
 import { SaveResultLocation } from './export/SaveResultLocation';
-import { IS_WEB } from '../lib/target';
-import { presentClientDocument } from '../components/ClientDocumentPreview';
+import { IS_WEB } from '../lib/target.shared';
+import { presentClientDocument } from '../components/ClientDocumentPreview.shared';
 import type { ContentSelection } from '../../../shared/content_selection';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
 import { DatabasePlainExport } from './export/DatabasePlainExport';
@@ -114,8 +109,9 @@ import { MailExportPane } from './export/MailExportPane';
 import { QzoneScopePicker } from './export/QzoneScopePicker';
 import '../styles/workspace-tools.css';
 import '../styles/unified-export.css';
-import { RetainedTabs, useTabActive } from '../components/RetainedTabs';
-import { usePageState } from '../components/PageSnapshots';
+import { RetainedTabs } from '../components/RetainedTabs';
+import { useTabActive } from '../components/RetainedTabs.shared';
+import { usePageState } from '../components/PageSnapshots.shared';
 import { pageValue } from '../lib/pageSnapshots';
 import { z } from 'zod';
 import { ScheduleSettings } from '../components/tasks/ScheduleSettings';
@@ -134,92 +130,85 @@ interface ModeDef {
   icon: ReactNode;
 }
 
-const MODES: ModeDef[] = [
-  {
-    id: 'persona-bot',
-    label: '克隆体机器人',
-    short: '机器人',
-    desc: 'OneBot 部署整包',
-    icon: <Bot size={18} />,
-  },
-  {
-    id: 'full',
-    label: '聊天消息导出',
-    short: '聊天消息',
-    desc: 'JSON / JSONL / XLSX / CSV / TXT / HTML',
-    icon: <MessagesSquare size={18} />,
-  },
-  {
-    id: 'guild',
-    label: '频道私聊数据',
-    short: '频道私聊',
-    desc: '本地频道私聊 · 完整消息格式（不支持漫游拉取）',
-    icon: <Radio size={18} />,
-  },
-  {
-    id: 'generated',
-    label: '克隆与助手对话',
-    short: '克隆与助手',
-    desc: '本地生成记录 · 按会话导出',
-    icon: <Bot size={18} />,
-  },
-  {
-    id: 'qzone',
-    label: 'QQ空间导出',
-    short: 'QQ 空间',
-    desc: '说说 / 相册 · JSON / TXT / HTML',
-    icon: <Globe size={18} />,
-  },
-  {
-    id: 'contacts',
-    label: '导出联系人',
-    short: '联系人',
-    desc: '联系人名单 / 群聊名单 / 群成员名单',
-    icon: <Contact size={18} />,
-  },
-  {
-    id: 'collection',
-    label: '导出收藏',
-    short: '收藏',
-    desc: 'QQ 收藏导出为表格',
-    icon: <Bookmark size={18} />,
-  },
-  {
-    id: 'mail',
-    label: '邮件导出',
-    short: '邮件',
-    desc: '邮件正文 / 元数据 / 附件',
-    icon: <Mail size={18} />,
-  },
-  {
-    id: 'emojipack',
-    label: '导出表情包',
-    short: '表情包',
-    desc: '自己的 / 收到的自定义表情',
-    icon: <Smile size={18} />,
-  },
-  {
-    id: 'album',
-    label: '群相册导出',
-    short: '群相册',
-    desc: '批量下载群相册',
-    icon: <Images size={18} />,
-  },
-  {
-    id: 'groupfile',
-    label: '群文件导出',
-    short: '群文件',
-    desc: '批量下载群文件',
-    icon: <FolderOpen size={18} />,
-  },
-  {
-    id: 'database',
-    label: '明文数据库',
-    short: '数据库',
-    desc: '原始 SQLite 数据库副本',
-    icon: <Database size={18} />,
-  },
-];
+const MODES: ModeDef[] = (
+  [
+    {
+      id: 'persona-bot',
+      label: '克隆体机器人',
+      short: '机器人',
+      desc: 'OneBot 部署整包',
+    },
+    {
+      id: 'full',
+      label: '聊天消息导出',
+      short: '聊天消息',
+      desc: 'JSON / JSONL / XLSX / CSV / TXT / HTML',
+    },
+    {
+      id: 'guild',
+      label: '频道私聊数据',
+      short: '频道私聊',
+      desc: '本地频道私聊 · 完整消息格式（不支持漫游拉取）',
+    },
+    {
+      id: 'generated',
+      label: '克隆与助手对话',
+      short: '克隆与助手',
+      desc: '本地生成记录 · 按会话导出',
+    },
+    {
+      id: 'qzone',
+      label: 'QQ 空间导出',
+      short: 'QQ 空间',
+      desc: '说说 / 相册 · JSON / TXT / HTML',
+    },
+    {
+      id: 'contacts',
+      label: '导出联系人',
+      short: '联系人',
+      desc: '联系人名单 / 群聊名单 / 群成员名单',
+    },
+    {
+      id: 'collection',
+      label: '导出收藏',
+      short: '收藏',
+      desc: 'QQ 收藏导出为表格',
+    },
+    {
+      id: 'mail',
+      label: '邮件导出',
+      short: '邮件',
+      desc: '邮件正文 / 元数据 / 附件',
+    },
+    {
+      id: 'emojipack',
+      label: '导出表情包',
+      short: '表情包',
+      desc: '自己的 / 收到的自定义表情',
+    },
+    {
+      id: 'album',
+      label: '群相册导出',
+      short: '群相册',
+      desc: '批量下载群相册',
+    },
+    {
+      id: 'groupfile',
+      label: '群文件导出',
+      short: '群文件',
+      desc: '批量下载群文件',
+    },
+    {
+      id: 'database',
+      label: '明文数据库',
+      short: '数据库',
+      desc: '原始 SQLite 数据库副本',
+    },
+  ] satisfies Omit<ModeDef, 'icon'>[]
+).map((entry) => {
+  const Icon = EXPORT_MODE_ICONS[entry.id];
+  return { ...entry, icon: <Icon size={18} aria-hidden /> };
+});
 
 /** Recent-contact wire shape we actually read here. */
 interface ConvWire {
@@ -357,6 +346,23 @@ function collectionPreview(it: CollectionItemWire): CollectionPreviewItem {
 }
 
 export function ExportTool(props: Parameters<typeof ExportToolBody>[0]): ReactElement {
+  return (
+    <NotificationSourceProvider
+      source={notificationSource({
+        kind: 'app',
+        target: {
+          kind: 'tool',
+          tool: props.surface === 'tasks' ? 'tasks' : 'export',
+          exportMode: props.initialMode,
+        },
+      })}
+    >
+      <ScopedExportTool {...props} />
+    </NotificationSourceProvider>
+  );
+}
+
+function ScopedExportTool(props: Parameters<typeof ExportToolBody>[0]): ReactElement {
   const selection = props.initialSelection;
   if (
     props.surface !== 'tasks' &&
@@ -793,7 +799,7 @@ function ExportToolBody({
       onData: (progress) => {
         void utils.account.listExportTasks.invalidate();
         if (progress.notice) {
-          pushToast({ tone: 'warning', title: '导出提示', message: progress.notice, ttl: 5000 });
+          pushToast({ tone: 'warning', title: progress.notice, ttl: 5000 });
         }
       },
       onError: (err) => console.error('[export] progress subscription error', err),
@@ -988,7 +994,10 @@ function ExportToolBody({
       filePath: t.filePath,
       bundleDir: t.bundleDir,
       canResume: t.canResume,
+      canPause: t.canPause,
       networkPaused: t.networkPaused,
+      databaseRecovery: t.databaseRecovery,
+      databaseRecoveryRecords: t.databaseRecoveryRecords,
       journalPath: t.journalPath,
       canIncremental: t.canIncremental,
       canFinalize: t.canFinalize,
@@ -1073,7 +1082,7 @@ function ExportToolBody({
       const confirmed = await dialog.confirm(
         '删除尚未保存的结果',
         `「${t.name}」尚未保存到目标位置，删除会移除任务及其导出缓存。`,
-        { okLabel: '删除', cancelLabel: '保留', tone: 'warning' },
+        { danger: 'solid', okLabel: '删除', cancelLabel: '保留', tone: 'warning' },
       );
       if (!confirmed) return;
     }
@@ -1829,7 +1838,7 @@ function ExportToolBody({
     const ok = await dialog.confirm(
       '删除定时任务',
       `确认删除「${s.name}」？该调度将不再触发；历史已生成的导出任务不会被删除。`,
-      { okLabel: '删除', cancelLabel: '返回', tone: 'warning' },
+      { danger: 'outline', okLabel: '删除', cancelLabel: '返回', tone: 'warning' },
     );
     if (!ok) return;
     try {
@@ -1853,10 +1862,10 @@ function ExportToolBody({
 
   const activeMode = MODES.find((m) => m.id === mode)!;
   // 底部格式 chips 只保留给不走灯箱的导出收藏；
-  // 完整消息 / QQ空间 / 定时的格式选择已移入灯箱多选。
+  // 完整消息 / QQ 空间 / 定时的格式选择已移入灯箱多选。
   const showFormatChips = mode === 'collection';
   const formatOptions = COLLECTION_FORMATS;
-  // QQ空间导出只列目标空间（自己 + 好友）；其余多选模式用全部会话。
+  // QQ 空间导出只列目标空间（自己 + 好友）；其余多选模式用全部会话。
   const pickerItems = mode === 'qzone' ? friendItems : convItems;
   const scopeConversation =
     mode === 'full' &&
@@ -2020,7 +2029,9 @@ function ExportToolBody({
                 <Zap size={14} />
               </span>
               <span className="weq-exp-source-text">
-                <small>{fixedScopeSummary(initialSelection)}</small>
+                <small>
+                  <NumericText>{fixedScopeSummary(initialSelection)}</NumericText>
+                </small>
               </span>
               {editingList ? (
                 <button
@@ -2318,7 +2329,7 @@ function ExportToolBody({
                         aria-label="重试读取群目录"
                         onClick={() => void groups.refetch()}
                       >
-                        <RotateCw size={14} />
+                        <RefreshCw size={14} aria-hidden />
                       </button>
                     </div>
                   ) : null}
@@ -2327,7 +2338,9 @@ function ExportToolBody({
                       <details className="weq-export-contact-categories">
                         <summary>
                           好友分组 ·{' '}
-                          {catSelection.size ? `已选 ${catSelection.size} 个分组` : '全部好友'}
+                          <NumericText>
+                            {catSelection.size ? `已选 ${catSelection.size} 个分组` : '全部好友'}
+                          </NumericText>
                         </summary>
                         <CategoryChips
                           items={catItems}
@@ -2429,7 +2442,7 @@ function ExportToolBody({
                         title="重试加载收藏"
                         onClick={collectionSource.retry}
                       >
-                        <RotateCw size={14} />
+                        <RefreshCw size={14} aria-hidden />
                       </button>
                     </div>
                   ) : null}
@@ -2474,9 +2487,11 @@ function ExportToolBody({
               <footer className="weq-exp-pane-foot">
                 {mode === 'full' && execution === 'scheduled' ? (
                   <span className="weq-exp-foot-hint">
-                    {convSelection.size > 0
-                      ? `已选 ${convSelection.size} 个会话`
-                      : '请先选择至少一个会话'}
+                    {convSelection.size > 0 ? (
+                      <NumericText>{`已选 ${convSelection.size} 个会话`}</NumericText>
+                    ) : (
+                      '请先选择至少一个会话'
+                    )}
                   </span>
                 ) : showFormatChips ? (
                   <div className="weq-exp-foot-format">
@@ -2515,33 +2530,45 @@ function ExportToolBody({
                   </div>
                 ) : mode === 'full' || mode === 'qzone' || mode === 'guild' ? (
                   <span className="weq-exp-foot-hint">
-                    {mode === 'qzone'
-                      ? convSelection.size > 0
-                        ? `已选 ${convSelection.size} 个空间 · 灯箱内选择格式与媒体`
-                        : '请先选择要导出的空间'
-                      : mode === 'guild'
-                        ? guildSelection.size > 0
-                          ? `已选 ${guildSelection.size} 个会话 · 频道私聊仅本地消息，不支持漫游拉取`
-                          : '请先选择至少一个频道私聊会话'
-                        : convSelection.size > 0
-                          ? `已选 ${convSelection.size} 个会话 · 灯箱内选择格式与内容`
-                          : '请先选择至少一个会话'}
+                    {mode === 'qzone' ? (
+                      convSelection.size > 0 ? (
+                        <NumericText>{`已选 ${convSelection.size} 个空间 · 灯箱内选择格式与媒体`}</NumericText>
+                      ) : (
+                        '请先选择要导出的空间'
+                      )
+                    ) : mode === 'guild' ? (
+                      guildSelection.size > 0 ? (
+                        <NumericText>{`已选 ${guildSelection.size} 个会话 · 频道私聊仅本地消息，不支持漫游拉取`}</NumericText>
+                      ) : (
+                        '请先选择至少一个频道私聊会话'
+                      )
+                    ) : convSelection.size > 0 ? (
+                      <NumericText>{`已选 ${convSelection.size} 个会话 · 灯箱内选择格式与内容`}</NumericText>
+                    ) : (
+                      '请先选择至少一个会话'
+                    )}
                   </span>
                 ) : mode === 'contacts' ? (
                   <span className="weq-exp-foot-hint">
-                    {contactScope === 'friends'
-                      ? friendUids !== undefined
-                        ? `精确选中 ${friendUids.length} 位好友`
-                        : catSelection.size > 0
-                          ? `已选 ${catSelection.size} 个分组 · 灯箱内选择格式与头像`
-                          : '全部好友 · 灯箱内选择格式与头像'
-                      : contactScope === 'groups'
-                        ? groupListIds
-                          ? `已选 ${groupListIds.length} 个群聊`
-                          : '全部本地群聊名单'
-                        : contactGroupIds.size
-                          ? `已选 ${contactGroupIds.size} 个群`
-                          : '请先选择群'}
+                    {contactScope === 'friends' ? (
+                      friendUids !== undefined ? (
+                        <NumericText>{`精确选中 ${friendUids.length} 位好友`}</NumericText>
+                      ) : catSelection.size > 0 ? (
+                        <NumericText>{`已选 ${catSelection.size} 个分组 · 灯箱内选择格式与头像`}</NumericText>
+                      ) : (
+                        '全部好友 · 灯箱内选择格式与头像'
+                      )
+                    ) : contactScope === 'groups' ? (
+                      groupListIds ? (
+                        <NumericText>{`已选 ${groupListIds.length} 个群聊`}</NumericText>
+                      ) : (
+                        '全部本地群聊名单'
+                      )
+                    ) : contactGroupIds.size ? (
+                      <NumericText>{`已选 ${contactGroupIds.size} 个群`}</NumericText>
+                    ) : (
+                      '请先选择群'
+                    )}
                   </span>
                 ) : (
                   <span className="weq-exp-foot-hint">
@@ -2613,7 +2640,7 @@ function ExportToolBody({
                         aria-label="重试加载计划"
                         onClick={() => void schedules.refetch()}
                       >
-                        <RotateCw size={14} />
+                        <RefreshCw size={14} aria-hidden />
                       </button>
                     </div>
                   ) : (schedules.data ?? []).length === 0 ? (
@@ -2627,8 +2654,16 @@ function ExportToolBody({
                         onClick={() => setSelectedSchedule(s.id)}
                       >
                         <strong>{s.name}</strong>
-                        <span>{scheduleSummary(s)}</span>
-                        <small>{s.enabled ? `下次 ${fmtRunAt(s.nextRunAt)}` : '已暂停'}</small>
+                        <span>
+                          <NumericText>{scheduleSummary(s)}</NumericText>
+                        </span>
+                        <small>
+                          {s.enabled ? (
+                            <NumericText>{`下次 ${fmtRunAt(s.nextRunAt)}`}</NumericText>
+                          ) : (
+                            '已暂停'
+                          )}
+                        </small>
                       </button>
                     ))
                   )}
@@ -2681,6 +2716,29 @@ function ExportToolBody({
                 autoSelectId={autoSelectTaskId}
                 renderExport={(task) => (
                   <TaskList
+                    onDatabaseRecovery={async (task, decision, skipRemaining) => {
+                      const request = task.databaseRecovery;
+                      if (!request || !saveBinding || !isCurrent())
+                        throw new Error('账号或任务状态已变化，请刷新后重试。');
+                      const binding = { ...saveBinding };
+                      await client.account.resolveExportDatabaseRecovery.mutate({
+                        ...binding,
+                        taskId: task.id,
+                        requestId: request.id,
+                        decision,
+                        skipRemaining,
+                      });
+                      await utils.account.listExportTasks.invalidate();
+                      if (decision === 'repair' && isCurrent()) {
+                        useDbRepairWindow.getState().open({
+                          uin: binding.expectedAccountUin,
+                          configId: binding.expectedAccountConfigId,
+                          dbName: request.dbPath.split(/[\\/]/).at(-1) || undefined,
+                          name: binding.expectedAccountUin,
+                          avatarUrl: '',
+                        });
+                      }
+                    }}
                     detailOnly
                     tasks={[task]}
                     onPause={onPause}
@@ -2866,7 +2924,13 @@ function CategoryChips({
     <div className="weq-exp-cats" {...multi.rootProps}>
       <div className="weq-exp-cats-head">
         <strong>好友分组</strong>
-        <small>{allActive ? `全部好友 · ${total} 人` : `已选 ${selected.size} 个分组`}</small>
+        <small>
+          {allActive ? (
+            <NumericText>{`全部好友 · ${total} 人`}</NumericText>
+          ) : (
+            <NumericText>{`已选 ${selected.size} 个分组`}</NumericText>
+          )}
+        </small>
       </div>
       {loading ? (
         <ChipsSkeleton />
@@ -2892,7 +2956,10 @@ function CategoryChips({
             className={`weq-exp-chip${allActive ? ' is-on' : ''}`}
             onClick={() => onChange(new Set())}
           >
-            全部好友 <b>{total}</b>
+            全部好友{' '}
+            <b>
+              <span className="weq-number weq-number-inherit">{total}</span>
+            </b>
           </button>
           {items.map((c) => (
             <button
@@ -2901,7 +2968,10 @@ function CategoryChips({
               className={`weq-exp-chip${selected.has(c.id) ? ' is-on' : ''}`}
               {...multi.itemProps(c.id)}
             >
-              {c.name} <b>{c.count}</b>
+              {c.name}{' '}
+              <b>
+                <span className="weq-number weq-number-inherit">{c.count}</span>
+              </b>
             </button>
           ))}
         </div>
@@ -2910,7 +2980,7 @@ function CategoryChips({
   );
 }
 
-/** 收藏类型多选（导出收藏）。空选 = 全部收藏。顺序与「我的收藏」弹窗一致。 */
+/** 收藏类型多选（导出收藏）。空选 = 全部收藏。顺序与「收藏」弹窗一致。 */
 const COLLECTION_KIND_FILTERS: Array<{ id: string; label: string }> = [
   { id: 'richMedia', label: '图文' },
   { id: 'link', label: '链接' },
@@ -2927,7 +2997,7 @@ const COLLECTION_KIND_LABEL: Record<string, string> = Object.fromEntries(
   COLLECTION_KIND_FILTERS.map((k) => [k.id, k.label]),
 );
 
-/** 收藏 kind → 行图标（对齐「我的收藏」弹窗的 kindIcon）。 */
+/** 收藏 kind → 行图标（对齐「收藏」弹窗的 kindIcon）。 */
 function collectionKindIcon(kind: string, size = 15): ReactElement {
   switch (kind) {
     case 'link':
@@ -3010,11 +3080,13 @@ function CollectionScope({
         <div className="weq-exp-cats-head">
           <strong>收藏类型</strong>
           <small>
-            {loading
-              ? '加载中…'
-              : allActive
-                ? `全部收藏 · ${fmtCount(total)} 条`
-                : `已选 ${selected.size} 类 · ${fmtCount(scoped.length)} 条`}
+            {loading ? (
+              '加载中…'
+            ) : allActive ? (
+              <NumericText>{`全部收藏 · ${fmtCount(total)} 条`}</NumericText>
+            ) : (
+              <NumericText>{`已选 ${selected.size} 类 · ${fmtCount(scoped.length)} 条`}</NumericText>
+            )}
           </small>
         </div>
         {loading ? (
@@ -3030,7 +3102,10 @@ function CollectionScope({
               className={`weq-exp-chip${allActive ? ' is-on' : ''}`}
               onClick={() => onChange(new Set())}
             >
-              全部收藏 <b>{total}</b>
+              全部收藏{' '}
+              <b>
+                <span className="weq-number weq-number-inherit">{total}</span>
+              </b>
             </button>
             {kinds.map((k) => (
               <button
@@ -3039,7 +3114,10 @@ function CollectionScope({
                 className={`weq-exp-chip${selected.has(k.id) ? ' is-on' : ''}`}
                 {...typesMulti.itemProps(k.id)}
               >
-                {k.label} <b>{counts[k.id] ?? 0}</b>
+                {k.label}{' '}
+                <b>
+                  <span className="weq-number weq-number-inherit">{counts[k.id] ?? 0}</span>
+                </b>
               </button>
             ))}
           </div>
@@ -3049,7 +3127,9 @@ function CollectionScope({
       <div className="weq-exp-friends" {...itemsMulti.rootProps}>
         <div className="weq-exp-friends-head">
           <strong>{allActive ? '全部收藏' : '所选类型'}</strong>
-          <small>{loading ? '加载中…' : `${fmtCount(filtered.length)} 条`}</small>
+          <small>
+            {loading ? '加载中…' : <NumericText>{`${fmtCount(filtered.length)} 条`}</NumericText>}
+          </small>
         </div>
         <div className="weq-message-scope-mode">
           <CheckPill
@@ -3108,7 +3188,11 @@ function CollectionScope({
                     {COLLECTION_KIND_LABEL[it.kind] ?? '其他'}
                   </span>
                   {fmtCollectDay(it.collectTime) ? (
-                    <small>{fmtCollectDay(it.collectTime)}</small>
+                    <small>
+                      <span className="weq-number weq-number-inherit">
+                        {fmtCollectDay(it.collectTime)}
+                      </span>
+                    </small>
                   ) : null}
                 </span>
               </div>
@@ -3215,13 +3299,23 @@ function ScheduleRow({
         </div>
         <div className="weq-exp-sched-card-meta">
           <span>
-            会话 <b>{schedule.conversations.length}</b>
+            会话{' '}
+            <b>
+              <span className="weq-number weq-number-inherit">{schedule.conversations.length}</span>
+            </b>
           </span>
           <span>
-            节奏 <b>{scheduleSummary(schedule)}</b>
+            节奏{' '}
+            <b>
+              <NumericText>{scheduleSummary(schedule)}</NumericText>
+            </b>
           </span>
           <span>
-            下次 <b>{fmtRunAt(next)}</b> · {fmtRel(next)}
+            下次{' '}
+            <b>
+              <span className="weq-number weq-number-inherit">{fmtRunAt(next)}</span>
+            </b>{' '}
+            · <span className="weq-number weq-number-inherit">{fmtRel(next)}</span>
           </span>
         </div>
         {schedule.history.length > 0 ? (
@@ -3256,6 +3350,7 @@ function ScheduleRow({
           <Zap size={14} />
         </button>
         <button
+          data-danger="outline"
           type="button"
           className="is-danger"
           onClick={onDelete}

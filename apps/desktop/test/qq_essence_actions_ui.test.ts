@@ -11,7 +11,7 @@ import { useViewState } from '../src/renderer/src/state/view';
 import { useQQEssence } from '../src/renderer/src/state/qqEssence';
 import type { QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
 import { projectGroupEssence } from '../src/renderer/src/lib/groupEssenceProjection';
-import { useToast } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 
 const state = vi.hoisted(() => ({
   configId: 'source-a',

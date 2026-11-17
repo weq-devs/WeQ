@@ -186,6 +186,7 @@ export interface MfMarkdownSeg {
   id: string;
   content: string;
   summary?: string;
+  flashTransferInfo?: Extract<SendElement, { kind: 'markdown' }>['flashTransferInfo'];
 }
 
 /** 表情弹射。 */
@@ -841,6 +842,7 @@ export function segsToRenderElements(segs: MfSeg[]): MfElement[] {
             markdownContent: seg.content,
             markdownTextSummary: seg.summary ?? '',
             markdownMeta: {},
+            ...(seg.flashTransferInfo ? { flashTransferInfo: seg.flashTransferInfo } : {}),
           },
         });
         break;
@@ -976,6 +978,7 @@ export function segToSendElement(seg: MfSeg): SendElement {
         kind: 'markdown',
         markdownContent: seg.content,
         ...(seg.summary ? { markdownTextSummary: seg.summary } : {}),
+        ...(seg.flashTransferInfo ? { flashTransferInfo: seg.flashTransferInfo } : {}),
       };
     case 'emojiBounce':
       return {
@@ -1401,6 +1404,21 @@ function replySummary(element: Record<string, unknown>): string | undefined {
   return text || undefined;
 }
 
+function markdownSegOf(element: Record<string, unknown>): MfMarkdownSeg {
+  const info = element.flashTransferInfo;
+  const fileSetId =
+    info && typeof info === 'object' ? str(info as Record<string, unknown>, 'fileSetId') : '';
+  return {
+    t: 'markdown',
+    id: mfId('seg'),
+    content: str(element, 'markdownContent'),
+    ...(str(element, 'markdownTextSummary')
+      ? { summary: str(element, 'markdownTextSummary') }
+      : {}),
+    ...(fileSetId ? { flashTransferInfo: { fileSetId } } : {}),
+  };
+}
+
 /**
  * 本库原始 wire 元素（`account.getRawElements` 的产物，bytes 已被 box 成
  * `{type:'Buffer',data}`）→ 分段。
@@ -1555,14 +1573,7 @@ export function codecElementToSeg(
       return { t: 'ark', id: mfId('seg'), arkData: str(element, 'arkData') };
     }
     case 'markdown':
-      return {
-        t: 'markdown',
-        id: mfId('seg'),
-        content: str(element, 'markdownContent'),
-        ...(str(element, 'markdownTextSummary')
-          ? { summary: str(element, 'markdownTextSummary') }
-          : {}),
-      };
+      return markdownSegOf(element);
     case 'multiMsg': {
       // resId 不一定就在 48601：部分卡片只有 XML 的 m_resid（见 forwardResIdOf），
       // 不给这层兜底的话，从聊天记录里再转一次会整段丢掉（resId 空 ⇒ 分段没内容）。
@@ -1752,14 +1763,7 @@ export function renderElementsToSegs(elements: MfElement[]): MfSeg[] {
         break;
       }
       case 'markdown':
-        segs.push({
-          t: 'markdown',
-          id: mfId('seg'),
-          content: str(data, 'markdownContent'),
-          ...(str(data, 'markdownTextSummary')
-            ? { summary: str(data, 'markdownTextSummary') }
-            : {}),
-        });
+        segs.push(markdownSegOf(data));
         break;
       case 'multiMsg': {
         const resId = forwardResIdOf(data);

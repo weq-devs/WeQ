@@ -85,6 +85,19 @@
   gap: 8px;
   margin-top: 16px;
 }
+.weq-data-saver-menu-metered {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  min-height: 36px;
+  font-size: 12px;
+}
+.weq-data-saver-menu-metered > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .weq-data-saver-duration {
   display: flex;
   flex-direction: column;

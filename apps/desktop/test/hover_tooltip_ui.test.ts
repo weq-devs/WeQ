@@ -152,7 +152,7 @@ it('受限 QQ 控件显示操作限制，不改写可用操作与其它禁用控
   try {
     act(() => root.render(createElement(HoverTooltip)));
     for (const [qq, disabled, expected] of [
-      [true, true, '受限模式下无法保存备注'],
+      [true, true, '在线能力受限，无法保存备注'],
       [true, false, '保存备注'],
       [false, true, '保存备注'],
     ] as const) {

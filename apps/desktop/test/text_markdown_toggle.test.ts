@@ -9,7 +9,7 @@ import {
   useTextMarkdownStore,
 } from '../src/renderer/src/state/textMarkdown';
 import { TextMarkdownMenuAction } from '../src/renderer/src/components/TextMarkdownMenuAction';
-import { qqMessageRenderer } from '../src/renderer/src/components/QqMessageContent';
+import { qqMessageRenderer } from '../src/renderer/src/components/QqMessageContent.shared';
 import { MessageContextMenu } from '../src/renderer/src/im-template/template/messageContextMenu';
 import { createTemplateDemoData } from './support/templateDemoData';
 import type { Message } from '../src/renderer/src/im-template/template/types';

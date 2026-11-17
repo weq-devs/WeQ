@@ -8,10 +8,12 @@
  */
 
 import type { ReactElement } from 'react';
-import { Minus, Sparkles } from 'lucide-react';
+import { Minus } from 'lucide-react';
+import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import { Modal } from '../../components/Dialog';
 import type { CloneTask } from './cloneTaskStore';
 import { CloneTaskLog } from './CloneTaskLog';
+import '../../styles/new-clone.css';
 
 export type { CloneTask } from './cloneTaskStore';
 
@@ -39,13 +41,13 @@ export function CloneProgressModal({
         : `正在${action}…`;
 
   return (
-    <Modal presentation="popover" onClose={onHide} width={460}>
+    <Modal presentation="popover" onClose={onHide} width={460} className="weq-clone-dialog">
       <div className="weq-clone-modal">
         <header className="weq-clone-modal-head">
           <span className="weq-clone-modal-icon">
-            <Sparkles size={16} />
+            <FEATURE_ICONS.clone size={16} aria-hidden />
           </span>
-          <strong>
+          <strong title={`${title}：${task.name}`}>
             {title}：{task.name}
           </strong>
           {running ? (
@@ -70,7 +72,9 @@ export function CloneProgressModal({
               <div className="weq-clone-progress-track">
                 <div className="weq-clone-progress-fill" style={{ width: `${task.percent}%` }} />
               </div>
-              <div className="weq-clone-progress-pct">{Math.round(task.percent)}%</div>
+              <div className="weq-clone-progress-pct">
+                <span className="weq-number weq-number-inherit">{Math.round(task.percent)}</span>%
+              </div>
             </>
           )}
           <p className="weq-clone-progress-hint">
@@ -84,31 +88,31 @@ export function CloneProgressModal({
                   ? '旧克隆体已保留，可关闭后重试更新。'
                   : '可关闭后重新发起克隆。'}
           </p>
-          <div className="weq-clone-actions">
-            {running ? (
-              <button type="button" className="weq-set-btn weq-set-btn-soft" onClick={onHide}>
-                隐藏到任务列表
-              </button>
-            ) : task.status === 'done' ? (
-              <button
-                type="button"
-                className="weq-set-btn"
-                onClick={() => onOpenPersona(task.personaId)}
-              >
-                查看克隆体
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="weq-set-btn weq-set-btn-soft"
-                onClick={() => onDismiss(task.personaId)}
-              >
-                关闭
-              </button>
-            )}
-          </div>
           <CloneTaskLog task={task} />
         </div>
+        <footer className="weq-clone-actions weq-clone-footer">
+          {running ? (
+            <button type="button" className="weq-set-btn weq-set-btn-soft" onClick={onHide}>
+              隐藏到任务列表
+            </button>
+          ) : task.status === 'done' ? (
+            <button
+              type="button"
+              className="weq-set-btn"
+              onClick={() => onOpenPersona(task.personaId)}
+            >
+              查看克隆体
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-soft"
+              onClick={() => onDismiss(task.personaId)}
+            >
+              关闭
+            </button>
+          )}
+        </footer>
       </div>
     </Modal>
   );

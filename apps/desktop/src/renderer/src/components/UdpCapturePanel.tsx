@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import { TimeLabel } from './TimeLabel';
 import * as timeFormat from '@weq/time';
 /**
@@ -19,9 +20,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import { ArrowDown, ArrowUp, Download, Pause, Play, RefreshCw, Square, Trash2 } from 'lucide-react';
 import { client } from '../trpc/client';
 import { useRenderDocument } from '../lib/renderDocument';
-import { useToast } from './Toast';
+import { useToast } from './Toast.shared';
 import { HexDump } from './HexDump';
-import { decodeAnyBytes, RvTree } from './ReverseTool';
+import { decodeAnyBytes } from './ReverseTool.shared';
+import { RvTree } from './ReverseTool';
 import { ProcessPicker } from './ProcessPicker';
 import '../styles/udp-capture.css';
 
@@ -159,15 +161,23 @@ function DatagramDetail({ frame }: { frame: UdpFrameWire }): ReactElement {
               </tr>
               <tr>
                 <th>源</th>
-                <td className="weq-udp-mono">{udp ? `${udp.src}:${udp.srcPort}` : '—'}</td>
+                <td className="weq-udp-mono">
+                  {udp ? <NumericText>{`${udp.src}:${udp.srcPort}`}</NumericText> : '—'}
+                </td>
               </tr>
               <tr>
                 <th>目的</th>
-                <td className="weq-udp-mono">{udp ? `${udp.dst}:${udp.dstPort}` : '—'}</td>
+                <td className="weq-udp-mono">
+                  {udp ? <NumericText>{`${udp.dst}:${udp.dstPort}`}</NumericText> : '—'}
+                </td>
               </tr>
               <tr>
                 <th>载荷</th>
-                <td>{fmtBytes(frameBytes(frame))}</td>
+                <td>
+                  <span className="weq-number weq-number-inherit">
+                    {fmtBytes(frameBytes(frame))}
+                  </span>
+                </td>
               </tr>
               <tr>
                 <th>首字节</th>
@@ -181,7 +191,9 @@ function DatagramDetail({ frame }: { frame: UdpFrameWire }): ReactElement {
               </tr>
               <tr>
                 <th>序号</th>
-                <td className="weq-udp-mono">#{frame.cursor}</td>
+                <td className="weq-udp-mono">
+                  #<span className="weq-number weq-number-inherit">{frame.cursor}</span>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -438,20 +450,20 @@ export function UdpCapturePanel(): ReactElement {
           className="weq-udp-env"
           title={session ? `${session.iface} · 端口 ${session.port}` : '未开始'}
         >
-          {session ? `${session.iface}:${session.port}` : '未连接'}
+          {session ? <NumericText>{`${session.iface}:${session.port}`}</NumericText> : '未连接'}
         </span>
         <span className="weq-udp-metrics">
           <span title="列表只保留最近 4000 条；完整记录持续写入本地 pcapng 文件">
-            列表 {frames.length}
+            列表 <span className="weq-number weq-number-inherit">{frames.length}</span>
           </span>
           {dropped > 0 ? (
             <span title="环形缓冲淘汰：取帧太慢，数据被更新的帧挤掉了（不是网络丢包）">
-              缓冲溢出 {dropped}
+              缓冲溢出 <span className="weq-number weq-number-inherit">{dropped}</span>
             </span>
           ) : null}
           {kernelLost > 0 ? (
             <span className="is-bad" title="内核 / 回调层丢包：数据真的没了">
-              真丢包 {kernelLost}
+              真丢包 <span className="weq-number weq-number-inherit">{kernelLost}</span>
             </span>
           ) : null}
         </span>
@@ -463,7 +475,11 @@ export function UdpCapturePanel(): ReactElement {
           onClick={() => setPickerOpen(true)}
           disabled={running}
         >
-          {pid === null ? '选择进程…' : `${pidLabel || 'pid'} (${pid})`}
+          {pid === null ? (
+            '选择进程…'
+          ) : (
+            <NumericText>{`${pidLabel || 'pid'} (${pid})`}</NumericText>
+          )}
         </button>
         <button
           type="button"
@@ -521,6 +537,7 @@ export function UdpCapturePanel(): ReactElement {
           <Download size={14} /> 全量 pcapng
         </button>
         <button
+          data-danger="outline"
           type="button"
           className="weq-udp-btn"
           onClick={() => {
@@ -554,7 +571,9 @@ export function UdpCapturePanel(): ReactElement {
       ) : null}
       {kernelLost > 0 ? (
         <div className="weq-udp-warn is-error">
-          <strong>内核丢包 {kernelLost} 条</strong>
+          <strong>
+            内核丢包 <span className="weq-number weq-number-inherit">{kernelLost}</span> 条
+          </strong>
           <span>
             这部分数据真的没了（BPF 环形缓冲或暂存队列满）。通常是包率过高，
             可以试着只抓一个方向或缩短抓包时长。
@@ -563,10 +582,13 @@ export function UdpCapturePanel(): ReactElement {
       ) : null}
       {dropped > 0 ? (
         <div className="weq-udp-warn">
-          <strong>缓冲溢出 {dropped} 条</strong>
+          <strong>
+            缓冲溢出 <span className="weq-number weq-number-inherit">{dropped}</span> 条
+          </strong>
           <span>
             取帧速度跟不上包率，旧数据被新数据挤掉了（<b>不是网络丢包</b>）。 前端只保留最近{' '}
-            {MAX_FRAMES} 条，长时间抓包建议及时导出。
+            <span className="weq-number weq-number-inherit">{MAX_FRAMES}</span>{' '}
+            条，长时间抓包建议及时导出。
           </span>
         </div>
       ) : null}
@@ -644,9 +666,15 @@ export function UdpCapturePanel(): ReactElement {
                     {frame.direction === 'c2s' ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
                   </span>
                   <span className="weq-udp-mono weq-udp-ep">
-                    {udp ? `${udp.src}:${udp.srcPort} → ${udp.dst}:${udp.dstPort}` : '—'}
+                    {udp ? (
+                      <NumericText>{`${udp.src}:${udp.srcPort} → ${udp.dst}:${udp.dstPort}`}</NumericText>
+                    ) : (
+                      '—'
+                    )}
                   </span>
-                  <span className="weq-udp-mono">{frameBytes(frame)}</span>
+                  <span className="weq-udp-mono">
+                    <span className="weq-number weq-number-inherit">{frameBytes(frame)}</span>
+                  </span>
                   <span>
                     {kind ? (
                       <span className={`weq-udp-kind is-${kind.tone}`}>{kind.label}</span>
@@ -664,8 +692,12 @@ export function UdpCapturePanel(): ReactElement {
             ) : null}
           </div>
           <div className="weq-udp-foot">
-            共 {visible.length} 项
-            {visible.length !== frames.length ? `（已筛选，总计 ${frames.length}）` : ''}
+            共 <span className="weq-number weq-number-inherit">{visible.length}</span> 项
+            {visible.length !== frames.length ? (
+              <NumericText>{`（已筛选，总计 ${frames.length}）`}</NumericText>
+            ) : (
+              ''
+            )}
           </div>
         </div>
         <div className="weq-udp-detail-pane">

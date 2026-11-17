@@ -40,6 +40,45 @@ test('安装依赖的 CI 与发布任务先检出文档子模块，匹配冻结�
   }
 });
 
+test('文档门禁先验证主仓记录的提交可拉取，再初始化子模块', () => {
+  const docs = load(
+    readFileSync(new URL('../.github/workflows/docs.yml', import.meta.url), 'utf8'),
+  );
+  const steps = docs.jobs.pointer.steps;
+  const checkout = steps.find((step) => step.uses === 'actions/checkout@v4');
+  assert.notEqual(checkout.with?.submodules, 'recursive');
+  const verify = steps.findIndex((step) => step.run === 'node scripts/check-docs-submodule.mjs');
+  const initialize = steps.findIndex(
+    (step) => step.run === 'git submodule update --init --recursive docs',
+  );
+  assert.ok(verify >= 0 && initialize > verify);
+  const regression = workflow.jobs['test-suites'].steps.find(
+    (step) => step.name === 'Check CI orchestration and reports',
+  );
+  assert.match(regression.run, /scripts\/check-docs-submodule\.test\.mjs/);
+});
+
+test('真实开发服务集成测试在三平台安装依赖后执行，不混入无依赖启动检查', () => {
+  const steps = workflow.jobs['dev-bootstrap'].steps;
+  const bootstrap = steps.findIndex(
+    (step) => step.name === 'Test dependency-free development bootstrap',
+  );
+  const install = steps.findIndex((step) => /pnpm install/.test(step.run ?? ''));
+  const integration = steps.findIndex(
+    (step) => step.name === 'Test development server integration',
+  );
+  assert.ok(bootstrap >= 0 && install > bootstrap && integration > install);
+  for (const file of [
+    'scripts/dev-web.integration.test.mjs',
+    'scripts/dev-electron.integration.test.mjs',
+  ]) {
+    assert.ok(!steps[bootstrap].run.includes(file), `${file} 不属于无依赖检查`);
+    assert.ok(steps[integration].run.includes(file), `${file} 必须实际执行`);
+  }
+  assert.equal(steps[install].run, 'pnpm install --frozen-lockfile');
+  assert.equal(workflow.jobs['dev-bootstrap'].env.ELECTRON_SKIP_BINARY_DOWNLOAD, '1');
+});
+
 test('类型检查分组覆盖每个包和桌面端两个配置，保留完整汇总门禁', () => {
   const suites = workflow.jobs['typecheck-suites'];
   assert.equal(suites.strategy['fail-fast'], false);
@@ -337,7 +376,6 @@ test('大包分片连续无缺口，其他包和 Web 仍完整运行，全部结
     'windows-latest',
     'macos-latest',
   ]);
-  assert(!bootstrap.steps.some((step) => /pnpm install/.test(step.run ?? '')));
   const bootstrapTest = bootstrap.steps.find(
     (step) => step.name === 'Test dependency-free development bootstrap',
   );

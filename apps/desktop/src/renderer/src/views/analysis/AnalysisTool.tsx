@@ -1,9 +1,9 @@
 import { TimeLabel } from '../../components/TimeLabel';
 import * as timeFormat from '@weq/time';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Play, RotateCw, Search, Users } from 'lucide-react';
+import { ArrowLeft, Play, RefreshCw, Search, Users } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import { WindowedList } from '../../components/WindowedList';
 import { QqAvatar } from '../../components/QqAvatar';
 import { useViewState } from '../../state/view';
@@ -507,7 +507,10 @@ function AnalysisToolForm({
           {messageIds !== undefined ? (
             <section className="weq-analysis-card">
               <h3>分析范围</h3>
-              <p className="weq-analysis-scope-note">已选 {messageIds.length} 条消息</p>
+              <p className="weq-analysis-scope-note">
+                已选 {<span className="weq-number weq-number-inherit">{messageIds.length}</span>}{' '}
+                条消息
+              </p>
             </section>
           ) : (
             <section className="weq-analysis-card">
@@ -630,7 +633,7 @@ function AnalysisToolForm({
                   className="weq-analysis-retry"
                   onClick={() => void source.refetch()}
                 >
-                  <RotateCw size={14} /> 重试读取对象
+                  <RefreshCw size={14} aria-hidden /> 重试读取对象
                 </button>
               ) : (
                 <ObjectPicker

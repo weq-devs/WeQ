@@ -20,8 +20,9 @@ const mobile = params.has('mobile');
 document.documentElement.dataset.weqLayout = mobile ? 'single' : 'split';
 const user = {
   id: 'u_self',
+  uid: 'u_self',
   username: '合成账号',
-  displayName: '合成账号',
+  displayName: params.has('long-name') ? '用于验证竖屏顶栏省略的很长合成昵称' : '合成账号',
   identityLabel: 'QQ',
   identityValue: '10001',
   avatarUrl: null,
@@ -46,6 +47,7 @@ createRoot(document.getElementById('root')!).render(
           <div className="identity-mobile weq-web-shell">
             <MobileWebNavigation
               user={user}
+              hidden={false}
               view="messages"
               query=""
               onQueryChange={noop}

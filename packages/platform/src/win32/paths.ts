@@ -5,11 +5,17 @@
  *   <TencentFilesRoot>/<uin>/nt_qq/nt_db/nt_msg.db   ← per-account msg db
  *   <TencentFilesRoot>/nt_qq/global/nt_db/login.db   ← global accounts
  *
- * `TencentFilesRoot` can live in several places (in priority order):
- *   0. UserDataSavePath from <Public>/Documents/Tencent/QQ/UserDataInfo.ini
- *   1. ~/Documents/Tencent Files
- *   2. ~/<Admin*>/Documents/Tencent Files            ← legacy/admin profiles
- *   3. ~/Tencent Files                               ← portable installs
+ * `TencentFilesRoot` can live in several places. `UserDataInfo.ini` records a
+ * `UserDataSavePathType` that decides which directory QQ actually uses:
+ *   2  → UserDataSavePath（自定义目录，例如换盘 / 重装后指向旧数据）
+ *   1  → ~/Documents/Tencent Files
+ *   其它（0、3、未知取值、字段缺失）→ ~/Documents/QQ   ← 旧版 QQ 与迁移安装
+ * 只有 type=2 时 QQ 才认 savePath；其它类型它会被忽略。但用户手工改 ini
+ * 指回旧数据的情况真实存在，所以 savePath 一律保留为候选，只是降级到默认
+ * 位置之后，不直接丢掉。
+ *
+ * Candidate order (override 之外): type 决定的目录 → 其它默认位置 →
+ * ~/Tencent Files（便携版）→ ~/<Admin*>/Documents/Tencent Files（旧管理员配置）.
  *
  * QQ.exe layout:
  *   <QQRoot>/QQ.exe
@@ -23,18 +29,26 @@ import { dirname, join } from 'node:path';
 
 // ---------- Tencent Files (user data) ------------------------------------
 
+/** `[UserDataSet]` 里与根目录有关的两项。 */
+export interface UserDataInfo {
+  /**
+   * `UserDataSavePathType`。QQ 用它决定真正的数据目录：`2` 才认
+   * `UserDataSavePath`，`1` 是 `Documents/Tencent Files`，其余取值
+   * （0、3、未知、字段缺失）都是旧版布局 `Documents/QQ`。
+   */
+  savePathType: number | null;
+  /** `UserDataSavePath` 原始值（未判断 type）；缺失或为空时 null。 */
+  savePath: string | null;
+}
+
 /**
- * Authoritative source: QQ writes the real user-data directory into a
- * machine-wide ini at `<Public>/Documents/Tencent/QQ/UserDataInfo.ini`.
- * `<Public>` sits next to the user's home (e.g. `C:\Users\Public` alongside
- * `C:\Users\<name>`), so we resolve it via `dirname(home)/Public`.
+ * 读机器级 ini：`<Public>/Documents/Tencent/QQ/UserDataInfo.ini`。
+ * `<Public>` 在用户 home 旁边（`C:\Users\Public` 与 `C:\Users\<name>` 同级），
+ * 所以用 `dirname(home)/Public` 定位。ini 缺失 / 读不了时返回 null。
  *
- * The `[UserDataSet]` section's `UserDataSavePath` IS the Tencent Files root
- * (e.g. `D:\estkim\T\Tencent Files`). Returns null if the ini is missing,
- * unreadable, or has no usable `UserDataSavePath` — callers then fall back to
- * the hard-coded guesses below.
+ * 只认 `[UserDataSet]` 段，避免误读 `[UserDataImportSet]` 的 `OldVerDataPath`。
  */
-export function tencentFilesRootFromUserDataInfo(home = homedir()): string | null {
+export function readUserDataInfo(home = homedir()): UserDataInfo | null {
   const ini = join(dirname(home), 'Public', 'Documents', 'Tencent', 'QQ', 'UserDataInfo.ini');
   let text: string;
   try {
@@ -43,8 +57,7 @@ export function tencentFilesRootFromUserDataInfo(home = homedir()): string | nul
     return null;
   }
 
-  // Section-aware scan: only honor `UserDataSavePath` inside `[UserDataSet]`,
-  // so we never pick up `[UserDataImportSet]`'s `OldVerDataPath`.
+  const info: UserDataInfo = { savePathType: null, savePath: null };
   let inUserDataSet = false;
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
@@ -55,11 +68,39 @@ export function tencentFilesRootFromUserDataInfo(home = homedir()): string | nul
     if (!inUserDataSet) continue;
     const eq = line.indexOf('=');
     if (eq === -1) continue;
-    if (line.slice(0, eq).trim().toLowerCase() !== 'userdatasavepath') continue;
+    const key = line.slice(0, eq).trim().toLowerCase();
     const value = line.slice(eq + 1).trim();
-    return value.length > 0 ? value : null;
+    if (key === 'userdatasavepath') {
+      info.savePath = value.length > 0 ? value : null;
+    } else if (key === 'userdatasavepathtype') {
+      info.savePathType = /^-?\d+$/.test(value) ? Number(value) : null;
+    }
   }
-  return null;
+  return info;
+}
+
+/**
+ * `type` 决定的默认数据目录。`type=2` 时就是 `savePath` 本身，所以调用方
+ * 需要自己把它拼进候选列表；这里只处理两个固定位置。
+ */
+function defaultRootForType(home: string, savePathType: number | null): string {
+  return savePathType === 1
+    ? join(home, 'Documents', 'Tencent Files')
+    : join(home, 'Documents', 'QQ');
+}
+
+/**
+ * QQ 实际认的 Tencent Files 根目录，或 null。
+ *
+ * 只有 `UserDataSavePathType=2` 时 `UserDataSavePath` 才生效；其它 type 下
+ * QQ 直接忽略它。用户手工改 ini 指回旧数据的情况真实存在（例如重装系统后
+ * 聊天记录还在 D 盘），所以 {@link candidateTencentFilesRoots} 仍会把
+ * savePath 收进候选，只是排在 type 决定的目录之后。
+ */
+export function tencentFilesRootFromUserDataInfo(home = homedir()): string | null {
+  const info = readUserDataInfo(home);
+  if (!info) return null;
+  return info.savePathType === 2 ? info.savePath : null;
 }
 
 /**
@@ -115,9 +156,12 @@ export function normalizeQqDataRoot(picked: string): string {
  * A user-picked `overrideRoot` (when it exists on disk) is prepended so it
  * wins over every detected location — this is the single seam that makes the
  * whole platform (login.db decrypt, per-account db lookup, stats) honor a
- * manually-set data directory. Then we trust `UserDataInfo.ini` (the path QQ
- * itself recorded); only if that's unavailable do we fall back to the
- * hard-coded location guesses.
+ * manually-set data directory.
+ *
+ * 之后按 `UserDataInfo.ini` 的 `UserDataSavePathType` 决定顺序：
+ *   - type=2：QQ 认 `UserDataSavePath`，它排第一；
+ *   - 其它：QQ 用 `Documents/QQ`（旧版布局），savePath 仅作降级候选，
+ *     排在默认位置之后 —— QQ 会忽略它，但用户手改 ini 指回旧数据时仍能兜住。
  */
 export function candidateTencentFilesRoots(
   home = homedir(),
@@ -125,19 +169,26 @@ export function candidateTencentFilesRoots(
 ): string[] {
   const roots: string[] = [];
   if (overrideRoot && existsSync(overrideRoot)) roots.push(overrideRoot);
-  const fromIni = tencentFilesRootFromUserDataInfo(home);
-  if (fromIni) roots.push(fromIni);
-  roots.push(join(home, 'Documents', 'Tencent Files'), join(home, 'Tencent Files'));
-  // Walk one level deep for `<home>/<Admin*>/Documents/Tencent Files`.
+  const info = readUserDataInfo(home);
+  const savePath = info?.savePath ?? null;
+  const savePathType = info?.savePathType ?? null;
+  if (savePathType === 2 && savePath) roots.push(savePath);
+  roots.push(defaultRootForType(home, savePathType));
+  // 非 type=2 时 QQ 不用 savePath，但用户可能手工改 ini 指回旧数据 —— 保留兜底。
+  if (savePathType !== 2 && savePath) roots.push(savePath);
+  roots.push(join(home, 'Tencent Files'));
+  // Walk one level deep for `<home>/<Admin*>/Documents/{Tencent Files,QQ}`.
   // Some Windows builds nest the real Documents under a legacy admin profile.
   try {
     for (const entry of readdirSync(home)) {
       if (!entry.toLowerCase().startsWith('admin')) continue;
-      const nested = join(home, entry, 'Documents', 'Tencent Files');
-      roots.push(nested);
+      roots.push(
+        join(home, entry, 'Documents', 'Tencent Files'),
+        join(home, entry, 'Documents', 'QQ'),
+      );
     }
   } catch {
-    /* home unreadable — fall through with the two static roots */
+    /* home unreadable — fall through with the static roots above */
   }
   // Dedupe so an override that equals a detected root isn't probed twice.
   return [...new Set(roots)];

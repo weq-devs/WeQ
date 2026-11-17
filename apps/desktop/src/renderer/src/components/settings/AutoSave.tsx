@@ -1,11 +1,11 @@
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { RotateCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { SettingsSaveQueue, settingsSaves } from '../../lib/settingsSaveQueue';
 import { useDraftProtection } from '../../lib/draftClose';
-import { SaveStatusSlotContext } from './controls';
+import { SaveStatusSlotContext } from './controls.shared';
 import { SettingsResetCardContext } from './resetContext';
-import { usePageSnapshotKey } from '../PageSnapshots';
+import { usePageSnapshotKey } from '../PageSnapshots.shared';
 import '../../styles/settings-autosave.css';
 
 interface AutoSaveProps<T> {
@@ -132,7 +132,7 @@ function AutoSaveField<T>({
           aria-label="重试保存"
           onClick={() => void q.flush()}
         >
-          <RotateCw size={14} />
+          <RefreshCw size={14} aria-hidden />
         </button>
       ) : null}
     </span>

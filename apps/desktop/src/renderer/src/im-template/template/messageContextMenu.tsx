@@ -22,14 +22,15 @@ import {
   Undo2,
 } from 'lucide-react';
 import { MessageMenuFeedbackContext } from '../../lib/messageMenuFeedback';
-import { MessageMenuButton, MessageMenuContext } from '../../components/MessageMenuButton';
+import { MessageMenuButton } from '../../components/MessageMenuButton';
+import { MessageMenuContext } from '../../components/MessageMenuButton.shared';
 import type { Message } from './types';
 import { cn } from './classNames';
-import { canRepeatMessage } from '../../lib/messageRepeat';
+import { canRepeatMessage, forwardUnsupportedReason } from '../../lib/messageRepeat';
 import { messageMediaTarget } from '../../lib/messageMediaTarget';
 import { useSurfaceOutside } from '../../lib/surfaceOutside';
-import { useTabActive } from '../../components/RetainedTabs';
-import { IS_WEB } from '../../lib/target';
+import { useTabActive } from '../../components/RetainedTabs.shared';
+import { IS_WEB } from '../../lib/target.shared';
 import { VoiceTranscribeMenuAction } from '../../components/VoiceTranscribeMenuAction';
 import { TextMarkdownMenuAction } from '../../components/TextMarkdownMenuAction';
 import type { MessageMediaTarget } from '../../../../shared/message_media';
@@ -62,6 +63,7 @@ type Props = {
   onClose?: () => void;
   onCopy: (message: Message) => void | Promise<void>;
   onForward?: (message: Message) => void;
+  forwardBlockedReason?: string | null;
   onMultiSelect?: (message: Message) => void;
   onReply?: (message: Message) => void;
   replyBlockedReason?: string | null;
@@ -257,7 +259,7 @@ export function MessageContextMenu(props: Props) {
           aria-label={item.label}
           title={item.reason || item.label}
           disabled={!item.run || Boolean(item.reason)}
-          data-danger={item.danger || undefined}
+          data-danger={item.danger ? 'outline' : undefined}
           onClick={item.run}
         >
           {item.icon}
@@ -359,7 +361,15 @@ export function MessageContextMenu(props: Props) {
                   call(props.onReply),
                   props.replyBlockedReason,
                 ),
-                action('forward', '转发', <Forward {...icon} />, call(props.onForward)),
+                action(
+                  'forward',
+                  '转发',
+                  <Forward {...icon} />,
+                  call(props.onForward),
+                  props.forwardBlockedReason,
+                  Boolean(props.onForward) &&
+                    forwardUnsupportedReason(message.qqElements ?? []) === null,
+                ),
                 action(
                   'repeat',
                   '+1',

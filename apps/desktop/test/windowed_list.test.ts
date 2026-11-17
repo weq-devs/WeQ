@@ -1,7 +1,8 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { visibleListRange, WindowedList } from '../src/renderer/src/components/WindowedList';
+import { visibleListRange } from '../src/renderer/src/components/WindowedList.shared';
+import { WindowedList } from '../src/renderer/src/components/WindowedList';
 
 const observers: TestResizeObserver[] = [];
 

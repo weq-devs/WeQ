@@ -73,6 +73,17 @@ try {
         false,
       );
       assert.equal(await page.getByText('同名配置', { exact: true }).count(), 2);
+      const clone = page.getByRole('button', { name: '克隆会话', exact: true });
+      assert.equal(await clone.getAttribute('aria-expanded'), 'false');
+      assert.equal(await page.getByText('表达风格库', { exact: true }).count(), 0);
+      await clone.focus();
+      await clone.press('Enter');
+      await page.getByText('表达风格库', { exact: true }).waitFor();
+      assert.equal(await clone.getAttribute('aria-expanded'), 'true');
+      await page.getByRole('button', { name: 'WeQ 助手', exact: true }).click();
+      assert.equal(await page.getByText('图片分析', { exact: true }).count(), 2);
+      await clone.press('Space');
+      assert.equal(await page.getByText('表达风格库', { exact: true }).count(), 0);
       await page.getByText('请求次数', { exact: true }).last().click();
       await page.locator('.weq-usage-line-dot').nth(1).focus();
       await page.locator('.weq-usage-line-tooltip').waitFor();
@@ -92,6 +103,12 @@ try {
       );
       await page.getByRole('radio', { name: '近 7 天', exact: true }).click();
       await page.getByText('每份账本最多保留', { exact: false }).click();
+      await page.getByRole('button', { name: '克隆会话', exact: true }).click();
+      await page.getByRole('button', { name: 'WeQ 助手', exact: true }).click();
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+        false,
+      );
       if (output)
         await page.screenshot({ path: resolve(output, `${width}-${theme}.png`), fullPage: true });
     }
@@ -122,7 +139,7 @@ try {
   }
   assert.deepEqual(errors, []);
   console.log(
-    'API 用量：8 组尺寸／主题与 6 种状态通过，含筛选、趋势切换、键盘提示、仅失败重试和已删除克隆。',
+    'API 用量：8 组尺寸／主题与 6 种状态通过，含两级分类、键盘展开收起、共用图片归属、筛选、趋势切换、仅失败重试和已删除克隆。',
   );
 } finally {
   await browser?.close();

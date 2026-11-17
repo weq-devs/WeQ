@@ -16,6 +16,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AvatarCacheService } from '../../bootstrap/media_cache';
+import type { ExportCheckpoint } from './checkpoint';
 
 export interface AvatarExportResult {
   /** Distinct senders we attempted. */
@@ -27,6 +28,7 @@ export interface AvatarExportResult {
 }
 
 interface AvatarExportOptions {
+  checkpoint?: ExportCheckpoint;
   localOnly?: boolean;
   localFile?: (uin: string) => Promise<string | null>;
   concurrency?: number;
@@ -143,15 +145,22 @@ export async function exportAvatars(
   await runWithConcurrency(targets, opts.concurrency ?? 8, async (uin) => {
     if (opts.signal?.aborted) return;
     try {
-      const local = await opts.localFile?.(uin);
-      const blob = local
-        ? { data: await readFile(local), contentType: extForLocalFile(local) }
-        : opts.localOnly
-          ? await avatarCache.getLocal(avatarUrlForUin(uin))
-          : await avatarCache.get(avatarUrlForUin(uin));
-      if (!blob) throw new Error('本地未缓存');
-      if (opts.signal?.aborted) return;
-      await writeFile(join(avatarsDir, `${uin}.${extForContentType(blob.contentType)}`), blob.data);
+      const save = async () => {
+        const local = await opts.localFile?.(uin);
+        const blob = local
+          ? { data: await readFile(local), contentType: extForLocalFile(local) }
+          : opts.localOnly
+            ? await avatarCache.getLocal(avatarUrlForUin(uin))
+            : await avatarCache.get(avatarUrlForUin(uin));
+        if (!blob) throw new Error('本地未缓存');
+        opts.signal?.throwIfAborted();
+        const path = join(avatarsDir, `${uin}.${extForContentType(blob.contentType)}`);
+        await writeFile(path, blob.data);
+        return path;
+      };
+      if (opts.checkpoint)
+        await opts.checkpoint.run(['avatar', uin], save, (path) => (path ? [path] : []));
+      else await save();
       result.ok += 1;
     } catch {
       result.failed += 1;

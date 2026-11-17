@@ -2,7 +2,8 @@ import { act, createElement as h, useLayoutEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { PageSnapshots, usePageState } from '../src/renderer/src/components/PageSnapshots';
+import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
+import { usePageState } from '../src/renderer/src/components/PageSnapshots.shared';
 import { pageSnapshots, pageValue } from '../src/renderer/src/lib/pageSnapshots';
 import {
   noopChatShellHistoryAdapter,

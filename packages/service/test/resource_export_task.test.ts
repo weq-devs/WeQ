@@ -9,20 +9,36 @@ import { networkCost, UNKNOWN_NETWORK } from '../src/common/data_saver';
 import { networkScope } from '../src/common/network_scope';
 
 const roots: string[] = [];
+const managers: ExportTaskManager[] = [];
+async function settled(manager: ExportTaskManager) {
+  const pending = manager as unknown as {
+    queue: Promise<void>;
+    outputSaves: Map<string, Promise<string>>;
+  };
+  await pending.queue;
+  await Promise.all(pending.outputSaves.values());
+}
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'weq-resource-task-'));
   roots.push(root);
   const cache = join(root, 'cache');
-  return { root, cache, manager: new ExportTaskManager({} as MsgService, cache) };
+  const manager = new ExportTaskManager({} as MsgService, cache);
+  managers.push(manager);
+  return { root, cache, manager, done: () => settled(manager) };
 }
-afterEach(() => {
+afterEach(async () => {
+  for (const manager of managers.splice(0)) {
+    for (const task of manager.listTasks())
+      if (task.status === 'running' || task.status === 'pending') manager.cancelTask(task.id);
+    await settled(manager);
+  }
   updateTransferPolicy('auto', UNKNOWN_NETWORK);
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 describe('独立资源沿用导出任务生命周期', () => {
   it('继续一个策略暂停任务只放行其执行上下文，小附件不按批量下载暂停', async () => {
     const f = fixture();
-    updateClientNetwork('manual-phone', networkCost(false, true, 'phone'));
+    updateClientNetwork('manual-phone', networkCost(true, true, 'phone'));
     const run = vi.fn(async () => {
       expect(networkScope.getStore()?.override).toBe(true);
       return { total: 0, ok: 0, failed: [] };
@@ -39,7 +55,8 @@ describe('独立资源沿用导出任务生命周期', () => {
     );
     await vi.waitFor(() => expect(f.manager.getTask(id)?.networkPaused).toBe(true));
     expect(f.manager.resumeTask(id)).toBe(true);
-    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
+    await (f.manager as unknown as { queue: Promise<void> }).queue;
+    expect(run).toHaveBeenCalledOnce();
     const small = vi.fn(async () => ({ total: 0, ok: 0, failed: [] }));
     await networkScope.run(
       { clientId: 'manual-phone', restricted: true, intent: 'interactive' },
@@ -52,11 +69,12 @@ describe('独立资源沿用导出任务生命周期', () => {
           savePolicy: { mode: 'before', directory: f.root },
         }),
     );
-    await vi.waitFor(() => expect(small).toHaveBeenCalledOnce());
+    await (f.manager as unknown as { queue: Promise<void> }).queue;
+    expect(small).toHaveBeenCalledOnce();
   });
   it('受限手机创建的联网任务先暂停，其他端和本地任务继续，恢复后只启动策略暂停任务', async () => {
     const f = fixture();
-    updateClientNetwork('export-phone', networkCost(false, true, 'phone'));
+    updateClientNetwork('export-phone', networkCost(true, true, 'phone'));
     const run = vi.fn(async () => ({ total: 0, ok: 0, failed: [] }));
     const id = await networkScope.run(
       { clientId: 'export-phone', restricted: true, intent: 'interactive' },
@@ -79,8 +97,9 @@ describe('独立资源沿用导出任务生命周期', () => {
     });
     await vi.waitFor(() => expect(localRun).toHaveBeenCalledOnce());
     updateClientNetwork('export-phone', networkCost(false, false, 'phone'));
-    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
-    await vi.waitFor(() => expect(f.manager.getTask(id)?.status).toBe('completed'));
+    await f.done();
+    expect(run).toHaveBeenCalledOnce();
+    expect(f.manager.getTask(id)?.status).toBe('completed');
   });
   it('资源附加数据选择贯穿任务参数，不被归档默认选项覆盖', async () => {
     const f = fixture();
@@ -106,7 +125,8 @@ describe('独立资源沿用导出任务生命周期', () => {
         };
       },
     });
-    await vi.waitFor(() => expect(f.manager.getTask(id)?.save?.status).toBe('saved'));
+    await f.done();
+    expect(f.manager.getTask(id)?.save?.status).toBe('saved');
     const text = readFileSync(
       join(f.manager.getTask(id)!.bundleDir!, 'resource-results.json'),
       'utf8',
@@ -127,7 +147,8 @@ describe('独立资源沿用导出任务生命周期', () => {
         return { total: 1, ok: 1, failed: [] };
       },
     });
-    await vi.waitFor(() => expect(f.manager.getTask(id)?.save?.status).toBe('saved'));
+    await f.done();
+    expect(f.manager.getTask(id)?.save?.status).toBe('saved');
     const task = f.manager.getTask(id)!;
     expect(readdirSync(task.bundleDir!)).toEqual(['files']);
     expect(readFileSync(join(task.bundleDir!, 'files', 'resource.bin'), 'utf8')).toBe('chosen');
@@ -148,7 +169,8 @@ describe('独立资源沿用导出任务生命周期', () => {
           return { total: 2, ok: 2, failed: [] };
         },
       });
-      await vi.waitFor(() => expect(f.manager.getTask(id)?.save?.status).toBe('saved'));
+      await f.done();
+      expect(f.manager.getTask(id)?.save?.status).toBe('saved');
       const task = f.manager.getTask(id)!;
       const savedNames = readdirSync(task.save!.path!);
       expect(savedNames.includes('export-report.json')).toBe(includeIntegrityReport);
@@ -170,7 +192,8 @@ describe('独立资源沿用导出任务生命周期', () => {
         return { total: 1, ok: 1, failed: [], fileName: 'download.txt' };
       },
     });
-    await vi.waitFor(() => expect(f.manager.getTask(id)?.save?.status).toBe('saved'));
+    await f.done();
+    expect(f.manager.getTask(id)?.save?.status).toBe('saved');
     const task = f.manager.getTask(id)!;
     expect(task.reportVersion).toBeUndefined();
     expect(task.reportPath).toBeUndefined();
@@ -319,7 +342,8 @@ describe('独立资源沿用导出任务生命周期', () => {
         return { total: 1, ok: 1, failed: [], fileName: 'report.txt' };
       },
     });
-    await vi.waitFor(() => expect(f.manager.getTask(id)?.save?.status).toBe('saved'));
+    await f.done();
+    expect(f.manager.getTask(id)?.save?.status).toBe('saved');
     const originalPolicy = f.manager.getTask(id)?.save?.policy;
     const chosen = join(f.root, 'same.txt');
     writeFileSync(chosen, 'personal');
@@ -344,7 +368,8 @@ describe('独立资源沿用导出任务生命周期', () => {
         return { total: 1, ok: 1, failed: [], fileName: 'fixture.db' };
       },
     });
-    await vi.waitFor(() => expect(f.manager.getTask(id)?.save?.status).toBe('saved'));
+    await f.done();
+    expect(f.manager.getTask(id)?.save?.status).toBe('saved');
     const task = f.manager.getTask(id)!;
     expect(task.bundleDir).toBeUndefined();
     expect(task.filePath?.endsWith('.db')).toBe(true);
@@ -425,7 +450,8 @@ describe('独立资源沿用导出任务生命周期', () => {
         return { total: 2, ok: 1, failed: [{ fileName: 'missing.txt', error: '合成失败' }] };
       },
     });
-    await vi.waitFor(() => expect(f.manager.getTask(id)?.save?.status).toBe('saved'));
+    await f.done();
+    expect(f.manager.getTask(id)?.save?.status).toBe('saved');
     const task = f.manager.getTask(id)!;
     expect(task.resource?.failed).toBe(1);
     expect(task.stages[0]).toMatchObject({ failed: 1, current: 1, total: 2 });
@@ -464,13 +490,14 @@ describe('独立资源沿用导出任务生命周期', () => {
       savePolicy: { mode: 'preset', directory: target },
       run,
     });
-    await vi.waitFor(() => expect(f.manager.getTask(id)?.save?.status).toBe('saved'));
+    await f.done();
+    expect(f.manager.getTask(id)?.save?.status).toBe('saved');
     expect(
       readFileSync(join(f.manager.getTask(id)!.save!.path!, 'files', 'image.jpg'), 'utf8'),
     ).toBe('synthetic');
   });
   it.each(['pause', 'cancel'] as const)(
-    '运行中 %s 后停止且不发布未完成目录，不冒称可续传',
+    '非续作资源 %s 不提供虚假暂停，取消后不发布未完成目录',
     async (action) => {
       const f = fixture();
       let started = false;
@@ -488,18 +515,99 @@ describe('独立资源沿用导出任务生命周期', () => {
         },
       });
       await vi.waitFor(() => expect(started).toBe(true));
-      expect(action === 'pause' ? f.manager.pauseTask(id) : f.manager.cancelTask(id)).toBe(true);
+      if (action === 'pause') expect(f.manager.pauseTask(id)).toBe(false);
+      expect(f.manager.cancelTask(id)).toBe(true);
       await vi.waitFor(() =>
         expect(readdirSync(f.cache).some((name) => name.endsWith('.partial'))).toBe(false),
       );
       expect(f.manager.getTask(id)).toMatchObject({
-        status: action === 'pause' ? 'paused' : 'cancelled',
+        status: 'cancelled',
       });
       expect(f.manager.getTask(id)?.bundleDir).toBeUndefined();
-      expect(f.manager.resumeTask(id)).toBe(false);
+      expect(f.manager.listTasks()[0]).toMatchObject({ canResume: true, resumeMode: 'restart' });
       expect(new ExportTaskManager({} as MsgService, f.cache).listTasks()[0]?.canResume).toBe(
         false,
       );
+      if (action === 'cancel') expect(f.manager.getTask(id)?.error).toBeUndefined();
     },
   );
+  it('非续作资源不能手动暂停，取消后旧运行器不能发布，退出后允许重新执行', async () => {
+    const f = fixture();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const run = vi.fn(async () => {
+      await gate;
+      return { total: 0, ok: 0, failed: [] };
+    });
+    const id = await f.manager.startResourceExport({
+      name: '暂停收尾',
+      kind: 'group-files',
+      run,
+      savePolicy: { mode: 'before', directory: f.root },
+    });
+    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
+    expect(f.manager.pauseTask(id)).toBe(false);
+    expect(f.manager.listTasks()[0]?.canResume).toBe(false);
+    expect(f.manager.resumeTask(id)).toBe(false);
+    expect(f.manager.cancelTask(id)).toBe(true);
+    release();
+    await vi.waitFor(() =>
+      expect(readdirSync(f.cache).some((name) => name.endsWith('.partial'))).toBe(false),
+    );
+    expect(f.manager.getTask(id)?.status).toBe('cancelled');
+    expect(f.manager.listTasks()[0]).toMatchObject({ canResume: true, resumeMode: 'restart' });
+    expect(f.manager.getTask(id)?.bundleDir).toBeUndefined();
+  });
+  it('非续作资源拒绝暂停，取消清除中断提示并提供重新执行', async () => {
+    const f = fixture();
+    let started!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const run = vi.fn(async ({ signal }: { signal: AbortSignal }) => {
+      started();
+      await new Promise<void>((_resolve, reject) =>
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+      );
+      return { total: 0, ok: 0, failed: [] };
+    });
+    const id = await f.manager.startResourceExport({
+      name: '暂停后取消',
+      kind: 'group-files',
+      run,
+      savePolicy: { mode: 'before', directory: f.root },
+    });
+    await entered;
+    expect(run).toHaveBeenCalledOnce();
+    expect(f.manager.pauseTask(id)).toBe(false);
+    expect(f.manager.cancelTask(id)).toBe(true);
+    await f.done();
+    expect(readdirSync(f.cache).some((name) => name.endsWith('.partial'))).toBe(false);
+    expect(f.manager.getTask(id)?.error).toBeUndefined();
+    expect(f.manager.listTasks()[0]).toMatchObject({ canResume: true, resumeMode: 'restart' });
+  });
+  it('取消策略暂停的下载后清除暂停状态，网络恢复也不会重新开始', async () => {
+    const f = fixture();
+    updateClientNetwork('cancel-phone', networkCost(true, false, 'phone'));
+    const run = vi.fn(async () => ({ total: 0, ok: 0, failed: [] }));
+    const id = await networkScope.run(
+      { clientId: 'cancel-phone', restricted: true, intent: 'batch' },
+      () =>
+        f.manager.startResourceExport({
+          name: '取消受限下载',
+          kind: 'group-files',
+          run,
+          savePolicy: { mode: 'before', directory: f.root },
+        }),
+    );
+    await vi.waitFor(() => expect(f.manager.getTask(id)?.networkPaused).toBe(true));
+    expect(f.manager.cancelTask(id)).toBe(true);
+    expect(f.manager.getTask(id)).toMatchObject({ status: 'cancelled', networkPaused: false });
+    updateClientNetwork('cancel-phone', networkCost(false, false, 'phone'));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(f.manager.getTask(id)?.status).toBe('cancelled');
+    expect(run).not.toHaveBeenCalled();
+  });
 });

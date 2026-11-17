@@ -2,9 +2,9 @@ import { useContext } from 'react';
 import { trpc } from '../trpc/client';
 import { useQQWriteSession } from './useQQWriteSession';
 import { RelationshipDirectoryContext } from '../lib/contactRelationship';
-import { useDialog } from '../components/Dialog';
+import { useDialog } from '../components/Dialog.shared';
 import type { GroupMemberRole } from '../im-template/template/types';
-import { useTabActive } from '../components/RetainedTabs';
+import { useTabActive } from '../components/RetainedTabs.shared';
 import { PROFILE_QUERY_OPTIONS } from '../lib/profileQuery';
 import { groupPermission } from '@weq/service/qq-permissions';
 

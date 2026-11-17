@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { GlobalSettingsSection } from '../../src/renderer/src/components/settings/GlobalSettingsSection';
-import { Card, SettingsNavigateContext } from '../../src/renderer/src/components/settings/controls';
+import { Card } from '../../src/renderer/src/components/settings/controls';
+import { SettingsNavigateContext } from '../../src/renderer/src/components/settings/controls.shared';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/backup.css';

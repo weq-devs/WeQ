@@ -17,6 +17,7 @@ import type { GuildExportTaskMeta } from './export/guild_source';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { elementsToText } from './export/element_text';
+import { sourceStamp } from './export/resume';
 import { searchNameRank } from './search_policy';
 import {
   contentSearchKey,
@@ -96,6 +97,10 @@ export class GuildDirectService {
   private searchCache: { key: string; at: number; rows: ContentSearchHit[]; count: number } | null =
     null;
   constructor(private readonly session: AccountSession) {}
+
+  exportSourceStamp(): string {
+    return sourceStamp(this.session.guildDirectMsgs.sourcePath);
+  }
 
   cancelSearch(): void {
     this.searchEpoch++;

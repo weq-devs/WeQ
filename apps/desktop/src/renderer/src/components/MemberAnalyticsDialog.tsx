@@ -35,7 +35,8 @@ import { OverlayLayer } from './OverlayLayer';
 import { FaceEmoji } from './FaceEmoji';
 import { AnalyticsSkeleton } from './AnalyticsSkeleton';
 import { useAnalyticsExport } from './useAnalyticsExport';
-import { HourlyBarChart, formatDate, formatNumber } from './analyticsCharts';
+import { HourlyBarChart } from './analyticsCharts';
+import { formatDate, formatNumber } from './analyticsCharts.shared';
 import type { AnalysisScope } from '../views/analysis/model';
 import { AnalyticsRetry } from './AnalyticsRetry';
 import { resolveAvatar } from '../lib/avatarResolver';
@@ -195,34 +196,58 @@ export function MemberAnalyticsDialog({
         </ProfileAvatar>
         <div className="ba-hero-info">
           <span>
-            {formatDate(stats.firstMessageTime)} — {formatDate(stats.lastMessageTime)}
+            <span className="weq-number weq-number-inherit">
+              {formatDate(stats.firstMessageTime)}
+            </span>{' '}
+            —{' '}
+            <span className="weq-number weq-number-inherit">
+              {formatDate(stats.lastMessageTime)}
+            </span>
           </span>
-          {member.uin && member.uin !== '0' ? <span>QQ {member.uin}</span> : null}
+          {member.uin && member.uin !== '0' ? (
+            <span>
+              QQ <span className="weq-number weq-number-inherit">{member.uin}</span>
+            </span>
+          ) : null}
         </div>
       </div>
 
       <div className="ba-stat-grid">
         <div className="ba-stat">
           <MessageSquare size={16} />
-          <strong>{formatNumber(stats.totalMessages)}</strong>
+          <strong>
+            <span className="weq-number weq-number-inherit">
+              {formatNumber(stats.totalMessages)}
+            </span>
+          </strong>
           <small>发言数量</small>
         </div>
         <div className="ba-stat">
           <CalendarDays size={16} />
-          <strong>{stats.activeDays}</strong>
+          <strong>
+            <span className="weq-number weq-number-inherit">{stats.activeDays}</span>
+          </strong>
           <small>活跃天数</small>
         </div>
         <div className="ba-stat">
           <TypeIcon size={16} />
-          <strong>{formatNumber(stats.textMessages)}</strong>
+          <strong>
+            <span className="weq-number weq-number-inherit">
+              {formatNumber(stats.textMessages)}
+            </span>
+          </strong>
           <small>文本消息</small>
         </div>
         <div className="ba-stat ba-stat-flame">
           <Flame size={16} />
           <strong>
-            {stats.activeDays > 0
-              ? formatNumber(Math.round(stats.totalMessages / stats.activeDays))
-              : 0}
+            {stats.activeDays > 0 ? (
+              <span className="weq-number weq-number-inherit">
+                {formatNumber(Math.round(stats.totalMessages / stats.activeDays))}
+              </span>
+            ) : (
+              0
+            )}
           </strong>
           <small>日均发言</small>
         </div>
@@ -238,7 +263,9 @@ export function MemberAnalyticsDialog({
               <div className="ga-type-chip" key={t.key}>
                 <span className="ga-type-dot" style={{ backgroundColor: t.color }} />
                 <span className="ga-type-label">{t.label}</span>
-                <span className="ga-type-count">{typeCount(data, t.key)}</span>
+                <span className="ga-type-count">
+                  <span className="weq-number weq-number-inherit">{typeCount(data, t.key)}</span>
+                </span>
               </div>
             ))}
           </div>
@@ -265,7 +292,9 @@ export function MemberAnalyticsDialog({
             {data.commonPhrases.map((item) => (
               <span className="ga-chip" key={item.phrase}>
                 <span>{item.phrase}</span>
-                <small>{item.count}</small>
+                <small>
+                  <span className="weq-number weq-number-inherit">{item.count}</span>
+                </small>
               </span>
             ))}
           </div>
@@ -283,7 +312,9 @@ export function MemberAnalyticsDialog({
             {data.commonEmojis.map((item) => (
               <span className="ga-chip ga-emoji-chip" key={item.faceId} title={item.faceText}>
                 <FaceEmoji element={{ faceId: item.faceId, faceText: item.faceText }} size={22} />
-                <small>{item.count}</small>
+                <small>
+                  <span className="weq-number weq-number-inherit">{item.count}</span>
+                </small>
               </span>
             ))}
           </div>

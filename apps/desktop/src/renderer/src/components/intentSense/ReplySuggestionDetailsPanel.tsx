@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import { preciseTimeFormatter, formatDuration } from '@weq/time';
 import { useEffect, useId, useMemo, useState } from 'react';
 import { ChevronDown, RefreshCw, X } from 'lucide-react';
@@ -132,9 +133,13 @@ export function ReplySuggestionDetailsPanel({
               <div>
                 <dt>生成时间</dt>
                 <dd>
-                  {value.entry || progress
-                    ? timestamp.format(value.entry?.createdAt ?? progress!.startedAt)
-                    : '未记录'}
+                  {value.entry || progress ? (
+                    <span className="weq-number weq-number-inherit">
+                      {timestamp.format(value.entry?.createdAt ?? progress!.startedAt)}
+                    </span>
+                  ) : (
+                    '未记录'
+                  )}
                 </dd>
               </div>
               <div>
@@ -168,44 +173,64 @@ export function ReplySuggestionDetailsPanel({
               <div>
                 <dt>请求耗时</dt>
                 <dd>
-                  {generation?.requestDurationMs !== undefined
-                    ? duration(generation.requestDurationMs)
-                    : generation?.source === 'local'
-                      ? '未发起模型请求'
-                      : running
-                        ? '请求进行中'
-                        : '未记录'}
+                  <NumericText>
+                    {generation?.requestDurationMs !== undefined
+                      ? duration(generation.requestDurationMs)
+                      : generation?.source === 'local'
+                        ? '未发起模型请求'
+                        : running
+                          ? '请求进行中'
+                          : '未记录'}
+                  </NumericText>
                 </dd>
               </div>
               <div>
                 <dt>总耗时</dt>
                 <dd>
-                  {running && progress
-                    ? duration(progress.updatedAt - progress.startedAt)
-                    : generation
-                      ? duration(generation.durationMs)
-                      : progress
-                        ? duration(progress.updatedAt - progress.startedAt)
-                        : '未记录'}
+                  <NumericText>
+                    {running && progress
+                      ? duration(progress.updatedAt - progress.startedAt)
+                      : generation
+                        ? duration(generation.durationMs)
+                        : progress
+                          ? duration(progress.updatedAt - progress.startedAt)
+                          : '未记录'}
+                  </NumericText>
                 </dd>
               </div>
               <div>
                 <dt>输入消息</dt>
-                <dd>{generation ? `${generation.inputMessages} 条` : '未记录'}</dd>
+                <dd>
+                  <NumericText>
+                    {generation ? `${generation.inputMessages} 条` : '未记录'}
+                  </NumericText>
+                </dd>
               </div>
               {generation?.usage ? (
                 <>
                   <div>
                     <dt>输入 Token</dt>
-                    <dd>{generation.usage.promptTokens ?? '未记录'}</dd>
+                    <dd>
+                      <span className="weq-number weq-number-inherit">
+                        {generation.usage.promptTokens ?? '未记录'}
+                      </span>
+                    </dd>
                   </div>
                   <div>
                     <dt>输出 Token</dt>
-                    <dd>{generation.usage.completionTokens ?? '未记录'}</dd>
+                    <dd>
+                      <span className="weq-number weq-number-inherit">
+                        {generation.usage.completionTokens ?? '未记录'}
+                      </span>
+                    </dd>
                   </div>
                   <div>
                     <dt>总 Token</dt>
-                    <dd>{generation.usage.totalTokens ?? '未记录'}</dd>
+                    <dd>
+                      <span className="weq-number weq-number-inherit">
+                        {generation.usage.totalTokens ?? '未记录'}
+                      </span>
+                    </dd>
                   </div>
                 </>
               ) : null}

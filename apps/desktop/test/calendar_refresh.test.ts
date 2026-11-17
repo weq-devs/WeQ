@@ -1,5 +1,6 @@
 import { act, createElement, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   calendarMonthDays,
@@ -12,6 +13,7 @@ import {
   calendarAssistantRevision,
 } from '../src/renderer/src/lib/calendarSourceRevision';
 import { setCalendarKinds } from '../src/renderer/src/hooks/useCalendarKinds';
+import type { ConversationView } from '../src/renderer/src/lib/conversationViews';
 import type { CalendarControlState } from '@weq/service/conversation-calendar';
 
 const fixture = vi.hoisted(() => ({
@@ -39,6 +41,11 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
   Modal: ({ children }: { children: ReactNode }) => createElement('div', null, children),
 }));
 vi.mock('../src/renderer/src/components/RetainedTabs', () => ({ useTabActive: () => true }));
+vi.mock('../src/renderer/src/components/RetainedTabs.shared', () => ({ useTabActive: () => true }));
+vi.mock('@tanstack/react-virtual', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-virtual')>();
+  return { ...actual, useVirtualizer: vi.fn(actual.useVirtualizer) };
+});
 
 const month = '2026-11';
 function snapshot(complete: boolean, selectedMonth = month) {
@@ -102,63 +109,39 @@ async function tick(ms = 0) {
 const defaultTargets: CalendarTarget[] = [
   { kind: 'group', conv: '42', name: 'fixture', avatar: null, ancestors: [] },
 ];
-it('统计内容聚焦后 Escape 不清空记忆选择，也不拦住外层关闭处理', async () => {
-  const view = mount();
+it.each([{ kinds: [] }, { kinds: ['c2c'] }] as const)(
+  '日历跟随外部范围，不受记忆类型 $kinds 限制',
+  async ({ kinds }) => {
+    setCalendarKinds([...kinds]);
+    const view = mount();
+    try {
+      await tick();
+      expect(view.host.querySelector('[aria-label="统计内容"]')).toBeNull();
+      expect(fixture.start.mock.lastCall?.[0].targets).toEqual(defaultTargets);
+      expect(fixture.start.mock.lastCall?.[0].kinds).toEqual(CALENDAR_SOURCE_ORDER);
+      expect(fixture.poll.mock.lastCall?.[0].kinds).toEqual(CALENDAR_SOURCE_ORDER);
+      expect(fixture.start).toHaveBeenCalledTimes(1);
+    } finally {
+      view.close();
+    }
+  },
+);
+it.each([
+  ['regular', '所有会话'],
+  ['all', '所有会话'],
+  ['clone', '仅克隆会话'],
+  ['assistant', '仅 WeQ 助手会话'],
+  ['groupAssistant', '仅群助手'],
+  ['official', '仅公众号'],
+  ['service', '仅服务号'],
+  ['guild', '仅频道私聊'],
+  ['hidden', '仅已隐藏会话'],
+  ['deleted', '仅已删除会话'],
+] as const)('日历标题标明 %s 的统计范围', async (scope, label) => {
+  const view = mount(defaultTargets, scope);
   try {
     await tick();
-    const option = [...view.host.querySelectorAll<HTMLButtonElement>('button')].find(
-      (item) => item.textContent === '私聊',
-    )!;
-    act(() => option.focus());
-    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
-    act(() => option.dispatchEvent(event));
-    await tick();
-    expect(event.defaultPrevented).toBe(false);
-    expect(option.getAttribute('aria-pressed')).toBe('true');
-    expect(fixture.poll.mock.lastCall?.[0].kinds).toContain('c2c');
-    expect(fixture.start).toHaveBeenCalledTimes(1);
-  } finally {
-    view.close();
-  }
-});
-it('空选择不显示零条完成或满进度，重新选择后在同一任务中获取', async () => {
-  setCalendarKinds([]);
-  state.enabledKinds = [];
-  state.emptyReason = '未选择统计内容';
-  state.controls = {
-    month: { state: 'empty', disabled: true },
-    day: { state: 'empty', disabled: true },
-  };
-  state.hasPending = false;
-  state.days = state.days.map((item) => ({
-    ...item,
-    count: 0,
-    complete: false,
-    emptyReason: '未选择统计内容',
-  }));
-  const view = mount();
-  try {
-    await tick();
-    expect(view.host.textContent).toContain('未选择统计内容');
-    expect(view.host.textContent).not.toContain('当天没有消息');
-    expect(
-      view.host
-        .querySelector<HTMLButtonElement>('[aria-label="2026-11-10，未选择统计内容"]')
-        ?.querySelector('small')?.textContent,
-    ).toBe('');
-    expect(
-      [...view.host.querySelectorAll('progress')].every(
-        (item) => item.getAttribute('value') === '0',
-      ),
-    ).toBe(true);
-    const calls = fixture.poll.mock.calls.length;
-    await tick(2000);
-    expect(fixture.poll).toHaveBeenCalledTimes(calls);
-    state = snapshot(false);
-    act(() => setCalendarKinds(['c2c']));
-    await tick();
-    expect(fixture.start).toHaveBeenCalledTimes(1);
-    expect(fixture.poll.mock.lastCall?.[0].kinds).toEqual(['c2c']);
+    expect(view.host.querySelector('h3')?.textContent).toBe(`会话日历（${label}）`);
   } finally {
     view.close();
   }
@@ -210,36 +193,26 @@ it('零次原生读取不再冒充等待空闲，实际排队状态明确显示'
   const view = mount();
   try {
     await tick();
-    expect(view.host.textContent).toContain('等待前序数据库查询结束');
+    expect(view.host.textContent).toContain('等待可用读取连接，将自动继续');
     expect(view.host.textContent).not.toContain('等待数据库空闲');
   } finally {
     view.close();
   }
 });
 
-it('统计来源选择记忆，切换只轮询原任务而不重建', async () => {
+it('外部类型偏好变更不改变日历范围，重新打开仍统计当前视图全部类型', async () => {
   let view = mount();
   try {
     await tick();
-    const option = [...view.host.querySelectorAll('button')].find(
-      (item) => item.textContent === '私聊',
-    )!;
-    act(() => option.click());
+    act(() => setCalendarKinds([]));
     await tick();
     expect(fixture.start).toHaveBeenCalledTimes(1);
-    expect(fixture.poll.mock.lastCall?.[0].kinds).not.toContain('c2c');
+    expect(fixture.poll.mock.lastCall?.[0].kinds).toEqual(CALENDAR_SOURCE_ORDER);
     view.close();
     view = mount();
     await tick();
-    expect(fixture.start.mock.lastCall?.[0].kinds).not.toContain('c2c');
-    expect(
-      [...view.host.querySelectorAll('button')]
-        .find((item) => item.textContent === '私聊')!
-        .getAttribute('aria-pressed'),
-    ).toBe('false');
-    expect(view.host.textContent).toContain('我的设备');
-    expect(view.host.textContent).toContain('公众号/服务号');
-    expect(view.host.textContent).toContain('克隆会话');
+    expect(fixture.start.mock.lastCall?.[0].kinds).toEqual(CALENDAR_SOURCE_ORDER);
+    expect(view.host.querySelector('[aria-label="统计内容"]')).toBeNull();
   } finally {
     view.close();
   }
@@ -289,23 +262,24 @@ it('后台交接失败时显示错误，直接关闭仍然停止任务', async (
   }
   expect(fixture.stop).toHaveBeenCalledTimes(1);
 });
-it('日历中同样通过任务日志折叠栏展开，按需读取且不重建统计', async () => {
+it('进度和默认展开的日志放在左下，右侧只保留当日会话', async () => {
   const view = mount();
   try {
     await tick();
     const button = view.host.querySelector<HTMLButtonElement>('.weq-exp-detail-tasklog-head')!;
-    expect(button.closest('.weq-overview-calendar-conversations')).not.toBeNull();
-    expect(
-      view.host.querySelector(
-        '.weq-overview-calendar-conversations .weq-overview-calendar-progress',
-      ),
-    ).not.toBeNull();
-    expect(button.getAttribute('aria-expanded')).toBe('false');
-    expect(fixture.poll.mock.calls.at(-1)?.[0].includeLogs).toBe(false);
-    act(() => button.click());
-    await tick();
+    expect(button.closest('.weq-overview-calendar-left')).not.toBeNull();
+    const right = view.host.querySelector('.weq-overview-calendar-conversations')!;
+    expect(right.querySelector('[aria-label="统计内容"]')).toBeNull();
+    expect(right.querySelector('[aria-label="当天会话列表"]')).not.toBeNull();
+    expect(right.querySelector('.weq-overview-calendar-progress')).toBeNull();
+    expect(right.querySelector('.weq-exp-detail-tasklog')).toBeNull();
+    expect(view.host.querySelectorAll('progress')).toHaveLength(1);
     expect(button.getAttribute('aria-expanded')).toBe('true');
     expect(fixture.poll.mock.calls.at(-1)?.[0].includeLogs).toBe(true);
+    act(() => button.click());
+    await tick();
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(fixture.poll.mock.calls.at(-1)?.[0].includeLogs).toBe(false);
     expect(fixture.start).toHaveBeenCalledTimes(1);
   } finally {
     view.close();
@@ -329,16 +303,56 @@ it('再次点击当前日期不清空已完成的当天会话状态', async () =
     view.close();
   }
 });
-function mount(initialTargets = defaultTargets) {
+it('扫描状态和日志连续更新时复用会话数据，不重新渲染列表或改写月历节点', async () => {
+  let processed = 0;
+  fixture.poll.mockImplementation(async () => ({
+    ...structuredClone(state),
+    activeScan: {
+      day: '2026-11-01',
+      kind: 'group',
+      progress: { phase: '本地元数据', processed: ++processed, unit: '条元数据' },
+    },
+    logs: [{ seq: 1, ts: 0, stage: 'group', level: 'info', text: `已处理 ${processed} 条` }],
+  }));
+  const view = mount();
+  const changed = vi.fn();
+  let observer: MutationObserver | undefined;
+  try {
+    await tick();
+    const listRenders = vi.mocked(useVirtualizer).mock.calls.length;
+    const grid = view.host.querySelector('.weq-density-calendar')!;
+    observer = new MutationObserver(changed);
+    observer.observe(grid, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      characterData: true,
+    });
+    await tick(2500);
+    expect(processed).toBeGreaterThan(3);
+    expect(view.host.textContent).toContain(`已处理 ${processed} 条`);
+    expect(vi.mocked(useVirtualizer).mock.calls.length).toBe(listRenders);
+    expect(changed).not.toHaveBeenCalled();
+    expect(view.host.querySelector('.weq-density-calendar')).toBe(grid);
+    state.days[0]!.count = 123;
+    await tick(500);
+    expect(grid.textContent).toContain('123+');
+    expect(vi.mocked(useVirtualizer).mock.calls.length).toBe(listRenders);
+  } finally {
+    observer?.disconnect();
+    view.close();
+  }
+});
+function mount(initialTargets = defaultTargets, initialScope: ConversationView = 'all') {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const render = (sourceRevision: string, targets = initialTargets) =>
+  const render = (sourceRevision: string, targets = initialTargets, scope = initialScope) =>
     act(() =>
       root.render(
         createElement(ConversationOverviewCalendar, {
           targets,
-          scope: 'all',
+          scope,
           query: '',
           ready: true,
           binding: { expectedAccountUin: 'fixture', expectedAccountConfigId: 'fixture' },
@@ -358,6 +372,25 @@ function mount(initialTargets = defaultTargets) {
     },
   };
 }
+
+it('切换外部视图时同步更新标题和目标，并停止旧范围任务', async () => {
+  const view = mount(defaultTargets, 'regular');
+  try {
+    await tick();
+    const clones: CalendarTarget[] = [
+      { kind: 'persona', conv: 'clone-fixture', name: '克隆角色', avatar: null, ancestors: [] },
+    ];
+    view.render('b', clones, 'clone');
+    await tick();
+    expect(view.host.querySelector('h3')?.textContent).toBe('会话日历（仅克隆会话）');
+    expect(fixture.stop).toHaveBeenCalledWith(expect.objectContaining({ id: 'job-1' }));
+    expect(fixture.start).toHaveBeenCalledTimes(2);
+    expect(fixture.start.mock.lastCall?.[0].targets).toEqual(clones);
+    expect(fixture.poll.mock.lastCall?.[0].kinds).toEqual(CALENDAR_SOURCE_ORDER);
+  } finally {
+    view.close();
+  }
+});
 
 it('扫描期间的数据通知不遮住已完成数字，也不陷入等待重新统计', async () => {
   const view = mount();

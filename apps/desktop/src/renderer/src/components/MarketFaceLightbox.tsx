@@ -1,32 +1,23 @@
 /**
- * 商城表情「一组表情」灯箱 —— 点击聊天里的商城表情，弹出它所在整包的全部表情。
- *
- *   - openMarketFaceLightbox(packId, activeHash?)  命令式打开；重复打开同一个
- *     packId 是 no-op（内建去重），activeHash 用于在网格里高亮「刚点的那张」。
- *   - <MarketFaceLightbox/>                        挂载一次（近根部）；渲染当前
- *     store 指向的整包表情网格（单一全局 portal）。
- *
- * 「一组表情」的数据来源与本地资源页「商城表情包」完全同构：走
- * `account.marketEmoji.getPackDetail({ packId })` 在线补全整包表情列表，图片指向
- * `weq-media://mface?...&enc=tea`（密钥后端自动恢复），不过 tRPC 传字节。
- *
- * 网格里的每张表情都可以再点开**单张详情**（同包内左右切换）：大图 + 名称 + 协议
- * 参数（pack / hash / enc / key）。参数是按当前包实时拼的，key 来自
- * `getPackKey`（拿不到时显示「未恢复」，并说明可手输时间戳）。
- *
- * 复用 MediaPreviewShell 外壳，保留表情包信息条、网格与单张详情。
- * 点击背景关闭；详情中的 ESC 返回网格，再按 ESC 关闭。
+ * 聊天商城表情的整包浮层，贴近点击位置显示，不遮挡或锁住会话。
+ * 图片优先复用聊天缓存与明文 CDN，失败再尝试 QQTEA；主动浏览不受自动加载偏好阻断。
+ * 保留整包网格、单张详情及分级 Esc；详情也供商城整页浏览器复用。
  */
 
-import { useEffect, useMemo, useState, type ReactElement } from 'react';
-import { MediaPreviewShell } from './MediaPreviewShell';
-import { create } from 'zustand';
-import { ChevronLeft, ChevronRight, Copy, Store, RefreshCw } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { OverlayLayer } from './OverlayLayer';
+import { ChevronLeft, ChevronRight, Copy, Store, RefreshCw, X } from 'lucide-react';
 import type { MarketPackFeeType } from '@weq/service';
 import { trpc } from '@renderer/trpc/client';
 import { mediaUrl } from '@renderer/lib/resourceUrl';
-import { useToast } from './Toast';
+import { useToast } from './Toast.shared';
 import { MarketImageSave } from './MarketImageSave';
+import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
+import { RenderDocumentContext, useRenderDocument } from '../lib/renderDocument';
+import { useViewState } from '../state/view';
+import { useMarketFaceLightbox } from '../state/marketFaceLightbox';
+import { useSurfaceEscapeDismissal } from '../lib/surfaceEscape';
+import '../styles/market-face-popover.css';
 
 /** 来源徽章元信息（与 MarketPackExplorer 保持一致）。 */
 const FEE_META: Record<MarketPackFeeType, { label: string; tone: string }> = {
@@ -37,78 +28,90 @@ const FEE_META: Record<MarketPackFeeType, { label: string; tone: string }> = {
   unknown: { label: '未知', tone: 'unknown' },
 };
 
-/** weq-media URL：商城表情包的一张表情（TEA 解密路径，密钥后端自动恢复）。 */
-function packImageUrl(packId: string, hash: string, key?: string): string {
-  return mediaUrl('mface', {
+/** 浏览已由用户主动打开；不让整包预览依赖密钥恢复完成。 */
+function usePackImage(packId: string, hash: string, key?: string) {
+  const developmentDressTools = useDevelopmentDressTools();
+  const [encrypted, setEncrypted] = useState(false);
+  const [broken, setBroken] = useState(false);
+  const src = mediaUrl('mface', {
     pack: packId,
     hash,
-    enc: 'tea',
-    ...(key ? { key } : {}),
+    intent: 'interactive',
+    ...(encrypted ? { enc: 'tea', ...(key ? { key } : {}) } : {}),
   });
-}
-
-interface MarketFaceLightboxStore {
-  packId: string | null;
-  activeHash: string;
-  open(packId: string, activeHash?: string): void;
-  close(): void;
-}
-
-const useMarketFaceLightbox = create<MarketFaceLightboxStore>((set, get) => ({
-  packId: null,
-  activeHash: '',
-  open(packId, activeHash = '') {
-    if (!packId || get().packId === packId) return; // de-dup: same pack already open
-    set({ packId, activeHash });
-  },
-  close() {
-    set({ packId: null, activeHash: '' });
-  },
-}));
-
-/** 打开某个商城表情包的整组灯箱。activeHash 高亮刚点的那张。 */
-export function openMarketFaceLightbox(packId: string, activeHash?: string): void {
-  useMarketFaceLightbox.getState().open(packId, activeHash);
+  useEffect(() => {
+    setEncrypted(false);
+    setBroken(false);
+  }, [packId, hash]);
+  useEffect(() => setBroken(false), [src]);
+  return {
+    src,
+    broken,
+    encrypted,
+    onError: () => (!developmentDressTools || encrypted ? setBroken(true) : setEncrypted(true)),
+    retry: () => {
+      setEncrypted(false);
+      setBroken(false);
+    },
+  };
 }
 
 /** 挂载一次。渲染当前商城表情包的整组表情网格（若有）。 */
 export function MarketFaceLightbox(): ReactElement | null {
   const packId = useMarketFaceLightbox((s) => s.packId);
   const activeHash = useMarketFaceLightbox((s) => s.activeHash);
+  const anchor = useMarketFaceLightbox((s) => s.anchor);
   const close = useMarketFaceLightbox((s) => s.close);
+  const document = useRenderDocument();
+  const account = useViewState((s) => s.openedUin);
   /** 单张详情的 hash；空串 = 停在网格。 */
   const [detailHash, setDetailHash] = useState('');
+  const detailRef = useRef<HTMLDivElement>(null);
+  useSurfaceEscapeDismissal(detailRef, () => setDetailHash(''), Boolean(packId && detailHash));
 
   useEffect(() => {
     setDetailHash('');
-  }, [packId]);
+  }, [packId, activeHash, anchor]);
+  // 切号或宿主卸载时释放浮层及原消息锚点。
+  useEffect(() => close, [account, close]);
 
   if (typeof document === 'undefined' || !packId) return null;
 
   return (
-    <MediaPreviewShell
-      title="商城表情"
-      onClose={close}
-      onEscape={() => (detailHash ? setDetailHash('') : close())}
-      onBackdrop={() => close()}
-    >
-      <div
-        className="weq-lightbox-stage weq-anim-pop weq-mface-lightbox"
-        onMouseDown={(event) => event.stopPropagation()}
+    <RenderDocumentContext.Provider value={anchor?.ownerDocument ?? document}>
+      <OverlayLayer
+        presentation="popover"
+        anchor={anchor}
+        anchorPlacement="side"
+        className="weq-mface-popover-layer"
+        consumeOutsidePress={false}
+        onClose={close}
       >
-        <MarketFacePackView
-          packId={packId}
-          activeHash={activeHash}
-          detailHash={detailHash}
-          onOpenDetail={setDetailHash}
-          embedded={false}
-        />
-      </div>
-    </MediaPreviewShell>
+        <div ref={detailRef} className="weq-mface-popover" role="dialog" aria-label="商城表情">
+          <button
+            type="button"
+            className="weq-mface-popover-close"
+            aria-label="关闭表情包"
+            title="关闭表情包"
+            onClick={close}
+          >
+            <X size={16} />
+          </button>
+          <MarketFacePackView
+            key={packId}
+            packId={packId}
+            activeHash={activeHash}
+            detailHash={detailHash}
+            onOpenDetail={setDetailHash}
+            embedded
+          />
+        </div>
+      </OverlayLayer>
+    </RenderDocumentContext.Provider>
   );
 }
 
-/** 灯箱内容：表情包信息条 + 表情网格（高亮 activeHash）；打开详情时换成单张大图。 */
+/** 表情包信息条与网格（高亮 activeHash）；打开详情时换成单张大图。 */
 export function MarketFacePackView({
   packId,
   activeHash = '',
@@ -150,7 +153,11 @@ export function MarketFacePackView({
         <Store size={16} className="weq-mface-lb-head-icon" />
         <span className="weq-mface-lb-title">{detail.data?.name || `表情包 ${packId}`}</span>
         <em className={`weq-mpack-fee is-${fee.tone}`}>{fee.label}</em>
-        {detail.data ? <span className="weq-mface-lb-count">{detail.data.count} 张</span> : null}
+        {detail.data ? (
+          <span className="weq-mface-lb-count">
+            <span className="weq-number weq-number-inherit">{detail.data.count}</span> 张
+          </span>
+        ) : null}
         {embedded ? null : (
           <span className="weq-mface-lb-hint">点击任意表情查看大图与解密参数</span>
         )}
@@ -182,7 +189,7 @@ export function MarketFacePackView({
   );
 }
 
-/** 一张表情：TEA 解密后的 GIF；失败显示占位。当前点击的那张高亮。点击看大图。 */
+/** 一张表情：聊天资源优先、QQTEA 回退；全部失败显示占位，点击仍可进入详情重试。 */
 function MarketFaceCell({
   packId,
   hash,
@@ -196,7 +203,7 @@ function MarketFaceCell({
   active: boolean;
   onOpen: () => void;
 }): ReactElement {
-  const [broken, setBroken] = useState(false);
+  const image = usePackImage(packId, hash);
   return (
     <button
       type="button"
@@ -205,15 +212,15 @@ function MarketFaceCell({
       onClick={onOpen}
     >
       <span className="weq-mface-lb-stage">
-        {broken ? (
+        {image.broken ? (
           <RefreshCw size={18} strokeWidth={1.4} className="weq-mface-lb-fallback" />
         ) : (
           <img
-            src={packImageUrl(packId, hash)}
+            src={image.src}
             alt={name || hash}
             loading="lazy"
             draggable={false}
-            onError={() => setBroken(true)}
+            onError={image.onError}
           />
         )}
       </span>
@@ -250,23 +257,28 @@ export function MarketFaceDetail({
   embedded?: boolean;
 }): ReactElement {
   const pushToast = useToast((s) => s.push);
-  const keyInfo = trpc.account.marketEmoji.getPackKey.useQuery({ packId });
+  const developmentDressTools = useDevelopmentDressTools();
+  const keyInfo = trpc.account.marketEmoji.getPackKey.useQuery(
+    { packId },
+    { enabled: developmentDressTools },
+  );
   const key = keyInfo.data?.key ?? '';
-  const src = packImageUrl(packId, item.hash, key || undefined);
-  const [broken, setBroken] = useState(false);
-  useEffect(() => setBroken(false), [src]);
+  const { src, broken, encrypted, onError, retry } = usePackImage(
+    packId,
+    item.hash,
+    key || undefined,
+  );
 
   const params = useMemo(
     () => [
       { label: 'pack', value: packId },
       { label: 'hash', value: item.hash },
-      { label: 'enc', value: 'tea' },
-      {
-        label: 'key',
-        value: key || (keyInfo.isLoading ? '恢复中…' : '未恢复（可用时间戳手动派生）'),
-      },
+      { label: 'enc', value: encrypted ? 'tea' : '无（缓存／明文）' },
+      ...(developmentDressTools
+        ? [{ label: 'key', value: key || (keyInfo.isLoading ? '恢复中…' : '未恢复') }]
+        : []),
     ],
-    [packId, item.hash, key, keyInfo.isLoading],
+    [packId, item.hash, key, keyInfo.isLoading, encrypted, developmentDressTools],
   );
 
   async function copy(value: string, label: string): Promise<void> {
@@ -286,7 +298,8 @@ export function MarketFaceDetail({
         </button>
         <span className="weq-mface-lb-title">{item.name || item.hash}</span>
         <span className="weq-mface-lb-count">
-          {index + 1} / {total}
+          <span className="weq-number weq-number-inherit">{index + 1}</span> /{' '}
+          <span className="weq-number weq-number-inherit">{total}</span>
         </span>
         <MarketImageSave
           key={`${packId}:${item.hash}`}
@@ -310,14 +323,19 @@ export function MarketFaceDetail({
             </button>
           ) : null}
           {broken ? (
-            <div className="weq-mface-lb-state is-error">这张表情解密失败（密钥可能未恢复）</div>
+            <div className="weq-mface-lb-state is-error">
+              <p>这张表情暂时无法加载</p>
+              <button type="button" className="weq-set-btn" onClick={retry}>
+                <RefreshCw size={14} /> 重试加载
+              </button>
+            </div>
           ) : (
             <img
               className="weq-mface-detail-image"
               src={src}
               alt={item.name || item.hash}
               draggable={false}
-              onError={() => setBroken(true)}
+              onError={onError}
             />
           )}
           {onNext ? (

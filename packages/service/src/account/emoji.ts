@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * EmojiService — handles QQ "Market Face" (store emoji) decryption and fallback.
  */
@@ -9,6 +10,7 @@ import { type AccountSession, algoFor } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import type { NtHelperBinding } from '@weq/native';
 import { scopedNetworkAllowed } from '../common/network_scope';
+import { developmentDressToolsEnabled } from '../common/development_dress';
 import {
   AddCustomFace,
   DeleteCustomFace,
@@ -220,6 +222,8 @@ export class EmojiService {
   private favoriteDetailTurn: Promise<void> = Promise.resolve();
   /** 关联 GIF 分组缓存。 */
   private relatedTags: PanelRelatedTag[] | null = null;
+  private shortcutFaces: Promise<import('../common/emoji_shortcuts').SystemEmojiShortcut[]> | null =
+    null;
   /** packId → 在线详情（android.json），会话内缓存（含 in-flight 去重）。 */
   private packDetailCache = new Map<string, Promise<MarketPackDetail | null>>();
   /** packId → 解密密钥，会话内缓存（native 恢复较快但结果稳定，缓存省重复爆破）。 */
@@ -362,6 +366,28 @@ export class EmojiService {
       if (r.sticker) group.stickerCount += 1;
     }
     return [...groups.values()].sort(compareFaceGroups);
+  }
+
+  /** 原始短码表与当前系统目录在宿主合并一次，不按名称推导别名。 */
+  async listShortcutFaces() {
+    if (!this.shortcutFaces) {
+      const task = Promise.all([this.listPanelFaces(), import('../common/emoji_shortcuts')]).then(
+        ([groups, { buildSystemEmojiShortcuts }]) =>
+          buildSystemEmojiShortcuts(
+            groups.flatMap((group) => group.items.filter((item) => !item.unicode)),
+          ),
+      );
+      this.shortcutFaces = task;
+      void task.then(
+        (faces) => {
+          if (!faces.length && this.shortcutFaces === task) this.shortcutFaces = null;
+        },
+        () => {
+          if (this.shortcutFaces === task) this.shortcutFaces = null;
+        },
+      );
+    }
+    return (await this.shortcutFaces).map((face) => ({ ...face, shortcuts: [...face.shortcuts] }));
   }
 
   /**
@@ -683,7 +709,7 @@ export class EmojiService {
 
   private async fetchMarketPackDetail(id: string): Promise<MarketPackDetail | null> {
     const url = `https://i.gtimg.cn/club/item/parcel/${Number(id) % 10}/${id}_android.json`;
-    const res = await fetch(url, { headers: { Referer: '', 'User-Agent': 'Mozilla/5.0' } });
+    const res = await networkFetch(url, { headers: { Referer: '', 'User-Agent': 'Mozilla/5.0' } });
     if (!res.ok) return null;
     const j = (await res.json()) as {
       name?: string;
@@ -723,6 +749,7 @@ export class EmojiService {
    * 会话内按 packId 缓存（手动派生不缓存，因用户会试不同值）。
    */
   async getMarketPackKey(packId: string, timestamp?: number): Promise<MarketPackKey | null> {
+    if (!developmentDressToolsEnabled()) return null;
     const id = String(packId).trim();
     if (!/^\d+$/.test(id)) return null;
 
@@ -757,6 +784,7 @@ export class EmojiService {
     hash: string,
     keyOverride?: string,
   ): Promise<string | null> {
+    if (!developmentDressToolsEnabled()) return null;
     const id = String(packId).trim();
     if (!/^\d+$/.test(id) || !/^[0-9a-f]{6,64}$/i.test(hash)) return null;
 
@@ -777,7 +805,9 @@ export class EmojiService {
       const url = `https://i.gtimg.cn/club/item/parcel/item/${prefix}/${hash}/${res}`;
       let ct: Uint8Array;
       try {
-        const r = await fetch(url, { headers: { Referer: '', 'User-Agent': 'Mozilla/5.0' } });
+        const r = await networkFetch(url, {
+          headers: { Referer: '', 'User-Agent': 'Mozilla/5.0' },
+        });
         if (!r.ok) continue;
         ct = new Uint8Array(await r.arrayBuffer());
       } catch {
@@ -931,7 +961,7 @@ export class EmojiService {
   /** Download CDN bytes and save as-is (CDN content is plaintext). */
   private async download(url: string, targetPath: string): Promise<string | null> {
     try {
-      const res = await fetch(url, {
+      const res = await networkFetch(url, {
         headers: { Referer: '', 'User-Agent': 'Mozilla/5.0' },
       });
       if (!res.ok) return null;

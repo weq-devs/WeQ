@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import { eventTimeFormatter } from '@weq/time';
 /**
  * 维护与诊断工具 —— 从设置中的对应入口打开。
@@ -49,6 +50,7 @@ import { ToolSurface, type ToolPresentation } from './ToolSurface';
 import { ReverseTool } from './ReverseTool';
 import { CapturePanel } from './CapturePanel';
 import { LoginAccountPanel } from './LoginAccountPanel';
+import { MAINTENANCE_TOOL_ICONS } from '../lib/featureIcons.shared';
 
 interface AccountRow {
   uin: string;
@@ -91,13 +93,7 @@ const TOOLS: { id: ToolId; label: string; desc: string }[] = [
   { id: 'login-accounts', label: 'QQ 登录账号管理', desc: '快速登录 · 删除账号 · 更换设备标识' },
 ];
 
-const TOOL_ICONS: Record<ToolId, typeof KeyRound> = {
-  'key-scan': KeyRound,
-  'other-device-key': Database,
-  capture: Radio,
-  reverse: Braces,
-  'login-accounts': Fingerprint,
-};
+const TOOL_ICONS = MAINTENANCE_TOOL_ICONS;
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -615,7 +611,13 @@ export function WonderfulToolsDialog({
                         <h2 id="weq-wtools-title">密钥扫描</h2>
                         {!loading && accounts.length > 0 ? (
                           <span className="weq-wtools-total">
-                            {onlineCount} / {accounts.length} 在线
+                            <span className="weq-number weq-number-inherit">{onlineCount}</span> /{' '}
+                            {
+                              <span className="weq-number weq-number-inherit">
+                                {accounts.length}
+                              </span>
+                            }{' '}
+                            在线
                           </span>
                         ) : null}
                       </div>
@@ -668,7 +670,9 @@ export function WonderfulToolsDialog({
                                 </span>
                                 <span className="weq-wtools-card-id">
                                   <strong>{acc.userName || acc.uin}</strong>
-                                  <em>{acc.uin}</em>
+                                  <em>
+                                    <span className="weq-number weq-number-inherit">{acc.uin}</span>
+                                  </em>
                                 </span>
                                 <span className="weq-wtools-card-status">
                                   {busy ? (
@@ -697,11 +701,13 @@ export function WonderfulToolsDialog({
                         <span
                           className={`weq-wtools-online-badge${otherKeyOnline > 0 ? ' is-online' : ''}`}
                         >
-                          {fullModeEnabled
-                            ? otherKeyOnline > 0
-                              ? `${otherKeyOnline} 个在线实例可用`
-                              : '无在线实例'
-                            : '完整功能未启用'}
+                          <NumericText>
+                            {fullModeEnabled
+                              ? otherKeyOnline > 0
+                                ? `${otherKeyOnline} 个在线实例可用`
+                                : '无在线实例'
+                              : 'QQ 在线能力未启用'}
+                          </NumericText>
                         </span>
                       </div>
                       <div className="weq-wtools-toolbar">
@@ -791,7 +797,7 @@ export function WonderfulToolsDialog({
                           }
                           title={
                             !fullModeEnabled
-                              ? '本次运行未启用完整功能，无法向 QQ 请求密钥'
+                              ? '本次运行未启用 QQ 在线能力，无法向 QQ 请求密钥'
                               : otherKeyOnline === 0
                                 ? '没有可用的在线 QQ 实例，无法发包获取密钥'
                                 : '按 bootstrap 取密钥流程，向在线 QQ 请求该数据库的密钥'
@@ -808,7 +814,7 @@ export function WonderfulToolsDialog({
                           <span className="weq-wtools-odev-hint">
                             {fullModeEnabled
                               ? '无在线实例，按钮保持灰色：请先登录 QQ 并保持在线'
-                              : '本次运行未启用完整功能，无法向 QQ 请求密钥'}
+                              : '本次运行未启用 QQ 在线能力，无法向 QQ 请求密钥'}
                           </span>
                         ) : null}
                       </div>
@@ -837,7 +843,11 @@ export function WonderfulToolsDialog({
                             </div>
                             {otherResult.pid ? (
                               <span className="weq-wtools-odev-pid">
-                                由在线实例 PID {otherResult.pid} 返回
+                                由在线实例 PID{' '}
+                                <span className="weq-number weq-number-inherit">
+                                  {otherResult.pid}
+                                </span>{' '}
+                                返回
                               </span>
                             ) : null}
                           </div>
@@ -939,9 +949,13 @@ export function WonderfulToolsDialog({
                 <strong id="weq-wtools-result-title" className="weq-wtools-result-name">
                   {scanTarget.userName || scanTarget.uin}
                 </strong>
-                <span className="weq-wtools-result-uin">QQ 号 {scanTarget.uin}</span>
+                <span className="weq-wtools-result-uin">
+                  QQ 号 <span className="weq-number weq-number-inherit">{scanTarget.uin}</span>
+                </span>
                 {scanTarget.pid ? (
-                  <span className="weq-wtools-result-pid">PID {scanTarget.pid}</span>
+                  <span className="weq-wtools-result-pid">
+                    PID <span className="weq-number weq-number-inherit">{scanTarget.pid}</span>
+                  </span>
                 ) : null}
 
                 <div className="weq-wtools-result-body">
@@ -953,7 +967,12 @@ export function WonderfulToolsDialog({
                           {scanProgress?.message ?? '正在扫描进程内存并验证密钥…'}
                         </span>
                         {scanProgress ? (
-                          <span className="weq-wtools-scan-pct">{scanProgress.percent}%</span>
+                          <span className="weq-wtools-scan-pct">
+                            <span className="weq-number weq-number-inherit">
+                              {scanProgress.percent}
+                            </span>
+                            %
+                          </span>
                         ) : null}
                       </div>
                       <div className="weq-wtools-scan-track">

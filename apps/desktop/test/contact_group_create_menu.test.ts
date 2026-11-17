@@ -2,7 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SidebarHeader } from '../src/renderer/src/im-template/template/sidebarHeader';
-import { FriendDirectoryContext } from '../src/renderer/src/components/FriendDirectoryControls';
+import { FriendDirectoryContext } from '../src/renderer/src/components/FriendDirectoryControls.shared';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
 

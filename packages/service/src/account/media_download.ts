@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * MediaDownloadService — CDN fallback for chat media that isn't on disk.
  *
@@ -353,7 +354,7 @@ async function tryFetch(
   for (let attempt = 0; ; attempt += 1) {
     if (!allowed()) return null;
     try {
-      const res = await fetch(url);
+      const res = await networkFetch(url);
       if (!res.ok) note(`http-${res.status}`);
       if (res.status === 429 || res.status >= 500) {
         if (attempt < MAX_RETRIES) {
@@ -386,7 +387,7 @@ async function tryFetch(
               first = undefined;
               return response;
             }
-            return fetch(input, init);
+            return networkFetch(input, init);
           },
           validate: async () => {
             if (!allowed()) throw new Error('账号来源已失活');

@@ -1,7 +1,8 @@
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WebConnectionStatus } from '../../src/renderer/src/components/WebConnectionStatus';
-import { ToastHost, useToast } from '../../src/renderer/src/components/Toast';
+import { ToastHost } from '../../src/renderer/src/components/Toast';
+import { useToast } from '../../src/renderer/src/components/Toast.shared';
 import { useWebConnection } from '../../src/renderer/src/state/webConnection';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import '../../src/renderer/src/styles/index.css';

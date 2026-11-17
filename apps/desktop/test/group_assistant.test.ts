@@ -5,10 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MergedSessionPanel } from '../src/renderer/src/components/sidebar/MergedSessionPanel';
 import { ConversationList } from '../src/renderer/src/im-template/template/conversationLists';
 import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
-import {
-  ContentSelectionProvider,
-  useCurrentContentSelection,
-} from '../src/renderer/src/state/contentSelection';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
+import { useCurrentContentSelection } from '../src/renderer/src/state/contentSelection.shared';
 import { createTemplateDemoData } from './support/templateDemoData';
 import type { Conversation } from '../src/renderer/src/im-template/template/types';
 import {

@@ -6,17 +6,12 @@ import type { Readable } from 'node:stream';
 import {
   formatConsoleRecord,
   projectConsoleContext,
+  terminalColor,
   type LoggerContext,
   type LogLevel,
 } from '@weq/service/console-output';
 
-export function terminalColor(stream: 'stdout' | 'stderr', env = process.env): boolean {
-  const inherited = env[stream === 'stdout' ? 'WEQ_DEV_STDOUT_TTY' : 'WEQ_DEV_STDERR_TTY'];
-  return (
-    env.NO_COLOR === undefined &&
-    (inherited === undefined ? Boolean(process[stream].isTTY) : inherited === '1')
-  );
-}
+export { terminalColor };
 
 export function developmentRecord(
   level: LogLevel,
@@ -123,6 +118,8 @@ export function createDevelopmentOutput(
       'restarting electron app...': '正在重启应用',
       'reloading electron renderer...': '正在重新加载界面',
     };
+    if (!debug && ['starting electron app...', 'restarting electron app...'].includes(text.trim()))
+      return;
     const message = system
       ? `${system[1]}: ${system[2]}`
       : vite

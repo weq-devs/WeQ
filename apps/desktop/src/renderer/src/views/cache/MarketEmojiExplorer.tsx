@@ -20,7 +20,8 @@ import type { MarketFaceEntry } from '@weq/service';
 import { client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
-import { BlobDialog, CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
+import { BlobDialog, GridFooter } from './CacheShared';
+import { CURSOR_PAGE, fmtBytes, useCursorPaged } from './CacheShared.shared';
 import { GridSkeleton } from './CacheSkeleton';
 
 /** weq-media URL for one market face by pack+hash. */
@@ -53,7 +54,8 @@ export function MarketEmojiExplorer(): ReactElement {
       <div className="weq-cache-marketemoji-bar">
         <span className="weq-cache-data-name">商城表情</span>
         <span className="weq-cache-data-meta">
-          {total ?? entries.length} 个 · 优先展示动图(GIF)，点击查看全部格式
+          <span className="weq-number weq-number-inherit">{total ?? entries.length}</span> 个 ·
+          优先展示动图(GIF)，点击查看全部格式
         </span>
       </div>
 
@@ -162,7 +164,9 @@ function MarketEmojiLightbox({
             </div>
             <figcaption className="weq-marketemoji-panel-cap">
               <strong>{p.label}</strong>
-              <span>{fmtBytes(p.size)}</span>
+              <span>
+                <span className="weq-number weq-number-inherit">{fmtBytes(p.size)}</span>
+              </span>
             </figcaption>
           </figure>
         ))

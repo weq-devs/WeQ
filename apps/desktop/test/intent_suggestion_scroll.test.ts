@@ -16,6 +16,11 @@ vi.mock('../src/renderer/src/components/intentSense/context', () => ({
     data: { enabled: true, apiConfigured: true, suggestionsEnabled: true },
   }),
 }));
+vi.mock('../src/renderer/src/components/intentSense/context.shared', () => ({
+  useIntentSenseStatus: () => ({
+    data: { enabled: true, apiConfigured: true, suggestionsEnabled: true },
+  }),
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     account: {

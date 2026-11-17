@@ -1,15 +1,22 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { MobileBackStack, type MobileBackEntry } from '../lib/mobileNavigation';
-import { isMobileClient, isSingleColumnLayout } from '../lib/responsiveLayout';
+import { compareMobileBackEntries } from '../lib/mobileBackSurface';
+import {
+  isMobileClient,
+  isSingleColumnLayout,
+  subscribeResponsiveLayout,
+} from '../lib/responsiveLayout';
 import { useRenderDocument } from '../lib/renderDocument';
+import { useTabActive } from '../components/RetainedTabs.shared';
 
-const stack = new MobileBackStack();
+const stack = new MobileBackStack(compareMobileBackEntries);
 let sequence = 0;
 let syncQueued = false;
 let guardInstalled = false;
 let returningToRoot = false;
 let backing = false;
 let attached = false;
+let requestedEntry: string | undefined;
 const marker = `weq-mobile-${Date.now()}`;
 
 export function isMobileNavigation() {
@@ -37,7 +44,8 @@ function syncHistory() {
   });
 }
 
-function consumeBack() {
+function consumeBack(expectedId?: string) {
+  if (expectedId !== undefined && stack.top?.id !== expectedId) return false;
   blurMobileEditor();
   const consumed = stack.back();
   if (consumed) signal('back');
@@ -45,12 +53,14 @@ function consumeBack() {
   return consumed;
 }
 
-export function mobileBack() {
+export function mobileBack(expectedId?: string) {
   if (!isMobileNavigation()) return false;
-  if (backing || returningToRoot) return stack.size > 0 || backing;
+  if (expectedId !== undefined && stack.top?.id !== expectedId) return false;
+  if (backing || returningToRoot) return expectedId === undefined && (stack.size > 0 || backing);
   if (!stack.size) return false;
   if (attached && guardInstalled) {
     backing = true;
+    requestedEntry = stack.top?.id;
     window.history.back();
   } else consumeBack();
   return true;
@@ -58,6 +68,10 @@ export function mobileBack() {
 
 export function mobileBackTarget() {
   return stack.top?.target?.() ?? null;
+}
+
+export function mobileBackEntry() {
+  return stack.top;
 }
 
 export function registerMobileBack(entry: MobileBackEntry) {
@@ -98,12 +112,14 @@ export function useMobileBack(
   target?: () => HTMLElement | null,
 ) {
   const renderDocument = useRenderDocument();
+  const tabActive = useTabActive();
+  const mobile = useSyncExternalStore(subscribeResponsiveLayout, isMobileNavigation, () => false);
   const id = useRef(`layer-${++sequence}`);
   const latest = useRef({ back, target });
   latest.current = { back, target };
   useEffect(() => {
     // 系统工具窗有自己的目录导航，不向主窗口的浏览历史注册返回动作。
-    if (!active || renderDocument !== document) return;
+    if (!active || !tabActive || !mobile || renderDocument !== document) return;
     return registerMobileBack({
       id: id.current,
       priority,
@@ -111,7 +127,7 @@ export function useMobileBack(
       back: () => latest.current.back(),
       target: () => latest.current.target?.() ?? null,
     });
-  }, [active, priority, renderDocument]);
+  }, [active, tabActive, priority, renderDocument, mobile]);
 }
 
 export function attachMobileHistory() {
@@ -127,7 +143,8 @@ export function attachMobileHistory() {
     const wasGuarded = guardInstalled;
     guardInstalled = false;
     if (returningToRoot) returningToRoot = false;
-    else if (wasGuarded) consumeBack();
+    else if (wasGuarded) consumeBack(requestedEntry);
+    requestedEntry = undefined;
     backing = false;
     syncHistory();
   };
@@ -145,6 +162,7 @@ export function attachMobileHistory() {
     }
     guardInstalled = false;
     backing = false;
+    requestedEntry = undefined;
     returningToRoot = false;
     window.history.scrollRestoration = scrollRestoration;
   };

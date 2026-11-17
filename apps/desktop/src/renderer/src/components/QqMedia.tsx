@@ -25,7 +25,7 @@ import {
   Loader2,
   Pause,
   Play,
-  RotateCw,
+  RefreshCw,
   Sparkles,
   Star,
   Store,
@@ -33,21 +33,22 @@ import {
 } from 'lucide-react';
 import { fileIconUrl, localFileUrl, localVoiceFileUrl, mediaUrl } from '@renderer/lib/resourceUrl';
 import { useDataSaver } from '@renderer/lib/dataSaver';
-import { IS_WEB } from '@renderer/lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import { cn } from '@renderer/lib/utils';
 import { trpc } from '@renderer/trpc/client';
-import { openMediaPreview } from './mediaPreviewStore';
+import { openMediaPreview } from './mediaPreviewStore.shared';
 
-import { MediaItemKeyContext, useChatMediaOpen } from './ChatMediaGallery';
+import { MediaItemKeyContext, useChatMediaOpen } from './ChatMediaGallery.shared';
 import { useRenderDocument, resourceForRenderDocument } from '../lib/renderDocument';
-import { openMarketFaceLightbox } from './MarketFaceLightbox';
+import { openMarketFaceLightbox } from '../state/marketFaceLightbox';
 import { ShimmerImage } from './ShimmerImage';
-import { IS_ELECTRON } from '@renderer/lib/target';
+import { IS_ELECTRON } from '../lib/target.shared';
 import { cdnImageUrl, cdnVideoCoverUrl, flashPicUrl, useCdn } from '@renderer/lib/cdn';
-import { MediaSaveControls, useMediaSave } from './MediaSaveControls';
+import { MediaSaveControls } from './MediaSaveControls';
+import { useMediaSave } from './MediaSaveControls.shared';
 import type { MediaSaveSource } from '../../../shared/media_save';
 import { useVoiceTranscription } from '../hooks/useVoiceTranscription';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import { useRemoteClient } from '../lib/remoteClient';
 import { mediaRetryUrl } from '../lib/mediaRetryUrl';
 import '../styles/media-preview.css';
@@ -153,7 +154,7 @@ function QqMediaMissing({
           onClick={onRetry}
           onKeyDown={mediaKeyDown}
         >
-          <RotateCw size={16} aria-hidden />
+          <RefreshCw size={16} aria-hidden />
         </button>
       ) : null}
     </div>
@@ -651,7 +652,9 @@ export function QqVideo({
         )}
         <span className="qq-media-video-play" aria-hidden />
         {duration > 0 ? (
-          <span className="qq-media-video-duration">{formatDuration(duration)}</span>
+          <span className="qq-media-video-duration">
+            <span className="weq-number weq-number-inherit">{formatDuration(duration)}</span>
+          </span>
         ) : null}
       </VideoControl>
       {expandButton}
@@ -813,7 +816,7 @@ export function QqFile({
               ) : error ? (
                 `保存失败：${error}`
               ) : (
-                formatSize(size)
+                <span className="weq-number">{formatSize(size)}</span>
               )}
             </span>
           </span>
@@ -859,7 +862,13 @@ export function QqOnlineFile({ data, kind }: { data: Data; kind: 'file' | 'folde
       <div className="qq-media-file-meta">
         <div className="qq-media-file-name">{name || placeholder}</div>
         <div className="qq-media-file-size">
-          {size > 0 ? formatSize(size) : kind === 'folder' ? '在线文件夹' : '在线文件'}
+          {size > 0 ? (
+            <span className="weq-number">{formatSize(size)}</span>
+          ) : kind === 'folder' ? (
+            '在线文件夹'
+          ) : (
+            '在线文件'
+          )}
         </div>
       </div>
     </div>
@@ -1048,7 +1057,11 @@ export function QqVoice({
               <i key={i} style={{ height: `${20 + Math.round((v / 255) * 80)}%` }} />
             ))}
           </span>
-          {seconds > 0 ? <span className="qq-media-voice-time">{seconds}″</span> : null}
+          {seconds > 0 ? (
+            <span className="qq-media-voice-time">
+              <span className="weq-number weq-number-inherit">{seconds}</span>″
+            </span>
+          ) : null}
         </button>
         {canTranscribe && (shownTranscript === null || transcribeError) ? (
           <button
@@ -1140,7 +1153,7 @@ export function QqMarketFace({ data, interactive = true }: { data: Data; interac
     return <QqMediaMissing label="该表情" style={style} />;
   }
   // 商城表情与普通图片表情的差异：外层包一层带商城角标的容器，点击弹出
-  // 「这一整组表情」的灯箱（数据同构本地资源页的商城表情包）。
+  // 贴近消息的整包小浮层（数据同构本地资源页的商城表情包）。
   const StickerControl = interactive ? 'button' : 'span';
   return (
     <StickerControl
@@ -1151,7 +1164,11 @@ export function QqMarketFace({ data, interactive = true }: { data: Data; interac
       data-favorite-emoji-source={mediaUrl('mface', { pack, hash })}
       style={style}
       title={interactive ? '商城表情 · 点击查看整组' : '商城表情'}
-      onClick={interactive ? () => openMarketFaceLightbox(String(pack), hash) : undefined}
+      onClick={
+        interactive
+          ? (event) => openMarketFaceLightbox(String(pack), hash, event.currentTarget)
+          : undefined
+      }
     >
       <ShimmerImage
         suspendOffscreen

@@ -116,6 +116,83 @@ it('没有漫游缓存时日历不创建替代库或表', async () => {
   expect(write).not.toHaveBeenCalled();
 });
 
+it('日历缓存先按半开日期过滤再分页，三种来源、同序号与跨日边界不漏不重', async () => {
+  const { cache, history, nt } = setup();
+  const start = Date.parse('2026-11-08T00:00:00+08:00') / 1000;
+  for (const sourceFormat of [undefined, 'native', 'protocol'] as const) {
+    await cache.store(
+      [start - 1, start, start + 1, start + 86400].map((sendTime, index) => ({
+        ...message(index + 1),
+        msgId: String(index + 1),
+        msgRandom: String(index + 1),
+        sendTime: String(sendTime),
+        sourceFormat,
+        ...(sourceFormat === 'native' ? { nativeRaw: { elements: [] } } : {}),
+      })),
+    );
+  }
+  const write = vi.spyOn(nt, 'executeSqlWrite');
+  const first = await history.calendarPage('group', 'synthetic-conversation', 1, undefined, {
+    start,
+    end: start + 86400,
+  });
+  expect(first.map((row) => row.msgSeq)).toEqual(['2']);
+  const last = first[0]!;
+  const next = await history.calendarPage(
+    'group',
+    'synthetic-conversation',
+    1,
+    {
+      msgSeq: Number(last.msgSeq),
+      sendTime: Number(last.sendTime),
+      msgId: last.msgId,
+    },
+    { start, end: start + 86400 },
+  );
+  expect(next.map((row) => row.msgSeq)).toEqual(['3']);
+  expect(
+    await history.calendarPage('group', 'synthetic-conversation', 256, undefined, {
+      start: start + 2,
+      end: start + 86400,
+    }),
+  ).toEqual([]);
+  expect(write).not.toHaveBeenCalled();
+});
+
+it('日历日期预筛选不复活已被原生来源覆盖的跨日协议记录', async () => {
+  const { cache, history } = setup();
+  const start = Date.parse('2026-11-08T00:00:00+08:00') / 1000;
+  const protocol = {
+    ...message(12),
+    msgId: '12',
+    sendTime: String(start),
+    sourceFormat: 'protocol' as const,
+  };
+  await cache.store([
+    protocol,
+    {
+      ...protocol,
+      sourceFormat: 'native',
+      nativeRaw: { elements: [] },
+      sendTime: String(start + 86400),
+    },
+  ]);
+  expect(
+    await history.calendarPage('group', protocol.conv, 256, undefined, {
+      start,
+      end: start + 86400,
+    }),
+  ).toEqual([]);
+  expect(
+    (
+      await history.calendarPage('group', protocol.conv, 256, undefined, {
+        start: start + 86400,
+        end: start + 172800,
+      })
+    ).map((row) => row.sourceFormat),
+  ).toEqual(['native']);
+});
+
 describe('offline roaming timeline cache pages', () => {
   it('原生负数 ID 与正数 ID 的同序号排序和续页一致', async () => {
     const { cache, history } = setup();

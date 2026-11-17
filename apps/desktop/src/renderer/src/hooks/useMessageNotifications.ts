@@ -4,7 +4,7 @@ import { plainContentText, type PlainElement } from '@weq/service/message-plain-
 import { client } from '../trpc/client';
 import { accountBinding, preferenceValue, useClientPreferences } from '../lib/clientPreferences';
 import { useAppLock } from '../state/lock';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import { defaultConversationPreference } from '../im-template/template/preferences';
 import type { Conversation, ConversationPreferences } from '../im-template/template/types';
 import type { ChatMsgWire } from '../../../main/ipc/serde';
@@ -87,7 +87,7 @@ export function useMessageNotifications(options: {
       });
     const notices = new Map<
       string,
-      { message: ChatMsgWire; title: string; body: string; count: number }
+      { message: ChatMsgWire; anchor: ChatMsgWire; title: string; body: string; count: number }
     >();
     for (const [key, { message, observedAt }] of pending.current) {
       if (seen.current.has(key)) {
@@ -120,8 +120,17 @@ export function useMessageNotifications(options: {
       if (elements.length > 0 && elements.every((element) => /^grayTip/i.test(element.type ?? '')))
         continue;
       const convKey = `${message.kind}:${message.conv}`;
+      const previous = notices.get(convKey);
+      const first = previous?.anchor;
+      const anchor =
+        first && /^[1-9]\d*$/.test(first.msgSeq)
+          ? !/^[1-9]\d*$/.test(message.msgSeq) || BigInt(first.msgSeq) <= BigInt(message.msgSeq)
+            ? first
+            : message
+          : message;
       notices.set(convKey, {
         message,
+        anchor,
         title: policy.name || message.conv,
         body: plainContentText(elements).slice(0, 1700) || '[消息]',
         count: (notices.get(convKey)?.count ?? 0) + 1,
@@ -158,7 +167,7 @@ export function useMessageNotifications(options: {
           kind: 'message',
           title,
           body,
-          target: { kind: item.message.kind, conv: item.message.conv, seq: item.message.msgSeq },
+          target: { kind: item.message.kind, conv: item.message.conv, seq: item.anchor.msgSeq },
         };
         if (IS_WEB) {
           channel.current?.show(notice);
@@ -169,7 +178,7 @@ export function useMessageNotifications(options: {
               messageId: item.message.msgId,
               kind: item.message.kind,
               conv: item.message.conv,
-              seq: item.message.msgSeq,
+              seq: item.anchor.msgSeq,
               title,
               body,
               private: latest.current.privacy,

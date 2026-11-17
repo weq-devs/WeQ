@@ -15,11 +15,11 @@ import {
   virtualConversationRow,
 } from '../src/renderer/src/lib/conversationDirectory';
 import { conversationViewFixture } from './support/conversation-view-fixture';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
 import {
-  ContentSelectionProvider,
   useCurrentContentSelection,
   useContentExportRequest,
-} from '../src/renderer/src/state/contentSelection';
+} from '../src/renderer/src/state/contentSelection.shared';
 
 vi.mock('../src/renderer/src/trpc/client', () => ({ trpc: {}, client: {} }));
 vi.mock('../src/renderer/src/hooks/useContactDirectoryOrder', () => ({

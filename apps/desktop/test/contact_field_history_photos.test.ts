@@ -53,6 +53,7 @@ const row = (id: number, value: unknown): Row => ({
 });
 async function settle() {
   await act(async () => {
+    await vi.dynamicImportSettled();
     await new Promise((resolve) => setTimeout(resolve, 30));
   });
 }

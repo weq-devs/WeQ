@@ -3,6 +3,7 @@ import { Storage } from 'happy-dom';
 import { TASK_READ_LIMIT, useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
 import type { WorkspaceTaskIndicator } from '../src/renderer/src/lib/workspaceIndicators';
 import { summarizeWorkspaceTasks } from '../src/renderer/src/lib/workspaceIndicators';
+import { BackgroundTaskRegistry } from '../src/shared/background_task';
 
 const task = (
   id: string,
@@ -27,6 +28,78 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('任务结果已读状态', () => {
+  it.each(['running', 'paused', 'completed', 'failed', 'cancelled'] as const)(
+    '数据库体检首次同步为 %s 时不打开主窗口任务列表，仍可手动查看',
+    (status) => {
+      const store = useWorkspaceMenu.getState();
+      store.syncTasks('db-checkup', []);
+      const initial = useWorkspaceMenu.getState().taskOpenRequest;
+      const registry = new BackgroundTaskRegistry();
+      const taskId = registry.start({
+        kind: 'database',
+        name: '数据库体检 · synthetic.db',
+        destination: 'db-checkup',
+      });
+      if (status !== 'running') registry.finish(taskId, status);
+      const id = `background:host:${taskId}`;
+      const summary = summarizeWorkspaceTasks({
+        background: registry.snapshot().map((task) => ({ ...task, id })),
+      });
+      store.syncTasks('db-checkup', summary.items);
+      expect(useWorkspaceMenu.getState()).toMatchObject({
+        taskOpenRequest: initial,
+        running: summary.running,
+        finished: summary.finished,
+        failed: summary.failed,
+        taskItems: [expect.objectContaining({ id, autoOpenTaskList: false })],
+      });
+      store.focusTask(id);
+      expect(useWorkspaceMenu.getState()).toMatchObject({
+        taskOpenRequest: initial + 1,
+        taskFocusId: id,
+      });
+    },
+  );
+
+  it('连续体检多个库及重新体检均不展开任务列表，关闭页面清理后不残留计数', () => {
+    const store = useWorkspaceMenu.getState();
+    store.syncTasks('db-checkup', []);
+    const initial = useWorkspaceMenu.getState().taskOpenRequest;
+    const registry = new BackgroundTaskRegistry();
+    const unsubscribe = registry.subscribe(() => {
+      const background = registry
+        .snapshot()
+        .map((task) => ({ ...task, id: `background:host:${task.id}` }));
+      store.syncTasks('db-checkup', summarizeWorkspaceTasks({ background }).items);
+    });
+    const start = () =>
+      registry.start({
+        kind: 'database',
+        name: '数据库体检 · synthetic.db',
+        destination: 'db-checkup',
+        ownerId: 'checkup-page',
+        scope: { uin: 'synthetic' },
+      });
+    registry.finish(start(), 'completed');
+    registry.finish(start(), 'failed');
+    const retry = start();
+    expect(useWorkspaceMenu.getState()).toMatchObject({
+      taskOpenRequest: initial,
+      running: 1,
+      finished: 2,
+      failed: 1,
+    });
+    registry.releaseOwner('checkup-page', { uin: 'synthetic' });
+    registry.finish(retry, 'cancelled');
+    unsubscribe();
+    expect(useWorkspaceMenu.getState()).toMatchObject({
+      taskOpenRequest: initial,
+      running: 0,
+      finished: 0,
+      failed: 0,
+    });
+  });
+
   it('后台步骤和漫游子任务不展开列表，仍保留计数、失败与手动打开入口', () => {
     const store = useWorkspaceMenu.getState();
     store.syncTasks('quiet', []);

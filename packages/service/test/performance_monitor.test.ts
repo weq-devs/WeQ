@@ -11,6 +11,7 @@ import {
   sqliteWorkerExecArgv,
   type MonitorCollector,
   type MonitorRecord,
+  type MonitorPrunePreview,
 } from '../src/performance';
 import { performanceWorker } from '../src/performance/worker';
 import { createNodeCollector } from '../src/performance/node';
@@ -65,10 +66,11 @@ async function monitor() {
   await service.ready;
   return { service, source };
 }
-async function worker() {
+async function worker(path?: string) {
+  const file = path ?? join(await root(), 'history.sqlite');
   const instance = new Worker(`(${performanceWorker.toString()})(require)`, {
     eval: true,
-    workerData: { path: join(await root(), 'history.sqlite') },
+    workerData: { path: file },
   });
   workers.push(instance);
   let sequence = 0;
@@ -262,6 +264,226 @@ describe('宿主性能监视', () => {
 });
 
 describe('性能历史 Worker', () => {
+  it('按每次采样汇总同类或全部进程后分桶，不把各进程的峰值和均值直接相加', async () => {
+    const request = await worker(),
+      now = Date.now();
+    const records: MonitorRecord[] = [
+      [
+        [10, 90],
+        [90, 10],
+      ],
+      [[20, 80]],
+    ].map((samples, index) => ({
+      version: 1,
+      session: 's',
+      segment: 'before-gap',
+      kind: 'sample',
+      at: now - 1000 + index * 100,
+      intervalMs: 30_000,
+      processes: samples.map(([cpu, loop], process) => ({
+        key: `${process}:1`,
+        label: '渲染进程',
+        pid: process,
+        createdAt: 1,
+        metrics: {
+          cpuPercent: cpu!,
+          residentBytes: 100,
+          heapBytes: null,
+          externalBytes: null,
+          eventLoopP95Ms: loop!,
+        },
+      })),
+    }));
+    // 同一时间桶中进程退出，均值应为 (100 + 20) / 2，而不是 15 + 90。
+    for (const record of records)
+      record.processes!.push({
+        key: 'main:1',
+        label: '主进程',
+        pid: 99,
+        createdAt: 1,
+        metrics: {
+          cpuPercent: 5,
+          residentBytes: 100,
+          heapBytes: null,
+          externalBytes: null,
+          eventLoopP95Ms: null,
+        },
+      });
+    await request('batch', { records, settings: DEFAULT_MONITOR_SETTINGS });
+    const range = { from: now - 2000, to: now, buckets: 1, aggregate: true };
+    const history = await request<import('../src/performance').MonitorHistory>('history', range);
+    expect(history.points).toHaveLength(1);
+    expect(history.points[0]).toMatchObject({
+      label: '全部进程',
+      count: 2,
+      metrics: {
+        cpuPercent: { min: 25, max: 105, mean: 65 },
+        residentBytes: { min: 200, max: 300, mean: 250 },
+        heapBytes: { min: null, max: null, mean: null },
+        eventLoopP95Ms: { min: 80, max: 90, mean: 85 },
+      },
+    });
+    const group = await request<import('../src/performance').MonitorHistory>('history', {
+      ...range,
+      processGroup: '渲染进程',
+    });
+    expect(group.points).toHaveLength(1);
+    expect(group.points[0]!.metrics.cpuPercent).toEqual({ min: 20, max: 100, mean: 60 });
+    expect(group.processGroups).toEqual(history.processGroups);
+    expect(group.processGroups).toEqual(expect.arrayContaining(['主进程', '渲染进程']));
+    expect(group.points[0]!.label).toBe('渲染进程');
+    const missing = await request<import('../src/performance').MonitorHistory>('history', {
+      ...range,
+      processGroup: '不存在的进程',
+    });
+    expect(missing.points).toEqual([]);
+    const path = join(await root(), 'aggregate.csv');
+    await request('export-file', {
+      path,
+      format: 'csv',
+      range: { ...range, processGroup: '渲染进程' },
+    });
+    const csv = await readFile(path, 'utf8');
+    expect(csv).toContain('"group:渲染进程"');
+    expect(csv).toContain('"cpuPercent","20","100","60"');
+  });
+  it('降低时长和容量但实际没有待删除记录时无需确认', async () => {
+    const request = await worker();
+    const settings = { ...DEFAULT_MONITOR_SETTINGS, retentionDays: 30 };
+    await request('configure', { settings });
+    await request('batch', {
+      settings,
+      records: [
+        {
+          version: 1,
+          session: 's',
+          segment: 's',
+          kind: 'event',
+          at: Date.now() - 86400_000,
+          intervalMs: 0,
+          event: 'startup',
+        },
+      ],
+    });
+    const next = { ...settings, retentionDays: 7, capacityMiB: 64 };
+    const preview = await request<MonitorPrunePreview>('prune-preview', { settings: next });
+    expect(preview).toMatchObject({
+      records: 1,
+      expiredRecords: 0,
+      capacityExceeded: false,
+      needsPrune: false,
+    });
+    await expect(request('configure', { settings: next, confirmPrune: false })).resolves.toBeNull();
+    expect((await request<{ records: number }>('status')).records).toBe(1);
+  });
+  it('按真实过期记录判断删除；预览和拒绝保存均不删除数据或改写原策略', async () => {
+    const request = await worker(),
+      now = Date.now();
+    await request('configure', { settings: DEFAULT_MONITOR_SETTINGS });
+    const records = [-4, -1].map((day) => ({
+      version: 1,
+      session: 's',
+      segment: 's',
+      kind: 'event',
+      at: now + day * 86400_000,
+      intervalMs: 0,
+      event: 'startup',
+    }));
+    await request('batch', { records, settings: DEFAULT_MONITOR_SETTINGS });
+    const next = { ...DEFAULT_MONITOR_SETTINGS, retentionDays: 3 };
+    const preview = await request<MonitorPrunePreview>('prune-preview', { settings: next });
+    expect(preview).toMatchObject({
+      records: 2,
+      expiredRecords: 1,
+      capacityExceeded: false,
+      needsPrune: true,
+    });
+    expect(preview.cutoff).toBeGreaterThan(records[0]!.at);
+    expect(preview.cutoff).toBeLessThan(records[1]!.at);
+    expect(preview.cutoff).toBeGreaterThanOrEqual(now - next.retentionDays * 86400_000);
+    expect(preview.cutoff).toBeLessThanOrEqual(Date.now() - next.retentionDays * 86400_000);
+    await expect(request('configure', { settings: next, confirmPrune: false })).rejects.toThrow(
+      '确认',
+    );
+    expect((await request<{ records: number }>('status')).records).toBe(2);
+    expect(JSON.parse(await request<string>('settings'))).toEqual(DEFAULT_MONITOR_SETTINGS);
+    await request('configure', { settings: next, confirmPrune: true });
+    expect(await request<{ records: number; oldest: number }>('status')).toMatchObject({
+      records: 1,
+      oldest: records[1]!.at,
+    });
+  });
+  it('容量判断与实际回收目标一致，未确认时不删除；预览后新增记录仍重新检查', async () => {
+    const request = await worker(),
+      now = Date.now();
+    const settings = { ...DEFAULT_MONITOR_SETTINGS, capacityMiB: 4 };
+    const next = { ...settings, capacityMiB: 0.25 };
+    await request('configure', { settings });
+    expect(
+      (await request<MonitorPrunePreview>('prune-preview', { settings: next })).needsPrune,
+    ).toBe(false);
+    await request('batch', {
+      settings,
+      records: Array.from({ length: 60 }, (_, i) => ({
+        version: 1,
+        session: 's',
+        segment: 's',
+        kind: 'event',
+        at: now + i,
+        intervalMs: 0,
+        event: 'x'.repeat(16_384),
+      })),
+    });
+    const preview = await request<MonitorPrunePreview>('prune-preview', { settings: next });
+    expect(preview).toMatchObject({
+      records: 60,
+      expiredRecords: 0,
+      capacityExceeded: true,
+      needsPrune: true,
+    });
+    expect(preview.bytes).toBeGreaterThan(preview.capacityBudgetBytes);
+    expect(preview.capacityBudgetBytes).toBeCloseTo(next.capacityMiB * 1048576 * 0.9);
+    await expect(request('configure', { settings: next, confirmPrune: false })).rejects.toThrow(
+      '确认',
+    );
+    expect((await request<{ records: number }>('status')).records).toBe(60);
+    await request('configure', { settings: next, confirmPrune: true });
+    expect((await request<{ records: number }>('status')).records).toBeLessThan(60);
+  });
+  it('WAL 和空闲页能直接回收时，不误报容量删除', async () => {
+    const path = join(await root(), 'history.sqlite'),
+      request = await worker(path);
+    const settings = { ...DEFAULT_MONITOR_SETTINGS, capacityMiB: 4 };
+    await request('configure', { settings });
+    await request('batch', {
+      settings,
+      records: [
+        {
+          version: 1,
+          session: 's',
+          segment: 's',
+          kind: 'event',
+          at: Date.now(),
+          intervalMs: 0,
+          event: 'startup',
+        },
+      ],
+    });
+    const db = new DatabaseSync(path);
+    db.exec(
+      'CREATE TABLE padding(value BLOB); INSERT INTO padding VALUES(zeroblob(1048576)); DROP TABLE padding;',
+    );
+    db.close();
+    expect((await request<{ bytes: number }>('status')).bytes).toBeGreaterThan(0.25 * 1048576);
+    const next = { ...settings, capacityMiB: 0.25 };
+    expect(await request<MonitorPrunePreview>('prune-preview', { settings: next })).toMatchObject({
+      records: 1,
+      needsPrune: false,
+      capacityExceeded: false,
+    });
+    await request('configure', { settings: next, confirmPrune: false });
+    expect((await request<{ records: number }>('status')).records).toBe(1);
+  });
   it('导出与清空串行，独占创建保护现有文件', async () => {
     const request = await worker(),
       at = Date.now(),

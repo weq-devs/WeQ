@@ -21,7 +21,7 @@ import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { createPortal } from 'react-dom';
 import { Check, Earth, Lock, Users, X } from 'lucide-react';
 import { client } from '../../trpc/client';
-import { useToast } from '../../components/Toast';
+import { useToast } from '../../components/Toast.shared';
 import { useSelfFace } from './useSelfFace';
 import { useReportView } from './reportContext';
 import type { ExportSlide } from './exportHtml';

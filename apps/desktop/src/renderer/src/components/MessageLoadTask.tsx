@@ -1,5 +1,6 @@
 import { Square } from 'lucide-react';
-import { useToast } from './Toast';
+import { useToast } from './Toast.shared';
+import type { NotificationSource } from '../lib/notificationNavigation';
 import '../styles/message-load-task.css';
 
 /** 历史／漫游加载按实际收到的消息条数报告，不借用逐条发送的时间进度。 */
@@ -7,6 +8,7 @@ export async function runMessageLoadTask<T>(
   label: string,
   run: (report: (count: number) => void, signal: AbortSignal) => Promise<T>,
   outerSignal?: AbortSignal,
+  source?: NotificationSource | null,
 ): Promise<T> {
   const controller = new AbortController();
   const abort = () => controller.abort();
@@ -17,7 +19,7 @@ export async function runMessageLoadTask<T>(
   const content = () => (
     <span className="weq-message-load-task">
       <span>
-        {label} · 已加载 {count} 条消息
+        {label} · 已加载 <span className="weq-number weq-number-inherit">{count}</span> 条消息
       </span>
       <span className="weq-message-load-actions">
         <progress aria-label="消息加载进度" />
@@ -27,7 +29,7 @@ export async function runMessageLoadTask<T>(
       </span>
     </span>
   );
-  const id = toast.push({ title: content(), ttl: 0, dismissible: false });
+  const id = toast.push({ title: content(), ttl: 0, dismissible: false, source });
   let rejectOnAbort!: () => void;
   // 在途 IPC 不一定响应取消；先结束前端等待，迟到页面仍由 signal 拦截。
   const stopped = new Promise<never>((_resolve, reject) => {

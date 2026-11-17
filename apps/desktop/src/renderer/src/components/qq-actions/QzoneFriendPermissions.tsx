@@ -2,13 +2,15 @@ import { EmptyState } from '../EmptyState';
 import { useContext, useState } from 'react';
 import { trpc } from '../../trpc/client';
 import { QQWriteToggleRow } from '../QQWriteControls';
-import { ActionFeedback, ActionIcon, useQQAction, withQQAccountScope } from './shared';
+import { ActionFeedback, ActionIcon } from './shared';
+import { useQQAction, withQQAccountScope } from './shared.shared';
 import { QueryError } from '../settings/controls';
 import { QqAvatar } from '../QqAvatar';
+import { EditorDialog } from '../EditorDialog';
 import { ProfileNavigationContext, profileTargetUser } from '../../lib/profileNavigation';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
-import { Plus, Search, X, UsersRound } from 'lucide-react';
+import { EyeOff, Plus, Search, ShieldBan, X, UsersRound } from 'lucide-react';
 import '../../styles/qzone-permissions.css';
 
 function PermissionProfile({ uin, name }: { uin: string; name: string }) {
@@ -100,6 +102,7 @@ function PermissionKind({
       </>
     );
   const disabled = action.disabled || !Array.isArray(lists.data) || Boolean(lists.error);
+  const PermissionIcon = kind === 'blocked' ? ShieldBan : EyeOff;
   const existing = new Set(lists.data?.map((row) => row.uin));
   const allowed = (uin: string) =>
     /^[1-9]\d{4,11}$/.test(uin) && uin !== action.binding?.expectedAccountUin && !existing.has(uin);
@@ -112,16 +115,19 @@ function PermissionKind({
   return (
     <section className="weq-qzone-permissions weq-set-card" aria-label={label}>
       <header>
-        <h4>{label}</h4>
+        <h4 className="weq-set-card-title">
+          <span className="weq-set-card-icon" aria-hidden>
+            <PermissionIcon size={15} strokeWidth={1.8} />
+          </span>
+          {label}
+        </h4>
         {!lists.error && lists.data && (
-          <span className="weq-qzone-permissions-count">{lists.data.length} 人</span>
+          <span className="weq-qzone-permissions-count">
+            {<span className="weq-number weq-number-inherit">{lists.data.length}</span>} 人
+          </span>
         )}
         <div className="weq-qzone-permissions-tools">
-          <ActionIcon
-            label={`添加到${label}`}
-            disabled={disabled || adding}
-            onClick={() => setAdding(true)}
-          >
+          <ActionIcon label={`添加到${label}`} disabled={disabled} onClick={() => setAdding(true)}>
             <Plus size={16} />
           </ActionIcon>
         </div>
@@ -148,14 +154,20 @@ function PermissionKind({
         ))}
       </ul>
       {adding && (
-        <PermissionAdder
-          label={label}
-          action={action}
-          disabled={disabled}
-          existing={existing}
-          add={add}
+        <EditorDialog
+          title={`添加到${label}`}
           onClose={() => setAdding(false)}
-        />
+          busy={action.pending || action.busy}
+        >
+          <PermissionAdder
+            label={label}
+            action={action}
+            disabled={disabled}
+            existing={existing}
+            add={add}
+          />
+          <ActionFeedback action={action} />
+        </EditorDialog>
       )}
     </section>
   );
@@ -167,14 +179,12 @@ function PermissionAdder({
   disabled,
   existing,
   add,
-  onClose,
 }: {
   label: string;
   action: ReturnType<typeof useQQAction>;
   disabled: boolean;
   existing: Set<string>;
   add: (uin: string) => Promise<void>;
-  onClose: () => void;
 }) {
   const [keyword, setKeyword] = useState('');
   const needle = keyword.trim();
@@ -199,7 +209,6 @@ function PermissionAdder({
       >
         <Search size={15} aria-hidden />
         <input
-          autoFocus
           aria-label={`搜索好友或输入 QQ 号：${label}`}
           placeholder="搜索好友或输入 QQ 号"
           value={keyword}
@@ -215,9 +224,6 @@ function PermissionAdder({
         >
           <Plus size={16} />
         </button>
-        <ActionIcon label={`取消添加到${label}`} disabled={action.pending} onClick={onClose}>
-          <X size={16} />
-        </ActionIcon>
       </form>
       {needle && candidates.isFetching && <p role="status">正在搜索…</p>}
       {needle && candidates.error && (
@@ -240,7 +246,9 @@ function PermissionAdder({
               <QqAvatar uin={row.uin} size={24} />
               <span>
                 {row.remark || row.nick || row.uin}
-                <small>{row.uin}</small>
+                <small>
+                  <span className="weq-number weq-number-inherit">{row.uin}</span>
+                </small>
               </span>
               <Plus size={15} />
             </button>

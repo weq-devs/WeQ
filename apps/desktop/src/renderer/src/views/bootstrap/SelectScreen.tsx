@@ -13,14 +13,15 @@ import {
   Copy,
 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
-import { Modal, useDialog } from '../../components/Dialog';
+import { Modal } from '../../components/Dialog';
+import { useDialog } from '../../components/Dialog.shared';
 import { useViewState } from '../../state/view';
 import type { GlobalInstallInfo } from '@weq/service';
 import { AccountSelector } from './AccountSelector';
 import { LoginPanel } from './LoginPanel';
 import { StaticBackupPanel } from './StaticBackupPanel';
 import { StatsPanel } from './StatsPanel';
-import { IS_MAC } from '../../lib/target';
+import { IS_MAC } from '../../lib/target.shared';
 import { useRemoteClient } from '../../lib/remoteClient';
 import { QqDebugCopy } from '../../components/QqDebugCopy';
 import { BootstrapWindowActions } from '../../components/BootstrapWindowActions';
@@ -106,7 +107,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
       !(await confirm(
         '移除已保存账号？',
         `从 WeQ 移除「${acc.name}」的配置，QQ 聊天记录和备份文件不会删除。`,
-        { okLabel: '移除配置' },
+        { danger: 'outline', okLabel: '移除配置' },
       ))
     )
       return;
@@ -226,10 +227,11 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
                     <span>读取账号失败，请确认 QQ 数据目录可访问后重试。</span>
                     <button
                       type="button"
-                      className="weq-action-soft"
+                      className="weq-action-soft weq-retry-button"
                       disabled={busy || accountQuery.isFetching}
                       onClick={() => void accountQuery.refetch()}
                     >
+                      <RefreshCw size={14} aria-hidden />
                       重试
                     </button>
                   </div>

@@ -7,10 +7,8 @@ import {
   cloneChatConversation,
   cloneChatMessages,
 } from '../src/renderer/src/views/agentlab/cloneChatAdapter';
-import {
-  ContentSelectionProvider,
-  useContentExportRequest,
-} from '../src/renderer/src/state/contentSelection';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
+import { useContentExportRequest } from '../src/renderer/src/state/contentSelection.shared';
 
 const nativeReads = vi.hoisted(() => vi.fn());
 vi.mock('../src/renderer/src/trpc/client', async () => {

@@ -39,33 +39,7 @@ import { cachedAvatarUrl } from '../lib/avatarCache';
 import { QqAvatar } from './QqAvatar';
 import { ProfileAvatar } from './ProfileAvatar';
 import { client } from '../trpc/client';
-
-interface DynamicDesc {
-  mainDesc?: string;
-  subDesc?: string;
-}
-
-interface DynamicTag {
-  flag48191?: boolean;
-  tagId?: number;
-  tagContent?: string;
-}
-
-/** 普通气泡与系统消息共用完整载荷，避免外层分流丢失跳转或发布者字段。 */
-export function qqDynamicElementProps(
-  data: Record<string, unknown>,
-): Parameters<typeof QqDynamic>[0] {
-  return {
-    dynamicType: data.dynamicType as number | undefined,
-    desc: data.dynamicDesc as DynamicDesc | undefined,
-    desc2: data.dynamicDesc2 as DynamicDesc | undefined,
-    coverUrl: data.dynamicCoverUrl as string | undefined,
-    zoneLogoUrl: data.dynamicZoneLogoUrl as string | undefined,
-    publisherUin: data.dynamicPublisherUin as number[] | undefined,
-    meta: data.dynamicMeta as string | undefined,
-    tags: data.dynamicTags as DynamicTag[] | undefined,
-  };
-}
+import type { DynamicDesc, DynamicTag } from './QqDynamic.shared';
 
 /** dynamicType 真实枚举（扫描实测），未覆盖到的取值走 Rss 通用兜底。 */
 const DYNAMIC_TYPE_META: Record<
@@ -281,7 +255,7 @@ export function QqDynamic({
               e.currentTarget.style.display = 'none';
             }}
           />
-          <span>QQ空间</span>
+          <span>QQ 空间</span>
         </div>
       ) : null}
     </div>

@@ -122,7 +122,7 @@ describe('操作图标的一致性', () => {
       }),
     );
     try {
-      const buttons = [...f.host.querySelectorAll('button')];
+      const buttons = [...document.querySelectorAll('.weq-resource-export-dialog button')];
       for (const label of labels)
         expectIcon(buttons.find((button) => button.textContent?.trim() === label));
       const cancel = buttons.find((button) => button.textContent?.trim() === '取消');

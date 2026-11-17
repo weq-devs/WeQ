@@ -2,10 +2,8 @@ import { act, createElement, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { AlbumGridView, MediaView } from '../src/renderer/src/components/QzoneAlbumDialog';
-import {
-  ContentSelectionProvider,
-  useContentExportRequest,
-} from '../src/renderer/src/state/contentSelection';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
+import { useContentExportRequest } from '../src/renderer/src/state/contentSelection.shared';
 import { ReferenceExportTool } from '../src/renderer/src/views/export/ReferenceExportTool';
 
 const save = vi.hoisted(() => ({
@@ -47,7 +45,14 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
     chooseServerLocation: vi.fn(),
   }),
 }));
-vi.mock('../src/renderer/src/components/Toast', () => ({ useToast: () => save.toast }));
+vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToastApi: () => ({ push: save.toast }),
+  useToast: () => save.toast,
+}));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
+  useToastApi: () => ({ push: save.toast }),
+  useToast: () => save.toast,
+}));
 afterEach(() => {
   vi.unstubAllGlobals();
   save.prepare.mockResolvedValue({ mode: 'before', directory: '/srv/qzone-export' });

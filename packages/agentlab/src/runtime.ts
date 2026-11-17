@@ -114,6 +114,7 @@ export interface NotesSink {
 /** TTS 合成端口（把 service 的 { service, getProvider } 抽象成 providerId 维度，解耦厂商类型）。 */
 export interface TtsSynthesisOptions {
   signal?: AbortSignal;
+  onUsage?: AgentLabEndpoint['onUsage'];
   refClip?: { path: string; text: string };
   auxRefClips?: Array<{ path: string; text: string }>;
   voice?: string;
@@ -368,7 +369,16 @@ export class AgentRuntime {
       return null;
     }
     try {
-      const opts: TtsSynthesisOptions = { signal };
+      const opts: TtsSynthesisOptions = {
+        signal,
+        onUsage: (usage) =>
+          this.usage.record({
+            ...usage,
+            ts: usage.startedAt ?? Date.now(),
+            personaId: persona.id,
+            scope: 'chat',
+          }),
+      };
       if (voice.mode === 'clone') {
         const refClips = persona.voiceProfile?.refClips ?? [];
         const clips = refClips.filter((c) => existsSync(c.path));

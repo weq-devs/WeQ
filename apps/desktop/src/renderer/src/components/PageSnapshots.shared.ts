@@ -1,0 +1,173 @@
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
+import type { z } from 'zod';
+import superjson from 'superjson';
+import { belongsToScope, pageSnapshots } from '../lib/pageSnapshots';
+import type { PageDataCache } from '../lib/pageDataCache';
+import { useToastApi } from './Toast.shared';
+
+export const SnapshotContext = createContext<{
+  key: string;
+  fallback: Map<string, unknown>;
+  data: PageDataCache;
+} | null>(null);
+
+export function usePageDataCache() {
+  const context = useContext(SnapshotContext);
+  return useMemo(
+    () => ({
+      read<T>(name: string): T | undefined {
+        return context?.data.get<T>(JSON.stringify([context.key, name]));
+      },
+      write(name: string, value: unknown): void {
+        context?.data.put(JSON.stringify([context.key, name]), value);
+      },
+    }),
+    [context],
+  );
+}
+
+export function usePageSnapshotKey(name: string): string | null {
+  const scope = useContext(SnapshotContext);
+  return scope ? JSON.stringify([scope.key, name]) : null;
+}
+
+/** 明确关闭页面时检查并清除本页及嵌套页现场，不影响其它工作区。 */
+export function usePageSnapshotReset(name: string, child?: string) {
+  const context = useContext(SnapshotContext);
+  return useMemo(() => {
+    const parent = context ? JSON.stringify([context.key, name]) : null;
+    const scope = parent && child ? JSON.stringify([parent, child]) : parent;
+    return {
+      hasDrafts: () =>
+        Boolean(
+          context &&
+            scope &&
+            (pageSnapshots.hasDrafts(scope) ||
+              [...context.fallback.keys()].some((key) => belongsToScope(key, scope))),
+        ),
+      reset: () => {
+        if (!context || !scope) return;
+        pageSnapshots.resetScope(scope, true);
+        for (const key of context.fallback.keys())
+          if (belongsToScope(key, scope)) context.fallback.delete(key);
+      },
+    };
+  }, [context, name, child]);
+}
+
+/** 服务端读回相同值后清除草稿标记，不能清掉期间新输入的值。 */
+export function usePageDraftConfirmation(name: string, value: unknown) {
+  const key = usePageSnapshotKey(name);
+  const fallback = useContext(SnapshotContext)?.fallback;
+  const encoded = value === undefined ? undefined : superjson.stringify(value);
+  const confirm = useCallback(
+    (confirmedValue: unknown) => {
+      if (!key) return;
+      try {
+        pageSnapshots.confirm(key, confirmedValue);
+        if (
+          fallback?.has(key) &&
+          superjson.stringify(fallback.get(key)) === superjson.stringify(confirmedValue)
+        )
+          fallback.delete(key);
+      } catch {
+        /* 读回不覆盖损坏原件，也不丢弃尚未确认的输入。 */
+      }
+    },
+    [key, fallback],
+  );
+  // 其它 effect 也可能刚把输入与服务端对齐，因此每次提交后都复核一次。
+  useEffect(() => {
+    if (encoded !== undefined) confirm(superjson.parse<unknown>(encoded));
+  });
+  // 请求可能晚于原页面卸载；闭包仍只确认捕获的作用域和完全相同的正文。
+  return confirm;
+}
+
+export function usePageState<T>(
+  name: string,
+  initial: T | (() => T),
+  schema: z.ZodType<T>,
+  draft = false,
+  enabled = true,
+): [T, Dispatch<SetStateAction<T>>] {
+  const notificationToast = useToastApi();
+  const scopedKey = usePageSnapshotKey(name);
+  const fallback = useContext(SnapshotContext)?.fallback;
+  const key = enabled ? scopedKey : null;
+  const reported = useRef(false);
+  const report = useCallback(() => {
+    if (reported.current) return;
+    reported.current = true;
+    notificationToast.push({
+      tone: 'error',
+      title: '页面现场保存失败',
+      detail: '请检查本机存储；尚未提交的修改请先保存。',
+    });
+  }, [notificationToast]);
+  const load = () => {
+    if (key) {
+      try {
+        if (fallback?.has(key)) return schema.parse(fallback.get(key));
+        const saved = pageSnapshots.read(key, schema, draft);
+        if (saved !== undefined) return saved;
+      } catch {
+        // 损坏原件保留，直到用户下一次明确修改此字段。
+      }
+    }
+    return typeof initial === 'function' ? (initial as () => T)() : initial;
+  };
+  const [stored, update] = useState(() => ({ key, value: load() }));
+  let state = stored.value;
+  if (stored.key !== key) {
+    state = load();
+    update({ key, value: state });
+  }
+  const current = useRef(state);
+  const latestKey = useRef(key);
+  const validator = useRef(schema);
+  useLayoutEffect(() => {
+    current.current = state;
+    latestKey.current = key;
+    validator.current = schema;
+  });
+  const mounted = useRef(true);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const set = useCallback<Dispatch<SetStateAction<T>>>(
+    (action) => {
+      if (!mounted.current || latestKey.current !== key) return;
+      const value =
+        typeof action === 'function' ? (action as (previous: T) => T)(current.current) : action;
+      if (Object.is(value, current.current)) return;
+      current.current = value;
+      if (key) {
+        try {
+          pageSnapshots.write(key, validator.current.parse(value), draft);
+          fallback?.delete(key);
+        } catch {
+          fallback?.set(key, value);
+          report();
+        }
+      }
+      update({ key, value });
+    },
+    [key, report, draft, fallback],
+  );
+  return [state, set];
+}

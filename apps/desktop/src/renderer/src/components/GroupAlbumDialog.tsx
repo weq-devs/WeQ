@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import {
   useEffect,
   useMemo,
@@ -6,7 +7,7 @@ import {
   type ReactElement,
   type HTMLAttributes,
 } from 'react';
-import { useContentMultiSelect } from '../state/contentSelection';
+import { useContentMultiSelect } from '../state/contentSelection.shared';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import { ContentReferenceToolbar } from './ContentReferenceToolbar';
 import { contentReferenceKey, type ContentReference } from '../../../shared/content_selection';
@@ -35,7 +36,7 @@ import { ProfileDetailSurface } from './ProfileDetailSurface';
 import { GroupAlbumMediaActions, GroupAlbumUpload } from './qq-actions/MediaActions';
 import { GroupAlbumManagement } from './qq-actions/GroupAlbumManagement';
 import { GroupAlbumVideoUpload } from './qq-actions/GroupAlbumVideoUpload';
-import { withQQAccountScope } from './qq-actions/shared';
+import { withQQAccountScope } from './qq-actions/shared.shared';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { readWithRetry } from '../lib/autoRead';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
@@ -62,7 +63,15 @@ export interface GroupAlbumDialogProps {
   binding?: QQWriteBinding;
   onClose: () => void;
 }
-const ScopedGroupAlbumDialog = withQQAccountScope(GroupAlbumDialogBody);
+const ScopedGroupAlbumDialog = withQQAccountScope(GroupAlbumDialogBody, (props) => ({
+  kind: 'group-resource',
+  request: {
+    kind: 'albums',
+    groupCode: props.groupCode,
+    groupName: props.groupName,
+    initialAlbumId: props.initialAlbumId,
+  },
+}));
 export function GroupAlbumDialog(props: GroupAlbumDialogProps): ReactElement {
   return <ScopedGroupAlbumDialog key={props.groupCode} {...props} />;
 }
@@ -438,9 +447,11 @@ function AlbumListView({
       </div>
       {!paused || albums.length ? (
         <p className="group-album-count" role="status">
-          {search.trim()
-            ? `${filtered.length} / ${albums.length} 本相册`
-            : `${albums.length} 本相册`}
+          {search.trim() ? (
+            <NumericText>{`${filtered.length} / ${albums.length} 本相册`}</NumericText>
+          ) : (
+            <NumericText>{`${albums.length} 本相册`}</NumericText>
+          )}
           {paused ? ' · 读取已暂停' : ''}
         </p>
       ) : null}
@@ -492,7 +503,9 @@ function AlbumListView({
               <AlbumCover album={album} />
               <span>
                 <strong>{album.title || '未命名相册'}</strong>
-                <small>{album.photoCount ?? 0} 项</small>
+                <small>
+                  <span className="weq-number weq-number-inherit">{album.photoCount ?? 0}</span> 项
+                </small>
                 {album.desc && <small>{album.desc}</small>}
               </span>
             </button>
@@ -501,7 +514,8 @@ function AlbumListView({
       )}
       {filtered.length > visibleCount && (
         <button type="button" className="group-album-more" onClick={onMore}>
-          显示更多（{visibleCount} / {filtered.length}）
+          显示更多（<span className="weq-number weq-number-inherit">{visibleCount}</span> /{' '}
+          <span className="weq-number weq-number-inherit">{filtered.length}</span>）
         </button>
       )}
     </>
@@ -778,8 +792,16 @@ function AlbumMediaView({
       )}
       {!!filtered.length && (
         <p className="group-album-count" role="status">
-          显示 {Math.min(visibleCount, filtered.length)} / {filtered.length} 项
-          {filtered.length !== items.length ? `，相册已读取 ${items.length} 项` : ''}
+          显示{' '}
+          <span className="weq-number weq-number-inherit">
+            {Math.min(visibleCount, filtered.length)}
+          </span>{' '}
+          / <span className="weq-number weq-number-inherit">{filtered.length}</span> 项
+          {filtered.length !== items.length ? (
+            <NumericText>{`，相册已读取 ${items.length} 项`}</NumericText>
+          ) : (
+            ''
+          )}
         </p>
       )}
       {filtered.length > visibleCount && (

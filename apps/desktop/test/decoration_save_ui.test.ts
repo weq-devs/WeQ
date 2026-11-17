@@ -4,11 +4,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { ExportSavePolicy } from '@weq/service';
-import {
-  DecorationSaveControls,
-  useDecorationSave,
-} from '../src/renderer/src/components/DecorationSaveControls';
+import { DecorationSaveControls } from '../src/renderer/src/components/DecorationSaveControls';
+import { useDecorationSave } from '../src/renderer/src/components/DecorationSaveControls.shared';
 const state = vi.hoisted(() => ({
+  developmentTools: true,
   web: false,
   current: true,
   prepare: vi.fn(
@@ -28,7 +27,15 @@ const state = vi.hoisted(() => ({
   ),
   toast: vi.fn(),
 }));
+vi.mock('../src/renderer/src/hooks/useDevelopmentDressTools', () => ({
+  useDevelopmentDressTools: () => state.developmentTools,
+}));
 vi.mock('../src/renderer/src/lib/target', () => ({
+  get IS_WEB() {
+    return state.web;
+  },
+}));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({
   get IS_WEB() {
     return state.web;
   },
@@ -42,7 +49,14 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
     isCurrent: () => state.current,
   }),
 }));
-vi.mock('../src/renderer/src/components/Toast', () => ({ useToast: () => state.toast }));
+vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToastApi: () => ({ push: state.toast }),
+  useToast: () => state.toast,
+}));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
+  useToastApi: () => ({ push: state.toast }),
+  useToast: () => state.toast,
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: { account: { dressup: { saveMsgDecoration: { mutate: state.mutate } } } },
 }));
@@ -66,12 +80,23 @@ function BrowserHarness() {
 }
 const cleanup: Array<() => void> = [];
 beforeEach(() => {
+  state.developmentTools = true;
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   state.web = false;
   state.current = true;
   state.prepare.mockClear();
   state.toast.mockClear();
   state.mutate.mockReset().mockResolvedValue({ mode: 'task', taskId: 'fixture' });
+});
+
+it('普通模式不显示独立装扮保存按钮，保存方法也不创建任务', async () => {
+  state.developmentTools = false;
+  const host = await mount();
+  expect(host.querySelector('button')).toBeNull();
+  const browser = await mount(true);
+  await act(async () => browser.querySelector<HTMLButtonElement>('button')!.click());
+  expect(state.prepare).not.toHaveBeenCalled();
+  expect(state.mutate).not.toHaveBeenCalled();
 });
 afterEach(() => {
   for (const fn of cleanup.splice(0)) fn();

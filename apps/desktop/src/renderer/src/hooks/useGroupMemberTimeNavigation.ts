@@ -3,7 +3,7 @@ import type { ProfilePerson } from './useContactCard';
 import type { CalendarNavigate } from '../lib/calendarNavigation';
 import { client } from '../trpc/client';
 import { useQQWriteSession } from './useQQWriteSession';
-import { useToast } from '../components/Toast';
+import { useToastApi } from '../components/Toast.shared';
 
 /** 仅在点击时读取一个目标；发言严格匹配成员及 QQ 记录的秒级时间。 */
 export function useGroupMemberTimeNavigation(
@@ -11,6 +11,7 @@ export function useGroupMemberTimeNavigation(
   navigate: CalendarNavigate | null,
   onNavigate?: () => void,
 ) {
+  const notificationToast = useToastApi();
   const group = person.profileContext;
   const uid = person.uid || person.id;
   const session = useQQWriteSession(`member-time:${group?.groupCode}:${uid}`, true);
@@ -56,7 +57,7 @@ export function useGroupMemberTimeNavigation(
       }
       if (!mounted.current || latest.current !== key) return;
       if (!anchor) {
-        useToast.getState().push({
+        notificationToast.push({
           tone: 'info',
           title:
             field === 'joinedAt' ? '本地没有入群时间之后的消息' : '本地未找到该成员这次发言的消息',
@@ -76,7 +77,7 @@ export function useGroupMemberTimeNavigation(
       );
     } catch (error) {
       if (mounted.current && latest.current === key)
-        useToast.getState().push({
+        notificationToast.push({
           tone: 'error',
           title: '定位失败',
           detail: error instanceof Error ? error.message : String(error),

@@ -211,7 +211,7 @@ try {
       await page.goto(
         `http://127.0.0.1:${server.httpServer.address().port}/test/browser/qq-debug-copy.html?restricted=1&recovery=1`,
       );
-      await page.getByRole('button', { name: '受限模式', exact: true }).click();
+      await page.getByRole('button', { name: '在线能力受限', exact: true }).click();
       await page.evaluate((theme) => {
         window.debugCopyQa.store.getState().setPreference(theme);
         window.debugCopyQa.setOnlineFixture({
@@ -224,7 +224,7 @@ try {
       await page.waitForFunction(() =>
         document
           .querySelector('.weq-restricted-indicator')
-          ?.textContent.includes('正在启用完整功能'),
+          ?.textContent.includes('正在启用 QQ 在线能力'),
       );
       await page.evaluate(() => window.debugCopyQa.restrictedStore.getState().setOpen(true));
       const panel = page.locator('.weq-restricted-panel');
@@ -244,7 +244,7 @@ try {
   await page.goto(
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/qq-debug-copy.html?restricted=1`,
   );
-  await page.getByRole('button', { name: '受限模式', exact: true }).click();
+  await page.getByRole('button', { name: '在线能力受限', exact: true }).click();
   await page.locator('.weq-restricted-panel .weq-restricted-qq').waitFor();
   let restrictedCases = 0;
   for (const width of [1180, 390])
@@ -345,7 +345,7 @@ try {
     await page.goto(
       `http://127.0.0.1:${server.httpServer.address().port}/test/browser/qq-debug-copy.html?restricted=1&offline=1${view === 'startup' ? '&startup-offline=1' : ''}`,
     );
-    await page.getByRole('button', { name: '受限模式', exact: true }).click();
+    await page.getByRole('button', { name: '在线能力受限', exact: true }).click();
     const panel = page.locator('.weq-restricted-panel');
     await panel.getByText('QQ 不在线', { exact: true }).waitFor();
     await panel.getByText('请在 QQ 调试副本中登录当前账号', { exact: false }).waitFor();
@@ -385,7 +385,7 @@ try {
         throw new Error('一键打开不应自动展开权限引导');
       await page.evaluate(() => window.debugCopyQa.setOnlineFixture({ qqOnline: true }));
       await page
-        .getByRole('button', { name: '受限模式', exact: true })
+        .getByRole('button', { name: '在线能力受限', exact: true })
         .waitFor({ state: 'detached' });
       await panel.waitFor({ state: 'detached' });
     }
@@ -396,7 +396,7 @@ try {
       await page.goto(
         `http://127.0.0.1:${server.httpServer.address().port}/test/browser/qq-debug-copy.html?restricted=1&offline=1&pending-status=1`,
       );
-      await page.getByRole('button', { name: '受限模式', exact: true }).click();
+      await page.getByRole('button', { name: '在线能力受限', exact: true }).click();
       await page.evaluate((theme) => {
         window.debugCopyQa.store.getState().setPreference(theme);
         window.debugCopyQa.pauseAction();

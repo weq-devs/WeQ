@@ -34,11 +34,11 @@ import {
   mirrorCompositionStyles,
 } from '../src/renderer/src/hooks/useCompositionWindow';
 import { compositionPopupOptions } from '../src/main/composition_window';
+import { NodeTimeInput } from '../src/renderer/src/components/mergeForward/NodeTimeInput';
 import {
-  NodeTimeInput,
   nodeTimeValue,
   parseNodeTime,
-} from '../src/renderer/src/components/mergeForward/NodeTimeInput';
+} from '../src/renderer/src/components/mergeForward/NodeTimeInput.shared';
 
 const fixture = vi.hoisted(() => ({
   material: [] as unknown[],

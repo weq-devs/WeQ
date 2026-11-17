@@ -14,6 +14,9 @@ const { leaveAccount, pushToast } = vi.hoisted(() => ({
   leaveAccount: vi.fn(async () => {}),
   pushToast: vi.fn(),
 }));
+vi.mock('../src/renderer/src/hooks/useDatabaseMaintenanceNotifications', () => ({
+  useDatabaseMaintenanceNotifications() {},
+}));
 vi.mock('../src/renderer/src/lib/leaveAccount', () => ({
   leaveAccountForBootstrap: leaveAccount,
 }));
@@ -40,6 +43,12 @@ vi.mock('../src/renderer/src/components/DbRepairPanel', () => ({
   },
 }));
 vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToastApi: () => ({ push: pushToast }),
+  ToastHost: () => null,
+  useToast: (select: (state: { push: typeof pushToast }) => unknown) => select({ push: pushToast }),
+}));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
+  useToastApi: () => ({ push: pushToast }),
   ToastHost: () => null,
   useToast: (select: (state: { push: typeof pushToast }) => unknown) => select({ push: pushToast }),
 }));
@@ -135,6 +144,11 @@ it('系统窗口被阻止时显示重试状态，不启动修复面板或体检'
     act(() => useDbRepairWindow.getState().open({ uin: '10001', name: '合成账号', avatarUrl: '' }));
     expect(document.querySelector('[aria-label="完整数据库修复"]')).toBeNull();
     expect(document.body.textContent).toContain('无法打开数据库修复窗口');
+    act(() =>
+      document.querySelector<HTMLButtonElement>('[aria-label="关闭数据库修复提示"]')!.click(),
+    );
+    expect(useDbRepairWindow.getState().request).toBeNull();
+    expect(document.body.textContent).not.toContain('无法打开数据库修复窗口');
   } finally {
     act(() => root.unmount());
     host.remove();

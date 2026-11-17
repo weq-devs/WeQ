@@ -1,12 +1,10 @@
-import {
-  ContactProfileDialog,
-  ContactProfilePane,
-  GroupProfileDialog,
-  GroupProfilePane,
-} from './profilePanes';
+import { ContactProfileDialog, GroupProfileDialog } from '../../components/lazyMainPanels';
+import { ContactProfilePane, GroupProfilePane } from '../../components/ProfileEmptyPanes';
 import { ChatPane, type ChatPaneProps } from './chatPane';
 import { ToolDetailPane } from './toolsPane';
 import { RetainedTabs, TabActivity } from '../../components/RetainedTabs';
+import { ArrowLeft } from 'lucide-react';
+import { APP_NAVIGATION } from '../../lib/appNavigation';
 import type { ProfileActionRegistry } from './profileActions';
 import type { ContactWorkspaceTab, GroupWorkspaceTab } from '../../lib/profileNavigation';
 import type { ToolPaneGroup, ToolPaneItem } from './toolRegistry';
@@ -27,6 +25,7 @@ export function ChatMainContent({
   contactTab,
   relationGraphSlot,
   contactOverviewOpen = true,
+  onBackContactOverview,
   selectedContact,
   onPreviewContactChat,
   contactPreviewContent,
@@ -204,6 +203,7 @@ export function ChatMainContent({
   contactTab?: ContactTab;
   relationGraphSlot?: React.ReactNode;
   contactOverviewOpen?: boolean;
+  onBackContactOverview?: () => void;
   selectedContact?: Contact;
   onPreviewContactChat?: (contact: Contact) => void;
   contactPreviewContent?: React.ReactNode;
@@ -239,6 +239,19 @@ export function ChatMainContent({
           className="weq-contact-overview"
           hidden={Boolean(selectedContact || selectedGroupConversation)}
         >
+          {contactOverviewOpen && onBackContactOverview ? (
+            <header className="weq-contact-overview-toolbar">
+              <button
+                type="button"
+                aria-label="返回联系人列表"
+                title="返回联系人列表"
+                onClick={onBackContactOverview}
+              >
+                <ArrowLeft size={20} aria-hidden />
+              </button>
+              <strong>{APP_NAVIGATION['group-intersection'].label}</strong>
+            </header>
+          ) : null}
           <TabActivity active={!selectedContact && !selectedGroupConversation}>
             <RetainedTabs
               snapshotKey="contact-overview"
@@ -247,9 +260,9 @@ export function ChatMainContent({
               {contactOverviewOpen && relationGraphSlot ? (
                 relationGraphSlot
               ) : contactTab === 'groups' ? (
-                <GroupProfilePane onOpenOverview={onBackGroup} />
+                <GroupProfilePane />
               ) : (
-                <ContactProfilePane onOpenOverview={onBackContact} />
+                <ContactProfilePane />
               )}
             </RetainedTabs>
           </TabActivity>

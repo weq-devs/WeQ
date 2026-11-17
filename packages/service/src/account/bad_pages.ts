@@ -15,6 +15,7 @@
 
 import { assertSalvageCapable } from '@weq/db';
 import type { BadPageScanResult, DatabaseAlgorithms, NtHelperBinding } from '@weq/native';
+import type { DatabaseWorkProgress } from './db_repair/progress';
 
 /** 一个被坏页波及的表 / 索引。 */
 export interface AffectedObject {
@@ -31,6 +32,7 @@ export interface BadPageScanReport extends BadPageScanResult {
   dbPath: string;
   /** `dbstat` 查不到时为空数组 —— 只意味着"没映射出来"，不代表没有坏页。 */
   affected: AffectedObject[];
+  sourceLayout?: 'qq' | 'standard';
 }
 
 /** 每个受影响对象最多回传的样例页号数量。 */
@@ -53,9 +55,44 @@ export interface ScanBadPagesInput {
 export async function scanDatabaseBadPages(
   nt: NtHelperBinding,
   input: ScanBadPagesInput,
+  onProgress?: (progress: DatabaseWorkProgress) => void,
 ): Promise<BadPageScanReport> {
   assertSalvageCapable(nt, '坏页扫描', ['scanBadPages']);
-  const scan = await nt.scanBadPages(input.dbPath, input.key, input.algo);
+  let scanning = true;
+  let scan: BadPageScanResult;
+  try {
+    scan = await nt.scanBadPages(input.dbPath, input.key, input.algo, (error, tick) => {
+      if (!error && scanning)
+        onProgress?.({
+          ...tick,
+          ...(tick.badPages && tick.badPages > 0 ? { outcome: 'abnormal' as const } : {}),
+        });
+    });
+  } finally {
+    scanning = false;
+  }
+  onProgress?.({
+    step: 'pages',
+    message: scan.usedHmac ? '页签名检查完成' : '此数据库没有可校验的页签名',
+    completed: scan.usedHmac ? scan.pageCount : 0,
+    total: scan.pageCount,
+    unit: 'pages',
+    badPages: scan.badPages.length,
+    zeroPages: scan.zeroPages.length,
+    status: scan.usedHmac ? 'completed' : 'skipped',
+    outcome: !scan.usedHmac ? 'unverified' : scan.badPages.length ? 'abnormal' : 'normal',
+    detail: !scan.usedHmac ? '未开启页 HMAC，无法判断页签名是否正常。' : undefined,
+  });
+  onProgress?.({
+    step: 'mapping',
+    message: scan.badPages.length
+      ? '分析坏页所属表与索引'
+      : scan.usedHmac
+        ? '没有坏页需要分析'
+        : '页签名未校验，无法分析坏页归属',
+    status: scan.badPages.length ? 'running' : 'skipped',
+    outcome: !scan.usedHmac ? 'unverified' : scan.badPages.length ? 'abnormal' : undefined,
+  });
   const affected = await mapBadPagesToObjects(
     nt,
     input.dbPath,
@@ -63,6 +100,18 @@ export async function scanDatabaseBadPages(
     input.algo,
     scan.badPages,
   );
+  if (scan.badPages.length) {
+    const mapped = affected.reduce((sum, object) => sum + object.badPageCount, 0);
+    onProgress?.({
+      step: 'mapping',
+      message: '坏页归属分析完成',
+      status: 'completed',
+      outcome: mapped >= scan.badPages.length ? 'abnormal' : 'unverified',
+      detail: `已定位 ${mapped} / ${scan.badPages.length} 个坏页${
+        mapped < scan.badPages.length ? '；部分坏页未能确定所属表或索引。' : '。'
+      }`,
+    });
+  }
   return { ...scan, dbName: input.dbName, dbPath: input.dbPath, affected };
 }
 

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { downloadUrlToFile, type DownloadOutcome } from '../media_url';
 import { publishArchiveResourceFile } from './archive_resource';
+import type { ExportCheckpoint } from './checkpoint';
 
 export type QzoneStoredMedia =
   | (Extract<DownloadOutcome, { ok: true }> & { fileName: string })
@@ -12,13 +13,25 @@ export type QzoneStoredMedia =
 export class QzoneMediaStore {
   private requests = new Map<string, Promise<QzoneStoredMedia>>();
   private contents = new Map<string, Promise<QzoneStoredMedia>>();
-  constructor(private readonly root: string) {}
+  constructor(
+    private readonly root: string,
+    private readonly checkpoint?: ExportCheckpoint,
+  ) {}
 
   save(url: string, kind: 'image' | 'video', signal?: AbortSignal): Promise<QzoneStoredMedia> {
     const key = `${kind}:${url}`;
     const previous = this.requests.get(key);
     if (previous) return previous;
-    const work = this.download(url, kind, signal).then((result) => {
+    const work = (
+      this.checkpoint
+        ? this.checkpoint.run(
+            ['qzone-media', kind, url],
+            () => this.download(url, kind, signal),
+            (result) => (result.ok ? [join(this.root, result.fileName)] : []),
+            (result) => result.ok,
+          )
+        : this.download(url, kind, signal)
+    ).then((result) => {
       if (!result.ok) this.requests.delete(key);
       return result;
     });

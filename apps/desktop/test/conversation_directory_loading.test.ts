@@ -5,10 +5,8 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { ConversationList } from '../src/renderer/src/im-template/template/conversationLists';
 import { createTemplateDemoData } from './support/templateDemoData';
-import {
-  ContentSelectionProvider,
-  useCurrentContentSelection,
-} from '../src/renderer/src/state/contentSelection';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
+import { useCurrentContentSelection } from '../src/renderer/src/state/contentSelection.shared';
 
 vi.mock('../src/renderer/src/trpc/client', () => ({ client: {}, trpc: {} }));
 

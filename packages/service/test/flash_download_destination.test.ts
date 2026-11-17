@@ -93,3 +93,64 @@ it('新任务目录变化不影响旧记录 targetPath，目标失效不能写�
   await expect(f.manager.start('batch', 'set', [], join(f.root, 'missing'))).rejects.toThrow();
   expect(f.manager.list()).toHaveLength(2);
 });
+
+it('取消收尾完成后可重试原闪传任务，重复点击不会重复下载，完成文件不再下载', async () => {
+  const f = await fixture();
+  let release!: (url: string) => void;
+  const url = vi.spyOn(FlashTransferClient.prototype, 'getDownloadUrl');
+  url.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const { taskId } = await f.manager.start('batch', 'set', [], f.output);
+  await vi.waitFor(() => expect(release).toBeDefined());
+  await f.manager.cancel(taskId!);
+  expect(f.manager.list()[0]?.canRetry).toBe(false);
+  expect(await f.manager.retry(taskId!)).toBe(false);
+  release('https://synthetic.invalid/file');
+  await vi.waitFor(() => expect(f.manager.list()[0]?.canRetry).toBe(true));
+  expect(await f.manager.retry(taskId!)).toBe(true);
+  expect(await f.manager.retry(taskId!)).toBe(false);
+  await vi.waitFor(() => expect(f.manager.list()[0]?.status).toBe('done'));
+  expect(await f.manager.retry(taskId!)).toBe(false);
+  expect(url).toHaveBeenCalledTimes(2);
+  expect(f.manager.list()).toHaveLength(1);
+  expect((await readFile(f.manager.list()[0]!.targetPath)).length).toBe(4);
+});
+
+it('混合完成与取消的闪传只重试取消文件，原成品内容和路径保留', async () => {
+  const f = await fixture();
+  vi.spyOn(FlashTransferResolver.prototype, 'resolveDownloads').mockResolvedValue({
+    files: ['one', 'two'].map((name) => ({
+      name,
+      relativePath: `${name}.bin`,
+      physicalId: name,
+      filesetId: 'set',
+      fileSize: 4,
+    })),
+    errors: [],
+  });
+  let release!: (url: string) => void;
+  const url = vi.spyOn(FlashTransferClient.prototype, 'getDownloadUrl');
+  url.mockImplementationOnce(async () => 'https://synthetic.invalid/one');
+  url.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const { taskId } = await f.manager.start('batch', 'set', [], f.output);
+  await vi.waitFor(() => expect(f.manager.list()[0]?.files[0]?.status).toBe('done'));
+  const saved = f.manager.list()[0]!.files[0]!.targetPath;
+  const content = await readFile(saved);
+  await f.manager.cancel(taskId!);
+  release('https://synthetic.invalid/two');
+  await vi.waitFor(() => expect(f.manager.list()[0]?.canRetry).toBe(true));
+  expect(await f.manager.retry(taskId!)).toBe(true);
+  await vi.waitFor(() => expect(f.manager.list()[0]?.status).toBe('done'));
+  expect(url.mock.calls).toEqual([['one'], ['two'], ['two']]);
+  expect(f.manager.list()[0]?.files[0]?.targetPath).toBe(saved);
+  expect(await readFile(saved)).toEqual(content);
+});

@@ -84,6 +84,7 @@
   position: absolute;
   left: 14px;
   top: 14px;
+  max-width: calc(100% - 28px);
   z-index: 3;
   display: flex;
   flex-direction: column;
@@ -96,14 +97,70 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
   pointer-events: auto;
 }
 
 .weq-graph-overlay .weq-graph-seg {
-  background: rgba(255, 255, 255, 0.86);
-  box-shadow: 0 8px 22px -12px rgba(7, 31, 61, 0.4);
+  grid-auto-flow: row;
+  grid-template-columns: repeat(4, minmax(100px, 1fr));
+  min-width: 0;
+  background: var(--weq-bg-surface);
+  box-shadow: var(--weq-shadow-soft);
   backdrop-filter: blur(8px);
+}
+
+.weq-graph-overlay .weq-graph-seg button {
+  min-height: 36px;
+  padding: 6px 12px;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-graph-overlay .weq-graph-seg button.is-active {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, var(--weq-bg-surface));
+}
+
+.weq-graph-overlay .weq-graph-seg button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}
+
+.weq-graph-overlay .weq-graph-seg button svg {
+  flex: none;
+}
+
+.weq-graph-overlay .weq-graph-icon-btn {
+  width: 36px;
+  height: 36px;
+}
+
+@container (max-width: 560px) {
+  .weq-graph-overlay {
+    width: calc(100% - 28px);
+  }
+  .weq-graph-overlay-bar {
+    width: 100%;
+  }
+  .weq-graph-overlay .weq-graph-seg {
+    flex: 1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .weq-graph-overlay .weq-graph-seg button {
+    min-width: 0;
+    padding-inline: 8px;
+  }
+}
+
+@media (any-pointer: coarse) {
+  .weq-graph-overlay .weq-graph-seg button {
+    min-height: 44px;
+  }
+  .weq-graph-overlay .weq-graph-icon-btn {
+    width: 44px;
+    height: 44px;
+  }
 }
 
 .weq-graph-icon-btn {
@@ -555,7 +612,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 16px 18px 12px;
-  border-bottom: 1px solid rgba(0, 153, 255, 0.1);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .weq-grouppick-head strong {
@@ -747,7 +804,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 12px 18px;
-  border-top: 1px solid rgba(0, 153, 255, 0.1);
+  border-top: 1px solid var(--weq-border-subtle);
 }
 
 .weq-grouppick-foot > span {
@@ -824,7 +881,7 @@
   align-items: center;
   gap: 11px;
   padding: 15px 18px 13px;
-  border-bottom: 1px solid rgba(0, 153, 255, 0.1);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .weq-rank-head-icon {
@@ -1120,7 +1177,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 11px 18px;
-  border-top: 1px solid rgba(0, 153, 255, 0.1);
+  border-top: 1px solid var(--weq-border-subtle);
   color: #6a7f93;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -1154,7 +1211,12 @@ html[data-theme='dark'] .weq-graph-slider-value {
 
 /* dark — overlay toolbar */
 html[data-theme='dark'] .weq-graph-overlay .weq-graph-seg {
-  background: rgba(34, 37, 41, 0.9);
+  background: var(--weq-bg-surface);
+}
+
+html[data-theme='dark'] .weq-graph-overlay .weq-graph-seg button.is-active {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, var(--weq-bg-surface));
 }
 
 html[data-theme='dark'] .weq-graph-icon-btn {
@@ -1188,11 +1250,6 @@ html[data-theme='dark'] .weq-graph-pick-btn:disabled {
 html[data-theme='dark'] .weq-grouppick {
   border-color: rgba(0, 153, 255, 0.24);
   background: #1b1d20;
-}
-
-html[data-theme='dark'] .weq-grouppick-head,
-html[data-theme='dark'] .weq-grouppick-foot {
-  border-color: rgba(255, 255, 255, 0.07);
 }
 
 html[data-theme='dark'] .weq-grouppick-head strong {
@@ -1270,11 +1327,6 @@ html[data-theme='dark'] .weq-graph-rank-btn:disabled {
 html[data-theme='dark'] .weq-rank {
   border-color: rgba(0, 153, 255, 0.24);
   background: #1b1d20;
-}
-
-html[data-theme='dark'] .weq-rank-head,
-html[data-theme='dark'] .weq-rank-foot {
-  border-color: rgba(255, 255, 255, 0.07);
 }
 
 html[data-theme='dark'] .weq-rank-head-text strong {
@@ -1863,13 +1915,28 @@ html[data-theme='dark'] .weq-rank-value {
   position: relative;
   min-height: 0;
   overflow: auto;
-  padding: 0 16px 10px;
+  margin: 0 16px;
+  padding: 0 0 10px;
   scrollbar-width: thin;
 }
 
 .weq-ov-matrix-grid {
   position: relative;
   margin: 0 auto;
+}
+
+.weq-ov-matrix-heads {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--weq-bg-surface);
+}
+
+.weq-ov-matrix-rowheads {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--weq-bg-surface);
 }
 
 .weq-ov-matrix-corner {
@@ -1882,7 +1949,7 @@ html[data-theme='dark'] .weq-rank-value {
   padding: 0 6px 4px;
   color: var(--weq-fg-muted);
   font-size: 10.5px;
-  background: color-mix(in srgb, var(--chat-surface) 86%, var(--weq-bg-surface));
+  background: var(--weq-bg-surface);
 }
 
 .weq-ov-matrix-head {
@@ -1890,7 +1957,7 @@ html[data-theme='dark'] .weq-rank-value {
   top: 0;
   display: grid;
   place-items: center;
-  height: 40px;
+  height: 100%;
   padding: 0;
   border: 0;
   background: transparent;
@@ -2311,8 +2378,10 @@ html[data-theme='dark'] .weq-ov-matrix-cell span {
 }
 
 html[data-theme='dark'] .weq-ov-matrix-corner,
-html[data-theme='dark'] .weq-ov-matrix-rowhead {
-  background: color-mix(in srgb, var(--weq-bg-surface) 70%, transparent);
+html[data-theme='dark'] .weq-ov-matrix-rowhead,
+html[data-theme='dark'] .weq-ov-matrix-heads,
+html[data-theme='dark'] .weq-ov-matrix-rowheads {
+  background: var(--weq-bg-surface);
 }
 
 html[data-theme='dark'] .weq-ov-paircard-group {

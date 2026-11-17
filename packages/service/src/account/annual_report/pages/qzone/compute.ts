@@ -34,7 +34,7 @@ const LIKE_CONCURRENCY = 4;
 export const qzonePage: ReportPageDefinition<QzoneMemoriesPageData> = {
   manifest: {
     id: 'qzone',
-    title: 'QQ空间回忆',
+    title: 'QQ 空间回忆',
     description: '发出去的心情、照片和晚霞——都是那年那天的你。',
     order: 14,
     version: '0.1.0',

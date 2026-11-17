@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { WindowControlsStyle } from '../../../shared/window_controls';
-import { IS_MAC, IS_WEB } from '../lib/target';
+import { IS_MAC, IS_WEB } from '../lib/target.shared';
 
 export function useWindowControls(): WindowControlsStyle {
   const [style, setStyle] = useState<WindowControlsStyle>(

@@ -24,35 +24,36 @@ import {
 } from 'react';
 import { ArrowUp } from 'lucide-react';
 import type { UrlVerifyInfo } from '@weq/service';
-import type { MessageRenderer } from '../im-template/template';
 import { FaceEmoji } from './FaceEmoji';
 import { QqImage, QqVideo, QqFile, QqVoice, QqMarketFace, QqOnlineFile } from './QqMedia';
 import {
   MediaItemKeyContext,
   MediaItemIndexContext,
   MediaMessageKeyContext,
-} from './ChatMediaGallery';
+} from './ChatMediaGallery.shared';
 import { messageMediaKey } from '../lib/messageMediaTarget';
 import { QqMarkdown } from './QqMarkdown';
 import {
   autoTextMarkdownBody,
   TextMarkdownContext,
   textMarkdownBody,
-  textMarkdownKey,
   useTextMarkdownStore,
 } from '../state/textMarkdown';
-import { ForwardMultiMsgPreview, isArkMultiMsg } from './ForwardWindow';
+import { ForwardMultiMsgPreview } from './ForwardWindow';
+import { isArkMultiMsg } from './ForwardWindow.shared';
 import { QqArk } from './ark/QqArk';
 import { QqFlashTransfer, QqFlashTransferLink } from './QqFlashTransfer';
 import { QqWallet } from './QqWallet';
 import { QqGroupReceipt } from './QqGroupReceipt';
 import { QqCall } from './QqCall';
 import { QqShareLocation } from './QqShareLocation';
-import { QqDynamic, qqDynamicElementProps } from './QqDynamic';
+import { QqDynamic } from './QqDynamic';
+import { qqDynamicElementProps } from './QqDynamic.shared';
 import { QqEmojiBounce } from './QqEmojiBounce';
 import { QqLinkCard } from './QqLinkCard';
 import { QqInlineKeyboard, type KeyboardButton } from './QqInlineKeyboard';
-import { splitLinks, soleLink, openLink } from '../lib/linkify';
+import { soleLink } from '../lib/linkify';
+import { QqTextLinks } from './QqTextLinks';
 import { parseFlashShareCode } from '../lib/flashShare';
 import { ProfileNavigationContext, profileTargetUser } from '../lib/profileNavigation';
 import { cn } from '@renderer/lib/utils';
@@ -65,15 +66,9 @@ import {
   ForwardCarrierContext,
   ForwardSubRecordsContext,
 } from '../state/messageContext';
-export {
-  ReplyJumpContext,
-  ForwardKindContext,
-  ConvContext,
-  ForwardCarrierContext,
-  ForwardSubRecordsContext,
-  type ReplyJumpTarget,
-  type ForwardCarrier,
-} from '../state/messageContext';
+import type { RenderElement } from './QqMessageContent.shared';
+
+export type { ReplyJumpTarget, ForwardCarrier } from '../state/messageContext';
 
 /**
  * 当前消息所属的会话（kind + 会话标识），供通话气泡查「这通电话有没有录音」。
@@ -86,30 +81,6 @@ export interface CallConv {
   kind: 'c2c' | 'group';
   conv: string;
 }
-
-/**
- * 「把纯文本消息里的 Markdown 也渲染」开关（设置 → 全局设置，AppSettings.renderTextMarkdown）。
- *
- * 这是 WeQ 自己的 feature，不是 QQ 的语义——QQ 原生只有 markdownElement 才是 Markdown。
- * 走 context 而不是在本组件里 useQuery：QqMessageContent 是纯组件、每条气泡一个实例，
- * 挂几百个订阅会在缓存失效时全量重渲。provider 在 App.tsx（必须在那一层——
- * 转发窗口里的气泡也要拿到这个值）。
- * 默认 true，与 DEFAULT_APP_SETTINGS 一致，settings 还没加载完时不会闪成关。
- */
-export { TextMarkdownContext } from '../state/textMarkdown';
-
-/**
- * 「整条消息只有一个链接时出预览卡片」开关（AppSettings.linkPreview.enabled）。
- * 同 {@link TextMarkdownContext} 走 context 的理由——每条气泡一个实例，不能各自订阅。
- * 关掉后链接仍会标蓝可点，只是不再抓取远端页面（也就完全不出网）。
- */
-export { LinkPreviewContext } from '../state/messageAppearance';
-
-/**
- * 消息气泡、字体与头像挂件的独立显示偏好。
- * 同上，走 context 是为了避免每条消息各自订阅 getSettings。默认 true。
- */
-export { MsgDecorationEnabledContext } from '../state/messageAppearance';
 
 /** Element kinds that render as standalone, borderless media (no bubble). */
 const BORDERLESS_MEDIA = new Set(['pic', 'video', 'mface', 'bubbleVideo']);
@@ -131,11 +102,6 @@ type FaceData = {
   subType?: number;
   /** 戳一戳的连击次数（47617）—— 决定显示尺寸。 */
   interactiveFaceCombo?: number;
-};
-
-type RenderElement = {
-  type?: string;
-  data?: Record<string, unknown>;
 };
 
 /**
@@ -439,33 +405,9 @@ function ElementNode({
   }
   const text = inlineLabel(element);
   if (!text) return null;
-  // 纯文本里的链接标蓝加下划线并可点开（走系统浏览器，见 lib/linkify）。用 <button>
-  // 而不是 <a href>：真 href 一旦被中键/拖拽触发就会在应用内导航，而这里的地址来自
-  // 完全不可信的聊天文本。
-  const parts = splitLinks(text);
-  if (parts.length === 1 && parts[0]!.kind === 'text') return <span>{text}</span>;
   return (
     <span>
-      {parts.map((part, i) =>
-        part.kind === 'link' ? (
-          <button
-            // biome-ignore lint/suspicious/noArrayIndexKey: 按位置切分,无稳定唯一键
-            key={`lk-${i}`}
-            type="button"
-            className="qq-link"
-            title={part.href}
-            onClick={(e) => {
-              e.stopPropagation();
-              openLink(part.href);
-            }}
-          >
-            {part.text}
-          </button>
-        ) : (
-          // biome-ignore lint/suspicious/noArrayIndexKey: 按位置切分,无稳定唯一键
-          <span key={`tx-${i}`}>{part.text}</span>
-        ),
-      )}
+      <QqTextLinks text={text} />
     </span>
   );
 }
@@ -1178,69 +1120,3 @@ function QqMessageContentBody({
     </div>
   );
 }
-
-/** Element kinds this renderer claims (text/reply/face/at + rich media + markdown + multiMsg + cards). */
-const HANDLED_KINDS = new Set([
-  'text',
-  'reply',
-  'face',
-  'at',
-  'pic',
-  'video',
-  'bubbleVideo',
-  'file',
-  'ptt',
-  'mface',
-  'markdown',
-  'multiMsg',
-  'structLongMsg',
-  'inlineKeyboard',
-  'ark',
-  'wallet',
-  'call',
-  'onlineFile',
-  'onlineFolder',
-  'shareLocation',
-  'qqDynamic',
-  'emojiBounce',
-]);
-
-/**
- * MessageRenderer that handles every element kind we draw ourselves — text,
- * face/at, rich media, cards, markdown. Only kinds absent from HANDLED_KINDS
- * (gray tips, which chatPane renders itself, and unknown-with-body) fall
- * through to the template's plain-text fallback.
- */
-export const qqMessageRenderer: MessageRenderer = {
-  id: 'qq-elements',
-  match: ({ message }) => {
-    const elements = (message as { qqElements?: RenderElement[] }).qqElements;
-    if (!Array.isArray(elements)) return false;
-    return elements.some(
-      (element) => element?.type !== undefined && HANDLED_KINDS.has(element.type),
-    );
-  },
-  render: ({ message, conversation, mine }) => {
-    const m = message as {
-      qqElements?: RenderElement[];
-      createdAt?: string;
-      msgId?: string;
-      msgSeq?: string;
-    };
-    const elements = m.qqElements ?? [];
-    const sendTimeMs = m.createdAt ? Date.parse(m.createdAt) : 0;
-    const msgId = m.msgId ?? '';
-    return (
-      <QqMessageContent
-        elements={elements}
-        sendTimeMs={sendTimeMs}
-        msgId={msgId}
-        galleryKey={message.id}
-        msgSeq={m.msgSeq}
-        isSender={mine}
-        conversation={conversation}
-        textMarkdownDisplayKey={textMarkdownKey(message)}
-      />
-    );
-  },
-};

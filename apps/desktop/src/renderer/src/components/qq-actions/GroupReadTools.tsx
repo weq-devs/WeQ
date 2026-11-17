@@ -1,16 +1,16 @@
 import { dateFormatter, clockFormatter } from '@weq/time';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarCheck, Loader2, RotateCw } from 'lucide-react';
+import { CalendarCheck, Loader2, RefreshCw } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { ContactEmptyState } from '../contactProfile/ContactRow';
-import { ActionFeedback, useQQAction } from './shared';
+import { ActionFeedback } from './shared';
+import { useQQAction } from './shared.shared';
 import { ProfileAvatar } from '../ProfileAvatar';
 import { QqAvatar } from '../QqAvatar';
 import '../../styles/group-sign.css';
-
-export const GROUP_SIGN_PAGE_SIZE = 100;
+import { GROUP_SIGN_PAGE_SIZE } from './GroupReadTools.shared';
 
 export function GroupReadTools({
   groupId,
@@ -173,7 +173,14 @@ export function GroupReadTools({
         {!signing && firstPage && (
           <p>
             @全体成员：{firstPage.atAll.canAtAll ? '可用' : '不可用'} · 本账号剩余{' '}
-            {firstPage.atAll.remainCountForUin} 次 · 群剩余 {firstPage.atAll.remainCountForGroup} 次
+            <span className="weq-number weq-number-inherit">
+              {firstPage.atAll.remainCountForUin}
+            </span>{' '}
+            次 · 群剩余{' '}
+            <span className="weq-number weq-number-inherit">
+              {firstPage.atAll.remainCountForGroup}
+            </span>{' '}
+            次
           </p>
         )}
         <ul
@@ -188,7 +195,9 @@ export function GroupReadTools({
             const name = p.nick || uin;
             return (
               <li key={`${p.userId}:${p.time}`}>
-                <span className="weq-group-sign-rank">{p.rank}</span>
+                <span className="weq-group-sign-rank">
+                  <span className="weq-number weq-number-inherit">{p.rank}</span>
+                </span>
                 <ProfileAvatar
                   enabled={valid}
                   className="weq-group-sign-member"
@@ -202,7 +211,13 @@ export function GroupReadTools({
                   <QqAvatar uin={valid ? uin : undefined} size={22} />
                   <span>{name}</span>
                 </ProfileAvatar>
-                <time>{clockFormatter.format(new Date(p.time * 1000))}</time>
+                <time>
+                  {
+                    <span className="weq-number weq-number-inherit">
+                      {clockFormatter.format(new Date(p.time * 1000))}
+                    </span>
+                  }
+                </time>
               </li>
             );
           })}
@@ -231,7 +246,7 @@ export function GroupReadTools({
                 void (failedNextScope.current === scope ? fetchMore() : query.refetch())
               }
             >
-              <RotateCw size={15} />
+              <RefreshCw size={15} aria-hidden />
             </button>
           </div>
         )}

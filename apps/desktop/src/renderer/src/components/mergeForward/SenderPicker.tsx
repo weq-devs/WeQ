@@ -16,26 +16,7 @@ import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { ChevronLeft, Search, UserPlus, SearchX } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { QqAvatar } from '../QqAvatar';
-
-export interface MfPerson {
-  uid: string;
-  uin: string;
-  name: string;
-}
-
-/** 去重（uid 优先，其次 uin）：@ 选择器与发送人选择器共用同一份口径。 */
-export function dedupePersons(list: MfPerson[]): MfPerson[] {
-  const seen = new Set<string>();
-  const out: MfPerson[] = [];
-  for (const p of list) {
-    const key = p.uid || `uin:${p.uin}`;
-    if (!p.name.trim() && !p.uin.trim()) continue;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(p);
-  }
-  return out;
-}
+import { type MfPerson, dedupePersons } from './SenderPicker.shared';
 
 export function SenderPicker({
   mode,
@@ -232,8 +213,11 @@ function PersonRow({
       <QqAvatar uin={person.uin} size={30} className="weq-mf-person-avatar" />
       <span className="weq-mf-person-name">{person.name}</span>
       {person.uin && person.uin !== '0' ? (
-        <span className="weq-mf-person-uin">{person.uin}</span>
+        <span className="weq-mf-person-uin">
+          <span className="weq-number weq-number-inherit">{person.uin}</span>
+        </span>
       ) : null}
     </CompositionButton>
   );
 }
+export type { MfPerson } from './SenderPicker.shared';

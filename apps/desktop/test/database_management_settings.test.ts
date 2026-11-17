@@ -1,9 +1,10 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { DatabaseManagementSection } from '../src/renderer/src/components/settings/DatabaseManagementSection';
+import DatabaseBrowser from '../src/renderer/src/components/DatabaseBrowser';
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import { useViewState } from '../src/renderer/src/state/view';
+import { useAccountSwitch } from '../src/renderer/src/state/accountSwitch';
 import type { DatabaseExportTarget } from '../src/shared/database_export_target';
 
 const f = vi.hoisted(() => ({
@@ -75,6 +76,7 @@ beforeEach(() => {
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
   useViewState.setState({ openedUin: null });
+  useAccountSwitch.getState().end();
   vi.unstubAllGlobals();
 });
 function mount() {
@@ -82,7 +84,7 @@ function mount() {
   document.body.append(host);
   const root = createRoot(host);
   const render = (active = true) =>
-    act(() => root.render(h(TabActivity, { active }, h(DatabaseManagementSection))));
+    act(() => root.render(h(TabActivity, { active }, h(DatabaseBrowser))));
   render();
   cleanups.push(() => {
     act(() => root.unmount());
@@ -104,12 +106,12 @@ function mount() {
   return { host, render, button, exportCurrent };
 }
 
-it('设置直接显示浏览器、表、SQL 和编辑模式；公共导出关闭后保留原 SQL 草稿', async () => {
+it('独立浏览工具显示表、SQL 和编辑模式；公共导出关闭后保留原 SQL 草稿', async () => {
   const page = mount();
   expect(page.host.querySelector('[data-grid]')?.textContent).toContain('synthetic_table');
   expect(page.host.querySelector('.weq-maintenance-entry')).toBeNull();
   expect(page.host.querySelector('.weq-settings-database-browser')).toBeNull();
-  expect(page.host.querySelector('.weq-settings-database > .weq-cache-db')).not.toBeNull();
+  expect(page.host.querySelector('.weq-database-browser-content > .weq-cache-db')).not.toBeNull();
   const browser = page.host.querySelector('.weq-cache-db');
   const editMode = () =>
     [...page.host.querySelectorAll<HTMLButtonElement>('[role="checkbox"]')].find(
@@ -183,4 +185,17 @@ it('选择另一个库再导出携带它的路径，隐藏后停查询并移除�
   f.configId = 'synthetic-other-source';
   page.render();
   expect(page.host.querySelector('.weq-cache-dbpick-name')?.textContent).toBe('msg.db');
+});
+
+it('切号期间停用查询且不展示旧来源的表格，结束后按新配置重建浏览器', () => {
+  const page = mount();
+  expect(page.host.querySelector('[data-grid]')).not.toBeNull();
+  act(() => useAccountSwitch.getState().begin('合成切号'));
+  expect(page.host.querySelector('[data-grid]')).toBeNull();
+  expect(f.query.mock.calls.filter(([name]) => name === 'config').at(-1)?.[1]).toMatchObject({
+    enabled: false,
+  });
+  f.configId = 'synthetic-new-source';
+  act(() => useAccountSwitch.getState().end());
+  expect(page.host.querySelector('[data-grid]')).not.toBeNull();
 });

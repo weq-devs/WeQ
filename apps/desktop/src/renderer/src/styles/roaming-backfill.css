@@ -683,7 +683,7 @@
   gap: 8px;
   margin-top: 2px;
   padding-top: 10px;
-  border-top: 1px dashed var(--weq-border-subtle);
+  border-top: 1px solid var(--weq-border-subtle);
 }
 
 /* ---- 任务卡片 ---- */
@@ -773,21 +773,6 @@
   color: var(--weq-fg-muted);
   font-size: 11px;
   font-weight: 500;
-}
-
-.weq-roaming-progress {
-  position: relative;
-  height: 4px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
-  overflow: hidden;
-}
-.weq-roaming-progress > span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--weq-accent-effective);
-  transition: width 240ms ease;
 }
 
 .weq-roaming-job-targets {
@@ -886,7 +871,7 @@
 
 /* ---- 请求记录 ---- */
 .weq-roaming-receipts {
-  border-top: 1px dashed var(--weq-border-subtle);
+  border-top: 1px solid var(--weq-border-subtle);
   padding-top: 8px;
 }
 .weq-roaming-receipts summary {
@@ -1015,10 +1000,6 @@ html[data-theme='dark'] .weq-roaming-job.is-cancelled .weq-roaming-job-icon,
 html[data-theme='dark'] .weq-roaming-job.is-paused .weq-roaming-job-icon {
   color: var(--weq-fg-secondary);
 }
-html[data-theme='dark'] .weq-roaming-progress {
-  background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
-}
-
 /* ---- 窄窗口 ---- */
 @media (max-width: 900px) {
   .weq-roaming-grid,

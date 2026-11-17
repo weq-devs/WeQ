@@ -17,8 +17,9 @@
  * 查询用 staleTime:0 + refetchOnMount:'always'，避免重开弹窗看到旧值。
  */
 
+import { NumericText } from '../NumericText';
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
 import {
   AlertCircle,
@@ -30,7 +31,6 @@ import {
   Eye,
   EyeOff,
   KeyRound,
-  Plug,
   Power,
   Link,
   RefreshCw,
@@ -40,10 +40,10 @@ import {
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useRemoteClient } from '../../lib/remoteClient';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
-import { useDialog } from '../Dialog';
-import { useToast } from '../Toast';
+import { useDialog } from '../Dialog.shared';
+import { useToast } from '../Toast.shared';
 import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
 import '../../styles/settings-services.css';
 
@@ -313,7 +313,7 @@ export function McpServerSection(): ReactElement {
   return (
     <div className="weq-set weq-service-settings">
       <SectionHeader
-        icon={<Plug size={16} strokeWidth={1.8} />}
+        page="mcp"
         title="MCP 服务器"
         desc="开启后，支持 MCP 的 AI 客户端可通过本地接口读取当前账号的聊天数据；也可以一键安装到本机已有的 AI 客户端。"
       />
@@ -408,7 +408,7 @@ export function McpServerSection(): ReactElement {
               />
               <button
                 type="button"
-                className="weq-set-btn weq-set-btn-sm"
+                className="weq-set-btn weq-set-btn-primary weq-set-btn-sm"
                 disabled={busy || status.isLoading || !data}
                 onClick={() => void onSavePort()}
               >
@@ -599,12 +599,16 @@ export function McpServerSection(): ReactElement {
         <div className="weq-set-actions">
           <button
             type="button"
-            className="weq-set-btn"
+            className="weq-set-btn weq-set-btn-primary"
             disabled={!selectedAgents.size || installToAgents.isLoading}
             onClick={() => void onInstallAgents()}
           >
             <Download size={14} strokeWidth={1.8} />
-            {installToAgents.isLoading ? '正在安装…' : `安装到已选客户端（${selectedAgents.size}）`}
+            {installToAgents.isLoading ? (
+              '正在安装…'
+            ) : (
+              <NumericText>{`安装到已选客户端（${selectedAgents.size}）`}</NumericText>
+            )}
           </button>
         </div>
       </Card>

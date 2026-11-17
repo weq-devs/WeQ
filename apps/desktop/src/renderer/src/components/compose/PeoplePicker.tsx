@@ -57,7 +57,11 @@ export function PeoplePicker({
             >
               <QqAvatar uin={p.uin} size={30} className="weq-people-avatar" />
               <span className="weq-people-name">{p.name}</span>
-              {p.uin && p.uin !== '0' ? <span className="weq-people-uin">{p.uin}</span> : null}
+              {p.uin && p.uin !== '0' ? (
+                <span className="weq-people-uin">
+                  <span className="weq-number weq-number-inherit">{p.uin}</span>
+                </span>
+              ) : null}
             </button>
           ))
         )}

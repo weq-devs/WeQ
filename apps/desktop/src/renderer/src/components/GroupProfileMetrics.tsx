@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import { GROUP_SORTS, metricValue } from '../lib/contactListOrder';
 
 type MetricRows = Array<readonly [string, string]>;

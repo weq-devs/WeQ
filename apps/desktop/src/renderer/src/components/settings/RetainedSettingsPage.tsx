@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode } from 'react';
-import { usePageState } from '../PageSnapshots';
+import { usePageState } from '../PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import type { ResolvedSettingsTarget, SettingsPageId } from './navigation';
 import { revealSetting } from './searchTarget';
 import { SettingsResetProvider } from './SettingsReset';
@@ -12,11 +12,13 @@ export function RetainedSettingsPage({
   target,
   children,
   revision = 0,
+  recordId,
 }: {
   pageId: SettingsPageId;
   target: ResolvedSettingsTarget;
   children: ReactNode;
   revision?: number;
+  recordId?: string;
 }) {
   const active = useTabActive();
   const root = useRef<HTMLDivElement>(null);
@@ -25,24 +27,24 @@ export function RetainedSettingsPage({
     null,
     pageValue.optionalString,
   );
-  const request = JSON.stringify([target, revision]);
+  const { section, item, settingId } = target;
+  const request = JSON.stringify([target, revision, recordId]);
   useEffect(() => {
-    if (
-      !active ||
-      !root.current ||
-      target.section !== pageId ||
-      (!target.item && !target.settingId)
-    )
+    if (!active || !root.current || section !== pageId || (!item && !settingId && !recordId))
       return;
     if (applied !== request)
       root.current.dispatchEvent(new Event('weq-page-navigation', { bubbles: true }));
-    return revealSetting(root.current, target, {
-      navigate: applied !== request,
-      onLocated: () => {
-        if (applied !== request) setApplied(request);
+    return revealSetting(
+      root.current,
+      { item, settingId, recordId },
+      {
+        navigate: applied !== request,
+        onLocated: () => {
+          if (applied !== request) setApplied(request);
+        },
       },
-    });
-  }, [active, target, pageId, applied, request, setApplied]);
+    );
+  }, [active, section, item, settingId, pageId, applied, request, setApplied, recordId]);
   return (
     <div
       hidden={!active}

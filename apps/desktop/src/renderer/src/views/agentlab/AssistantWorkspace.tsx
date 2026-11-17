@@ -8,6 +8,7 @@
  *   点开可回看摘要（借鉴 WeFlow CompactionMarker）。
  */
 
+import { NumericText } from '../../components/NumericText';
 import { useState, type ReactElement } from 'react';
 import { ChevronDown, ChevronRight, ListChecks, NotebookPen, ScrollText } from 'lucide-react';
 import type { AssistantInvestigationPlan } from '@weq/service';
@@ -55,7 +56,9 @@ export function AssistantNotesPanel({
       >
         {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         <NotebookPen size={12} />
-        <span>工作笔记 · {notes.length} 条</span>
+        <span>
+          工作笔记 · <span className="weq-number weq-number-inherit">{notes.length}</span> 条
+        </span>
       </button>
       {open ? (
         <ul className="weq-asst-notes-body">
@@ -87,7 +90,11 @@ export function AssistantCompactionMarker({
       >
         {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         <ScrollText size={12} />
-        <span>较早内容已压缩 {foldedTurns > 0 ? `（${foldedTurns} 轮历史）` : ''}，点开看摘要</span>
+        <span>
+          较早内容已压缩{' '}
+          <NumericText>{foldedTurns > 0 ? `（${foldedTurns} 轮历史）` : ''}</NumericText>
+          ，点开看摘要
+        </span>
       </button>
       {open ? <div className="weq-asst-compaction-body">{summary}</div> : null}
     </div>

@@ -42,15 +42,18 @@ import {
   type ReactNode,
 } from 'react';
 import { cn } from '../im-template/template/classNames';
-import { OverlayLayerContext, useOverlayLayer } from '../lib/overlayStack';
-import { OverlayAnchorContext, useOverlayAnchor } from '../lib/overlayAnchor';
+import { OverlayLayerContext, useOverlayLayerScope } from '../lib/overlayStack';
+import { OverlayAnchorContext, useOverlayAnchor } from '../lib/overlayAnchor.shared';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { WorkspacePage } from './WorkspacePages';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import { useRenderDocument } from '../lib/renderDocument';
 import { WindowSurface } from './WindowSurface';
 import { useSurfaceOutside } from '../lib/surfaceOutside';
 import { ContactFieldHistoryBoundary } from '../lib/contactFieldHistoryContext';
+import { useMobileWebViewport } from '../hooks/useMobileWebViewport';
+import { IS_WEB } from '../lib/target.shared';
+import '../styles/dialog-layout.css';
 
 export type OverlayLayerProps = {
   portalTarget?: Element | null;
@@ -129,8 +132,9 @@ function OpenOverlayLayer({
   portalTarget,
 }: Omit<OverlayLayerProps, 'open'>): ReactElement {
   const document = useRenderDocument();
-  const layer = useOverlayLayer(true);
+  const { layer, scope } = useOverlayLayerScope(true);
   const ref = useRef<HTMLDivElement>(null);
+  useMobileWebViewport(ref, IS_WEB);
   const placement = useOverlayAnchor(
     ref,
     true,
@@ -142,7 +146,14 @@ function OpenOverlayLayer({
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const requestClose = useCallback(() => onCloseRef.current?.(), []);
-  useSurfaceEscape(ref, onClose ? requestClose : undefined, true, presentation === 'modal');
+  useSurfaceEscape(
+    ref,
+    onClose ? requestClose : undefined,
+    true,
+    presentation === 'modal',
+    100,
+    scope,
+  );
   useSurfaceOutside(ref, onClose ? requestClose : undefined, dismissOnOutside, {
     scrim: true,
     anchor: placement.anchor?.element,
@@ -160,6 +171,7 @@ function OpenOverlayLayer({
       tabIndex={-1}
       className={cn(
         'weq-overlay-layer',
+        IS_WEB && 'weq-web-dialog-layer',
         className,
         presentation !== 'modal' && 'weq-nonmodal-layer',
         presentation === 'panel' && 'weq-centered-panel',
@@ -167,12 +179,18 @@ function OpenOverlayLayer({
         placement.position && 'is-anchored-popover',
       )}
       role={role}
-      style={{ position: 'fixed', inset: 0, zIndex: layer, ...style, ...placement.position }}
+      style={{
+        position: 'fixed',
+        inset: IS_WEB ? undefined : 0,
+        zIndex: layer,
+        ...style,
+        ...placement.position,
+      }}
       onPointerDownCapture={placement.capture}
       onClickCapture={placement.capture}
       onMouseDown={handleScrimMouseDown}
     >
-      <OverlayLayerContext.Provider value={layer}>
+      <OverlayLayerContext.Provider value={scope}>
         <OverlayAnchorContext.Provider value={placement.trigger}>
           {children}
         </OverlayAnchorContext.Provider>

@@ -86,10 +86,10 @@ it('运行态受限时不因邮箱后台偏好读取票据，暂停会话不改�
   try {
     service.startBackground({ showUnread: true, notifications: true });
     expect(nt.ptFetchMailSession).not.toHaveBeenCalled();
-    await expect(service.connect()).rejects.toThrow('未启用完整功能');
+    await expect(service.connect()).rejects.toThrow('未启用 QQ 在线能力');
     service.suspendOnline();
     expect(service.status().notifications).toBe(true);
-    await expect(service.folders()).rejects.toThrow('未启用完整功能');
+    await expect(service.folders()).rejects.toThrow('未启用 QQ 在线能力');
     expect(nt.ptFetchMailSession).not.toHaveBeenCalled();
   } finally {
     service.dispose();

@@ -5,10 +5,10 @@ import { GroupProfileSurface } from '../src/renderer/src/components/groupProfile
 import {
   GroupFacts,
   GroupFreezeNotice,
-  groupCreationDate,
 } from '../src/renderer/src/components/groupProfile/GroupContent';
+import { groupCreationDate } from '../src/renderer/src/components/groupProfile/GroupContent.shared';
 import { ProfileWorkspace } from '../src/renderer/src/components/ProfileWorkspace';
-import { useTabActive } from '../src/renderer/src/components/RetainedTabs';
+import { useTabActive } from '../src/renderer/src/components/RetainedTabs.shared';
 import type { GroupConversation } from '../src/renderer/src/im-template/template/types';
 import { useDraftProtection } from '../src/renderer/src/lib/draftClose';
 import { ContactWorkspaceNavigationContext } from '../src/renderer/src/lib/profileNavigation';
@@ -16,6 +16,9 @@ import { RelationshipDirectoryContext } from '../src/renderer/src/lib/contactRel
 import { GroupMessagePreviewContext } from '../src/renderer/src/lib/chatNavigation';
 const mock = vi.hoisted(() => ({ profile: vi.fn(), media: vi.fn() }));
 vi.mock('../src/renderer/src/components/mediaPreviewStore', () => ({
+  openMediaPreview: mock.media,
+}));
+vi.mock('../src/renderer/src/components/mediaPreviewStore.shared', () => ({
   openMediaPreview: mock.media,
 }));
 vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({

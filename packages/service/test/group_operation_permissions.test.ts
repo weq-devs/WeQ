@@ -87,6 +87,29 @@ describe('群操作提交前以真实目标重新核对', () => {
     context.mockResolvedValue({ role: 'admin', muteUntil: Date.now() / 1000 + 60 });
     await expect(f.service.assertCanSend(123, false)).rejects.toThrow('禁言');
   });
+  it('实际权限查询回包能拦截全员禁言群的普通成员发送，管理者仍可发言', async () => {
+    const f = fixture();
+    f.directory.mockResolvedValue([{ groupCode: '123', role: 'member' }]);
+    // 同群线上 0x88d_0 回包，群号脱敏为 123；保留独立于协议 schema 的字节。
+    const sendOidbPacket = vi.fn(async () =>
+      Buffer.from(
+        '0a2a087b10001a2430f909e802c4b4e5d70ef00200c003c081a420f80400b00500c00500e00604ea06020804',
+        'hex',
+      ),
+    );
+    const service = new GroupInfoService(f.session, {
+      nt: { sendOidbPacket },
+      resolvePid: () => 9,
+    });
+    await expect(service.operationContext(123)).resolves.toMatchObject({
+      role: 'member',
+      muteAll: true,
+      muteUntil: 0,
+    });
+    await expect(service.assertCanSend(123, false)).rejects.toThrow('禁言');
+    f.directory.mockResolvedValue([{ groupCode: '123', role: 'admin' }]);
+    await expect(service.assertCanSend(123, false)).resolves.toBeUndefined();
+  });
   it('读取期间同号切换来源，不接受迟到的权限', async () => {
     const f = fixture();
     let active = true;

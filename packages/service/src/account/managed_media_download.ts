@@ -6,12 +6,17 @@ import { ManagedDownload } from '../common/managed_download';
 import { scopedNetworkAllowed } from '../common/network_scope';
 import { mediaSignature, type DownloadOptions, type DownloadOutcome } from './media_url';
 
+interface ManagedMediaDownloadOptions extends DownloadOptions {
+  /** 预览缓存不登记任务；网络策略与传输控制仍照常生效。 */
+  reportActivity?: boolean;
+}
+
 const pending = new Map<string, { url: string; work: Promise<DownloadOutcome> }>();
 /** 相同目标共享传输，不让两个写入器同时修改续传分段。 */
 export async function managedMediaDownload(
   url: string,
   dest: string,
-  options: DownloadOptions = {},
+  options: ManagedMediaDownloadOptions = {},
 ): Promise<DownloadOutcome> {
   const active = pending.get(dest);
   if (active)
@@ -27,7 +32,7 @@ export async function managedMediaDownload(
 async function runManagedMediaDownload(
   url: string,
   dest: string,
-  options: DownloadOptions,
+  options: ManagedMediaDownloadOptions,
 ): Promise<DownloadOutcome> {
   if (!scopedNetworkAllowed()) return { ok: false, reason: '省流量模式已暂缓自动加载' };
   let sha256 = '';
@@ -35,11 +40,17 @@ async function runManagedMediaDownload(
   let bytes = 0;
   let finalUrl = url;
   const transfer = new ManagedDownload({
-    name: `下载 · ${basename(dest)}`,
+    name: options.reportActivity === false ? undefined : `下载 · ${basename(dest)}`,
     total: options.expectedSize,
     signal: options.signal,
     maxBytes: options.maxBytes,
     timeoutMs: options.timeoutMs,
+    idleTimeoutMs: options.idleTimeoutMs,
+    maxAttempts: options.attempts,
+    identity:
+      options.expectedSha256 && options.expectedSize
+        ? { sha256: options.expectedSha256, size: options.expectedSize }
+        : undefined,
     fetcher: options.fetcher
       ? (input, init) =>
           options.fetcher!(String(input), {

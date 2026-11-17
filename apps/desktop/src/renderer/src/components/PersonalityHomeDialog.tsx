@@ -20,9 +20,10 @@
 import { useContext, useState } from 'react';
 import { OverlayLayer } from './OverlayLayer';
 import { EmptyState } from './EmptyState';
-import { Loader2, MapPin, Sparkles, Star, UserRound, WifiOff, X } from 'lucide-react';
+import { Loader2, MapPin, Sparkles, UserRound, WifiOff, X } from 'lucide-react';
+import { FEATURE_ICONS } from '../lib/featureIcons.shared';
 import { AvatarOrb, CardBackdrop, ScreenRain, TagRing } from './dressPieces';
-import { openMediaPreview } from './mediaPreviewStore';
+import { openMediaPreview } from './mediaPreviewStore.shared';
 import { ShimmerImage } from './ShimmerImage';
 import {
   albumMediaUrl,
@@ -35,7 +36,7 @@ import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { useContactDress, useContactQqShow, useContactStats } from '../hooks/useContactCard';
 import { ProfileLikesRow } from './qq-actions/ProfileLikesRow';
 import { ProfileExtras } from './ProfileExtras';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import botCardUrl from '@resources/img/bot.png';
 
 /**
@@ -144,7 +145,7 @@ export function PersonalityHomeDialog({
             个性装扮读取失败：{dress.error.message}
           </p>
         ) : (
-          <EmptyState compact icon={<Sparkles />} title="暂无个性装扮" />
+          <EmptyState compact icon={<FEATURE_ICONS.dressup />} title="暂无个性装扮" />
         )}
       </section>
     );
@@ -242,7 +243,11 @@ export function PersonalityHomeDialog({
                 else openSpace(uin, spaceNickname || profile.name);
               }}
             >
-              <Star size={13} />
+              {onOpenChat ? (
+                <FEATURE_ICONS.messages size={13} aria-hidden />
+              ) : (
+                <FEATURE_ICONS.qzone size={13} aria-hidden />
+              )}
               {onOpenChat ? '查看消息' : '查看空间'}
             </button>
           </div>
@@ -261,7 +266,9 @@ export function PersonalityHomeDialog({
                   />
                 ))}
               </span>
-              <strong>Lv.{level}</strong>
+              <strong>
+                Lv.<span className="weq-number weq-number-inherit">{level}</span>
+              </strong>
             </span>
           </div>
         ) : null}

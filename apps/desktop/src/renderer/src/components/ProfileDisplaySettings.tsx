@@ -7,7 +7,7 @@ import {
   type ComponentProps,
   type ReactNode,
 } from 'react';
-import { Loader2, RotateCcw } from 'lucide-react';
+import { Loader2, RefreshCw } from 'lucide-react';
 import {
   PROFILE_DISPLAY_FIELDS,
   type ProfileDisplayField,
@@ -221,7 +221,7 @@ export function ProfileDisplayControl({
             disabled={!context.available || context.loading}
             onClick={context.refresh}
           >
-            <RotateCcw size={12} />
+            <RefreshCw size={12} aria-hidden />
           </button>
         )}
       </span>

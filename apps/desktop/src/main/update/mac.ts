@@ -6,12 +6,11 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import semver from 'semver';
 import { resolveChildWorkerPath } from '../worker_path';
-import { REPO } from './mirrors';
+import { fetchOfficialArchive } from './official_archive';
 import {
   MAC_STAGE_PREFIX,
   macAppBundle,
   macUpdateResultSchema,
-  officialMacArchive,
   validateMacUpdatePlan,
   verifyMacArchive,
   verifyMacBundle,
@@ -33,22 +32,18 @@ export async function prepareMacUpdate(
 ): Promise<MacUpdatePlan> {
   if (!semver.valid(version) || !semver.gt(version, app.getVersion()))
     throw new Error('更新版本无效或不高于当前版本');
-  const response = await fetch(
-    `https://api.github.com/repos/${REPO.owner}/${REPO.repo}/releases/tags/v${encodeURIComponent(version)}`,
-    {
-      signal: AbortSignal.timeout(20_000),
-      redirect: 'error',
-      headers: { Accept: 'application/vnd.github+json' },
-    },
-  );
-  if (!response.ok)
-    throw new Error(`无法核验官方 Release（HTTP ${response.status}），未安装；请稍后重试。`);
-  const asset = officialMacArchive(
-    await response.json(),
-    version,
-    basename(archive),
-    includePrerelease,
-  );
+  const name = basename(archive);
+  const arch =
+    name === `weQ-${version}-mac-arm64.zip`
+      ? 'arm64'
+      : name === `weQ-${version}-mac-x64.zip`
+        ? 'x64'
+        : null;
+  if (!arch) throw new Error('更新包架构或文件名无效');
+  const asset: { sha256: string; size: number; arch: 'arm64' | 'x64' } = {
+    ...(await fetchOfficialArchive(version, name, includePrerelease)),
+    arch,
+  };
   await verifyMacArchive(archive, asset);
   const target = await realpath(macAppBundle(process.execPath));
   await verifyMacBundle(target, app.getVersion());

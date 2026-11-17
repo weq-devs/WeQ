@@ -1,5 +1,7 @@
 import { Component, type ReactNode } from 'react';
 import { RefreshCw, TriangleAlert } from 'lucide-react';
+import { IS_WEB } from '../lib/target.shared';
+import { publishRemoteStartup } from '../lib/remoteStartup';
 import '../styles/renderer-recovery.css';
 
 /** 放在业务 Provider 外，恢复界面不依赖已经抛错的状态或 IPC。 */
@@ -11,6 +13,11 @@ export class RendererErrorBoundary extends Component<
 
   static getDerivedStateFromError() {
     return { failed: true };
+  }
+
+  override componentDidCatch() {
+    if (IS_WEB && window.weqRemoteStartup?.state === 'loading' && !window.weqRemoteStartupRetrying)
+      publishRemoteStartup({ state: 'error', message: 'WeQ 界面启动异常，请重新连接。' });
   }
 
   override render() {

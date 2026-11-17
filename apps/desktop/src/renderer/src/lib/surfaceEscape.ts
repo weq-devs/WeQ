@@ -1,25 +1,7 @@
-import { useEffect, useLayoutEffect, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
 import { useMobileBack } from '../hooks/useMobileNavigation';
-
-function layerPath(element: HTMLElement): number[] {
-  const path: number[] = [];
-  for (let parent: HTMLElement | null = element; parent; parent = parent.parentElement) {
-    const value = Number.parseInt(
-      element.ownerDocument.defaultView?.getComputedStyle(parent).zIndex ?? '',
-      10,
-    );
-    if (Number.isFinite(value)) path.push(value);
-  }
-  return path.reverse();
-}
-
-function compareLayerPaths(left: number[], right: number[]): number {
-  for (let index = 0; index < Math.max(left.length, right.length); index++) {
-    const difference = (left[index] ?? 0) - (right[index] ?? 0);
-    if (difference !== 0) return difference;
-  }
-  return 0;
-}
+import { hasOverlayDescendant } from './overlayStack';
+import { compareSurfaceLayers } from './surfaceOrder';
 
 const ESCAPE_SURFACE = '[data-weq-escape-surface]';
 const SURFACES =
@@ -53,7 +35,7 @@ export function topSurface(
       }
     }
     if (visible) {
-      const order = top ? compareLayerPaths(layerPath(root), layerPath(top)) : 1;
+      const order = top ? compareSurfaceLayers(root, top) : 1;
       if (!top || order > 0 || (order === 0 && !root.contains(top))) top = root;
     }
   }
@@ -104,17 +86,20 @@ export function useSurfaceEscapeDismissal(
   }, [ref, onClose, active]);
 }
 
-/** 非模态页面只处理自身焦点内的 Escape；模态层只允许最上层处理。 */
+/** 页面只处理自身焦点内的 Escape；独立弹窗失焦后仍由最上层处理。 */
 export function useSurfaceEscape(
   ref: RefObject<HTMLElement | null>,
   onClose: (() => void) | undefined,
   active: boolean,
   modal: boolean,
+  mobilePriority: number | false = 100,
+  layerScope?: symbol,
 ) {
+  const returnFocus = useRef<Element | null>(null);
   useMobileBack(
-    active && Boolean(onClose),
+    active && Boolean(onClose) && mobilePriority !== false,
     () => onClose?.(),
-    100,
+    mobilePriority === false ? 100 : mobilePriority,
     () => ref.current,
   );
   // 在节点移除前归还焦点；被动清理时 activeElement 已可能变成 body。
@@ -123,15 +108,18 @@ export function useSurfaceEscape(
     if (!active || !element) return;
     const document = element.ownerDocument;
     const previous = document.activeElement;
-    if (
-      previous instanceof HTMLElement &&
-      previous.closest(
-        '[aria-modal="true"], .weq-dialog-layer, .weq-overlay-layer, .weq-window-layer, .weq-forward-window',
-      ) &&
-      compareLayerPaths(layerPath(previous), layerPath(element)) > 0
-    )
-      return;
-    if (!element.contains(previous) && !previous?.closest('[role="tablist"]')) {
+    returnFocus.current = previous;
+    // 同次挂载时子层已领号但 DOM 层号尚未提交，父窗不能夺走子窗刚取得的焦点。
+    const focusedAbove =
+      (layerScope !== undefined && hasOverlayDescendant(layerScope)) ||
+      (previous instanceof HTMLElement &&
+        Boolean(
+          previous.closest(
+            '[aria-modal="true"], .weq-dialog-layer, .weq-overlay-layer, .weq-window-layer, .weq-forward-window',
+          ),
+        ) &&
+        compareSurfaceLayers(previous, element) > 0);
+    if (!focusedAbove && !element.contains(previous) && !previous?.closest('[role="tablist"]')) {
       const focusable = element.querySelector<HTMLElement>(
         'input:not([disabled]), button:not([disabled]), [tabindex="0"]',
       );
@@ -155,7 +143,7 @@ export function useSurfaceEscape(
       )
         (previous as HTMLElement).focus({ preventScroll: true });
     };
-  }, [active, modal, ref]);
+  }, [active, modal, ref, layerScope]);
 
   useEffect(() => {
     const element = ref.current;
@@ -164,8 +152,10 @@ export function useSurfaceEscape(
     function handleEscape(event: KeyboardEvent) {
       if (!['Escape', 'Tab'].includes(event.key) || event.defaultPrevented || !element) return;
       if (event.key === 'Escape' && (event.isComposing || event.keyCode === 229)) return;
-      const top = topSurface(document);
-      if (top && surfaceRoot(element) !== top) return;
+      // 只处理 Esc 的轻量子层不接管 Tab，父模态仍负责整个窗口的焦点循环。
+      const includeEscapeSurfaces = event.key !== 'Tab';
+      const top = topSurface(document, includeEscapeSurfaces);
+      if (top && surfaceRoot(element, includeEscapeSurfaces) !== top) return;
       if (event.key === 'Tab') {
         if (!modal) return;
         const controls = [
@@ -192,7 +182,16 @@ export function useSurfaceEscape(
         return;
       }
       if (!onClose) return;
-      if (!modal && !element.contains(document.activeElement)) return;
+      // 轻弹窗点击空白或选中文字后焦点可能回到 body，也可能仍在背后的触发点。
+      // 主动聚焦其他背景控件时仍保留非模态面板，普通页面始终要求自身焦点。
+      const focused = document.activeElement;
+      if (
+        !modal &&
+        !element.contains(focused) &&
+        (!surfaceRoot(element).matches(SHELLS) ||
+          (focused !== document.body && focused !== returnFocus.current))
+      )
+        return;
       event.preventDefault();
       event.stopImmediatePropagation();
       onClose?.();

@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@weq/native": "workspace:*",
+    "@weq/network": "workspace:*",
     "@weq/time": "workspace:*"
   },
   "devDependencies": {

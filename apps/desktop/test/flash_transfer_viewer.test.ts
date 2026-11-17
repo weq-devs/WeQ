@@ -14,7 +14,14 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
 vi.mock('../src/renderer/src/components/FlashShareDialog', () => ({
   FlashShareDialog: () => null,
 }));
-vi.mock('../src/renderer/src/components/Toast', () => ({ useToast: () => fixture.toast }));
+vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToastApi: () => ({ push: fixture.toast }),
+  useToast: () => fixture.toast,
+}));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
+  useToastApi: () => ({ push: fixture.toast }),
+  useToast: () => fixture.toast,
+}));
 vi.mock('../src/renderer/src/lib/resourceUrl', () => ({ fileIconUrl: (name: string) => name }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {

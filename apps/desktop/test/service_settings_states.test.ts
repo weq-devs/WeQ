@@ -133,6 +133,39 @@ describe.each(['rkey', 'sse', 'mcp'] as const)('%s 服务设置读取状态', (k
     ).toHaveLength(1);
   });
 });
+it('外部 rKey 保留说明和列表，导入在独立编辑浮层内打开与关闭', () => {
+  render('rkey');
+  const card = host.querySelector('.weq-set-card')!;
+  expect(host.querySelectorAll('.weq-set-card')).toHaveLength(1);
+  expect(host.querySelector('.weq-set-head')).toBeNull();
+  expect(card.querySelector('.weq-set-card-title')?.textContent).toBe('外部 rKey 服务器');
+  expect(card.querySelector('.weq-set-about')).not.toBeNull();
+  expect(card.querySelectorAll('.weq-set-server-item')).toHaveLength(1);
+  act(() => card.querySelector<HTMLButtonElement>('.weq-set-card-action button')!.click());
+  expect(host.querySelectorAll('.weq-set-card')).toHaveLength(1);
+  expect(document.querySelector('.weq-editor-dialog form')?.getAttribute('aria-label')).toBe(
+    '导入新配置',
+  );
+  expect(card.querySelectorAll('.weq-set-server-item')).toHaveLength(1);
+  act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭导入新配置"]')!.click());
+  expect(document.querySelector('.weq-editor-dialog form')).toBeNull();
+  expect(api.mutate).not.toHaveBeenCalled();
+});
+it('外部 rKey 的独立编辑表单展示已有配置', () => {
+  render('rkey');
+  act(() => host.querySelector<HTMLButtonElement>('[aria-label="编辑"]')!.click());
+  expect(host.querySelectorAll('.weq-set-card')).toHaveLength(1);
+  expect(document.querySelector('.weq-editor-dialog form')?.getAttribute('aria-label')).toBe(
+    '编辑配置',
+  );
+  expect(document.querySelector<HTMLInputElement>('[aria-label="RKEY HTTP 地址"]')?.value).toBe(
+    api.settings.externalRkey.servers[0]!.baseUrl,
+  );
+  expect(document.querySelector<HTMLInputElement>('[aria-label="RKEY access_token"]')?.type).toBe(
+    'password',
+  );
+  expect(api.mutate).not.toHaveBeenCalled();
+});
 it('SSE 同值重新读取不覆盖正在编辑的调优值', () => {
   render('sse');
   act(() => {

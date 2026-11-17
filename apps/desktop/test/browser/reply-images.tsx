@@ -1,9 +1,6 @@
 import { createRoot } from 'react-dom/client';
-import {
-  ConvContext,
-  QqMessageContent,
-  ReplyJumpContext,
-} from '../../src/renderer/src/components/QqMessageContent';
+import { ConvContext, ReplyJumpContext } from '../../src/renderer/src/state/messageContext';
+import { QqMessageContent } from '../../src/renderer/src/components/QqMessageContent';
 import { MediaPreviewHost } from '../../src/renderer/src/components/mediaPreviewStore';
 import { useDataSaver } from '../../src/renderer/src/lib/dataSaver';
 import { useThemeStore, type ThemePreference } from '../../src/renderer/src/state/theme';

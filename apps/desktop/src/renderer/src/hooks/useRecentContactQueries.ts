@@ -2,7 +2,7 @@ import { getQueryKey } from '@trpc/react-query';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { client, trpc } from '../trpc/client';
 import type { QQWriteBinding } from './useQQWriteSession';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 
 type RecentContactPage = Awaited<ReturnType<typeof client.account.listRecentContacts.query>>;
 

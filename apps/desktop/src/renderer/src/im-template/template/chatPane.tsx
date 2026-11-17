@@ -1,10 +1,17 @@
 import { useChatTimelineNavigation } from './useChatTimelineNavigation';
 import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
 import {
+  searchSlashEmojis,
+  type SlashEmojiFace,
+  type SlashEmojiTrigger,
+} from '../../lib/slashEmoji';
+import { SlashEmojiMenu } from '../../components/SlashEmojiMenu';
+import { ComposerSendButton, type ComposerSpeechRestriction } from './composerSendButton';
+import {
   useContentMultiSelect,
   useRequestContentExport,
   useRequestContentAnalysis,
-} from '../../state/contentSelection';
+} from '../../state/contentSelection.shared';
 import {
   conversationExportSelection,
   conversationAnalysisTarget,
@@ -26,7 +33,7 @@ import { OverlayScrollbar } from '../../components/OverlayScrollbar';
 import { observeConversationPaging } from '../../lib/conversationPaging';
 import { isDataline } from '../../lib/deviceAvatar';
 import { MessageSelectionBar } from '../../components/MessageSelectionBar';
-import { useMediaSave } from '../../components/MediaSaveControls';
+import { useMediaSave } from '../../components/MediaSaveControls.shared';
 import { useMessageMarquee } from '../../hooks/useMessageMarquee';
 import { useStableCallback } from '../../hooks/useStableCallback';
 import { useMobileWebLayout } from '../../hooks/useMobileWebViewport';
@@ -39,13 +46,12 @@ import {
 } from '../../lib/responsiveLayout';
 import { revealTimelineMessage, timelineViewport } from '../../lib/timelineViewport';
 import { adjacentMessageId } from '../../lib/messageKeyboardNav';
-import { IS_WEB } from '../../lib/target';
+import { IS_WEB } from '../../lib/target.shared';
 import '../../styles/message-selection-toolbar.css';
 import '../../styles/conversation-title.css';
 import '../../styles/unified-conversation.css';
 import '../../styles/group-call-soon.css';
-import { GroupProfileDialog } from './profilePanes';
-import { CloneMemberProfileCard } from '../../views/agentlab/CloneMemberProfileCard';
+import { GroupProfileDialog, CloneMemberProfileCard } from '../../components/lazyMainPanels';
 import { ConversationMessageActions } from '../../components/ConversationMessageActions';
 import { QQMessageEssenceAction } from '../../components/QQMessageEssenceAction';
 import { MessageTodoAction, TypingStatus } from '../../components/qq-actions/ChatActions';
@@ -62,7 +68,7 @@ import { createSelectionGapIndex } from '../../lib/selectionGapIndex';
 import { hasActiveModal } from '../../lib/overlayStack';
 import { topSurface } from '../../lib/surfaceEscape';
 import { OverlayLayer } from '../../components/OverlayLayer';
-import { useWorkspaceSidecarOpen } from '../../components/WorkspacePages';
+import { useWorkspaceSidecarOpen } from '../../components/WorkspacePages.shared';
 import { useAtAllMention } from '../../hooks/useAtAllMention';
 import { nextMentionIndex, type AtAllMentionState } from '../../lib/atAllMention';
 import '../../styles/at-all-mention.css';
@@ -82,6 +88,7 @@ import {
   Trash2,
   RotateCcw,
   ListPlus,
+  ListFilter,
   FileText,
   FolderOpen,
   UsersRound,
@@ -95,7 +102,6 @@ import {
   PhoneCall,
   Radio,
   Video,
-  SendHorizontal,
   Gift,
   Settings2,
   Zap,
@@ -108,7 +114,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { AiOutlineRedEnvelope } from 'react-icons/ai';
+import { AiOutlineRedEnvelope } from '../../lib/reactIcons';
 import { dressUrl, resourceUrl } from '../../lib/resourceUrl';
 import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
 import { groupMemberEditing } from '../../lib/groupMemberEditing';
@@ -128,14 +134,19 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
-import { ReplyJumpContext } from '../../components/QqMessageContent';
+import { ReplyJumpContext } from '../../state/messageContext';
+import {
+  ImportantMessagesButton,
+  ImportantMessagesPanel,
+} from '../../components/ImportantMessages';
 import { ChatMediaGallery } from '../../components/ChatMediaGallery';
-import { openMediaPreview } from '../../components/mediaPreviewStore';
+import { openMediaPreview } from '../../components/mediaPreviewStore.shared';
 import { releaseObjectUrl } from '../../lib/objectUrl';
 import '../../styles/composer-image-preview.css';
 import '../../styles/composer-grouped-actions.css';
@@ -178,8 +189,8 @@ import {
   ComposerDropVeil,
   ComposerMediaStage,
   ComposerSuperEmojiStage,
-  collectFiles,
 } from './composerMediaStage';
+import { collectFiles } from './composerMediaStage.shared';
 import { VoicePanel, type TtsSpeechResult } from './voicePanel';
 import { FlashComposer, type FlashSendPayload } from './flashComposer';
 
@@ -190,6 +201,7 @@ import { FlashComposer, type FlashSendPayload } from './flashComposer';
  * `commonElem{serviceType:3}`），所以和闪传一样走「菜单 → 应用层 → IPC」。
  */
 export type FlashPhotoSendPayload = {
+  file?: File;
   path?: string;
   bytes?: Uint8Array;
   name: string;
@@ -202,6 +214,7 @@ export type FlashPhotoSendPayload = {
  * 它是独立的一条消息，走「菜单 → 应用层 → IPC」这条通路。
  */
 export type BubbleVideoSendPayload = {
+  file?: File;
   path?: string;
   bytes?: Uint8Array;
   name: string;
@@ -213,24 +226,17 @@ export type BubbleVideoSendPayload = {
   /** 泡泡模板名；缺省用协议层的 `video_penguin_dance`。 */
   templateName?: string;
 };
-import {
-  ComposerQuoteBar,
-  composerQuoteToken,
-  quoteBlockReason,
-  quoteFromMessage,
-  type ComposerQuote,
-} from './composerQuote';
+import { ComposerQuoteBar, type ComposerQuote } from './composerQuote';
+import { composerQuoteToken, quoteBlockReason, quoteFromMessage } from './composerQuote.shared';
 import type { LocationCardPayload } from './locationCardPanel';
 import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
-import { AiVoicePanel, aiVoiceToken, type AiVoiceDraft } from './aiVoicePanel';
-import { bounceEmojiToken, type BounceEmojiDraft } from './bounceEmojiPanel';
+import { AiVoicePanel, type AiVoiceDraft } from './aiVoicePanel';
+import { aiVoiceToken } from './aiVoicePanel.shared';
+import { bounceEmojiToken } from './bounceEmojiPanel.shared';
+import type { BounceEmojiDraft } from './bounceEmojiPanel';
 import type { RedPacketDraft } from './redPacketPanel';
-import {
-  pokeEmojiToken,
-  randomFaceToken,
-  type PokeEmojiDraft,
-  type RandomFaceDraft,
-} from './pokeEmojiPanel';
+import { pokeEmojiToken, randomFaceToken } from './pokeEmojiPanel.shared';
+import type { PokeEmojiDraft, RandomFaceDraft } from './pokeEmojiPanel';
 import { copyTextToClipboard } from './clipboard';
 import {
   isLocalOutgoingMessage,
@@ -240,7 +246,7 @@ import {
 import { cn } from './classNames';
 import { PROJECT_GROUP_IDS } from '../../../../shared/project_groups';
 import { chatHeaderTitle, isBotConversation, resolveMessageSender } from './conversationDisplay';
-import { createEmojiToken, parseMessageParts } from './emojiPacks';
+import { createEmojiToken, parseMessageParts, systemFaceItem } from './emojiPacks';
 import type { EmojiItem } from './emojiPacks';
 import {
   elementToToken,
@@ -259,17 +265,18 @@ import {
 import { localKeyOf, planNeedsLocalMedia, type LocalMediaRef } from './composerSend';
 import { composerSubmission, type ComposerSubmitOptions } from './composerSubmission';
 import { prepareReeditDraft } from './composerReedit';
+import { ComposerResizeHandle } from './composer';
 import {
-  ComposerResizeHandle,
   createComposerLineBreak,
   focusComposerEnd,
   getActiveComposerMentionTrigger,
+  getActiveComposerSlashTrigger,
   insertComposerNode,
   isNodeInside,
   replaceComposerTextRange,
   restoreComposer,
   serializeComposer,
-} from './composer';
+} from './composer.shared';
 import {
   isComposerActionDisabled,
   resolveComposerActionRegistry,
@@ -279,14 +286,16 @@ import {
 } from './composerActions';
 import { GroupInfoPanel, type GroupInfoDetail, type GroupSidebarFeature } from './groupInfoPanel';
 import { EmojiPanel } from './emojiPanel';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import { loadHiddenMessageIds, saveHiddenMessageIds } from './hiddenMessages';
-import { MessageRow, grayTipOf, messageElements } from './messageRow';
-import { IntentSenseProvider, useIntentSenseStatus } from '../../components/intentSense/context';
+import { MessageRow } from './messageRow';
+import { grayTipOf, messageElements } from './messageRow.shared';
+import { IntentSenseProvider } from '../../components/intentSense/context';
+import { useIntentSenseStatus } from '../../components/intentSense/context.shared';
 import { intentTimelineTargets, messageHasIntentText } from '../../lib/intentTimeline';
 import { AffinityPill } from '../../components/intentSense/AffinityPill';
 import { IntentSuggestionBar } from '../../components/intentSense/IntentSuggestionBar';
-import { useDialog } from '../../components/Dialog';
+import { useDialog } from '../../components/Dialog.shared';
 import { MessageContextMenu } from './messageContextMenu';
 import { AvatarContextMenu, type AvatarContextMenuState } from './avatarContextMenu';
 import { useGroupMemberUnmute } from '../../hooks/useGroupMemberUnmute';
@@ -318,8 +327,10 @@ import '../../styles/message-repeat.css';
 import '../../styles/new-message-preview.css';
 import '../../styles/conversation-loading.css';
 import type { ConversationReadingPosition } from '../../lib/conversationReadingPosition';
-import { MessageTimeDivider, shouldShowMessageTime } from './messageTime';
-import { MessageGapDivider, isSeqBetween, messageGapCount } from './messageGap';
+import { MessageTimeDivider } from './messageTime';
+import { shouldShowMessageTime } from './messageTime.shared';
+import { MessageGapDivider } from './messageGap';
+import { isSeqBetween, messageGapCount } from './messageGap.shared';
 import { defaultConversationPreference } from './preferences';
 import { Avatar, ChatMessagesSkeleton, EmptyState } from './primitives';
 import type {
@@ -331,12 +342,12 @@ import type {
   UnreadDock,
   User,
 } from './types';
-import { dockStopLabel, dockStopTone } from './unreadDock';
+import { dockStopLabel, dockStopTone, highlightLabel } from './unreadDock';
 import { displayGroupName, displayUserName } from './user';
 import { OnlineStatus } from '../../components/OnlineStatus';
 import { MessageDecorationCard } from '../../components/MessageDecorationCard';
 import { client, trpc } from '../../trpc/client';
-import { useToast } from '../../components/Toast';
+import { useToast } from '../../components/Toast.shared';
 
 import {
   composerHeightStorageKey,
@@ -850,6 +861,18 @@ export function ChatPane({
   );
   const [groupInfoCollapsed, setGroupInfoCollapsed] = useState(loadGroupInfoCollapsed);
   const [mobileGroupInfoOpen, setMobileGroupInfoOpen] = useState(false);
+  const [importantMessagesOpen, setImportantMessagesOpen] = useState(false);
+  const importantDockRef = useRef<HTMLDivElement>(null);
+  const [importantMessagesVisited, setImportantMessagesVisited] = useState<string | null>(null);
+  const importantMessagesActive =
+    importantMessagesOpen && importantMessagesVisited === conversation?.id;
+  useEffect(() => {
+    setImportantMessagesOpen(false);
+    setImportantMessagesVisited(null);
+  }, [conversation?.id]);
+  useEffect(() => {
+    if (!tabActive) setImportantMessagesOpen(false);
+  }, [tabActive]);
   const groupInfoTriggerRef = useRef<HTMLButtonElement>(null);
   useEffect(() => setMobileGroupInfoOpen(false), [conversation?.id, tabActive]);
   useEffect(() => {
@@ -871,7 +894,15 @@ export function ChatPane({
   }, []);
   // 空间不足时群资料是浮在聊天区上的最上层，系统返回必须先关掉它，
   // 否则 Android 的返回会穿过聊天页直接结束应用。
-  useMobileBack(mobileGroupInfoOpen, closeMobileGroupInfo, 20, () => groupInfoTriggerRef.current);
+  useMobileBack(
+    mobileGroupInfoOpen,
+    closeMobileGroupInfo,
+    20,
+    () =>
+      groupInfoTriggerRef.current
+        ?.closest('.chat-pane')
+        ?.querySelector<HTMLElement>('.group-info-panel') ?? null,
+  );
   const sidecarOpen = useWorkspaceSidecarOpen();
   // 桌面沿用收纳偏好；手机输入区常驻，但进入会话不自动聚焦。
   const [composerCollapsed, setComposerCollapsed] = useState(loadComposerCollapsed);
@@ -946,7 +977,10 @@ export function ChatPane({
     // 一次，于是「最近使用」还是旧顺序（刚点的表情排不到第一）。带 all 就在写入后
     // 直接把缓存刷成新数据，下一次打开读到的就是对的。
     onSuccess: () =>
-      emojiUtils.account.emojiPanel.overview.invalidate(undefined, { refetchType: 'all' }),
+      Promise.all([
+        emojiUtils.account.emojiPanel.overview.invalidate(undefined, { refetchType: 'all' }),
+        emojiUtils.account.emojiPanel.shortcuts.invalidate(),
+      ]),
   });
   // 轻互动：戳一戳（0xED3_1）与群消息贴表情（0x9082）。都需要在线且已注入的 QQ。
   const sendPoke = trpc.account.sendPoke.useMutation();
@@ -1077,7 +1111,10 @@ export function ChatPane({
   } = selection;
   const recallAccount = trpc.account.getAccountConfig.useQuery(undefined, {
     enabled:
-      (conversation?.type === 'group' || selectionMode || Boolean(contextMenu)) &&
+      (conversation?.type === 'group' ||
+        selectionMode ||
+        Boolean(contextMenu) ||
+        (tabActive && preferenceValue('slashEmojiEnabled'))) &&
       !restrictedSource,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -1119,6 +1156,11 @@ export function ChatPane({
     muteUntil && muteUntil > Date.now() / 1000
       ? '你在此群被禁言，暂时无法发送消息'
       : '此群已开启全员禁言，暂时无法发送消息';
+  const groupSpeechRestriction: ComposerSpeechRestriction | null = !groupSpeechBlocked
+    ? null
+    : muteUntil && muteUntil > Date.now() / 1000
+      ? { kind: 'personal', until: muteUntil }
+      : { kind: 'all' };
   const selectionCancelRef = useRef<(() => void) | null>(null);
   const recentReactions = trpc.account.emojiPanel.recentReactions.useQuery(
     { ...recallBinding },
@@ -1167,6 +1209,50 @@ export function ChatPane({
   // only backs the clear-conversation action.
   const [hiddenMessageIds, setHiddenMessageIds] = useState<Set<string>>(new Set());
   const [mentionMenu, setMentionMenu] = useState<MentionMenuState | null>(null);
+  const [mobileComposerExpanded, setMobileComposerExpanded] = useState(false);
+  const [slashMenu, setSlashMenu] = useState<
+    (SlashEmojiTrigger & { editor: HTMLDivElement; activeIndex: number }) | null
+  >(null);
+  const slashDismissed = useRef<string | null>(null);
+  const composerComposing = useRef(false);
+  const slashEnabled = preferenceValue('slashEmojiEnabled') && !readOnly;
+  const slashMenuId = useId();
+  const shortcuts = trpc.account.emojiPanel.shortcuts.useQuery(
+    { ...recallBinding },
+    {
+      enabled: tabActive && slashEnabled && Boolean(recallBinding),
+      staleTime: 30_000,
+    },
+  );
+  const slashItems = useMemo(
+    () =>
+      searchSlashEmojis(
+        shortcuts.data?.faces ?? [],
+        slashMenu?.query ?? '',
+        shortcuts.data?.recent ?? [],
+      ),
+    [shortcuts.data, slashMenu?.query],
+  );
+  useEffect(() => {
+    setSlashMenu(null);
+    slashDismissed.current = null;
+    composerComposing.current = false;
+  }, [conversation?.id, tabActive, slashEnabled, mobileComposerExpanded, composerCollapsed]);
+  const slashEditor = slashMenu?.editor;
+  const slashOpen = Boolean(slashMenu && slashItems.length && slashEnabled && tabActive);
+  useEffect(() => {
+    if (!slashEditor) return;
+    const close = (event: PointerEvent) => {
+      if (
+        event.target instanceof Element &&
+        (event.target.closest('.weq-slash-emoji-menu') || slashEditor.contains(event.target))
+      )
+        return;
+      setSlashMenu(null);
+    };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, [slashEditor]);
   const atAllMention = useAtAllMention(
     Boolean(mentionMenu && tabActive && conversation?.type === 'group' && !restrictedSource),
     Number(conversation?.group?.identityValue),
@@ -1193,7 +1279,6 @@ export function ChatPane({
       : onOpenGroupMember;
   const [mobileComposerEditorHeight, setMobileComposerEditorHeight] = useState(42);
   const [mobileComposerLong, setMobileComposerLong] = useState(false);
-  const [mobileComposerExpanded, setMobileComposerExpanded] = useState(false);
   useEffect(() => {
     setComposerMenu(null);
   }, [tabActive, mobileComposerExpanded, composerCollapsed]);
@@ -1422,7 +1507,8 @@ export function ChatPane({
 
   const {
     leaveBottom,
-    dockIndex,
+    dockImportantRemaining,
+    locatedSeq,
     dockStop,
     dockVisible,
     endRef,
@@ -1435,6 +1521,7 @@ export function ChatPane({
     jumpToBottomAndRead,
     jumpToFirstUnreadMessage,
     jumpToSeq,
+    dockJumping,
     jumpingToLatest,
     messageScrollRef,
     newMessagePill,
@@ -2649,17 +2736,78 @@ export function ChatPane({
     });
   }
 
-  function syncComposerBody(editor = currentComposerEditor()) {
+  function syncComposerBody(editor = currentComposerEditor(), autoReplaceSlash = false) {
     if (!editor) {
       return;
     }
 
-    setComposerBody(serializeComposer(editor));
     saveComposerSelection(editor);
+    if (
+      autoReplaceSlash &&
+      tabActive &&
+      slashEnabled &&
+      preferenceValue('slashEmojiAutoReplace') &&
+      !composerComposing.current &&
+      !currentPreference.blocked &&
+      !sending
+    ) {
+      const trigger = getActiveComposerSlashTrigger(editor, composerSelectionRef.current);
+      const key = trigger ? `${trigger.start}:${trigger.end}:${trigger.query}` : null;
+      if (trigger?.query && key !== slashDismissed.current) {
+        const exact = searchSlashEmojis(shortcuts.data?.faces ?? [], trigger.query).filter(
+          (item) => item.code === trigger.query.toLowerCase(),
+        );
+        if (exact.length === 1 && exact[0]) {
+          insertEmoji(systemFaceItem(exact[0].id, exact[0].desc), trigger);
+          setSlashMenu(null);
+          return;
+        }
+      }
+    }
+    setComposerBody(serializeComposer(editor));
     if (editor === composerEditorRef.current) {
       scheduleMobileComposerMeasure(editor);
     }
     updateMentionMenu(editor);
+    updateSlashMenu(editor);
+  }
+
+  function updateSlashMenu(editor = currentComposerEditor()) {
+    if (!editor || !tabActive || !slashEnabled || composerComposing.current) {
+      setSlashMenu(null);
+      return;
+    }
+    const trigger = getActiveComposerSlashTrigger(editor, composerSelectionRef.current);
+    const key = trigger ? `${trigger.start}:${trigger.end}:${trigger.query}` : null;
+    if (slashDismissed.current && slashDismissed.current !== key) slashDismissed.current = null;
+    if (!trigger || key === slashDismissed.current) {
+      setSlashMenu(null);
+      return;
+    }
+    setSlashMenu((current) => ({
+      ...trigger,
+      editor,
+      activeIndex:
+        current?.query === trigger.query && current.start === trigger.start
+          ? current.activeIndex
+          : 0,
+    }));
+  }
+
+  function insertSlashEmoji(item: SlashEmojiFace) {
+    if (!slashMenu || currentPreference.blocked || sending) return;
+    const trigger = getActiveComposerSlashTrigger(slashMenu.editor, composerSelectionRef.current);
+    if (
+      !trigger ||
+      trigger.start !== slashMenu.start ||
+      trigger.end !== slashMenu.end ||
+      trigger.query !== slashMenu.query
+    ) {
+      setSlashMenu(null);
+      return;
+    }
+    insertEmoji(systemFaceItem(item.id, item.desc), trigger);
+    setSlashMenu(null);
   }
 
   function insertComposerText(value: string, focus = true) {
@@ -3162,6 +3310,7 @@ export function ChatPane({
           .confirm(
             '撤回所选消息',
             `将依次向 QQ 提交 ${messages.length} 条消息的撤回请求，是否继续？`,
+            { danger: 'outline' },
           )) ||
         !current()
       )
@@ -3321,7 +3470,7 @@ export function ChatPane({
     syncComposerBody(editor);
   }
 
-  function insertEmoji(item: EmojiItem) {
+  function insertEmoji(item: EmojiItem, replaceRange?: { start: number; end: number }) {
     if (currentPreference.blocked || sending) {
       return;
     }
@@ -3367,7 +3516,10 @@ export function ChatPane({
         : 'composer-token-image composer-inline-emoji',
     );
 
-    const range = insertComposerNode(editor, image, composerSelectionRef.current, focus);
+    let range: Range | undefined;
+    if (replaceRange)
+      replaceComposerTextRange(editor, replaceRange.start, replaceRange.end, [image], true);
+    else range = insertComposerNode(editor, image, composerSelectionRef.current, focus);
     syncComposerBody();
     if (!focus && range) composerSelectionRef.current = range;
     if (!mobileEmojiMode) {
@@ -3499,7 +3651,7 @@ export function ChatPane({
    * 优先给绝对路径（`webUtils.getPathForFile`）；剪贴板截图这类没有落盘来源的图
    * 读不到路径，回退成字节。
    */
-  async function collectLocalMedia(extra: LocalMediaRef[]): Promise<LocalMediaRef[]> {
+  function collectLocalMedia(extra: LocalMediaRef[]): LocalMediaRef[] {
     const out: LocalMediaRef[] = [...extra];
     const attachments = [...inlineImagesRef.current, ...mediaAttachmentRef.current];
     for (const attachment of attachments) {
@@ -3512,25 +3664,12 @@ export function ChatPane({
         out.push({ key, path, name: attachment.name, ...(previewUrl ? { previewUrl } : {}) });
         continue;
       }
-      if (attachment.kind === 'file') {
-        out.push({
-          key,
-          file: attachment.file,
-          name: attachment.name,
-          ...(previewUrl ? { previewUrl } : {}),
-        });
-        continue;
-      }
-      try {
-        out.push({
-          key,
-          bytes: new Uint8Array(await attachment.file.arrayBuffer()),
-          name: attachment.name,
-          ...(previewUrl ? { previewUrl } : {}),
-        });
-      } catch {
-        // 读不出字节就让上层报缺路径 / 字节，而不是发一条空消息。
-      }
+      out.push({
+        key,
+        file: attachment.file,
+        name: attachment.name,
+        ...(previewUrl ? { previewUrl } : {}),
+      });
     }
     return out;
   }
@@ -3623,7 +3762,7 @@ export function ChatPane({
       }
       restoreSendFocus();
       window.requestAnimationFrame(restoreSendFocus);
-      const locals = localMedia ? await localMedia : undefined;
+      const locals = localMedia;
       // 读媒体期间切会话时不交给新会话的发送回调，也不清除它的新附件。
       if (!isCurrentComposer()) return;
       // 内容交接后即允许下一条输入；不能让迟到回执清掉下一张附件或下一条草稿。
@@ -3643,7 +3782,7 @@ export function ChatPane({
       const bodies = [...(!empty ? [payloadBody] : []), ...stagedMedia.map(attachmentToken)];
       const sent = (async () => {
         const failures: unknown[] = [];
-        // onSend 会先异步准备字体与气泡再入队，逐项等待交接才能保持批次内顺序。
+        // 每项同步建立本地预览并入队；网络与媒体准备不阻塞下一项回显。
         for (const value of bodies) {
           try {
             const keys = new Set(
@@ -3699,10 +3838,9 @@ export function ChatPane({
     const locals: LocalMediaRef[] = [];
     if (clip.blob) {
       try {
-        const bytes = new Uint8Array(await clip.blob.arrayBuffer());
         locals.push({
           key: `voice-${clip.id}.silk`,
-          bytes,
+          file: new File([clip.blob], `voice-${clip.id}.silk`, { type: clip.blob.type }),
           name: `voice-${clip.id}.silk`,
           // 乐观渲染：直接放录音 blob（浏览器放得了 webm/opus），并用采样峰值画波形。
           ...(clip.url ? { previewUrl: clip.url } : {}),
@@ -3786,11 +3924,9 @@ export function ChatPane({
     if (!conversation || conversation.type === 'merged' || !onSendFlashPhoto) {
       throw new Error('这个会话不支持发送闪照。');
     }
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    if (bytes.length === 0) throw new Error('图片是空的，无法发送闪照。');
     // 闪照只能单独发：顶掉挂着的引用（与视频 / 文件同一套互斥）。
     setPendingQuote(null);
-    await onSendFlashPhoto(conversation, { bytes, name: file.name });
+    await onSendFlashPhoto(conversation, { file, name: file.name });
     await jumpAfterSuccessfulSend(conversation);
   }
 
@@ -3804,51 +3940,13 @@ export function ChatPane({
     if (!conversation || conversation.type === 'merged' || !onSendBubbleVideo) {
       throw new Error('这个会话不支持发送泡泡消息。');
     }
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    if (bytes.length === 0) throw new Error('视频是空的，无法发送泡泡消息。');
-    // 元信息读不到不影响发送：时长 / 尺寸都是可选的（缺了按 0 发）。
-    const meta = await readVideoMetaFromBytes(bytes, file.type);
     // 泡泡只能单独发：顶掉挂着的引用（与视频 / 文件同一套互斥）。
     setPendingQuote(null);
     await onSendBubbleVideo(conversation, {
-      bytes,
+      file,
       name: file.name,
-      ...(meta.duration > 0 ? { duration: meta.duration } : {}),
-      ...(meta.width > 0 ? { width: meta.width } : {}),
-      ...(meta.height > 0 ? { height: meta.height } : {}),
     });
     await jumpAfterSuccessfulSend(conversation);
-  }
-
-  /** 从内存字节读视频元信息（时长 / 宽高）；读不出来就返回全 0，不阻断发送。 */
-  async function readVideoMetaFromBytes(
-    bytes: Uint8Array,
-    mime: string,
-  ): Promise<{ duration: number; width: number; height: number }> {
-    const url = URL.createObjectURL(
-      new Blob([bytes.slice().buffer], { type: mime || 'video/mp4' }),
-    );
-    try {
-      return await new Promise((resolve) => {
-        const video = document.createElement('video');
-        const finish = (meta: { duration: number; width: number; height: number }) => {
-          video.removeAttribute('src');
-          video.load();
-          resolve(meta);
-        };
-        video.preload = 'metadata';
-        video.onloadedmetadata = () =>
-          finish({
-            duration: Number.isFinite(video.duration) ? video.duration : 0,
-            width: video.videoWidth,
-            height: video.videoHeight,
-          });
-        video.onerror = () => finish({ duration: 0, width: 0, height: 0 });
-        video.src = url;
-      });
-    } finally {
-      releaseObjectUrl(url);
-    }
   }
 
   async function sendArkCard(payload: ArkPayload) {
@@ -4017,6 +4115,7 @@ export function ChatPane({
     // 编辑器，按「当前该用哪个」去猜会在切换瞬间扫错对象。
     saveComposerSelection(event.currentTarget);
     updateMentionMenu(event.currentTarget);
+    updateSlashMenu(event.currentTarget);
   }
 
   function handleComposerKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
@@ -4029,6 +4128,7 @@ export function ChatPane({
       return;
     }
     if (
+      composerComposing.current ||
       event.nativeEvent.isComposing ||
       event.nativeEvent.keyCode === 229 ||
       event.key === 'Process'
@@ -4036,6 +4136,40 @@ export function ChatPane({
       return;
     }
 
+    if (slashMenu && slashItems.length) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        slashDismissed.current = `${slashMenu.start}:${slashMenu.end}:${slashMenu.query}`;
+        setSlashMenu(null);
+        return;
+      }
+      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+        event.preventDefault();
+        const delta = event.key === 'ArrowUp' ? -1 : 1;
+        setSlashMenu((current) =>
+          current
+            ? {
+                ...current,
+                activeIndex: (current.activeIndex + delta + slashItems.length) % slashItems.length,
+              }
+            : null,
+        );
+        return;
+      }
+      if (
+        (event.key === 'Enter' || event.key === 'Tab') &&
+        !event.shiftKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey
+      ) {
+        event.preventDefault();
+        const selected = slashItems[Math.min(slashMenu.activeIndex, slashItems.length - 1)];
+        if (selected) insertSlashEmoji(selected);
+        return;
+      }
+    }
     if (mentionMenu) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault();
@@ -5002,6 +5136,7 @@ export function ChatPane({
       const replace = await useDialog
         .getState()
         .confirm('替换当前草稿？', '输入框已有内容，重新编辑将替换当前草稿。', {
+          danger: 'outline',
           okLabel: '替换并编辑',
           cancelLabel: '保留草稿',
         });
@@ -5547,7 +5682,7 @@ export function ChatPane({
     sending ||
     (body.length === 0 && !hasSingleSend && !hasQuote && !hasExternalAttachments);
   const sendTitle = !sendAvailable
-    ? sendBlockedReason || '受限模式下无法发送消息'
+    ? sendBlockedReason || '在线能力受限，无法发送消息'
     : groupSpeechBlocked
       ? groupSpeechReason
       : '发送';
@@ -5555,7 +5690,7 @@ export function ChatPane({
   // QQ 在线且未完全离线 + 会话未被屏蔽 + 当前没有消息正在发送。渲染层不再各自放一套
   // 宽松判断，避免「戳一戳能点、发送键却灰着」这类不一致。
   const actionGateReason = !sendAvailable
-    ? sendBlockedReason || '受限模式下无法发送消息'
+    ? sendBlockedReason || '在线能力受限，无法发送消息'
     : currentPreference.blocked
       ? '当前会话已被屏蔽'
       : sending
@@ -5563,7 +5698,7 @@ export function ChatPane({
         : null;
   const sendGateReason = actionGateReason || (groupSpeechBlocked ? groupSpeechReason : null);
   const pokeBlockedReason = !sendAvailable
-    ? '受限模式下无法戳一戳'
+    ? '在线能力受限，无法戳一戳'
     : actionGateReason
       ? `${actionGateReason}，暂不可戳一戳`
       : null;
@@ -5571,12 +5706,12 @@ export function ChatPane({
     conversation.type !== 'group'
       ? '仅群消息支持贴表情'
       : !sendAvailable
-        ? '受限模式下无法贴表情'
+        ? '在线能力受限，无法贴表情'
         : actionGateReason
           ? `${actionGateReason}，暂不可贴表情`
           : null;
   const moderationBlockedReason = !sendAvailable
-    ? '受限模式下无法撤回消息或执行群管理操作'
+    ? '在线能力受限，无法撤回消息或执行群管理操作'
     : actionGateReason
       ? `${actionGateReason}，暂不可执行该操作`
       : null;
@@ -5769,11 +5904,14 @@ export function ChatPane({
       {...multi.rootProps}
       className={cn(
         'chat-pane',
+        importantMessagesActive && 'with-important-messages',
         !composerVisible && !selectionMode && 'without-composer',
         hasComposerExtensions && !selectionMode && 'has-composer-extensions',
         compactHeader && 'has-compact-header',
         conversation.type === 'group' ? 'with-group-info' : '',
-        conversation.type === 'group' && (groupInfoCollapsed || sidecarOpen)
+        conversation.type === 'group' &&
+          (groupInfoCollapsed || sidecarOpen) &&
+          !importantMessagesActive
           ? 'group-info-collapsed'
           : '',
         mobileGroupInfoOpen && 'is-mobile-group-info-open',
@@ -5905,6 +6043,16 @@ export function ChatPane({
         actions={
           <>
             {!compactHeader ? headerAffinity : null}
+            {conversation.type === 'group' && !restrictedSource ? (
+              <ImportantMessagesButton
+                open={importantMessagesActive}
+                onClick={() => {
+                  setImportantMessagesVisited(conversation.id);
+                  setImportantMessagesOpen((value) => !value);
+                  setMobileGroupInfoOpen(false);
+                }}
+              />
+            ) : null}
             {onSearchChatRecords &&
             (conversation.type === 'group' || conversation.type === 'direct') ? (
               <button
@@ -5951,7 +6099,7 @@ export function ChatPane({
                                 icon: <Bug size={16} />,
                                 action: () => onOpenGroupBug(conversation),
                                 disabled: !groupBugOnline,
-                                reason: groupBugOnline ? undefined : '受限模式下无法反馈 Bug',
+                                reason: groupBugOnline ? undefined : '在线能力受限，无法反馈 Bug',
                               },
                             ]
                           : []),
@@ -5995,7 +6143,7 @@ export function ChatPane({
                       'group-header-bug-action',
                     )}
                     type="button"
-                    title={groupBugOnline ? '反馈 Bug' : '受限模式下无法反馈 Bug'}
+                    title={groupBugOnline ? '反馈 Bug' : '在线能力受限，无法反馈 Bug'}
                     disabled={!groupBugOnline}
                     onClick={() => onOpenGroupBug(conversation)}
                   >
@@ -6272,7 +6420,7 @@ export function ChatPane({
                             className="weq-message-repeat"
                             title={
                               !sendAvailable
-                                ? '受限模式下无法复读消息'
+                                ? '在线能力受限，无法复读消息'
                                 : sendGateReason || '发送一条相同的消息'
                             }
                             aria-label="+1，发送相同消息"
@@ -6408,7 +6556,12 @@ export function ChatPane({
           >
             {jumpingToLatest ? <Loader2 size={14} /> : <ChevronDown size={14} strokeWidth={2.8} />}
             {newMessagePill > 0 ? (
-              <span>{formatUnreadJumpCount(newMessagePill)}条新消息</span>
+              <span>
+                <span className="weq-number weq-number-inherit">
+                  {formatUnreadJumpCount(newMessagePill)}
+                </span>{' '}
+                条新消息
+              </span>
             ) : null}
           </button>
         </div>
@@ -6422,41 +6575,77 @@ export function ChatPane({
           onClick={jumpToFirstUnreadMessage}
         >
           <ChevronsUp size={21} strokeWidth={2.8} />
-          <span>{formatUnreadJumpCount(unreadJump?.remaining ?? 0)}条新消息</span>
+          <span>
+            <span className="weq-number weq-number-inherit">
+              {formatUnreadJumpCount(unreadJump?.remaining ?? 0)}
+            </span>{' '}
+            条新消息
+          </span>
         </button>
       ) : null}
 
-      {/* 未读跳转坞：打开会话时按内存快照逐个引导跳转，跳完自动收起。
-          高亮用告警/内容/红包三色区分，兜底的「新的 N 条未读消息」是中性蓝。 */}
+      {/* 未读跳转坞：重要消息与索引共用类型色，普通未读保留原有样式。 */}
       {dockVisible && dockStop && unreadDock ? (
-        <button
-          key={`${conversation.id}:${dockStop.kind}:${dockStop.seq}`}
-          className={cn('unread-dock-button', `tone-${dockStopTone(dockStop)}`)}
-          type="button"
-          title={`跳转到${dockStopLabel(dockStop, unreadDock.unread)}`}
-          onClick={() => {
-            void jumpDockStop();
-          }}
-        >
-          {dockStop.kind === 'unread' ? (
-            <ChevronsUp size={13} strokeWidth={2.4} aria-hidden />
-          ) : (
-            <Sparkles size={13} strokeWidth={2.4} aria-hidden />
+        <div
+          ref={importantDockRef}
+          className={cn(
+            'unread-dock-button',
+            'weq-important-dock',
+            `tone-${dockStopTone(dockStop)}`,
           )}
-          <span className={cn('unread-dock-label')}>
-            {dockStopLabel(dockStop, unreadDock.unread)}
-          </span>
-          {unreadDock.stops.length > 1 ? (
-            <span className={cn('unread-dock-count')}>
-              {dockIndex + 1}/{unreadDock.stops.length}
+          data-important-kind={dockStop.kind === 'unread' ? undefined : dockStop.kind}
+        >
+          <button
+            type="button"
+            title={`下一条：${dockStopLabel(dockStop, unreadDock.unread)}`}
+            disabled={dockJumping}
+            onClick={() => {
+              void jumpDockStop().then((located) => {
+                if (located && isSingleColumnLayout()) setImportantMessagesOpen(false);
+              });
+            }}
+          >
+            {dockStop.kind === 'unread' ? (
+              <ChevronsUp size={13} strokeWidth={2.4} aria-hidden />
+            ) : (
+              <Sparkles size={13} strokeWidth={2.4} aria-hidden />
+            )}
+            <span className={cn('unread-dock-label')}>
+              {dockStop.kind === 'unread'
+                ? dockStopLabel(dockStop, unreadDock.unread)
+                : highlightLabel(dockStop.kind)}
             </span>
+            {dockStop.kind !== 'unread' ? (
+              <span
+                className={cn('unread-dock-count')}
+                aria-label={`剩余 ${dockImportantRemaining} 条重要消息`}
+              >
+                {dockImportantRemaining}
+              </span>
+            ) : null}
+          </button>
+          {conversation.type === 'group' && !restrictedSource ? (
+            <button
+              type="button"
+              title="展开重要消息列表"
+              aria-label="展开重要消息列表"
+              aria-expanded={importantMessagesActive}
+              aria-controls="weq-important-messages"
+              onClick={() => {
+                setImportantMessagesVisited(conversation.id);
+                setImportantMessagesOpen(true);
+                setMobileGroupInfoOpen(false);
+              }}
+            >
+              <ListFilter size={14} />
+            </button>
           ) : null}
-        </button>
+        </div>
       ) : null}
 
       {conversation.type === 'group' ? (
         <>
-          {!sidecarOpen ? (
+          {!sidecarOpen && !importantMessagesActive ? (
             <button
               className={cn('group-info-toggle')}
               type="button"
@@ -6481,7 +6670,7 @@ export function ChatPane({
               }}
             />
           ) : null}
-          {!groupInfoCollapsed || mobileGroupInfoOpen ? (
+          {(!groupInfoCollapsed || mobileGroupInfoOpen) && !importantMessagesActive ? (
             <GroupInfoPanel
               hidden={sidecarOpen}
               conversation={conversation}
@@ -6520,6 +6709,23 @@ export function ChatPane({
             />
           ) : null}
         </>
+      ) : null}
+
+      {conversation.type === 'group' && importantMessagesVisited === conversation.id ? (
+        <ImportantMessagesPanel
+          key={conversation.id}
+          groupCode={conversation.id}
+          open={importantMessagesActive}
+          onClose={() => setImportantMessagesOpen(false)}
+          onLocate={jumpToSeq}
+          activeSeq={locatedSeq}
+          senderName={(uid) => {
+            const member = conversation.members.find((item) => item.id === uid);
+            return member ? displayUserName(member) : '';
+          }}
+          locatePending={dockJumping}
+          navigationAnchor={importantDockRef.current}
+        />
       ) : null}
 
       {/* 收纳输入区的把手 —— 与群资料栏同一个交互：贴在两个区域的交界线上，
@@ -6586,7 +6792,16 @@ export function ChatPane({
             <MessageSelectionBar
               count={selectionFlow.selectedCount}
               detail={
-                selectionFlow.gaps.length ? <span>{selectionFlow.gaps.length} 处缺口</span> : null
+                selectionFlow.gaps.length ? (
+                  <span>
+                    {
+                      <span className="weq-number weq-number-inherit">
+                        {selectionFlow.gaps.length}
+                      </span>
+                    }{' '}
+                    处缺口
+                  </span>
+                ) : null
               }
             >
               {intentActionAvailable ? (
@@ -6650,7 +6865,7 @@ export function ChatPane({
                     selectionUnavailable ||
                     selectionBlockedReason ||
                     (!sendAvailable
-                      ? '受限模式下无法转发消息'
+                      ? '在线能力受限，无法转发消息'
                       : sendGateReason
                         ? `${sendGateReason}，暂不可发送`
                         : '转发')
@@ -6682,6 +6897,7 @@ export function ChatPane({
               </button>
               {!restrictedSource ? (
                 <button
+                  data-danger="outline"
                   type="button"
                   className={cn('selection-action')}
                   aria-label="撤回所选消息"
@@ -6695,6 +6911,7 @@ export function ChatPane({
                 </button>
               ) : null}
               <button
+                data-danger="outline"
                 type="button"
                 className={cn('selection-action')}
                 aria-label="删除"
@@ -7189,6 +7406,18 @@ export function ChatPane({
               onSelect={insertMention}
             />
           ) : null}
+          {slashMenu && !mobileComposerExpanded && slashEnabled && tabActive ? (
+            <SlashEmojiMenu
+              id={slashMenuId}
+              items={slashItems}
+              activeIndex={Math.min(slashMenu.activeIndex, Math.max(0, slashItems.length - 1))}
+              editor={slashMenu.editor}
+              onSelect={insertSlashEmoji}
+              onActiveIndexChange={(activeIndex) =>
+                setSlashMenu((current) => (current ? { ...current, activeIndex } : null))
+              }
+            />
+          ) : null}
           <div
             ref={composerEditorRef}
             className={cn(
@@ -7198,12 +7427,32 @@ export function ChatPane({
             role="textbox"
             aria-multiline="true"
             aria-label="消息"
+            aria-autocomplete={slashEnabled ? 'list' : undefined}
+            aria-controls={slashOpen ? slashMenuId : undefined}
+            aria-activedescendant={
+              slashOpen
+                ? `${slashMenuId}-${Math.min(slashMenu?.activeIndex ?? 0, slashItems.length - 1)}`
+                : undefined
+            }
             enterKeyHint="send"
             aria-disabled={readOnly || currentPreference.blocked}
             contentEditable={!readOnly && !currentPreference.blocked}
             suppressContentEditableWarning
             onPointerDown={prepareMobileComposerKeyboard}
-            onInput={() => syncComposerBody(composerEditorRef.current)}
+            onInput={(event) =>
+              syncComposerBody(
+                event.currentTarget,
+                (event.nativeEvent as InputEvent).inputType?.startsWith('insert'),
+              )
+            }
+            onCompositionStart={() => {
+              composerComposing.current = true;
+              setSlashMenu(null);
+            }}
+            onCompositionEnd={() => {
+              composerComposing.current = false;
+              syncComposerBody(composerEditorRef.current, true);
+            }}
             onMouseDown={prepareComposerImagePreview}
             onClick={previewComposerImage}
             onKeyDown={handleComposerKeyDown}
@@ -7211,28 +7460,26 @@ export function ChatPane({
             onMouseUp={() => {
               saveComposerSelection(composerEditorRef.current);
               updateMentionMenu(composerEditorRef.current);
+              updateSlashMenu(composerEditorRef.current);
             }}
             onFocus={() => {
               saveComposerSelection(composerEditorRef.current);
               updateMentionMenu(composerEditorRef.current);
+              updateSlashMenu(composerEditorRef.current);
             }}
             onBlur={() => saveComposerSelection(composerEditorRef.current)}
             onPaste={handleComposerPaste}
             onCopy={handleComposerCopy}
             onCut={handleComposerCopy}
           />
-          <button
-            type="button"
-            className={cn('composer-send', 'composer-desktop-tool')}
+          <ComposerSendButton
+            variant="desktop"
             title={sendTitle}
-            aria-label={sendTitle}
             disabled={sendDisabled}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => void submitMessage()}
-          >
-            <SendHorizontal size={17} />
-            <strong>发送</strong>
-          </button>
+            restriction={groupSpeechRestriction}
+            active={tabActive && !mobileComposerExpanded}
+            onSend={() => void submitMessage()}
+          />
           {attachmentError ? (
             <span className={cn('composer-attachment-error')} role="status">
               {attachmentError}
@@ -7267,12 +7514,32 @@ export function ChatPane({
               role="textbox"
               aria-multiline="true"
               aria-label="消息"
+              aria-autocomplete={slashEnabled ? 'list' : undefined}
+              aria-controls={slashOpen ? slashMenuId : undefined}
+              aria-activedescendant={
+                slashOpen
+                  ? `${slashMenuId}-${Math.min(slashMenu?.activeIndex ?? 0, slashItems.length - 1)}`
+                  : undefined
+              }
               enterKeyHint="enter"
               aria-disabled={readOnly || currentPreference.blocked}
               contentEditable={!readOnly && !currentPreference.blocked}
               suppressContentEditableWarning
               onPointerDown={prepareMobileComposerKeyboard}
-              onInput={() => syncComposerBody(expandedComposerEditorRef.current)}
+              onInput={(event) =>
+                syncComposerBody(
+                  event.currentTarget,
+                  (event.nativeEvent as InputEvent).inputType?.startsWith('insert'),
+                )
+              }
+              onCompositionStart={() => {
+                composerComposing.current = true;
+                setSlashMenu(null);
+              }}
+              onCompositionEnd={() => {
+                composerComposing.current = false;
+                syncComposerBody(expandedComposerEditorRef.current, true);
+              }}
               onMouseDown={prepareComposerImagePreview}
               onClick={previewComposerImage}
               onKeyDown={handleComposerKeyDown}
@@ -7280,10 +7547,12 @@ export function ChatPane({
               onMouseUp={() => {
                 saveComposerSelection(expandedComposerEditorRef.current);
                 updateMentionMenu(expandedComposerEditorRef.current);
+                updateSlashMenu(expandedComposerEditorRef.current);
               }}
               onFocus={() => {
                 saveComposerSelection(expandedComposerEditorRef.current);
                 updateMentionMenu(expandedComposerEditorRef.current);
+                updateSlashMenu(expandedComposerEditorRef.current);
               }}
               onBlur={() => saveComposerSelection(expandedComposerEditorRef.current)}
               onPaste={handleComposerPaste}
@@ -7300,6 +7569,18 @@ export function ChatPane({
                   setMentionMenu((current) => (current ? { ...current, activeIndex } : current))
                 }
                 onSelect={insertMention}
+              />
+            ) : null}
+            {slashMenu && slashEnabled && tabActive ? (
+              <SlashEmojiMenu
+                id={slashMenuId}
+                items={slashItems}
+                activeIndex={Math.min(slashMenu.activeIndex, Math.max(0, slashItems.length - 1))}
+                editor={slashMenu.editor}
+                onSelect={insertSlashEmoji}
+                onActiveIndexChange={(activeIndex) =>
+                  setSlashMenu((current) => (current ? { ...current, activeIndex } : null))
+                }
               />
             ) : null}
             <div className={cn('mobile-composer-expanded-tools')}>
@@ -7335,17 +7616,14 @@ export function ChatPane({
                 </button>
               ) : null}
               <span />
-              <button
-                type="button"
-                className={cn('composer-send-expanded')}
+              <ComposerSendButton
+                variant="expanded"
                 title={sendTitle}
-                aria-label={sendTitle}
                 disabled={sendDisabled}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => void submitMessage()}
-              >
-                <SendHorizontal size={28} />
-              </button>
+                restriction={groupSpeechRestriction}
+                active={tabActive}
+                onSend={() => void submitMessage()}
+              />
             </div>
             {emojiOpen ? (
               <EmojiPanel
@@ -7496,6 +7774,10 @@ export function ChatPane({
                   onForwardMessages([message], conversation);
                 }
               : undefined
+          }
+          forwardBlockedReason={
+            outgoingActionBlockReason(contextMenu.message) ||
+            (!sendAvailable ? sendBlockedReason || 'QQ 在线能力暂不可用' : null)
           }
           onDownloadImage={downloadMessageImage}
           onSaveMedia={

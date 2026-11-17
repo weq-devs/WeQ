@@ -74,9 +74,9 @@ it('仅变化项目旁显示历史，未打开不读版本，弹窗只显示该�
   expect(rpc.versions).not.toHaveBeenCalled();
   await act(async () => {
     host.querySelector<HTMLButtonElement>('[aria-label="显示公司历史"]')!.click();
-    await new Promise((r) => setTimeout(r, 20));
   });
   await act(async () => {
+    await vi.dynamicImportSettled();
     await new Promise((r) => setTimeout(r, 20));
   });
   const dialog = document.querySelector('[role="dialog"]')!;
@@ -158,9 +158,9 @@ it('头像历史显示缓存图片，保留历史地址并修复空尺寸，点�
   });
   await act(async () => {
     host.querySelector<HTMLButtonElement>('[aria-label="显示头像历史"]')!.click();
-    await new Promise((r) => setTimeout(r, 20));
   });
   await act(async () => {
+    await vi.dynamicImportSettled();
     await new Promise((r) => setTimeout(r, 20));
   });
   const images = [...document.querySelectorAll<HTMLImageElement>('.weq-field-history-body img')];

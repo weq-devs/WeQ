@@ -10,7 +10,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { canExportAnalyticsCard, exportAnalyticsCard } from './analyticsShot';
-import { useToast } from './Toast';
+import { useToastApi } from './Toast.shared';
+import {
+  taskNotificationSource,
+  savedFileNotificationSource,
+} from '../lib/notificationNavigation.shared';
 import type { AnalyticsExportPayload } from '../../../shared/analytics_export';
 import { client } from '../trpc/client';
 import { useViewState } from '../state/view';
@@ -30,6 +34,7 @@ export function useAnalyticsExport(opts: {
    */
   build: () => AnalyticsExportPayload | null;
 }): AnalyticsExportHandle {
+  const notificationToast = useToastApi();
   const { enabled, build } = opts;
   const available = canExportAnalyticsCard();
   const inFlightRef = useRef(false);
@@ -68,23 +73,32 @@ export function useAnalyticsExport(opts: {
           current?.configId !== config?.configId
         )
           return;
-        const toast = useToast.getState();
+        const toast = notificationToast;
         if (result.taskId) {
-          toast.push({ tone: 'info', title: '长图导出任务已创建' });
+          toast.push({
+            tone: 'info',
+            title: '长图导出任务已创建',
+            source: taskNotificationSource(result.taskId),
+          });
         } else if (result.saved) {
-          toast.push({ tone: 'success', title: '长图已保存', detail: result.path });
+          toast.push({
+            tone: 'success',
+            title: '长图已保存',
+            detail: result.path,
+            source: savedFileNotificationSource(result.path),
+          });
         } else if (!result.canceled) {
           toast.push({ tone: 'error', title: '保存图片失败', detail: result.error });
         }
       } catch (error) {
         if (mounted.current && useViewState.getState().openedUin === account)
-          useToast.getState().push({ tone: 'error', title: '保存图片失败', detail: String(error) });
+          notificationToast.push({ tone: 'error', title: '保存图片失败', detail: String(error) });
       } finally {
         inFlightRef.current = false;
         if (mounted.current) setExporting(false);
       }
     })();
-  }, [enabled, available, build]);
+  }, [enabled, available, build, notificationToast]);
 
   return { available, exporting, start };
 }

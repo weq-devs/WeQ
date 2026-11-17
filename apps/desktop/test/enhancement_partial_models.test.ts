@@ -33,7 +33,7 @@ async function fixture() {
   };
   class Store extends ModelStore<ModelEntry> {
     constructor() {
-      super(root, [model]);
+      super(root, [model], { retryBaseMs: 0 });
     }
   }
   const store = new Store();

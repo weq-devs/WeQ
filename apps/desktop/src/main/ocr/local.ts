@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * 本地 OCR —— 灯箱那条「在线不行就本地」的回退腿落地在这里：
  * 可用性判定（模型下好了没）+ 取图（把灯箱里那张图的原图字节捞出来）+ 跑引擎。
@@ -180,7 +181,7 @@ async function readImageSource(src: string, signal: AbortSignal): Promise<Buffer
     return readResponseBytes(response, IMAGE_MAX_BYTES, signal);
   }
   if (/^https?:\/\//.test(src)) {
-    const work = fetch(src, { signal });
+    const work = networkFetch(src, { signal });
     void work.then(
       (response) => {
         if (signal.aborted) void response.body?.cancel().catch(() => {});

@@ -1,6 +1,11 @@
 import { stat, readdir, realpath } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
-import { linuxAccountDirName, type Platform, type MediaDirKey } from '@weq/platform';
+import {
+  linuxAccountDirName,
+  type Platform,
+  type MediaDirKey,
+  type ResourceRootOverrides,
+} from '@weq/platform';
 import { runBackupProbe } from './backup_probe';
 import {
   fetchOtherDeviceDatabaseKey,
@@ -47,6 +52,16 @@ export async function resolveBackupLocation(path: string) {
 /** 旧调用仍可取数据库路径，用户选择与扫描结果始终使用完整账号根。 */
 export async function resolveBackupDirectory(path: string): Promise<string | null> {
   return (await resolveBackupLocation(path))?.dbDir ?? null;
+}
+
+/** 静态备份只使用随附资源；纯数据库备份不借用本机另一处同账号目录。 */
+export function backupResourceRoots(
+  location: NonNullable<Awaited<ReturnType<typeof resolveBackupLocation>>>,
+): ResourceRootOverrides {
+  return {
+    dbDir: location.dbDir,
+    media: location.mediaDir ? backupMediaRoots(location.mediaDir, location.accountDir) : 'none',
+  };
 }
 
 export interface BackupScanInfo {

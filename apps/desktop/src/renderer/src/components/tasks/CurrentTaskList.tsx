@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import {
   Fragment,
   useEffect,
@@ -7,7 +8,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from 'react';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { useWorkspaceMenu } from '../../state/workspaceMenu';
 import {
   CloudDownload,
@@ -18,7 +19,7 @@ import {
   ListTodo,
   Pause,
   Play,
-  RotateCw,
+  RefreshCw,
   Square,
   Trash2,
   Users,
@@ -26,8 +27,8 @@ import {
 import { client, trpc } from '../../trpc/client';
 import { useViewState } from '../../state/view';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
-import { useDialog } from '../Dialog';
-import { useToast } from '../Toast';
+import { useDialog } from '../Dialog.shared';
+import { useToast } from '../Toast.shared';
 import { RoamingBackfillPanel } from '../RoamingBackfillPanel';
 import { formatSize } from '../../lib/groupFile';
 import {
@@ -40,9 +41,13 @@ import {
   taskPct,
   taskTypeLabel,
   taskSaveActionLabel,
-  type UiTask,
-} from '../../views/export/TaskList';
-import { LongTaskRow, orderLongTasks, type LongTaskItem } from './LongTaskRow';
+  taskResumeActionLabel,
+  taskCancelActionLabel,
+  taskCanPause,
+} from '../../views/export/TaskList.shared';
+import type { UiTask } from '../../views/export/TaskList';
+import { LongTaskRow, type LongTaskItem } from './LongTaskRow';
+import { orderLongTasks } from './LongTaskRow.shared';
 import '../../styles/flash-transfer.css';
 import { CloneTaskLog } from '../../views/agentlab/CloneTaskLog';
 import {
@@ -50,16 +55,16 @@ import {
   backgroundTaskId,
   removeBackgroundTask,
 } from '../../hooks/useBackgroundTasks';
-import {
-  BACKGROUND_TASK_ICONS,
-  BACKGROUND_TASK_LABELS,
-  BackgroundTaskDetails,
-} from './BackgroundTaskDetails';
+import { BACKGROUND_TASK_ICONS, BACKGROUND_TASK_LABELS } from './BackgroundTaskDetails.shared';
+import { BackgroundTaskActionIcon, BackgroundTaskDetails } from './BackgroundTaskDetails';
 import { TaskQuickActions, type TaskQuickAction } from './TaskQuickActions';
 import { localBackgroundTasks } from '../../state/backgroundTasks';
-import { IS_WEB } from '../../lib/target';
+import { IS_WEB } from '../../lib/target.shared';
 import { backgroundTaskNavigation } from './backgroundTaskNavigation';
 import { EmptyState } from '../EmptyState';
+import { TaskProgressDetails } from './TaskProgressDetails';
+import { FlashTaskLog } from './FlashTaskLog';
+import { TaskProgressBar } from './TaskProgressBar';
 
 export interface ExportTaskActions {
   pause: (task: UiTask) => unknown;
@@ -187,30 +192,31 @@ export function CurrentTaskList({
           secondary: true,
           run: () => exportActions.report!(task),
         });
-      if (task.status === 'running' || task.networkPaused)
+      if (taskCanPause(task) && (task.status === 'running' || task.networkPaused))
         actions.push({
           id: 'pause',
           label: task.networkPaused ? '保持暂停' : '暂停',
           icon: <Pause size={14} />,
+          disabled: task.isFinalizing,
           run: () => exportActions.pause(task),
         });
       if (task.canResume)
         actions.push({
           id: 'resume',
-          label:
-            task.status === 'completed'
-              ? '补传已跳过项目'
-              : task.resumeMode === 'restart'
-                ? '重新执行导出'
-                : '继续导出',
-          icon: task.resumeMode === 'restart' ? <RotateCw size={14} /> : <Play size={14} />,
+          label: taskResumeActionLabel(task),
+          icon:
+            task.resumeMode === 'restart' ? (
+              <RefreshCw size={14} aria-hidden />
+            ) : (
+              <Play size={14} />
+            ),
           disabled: saving || task.isFinalizing,
           run: () => exportActions.resume(task),
         });
       if (['pending', 'running', 'paused', 'failed'].includes(task.status))
         actions.push({
           id: 'cancel',
-          label: '取消',
+          label: taskCancelActionLabel(task),
           icon: <Square size={14} />,
           disabled: task.isFinalizing,
           run: () => exportActions.cancel(task),
@@ -234,19 +240,23 @@ export function CurrentTaskList({
       name: task.name,
       kind: taskTypeLabel(task),
       status: saving ? 'running' : saveFailed ? 'failed' : task.status,
-      statusLabel: task.networkPaused
-        ? '省流量模式已暂停'
-        : saving
-          ? '保存中'
-          : saveFailed
-            ? '保存未完成'
-            : task.status === 'completed'
-              ? missing
-                ? '完成 · 资源缺失'
-                : task.save?.path
-                  ? '已保存'
-                  : '待保存'
-              : undefined,
+      statusLabel: task.databaseRecovery
+        ? '等待处理'
+        : task.networkPaused
+          ? '省流量模式已暂停'
+          : saving
+            ? '保存中'
+            : saveFailed
+              ? '保存未完成'
+              : task.status === 'completed'
+                ? task.databaseRecoveryRecords?.length
+                  ? '部分完成'
+                  : missing
+                    ? '完成 · 资源缺失'
+                    : task.save?.path
+                      ? '已保存'
+                      : '待保存'
+                : undefined,
       progress: saving || saveFailed ? undefined : taskPct(task),
       note: task.error || task.save?.error,
       icon: taskIcon(task),
@@ -288,7 +298,14 @@ export function CurrentTaskList({
         ) : null,
       detail: (
         <div>
-          <p role={task.status === 'error' ? 'alert' : undefined}>{task.error || task.phase}</p>
+          <TaskProgressDetails
+            name={task.name}
+            status={
+              task.status === 'done' ? 'completed' : task.status === 'error' ? 'failed' : 'running'
+            }
+            progress={task.percent}
+            note={task.error || task.phase}
+          />
           <CloneTaskLog key={`${task.personaId}:${task.revision}`} task={task} />
           <div className="weq-long-task-actions">
             {task.status === 'done' && onOpenClone ? (
@@ -303,6 +320,7 @@ export function CurrentTaskList({
             ) : null}
             <button
               type="button"
+              data-danger="outline"
               className="weq-set-btn weq-set-btn-soft"
               disabled={task.status === 'running'}
               onClick={() => dismissCloneTask(task.personaId)}
@@ -329,16 +347,21 @@ export function CurrentTaskList({
           await refresh();
         },
       });
-    if (['planned', 'paused', 'failed', 'partial'].includes(job.status))
+    if (['planned', 'paused', 'failed', 'partial', 'cancelled'].includes(job.status))
       actions.push({
         id: 'resume',
         label:
           job.status === 'planned'
             ? '开始补全'
-            : job.status === 'partial'
+            : job.status === 'partial' || job.status === 'cancelled'
               ? '重试未补区间'
               : '继续',
-        icon: <Play size={14} />,
+        icon:
+          job.status === 'cancelled' || job.status === 'partial' ? (
+            <RefreshCw size={14} aria-hidden />
+          ) : (
+            <Play size={14} />
+          ),
         disabled:
           busy ||
           roaming.data?.historyVersion !== 2 ||
@@ -346,7 +369,7 @@ export function CurrentTaskList({
         run: async () => {
           await client.account.roamingBackfill.start.mutate({
             id: job.id,
-            retryRemaining: job.status === 'partial',
+            retryRemaining: job.status === 'partial' || job.status === 'cancelled',
           });
           await refresh();
         },
@@ -369,7 +392,12 @@ export function CurrentTaskList({
       disabled: busy,
       run: async () => {
         const binding = bindingRef.current;
-        if (!(await confirm('移除任务？', '仅移除任务与断点，已经取得的漫游消息会保留。'))) return;
+        if (
+          !(await confirm('移除任务？', '仅移除任务与断点，已经取得的漫游消息会保留。', {
+            danger: 'outline',
+          }))
+        )
+          return;
         if (
           !mounted.current ||
           bindingRef.current?.expectedAccountUin !== binding?.expectedAccountUin ||
@@ -421,12 +449,27 @@ export function CurrentTaskList({
       kind: '漫游拉取',
       status: 'running',
       icon: <CloudDownload size={16} />,
-      detail: <p>正在检查所选范围内的本地记录与候选缺口。</p>,
+      detail: (
+        <TaskProgressDetails
+          name="正在检查缺失消息"
+          status="running"
+          note="正在检查所选范围内的本地记录与候选缺口。"
+        />
+      ),
     });
   }
   for (const task of flash.data ?? []) {
     const running = task.status === 'resolving' || task.status === 'downloading';
     const single = (task.files?.length ?? 1) === 1;
+    const retryFlash = async () => {
+      if (!cleanupBinding) return;
+      const retried = await client.account.flashRetryDownloadTask.mutate({
+        ...cleanupBinding,
+        taskId: task.id,
+      });
+      await utils.account.flashListDownloadTasks.invalidate();
+      if (!retried) showInfo('暂时无法重试', '下载仍在收尾或任务状态已变化，请查看最新任务状态。');
+    };
     const openFlash = async (mode: 'file' | 'directory' | 'reveal') => {
       if (!cleanupBinding || openingFlashRef.current) return;
       openingFlashRef.current = task.id;
@@ -476,6 +519,14 @@ export function CurrentTaskList({
               },
             },
           ];
+    if (task.canRetry)
+      actions.unshift({
+        id: 'retry',
+        label: '重试下载',
+        icon: <RefreshCw size={14} aria-hidden />,
+        disabled: !cleanupBinding,
+        run: retryFlash,
+      });
     if (!IS_WEB) {
       if (single && task.status === 'done')
         actions.unshift({
@@ -516,14 +567,37 @@ export function CurrentTaskList({
       quickActions: <TaskQuickActions actions={actions} />,
       detail: (
         <div>
+          <TaskProgressDetails
+            name={task.name}
+            status={
+              task.status === 'done'
+                ? 'completed'
+                : task.status === 'resolving' || task.status === 'downloading'
+                  ? 'running'
+                  : task.status
+            }
+            statusLabel={task.status === 'resolving' ? '获取链接' : undefined}
+            progress={
+              task.status === 'done'
+                ? 100
+                : task.fileSize > 0
+                  ? (task.downloadedBytes / task.fileSize) * 100
+                  : undefined
+            }
+            note={task.error}
+            startedAt={task.createdAt}
+            finishedAt={task.finishedAt}
+          />
           <p>
             {task.filesetName} · 已完成{' '}
-            {task.files?.filter((file) => file.status === 'done').length ??
-              (task.status === 'done' ? 1 : 0)}{' '}
-            / {task.files?.length ?? 1} 个文件
+            <span className="weq-number weq-number-inherit">
+              {task.files?.filter((file) => file.status === 'done').length ??
+                (task.status === 'done' ? 1 : 0)}
+            </span>{' '}
+            / <span className="weq-number weq-number-inherit">{task.files?.length ?? 1}</span>{' '}
+            个文件
           </p>
           {(task.files?.length ?? 1) === 1 ? <p>{task.targetPath}</p> : null}
-          {task.error ? <p role="alert">{task.error}</p> : null}
           <ul className="weq-flash-task-files" aria-label="下载文件">
             {(task.files ?? [task]).map((file) => (
               <li key={file.id}>
@@ -539,13 +613,52 @@ export function CurrentTaskList({
                       cancelled: '已取消',
                     }[file.status]
                   }{' '}
-                  · {formatSize(file.downloadedBytes)} / {formatSize(file.fileSize)}
+                  ·{' '}
+                  <span className="weq-number weq-number-inherit">
+                    {formatSize(file.downloadedBytes)}
+                  </span>{' '}
+                  /{' '}
+                  <span className="weq-number weq-number-inherit">{formatSize(file.fileSize)}</span>
                 </span>
+                <TaskProgressBar
+                  value={
+                    file.status === 'done'
+                      ? 100
+                      : file.fileSize > 0
+                        ? Math.min(100, (file.downloadedBytes / file.fileSize) * 100)
+                        : undefined
+                  }
+                  label={`${file.relativePath}下载进度`}
+                  status={
+                    file.status === 'downloading' || file.status === 'resolving'
+                      ? 'running'
+                      : file.status
+                  }
+                />
                 {file.error ? <p role="alert">{file.error}</p> : null}
               </li>
             ))}
           </ul>
+          <FlashTaskLog
+            key={`${cleanupBinding?.expectedAccountUin}:${cleanupBinding?.expectedAccountConfigId}:${task.id}`}
+            taskId={task.id}
+            version={task.logVersion}
+            binding={cleanupBinding}
+          />
           <div className="weq-long-task-actions">
+            {task.canRetry ? (
+              <TaskQuickActions
+                actions={[
+                  {
+                    id: 'retry',
+                    label: '重试下载',
+                    icon: <RefreshCw size={14} aria-hidden />,
+                    disabled: !cleanupBinding,
+                    run: retryFlash,
+                  },
+                ]}
+              />
+            ) : null}
             {!IS_WEB && single && task.status === 'done' ? (
               <button
                 type="button"
@@ -604,16 +717,7 @@ export function CurrentTaskList({
     const actions: TaskQuickAction[] = task.actions.map((action) => ({
       id: action.id,
       label: action.label,
-      icon:
-        action.id === 'stop' || action.id === 'cancel' ? (
-          <Square size={14} />
-        ) : action.id === 'pause' ? (
-          <Pause size={14} />
-        ) : action.id === 'resume' || action.id === 'retry' ? (
-          <Play size={14} />
-        ) : (
-          <FolderOpen size={14} />
-        ),
+      icon: <BackgroundTaskActionIcon id={action.id} />,
       run: async () => {
         if (action.id === 'view-report' && task.reportId) {
           window.dispatchEvent(
@@ -680,8 +784,9 @@ export function CurrentTaskList({
     if (selected !== null && !ordered.some((task) => task.id === selected) && ordered[0])
       setSelected(ordered[0].id);
   }, [selected, ordered]);
+  const missingFocusedTask = Boolean(taskFocusId && !items.some((task) => task.id === taskFocusId));
   const selectedId =
-    selected === null
+    missingFocusedTask || selected === null
       ? null
       : ordered.some((item) => item.id === selected)
         ? selected
@@ -725,7 +830,11 @@ export function CurrentTaskList({
       const ok = await confirm(
         '清理已结束任务',
         `确定清除 ${finished.length} 项已结束任务？只移除任务记录和导出缓存，不删除已保存的文件、克隆体或聊天记录。${unsaved ? `其中 ${unsaved} 项导出尚未保存，清除后将无法从任务列表取回结果。` : ''}`,
-        { okLabel: `清除 ${finished.length} 项`, cancelLabel: '保留' },
+        {
+          danger: unsaved ? 'solid' : 'outline',
+          okLabel: `清除 ${finished.length} 项`,
+          cancelLabel: '保留',
+        },
       );
       if (!ok || !current()) return;
       const result = await client.account.clearFinishedTasks.mutate({
@@ -783,7 +892,8 @@ export function CurrentTaskList({
       <header className="weq-current-tasks-head">
         <div className="weq-current-tasks-summary">
           <span>
-            {items.length} 项任务{running ? ` · ${running} 项进行中` : ''}
+            <span className="weq-number weq-number-inherit">{items.length}</span> 项任务
+            <NumericText>{running ? ` · ${running} 项进行中` : ''}</NumericText>
           </span>
           {toolbarAction}
         </div>
@@ -794,6 +904,7 @@ export function CurrentTaskList({
             title="清理已结束任务"
             aria-label="清理已结束任务"
             disabled={clearing || loading || !cleanupBinding || !finished.length}
+            data-danger="outline"
             onClick={() => void clearFinished()}
           >
             <Trash2 size={14} />
@@ -821,6 +932,11 @@ export function CurrentTaskList({
           后台任务读取失败：{background.query.error.message}
         </p>
       ) : null}
+      {missingFocusedTask ? (
+        <p role="status" className="weq-current-tasks-notice">
+          正在查找通知对应的任务；若记录已清理，可在下方查看其余任务。
+        </p>
+      ) : null}
       {!items.length && !hasError ? (
         <EmptyState compact icon={<ListTodo />} title={loading ? '读取任务中…' : '暂无任务'} />
       ) : null}
@@ -836,6 +952,7 @@ export function CurrentTaskList({
                   active={task.id === selectedId}
                   showQuickActions={layout === 'compact'}
                   onSelect={() => {
+                    useWorkspaceMenu.setState({ taskFocusId: null });
                     setSelected(layout === 'inline' && task.id === selectedId ? null : task.id);
                     if (layout === 'compact') onOpenDetail?.();
                   }}
@@ -855,6 +972,11 @@ export function CurrentTaskList({
           ) : null}
         </div>
       ) : null}
+      <div className="weq-current-tasks-results" role="group" aria-label="已结束任务">
+        <span>
+          <NumericText>{`${finished.length} 项已结束`}</NumericText>
+        </span>
+      </div>
     </section>
   );
 }

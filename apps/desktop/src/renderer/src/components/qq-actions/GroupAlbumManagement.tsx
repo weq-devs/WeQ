@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
-import { Plus, Pencil, Trash2, Save, X } from 'lucide-react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { Plus, Pencil, Trash2, Save, X, Loader2 } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { Modal } from '../Dialog';
-import { ActionIcon, useQQAction, useQQAlbumPermissions, withQQAccountScope } from './shared';
+import { ActionIcon } from './shared';
+import { useQQAction, useQQAlbumPermissions, withQQAccountScope } from './shared.shared';
 import type { GroupAlbumWire } from '../GroupAlbumDialog';
 import '../../styles/friend-directory.css';
 
@@ -15,6 +16,7 @@ function GroupAlbumManagementBody({
   album?: GroupAlbumWire | null;
   onChanged: () => void;
 }) {
+  const titleId = useId();
   const a = useQQAction(`album-management:${groupCode}:${album?.id ?? ''}`);
   const permissions = useQQAlbumPermissions(Number(groupCode), album?.id, a);
   const canEdit =
@@ -55,6 +57,7 @@ function GroupAlbumManagementBody({
         ? `删除相册「${album?.title}」及其中全部照片和视频？此操作不可恢复。`
         : undefined,
       {
+        danger: action === 'delete' ? 'solid' : undefined,
         requireReadback: true,
         readbackSuccessText: action === 'delete' ? '相册已删除' : '相册已保存',
         readback: async () => {
@@ -99,6 +102,7 @@ function GroupAlbumManagementBody({
       )}
       {album && canDelete && (
         <ActionIcon
+          danger="solid"
           label="删除相册"
           disabled={a.disabled}
           onClick={() => {
@@ -112,6 +116,7 @@ function GroupAlbumManagementBody({
         <Modal
           centered
           width={440}
+          labelledBy={titleId}
           title={album ? '编辑相册' : '新建相册'}
           className="weq-friend-directory-editor"
           onClose={() => {
@@ -119,15 +124,16 @@ function GroupAlbumManagementBody({
           }}
         >
           <header>
-            <h3>{album ? '编辑相册' : '新建相册'}</h3>
+            <h3 id={titleId}>{album ? '编辑相册' : '新建相册'}</h3>
             <button
+              className="weq-set-iconbtn"
               type="button"
               aria-label="关闭"
               title="关闭"
               disabled={a.disabled}
               onClick={() => setEditing(false)}
             >
-              <X size={18} />
+              <X size={18} aria-hidden />
             </button>
           </header>
           <form
@@ -139,6 +145,7 @@ function GroupAlbumManagementBody({
             <label>
               相册名称
               <input
+                className="weq-set-input"
                 autoFocus
                 required
                 maxLength={30}
@@ -150,6 +157,7 @@ function GroupAlbumManagementBody({
             <label>
               描述
               <textarea
+                className="weq-set-input"
                 maxLength={2000}
                 rows={4}
                 value={description}
@@ -158,9 +166,25 @@ function GroupAlbumManagementBody({
               />
             </label>
             <footer>
-              <button type="submit" disabled={a.disabled || !canEdit || !title.trim()}>
-                <Save size={16} />
-                保存
+              <button
+                type="button"
+                className="weq-set-btn"
+                disabled={a.disabled}
+                onClick={() => setEditing(false)}
+              >
+                取消
+              </button>
+              <button
+                className="weq-set-btn weq-set-btn-primary"
+                type="submit"
+                disabled={a.disabled || !canEdit || !title.trim()}
+              >
+                {a.pending ? (
+                  <Loader2 size={16} className="animate-spin" aria-hidden />
+                ) : (
+                  <Save size={16} aria-hidden />
+                )}
+                <span aria-live="polite">{a.pending ? '保存中…' : '保存'}</span>
               </button>
             </footer>
           </form>
@@ -169,4 +193,12 @@ function GroupAlbumManagementBody({
     </div>
   );
 }
-export const GroupAlbumManagement = withQQAccountScope(GroupAlbumManagementBody);
+export const GroupAlbumManagement = withQQAccountScope(GroupAlbumManagementBody, (props) => ({
+  kind: 'group-resource',
+  request: {
+    kind: 'albums',
+    groupCode: props.groupCode,
+    groupName: props.groupCode,
+    initialAlbumId: props.album?.id,
+  },
+}));

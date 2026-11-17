@@ -50,6 +50,27 @@ export type LocalMediaRef = {
   waveform?: number[];
 };
 
+/** 预览只交接 File／URL；真正出队后才读媒体字节，普通文件继续走分片上传。 */
+export async function resolveComposerMedia(
+  body: string,
+  locals: LocalMediaRef[] = [],
+): Promise<LocalMediaRef[]> {
+  const mediaKeys = new Set<string>();
+  for (const part of parseMessageParts(body)) {
+    if (part.type !== 'element') continue;
+    const element = tokenToElement(part.raw) as Record<string, unknown> | null;
+    if (!element || !['pic', 'video', 'ptt'].includes(String(element.kind))) continue;
+    const key = localKeyOf(element);
+    if (key) mediaKeys.add(key);
+  }
+  return Promise.all(
+    locals.map(async (local) => {
+      if (local.path || local.bytes || !local.file || !mediaKeys.has(local.key)) return local;
+      return { ...local, bytes: new Uint8Array(await local.file.arrayBuffer()) };
+    }),
+  );
+}
+
 /** 超级表情目录项（来自 `emojiPanel.overview` 的 `sticker/packId/stickerId`）。 */
 export type SuperStickerEntry = {
   packId: string;
@@ -59,6 +80,7 @@ export type SuperStickerEntry = {
 
 export type ComposerSendPlan =
   | { kind: 'elements'; elements: unknown[] }
+  | { kind: 'flashTransfer'; fileSetId: string }
   | ({ kind: 'file'; fileName: string } & (
       | { path: string; bytes?: never; file?: never }
       | { bytes: Uint8Array; path?: never; file?: never }
@@ -217,12 +239,15 @@ function mapWireElement(
     case 'mface':
     case 'ark':
     case 'xml':
-    case 'markdown':
     case 'forward':
     // 戳一戳互动表情（pokeId + combo）：草稿形状与协议 `SendPokeEmojiElement` 一致。
     case 'pokeEmoji':
       // 这些元素收 / 发同形（协议层 `SendElement` 与 codec 元素字段一致），原样装箱。
       return element;
+    case 'markdown':
+      return element.flashTransferInfo != null
+        ? repeatSendPlan([{ type: 'markdown', data: element }], superStickers, false)
+        : element;
     case 'reply': {
       // 名称只供草稿和临时气泡显示，不随发送计划交给服务端。
       const { origSenderDisplayName: _displayName, ...reply } = element;
@@ -321,7 +346,7 @@ function mediaSourceOf(
 
 function isPlan(value: unknown): value is ComposerSendPlan {
   const kind = (value as { kind?: string } | null)?.kind;
-  return kind === 'file' || kind === 'aiVoice' || kind === 'voice';
+  return kind === 'file' || kind === 'aiVoice' || kind === 'voice' || kind === 'flashTransfer';
 }
 
 /**
@@ -337,8 +362,15 @@ export function buildComposerSendPlan(input: {
 }): ComposerSendPlan {
   const localByKey = new Map(input.locals.map((local) => [local.key, local]));
   const elements: unknown[] = [];
+  const parts = parseMessageParts(input.body);
+  const hasFlash = parts.some((part) => {
+    if (part.type !== 'element') return false;
+    const element = tokenToElement(part.raw) as Record<string, unknown> | null;
+    return element?.kind === 'markdown' && element.flashTransferInfo != null;
+  });
+  if (hasFlash && parts.length !== 1) throw new Error('闪传卡片不能与其他内容混合发送。');
 
-  for (const part of parseMessageParts(input.body)) {
+  for (const part of parts) {
     if (part.type === 'text') {
       if (part.value.length > 0) elements.push({ kind: 'text', textContent: part.value });
       continue;

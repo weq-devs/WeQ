@@ -5,11 +5,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from './support/templateDemoData';
-import { insertComposerNode } from '../src/renderer/src/im-template/template/composer';
+import { insertComposerNode } from '../src/renderer/src/im-template/template/composer.shared';
 
 const target = vi.hoisted(() => ({ web: false }));
 vi.mock('../src/renderer/src/lib/target', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/renderer/src/lib/target')>()),
+  get IS_WEB() {
+    return target.web;
+  },
+}));
+vi.mock('../src/renderer/src/lib/target.shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/src/lib/target.shared')>()),
   get IS_WEB() {
     return target.web;
   },

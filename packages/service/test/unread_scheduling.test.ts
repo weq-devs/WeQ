@@ -98,6 +98,30 @@ it('不同批次和兼容轻量请求共用初始化快照，后续读取不发 
   for (let i = 0; i < 20; i++) expect((await f.query())[0]).toBe(a[0]);
   expect(f.all).toHaveBeenCalledOnce();
 });
+it('小表全部命中在自动已读及手动已读清理前归档，列表不增加历史查询', async () => {
+  const f = fixture();
+  const highlights: NonNullable<UnreadInfoSnapshot['highlights']> = [101, 102].map((msgSeq) => ({
+    kind: 'atMe',
+    rawKind: 1000,
+    msgSeq,
+    senderUid: 'u_peer',
+    sendTime: 1,
+    text: '',
+  }));
+  f.update([row({ latestSeq: '102', highlights })]);
+  await f.query();
+  await f.service.markRead(2, target.uid, '102');
+  f.update([row({ latestSeq: '102', msgSeq: 102 })]);
+  const page = await f.service.listImportantMessages({ ...target, limit: 50 });
+  expect(page.items.map((item) => item.msgSeq)).toEqual(['102', '101']);
+  expect(page.items.every((item) => !item.unread)).toBe(true);
+  f.update([
+    row({ latestSeq: '103', msgSeq: 102, highlights: [{ ...highlights[0]!, msgSeq: 103 }] }),
+  ]);
+  await f.service.setReadState([target], false);
+  f.update([row({ latestSeq: '103', msgSeq: 103 })]);
+  expect((await f.service.listImportantMessages({ ...target, limit: 50 })).items).toHaveLength(3);
+});
 it.each([1, 2])('类型 %s 的跨端自发消息在 QQ 减项到达前后都不增加未读', async (chatType) => {
   const f = fixture();
   await f.query();

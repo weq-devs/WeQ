@@ -669,7 +669,7 @@ const JS = `
         '<title>' + esc(tip) + '</title></circle>';
     }).join('');
     var svg =
-      '<svg class="line-svg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="近24小时token折线">' +
+      '<svg class="line-svg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="近 24 小时 token 折线">' +
       '<defs><linearGradient id="lgArea" x1="0" y1="0" x2="0" y2="1">' +
       '<stop offset="0" stop-color="var(--c-blue)" stop-opacity="0.28"></stop>' +
       '<stop offset="1" stop-color="var(--c-blue)" stop-opacity="0"></stop>' +

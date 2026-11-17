@@ -1,4 +1,5 @@
-import { Star, StarOff } from 'lucide-react';
+import { StarOff } from 'lucide-react';
+import { FEATURE_ICONS } from '../lib/featureIcons.shared';
 import { MessageMenuButton } from './MessageMenuButton';
 import { client, trpc } from '../trpc/client';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
@@ -111,7 +112,7 @@ export function QQEssenceAction({
     : !allowed
       ? '当前账号无权管理这条精华消息'
       : !session.available
-        ? '受限模式下无法设置或取消精华消息'
+        ? '在线能力受限，无法设置或取消精华消息'
         : '';
   async function submit() {
     if (!target || reason) return;
@@ -159,7 +160,11 @@ export function QQEssenceAction({
           void submit();
         }}
       >
-        {active ? <StarOff size={17} /> : <Star size={17} />}
+        {active ? (
+          <StarOff size={17} aria-hidden />
+        ) : (
+          <FEATURE_ICONS.groupEssence size={17} aria-hidden />
+        )}
         {!iconOnly && <span>{active ? removeLabel : '设为精华'}</span>}
       </MessageMenuButton>
       <QQWriteResult result={session.result} />

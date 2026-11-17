@@ -11,7 +11,7 @@ import {
   FolderPlus,
   Forward,
   ListPlus,
-  RotateCw,
+  RefreshCw,
   Share2,
   Trash2,
   X,
@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { resolveDraftSave } from '../../lib/draftPersistence';
-import { IS_ELECTRON } from '../../lib/target';
+import { IS_ELECTRON } from '../../lib/target.shared';
 import { RenderDocumentContext } from '../../lib/renderDocument';
 import { useAppLock } from '../../state/lock';
 import { copyTextToClipboard } from '../../im-template/template/clipboard';
@@ -33,7 +33,9 @@ import { MergeForwardComposer } from './MergeForwardComposer';
 import { MergeForwardTargets } from './MergeForwardTargets';
 import { SequentialForwardDialog } from '../SequentialForwardDialog';
 import { Modal } from '../Dialog';
-import { useToast } from '../Toast';
+import { useToast } from '../Toast.shared';
+import { NotificationSourceProvider } from '../../lib/notificationNavigation';
+import { notificationSource } from '../../lib/notificationNavigation.shared';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../ServerSavePrompt';
 import { HoverTooltip } from '../HoverTooltip';
@@ -79,7 +81,17 @@ interface SendRequest {
   mode: 'merged' | 'sequential';
 }
 
-export function CompositionWorkspace({
+export function CompositionWorkspace(props: Parameters<typeof CompositionWorkspaceBody>[0]) {
+  return (
+    <NotificationSourceProvider
+      source={notificationSource({ kind: 'app', target: { kind: 'composition' } })}
+    >
+      <CompositionWorkspaceBody {...props} />
+    </NotificationSourceProvider>
+  );
+}
+
+function CompositionWorkspaceBody({
   popup,
   fallback,
   onClose,
@@ -684,8 +696,17 @@ export function CompositionWorkspace({
                           {entry.title || draftTitle(entry.nodes)}
                         </CompositionButton>
                         <span>
-                          {entry.nodes.length} 条 ·{' '}
-                          {eventTimeFormatter.format(new Date(entry.updatedAt * 1000))}
+                          {
+                            <span className="weq-number weq-number-inherit">
+                              {entry.nodes.length}
+                            </span>
+                          }{' '}
+                          条 ·{' '}
+                          {
+                            <span className="weq-number weq-number-inherit">
+                              {eventTimeFormatter.format(new Date(entry.updatedAt * 1000))}
+                            </span>
+                          }
                         </span>
                         <p data-privacy-sensitive>{compositionText(entry)}</p>
                         <div className="weq-composition-entry-actions">
@@ -751,7 +772,7 @@ export function CompositionWorkspace({
                             aria-label="逐条发送"
                             disabled={!sendAvailable || busy}
                             disabledReason={
-                              busy ? '正在发送，请稍后' : '受限模式下无法逐条发送消息'
+                              busy ? '正在发送，请稍后' : '在线能力受限，无法逐条发送消息'
                             }
                             onClick={() => void perform(() => requestSend(entry, 'sequential'))}
                           >
@@ -763,13 +784,14 @@ export function CompositionWorkspace({
                             aria-label="合并转发"
                             disabled={!sendAvailable || busy}
                             disabledReason={
-                              busy ? '正在发送，请稍后' : '受限模式下无法合并转发消息'
+                              busy ? '正在发送，请稍后' : '在线能力受限，无法合并转发消息'
                             }
                             onClick={() => void perform(() => requestSend(entry, 'merged'))}
                           >
                             <Share2 size={16} />
                           </CompositionButton>
                           <CompositionButton
+                            data-danger="outline"
                             type="button"
                             title={kind === 'history' ? '删除合成记录' : '删除素材'}
                             aria-label={kind === 'history' ? '删除合成记录' : '删除素材'}
@@ -917,7 +939,8 @@ export function CompositionWorkspace({
               </div>
               <footer className="weq-composition-actions">
                 <span>
-                  {working.nodes.length} 条 · {dirty ? '未保存' : persisted ? '已保存' : '新记录'}
+                  {<span className="weq-number weq-number-inherit">{working.nodes.length}</span>} 条
+                  · {dirty ? '未保存' : persisted ? '已保存' : '新记录'}
                 </span>
                 <CompositionButton
                   type="button"
@@ -961,7 +984,7 @@ export function CompositionWorkspace({
                       ? '正在发送，请稍后'
                       : !working.nodes.length
                         ? '当前合成还没有消息'
-                        : '受限模式下无法逐条发送消息'
+                        : '在线能力受限，无法逐条发送消息'
                   }
                   onClick={() => void perform(() => requestSend(working, 'sequential'))}
                 >
@@ -977,7 +1000,7 @@ export function CompositionWorkspace({
                       ? '正在发送，请稍后'
                       : !working.nodes.length
                         ? '当前合成还没有消息'
-                        : '受限模式下无法合并转发消息'
+                        : '在线能力受限，无法合并转发消息'
                   }
                   onClick={() => void perform(() => requestSend(working, 'merged'))}
                 >
@@ -999,7 +1022,7 @@ export function CompositionWorkspace({
               disabledReason="正在处理当前操作，请稍后"
               onClick={() => void perform(() => persist(structuredClone(working), binding))}
             >
-              <RotateCw size={15} />
+              <RefreshCw size={15} aria-hidden />
             </CompositionButton>
           ) : null}
         </div>

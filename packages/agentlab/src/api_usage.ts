@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 import { randomUUID } from 'node:crypto';
 import type { AgentLabEndpoint, AgentLabUsage } from './types';
 import {
@@ -117,7 +118,7 @@ export async function fetchApi(
   init.signal?.throwIfAborted();
   const usage = beginApiUsage(endpoint, stream);
   try {
-    const response = await fetch(`${endpoint.baseUrl}${path}`, init);
+    const response = await networkFetch(`${endpoint.baseUrl}${path}`, init);
     const mayRejectParameter = [400, 422].includes(response.status);
     const fallback = mayRejectParameter ? withoutTemperature(path, init) : null;
     if (fallback) {

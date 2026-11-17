@@ -1,17 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { client, trpc } from '../../trpc/client';
 import { RemotePanel } from './RemotePanel';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { Card, Row, Toggle, SectionHeader } from './controls';
-import { useToast } from '../Toast';
-import { Check, Copy, ExternalLink, Globe, Monitor } from 'lucide-react';
-import { IS_WEB } from '../../lib/target';
+import { useToast } from '../Toast.shared';
+import { Check, Copy, ExternalLink, Globe } from 'lucide-react';
+import { IS_WEB } from '../../lib/target.shared';
 import { copyTextToClipboard } from '../../im-template/template/clipboard';
 
 export function RemoteSection() {
   return (
     <div className="weq-set weq-remote-settings">
-      <SectionHeader title="Web 与 Remote" icon={<Monitor size={16} strokeWidth={1.8} />} />
+      <SectionHeader title="Web 与 Remote" page="remote" />
       {IS_WEB ? (
         <p className="weq-remote-muted">请在电脑客户端管理本机浏览器访问与远程连接。</p>
       ) : (

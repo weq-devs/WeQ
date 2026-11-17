@@ -40,6 +40,7 @@ import type { parseQzonePostDetail } from '../web/qzone_detail';
 import { qzoneImageCompletionScope } from '../../common/qzone_media_scope';
 import type { QzoneAlbumExportDeps } from './qzone_albums';
 import type { QzoneMediaStore } from './qzone_media_store';
+import type { ExportCheckpoint } from './checkpoint';
 
 export type QzoneRawKind = 'feeds' | 'comments' | 'likes' | 'detail' | 'images';
 
@@ -179,6 +180,7 @@ export interface QzoneExportData {
 
 /** {@link collectQzone} 的入参：拉说说 + 可选互动 / 配图。 */
 export interface QzoneCollectOpts extends QzonePaginationOptions {
+  checkpoint?: ExportCheckpoint;
   mediaStore?: QzoneMediaStore;
   /** 精确离散条目；空数组不等于整空间，且不叠加日期范围。 */
   tids?: string[];
@@ -1379,14 +1381,11 @@ export async function collectQzone(
       if (fetched.length < selected.length) await sleep(PAGE_DELAY_MS);
     }
   } else {
-    fetched = await fetchQzoneEmotionRange(
-      deps,
-      opts.targetUin,
-      opts.range,
-      opts.onProgress,
-      opts.signal,
-      opts,
-    );
+    const enumerate = () =>
+      fetchQzoneEmotionRange(deps, opts.targetUin, opts.range, opts.onProgress, opts.signal, opts);
+    fetched = opts.checkpoint
+      ? await opts.checkpoint.run('qzone-enumeration', enumerate)
+      : await enumerate();
   }
   // 互动字段挂在 EmotionWithInteraction 上；不带互动时数组元素仍是合法 QzoneEmotion。
   const rows: EmotionWithInteraction[] = fetched.filter(

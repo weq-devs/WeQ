@@ -176,7 +176,7 @@ export class QQMailService {
   }
 
   private async scoped<T>(run: (auth: MailAuth) => Promise<T>, writeResult = false): Promise<T> {
-    if (!this.allowOnline()) throw new MailFailure('auth', '本次运行尚未启用完整功能。');
+    if (!this.allowOnline()) throw new MailFailure('auth', '本次运行尚未启用 QQ 在线能力。');
     if (this.closed) throw new MailFailure('auth', '邮箱会话已关闭。');
     const auth = this.auth;
     let result: T;
@@ -206,7 +206,7 @@ export class QQMailService {
   }
 
   async connect(signal?: AbortSignal): Promise<MailStatus> {
-    if (!this.allowOnline()) throw new MailFailure('auth', '本次运行尚未启用完整功能。');
+    if (!this.allowOnline()) throw new MailFailure('auth', '本次运行尚未启用 QQ 在线能力。');
     // 明确验证提示后只由手动连接恢复；后台入口已由 backgroundEnabled 拦住。
     this.verificationBlocked = false;
     if (this.auth.ready && this.state.state === 'ready') return this.status();

@@ -4,6 +4,8 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { useMessageNotifications } from '../src/renderer/src/hooks/useMessageNotifications';
 import type { NewMessagesWire } from '../src/main/ipc/routers/account';
 
+const originalVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+
 const f = vi.hoisted(() => ({
   web: false,
   values: { messageNotifications: false, applicationBadge: true, privacyMode: false },
@@ -19,6 +21,11 @@ vi.mock('../src/renderer/src/lib/browserNotifications', () => ({
   browserNoticeChannel: () => ({ show: f.browserNotify, close() {} }),
 }));
 vi.mock('../src/renderer/src/lib/target', () => ({
+  get IS_WEB() {
+    return f.web;
+  },
+}));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({
   get IS_WEB() {
     return f.web;
   },
@@ -53,6 +60,8 @@ afterEach(() => {
   f.web = false;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  if (originalVisibility) Object.defineProperty(document, 'visibilityState', originalVisibility);
+  else Reflect.deleteProperty(document, 'visibilityState');
   f.values.messageNotifications = false;
   f.values.applicationBadge = true;
   f.values.privacyMode = false;
@@ -135,6 +144,11 @@ it.each([false, true])('群通知保留群名并显示最后一条消息的发�
         body: '本地群名片：消息正文\n另有 1 条消息',
       }),
     );
+    expect(web ? f.browserNotify : f.notify).toHaveBeenLastCalledWith(
+      expect.objectContaining(
+        web ? { target: { seq: '20', kind: 'group', conv: '10003' } } : { seq: '20' },
+      ),
+    );
     await act(async () => f.receive?.(batch('22')));
     expect(web ? f.browserNotify : f.notify).toHaveBeenLastCalledWith(
       expect.objectContaining({ title: '测试联系人', body: '消息正文' }),
@@ -212,8 +226,8 @@ it.each(['unmount', 'reading', 'disabled'])(
   '发送者查询未完成时 %s，不再弹出旧通知',
   async (state) => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
-    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    vi.spyOn(Document.prototype, 'hasFocus').mockReturnValue(true);
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
     f.values.messageNotifications = true;
     let finish!: (name: string) => void;
     const resolveGroupSenderName = () => new Promise<string>((resolve) => (finish = resolve));
@@ -257,8 +271,8 @@ it('默认不开实时订阅，角标使用现成计数，开关互不影响', a
 });
 it('去重、历史、免打扰、群助手、前台阅读与隐私状态共同约束通知', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  vi.spyOn(document, 'hasFocus').mockReturnValue(true);
-  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+  vi.spyOn(Document.prototype, 'hasFocus').mockReturnValue(true);
+  Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
   f.values.messageNotifications = true;
   const root = createRoot(document.createElement('div'));
   try {
@@ -295,4 +309,25 @@ it('去重、历史、免打扰、群助手、前台阅读与隐私状态共同�
     await act(async () => root.unmount());
   }
   expect(f.unsubscribe).toHaveBeenCalledOnce();
+});
+
+it('乱序批次与缺失序号不改变第一条可定位消息的目标', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  f.values.messageNotifications = true;
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(createElement(Probe)));
+    const invalid = batch('missing-sequence', { msgSeq: '0' });
+    const latest = batch('51');
+    const first = batch('50');
+    await act(async () =>
+      f.receive?.({
+        ...first,
+        messages: [...invalid.messages, ...latest.messages, ...first.messages],
+      }),
+    );
+    expect(f.notify).toHaveBeenLastCalledWith(expect.objectContaining({ conv: 'peer', seq: '50' }));
+  } finally {
+    await act(async () => root.unmount());
+  }
 });

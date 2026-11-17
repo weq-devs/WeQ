@@ -1,0 +1,35 @@
+/* 通知矩阵沿用设置页滚动，只有表头在本表范围内吸顶。 */
+.weq-set-card .weq-notification-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.weq-notification-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--weq-bg-surface);
+}
+.weq-notification-table button {
+  scroll-margin-top: 72px;
+}
+html[data-theme='dark'] .weq-notification-table thead th {
+  background: var(--weq-bg-surface);
+}
+
+.weq-cap-hexdump .weq-cap-hexdump-body {
+  padding-inline: 0;
+}
+.weq-cap-hexdump-body .weq-cap-hx-line {
+  width: max-content;
+  min-width: 100%;
+  padding-inline: 10px;
+}
+.weq-cap-hexdump-body .weq-cap-hx-off {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  padding-inline: 10px 12px;
+  margin-inline: -10px -12px;
+  background-color: var(--cap-bg, var(--weq-bg-surface));
+  background-image: linear-gradient(var(--cap-code-bg), var(--cap-code-bg));
+}

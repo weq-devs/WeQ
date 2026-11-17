@@ -4,11 +4,8 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useQQAutoRefresh, useQQReadActivity } from '../src/renderer/src/hooks/useQQAutoRefresh';
-import {
-  RetainedTabs,
-  TabActivity,
-  useTabActive,
-} from '../src/renderer/src/components/RetainedTabs';
+import { RetainedTabs, TabActivity } from '../src/renderer/src/components/RetainedTabs';
+import { useTabActive } from '../src/renderer/src/components/RetainedTabs.shared';
 
 const cleanups: Array<() => void> = [];
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });

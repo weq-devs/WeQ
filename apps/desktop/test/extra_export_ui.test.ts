@@ -32,6 +32,9 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
 vi.mock('../src/renderer/src/views/export/ExportReportControl', () => ({
   useExportReportDialog: () => ({ choose: state.chooseReport, dialog: null }),
 }));
+vi.mock('../src/renderer/src/views/export/ExportReportControl.shared', () => ({
+  useExportReportDialog: () => ({ choose: state.chooseReport, dialog: null }),
+}));
 vi.mock('../src/renderer/src/lib/dialogUtils', () => ({
   useAppDialog: () => ({ success: state.success, error: state.error }),
 }));
@@ -128,14 +131,14 @@ it('联系人页分段依次为空间、都导出、相册，支持单独导出�
   const change = vi.fn();
   const host = await mount(h(QzoneContentSelector, { value: 'both', onChange: change }));
   expect([...host.querySelectorAll('[role="radio"]')].map((node) => node.textContent)).toEqual([
-    '空间',
+    'QQ 空间',
     '都导出',
     '相册',
   ]);
   expect(host.querySelector('[aria-checked="true"]')?.textContent).toBe('都导出');
   await click(host, '相册');
   expect(change).toHaveBeenLastCalledWith('albums');
-  await click(host, '空间');
+  await click(host, 'QQ 空间');
   expect(change).toHaveBeenLastCalledWith('posts');
 });
 it('机器人复用原配置表单，公共保存带上账号来源，不把排队提示当成完成', async () => {

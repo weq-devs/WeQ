@@ -7,9 +7,9 @@ import {
   validateSuggestionFallbackTexts,
 } from '@weq/service/intent-context';
 import { Modal } from '../Dialog';
-import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { AutoSave } from './AutoSave';
-import { SaveStatusSlotContext } from './controls';
+import { SaveStatusSlotContext } from './controls.shared';
 import type { useAiFeatureSettings } from './useAiFeatureSettings';
 import '../../styles/model-settings.css';
 
@@ -113,6 +113,7 @@ export function SuggestionFallbackDialog({
                       }
                     />
                     <button
+                      data-danger="outline"
                       type="button"
                       className="weq-set-iconbtn"
                       title="删除回退内容"

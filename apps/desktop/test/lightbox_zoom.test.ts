@@ -32,7 +32,8 @@ vi.mock('@renderer/trpc/client', () => ({
   },
 }));
 
-import { MediaPreviewHost, openMediaPreview } from '@renderer/components/mediaPreviewStore';
+import { MediaPreviewHost } from '@renderer/components/mediaPreviewStore';
+import { openMediaPreview } from '../src/renderer/src/components/mediaPreviewStore.shared';
 
 declare global {
   // eslint-disable-next-line no-var
@@ -78,9 +79,9 @@ function wheel(target: Element, deltaY: number): void {
   });
 }
 
-function openGallery() {
+async function openGallery() {
   mount();
-  act(() =>
+  await act(async () => {
     openMediaPreview({
       items: [1, 2, 3].map((index) => ({
         key: `touch-${index}`,
@@ -89,8 +90,9 @@ function openGallery() {
         title: `图片 ${index}`,
         ocr: null,
       })),
-    }),
-  );
+    });
+    await vi.dynamicImportSettled();
+  });
   // DOM 单测没有平台活动指针；真实捕获另由浏览器触摸输入验证。
   frame().setPointerCapture = vi.fn();
 }
@@ -118,9 +120,9 @@ function swipe(from: number, to: number, y = 200, endY = y) {
 }
 
 describe('图片灯箱触摸手势', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-    openGallery();
+    await openGallery();
   });
 
   it('双指按距离放大并跟随中点，松开一指后继续平移，不触发点击或切图', () => {
@@ -233,12 +235,12 @@ describe('图片灯箱触摸手势', () => {
 });
 
 describe('图片灯箱滚轮缩放', () => {
-  it('合成窗口打开的图片留在子窗口，缩放与 Escape 也使用子窗口事件', () => {
+  it('合成窗口打开的图片留在子窗口，缩放与 Escape 也使用子窗口事件', async () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     const child = new HappyWindow();
     mount();
     try {
-      act(() =>
+      await act(async () => {
         openMediaPreview({
           items: [
             {
@@ -250,8 +252,9 @@ describe('图片灯箱滚轮缩放', () => {
             },
           ],
           ownerDocument: child.document as unknown as Document,
-        }),
-      );
+        });
+        await vi.dynamicImportSettled();
+      });
       expect(document.querySelector('.weq-lightbox-frame')).toBeNull();
       const media = child.document.querySelector<HTMLElement>('.weq-lightbox-frame')!;
       expect(media).not.toBeNull();
@@ -278,15 +281,16 @@ describe('图片灯箱滚轮缩放', () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   });
 
-  it('在图片上滚轮 → frame 上的 transform 放大', () => {
+  it('在图片上滚轮 → frame 上的 transform 放大', async () => {
     mount();
-    act(() =>
+    await act(async () => {
       openMediaPreview({
         items: [
           { key: 'weq-media://pic?t=1', kind: 'image', src: 'weq-media://pic?t=1', title: '图' },
         ],
-      }),
-    );
+      });
+      await vi.dynamicImportSettled();
+    });
 
     const before = frame().style.transform;
     expect(before).toContain('scale(1)');
@@ -299,42 +303,45 @@ describe('图片灯箱滚轮缩放', () => {
     expect(frame().style.transform).toContain('scale(1)');
   });
 
-  it('图片还没加载出来（尺寸为 0）时滚轮也照样缩放', () => {
+  it('图片还没加载出来（尺寸为 0）时滚轮也照样缩放', async () => {
     mount();
-    act(() =>
+    await act(async () => {
       openMediaPreview({
         items: [
           { key: 'weq-media://pic?t=2', kind: 'image', src: 'weq-media://pic?t=2', title: '图' },
         ],
-      }),
-    );
+      });
+      await vi.dynamicImportSettled();
+    });
     wheel(frame(), -120);
     expect(frame().style.transform).toMatch(/scale\(1\.15/);
   });
 
-  it('滚轮落在图外的暗底上也能缩放（整块灯箱可滚）', () => {
+  it('滚轮落在图外的暗底上也能缩放（整块灯箱可滚）', async () => {
     mount();
-    act(() =>
+    await act(async () => {
       openMediaPreview({
         items: [
           { key: 'weq-media://pic?t=3', kind: 'image', src: 'weq-media://pic?t=3', title: '图' },
         ],
-      }),
-    );
+      });
+      await vi.dynamicImportSettled();
+    });
 
     wheel(document.querySelector('.weq-lightbox-layer')!, -120);
     expect(frame().style.transform).toMatch(/scale\(1\.15/);
   });
 
-  it('同一个滚轮事件不会被算两次（图上滚一格 = 一档）', () => {
+  it('同一个滚轮事件不会被算两次（图上滚一格 = 一档）', async () => {
     mount();
-    act(() =>
+    await act(async () => {
       openMediaPreview({
         items: [
           { key: 'weq-media://pic?t=4', kind: 'image', src: 'weq-media://pic?t=4', title: '图' },
         ],
-      }),
-    );
+      });
+      await vi.dynamicImportSettled();
+    });
 
     wheel(document.querySelector('.weq-lightbox-image')!, -120);
     // 1.15^2 ≈ 1.32；只应缩放一档（1.15）

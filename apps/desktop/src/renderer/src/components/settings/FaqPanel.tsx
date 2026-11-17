@@ -9,12 +9,13 @@ import { BookOpen, Loader2 } from 'lucide-react';
 import { Streamdown } from 'streamdown';
 import remarkGfm from 'remark-gfm';
 import { trpc } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { shikiCodeHighlighter } from '../../views/agentlab/shikiHighlighter';
 import { Card, SectionHeader } from './controls';
 
 const REMARK_PLUGINS = [remarkGfm];
 const PLUGINS = { code: shikiCodeHighlighter };
+const LINK_SAFETY = { enabled: false };
 
 export function FaqPanel(): ReactElement {
   const active = useTabActive();
@@ -51,6 +52,7 @@ export function FaqPanel(): ReactElement {
             <Streamdown
               remarkPlugins={REMARK_PLUGINS}
               plugins={PLUGINS}
+              linkSafety={LINK_SAFETY}
               parseIncompleteMarkdown={false}
             >
               {faq.data.text}

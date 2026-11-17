@@ -1,0 +1,54 @@
+.weq-online-status {
+  display: inline-block;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+
+/* 基础状态保持完整，详情按行内文本使用剩余宽度，避免 flex 分别压缩短标签。 */
+.weq-online-status-base {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.weq-online-status-base,
+.weq-online-status-separator,
+.weq-online-status-icon {
+  margin-inline-end: 4px;
+}
+
+.weq-online-status-icon {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+}
+
+.weq-online-status-base > svg,
+.weq-online-status-icon {
+  flex: none;
+}
+
+:is(.weq-title-online-status, .weq-mobile-online-status),
+:is(.weq-title-online-status, .weq-mobile-online-status) > .weq-online-status {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.weq-online-status-base,
+.weq-online-status-separator {
+  flex: none;
+}
+
+:is(.weq-title-online-status, .weq-mobile-online-status) .weq-online-status-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

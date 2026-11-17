@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * 群关键词提醒的「命中处理」（Electron 主进程）。
  *
@@ -96,6 +97,7 @@ async function showNotification(services: AccountServices, hit: GroupKeywordHit)
     silent: false,
   });
   notification.on('click', () => {
+    if (getAppContext().services !== services) return;
     openConversationAt(hit.groupCode, hit.msgSeq);
   });
   notification.show();
@@ -165,7 +167,7 @@ async function groupIconPath(services: AccountServices, groupCode: string): Prom
 /** QQ 群头像 CDN（p.qlogo.cn），失败 / 非图片返回 null。 */
 async function fetchGroupAvatar(groupCode: string): Promise<Uint8Array | null> {
   if (!/^\d+$/.test(groupCode)) return null;
-  const res = await fetch(`https://p.qlogo.cn/gh/${groupCode}/${groupCode}/0`, {
+  const res = await networkFetch(`https://p.qlogo.cn/gh/${groupCode}/${groupCode}/0`, {
     signal: AbortSignal.timeout(5_000),
   });
   if (!res.ok) return null;

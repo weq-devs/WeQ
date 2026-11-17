@@ -29,7 +29,7 @@
   padding: 8px 2px;
 }
 .weq-qzn-forward-row + .weq-qzn-forward-row {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--weq-border-subtle);
 }
 .weq-qzn-forward-row .weq-qzn-identity-link {
   max-width: 100%;

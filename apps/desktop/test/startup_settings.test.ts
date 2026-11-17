@@ -2,7 +2,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StartupSection } from '../src/renderer/src/components/settings/StartupSection';
-import { useToast } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 
 const fixture = vi.hoisted(() => ({
   data: {
@@ -95,6 +95,25 @@ function mount() {
   };
 }
 describe('独立系统自启设置', () => {
+  it.each([
+    ['loading', '正在读取开机启动状态'],
+    ['unsupported', '仅安装版桌面端支持'],
+    ['failed', '读取开机启动状态失败'],
+    ['approval', '需要系统批准'],
+  ] as const)('%s 状态直接在开机启动开关旁说明', (state, description) => {
+    fixture.loading = state === 'loading';
+    fixture.data.supported = state !== 'unsupported';
+    fixture.error = state === 'failed' ? new Error('合成自启读取失败') : null;
+    fixture.data.requiresApproval = state === 'approval';
+    const view = mount();
+    try {
+      const row = view.toggle().closest('.weq-set-row');
+      expect(row?.textContent).toContain(description);
+      if (state === 'failed') expect(view.host.textContent).toContain(fixture.error!.message);
+    } finally {
+      view.close();
+    }
+  });
   it('自启下方显示默认关闭的窗口开关，不把窗口偏好写入自启注册接口', async () => {
     fixture.data.enabled = true;
     const view = mount();
@@ -113,10 +132,30 @@ describe('独立系统自启设置', () => {
       view.close();
     }
   });
-  it.each(['disabled', 'unsupported', 'loading', 'failed', 'pending'] as const)(
+  it('关闭自启隐藏窗口子项，待批准时仍显示，保留原偏好', () => {
+    fixture.settings.showWindowOnAutostart = true;
+    const view = mount();
+    try {
+      expect(view.host.querySelector('[aria-label="自启时显示窗口"]')).toBeNull();
+      expect(fixture.settings.showWindowOnAutostart).toBe(true);
+      expect(fixture.windowUpdate).not.toHaveBeenCalled();
+    } finally {
+      view.close();
+    }
+    fixture.data.requiresApproval = true;
+    const pending = mount();
+    try {
+      expect(
+        pending.host.querySelector('[aria-label="自启时显示窗口"]')?.getAttribute('aria-checked'),
+      ).toBe('true');
+    } finally {
+      pending.close();
+    }
+  });
+  it.each(['unsupported', 'loading', 'failed', 'pending'] as const)(
     '%s 时不误提交窗口偏好',
     (state) => {
-      fixture.data.enabled = state !== 'disabled';
+      fixture.data.enabled = true;
       fixture.data.supported = state !== 'unsupported';
       fixture.settingsLoading = state === 'loading';
       fixture.settingsError = state === 'failed' ? new Error('合成偏好读取失败') : null;

@@ -25,6 +25,13 @@ vi.mock('../src/renderer/src/components/lazyWorkspaces', async () => ({
   ...(await import('../src/renderer/src/components/RoamingBackfillPanel')),
   preloadWorkspace: vi.fn(),
 }));
+vi.mock('../src/renderer/src/components/lazyWorkspaces.shared', async () => ({
+  ...(await import('../src/renderer/src/views/ExportView')),
+  ...(await import('../src/renderer/src/views/ExportViewer')),
+  ...(await import('../src/renderer/src/views/analysis/AnalysisTool')),
+  ...(await import('../src/renderer/src/components/RoamingBackfillPanel')),
+  preloadWorkspace: vi.fn(),
+}));
 vi.mock('../src/renderer/src/views/agentlab/cloneTaskStore', () => ({
   getCloneTasks: () => fixture.clones,
   subscribeCloneTasks: () => () => {},
@@ -34,6 +41,11 @@ vi.mock('../src/renderer/src/state/view', () => ({
     select({ openedUin: 'fixture' }),
 }));
 vi.mock('../src/renderer/src/state/contentSelection', () => ({
+  useContentExportRequest: () => null,
+  useContentAnalysisRequest: () => null,
+  useCurrentContentSelection: () => null,
+}));
+vi.mock('../src/renderer/src/state/contentSelection.shared', () => ({
   useContentExportRequest: () => null,
   useContentAnalysisRequest: () => null,
   useCurrentContentSelection: () => null,
@@ -377,7 +389,7 @@ describe('统一竖向工作菜单', () => {
         [...document.querySelectorAll('.weq-workspace-actions button span')].map(
           (item) => item.textContent,
         ),
-      ).toEqual(['分析', '导出', '查看', '合成']);
+      ).toEqual(['分析与报告', '导出', '导出查看器', '合成聊天记录']);
       // 菜单里只有任务面板：紧凑布局展开成完整面板再收起，仍复用同一棵子树。
       const compact = document.querySelector('[data-task-layout="compact"]');
       expect(compact).not.toBeNull();

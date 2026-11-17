@@ -115,7 +115,8 @@ export function DatabasePicker({
             <X size={15} />
           </button>
           <span className="weq-db-cards-count">
-            已选 {selected.size} · {fmtBytes(selectedBytes)}
+            已选 <span className="weq-number weq-number-inherit">{selected.size}</span> ·{' '}
+            <span className="weq-number weq-number-inherit">{fmtBytes(selectedBytes)}</span>
           </span>
         </div>
       </div>
@@ -153,7 +154,9 @@ export function DatabasePicker({
                     {checked ? <Check size={13} strokeWidth={2.6} /> : null}
                   </span>
                 </span>
-                <span className="weq-db-card-meta">{fmtBytes(it.bytes)}</span>
+                <span className="weq-db-card-meta">
+                  <span className="weq-number weq-number-inherit">{fmtBytes(it.bytes)}</span>
+                </span>
                 <span className="weq-db-card-path">{it.path}</span>
               </button>
             );

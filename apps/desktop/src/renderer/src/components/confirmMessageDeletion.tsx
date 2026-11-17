@@ -1,4 +1,4 @@
-import { useDialog } from './Dialog';
+import { useDialog } from './Dialog.shared';
 import '../styles/message-deletion.css';
 
 export async function confirmMessageDeletion(count: number): Promise<boolean | null> {
@@ -14,7 +14,7 @@ export async function confirmMessageDeletion(count: number): Promise<boolean | n
       />
       <span>删除后不再显示</span>
     </label>,
-    { okLabel: '删除' },
+    { danger: 'outline', okLabel: '删除' },
   );
   return accepted ? hidden : null;
 }

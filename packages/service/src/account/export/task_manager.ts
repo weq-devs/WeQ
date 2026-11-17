@@ -90,6 +90,18 @@ import {
   watchTransferPolicy,
 } from '../../common/transfer_policy';
 import { MessageJournal } from './message_journal';
+import { isLikelyCorruptionError } from '@weq/db';
+import {
+  DatabaseRecoveryGate,
+  DatabaseRecoveryStopped,
+  type DatabaseRecoveryDecision,
+  type DatabaseRecoveryRecord,
+  type DatabaseRecoveryRequest,
+} from './database_recovery';
+import { ExportCheckpoint } from './checkpoint';
+import { checkpointCollection, checkpointContacts, checkpointQzone } from './domain_checkpoint';
+import type { MailArchiveOptions } from '../mail/export';
+import type { MailExportFilter } from '../mail/types';
 import { findExportBaseline, listExportBaselines } from './baseline';
 import { prepareDirectOutput, type DirectOutput } from './direct_output';
 import { inspectDestination } from './storage_preflight';
@@ -364,6 +376,9 @@ export interface MediaExportOptions {
 }
 
 export interface ExportTask {
+  databaseRecovery?: DatabaseRecoveryRequest;
+  databaseRecoveryRecords?: DatabaseRecoveryRecord[];
+  workBundleId?: string;
   networkClientId?: string;
   networkPaused?: boolean;
   networkOverride?: boolean;
@@ -384,8 +399,9 @@ export interface ExportTask {
   archivePublished?: boolean;
   publishedOutputs?: Record<string, string>;
   includeIntegrityReport?: boolean;
-  /** 独立资源任务；下载运行器仅存在于当前进程，重启后保留结果但不冒称可续传。 */
+  /** 独立资源任务；仅声明了 resume 请求的执行器可以在重启后重建。 */
   resource?: {
+    resume?: ResumableResourceRequest;
     networkTransfer?: { batch?: boolean; bytes?: number };
     kind:
       | 'group-albums'
@@ -514,7 +530,18 @@ export interface ResourceExportSummary {
   };
 }
 
+export type ResumableResourceRequest =
+  | { type: 'favorite-emoji' }
+  | {
+      type: 'mail';
+      ids: string[] | null;
+      filter?: MailExportFilter;
+      expandThreads?: boolean;
+      archive?: MailArchiveOptions;
+    };
+
 export interface ResourceExportRunContext {
+  checkpoint?: ExportCheckpoint;
   archive?: ArchiveOptions;
   directory: string;
   signal: AbortSignal;
@@ -528,6 +555,7 @@ export interface ExportTaskView
   generated?: Omit<GeneratedContentSnapshot, 'messages'> & { messageCount: number };
   logs: TaskLogLine[];
   canResume: boolean;
+  canPause: boolean;
   canIncremental?: boolean;
   canFinalize?: boolean;
   isFinalizing: boolean;
@@ -536,6 +564,10 @@ export interface ExportTaskView
 
 /** Main-process dependencies injected for media export (silk-wasm lives in the app). */
 export interface MediaDeps {
+  resumeResource?: (
+    request: ResumableResourceRequest,
+    context: ResourceExportRunContext,
+  ) => Promise<ResourceExportSummary>;
   exportAccountUin?: string;
   fetchForward?: (resId: string) => Promise<import('../forward').FetchedForwardRecord[]>;
   exportSavePolicy?: () => ExportSavePolicy;
@@ -634,6 +666,9 @@ export class ExportTaskManager extends EventEmitter {
   private finalizing = new Set<string>();
   private startedAt = Date.now();
   private filteredSources = new Map<string, MsgService>();
+  private databaseRecoveryGates = new Map<string, DatabaseRecoveryGate>();
+  private queueReleases = new Map<string, () => void>();
+  private executions = new Map<string, Promise<void>>();
   private tasks = new Map<string, ExportTask>();
   private abortControllers = new Map<string, AbortController>();
   /** 任务日志（内存环形缓冲，不随 export_tasks.json 持久化）。 */
@@ -649,6 +684,48 @@ export class ExportTaskManager extends EventEmitter {
   private persistPath: string;
   private outputSaves = new Map<string, Promise<string>>();
   private networkRunners = new Map<string, () => Promise<void>>();
+
+  private checkpoint(task: ExportTask, signal?: AbortSignal): ExportCheckpoint {
+    return new ExportCheckpoint(
+      join(this.cacheDir, `resume-${task.id}-${task.scanId ?? 'initial'}`),
+      signal,
+    );
+  }
+
+  private resumableResource(task: ExportTask): boolean {
+    return Boolean(
+      task.resource?.resume && (this.networkRunners.has(task.id) || this.deps.resumeResource),
+    );
+  }
+
+  private resumableBundle(task: ExportTask): AtomicExportBundle {
+    task.workBundleId ??= task.domainUpdate
+      ? `${task.id}-${task.scanId}`
+      : task.generated && task.bundleDir
+        ? `${task.id}-retry-${randomUUID()}`
+        : task.id;
+    this.saveTasks();
+    return createAtomicExportBundle(this.cacheDir, task.workBundleId, true);
+  }
+
+  private clearResumeState(task: ExportTask): void {
+    try {
+      rmSync(this.checkpoint(task).directory, { recursive: true, force: true });
+      if (task.status === 'cancelled')
+        for (const id of new Set([task.id, task.workBundleId ?? `${task.id}-${task.scanId}`]))
+          rmSync(join(this.cacheDir, `.bundle-${id}.partial`), { recursive: true, force: true });
+    } catch {
+      this.log(task.id, 'task', '导出已结束，续作缓存清理未完成；删除任务时将重试。', 'warn');
+    }
+  }
+
+  private releaseTask(task: ExportTask): void {
+    delete task.databaseRecovery;
+    this.databaseRecoveryGates.delete(task.id);
+    this.abortControllers.delete(task.id);
+    this.finalizing.delete(task.id);
+    if (task.status === 'completed' || task.status === 'cancelled') this.clearResumeState(task);
+  }
 
   constructor(
     private msgs: MsgService,
@@ -683,6 +760,8 @@ export class ExportTaskManager extends EventEmitter {
       if (!raw) return;
       const data = JSON.parse(raw) as ExportTask[];
       for (const t of data) {
+        // 等待中的 Promise 和本次任务授权不能跨进程恢复。
+        delete t.databaseRecovery;
         if (!supportsExportReport(t)) {
           delete t.reportVersion;
           delete t.reportPath;
@@ -700,7 +779,7 @@ export class ExportTaskManager extends EventEmitter {
         t.networkOverride = false;
         if (t.status === 'running' || t.status === 'pending') {
           t.status = 'paused'; // crashed or queued tasks require explicit continuation
-          if (t.resource)
+          if (t.resource && !t.resource.resume)
             t.error = '上次资源下载被中断，请重新选择资源创建任务；已完成的其他任务结果仍保留。';
         }
         if (!Array.isArray(t.stages)) t.stages = []; // back-compat with pre-stages tasks
@@ -814,7 +893,9 @@ export class ExportTaskManager extends EventEmitter {
     this.queue = this.queue
       .then(() => {
         const task = this.tasks.get(id);
-        return networkScope.run(
+        if (task?.status !== 'pending') return;
+        const yielded = this.queueYield(id);
+        const execution = networkScope.run(
           {
             clientId: task?.networkClientId,
             restricted: transferRestricted(task?.networkClientId),
@@ -823,8 +904,20 @@ export class ExportTaskManager extends EventEmitter {
           },
           run,
         );
+        this.executions.set(id, execution);
+        void execution
+          .finally(() => {
+            this.executions.delete(id);
+            this.queueReleases.delete(id);
+          })
+          .catch(() => undefined);
+        return Promise.race([execution, yielded]);
       })
       .catch(() => undefined);
+  }
+
+  private queueYield(id: string): Promise<void> {
+    return new Promise((resolve) => this.queueReleases.set(id, resolve));
   }
 
   private networkTask(task: ExportTask): boolean {
@@ -862,7 +955,7 @@ export class ExportTaskManager extends EventEmitter {
       !transferRestricted(task.networkClientId)
     )
       return false;
-    if (task.status === 'running') this.pauseTask(id);
+    if (task.status === 'running') this.pauseTask(id, true);
     if (task.status === 'pending') task.status = 'paused';
     if (task.status === 'paused') {
       task.networkPaused = true;
@@ -1105,6 +1198,10 @@ export class ExportTaskManager extends EventEmitter {
           summary = { ...metadata, messageCount: messages.length };
         }
         const view = { ...task };
+        if (task.resource) {
+          view.resource = { ...task.resource };
+          delete view.resource.resume;
+        }
         delete view.generatedResourceCache;
         delete view.generatedResourceReport;
         return {
@@ -1124,6 +1221,7 @@ export class ExportTaskManager extends EventEmitter {
               }
             : {}),
           canResume,
+          canPause: !task.resource || Boolean(task.resource.resume),
           canIncremental: this.canIncremental(task),
           canFinalize:
             !task.contacts &&
@@ -1139,11 +1237,7 @@ export class ExportTaskManager extends EventEmitter {
           ...(canResume
             ? {
                 resumeMode:
-                  task.contacts ||
-                  task.generated ||
-                  task.qzone ||
-                  task.collection ||
-                  this.networkRunners.has(task.id)
+                  task.status === 'cancelled' || (task.resource && !task.resource.resume)
                     ? 'restart'
                     : 'checkpoint',
               }
@@ -1677,7 +1771,7 @@ export class ExportTaskManager extends EventEmitter {
       progress: 0,
       current: 0,
       total: packs.length,
-      marketpack: { packs },
+      marketpack: { packs: structuredClone(packs) },
       includeIntegrityReport,
       stages: [{ key: 'sticker', label: '下载表情', status: 'pending', current: 0, total: 0 }],
       createdAt: Date.now(),
@@ -1693,6 +1787,7 @@ export class ExportTaskManager extends EventEmitter {
 
   /** 既有独立下载器只写私有缓存，发布、另存、取消和回执沿用同一个任务管理器。 */
   async startResourceExport(opts: {
+    resume?: ResumableResourceRequest;
     networkTransfer?: { batch?: boolean; bytes?: number };
     archive?: ArchiveOptions;
     name: string;
@@ -1705,6 +1800,12 @@ export class ExportTaskManager extends EventEmitter {
     onPublished?(directory: string): void;
   }): Promise<string> {
     const id = `resource-${randomUUID()}`;
+    if (
+      opts.resume &&
+      ((opts.resume.type === 'mail' && opts.kind !== 'mail-messages') ||
+        (opts.resume.type === 'favorite-emoji' && opts.kind !== 'favorite-emoji'))
+    )
+      throw new Error('资源续作类型与导出任务不匹配。');
     const output = opts.output ? structuredClone(opts.output) : undefined;
     if (
       opts.archive?.formats?.length === 0 &&
@@ -1728,6 +1829,7 @@ export class ExportTaskManager extends EventEmitter {
       name: opts.name,
       format: opts.archive?.formats?.[0] ?? 'json',
       resource: {
+        ...(opts.resume ? { resume: structuredClone(opts.resume) } : {}),
         networkTransfer: opts.networkTransfer,
         kind: opts.kind,
         ...(output ? { output } : {}),
@@ -1787,10 +1889,11 @@ export class ExportTaskManager extends EventEmitter {
     this.saveTasks();
     let bundle: AtomicExportBundle | undefined;
     try {
-      bundle = createAtomicExportBundle(this.cacheDir, task.id);
+      bundle = createAtomicExportBundle(this.cacheDir, task.id, Boolean(task.resource?.resume));
       const directory = join(bundle.stageDir, 'files');
-      mkdirSync(directory);
+      mkdirSync(directory, { recursive: true });
       const summary = await run({
+        checkpoint: task.resource?.resume ? this.checkpoint(task, abort.signal) : undefined,
         archive: {
           ...task.resourceArchive,
           ...(await this.archiveOptions(task)),
@@ -1887,7 +1990,12 @@ export class ExportTaskManager extends EventEmitter {
       if (abort.signal.aborted) {
         if (task.status === 'running') task.status = 'paused';
         stage.status = 'pending';
-        task.error = '资源处理已中断；尚未生成完整结果，请重新选择资源创建任务。';
+        task.error =
+          this.tasks.get(task.id)?.status === 'cancelled'
+            ? undefined
+            : task.resource?.resume
+              ? '已暂停，已完成的资源会在继续时复用。'
+              : '资源处理已中断；尚未生成完整结果，请重新选择资源创建任务。';
       } else {
         task.status = 'failed';
         stage.status = 'failed';
@@ -1895,8 +2003,9 @@ export class ExportTaskManager extends EventEmitter {
         this.log(task.id, 'file', task.error, 'error');
       }
     } finally {
-      bundle?.discard();
-      this.abortControllers.delete(task.id);
+      if (!task.resource?.resume || this.tasks.get(task.id)?.status === 'cancelled')
+        bundle?.discard();
+      this.releaseTask(task);
       task.updatedAt = Date.now();
       this.saveTasks();
       this.emit('progress', {
@@ -1922,7 +2031,8 @@ export class ExportTaskManager extends EventEmitter {
     includeIntegrityReport?: boolean,
   ): Promise<string> {
     if (!['directory', 'zip'].includes(format)) throw new Error('不支持的表情包导出格式');
-    const wanted = scopes.length > 0 ? scopes : (['own', 'received'] as EmojiPackScope[]);
+    const wanted =
+      scopes.length > 0 ? [...new Set(scopes)] : (['own', 'received'] as EmojiPackScope[]);
     const id = `emojipack-${Date.now()}-${randomUUID()}`;
     const name = wanted.map((s) => scopeLabel(s)).join(' + ');
     const stages: TaskStage[] = [
@@ -1975,12 +2085,33 @@ export class ExportTaskManager extends EventEmitter {
     if (!task.guild) {
       let source = this.filteredSources.get(task.id);
       if (!source) {
+        const gate = this.databaseRecoveryFor(task);
+        const base = this.msgs.salvage;
+        const salvage =
+          base && (task.kind === 'group' || task.kind === 'c2c')
+            ? {
+                ...base,
+                binding: { ...base.binding, level: () => 2, beforeSkip: gate.beforeSkip },
+                tableSkipped: () => gate.tableSkipped,
+                onUnreadable: (error: unknown) =>
+                  gate.unreadable(
+                    this.msgs.exportDatabasePath(task.kind as 'group' | 'c2c', task.conv),
+                    task.kind === 'group' ? 'group_msg_table' : 'c2c_msg_table',
+                    error,
+                  ),
+              }
+            : base;
         source =
           typeof this.msgs.withExportFilter === 'function'
-            ? this.msgs.withExportFilter(task.filter, this.abortControllers.get(task.id)?.signal)
+            ? this.msgs.withExportFilter(
+                task.filter,
+                this.abortControllers.get(task.id)?.signal,
+                salvage,
+              )
             : Object.assign(Object.create(this.msgs) as MsgService, {
                 exportFilter: task.filter,
                 exportSignal: this.abortControllers.get(task.id)?.signal,
+                salvage,
               });
         this.filteredSources.set(task.id, source);
       }
@@ -2004,7 +2135,94 @@ export class ExportTaskManager extends EventEmitter {
       this.guildSources.set(task.id, src);
     }
     // 适配源只实现 c2c 分支用到的成员子集；按 kind='c2c' 的调用契约使用。
+    src.exportJournal = this.journals.get(task.id);
     return src as unknown as MsgService;
+  }
+
+  private databaseRecoveryFor(task: ExportTask): DatabaseRecoveryGate {
+    let gate = this.databaseRecoveryGates.get(task.id);
+    if (!gate) {
+      const signal = this.abortControllers.get(task.id)?.signal;
+      if (!signal) throw new Error('任务尚未开始读取');
+      gate = new DatabaseRecoveryGate(
+        signal,
+        (request) => {
+          task.databaseRecovery = request;
+          if (request) this.queueReleases.get(task.id)?.();
+          if (!signal.aborted) task.status = request ? 'paused' : 'running';
+          task.updatedAt = Date.now();
+          this.saveTasks();
+          this.emit('progress', {
+            taskId: task.id,
+            status: task.status,
+            progress: task.progress,
+            current: task.current,
+            message: request ? '数据库读取异常，等待处理' : '继续读取',
+          });
+        },
+        (record) => {
+          task.reportVersion = 1;
+          task.databaseRecoveryRecords ??= [];
+          const records = task.databaseRecoveryRecords;
+          if (!records.some((entry) => JSON.stringify(entry) === JSON.stringify(record)))
+            records.push(record);
+          this.log(
+            task.id,
+            'message',
+            record.kind === 'table'
+              ? '本次任务不再读取该表，已有消息保留；结果为部分导出。'
+              : `已确认跳过未读键区间：${record.ranges?.map((range) => `(${range.lo}, ${range.hi}]`).join('、')}；结果为部分导出。`,
+            'warn',
+          );
+          this.saveTasks();
+        },
+        () => Math.max(task.current, this.journals.get(task.id)?.count ?? 0) > 0,
+      );
+      this.databaseRecoveryGates.set(task.id, gate);
+    }
+    return gate;
+  }
+
+  async resolveDatabaseRecovery(
+    id: string,
+    requestId: string,
+    decision: DatabaseRecoveryDecision,
+    skipRemaining = false,
+  ): Promise<boolean> {
+    const task = this.tasks.get(id);
+    if (
+      !task?.databaseRecovery ||
+      task.databaseRecovery.id !== requestId ||
+      task.databaseRecovery.decisionPending
+    )
+      return false;
+    if (decision === 'skip') {
+      if (!task.databaseRecovery.canSkip) return false;
+      task.databaseRecovery.decisionPending = true;
+      this.saveTasks();
+      // 等待用户时让出导出队列；继续时重新排队，避免一次恢复多项重任务。
+      return new Promise<boolean>((resolve) => {
+        this.queue = this.queue
+          .then(async () => {
+            const yielded = this.queueYield(id);
+            const accepted =
+              this.databaseRecoveryGates.get(id)?.respond(requestId, decision, skipRemaining) ??
+              false;
+            resolve(accepted);
+            if (accepted) await Promise.race([this.executions.get(id), yielded]);
+          })
+          .catch(() => {
+            resolve(false);
+          });
+      });
+    }
+    const accepted =
+      this.databaseRecoveryGates.get(id)?.respond(requestId, decision, skipRemaining) ?? false;
+    if (accepted) {
+      // 修复工具打开前先等写入器结束、消息日志落盘，不能边导出边修复。
+      while (this.abortControllers.has(id)) await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    return accepted;
   }
 
   /** 结构化导出（json / chatlab / html）的昵称解析：guild 任务覆盖 self / peer 身份。 */
@@ -2101,7 +2319,7 @@ export class ExportTaskManager extends EventEmitter {
       taskId,
       'message',
       `损坏降级：跳过 ${ranges} 处读不出来的区间（键跨度合计 ${span}，不是条数），` +
-        `涉及会话 ${convs.join('、')}。导出的消息可能不完整，明细见 设置 → 数据库宽容 的账本`,
+        `涉及会话 ${convs.join('、')}。导出的消息可能不完整，明细见本任务完整性报告。`,
       'warn',
     );
   }
@@ -2184,9 +2402,12 @@ export class ExportTaskManager extends EventEmitter {
     const paused = (): boolean => this.tasks.get(id)?.status === 'paused';
 
     try {
-      if (!task.guild && typeof this.msgs.exportSourceStamp === 'function') {
+      const sourceStamp = task.guild
+        ? this.deps.guildDirect?.exportSourceStamp?.()
+        : this.msgs.exportSourceStamp?.(task.kind, task.conv);
+      if (sourceStamp) {
         const binding = {
-          source: this.msgs.exportSourceStamp(task.kind, task.conv),
+          source: sourceStamp,
           options: exportOptionsHash(task),
         };
         if (
@@ -2730,7 +2951,13 @@ export class ExportTaskManager extends EventEmitter {
       }
 
       // ---- 消息导出（HTML + 装扮需等 manifest；其余格式仅等装扮用量扫描） ----
-      if (!task.archiveId && !task.guild && (task.kind === 'group' || task.kind === 'c2c')) {
+      if (
+        !task.archiveId ||
+        task.guild ||
+        task.kind === 'official' ||
+        task.kind === 'service' ||
+        formats.some((format) => !['json', 'jsonl', 'jsonl.gz'].includes(format))
+      ) {
         const journalDir = task.directOutput?.journalDirectory ?? outDir;
         if (task.journalPath && task.current > 0 && !existsSync(task.journalPath))
           throw new Error('原消息进度记录已丢失，请恢复进度目录后继续。');
@@ -3795,8 +4022,12 @@ export class ExportTaskManager extends EventEmitter {
       }
       task.sourceChanged =
         !!task.resumeBinding &&
-        typeof this.msgs.exportSourceStamp === 'function' &&
-        task.resumeBinding.source !== this.msgs.exportSourceStamp(task.kind, task.conv);
+        Boolean(
+          task.guild
+            ? this.deps.guildDirect?.exportSourceStamp?.() !== task.resumeBinding.source
+            : this.msgs.exportSourceStamp &&
+                task.resumeBinding.source !== this.msgs.exportSourceStamp(task.kind, task.conv),
+        );
       this.touchStage(task, 'finalize', { current: 3, note: '校验导出文件…' });
       task.outputHashes = await this.hashMessageOutputs(task);
       if (aborted()) {
@@ -3824,8 +4055,23 @@ export class ExportTaskManager extends EventEmitter {
       this.log(id, 'finalize', '收尾与校验完成');
     } catch (e) {
       if (aborted() && (paused() || task.status === 'cancelled')) return;
+      let failure = e;
+      if (isLikelyCorruptionError(failure)) {
+        try {
+          await this.databaseRecoveryFor(task).failedRead(failure);
+        } catch (decision) {
+          failure = decision;
+        }
+      }
+      if (failure instanceof DatabaseRecoveryStopped) {
+        task.status = 'paused';
+        task.error = failure.message;
+        abort.abort();
+        this.log(id, 'task', task.error, 'warn');
+        return;
+      }
       task.status = 'failed';
-      task.error = String((e as Error)?.message ?? e);
+      task.error = String((failure as Error)?.message ?? failure);
       // Mark the running stage failed so the UI shows where it broke.
       const running = task.stages.find((s) => s.status === 'running');
       if (running) {
@@ -3852,7 +4098,7 @@ export class ExportTaskManager extends EventEmitter {
           task.mergeWarnings = journal.mergeWarnings(task.kind, task.conv);
       }
       task.updatedAt = Date.now();
-      this.abortControllers.delete(id);
+      this.releaseTask(task);
       this.journals.delete(id);
       this.filteredSources.delete(id);
       this.saveTasks();
@@ -3891,8 +4137,9 @@ export class ExportTaskManager extends EventEmitter {
     let bundle: AtomicExportBundle | null = null;
 
     try {
-      const qzone = this.deps.qzone;
-      if (!qzone) throw new Error('QQ 空间拉取能力不可用（需在线 QQ）。');
+      if (!this.deps.qzone) throw new Error('QQ 空间拉取能力不可用（需在线 QQ）。');
+      const checkpoint = this.checkpoint(task, abort.signal);
+      const qzone = checkpointQzone(this.deps.qzone, checkpoint, existsSync(checkpoint.directory));
       // HTML 导出靠本地配图渲染，含 html 格式时强制下载配图（不管用户是否勾选）。
       const formats = task.formats?.length ? task.formats : [task.format];
       const wantMedia = Boolean(task.media?.exportMedia) || formats.includes('html');
@@ -3902,16 +4149,16 @@ export class ExportTaskManager extends EventEmitter {
           (qzone.fetchInteractions || qzone.fetchLikes || qzone.fetchLikesResult),
       );
       // 每次空间导出都包含正文与 coverage，必须在私有 staging 中全部完成后整体发布。
-      bundle = createAtomicExportBundle(
-        this.cacheDir,
-        task.domainUpdate ? `${id}-${task.scanId}` : id,
-      );
+      bundle = this.resumableBundle(task);
       const outDir = bundle.stageDir;
       const mediaRoot = wantMedia ? join(outDir, 'media') : undefined;
-      const mediaStore = task.qzoneAlbums ? new QzoneMediaStore(join(outDir, 'media')) : undefined;
+      const mediaStore =
+        wantMedia || task.qzoneAlbums
+          ? new QzoneMediaStore(join(outDir, 'media'), checkpoint)
+          : undefined;
       const history =
         task.qzonePosts !== false && task.qzoneTids === undefined
-          ? new QzoneHistoryStore(this.cacheDir, task.conv)
+          ? new QzoneHistoryStore(checkpoint.directory, task.conv)
           : null;
       const resume = history?.resumeState();
 
@@ -3929,66 +4176,75 @@ export class ExportTaskManager extends EventEmitter {
       const data: QzoneExportData =
         task.qzonePosts === false
           ? { rows: [], mediaOk: 0, mediaFailed: 0 }
-          : await collectQzone(
-              {
-                targetUin: task.conv,
-                tids: task.qzoneTids,
-                range: task.qzoneTids === undefined ? task.range : undefined,
-                mediaRoot,
-                mediaStore,
-                includeInteraction: wantInteraction,
-                onProgress: (current, total, note) => {
-                  if (aborted()) return;
-                  this.touchStage(task, 'message', {
-                    status: 'running',
-                    current,
-                    total: total || current,
-                    note,
-                  });
-                  this.log(id, 'message', note);
-                },
-                onMedia: (done, total) => {
-                  if (aborted()) return;
-                  this.touchStage(task, 'media', {
-                    status: 'running',
-                    current: done,
-                    total,
-                    note: `下载 ${done}/${total}`,
-                  });
-                  this.log(id, 'media', `下载媒体 ${done}/${total}`);
-                },
-                onInteraction: (done, total, note) => {
-                  if (aborted()) return;
-                  this.touchStage(task, 'message', {
-                    status: 'running',
-                    current: done,
-                    total: total || done,
-                    note,
-                  });
-                  this.log(id, 'message', note);
-                },
-                ...(resume
-                  ? {
-                      startPos: resume.startPos,
-                      initialRows: resume.rows,
-                      expectedAnchorTids: resume.anchorTids,
-                      expectedAnchors: resume.anchors,
-                    }
-                  : {}),
-                relocateCursor: true,
-                ...(history
-                  ? {
-                      onPage: async (page: QzonePageCapture) => history.savePage(page),
-                      onRawInteraction: async (capture: {
-                        kind: QzoneRawKind;
-                        tid?: string;
-                        response: string;
-                      }) => history.saveInteractionRaw(capture),
-                    }
-                  : {}),
-                signal: abort.signal,
-              },
-              qzone,
+          : await checkpoint.run(
+              'qzone-collected',
+              () =>
+                collectQzone(
+                  {
+                    checkpoint,
+                    targetUin: task.conv,
+                    tids: task.qzoneTids,
+                    range: task.qzoneTids === undefined ? task.range : undefined,
+                    mediaRoot,
+                    mediaStore,
+                    includeInteraction: wantInteraction,
+                    onProgress: (current, total, note) => {
+                      if (aborted()) return;
+                      this.touchStage(task, 'message', {
+                        status: 'running',
+                        current,
+                        total: total || current,
+                        note,
+                      });
+                      this.log(id, 'message', note);
+                    },
+                    onMedia: (done, total) => {
+                      if (aborted()) return;
+                      this.touchStage(task, 'media', {
+                        status: 'running',
+                        current: done,
+                        total,
+                        note: `下载 ${done}/${total}`,
+                      });
+                      this.log(id, 'media', `下载媒体 ${done}/${total}`);
+                    },
+                    onInteraction: (done, total, note) => {
+                      if (aborted()) return;
+                      this.touchStage(task, 'message', {
+                        status: 'running',
+                        current: done,
+                        total: total || done,
+                        note,
+                      });
+                      this.log(id, 'message', note);
+                    },
+                    ...(resume
+                      ? {
+                          startPos: resume.startPos,
+                          initialRows: resume.rows,
+                          expectedAnchorTids: resume.anchorTids,
+                          expectedAnchors: resume.anchors,
+                        }
+                      : {}),
+                    relocateCursor: true,
+                    ...(history
+                      ? {
+                          onPage: async (page: QzonePageCapture) => history.savePage(page),
+                          onRawInteraction: async (capture: {
+                            kind: QzoneRawKind;
+                            tid?: string;
+                            response: string;
+                          }) => history.saveInteractionRaw(capture),
+                        }
+                      : {}),
+                    signal: abort.signal,
+                  },
+                  qzone,
+                ),
+              (value) =>
+                (value.mediaOutcomes ?? []).flatMap((item) =>
+                  item.status === 'saved' && mediaRoot ? [join(mediaRoot, item.path)] : [],
+                ),
             );
       if (aborted()) {
         if (this.tasks.get(id)?.status !== 'paused') task.status = 'cancelled';
@@ -4024,13 +4280,15 @@ export class ExportTaskManager extends EventEmitter {
               : format === 'jsonl' || format === 'jsonl.gz'
                 ? format
                 : 'json';
-        await writeQzone(qzoneFormat, data, {
-          name: task.name,
-          targetUin: task.conv,
-          outputPath: outPath,
-          localMedia: Boolean(mediaRoot),
-          archive: await this.archiveOptions(task),
-        });
+        await checkpoint.file(['qzone-format', format], outPath, async () =>
+          writeQzone(qzoneFormat, data, {
+            name: task.name,
+            targetUin: task.conv,
+            outputPath: outPath,
+            localMedia: Boolean(mediaRoot),
+            archive: await this.archiveOptions(task),
+          }),
+        );
         task.formatCounts[format] = count;
         if (formats.length > 1) {
           this.log(id, 'message', `格式 ${format.toUpperCase()} 完成：${count} 条说说`);
@@ -4049,23 +4307,28 @@ export class ExportTaskManager extends EventEmitter {
         )
           throw new Error('空间相册导出能力不可用。');
         this.touchStage(task, 'file', { status: 'running', note: '读取相册与媒体…' });
-        const albums = await exportQzoneAlbums(
-          {
-            archive: await this.archiveOptions(task),
-            targetUin: task.conv,
-            directory: outDir,
-            range: task.range,
-            formats,
-            media: mediaStore,
-            downloadMedia: wantMedia,
-            signal: abort.signal,
-            progress: (current, total) => this.touchStage(task, 'file', { current, total }),
-          },
-          {
-            fetchAlbumPage: qzone.fetchAlbumPage,
-            fetchAlbumPhotos: qzone.fetchAlbumPhotos,
-            fetchAlbumVideo: qzone.fetchAlbumVideo,
-          },
+        const albums = await checkpoint.file(
+          'qzone-albums-output',
+          join(outDir, 'albums'),
+          async () =>
+            exportQzoneAlbums(
+              {
+                archive: await this.archiveOptions(task),
+                targetUin: task.conv,
+                directory: outDir,
+                range: task.range,
+                formats,
+                media: mediaStore,
+                downloadMedia: wantMedia,
+                signal: abort.signal,
+                progress: (current, total) => this.touchStage(task, 'file', { current, total }),
+              },
+              {
+                fetchAlbumPage: qzone.fetchAlbumPage!,
+                fetchAlbumPhotos: qzone.fetchAlbumPhotos!,
+                fetchAlbumVideo: qzone.fetchAlbumVideo!,
+              },
+            ),
         );
         albumCount = albums.total;
         albumMediaOk = albums.ok;
@@ -4083,6 +4346,7 @@ export class ExportTaskManager extends EventEmitter {
 
       abort.signal.throwIfAborted();
       history?.writeSnapshot(join(outDir, 'qzone-history.json'));
+      this.finalizing.add(id);
       const updated = await this.publishDomainUpdate(task, outDir, abort.signal);
       if (updated) bundle.discard();
       else {
@@ -4138,9 +4402,9 @@ export class ExportTaskManager extends EventEmitter {
       }
       this.log(id, 'task', `导出失败：${task.error}`, 'error');
     } finally {
-      if (task.status !== 'completed') bundle?.discard();
+      if (task.status === 'cancelled') bundle?.discard();
       task.updatedAt = Date.now();
-      this.abortControllers.delete(id);
+      this.releaseTask(task);
       this.saveTasks();
       this.emit('progress', {
         taskId: id,
@@ -4176,8 +4440,9 @@ export class ExportTaskManager extends EventEmitter {
     const paused = (): boolean => task.status === 'paused';
 
     try {
-      const deps = this.deps.contacts;
-      if (!deps) throw new Error('联系人数据拉取能力不可用。');
+      if (!this.deps.contacts) throw new Error('联系人数据拉取能力不可用。');
+      const checkpoint = this.checkpoint(task, abort.signal);
+      const deps = checkpointContacts(this.deps.contacts, checkpoint);
       const avatarCache = this.deps.avatarCache;
       const wantAvatars = Boolean(task.exportAvatar && avatarCache);
 
@@ -4224,31 +4489,36 @@ export class ExportTaskManager extends EventEmitter {
         onProgress: onReadProgress,
         signal: abort.signal,
       };
-      const snapshot =
-        task.contacts?.scope === 'groups'
-          ? {
-              scope: 'groups' as const,
-              rows: await collectGroupDirectory(
-                {
-                  groupIds: task.contacts.groupIds,
-                  signal: abort.signal,
-                  onProgress: onReadProgress,
-                },
-                deps,
-              ),
-            }
-          : task.contacts?.scope === 'group'
+      const captured = await checkpoint.run('contact-snapshot', async () => {
+        const snapshot =
+          task.contacts?.scope === 'groups'
             ? {
-                scope: 'group' as const,
-                rows: await collectGroupMembers({ ...common, groupCode: task.conv }, deps),
-              }
-            : {
-                scope: 'friends' as const,
-                rows: await collectFriends(
-                  { ...common, categoryIds: task.contacts?.categoryIds },
+                scope: 'groups' as const,
+                rows: await collectGroupDirectory(
+                  {
+                    groupIds: task.contacts.groupIds,
+                    signal: abort.signal,
+                    onProgress: onReadProgress,
+                  },
                   deps,
                 ),
-              };
+              }
+            : task.contacts?.scope === 'group'
+              ? {
+                  scope: 'group' as const,
+                  rows: await collectGroupMembers({ ...common, groupCode: task.conv }, deps),
+                }
+              : {
+                  scope: 'friends' as const,
+                  rows: await collectFriends(
+                    { ...common, categoryIds: task.contacts?.categoryIds },
+                    deps,
+                  ),
+                };
+        return { snapshot, uins: [...(uins ?? [])] };
+      });
+      const snapshot = captured.snapshot;
+      for (const uin of captured.uins) uins?.add(uin);
       task.total = snapshot.rows.length;
       const rowUnit = snapshot.scope === 'groups' ? '个群聊' : '位联系人';
       task.current = 0;
@@ -4277,22 +4547,28 @@ export class ExportTaskManager extends EventEmitter {
           { persist: true },
         );
         abort.signal.throwIfAborted();
-        if (snapshot.scope === 'groups')
-          await writeGroupDirectory(
-            snapshot.rows,
-            format === 'vcard' ? 'csv' : format,
-            outPath,
-            await this.archiveOptions(task),
-          );
-        else if (snapshot.scope === 'group')
-          await writeGroupMembers(
-            snapshot.rows,
-            format === 'vcard' ? 'csv' : format,
-            outPath,
-            await this.archiveOptions(task),
-            task.conv,
-          );
-        else await writeFriends(snapshot.rows, format, outPath, await this.archiveOptions(task));
+        const sourcePath = join(checkpoint.directory, `contact-${format}.source`);
+        await checkpoint.file(['contact-format', format], sourcePath, async () => {
+          if (snapshot.scope === 'groups')
+            await writeGroupDirectory(
+              snapshot.rows,
+              format === 'vcard' ? 'csv' : format,
+              sourcePath,
+              await this.archiveOptions(task),
+            );
+          else if (snapshot.scope === 'group')
+            await writeGroupMembers(
+              snapshot.rows,
+              format === 'vcard' ? 'csv' : format,
+              sourcePath,
+              await this.archiveOptions(task),
+              task.conv,
+            );
+          else
+            await writeFriends(snapshot.rows, format, sourcePath, await this.archiveOptions(task));
+        });
+        const { copyFile } = await import('node:fs/promises');
+        await copyFile(sourcePath, outPath);
         if (aborted()) {
           if (!paused()) task.status = 'cancelled';
           return;
@@ -4343,6 +4619,7 @@ export class ExportTaskManager extends EventEmitter {
                 null
             : undefined,
           signal: abort.signal,
+          checkpoint,
           onProgress: (done, total) => {
             if (aborted()) return;
             this.touchStage(task, 'avatar', {
@@ -4405,6 +4682,7 @@ export class ExportTaskManager extends EventEmitter {
         if (!paused()) task.status = 'cancelled';
         return;
       }
+      this.finalizing.add(id);
       if (await this.publishDomainUpdate(task, outDir, abort.signal))
         rmSync(outDir, { recursive: true });
       task.status = 'completed';
@@ -4422,7 +4700,7 @@ export class ExportTaskManager extends EventEmitter {
     } finally {
       if (aborted() && !paused()) task.status = 'cancelled';
       task.updatedAt = Date.now();
-      this.abortControllers.delete(id);
+      this.releaseTask(task);
       this.saveTasks();
       this.emit('progress', {
         taskId: id,
@@ -4448,14 +4726,8 @@ export class ExportTaskManager extends EventEmitter {
     this.saveTasks();
     let bundle: AtomicExportBundle | null = null;
     try {
-      bundle = createAtomicExportBundle(
-        this.cacheDir,
-        task.domainUpdate
-          ? `${id}-${task.scanId}`
-          : task.bundleDir
-            ? `${id}-retry-${randomUUID()}`
-            : id,
-      );
+      const checkpoint = this.checkpoint(task, abort.signal);
+      bundle = this.resumableBundle(task);
       if (!task.generatedResourceCache)
         task.generatedResourceCache = discoverGeneratedResources(task.generated).map(
           (reference) => ({ reference }),
@@ -4494,6 +4766,7 @@ export class ExportTaskManager extends EventEmitter {
             { persist: true },
           );
         },
+        outputCheckpoint: checkpoint,
       });
       task.generatedResourceReport = resources.manifest;
       writeFileAtomicSync(
@@ -4546,16 +4819,23 @@ export class ExportTaskManager extends EventEmitter {
       task.formatCounts = {};
       for (const format of formats) {
         abort.signal.throwIfAborted();
-        await writeGeneratedContent(
-          task.generated,
-          format,
+        await checkpoint.file(
+          ['generated-format', format],
           join(bundle.stageDir, `${stem}.${format}`),
-          resources.manifest,
-          await this.archiveOptions(task),
+          async () =>
+            writeGeneratedContent(
+              task.generated!,
+              format,
+              join(bundle!.stageDir, `${stem}.${format}`),
+              resources.manifest,
+              await this.archiveOptions(task),
+            ),
         );
         abort.signal.throwIfAborted();
         task.formatCounts[format] = task.generated.messages.length;
       }
+      abort.signal.throwIfAborted();
+      this.finalizing.add(id);
       const updated = await this.publishDomainUpdate(task, bundle.stageDir, abort.signal);
       if (updated) bundle.discard();
       else {
@@ -4607,9 +4887,9 @@ export class ExportTaskManager extends EventEmitter {
     } finally {
       if (abort.signal.aborted && this.tasks.get(id)?.status !== 'paused')
         task.status = 'cancelled';
-      if (task.status !== 'completed') bundle?.discard();
+      if (task.status === 'cancelled') bundle?.discard();
       task.updatedAt = Date.now();
-      this.abortControllers.delete(id);
+      this.releaseTask(task);
       this.saveTasks();
       this.emit('progress', {
         taskId: id,
@@ -4643,13 +4923,11 @@ export class ExportTaskManager extends EventEmitter {
     let bundle: AtomicExportBundle | null = null;
 
     try {
-      const deps = this.deps.collection;
-      if (!deps) throw new Error('收藏数据拉取能力不可用。');
+      if (!this.deps.collection) throw new Error('收藏数据拉取能力不可用。');
+      const checkpoint = this.checkpoint(task, abort.signal);
+      const deps = checkpointCollection(this.deps.collection, checkpoint);
 
-      bundle = createAtomicExportBundle(
-        this.cacheDir,
-        task.domainUpdate ? `${id}-${task.scanId}` : id,
-      );
+      bundle = this.resumableBundle(task);
       const fileName = `${sanitizeSegment(task.name, task.conv || task.id)}.${task.format}`;
       const outPath = join(bundle.stageDir, fileName);
 
@@ -4665,21 +4943,23 @@ export class ExportTaskManager extends EventEmitter {
           this.log(id, 'message', `云收藏历史同步未完成：${historyError}`, 'warn');
         }
       }
-      const result = await exportCollections(
-        {
-          archive: await this.archiveOptions(task),
-          format: task.format as CollectionFormat,
-          outputPath: outPath,
-          kinds: task.collection?.kinds,
-          cids: task.collection?.cids,
-          onProgress: (current, total, note) => {
-            if (aborted()) return;
-            this.touchStage(task, 'message', { current, total, note });
-            this.log(id, 'message', note);
+      const result = await checkpoint.file('collection-output', outPath, async () =>
+        exportCollections(
+          {
+            archive: await this.archiveOptions(task),
+            format: task.format as CollectionFormat,
+            outputPath: outPath,
+            kinds: task.collection?.kinds,
+            cids: task.collection?.cids,
+            onProgress: (current, total, note) => {
+              if (aborted()) return;
+              this.touchStage(task, 'message', { current, total, note });
+              this.log(id, 'message', note);
+            },
+            signal: abort.signal,
           },
-          signal: abort.signal,
-        },
-        deps,
+          deps,
+        ),
       );
       if (aborted()) {
         if (!paused()) task.status = 'cancelled';
@@ -4712,6 +4992,8 @@ export class ExportTaskManager extends EventEmitter {
           2,
         ),
       );
+      abort.signal.throwIfAborted();
+      this.finalizing.add(id);
       const updated = await this.publishDomainUpdate(task, bundle.stageDir, abort.signal);
       if (updated) bundle.discard();
       else {
@@ -4747,9 +5029,9 @@ export class ExportTaskManager extends EventEmitter {
       }
     } finally {
       if (aborted() && !paused()) task.status = 'cancelled';
-      if (task.status !== 'completed') bundle?.discard();
+      if (task.status === 'cancelled') bundle?.discard();
       task.updatedAt = Date.now();
-      this.abortControllers.delete(id);
+      this.releaseTask(task);
       this.saveTasks();
       this.emit('progress', {
         taskId: id,
@@ -4781,6 +5063,7 @@ export class ExportTaskManager extends EventEmitter {
     const abort = new AbortController();
     this.abortControllers.set(id, abort);
     const aborted = (): boolean => abort.signal.aborted;
+    const checkpoint = this.checkpoint(task, abort.signal);
 
     try {
       const deps = this.deps.marketpack;
@@ -4806,20 +5089,23 @@ export class ExportTaskManager extends EventEmitter {
         hash: string;
         name: string;
         key?: string;
-        used: Set<string>;
+        fileName: string;
       }> = [];
       for (const pack of packs) {
         if (aborted()) {
-          task.status = 'cancelled';
+          if (this.tasks.get(id)?.status !== 'paused') task.status = 'cancelled';
           return;
         }
-        const detail = await deps.getPackDetail(pack.id);
+        const detail = await checkpoint.run(['market-detail', pack.id], () =>
+          deps.getPackDetail(pack.id),
+        );
         if (!detail || detail.items.length === 0) {
           this.log(id, 'sticker', `表情包「${pack.name}」无可用表情列表，已跳过`, 'warn');
           continue;
         }
         this.log(id, 'sticker', `表情包「${pack.name}」：共 ${detail.items.length} 张`);
-        const key = (await deps.getPackKey(pack.id))?.key;
+        const key = (await checkpoint.run(['market-key', pack.id], () => deps.getPackKey(pack.id)))
+          ?.key;
         const packDirName = uniqueName(sanitizeSegment(pack.name, pack.id), usedDirs);
         const packDir = join(outDir, packDirName);
         await mkdir(packDir, { recursive: true });
@@ -4831,7 +5117,7 @@ export class ExportTaskManager extends EventEmitter {
             hash: it.hash,
             name: it.name,
             key,
-            used: usedFiles,
+            fileName: `${uniqueName(sanitizeSegment(it.name, it.hash), usedFiles)}.gif`,
           });
         }
       }
@@ -4859,10 +5145,16 @@ export class ExportTaskManager extends EventEmitter {
           if (idx >= jobs.length) return;
           const job = jobs[idx]!;
           try {
-            const src = await deps.getPackImagePath(job.packId, job.hash, job.key);
-            if (!src) throw new Error('解密或下载失败');
-            const fileName = `${uniqueName(sanitizeSegment(job.name, job.hash), job.used)}.gif`;
-            await copyFile(src, join(job.packDir, fileName));
+            const target = join(job.packDir, job.fileName);
+            await checkpoint.file(
+              ['market-image', job.packId, job.hash, job.packDir, job.fileName],
+              target,
+              async () => {
+                const src = await deps.getPackImagePath(job.packId, job.hash, job.key);
+                if (!src) throw new Error('解密或下载失败');
+                await copyFile(src, target);
+              },
+            );
             ok += 1;
           } catch (e) {
             if (failures.length < 100) {
@@ -4890,7 +5182,7 @@ export class ExportTaskManager extends EventEmitter {
       };
       await Promise.all(Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, worker));
       if (aborted()) {
-        task.status = 'cancelled';
+        if (this.tasks.get(id)?.status !== 'paused') task.status = 'cancelled';
         return;
       }
 
@@ -4914,6 +5206,7 @@ export class ExportTaskManager extends EventEmitter {
       task.status = 'completed';
       task.progress = 100;
     } catch (e) {
+      if (aborted()) return;
       task.status = 'failed';
       task.error = String((e as Error)?.message ?? e);
       const running = task.stages.find((s) => s.status === 'running');
@@ -4924,7 +5217,7 @@ export class ExportTaskManager extends EventEmitter {
       this.log(id, 'task', `导出失败：${task.error}`, 'error');
     } finally {
       task.updatedAt = Date.now();
-      this.abortControllers.delete(id);
+      this.releaseTask(task);
       this.saveTasks();
       this.emit('progress', {
         taskId: id,
@@ -4955,6 +5248,7 @@ export class ExportTaskManager extends EventEmitter {
     const abort = new AbortController();
     this.abortControllers.set(id, abort);
     const aborted = (): boolean => abort.signal.aborted;
+    const checkpoint = this.checkpoint(task, abort.signal);
 
     try {
       const deps = this.deps.emojipack;
@@ -4977,10 +5271,12 @@ export class ExportTaskManager extends EventEmitter {
       let total = 0;
       for (const scope of scopes) {
         if (aborted()) {
-          task.status = 'cancelled';
+          if (this.tasks.get(id)?.status !== 'paused') task.status = 'cancelled';
           return;
         }
-        const items = scope === 'own' ? await deps.listOwnItems() : await deps.listReceivedItems();
+        const items = await checkpoint.run(['emoji-scan', scope], () =>
+          scope === 'own' ? deps.listOwnItems() : deps.listReceivedItems(),
+        );
         perScope.set(scope, items);
         total += items.length;
         this.log(id, 'emojiscan', `${scopeLabel(scope)}：本地命中 ${items.length} 张`);
@@ -5039,6 +5335,8 @@ export class ExportTaskManager extends EventEmitter {
                 onLog: (text, level) => this.log(id, 'emojidownload', text, level),
               },
               abort.signal,
+              6,
+              checkpoint,
             );
             perScope.set('own', r.items);
             downloadOk = r.downloaded;
@@ -5059,7 +5357,7 @@ export class ExportTaskManager extends EventEmitter {
         }
       }
       if (aborted()) {
-        task.status = 'cancelled';
+        if (this.tasks.get(id)?.status !== 'paused') task.status = 'cancelled';
         return;
       }
 
@@ -5076,7 +5374,7 @@ export class ExportTaskManager extends EventEmitter {
       let writeDone = 0;
       for (const scope of scopes) {
         if (aborted()) {
-          task.status = 'cancelled';
+          if (this.tasks.get(id)?.status !== 'paused') task.status = 'cancelled';
           return;
         }
         const items = perScope.get(scope) ?? [];
@@ -5098,6 +5396,8 @@ export class ExportTaskManager extends EventEmitter {
             onLog: (text, level) => this.log(id, 'emojiwrite', text, level),
           },
           abort.signal,
+          8,
+          checkpoint,
         );
         writeDone += items.length;
         written += r.written;
@@ -5111,12 +5411,7 @@ export class ExportTaskManager extends EventEmitter {
           r.skipped > 0 ? 'warn' : 'info',
         );
       }
-      try {
-        const { rm } = await import('node:fs/promises');
-        await rm(downloadDir, { recursive: true, force: true });
-      } catch {
-        /* 缓存目录清理失败不影响导出结果 */
-      }
+      abort.signal.throwIfAborted();
 
       this.touchStage(
         task,
@@ -5158,15 +5453,17 @@ export class ExportTaskManager extends EventEmitter {
           { persist: true },
         );
         const archive = join(this.cacheDir, `${id}.zip`);
-        await writeZipFile(archive, entries, {
-          signal: abort.signal,
-          progress: (done, count) =>
-            this.touchStage(task, 'emojizip', {
-              current: done,
-              total: count,
-              note: `打包 ${done}/${count}`,
-            }),
-        });
+        await checkpoint.file('emoji-zip', archive, () =>
+          writeZipFile(archive, entries, {
+            signal: abort.signal,
+            progress: (done, count) =>
+              this.touchStage(task, 'emojizip', {
+                current: done,
+                total: count,
+                note: `打包 ${done}/${count}`,
+              }),
+          }),
+        );
         task.filePath = archive;
         task.bundleDir = undefined;
         this.touchStage(task, 'emojizip', {
@@ -5178,10 +5475,13 @@ export class ExportTaskManager extends EventEmitter {
         const { rm } = await import('node:fs/promises');
         await rm(outDir, { recursive: true, force: true });
       }
+      abort.signal.throwIfAborted();
+      rmSync(downloadDir, { recursive: true, force: true });
       task.status = 'completed';
       task.progress = 100;
     } catch (e) {
-      task.status = aborted() ? 'cancelled' : 'failed';
+      if (aborted()) return;
+      task.status = 'failed';
       task.error = String((e as Error)?.message ?? e);
       const running = task.stages.find((s) => s.status === 'running');
       if (running) {
@@ -5191,7 +5491,7 @@ export class ExportTaskManager extends EventEmitter {
       this.log(id, 'task', `导出表情包失败：${task.error}`, 'error');
     } finally {
       task.updatedAt = Date.now();
-      this.abortControllers.delete(id);
+      this.releaseTask(task);
       this.saveTasks();
       this.emit('progress', {
         taskId: id,
@@ -5504,6 +5804,13 @@ export class ExportTaskManager extends EventEmitter {
           `格式 ${format.toUpperCase()} 完成：${result.messageCount} 条`,
         );
       }
+      this.emit('progress', {
+        taskId: task.id,
+        status: task.status,
+        progress: task.progress,
+        current: task.current,
+        message: `格式 ${format.toUpperCase()} 已完成`,
+      });
     }
     return {
       filePath: filePathFor(formats[0]!),
@@ -5881,8 +6188,10 @@ export class ExportTaskManager extends EventEmitter {
     };
   }
 
-  pauseTask(id: string): boolean {
+  pauseTask(id: string, policy = false): boolean {
     const task = this.tasks.get(id);
+    if (this.finalizing.has(id)) return false;
+    if (task?.resource && !task.resource.resume && !policy) return false;
     if (task?.status === 'paused' && task.networkPaused) {
       task.networkPaused = false;
       this.saveTasks();
@@ -5918,6 +6227,17 @@ export class ExportTaskManager extends EventEmitter {
     if (this.finalizing.has(task.id) || this.outputSaves.has(task.id)) return false;
     if (task.networkPaused && this.networkRunners.has(task.id))
       return task.status === 'paused' && !this.abortControllers.has(task.id);
+    if (task.resource)
+      return (
+        (this.resumableResource(task) || this.networkRunners.has(task.id)) &&
+        ['paused', 'failed', 'cancelled'].includes(task.status) &&
+        !this.abortControllers.has(task.id)
+      );
+    if (task.marketpack || task.emojipack)
+      return (
+        ['paused', 'failed', 'cancelled'].includes(task.status) &&
+        !this.abortControllers.has(task.id)
+      );
     if (
       task.generated &&
       task.status === 'completed' &&
@@ -5925,13 +6245,14 @@ export class ExportTaskManager extends EventEmitter {
     )
       return !this.abortControllers.has(task.id);
     if (task.contacts || task.generated || task.qzone || task.collection)
-      return ['paused', 'failed'].includes(task.status) && !this.abortControllers.has(task.id);
+      return (
+        ['paused', 'failed', 'cancelled'].includes(task.status) &&
+        !this.abortControllers.has(task.id)
+      );
     return (
-      (['paused', 'failed'].includes(task.status) ||
+      (['paused', 'failed', 'cancelled'].includes(task.status) ||
         (task.status === 'completed' &&
           task.stages.some((stage) => this.canRetrySkippedStage(task, stage)))) &&
-      (task.kind === 'group' || task.kind === 'c2c') &&
-      !task.guild &&
       !task.qzone &&
       !task.contacts &&
       !task.collection &&
@@ -6071,6 +6392,23 @@ export class ExportTaskManager extends EventEmitter {
         !this.canResume(task))
     )
       return false;
+    if (task.status === 'cancelled') {
+      // 取消已清除续作缓存；保留原始输入与正式文件，重新生成本轮输出。
+      task.formatCheckpoints = {};
+      task.partialReady = false;
+      task.current = 0;
+      task.progress = 0;
+      if (task.save && task.save.status !== 'saved') task.save.status = 'pending';
+      for (const stage of task.stages) {
+        if (stage.status === 'skipped') continue;
+        stage.status = 'pending';
+        stage.current = 0;
+        stage.failed = 0;
+        delete stage.note;
+        delete stage.failures;
+      }
+      this.log(id, 'task', '重新执行已取消的任务');
+    }
     task.networkPaused = false;
     if (!automatic) task.networkOverride = true;
     const networkRunner = this.networkRunners.get(id);
@@ -6081,18 +6419,43 @@ export class ExportTaskManager extends EventEmitter {
       this.enqueue(networkRunner, id);
       return true;
     }
+    if (task.resource?.resume) {
+      const request = task.resource.resume;
+      task.status = 'pending';
+      task.error = undefined;
+      this.saveTasks();
+      this.enqueue(
+        () => this.runResourceTask(task, (context) => this.deps.resumeResource!(request, context)),
+        id,
+      );
+      return true;
+    }
+    if (task.marketpack || task.emojipack) {
+      task.status = 'pending';
+      task.error = undefined;
+      this.saveTasks();
+      this.enqueue(
+        () => (task.marketpack ? this.runMarketPackTask(id) : this.runEmojiPackTask(id)),
+        id,
+      );
+      return true;
+    }
     if (
       task.generated &&
       task.status === 'completed' &&
       task.generatedResourceReport?.complete === false &&
       task.save
-    )
+    ) {
       task.save.status = 'pending';
+      task.scanId = randomUUID();
+      delete task.workBundleId;
+    }
     const retrySkipped =
       task.status === 'completed' &&
       task.stages.some((stage) => this.canRetrySkippedStage(task, stage));
     const resumeFormal =
       !incremental &&
+      !task.journalPath &&
       !task.contacts &&
       !task.generated &&
       !task.qzone &&
@@ -6182,7 +6545,10 @@ export class ExportTaskManager extends EventEmitter {
       task.formatCheckpoints = {};
       this.log(id, 'task', '继续补传已跳过的项目，保留已有文件和消息进度');
     }
-    if (incremental) task.formatCheckpoints = {};
+    if (incremental) {
+      task.formatCheckpoints = {};
+      delete task.workBundleId;
+    }
     if (incremental) {
       for (const stage of task.stages) {
         if (task.skippedStages?.includes(stage.key)) continue;
@@ -6198,7 +6564,7 @@ export class ExportTaskManager extends EventEmitter {
     task.error = undefined;
     task.updatedAt = Date.now();
     if (supportsExportReport(task)) task.reportVersion = 1;
-    if (task.contacts || task.generated || task.qzone || task.collection) {
+    if (incremental && (task.contacts || task.generated || task.qzone || task.collection)) {
       task.current = 0;
       task.progress = 0;
       task.formatCounts = {};
@@ -6337,6 +6703,14 @@ export class ExportTaskManager extends EventEmitter {
 
   /** Remove a task's on-disk output (the whole bundle folder, or the lone file). */
   private cleanupOutput(task: ExportTask): void {
+    rmSync(this.checkpoint(task).directory, { recursive: true, force: true });
+    for (const id of [task.id, `${task.id}-${task.scanId}`])
+      rmSync(join(this.cacheDir, `.bundle-${id}.partial`), { recursive: true, force: true });
+    if (task.workBundleId)
+      rmSync(join(this.cacheDir, `.bundle-${task.workBundleId}.partial`), {
+        recursive: true,
+        force: true,
+      });
     if (task.directOutput) return;
     if (task.archiveTargets || task.domainUpdate) {
       for (const path of [
@@ -6397,8 +6771,13 @@ export class ExportTaskManager extends EventEmitter {
   cancelTask(id: string): boolean {
     const task = this.tasks.get(id);
     if (!task || task.status === 'completed' || this.finalizing.has(id)) return false;
-    if (task.status === 'running') this.abortControllers.get(id)?.abort();
+    this.abortControllers.get(id)?.abort();
     task.status = 'cancelled';
+    if (!this.abortControllers.has(id)) this.clearResumeState(task);
+    if (task.resource) {
+      task.error = undefined;
+      task.networkPaused = false;
+    }
     task.updatedAt = Date.now();
     this.log(id, 'task', '任务已取消', 'warn');
     this.saveTasks();
@@ -6424,6 +6803,7 @@ export class ExportTaskManager extends EventEmitter {
       return false;
     this.cleanupOutput(task);
     this.tasks.delete(id);
+    this.networkRunners.delete(id);
     this.taskLogs.delete(id);
     this.saveTasks();
     return true;

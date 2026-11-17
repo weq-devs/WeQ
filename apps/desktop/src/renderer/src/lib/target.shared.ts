@@ -1,0 +1,31 @@
+/**
+ * Build-target helpers.
+ *
+ * `VITE_WEQ_TARGET` is set by each app's vite config ('electron' | 'web').
+ * Because it's a literal at build time, rollup drops the dead branch entirely —
+ * so Electron-only UI (and the `window.electron` calls behind it) never reaches
+ * the browser bundle.
+ */
+
+export const IS_WEB = import.meta.env.VITE_WEQ_TARGET === 'web';
+export const IS_ELECTRON = !IS_WEB;
+
+/**
+ * True when running in the Electron build on macOS. Windows/Linux keep their
+ * in-app window controls; macOS shows native traffic lights instead, so the
+ * renderer must leave the top-left cluster clear (and skip duplicate buttons).
+ */
+// node 环境的单测会 import 到本模块（例如 Toast 依赖 IS_WEB），此时没有 window。
+export const IS_MAC =
+  !IS_WEB && typeof window !== 'undefined' && window.electron?.process.platform === 'darwin';
+
+/**
+ * The preload bridge, or `undefined` in the browser build.
+ *
+ * `DesktopOnly` only skips JSX — hooks in the same component still run on web,
+ * where `window.weq` was never injected. Any effect touching the bridge must go
+ * through this and bail when it's absent.
+ */
+export function shellBridge(): Window['weq'] | undefined {
+  return IS_WEB ? undefined : window.weq;
+}

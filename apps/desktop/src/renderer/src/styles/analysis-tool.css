@@ -644,6 +644,7 @@ html[data-theme='dark'] .weq-analysis-picker {
 }
 .weq-analysis-result-title {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 1px;
   min-width: 0;

@@ -77,6 +77,33 @@ function Fixture() {
     compact
       ? [
           {
+            id: 'resource-cancelled',
+            name: '合成取消文件下载.zip',
+            kind: 'c2c',
+            format: 'json',
+            resource: { kind: 'group-files' },
+            status: 'cancelled',
+            canResume: true,
+            resumeMode: 'restart',
+            progress: 30,
+            current: 1,
+            total: 3,
+          },
+          {
+            id: 'resource-paused',
+            name: '合成暂停文件下载.zip',
+            kind: 'c2c',
+            format: 'json',
+            resource: { kind: 'group-files' },
+            status: 'paused',
+            networkPaused: true,
+            canResume: true,
+            resumeMode: 'restart',
+            progress: 50,
+            current: 1,
+            total: 2,
+          },
+          {
             id: 'export-quick',
             name: '合成导出-long-conversation-name-for-compact-menu',
             kind: 'c2c',
@@ -98,6 +125,31 @@ function Fixture() {
             save: { status: 'saved', path: '/synthetic/saved.json' },
             reportPath: '/synthetic/report',
           },
+          {
+            id: 'cancel-report',
+            name: '合成报告取消',
+            kind: 'c2c',
+            format: 'json',
+            resource: { kind: 'annual-report' },
+            canPause: false,
+            status: 'running',
+            progress: 20,
+            current: 0,
+            total: 1,
+          },
+          {
+            id: 'resume-mail',
+            name: '合成邮件续作',
+            kind: 'c2c',
+            format: 'json',
+            resource: { kind: 'mail-messages' },
+            canPause: true,
+            resumeMode: 'checkpoint',
+            status: 'running',
+            progress: 40,
+            current: 2,
+            total: 5,
+          },
         ]
       : [],
   );
@@ -112,8 +164,10 @@ function Fixture() {
           exports={tasks}
           exportActions={{
             pause: (task) => update(task, { status: 'paused', canResume: true }),
-            resume: (task) => update(task, { status: 'running', canResume: false }),
-            cancel: (task) => update(task, { status: 'cancelled', canResume: false }),
+            resume: (task) =>
+              update(task, { status: 'running', canResume: false, networkPaused: false }),
+            cancel: (task) =>
+              update(task, { status: 'cancelled', canResume: true, resumeMode: 'restart' }),
             remove: (task) => setTasks((items) => items.filter((item) => item.id !== task.id)),
             save: (task) => {
               window.taskQuickCalls?.push({ action: 'save', input: task.id });

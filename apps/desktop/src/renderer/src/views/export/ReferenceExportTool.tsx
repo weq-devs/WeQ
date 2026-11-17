@@ -3,7 +3,8 @@ import { Download, CheckCheck, FlipHorizontal2, X, Check, Loader2 } from 'lucide
 import { client } from '../../trpc/client';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
-import { useToast } from '../../components/Toast';
+import { useToast } from '../../components/Toast.shared';
+import { taskNotificationSource } from '../../lib/notificationNavigation.shared';
 import { ExportReportControl } from './ExportReportControl';
 import { WindowedList } from '../../components/WindowedList';
 import { contentReferenceKey, type ContentReference } from '../../../../shared/content_selection';
@@ -49,7 +50,11 @@ export function ReferenceExportTool({
         includeIntegrityReport,
       });
       if (id && save.isCurrent()) {
-        toast({ tone: 'info', title: '相册导出已加入任务列表' });
+        toast({
+          tone: 'info',
+          title: '相册导出已加入任务列表',
+          source: taskNotificationSource(id),
+        });
         onClose?.();
       }
     } catch (reason) {
@@ -65,7 +70,9 @@ export function ReferenceExportTool({
         <ServerSavePrompt name={save.serverLocation.name} onChoose={save.chooseServerLocation} />
       ) : null}
       <header className="weq-exp-tools weq-reference-export-head">
-        <h3>已选 {selected.size} 项内容</h3>
+        <h3>
+          已选 <span className="weq-number weq-number-inherit">{selected.size}</span> 项内容
+        </h3>
         <button
           type="button"
           className="weq-exp-tool"

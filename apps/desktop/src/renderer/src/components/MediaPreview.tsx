@@ -7,21 +7,16 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { ChevronLeft, ChevronRight, Copy, RotateCw } from 'lucide-react';
-import { compareMessageOrder } from '@weq/codec';
+import { ChevronLeft, ChevronRight, Copy, RefreshCw } from 'lucide-react';
 import { interactiveMediaUrl } from '../lib/resourceUrl';
 import { MediaPreviewShell } from './MediaPreviewShell';
-import {
-  MediaLoadStatus,
-  MediaZoomControls,
-  mediaZoomKeyDown,
-  type MediaLoadState,
-} from './MediaPreviewControls';
+import { MediaLoadStatus, MediaZoomControls, type MediaLoadState } from './MediaPreviewControls';
+import { mediaZoomKeyDown } from './MediaPreviewControls.shared';
 import { useZoomPan } from './useZoomPan';
 import { PreviewOcr } from './usePreviewOcr';
 import { MediaSourceSave } from './MediaSaveControls';
 import { exportMedia } from '../lib/mediaExport';
-import { useToast } from './Toast';
+import { useToastApi } from './Toast.shared';
 import { retainObjectUrl } from '../lib/objectUrl';
 import {
   resourceForRenderDocument,
@@ -29,39 +24,14 @@ import {
   useRenderDocument,
 } from '../lib/renderDocument';
 import { mediaRetryUrl } from '../lib/mediaRetryUrl';
+import { NotificationSourceProvider } from '../lib/notificationNavigation';
+import { notificationSource } from '../lib/notificationNavigation.shared';
+import { openMediaPreview } from './mediaPreviewStore.shared';
 import { topSurface } from '../lib/surfaceEscape';
 import type { MediaPreviewOptions, PreviewMedia } from './mediaPreviewTypes';
-export type { PreviewMedia, MediaPreviewOptions } from './mediaPreviewTypes';
+import { mergePreviewMedia } from './MediaPreview.shared';
 
-export function mergePreviewMedia(previous: PreviewMedia[], incoming: PreviewMedia[]) {
-  const keys = new Set(previous.map((item) => item.key));
-  const merged = [
-    ...previous,
-    ...incoming.filter((item) => !keys.has(item.key) && keys.add(item.key)),
-  ];
-  if (merged.every((item) => item.order)) {
-    // 聊天沿用消息时间线的序号/时间/ID 排序；无序号的其他来源保留传入顺序。
-    const groups = new Map<string, PreviewMedia[]>();
-    for (const item of merged) {
-      const group = groups.get(item.order!.messageId) ?? [];
-      group.push(item);
-      groups.set(item.order!.messageId, group);
-    }
-    return [...groups.values()]
-      .sort((left, right) => {
-        const a = left[0]!.order!,
-          b = right[0]!.order!;
-        return a.sequence !== undefined && b.sequence !== undefined
-          ? compareMessageOrder(
-              { msgSeq: a.sequence, sendTime: String(a.time), msgId: a.rawId ?? a.messageId },
-              { msgSeq: b.sequence, sendTime: String(b.time), msgId: b.rawId ?? b.messageId },
-            )
-          : a.time - b.time;
-      })
-      .flatMap((group) => group.sort((a, b) => a.order!.element - b.order!.element));
-  }
-  return merged;
-}
+export type { PreviewMedia, MediaPreviewOptions } from './mediaPreviewTypes';
 
 export function MediaPreview(options: MediaPreviewOptions) {
   const contextDocument = useRenderDocument();
@@ -215,7 +185,7 @@ export function MediaPreview(options: MediaPreviewOptions) {
                 aria-label={`重试加载${direction === 'older' ? '更早' : '更新'}的媒体`}
                 onClick={() => void readPage(direction, !options.prefetchAdjacent)}
               >
-                <RotateCw size={16} />
+                <RefreshCw size={16} aria-hidden />
                 加载失败，重试
               </button>
             ))}
@@ -227,7 +197,30 @@ export function MediaPreview(options: MediaPreviewOptions) {
   );
 }
 
-function MediaPreviewItem({
+function MediaPreviewItem(props: Parameters<typeof MediaPreviewItemBody>[0]) {
+  const { item } = props;
+  const source = useMemo(
+    () =>
+      notificationSource(
+        {
+          kind: 'local',
+          open: () => {
+            window.focus();
+            return openMediaPreview({ items: [item] });
+          },
+        },
+        '返回这项媒体',
+      ),
+    [item],
+  );
+  return (
+    <NotificationSourceProvider source={source}>
+      <MediaPreviewItemBody {...props} />
+    </NotificationSourceProvider>
+  );
+}
+
+function MediaPreviewItemBody({
   item,
   ownerDocument,
   active,
@@ -252,6 +245,7 @@ function MediaPreviewItem({
   canNewer: boolean;
   business: ReactNode;
 }) {
+  const notificationToast = useToastApi();
   const [resolved, setResolved] = useState<{
     key: string;
     src: string;
@@ -365,13 +359,11 @@ function MediaPreviewItem({
   const ready = status === 'ready';
   async function copy() {
     const result = await exportMedia({ url: src, name: item.title }, 'clipboard', ownerDocument);
-    useToast
-      .getState()
-      .push(
-        result.ok
-          ? { tone: 'success', title: '已复制到剪贴板' }
-          : { tone: 'error', title: '复制失败', message: result.error },
-      );
+    notificationToast.push(
+      result.ok
+        ? { tone: 'success', title: '已复制到剪贴板' }
+        : { tone: 'error', title: '复制失败', message: result.error },
+    );
   }
   // 等待视频原片时不把封面或占位来源误挂到播放器。
   const waiting = Boolean(item.load && item.kind === 'video' && resolved?.key !== item.key);
@@ -458,7 +450,7 @@ function MediaPreviewItem({
                 title="原图读取失败，重试"
                 aria-label="重试读取原图"
               >
-                <RotateCw size={16} />
+                <RefreshCw size={16} aria-hidden />
                 重试原图
               </button>
             ) : null}
@@ -561,11 +553,14 @@ function MediaPreviewItem({
             }}
           />
         ) : null}
-        <MediaLoadStatus
-          kind={current.kind === 'image' ? '图片' : '视频'}
-          status={status}
-          onRetry={retry}
-        />
+        {/* 播放器挂载后使用原生加载提示，避免叠加两组转圈。 */}
+        {waiting || current.kind === 'image' || status === 'error' ? (
+          <MediaLoadStatus
+            kind={current.kind === 'image' ? '图片' : '视频'}
+            status={status}
+            onRetry={retry}
+          />
+        ) : null}
       </div>
       {onMove ? (
         <button

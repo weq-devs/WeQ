@@ -145,16 +145,18 @@ export interface RenderC2cMsg extends Omit<C2cMsg, 'elements'> {
   recall?: RecallInfo;
 }
 /**
- * 导出链路的损坏宽容授权（账号级设置，**默认不配置 = 严格**）。
+ * 导出链路的损坏读取策略。不配置时不启用分块续读。
  *
- * 只有导出会用它：分页读真的报出损坏、且级别 ≥ 2 时，才从当前游标切到容错续读
- * （见 `export/message_source`）。聊天页、搜索等其它读取入口不受它影响。
+ * 只有导出会用它：分页损坏后从当前游标切到分块续读，接受未读区间前由任务询问。
+ * 聊天页、搜索等其它读取入口不会因此跳过数据。
  */
 export interface MsgSalvageSource {
   /** 实时读取的宽容授权（含级别、账本与逐条落盘回调）。 */
   binding: SalvageBindingOptions;
   /** 每块键跨度；省略则用 native 默认值。 */
   chunk?: number;
+  tableSkipped?: () => boolean;
+  onUnreadable?: (error: unknown) => Promise<void>;
 }
 
 export interface RenderGroupMsg extends Omit<GroupMsg, 'elements'> {
@@ -202,15 +204,16 @@ export class MsgService {
     readonly exportSignal?: AbortSignal,
   ) {}
 
-  withExportFilter(filter?: MessageFilter, signal?: AbortSignal): MsgService {
-    return new MsgService(
-      this.session,
-      this.deleted,
-      this.antiRecall,
-      this.salvage,
-      filter,
-      signal,
-    );
+  withExportFilter(
+    filter?: MessageFilter,
+    signal?: AbortSignal,
+    salvage = this.salvage,
+  ): MsgService {
+    return new MsgService(this.session, this.deleted, this.antiRecall, salvage, filter, signal);
+  }
+
+  exportDatabasePath(kind: 'group' | 'c2c', conv: string): string {
+    return kind === 'group' ? this.session.groupMsgs.sourcePath : this.c2cDbFor(conv).sourcePath;
   }
 
   exportSourceStamp(kind: 'group' | 'c2c' | 'official' | 'service', conv: string): string {

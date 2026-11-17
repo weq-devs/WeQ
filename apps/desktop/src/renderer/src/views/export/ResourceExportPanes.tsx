@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { RotateCw, Search } from 'lucide-react';
+import { RefreshCw, Search } from 'lucide-react';
 import { trpc } from '../../trpc/client';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import { ExportTab } from '../agentlab/PersonaSettingsModal';
 import { SingleSelectPicker } from './SingleSelectPicker';
 import { SegmentedControl } from '../../components/SegmentedControl';
@@ -24,7 +24,7 @@ export function PersonaBotExportPane() {
             aria-label="重试加载克隆体"
             onClick={() => void personas.refetch()}
           >
-            <RotateCw size={15} />
+            <RefreshCw size={15} aria-hidden />
           </button>
         </p>
       ) : null}
@@ -100,7 +100,7 @@ export function QzoneContentSelector({
         value={value}
         onChange={onChange}
         options={[
-          { value: 'posts', label: '空间' },
+          { value: 'posts', label: 'QQ 空间' },
           { value: 'both', label: '都导出' },
           { value: 'albums', label: '相册' },
         ]}

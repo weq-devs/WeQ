@@ -5,13 +5,12 @@
  * 漂移。样式类名沿用 `.weq-cap-*`（两边共用同一套样式）。
  */
 
+import { NumericText } from './NumericText';
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { useRenderDocument } from '../lib/renderDocument';
-import { useToast } from './Toast';
-
-/** 默认渲染的字节数；超过可用「显示全部」展开。 */
-export const HEX_PREVIEW_BYTES = 2048;
+import { useToastApi } from './Toast.shared';
+import { HEX_PREVIEW_BYTES } from './HexDump.shared';
 
 function fmtBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -54,11 +53,13 @@ export function HexDump({
       <div className="weq-cap-hexdump-body">{rows}</div>
       <div className="weq-cap-hexdump-foot">
         <span>
-          {bytes.length === 0
-            ? '空'
-            : showAll
-              ? `已显示全部 ${fmtBytes(bytes.length)}`
-              : `前 ${Math.min(bytes.length, HEX_PREVIEW_BYTES)} B / 共 ${fmtBytes(bytes.length)}`}
+          {bytes.length === 0 ? (
+            '空'
+          ) : showAll ? (
+            <NumericText>{`已显示全部 ${fmtBytes(bytes.length)}`}</NumericText>
+          ) : (
+            <NumericText>{`前 ${Math.min(bytes.length, HEX_PREVIEW_BYTES)} B / 共 ${fmtBytes(bytes.length)}`}</NumericText>
+          )}
         </span>
         {!showAll && bytes.length > HEX_PREVIEW_BYTES ? (
           <button type="button" className="weq-cap-more" onClick={() => setShowAll(true)}>
@@ -73,6 +74,7 @@ export function HexDump({
 
 /** 复制 hex 文本的小按钮（带 1.4s 的已复制反馈）。 */
 export function CopyHex({ text, disabled }: { text: string; disabled?: boolean }): ReactElement {
+  const notificationToast = useToastApi();
   const document = useRenderDocument();
   const view = useMemo(() => document.defaultView ?? window, [document]);
   const timer = useRef<number | null>(null);
@@ -94,9 +96,11 @@ export function CopyHex({ text, disabled }: { text: string; disabled?: boolean }
       onClick={() => {
         const clipboard = view.navigator.clipboard;
         if (!clipboard) {
-          useToast
-            .getState()
-            .push({ tone: 'error', title: '复制失败', detail: '当前窗口不支持剪贴板' });
+          notificationToast.push({
+            tone: 'error',
+            title: '复制失败',
+            detail: '当前窗口不支持剪贴板',
+          });
           return;
         }
         void clipboard
@@ -112,7 +116,7 @@ export function CopyHex({ text, disabled }: { text: string; disabled?: boolean }
           })
           .catch((error) => {
             if (alive.current && !view.closed)
-              useToast.getState().push({ tone: 'error', title: '复制失败', detail: errMsg(error) });
+              notificationToast.push({ tone: 'error', title: '复制失败', detail: errMsg(error) });
           });
       }}
     >

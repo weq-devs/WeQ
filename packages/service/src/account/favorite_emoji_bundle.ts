@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { detectImageFormat } from '@weq/protocol';
 import { buildZip, readZipEntries } from '../common/zip';
 import { sniffImageExt } from './export/emoji_export';
+import type { ExportCheckpoint } from './export/checkpoint';
 
 export const FAVORITE_EMOJI_BUNDLE_FORMAT = 'weq-favorite-emoji';
 export const FAVORITE_EMOJI_BUNDLE_VERSION = 1;
@@ -109,7 +110,11 @@ function imageInfo(bytes: Buffer): FavoriteEmojiImage {
 export async function createFavoriteEmojiBundle(
   sources: readonly FavoriteEmojiExportSource[],
   loadImage: (source: FavoriteEmojiExportSource) => Promise<Uint8Array | null>,
-  options: { signal?: AbortSignal; progress?: (done: number, total: number) => void } = {},
+  options: {
+    signal?: AbortSignal;
+    progress?: (done: number, total: number) => void;
+    checkpoint?: ExportCheckpoint;
+  } = {},
 ): Promise<{
   archive: Buffer;
   total: number;
@@ -133,20 +138,27 @@ export async function createFavoriteEmojiBundle(
       description: source.description,
       position: source.position,
     };
-    let input: Uint8Array | null = null;
     try {
-      input = await loadImage({ ...source });
-    } catch {
-      options.signal?.throwIfAborted();
-    }
-    options.signal?.throwIfAborted();
-    try {
-      if (!input) throw new Error('无法读取原图');
-      if (input.byteLength > FAVORITE_EMOJI_MAX_IMAGE_BYTES) throw new Error('图片体积超限');
-      const bytes = Buffer.from(input);
-      const image = imageInfo(bytes);
-      if (!/^[a-f0-9]{32}$/.test(source.md5) || image.md5 !== source.md5)
-        throw new Error('原图 MD5 不匹配');
+      const load = async () => {
+        let input: Uint8Array | null;
+        try {
+          input = await loadImage({ ...source });
+        } catch {
+          options.signal?.throwIfAborted();
+          throw new Error('无法读取原图');
+        }
+        options.signal?.throwIfAborted();
+        if (!input) throw new Error('无法读取原图');
+        if (input.byteLength > FAVORITE_EMOJI_MAX_IMAGE_BYTES) throw new Error('图片体积超限');
+        const bytes = Buffer.from(input);
+        const image = imageInfo(bytes);
+        if (!/^[a-f0-9]{32}$/.test(source.md5) || image.md5 !== source.md5)
+          throw new Error('原图 MD5 不匹配');
+        return { bytes, image };
+      };
+      const { bytes, image } = options.checkpoint
+        ? await options.checkpoint.run(['favorite-image', source.md5], load)
+        : await load();
       if (!images.has(image.file)) {
         if (totalBytes + bytes.length > FAVORITE_EMOJI_MAX_DATA_BYTES)
           throw new Error('收藏包图片总量超限，请分批导出');
@@ -155,6 +167,7 @@ export async function createFavoriteEmojiBundle(
       }
       entry.image = image;
     } catch (error) {
+      options.signal?.throwIfAborted();
       entry.error = error instanceof Error ? error.message : '图片校验失败';
       failed.push({ position: entry.position, description: entry.description, error: entry.error });
     }

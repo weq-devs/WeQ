@@ -7,12 +7,12 @@ import { resolve } from 'node:path';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { ConversationSettingsDialog } from '../src/renderer/src/components/ConversationSettingsDialog';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
 import {
-  ContentSelectionProvider,
   useContentMultiSelect,
   useContentAnalysisRequest,
   useContentExportRequest,
-} from '../src/renderer/src/state/contentSelection';
+} from '../src/renderer/src/state/contentSelection.shared';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>

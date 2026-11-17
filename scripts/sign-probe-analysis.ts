@@ -47,26 +47,81 @@ function readSso(
     throw new Error('SSO body 长度越界或存在额外字节');
   }
   const head = plain.subarray(4, headLength);
-  let offset = protocol === 12 ? 24 : 0;
-  const prefixed = (width = 4): Buffer => {
-    if (offset + width > head.length) throw new Error('SSO 字段前缀截断');
-    const size = width === 4 ? head.readUInt32BE(offset) : head.readUInt16BE(offset);
-    if (size < width || size > head.length - offset) throw new Error('SSO 字段长度越界');
-    const value = head.subarray(offset + width, offset + size);
-    offset += size;
-    return value;
+  // head 有两种布局，方向不同：
+  //   请求（c2s）：[seq][subAppId][const][0][0][a2len][a2][0][cmd][cookies][guid][empty][ver(2B)][reserved]
+  //   应答（s2c）：[seq][0][0][cmd][cookies][reserved]
+  // 早先只认请求布局，把应答帧（cmd 在 offset 12）当请求解，从 offset 24 读到的
+  // 是命令串中间字节，于是抛「SSO 字段长度越界」。这里先按两种候选探测 cmd 位置。
+  const readerAt = (start: number) => {
+    let offset = start;
+    const prefixed = (width = 4, label = '?'): Buffer => {
+      if (offset + width > head.length)
+        throw new Error(
+          `SSO 字段前缀截断 [${label}] offset=${offset} width=${width} headLen=${head.length}`,
+        );
+      const size = width === 4 ? head.readUInt32BE(offset) : head.readUInt16BE(offset);
+      if (size < width || size > head.length - offset)
+        throw new Error(
+          `SSO 字段长度越界 [${label}] offset=${offset} size=${size} remain=${
+            head.length - offset
+          }`,
+        );
+      const value = head.subarray(offset + width, offset + size);
+      offset += size;
+      return value;
+    };
+    return {
+      prefixed,
+      get offset() {
+        return offset;
+      },
+      remaining: () => head.length - offset,
+    };
   };
-  if (protocol === 12) prefixed(); // a2
-  const command = new TextDecoder('utf-8', { fatal: true }).decode(prefixed());
-  prefixed(); // cookies
-  if (protocol === 12) {
-    prefixed(); // guid
-    prefixed(); // 空字段
-    prefixed(2); // version
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+
+  // 候选一：请求布局（proto 12 才有 a2 段；proto 13 从 0 开始）。
+  const tryRequest = (): { command: string; reserved: Buffer } => {
+    const r = readerAt(protocol === 12 ? 24 : 0);
+    if (protocol === 12) r.prefixed(4, 'a2');
+    const command = decoder.decode(r.prefixed(4, 'command'));
+    r.prefixed(4, 'cookies');
+    if (protocol === 12) {
+      r.prefixed(4, 'guid');
+      r.prefixed(4, 'empty');
+      r.prefixed(2, 'version');
+    }
+    const reserved = r.prefixed(4, 'reserved');
+    if (r.offset !== head.length) throw new Error('SSO head 含未解析字段');
+    return { command, reserved };
+  };
+
+  // 候选二：应答布局 —— [seq][0][0][cmd][cookies][reserved]。
+  const tryResponse = (): { command: string; reserved: Buffer } => {
+    const r = readerAt(12);
+    const command = decoder.decode(r.prefixed(4, 'command'));
+    r.prefixed(4, 'cookies');
+    const reserved = r.prefixed(4, 'reserved');
+    if (r.offset !== head.length) throw new Error('SSO head 含未解析字段');
+    return { command, reserved };
+  };
+
+  let parsed: { command: string; reserved: Buffer } | undefined;
+  let firstError: Error | undefined;
+  for (const attempt of [tryRequest, tryResponse]) {
+    try {
+      parsed = attempt();
+      break;
+    } catch (error) {
+      firstError ??= error instanceof Error ? error : new Error(String(error));
+    }
   }
-  const reserved = prefixed();
-  if (offset !== head.length) throw new Error('SSO head 含未解析字段');
-  return { command, reserved, body: plain.subarray(headLength + 4) };
+  if (!parsed) throw firstError ?? new Error('SSO head 无法解析');
+  return {
+    command: parsed.command,
+    reserved: parsed.reserved,
+    body: plain.subarray(headLength + 4),
+  };
 }
 
 /** 复用项目 wire 遍历，并拒绝零 tag / 超范围 tag；不把解析失败转成空字段集。 */
@@ -142,11 +197,9 @@ export function inspectProbeFrames(
     }
     result.sent = true;
     if (inspection.status === 'parse-error') {
-      if (
-        result.parseErrors.length < 8 &&
-        !result.parseErrors.includes(inspection.error ?? '解析失败')
-      ) {
-        result.parseErrors.push(inspection.error ?? '解析失败');
+      const detail = `${frame.direction} seq=${frame.seq} ${inspection.error ?? '解析失败'}`;
+      if (result.parseErrors.length < 8 && !result.parseErrors.includes(detail)) {
+        result.parseErrors.push(detail);
       }
       continue;
     }

@@ -10,8 +10,9 @@ import {
 import { contactBirth } from '../../lib/contactBirth';
 import '../../styles/self-profile-editor.css';
 import { QQWriteSelectRow, QQWriteTextRow } from '../QQWriteControls';
-import { useEditableSelfProfileFields } from './EditableSelfProfile';
-import { SelfProfileFieldsContext, type SelfProfileFields } from '../SelfProfileFields';
+import { useEditableSelfProfileFields } from './EditableSelfProfile.shared';
+import { SelfProfileFieldsContext } from '../SelfProfileFields.shared';
+import type { SelfProfileFields } from '../SelfProfileFields';
 
 export function SelfProfileProvider({ children }: { children: ReactNode }) {
   const additional = useEditableSelfProfileFields();

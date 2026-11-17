@@ -63,7 +63,7 @@ it('本地缓存按表情 / 头像 / 图片与视频 / 文件 / 语音 / 空间�
       { name: '图片与视频', items: ['图片资源', '视频资源', '图片墙资源'] },
       { name: '文件', items: ['File 目录', '下载文件'] },
       { name: '语音', items: ['语音资源'] },
-      { name: '空间', items: ['QQ空间缓存'] },
+      { name: '空间', items: ['QQ 空间缓存'] },
     ]);
     // 数据库是维护工具里的独立入口，不应再出现在缓存分类里。
     expect(f.host.textContent).not.toContain('本地数据库');

@@ -1,5 +1,4 @@
 import { EmptyState } from '../components/EmptyState';
-import { eventTimeFormatter } from '@weq/time';
 /**
  * 空间页与空友爱看共用的展示件。
  *
@@ -9,16 +8,8 @@ import { eventTimeFormatter } from '@weq/time';
  *
  * 样式仍走 `styles/qzone.css` 的 `weq-qzn-*` 类名。
  */
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-  type ReactElement,
-  type RefObject,
-} from 'react';
-import { CircleDot, Loader2, Pause, Play, VideoOff, Images } from 'lucide-react';
+import { useContext, useEffect, useRef, useState, type ReactElement } from 'react';
+import { CircleDot, Loader2, Pause, Play, VideoOff, Images, RefreshCw } from 'lucide-react';
 import { MediaPreview, type PreviewMedia } from '../components/MediaPreview';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { ShimmerImage } from '../components/ShimmerImage';
@@ -26,44 +17,7 @@ import { qzoneMediaSource } from '../lib/qzone';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { client } from '../trpc/client';
 import { applyQzoneVideoTypes, type QzoneVideoType } from '../lib/qzoneMediaTypes';
-
-/** 当前页是否可见 + 刷新代数（供子组件决定是否继续读）。 */
-export const QzonePageContext = createContext({ active: true, refresh: 0 });
-/** 上游明确不可用时暂停自动读取，保留已读内容。 */
-export const QzoneReadPauseContext = createContext(false);
-
-/** 元素是否进入（或接近）滚动容器视口；`once` 只触发一次。 */
-export function useNearViewport(
-  ref: RefObject<HTMLElement | null>,
-  once = false,
-  enabled = true,
-): boolean {
-  const [near, setNear] = useState(false);
-  const { active } = useContext(QzonePageContext);
-  useEffect(() => {
-    if (!active || !enabled) {
-      setNear(false);
-      return undefined;
-    }
-    const element = ref.current;
-    if (!element) return undefined;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries.some((entry) => entry.isIntersecting);
-        setNear(visible);
-        if (visible && once) observer.disconnect();
-      },
-      { root: element.closest('.weq-qzn-scroll'), rootMargin: '300px' },
-    );
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [ref, once, active, enabled]);
-  return active && enabled && near;
-}
-
-export function timeText(time: number): string {
-  return time ? eventTimeFormatter.format(new Date(time * 1000)) : '';
-}
+import { useNearViewport, QzonePageContext, QzoneReadPauseContext } from './qzoneShared.shared';
 
 export function LoadingStatus({ text = '正在加载…' }: { text?: string }) {
   return (
@@ -101,7 +55,8 @@ export function State({
         <>
           <span>{error}</span>
           {retry ? (
-            <button type="button" onClick={retry}>
+            <button type="button" onClick={retry} className="weq-retry-button">
+              <RefreshCw size={14} aria-hidden />
               重试
             </button>
           ) : null}
@@ -109,7 +64,11 @@ export function State({
       ) : (
         empty
       )}
-      {progress ? <span className="weq-qzn-page-count">{progress}</span> : null}
+      {progress ? (
+        <span className="weq-qzn-page-count">
+          <span className="weq-number weq-number-inherit">{progress}</span>
+        </span>
+      ) : null}
     </div>
   );
 }

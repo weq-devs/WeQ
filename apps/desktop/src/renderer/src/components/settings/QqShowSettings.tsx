@@ -15,7 +15,7 @@ import { SharedDisplayToggle } from './SharedDisplayToggle';
 
 const MAX_MINUTES = 365 * 1440;
 
-export function QqShowSettings() {
+export function QqShowSettings({ cacheOnly = false }: { cacheOnly?: boolean }) {
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 0,
@@ -47,53 +47,56 @@ export function QqShowSettings() {
 
   return (
     <>
-      <Row
-        settingId="chat-qqshow"
-        label="聊天 QQ 秀替换头像"
-        desc="用成员的 QQ 秀全身像替换头像与挂件。"
-        control={
-          <SharedDisplayToggle
-            name="showChatQqShow"
-            fallback={settings.data?.showChatQqShow ?? true}
-            disabled={!settings.data}
-            label="聊天 QQ 秀替换头像"
-          />
-        }
-      />
-      <Row
-        settingId="chat-qqshow-days"
-        label="QQ 秀缓存有效期"
-        desc="默认 5 分钟，聊天与个性主页共用。"
-        control={
-          <AutoSave
-            resetKeys={['qqShowCacheMinutes']}
-            value={draft.trim() ? Number(draft) : ''}
-            saved={current}
-            ready={!!settings.data}
-            valid={valid}
-            save={applyMinutes}
-            reset={() => setDraft(String(current))}
-          >
-            <div className="weq-image-cache-setting">
-              <input
-                type="number"
-                min={1}
-                max={MAX_MINUTES}
-                step={1}
-                value={draft}
-                aria-label="QQ 秀缓存有效期（分钟）"
-                aria-invalid={!valid}
-                disabled={!settings.data}
-                onChange={(event) => {
-                  setDraft(event.target.value);
-                  setError(null);
-                }}
-              />
-              <span>分钟</span>
-            </div>
-          </AutoSave>
-        }
-      />
+      {!cacheOnly ? (
+        <Row
+          settingId="chat-qqshow"
+          label="优先使用 QQ 秀替换头像"
+          desc="用成员的 QQ 秀全身像替换头像与挂件。"
+          control={
+            <SharedDisplayToggle
+              name="showChatQqShow"
+              fallback={settings.data?.showChatQqShow ?? true}
+              disabled={!settings.data}
+              label="优先使用 QQ 秀替换头像"
+            />
+          }
+        />
+      ) : null}
+      {cacheOnly ? (
+        <Row
+          settingId="chat-qqshow-days"
+          desc="默认 5 分钟，聊天与个性主页共用。"
+          control={
+            <AutoSave
+              resetKeys={['qqShowCacheMinutes']}
+              value={draft.trim() ? Number(draft) : ''}
+              saved={current}
+              ready={!!settings.data}
+              valid={valid}
+              save={applyMinutes}
+              reset={() => setDraft(String(current))}
+            >
+              <div className="weq-image-cache-setting">
+                <input
+                  type="number"
+                  min={1}
+                  max={MAX_MINUTES}
+                  step={1}
+                  value={draft}
+                  aria-label="QQ 秀缓存有效期（分钟）"
+                  aria-invalid={!valid}
+                  disabled={!settings.data}
+                  onChange={(event) => {
+                    setDraft(event.target.value);
+                    setError(null);
+                  }}
+                />
+                <span>分钟</span>
+              </div>
+            </AutoSave>
+          }
+        />
+      ) : null}
       {error ? <p role="alert">{error}</p> : null}
     </>
   );

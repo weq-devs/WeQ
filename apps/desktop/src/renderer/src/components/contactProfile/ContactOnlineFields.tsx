@@ -3,7 +3,7 @@ import { trpc } from '../../trpc/client';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { PROFILE_QUERY_OPTIONS } from '../../lib/profileQuery';
 import { educationDegree, educationRows } from '../../lib/profileEducation';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { ContactInlineError, ContactRow } from './ContactRow';
 
 function useTarget(uin: string) {

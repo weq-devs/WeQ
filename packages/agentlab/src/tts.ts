@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * TtsService — account-independent text-to-speech, the second member of
  * `common/`. Mirrors the MaiBot `tts_voice_plugin` strategy pattern: a vendor
@@ -75,6 +76,8 @@ export interface TtsRefClip {
 export interface TtsSynthesizeOptions {
   signal?: AbortSignal;
   usageFeature?: string;
+  /** 业务记账替代默认全局账本，保留实际调用的业务归属。 */
+  onUsage?: AgentLabEndpoint['onUsage'];
   /** 覆盖默认音色（preset 模式）。 */
   voice?: string;
   /** 情感关键词（部分厂商支持，映射成各自参数）。 */
@@ -307,7 +310,7 @@ async function fetchWithTimeout(
     context.call = beginApiUsage(context.endpoint);
   }
   try {
-    const response = await fetch(url, { ...init, signal });
+    const response = await networkFetch(url, { ...init, signal });
     if (!response.ok) context?.call?.finish('failed');
     return response;
   } catch (error) {
@@ -765,7 +768,7 @@ export class TtsService {
         model: (opts.refClip ? cfg.cloneModel : cfg.model) || `tts:${cfg.vendor}`,
         kind: 'speech',
         feature: opts.usageFeature ?? 'tts-synthesis',
-        onUsage: this.onUsage,
+        onUsage: opts.onUsage ?? this.onUsage,
         source: cfg.vendor === 'gpt-sovits' || cfg.vendor === 'cosyvoice' ? 'local' : 'api',
       },
     };

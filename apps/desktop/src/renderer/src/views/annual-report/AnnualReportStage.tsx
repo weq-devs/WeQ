@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import { topSurface } from '../../lib/surfaceEscape';
 import { reportCanTurn, reportGestureTarget, reportSwipeDirection } from '../../lib/reportSwipe';
 import '../../styles/annual-report-reading.css';

@@ -14,7 +14,7 @@ import {
   mobileBackTarget,
   pushMobileBack,
 } from '../src/renderer/src/hooks/useMobileNavigation';
-import { useDialog } from '../src/renderer/src/components/Dialog';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -33,7 +33,15 @@ const saveState = vi.hoisted(() => ({
 vi.mock('../src/renderer/src/state/contentSelection', () => ({
   useRequestContentExport: () => saveState.requestExport,
 }));
+vi.mock('../src/renderer/src/state/contentSelection.shared', () => ({
+  useRequestContentExport: () => saveState.requestExport,
+}));
 vi.mock('../src/renderer/src/lib/target', () => ({
+  get IS_WEB() {
+    return saveState.web;
+  },
+}));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({
   get IS_WEB() {
     return saveState.web;
   },
@@ -114,7 +122,7 @@ beforeEach(() => {
   vi.stubGlobal('localStorage', new Storage());
   vi.stubGlobal(
     'matchMedia',
-    vi.fn(() => ({ matches: false }) as MediaQueryList),
+    vi.fn(() => Object.assign(new EventTarget(), { matches: false }) as MediaQueryList),
   );
   saveState.current = true;
   saveState.web = false;
@@ -388,7 +396,10 @@ describe('邮箱移动返回层级', () => {
   beforeEach(() => {
     saveState.web = true;
     vi.spyOn(window, 'matchMedia').mockImplementation(
-      (query) => ({ matches: query === '(max-width: 760px)' }) as MediaQueryList,
+      (query) =>
+        Object.assign(new EventTarget(), {
+          matches: query === '(max-width: 760px)',
+        }) as MediaQueryList,
     );
   });
 

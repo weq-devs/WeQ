@@ -1,6 +1,8 @@
+import { NumericText } from './NumericText';
 import { TimeLabel } from './TimeLabel';
 import { eventTimeFormatter } from '@weq/time';
 import { useEffect, useMemo, useState } from 'react';
+import { TaskProgressBar } from './tasks/TaskProgressBar';
 import {
   CalendarRange,
   Check,
@@ -21,7 +23,6 @@ import {
   Play,
   Radio,
   RefreshCw,
-  RotateCcw,
   Search,
   Square,
   Trash2,
@@ -33,7 +34,7 @@ import { classifyChatType } from '@weq/codec';
 import type { RoamingTarget } from '@weq/service';
 import { trpc } from '../trpc/client';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
-import { useDialog } from './Dialog';
+import { useDialog } from './Dialog.shared';
 import { WindowedList } from './WindowedList';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import { MessageCalendar } from './MessageCalendar';
@@ -318,7 +319,7 @@ export function RoamingBackfillPanel({
           {surface === 'tasks' && jobs.length ? (
             <span className="weq-roaming-chip is-quiet">
               <History size={13} />
-              {jobs.length} 个任务
+              <span className="weq-number weq-number-inherit">{jobs.length}</span> 个任务
             </span>
           ) : null}
           <span className="weq-roaming-statusline-spacer" />
@@ -342,7 +343,7 @@ export function RoamingBackfillPanel({
                 disabled={!autoRefresh.enabled || state.isFetching}
                 onClick={refresh}
               >
-                <RefreshCw size={14} />
+                <RefreshCw size={14} aria-hidden />
               </button>
             ) : null}
           </p>
@@ -365,7 +366,8 @@ export function RoamingBackfillPanel({
                   <span className="weq-roaming-card-text">
                     <strong>选择会话</strong>
                     <small>
-                      已选 {selected.size} / {targets.length}
+                      已选 <span className="weq-number weq-number-inherit">{selected.size}</span> /{' '}
+                      <span className="weq-number weq-number-inherit">{targets.length}</span>
                     </small>
                   </span>
                   <button
@@ -469,7 +471,11 @@ export function RoamingBackfillPanel({
                               <small>
                                 {target.kind === 'group' ? '群聊' : '私聊'} ·{' '}
                                 <span data-privacy-sensitive>{target.conv}</span>
-                                {info?.messageCount ? ` · ${format(info.messageCount)} 条` : ''}
+                                {info?.messageCount ? (
+                                  <NumericText>{` · ${format(info.messageCount)} 条`}</NumericText>
+                                ) : (
+                                  ''
+                                )}
                               </small>
                             </span>
                             <span className="weq-roaming-check" aria-hidden>
@@ -530,7 +536,9 @@ export function RoamingBackfillPanel({
                   <details className="weq-roaming-fixed-targets">
                     <summary>
                       <Users size={14} />
-                      已选 {fixedTargets.length} 个会话
+                      已选{' '}
+                      {<span className="weq-number weq-number-inherit">{fixedTargets.length}</span>}{' '}
+                      个会话
                       <ChevronRight size={13} className="weq-roaming-disclosure" />
                     </summary>
                     <WindowedList
@@ -664,7 +672,11 @@ export function RoamingBackfillPanel({
                 <span className="weq-roaming-card-text">
                   <strong>补全任务</strong>
                   <small>
-                    {jobs.length ? `${jobs.length} 个任务 · 最新在前` : '尚无批量补全任务'}
+                    {jobs.length ? (
+                      <NumericText>{`${jobs.length} 个任务 · 最新在前`}</NumericText>
+                    ) : (
+                      '尚无批量补全任务'
+                    )}
                   </small>
                 </span>
               </header>
@@ -702,24 +714,29 @@ export function RoamingBackfillPanel({
                             {atBeijing(job.createdAt)}
                           </TimeLabel>
                           <Users size={12} />
-                          {job.targets.length} 个会话
+                          {
+                            <span className="weq-number weq-number-inherit">
+                              {job.targets.length}
+                            </span>
+                          }{' '}
+                          个会话
                         </small>
                       </span>
                       <span className="weq-roaming-job-ratio" title="已覆盖候选 / 候选总数">
-                        {format(covered)}
-                        <small>/ {format(job.plannedSeqs)}</small>
+                        <span className="weq-number weq-number-inherit">{format(covered)}</span>
+                        <small>
+                          /{' '}
+                          <span className="weq-number weq-number-inherit">
+                            {format(job.plannedSeqs)}
+                          </span>
+                        </small>
                       </span>
                     </header>
-                    <div
-                      className="weq-roaming-progress"
-                      role="progressbar"
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-valuenow={Math.round(pct)}
-                      aria-label="候选缺口覆盖进度"
-                    >
-                      <span style={{ width: `${pct}%` }} />
-                    </div>
+                    <TaskProgressBar
+                      value={pct}
+                      label="候选缺口覆盖进度"
+                      status={job.status === 'partial' ? 'paused' : job.status}
+                    />
                     <div className="weq-roaming-job-targets">
                       {job.targets.map((target) => (
                         <span key={targetKey(target)} className="weq-roaming-tag">
@@ -743,7 +760,9 @@ export function RoamingBackfillPanel({
                       ).map(([label, value]) => (
                         <div key={label}>
                           <dt>{label}</dt>
-                          <dd>{format(value)}</dd>
+                          <dd>
+                            <span className="weq-number weq-number-inherit">{format(value)}</span>
+                          </dd>
                         </div>
                       ))}
                     </dl>
@@ -763,25 +782,38 @@ export function RoamingBackfillPanel({
                     <div className="weq-roaming-job-meta">
                       <span className="weq-roaming-chip is-quiet">
                         <Radio size={12} />
-                        {job.options.transport === 'native500'
-                          ? 'SDK 通道已移除（历史任务）'
-                          : job.options.transport === 'sso500'
-                            ? '聚合通道已移除（历史任务）'
-                            : `SSO · ${job.options.intervalMs} ms`}
+                        <NumericText>
+                          {job.options.transport === 'native500'
+                            ? 'SDK 通道已移除（历史任务）'
+                            : job.options.transport === 'sso500'
+                              ? '聚合通道已移除（历史任务）'
+                              : `SSO · ${job.options.intervalMs} ms`}
+                        </NumericText>
                       </span>
                       <span className="weq-roaming-chip is-quiet">
                         <History size={12} />
-                        待检查窗口 {format(job.estimatedWindows)}
+                        待检查窗口{' '}
+                        <span className="weq-number weq-number-inherit">
+                          {format(job.estimatedWindows)}
+                        </span>
                       </span>
                       <span className="weq-roaming-chip is-quiet">
                         <CalendarRange size={12} />
-                        {job.options.range?.start === undefined
-                          ? '不限起始'
-                          : atBeijing(job.options.range.start * 1000)}
+                        {job.options.range?.start === undefined ? (
+                          '不限起始'
+                        ) : (
+                          <span className="weq-number weq-number-inherit">
+                            {atBeijing(job.options.range.start * 1000)}
+                          </span>
+                        )}
                         {' → '}
-                        {job.options.range?.end === undefined
-                          ? '不限结束'
-                          : atBeijing(job.options.range.end * 1000)}
+                        {job.options.range?.end === undefined ? (
+                          '不限结束'
+                        ) : (
+                          <span className="weq-number weq-number-inherit">
+                            {atBeijing(job.options.range.end * 1000)}
+                          </span>
+                        )}
                       </span>
                       {job.inFlight ? (
                         <span className="weq-roaming-chip is-pending">
@@ -790,7 +822,11 @@ export function RoamingBackfillPanel({
                             job.targets.find((target) => targetKey(target) === job.inFlight?.target)
                               ?.name ??
                             job.inFlight.target}{' '}
-                          · seq {job.inFlight.start}–{job.inFlight.end} 待复核
+                          · seq{' '}
+                          <span className="weq-number weq-number-inherit">
+                            {job.inFlight.start}–{job.inFlight.end}
+                          </span>{' '}
+                          待复核
                         </span>
                       ) : null}
                     </div>
@@ -826,7 +862,7 @@ export function RoamingBackfillPanel({
                           暂停
                         </button>
                       ) : null}
-                      {job.status === 'partial' ? (
+                      {job.status === 'partial' || job.status === 'cancelled' ? (
                         <button
                           type="button"
                           className="weq-roaming-actionbtn"
@@ -842,7 +878,7 @@ export function RoamingBackfillPanel({
                             run.mutate({ id: job.id, retryRemaining: true });
                           }}
                         >
-                          <RotateCcw size={14} />
+                          <RefreshCw size={14} aria-hidden />
                           重试未补区间
                         </button>
                       ) : null}
@@ -858,6 +894,7 @@ export function RoamingBackfillPanel({
                         </button>
                       ) : null}
                       <button
+                        data-danger="outline"
                         type="button"
                         className="weq-roaming-iconbtn is-danger"
                         title="移除任务，保留已取得的消息"
@@ -867,6 +904,7 @@ export function RoamingBackfillPanel({
                           void confirm(
                             '移除任务？',
                             '仅移除任务与断点，已经取得的漫游消息会保留。',
+                            { danger: 'outline' },
                           ).then((ok) => {
                             if (ok) remove.mutate({ id: job.id });
                           });
@@ -892,7 +930,10 @@ export function RoamingBackfillPanel({
                                   attempt.target}
                               </span>
                               <small>
-                                seq {attempt.start}–{attempt.end}
+                                seq{' '}
+                                <span className="weq-number weq-number-inherit">
+                                  {attempt.start}–{attempt.end}
+                                </span>
                               </small>
                             </span>
                             <span
@@ -907,7 +948,10 @@ export function RoamingBackfillPanel({
                                 }[attempt.outcome]
                               }
                               {' · '}
-                              {attempt.observed} 条
+                              <span className="weq-number weq-number-inherit">
+                                {attempt.observed}
+                              </span>{' '}
+                              条
                             </span>
                             {attempt.detail ? <small>{attempt.detail}</small> : null}
                           </div>

@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import type { GroupConversation } from '../im-template/template/types';
 import { Avatar } from '../im-template/template/primitives';
 import { displayUserName } from '../im-template/template/user';
@@ -81,7 +82,9 @@ export function GroupLabelSources({
                       <GroupLabelSetter group={group} uid={record.setterUid} member={member} />
                     ) : null}
                     {time ? (
-                      <span className="weq-group-label-time">设置时间：{time}（北京时间）</span>
+                      <span className="weq-group-label-time">
+                        设置时间：<NumericText>{time}</NumericText>（北京时间）
+                      </span>
                     ) : null}
                   </div>
                 );

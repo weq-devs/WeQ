@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * 防撤回通知的「拦下处理」（Electron 主进程）。
  *
@@ -62,6 +63,7 @@ async function handle(event: RecallNotifyEvent): Promise<void> {
     silent: false,
   });
   notification.on('click', () => {
+    if (getAppContext().services !== services) return;
     openConversationAt(event);
   });
   notification.show();
@@ -184,7 +186,7 @@ async function fetchAvatar(event: RecallNotifyEvent): Promise<Uint8Array | null>
     if (!/^\d+$/.test(event.conv)) return null;
     url = `https://q1.qlogo.cn/g?b=qq&nk=${event.conv}&s=100`;
   }
-  const res = await fetch(url, { signal: AbortSignal.timeout(5_000) });
+  const res = await networkFetch(url, { signal: AbortSignal.timeout(5_000) });
   if (!res.ok) return null;
   const type = res.headers.get('content-type') ?? '';
   if (!type.startsWith('image/')) return null;

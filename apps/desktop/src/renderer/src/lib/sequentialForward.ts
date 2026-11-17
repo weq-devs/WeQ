@@ -1,5 +1,22 @@
 import * as timeFormat from '@weq/time';
-import type { RepeatElement } from './messageRepeat';
+import { forwardUnsupportedReason, type RepeatElement } from './messageRepeat';
+import type { Message } from '../im-template/template/types';
+import { outgoingActionBlockReason } from './messageSelection';
+
+export function forwardMessageBlockReason(message: Message): string | null {
+  return outgoingActionBlockReason(message) ?? forwardUnsupportedReason(message.qqElements ?? []);
+}
+
+export function partitionForwardMessages<T extends Message>(messages: readonly T[]) {
+  const sendable: T[] = [];
+  const ignored: { message: T; reason: string }[] = [];
+  for (const message of messages) {
+    const reason = forwardMessageBlockReason(message);
+    if (reason) ignored.push({ message, reason });
+    else sendable.push(message);
+  }
+  return { sendable, ignored };
+}
 
 export interface ForwardOptions {
   mode: 'fixed' | 'text' | 'original';

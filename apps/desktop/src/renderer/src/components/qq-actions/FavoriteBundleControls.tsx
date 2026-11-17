@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { ImagePlus } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
-import { useDialog } from '../Dialog';
+import { useDialog } from '../Dialog.shared';
 import { FavoriteBundleExport } from './FavoriteBundleExport';
 import { FavoriteBundleImport } from './FavoriteBundleImport';
-import { ActionIcon, useQQAction, withQQAccountScope } from './shared';
+import { ActionIcon } from './shared';
+import { useQQAction, withQQAccountScope } from './shared.shared';
 import '../../styles/emoji-pack-formats.css';
 
 function FavoriteBundleControlsBody({ onChanged }: { onChanged: () => Promise<void> }) {

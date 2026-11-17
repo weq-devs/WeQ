@@ -13,14 +13,16 @@
  * 图片与自定义表情统一遵循克隆训练的图片处理偏好。
  */
 
+import { NumericText } from '../../components/NumericText';
 import { EmptyState } from '../../components/EmptyState';
 import { useMemo, useState, type ReactElement } from 'react';
 import type { AgentLabModels, AgentLabModelSelection } from '@weq/agentlab';
 import { ApiModelSelect } from '../../components/settings/ApiModelSelect';
 import { AiImagePreferenceSetting } from '../../components/settings/AiImageSettings';
-import { ArrowLeft, Check, Search, Sparkles, X, SearchX, UsersRound } from 'lucide-react';
+import { ArrowLeft, Check, Search, X, SearchX, UsersRound } from 'lucide-react';
+import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import { Modal } from '../../components/Dialog';
-import { qqAvatarUrl } from '../../components/QqAvatar';
+import { qqAvatarUrl } from '../../components/QqAvatar.shared';
 import { Avatar } from '../export/widgets';
 import { useAppDialog } from '../../lib/dialogUtils';
 import '../../styles/export.css';
@@ -156,8 +158,20 @@ export function NewCloneModal({
     }
   }
 
+  const title = picking
+    ? '选择要克隆的好友'
+    : targets.length === 1
+      ? `配置克隆：${targets[0]!.label}`
+      : `批量克隆 ${targets.length} 位好友`;
+
   return (
-    <Modal onClose={requestClose} width={520} centered labelledBy="weq-new-clone-title">
+    <Modal
+      onClose={requestClose}
+      width={520}
+      centered
+      labelledBy="weq-new-clone-title"
+      className="weq-clone-dialog"
+    >
       <div className="weq-clone-modal">
         <header className="weq-clone-modal-head">
           {!picking ? (
@@ -170,15 +184,11 @@ export function NewCloneModal({
             </button>
           ) : (
             <span className="weq-clone-modal-icon">
-              <Sparkles size={16} />
+              <FEATURE_ICONS.clone size={16} aria-hidden />
             </span>
           )}
-          <strong id="weq-new-clone-title">
-            {picking
-              ? '选择要克隆的好友'
-              : targets.length === 1
-                ? `配置克隆：${targets[0]!.label}`
-                : `批量克隆 ${targets.length} 位好友`}
+          <strong id="weq-new-clone-title" title={title}>
+            {!picking && targets.length !== 1 ? <NumericText>{title}</NumericText> : title}
           </strong>
           <button
             className="weq-set-iconbtn"
@@ -230,7 +240,9 @@ export function NewCloneModal({
                     />
                     <span className="weq-exp-row-meta">
                       <strong title={b.label}>{b.label}</strong>
-                      <small>{b.uin}</small>
+                      <small>
+                        <span className="weq-number weq-number-inherit">{b.uin}</span>
+                      </small>
                     </span>
                     <span className="weq-clone-pick-check" aria-hidden>
                       {targets.some((item) => item.uid === b.uid) ? (
@@ -240,19 +252,6 @@ export function NewCloneModal({
                   </button>
                 ))
               )}
-            </div>
-            <div className="weq-clone-actions">
-              <button type="button" className="weq-set-btn weq-set-btn-soft" onClick={requestClose}>
-                取消
-              </button>
-              <button
-                type="button"
-                className="weq-set-btn"
-                disabled={!targets.length}
-                onClick={() => setPicking(false)}
-              >
-                {targets.length ? `下一步（已选 ${targets.length} 位）` : '下一步'}
-              </button>
             </div>
           </div>
         ) : (
@@ -352,17 +351,29 @@ export function NewCloneModal({
                 rows={2}
               />
             </label>
-
-            <div className="weq-clone-actions">
-              <button className="weq-set-btn weq-set-btn-soft" onClick={requestClose}>
-                取消
-              </button>
-              <button className="weq-set-btn" onClick={onStartClick} disabled={!chatSel}>
-                开始克隆
-              </button>
-            </div>
           </div>
         )}
+        <footer className="weq-clone-actions weq-clone-footer">
+          <button type="button" className="weq-set-btn weq-set-btn-soft" onClick={requestClose}>
+            取消
+          </button>
+          <button
+            type="button"
+            className="weq-set-btn weq-set-btn-primary"
+            disabled={picking ? !targets.length : !chatSel}
+            onClick={() => (picking ? setPicking(false) : onStartClick())}
+          >
+            {picking ? (
+              targets.length ? (
+                <NumericText>{`下一步（已选 ${targets.length} 位）`}</NumericText>
+              ) : (
+                '下一步'
+              )
+            ) : (
+              '开始克隆'
+            )}
+          </button>
+        </footer>
       </div>
     </Modal>
   );

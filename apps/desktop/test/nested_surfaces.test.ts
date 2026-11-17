@@ -1,7 +1,8 @@
 import { act, createElement as h, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import { Modal, DialogHost, useDialog } from '../src/renderer/src/components/Dialog';
+import { Modal, DialogHost } from '../src/renderer/src/components/Dialog';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import { OverlayLayer } from '../src/renderer/src/components/OverlayLayer';
 import { OverlayAnchorProvider } from '../src/renderer/src/lib/overlayAnchor';
 

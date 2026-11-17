@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * qfile.qq.com 匿名 HTTP2RPC 客户端 —— 移植自 OpenList-QQ-Flash 的
  * internal/flash_transfer。三条接口：
@@ -136,7 +137,7 @@ export class FlashTransferClient {
   private async post<T>(path: string, oidbCmd: string, payload: unknown): Promise<T> {
     let res: Response;
     try {
-      res = await fetch(`${BASE_URL}${path}`, {
+      res = await networkFetch(`${BASE_URL}${path}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

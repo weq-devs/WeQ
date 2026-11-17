@@ -1,6 +1,7 @@
-import { RotateCw, UserRound, UsersRound } from 'lucide-react';
+import { RefreshCw, UserRound, UsersRound } from 'lucide-react';
 import { useNumberLookup, type NumberLookupProfile } from '../../hooks/useNumberLookup';
-import { SearchAvatar, c2cAvatarSrc, groupAvatarSrc } from './SearchResultCard';
+import { SearchAvatar } from './SearchResultCard';
+import { c2cAvatarSrc, groupAvatarSrc } from './SearchResultCard.shared';
 import '../../styles/identity-links.css';
 
 export type OpenNumberProfile = (profile: NumberLookupProfile, anchor: HTMLElement) => void;
@@ -74,14 +75,18 @@ export function NumberLookupResults({
                       aria-label={`重试${label}查询`}
                       onClick={result.retry}
                     >
-                      <RotateCw size={14} />
+                      <RefreshCw size={14} aria-hidden />
                     </button>
                   </div>
                 ) : null}
                 {result.data ? (
                   <>
-                    <span>{result.data.id}</span>
-                    {result.data.level !== null ? <span>QQ 等级：{result.data.level}</span> : null}
+                    <span className="weq-number">{result.data.id}</span>
+                    {result.data.level !== null ? (
+                      <span>
+                        QQ 等级：<span className="weq-number">{result.data.level}</span>
+                      </span>
+                    ) : null}
                     {result.data.category ? <span>群分类：{result.data.category}</span> : null}
                   </>
                 ) : null}

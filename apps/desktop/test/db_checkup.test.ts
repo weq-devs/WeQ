@@ -34,6 +34,23 @@ function fixture() {
   return { target, options };
 }
 
+it('已确认的明文来源执行完整只读结构检查，不把加密参数不适用诊断成损坏', async () => {
+  const { target } = fixture();
+  const executeSql = vi.fn(async () => [['ok']]);
+  const health = vi.fn();
+  const nt = { executeSql, checkDatabaseHealth: health } as unknown as NtHelperBinding;
+  const result = await inspectDatabase(nt, { ...target, key: '' }, () => {}, 'deep');
+  expect(result.integrity).toEqual({
+    ran: true,
+    healthy: true,
+    corruptedTables: [],
+    complete: true,
+    unverifiedTables: [],
+  });
+  expect(executeSql).toHaveBeenCalledWith(target.dbPath, 'PRAGMA main.integrity_check');
+  expect(health).not.toHaveBeenCalled();
+});
+
 it('停止正在运行的扫描后，等实际子进程退出才释放任务，随后可以重新体检', async () => {
   const { target, options } = fixture();
   const tasks = new DatabaseCheckupTasks((request, signal) =>
@@ -111,4 +128,180 @@ it('应用退出取消全部在途体检，并等待各任务释放', async () =
   await tasks.cancelAll();
   await rejected;
   expect(await tasks.cancel(target.uin, 'first')).toEqual({ cancelled: false });
+});
+
+it('体检持续回报真实页数，并分别保留结构与页检查的结束状态', async () => {
+  const { target } = fixture();
+  const events: import('@weq/service').DatabaseWorkProgress[] = [];
+  const nt = {
+    checkDatabaseHealth: vi.fn(async (_path, _key, _algo, callback) => {
+      callback(null, { step: 'integrity', message: '整体检查' });
+      callback(null, {
+        step: 'integrity-pages',
+        message: '检查页结构与引用',
+        completed: 2,
+        total: 4,
+        unit: 'pages',
+      });
+      callback(null, {
+        step: 'integrity-records-2',
+        message: '检查记录与索引对应',
+        completed: 500,
+        total: 2000,
+        unit: 'records',
+        objectName: 'synthetic_table',
+      });
+      return { healthy: true, corruptedTables: [] };
+    }),
+    scanBadPages: vi.fn(async (_path, _key, _algo, callback) => {
+      callback(null, { step: 'pages', message: '页检查', completed: 2, total: 4, unit: 'pages' });
+      return { pageCount: 4, pageSize: 4096, badPages: [], zeroPages: [], usedHmac: true };
+    }),
+  } as unknown as NtHelperBinding;
+  await inspectDatabase(nt, target, (tick) => events.push(tick));
+  expect(events).toContainEqual(expect.objectContaining({ completed: 2, total: 4 }));
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      step: 'integrity-records-2',
+      completed: 500,
+      total: 2000,
+      unit: 'records',
+      objectName: 'synthetic_table',
+    }),
+  );
+  expect(events).toContainEqual(
+    expect.objectContaining({ step: 'pages', completed: 4, total: 4, status: 'completed' }),
+  );
+  expect(events.at(-1)).toMatchObject({ step: 'mapping', status: 'skipped' });
+});
+
+it('独立体检进程支持分段 UTF-8 进度流，结果返回前已收到进度', async () => {
+  const { target, options } = fixture();
+  const events: import('@weq/service').DatabaseWorkProgress[] = [];
+  const result = await runDatabaseCheckup(
+    { ...target, dbName: 'stream.db' },
+    new AbortController().signal,
+    { ...options, onProgress: (tick) => events.push(tick) },
+  );
+  expect(events).toEqual([
+    { step: 'pages', message: '页检查', completed: 2, total: 4, unit: 'pages' },
+  ]);
+  expect(result.summary).toBe('synthetic result');
+});
+
+it.each([
+  { healthy: true, usedHmac: true, badPages: [], integrity: 'normal', pages: 'normal' },
+  { healthy: false, usedHmac: true, badPages: [3], integrity: 'abnormal', pages: 'abnormal' },
+  { healthy: true, usedHmac: false, badPages: [], integrity: 'normal', pages: 'unverified' },
+])('体检进度分别传递结构与页签名的真实结果：%j', async (sample) => {
+  const { target } = fixture();
+  const events: import('@weq/service').DatabaseWorkProgress[] = [];
+  const nt = {
+    checkDatabaseHealth: vi.fn(async (_path, _key, _algo, callback) => {
+      if (!sample.healthy)
+        callback(null, {
+          step: 'integrity-tables',
+          message: '逐表定位结构异常',
+          completed: 0,
+          total: 1,
+        });
+      return { healthy: sample.healthy, corruptedTables: sample.healthy ? [] : ['synthetic'] };
+    }),
+    scanBadPages: vi.fn(async () => ({
+      pageCount: 4,
+      pageSize: 4096,
+      badPages: sample.badPages,
+      zeroPages: [],
+      usedHmac: sample.usedHmac,
+    })),
+    executeSqlWithKey: vi.fn(async () => []),
+  } as unknown as NtHelperBinding;
+  await inspectDatabase(nt, target, (tick) => events.push(tick));
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      step: 'integrity',
+      status: 'completed',
+      outcome: sample.integrity,
+    }),
+  );
+  expect(events).toContainEqual(expect.objectContaining({ step: 'pages', outcome: sample.pages }));
+  if (!sample.healthy)
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        step: 'integrity-tables',
+        outcome: 'abnormal',
+      }),
+    );
+  if (sample.badPages.length)
+    expect(events.at(-1)).toMatchObject({
+      step: 'mapping',
+      outcome: 'unverified',
+    });
+});
+
+it('结构检查抛错时区分已确认损坏与未判定，并继续页签名检查', async () => {
+  const { target } = fixture();
+  for (const [message, outcome] of [
+    ['database disk image is malformed', 'abnormal'],
+    ['synthetic failure', 'unverified'],
+  ]) {
+    const events: import('@weq/service').DatabaseWorkProgress[] = [];
+    const nt = {
+      checkDatabaseHealth: vi.fn(async () => {
+        throw new Error(message);
+      }),
+      scanBadPages: vi.fn(async () => {
+        throw new Error('page failure');
+      }),
+    } as unknown as NtHelperBinding;
+    await inspectDatabase(nt, target, (tick) => events.push(tick));
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        step: 'integrity',
+        status: 'failed',
+        outcome,
+        detail: message,
+      }),
+    );
+    expect(events.at(-1)).toMatchObject({ step: 'pages', status: 'failed', outcome: 'unverified' });
+  }
+});
+
+it('可用表回退检查的过程和完成消息不被误判为结构异常', async () => {
+  const { target } = fixture();
+  const events: import('@weq/service').DatabaseWorkProgress[] = [];
+  const nt = {
+    checkDatabaseHealth: vi.fn(async (_path, _key, _algo, callback) => {
+      callback(null, {
+        step: 'integrity-tables',
+        message: '检查可用表结构',
+        completed: 0,
+        total: 1,
+      });
+      callback(null, { step: 'integrity-tables', message: '逐表检查完成', completed: 1, total: 1 });
+      return { healthy: true, corruptedTables: [] };
+    }),
+    scanBadPages: vi.fn(async () => ({
+      pageCount: 4,
+      badPages: [],
+      zeroPages: [],
+      usedHmac: true,
+    })),
+  } as unknown as NtHelperBinding;
+  await inspectDatabase(nt, target, (tick) => events.push(tick));
+  expect(events.some((tick) => tick.outcome === 'abnormal')).toBe(false);
+});
+
+it('页扫描发现坏页后失败仍保留已确认的异常，不退回未判定', async () => {
+  const { target } = fixture();
+  const events: import('@weq/service').DatabaseWorkProgress[] = [];
+  const nt = {
+    checkDatabaseHealth: vi.fn(async () => ({ healthy: true, corruptedTables: [] })),
+    scanBadPages: vi.fn(async (_path, _key, _algo, callback) => {
+      callback(null, { step: 'pages', message: '检查页签名', completed: 2, total: 4, badPages: 1 });
+      throw new Error('synthetic scan failed');
+    }),
+  } as unknown as NtHelperBinding;
+  await inspectDatabase(nt, target, (tick) => events.push(tick));
+  expect(events.at(-1)).toMatchObject({ step: 'pages', status: 'failed', outcome: 'abnormal' });
 });

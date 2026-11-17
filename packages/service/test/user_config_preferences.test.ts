@@ -38,6 +38,25 @@ describe('QQ 秀分钟缓存配置', () => {
 });
 
 describe('聊天阅读偏好', () => {
+  it('在线能力受限右上角标记默认开启，独立持久化并支持备份与恢复', () => {
+    const f = fixture({ settings: { restrictedModeBannerEnabled: false } });
+    expect(f.open().getSettings().restrictedModeIndicatorEnabled).toBe(true);
+    f.service.setSettings({ restrictedModeIndicatorEnabled: false });
+    f.service.setSettings({ restrictedModeBannerEnabled: true });
+    expect(f.open().getSettings()).toMatchObject({
+      restrictedModeIndicatorEnabled: false,
+      restrictedModeBannerEnabled: true,
+    });
+    const snapshot = snapshotWeqSettings(f.open().getSettings());
+    expect(snapshot.restrictedModeIndicatorEnabled).toBe(false);
+    expect(() => validateWeqAppSettings(snapshot)).not.toThrow();
+    const { restrictedModeIndicatorEnabled: _indicator, ...legacy } = snapshot;
+    expect(() => validateWeqAppSettings(legacy)).not.toThrow();
+    expect(() => validateWeqAppSettings({ restrictedModeIndicatorEnabled: 'false' })).toThrow();
+    const restored = fixture();
+    restored.service.setSettings(snapshot);
+    expect(restored.open().getSettings().restrictedModeIndicatorEnabled).toBe(false);
+  });
   it('受限横幅默认开启，旧配置兼容，持久化与备份恢复保留独立偏好', () => {
     const f = fixture();
     expect(f.open().getSettings().restrictedModeBannerEnabled).toBe(true);

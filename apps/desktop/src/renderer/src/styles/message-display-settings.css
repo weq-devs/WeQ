@@ -1,0 +1,18 @@
+.weq-message-display-options.weq-search-scope {
+  justify-content: flex-end;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  font-size: 13px;
+}
+
+.weq-message-display-options button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+@media (max-width: 640px) {
+  .weq-message-display-options.weq-search-scope {
+    justify-content: flex-start;
+  }
+}

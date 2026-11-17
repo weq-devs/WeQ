@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * GitHub release-download accelerators (加速站) + auto speed-test.
  *
@@ -30,6 +31,7 @@
 
 import semver from 'semver';
 import { resolveUpdateRelease } from './releases';
+import { orderSources, recordSourceHealth } from '@weq/network';
 
 export const REPO = { owner: 'weq-devs', repo: 'WeQ' } as const;
 
@@ -57,52 +59,8 @@ const MANIFEST = manifestName();
  * `''` = direct github.com — kept in the race so a user with good connectivity
  * (or a VPN) just uses the origin, and as the ultimate fallback.
  */
-export const FILE_MIRRORS: readonly string[] = [
-  '', // direct github.com
-  'https://github.chenc.dev/',
-  'https://ghproxy.cfd/',
-  'https://github.tbedu.top/',
-  'https://ghproxy.cc/',
-  'https://gh.monlor.com/',
-  'https://cdn.akaere.online/',
-  'https://gh.idayer.com/',
-  'https://gh.llkk.cc/',
-  'https://ghpxy.hwinzniej.top/',
-  'https://github-proxy.memory-echoes.cn/',
-  'https://git.yylx.win/',
-  'https://gitproxy.mrhjx.cn/',
-  'https://gh.fhjhy.top/',
-  'https://gp.zkitefly.eu.org/',
-  'https://gh-proxy.com/',
-  'https://ghfile.geekertao.top/',
-  'https://j.1lin.dpdns.org/',
-  'https://github-proxy.teach-english.tech/',
-  'https://gh.927223.xyz/',
-  'https://github.ednovas.xyz/',
-  'https://ghf.xn--eqrr82bzpe.top/',
-  'https://gh.dpik.top/',
-  'https://gh.jasonzeng.dev/',
-  'https://gh.xxooo.cf/',
-  'https://gh.bugdey.us.kg/',
-  'https://ghm.078465.xyz/',
-  'https://j.1win.ggff.net/',
-  'https://tvv.tw/',
-  'https://gitproxy.127731.xyz/',
-  'https://gh.inkchills.cn/',
-  'https://ghproxy.cxkpro.top/',
-  'https://gh.sixyin.com/',
-  'https://github.geekery.cn/',
-  'https://git.669966.xyz/',
-  'https://gh.5050net.cn/',
-  'https://gh.felicity.ac.cn/',
-  'https://github.dpik.top/',
-  'https://ghp.keleyaa.com/',
-  'https://gh.wsmdn.dpdns.org/',
-  'https://ghproxy.monkeyray.net/',
-  'https://fastgit.cc/',
-  'https://gh.catmak.name/',
-  'https://gh.noki.icu/',
-];
+export { FILE_MIRRORS } from '@weq/network/mirrors';
+import { FILE_MIRRORS } from '@weq/network/mirrors';
 
 /** Release base URL (the updater feed directory) for a mirror prefix. */
 export function releaseBase(prefix: string): string {
@@ -170,7 +128,7 @@ function firstNFulfilled<T>(promises: Promise<T>[], n: number): Promise<T[]> {
 /** How long the manifest screen lets each mirror take before giving up. */
 const SCREEN_TIMEOUT_MS = 4000;
 /** How many of the fastest survivors get a real bandwidth probe. */
-const SPEED_PROBE_COUNT = 5;
+const SPEED_PROBE_COUNT = 3;
 /** Bytes to pull per speed probe — enough to smooth TCP ramp-up, small enough to stay quick. */
 const SPEED_PROBE_BYTES = 1_000_000;
 /** Hard cap on each bandwidth probe. */
@@ -188,7 +146,7 @@ async function probe(
   const t0 = performance.now();
   try {
     // undici (Node fetch) keeps no HTTP cache, so no `cache: 'no-store'` needed.
-    const res = await fetch(`${base}/${release.manifest}`, {
+    const res = await networkFetch(`${base}/${release.manifest}`, {
       signal: ctrl.signal,
       redirect: 'follow',
       headers: { 'cache-control': 'no-cache' },
@@ -225,7 +183,7 @@ async function measureBandwidth(base: string, fileName: string): Promise<number 
   const t0 = performance.now();
   let bytes = 0;
   try {
-    const res = await fetch(`${base}/${fileName}`, {
+    const res = await networkFetch(`${base}/${fileName}`, {
       signal: ctrl.signal,
       redirect: 'follow',
       headers: { range: `bytes=0-${SPEED_PROBE_BYTES - 1}`, 'cache-control': 'no-cache' },
@@ -265,7 +223,27 @@ export async function resolveBestMirror(
   // (dead mirrors burning the full timeout), so we start Phase 2 as soon as the
   // first SPEED_PROBE_COUNT mirrors have answered — bandwidth probing then
   // overlaps with the stragglers instead of queuing behind them.
-  const probes = FILE_MIRRORS.map((p) => probe(p, timeoutMs, release));
+  const ordered = orderSources(
+    FILE_MIRRORS.map(
+      (prefix) =>
+        `${prefix}https://github.com/${REPO.owner}/${REPO.repo}/releases/download/${encodeURIComponent(release.tag)}`,
+    ),
+  );
+  const deadline = Date.now() + 20000;
+  const probes: Promise<MirrorProbe>[] = [];
+  for (let index = 0; index < ordered.length && Date.now() < deadline; index += 3) {
+    const batch = ordered.slice(index, index + 3).map((base) => {
+      const prefix = base.slice(0, base.indexOf('https://github.com/'));
+      const work = probe(prefix, Math.min(timeoutMs, Math.max(1, deadline - Date.now())), release);
+      void work.then(
+        (result) => recordSourceHealth(result.base, true),
+        () => recordSourceHealth(base, false),
+      );
+      return work;
+    });
+    probes.push(...batch);
+    if ((await Promise.allSettled(batch)).some((item) => item.status === 'fulfilled')) break;
+  }
   const earlyOk = (await firstNFulfilled(probes, SPEED_PROBE_COUNT)).sort((a, b) => a.ms - b.ms);
   // Kick off bandwidth probes now; they keep running while the tail settles.
   const earlyCandidates = earlyOk.slice(0, SPEED_PROBE_COUNT);
@@ -317,6 +295,8 @@ export async function resolveBestMirror(
           ...latencyOrder.filter((b) => !probedSet.has(b)),
           ...candidates.map((c) => c.base).filter((b) => !measuredSet.has(b)),
         ];
+  // 未在冷启动探测的源留作实际下载失败后的候选，不为检查更新预拉所有站点。
+  ranked.push(...orderSources(ordered).filter((base) => !ranked.includes(base)));
 
   // `ranked` always contains every healthy base, and `ok` is non-empty here, so
   // the fallback only exists to satisfy the type checker.

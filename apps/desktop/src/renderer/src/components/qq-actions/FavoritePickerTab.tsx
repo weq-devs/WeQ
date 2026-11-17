@@ -4,7 +4,7 @@ import {
   ArrowUpToLine,
   Download,
   Pencil,
-  RotateCw,
+  RefreshCw,
   Save,
   Smile,
   Trash2,
@@ -17,8 +17,9 @@ import { favEmojiItem, type EmojiItem } from '../../im-template/template/emojiPa
 import { cn } from '../../im-template/template/classNames';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
 import { Modal } from '../Dialog';
-import { useMediaSave } from '../MediaSaveControls';
-import { ActionIcon, useQQAction, withQQAccountScope } from './shared';
+import { useMediaSave } from '../MediaSaveControls.shared';
+import { ActionIcon } from './shared';
+import { useQQAction, withQQAccountScope } from './shared.shared';
 import '../../styles/favorite-picker.css';
 
 export interface PickerFavorite {
@@ -84,7 +85,7 @@ function FavoritePickerTabBody({
             disabled={online.isFetching || !action.available}
             onClick={() => void online.refetch()}
           >
-            <RotateCw size={15} />
+            <RefreshCw size={15} aria-hidden />
           </ActionIcon>
         </div>
       )}
@@ -162,6 +163,7 @@ function FavoritePickerTabBody({
           onClose={() => setMenu(null)}
           actions={[
             {
+              danger: 'outline',
               label: '删除',
               icon: <Trash2 size={15} />,
               disabled,
@@ -179,6 +181,7 @@ function FavoritePickerTabBody({
                   refresh,
                   `从 QQ 收藏中删除这张表情${menu.desc ? `「${menu.desc}」` : ''}？`,
                   {
+                    danger: 'outline',
                     readback: () => readback((rows) => !rows.some((row) => row.emojiId === id)),
                   },
                 );

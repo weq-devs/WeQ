@@ -12,8 +12,18 @@ import { SETTINGS_ITEM_TARGETS } from '../src/renderer/src/components/settings/n
 import { SETTINGS_RESET_CARDS } from '../src/shared/settings_reset';
 import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
 
+const conditional = vi.hoisted(() => ({
+  settings: undefined as { linkPreview: { enabled: boolean; screenshot: boolean } } | undefined,
+  save: vi.fn(),
+  platform: 'linux',
+  sip: true as boolean | null,
+}));
+
 vi.mock('../src/renderer/src/trpc/client', () => {
   const queryData = (name: string) => {
+    if (name === 'getSettings') return conditional.settings;
+    if (name === 'systemInfo') return { platformKind: conditional.platform };
+    if (name === 'sipEnabled') return conditional.sip;
     if (name === 'getAccountConfig')
       return {
         uin: '10001',
@@ -44,7 +54,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               refetch: vi.fn(),
             })
           : key === 'useMutation'
-            ? () => ({ mutate: vi.fn(), isLoading: false })
+            ? () => ({ mutate: vi.fn(), mutateAsync: conditional.save, isLoading: false })
             : proxy([...path, String(key)]),
     });
   return { trpc: proxy(), client: proxy() };
@@ -59,7 +69,13 @@ vi.mock('../src/renderer/src/components/settings/BugReportPanel', () => ({
   BugReportPanel: () => '合成反馈表单',
 }));
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  conditional.settings = undefined;
+  conditional.save.mockReset();
+  conditional.platform = 'linux';
+  conditional.sip = true;
+  vi.unstubAllGlobals();
+});
 
 function mount(initialSection?: SectionId) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -116,18 +132,46 @@ function expectInnermostControlFocused(highlighted: HTMLElement | null) {
 }
 
 describe('设置归位后的实际页面', () => {
-  it('媒体来源独立显示，账号页不再混入媒体设置，协议工具不重复放性能入口', () => {
+  it('关闭链接卡片隐藏截图子项，搜索回到父项且重开保留截图偏好', async () => {
+    conditional.settings = { linkPreview: { enabled: false, screenshot: true } };
+    conditional.save.mockResolvedValue(true);
+    const f = mount('message-display');
+    try {
+      expect(f.body().querySelector('[data-setting-id="link-screenshot"]')).toBeNull();
+      f.render('message-display', {
+        section: 'message-display',
+        settingId: 'link-screenshot',
+        revision: 1,
+      });
+      expect(
+        f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
+      ).toBe('link-preview');
+      await act(async () =>
+        f.body().querySelector<HTMLButtonElement>('[aria-label="链接预览卡片"]')!.click(),
+      );
+      expect(
+        f.body().querySelector('[aria-label="无封面时网页截图"]')?.getAttribute('aria-checked'),
+      ).toBe('true');
+      expect(conditional.save).toHaveBeenLastCalledWith({ enabled: true });
+    } finally {
+      f.close();
+    }
+  });
+  it('媒体来源并入资源加载，QQ 登录记录并入高级工具，不保留资源关联入口', () => {
     const f = mount('accounts');
     try {
       expect(f.body().querySelector('[data-setting-id="linked-resources"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="external-chatpic"]')).toBeNull();
       f.render('media');
-      expect(f.body().getAttribute('data-settings-page')).toBe('media');
-      expect(f.body().querySelector('h3')?.textContent).toBe('媒体来源');
-      expect(f.body().querySelector('[data-setting-id="linked-resources"]')).not.toBeNull();
+      expect(f.body().getAttribute('data-settings-page')).toBe('resource-loading');
+      expect(f.body().querySelector('h3')?.textContent).toBe('资源加载');
+      expect(f.body().querySelector('[data-setting-id="linked-resources"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="external-chatpic"]')).not.toBeNull();
       f.render('diagnostics');
-      expect(f.body().querySelector('h3')?.textContent).toBe('QQ 协议工具');
+      expect(f.body().querySelector('h3')?.textContent).toBe('QQ 高级工具');
+      expect(
+        f.body().querySelector('[data-setting-id="qq-accounts"] .weq-login-acc'),
+      ).not.toBeNull();
       expect(f.body().querySelector('[data-setting-id="performance-monitor"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="qqnt-capture"]')).not.toBeNull();
       f.render('resource-loading');
@@ -136,6 +180,129 @@ describe('设置归位后的实际页面', () => {
       f.render('agentlab');
       expect(f.body().textContent).toContain('已保存的服务商');
       expect(f.body().textContent).not.toContain('已保存的 provider');
+    } finally {
+      f.close();
+    }
+  });
+  it('QQ 在线能力先说明差异再分启用路线，授权与自动策略独立展示', () => {
+    conditional.platform = 'darwin';
+    const f = mount('account');
+    const titles = () =>
+      [...f.body().querySelectorAll('.weq-set-card-title')].map((node) => node.textContent);
+    try {
+      expect(titles()).toEqual(['QQ 在线能力', '长期授权']);
+      expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe('常规');
+      expect(f.body().querySelector('h3')?.textContent).toBe('在线能力与授权');
+      const overview = f.body().querySelector('[data-setting-id="full-features"]')!;
+      const routes = f.body().querySelector('[data-setting-id="full-feature-routes"]')!;
+      expect(overview).not.toBeNull();
+      expect(overview.classList.contains('weq-set-card')).toBe(true);
+      expect(
+        overview.querySelector<HTMLDetailsElement>('.weq-full-function-comparison-details')?.open,
+      ).toBe(false);
+      expect(overview.querySelectorAll('.weq-full-function-comparison td strong')).toHaveLength(4);
+      expect(overview.textContent).not.toContain('自动启用与提醒');
+      expect(overview.querySelector('.weq-set-card-title .weq-set-card-icon svg')).not.toBeNull();
+      expect(routes.closest('.weq-set-card')).toBe(overview);
+      expect(
+        f.body().querySelector('[data-setting-id="auto-full-mode"]')?.closest('.weq-set-card'),
+      ).toBe(overview);
+      expect(overview.querySelector('[data-setting-id="long-term-authorization"]')).toBeNull();
+      for (const label of ['QQ 调试副本路线', '原版 QQ 路线'])
+        expect(routes.querySelector(`section[aria-label="${label}"]`)).not.toBeNull();
+      expect(overview.textContent).toContain('在线能力受限');
+      expect(overview.textContent).toContain('漫游消息');
+      expect(overview.textContent).toContain('发送消息');
+      expect(overview.textContent).toContain('已有缓存和可用下载链路');
+      expect(routes.textContent).toContain('QQ 调试副本');
+      expect(routes.textContent).toContain('原版 QQ');
+      expect(routes.textContent).toContain('无需关闭 SIP');
+      expect(routes.textContent).toContain('需关闭 SIP');
+      expect(routes.textContent).toContain('启用方式（macOS）');
+      expect(routes.textContent).not.toContain('当前系统');
+      expect(routes.querySelector('[data-setting-id="long-term-authorization"]')).toBeNull();
+      expect(f.body().textContent).not.toContain('完整模式');
+      expect(f.body().querySelector('.weq-set-card .weq-set-card')).toBeNull();
+      const ordered = [
+        'full-features',
+        'auto-full-mode',
+        'full-feature-routes',
+        'long-term-authorization',
+      ];
+      const nodes = ordered.map((id) => f.body().querySelector(`[data-setting-id="${id}"]`)!);
+      for (let i = 1; i < nodes.length; i++)
+        expect(
+          nodes[i - 1]!.compareDocumentPosition(nodes[i]!) & Node.DOCUMENT_POSITION_FOLLOWING,
+        ).not.toBe(0);
+      expect(f.body().textContent).toContain('在线能力受限时通知');
+      expect(
+        f.body().querySelector('[data-setting-id="restricted-mode-indicator"]'),
+      ).not.toBeNull();
+      expect(f.body().querySelector('[data-setting-id="database-read-concurrency"]')).toBeNull();
+      f.render('database-management');
+      expect(f.body().querySelector('h3')?.textContent).toBe('QQ 数据库管理');
+      expect(
+        f.body().querySelector('[data-setting-id="database-read-concurrency"]'),
+      ).not.toBeNull();
+      expect(titles()).toEqual(['数据库浏览', '监听与读取', '数据库检查与修复']);
+      conditional.platform = 'linux';
+      f.render('account');
+      expect(titles()).toEqual(['QQ 在线能力', '长期授权']);
+      expect(f.body().querySelector('[data-setting-id="qq-debug-copy"]')).toBeNull();
+      expect(f.body().textContent).not.toContain('SIP');
+      expect(f.body().querySelector('[data-setting-id="full-features"]')).not.toBeNull();
+      expect(f.body().querySelector('[aria-label="自动启用 QQ 在线能力"]')).not.toBeNull();
+    } finally {
+      f.close();
+    }
+  });
+  it.each([true, false, null])('按 SIP 检测结果标明适用于本机的路线：%s', (sip) => {
+    conditional.platform = 'darwin';
+    conditional.sip = sip;
+    const f = mount('account');
+    try {
+      const current = f.body().querySelectorAll('[data-applicable="true"]');
+      expect(current).toHaveLength(sip === null ? 0 : 1);
+      if (sip !== null) {
+        expect(current[0]?.getAttribute('aria-label')).toBe(
+          sip ? 'QQ 调试副本路线' : '原版 QQ 路线',
+        );
+        expect(current[0]?.textContent).toContain(
+          sip ? '无需关闭 SIP（适用于本机）' : '需关闭 SIP（适用于本机）',
+        );
+      }
+    } finally {
+      f.close();
+    }
+  });
+  it.each([
+    'full-features',
+    'full-feature-routes',
+    'qq-debug-copy',
+    'long-term-authorization',
+    'auto-full-mode',
+    'restricted-mode-indicator',
+    'restricted-mode-banner',
+  ])('整理后的 QQ 在线能力入口 %s 仍可通过搜索定位', async (settingId) => {
+    conditional.platform = 'darwin';
+    const f = mount('account');
+    try {
+      await act(async () => f.render('account', { section: 'account', settingId, revision: 1 }));
+      expect(
+        f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
+      ).toBe(settingId);
+    } finally {
+      f.close();
+    }
+  });
+  it('旧资源关联深链仅打开资源加载，不留下高亮失效控件', () => {
+    const f = mount('media');
+    try {
+      f.render('media', { section: 'media', settingId: 'linked-resources', revision: 1 });
+      expect(f.body().getAttribute('data-settings-page')).toBe('resource-loading');
+      expect(f.body().textContent).not.toContain('关联资源目录');
+      expect(f.body().querySelector('[data-search-highlight]')).toBeNull();
+      expect(f.onOpenMaintenance).not.toHaveBeenCalled();
     } finally {
       f.close();
     }
@@ -160,14 +327,7 @@ describe('设置归位后的实际页面', () => {
           ).toBeNull();
         }
       }
-      for (const page of [
-        'backup',
-        'faq',
-        'feedback',
-        'diagnostics',
-        'database-management',
-        'weq-storage',
-      ] as const) {
+      for (const page of ['backup', 'faq', 'feedback', 'diagnostics', 'weq-storage'] as const) {
         f.render(page);
         expect(f.body().querySelector('[aria-label="恢复本页默认设置"]'), page).toBeNull();
       }
@@ -206,9 +366,9 @@ describe('设置归位后的实际页面', () => {
     try {
       const row = f.body().querySelector('[data-setting-id="text-markdown"]')!;
       expect(row.querySelector('.weq-set-row-label')?.textContent).toBe(
-        '纯文本消息自动渲染为 Markdown',
+        '文本消息自动渲染为 Markdown',
       );
-      expect(row.querySelector('[aria-label="纯文本消息自动渲染为 Markdown"]')).not.toBeNull();
+      expect(row.querySelector('[aria-label="文本消息自动渲染为 Markdown"]')).not.toBeNull();
       expect(row.textContent).toContain('仍可右键手动选择「显示 Markdown」');
     } finally {
       f.close();
@@ -252,7 +412,15 @@ describe('设置归位后的实际页面', () => {
       );
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((node) => node.textContent),
-      ).toEqual(['版本与更新', '配置备份与恢复', '常见问题', '日志', '性能监视', '反馈']);
+      ).toEqual([
+        '版本与更新',
+        'WeQ 存储管理',
+        'WeQ 账号管理',
+        '配置备份与恢复',
+        '日志与性能',
+        '常见问题',
+        '反馈',
+      ]);
       expect(f.onOpenMaintenance).not.toHaveBeenCalled();
     } finally {
       f.close();
@@ -272,7 +440,7 @@ describe('设置归位后的实际页面', () => {
       expect(remote.querySelector('[aria-label="连接方式"]')).toBeNull();
       f.render('resource-loading');
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
-        '资源与数据库',
+        '凭据与数据',
       );
       expect(f.body().querySelector('[data-setting-id="prefer-cdn"]')).not.toBeNull();
       expect(f.body().textContent).toContain('桌面端与 Web 共用');
@@ -308,39 +476,41 @@ describe('设置归位后的实际页面', () => {
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((node) => node.textContent),
       ).toEqual([
-        '阅读与未读',
-        '消息显示',
+        '会话列表',
+        '消息阅读',
         '互动与防撤回',
         '联系人名片',
-        '通话录音',
+        '通话与录音',
         'QQ 空间',
         'QQ 邮箱',
       ]);
       expect(f.body().querySelector('[role="tablist"]')).toBeNull();
       expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
-        '阅读与未读',
+        '会话列表',
       );
       expect(
         [...f.body().querySelectorAll('.weq-set-row-label')]
           .filter((node) => !node.closest('[data-setting-id^="all-conversations-"]'))
           .map((node) => node.textContent),
       ).toEqual([
+        '鼠标停留时保持会话位置',
         '在消息图标上显示红点',
         '在联系人界面显示未读消息数',
         '群助手显示总消息数',
         '向 QQ 服务器上报已读位置',
-        '鼠标停留时保持会话位置',
-        '从第一条新消息开始阅读',
-        '自动跟随最新消息',
-        '发送消息后定位到最新消息',
-        '向下滚动时显示定位到底部按钮',
-        '查看时自动拉取缺失的消息',
-        '定位到缺失消息时自动拉取上下文',
+        'WeQ 已读记录',
       ]);
       const readReportRow = f.body().querySelector('[data-setting-id="read-sync"]');
       expect(
         readReportRow?.closest('.weq-set-card')?.querySelector('.weq-set-card-title')?.textContent,
-      ).toBe('未读显示');
+      ).toBe('未读标记');
+      expect(
+        [...f.body().querySelectorAll('.weq-set-card-title')].map((node) => node.textContent),
+      ).toEqual(['全部会话视图', '列表排序', '未读标记']);
+      expect(
+        f.body().querySelector('[data-setting-id="clear-local-read-records"] .weq-set-btn-danger')
+          ?.textContent,
+      ).toContain('清除 WeQ 已读记录');
       expect(f.body().querySelector('[data-setting-id="message-system-notifications"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="application-unread-badge"]')).toBeNull();
       expect(f.body().querySelectorAll('[data-setting-id="read-sync"]')).toHaveLength(1);
@@ -349,32 +519,51 @@ describe('设置归位后的实际页面', () => {
       expect(f.body().querySelector('[data-setting-id="anti-recall"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="text-markdown"]')).toBeNull();
       const tabs = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')];
-      act(() => tabs.find((tab) => tab.textContent === '消息显示')!.click());
+      act(() => tabs.find((tab) => tab.textContent === '消息阅读')!.click());
       const display = f.body();
       expect(display.querySelector('.weq-set-card .weq-set-card')).toBeNull();
       expect(
         [...display.querySelectorAll('.weq-set-row-label')].map((node) => node.textContent),
       ).toEqual([
-        '显示消息序号（seq）',
-        '显示发送日期',
-        '显示发送时间',
-        '显示群消息发送者名称',
-        '显示群成员等级',
-        '显示群成员头衔与身份',
-        '聊天头像挂件',
-        '消息气泡',
-        '消息字体',
-        '聊天 QQ 秀替换头像',
-        'QQ 秀缓存有效期',
-        '纯文本消息自动渲染为 Markdown',
+        '从第一条新消息开始阅读',
+        '自动跟随最新消息',
+        '发送消息后定位到最新消息',
+        '向下滚动时显示定位到底部按钮',
+        '查看时自动拉取缺失的消息',
+        '定位到缺失消息时自动拉取上下文',
+        '优先使用 QQ 秀替换头像',
+        '个性装扮',
+        '群消息发送者',
+        '消息元数据',
+        '语音消息自动转文字',
+        '文本消息自动渲染为 Markdown',
         '链接预览卡片',
         '无封面时网页截图',
-        '语音消息自动转文字',
         '图片预览内存预算',
       ]);
       expect(
         [...display.querySelectorAll('.weq-set-card-title')].map((node) => node.textContent),
-      ).toEqual(['时间与序号', '群消息', '头像与装扮', '文本与链接', '语音消息', '图片与表情']);
+      ).toEqual(['阅读与定位', '内容显示']);
+      expect(
+        display
+          .querySelector('[data-setting-id="link-screenshot"]')
+          ?.classList.contains('is-indent'),
+      ).toBe(true);
+      expect(
+        [...display.querySelectorAll('[aria-label="个性装扮"] button')].map(
+          (node) => node.textContent,
+        ),
+      ).toEqual(['头像挂件', '消息气泡', '消息字体']);
+      expect(
+        [...display.querySelectorAll('[aria-label="群消息发送者"] button')].map(
+          (node) => node.textContent,
+        ),
+      ).toEqual(['等级', '头衔或身份', '昵称或备注']);
+      expect(
+        [...display.querySelectorAll('[aria-label="消息元数据"] button')].map(
+          (node) => node.textContent,
+        ),
+      ).toEqual(['消息序号（seq）', '日期', '时间']);
       act(() => tabs.find((tab) => tab.textContent === '互动与防撤回')!.click());
       expect(f.body().querySelector('[data-setting-id="send-with-qq-font"]')).not.toBeNull();
       expect(f.body().querySelector('[data-setting-id="typing-status"]')).not.toBeNull();
@@ -395,15 +584,15 @@ describe('设置归位后的实际页面', () => {
       } as const;
       f.render('chat-messages', target);
       expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
-        '消息显示',
+        '消息阅读',
       );
       expect(
         f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
       ).toBe('link-screenshot');
       const tabs = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')];
-      act(() => tabs.find((tab) => tab.textContent === '阅读与未读')!.click());
+      act(() => tabs.find((tab) => tab.textContent === '会话列表')!.click());
       expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
-        '阅读与未读',
+        '会话列表',
       );
       expect(f.body().querySelector('[data-setting-id="link-screenshot"]')).toBeNull();
       f.render('chat-messages', { ...target, revision: 2 });
@@ -451,11 +640,12 @@ describe('设置归位后的实际页面', () => {
   });
   it.each([
     ['global', '默认发送正在输入状态', 'typing-status', '互动与防撤回'],
-    ['account', '手动标记时上报已读位置', 'read-sync', '阅读与未读'],
-    ['chat-messages', '向 QQ 服务器上报已读位置', 'read-sync', '阅读与未读'],
+    ['account', '手动标记时上报已读位置', 'read-sync', '会话列表'],
+    ['chat-messages', '向 QQ 服务器上报已读位置', 'read-sync', '会话列表'],
     ['storage', '优先使用 CDN', 'prefer-cdn', '资源加载'],
-    ['media', '关联本机媒体目录', 'linked-resources', '媒体来源'],
-    ['media', '允许使用外部安卓图片缓存', 'external-chatpic', '媒体来源'],
+    ['media', '允许使用外部安卓图片缓存', 'external-chatpic', '资源加载'],
+    ['qq-accounts', 'QQ 登录记录管理', 'qq-accounts', 'QQ 高级工具'],
+    ['logs', '数据库读取并发上限', 'database-read-concurrency', 'QQ 数据库管理'],
     ['rkey', '外部 RKEY', 'external-rkey', '凭据管理'],
     ['applock', '隐私模式', 'privacy-mode', '隐私'],
     ['applock', '启用应用锁', 'app-lock', '隐私'],
@@ -465,19 +655,19 @@ describe('设置归位后的实际页面', () => {
     ['maintenance', '本地缓存', 'resource-viewer', 'QQ 资源管理'],
     ['maintenance', '存储占用', 'qq-storage-analysis', 'QQ 资源管理'],
     ['maintenance', '清理缓存', 'qq-storage-cleanup', 'QQ 资源管理'],
-    ['maintenance', '数据库修复', 'database-repair', '损坏与修复'],
-    ['maintenance', '导出明文数据库', 'database-export', '数据库管理'],
+    ['maintenance', '数据库修复', 'database-repair', 'QQ 数据库管理'],
+    ['maintenance', '导出明文数据库', 'database-export', 'QQ 数据库管理'],
     ['maintenance', '密钥扫描', 'key-scan', '凭据管理'],
     ['maintenance', '其它设备密钥', 'other-device-key', '凭据管理'],
-    ['message-display', '显示消息汇总红点', 'message-unread-badge', '阅读与未读'],
-    ['chat-messages', '纯文本消息自动渲染为 Markdown', 'text-markdown', '消息显示'],
-    ['chat-messages', '语音消息自动转文字', 'auto-transcribe-voice', '消息显示'],
-    ['chat-messages', '图片预览内存预算', 'chat-image-cache', '消息显示'],
+    ['message-display', '显示消息汇总红点', 'message-unread-badge', '会话列表'],
+    ['chat-messages', '纯文本消息自动渲染为 Markdown', 'text-markdown', '消息阅读'],
+    ['chat-messages', '语音消息自动转文字', 'auto-transcribe-voice', '消息阅读'],
+    ['chat-messages', '图片预览内存预算', 'chat-image-cache', '消息阅读'],
     ['chat-messages', '使用 QQ 账号设置的个性字体发送消息', 'send-with-qq-font', '互动与防撤回'],
     ['reply-suggestions', '常驻显示', 'intent-persistent-display', '意图感知'],
     ['reply-suggestions', '悬停显示', 'intent-hover-display', '意图感知'],
     ['intent-models', '意图模型资源', 'intent-engine', '意图感知'],
-    ['database', '数据库异常时弹窗提醒', 'damage-reminder', '损坏与修复'],
+    ['database', '数据库异常时弹窗提醒', 'damage-reminder', 'QQ 数据库管理'],
   ] as const)('旧 %s / %s 定位实际控件而不执行工具', (section, item, settingId, page) => {
     const f = mount('appearance');
     try {
@@ -498,7 +688,7 @@ describe('设置归位后的实际页面', () => {
     try {
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe('常规');
       expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
-        '启动与主页',
+        '启动与退出',
       );
       expect(f.onOpenMaintenance).not.toHaveBeenCalled();
     } finally {
@@ -528,6 +718,7 @@ describe('设置归位后的实际页面', () => {
     }
   });
   it('从搜索打开设置时切换分区并定位真实项目，离开分区撤销高亮', () => {
+    conditional.settings = { linkPreview: { enabled: true, screenshot: true } };
     const f = mount('qzone');
     try {
       for (const [section, item] of [
@@ -555,15 +746,15 @@ describe('设置归位后的实际页面', () => {
       f.render('appearance', target);
       act(() =>
         [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')]
-          .find((button) => button.textContent === '提醒与窗口')!
+          .find((button) => button.textContent === '通知与提醒')!
           .click(),
       );
       expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
-        '提醒与窗口',
+        '通知与提醒',
       );
       f.render('appearance', { ...target, revision: 2 });
       expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
-        '主题与背景',
+        '外观与布局',
       );
       expect(f.body().querySelector('[data-search-highlight]')?.textContent).toContain('基础模式');
     } finally {
@@ -577,7 +768,8 @@ describe('设置归位后的实际页面', () => {
     const root = createRoot(host);
     try {
       act(() => root.render(createElement(HelpSection)));
-      expect(host.textContent).toContain('合成日志查看器');
+      expect(host.textContent).toContain('打开日志查看');
+      expect(host.textContent).not.toContain('合成日志查看器');
       const tabs = [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
       act(() => tabs.find((tab) => tab.textContent === '常见问题')!.click());
       expect(host.textContent).toContain('合成常见问题正文');
@@ -593,7 +785,15 @@ describe('设置归位后的实际页面', () => {
     try {
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((item) => item.textContent),
-      ).toEqual(['版本与更新', '配置备份与恢复', '常见问题', '日志', '性能监视', '反馈']);
+      ).toEqual([
+        '版本与更新',
+        'WeQ 存储管理',
+        'WeQ 账号管理',
+        '配置备份与恢复',
+        '日志与性能',
+        '常见问题',
+        '反馈',
+      ]);
       expect(f.body().querySelector('h3')?.textContent).toBe('版本与更新');
       expect(f.body().textContent).toContain('内置组件');
       expect(f.body().textContent).not.toContain('监控新版本发布');
@@ -604,9 +804,13 @@ describe('设置归位后的实际页面', () => {
       expect(f.body().textContent).toContain('合成常见问题正文');
       expect(f.body().querySelector('[role="tablist"]')).toBeNull();
       f.render('logs');
-      expect(f.body().querySelector('h3')?.textContent).toBe('日志');
+      expect(f.body().querySelector('h3')?.textContent).toBe('日志与性能');
       expect(f.body().textContent).toContain('日志保留时长');
-      expect(f.body().textContent).toContain('合成日志查看器');
+      expect(f.body().textContent).toContain('打开日志查看');
+      expect(f.body().textContent).not.toContain('合成日志查看器');
+      f.render('performance-monitor');
+      expect(f.body().querySelector('h3')?.textContent).toBe('日志与性能');
+      expect(f.body().querySelector('[data-setting-id="performance-monitor"]')).not.toBeNull();
       const feedback = [
         ...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item'),
       ].find((item) => item.textContent === '反馈')!;
@@ -634,7 +838,7 @@ describe('设置归位后的实际页面', () => {
     }
   });
 
-  it('拆分后的聊天设置与通话录音、空间、邮箱同属基础功能', () => {
+  it('拆分后的聊天设置与通话与录音、空间、邮箱同属基础功能', () => {
     const f = mount('qzone');
     try {
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
@@ -643,20 +847,25 @@ describe('设置归位后的实际页面', () => {
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((item) => item.textContent),
       ).toEqual([
-        '阅读与未读',
-        '消息显示',
+        '会话列表',
+        '消息阅读',
         '互动与防撤回',
         '联系人名片',
-        '通话录音',
+        '通话与录音',
         'QQ 空间',
         'QQ 邮箱',
       ]);
       expect(f.body().querySelector('h3')?.textContent).toBe('QQ 空间');
       expect(f.host.textContent).not.toContain('QQ 空间设置');
       f.render('call-recording');
-      expect(f.body().querySelector('h3')?.textContent).toBe('通话录音');
+      expect(f.body().querySelector('h3')?.textContent).toBe('通话与录音');
+      expect(f.body().querySelector('.weq-set-desc')?.textContent).toBe(
+        '配置通话连接方式、录音内容与保存位置，以及抓包排障选项。',
+      );
       expect(f.body().textContent).toContain('录音来源');
       expect(f.body().textContent).toContain('同时录电脑声音');
+      expect(f.body().textContent).toContain('禁用 P2P 直连');
+      expect(f.body().textContent).toContain('记录 UDP 流量');
       expect(f.body().querySelector('.weq-settings-scope')).toBeNull();
       f.render('mail');
       expect(f.body().querySelector('[aria-label="在邮箱图标上显示红点"]')).not.toBeNull();
@@ -668,11 +877,20 @@ describe('设置归位后的实际页面', () => {
   it('常规不再混入账号、缓存、日志；二级页仅呈现对应配置', () => {
     const f = mount('global');
     try {
-      expect(f.host.querySelectorAll('.weq-settings-nav-item')).toHaveLength(7);
+      expect(f.host.querySelectorAll('.weq-settings-nav-item')).toHaveLength(6);
       for (const title of ['现有配置', '缓存目录', '日志保留时长', '导出保存目录'])
         expect(f.body().textContent).not.toContain(title);
       expect(f.host.querySelector('.weq-settings-scope')).toBeNull();
       f.render('storage');
+      expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
+        '关于 WeQ',
+      );
+      expect(f.host.querySelectorAll('.weq-settings-subnav-item')[1]?.textContent).toBe(
+        'WeQ 存储管理',
+      );
+      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
+        'WeQ 存储管理',
+      );
       expect(f.body().textContent).not.toContain('缓存目录');
       expect(f.body().textContent).toContain('WeQ 存储管理');
       expect(f.body().textContent).not.toContain('现有配置');
@@ -686,7 +904,8 @@ describe('设置归位后的实际页面', () => {
   it('普通账号页无凭据，凭据页默认掩码，离开后不保留展开状态', () => {
     const f = mount('account');
     try {
-      expect(f.body().textContent).toContain('启用数据库监听');
+      expect(f.body().textContent).toContain('QQ 在线能力');
+      expect(f.body().querySelector('[data-setting-id="realtime-enabled"]')).toBeNull();
       expect(f.body().textContent).not.toContain('会话密钥');
       f.render('credentials');
       expect(f.body().textContent).toContain('会话密钥');
@@ -739,31 +958,35 @@ describe('设置归位后的实际页面', () => {
       f.close();
     }
   });
-  it('启动与主页按开机启动、启动页面、主页设置排列，旧主页入口定位到底部分区', () => {
+  it('启动与退出依次展示自启、启动页面、关闭窗口和主页，旧主页入口仍定位底部', () => {
     const f = mount('startup');
     try {
-      expect(f.body().querySelector('h3')?.textContent).toBe('启动与主页');
+      expect(f.body().querySelector('h3')?.textContent).toBe('启动与退出');
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((node) => node.textContent),
-      ).toEqual(['启动与主页', '主题与背景', '提醒与窗口', 'WeQ 存储管理', '隐私']);
-      const ids = [...f.body().querySelectorAll('[data-setting-id]')].map((node) =>
-        node.getAttribute('data-setting-id'),
-      );
+      ).toEqual(['启动与退出', '在线能力与授权', '外观与布局', '通知与提醒', '隐私']);
+      const ids = [
+        ...new Set(
+          [...f.body().querySelectorAll('[data-setting-id]')].map((node) =>
+            node.getAttribute('data-setting-id'),
+          ),
+        ),
+      ];
       expect(ids).toEqual([
-        'weq-config-management',
+        'settings-reset-startup',
         'startup-enabled',
         'startup-page',
+        'window-close-behavior',
         'home-settings',
         'home-prefer-qqshow',
         'home-tags',
         'home-greeting',
         'home-hitokoto',
-        'home-blocked-words',
       ]);
       expect(f.body().querySelector('.weq-set-row-label')?.textContent).toBe('开机自动启动');
       f.render('home');
       expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
-        '启动与主页',
+        '启动与退出',
       );
       expect(
         f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
@@ -773,13 +996,40 @@ describe('设置归位后的实际页面', () => {
         ['个性标签', 'home-tags'],
         ['问候语', 'home-greeting'],
         ['一言', 'home-hitokoto'],
-        ['一言屏蔽词', 'home-blocked-words'],
+        ['一言屏蔽词', 'home-hitokoto'],
       ] as const) {
         f.render('home', { section: 'home', item, revision: 1 });
         expect(
           f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
         ).toBe(id);
       }
+    } finally {
+      f.close();
+    }
+  });
+  it('窗口外观与关闭行为分别归位，通知页不再保留窗口卡片', () => {
+    vi.stubGlobal('electron', { process: { platform: 'darwin' } });
+    const f = mount('global');
+    try {
+      expect(f.body().querySelector('h3')?.textContent).toBe('通知与提醒');
+      expect(
+        f.body().querySelector('[data-setting-id="message-system-notifications"]'),
+      ).not.toBeNull();
+      expect(f.body().querySelector('[data-setting-id="window-close-behavior"]')).toBeNull();
+      expect(f.body().querySelector('[data-setting-id="windows-style-controls"]')).toBeNull();
+      f.render('appearance');
+      expect(f.body().querySelector('[data-setting-id="windows-style-controls"]')).not.toBeNull();
+      expect(f.body().querySelector('[data-setting-id="window-close-behavior"]')).toBeNull();
+      f.render('global', { section: 'global', item: '使用仿 Windows 窗口按钮', revision: 1 });
+      expect(f.body().getAttribute('data-settings-page')).toBe('appearance');
+      expect(
+        f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
+      ).toBe('windows-style-controls');
+      f.render('global', { section: 'global', item: '关闭按钮行为', revision: 2 });
+      expect(f.body().getAttribute('data-settings-page')).toBe('startup');
+      expect(
+        f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
+      ).toBe('window-close-behavior');
     } finally {
       f.close();
     }
@@ -869,27 +1119,22 @@ describe('设置归位后的实际页面', () => {
     }
   });
 
-  it('损坏提醒拆出后，容错记录通过入口弹窗查看，旧深链只定位不自动打开', () => {
+  it('数据库页面在浏览后展示监听读取和容错修复，旧深链只定位不自动打开', () => {
     const f = mount('database');
     try {
-      expect(f.body().textContent).toContain('容错级别');
-      expect(f.body().querySelector('.weq-set-head-title .weq-settings-scope')?.textContent).toBe(
-        '当前账号',
-      );
-      expect(f.body().textContent).not.toContain('数据库异常时弹窗提醒');
+      expect(f.body().textContent).not.toContain('容错级别');
+      expect(
+        [...f.body().querySelectorAll('.weq-set-card-title')].map((node) => node.textContent),
+      ).toEqual(['数据库浏览', '监听与读取', '数据库检查与修复']);
+      expect(f.body().querySelector('.weq-cache-db')).toBeNull();
+      expect(f.body().querySelector('.weq-set-head-title .weq-settings-scope')).toBeNull();
+      expect(f.body().textContent).toContain('数据库异常提醒');
       expect(f.body().textContent).not.toContain('降级账本');
       f.render('database-status');
-      const entry = f.body().querySelector<HTMLElement>('[data-setting-id="tolerance-records"]')!;
+      const entry = f.body().querySelector<HTMLElement>('[data-setting-id="database-repair"]')!;
       expect(entry.dataset.searchHighlight).toBe('true');
       expect(document.querySelector('.weq-tool-modal')).toBeNull();
-      const body = f.body();
-      act(() => entry.querySelector<HTMLButtonElement>('button')!.click());
-      expect(document.querySelector('.weq-tool-modal')?.textContent).toContain('降级账本');
-      expect(f.body()).toBe(body);
-      act(() =>
-        document.querySelector<HTMLButtonElement>('.weq-tool-modal [aria-label="关闭"]')!.click(),
-      );
-      expect(document.querySelector('.weq-tool-modal')).toBeNull();
+      expect(f.body().querySelector('[data-setting-id="tolerance-records"]')).toBeNull();
       f.render('database-repair', {
         section: 'database',
         item: '数据库异常时弹窗提醒',

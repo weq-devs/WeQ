@@ -21,7 +21,8 @@ import { useSharedAssistantDraft } from '../../hooks/useSharedAssistantDraft';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { ConversationSettingsFrame } from '../../components/ConversationSettingsFrame';
 import { QqAvatar } from '../../components/QqAvatar';
-import { AgentMessageContent, inputFaceContext, type FaceContext } from './ChatBubble';
+import { AgentMessageContent, type FaceContext } from './ChatBubble';
+import { inputFaceContext } from './ChatBubble.shared';
 import {
   cloneChatUser,
   cloneChatConversation,
@@ -244,10 +245,7 @@ export function GroupChatPanel({
     const ok = await dialog.confirm(
       '清空当前对话',
       '清空这个克隆群的全部聊天消息，保留群聊和成员。此操作无法恢复。',
-      {
-        okLabel: '清空',
-        tone: 'warning',
-      },
+      { danger: 'solid', okLabel: '清空', tone: 'warning' },
     );
     if (!ok) return;
     await clear.mutateAsync({ groupId });
@@ -300,7 +298,7 @@ export function GroupChatPanel({
         !(await dialog.confirm(
           '移除成员',
           `将 ${member.displayName} 移出当前群聊？不会删除克隆体或私聊记录。`,
-          { okLabel: '移除', tone: 'warning' },
+          { danger: 'outline', okLabel: '移除', tone: 'warning' },
         ))
       )
         return;
@@ -333,10 +331,7 @@ export function GroupChatPanel({
     const ok = await dialog.confirm(
       '删除整个群聊',
       '永久删除这个克隆群及其全部数据，无法恢复，也不会进入“已删除会话”。正在进行的回答会先停止并等待写入结束；不会删除成员对应的克隆体。',
-      {
-        okLabel: '删除',
-        tone: 'warning',
-      },
+      { danger: 'solid', okLabel: '删除', tone: 'warning' },
     );
     if (!ok) return;
     await del.mutateAsync({ groupId });
@@ -574,7 +569,10 @@ export function GroupChatPanel({
             {settingsSection === 'members' ? (
               <div className="weq-agentlab-field">
                 <div className="weq-clone-member-toolbar">
-                  <span>群内克隆体（{personaMembers.length}）</span>
+                  <span>
+                    群内克隆体（
+                    <span className="weq-number weq-number-inherit">{personaMembers.length}</span>）
+                  </span>
                   <button
                     type="button"
                     className="weq-set-btn weq-set-btn-soft"
@@ -631,6 +629,7 @@ export function GroupChatPanel({
                   删除整个群及全部历史对话，不会删除成员对应的克隆体。
                 </p>
                 <button
+                  data-danger="solid"
                   type="button"
                   className="weq-set-btn weq-set-btn-soft"
                   disabled={legacy || busy || clear.isLoading}
@@ -644,6 +643,7 @@ export function GroupChatPanel({
                   清空聊天记录
                 </button>
                 <button
+                  data-danger="solid"
                   type="button"
                   className="weq-set-btn weq-set-btn-soft"
                   disabled={del.isLoading}

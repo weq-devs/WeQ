@@ -38,6 +38,8 @@ const labels: Record<string, string> = {
   port: '端口',
   reason: '原因',
   ...consoleTimingLabels,
+  affectedQueryCount: '受影响查询',
+  maxBlockedMs: '最长阻塞',
   count: '共',
   artifactCount: '产物数',
   groupCount: '群数',
@@ -102,12 +104,16 @@ const eventTitles: Record<string, Record<string, string>> = {
   'desktop-main': {
     'tray-create': '托盘已创建',
     'app-ready': '应用已就绪',
+    'app-restart-ready': '应用重启就绪',
+    'app-ready-with-warnings': '界面已就绪（启动存在异常，见前文）',
     'create-window': '主窗口已创建',
   },
   'app-context': {
     'init-app-context': '应用上下文初始化',
     'open-account-start': '正在打开账号',
     'open-account-success': '账号已打开',
+    'open-static-account-start': '正在打开静态账号',
+    'open-static-account-success': '静态账号已打开',
     'apply-group-keyword': '群关键词规则已应用',
   },
   'account-monitor': {
@@ -119,28 +125,43 @@ const eventTitles: Record<string, Record<string, string>> = {
     'online-probe-failed': 'QQ 在线检测暂不可用',
   },
   'mcp-server': { 'mcp-start': 'MCP 服务已启动', 'mcp-stop': 'MCP 服务已停止' },
+  database: {
+    'database-slow': '慢操作',
+    'database-failed': '操作失败',
+    'database-cancelled': '操作已取消',
+  },
 };
 const duration = (value: number) =>
   value < 1000 ? `${Math.round(value)}ms` : `${Number((value / 1000).toFixed(2))}s`;
-function formatSummary(summary: ConsoleSummary): string[] {
+function formatSummary(
+  summary: ConsoleSummary,
+  { compact = false, hideQueue = false } = {},
+): string[] {
   const period =
     summary.windowMs < 1000 ? '本轮' : `近 ${Number((summary.windowMs / 1000).toFixed(2))} 秒`;
   const metrics: string[] = [];
   for (const [key, label] of Object.entries(consoleTimingLabels)) {
+    if (hideQueue && key === 'jsQueueWaitMs') continue;
     const stats = summary.timings[key as keyof typeof consoleTimingLabels];
     if (!stats?.count) continue;
     const divisor = stats.max < 1000 ? 1 : 1000;
-    const unit = divisor === 1 ? '毫秒' : '秒';
+    const unit = compact ? (divisor === 1 ? 'ms' : 's') : divisor === 1 ? '毫秒' : '秒';
     const value = (ms: number) => Number((ms / divisor).toFixed(2));
     let text = `${label} ${value(stats.min)}`;
-    if (stats.min !== stats.max)
+    if (compact) {
+      if (stats.min !== stats.max)
+        text += `～${value(stats.max)}${unit}，均值 ${duration(stats.total / stats.count)}`;
+      else text += unit;
+    } else if (stats.min !== stats.max)
       text += `～${value(stats.max)} ${unit}，平均 ${value(stats.total / stats.count)} ${unit}，最近 ${value(stats.last)} ${unit}`;
     else text += ` ${unit}`;
     if (stats.count < summary.count) text += `（${stats.count} 次有记录）`;
     metrics.push(text);
   }
   const [first, ...rest] = metrics;
-  return [`${period} ${summary.count} 次${first ? `，${first}` : ''}`, ...rest];
+  return compact
+    ? [`${period} ${summary.count} 次`, ...metrics]
+    : [`${period} ${summary.count} 次${first ? `，${first}` : ''}`, ...rest];
 }
 function bytes(value: number): string {
   if (value < 1024) return `${value}B`;
@@ -172,17 +193,39 @@ export function formatConsoleRecord(
       context = { ...context, errorMessage: firstLine };
   }
   const scope = typeof context.scope === 'string' ? plain(context.scope) : 'app';
+  const databaseOperation =
+    scope === 'database' && Object.hasOwn(eventTitles.database ?? {}, String(context.event));
+  const databaseCaller =
+    databaseOperation && typeof context.caller === 'string' && !placeholders.has(context.caller)
+      ? plain(context.caller)
+      : undefined;
   let title = eventTitles[scope]?.[String(context.event)] ?? plain(message);
+  if (databaseOperation && context.event === 'database-slow' && context.outcome !== 'ok') {
+    if (context.outcome === 'failed') title = '慢操作失败';
+    else if (context.outcome === 'cancelled') title = '慢操作已取消';
+  }
   if (context.event === 'request-slow') title = '慢请求';
   if (context.event === 'request-failed')
     title = context.outcome === 'cancelled' ? '请求已取消' : '请求失败';
+  const slowSummary =
+    options.summary &&
+    context.outcome === 'ok' &&
+    (context.event === 'request-slow' || (databaseOperation && context.event === 'database-slow'));
+  if (slowSummary) title += '汇总';
   const parts: string[] = [];
   if (typeof context.path === 'string') parts.push(paint(36, plain(context.path)));
+  else if (databaseCaller) parts.push(paint(36, databaseCaller));
   if (typeof context.platform === 'string')
     parts.push(
       paint(
         90,
         `${plain(context.platform)}${typeof context.arch === 'string' ? `/${plain(context.arch)}` : ''}`,
+      ),
+    );
+  if (slowSummary && options.summary)
+    parts.push(
+      ...formatSummary(options.summary, { compact: true, hideQueue: databaseOperation }).map(
+        (text) => paint(levelColors[level], text),
       ),
     );
   const add = (key: string, value: unknown, label = labels[key] ?? key) => {
@@ -221,6 +264,12 @@ export function formatConsoleRecord(
     'exitCode',
     ...Object.keys(labels),
   ])) {
+    if (databaseCaller && key === 'caller' && typeof context.path !== 'string') continue;
+    if (databaseOperation && !options.details) {
+      if (key === 'priority') continue;
+      if (context.event === 'database-slow' && key === 'jsQueueWaitMs') continue;
+    }
+    if ((key === 'affectedQueryCount' || key === 'maxBlockedMs') && !context[key]) continue;
     if (key === 'logDir' && scope === 'app-context' && context.event === 'init-app-context')
       continue;
     if (key === 'port' && typeof (context.address ?? context.url) === 'string') {
@@ -233,7 +282,7 @@ export function formatConsoleRecord(
     if (
       debugOnly.has(key) &&
       !options.details &&
-      !(context.event === 'database-slow' && (key === 'fingerprint' || key === 'caller'))
+      !(databaseOperation && key === 'fingerprint' && !databaseCaller)
     )
       continue;
     if (options.summary && key in consoleTimingLabels) continue;
@@ -269,7 +318,7 @@ export function formatConsoleRecord(
   let output = `${header}${parts.length ? `  ${parts.slice(0, limit).join('  ')}` : ''}\n`;
   for (let i = limit; i < parts.length; i += limit)
     output += `         ${parts.slice(i, i + limit).join('  ')}\n`;
-  if (options.summary)
+  if (options.summary && !slowSummary)
     output += formatSummary(options.summary)
       .map((line) => `         ${paint(levelColors[level], line)}\n`)
       .join('');

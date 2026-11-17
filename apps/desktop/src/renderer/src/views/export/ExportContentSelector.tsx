@@ -1,15 +1,11 @@
 import { useId, useState } from 'react';
 import {
   ListChecks,
-  MessageSquare,
   Mic,
   Image,
   Film,
   FileText,
-  MessageCircle,
-  Type,
   UserRound,
-  Sparkles,
   Smile,
   ChevronRight,
   ContactRound,
@@ -27,18 +23,19 @@ import {
   type ExportContentPolicy,
 } from '@weq/service/export-content';
 import { SegmentedControl } from '../../components/SegmentedControl';
+import { DRESS_KIND_ICONS, FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import '../../styles/export-content-selector.css';
 
 const items = {
-  messages: { label: '消息', icon: MessageSquare },
+  messages: { label: '消息', icon: FEATURE_ICONS.messages },
   voice: { label: '语音', icon: Mic },
   images: { label: '图片', icon: Image },
   videos: { label: '视频', icon: Film },
   files: { label: '文件', icon: FileText },
-  bubble: { label: '装扮气泡', icon: MessageCircle },
-  font: { label: '装扮字体', icon: Type },
+  bubble: { label: '装扮气泡', icon: DRESS_KIND_ICONS.bubble },
+  font: { label: '装扮字体', icon: DRESS_KIND_ICONS.font },
   avatar: { label: '头像', icon: UserRound },
-  widget: { label: '头像挂件', icon: Sparkles },
+  widget: { label: '头像挂件', icon: DRESS_KIND_ICONS.widget },
   qqFaces: { label: 'QQ表情', icon: Smile },
   profiles: { label: '联系人或群资料', icon: ContactRound },
 };

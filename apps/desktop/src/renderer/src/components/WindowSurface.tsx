@@ -9,16 +9,16 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { MoveDiagonal2 } from 'lucide-react';
-import { OverlayLayerContext, hasActiveModal, useOverlayLayer } from '../lib/overlayStack';
-import { OverlayAnchorContext, useOverlayAnchor } from '../lib/overlayAnchor';
+import { OverlayLayerContext, hasActiveModal, useOverlayLayerScope } from '../lib/overlayStack';
+import { OverlayAnchorContext, useOverlayAnchor } from '../lib/overlayAnchor.shared';
 import { useRenderDocument } from '../lib/renderDocument';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import '../styles/window-surface.css';
 import { useSurfaceOutside } from '../lib/surfaceOutside';
 import { visibleViewport } from '../lib/visibleViewport';
 import { useMobileWebViewport } from '../hooks/useMobileWebViewport';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 
 type Box = { x: number; y: number; width: number; height: number };
 const margin = 8;
@@ -98,7 +98,7 @@ export function WindowSurface({
   const latest = useRef(box);
   latest.current = box;
   const [layerRevision, setLayerRevision] = useState(0);
-  const layer = useOverlayLayer(active, layerRevision);
+  const { layer, scope } = useOverlayLayerScope(active, layerRevision);
   const raise = () => setLayerRevision((current) => current + 1);
   const gesture = useRef<{
     pointerId: number;
@@ -175,7 +175,7 @@ export function WindowSurface({
   useSurfaceOutside(card, onClose, active && mode === 'anchored' && dismissOnOutside, {
     anchor: anchor ?? origin?.element,
   });
-  useSurfaceEscape(card, onClose, active, false);
+  useSurfaceEscape(card, onClose, active, false, 100, scope);
   const start = (event: PointerEvent<HTMLDivElement>) => {
     placement.capture(event);
     if (!active || !event.currentTarget.contains(event.target as Node)) return;
@@ -253,7 +253,7 @@ export function WindowSurface({
         }}
       >
         <div className="weq-window-content">
-          <OverlayLayerContext.Provider value={layer}>
+          <OverlayLayerContext.Provider value={scope}>
             <OverlayAnchorContext.Provider value={placement.trigger}>
               {children}
             </OverlayAnchorContext.Provider>

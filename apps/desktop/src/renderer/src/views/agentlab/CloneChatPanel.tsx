@@ -14,7 +14,8 @@ import { parseAiImageDraft, changeAiImageDraftText } from '../../lib/aiImageDraf
 import { useSharedAssistantDraft } from '../../hooks/useSharedAssistantDraft';
 import type { AiImageRef, AiImageOutcome } from '@weq/agentlab';
 import { useAppDialog } from '../../lib/dialogUtils';
-import { AgentMessageContent, inputFaceContext, type FaceContext } from './ChatBubble';
+import { AgentMessageContent, type FaceContext } from './ChatBubble';
+import { inputFaceContext } from './ChatBubble.shared';
 import {
   cloneChatUser,
   cloneChatConversation,

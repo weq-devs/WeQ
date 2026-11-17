@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import { useMemo, useRef, useState } from 'react';
 import { Eye, Forward, X } from 'lucide-react';
 import { Modal } from './Dialog';
@@ -13,11 +14,11 @@ import {
   estimateForwardDuration,
   formatForwardDuration,
   forwardMessageContent,
+  partitionForwardMessages,
 } from '../lib/sequentialForward';
 import { startSequentialForward } from './SequentialForwardTask';
-import { forwardUnsupportedReason } from '../lib/messageRepeat';
 import { GapMessagesModal } from './compose/GapMessagesModal';
-import { qqMessageRenderer } from './QqMessageContent';
+import { qqMessageRenderer } from './QqMessageContent.shared';
 import { trpc } from '../trpc/client';
 import '../styles/sequential-forward.css';
 
@@ -60,13 +61,7 @@ export function SequentialForwardDialog({
   const [previewCount, setPreviewCount] = useState(50);
   const picked = targets.filter((target) => selected.has(target.id));
   const prepared = useMemo(() => {
-    const sendable: Message[] = [];
-    const ignored: { message: Message; reason: string }[] = [];
-    messages.forEach((message) => {
-      const reason = forwardUnsupportedReason(message.qqElements ?? []);
-      if (reason) ignored.push({ message, reason });
-      else sendable.push(message);
-    });
+    const { sendable, ignored } = partitionForwardMessages(messages);
     return {
       sendable,
       ignored,
@@ -133,7 +128,11 @@ export function SequentialForwardDialog({
         {!reviewOpen ? (
           <header>
             <strong id="weq-forward-title">
-              {messages.length === 1 ? '转发消息' : `逐条转发 · ${messages.length} 条`}
+              {messages.length === 1 ? (
+                '转发消息'
+              ) : (
+                <NumericText>{`逐条转发 · ${messages.length} 条`}</NumericText>
+              )}
             </strong>
             <button type="button" title="关闭" aria-label="关闭" onClick={onClose}>
               <X size={17} />
@@ -166,7 +165,9 @@ export function SequentialForwardDialog({
         ) : (
           <div className="weq-forward-config">
             <fieldset disabled={started}>
-              <MergeForwardTargets targets={targets} selected={selected} onChange={setSelected} />
+              {prepared.sendable.length ? (
+                <MergeForwardTargets targets={targets} selected={selected} onChange={setSelected} />
+              ) : null}
               {prepared.ignored.length ? (
                 <button
                   type="button"
@@ -174,7 +175,9 @@ export function SequentialForwardDialog({
                   onClick={() => setReviewOpen(true)}
                 >
                   <Eye size={14} />
-                  查看将跳过的 {prepared.ignored.length} 条消息
+                  查看将跳过的{' '}
+                  {<span className="weq-number weq-number-inherit">{prepared.ignored.length}</span>}{' '}
+                  条消息
                 </button>
               ) : null}
               <div className="weq-forward-options">

@@ -8,6 +8,10 @@ export interface OwnedChildOptions {
   /** Sensitive stdin is never included in errors or logs. */
   input?: string;
   env?: NodeJS.ProcessEnv;
+  /** 增量消费 UTF-8 输出，仍遵循总输出上限和真实进程退出语义。 */
+  onStdout?: (text: string) => void;
+  /** 仅用于本次创建的可取消 worker；宽限后强制终止，仍等待实际 close。 */
+  killAfterMs?: number;
 }
 export interface OwnedChildResult {
   code: number | null;
@@ -40,11 +44,14 @@ export function runOwnedChild(
       stderr = '',
       bytes = 0;
     let failure: unknown = null;
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
     const terminate = (error: unknown): void => {
       if (failure !== null) return;
       failure = error;
       // Never signal a target QQ PID, use a process group or escalate to SIGKILL.
       child.kill('SIGTERM');
+      if (options.killAfterMs !== undefined)
+        killTimer = setTimeout(() => child.kill('SIGKILL'), options.killAfterMs);
     };
     const cancel = (): void => terminate(options.signal?.reason ?? new Error('读取已取消。'));
     const timer = setTimeout(
@@ -54,6 +61,7 @@ export function runOwnedChild(
     options.signal?.addEventListener('abort', cancel, { once: true });
     const cleanup = (): void => {
       clearTimeout(timer);
+      clearTimeout(killTimer);
       options.signal?.removeEventListener('abort', cancel);
     };
     const collect = (chunk: Buffer, stream: 'stdout' | 'stderr'): void => {
@@ -62,8 +70,15 @@ export function runOwnedChild(
         terminate(new Error('读取 worker 输出超过限制。'));
         return;
       }
-      if (stream === 'stdout') stdout += outDecoder.write(chunk);
-      else stderr += errDecoder.write(chunk);
+      if (stream === 'stdout') {
+        const text = outDecoder.write(chunk);
+        stdout += text;
+        try {
+          options.onStdout?.(text);
+        } catch (error) {
+          terminate(error);
+        }
+      } else stderr += errDecoder.write(chunk);
     };
     child.stdout.on('data', (chunk: Buffer) => collect(chunk, 'stdout'));
     child.stderr.on('data', (chunk: Buffer) => collect(chunk, 'stderr'));

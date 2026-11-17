@@ -30,7 +30,11 @@ export function GrayTipFileRecvMessage({ element }: GrayTipFileRecvMessageProps)
     <div className="weq-graytip text-center text-xs py-2">
       <span>文件传输完成 </span>
       <span className="weq-graytip-accent">{fileName}</span>
-      {size ? <span className="px-1">({size})</span> : null}
+      {size ? (
+        <span className="px-1">
+          (<span className="weq-number weq-number-inherit">{size}</span>)
+        </span>
+      ) : null}
     </div>
   );
 }

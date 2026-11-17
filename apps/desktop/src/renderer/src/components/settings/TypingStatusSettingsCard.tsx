@@ -12,7 +12,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Keyboard, Pencil, Save } from 'lucide-react';
 import { classifyChatType } from '@weq/codec';
 import { useTypingStatusSettings } from '../../hooks/useTypingStatusSettings';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { ToolSurface } from '../ToolSurface';
 import { LoadingIndicator } from '../LoadingIndicator';
 import { PageShell } from '../PageShell';
@@ -188,6 +188,7 @@ export function TypingStatusSettingsCard() {
           <div data-setting-id="typing-status-hidden">
             <Row
               label="隐藏正在输入状态的会话"
+              indent
               desc={
                 !accountUin || !accountConfigId
                   ? '当前没有打开的账号，暂时无法编辑隐藏会话。'
@@ -233,7 +234,7 @@ export function TypingStatusSettingsCard() {
                 actions={
                   <button
                     type="button"
-                    className="weq-set-btn"
+                    className="weq-set-btn weq-set-btn-primary"
                     disabled={unavailable || conversations.isLoading || !!conversations.error}
                     onClick={() => void onSave()}
                   >

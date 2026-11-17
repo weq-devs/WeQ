@@ -1,7 +1,8 @@
 import { useRef } from 'react';
 import { trpc } from '../trpc/client';
-import { useTabActive } from '../components/RetainedTabs';
-import { useToast } from '../components/Toast';
+import { useTabActive } from '../components/RetainedTabs.shared';
+import { useToastApi } from '../components/Toast.shared';
+import { notificationSource } from '../lib/notificationNavigation.shared';
 import type {
   TypingStatusConversation,
   TypingStatusMode,
@@ -10,6 +11,7 @@ import type {
 
 /** 设置页与输入框共用缓存，保存成功后立即同步所有已挂载的广播逻辑。 */
 export function useTypingStatusSettings() {
+  const notificationToast = useToastApi();
   const active = useTabActive();
   const query = trpc.bootstrap.getTypingStatusSettings.useQuery(undefined, {
     enabled: active,
@@ -31,9 +33,17 @@ export function useTypingStatusSettings() {
       utils.bootstrap.getTypingStatusSettings.setData(undefined, next);
       await utils.bootstrap.getSettings.invalidate();
     } catch (error) {
-      useToast.getState().push({
+      notificationToast.push({
         tone: 'error',
         title: '保存输入状态设置失败',
+        source: notificationSource(
+          {
+            kind: 'app',
+            target: { kind: 'setting', section: 'chat-interaction', settingId: 'typing-status' },
+          },
+          '返回输入状态设置',
+          null,
+        ),
         detail: error instanceof Error ? error.message : String(error),
       });
     } finally {

@@ -1,16 +1,17 @@
 // @ts-nocheck
+import { NumericText } from '../../components/NumericText';
 import { TimeLabel } from '../../components/TimeLabel';
 import { ReminderCount } from '../../components/ReminderBadge';
 import { occupationText } from '@weq/protocol/profile-values';
 import {
   BellOff,
   Bot,
-  Hash,
   PenLine,
   Pin,
   MailOpen,
   Mail,
   EyeOff,
+  List,
   MessageSquare,
   Users,
   UserRound,
@@ -24,7 +25,6 @@ import {
   Trash2,
   RefreshCw,
   Plus,
-  MessagesSquare,
   Sparkles,
   BarChart3,
   CloudDownload,
@@ -70,7 +70,6 @@ import { useContactDirectoryOrder, useFrozenDirectory } from '../../hooks/useCon
 import { ContactDirectoryOrder } from '../../components/ContactDirectoryOrder';
 import { conversationListSearchText } from '../../lib/conversationListSearchText';
 import { formatConversationTime } from '../../lib/conversationTime';
-export { formatConversationTime } from '../../lib/conversationTime';
 import { useConversationClickTarget } from '../../hooks/useConversationClickTarget';
 import { useConversationHoverOrder } from '../../hooks/useConversationHoverOrder';
 import { useMobileBack } from '../../hooks/useMobileNavigation';
@@ -89,7 +88,10 @@ import {
 } from '../../lib/contactRelationship';
 import { OnlineStatus } from '../../components/OnlineStatus';
 import { SourceGroup } from '../../components/qq-actions/FriendClue';
-import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
+import {
+  useContentMultiSelect,
+  useRequestContentExport,
+} from '../../state/contentSelection.shared';
 import {
   conversationAnalysisTarget,
   conversationRoamingTarget,
@@ -109,7 +111,7 @@ import { ConversationBatchToolbar } from '../../components/ConversationBatchTool
 import { useConversationBatchActions } from '../../components/useConversationBatchActions';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { FriendConversationActionsMenu } from '../../components/FriendConversationActionsMenu';
-import { useFriendDirectory } from '../../components/FriendDirectoryControls';
+import { useFriendDirectory } from '../../components/FriendDirectoryControls.shared';
 import { QQExactLookup, type QQExactLookupKind } from '../../components/QQExactLookup';
 import {
   allSelectionIdsSelected,
@@ -120,6 +122,7 @@ import { WindowedList } from '../../components/WindowedList';
 import { useThemeStore } from '../../state/theme';
 import '../../styles/conversation-directory.css';
 import { cn } from './classNames';
+import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import { Avatar, EmptyState, ListSkeleton } from './primitives';
 import { isBotConversation } from './conversationDisplay';
 import { messageMentionsUser } from './mentions';
@@ -141,16 +144,16 @@ import { intimateRelationOf } from '../../lib/profileRelations';
 import '../../styles/contact-relations.css';
 
 const VIEW_ICONS = {
-  regular: MessagesSquare,
-  all: MessagesSquare,
+  regular: FEATURE_ICONS.messages,
+  all: List,
   groupAssistant: Users,
   official: Newspaper,
   service: Mail,
-  guild: Hash,
+  guild: FEATURE_ICONS.guildDirect,
   hidden: EyeOff,
   deleted: Trash2,
-  clone: Bot,
-  assistant: Sparkles,
+  clone: FEATURE_ICONS.clone,
+  assistant: FEATURE_ICONS.assistant,
 };
 const VIEW_OPTIONS = CONVERSATION_VIEWS.map((id) => ({ id, Icon: VIEW_ICONS[id] }));
 
@@ -707,7 +710,12 @@ export function ConversationList({
       {directory?.loadingError ? (
         <div role="alert">
           会话读取失败：{directory.loadingError}
-          <button type="button" onClick={directory.onRetry ?? onLoadMore}>
+          <button
+            type="button"
+            onClick={directory.onRetry ?? onLoadMore}
+            className="weq-retry-button"
+          >
+            <RefreshCw size={14} aria-hidden />
             重试
           </button>
         </div>
@@ -843,7 +851,7 @@ export function ConversationList({
                     ) : conversation.mergedKind === 'deleted' ? (
                       <Trash2 size={20} strokeWidth={2} />
                     ) : conversation.mergedKind === 'guildDirect' ? (
-                      <Hash size={20} strokeWidth={2} />
+                      <FEATURE_ICONS.guildDirect size={20} strokeWidth={2} aria-hidden />
                     ) : conversation.mergedKind === 'clone' ? (
                       <Bot size={20} strokeWidth={2} />
                     ) : conversation.mergedKind === 'assistant' ? (
@@ -882,9 +890,9 @@ export function ConversationList({
                         aria-label="虚拟会话"
                       >
                         {virtualRow.kind === 'group' ? (
-                          <MessagesSquare size={11} />
+                          <FEATURE_ICONS.cloneGroup size={11} aria-hidden />
                         ) : (
-                          <Sparkles size={11} />
+                          <FEATURE_ICONS.clone size={11} aria-hidden />
                         )}
                       </small>
                     ) : null}
@@ -1007,6 +1015,7 @@ export function ConversationList({
               avatarUrl={conversationAvatarUrl(actionMenu.conversation)}
               identity={conversationSeed(actionMenu.conversation)}
               kind={actionMenu.conversation.type}
+              generated={actionMenu.conversation.generated}
               count={actionMenu.ids.length}
               containedCount={
                 actionMenu.conversation.type === 'merged' &&
@@ -1134,6 +1143,7 @@ export function ConversationList({
                 conversationSupportsAction(actionMenu.conversation, 'delete'))
                 ? [
                     {
+                      danger: 'solid',
                       label: '永久删除',
                       icon: <Trash2 size={16} />,
                       disabled:
@@ -1512,7 +1522,9 @@ function GroupNotificationSection({
       >
         <ChevronRight className={cn('contact-cat-caret', open && 'is-open')} size={15} />
         <span className="contact-cat-name">{category.label}</span>
-        <span className="contact-cat-count">{category.items.length}</span>
+        <span className="contact-cat-count">
+          {<span className="weq-number weq-number-inherit">{category.items.length}</span>}
+        </span>
       </button>
       {expanded
         ? category.items.slice(0, visibleCount).map((conversation) => {
@@ -1585,11 +1597,13 @@ function GroupNotificationSection({
                     className={detail ? 'weq-directory-sort-detail' : undefined}
                     title={detail?.title ? `${detail.text}\n${detail.title}` : detail?.text}
                   >
-                    {detail
-                      ? detail.text
-                      : conversation.group.memberCount > 0
-                        ? `${conversation.group.memberCount} 位成员`
-                        : '人数未读取'}
+                    {detail ? (
+                      detail.text
+                    ) : conversation.group.memberCount > 0 ? (
+                      <NumericText>{`${conversation.group.memberCount} 位成员`}</NumericText>
+                    ) : (
+                      '人数未读取'
+                    )}
                   </span>
                 </span>
                 {conversationDirectory?.showContactUnreadCount &&
@@ -2394,6 +2408,7 @@ const ContactListContent = memo(function ContactListContent({
               action: () => friendDirectory?.edit('rename', categoryMenu.id),
             },
             {
+              danger: 'outline',
               label: '删除分组',
               icon: <Trash2 size={16} />,
               disabled: !categoryMenu.id || !friendDirectory?.available || friendDirectory.busy,

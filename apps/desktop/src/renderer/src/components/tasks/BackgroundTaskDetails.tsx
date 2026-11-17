@@ -1,61 +1,47 @@
 import {
-  CalendarDays,
-  BarChart3,
-  ArchiveRestore,
-  Database,
   Download,
   FolderOpen,
-  Forward,
-  HardDrive,
+  Pause,
+  Play,
   RotateCw,
-  SmilePlus,
+  RefreshCw,
   Square,
   Trash2,
-  Upload,
-  Users,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { client, trpc } from '../../trpc/client';
 import { localBackgroundTasks } from '../../state/backgroundTasks';
 import { removeBackgroundTask, type BackgroundTaskEntry } from '../../hooks/useBackgroundTasks';
 import type { BackgroundTaskScope } from '../../../../shared/background_task';
-import { IS_WEB } from '../../lib/target';
-import { useDialog } from '../Dialog';
+import { IS_WEB } from '../../lib/target.shared';
+import { useDialog } from '../Dialog.shared';
 import type { TaskLogLine } from '../TaskLogConsole';
 import { CalendarTaskDetails } from '../CalendarTaskDetails';
 import { ContactTaskStages } from './ContactTaskStages';
 import { backgroundTaskNavigation } from './backgroundTaskNavigation';
+import { TaskActivityLog } from './TaskActivityLog';
+import { TaskProgressDetails } from './TaskProgressDetails';
+import { DatabaseMaintenanceProgress } from '../DatabaseMaintenanceProgress';
 import '../../styles/export.css';
 import '../../styles/conversation-overview-calendar.css';
 import '../../styles/contact-directory-order.css';
+import '../../styles/long-tasks.css';
 
-export const BACKGROUND_TASK_LABELS = {
-  analysis: '分析报告',
-  calendar: '会话日历',
-  contacts: '好友/群信息缓存',
-  model: '模型下载',
-  update: '软件更新',
-  database: '数据库维护',
-  backup: '备份与恢复',
-  'favorite-import': '收藏表情导入',
-  forward: '逐条转发',
-  'album-upload': '群相册上传',
-  resource: '资源管理',
-};
-
-export const BACKGROUND_TASK_ICONS = {
-  analysis: BarChart3,
-  calendar: CalendarDays,
-  contacts: Users,
-  model: Download,
-  update: RotateCw,
-  database: Database,
-  backup: ArchiveRestore,
-  'favorite-import': SmilePlus,
-  forward: Forward,
-  'album-upload': Upload,
-  resource: HardDrive,
-};
+export function BackgroundTaskActionIcon({ id }: { id: string }) {
+  const Icon =
+    id === 'stop' || id === 'cancel'
+      ? Square
+      : id === 'pause'
+        ? Pause
+        : id === 'resume' || id === 'continue'
+          ? Play
+          : id === 'retry'
+            ? RefreshCw
+            : id === 'download'
+              ? Download
+              : FolderOpen;
+  return <Icon size={14} aria-hidden />;
+}
 
 export function BackgroundTaskDetails({
   entry,
@@ -86,6 +72,10 @@ function TaskDetails({
   refresh: () => Promise<unknown>;
 }) {
   const { task } = entry;
+  const maintenance = trpc.dbRepair.maintenance.useQuery(
+    { uin: task.scope?.uin ?? '', configId: task.scope?.configId },
+    { enabled: task.destination === 'db-checkup' && !!task.scope?.uin, refetchInterval: 2000 },
+  );
   const navigation = backgroundTaskNavigation(task);
   const hostDetails = trpc.backgroundTasks.details.useQuery(
     { id: task.id, scope, updatedAt: task.updatedAt },
@@ -99,7 +89,7 @@ function TaskDetails({
   const taskLogs = trpc.backgroundTasks.logs.useQuery(
     { id: task.id, scope, updatedAt: task.updatedAt },
     {
-      enabled: entry.source === 'host' && task.kind === 'contacts',
+      enabled: entry.source === 'host' && task.kind !== 'calendar' && !task.databaseProgress,
       cacheTime: 0,
       keepPreviousData: true,
     },
@@ -108,7 +98,7 @@ function TaskDetails({
   useEffect(() => {
     if (taskLogs.data) retainedLogs.current = taskLogs.data;
   }, [taskLogs.data]);
-  const contactLogs =
+  const logs =
     (entry.source === 'host' ? (taskLogs.data ?? retainedLogs.current) : task.logs) ??
     contactLogLines(details ?? []);
   const [busy, setBusy] = useState(false);
@@ -126,7 +116,32 @@ function TaskDetails({
     }
   };
   return (
-    <div>
+    <div className="weq-background-task-details">
+      {task.databaseProgress ? (
+        <DatabaseMaintenanceProgress
+          progress={task.databaseProgress}
+          batch={
+            task.databaseBatch
+              ? {
+                  ...task.databaseBatch,
+                  locked: maintenance.data?.state === 'waiting' && maintenance.data.locked,
+                }
+              : undefined
+          }
+          compact
+        />
+      ) : (
+        <TaskProgressDetails
+          name={task.name}
+          status={task.status}
+          statusLabel={task.statusLabel}
+          progress={task.progress}
+          note={task.kind === 'contacts' && task.subtasks?.length ? undefined : task.note}
+          startedAt={task.startedAt}
+          finishedAt={task.finishedAt}
+        />
+      )}
+      {task.databaseProgress && task.status !== 'running' && task.note ? <p>{task.note}</p> : null}
       {task.kind === 'calendar' ? (
         <CalendarTaskDetails
           key={task.id}
@@ -138,15 +153,11 @@ function TaskDetails({
       {task.kind === 'contacts' ? (
         <ContactTaskStages
           task={task}
-          logs={contactLogs}
+          logs={logs}
           onShowFailures={(label, items) =>
             showError(`${label}读取失败`, items.map((item) => item.error).join('\n'))
           }
         />
-      ) : null}
-      {task.note &&
-      (task.kind !== 'contacts' || (task.status === 'failed' && !task.subtasks?.length)) ? (
-        <p role={task.status === 'failed' ? 'alert' : undefined}>{task.note}</p>
       ) : null}
       {hostDetails.error && entry.source === 'host' ? (
         <p role="alert">详情读取失败：{hostDetails.error.message}</p>
@@ -163,6 +174,15 @@ function TaskDetails({
             ))}
           </ul>
         </div>
+      ) : null}
+      {!task.databaseProgress &&
+      task.kind !== 'calendar' &&
+      (task.kind !== 'contacts' || !task.subtasks?.length) ? (
+        <TaskActivityLog
+          lines={logs}
+          loading={entry.source === 'host' && taskLogs.isLoading}
+          error={taskLogs.error?.message}
+        />
       ) : null}
       <div className="weq-long-task-actions">
         {navigation ? (
@@ -199,13 +219,7 @@ function TaskDetails({
               )
             }
           >
-            {action.id === 'stop' ? (
-              <Square size={14} />
-            ) : action.id === 'download' ? (
-              <Download size={14} />
-            ) : (
-              <FolderOpen size={14} />
-            )}
+            <BackgroundTaskActionIcon id={action.id} />
             {action.label}
           </button>
         ))}
@@ -222,6 +236,7 @@ function TaskDetails({
         ) : null}
         {task.status !== 'running' ? (
           <button
+            data-danger="outline"
             type="button"
             className="weq-set-btn weq-set-btn-soft"
             disabled={busy}

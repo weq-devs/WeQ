@@ -1,5 +1,6 @@
+import { NumericText } from '../../components/NumericText';
 import { useMemo } from 'react';
-import { RotateCw, X } from 'lucide-react';
+import { RefreshCw, X } from 'lucide-react';
 import { ConversationPicker } from './ConversationPicker';
 import { convAvatarUrl } from './types';
 import { SegmentedControl } from '../../components/SegmentedControl';
@@ -58,7 +59,11 @@ export function ContactScopePicker({
           ]}
         />
         <small>
-          {selected === undefined ? conditionLabel : `已选 ${selected.length} 位联系人`}
+          {selected === undefined ? (
+            conditionLabel
+          ) : (
+            <NumericText>{`已选 ${selected.length} 位联系人`}</NumericText>
+          )}
         </small>
       </div>
       {error ? (
@@ -70,13 +75,16 @@ export function ContactScopePicker({
             aria-label="重试读取联系人"
             onClick={onRetry}
           >
-            <RotateCw size={14} />
+            <RefreshCw size={14} aria-hidden />
           </button>
         </div>
       ) : null}
       {!loading && outside.length > 0 ? (
         <div className="weq-export-contact-outside" role="status">
-          <span>当前列表之外仍选中 {outside.length} 位联系人</span>
+          <span>
+            当前列表之外仍选中{' '}
+            <span className="weq-number weq-number-inherit">{outside.length}</span> 位联系人
+          </span>
           <button
             type="button"
             title="清除列表外的选择"

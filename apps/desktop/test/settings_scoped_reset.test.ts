@@ -3,6 +3,8 @@ import { DEFAULT_APP_SETTINGS, DEFAULT_INTENT_SENSE_CONFIG } from '@weq/service'
 import type { AppSettings } from '@weq/service';
 import { SETTINGS_RESET_CARDS, resetCards } from '../src/shared/settings_reset';
 import { settingsResetRouter } from '../src/main/ipc/routers/settings_reset';
+import { SETTINGS_FIELDS } from '@weq/service/settings-catalog';
+import { preferenceDefaults } from '@weq/service/client-preferences';
 
 const state = vi.hoisted(() => ({
   settings: {} as AppSettings,
@@ -108,10 +110,94 @@ beforeEach(() => {
 });
 const caller = () => settingsResetRouter.createCaller({});
 describe('分级恢复默认', () => {
+  it('QQ 在线能力卡片恢复右上角标记，不改变独立通知偏好', async () => {
+    state.settings.restrictedModeIndicatorEnabled = false;
+    state.settings.restrictedModeBannerEnabled = false;
+    const preview = await caller().preview({ page: 'account', card: 'attach' });
+    expect(preview.items).toContainEqual(
+      expect.objectContaining({
+        id: 'attach:restrictedModeIndicatorEnabled',
+        current: false,
+        defaultValue: true,
+      }),
+    );
+    await caller().restore({ page: 'account', card: 'attach', source: null });
+    expect(state.calls).toContainEqual(['setRestrictedModeIndicatorEnabled', { enabled: true }]);
+    expect(state.calls.some(([name]) => name === 'resetNotificationEvents')).toBe(false);
+    expect(state.settings.restrictedModeBannerEnabled).toBe(false);
+  });
+  it('所有登记的全局恢复字段均有真实适配器，不依赖设置控件是否挂载', async () => {
+    const api = settingsResetRouter.createCaller({ authorize: () => {} });
+    for (const page of new Set(SETTINGS_RESET_CARDS.map(([page]) => page))) {
+      const preview = await api.preview({ page });
+      const cards = new Set(resetCards({ page }).map(([, card]) => card));
+      for (const field of SETTINGS_FIELDS.filter(
+        (field) =>
+          cards.has(field.card) &&
+          field.scope === '全局' &&
+          !field.desktopOnly &&
+          field.id !== 'onebot-servers:servers',
+      ))
+        expect(
+          preview.items.some((item) => item.id === field.id),
+          field.id,
+        ).toBe(true);
+    }
+    expect(state.calls).toEqual([]);
+  });
+  it('斜杠表情、全部会话范围和 OCR 筛图均从统一字段目录恢复', async () => {
+    state.settings.sharedPreferences.client = {
+      slashEmojiEnabled: false,
+      slashEmojiAutoReplace: true,
+      allConversationsIncludeHidden: true,
+      allConversationsIncludeDeleted: true,
+    };
+    state.settings.ocr.prefilterEnabled = false;
+    for (const page of ['chat-interaction', 'chat-messages', 'recognition'] as const)
+      await caller().restore({ page, source: null });
+    for (const key of [
+      'slashEmojiEnabled',
+      'slashEmojiAutoReplace',
+      'allConversationsIncludeHidden',
+      'allConversationsIncludeDeleted',
+    ] as const)
+      expect(state.calls).toContainEqual(['clientPreferences', { [key]: preferenceDefaults[key] }]);
+    expect(state.calls).toContainEqual([
+      'setOcrPrefilterEnabled',
+      { enabled: DEFAULT_APP_SETTINGS.ocr.prefilterEnabled },
+    ]);
+  });
+
+  it('窗口外观和关闭行为随各自页面恢复，不再互相影响', async () => {
+    state.settings.windowsStyleControls = true;
+    state.settings.windowCloseBehavior = 'quit';
+    const appearance = await caller().preview({ page: 'appearance' });
+    const startup = await caller().preview({ page: 'startup' });
+    const notifications = await caller().preview({ page: 'global' });
+    expect(appearance.items.map((item) => item.id)).toContain(
+      'window-appearance:windowsStyleControls',
+    );
+    expect(appearance.items.map((item) => item.id)).not.toContain('window:windowCloseBehavior');
+    expect(startup.items.map((item) => item.id)).toContain('window:windowCloseBehavior');
+    expect(startup.items.map((item) => item.id)).not.toContain(
+      'window-appearance:windowsStyleControls',
+    );
+    expect(notifications.items.some((item) => item.id.startsWith('window'))).toBe(false);
+    state.calls = [];
+    await caller().restore({ page: 'appearance', card: 'window-appearance', source: null });
+    expect(state.calls).toEqual([
+      ['setWindowsStyleControls', { enabled: DEFAULT_APP_SETTINGS.windowsStyleControls }],
+    ]);
+    state.calls = [];
+    await caller().restore({ page: 'startup', card: 'window', source: null });
+    expect(state.calls).toEqual([
+      ['setWindowCloseBehavior', { behavior: DEFAULT_APP_SETTINGS.windowCloseBehavior }],
+    ]);
+  });
   it.each([
     [
       'message-display',
-      'group-messages',
+      'message-content',
       { showGroupMemberName: false, showGroupMemberLevel: false, showGroupMemberTitle: false },
     ],
     [
@@ -122,16 +208,17 @@ describe('分级恢复默认', () => {
   ] as const)('%s 恢复包含新增设置且不改其他偏好', async (page, card, patch) => {
     state.settings.sharedPreferences.client = { ...patch, mailListWidth: 400 };
     const preview = await caller().preview({ page, card });
-    expect(preview.items.map((item) => item.id)).toEqual(
+    const changed = preview.items.filter(
+      (item) => JSON.stringify(item.current) !== JSON.stringify(item.defaultValue),
+    );
+    expect(changed.map((item) => item.id)).toEqual(
       Object.keys(patch).map((key) => `${card}:${key}`),
     );
-    expect(
-      preview.items.every((item) => item.scope === '全局' && item.current !== item.defaultValue),
-    ).toBe(true);
+    expect(changed.every((item) => item.scope === '全局')).toBe(true);
     expect(state.calls).toEqual([]);
     await caller().restore({ page, card, source: null });
     expect(state.calls).toHaveLength(Object.keys(patch).length);
-    for (const item of preview.items) {
+    for (const item of changed) {
       expect(state.calls).toContainEqual([
         'clientPreferences',
         { [item.id.split(':')[1]!]: item.defaultValue },
@@ -162,7 +249,7 @@ describe('分级恢复默认', () => {
       autoFetchMissingContext: true,
       missingMessageContextCount: 80,
     };
-    const preview = await caller().preview({ page: 'chat-messages', card: 'reading' });
+    const preview = await caller().preview({ page: 'message-display', card: 'reading' });
     expect(preview.items).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -303,13 +390,10 @@ describe('分级恢复默认', () => {
     expect(result.every((item) => item.ok)).toBe(true);
     expect(state.intent.profileEngine).toBe(DEFAULT_INTENT_SENSE_CONFIG.profileEngine);
   });
-  it('数据源配置仍拒绝切号前的恢复目标', async () => {
+  it('已移除的账号级容错不再提供恢复字段', async () => {
     state.account = true;
-    const preview = await caller().preview({ page: 'media', card: 'native-media' });
-    state.source = 'other-source';
-    await expect(
-      caller().restore({ page: 'media', card: 'native-media', source: preview.source }),
-    ).rejects.toThrow('已切换');
+    const preview = await caller().preview({ page: 'database-management' });
+    expect(preview.items.some((item) => item.id.startsWith('db-tolerance:'))).toBe(false);
     expect(state.calls).toEqual([]);
   });
   it('整页画像参数成组恢复，不因中间状态违反范围约束而失败，保留单会话覆盖', async () => {

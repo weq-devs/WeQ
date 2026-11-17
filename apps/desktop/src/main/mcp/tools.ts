@@ -18,6 +18,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { databasePerformance } from '@weq/db';
+import { listSettings } from '@weq/service/settings-catalog';
 import { getAppContext, type AccountServices } from '../context/app_context';
 import { fullModeAllowed } from '../context/full_mode';
 import { assertAccountToolScope } from './account_scope';
@@ -53,6 +54,7 @@ import {
   fetchDownloadRkeys,
   fetchWebTokens,
   getHost,
+  requireDevelopmentDressTools,
   HonorType,
   localOcrBlocker,
   normalizeMallItems,
@@ -662,6 +664,16 @@ function formatCst(unixSeconds: number): string {
 }
 
 export const AI_TOOLS: AiTool[] = [
+  tool({
+    name: 'list_settings',
+    description:
+      '列出 WeQ 设置项、稳定 ID、所属页面、搜索别名与恢复默认范围。与设置前端、全局搜索和文档共用同一注册表，可按 page 或 query 筛选。只返回公开定义，不读取当前设置值、账号资料或凭据，也不修改设置。',
+    input: z.object({
+      page: z.string().optional().describe('设置页面 ID；省略时列出全部页面'),
+      query: z.string().optional().describe('按设置名称、稳定 ID、别名或分类路径筛选'),
+    }),
+    run: async (input) => listSettings(input),
+  }),
   tool({
     name: 'search_messages',
     description:
@@ -3913,7 +3925,7 @@ export const AI_TOOLS: AiTool[] = [
       if (!ck.clientKey) {
         return {
           ok: false,
-          error: 'clientKey 获取失败 —— 确认 QQ 在线且已开启「自动读取 QQ 内存（完整功能）」。',
+          error: 'clientKey 获取失败 —— 确认 QQ 在线且已开启「自动启用 QQ 在线能力」。',
         };
       }
       return { ok: true, clientKey: ck.clientKey, keyIndex: ck.keyIndex };
@@ -3958,7 +3970,7 @@ export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'get_ptlogin_jump_url',
     description:
-      '生成一个 QQ空间 / QQ频道 的【免登录跳转 URL】——浏览器打开即已登录（ptlogin2 跳转链，302 落 cookie）。' +
+      '生成一个 QQ 空间 / QQ频道 的【免登录跳转 URL】——浏览器打开即已登录（ptlogin2 跳转链，302 落 cookie）。' +
       'site=qzone 落地到空间个人中心，site=channel 落地到频道 pd.qq.com。URL 含一次性 clientKey，点击时现取。需要在线且已注入的 QQ。',
     input: z.object({
       site: z.enum(['qzone', 'channel']).describe('目标站点'),
@@ -4734,7 +4746,7 @@ export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'get_qzone_profile',
     description:
-      '读取某个 QQ 号的【QQ空间资料】：说说列表（get_emotion_list，pos+num 稳定深翻）或相册列表。' +
+      '读取某个 QQ 号的【QQ 空间资料】：说说列表（get_emotion_list，pos+num 稳定深翻）或相册列表。' +
       'mode=msgs 返回说说（内容/时间/图片/视频/评论数），mode=albums 返回相册。需要在线 QQ。',
     input: z.object({
       targetUin: z.string().min(1).describe('目标 QQ 号（纯数字；不传查自己）').optional(),
@@ -4892,6 +4904,7 @@ export const AI_TOOLS: AiTool[] = [
       pageSize: z.number().int().min(1).max(50).default(20).describe('每页条数'),
     }),
     run: async ({ kind, mode, keyword, pageIndex, pageSize }): Promise<unknown> => {
+      requireDevelopmentDressTools();
       const appId =
         kind === 'bubble'
           ? DressAppId.Bubble
@@ -4945,6 +4958,7 @@ export const AI_TOOLS: AiTool[] = [
       name: z.string().min(1).describe('部件名（如 config.json / static.zip / main / fzfont）'),
     }),
     run: async ({ kind, itemId, name }) => {
+      requireDevelopmentDressTools();
       const r = ntHelper().queryDressResourceUrl(kind, itemId.trim(), name.trim());
       if (!r) {
         return {
@@ -4999,6 +5013,7 @@ export const AI_TOOLS: AiTool[] = [
       cursor: z.string().default('').describe('翻页游标（上一页返回的 nextCursor）'),
     }),
     run: async ({ keyword, feeTypes, limit, cursor }) => {
+      requireDevelopmentDressTools();
       const page = searchCatalog({
         keyword,
         ...(feeTypes.length ? { feeTypes } : {}),
@@ -5060,6 +5075,7 @@ export const AI_TOOLS: AiTool[] = [
         .describe('手动指定种子时间戳（unix 秒；不传=自动恢复）'),
     }),
     run: async ({ packId, timestamp }) => {
+      requireDevelopmentDressTools();
       const key = await services().emoji.getMarketPackKey(
         packId.trim(),
         timestamp && timestamp > 0 ? timestamp : undefined,
@@ -5093,6 +5109,7 @@ export const AI_TOOLS: AiTool[] = [
       keyOverride: z.string().optional().describe('手动密钥（16 位；不传=自动恢复）'),
     }),
     run: async ({ packId, hash, keyOverride }) => {
+      requireDevelopmentDressTools();
       const path = await services().emoji.getMarketPackImage(
         packId.trim(),
         hash.trim(),

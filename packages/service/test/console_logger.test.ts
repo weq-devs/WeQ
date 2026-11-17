@@ -36,6 +36,68 @@ afterEach(() => {
   vi.useRealTimers();
 });
 describe('开发终端', () => {
+  it.each(['info', 'debug'])('内部阶段仅在详细模式展示，%s 不过滤同事件的异常', (level) => {
+    const lines: string[] = [];
+    const logger = createConsoleLogger({
+      development: true,
+      processName: 'test',
+      env: { WEQ_LOG_LEVEL: level },
+      color: false,
+      detailEvents: new Set(['logger:init']),
+      sink: (line) => lines.push(line),
+    });
+    disposals.push(logger.dispose);
+    logger.write('info', 'initialized', { scope: 'logger', event: 'init' });
+    logger.write('warn', 'init failed', { scope: 'logger', event: 'init' });
+    expect(lines).toHaveLength(level === 'debug' ? 2 : 1);
+    expect(lines.at(-1)).toContain('WARN');
+  });
+  it.each([false, true])(
+    '重启只收起首屏前的常规阶段，恢复后账号和 MCP 事件继续显示；warning=%s',
+    (warning) => {
+      const lines: string[] = [];
+      const logger = createConsoleLogger({
+        development: true,
+        processName: 'desktop-main',
+        env: {},
+        color: false,
+        startup: { startedAt: 1000, restarting: true, warning },
+        now: () => 2500,
+        sink: (line) => lines.push(line),
+      });
+      disposals.push(logger.dispose);
+      logger.write('info', 'WeQ startup', { scope: 'desktop-main', event: 'startup' });
+      logger.write('info', 'opened', { scope: 'app-context', event: 'open-account-success' });
+      expect(lines).toEqual([]);
+      logger.write('info', 'ready', { scope: 'desktop-main', event: 'app-ready' });
+      expect(lines[0]).toContain(warning ? '启动存在异常' : '应用重启就绪');
+      expect(lines[0]).toContain('耗时 1.5s');
+      logger.write('info', 'opened', { scope: 'app-context', event: 'open-account-success' });
+      logger.write('info', 'MCP', { scope: 'mcp-server', event: 'mcp-start' });
+      expect(lines).toHaveLength(3);
+    },
+  );
+  it('启动期间实际发生的异常保留，并使首屏就绪不冒称全部正常', () => {
+    const lines: string[] = [];
+    const logger = createConsoleLogger({
+      development: true,
+      processName: 'desktop-main',
+      env: {},
+      color: false,
+      startup: { startedAt: 1000, restarting: false, warning: false },
+      now: () => 2000,
+      sink: (line) => lines.push(line),
+    });
+    disposals.push(logger.dispose);
+    logger.write('error', '账号打开失败，返回选择页', {
+      scope: 'app-context',
+      event: 'account-failed',
+    });
+    logger.write('info', 'ready', { scope: 'desktop-main', event: 'app-ready' });
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain('账号打开失败');
+    expect(lines[1]).toContain('界面已就绪（启动存在异常');
+  });
   it('开发默认 info，正式关闭，支持显式打开和关闭', () => {
     const dev = fixture();
     dev.logger.write('debug', 'hidden');
@@ -142,34 +204,150 @@ describe('开发终端', () => {
     );
     expect(JSON.stringify(projectConsoleContext(wide)).length).toBeLessThan(25000);
   });
-  it('慢请求和数据库慢操作逐条保留本次耗时及定位信息', () => {
+  it('相同慢请求首条立即显示，30 秒内其余记录合为单行真实耗时统计', () => {
+    vi.useFakeTimers();
     const f = fixture();
     for (const durationMs of [1200, 8600, 1400]) {
       f.logger.write('warn', '请求完成', {
         scope: 'trpc',
         event: 'request-slow',
         path: 'account.getUnreadInfos',
+        outcome: 'ok',
+        operationId: `request-${durationMs}`,
         durationMs,
       });
+    }
+    expect(f.lines).toHaveLength(1);
+    expect(stripVTControlCharacters(f.lines[0]!)).toContain('耗时 1.2s');
+    f.advance(30_000);
+    vi.advanceTimersByTime(30_000);
+    const summary = stripVTControlCharacters(f.lines[1]!);
+    expect(summary).toContain('慢请求汇总  account.getUnreadInfos  近 30 秒 3 次');
+    expect(summary).toContain('耗时 1.2～8.6s，均值 3.73s');
+    expect(summary.trim().split('\n')).toHaveLength(1);
+    f.logger.flush();
+    expect(f.lines).toHaveLength(2);
+  });
+  it('相同数据库慢操作忽略动态诊断分组，汇总原生耗时和实际阻塞影响', () => {
+    const f = fixture();
+    for (const [index, durationMs] of [1200, 8600, 1400].entries()) {
       f.logger.write('warn', '数据库等待超过阈值', {
         scope: 'database',
         event: 'database-slow',
+        outcome: 'ok',
         jsQueueWaitMs: durationMs,
         nativePromiseAwaitMs: durationMs + 100,
+        nativeTiming: { executeMs: durationMs - 100 },
+        affectedQueryCount: index + 1,
+        maxBlockedMs: durationMs - 100,
+        priority: index === 0 ? 'interactive' : 'background',
         fingerprint: 'query-fixture',
         caller: 'fixture.ts:12',
       });
     }
-    const lines = f.lines.map(stripVTControlCharacters);
-    expect(lines).toHaveLength(6);
-    expect(lines[2]).toContain('耗时 8.6s');
-    expect(lines[4]).toContain('耗时 1.4s');
-    expect(lines[3]).toContain('排队 8.6s');
-    expect(lines[3]).toContain('原生等待 8.7s');
-    expect(lines[3]).toContain('指纹 query-fixture');
-    expect(lines[3]).toContain('调用点 fixture.ts:12');
+    expect(f.lines).toHaveLength(1);
+    f.advance(4500);
     f.logger.flush();
-    expect(f.lines).toHaveLength(6);
+    const summary = stripVTControlCharacters(f.lines[1]!);
+    expect(summary).toContain('慢操作汇总  fixture.ts:12  近 4.5 秒 3 次');
+    expect(summary).toContain('原生等待 1.3～8.7s，均值 3.83s');
+    expect(summary).toContain('受影响查询 6  最长阻塞 8.5s');
+    expect(summary).not.toContain('指纹');
+    expect(summary).not.toContain('排队');
+    expect(summary.trim().split('\n')).toHaveLength(1);
+  });
+  it.each([
+    { path: 'account.listBuddies' },
+    { scope: 'another-transport' },
+    { type: 'mutation' },
+    { accountUin: 'another-account' },
+  ])('不同请求独立提示与计数：%j', (change) => {
+    const f = fixture();
+    const context = {
+      scope: 'trpc',
+      event: 'request-slow',
+      outcome: 'ok',
+      path: 'account.getOnlineStatus',
+      type: 'query',
+      accountUin: 'fixture-account',
+      durationMs: 1200,
+    };
+    for (const extra of [{}, {}, change, change])
+      f.logger.write('warn', '请求完成', { ...context, ...extra });
+    expect(f.lines).toHaveLength(2);
+    f.logger.flush();
+    expect(f.lines).toHaveLength(4);
+    expect(stripVTControlCharacters(f.lines[2]!)).toContain('本轮 2 次');
+    expect(stripVTControlCharacters(f.lines[3]!)).toContain('本轮 2 次');
+  });
+  it.each([{ caller: 'other.ts:12' }, { fingerprint: 'another-query' }])(
+    '不同数据库操作独立提示：%j',
+    (change) => {
+      const f = fixture();
+      const context = {
+        scope: 'database',
+        event: 'database-slow',
+        outcome: 'ok',
+        caller: 'fixture.ts:12',
+        fingerprint: 'query-fixture',
+        nativePromiseAwaitMs: 800,
+      };
+      for (const extra of [{}, {}, change, change])
+        f.logger.write('warn', '数据库慢操作', { ...context, ...extra });
+      expect(f.lines).toHaveLength(2);
+    },
+  );
+  it.each(['failed', 'cancelled'])('慢操作 %s 仍逐条立即显示，不并入成功统计', (outcome) => {
+    const f = fixture();
+    for (const event of ['request-slow', 'database-slow']) {
+      const context = {
+        scope: event === 'database-slow' ? 'database' : 'trpc',
+        event,
+        outcome,
+      };
+      f.logger.write('warn', '慢操作', context);
+      f.logger.write('warn', '慢操作', context);
+    }
+    expect(f.lines).toHaveLength(4);
+    f.logger.flush();
+    expect(f.lines).toHaveLength(4);
+  });
+  it('慢请求窗口到期先结清旧统计，单次事件及重复 flush 不额外输出', () => {
+    const f = fixture();
+    const context = {
+      scope: 'trpc',
+      event: 'request-slow',
+      outcome: 'ok',
+      path: 'account.getOnlineStatus',
+    };
+    for (const durationMs of [1200, 8600])
+      f.logger.write('warn', '请求完成', { ...context, durationMs });
+    f.advance(30_000);
+    f.logger.write('warn', '请求完成', { ...context, durationMs: 1400 });
+    expect(f.lines).toHaveLength(3);
+    expect(stripVTControlCharacters(f.lines[1]!)).toContain('近 30 秒 2 次');
+    expect(stripVTControlCharacters(f.lines[2]!)).toContain('耗时 1.4s');
+    f.logger.flush();
+    f.logger.flush();
+    expect(f.lines).toHaveLength(3);
+  });
+  it('DEBUG 慢请求和慢操作逐条保留耗时与诊断字段', () => {
+    const f = fixture({ WEQ_LOG_LEVEL: 'debug' });
+    for (const event of ['request-slow', 'database-slow']) {
+      for (const durationMs of [1200, 8600])
+        f.logger.write('warn', '慢操作', {
+          scope: event === 'database-slow' ? 'database' : 'trpc',
+          event,
+          outcome: 'ok',
+          durationMs,
+          fingerprint: 'query-fixture',
+        });
+    }
+    expect(f.lines).toHaveLength(4);
+    expect(stripVTControlCharacters(f.lines[1]!)).toContain('耗时 8.6s');
+    expect(stripVTControlCharacters(f.lines[3]!)).toContain('指纹 query-fixture');
+    f.logger.flush();
+    expect(f.lines).toHaveLength(4);
   });
   it.each(['errorStack', 'error'] as const)(
     '每次错误保留详情，30 秒内仅收起相同 %s 堆栈',
@@ -322,9 +500,11 @@ describe('开发终端', () => {
     expect(summary).toContain('近 30 秒 6 次');
     expect(summary).toContain('耗时 1.2～3.6 秒，平均 2.4 秒，最近 3.6 秒（2 次有记录）');
   });
-  it('轮询统计最多 512 项，淘汰前输出已有汇总，ERROR 级别不参与合并', () => {
+  it.each([
+    { scope: 'account-monitor', event: 'online-probe-failed' },
+    { scope: 'trpc', event: 'request-slow', outcome: 'ok' },
+  ])('统计最多 512 项，淘汰前输出已有汇总，ERROR 级别不参与合并：%j', (context) => {
     const f = fixture();
-    const context = { scope: 'account-monitor', event: 'online-probe-failed' };
     f.logger.write('warn', '检测失败', { ...context, accountUin: 'fixture-0' });
     f.logger.write('warn', '检测失败', { ...context, accountUin: 'fixture-0' });
     for (let i = 1; i < 513; i++)

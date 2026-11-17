@@ -3,7 +3,14 @@ import { algoFor, type AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
 import { CalendarMetadataDb, QqDb, type CalendarCursor, type CalendarTable } from '@weq/db';
 import { mergeRoamingTimeline, timelineRowKey, type TimelineRow } from '../common/roaming_timeline';
-import type { CalendarSource, CalendarTarget, CalendarKind } from './conversation_calendar';
+import {
+  calendarMonthDays,
+  compareMessageIds,
+  type CalendarBatch,
+  type CalendarSource,
+  type CalendarTarget,
+  type CalendarKind,
+} from './conversation_calendar';
 import type { MsgService } from './msg';
 import type { GapHistoryService } from './gap_history';
 import type { AgentLabService } from './agentlab';
@@ -65,6 +72,7 @@ function generatedSource(
   kind: 'persona' | 'cloneGroup' | 'assistant',
   targets: CalendarTarget[],
   services: CalendarSourceServices,
+  check: () => void,
 ): CalendarSource {
   const buckets = targets.flatMap((target) => {
     if (kind === 'assistant') return [{ target, sessionId: target.conv as string | null }];
@@ -77,42 +85,96 @@ function generatedSource(
       ...list.map((session) => ({ target, sessionId: session.id as string | null })),
     ];
   });
+  // 仅缓存每日计数和最早锚点，容量预先计入任务预算，不保留正文或无界逐条索引。
+  const capacity = 128 * 1024;
+  type Summary = { rows: Map<number, CalendarBatch['rows'][number]>; bytes: number };
+  let summaries = new Map<string, Summary>();
+  let bytes = 0;
+  const dayStart = (time: number) => Math.floor((time + 28800) / 86400) * 86400 - 28800;
   return {
     kind,
-    async page(_start, _end, raw, limit) {
-      const cursor = (raw ?? { bucket: 0, offset: 0 }) as { bucket: number; offset: number };
-      const bucket = buckets[cursor.bucket];
-      if (!bucket) return { rows: [], done: true };
-      const messages = generatedMessages(services, bucket.target, bucket.sessionId);
-      const rows = messages.slice(cursor.offset, cursor.offset + limit).flatMap((message) =>
-        message.id && !bucket.target.hiddenIds?.[bucket.sessionId ?? 'draft']?.includes(message.id)
-          ? [
-              {
-                conv: bucket.target.conv,
-                time: message.ts / 1000,
-                anchor: {
-                  id: message.id,
-                  seq: '',
-                  time: message.ts / 1000,
-                  sessionId: bucket.sessionId,
-                },
-              },
-            ]
-          : [],
-      );
-      const next =
-        cursor.offset + limit < messages.length
-          ? { ...cursor, offset: cursor.offset + limit }
-          : { bucket: cursor.bucket + 1, offset: 0 };
+    cacheCapacityBytes: capacity,
+    invalidate() {
+      summaries = new Map();
+      bytes = 0;
+    },
+    async page(start, end, raw, limit) {
+      const cursor = (raw ?? { bucket: 0, offset: 0 }) as { bucket: number; offset?: number };
+      const aligned = start === dayStart(start) && end === start + 86400;
+      const month = calendarMonthDays(new Date((start + 28800) * 1000).toISOString().slice(0, 7));
+      const rows: CalendarBatch['rows'] = [];
+      let index = cursor.bucket;
+      let began = performance.now();
+      for (; index < Math.min(buckets.length, cursor.bucket + limit); index++) {
+        check();
+        const bucket = buckets[index]!;
+        const offset = index === cursor.bucket ? (cursor.offset ?? 0) : 0;
+        const key = `${month[0]!.day}:${index}`;
+        let summary = aligned && !offset ? summaries.get(key) : undefined;
+        if (!summary) {
+          const cache = summaries;
+          summary = { rows: new Map(), bytes: 128 };
+          const hidden = new Set(bucket.target.hiddenIds?.[bucket.sessionId ?? 'draft']);
+          const messages = generatedMessages(services, bucket.target, bucket.sessionId);
+          for (let position = offset; position < messages.length; position++) {
+            if (performance.now() - began >= 4) {
+              await new Promise<void>((done) => setTimeout(done, 0));
+              check();
+              began = performance.now();
+            }
+            const message = messages[position]!;
+            const time = message.ts / 1000;
+            if (
+              !message.id ||
+              hidden.has(message.id) ||
+              !Number.isFinite(time) ||
+              time < (aligned ? month[0]!.start : start) ||
+              time >= (aligned ? month.at(-1)!.end : end)
+            )
+              continue;
+            const stamp = dayStart(time);
+            const previous = summary.rows.get(stamp);
+            const anchor = { id: message.id, seq: '', time, sessionId: bucket.sessionId };
+            if (previous) {
+              previous.count = (previous.count ?? 1) + 1;
+              if (
+                time < previous.time ||
+                (time === previous.time && compareMessageIds(message.id, previous.anchor.id) < 0)
+              ) {
+                previous.time = time;
+                previous.anchor = anchor;
+              }
+            } else {
+              summary.rows.set(stamp, { conv: bucket.target.conv, time, anchor, count: 1 });
+              summary.bytes +=
+                256 +
+                (bucket.target.conv.length + message.id.length + (bucket.sessionId?.length ?? 0)) *
+                  2;
+            }
+          }
+          if (aligned && !offset && cache === summaries && summary.bytes <= capacity) {
+            while (bytes + summary.bytes > capacity && summaries.size) {
+              const first = summaries.keys().next().value!;
+              bytes -= summaries.get(first)!.bytes;
+              summaries.delete(first);
+            }
+            summaries.set(key, summary);
+            bytes += summary.bytes;
+          }
+        }
+        rows.push(
+          ...[...summary.rows.values()].filter((row) => row.time >= start && row.time < end),
+        );
+      }
       return {
         rows,
-        cursor: next,
-        done: next.bucket >= buckets.length,
+        cursor: { bucket: index, offset: 0 },
+        done: index >= buckets.length,
         progress: {
-          phase: `会话 ${cursor.bucket + 1}/${buckets.length}`,
-          processed: Math.min(cursor.offset + limit, messages.length),
-          total: messages.length,
-          unit: '条元数据',
+          phase: '生成对话月汇总',
+          processed: index,
+          total: buckets.length,
+          unit: '个会话',
         },
       };
     },
@@ -129,7 +191,7 @@ export function createCalendarSources(
   return kinds.map((kind): CalendarSource => {
     const targets = value.targets.filter((target) => target.kind === kind);
     if (kind === 'persona' || kind === 'cloneGroup' || kind === 'assistant') {
-      const source = generatedSource(kind, targets, value.services);
+      const source = generatedSource(kind, targets, value.services, check);
       return {
         ...source,
         page: (...args) => {
@@ -193,6 +255,7 @@ export function createCalendarSources(
           cached?: { msgSeq: number; sendTime: number; msgId: string };
           scanned?: number;
         };
+    let filterCachedDates = true;
     return {
       kind,
       ...(!ark
@@ -214,24 +277,44 @@ export function createCalendarSources(
           const cacheTargets = await getCachedTargets();
           const target = cacheTargets[state.target];
           if (!target) return { rows: [], done: true };
-          const messages = await value.services.gapHistory.calendarPage(
-            cacheKind,
-            target.conv,
-            limit,
-            state.cached,
+          const messages = await value.services.gapHistory
+            .calendarPage(
+              cacheKind,
+              target.conv,
+              limit,
+              state.cached,
+              filterCachedDates ? { start, end } : undefined,
+            )
+            .catch((error: unknown) => {
+              // 缺少时间索引时空白日期可能扫过整个缓存；超预算后保持原游标走有界续查。
+              if (!filterCachedDates || !String(error).includes('database_query_execution_timeout'))
+                throw error;
+              filterCachedDates = false;
+              check();
+              return value.services.gapHistory.calendarPage(
+                cacheKind,
+                target.conv,
+                limit,
+                state.cached,
+              );
+            });
+          const matching = messages.filter(
+            (message) => Number(message.sendTime) >= start && Number(message.sendTime) < end,
           );
-          const local = await reader.localTimeline(
-            target.conv,
-            [...new Set(messages.map((message) => message.msgSeq))],
-            kind === 'c2c' ? value.session.uidMap.sortNoByUid(target.conv) : undefined,
-          );
+          const local = matching.length
+            ? await reader.localTimeline(
+                target.conv,
+                [...new Set(matching.map((message) => message.msgSeq))],
+                kind === 'c2c' ? value.session.uidMap.sortNoByUid(target.conv) : undefined,
+              )
+            : [];
           const identity = (message: { msgSeq: string; msgRandom?: string; senderUid?: string }) =>
             message.msgRandom && message.senderUid
               ? `${message.msgSeq}:${message.msgRandom}:${message.senderUid}`
               : '';
           const localIds = new Set(local.map((message) => message.msgId));
           const localIdentities = new Set(local.map(identity).filter(Boolean));
-          const merged = mergeRoamingTimeline<TimelineRow>(cacheKind, local, messages).filter(
+          const merged = mergeRoamingTimeline<TimelineRow>(cacheKind, local, matching).filter(
             (message) =>
               message.source === 'roaming' &&
               !localIds.has(message.msgId) &&
@@ -279,6 +362,7 @@ export function createCalendarSources(
           state?.phase === 'native' ? state.native : undefined,
           limit,
           ark,
+          convs.length === 1 ? convs[0] : undefined,
         );
         const scanned = (state?.phase === 'native' ? (state.scanned ?? 0) : 0) + page.scanned;
         return {

@@ -17,6 +17,8 @@ import {
 import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react';
 import { useOverlayLayer } from '../../lib/overlayStack';
+import { useRenderDocument } from '../../lib/renderDocument';
+import { useTabActive } from '../RetainedTabs.shared';
 import '../../styles/icon-picker.css';
 
 export interface IconPickerOption {
@@ -56,6 +58,9 @@ export function IconPicker({
   maxHeight?: number;
   disabled?: boolean;
 }): ReactElement {
+  const document = useRenderDocument();
+  const owner = document.defaultView ?? window;
+  const active = useTabActive();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -67,6 +72,9 @@ export function IconPicker({
   const selected = options.find((o) => o.value === value);
 
   const close = useCallback(() => setOpen(false), []);
+  useEffect(() => {
+    if (!active) close();
+  }, [active, close]);
 
   // 点击外部 / Esc 关闭。
   useEffect(() => {
@@ -85,7 +93,7 @@ export function IconPicker({
       document.removeEventListener('pointerdown', onDown);
       document.removeEventListener('keydown', onKey);
     };
-  }, [open, close]);
+  }, [open, close, document]);
 
   const toggle = (): void => {
     if (disabled) return;
@@ -106,11 +114,11 @@ export function IconPicker({
     const el = menuRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    if (rect.bottom > window.innerHeight) {
-      setPos((p) => (p ? { ...p, top: Math.max(8, window.innerHeight - rect.height - 8) } : p));
+    if (rect.bottom > owner.innerHeight) {
+      setPos((p) => (p ? { ...p, top: Math.max(8, owner.innerHeight - rect.height - 8) } : p));
     }
     adjustedRef.current = true;
-  }, [open, pos]);
+  }, [open, pos, owner]);
 
   // 按 group 分组（假定 options 已按分组排好序）。
   const groups: Array<{ label: string | null; items: IconPickerOption[] }> = [];
@@ -134,6 +142,16 @@ export function IconPicker({
         aria-label={ariaLabel}
         title={selected ? selected.label : placeholder}
         onClick={toggle}
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+          event.preventDefault();
+          if (!open) toggle();
+          owner.requestAnimationFrame(() =>
+            menuRef.current
+              ?.querySelector<HTMLButtonElement>('[aria-selected="true"], [role="option"]')
+              ?.focus(),
+          );
+        }}
       >
         {triggerIcon ? <span className="weq-picker-trigger-icon">{triggerIcon}</span> : null}
         <span className="weq-picker-trigger-label">{selected ? selected.label : placeholder}</span>
@@ -150,6 +168,29 @@ export function IconPicker({
               className="weq-picker-menu"
               role="listbox"
               aria-label={ariaLabel}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  close();
+                  triggerRef.current?.focus();
+                  return;
+                }
+                if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+                const items = [
+                  ...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="option"]'),
+                ];
+                if (!items.length) return;
+                event.preventDefault();
+                const index = items.indexOf(document.activeElement as HTMLButtonElement);
+                const next =
+                  event.key === 'Home'
+                    ? 0
+                    : event.key === 'End'
+                      ? items.length - 1
+                      : (index + (event.key === 'ArrowUp' ? -1 : 1) + items.length) % items.length;
+                items[next]?.focus();
+              }}
               style={{
                 position: 'fixed',
                 top: pos.top,

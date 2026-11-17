@@ -24,7 +24,6 @@ export function MissingMessageSettings() {
     <>
       <Row
         settingId="auto-fetch-missing-messages"
-        label="查看时自动拉取缺失的消息"
         control={
           <Toggle
             label="查看时自动拉取缺失的消息"
@@ -38,7 +37,6 @@ export function MissingMessageSettings() {
         <>
           <Row
             settingId="auto-fetch-missing-context"
-            label="定位到缺失消息时自动拉取上下文"
             indent
             control={
               <Toggle
@@ -52,7 +50,6 @@ export function MissingMessageSettings() {
           {context ? (
             <Row
               settingId="missing-message-context-count"
-              label="自动拉取上下文条数"
               indent
               control={
                 <AutoSave

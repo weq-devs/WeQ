@@ -1,7 +1,8 @@
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DialogHost, Modal, useDialog } from '../src/renderer/src/components/Dialog';
+import { DialogHost, Modal } from '../src/renderer/src/components/Dialog';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 
 let host: HTMLDivElement;
 let root: Root;
@@ -39,7 +40,7 @@ describe('公共消息框的受限布局', () => {
     expect(modal.closest('.weq-centered-panel.weq-nonmodal-layer')).not.toBeNull();
     expect(modal.closest('.is-popover, .is-anchored-popover')).toBeNull();
     expect(modal.hasAttribute('aria-modal')).toBe(false);
-    act(() => modal.querySelector<HTMLButtonElement>('.weq-action-primary')!.click());
+    act(() => modal.querySelector<HTMLButtonElement>('.weq-dialog-foot button')!.click());
     expect(document.querySelector('.weq-message-modal')).toBeNull();
   });
 

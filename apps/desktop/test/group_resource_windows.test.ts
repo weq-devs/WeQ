@@ -7,20 +7,22 @@ import {
   groupResourceWindowName,
   readGroupResourceWindowName,
 } from '../src/shared/group_resource_window';
-import { useGroupResourceWindows } from '../src/renderer/src/hooks/useGroupResourceWindows';
+import { useGroupResourceWindows } from '../src/renderer/src/hooks/useGroupResourceWindows.shared';
 import { useRenderDocument } from '../src/renderer/src/lib/renderDocument';
 import { useAppLock } from '../src/renderer/src/state/lock';
 import {
   WorkspacePages,
   WorkspaceContent,
   WorkspacePage,
-  useWorkspaceActiveTitle,
 } from '../src/renderer/src/components/WorkspacePages';
+import { useWorkspaceActiveTitle } from '../src/renderer/src/components/WorkspacePages.shared';
 
 const state = vi.hoisted(() => ({ inline: false }));
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true }));
 vi.mock('../src/renderer/src/lib/remoteClient', () => ({ isRemoteClient: () => state.inline }));
-vi.mock('../src/renderer/src/lib/responsiveLayout', () => ({
+vi.mock('../src/renderer/src/lib/responsiveLayout', async (original) => ({
+  ...(await original<typeof import('../src/renderer/src/lib/responsiveLayout')>()),
   isSingleColumnLayout: () => state.inline,
   isMobileClient: () => false,
 }));
@@ -110,6 +112,7 @@ it('资源内部页面只使用所属窗口导航，不接管主窗口页面', a
       ),
     );
     act(() => controls.open({ kind: 'albums', groupCode: '123', groupName: '测试群' }));
+    await act(async () => vi.dynamicImportSettled());
     act(() =>
       popups[0]!.document.querySelector<HTMLButtonElement>('[data-open-local-page]')!.click(),
     );
@@ -177,6 +180,7 @@ it('同步创建窗口，同群复用不清空现场，不同群和功能并存�
       controls.open({ kind: 'albums', groupCode: '123', groupName: '合成甲群' });
       expect(open).toHaveBeenCalledOnce();
     });
+    await act(async () => vi.dynamicImportSettled());
     const first = popups[0]!;
     const focus = vi.spyOn(first, 'focus');
     expect(first.document.querySelector('[data-own-document="true"]')).not.toBeNull();
@@ -189,6 +193,7 @@ it('同步创建窗口，同群复用不清空现场，不同群和功能并存�
     act(() => controls.open({ kind: 'files', groupCode: '456', groupName: '合成乙群' }));
     act(() => controls.open({ kind: 'files', groupCode: '123', groupName: '合成甲群' }));
     expect(open).toHaveBeenCalledTimes(3);
+    await act(async () => vi.dynamicImportSettled());
     expect(popups[1]!.document.querySelector('[data-group="456"]')).not.toBeNull();
     expect(first.document.title).toBe('合成甲群 · 群相册');
     act(() => document.documentElement.setAttribute('data-theme', 'dark'));

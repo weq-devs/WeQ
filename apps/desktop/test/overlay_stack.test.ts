@@ -16,7 +16,11 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { OverlayLayer } from '@renderer/components/OverlayLayer';
-import { useOverlayLayer } from '@renderer/lib/overlayStack';
+import {
+  useOverlayLayer,
+  OVERLAY_BASE_LAYER,
+  OVERLAY_TOAST_LAYER,
+} from '@renderer/lib/overlayStack';
 
 declare global {
   // eslint-disable-next-line no-var
@@ -60,9 +64,9 @@ function mountProbe(active: boolean) {
 }
 
 /** overlayStack 的 BASE —— 必须高于所有写死的静态 z-index（最高 .weq-ra-layer 的 1200）。 */
-const STATIC_CSS_CEILING = 1200;
+const STATIC_CSS_CEILING = OVERLAY_BASE_LAYER;
 /** ToastHost 的层，必须永远在最上面；发层不能越过它。 */
-const TOAST_HOST_LAYER = 4000;
+const TOAST_HOST_LAYER = OVERLAY_TOAST_LAYER;
 
 describe('浮层层级分配', () => {
   beforeEach(() => {
@@ -102,14 +106,25 @@ describe('浮层层级分配', () => {
     expect(probe.layer()).toBe(issued);
   });
 
-  it('关闭后释放、再打开拿到更高的号（后开的在上面）', () => {
+  it('关闭后释放，重开在仍活动的浮层之上', () => {
     const probe = mountProbe(true);
-    const first = probe.layer();
+    const other = mountProbe(true);
     probe.set(false);
     expect(probe.layer()).toBeUndefined();
 
     probe.set(true);
-    expect(probe.layer()!).toBeGreaterThan(first!);
+    expect(probe.layer()!).toBeGreaterThan(other.layer()!);
+  });
+
+  it('父窗保持打开，子窗反复开关 3000 次后仍低于通知层', () => {
+    const parent = mountProbe(true);
+    const child = mountProbe(false);
+    for (let index = 0; index < 3000; index++) {
+      child.set(true);
+      expect(child.layer()!).toBeGreaterThan(parent.layer()!);
+      expect(child.layer()!).toBeLessThan(TOAST_HOST_LAYER);
+      child.set(false);
+    }
   });
 });
 

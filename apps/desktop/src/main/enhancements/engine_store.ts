@@ -95,6 +95,9 @@ export async function probeEnhancementEngine(
 }
 
 export interface EngineTransferState {
+  source?: string;
+  attempt?: number;
+  retryAt?: number;
   received: number;
   total: number;
   paused: boolean;
@@ -497,6 +500,7 @@ export class EnhancementEngineStore {
       batch: true,
       total: artifact.downloadBytes,
       maxBytes: artifact.downloadBytes,
+      identity: { sha256: artifact.sha256, size: artifact.downloadBytes },
       fetcher: this.options.fetcher,
       state: onProgress,
       validate: async (path, _response, bytes) => {

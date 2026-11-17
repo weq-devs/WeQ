@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { MessageBubble } from '../src/renderer/src/im-template/template/messageBubble';
 import { createTemplateDemoData } from './support/templateDemoData';
-import { MsgDecorationEnabledContext } from '../src/renderer/src/components/QqMessageContent';
+import { MsgDecorationEnabledContext } from '../src/renderer/src/state/messageAppearance';
 import { composerSendError } from '../src/renderer/src/im-template/template/composerSend';
 import { stubReadyDecorationResources } from './support/readyDecorationResources';
 
@@ -14,6 +14,17 @@ const fixture = vi.hoisted(() => ({
   widgetActive: false,
   scope: 'all',
   unresolved: false,
+  remote: false,
+}));
+vi.mock('../src/renderer/src/lib/target', () => ({
+  get IS_WEB() {
+    return fixture.remote;
+  },
+}));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({
+  get IS_WEB() {
+    return fixture.remote;
+  },
 }));
 vi.mock('../src/renderer/src/trpc/client', () => {
   const resolved = new Map<string, object>();
@@ -72,7 +83,127 @@ vi.mock('../src/renderer/src/hooks/useActiveWidget', () => ({
   }),
   useActiveFontFx: () => null,
 }));
+vi.mock('../src/renderer/src/hooks/useActiveWidget.shared', () => ({
+  useActiveWidget: () => ({
+    widget: fixture.widgetActive
+      ? { animated: false, itemId: 10002, url: 'https://example.test/local-widget.png' }
+      : null,
+    scope: fixture.scope,
+    fontActive: fixture.fontActive,
+    bubbleActive: fixture.bubbleActive,
+  }),
+  useActiveFontFx: () => null,
+}));
 afterEach(() => vi.unstubAllGlobals());
+
+it('装扮请求悬挂不隐藏正文；远程传输圈含电脑图标，宿主回执后切回普通圈，失败保留标签', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('IntersectionObserver', undefined);
+  fixture.unresolved = true;
+  fixture.remote = true;
+  const demo = createTemplateDemoData();
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const render = (outgoingToHost: boolean, optimistic: 'sending' | 'failed' = 'sending') =>
+    act(async () =>
+      root.render(
+        createElement(MessageBubble, {
+          message: {
+            id: 'local',
+            conversationId: demo.conversations[0]!.id,
+            senderId: demo.user.id,
+            body: '不等电脑和装扮',
+            createdAt: new Date().toISOString(),
+            optimistic,
+            outgoingToHost,
+            decoration: { bubbleId: 21001, fontId: 32002, widgetId: 10001 },
+          },
+          conversation: demo.conversations[0]!,
+          sender: demo.user,
+          mine: true,
+          senderName: '我',
+          onContextMenu: vi.fn(),
+          onLongPress: vi.fn(),
+          renderers: [{ id: 'local', match: () => true, render: () => '不等电脑和装扮' }],
+        }),
+      ),
+    );
+  try {
+    await render(true);
+    expect(host.textContent).toContain('不等电脑和装扮');
+    expect(host.querySelector('[aria-label="正在传给电脑"] .lucide-monitor')).not.toBeNull();
+    await render(false);
+    expect(host.querySelector('[aria-label="发送中"]')).not.toBeNull();
+    expect(host.querySelector('.lucide-monitor')).toBeNull();
+    await render(true, 'failed');
+    expect(host.textContent).toContain('发送失败');
+    expect(host.querySelector('.weq-message-sending')).toBeNull();
+    fixture.remote = false;
+    await render(true);
+    expect(host.querySelector('[aria-label="发送中"]')).not.toBeNull();
+    expect(host.querySelector('.lucide-monitor')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    fixture.remote = false;
+    fixture.unresolved = false;
+  }
+});
+
+it('排队、立即发送与失败重试使用不同语义图标，发送回调保持不变', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('IntersectionObserver', undefined);
+  const demo = createTemplateDemoData();
+  const send = vi.fn();
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const render = (optimistic: 'queued' | 'failed') =>
+    act(async () =>
+      root.render(
+        createElement(MessageBubble, {
+          message: {
+            id: 'icon-state',
+            conversationId: demo.conversations[0]!.id,
+            senderId: demo.user.id,
+            body: '合成消息',
+            createdAt: new Date(0).toISOString(),
+            optimistic,
+          },
+          conversation: demo.conversations[0]!,
+          sender: demo.user,
+          mine: true,
+          senderName: '我',
+          senderAvatarUrl: null,
+          senderSeed: 'me',
+          showSenderName: false,
+          active: true,
+          onContextMenu: vi.fn(),
+          onLongPress: vi.fn(),
+          onStartOutgoing: send,
+          renderers: [{ id: 'icon-test', match: () => true, render: () => '合成消息' }],
+        }),
+      ),
+    );
+  try {
+    await render('queued');
+    const queued = host.querySelector<HTMLButtonElement>('[aria-label="立即发送"]')!;
+    expect(queued.querySelector('.lucide-clock')).not.toBeNull();
+    await act(async () => queued.focus());
+    expect(queued.querySelector('.lucide-send-horizontal')).not.toBeNull();
+    await act(async () => queued.click());
+    expect(send).toHaveBeenCalledOnce();
+    await render('failed');
+    const failed = host.querySelector<HTMLButtonElement>('[aria-label="重试发送"]')!;
+    expect(failed.querySelector('.lucide-refresh-cw')).not.toBeNull();
+    await act(async () => failed.click());
+    expect(send).toHaveBeenCalledTimes(2);
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
 
 it('发送气泡按请求字体显示，读回可换款或清除，本地使用字体仍可覆盖', async () => {
   stubReadyDecorationResources();

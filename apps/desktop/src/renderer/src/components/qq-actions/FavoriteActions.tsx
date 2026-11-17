@@ -5,7 +5,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
-  RotateCw,
+  RefreshCw,
   Trash2,
   X,
   Heart,
@@ -14,20 +14,14 @@ import { client, trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
-import { useDialog } from '../Dialog';
-import { useTabActive } from '../RetainedTabs';
+import { useDialog } from '../Dialog.shared';
+import { useTabActive } from '../RetainedTabs.shared';
 import { FavoriteBundleExport } from './FavoriteBundleExport';
 import { FavoriteBundleImport } from './FavoriteBundleImport';
 import '../../styles/group-content-management.css';
 import '../../styles/qq-management.css';
-import {
-  ActionFeedback,
-  ActionIcon,
-  ImageAction,
-  SaveAction,
-  useQQAction,
-  withQQAccountScope,
-} from './shared';
+import { ActionFeedback, ActionIcon, ImageAction, SaveAction } from './shared';
+import { useQQAction, withQQAccountScope } from './shared.shared';
 
 function FavoriteActionsBody() {
   const a = useQQAction('favorites');
@@ -47,7 +41,9 @@ function FavoriteActionsBody() {
       <div className="weq-content-toolbar">
         <h3>收藏表情</h3>
         <div>
-          <span>{list.data?.length ?? 0} 项</span>
+          <span>
+            <span className="weq-number weq-number-inherit">{list.data?.length ?? 0}</span> 项
+          </span>
           <FavoriteBundleImport
             binding={a.binding}
             available={a.available && !a.pending}
@@ -123,7 +119,11 @@ function FavoriteActionsBody() {
               disabled={a.pending}
               onClick={() =>
                 void (async () => {
-                  if (picture && !(await confirm('放弃添加表情', '放弃当前选中的图片？'))) return;
+                  if (
+                    picture &&
+                    !(await confirm('放弃添加表情', '放弃当前选中的图片？', { danger: 'outline' }))
+                  )
+                    return;
                   setPicture(null);
                   setAdding(false);
                 })()
@@ -142,7 +142,7 @@ function FavoriteActionsBody() {
               disabled={list.isFetching || !a.available}
               onClick={() => void list.refetch()}
             >
-              <RotateCw size={16} />
+              <RefreshCw size={16} aria-hidden />
             </ActionIcon>
           </div>
         )}
@@ -278,7 +278,9 @@ function FavoriteRow({
                 void (async () => {
                   if (
                     value !== desc &&
-                    !(await confirm('放弃修改备注', '放弃当前未保存的表情备注？'))
+                    !(await confirm('放弃修改备注', '放弃当前未保存的表情备注？', {
+                      danger: 'outline',
+                    }))
                   )
                     return;
                   setDraft(null);
@@ -329,6 +331,7 @@ function FavoriteRow({
                 ),
             },
             {
+              danger: 'outline',
               label: '删除收藏表情',
               icon: <Trash2 size={15} />,
               disabled,
@@ -340,6 +343,7 @@ function FavoriteRow({
                   onChanged,
                   `从 QQ 收藏中删除这张表情${desc ? `「${desc}」` : ''}？`,
                   {
+                    danger: 'outline',
                     readback: async () => {
                       const rows = await client.account.qqActions.favorites.query({
                         ...a.binding!,

@@ -1,4 +1,4 @@
-import { RotateCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import '../styles/analysis-tool.css';
 
 export function AnalyticsRetry({
@@ -20,7 +20,7 @@ export function AnalyticsRetry({
         aria-label={label}
         onClick={onRetry}
       >
-        <RotateCw size={16} />
+        <RefreshCw size={16} aria-hidden />
       </button>
     </div>
   );

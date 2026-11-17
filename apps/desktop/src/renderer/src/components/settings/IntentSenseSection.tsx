@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Eye, MousePointerClick, RotateCcw, Database } from 'lucide-react';
 import { trpc } from '../../trpc/client';
-import { useDialog } from '../Dialog';
+import { useDialog } from '../Dialog.shared';
 import { SegmentedControl } from '../SegmentedControl';
 import { Card, Row, Toggle } from './controls';
 import { IntentModelsSection } from './IntentModelsSection';
@@ -41,6 +41,7 @@ export function IntentSenseSection() {
 
   return (
     <AiFeatureSettingsLayout
+      page="intent-sense"
       imageFeature="intent"
       settings={settings}
       title="意图感知"
@@ -51,7 +52,6 @@ export function IntentSenseSection() {
         <>
           <Row
             settingId="intent-enabled"
-            label="启用意图感知"
             desc="分析聊天消息的意图与情绪。"
             control={
               <Toggle
@@ -67,16 +67,22 @@ export function IntentSenseSection() {
             settingId="intent-mode"
             label="模式"
             control={
-              <SegmentedControl
-                label="意图感知模式"
-                value={s ? (s.analysisMode ?? 'auto') : null}
-                disabled={disabled}
-                onChange={(analysisMode) => void patch({ analysisMode })}
-                options={[
-                  { value: 'auto', label: '自动' },
-                  { value: 'manual', label: '手动' },
-                ]}
-              />
+              <span
+                data-setting-fallback={
+                  s?.analysisMode === 'manual' ? 'intent-after-self' : undefined
+                }
+              >
+                <SegmentedControl
+                  label="意图感知模式"
+                  value={s ? (s.analysisMode ?? 'auto') : null}
+                  disabled={disabled}
+                  onChange={(analysisMode) => void patch({ analysisMode })}
+                  options={[
+                    { value: 'auto', label: '自动' },
+                    { value: 'manual', label: '手动' },
+                  ]}
+                />
+              </span>
             }
           />
         </>
@@ -90,7 +96,7 @@ export function IntentSenseSection() {
               <span
                 data-setting-fallback={
                   s?.engine === 'local'
-                    ? 'intent-api-model'
+                    ? 'intent-api-model intent-tuning-analysisTemperature'
                     : s?.engine === 'api'
                       ? 'intent-model-resources'
                       : undefined
@@ -112,6 +118,7 @@ export function IntentSenseSection() {
           {s?.engine === 'api' ? (
             <ApiModelRow
               settingId="intent-api-model"
+              indent
               label="意图感知 API 模型"
               value={s.providerRef}
               disabled={disabled}
@@ -145,7 +152,6 @@ export function IntentSenseSection() {
             />
             <Row
               settingId="intent-persistent-display"
-              label="常驻显示"
               control={
                 <Toggle
                   label="常驻显示"
@@ -158,7 +164,6 @@ export function IntentSenseSection() {
             />
             <Row
               settingId="intent-hover-display"
-              label="悬停显示"
               control={
                 <Toggle
                   label="悬停显示"
@@ -170,21 +175,22 @@ export function IntentSenseSection() {
               }
             />
           </Card>
-          <Card title="触发方式" icon={<MousePointerClick size={15} strokeWidth={1.8} />}>
-            <Row
-              settingId="intent-after-self"
-              label="自己发送后分析"
-              control={
-                <Toggle
-                  label="自己发送后分析"
-                  checked={s?.analyzeAfterSelf !== false}
-                  indeterminate={!s}
-                  disabled={disabled || inactive || s?.analysisMode === 'manual'}
-                  onChange={(analyzeAfterSelf) => void patch({ analyzeAfterSelf })}
-                />
-              }
-            />
-          </Card>
+          {s?.analysisMode !== 'manual' ? (
+            <Card title="触发方式" icon={<MousePointerClick size={15} strokeWidth={1.8} />}>
+              <Row
+                settingId="intent-after-self"
+                control={
+                  <Toggle
+                    label="自己发送后分析"
+                    checked={s?.analyzeAfterSelf !== false}
+                    indeterminate={!s}
+                    disabled={disabled || inactive}
+                    onChange={(analyzeAfterSelf) => void patch({ analyzeAfterSelf })}
+                  />
+                }
+              />
+            </Card>
+          ) : null}
           <IntentTuningPanel group="analysis" />
           <IntentTuningPanel group="advanced" />
           <Card title="缓存管理" icon={<Database size={15} strokeWidth={1.8} />}>
@@ -194,6 +200,7 @@ export function IntentSenseSection() {
               desc={clearedHint ?? '清除当前账号的意图分析与推荐回复缓存，不影响互动画像。'}
               control={
                 <button
+                  data-danger="outline"
                   type="button"
                   className="weq-set-btn"
                   disabled={disabled || inactive || !hasAccount || clearCache.isLoading}

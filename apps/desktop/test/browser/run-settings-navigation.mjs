@@ -139,13 +139,50 @@ try {
       await openCategory('关于 WeQ');
       assert.deepEqual(await page.locator('.weq-settings-subnav-item').allTextContents(), [
         '版本与更新',
+        'WeQ 账号管理',
         '配置备份与恢复',
+        '日志与性能',
         '常见问题',
-        '日志',
-        '性能监视',
         '反馈',
       ]);
-      await openCategory('凭据与账号');
+      await page.getByRole('button', { name: '反馈', exact: true }).click();
+      const feedbackBody = page.getByRole('textbox', { name: '反馈正文 Markdown', exact: true });
+      await feedbackBody.waitFor();
+      assert((await feedbackBody.inputValue()).includes('## 错误的功能描述'));
+      await page.getByRole('button', { name: '常见问题', exact: true }).click();
+      assert.equal(await page.locator('.weq-message-modal').count(), 0);
+      assert.equal(await page.locator('.weq-settings-body .weq-help-bug').count(), 0);
+      await page.getByRole('button', { name: '反馈', exact: true }).click();
+      const feedbackTitle = page.getByRole('textbox', { name: '反馈标题', exact: true });
+      await feedbackTitle.fill('合成反馈标题');
+      await page.getByRole('button', { name: '常见问题', exact: true }).click();
+      await page.getByText('当前设置尚未保存', { exact: true }).waitFor();
+      await page.getByRole('button', { name: '先保存', exact: true }).click();
+      await feedbackTitle.fill('');
+      if (output)
+        await page.screenshot({ path: resolve(output, `feedback-${width}-${theme}.png`) });
+      await page.getByRole('button', { name: '常见问题', exact: true }).click();
+      assert.equal(await page.locator('.weq-message-modal').count(), 0);
+      await page.getByRole('button', { name: '反馈', exact: true }).click();
+      assert((await feedbackBody.inputValue()).includes('## 错误的功能描述'));
+      await openCategory('凭据与数据');
+      assert.deepEqual(await page.locator('.weq-settings-subnav-item').allTextContents(), [
+        '监听与读取',
+        '凭据管理',
+        '资源加载',
+        'QQ 资源管理',
+        'QQ 数据库管理',
+        'QQ 高级工具',
+      ]);
+      assert.deepEqual(
+        await page.locator('.weq-settings-body .weq-set-card-title').allTextContents(),
+        ['实时监听', '读取性能', 'QQ 在线能力', '长期授权'],
+      );
+      assert.equal(
+        await page.getByRole('spinbutton', { name: '数据库读取并发上限', exact: true }).count(),
+        1,
+      );
+      if (output) await page.screenshot({ path: resolve(output, `reading-${width}-${theme}.png`) });
       assert.equal(
         await page
           .locator('.weq-settings-subnav-item')
@@ -153,7 +190,7 @@ try {
           .count(),
         0,
       );
-      await page.getByRole('button', { name: 'QQ 协议工具', exact: true }).click();
+      await page.getByRole('button', { name: 'QQ 高级工具', exact: true }).click();
       await page
         .locator('.weq-settings-body')
         .getByText('Protobuf / JCE 逆向', { exact: true })
@@ -162,22 +199,24 @@ try {
         await page.locator('.weq-settings-body [data-setting-id="performance-monitor"]').count(),
         0,
       );
-      await openCategory('资源与数据库');
-      assert.deepEqual(await page.locator('.weq-settings-subnav-item').allTextContents(), [
-        '资源加载',
-        '媒体来源',
-        'QQ 资源管理',
-        '数据库管理',
-        '数据库容错',
-        '损坏与修复',
-      ]);
-      await page.getByRole('button', { name: '媒体来源', exact: true }).click();
+      await page.locator('.weq-settings-body [data-setting-id="qq-accounts"]').waitFor();
+      if (output)
+        await page.screenshot({ path: resolve(output, `advanced-tools-${width}-${theme}.png`) });
+      const loginRecords = page.locator('.weq-settings-body [data-setting-id="qq-accounts"]');
+      await loginRecords.scrollIntoViewIfNeeded();
+      await loginRecords.getByText('合成登录账号', { exact: true }).waitFor();
+      assert.equal(await loginRecords.locator('.weq-set-card').count(), 0);
+      assert.equal(
+        await loginRecords.evaluate((node) => node.scrollWidth > node.clientWidth),
+        false,
+      );
+      if (output)
+        await page.screenshot({ path: resolve(output, `login-records-${width}-${theme}.png`) });
+      await page.getByRole('button', { name: '资源加载', exact: true }).click();
       await page.locator('.weq-settings-body [data-setting-id="external-chatpic"]').waitFor();
       const heading = page.locator('.weq-settings-body h3').first();
-      assert.equal(await heading.textContent(), '媒体来源');
-      if (output)
-        await page.screenshot({ path: resolve(output, `media-source-${width}-${theme}.png`) });
-      await page.getByRole('button', { name: '资源加载', exact: true }).click();
+      assert.equal(await heading.textContent(), '资源加载');
+      assert.equal(await page.locator('[data-setting-id="linked-resources"]').count(), 0);
       const directLabel = page.locator('.weq-settings-body .weq-set-row-label').first();
       const directToggle = page.getByRole('switch', { name: '优先直连 QQ 加载图片', exact: true });
       const labelBounds = await directLabel.boundingBox();
@@ -185,14 +224,20 @@ try {
       assert(labelBounds && toggleBounds && labelBounds.x + labelBounds.width <= toggleBounds.x);
       if (output)
         await page.screenshot({ path: resolve(output, `resource-loading-${width}-${theme}.png`) });
+      await page
+        .locator('.weq-settings-body [data-setting-id="external-chatpic"]')
+        .scrollIntoViewIfNeeded();
+      if (output)
+        await page.screenshot({ path: resolve(output, `external-chatpic-${width}-${theme}.png`) });
       await openCategory('WeQ 服务');
       await page.getByRole('button', { name: 'OneBot / cc-connect', exact: true }).click();
       await page.getByRole('button', { name: 'WebSocket', exact: true }).click();
-      const name = page.locator('.weq-onebot-server-editor input').first();
+      const editor = page.getByRole('dialog', { name: '新建 WebSocket 服务器', exact: true });
+      const name = editor.getByLabel('OneBot 服务器名称', { exact: true });
       await name.fill('未保存的连接');
-      await page.getByRole('button', { name: '消息', exact: true }).click();
-      const modal = page.getByRole('dialog');
-      await modal.getByText('当前设置尚未保存', { exact: true }).waitFor();
+      await page.keyboard.press('Escape');
+      const modal = page.getByRole('dialog', { name: '放弃未保存的修改？', exact: true });
+      await modal.waitFor();
       const bounds = await modal.boundingBox();
       assert(
         bounds &&
@@ -202,19 +247,63 @@ try {
           bounds.y + bounds.height <= 845,
       );
       if (output) await page.screenshot({ path: resolve(output, `${width}-${theme}.png`) });
-      await modal.getByRole('button', { name: '先保存', exact: true }).click();
+      await modal.getByRole('button', { name: '继续编辑', exact: true }).click();
       assert.equal(await name.inputValue(), '未保存的连接');
+      await page.keyboard.press('Escape');
+      await modal.getByRole('button', { name: '放弃修改', exact: true }).click();
+      await editor.waitFor({ state: 'detached' });
       await page.getByRole('button', { name: '消息', exact: true }).click();
-      await page.getByRole('button', { name: '暂时离开', exact: true }).click();
       await page.getByText('消息页面', { exact: true }).waitFor();
       assert.equal(await page.locator('.weq-settings-dialog').count(), 0);
       await page.getByRole('button', { name: '打开设置', exact: true }).click();
-      assert.equal(await name.inputValue(), '未保存的连接');
+      assert.equal(await page.locator('.weq-editor-dialog').count(), 0);
       cases++;
     }
   }
+  const remotePage = await browser.newPage({ userAgent: 'WeQRemote/settings-consolidation-qa' });
+  remotePage.on('pageerror', (error) => errors.push(error.message));
+  await remotePage.route('**/*', (route) =>
+    new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
+  );
+  for (const width of [390, 1180]) {
+    await remotePage.setViewportSize({ width, height: 844 });
+    await remotePage.goto(
+      `http://127.0.0.1:${server.httpServer.address().port}/test/browser/settings-navigation.html`,
+    );
+    if (width <= 760)
+      await remotePage.getByRole('button', { name: '返回设置分类', exact: true }).click();
+    await remotePage
+      .locator('.weq-settings-nav')
+      .getByRole('button', { name: '凭据与数据', exact: true })
+      .click();
+    assert.deepEqual(await remotePage.locator('.weq-settings-subnav-item').allTextContents(), [
+      '监听与读取',
+      '凭据管理',
+      '资源加载',
+      'QQ 资源管理',
+      'QQ 数据库管理',
+      'QQ 高级工具',
+    ]);
+    await remotePage.getByRole('button', { name: '资源加载', exact: true }).click();
+    assert.equal(await remotePage.locator('[data-setting-id="external-chatpic"]').count(), 0);
+    assert.equal(await remotePage.locator('[data-setting-id="linked-resources"]').count(), 0);
+    await remotePage.getByRole('button', { name: 'QQ 高级工具', exact: true }).click();
+    assert.equal(await remotePage.locator('[data-setting-id="qq-accounts"]').count(), 0);
+    assert.equal(await remotePage.locator('[data-setting-id="reverse-tool"]').count(), 1);
+    if (width <= 760)
+      await remotePage.getByRole('button', { name: '返回设置分类', exact: true }).click();
+    await remotePage
+      .locator('.weq-settings-nav')
+      .getByRole('button', { name: '关于 WeQ', exact: true })
+      .click();
+    assert.equal(
+      await remotePage.getByRole('button', { name: 'WeQ 账号管理', exact: true }).count(),
+      1,
+    );
+  }
+  await remotePage.close();
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ cases, errors }));
+  console.log(JSON.stringify({ cases, remoteCases: 2, errors }));
 } finally {
   await browser?.close();
   await server.close();

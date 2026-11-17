@@ -1,14 +1,16 @@
 import { useEffect, useRef } from 'react';
 import { trpc } from '../trpc/client';
-import { IS_WEB } from '../lib/target';
-import { useDialog } from './Dialog';
-import { useToast } from './Toast';
+import { IS_WEB } from '../lib/target.shared';
+import { useDialog } from './Dialog.shared';
+import { useToastApi } from './Toast.shared';
+import { notificationSource } from '../lib/notificationNavigation.shared';
 
 export function RemoteRequests() {
   return IS_WEB ? null : <DesktopRemoteRequests />;
 }
 
 function DesktopRemoteRequests() {
+  const notificationToast = useToastApi();
   const status = trpc.remote.status.useQuery(undefined, {
     refetchInterval: 1500,
     refetchIntervalInBackground: true,
@@ -32,12 +34,20 @@ function DesktopRemoteRequests() {
       try {
         await decide.mutateAsync({ id: request.id, approve });
       } catch {
-        useToast.getState().push({ tone: 'error', title: '连接请求已失效或无法保存，请重试' });
+        notificationToast.push({
+          tone: 'error',
+          title: '连接请求已失效或无法保存，请重试',
+          source: notificationSource(
+            { kind: 'app', target: { kind: 'setting', section: 'remote' } },
+            '查看 Remote 连接请求',
+            null,
+          ),
+        });
       } finally {
         await status.refetch();
         active.current = null;
       }
     })();
-  }, [status.data, current, decide, status]);
+  }, [status.data, current, decide, status, notificationToast]);
   return null;
 }

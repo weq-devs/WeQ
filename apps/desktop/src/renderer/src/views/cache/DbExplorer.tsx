@@ -29,7 +29,7 @@ import { trpc } from '../../trpc/client';
 import { DbDataGrid } from './DbDataGrid';
 import { SqlConsole } from './SqlConsole';
 import { InlineSkeleton, TreeSkeleton } from './CacheSkeleton';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import { useRemoteClient } from '../../lib/remoteClient';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { CheckPill } from '../../components/settings/controls';
@@ -185,7 +185,9 @@ export function DbExplorer({
                     title={db.path}
                   >
                     <strong>{db.name}</strong>
-                    <small>{fmtBytes(db.bytes)}</small>
+                    <small>
+                      <span className="weq-number weq-number-inherit">{fmtBytes(db.bytes)}</span>
+                    </small>
                   </button>
                 ))}
               </div>
@@ -326,7 +328,9 @@ function ObjectGroup({
       <div className="weq-cache-tree-grouphead">
         {icon}
         <span>{label}</span>
-        <span className="weq-cache-tree-count">{items.length}</span>
+        <span className="weq-cache-tree-count">
+          <span className="weq-number weq-number-inherit">{items.length}</span>
+        </span>
       </div>
       {items.map((o) => (
         <button

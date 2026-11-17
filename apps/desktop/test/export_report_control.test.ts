@@ -1,7 +1,7 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import { useExportReportDialog } from '../src/renderer/src/views/export/ExportReportControl';
+import { useExportReportDialog } from '../src/renderer/src/views/export/ExportReportControl.shared';
 
 afterEach(() => vi.unstubAllGlobals());
 

@@ -22,8 +22,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -31,6 +35,12 @@ jobs:
       # 有意不先安装项目依赖：启动器必须能从全新 clone 进入准备流程。
       - name: Test dependency-free development bootstrap
         run: pnpm exec node --test scripts/dev.test.mjs scripts/dev-web.test.mjs scripts/dev-native.test.mjs scripts/prepare-remote-network.test.mjs scripts/prepare-dev-electron.test.mjs
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test development server integration
+        run: node --test scripts/dev-web.integration.test.mjs scripts/dev-electron.integration.test.mjs
 
   lint:
     runs-on: ubuntu-latest
@@ -61,6 +71,9 @@ jobs:
       # 本地用 `pnpm format` 一次性刷平即可。
       - name: Format check
         run: pnpm format:check
+
+      - name: Check generated settings reference
+        run: pnpm settings:docs:check
 
   typecheck-suites:
     name: typecheck-${{ matrix.suite }}
@@ -186,7 +199,7 @@ jobs:
 
       - name: Check CI orchestration and reports
         if: matrix.suite == 'core'
-        run: node --test scripts/test-ci.test.mjs scripts/release-notes.test.mjs scripts/publish-aur.test.mjs scripts/enhancement-metadata.test.mjs
+        run: node --test scripts/test-ci.test.mjs scripts/check-docs-submodule.test.mjs scripts/release-notes.test.mjs scripts/publish-aur.test.mjs scripts/enhancement-metadata.test.mjs scripts/publish-release-feed.test.mjs
 
       # 打包前置脚本在 electron-builder 的 beforePack 里跑；它一旦拉进
       # `@weq/service` 那种桶文件，Windows runner 上会把打包卡死（v2.7.1 踩过）。

@@ -2,7 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ContactWorkspace } from '../src/renderer/src/components/ContactWorkspace';
-import { useTabActive } from '../src/renderer/src/components/RetainedTabs';
+import { useTabActive } from '../src/renderer/src/components/RetainedTabs.shared';
 import type { Contact } from '../src/renderer/src/im-template/template/types';
 import type { ContactWorkspaceTab } from '../src/renderer/src/lib/profileNavigation';
 import { RelationshipDirectoryContext } from '../src/renderer/src/lib/contactRelationship';
@@ -52,6 +52,9 @@ vi.mock('../src/renderer/src/components/intentSense/IntentProfileDialog', () => 
   IntentProfileDialog: () => h(Activity, { name: '画像内容' }),
 }));
 vi.mock('../src/renderer/src/components/intentSense/context', () => ({
+  useIntentSenseStatus: () => ({ data: { profileEnabled: true } }),
+}));
+vi.mock('../src/renderer/src/components/intentSense/context.shared', () => ({
   useIntentSenseStatus: () => ({ data: { profileEnabled: true } }),
 }));
 vi.mock('../src/renderer/src/components/ContactHistory', () => ({

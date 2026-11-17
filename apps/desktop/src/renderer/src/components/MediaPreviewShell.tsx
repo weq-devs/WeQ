@@ -139,7 +139,7 @@ export function MediaPreviewShell({
           {title}
         </span>
         <span className="weq-preview-count" aria-live="polite">
-          {count}
+          <span className="weq-number weq-number-inherit">{count}</span>
         </span>
         <button
           type="button"

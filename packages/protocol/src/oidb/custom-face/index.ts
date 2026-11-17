@@ -452,7 +452,7 @@ async function uploadFavEmojiFrame(
   const frame = packHighwayFrame(head, body);
   const url = `http://${session.host}:${session.port}/cgi-bin/httpconn?htcmd=0x6FF0087&uin=${uin}`;
   log?.(`收藏表情 highway 上传：${session.host}:${session.port}`);
-  const response = await fetch(url, {
+  const response = await networkFetch(url, {
     method: 'POST',
     // 重新包一层让 TS 推断出 `Uint8Array<ArrayBuffer>`：DOM 的 BodyInit 不接受 ArrayBufferLike 泛型。
     body: new Uint8Array(frame),
@@ -560,3 +560,4 @@ export namespace AddCustomFace {
     return emojiId;
   };
 }
+import { networkFetch } from '@weq/network';

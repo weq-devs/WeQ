@@ -1,7 +1,8 @@
 import { createRoot } from 'react-dom/client';
 import { BootstrapShell } from '../../src/renderer/src/views/BootstrapView';
 import { SelectScreen } from '../../src/renderer/src/views/bootstrap/SelectScreen';
-import { ToastHost, useToast } from '../../src/renderer/src/components/Toast';
+import { ToastHost } from '../../src/renderer/src/components/Toast';
+import { useToast } from '../../src/renderer/src/components/Toast.shared';
 import { useRestrictedMode } from '../../src/renderer/src/state/restrictedMode';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import { useViewState } from '../../src/renderer/src/state/view';
@@ -15,7 +16,7 @@ useViewState.getState().enterSelect('existing');
 useRestrictedMode.setState({
   reasons: [{ code: 'offline', title: 'QQ 不在线', guidance: '登录 QQ' }],
 });
-useToast.getState().push({ title: '合成受限模式提醒', durationKind: 'long', ttl: 0 });
+useToast.getState().push({ title: '合成在线能力受限提醒', durationKind: 'long', ttl: 0 });
 Object.assign(window, {
   startupQa: { theme: useThemeStore, restricted: useRestrictedMode, toast: useToast },
 });

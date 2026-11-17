@@ -18,22 +18,26 @@ async function fixture() {
   roots.push(root);
   class FixtureStore extends ModelStore<ModelEntry> {
     constructor() {
-      super(root, [
-        {
-          id: 'fixture',
-          sizeBytes: bytes.length,
-          files: [
-            {
-              key: 'model',
-              name: 'nested/model.bin',
-              url: 'https://example.invalid/model',
-              weight: 1,
-              sizeBytes: bytes.length,
-              sha256: digest,
-            },
-          ],
-        },
-      ]);
+      super(
+        root,
+        [
+          {
+            id: 'fixture',
+            sizeBytes: bytes.length,
+            files: [
+              {
+                key: 'model',
+                name: 'nested/model.bin',
+                url: 'https://example.invalid/model',
+                weight: 1,
+                sizeBytes: bytes.length,
+                sha256: digest,
+              },
+            ],
+          },
+        ],
+        { retryBaseMs: 0, maxAttempts: 1 },
+      );
     }
   }
   const store = new FixtureStore();

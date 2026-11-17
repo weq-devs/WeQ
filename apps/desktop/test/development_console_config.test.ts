@@ -32,6 +32,33 @@ it('内置 Web 的独立 Vite 构建同样禁用清屏', () => {
   const config = configObject(resolve(__dirname, '../../web/vite.config.ts'));
   expect(property(config, 'clearScreen').kind).toBe(ts.SyntaxKind.FalseKeyword);
 });
+it('开发主进程和预加载启用监听，正式构建不监听；Web 开发服务只挂在开发渲染服务', () => {
+  const result = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+    import assert from 'node:assert/strict';
+    import { loadConfigFromFile } from 'electron-vite';
+    for (const command of ['serve', 'build']) {
+      process.env.NODE_ENV_ELECTRON_VITE = command === 'serve' ? 'development' : 'production';
+      const { config } = await loadConfigFromFile({ command, mode: process.env.NODE_ENV_ELECTRON_VITE });
+      for (const target of ['main', 'preload'])
+        assert.equal(!!config[target].build.watch, command === 'serve');
+      assert(config.renderer.plugins.some(p => p?.name === 'weq-development-web'));
+    }
+  `,
+    ],
+    {
+      cwd: resolve(__dirname, '..'),
+      encoding: 'utf8',
+      timeout: 15_000,
+      env: { ...process.env, WEQ_DEV_CONSOLE: '0' },
+    },
+  );
+  expect(result.status, result.stderr).toBe(0);
+}, 20_000);
 it('Vite 配置不再依赖打包加载器注入的 __dirname', () => {
   for (const path of ['../electron.vite.config.ts', '../../web/vite.config.ts']) {
     expect(readFileSync(resolve(__dirname, path), 'utf8')).not.toMatch(/\b__dirname\b/);

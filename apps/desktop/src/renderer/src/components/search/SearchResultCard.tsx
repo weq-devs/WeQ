@@ -1,18 +1,7 @@
 /** Renders one unified-search hit as a card (dropdown row + "more" modal row). */
 
 import { useEffect, useState, type ReactElement } from 'react';
-import {
-  Bookmark,
-  Bot,
-  MessagesSquare,
-  File,
-  Globe,
-  Hash,
-  Images,
-  Mail,
-  Smile,
-  UsersRound,
-} from 'lucide-react';
+import { Bookmark, UsersRound } from 'lucide-react';
 import { fileIconUrl } from '../../lib/resourceUrl';
 import { cachedAvatarUrl } from '../../lib/avatarCache';
 import { resolveAvatar } from '../../lib/avatarResolver';
@@ -21,90 +10,13 @@ import { searchHitKey } from './types';
 import { PersonRelationshipStatus, GroupRelationshipStatus } from '../RelationshipStatus';
 import { classifyChatType } from '@weq/codec';
 import { isInlineSearchHit } from './searchNavigation';
-
-/** Group avatar CDN: https://p.qlogo.cn/gh/<code>/<code>/0 */
-export function groupAvatarSrc(groupCode: string): string | null {
-  return groupCode ? `https://p.qlogo.cn/gh/${groupCode}/${groupCode}/0` : null;
-}
-
-/** C2C avatar CDN by QQ number: https://thirdqq.qlogo.cn/g?b=sdk&s=0&nk=<uin> */
-export function c2cAvatarSrc(uin: string): string | null {
-  if (!uin || uin === '0') return null;
-  return `https://thirdqq.qlogo.cn/g?b=sdk&s=0&nk=${uin}`;
-}
-
-/** 文件名 → 通用文件图标（resources 里的 png 名）。 */
-export function fileExtIcon(fileName: string): string {
-  const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
-  const map: Record<string, string> = {
-    doc: 'doc.png',
-    docx: 'doc.png',
-    xls: 'xls.png',
-    xlsx: 'xls.png',
-    ppt: 'ppt.png',
-    pptx: 'ppt.png',
-    pdf: 'pdf.png',
-    zip: 'zip.png',
-    '7z': 'zip.png',
-    gz: 'zip.png',
-    tar: 'zip.png',
-    rar: 'rar.png',
-    exe: 'exe.png',
-    msi: 'exe.png',
-    mp3: 'audio.png',
-    wav: 'audio.png',
-    flac: 'audio.png',
-    aac: 'audio.png',
-    ogg: 'audio.png',
-    m4a: 'audio.png',
-    mp4: 'video.png',
-    avi: 'video.png',
-    mov: 'video.png',
-    mkv: 'video.png',
-    flv: 'video.png',
-    wmv: 'video.png',
-    png: 'image.png',
-    jpg: 'image.png',
-    jpeg: 'image.png',
-    gif: 'image.png',
-    webp: 'image.png',
-    bmp: 'image.png',
-    svg: 'image.png',
-    txt: 'txt.png',
-    md: 'markdown.png',
-    log: 'txt.png',
-    ai: 'ai.png',
-    apk: 'apk.png',
-    bak: 'bak.png',
-    js: 'code.png',
-    ts: 'code.png',
-    jsx: 'code.png',
-    tsx: 'code.png',
-    py: 'code.png',
-    java: 'code.png',
-    c: 'code.png',
-    cpp: 'code.png',
-    cs: 'code.png',
-    go: 'code.png',
-    rs: 'code.png',
-    html: 'code.png',
-    css: 'code.png',
-    dmg: 'dmg.png',
-    ttf: 'font.png',
-    otf: 'font.png',
-    woff: 'font.png',
-    woff2: 'font.png',
-    ipa: 'ipa.png',
-    key: 'keynote.png',
-    xmind: 'mindmap.png',
-    numbers: 'numbers.png',
-    pages: 'pages.png',
-    pkg: 'pkg.png',
-    psd: 'ps.png',
-    sketch: 'sketch.png',
-  };
-  return map[ext] ?? 'unknown.png';
-}
+import { SEARCH_CATEGORY_ICONS } from './searchIcons';
+import {
+  highlightText,
+  groupAvatarSrc,
+  c2cAvatarSrc,
+  fileExtIcon,
+} from './SearchResultCard.shared';
 
 /** 头像：加载失败/无地址时退回首字。搜索下拉与「最近搜索」共用。 */
 export function SearchAvatar({
@@ -277,25 +189,10 @@ export function SearchResultCard({
     case 'qzoneComment':
     case 'otherQzoneComment':
     case 'qzonePublicComment': {
-      const Icon =
-        hit.category === 'mailMessage'
-          ? Mail
-          : hit.category === 'groupFile' || hit.category === 'flashFile'
-            ? File
-            : hit.category === 'guildMessage'
-              ? Hash
-              : hit.category === 'marketEmoji'
-                ? Smile
-                : hit.category === 'groupBulletin' || hit.category === 'groupEssence'
-                  ? MessagesSquare
-                  : hit.target.kind === 'qzonePost' ||
-                      hit.target.kind === 'qzoneComment' ||
-                      hit.target.kind === 'qzonePublicComment'
-                    ? Globe
-                    : Images;
+      const Icon = SEARCH_CATEGORY_ICONS[hit.category];
       media = (
-        <span className="weq-search-avatar weq-search-source-icon">
-          <Icon size={22} />
+        <span className="weq-search-avatar weq-search-source-icon" aria-hidden>
+          <Icon size={22} strokeWidth={1.8} />
         </span>
       );
       title = hit.title;
@@ -336,9 +233,10 @@ export function SearchResultCard({
     }
     case 'cloneMessage':
     case 'assistantMessage': {
+      const Icon = SEARCH_CATEGORY_ICONS[hit.category];
       media = (
-        <span className="weq-search-avatar weq-search-source-icon">
-          {hit.kind === 'assistant' ? <Bot size={22} /> : <MessagesSquare size={22} />}
+        <span className="weq-search-avatar weq-search-source-icon" aria-hidden>
+          <Icon size={22} strokeWidth={1.8} />
         </span>
       );
       title = hit.kind === 'assistant' ? hit.sessionTitle : hit.title;
@@ -406,14 +304,21 @@ export function SearchResultCard({
         <span className="weq-search-muted">
           {hit.count > 0 || !hit.matchedBulletins ? (
             <>
-              查到<strong className="weq-search-strong">{hit.count}</strong>条包含
+              查到
+              <strong className="weq-search-strong">
+                <span className="weq-number weq-number-inherit">{hit.count}</span>
+              </strong>
+              条包含
               <span data-privacy-sensitive>{highlightText(keyword, keyword)}</span>的消息
             </>
           ) : null}
           {hit.matchedBulletins ? (
             <>
               {hit.count > 0 ? ' · ' : ''}匹配
-              <strong className="weq-search-strong">{hit.matchedBulletins}</strong>条群公告
+              <strong className="weq-search-strong">
+                <span className="weq-number weq-number-inherit">{hit.matchedBulletins}</span>
+              </strong>
+              条群公告
             </>
           ) : null}
         </span>
@@ -489,21 +394,5 @@ export function SearchResultCard({
         ))}
       </div>
     </div>
-  );
-}
-
-/** Case-insensitive <mark> highlighting for a substring in a short string. */
-export function highlightText(text: string, keyword: string): ReactElement {
-  const lower = text.toLowerCase();
-  const needle = keyword.trim().toLowerCase();
-  if (!needle) return <>{text}</>;
-  const at = lower.indexOf(needle);
-  if (at === -1) return <>{text}</>;
-  return (
-    <>
-      {text.slice(0, at)}
-      <mark className="weq-search-hl">{text.slice(at, at + needle.length)}</mark>
-      {text.slice(at + needle.length)}
-    </>
   );
 }

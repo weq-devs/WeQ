@@ -2,7 +2,7 @@
  * `UnreadInfoDb` —— 未读/高亮的读语义 + 标记已读的**字节级**写回。
  *
  * 用真实 sqlite fixture + 真机抓到的 48902 blob 跑完整链路（不是 mock）：
- *   1. `getUnreadInfo` 能把 50060 高亮组展平成一个类别一条（含最大 seq）。
+ *   1. `getUnreadInfo` 能把 50060 高亮组的同类多条全部展平。
  *   2. `markRead` 抬 `41002` 到会话最新 seq、清掉所有 50060 组，
  *      同时**逐字节保留**未修改字段（41024 / 41032 / 50006 / 50007 …）——
  *      这是「不能把整条 blob 用 schema 重编码」的原因（会丢 1/3 字节）。
@@ -411,10 +411,9 @@ describe('UnreadInfoDb.addHighlight', () => {
       sendTime: 2,
       text: 'b',
     });
-    // 展平后同类只留 seq 最大的一条。
+    // 同类全部保留，列表不能漏掉较早的命中。
     const after = await db.getUnreadInfo(2, GROUP);
     const keywords = (after?.highlights ?? []).filter((h) => h.kind === 'groupKeyword');
-    expect(keywords).toHaveLength(1);
-    expect(keywords[0]?.msgSeq).toBe(1741);
+    expect(keywords.map((hit) => hit.msgSeq)).toEqual([1740, 1741]);
   });
 });

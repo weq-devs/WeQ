@@ -7,7 +7,7 @@ import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { PROFILE_QUERY_OPTIONS } from '../../lib/profileQuery';
 import { client } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { DraftCloseContext, useDraftClose } from '../../lib/draftClose';
 import { ContactGroupContent } from './ContactContent';
 import { ContactActions } from './ContactActions';

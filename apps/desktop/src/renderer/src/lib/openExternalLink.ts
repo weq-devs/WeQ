@@ -1,4 +1,4 @@
-import { IS_WEB } from './target';
+import { IS_WEB } from './target.shared';
 import { client } from '../trpc/client';
 
 /** 浏览器链接在点击栈里打开；不请求远端电脑启动浏览器。 */

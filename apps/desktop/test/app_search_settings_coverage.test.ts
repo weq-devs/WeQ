@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
+import { settingDefinition } from '@weq/service/settings-catalog';
 import { describe, expect, it } from 'vitest';
 import {
   APP_SEARCH_ENTRIES,
@@ -21,7 +22,7 @@ const pages = {
 } as const;
 
 describe('功能目录与真实设置控件同步', () => {
-  it('移除后台服务搜索入口，关闭窗口相关搜索定位到提醒与窗口', () => {
+  it('移除后台服务搜索入口，关闭窗口相关搜索定位到启动与退出', () => {
     expect(
       APP_SEARCH_ENTRIES.some(
         (entry) =>
@@ -34,7 +35,7 @@ describe('功能目录与真实设置控件同步', () => {
         searchAppEntries(keyword).some(
           (entry) =>
             entry.target.kind === 'setting' &&
-            entry.target.section === 'global' &&
+            entry.target.section === 'startup' &&
             entry.target.settingId === 'window-close-behavior',
         ),
       ).toBe(true);
@@ -55,10 +56,17 @@ describe('功能目录与真实设置控件同步', () => {
         ts.isVariableDeclaration(node) &&
         ts.isIdentifier(node.name) &&
         node.name.text === 'MODES' &&
-        node.initializer &&
-        ts.isArrayLiteralExpression(node.initializer)
+        node.initializer
       ) {
-        for (const item of node.initializer.elements) {
+        let array: ts.ArrayLiteralExpression | undefined;
+        function findArray(value: ts.Node) {
+          if (array) return;
+          if (ts.isArrayLiteralExpression(value)) array = value;
+          else ts.forEachChild(value, findArray);
+        }
+        findArray(node.initializer);
+        expect(array, 'MODES 必须来自真实菜单数组').toBeDefined();
+        for (const item of array!.elements) {
           if (!ts.isObjectLiteralExpression(item)) continue;
           for (const prop of item.properties) {
             if (
@@ -99,15 +107,27 @@ describe('功能目录与真实设置控件同步', () => {
         (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
         node.tagName.getText(source) === 'Row'
       ) {
+        let labelFound = false;
         for (const attr of node.attributes.properties) {
           if (
             ts.isJsxAttribute(attr) &&
             attr.name.getText(source) === 'label' &&
             attr.initializer &&
             ts.isStringLiteral(attr.initializer)
-          )
+          ) {
             labels.push(attr.initializer.text);
+            labelFound = true;
+          }
         }
+        if (!labelFound)
+          for (const attr of node.attributes.properties)
+            if (
+              ts.isJsxAttribute(attr) &&
+              attr.name.getText(source) === 'settingId' &&
+              attr.initializer &&
+              ts.isStringLiteral(attr.initializer)
+            )
+              labels.push(settingDefinition(attr.initializer.text).label);
       }
       ts.forEachChild(node, visit);
     }

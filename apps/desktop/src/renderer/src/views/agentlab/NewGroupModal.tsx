@@ -45,7 +45,13 @@ export function NewGroupModal({
   const canCreate = !creating && name.trim().length > 0 && selected.length >= 2;
 
   return (
-    <Modal onClose={requestClose} width={520} centered labelledBy="weq-newgroup-title">
+    <Modal
+      onClose={requestClose}
+      width={520}
+      centered
+      labelledBy="weq-newgroup-title"
+      className="weq-clone-dialog"
+    >
       <div className="weq-clone-modal" {...multi.rootProps}>
         <header className="weq-clone-modal-head">
           <span className="weq-clone-modal-icon">
@@ -108,22 +114,21 @@ export function NewGroupModal({
               </div>
             )}
           </div>
-
-          <div className="weq-clone-actions">
-            <button type="button" className="weq-set-btn weq-set-btn-soft" onClick={requestClose}>
-              取消
-            </button>
-            <button
-              type="button"
-              className="weq-set-btn"
-              disabled={!canCreate}
-              onClick={() => onCreate({ name: name.trim(), personaIds: selected })}
-            >
-              <Plus size={14} aria-hidden="true" />
-              创建群聊
-            </button>
-          </div>
         </div>
+        <footer className="weq-clone-actions weq-clone-footer">
+          <button type="button" className="weq-set-btn weq-set-btn-soft" onClick={requestClose}>
+            取消
+          </button>
+          <button
+            type="button"
+            className="weq-set-btn weq-set-btn-primary"
+            disabled={!canCreate}
+            onClick={() => onCreate({ name: name.trim(), personaIds: selected })}
+          >
+            <Plus size={14} aria-hidden="true" />
+            创建群聊
+          </button>
+        </footer>
       </div>
     </Modal>
   );

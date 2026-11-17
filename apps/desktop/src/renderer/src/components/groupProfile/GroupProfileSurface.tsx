@@ -1,5 +1,6 @@
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Eye, MessageSquare } from 'lucide-react';
+import { Eye } from 'lucide-react';
+import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import { ProfileCardControls } from '../ProfileCardControls';
 import type { GroupConversation, User, GroupMember } from '../../im-template/template/types';
 import { ChatNavigationContext, GroupMessagePreviewContext } from '../../lib/chatNavigation';
@@ -77,6 +78,7 @@ function GroupProfileBody({
     previewContent ? () => preview?.close() : closing.requestClose,
     Boolean(embedded),
     false,
+    20,
   );
   const register = useContext(ProfileNavigationGuardContext);
   const leave = useRef(closing.confirmLeave);
@@ -113,7 +115,7 @@ function GroupProfileBody({
         else openChat?.({ kind: 'group', conversation });
       }}
     >
-      <MessageSquare size={14} />
+      <FEATURE_ICONS.messages size={14} aria-hidden />
       {embedded ? '打开会话' : '查看消息'}
     </button>
   ) : null;

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { LockKeyhole, Radio, RefreshCw, X } from 'lucide-react';
 import { useToolWindow } from '../hooks/useCompositionWindow';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import { readWithRetry } from '../lib/autoRead';
 import { RenderDocumentContext } from '../lib/renderDocument';
 import { useCaptureWindow } from '../state/captureWindow';
@@ -12,7 +12,8 @@ import { client } from '../trpc/client';
 import { lazyPanel } from '../lib/lazyPanel';
 import { TabActivity } from './RetainedTabs';
 import { Modal } from './Dialog';
-import { ToastHost } from './Toast';
+import { PageShell } from './PageShell';
+import { notificationContent, notificationSource } from '../lib/notificationNavigation.shared';
 import { HoverTooltip } from './HoverTooltip';
 import { QueryError } from './settings/controls';
 import '../styles/capture-window.css';
@@ -41,9 +42,22 @@ export function CaptureWindowRequest({
   return null;
 }
 
-function CaptureWindowPanel({ initialUin, onClose }: { initialUin: string; onClose: () => void }) {
+function CaptureWindowPanel({
+  initialUin,
+  initialTab,
+  source,
+  onClose,
+}: {
+  initialUin: string;
+  initialTab?: 'tcp' | 'udp';
+  source: string;
+  onClose: () => void;
+}) {
   /** 两个抓包面板：TCP（QQNT / OIDB，按账号）与 UDP（按进程，不解析协议）。 */
-  const [tab, setTab] = useState<'tcp' | 'udp'>('tcp');
+  const [tab, setTab] = useState<'tcp' | 'udp'>(initialTab ?? 'tcp');
+  useEffect(() => {
+    if (initialTab) setTab(initialTab);
+  }, [initialTab]);
   const activity = useQQReadActivity(true, { onlineOnly: IS_WEB });
   const [accounts, setAccounts] = useState<
     Awaited<ReturnType<typeof client.wonderfulTools.overview.query>>
@@ -89,7 +103,12 @@ function CaptureWindowPanel({ initialUin, onClose }: { initialUin: string; onClo
     }
     return () => controller.current?.abort();
   }, [activity.enabled, activity.revision, refresh]);
-  return (
+  return notificationContent(
+    notificationSource(
+      { kind: 'local', open: () => useCaptureWindow.getState().open(source, initialUin, tab) },
+      '返回对应抓包面板',
+      null,
+    ),
     <div className="weq-capture-native">
       <header className="weq-capture-window-head">
         <Radio size={17} />
@@ -163,7 +182,7 @@ function CaptureWindowPanel({ initialUin, onClose }: { initialUin: string; onClo
           />
         )}
       </div>
-    </div>
+    </div>,
   );
 }
 
@@ -187,19 +206,29 @@ export function CaptureWindowHost() {
   const popup = tool.popup && !tool.popup.closed ? tool.popup : null;
   if (tool.fallback && request && !locked)
     return (
-      <Modal width={360} centered onClose={dismiss}>
-        <div className="weq-capture-window-error" role="alert">
-          <h3>无法打开 QQNT 抓包窗口</h3>
-          <button
-            type="button"
-            className="weq-set-btn"
-            onClick={() => {
-              if (!useAppLock.getState().locked) open();
-            }}
+      <Modal width={360} centered onClose={dismiss} labelledBy="weq-capture-window-error-title">
+        <PageShell
+          title="无法打开 QQNT 抓包窗口"
+          titleId="weq-capture-window-error-title"
+          onClose={dismiss}
+          closeLabel="关闭抓包窗口提示"
+        >
+          <div
+            className="weq-capture-window-error"
+            role="alert"
+            aria-labelledby="weq-capture-window-error-title"
           >
-            重新打开
-          </button>
-        </div>
+            <button
+              type="button"
+              className="weq-set-btn"
+              onClick={() => {
+                if (!useAppLock.getState().locked) open();
+              }}
+            >
+              重新打开
+            </button>
+          </div>
+        </PageShell>
       </Modal>
     );
   return popup && request
@@ -212,8 +241,12 @@ export function CaptureWindowHost() {
               hidden={locked}
               inert={locked}
             >
-              <CaptureWindowPanel initialUin={request.uin} onClose={dismiss} />
-              <ToastHost />
+              <CaptureWindowPanel
+                initialUin={request.uin}
+                initialTab={request.tab}
+                source={request.source}
+                onClose={dismiss}
+              />
               {!locked ? <HoverTooltip /> : null}
             </div>
           </TabActivity>

@@ -21,6 +21,7 @@
  *     本组件只负责渲染。
  */
 
+import { NumericText } from '../NumericText';
 import {
   Fragment,
   useCallback,
@@ -36,12 +37,15 @@ import { ArrowLeft, CloudOff, RefreshCw, X } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { MemberProfileCard } from '../MemberProfileCard';
 import { ChatNavigationContext } from '../../lib/chatNavigation';
-import { ConvContext, ForwardKindContext, ReplyJumpContext } from '../QqMessageContent';
+import { ConvContext, ForwardKindContext, ReplyJumpContext } from '../../state/messageContext';
 import { cn } from '../../im-template/template/classNames';
-import { MessageRow, grayTipOf } from '../../im-template/template/messageRow';
+import { MessageRow } from '../../im-template/template/messageRow';
+import { grayTipOf } from '../../im-template/template/messageRow.shared';
 import { resolveMessageSender } from '../../im-template/template/conversationDisplay';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
 import type { Conversation, Message, User } from '../../im-template/template/types';
+import type { ReplyJumpTarget } from '../../state/messageContext';
+import { useMessageLocateMenu } from '../../hooks/useMessageLocateMenu';
 
 const noop = (): void => {};
 
@@ -65,6 +69,7 @@ export function GapMessagesModal({
   title,
   backLabel = '返回资料',
   messageNotice,
+  onLocateMessage,
 }: {
   conversation: Conversation;
   user: User;
@@ -93,7 +98,9 @@ export function GapMessagesModal({
   backLabel?: string;
   /** 只读预览中逐条展示的附注，例如跳过发送的原因。 */
   messageNotice?: (message: Message) => string | undefined;
+  onLocateMessage?: (target: ReplyJumpTarget) => void | Promise<void>;
 }): ReactElement {
+  const locateMenu = useMessageLocateMenu(onLocateMessage, `${user.id}:${conversation.id}`);
   const openChat = useContext(ChatNavigationContext);
   const [memberCard, setMemberCard] = useState<{
     member: User;
@@ -214,6 +221,11 @@ export function GapMessagesModal({
             {notice}
           </p>
         ) : null}
+        {locateMenu.error ? (
+          <p role="alert" className="weq-preview-message-note">
+            {locateMenu.error}
+          </p>
+        ) : null}
 
         <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
           <ConvContext.Provider value={convKey}>
@@ -242,7 +254,8 @@ export function GapMessagesModal({
                   <CloudOff size={26} />
                   <span>{error}</span>
                   {onRetry ? (
-                    <button type="button" onClick={onRetry}>
+                    <button type="button" onClick={onRetry} className="weq-retry-button">
+                      <RefreshCw size={14} aria-hidden />
                       重试
                     </button>
                   ) : null}
@@ -264,7 +277,8 @@ export function GapMessagesModal({
                           正在加载更早的消息…
                         </span>
                       ) : moreFailed ? (
-                        <button type="button" onClick={loadMore}>
+                        <button type="button" onClick={loadMore} className="weq-retry-button">
+                          <RefreshCw size={14} aria-hidden />
                           加载失败，点击重试
                         </button>
                       ) : hasMore ? (
@@ -286,6 +300,15 @@ export function GapMessagesModal({
                         showSenderName={showSenderNames}
                         renderers={renderers}
                         onAvatarClick={preview ? openMember : undefined}
+                        onContextMenu={
+                          onLocateMessage
+                            ? (event) =>
+                                locateMenu.openMenu(event, {
+                                  seq: message.msgSeq,
+                                  msgId: message.msgId,
+                                })
+                            : undefined
+                        }
                       />
                     );
                     const note = messageNotice?.(message);
@@ -310,17 +333,28 @@ export function GapMessagesModal({
                           {preview ? '正在加载更早的消息…' : '正在加载更新的消息…'}
                         </span>
                       ) : moreFailed ? (
-                        <button type="button" className="weq-gap-footer-retry" onClick={loadMore}>
+                        <button
+                          type="button"
+                          className="weq-gap-footer-retry weq-retry-button"
+                          onClick={loadMore}
+                        >
+                          <RefreshCw size={14} aria-hidden />
                           加载失败，点击重试
                         </button>
                       ) : hasMore ? (
                         <div ref={sentinelRef}>
-                          {preview
-                            ? `已加载 ${messages.length} 条 · 向下加载更早记录`
-                            : `已加载 ${messages.length} / 共 ${totalCount} 条 · 向下滚动加载更多`}
+                          {preview ? (
+                            <NumericText>{`已加载 ${messages.length} 条 · 向下加载更早记录`}</NumericText>
+                          ) : (
+                            <NumericText>{`已加载 ${messages.length} / 共 ${totalCount} 条 · 向下滚动加载更多`}</NumericText>
+                          )}
                         </div>
                       ) : (
-                        <span>已加载全部 {messages.length} 条</span>
+                        <span>
+                          已加载全部{' '}
+                          <span className="weq-number weq-number-inherit">{messages.length}</span>{' '}
+                          条
+                        </span>
                       )}
                     </div>
                   ) : null}
@@ -330,6 +364,7 @@ export function GapMessagesModal({
           </ConvContext.Provider>
         </ForwardKindContext.Provider>
       </div>
+      {locateMenu.menu}
       {memberCard ? (
         <MemberProfileCard
           member={memberCard.member}

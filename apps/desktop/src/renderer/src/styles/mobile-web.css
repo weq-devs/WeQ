@@ -12,7 +12,10 @@
     var(--weq-mobile-window-chrome-height, 0px) +
     var(--weq-mobile-header-height)
   );
-  --weq-mobile-header-height: calc(56px + env(safe-area-inset-top, 0px));
+  --weq-mobile-header-height: calc(
+    56px +
+    max(var(--weq-window-safe-top), var(--weq-window-header-top, 0px))
+  );
   --weq-mobile-header-title-size: 18px;
   --weq-mobile-tabs-height: calc(60px + env(safe-area-inset-bottom, 0px));
 }
@@ -56,7 +59,7 @@
   min-height: var(--weq-mobile-header-height);
   align-items: center;
   gap: 12px;
-  padding: env(safe-area-inset-top, 0px) 12px 0;
+  padding: var(--weq-window-safe-top) 12px 0;
   border-bottom: 1px solid var(--weq-border-subtle);
   background: var(--weq-bg-surface);
   color: var(--weq-fg-primary);
@@ -272,8 +275,12 @@ html:where([data-weq-layout='single'])[data-component-style][data-theme]
   pointer-events: auto;
 }
 
-:where(html[data-weq-layout='single']) .weq-web-shell[data-mobile-detail] .app-shell .chat-main {
+:where(html[data-weq-layout='single']) .weq-web-shell[data-mobile-detail] .app-shell > .chat-main {
+  /* 全屏详情共用一次系统占位；内部聊天/设置标题栏不再重复计算安全区。 */
+  --weq-window-safe-top: 0px;
+  --weq-mobile-header-height: calc(56px + var(--weq-window-header-top, 0px));
   inset: var(--weq-mobile-window-chrome-height, 0px) 0 0;
+  padding-top: var(--weq-safe-top, env(safe-area-inset-top, 0px));
   z-index: 45;
   visibility: visible;
   transform: none;
@@ -394,16 +401,11 @@ html:where([data-weq-layout='single'])[data-theme='dark'] .weq-web-shell .compos
 
 :where(html[data-weq-layout='single'])
   :is(.weq-web-shell .app-shell, .weq-conversation-list)
-  :is(.conversation-row, .contact-row),
-:where(html[data-weq-layout='single'])
-  :is(.weq-web-shell .app-shell, .weq-conversation-list)
-  :is(.conversation-row, .contact-row).active {
+  :is(.conversation-row, .contact-row) {
   min-height: var(--weq-conversation-row-height);
   grid-template-columns: 50px minmax(0, 1fr) 48px;
   gap: 12px;
   padding: 10px 16px;
-  background: var(--weq-bg-surface);
-  color: var(--weq-fg-primary);
 }
 
 :where(html[data-weq-layout='single'])
@@ -414,21 +416,8 @@ html:where([data-weq-layout='single'])[data-theme='dark'] .weq-web-shell .compos
   height: 50px;
 }
 
-:where(html[data-weq-layout='single'])
-  :is(.weq-web-shell .app-shell, .weq-conversation-list)
-  :is(.conversation-row, .contact-row).active {
-  background: color-mix(in srgb, var(--weq-accent-effective) 12%, var(--weq-bg-surface));
-  box-shadow: inset 3px 0 var(--weq-accent-effective);
-}
-
 :where(html[data-weq-layout='single']) .weq-mobile-navigation button:active {
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
-}
-
-html:where([data-weq-layout='single'])[data-theme='dark']
-  :is(.weq-web-shell .app-shell, .weq-conversation-list)
-  :is(.conversation-row, .contact-row).active {
-  background: color-mix(in srgb, var(--weq-accent-effective) 18%, var(--weq-bg-surface));
 }
 
 :where(html[data-weq-layout='single'])
@@ -539,11 +528,11 @@ html:where([data-weq-layout='single']) .weq-web-shell .weq-mobile-settings {
 
 :where(html[data-weq-layout='single']) .weq-web-shell .weq-mobile-settings-header {
   display: flex;
-  min-height: calc(52px + env(safe-area-inset-top, 0px));
+  min-height: calc(52px + var(--weq-window-safe-top));
   flex: 0 0 auto;
   align-items: center;
   gap: 8px;
-  padding: env(safe-area-inset-top, 0px) 8px 0;
+  padding: var(--weq-window-safe-top) 8px 0;
   border-bottom: 1px solid var(--weq-border-subtle);
   background: var(--weq-bg-surface);
   color: var(--weq-fg-primary);

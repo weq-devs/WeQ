@@ -8,6 +8,7 @@ export interface WorkspaceTaskIndicator {
   activity: AssistantActivity;
   result: string;
   failed: boolean;
+  notificationHandled?: boolean;
   /** 记录与提醒照常保留，但后台步骤不抢占当前界面。 */
   autoOpenTaskList?: boolean;
 }
@@ -36,13 +37,23 @@ export function summarizeWorkspaceTasks({
   background = [],
 }: {
   exports?: (Pick<ExportTask, 'id' | 'status' | 'save'> &
-    Partial<Pick<ExportTask, 'updatedAt' | 'resource' | 'autoOpenTaskList'>>)[];
+    Partial<
+      Pick<
+        ExportTask,
+        | 'updatedAt'
+        | 'resource'
+        | 'autoOpenTaskList'
+        | 'databaseRecovery'
+        | 'databaseRecoveryRecords'
+      >
+    >)[];
   clones?: Pick<CloneTask, 'personaId' | 'status'>[];
   roaming?: { id: string; status: RoamingJobStatus; updatedAt?: number }[];
   scanning?: boolean;
   flash?: (Pick<FlashDownloadTask, 'id' | 'status'> &
     Partial<Pick<FlashDownloadTask, 'finishedAt'>>)[];
-  background?: Pick<BackgroundTask, 'id' | 'status' | 'updatedAt'>[];
+  background?: (Pick<BackgroundTask, 'id' | 'status' | 'updatedAt'> &
+    Partial<Pick<BackgroundTask, 'destination'>>)[];
 }) {
   const items: WorkspaceTaskIndicator[] = [];
   for (const task of exports) {
@@ -54,6 +65,7 @@ export function summarizeWorkspaceTasks({
       task.save?.status === 'interrupted';
     const failed =
       task.status === 'failed' ||
+      (task.status === 'completed' && Boolean(task.databaseRecoveryRecords?.length)) ||
       task.save?.status === 'failed' ||
       task.save?.status === 'interrupted';
     items.push({
@@ -108,6 +120,7 @@ export function summarizeWorkspaceTasks({
   for (const task of background) {
     items.push({
       id: task.id,
+      notificationHandled: task.destination === 'db-checkup',
       activity:
         task.status === 'running' ? 'running' : task.status === 'paused' ? 'idle' : 'finished',
       result: `${task.status}:${task.updatedAt}`,

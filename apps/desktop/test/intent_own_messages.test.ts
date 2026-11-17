@@ -55,6 +55,18 @@ vi.mock('../src/renderer/src/components/intentSense/context', () => ({
     },
   }),
 }));
+vi.mock('../src/renderer/src/components/intentSense/context.shared', () => ({
+  useIntentSenseContext: () => fixture.context,
+  useIntentSenseStatus: () => ({
+    data: {
+      enabled: true,
+      engine: 'local',
+      localReady: true,
+      suggestionsEnabled: true,
+      suggestionRevision: 0,
+    },
+  }),
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     account: {

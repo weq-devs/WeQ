@@ -1,19 +1,7 @@
 import { useLayoutEffect, useRef, type RefObject } from 'react';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
+import { type SearchPosition, restoreSearchPosition } from './searchPosition.shared';
 
-export interface SearchPosition {
-  scrollTop: number;
-  focusKey: string | null;
-  appResultsExpanded?: boolean;
-}
-
-export function restoreSearchPosition(node: HTMLElement, position: SearchPosition): void {
-  const hit = [...node.querySelectorAll<HTMLElement>('[data-search-hit-key]')].find(
-    (item) => item.dataset.searchHitKey === position.focusKey,
-  );
-  hit?.focus({ preventScroll: true });
-  node.scrollTop = position.scrollTop;
-}
 export function SearchPositionRestore({
   container,
   position,
@@ -36,3 +24,4 @@ export function SearchPositionRestore({
   }, [active, container]);
   return null;
 }
+export type { SearchPosition } from './searchPosition.shared';

@@ -7,6 +7,7 @@
  *   - 勾选的文件导出时按 path 在输出目录里重建文件夹树。
  */
 
+import { NumericText } from '../../components/NumericText';
 import { EmptyState } from '../../components/EmptyState';
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
@@ -28,9 +29,9 @@ import {
 } from 'lucide-react';
 import type { ExportSavePolicy } from '@weq/service';
 import '../../styles/resource-export.css';
-import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
+import { OverlayLayer } from '../../components/OverlayLayer';
 import { client } from '../../trpc/client';
-import { useToast } from '../../components/Toast';
+import { useToast } from '../../components/Toast.shared';
 import { PickerListSkeleton } from './ExportSkeleton';
 import { fileIconUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
@@ -101,7 +102,6 @@ export function GroupFileExportLightbox({
   onClose: () => void;
   onConfirm: (result: GroupFileExportResult) => void;
 }): ReactElement {
-  useEscapeToClose(onClose);
   const [includeIntegrityReport, setIncludeIntegrityReport] = useState(false);
   const [archive, setArchive] = useState<ResourceArchiveOptions>({
     metadataFormat: 'json',
@@ -251,10 +251,9 @@ export function GroupFileExportLightbox({
   }
 
   return (
-    <div
+    <OverlayLayer
       className="modal-scrim weq-exp-modal-scrim weq-resource-export-scrim"
-      role="presentation"
-      onMouseDown={closeFromScrim(onClose)}
+      onClose={onClose}
     >
       <section
         className="weq-exp-dialog weq-exp-album-dialog weq-resource-export-dialog"
@@ -268,8 +267,14 @@ export function GroupFileExportLightbox({
             <strong>导出群文件</strong>
             <span title={groupName}>{groupName}</span>
           </div>
-          <button type="button" className="weq-exp-dialog-close" onClick={onClose} title="关闭">
-            <X size={18} />
+          <button
+            type="button"
+            className="weq-exp-dialog-close"
+            onClick={onClose}
+            title="关闭"
+            aria-label="关闭群文件导出"
+          >
+            <X size={18} aria-hidden />
           </button>
         </header>
 
@@ -291,7 +296,11 @@ export function GroupFileExportLightbox({
               </span>
             </div>
             <span className="group-file-summary">
-              {listing ? `${listing.folders.length} 个文件夹 · ${listing.files.length} 个文件` : ''}
+              {listing ? (
+                <NumericText>{`${listing.folders.length} 个文件夹 · ${listing.files.length} 个文件`}</NumericText>
+              ) : (
+                ''
+              )}
             </span>
           </div>
 
@@ -338,8 +347,8 @@ export function GroupFileExportLightbox({
             </button>
             <span className="weq-exp-tools-spacer" />
             <span className="weq-exp-tools-count">
-              已选 {selection.size} 个文件
-              {totalSize > 0 ? ` · ${formatSize(totalSize)}` : ''}
+              已选 <span className="weq-number weq-number-inherit">{selection.size}</span> 个文件
+              {totalSize > 0 ? <NumericText>{` · ${formatSize(totalSize)}`}</NumericText> : ''}
             </span>
           </div>
 
@@ -392,7 +401,10 @@ export function GroupFileExportLightbox({
                         <span className="group-file-main">
                           <strong>{folder.folderName || '未命名文件夹'}</strong>
                           <small>
-                            {folder.totalFileCount} 个文件
+                            <span className="weq-number weq-number-inherit">
+                              {folder.totalFileCount}
+                            </span>{' '}
+                            个文件
                             {folder.creatorName ? ` · ${folder.creatorName}` : ''}
                           </small>
                         </span>
@@ -440,9 +452,15 @@ export function GroupFileExportLightbox({
                       <span className="group-file-main">
                         <strong title={file.fileName}>{file.fileName}</strong>
                         <small>
-                          {formatSize(file.fileSize)}
+                          <span className="weq-number weq-number-inherit">
+                            {formatSize(file.fileSize)}
+                          </span>
                           {file.uploaderName ? ` · ${file.uploaderName}` : ''}
-                          {file.uploadedTime ? ` · ${formatFileTime(file.uploadedTime)}` : ''}
+                          {file.uploadedTime ? (
+                            <NumericText>{` · ${formatFileTime(file.uploadedTime)}`}</NumericText>
+                          ) : (
+                            ''
+                          )}
                         </small>
                       </span>
                       <span className={`weq-exp-file-check${on ? ' is-full' : ''}`}>
@@ -468,8 +486,8 @@ export function GroupFileExportLightbox({
         />
         <footer className="weq-exp-dialog-foot">
           <span className="weq-exp-dialog-foot-note">
-            已选 {selection.size} 个文件
-            {totalSize > 0 ? ` · ${formatSize(totalSize)}` : ''}
+            已选 <span className="weq-number weq-number-inherit">{selection.size}</span> 个文件
+            {totalSize > 0 ? <NumericText>{` · ${formatSize(totalSize)}`}</NumericText> : ''}
           </span>
           <button type="button" className="weq-exp-btn" onClick={onClose} disabled={submitting}>
             取消
@@ -487,6 +505,6 @@ export function GroupFileExportLightbox({
           </button>
         </footer>
       </section>
-    </div>
+    </OverlayLayer>
   );
 }

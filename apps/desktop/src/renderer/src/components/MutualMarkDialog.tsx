@@ -16,25 +16,12 @@ import { trpc } from '../trpc/client';
 import { cn } from '../im-template/template/classNames';
 import { OverlayLayer } from './OverlayLayer';
 import { EmptyState } from './EmptyState';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import { useViewState } from '../state/view';
-import type { ProfileExtInfo } from '../im-template/template/types';
 import { collectionImageUrl } from '../lib/resourceUrl';
 import { profileCode } from '@weq/protocol/profile-values';
 import '../styles/profile-cache.css';
-
-type CachedMark = ProfileExtInfo['interactMarks'][number];
-export function usableCachedMarks(marks: readonly CachedMark[]) {
-  const found = new Map<string, CachedMark>();
-  for (const mark of marks) {
-    const id = profileCode(mark.markId);
-    const type = mark.type?.trim();
-    if (id === null && !type) continue;
-    const key = `${type ?? ''}:${id ?? ''}`;
-    if (!found.has(key)) found.set(key, mark);
-  }
-  return [...found.values()];
-}
+import { type CachedMark, usableCachedMarks } from './MutualMarkDialog.shared';
 
 function CachedMarkCell({ mark }: { mark: CachedMark }) {
   const [failed, setFailed] = useState(false);
@@ -226,7 +213,9 @@ export function MutualMarkDialog({
           ) : null}
           {data.totalNum > 0 ? (
             <p className="weq-mutual-summary">
-              共 {data.totalNum} 个标识 · 已点亮 {data.lightUpNum} · 稀有 {data.rarityNum}
+              共 <span className="weq-number weq-number-inherit">{data.totalNum}</span> 个标识 ·
+              已点亮 <span className="weq-number weq-number-inherit">{data.lightUpNum}</span> · 稀有{' '}
+              <span className="weq-number weq-number-inherit">{data.rarityNum}</span>
             </p>
           ) : null}
           {categories.map((cat) => (
@@ -235,7 +224,8 @@ export function MutualMarkDialog({
                 <h3>
                   {cat.name}
                   <span className="weq-mutual-cat-count">
-                    {cat.lightUpNum}/{cat.totalNum}
+                    <span className="weq-number weq-number-inherit">{cat.lightUpNum}</span>/
+                    <span className="weq-number weq-number-inherit">{cat.totalNum}</span>
                   </span>
                 </h3>
               ) : null}

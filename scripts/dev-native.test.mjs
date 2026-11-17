@@ -1,8 +1,18 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { execFileSync, spawnSync } from 'node:child_process';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import {
   bundleMatches,
@@ -120,10 +130,16 @@ test('源码指纹包含未提交、新增、删除、被 Git 忽略的装扮输
     if (before) await writeFile(join(source, path), before);
     else await rm(join(source, path));
   }
-  assert.notEqual(
-    await nativeSourceFingerprint(source, { env: { ...process.env, RUSTFLAGS: '--cfg fixture' } }),
-    original,
-  );
+  for (const [name, value] of [
+    ['RUSTFLAGS', '--cfg fixture'],
+    ['CARGO_INCREMENTAL', '0'],
+    ['CARGO_PROFILE_WEQ_DEV_OPT_LEVEL', '1'],
+  ])
+    assert.notEqual(
+      await nativeSourceFingerprint(source, { env: { ...process.env, [name]: value } }),
+      original,
+      name,
+    );
   await rm(join(source, 'src/lib.rs'));
   assert.notEqual(await nativeSourceFingerprint(source), original);
 });
@@ -164,6 +180,36 @@ test('配套安装与来源记录成功，失败时恢复所有旧文件及原�
   assert.equal(next.localBuild.commit, 'new');
   assert.equal(await bundleMatches(root, next, platform), true);
   assert(!(await readdir(join(root, 'native'))).some((path) => path.startsWith('.dev-install-')));
+});
+
+test('Windows 反斜杠写法的旧 marker 也能匹配，并在下次安装时归一化', async (t) => {
+  const { root, bundle, platform } = await fixture(t);
+  await fill(root, platform, 'old');
+  await fill(bundle, platform, 'new');
+  // 旧版 fetch-native 在 Windows 上用 join() 写 marker，得到反斜杠路径。
+  const legacy = {
+    tag: 'fixture-tag',
+    files: await Promise.all(
+      nativeFiles(platform).map(async (path) => ({
+        path: path.replaceAll('/', '\\'),
+        sha256: await hashFile(join(root, path)),
+      })),
+    ),
+  };
+  await writeJson(join(root, 'native/.installed.json'), legacy);
+  assert.equal(await bundleMatches(root, legacy, platform), true);
+  const next = await installNativeBundle({
+    root,
+    bundle,
+    platform,
+    marker: legacy,
+    verify: noop,
+    unused: noop,
+  });
+  assert.deepEqual(
+    next.files.map((entry) => entry.path),
+    nativeFiles(platform),
+  );
 });
 
 test('验证与进程占用失败不替换；首次安装失败清理本轮新增文件', async (t) => {
@@ -313,8 +359,14 @@ test('local 按目标编译、移除发布时间戳、保持成套验证，源�
     builds++;
     assert.equal(options.env.DRESS_KEY_SEED, packedSeed, 'native 使用缓存装扮的同一密钥');
     assert.equal(args[args.indexOf('--target') + 1], platform.target);
-    await mkdir(join(target, platform.target, 'release'), { recursive: true });
-    await writeFile(join(target, platform.target, 'release', platform.library), `native-${builds}`);
+    assert.equal(args[args.indexOf('--profile') + 1], 'weq-dev');
+    assert(!args.includes('--release'));
+    assert.equal(
+      args[args.indexOf('--config') + 1],
+      fileURLToPath(new URL('./dev-native.cargo.toml', import.meta.url)),
+    );
+    await mkdir(join(target, platform.target, 'weq-dev'), { recursive: true });
+    await writeFile(join(target, platform.target, 'weq-dev', platform.library), `native-${builds}`);
   };
   const options = {
     run,
@@ -332,13 +384,21 @@ test('local 按目标编译、移除发布时间戳、保持成套验证，源�
   assert.equal(builds, 1);
   assert.equal(packs, 1);
   assert.equal(verifications, 2);
+  const installed = await readJson(join(root, 'native/.installed.json'));
+  assert.equal(installed.localBuild.profile, 'weq-dev');
+  await writeJson(join(root, 'native/.installed.json'), {
+    ...installed,
+    localBuild: { ...installed.localBuild, profile: 'release' },
+  });
+  await prepareNative(root, config, options);
+  assert.equal(builds, 2, '旧 release 配置不能冒充快速开发构建');
   await writeFile(join(source, 'src/lib.rs'), 'changed');
   await prepareNative(root, config, options);
-  assert.equal(builds, 2);
+  assert.equal(builds, 3);
   assert.equal(packs, 1, '只改 native 源码不重新打包');
   await writeFile(join(root, nativeFiles(platform)[0]), 'broken');
   await prepareNative(root, config, options);
-  assert.equal(builds, 3);
+  assert.equal(builds, 4);
   assert.equal(packs, 1, 'native 损坏不重新打包');
   execFileSync(
     'git',
@@ -355,6 +415,150 @@ test('local 按目标编译、移除发布时间戳、保持成套验证，源�
   await prepareNative(root, config, options);
   assert.equal(packs, 3, '打包工具变化重新打包');
   assert.equal(await exists(join(target, '.weq-dev-build-lock')), false);
+});
+
+test('五个平台均安装 weq-dev 产物，不误取同目录的旧 release 库', async (t) => {
+  for (const [os, arch] of [
+    ['darwin', 'arm64'],
+    ['darwin', 'x64'],
+    ['linux', 'arm64'],
+    ['linux', 'x64'],
+    ['win32', 'x64'],
+  ]) {
+    const { root, source, directory } = await sourceFixture(t);
+    const platform = nativePlatform(os, arch);
+    const target = join(directory, 'target');
+    const run = async (command, args, options) => {
+      if (command === 'git') return runCommand(command, args, options);
+      if (args[0] === 'metadata') return JSON.stringify({ target_directory: target });
+      if (args[0] === 'run') return fakeDressPack(args, options);
+      assert.equal(args[args.indexOf('--target') + 1], platform.target);
+      assert.equal(args[args.indexOf('--profile') + 1], 'weq-dev');
+      for (const profile of ['release', 'weq-dev']) {
+        await mkdir(join(target, platform.target, profile), { recursive: true });
+        await writeFile(join(target, platform.target, profile, platform.library), profile);
+      }
+    };
+    await prepareNative(
+      root,
+      { mode: 'local', source, jobs: 2 },
+      { run, platform, log: silent, unused: noop, verify: noop },
+    );
+    assert.equal(
+      await readFile(join(root, platform.directory, 'nt_helper.node'), 'utf8'),
+      'weq-dev',
+    );
+  }
+});
+
+test('真实 Cargo 使用独立增量 profile，依赖保留优化且正式 release 配置不变', async (t) => {
+  const probe = spawnSync('cargo', ['--version'], { encoding: 'utf8', windowsHide: true });
+  if (probe.error?.code === 'ENOENT') return t.skip('未安装 Cargo');
+  assert.equal(probe.status, 0, probe.stderr);
+  const { source, platform } = await sourceFixture(t);
+  await writeFile(
+    join(source, 'Cargo.toml'),
+    `[package]
+name = "nt-helper"
+version = "0.0.0"
+edition = "2021"
+[lib]
+crate-type = ["cdylib"]
+[dependencies]
+fixture-dependency = { path = "dependency" }
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+`,
+  );
+  await mkdir(join(source, 'dependency/src'), { recursive: true });
+  await writeFile(
+    join(source, 'dependency/Cargo.toml'),
+    '[package]\nname="fixture-dependency"\nversion="0.0.0"\nedition="2021"\n',
+  );
+  await writeFile(join(source, 'dependency/src/lib.rs'), 'pub fn value() -> u32 { 42 }\n');
+  await writeFile(
+    join(source, 'src/lib.rs'),
+    '#[no_mangle]\npub extern "C" fn fixture() -> u32 { fixture_dependency::value() }\n',
+  );
+  const env = { ...process.env, CARGO_TERM_COLOR: 'never' };
+  // 验证本地开发 profile；Cargo 在 CI 环境下会自动关闭增量编译。
+  delete env.CI;
+  for (const key of Object.keys(env))
+    if (
+      key.startsWith('CARGO_PROFILE_') ||
+      [
+        'CARGO_INCREMENTAL',
+        'CARGO_BUILD_INCREMENTAL',
+        'RUSTFLAGS',
+        'CARGO_ENCODED_RUSTFLAGS',
+        'CARGO_TARGET_DIR',
+        'CARGO_BUILD_TARGET',
+      ].includes(key)
+    )
+      delete env[key];
+  const build = (extra) => {
+    const result = spawnSync(
+      'cargo',
+      [
+        'build',
+        '--offline',
+        '--lib',
+        '--target',
+        platform.target,
+        '--message-format=json',
+        '-vv',
+        ...extra,
+      ],
+      { cwd: source, env, encoding: 'utf8', windowsHide: true, timeout: 120_000 },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const artifacts = result.stdout
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+      .filter((message) => message.reason === 'compiler-artifact');
+    return { ...result, artifacts };
+  };
+  const config = fileURLToPath(new URL('./dev-native.cargo.toml', import.meta.url));
+  const fast = build(['--profile', 'weq-dev', '--config', config]);
+  const main = fast.artifacts.find((message) => message.target.name === 'nt_helper');
+  const dependency = fast.artifacts.find((message) => message.target.name === 'fixture_dependency');
+  assert.equal(main.profile.opt_level, '2');
+  assert.equal(main.profile.debug_assertions, false);
+  assert.equal(dependency.profile.opt_level, '3');
+  assert(
+    (await Promise.all(main.filenames.map((path) => realpath(path)))).includes(
+      await realpath(join(source, 'target', platform.target, 'weq-dev', platform.library)),
+    ),
+  );
+  assert.match(fast.stderr, /codegen-units=16/);
+  assert.match(fast.stderr, /lto=off/);
+  assert.match(fast.stderr, /incremental=/);
+  const warm = build(['--locked', '--profile', 'weq-dev', '--config', config]);
+  assert(warm.artifacts.every((message) => message.fresh));
+  await writeFile(
+    join(source, 'src/lib.rs'),
+    '#[no_mangle]\npub extern "C" fn fixture() -> u32 { fixture_dependency::value() + 1 }\n',
+  );
+  const edited = build(['--locked', '--profile', 'weq-dev', '--config', config]);
+  assert.equal(
+    edited.artifacts.find((message) => message.target.name === 'nt_helper').fresh,
+    false,
+  );
+  assert.equal(
+    edited.artifacts.find((message) => message.target.name === 'fixture_dependency').fresh,
+    true,
+  );
+  assert.match(edited.stderr, /incremental=/);
+  const release = build(['--locked', '--release']);
+  assert.equal(
+    release.artifacts.find((message) => message.target.name === 'nt_helper').profile.opt_level,
+    '3',
+  );
+  assert.match(release.stderr, /codegen-units=1(?:\s|`)/);
+  assert.doesNotMatch(release.stderr, /incremental=|lto=off/);
 });
 
 test('local 编译失败复用通过校验的现有构建，不改来源记录，下次启动仍重试编译', async (t) => {
@@ -448,7 +652,67 @@ test('local 构建准备失败也可复用；没有可用旧构建或主动中�
   }
 });
 
-test('local 无可用旧构建时编译失败、编译期间源码变化不替换，并释放构建锁', async (t) => {
+test('local 源码检查、新产物缺失、验证及安装失败均保留并复用旧构建', async (t) => {
+  for (const stage of ['source-missing', 'fingerprint', 'output-missing', 'verify', 'install']) {
+    const { root, source, directory, platform } = await sourceFixture(t);
+    await fill(root, platform, 'old');
+    const old = await marker(root, platform, { localBuild: { commit: 'old' } });
+    await writeJson(join(root, 'native/.installed.json'), old);
+    if (stage === 'source-missing') await rm(join(source, 'Cargo.toml'));
+    const target = join(directory, 'target');
+    let reused = 0;
+    let builds = 0;
+    let replacements = 0;
+    const result = await prepareNative(
+      root,
+      { mode: 'local', source, jobs: 2 },
+      {
+        log: silent,
+        unused: noop,
+        run: async (command, args, options) => {
+          if (command === 'git') {
+            if (stage === 'fingerprint') throw new Error('cannot read source');
+            return runCommand(command, args, options);
+          }
+          assert.equal(command, 'cargo', '不切换到发布版下载');
+          if (args[0] === 'metadata') return JSON.stringify({ target_directory: target });
+          if (args[0] === 'run') return fakeDressPack(args, options);
+          builds++;
+          if (stage === 'output-missing') return;
+          await mkdir(join(target, platform.target, 'weq-dev'), { recursive: true });
+          await writeFile(join(target, platform.target, 'weq-dev', platform.library), 'new');
+        },
+        verify: async (bundle, _root, flags) => {
+          assert.equal(flags.local, true);
+          if (bundle === root) reused++;
+          else if (stage === 'verify') throw new Error('invalid new native');
+        },
+        install: (options) =>
+          installNativeBundle({
+            ...options,
+            replace: async (...args) => {
+              if (stage === 'install' && ++replacements === 2) throw new Error('install failed');
+              return rename(...args);
+            },
+          }),
+      },
+    );
+    assert.deepEqual(result, { fallback: true }, stage);
+    assert.equal(reused, 1, stage);
+    assert.equal(builds, ['source-missing', 'fingerprint'].includes(stage) ? 0 : 1, stage);
+    assert.deepEqual(await readJson(join(root, 'native/.installed.json')), old, stage);
+    assert.equal(await bundleMatches(root, old, platform), true, stage);
+    assert(!(await readdir(join(root, 'native'))).some((path) => path.startsWith('.dev-')));
+    if (await exists(target))
+      assert(
+        !(await readdir(target)).some(
+          (path) => path.startsWith('.weq-dev-native-') || path === '.weq-dev-build-lock',
+        ),
+      );
+  }
+});
+
+test('local 无可用旧构建时保留编译错误；编译期间源码变化复用旧构建并释放构建锁', async (t) => {
   for (const changed of [false, true]) {
     const { root, source, directory, platform } = await sourceFixture(t);
     await fill(root, platform, 'old');
@@ -463,7 +727,8 @@ test('local 无可用旧构建时编译失败、编译期间源码变化不替�
       if (changed) await writeFile(join(source, 'src/lib.rs'), 'changed during build');
       else throw new Error('compile failed');
     };
-    await assert.rejects(
+    let verifications = 0;
+    const prepare = () =>
       prepareNative(
         root,
         { mode: 'local', source, jobs: 2 },
@@ -471,11 +736,15 @@ test('local 无可用旧构建时编译失败、编译期间源码变化不替�
           run,
           log: silent,
           unused: noop,
-          verify: async () => assert.fail('编译失败后的过期产物及输入变化均不尝试加载旧构建'),
+          verify: async () => {
+            assert(changed, '编译失败后的过期产物不尝试加载');
+            verifications++;
+          },
         },
-      ),
-      changed ? /输入发生变化/ : /compile failed/,
-    );
+      );
+    if (changed) assert.deepEqual(await prepare(), { fallback: true });
+    else await assert.rejects(prepare(), /compile failed/);
+    assert.equal(verifications, changed ? 1 : 0);
     assert.equal(await bundleMatches(root, old, platform), true);
     assert.deepEqual(await readJson(join(root, 'native/.installed.json')), old);
     assert.equal(await exists(join(target, '.weq-dev-build-lock')), false);

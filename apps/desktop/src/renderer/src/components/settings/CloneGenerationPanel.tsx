@@ -13,7 +13,7 @@ import { Row, Toggle } from './controls';
 import { ApiModelSelect } from './ApiModelSelect';
 import { AiImagePreferenceSetting } from './AiImageSettings';
 import { useCloneSettingsSection } from '../../views/agentlab/cloneSettingsDraft';
-import { useDialog } from '../Dialog';
+import { useDialog } from '../Dialog.shared';
 
 export function CloneGenerationPanel({
   persona,
@@ -128,7 +128,15 @@ export function CloneGenerationPanel({
                   />
                   {invalidQuantity(key) ? (
                     <small role="alert">
-                      请输入 {CLONE_GENERATION[key].min}–{CLONE_GENERATION[key].max} 的整数。
+                      请输入{' '}
+                      <span className="weq-number weq-number-inherit">
+                        {CLONE_GENERATION[key].min}
+                      </span>
+                      –
+                      <span className="weq-number weq-number-inherit">
+                        {CLONE_GENERATION[key].max}
+                      </span>{' '}
+                      的整数。
                     </small>
                   ) : null}
                 </div>
@@ -150,6 +158,7 @@ export function CloneGenerationPanel({
         {!adaptive ? (
           <Row
             label="生成温度"
+            indent
             control={
               <input
                 className="weq-set-input"
@@ -173,7 +182,7 @@ export function CloneGenerationPanel({
           control={
             <button
               type="button"
-              className="weq-set-btn"
+              className="weq-set-btn weq-set-btn-primary"
               disabled={!valid || update.isLoading}
               onClick={() => void save()}
             >

@@ -1,3 +1,4 @@
+import { NumericText } from '../../components/NumericText';
 import { eventTimeFormatter } from '@weq/time';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FolderOpen, RefreshCw, X } from 'lucide-react';
@@ -86,14 +87,36 @@ export function BaselinePicker({
       <strong>{item.name}</strong>
       <span>
         {item.kind === 'group' ? '群聊' : '私聊'} {item.conv} ·{' '}
-        {item.messageCount === null ? '条数未记录' : `约 ${item.messageCount} 条`} ·{' '}
-        {item.formats.join(' / ').toUpperCase() || '格式未记录'} · 记录{' '}
-        {(item.bytes / 1024 / 1024).toFixed(1)} MiB
+        {item.messageCount === null ? (
+          '条数未记录'
+        ) : (
+          <NumericText>{`约 ${item.messageCount} 条`}</NumericText>
+        )}{' '}
+        · {item.formats.join(' / ').toUpperCase() || '格式未记录'} · 记录{' '}
+        <span className="weq-number weq-number-inherit">
+          {(item.bytes / 1024 / 1024).toFixed(1)}
+        </span>{' '}
+        MiB
       </span>
       <span>
-        {item.range?.start == null ? '不限开始时间' : date(item.range.start * 1000)} 至{' '}
-        {item.range?.end == null ? '不限结束时间' : date(item.range.end * 1000)} · 更新{' '}
-        {item.updatedAt ? date(item.updatedAt) : '时间未记录'}（北京时间）
+        {item.range?.start == null ? (
+          '不限开始时间'
+        ) : (
+          <span className="weq-number weq-number-inherit">{date(item.range.start * 1000)}</span>
+        )}{' '}
+        至{' '}
+        {item.range?.end == null ? (
+          '不限结束时间'
+        ) : (
+          <span className="weq-number weq-number-inherit">{date(item.range.end * 1000)}</span>
+        )}{' '}
+        · 更新{' '}
+        {item.updatedAt ? (
+          <span className="weq-number weq-number-inherit">{date(item.updatedAt)}</span>
+        ) : (
+          '时间未记录'
+        )}
+        （北京时间）
       </span>
       <small>{item.directory}</small>
     </>
@@ -182,11 +205,13 @@ export function BaselinePicker({
                   <fieldset key={key}>
                     <legend>
                       {group.conv} ·{' '}
-                      {matches.length === 0
-                        ? '未找到相同会话，可创建或重新选择'
-                        : matches.length === 1
-                          ? '已找到相同会话'
-                          : `找到 ${matches.length} 个相同会话，请选择`}
+                      <NumericText>
+                        {matches.length === 0
+                          ? '未找到相同会话，可创建或重新选择'
+                          : matches.length === 1
+                            ? '已找到相同会话'
+                            : `找到 ${matches.length} 个相同会话，请选择`}
+                      </NumericText>
                     </legend>
                     {matches.map((item) => (
                       <label className="weq-export-baseline-entry" key={item.directory}>

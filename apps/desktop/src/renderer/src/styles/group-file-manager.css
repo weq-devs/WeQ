@@ -75,17 +75,31 @@
 }
 .weq-file-manager-table-scroll {
   min-width: 0;
-  overflow-x: auto;
+  max-height: min(60dvh, 640px);
+  overflow: auto;
+  scroll-padding-top: 64px;
+  scrollbar-color: var(--weq-border-strong) transparent;
 }
 .weq-file-manager-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   table-layout: fixed;
   text-align: left;
 }
 .weq-file-manager-table th {
   font-weight: 500;
   color: var(--weq-fg-secondary);
+}
+.weq-file-manager-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--weq-bg-surface);
+}
+.weq-file-manager-table-scroll:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
 }
 .weq-file-manager-table th,
 .weq-file-manager-table td {

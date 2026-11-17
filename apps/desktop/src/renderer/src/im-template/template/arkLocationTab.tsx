@@ -18,21 +18,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Locate, MapPin, Search, X } from 'lucide-react';
 import { cn } from './classNames';
 import { composeLocationAddress, type ArkLocationProvider } from './arkCards';
-import { DEFAULT_CENTER, LocationPicker } from './locationPicker';
-
-/** 位置卡片的四个可编辑字段。 */
-export type ArkLocationDraft = {
-  /** 详细地址（卡片上那行小字）。 */
-  address: string;
-  /** 省市区。 */
-  region: string;
-  latitude: string;
-  longitude: string;
-};
-
-export function emptyLocationDraft(): ArkLocationDraft {
-  return { address: '', region: '', latitude: '', longitude: '' };
-}
+import { DEFAULT_CENTER } from './locationPicker.shared';
+import { LocationPicker } from './locationPicker';
+import type { ArkLocationDraft } from './arkLocationTab.shared';
 
 /** 搜索去抖：输入停下来 300ms 才发请求，别一个字一个请求。 */
 const SEARCH_DEBOUNCE_MS = 300;
@@ -372,3 +360,4 @@ export function ArkLocationTab({
     </>
   );
 }
+export type { ArkLocationDraft } from './arkLocationTab.shared';

@@ -106,13 +106,12 @@ try {
   for (const mode of ['empty', 'unknown', 'error', 'readonly']) {
     const page = await visit(390, 'light', mode);
     const post = page.getByRole('article', { name: '普通说说' });
+    if (mode === 'error') await post.getByRole('button', { name: '重试空友状态' }).click();
     await post.getByRole('button', { name: '推', exact: true }).focus();
     const panel = page.getByRole('region', { name: '推的人', exact: true });
     if (mode === 'empty') await panel.getByText('还没有人推过', { exact: true }).waitFor();
     if (mode === 'unknown') await panel.getByText('暂无可读取的推数据', { exact: true }).waitFor();
     if (mode === 'error') {
-      await panel.getByText('暂时无法读取推预览', { exact: true }).waitFor();
-      await panel.getByRole('button', { name: '刷新推预览' }).click();
       await panel.getByText('合成推用户1', { exact: true }).waitFor();
     }
     if (mode === 'readonly') {
@@ -128,6 +127,23 @@ try {
     scenes++;
     await page.close();
   }
+  for (const width of [320, 1280])
+    for (const mode of ['tag', 'manage']) {
+      const page = await visit(width, 'dark', mode);
+      const post = page.getByRole('article', { name: '普通说说' });
+      if (mode === 'tag')
+        await post.getByRole('button', { name: '空友爱看', exact: true }).waitFor();
+      else {
+        await post.getByRole('button', { name: '空友爱看管理', exact: true }).hover();
+        const operations = page.getByRole('region', { name: '空友爱看管理操作', exact: true });
+        await operations.getByRole('button', { name: '投稿至空友爱看' }).waitFor();
+        const rect = await operations.boundingBox();
+        assert.ok(rect && rect.x >= 0 && rect.x + rect.width <= width + 1);
+      }
+      if (output) await page.screenshot({ path: resolve(output, `${mode}-dark-${width}.png`) });
+      await page.close();
+      scenes++;
+    }
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify({

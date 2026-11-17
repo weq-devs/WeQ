@@ -18,9 +18,10 @@ import type { RelatedEmojiKeyword } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
-import { BlobDialog, CURSOR_PAGE, GridFooter, useCursorPaged } from './CacheShared';
+import { BlobDialog, GridFooter } from './CacheShared';
+import { CURSOR_PAGE, useCursorPaged } from './CacheShared.shared';
 import { GridSkeleton } from './CacheSkeleton';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 
 /** weq-media URL for one related-emoji gif. */
 function relemojiUrl(hash: string, file: string): string {
@@ -49,7 +50,8 @@ export function RelatedEmojiExplorer(): ReactElement {
       <div className="weq-cache-marketemoji-bar">
         <span className="weq-cache-data-name">关联表情</span>
         <span className="weq-cache-data-meta">
-          {total ?? entries.length} 个关键词 · 点击查看该关键词的全部表情
+          <span className="weq-number weq-number-inherit">{total ?? entries.length}</span> 个关键词
+          · 点击查看该关键词的全部表情
         </span>
       </div>
 
@@ -97,7 +99,11 @@ function RelatedEmojiCard({
             onError={() => setBroken(true)}
           />
         )}
-        {entry.gifCount > 1 ? <em className="weq-cache-related-count">{entry.gifCount}</em> : null}
+        {entry.gifCount > 1 ? (
+          <em className="weq-cache-related-count">
+            <span className="weq-number weq-number-inherit">{entry.gifCount}</span>
+          </em>
+        ) : null}
       </span>
       <span className="weq-cache-related-word">{entry.keyword}</span>
     </button>

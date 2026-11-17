@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { IS_WEB } from './target';
+import { IS_WEB } from './target.shared';
 
 /** 连接壳身份不随窗口大小、横竖屏或是否有鼠标而变化。 */
 export function isRemoteClient(): boolean {

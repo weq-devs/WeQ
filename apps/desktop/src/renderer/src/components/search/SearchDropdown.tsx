@@ -2,27 +2,7 @@
 
 import { EmptyState } from '../EmptyState';
 import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
-import {
-  Bookmark,
-  Bot,
-  File,
-  FolderOpen,
-  Globe,
-  Hash,
-  Images,
-  Layers,
-  Mail,
-  MessageSquare,
-  MessagesSquare,
-  RotateCw,
-  Settings2,
-  Sparkles,
-  Smile,
-  UserRound,
-  UsersRound,
-  type LucideIcon,
-  SearchX,
-} from 'lucide-react';
+import { Layers, RefreshCw, Settings2, SearchX } from 'lucide-react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { isLookupNumber } from '../../hooks/useNumberLookup';
 import { NumberLookupResults, type OpenNumberProfile } from './NumberLookupResults';
@@ -39,7 +19,10 @@ import {
 } from '@weq/service/search-policy';
 import { AppSearchResults } from './AppSearchResults';
 import { appSearchEntryRank, searchAppEntries, type AppSearchEntry } from './appSearchCatalog';
-import { restoreSearchPosition, type SearchPosition } from './searchPosition';
+import { restoreSearchPosition } from './searchPosition.shared';
+import type { SearchPosition } from './searchPosition';
+import { SEARCH_CATEGORY_ICONS, SEARCH_SOURCE_ICONS } from './searchIcons';
+import type { FeatureIcon } from '../../lib/featureIcons';
 import {
   CATEGORY_META,
   CONTENT_CATEGORY_ORDER,
@@ -56,47 +39,18 @@ import {
   type ContentSearchHit,
 } from './types';
 
-const scopeIcons: Record<SearchCategory, LucideIcon> = {
-  contact: UserRound,
-  group: UsersRound,
-  conversation: MessagesSquare,
-  friend: UserRound,
-  groupMember: UsersRound,
-  chatRecord: MessageSquare,
-  file: File,
-  qzone: Globe,
-  collection: Bookmark,
-  qzonePost: Globe,
-  qzoneAlbum: Globe,
-  otherQzonePost: Globe,
-  otherQzoneAlbum: Globe,
-  groupAlbum: Images,
-  groupFile: FolderOpen,
-  mailMessage: Mail,
-  guildMessage: Hash,
-  groupBulletin: MessagesSquare,
-  groupEssence: MessagesSquare,
-  flashFile: FolderOpen,
-  qzoneComment: Globe,
-  otherQzoneComment: Globe,
-  qzonePublicComment: Globe,
-  cloneMessage: MessagesSquare,
-  assistantMessage: Bot,
-  marketEmoji: Smile,
-};
-
 const scopeOptions = SEARCH_CATEGORY_ORDER.map((category) => ({
   id: category,
-  Icon: scopeIcons[category],
+  Icon: SEARCH_CATEGORY_ICONS[category],
   label: CATEGORY_META[category].label,
   categories: [category],
 }));
 const scopeIds = scopeOptions.map((option) => option.id);
-const sourceOptions: Array<{ id: SearchSource; Icon: LucideIcon; label: string }> = [
-  { id: 'qq', Icon: MessagesSquare, label: 'QQ' },
-  { id: 'clone', Icon: Bot, label: '克隆' },
-  { id: 'assistant', Icon: Sparkles, label: 'WeQ 助手' },
-  { id: 'app', Icon: Settings2, label: '功能与设置' },
+const sourceOptions: Array<{ id: SearchSource; Icon: FeatureIcon; label: string }> = [
+  { id: 'qq', Icon: SEARCH_SOURCE_ICONS.qq, label: 'QQ' },
+  { id: 'clone', Icon: SEARCH_SOURCE_ICONS.clone, label: '克隆' },
+  { id: 'assistant', Icon: SEARCH_SOURCE_ICONS.assistant, label: 'WeQ 助手' },
+  { id: 'app', Icon: SEARCH_SOURCE_ICONS.app, label: '功能与设置' },
 ];
 
 export function SearchDropdown({
@@ -362,8 +316,10 @@ export function SearchDropdown({
       >
         <Settings2 size={14} />
         <span>
-          来源 {activeSources.length} · 类型{' '}
-          {visibleCategories.filter((category) => categories.includes(category)).length}
+          来源 <span className="weq-number weq-number-inherit">{activeSources.length}</span> · 类型{' '}
+          <span className="weq-number weq-number-inherit">
+            {visibleCategories.filter((category) => categories.includes(category)).length}
+          </span>
         </span>
         <span>{filtersExpanded ? '收起筛选' : '筛选'}</span>
       </button>
@@ -561,7 +517,7 @@ export function SearchDropdown({
                         title="重试搜索"
                         aria-label={`重试${CATEGORY_META[category].label}搜索`}
                       >
-                        <RotateCw size={14} />
+                        <RefreshCw size={14} aria-hidden />
                       </button>
                     </div>
                   ) : null}

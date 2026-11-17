@@ -10,7 +10,6 @@ it.each([
   'bootstrap.installMcpToAgents',
   'bootstrap.setAutostart',
   'bootstrap.backupRestart',
-  'account.setNativeMediaEnabled',
   'account.dbExplorer.updateCell',
   'account.resourceCleanup.cleanup',
   'dbRepair.restore',

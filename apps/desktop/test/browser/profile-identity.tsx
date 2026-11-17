@@ -26,6 +26,8 @@ const name = params.has('short')
     : '合成资料名称：用于检查好友和群聊资料中的长名称能够完整换行显示而不被截断';
 const person: Contact = {
   id: 'u_fixture',
+  uid: 'u_Fixture0Il1_identifier_for_font_check',
+  qid: 'fixture-qid',
   identityLabel: 'QQ',
   identityValue: '10001',
   username: 'fixture',

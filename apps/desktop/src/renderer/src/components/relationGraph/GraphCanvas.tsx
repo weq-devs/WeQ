@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { NumericText } from '../NumericText';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw, Scan } from 'lucide-react';
 import { usePrivacyStore } from '../../state/privacy';
@@ -43,6 +44,13 @@ export function GraphCanvas({
 
   const dragNodeRef = useRef<GNode | null>(null);
   const panRef = useRef<{ x: number; y: number } | null>(null);
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef<{
+    x: number;
+    y: number;
+    distance: number;
+    view: GraphView;
+  } | null>(null);
   const movedRef = useRef(0);
 
   const [hoverNode, setHoverNode] = useState<GNode | null>(null);
@@ -114,6 +122,8 @@ export function GraphCanvas({
     prevSim?.stop();
     dragNodeRef.current = null;
     panRef.current = null;
+    pointersRef.current.clear();
+    pinchRef.current = null;
     hoverRef.current = null;
     setHoverNode(null);
     setSimulationError(null);
@@ -339,11 +349,37 @@ export function GraphCanvas({
     drawRef.current();
   }, [privacy, selectedId, showRemarks]);
 
+  function pointerPair() {
+    const [a, b] = [...pointersRef.current.values()];
+    if (!a || !b) return null;
+    return {
+      x: (a.x + b.x) / 2,
+      y: (a.y + b.y) / 2,
+      distance: Math.hypot(a.x - b.x, a.y - b.y),
+    };
+  }
+
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.button !== 0) return;
     const rect = wrapRef.current!.getBoundingClientRect();
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
-    (e.target as Element).setPointerCapture?.(e.pointerId);
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    pointersRef.current.set(e.pointerId, { x: sx, y: sy });
+    const pair = pointerPair();
+    if (pair) {
+      // 双指接管镜头，不再固定节点，也不将最后松开的手指当作单击。
+      if (dragNodeRef.current) simulationRef.current?.release(dragNodeRef.current.id);
+      dragNodeRef.current = null;
+      panRef.current = null;
+      pinchRef.current = { ...pair, view: { ...viewRef.current } };
+      movedRef.current = Infinity;
+      autoFitRef.current = false;
+      hoverRef.current = null;
+      setHoverNode(null);
+      scheduleDraw();
+      return;
+    }
     movedRef.current = 0;
     const hit = nodeAt(sx, sy);
     if (hit) {
@@ -352,7 +388,7 @@ export function GraphCanvas({
       simulationRef.current?.pin(hit.id, world.x, world.y);
       hitIndexRef.current = null;
     } else {
-      panRef.current = { x: e.clientX, y: e.clientY };
+      panRef.current = { x: sx, y: sy };
     }
   }
 
@@ -360,9 +396,32 @@ export function GraphCanvas({
     const rect = wrapRef.current!.getBoundingClientRect();
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
+    const previous = pointersRef.current.get(e.pointerId);
+    if (previous) pointersRef.current.set(e.pointerId, { x: sx, y: sy });
 
-    if (dragNodeRef.current) {
-      movedRef.current += Math.abs(e.movementX) + Math.abs(e.movementY);
+    const pinch = pinchRef.current;
+    if (previous && pinch) {
+      const pair = pointerPair();
+      if (!pair) return;
+      if (pinch.distance < 1) {
+        pinchRef.current = { ...pair, view: { ...viewRef.current } };
+        return;
+      }
+      const scale = Math.min(
+        Math.max((pinch.view.scale * pair.distance) / pinch.distance, 0.02),
+        4,
+      );
+      const ratio = scale / pinch.view.scale;
+      const view = viewRef.current;
+      view.scale = scale;
+      view.x = pair.x - (pinch.x - pinch.view.x) * ratio;
+      view.y = pair.y - (pinch.y - pinch.view.y) * ratio;
+      scheduleDraw();
+      return;
+    }
+
+    if (previous && dragNodeRef.current) {
+      movedRef.current += Math.abs(sx - previous.x) + Math.abs(sy - previous.y);
       if (movedRef.current < 4) return;
       autoFitRef.current = false;
       const w = screenToWorld(sx, sy);
@@ -371,17 +430,18 @@ export function GraphCanvas({
       scheduleDraw();
       return;
     }
-    if (panRef.current) {
-      movedRef.current += Math.abs(e.movementX) + Math.abs(e.movementY);
+    if (previous && panRef.current) {
+      movedRef.current += Math.abs(sx - previous.x) + Math.abs(sy - previous.y);
       if (movedRef.current < 4) return;
       autoFitRef.current = false;
-      viewRef.current.x += e.clientX - panRef.current.x;
-      viewRef.current.y += e.clientY - panRef.current.y;
-      panRef.current = { x: e.clientX, y: e.clientY };
+      viewRef.current.x += sx - panRef.current.x;
+      viewRef.current.y += sy - panRef.current.y;
+      panRef.current = { x: sx, y: sy };
       scheduleDraw();
       return;
     }
 
+    if (e.pointerType === 'touch') return;
     const hit = nodeAt(sx, sy);
     if (hit !== hoverRef.current) {
       hoverRef.current = hit;
@@ -396,13 +456,26 @@ export function GraphCanvas({
   }
 
   function endPointer(e: React.PointerEvent<HTMLDivElement>, cancelled = false) {
+    if (!pointersRef.current.delete(e.pointerId)) return;
     const node = dragNodeRef.current;
     if (node) {
       simulationRef.current?.release(node.id);
     }
-    const clicked = !cancelled && movedRef.current < 4 && (node || panRef.current);
+    const clicked =
+      !cancelled &&
+      pointersRef.current.size === 0 &&
+      movedRef.current < 4 &&
+      (node || panRef.current);
     dragNodeRef.current = null;
     panRef.current = null;
+    pinchRef.current = null;
+    const pair = pointerPair();
+    if (pair) pinchRef.current = { ...pair, view: { ...viewRef.current } };
+    else if (pointersRef.current.size) {
+      panRef.current = pointersRef.current.values().next().value!;
+    }
+    if (e.currentTarget.hasPointerCapture?.(e.pointerId))
+      e.currentTarget.releasePointerCapture(e.pointerId);
     if (clicked) {
       hoverRef.current = null;
       setHoverNode(null);
@@ -437,7 +510,7 @@ export function GraphCanvas({
       onPointerCancel={(e) => endPointer(e, true)}
       onLostPointerCapture={(e) => endPointer(e, true)}
       onPointerLeave={(e) => {
-        endPointer(e, true);
+        if (!e.currentTarget.hasPointerCapture?.(e.pointerId)) endPointer(e, true);
         hoverRef.current = null;
         setHoverNode(null);
       }}
@@ -485,13 +558,22 @@ export function GraphCanvas({
             <strong data-privacy-sensitive>{hoverNode.label}</strong>
             {hoverNode.kind === 'person' ? (
               <span>
-                {hoverNode.isFriend ? '好友' : '群友'} · 共 {hoverNode.groupCount} 群
-                {hoverNode.intimacy ? ` · 亲密度 ${hoverNode.intimacy}` : ''}
+                {hoverNode.isFriend ? '好友' : '群友'} · 共{' '}
+                <span className="weq-number weq-number-inherit">{hoverNode.groupCount}</span> 群
+                <NumericText>
+                  {hoverNode.intimacy ? ` · 亲密度 ${hoverNode.intimacy}` : ''}
+                </NumericText>
               </span>
             ) : (
               <span>
-                {hoverNode.memberCount} 人 · 命中 {hoverNode.sharedCount} 位
-                {hoverNode.myLevel ? ` · 我的等级 ${hoverNode.myLevel}` : ''}
+                <span className="weq-number weq-number-inherit">{hoverNode.memberCount}</span> 人 ·
+                命中 <span className="weq-number weq-number-inherit">{hoverNode.sharedCount}</span>{' '}
+                位
+                {hoverNode.myLevel ? (
+                  <NumericText>{` · 我的等级 ${hoverNode.myLevel}`}</NumericText>
+                ) : (
+                  ''
+                )}
               </span>
             )}
           </>

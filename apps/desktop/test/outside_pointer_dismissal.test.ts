@@ -7,7 +7,7 @@ import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { ReactionPicker } from '../src/renderer/src/im-template/template/reactionPicker';
 import { useSearchDismissal } from '../src/renderer/src/hooks/useSearchDismissal';
-import { focusComposerEnd } from '../src/renderer/src/im-template/template/composer';
+import { focusComposerEnd } from '../src/renderer/src/im-template/template/composer.shared';
 import { AppRail } from '../src/renderer/src/im-template/template/rail';
 import { SidebarHeader } from '../src/renderer/src/im-template/template/sidebarHeader';
 import { MergedSessionPanel } from '../src/renderer/src/components/sidebar/MergedSessionPanel';

@@ -1,12 +1,11 @@
 import { act, createElement, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
-import {
-  ClientDocumentPreview,
-  presentClientDocument,
-} from '../src/renderer/src/components/ClientDocumentPreview';
+import { ClientDocumentPreview } from '../src/renderer/src/components/ClientDocumentPreview';
+import { presentClientDocument } from '../src/renderer/src/components/ClientDocumentPreview.shared';
 
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   Modal: ({ children }: { children: ReactNode }) => children,
 }));

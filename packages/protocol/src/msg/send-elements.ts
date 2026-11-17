@@ -178,6 +178,8 @@ export interface SendMarkdownElement {
   kind: 'markdown';
   markdownContent: string;
   markdownTextSummary?: string;
+  /** 转发闪传卡片时保留文件集身份，与收侧 commonElem 的 tag 7 对齐。 */
+  flashTransferInfo?: { fileSetId: string };
 }
 
 /**
@@ -935,6 +937,7 @@ function buildSendElem(element: SendElement): Record<string, unknown> {
               'markdown',
             ),
             markdownTextSummary: element.markdownTextSummary,
+            ...(element.flashTransferInfo ? { flashTransferInfo: element.flashTransferInfo } : {}),
           }),
           businessType: 1,
         },

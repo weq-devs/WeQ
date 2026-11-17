@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { z } from 'zod';
-import { usePageState } from '../PageSnapshots';
-import { BarChart3, FolderOpen, HardDrive, Trash2 } from 'lucide-react';
+import { usePageState } from '../PageSnapshots.shared';
+import { BarChart3, FolderOpen, Trash2 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useViewState } from '../../state/view';
-import { RetainedTabs, TabActivity, useTabActive } from '../RetainedTabs';
+import { RetainedTabs, TabActivity } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { SegmentedControl } from '../SegmentedControl';
 import { SectionHeader, QueryError } from './controls';
 import { CacheView } from '../../views/cache/CacheView';
@@ -34,7 +35,7 @@ export function ResourceManagementSection() {
       : null;
   return (
     <div className="weq-set weq-resources-settings">
-      <SectionHeader title="QQ 资源管理" icon={<HardDrive size={16} strokeWidth={1.8} />} />
+      <SectionHeader title="QQ 资源管理" page="qq-storage" />
       {account.error ? (
         <QueryError
           message={account.error.message}
@@ -122,7 +123,9 @@ function ResourceManagementBody({ source }: { source: ResourceSource }) {
         </p>
       ) : progress && currentView !== 'overview' ? (
         <p className="weq-resource-status" role="status">
-          正在扫描{progress} · {scan.stats.length} / {RESOURCE_CATEGORIES.length + 1}
+          正在扫描<span className="weq-number weq-number-inherit">{progress}</span> ·{' '}
+          <span className="weq-number weq-number-inherit">{scan.stats.length}</span> /{' '}
+          <span className="weq-number weq-number-inherit">{RESOURCE_CATEGORIES.length + 1}</span>
         </p>
       ) : null}
       <RetainedTabs snapshotKey="resource-management" activeKey={currentView}>

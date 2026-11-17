@@ -1,0 +1,118 @@
+html[data-theme] {
+  --weq-danger-ink: var(--weq-danger-solid-background);
+  --weq-danger-border: color-mix(in srgb, var(--weq-danger-ink) 70%, transparent);
+  --weq-danger-soft-hover: color-mix(in srgb, var(--weq-danger-ink) 9%, transparent);
+}
+
+html[data-theme='dark'] {
+  --weq-danger-ink: #ff8c96;
+  --weq-danger-border: color-mix(in srgb, var(--weq-danger-ink) 70%, transparent);
+  --weq-danger-soft-hover: color-mix(in srgb, var(--weq-danger-ink) 12%, transparent);
+}
+
+/* 保留各外观的尺寸、圆角和阴影，只统一危险操作的颜色与描边。 */
+html[data-theme] body
+  :is(button, a, [role='button']):is(
+    [data-danger='outline'],
+    .weq-set-btn-danger,
+    .weq-set-btn-del,
+    .weq-set-iconbtn-danger
+  ) {
+  border-style: solid;
+  border-width: max(1px, var(--weq-skin-border-width, 1px));
+  border-color: var(--weq-danger-border);
+  background: transparent;
+  color: var(--weq-danger-ink);
+  filter: none;
+  transition-property: box-shadow, border-color;
+}
+
+html[data-theme]
+  body
+  :is(button, a, [role='button']):is(
+    [data-danger='outline'],
+    .weq-set-btn-danger,
+    .weq-set-btn-del,
+    .weq-set-iconbtn-danger
+  ):hover:not(:disabled):not([aria-disabled='true']) {
+  background: var(--weq-danger-soft-hover);
+  border-color: var(--weq-danger-ink);
+  color: var(--weq-danger-ink);
+  filter: none;
+}
+
+html[data-theme] body :is(button, a, [role='button'])[data-danger='solid'] {
+  border-style: solid;
+  border-width: max(1px, var(--weq-skin-border-width, 1px));
+  border-color: var(--weq-danger-solid-background);
+  background: var(--weq-danger-solid-background);
+  color: var(--weq-danger-solid-foreground);
+  filter: none;
+  transition-property: box-shadow, border-color;
+}
+
+html[data-theme]
+  body
+  :is(button, a, [role='button'])[data-danger='solid']:hover:not(:disabled):not(
+    [aria-disabled='true']
+  ) {
+  border-color: var(--weq-danger-solid-hover);
+  background: var(--weq-danger-solid-hover);
+  color: var(--weq-danger-solid-foreground);
+  filter: none;
+}
+
+html[data-theme]
+  body
+  :is(button, a, [role='button']):is(
+    [data-danger='outline'],
+    [data-danger='solid'],
+    .weq-set-btn-danger,
+    .weq-set-btn-del,
+    .weq-set-iconbtn-danger
+  ):focus-visible {
+  outline: 2px solid var(--weq-danger-ink);
+  outline-offset: 2px;
+}
+
+html[data-theme]
+  body
+  :is(button, a, [role='button']):is(
+    [data-danger='outline'],
+    [data-danger='solid'],
+    .weq-set-btn-danger,
+    .weq-set-btn-del,
+    .weq-set-iconbtn-danger
+  ):is(:disabled, [aria-disabled='true']) {
+  border-color: var(--weq-border-subtle);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  cursor: not-allowed;
+  filter: none;
+  opacity: 1;
+}
+
+/* 菜单入口只标红文字与图标，实际确认按钮仍沿用操作的危险等级。 */
+html[data-theme] body
+  :is(.message-menu-v2.message-context-menu, .weq-conversation-actions-menu)
+  button[data-danger] {
+  border: 0;
+  background: transparent;
+  color: var(--weq-danger-ink);
+}
+
+html[data-theme]
+  body
+  :is(.message-menu-v2.message-context-menu, .weq-conversation-actions-menu)
+  button[data-danger]:is(:hover, :focus-visible):not(:disabled):not([aria-disabled='true']) {
+  background: var(--weq-danger-soft-hover);
+  color: var(--weq-danger-ink);
+}
+
+html[data-theme]
+  body
+  :is(.message-menu-v2.message-context-menu, .weq-conversation-actions-menu)
+  button[data-danger]:is(:disabled, [aria-disabled='true']) {
+  color: var(--weq-fg-muted);
+  cursor: default;
+}

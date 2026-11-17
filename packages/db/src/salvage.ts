@@ -27,6 +27,7 @@
 
 import type {
   DatabaseAlgorithms,
+  DatabaseReadRequest,
   NtHelperBinding,
   SalvageKeyRange,
   SalvageQueryOutcome,
@@ -37,6 +38,7 @@ import type {
 } from '@weq/native';
 import { isLikelyCorruptionError } from './errors';
 import { aliasDatabaseBinding, scheduleDatabase } from './query_schedule';
+import { executeNativeRead } from './native_read';
 
 /** 宽容级别。0 = 严格（默认）。 */
 export type SalvageLevel = 0 | 1 | 2 | 3;
@@ -340,6 +342,14 @@ export interface SalvageBindingOptions {
   ledger?: SalvageLedger;
   /** 额外回调，供上层落盘 / 打日志。 */
   onEntry?: (entry: SalvageLedgerEntry) => void;
+  /** 任务接受不完整结果前询问；拒绝时不返回行，也不记成已跳过。 */
+  beforeSkip?: (input: {
+    dbPath: string;
+    table?: string | null;
+    sqlFingerprint: string;
+    keyAxis?: 'seq' | 'rowid';
+    ranges: SalvageSkippedRange[];
+  }) => Promise<void>;
 }
 
 interface ReadCredentials {
@@ -363,6 +373,26 @@ export function wrapBindingForSalvage(
         const value = Reflect.get(target, prop, receiver);
         if (typeof value !== 'function') return value;
         const fn = value as (...args: unknown[]) => unknown;
+
+        if (prop === 'executeDatabaseRead' && target.executeDatabaseRead) {
+          return async (input: DatabaseReadRequest) => {
+            const level = input.level ?? clampSalvageLevel(opts.level());
+            const result = await target.executeDatabaseRead!({ ...input, level });
+            if (result.salvage) {
+              return {
+                ...result,
+                rows: interpretOutcome(
+                  result.salvage,
+                  input.dbPath,
+                  input.sql,
+                  level as SalvageLevel,
+                  opts,
+                ),
+              };
+            }
+            return result;
+          };
+        }
 
         if (prop === 'executeSql') {
           return (dbPath: string, sql: string, params?: SqlValue[] | null): Promise<SqlRow[]> =>
@@ -395,6 +425,19 @@ async function runRead(
   opts: SalvageBindingOptions,
 ): Promise<SqlRow[]> {
   const level = clampSalvageLevel(opts.level());
+
+  if (nt.executeDatabaseRead) {
+    const result = await executeNativeRead(nt, {
+      dbPath,
+      sql,
+      params,
+      ...(credentials ?? {}),
+      level,
+    });
+    if (result.salvage) return interpretOutcome(result.salvage, dbPath, sql, level, opts);
+    if (!result.rows) throw new Error('原生读取未返回数据');
+    return result.rows;
+  }
 
   if (!isSalvageEnabled(level)) {
     return credentials
@@ -669,8 +712,21 @@ export async function runSalvageScan(
 
   const outcome = await scheduleDatabase(
     target.dbPath,
-    () =>
-      target.key !== undefined && target.algo !== undefined
+    async () => {
+      if (nt.executeDatabaseRead) {
+        const result = await executeNativeRead(nt, {
+          dbPath: target.dbPath,
+          sql,
+          params: request.params,
+          key: target.key,
+          algo: target.algo,
+          scan: options,
+          level,
+        });
+        if (!result.scan) throw new Error('原生扫描未返回数据');
+        return result.scan;
+      }
+      return target.key !== undefined && target.algo !== undefined
         ? nt.executeSqlSalvageScanWithKey(
             target.dbPath,
             sql,
@@ -680,8 +736,11 @@ export async function runSalvageScan(
             options,
             level,
           )
-        : nt.executeSqlSalvageScan(target.dbPath, sql, request.params ?? null, options, level),
+        : nt.executeSqlSalvageScan(target.dbPath, sql, request.params ?? null, options, level);
+    },
     nt,
+    undefined,
+    { read: true, bulk: true },
   );
 
   if (!outcome.ok) {
@@ -710,6 +769,12 @@ export async function runSalvageScan(
 
   // 拿到结果但少了若干区间：这是**会丢数据**的结局，必须留下账目。
   if (outcome.skipped.length > 0) {
+    await opts.beforeSkip?.({
+      dbPath: target.dbPath,
+      table: outcome.table,
+      sqlFingerprint: fingerprintSql(sql),
+      ranges: outcome.skipped,
+    });
     recordEntry(
       {
         at: new Date().toISOString(),

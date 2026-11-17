@@ -1,18 +1,18 @@
 /**
- * 设置 → 基础功能 → 通话录音。
+ * 设置 → 基础功能 → 通话与录音。
  *
  * 与通话窗口里的「通话与录音设置」抽屉读的是**同一份**全局配置
  * （`AppSettings.callRecording`），改哪边都一样。
  *
- * 录音默认**不自动开** —— 要在通话窗口里手动点录音键。这里配的是「怎么录」：
- * 录谁、要不要带上电脑声音、文件放哪。
+ * 录音默认**不自动开** —— 要在通话窗口里手动点录音键。
+ * 本页同时配置通话连接方式、录音内容与保存位置，以及抓包排障选项。
  */
 
 import type { ReactElement } from 'react';
 import { FolderOpen, Info, PhoneCall, Radio, Waypoints } from 'lucide-react';
 import { trpc } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
-import { useToast } from '../Toast';
+import { useTabActive } from '../RetainedTabs.shared';
+import { useToast } from '../Toast.shared';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import type { CallRecordingMode } from '@weq/service';
 
@@ -69,9 +69,9 @@ export function CallRecordingSection(): ReactElement {
   return (
     <div className="weq-set">
       <SectionHeader
-        title="通话录音"
-        desc="通话接通后，在通话窗口里手动开始录音。这里配置录制内容和文件位置。"
-        icon={<PhoneCall size={16} strokeWidth={1.8} />}
+        title="通话与录音"
+        desc="配置通话连接方式、录音内容与保存位置，以及抓包排障选项。"
+        page="call-recording"
       />
 
       <Card title="录制内容" icon={<PhoneCall size={15} strokeWidth={1.8} />}>

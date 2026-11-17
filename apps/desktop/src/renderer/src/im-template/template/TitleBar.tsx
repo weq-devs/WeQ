@@ -15,6 +15,7 @@ import { cn } from './classNames';
 import { DesktopOnly } from '../../lib/target';
 import { useWindowControls } from '../../hooks/useWindowControls';
 import type { ProfileGroup } from '../../lib/profileNavigation';
+import { APP_NAVIGATION } from '../../lib/appNavigation';
 
 export function TitleBar({
   user,
@@ -49,10 +50,10 @@ export function TitleBar({
       <button
         type="button"
         className={`app-title-bar-logo-wrap${homeActive ? ' is-active' : ''}`}
-        title="主页"
+        title={APP_NAVIGATION.home.label}
         onClick={onGoHome}
       >
-        <img src={logoUrl} className="app-title-bar-logo" alt="主页" />
+        <img src={logoUrl} className="app-title-bar-logo" alt={APP_NAVIGATION.home.label} />
       </button>
       {!windowOnly && (
         <div className="app-title-bar-user">

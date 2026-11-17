@@ -95,7 +95,7 @@ export async function postSliceupload(bodyBytes: Uint8Array, label: string): Pro
   console.log(
     `[sliceupload] ${label}: POST ${SLICEUPLOAD_URL} body=${bodyBytes.length}B appid=${reqAppid}`,
   );
-  const resp = await fetch(SLICEUPLOAD_URL, {
+  const resp = await networkFetch(SLICEUPLOAD_URL, {
     method: 'POST',
     body: new Uint8Array(bodyBytes),
     headers: {
@@ -158,3 +158,4 @@ export async function sliceuploadFile(
     await postSliceupload(bodyBytes, `${fileName} slice ${i}`);
   }
 }
+import { networkFetch } from '@weq/network';

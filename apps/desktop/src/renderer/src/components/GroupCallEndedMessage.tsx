@@ -11,6 +11,7 @@
  */
 
 import { Phone, Radio, Video } from 'lucide-react';
+import { GROUP_VIDEO_ENDED, GROUP_CLASSROOM_ENDED } from './GroupCallEndedMessage.shared';
 
 interface GroupCallEndedMessageProps {
   element: {
@@ -21,17 +22,6 @@ interface GroupCallEndedMessageProps {
     };
   };
 }
-
-/** CALL subType：群通话/群课堂结束。见 packages/codec/src/element/types.ts。 */
-const GROUP_VOICE_ENDED = 16;
-const GROUP_VIDEO_ENDED = 25;
-const GROUP_CLASSROOM_ENDED = 29;
-
-export const GROUP_CALL_ENDED_SUBTYPES = new Set<number>([
-  GROUP_VOICE_ENDED,
-  GROUP_VIDEO_ENDED,
-  GROUP_CLASSROOM_ENDED,
-]);
 
 export function GroupCallEndedMessage({ element }: GroupCallEndedMessageProps) {
   const { subType, callSummary } = element.data || {};

@@ -1,0 +1,30 @@
+import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
+import { Row } from './controls';
+import { SharedDisplayToggle } from './SharedDisplayToggle';
+
+export function SlashEmojiSettings() {
+  useClientPreferences((state) => state.tick);
+  return (
+    <>
+      <Row
+        settingId="slash-emoji-input"
+        control={
+          <SharedDisplayToggle name="slashEmojiEnabled" label="斜杠表情快捷输入" fallback={true} />
+        }
+      />
+      {preferenceValue('slashEmojiEnabled') ? (
+        <Row
+          settingId="slash-emoji-auto-replace"
+          indent
+          control={
+            <SharedDisplayToggle
+              name="slashEmojiAutoReplace"
+              label="无需回车即自动替换"
+              fallback={false}
+            />
+          }
+        />
+      ) : null}
+    </>
+  );
+}

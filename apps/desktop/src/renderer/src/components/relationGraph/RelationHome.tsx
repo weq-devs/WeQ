@@ -70,14 +70,14 @@ export function RelationHome({
             <Waypoints size={12} />
             群交集
           </span>
-          <h1 className="weq-relhome-title">好友，群友分析</h1>
-          <p className="weq-relhome-sub">只读群成员名单。分析哪些圈子其实是一拨人。</p>
+          <h1 className="weq-relhome-title">好友、群友分析</h1>
+          <p className="weq-relhome-sub">只读群成员名单，分析哪些圈子其实是一拨人。</p>
         </header>
 
         <div className="weq-relhome-actions">
           <button className="weq-relhome-cta" type="button" onClick={onEnter} disabled={loading}>
             {loading ? <span className="weq-relhome-cta-spinner" /> : <Sparkles size={15} />}
-            {loading ? '正在扫描群成员…' : data ? '查看群交集' : '计算群交集'}
+            {loading ? '正在扫描群成员……' : data ? '查看群交集' : '计算群交集'}
             {loading ? null : <ArrowRight size={15} />}
           </button>
           <button
@@ -100,21 +100,33 @@ export function RelationHome({
                 <Users size={12} />
                 有跨群成员的群
               </dt>
-              <dd>{stats.groups.toLocaleString('zh-CN')}</dd>
+              <dd>
+                <span className="weq-number weq-number-inherit">
+                  {stats.groups.toLocaleString('zh-CN')}
+                </span>
+              </dd>
             </div>
             <div>
               <dt>
                 <Waypoints size={12} />
                 跨群群友
               </dt>
-              <dd>{stats.people.toLocaleString('zh-CN')}</dd>
+              <dd>
+                <span className="weq-number weq-number-inherit">
+                  {stats.people.toLocaleString('zh-CN')}
+                </span>
+              </dd>
             </div>
             <div>
               <dt>
                 <ArrowRight size={12} />
                 有交集的群对
               </dt>
-              <dd>{stats.pairs.toLocaleString('zh-CN')}</dd>
+              <dd>
+                <span className="weq-number weq-number-inherit">
+                  {stats.pairs.toLocaleString('zh-CN')}
+                </span>
+              </dd>
             </div>
           </dl>
         ) : null}

@@ -19,11 +19,11 @@ import {
 } from 'lucide-react';
 import type { AppLockMethod } from '@weq/service';
 import { trpc } from '../../trpc/client';
-import { useDialog } from '../Dialog';
-import { useToast } from '../Toast';
+import { useDialog } from '../Dialog.shared';
+import { useToast } from '../Toast.shared';
 import { Card, Row, SectionHeader, Toggle } from './controls';
-import { useTabActive } from '../RetainedTabs';
-import { shellBridge } from '../../lib/target';
+import { useTabActive } from '../RetainedTabs.shared';
+import { shellBridge } from '../../lib/target.shared';
 import {
   fetchSystemAuthStatus,
   fetchTotpStatus,
@@ -144,7 +144,7 @@ export function AppLockSection({ heading = true }: { heading?: boolean }): React
     const ok = await confirm(
       '重新绑定验证器',
       '重新绑定会生成全新的密钥，当前验证器 App 中的条目将立即失效。若应用锁已开启，请先在新验证器 App 中完成添加，再继续。是否继续？',
-      { okLabel: '重新绑定', cancelLabel: '取消', tone: 'warning' },
+      { danger: 'outline', okLabel: '重新绑定', cancelLabel: '取消', tone: 'warning' },
     );
     if (!ok) return;
     setBindOpen(true);
@@ -154,14 +154,14 @@ export function AppLockSection({ heading = true }: { heading?: boolean }): React
     const ok = await confirm(
       '解除验证器绑定',
       '解除后无法再用 WeQ 验证器解锁。若解锁方式仍是验证器，请先切换到 Windows Hello 或完成重新绑定，否则将无法上锁。是否继续？',
-      { okLabel: '解除绑定', cancelLabel: '取消', tone: 'warning' },
+      { danger: 'outline', okLabel: '解除绑定', cancelLabel: '取消', tone: 'warning' },
     );
     if (!ok) return;
     try {
       const b = shellBridge();
       await b?.totp.remove();
       await queryClient.invalidateQueries({ queryKey: TOTP_STATUS_QUERY_KEY });
-      pushToast({ tone: 'success', title: '已解除', message: 'WeQ 验证器已解除绑定' });
+      pushToast({ tone: 'success', title: 'WeQ 验证器已解除绑定' });
     } catch (e) {
       showError('解除绑定失败', errMsg(e));
     }
@@ -271,7 +271,11 @@ export function AppLockSection({ heading = true }: { heading?: boolean }): React
                   }
                 />
                 <div className="weq-set-btn-group">
-                  <button type="button" className="weq-set-btn" onClick={() => void onRebind()}>
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-primary"
+                    onClick={() => void onRebind()}
+                  >
                     <RefreshCw size={13} aria-hidden />
                     重新绑定
                   </button>
@@ -291,7 +295,11 @@ export function AppLockSection({ heading = true }: { heading?: boolean }): React
                   绑定后即可在验证器 App（Google Authenticator / Microsoft Authenticator / 1Password
                   等）中生成动态验证码用于解锁。
                 </p>
-                <button type="button" className="weq-set-btn" onClick={() => setBindOpen(true)}>
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-primary"
+                  onClick={() => setBindOpen(true)}
+                >
                   <KeyRound size={13} aria-hidden />
                   开始绑定
                 </button>
@@ -338,8 +346,8 @@ export function AppLockSection({ heading = true }: { heading?: boolean }): React
             void queryClient.invalidateQueries({ queryKey: TOTP_STATUS_QUERY_KEY });
             pushToast({
               tone: 'success',
-              title: '绑定成功',
-              message: 'WeQ 验证器已生效，解锁时输入 6 位动态验证码即可。',
+              title: 'WeQ 验证器已绑定',
+              detail: '解锁时输入 6 位动态验证码即可。',
             });
           }}
         />

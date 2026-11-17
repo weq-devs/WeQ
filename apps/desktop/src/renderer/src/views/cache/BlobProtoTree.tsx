@@ -168,6 +168,7 @@ function Row({
           ) : null}
           {editable ? (
             <button
+              data-danger="outline"
               type="button"
               className="weq-pb-act is-danger"
               onClick={() => onChange(removeNode(all, node.id))}

@@ -9,6 +9,7 @@
  * 复用空间页的媒体网格、预览、滚动保留与状态件（见 `qzoneShared.tsx`），
  * 只新增 feed / 评论这两套 `cell_*` 投影（`lib/qzonePublic.ts`）。
  */
+import { NumericText } from '../components/NumericText';
 import { EmptyState } from '../components/EmptyState';
 import {
   useCallback,
@@ -58,7 +59,8 @@ import {
   type PublicFeedView,
   type PublicJson,
 } from '../lib/qzonePublic';
-import { LoadingStatus, QzoneMediaGrid, QzonePageContext, State, timeText } from './qzoneShared';
+import { LoadingStatus, QzoneMediaGrid, State } from './qzoneShared';
+import { QzonePageContext, timeText } from './qzoneShared.shared';
 import '../styles/qzone-public.css';
 import '../styles/qzone.css';
 
@@ -694,7 +696,11 @@ function PublicFeedCard({
           uin={canOpenSpace ? view.author.uin : null}
           nickname={authorLabel}
           onSpace={onSpace}
-          time={<time>{timeText(view.time)}</time>}
+          time={
+            <time>
+              <NumericText>{timeText(view.time)}</NumericText>
+            </time>
+          }
         />
         {view.author.canFollow && capabilities.canFollow ? (
           <button
@@ -731,17 +737,19 @@ function PublicFeedCard({
               onClick={() => void like()}
             >
               <ThumbsUp size={16} fill={view.liked ? 'currentColor' : 'none'} />
-              点赞 {countText(view.likeCount)}
+              点赞{' '}
+              <span className="weq-number weq-number-inherit">{countText(view.likeCount)}</span>
             </button>
           }
         >
           <p className="weq-qzn-status">
-            共 {countText(view.likeCount)} 人赞过 · 空友爱看点赞名单接口尚未接入
+            共 <span className="weq-number weq-number-inherit">{countText(view.likeCount)}</span>{' '}
+            人赞过 · 空友爱看点赞名单接口尚未接入
           </p>
         </QzoneLikesPopover>
         <button type="button" aria-expanded={expanded} aria-label="查看评论" onClick={onToggle}>
           <MessageCircle size={16} />
-          评论 {countText(view.commentCount)}
+          评论 <span className="weq-number weq-number-inherit">{countText(view.commentCount)}</span>
         </button>
         <QzoneForwardAction
           count={view.forwardCount}
@@ -756,7 +764,7 @@ function PublicFeedCard({
         />
         <span title="浏览量（非去重访客数）">
           <Eye size={16} />
-          浏览量 {countText(view.viewCount)}
+          浏览量 <span className="weq-number weq-number-inherit">{countText(view.viewCount)}</span>
         </span>
       </div>
       {error ? (
@@ -802,7 +810,11 @@ function PublicFeedCard({
             url={view.author.portrait}
             size={36}
             onSpace={onSpace}
-            time={<time>{timeText(view.time)}</time>}
+            time={
+              <time>
+                <NumericText>{timeText(view.time)}</NumericText>
+              </time>
+            }
           />
           <p className="weq-qzn-content">
             <PublicText content={view.text} />
@@ -1093,6 +1105,7 @@ function PublicFeedDetail({
       className="weq-qzn-interaction weq-qzn-public-detail"
       aria-label="空友动态评论"
     >
+      <p className="weq-qzn-status">该内容来自「空友爱看」</p>
       {focusParent && comments && !focusFound && !loading && !hasMore ? (
         <p role="alert">未找到搜索中的评论，可能已移除；原搜索结果仍保留</p>
       ) : null}
@@ -1100,7 +1113,12 @@ function PublicFeedDetail({
       {error ? (
         <p className="weq-qzn-error" role="alert">
           {error}{' '}
-          <button type="button" onClick={() => setRetry((value) => value + 1)}>
+          <button
+            type="button"
+            onClick={() => setRetry((value) => value + 1)}
+            className="weq-retry-button"
+          >
+            <RefreshCw size={14} aria-hidden />
             重试
           </button>
         </p>
@@ -1108,7 +1126,11 @@ function PublicFeedDetail({
       {comments !== null ? (
         <>
           <p className="weq-qzn-status">
-            {view.commentCount === null ? '' : `共 ${countText(view.commentCount)} 条评论`}
+            {view.commentCount === null ? (
+              ''
+            ) : (
+              <NumericText>{`共 ${countText(view.commentCount)} 条评论`}</NumericText>
+            )}
           </p>
           {comments.map((comment) => (
             <div
@@ -1133,7 +1155,11 @@ function PublicFeedDetail({
                       回复
                     </button>
                     {mine(comment) ? (
-                      <button type="button" onClick={() => void remove(comment)}>
+                      <button
+                        data-danger="outline"
+                        type="button"
+                        onClick={() => void remove(comment)}
+                      >
                         删除
                       </button>
                     ) : null}
@@ -1167,7 +1193,11 @@ function PublicFeedDetail({
                             回复
                           </button>
                           {mine(reply) ? (
-                            <button type="button" onClick={() => void remove(comment, reply)}>
+                            <button
+                              data-danger="outline"
+                              type="button"
+                              onClick={() => void remove(comment, reply)}
+                            >
                               删除
                             </button>
                           ) : null}
@@ -1274,7 +1304,7 @@ function CommentLike({
       onClick={() => void toggle()}
     >
       <ThumbsUp size={13} fill={liked ? 'currentColor' : 'none'} />
-      {count > 0 ? count : ''}
+      {count > 0 ? <span className="weq-number weq-number-inherit">{count}</span> : ''}
     </button>
   );
 }
@@ -1344,7 +1374,7 @@ function ReplyMore({
           onClick={() => void load()}
         >
           {busy ? <Loader2 size={13} className="weq-spin" /> : <ChevronDown size={13} />}
-          展开更多回复（{remaining}）
+          展开更多回复（<span className="weq-number weq-number-inherit">{remaining}</span>）
         </button>
       ) : null}
     </>

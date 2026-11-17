@@ -11,7 +11,7 @@
  * "重新取产物"，与 salvage 链路同一套做法。
  */
 
-import type { DatabaseAlgorithms } from '@weq/native';
+import type { BadPageScanResult, DatabaseAlgorithms, DatabaseProgress } from '@weq/native';
 
 /** 一个账号 + 它的数据目录 —— 与 `accountConfigId(uin, dataDir)` 是同一套主键。 */
 export interface DbRepairAccountRef {
@@ -37,9 +37,8 @@ export interface DbRepairTarget extends DbRepairAccountRef {
 /**
  * 进度阶段。
  *
- * 前六个是 native 报上来的（`RecoverPhase` 的字符串枚举）；后三个是 TS 侧在 native
- * 前后补的步骤。**别在这里做百分比换算** —— native 给的就是整体百分比，TS 只负责
- * 在它前后插两条消息，不重排进度轴（否则"阶段内估算"和"真实进度"会打架）。
+ * 保留原生阶段名及旧 Scan 枚举兼容类型；当前修复不执行源库 Scan。
+ * 界面只对 detail 中有可靠分母的具体步骤显示百分比，不合成整体百分比。
  */
 export type DbRepairPhase =
   | 'backup'
@@ -57,6 +56,8 @@ export interface DbRepairProgress {
   phase: DbRepairPhase | string;
   percent: number;
   message: string;
+  detail?: DatabaseProgress;
+  storage?: import('./space').RepairStorageStatus;
 }
 
 /** native `checkpointWal` 的产出（结构类型，理由同文件头）。 */
@@ -91,10 +92,13 @@ export interface DbRepairRecoverOptions {
   sourceLayout?: 'qq' | 'standard';
   /** 目标库逻辑页布局（迁移固定 `qq`）。 */
   targetLayout?: 'qq' | 'standard';
+  sourceScan?: BadPageScanResult;
 }
 
 /** native `recoverDatabase` 的产物自检。 */
 export interface DbRepairRecoverVerification {
+  complete?: boolean;
+  unverifiedTables?: string[];
   healthy: boolean;
   corruptedTables: string[];
   /** 产物里仍然页 HMAC 失败的页（正常为空）。 */

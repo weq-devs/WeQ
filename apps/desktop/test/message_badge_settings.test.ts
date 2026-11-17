@@ -145,14 +145,36 @@ function mount() {
               '显示群成员等级',
               '显示群成员头衔与身份',
             ].includes(label)
-          ? '消息显示'
-          : '阅读与未读';
+          ? '消息阅读'
+          : [
+                '鼠标停留时保持会话位置',
+                '在消息图标上显示红点',
+                '在联系人界面显示未读消息数',
+                '群助手显示总消息数',
+              ].includes(label)
+            ? '会话列表'
+            : '消息阅读';
       act(() =>
         [...host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')]
           .find((button) => button.textContent === page)!
           .click(),
       );
-      return host.querySelector<HTMLButtonElement>(`[role="switch"][aria-label="${label}"]`)!;
+      const visibleLabel =
+        (
+          {
+            聊天头像挂件: '头像挂件',
+            '聊天 QQ 秀替换头像': '优先使用 QQ 秀替换头像',
+            显示群消息发送者名称: '昵称或备注',
+            显示群成员等级: '等级',
+            显示群成员头衔与身份: '头衔或身份',
+          } as Record<string, string>
+        )[label] ?? label;
+      return (
+        host.querySelector<HTMLButtonElement>(`[role="switch"][aria-label="${visibleLabel}"]`) ??
+        [...host.querySelectorAll<HTMLButtonElement>('button[aria-pressed]')].find(
+          (button) => button.textContent === visibleLabel,
+        )!
+      );
     },
     close: () => {
       act(() => root.unmount());
@@ -194,6 +216,7 @@ it('消息开关分别按默认值展示、保存、刷新共享设置，重开�
   let f = mount();
   const toggle = (label: string) => f.toggle(label);
   try {
+    f.toggle('从第一条新消息开始阅读');
     const setting = f.host.querySelector('[data-setting-id="read-first-unread"]');
     expect(setting?.querySelector('.weq-set-row-label')?.textContent).toBe(
       '从第一条新消息开始阅读',
@@ -279,7 +302,10 @@ it('共享显示开关走 clientPreferences：改为共享值、失败保留本�
       vi.clearAllMocks();
       fixture.patchCalls = [];
       expect(preferenceValue(key), label).toBe(defaultValue);
-      expect(toggle().getAttribute('aria-checked'), label).toBe(String(defaultValue));
+      expect(
+        toggle().getAttribute('aria-checked') ?? toggle().getAttribute('aria-pressed'),
+        label,
+      ).toBe(String(defaultValue));
       await act(async () => {
         toggle().click();
         await vi.waitFor(() => expect(fixture.shared[key], label).toBe(!defaultValue));
@@ -289,14 +315,21 @@ it('共享显示开关走 clientPreferences：改为共享值、失败保留本�
       expect(fixture.shared[key], label).toBe(!defaultValue);
       expect(fixture.invalidate, label).not.toHaveBeenCalled();
       f.render();
-      expect(toggle().getAttribute('aria-checked'), label).toBe(String(!defaultValue));
+      expect(
+        toggle().getAttribute('aria-checked') ?? toggle().getAttribute('aria-pressed'),
+        label,
+      ).toBe(String(!defaultValue));
     }
     f.close();
     // 重新挂载：共享值仍是上一次修改后的值。
     f = mount();
     for (const [label, key, defaultValue] of sharedToggles) {
       expect(preferenceValue(key), label).toBe(!defaultValue);
-      expect(f.toggle(label).getAttribute('aria-checked'), label).toBe(String(!defaultValue));
+      expect(
+        f.toggle(label).getAttribute('aria-checked') ??
+          f.toggle(label).getAttribute('aria-pressed'),
+        label,
+      ).toBe(String(!defaultValue));
     }
   } finally {
     f.close();

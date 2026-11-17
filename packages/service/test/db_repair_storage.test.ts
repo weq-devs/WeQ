@@ -129,4 +129,40 @@ describe('分卷峰值预算', () => {
     expect(repairDiskSpace(path).volume).toBe(repairDiskSpace(root).volume);
     expect(existsSync(path)).toBe(false);
   });
+  it('加密阶段只预留后续产物增长，不重复预留已删除源副本、已写临时件和备份', () => {
+    const result = repairSpaceBudget({
+      ...base,
+      current: {
+        phase: 'Encrypt',
+        cacheBytes: size,
+        productBytes: size / 2,
+        rebuiltBytes: size,
+        backupRemainingBytes: 0,
+      },
+      probe: () => ({ volume: 'same', freeBytes: size }),
+    });
+    expect(result[0]!.requiredBytes).toBe(size / 2 + 8192);
+    expect(result[0]!.freeBytes).toBeGreaterThan(result[0]!.requiredBytes);
+    expect(
+      repairSpaceBudget({ ...base, probe: () => ({ volume: 'same', freeBytes: size }) })[0]!
+        .requiredBytes,
+    ).toBeGreaterThan(size);
+  });
+  it('分卷时不能提前用未来删除的缓存抵扣原库卷写入，产物完成后不再预算完整副本', () => {
+    const current = {
+      phase: 'Encrypt',
+      cacheBytes: size,
+      productBytes: size / 2,
+      rebuiltBytes: size,
+      backupRemainingBytes: 0,
+    };
+    const probe = (path: string) => ({ volume: path, freeBytes: size });
+    const result = repairSpaceBudget({ ...base, current, probe });
+    expect(result[1]!.requiredBytes).toBe(size / 2 + 4096);
+    expect(
+      repairSpaceBudget({ ...base, current: { ...current, phase: 'Verify' }, probe }).map(
+        (volume) => volume.requiredBytes,
+      ),
+    ).toEqual([0, 0]);
+  });
 });

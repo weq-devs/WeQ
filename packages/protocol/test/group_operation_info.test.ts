@@ -1,8 +1,33 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { decode, encode } from '../src/protobuf';
 import { GetGroupOperationInfo as Query } from '../src/oidb/group-admin/get-group-operation-info';
 
 describe('群权限真实字段与缺省', () => {
+  it('使用 0x88d_0 读取权限，不能把 110 的成功但缺字段回包当成未禁言', async () => {
+    // 同群线上对照回包，仅将群号替换为 123；110 不返回全员禁言，0 返回非零值。
+    const limited = Buffer.from(
+      '0a1d087b10001a17200030f909f00200e80400f80400b00500980600e00604',
+      'hex',
+    );
+    const complete = Buffer.from(
+      '0a2a087b10001a2430f909e802c4b4e5d70ef00200c003c081a420f80400b00500c00500e00604ea06020804',
+      'hex',
+    );
+    const sendOidbPacket = vi.fn(async (_pid: number, _command: number, subCommand: number) =>
+      subCommand === 0 ? complete : limited,
+    );
+    expect(Query.deserialize(decode(Query.respSchema, limited))[0]).toMatchObject({
+      muteAll: null,
+      muteUntil: 0,
+    });
+    await expect(Query.invoke({ sendOidbPacket }, 9, { groupId: 123 })).resolves.toMatchObject({
+      muteAll: true,
+      muteUntil: 0,
+      memberCanUpload: true,
+    });
+    expect(sendOidbPacket).toHaveBeenCalledWith(9, 0x88d, 0, expect.any(Buffer), false, false, 3);
+  });
+
   it('按独立 Android FieldMap 样本解码，缺失不补成许可', () => {
     // group 123，info: privilegeFlag@56=2, rename@88=2, kick@86=1, ext@109.14=2。
     const raw = Buffer.from('0a12087b1a0ec00302c00502b00501ea06027002', 'hex');

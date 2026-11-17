@@ -142,7 +142,7 @@ export class AccountMonitorService {
     });
   }
 
-  /** 包含等待授权、登记和自动重试；取票等网络请求不延长进入完整模式的状态。 */
+  /** 包含等待授权、登记和自动重试；取票等网络请求不延长启用 QQ 在线能力的状态。 */
   get credentialsPending(): boolean {
     return (
       !this.stopped &&
@@ -738,7 +738,7 @@ export class AccountMonitorService {
     if (error instanceof DebugReadUnavailableError) credentialsPending = false;
     if (repair) {
       // 助手存在但需要修复：保留后台重试（修复后能自动恢复），但不再把界面
-      // 挂在“正在启用完整功能”上，直接把可操作原因交给受限模式。
+      // 挂在“正在启用 QQ 在线能力”上，直接把可操作原因交给「在线能力受限」详情。
       this.credentialIssueState = { title: '长期授权需要修复', message: error.message };
       credentialsPending = false;
     }

@@ -2,7 +2,8 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, expect, it, vi } from 'vitest';
-import { ActiveWidgetProvider, useActiveWidget } from '../src/renderer/src/hooks/useActiveWidget';
+import { ActiveWidgetProvider } from '../src/renderer/src/hooks/useActiveWidget';
+import { useActiveWidget } from '../src/renderer/src/hooks/useActiveWidget.shared';
 
 const fixture = vi.hoisted(() => ({ fetchState: vi.fn() }));
 

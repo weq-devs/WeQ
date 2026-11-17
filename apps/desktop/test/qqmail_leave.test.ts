@@ -8,7 +8,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 vi.mock('@trpc/react-query', () => ({ getQueryKey: (value: unknown) => value }));
 import { purgeAccountQueries } from '../src/renderer/src/lib/leaveAccount';
 import { confirmMailAccountLeave, registerMailDraft } from '../src/renderer/src/state/mailDraft';
-import { useDialog } from '../src/renderer/src/components/Dialog';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 
 afterEach(() => vi.restoreAllMocks());
 describe('邮箱离开账号保护', () => {

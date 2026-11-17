@@ -9,11 +9,29 @@ import type { QzoneUpvotePreview } from '@weq/protocol';
 
 const state = vi.hoisted(() => ({ read: vi.fn(), people: vi.fn(), cancel: vi.fn(async () => {}) }));
 vi.mock('../src/renderer/src/components/QqAvatar', () => ({ QqAvatar: () => null }));
+vi.mock('../src/renderer/src/components/qq-actions/shared', () => ({
+  useQQAction: () => ({ disabled: true, pending: false }),
+}));
+vi.mock('../src/renderer/src/components/qq-actions/shared.shared', () => ({
+  useQQAction: () => ({ disabled: true, pending: false }),
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     account: {
       qzone: {
-        upvotes: { query: state.read },
+        archiveState: {
+          query: async (...args: unknown[]) => ({
+            rawStatus: 2,
+            capabilitiesObserved: true,
+            tag: null,
+            statusLabel: '',
+            showUpvote: true,
+            canContribute: false,
+            canUncontribute: false,
+            canUnarchive: false,
+            upvote: await state.read(...args),
+          }),
+        },
         people: { query: state.people },
         cancel: { mutate: state.cancel },
       },
@@ -150,7 +168,7 @@ it('隐藏或卸载后的迟到响应不污染计数，缺失发帖时间不猜�
   await view.render();
   await view.render(h(QzonePostUpvotes, { ...input, enabled: false }));
   await act(async () => finish(value));
-  expect(view.host.textContent).toContain('推 ?');
+  expect(view.host.textContent).not.toContain('推');
   await view.render(h(QzonePostUpvotes, { ...input, time: 0 }));
   expect(state.read).toHaveBeenCalledOnce();
 });

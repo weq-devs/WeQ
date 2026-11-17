@@ -6,7 +6,6 @@
  */
 
 import {
-  createContext,
   useContext,
   useMemo,
   useRef,
@@ -16,8 +15,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
-import type { SettingsScope } from './navigation';
-import { RefreshCw } from 'lucide-react';
+import { Minus, RefreshCw } from 'lucide-react';
 import '../../styles/settings-query.css';
 import '../../styles/settings-controls.css';
 import { SettingsResetCardContext, SettingsResetContext } from './resetContext';
@@ -28,6 +26,10 @@ import {
   remoteSettingAvailable,
 } from '../../../../shared/remote_capabilities';
 import { useRemoteClient } from '../../lib/remoteClient';
+import { findSettingDefinition } from '@weq/service/settings-catalog';
+import { SettingsPageIcon } from './pageIcons';
+import type { SettingsPageId } from './navigation';
+import { SettingsScopeContext, SaveStatusSlotContext } from './controls.shared';
 
 /** 查询失败不冒充空配置；有缓存时由调用方继续展示原数据。 */
 export function QueryError({
@@ -57,30 +59,17 @@ export function QueryError({
   );
 }
 
-export const SettingsScopeContext = createContext<SettingsScope | null>(null);
-
-/**
- * 卡片 head 右侧的保存状态位。`AutoSave` 有槽位时把「正在保存／已保存／失败」
- * 放进卡片标题行，避免它挤在行描述的位置上被当成人话说明。
- */
-export const SaveStatusSlotContext = createContext<{ take: () => HTMLElement | null } | null>(null);
-
 export function SettingsScopeBadge() {
   const scope = useContext(SettingsScopeContext);
   return scope ? <span className="weq-settings-scope">{scope.label}</span> : null;
 }
-
-/**
- * 在设置页之间跳转。由 `SettingsDialog` 提供，页面里的「去管理」这类入口消费。
- * 不提供时（例如单测直接渲染某个 section）为 `null`，调用方应自行降级。
- */
-export const SettingsNavigateContext = createContext<((section: string) => void) | null>(null);
 
 /** Section heading + optional description (and optional leading icon), shown at the top of each panel. */
 export function SectionHeader({
   title,
   desc,
   icon,
+  page,
   titleClassName,
   badge,
   actions,
@@ -89,6 +78,8 @@ export function SectionHeader({
   title: string;
   desc?: ReactNode;
   icon?: ReactNode;
+  /** 设置页面的标题与二级导航使用同一图标。 */
+  page?: SettingsPageId;
   titleClassName?: string;
   /** 标题旁的固定说明（例如「自动保存」），只描述保存方式，不放操作。 */
   badge?: ReactNode;
@@ -98,12 +89,13 @@ export function SectionHeader({
 }): ReactElement {
   const scope = useContext(SettingsScopeContext);
   const reset = useContext(SettingsResetContext);
+  const headingIcon = page ? <SettingsPageIcon page={page} /> : icon;
   return (
     <header className="weq-set-head">
       <div className="weq-set-head-title">
-        {icon ? (
+        {headingIcon ? (
           <span className="weq-set-head-icon" aria-hidden>
-            {icon}
+            {headingIcon}
           </span>
         ) : null}
         <h3 className={`weq-set-title${titleClassName ? ` ${titleClassName}` : ''}`}>{title}</h3>
@@ -113,13 +105,7 @@ export function SectionHeader({
       {actions || (reset && pageReset) ? (
         <div
           className="weq-settings-page-reset"
-          data-setting-id={
-            reset && pageReset
-              ? reset.page === 'startup'
-                ? 'weq-config-management'
-                : `settings-reset-${reset.page}`
-              : undefined
-          }
+          data-setting-id={reset && pageReset ? `settings-reset-${reset.page}` : undefined}
         >
           {actions}
           {reset && pageReset ? <SettingsResetButton /> : null}
@@ -134,7 +120,8 @@ export function SectionHeader({
 /** A bordered card grouping related rows, with an optional title + action. */
 export function Card({
   settingId,
-  title,
+  title: titleOverride,
+  titleBadge,
   desc,
   icon,
   action,
@@ -144,6 +131,7 @@ export function Card({
 }: {
   settingId?: string;
   title?: string;
+  titleBadge?: ReactNode;
   /** 卡片标题下的一句说明，与页头 `SectionHeader` 的 desc 同一套字号/颜色。 */
   desc?: ReactNode;
   /** 标题前的图标（lucide 组件或资源图），与设置页各分区的视觉语言保持一致。 */
@@ -154,6 +142,10 @@ export function Card({
   children?: ReactNode;
 }): ReactElement | null {
   const reset = useContext(SettingsResetContext);
+  const title =
+    titleOverride ??
+    (resetId ? SETTINGS_RESET_CARDS.find(([, id]) => id === resetId)?.[2] : undefined);
+  const identity = settingId ?? (resetId && findSettingDefinition(resetId) ? resetId : undefined);
   const remote = useRemoteClient();
   const [statusSlot, setStatusSlot] = useState<HTMLElement | null>(null);
   const statusSlotTaken = useRef(false);
@@ -175,11 +167,23 @@ export function Card({
   const canReset = card && (!remote || remoteResetCardAvailable(card));
   return (
     <SettingsResetCardContext.Provider value={reset && card ? reset.saves(card) : null}>
-      <section className="weq-set-card" data-setting-id={settingId}>
+      <section className="weq-set-card" data-setting-id={identity}>
         {title || action || card ? (
           <div className="weq-set-card-head">
             <div className="weq-set-card-heading">
-              {title ? (
+              {titleBadge ? (
+                <div className="weq-set-card-title-line">
+                  <div className="weq-set-card-title">
+                    {icon ? (
+                      <span className="weq-set-card-icon" aria-hidden>
+                        {icon}
+                      </span>
+                    ) : null}
+                    {title}
+                  </div>
+                  {titleBadge}
+                </div>
+              ) : title ? (
                 <div className="weq-set-card-title">
                   {icon ? (
                     <span className="weq-set-card-icon" aria-hidden>
@@ -221,18 +225,20 @@ export function Row({
   remoteUnsupported = false,
 }: {
   settingId?: string;
-  label: ReactNode;
+  label?: ReactNode;
   desc?: ReactNode;
   control: ReactNode;
   indent?: boolean;
   remoteUnsupported?: boolean;
 }): ReactElement | null {
   const remote = useRemoteClient();
+  const definition = settingId ? findSettingDefinition(settingId) : undefined;
+  const rowLabel = label === undefined ? definition?.label : label;
   if (remote && (remoteUnsupported || !remoteSettingAvailable('', settingId))) return null;
   return (
     <div className={`weq-set-row${indent ? ' is-indent' : ''}`} data-setting-id={settingId}>
       <div className="weq-set-row-main">
-        <span className="weq-set-row-label">{label}</span>
+        <span className="weq-set-row-label">{rowLabel}</span>
         {desc ? <span className="weq-set-row-desc">{desc}</span> : null}
       </div>
       <div className="weq-set-row-ctrl">{control}</div>
@@ -240,15 +246,19 @@ export function Row({
   );
 }
 
-/** iOS-style switch. Renders as a `role="switch"` button for a11y. */
+/** mixed 表示部分开启，点击请求全开；indeterminate 保留既有“尚未读取”的双向请求。 */
 export function Toggle({
   checked,
+  mixed,
   indeterminate = false,
   disabled,
   onChange,
   label,
 }: {
   checked: boolean;
+  /** 分组汇总状态；显式传入 false 时仍维持 checkbox 语义。 */
+  mixed?: boolean;
+  /** 尚未读取，保留根据 checked 请求相反值的旧行为。 */
   indeterminate?: boolean;
   disabled?: boolean;
   onChange: (next: boolean) => void;
@@ -257,15 +267,17 @@ export function Toggle({
   return (
     <button
       type="button"
-      className={`weq-set-toggle${indeterminate ? ' is-unknown' : checked ? ' is-on' : ''}`}
-      role={indeterminate ? 'checkbox' : 'switch'}
-      aria-checked={indeterminate ? 'mixed' : checked}
+      className={`weq-set-toggle${mixed ? ' is-mixed' : indeterminate ? ' is-unknown' : checked ? ' is-on' : ''}`}
+      role={mixed !== undefined || indeterminate ? 'checkbox' : 'switch'}
+      aria-checked={mixed || indeterminate ? 'mixed' : checked}
       aria-label={label}
       disabled={disabled}
-      onClick={() => onChange(!checked)}
+      onClick={() => onChange(mixed || !checked)}
     >
-      <span className="weq-set-toggle-track">
-        <span className="weq-set-toggle-knob" />
+      <span className="weq-set-toggle-track" aria-hidden="true">
+        <span className="weq-set-toggle-knob">
+          {mixed ? <Minus size={10} strokeWidth={2.5} /> : null}
+        </span>
       </span>
     </button>
   );

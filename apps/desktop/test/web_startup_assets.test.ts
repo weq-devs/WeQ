@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse, type DefaultTreeAdapterMap } from 'parse5';
+import { gzipSync } from 'node:zlib';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { serveStatic } from '../src/main/web/static';
 
@@ -97,4 +98,52 @@ it('普通浏览器不改变 HTML，更新入口后不沿用旧清单', async ()
     '<script type="module" src="/assets/shared-12345678.js"></script>',
   );
   expect(manifest((await get('/', 'gzip')).toString()).resources).toHaveLength(1);
+});
+
+it.each(['gzip', 'identity'])(
+  '构建清单包含主工作区及 CSS，提前下载但不提前执行或应用样式：%s',
+  async (encoding) => {
+    const files = {
+      '/assets/shared-12345678.js': 'export const shared=1;',
+      '/assets/app-12345678.js': 'console.log("合成资源");'.repeat(1000),
+      '/assets/app-12345678.css': '.synthetic { color: red; }'.repeat(100),
+      '/assets/MainView-12345678.js': 'window.fixtureWorkspace=true;',
+      '/assets/MainView-12345678.css': '.fixture-workspace {display:flex}',
+    };
+    for (const [path, body] of Object.entries(files)) await writeFile(join(root, path), body);
+    await writeFile(
+      join(root, 'weq-startup.json'),
+      JSON.stringify({
+        version: 1,
+        entry: '/assets/app-12345678.js',
+        resources: Object.entries(files).map(([path, body]) => ({
+          path,
+          raw: Buffer.byteLength(body),
+          gzip: Buffer.byteLength(body) >= 1024 ? gzipSync(body).length : Buffer.byteLength(body),
+          preload: path.includes('MainView'),
+        })),
+      }),
+    );
+    const html = (await get('/', encoding)).toString();
+    const data = manifest(html);
+    expect(data.resources).toHaveLength(5);
+    for (const asset of data.resources)
+      expect(asset.size).toBe((await get(asset.path, encoding)).length);
+    expect(html).toContain('rel="modulepreload" href="/assets/MainView-12345678.js"');
+    expect(html).toContain('rel="preload" href="/assets/MainView-12345678.css" as="style"');
+    expect(html).not.toContain('src="/assets/MainView-12345678.js"');
+    expect((await get('/', encoding, false)).toString()).toBe(shell);
+  },
+);
+
+it.each([
+  { version: 1, entry: '/assets/old-12345678.js', resources: [] },
+  {
+    version: 1,
+    entry: '/assets/app-12345678.js',
+    resources: [{ path: '/outside.js', raw: 1, gzip: 1, preload: true }],
+  },
+])('旧清单或非构建资源不进入首屏清单：%j', async (inventory) => {
+  await writeFile(join(root, 'weq-startup.json'), JSON.stringify(inventory));
+  expect(manifest((await get('/', 'gzip')).toString()).resources).toHaveLength(3);
 });

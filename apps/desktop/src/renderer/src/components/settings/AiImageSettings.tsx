@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { AiImageFeature, AiImageMode } from '@weq/agentlab';
 import { trpc } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { Row } from './controls';
 import { DefaultApiModelRow } from './DefaultApiModelRow';
 import { SegmentedControl } from '../SegmentedControl';
@@ -40,7 +40,6 @@ export function AiImagePreferenceSetting({ feature }: { feature: AiImageFeature 
       <Row
         settingId={`ai-images-${feature}`}
         label="图片处理偏好"
-        desc={feature === 'cloneChat' ? '所有克隆体与连接本宿主的各端共用。' : undefined}
         control={
           <SegmentedControl<AiImageMode>
             label={`${featureLabels[feature]} 图片处理偏好`}

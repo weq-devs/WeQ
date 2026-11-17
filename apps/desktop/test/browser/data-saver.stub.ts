@@ -6,7 +6,7 @@ import {
   type DataSaverStatus,
 } from '@weq/service/data-saver';
 let revision = 0;
-const saved: Record<string, unknown> = { dataSaverMode: 'always' };
+const saved: Record<string, unknown> = { dataSaverMode: 'always', dataSaverOnMetered: false };
 export const fixtureDataSaver = new DataSaverSession();
 fixtureDataSaver.update('always', networkCost(false, false, 'fixture'));
 fixtureDataSaver.setPendingTasks(2);
@@ -46,9 +46,17 @@ export const client = {
   },
   clientState: {
     patch: {
-      mutate: async (values: { dataSaverMode?: 'auto' | 'always' | 'never' }) => {
-        if (values.dataSaverMode) {
-          fixtureDataSaver.update(values.dataSaverMode, fixtureDataSaver.status().host);
+      mutate: async (values: {
+        dataSaverMode?: 'auto' | 'always' | 'never';
+        dataSaverOnMetered?: boolean;
+      }) => {
+        Object.assign(saved, values);
+        if (values.dataSaverMode !== undefined || values.dataSaverOnMetered !== undefined) {
+          fixtureDataSaver.update(
+            values.dataSaverMode ?? fixtureDataSaver.status().mode,
+            fixtureDataSaver.status().host,
+            saved.dataSaverOnMetered === true,
+          );
           fixtureDataSaver.clearTemporary('settings');
         }
         return {

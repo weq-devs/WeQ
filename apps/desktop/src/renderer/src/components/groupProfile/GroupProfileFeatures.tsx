@@ -5,8 +5,8 @@ import {
   ConversationSettingsNavigationContext,
   GroupResourceNavigationContext,
 } from '../../lib/conversationSettingsNavigation';
-import { useGroupResourceWindows } from '../../hooks/useGroupResourceWindows';
-import { useTabActive } from '../RetainedTabs';
+import { useGroupResourceWindows } from '../../hooks/useGroupResourceWindows.shared';
+import { useTabActive } from '../RetainedTabs.shared';
 import { GroupAnnouncementsDialog } from '../GroupAnnouncementsDialog';
 import { GroupSignDialog } from '../GroupSignDialog';
 import { GroupTodos } from '../qq-actions/GroupActions';

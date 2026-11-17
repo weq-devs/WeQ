@@ -1,4 +1,8 @@
 import { createHash } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { ExportCheckpoint } from '../src/account/export/checkpoint';
 import { describe, expect, it, vi } from 'vitest';
 import { makeSolidPng } from '@weq/protocol';
 import {
@@ -37,6 +41,54 @@ function fixture() {
 }
 
 describe('在线收藏包导出', () => {
+  it('首图完成后暂停，重启沿用原顺序备注和图片，只读取未完成原图', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'weq-favorite-resume-'));
+    try {
+      const { port, options } = fixture();
+      const second = Buffer.from(makeSolidPng(2, 3, [20, 40, 60]));
+      const secondHash = createHash('md5').update(second).digest('hex');
+      const secondId = `10001_0_0_0_${secondHash.toUpperCase()}_0_0`;
+      port.fetchOnlineFavoriteIds.mockResolvedValue([emojiId, secondId]);
+      port.fetchOnlineFavoriteDetails.mockResolvedValue([
+        { emojiId, desc: '原始备注' },
+        { emojiId: secondId, desc: '第二张' },
+      ]);
+      port.listFavEmojiRows.mockResolvedValue([
+        { hash, oriPath: '/synthetic/first', thumbPath: '', remoteUrl: '' },
+        { hash: secondHash, oriPath: '/synthetic/second', thumbPath: '', remoteUrl: '' },
+      ]);
+      options.readLocal.mockImplementation(async (path) =>
+        path.endsWith('first') ? bytes : second,
+      );
+      const abort = new AbortController();
+      await expect(
+        exportOnlineFavoriteEmojiBundle(port, {
+          ...options,
+          signal: abort.signal,
+          checkpoint: new ExportCheckpoint(root, abort.signal),
+          progress: (done) => {
+            if (done === 1) abort.abort();
+          },
+        }),
+      ).rejects.toThrow();
+      port.fetchOnlineFavoriteIds.mockRejectedValue(new Error('不应重新枚举'));
+      const result = await exportOnlineFavoriteEmojiBundle(port, {
+        ...options,
+        checkpoint: new ExportCheckpoint(root),
+      });
+      expect(port.fetchOnlineFavoriteIds).toHaveBeenCalledOnce();
+      expect(options.readLocal.mock.calls.map(([path]) => path)).toEqual([
+        '/synthetic/first',
+        '/synthetic/second',
+      ]);
+      expect(readFavoriteEmojiBundle(result.archive).map((item) => item.description)).toEqual([
+        '原始备注',
+        '第二张',
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it('超过单包条目预算时先拒绝，不启动分批详情或原图读取', async () => {
     const { port, options } = fixture();
     port.fetchOnlineFavoriteIds.mockResolvedValue(

@@ -17,13 +17,15 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { ArrowRight, KeyRound, Loader2, QrCode, Settings2, X } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
-import { Modal, useDialog } from '../../components/Dialog';
+import { Modal } from '../../components/Dialog';
+import { useDialog } from '../../components/Dialog.shared';
 import { Toggle } from '../../components/settings/controls';
-import { IS_MAC } from '../../lib/target';
+import { IS_MAC } from '../../lib/target.shared';
 import type { AutoEnterTarget } from '@weq/service';
-import { accountSource } from './AccountSelector';
+import { accountSource } from './AccountSelector.shared';
 import { QqAvatar } from '../../components/QqAvatar';
-import { KeyField, isCompleteKey } from './KeyField';
+import { KeyField } from './KeyField';
+import { isCompleteKey } from './KeyField.shared';
 import { QrDialog } from './QrDialog';
 import type { UiAccount } from './types';
 
@@ -393,7 +395,7 @@ export function LoginPanel({
     }
   }
 
-  /** 「自动启用完整功能」的说明：窄/矮窗口里收成 title，不在页面上占行。 */
+  /** 「自动启用 QQ 在线能力」的说明：窄/矮窗口里收成 title，不在页面上占行。 */
   const fullModeHint = IS_MAC
     ? '开启后自动读取 QQ 进程采集凭证；SIP 开启时改用「QQ 调试副本」。'
     : '开启后自动读取登录中的 QQ 进程，采集 rKey / ClientKey 等凭证以启用在线能力。';
@@ -411,7 +413,8 @@ export function LoginPanel({
             <div>
               <h2 title={selected.name}>{selected.name}</h2>
               <span>
-                {selected.uin} · {accountSource(selected)}
+                <span className="weq-number weq-number-inherit">{selected.uin}</span> ·{' '}
+                {accountSource(selected)}
               </span>
             </div>
             {mode === 'new' && onDiagnostics && (
@@ -533,13 +536,13 @@ export function LoginPanel({
             </div>
             <div className="weq-login-option">
               <span className="weq-login-option-label" title={fullModeHint}>
-                自动启用完整功能
+                自动启用 QQ 在线能力
               </span>
               <Toggle
                 checked={settings.data?.autoAttachQq ?? false}
                 disabled={working || !settings.data || autoAttach.isLoading}
                 onChange={(next) => autoAttach.mutate({ enabled: next })}
-                label="自动启用完整功能"
+                label="自动启用 QQ 在线能力"
               />
             </div>
           </div>

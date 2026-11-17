@@ -1,3 +1,4 @@
+import { NumericText } from '../../components/NumericText';
 import { formatDateTime } from '@weq/time';
 import { TimeLabel } from '../../components/TimeLabel';
 import { ReminderDot } from '../../components/ReminderBadge';
@@ -9,7 +10,7 @@ import {
 } from '../../lib/clientPreferences';
 import { MailListResizeHandle } from './MailListResizeHandle';
 import { z } from 'zod';
-import { usePageState } from '../../components/PageSnapshots';
+import { usePageState } from '../../components/PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
 import {
   AlertCircle,
@@ -46,9 +47,13 @@ import type {
   MailSummary,
 } from '@weq/service/mail';
 import { SYSTEM_MAIL_FOLDERS } from '@weq/service/mail-wire';
-import { useDialog } from '../../components/Dialog';
+import { useDialog } from '../../components/Dialog.shared';
 import { CheckPill } from '../../components/settings/controls';
-import { useToast } from '../../components/Toast';
+import { useToastApi } from '../../components/Toast.shared';
+import {
+  notificationSource,
+  taskNotificationSource,
+} from '../../lib/notificationNavigation.shared';
 import { usePrivacyStore } from '../../state/privacy';
 import type { MailApi } from './api';
 import { MailBody } from './MailBody';
@@ -67,12 +72,12 @@ import '../../styles/mail.css';
 import type { ExportSavePolicy } from '@weq/service';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
-import { IS_WEB } from '../../lib/target';
+import { IS_WEB } from '../../lib/target.shared';
 import { isRemoteClient } from '../../lib/remoteClient';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import { readWithRetry } from '../../lib/autoRead';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
-import { useRequestContentExport } from '../../state/contentSelection';
+import { useRequestContentExport } from '../../state/contentSelection.shared';
 import { useMobileBack } from '../../hooks/useMobileNavigation';
 
 const initialStatus: MailStatus = {
@@ -114,6 +119,7 @@ export function MailPage({
   searchTarget?: { id: string; folderId: number; revision: string } | null;
   onOpenSettings?: () => void;
 }) {
+  const notificationToast = useToastApi();
   const save = useExportSavePolicy();
   const requestExport = useRequestContentExport();
   const activity = useQQReadActivity(active);
@@ -277,6 +283,7 @@ export function MailPage({
         !(await useDialog
           .getState()
           .confirm('打开搜索命中的邮件？', '当前写信内容尚未保存，确认后将退出写信。', {
+            danger: 'outline',
             okLabel: '打开邮件',
             tone: 'warning',
           }))
@@ -321,9 +328,13 @@ export function MailPage({
       if (event.type === 'status' && event.status) setStatus(event.status);
       if (event.type !== 'status') setRevision((current) => current + 1);
       if (event.type === 'new-mail' && event.notice)
-        useToast.getState().push({
+        notificationToast.push({
           tone: 'info',
           title: '收到新邮件',
+          source: notificationSource(
+            { kind: 'mail', folderId: event.notice.folderId, mailId: event.notice.id },
+            '打开这封邮件',
+          ),
           detail: usePrivacyStore.getState().effective
             ? undefined
             : `${event.notice.sender}${event.notice.subject ? `：${event.notice.subject}` : ''}`,
@@ -346,7 +357,7 @@ export function MailPage({
       api.dispose();
       download.current?.abort();
     };
-  }, [api, connect, chooseFolder, setSelectedId]);
+  }, [api, connect, chooseFolder, setSelectedId, notificationToast]);
   useEffect(() => {
     onUnreadChange?.(status.unread);
   }, [onUnreadChange, status.unread]);
@@ -464,6 +475,7 @@ export function MailPage({
       composeDirty &&
       draft.draftId !== item.id &&
       !(await useDialog.getState().confirm('打开另一封草稿？', '当前未保存的写信内容将被替换。', {
+        danger: 'outline',
         okLabel: '打开草稿',
         cancelLabel: '继续编辑',
         tone: 'warning',
@@ -480,6 +492,7 @@ export function MailPage({
       void useDialog
         .getState()
         .confirm('替换当前写信内容？', '当前内容尚未保存到草稿箱。', {
+          danger: 'outline',
           okLabel: '替换',
           cancelLabel: '继续编辑',
           tone: 'warning',
@@ -502,6 +515,7 @@ export function MailPage({
       !(await useDialog
         .getState()
         .confirm('移至已删除？', `将所选 ${ids.length} 封邮件移至已删除。`, {
+          danger: 'outline',
           okLabel: '移至已删除',
           cancelLabel: '取消',
           tone: 'warning',
@@ -541,6 +555,7 @@ export function MailPage({
     if (
       composeDirty &&
       !(await useDialog.getState().confirm('断开邮箱连接？', '未保存的写信内容和附件将被清除。', {
+        danger: 'outline',
         okLabel: '断开连接',
         cancelLabel: '取消',
         tone: 'warning',
@@ -576,7 +591,7 @@ export function MailPage({
       if (browser) {
         const saved = await api.download(id, controller.signal);
         if (saved && mounted.current && save.isCurrent())
-          useToast.getState().push({ tone: 'info', title: '已交给浏览器下载' });
+          notificationToast.push({ tone: 'info', title: '已交给浏览器下载' });
       } else {
         const policy = await save.prepareSave(intent, {
           kind: 'file',
@@ -584,11 +599,12 @@ export function MailPage({
           fileName: attachment.name,
         });
         if (!policy || controller.signal.aborted || !save.isCurrent()) return;
-        await api.save(id, policy, binding.expectedAccountConfigId);
+        const taskId = await api.save(id, policy, binding.expectedAccountConfigId);
         if (mounted.current && save.isCurrent())
-          useToast.getState().push({
+          notificationToast.push({
             tone: 'info',
             title: '附件保存任务已创建',
+            source: taskNotificationSource(taskId),
             message: '可在导出任务列表查看结果与保存位置',
           });
       }
@@ -820,7 +836,9 @@ export function MailPage({
             </form>
             <header className="weq-mail-list-heading">
               <h2>{keyword ? '搜索结果' : selectedFolder?.name || '邮件'}</h2>
-              <span>{page.total}</span>
+              <span>
+                <span className="weq-number weq-number-inherit">{page.total}</span>
+              </span>
               <CheckPill
                 checked={unreadOnly}
                 onChange={(next) => {
@@ -843,7 +861,9 @@ export function MailPage({
                   setChecked(event.target.checked ? mailIds : []);
                 }}
               />
-              <span>{checked.length ? `已选 ${checked.length}` : ''}</span>
+              <span>
+                {checked.length ? <NumericText>{`已选 ${checked.length}`}</NumericText> : ''}
+              </span>
               <button
                 type="button"
                 title="标为已读"
@@ -863,6 +883,7 @@ export function MailPage({
                 <Mail size={16} />
               </button>
               <button
+                data-danger="outline"
                 type="button"
                 title="移至已删除"
                 aria-label="移至已删除"
@@ -954,7 +975,12 @@ export function MailPage({
                 <ChevronLeft size={17} />
               </button>
               <span>
-                {pageNumber + 1} / {Math.max(1, Math.ceil(page.total / 30))}
+                <span className="weq-number weq-number-inherit">{pageNumber + 1}</span> /{' '}
+                {
+                  <span className="weq-number weq-number-inherit">
+                    {Math.max(1, Math.ceil(page.total / 30))}
+                  </span>
+                }
               </span>
               <button
                 type="button"
@@ -1066,6 +1092,7 @@ export function MailPage({
                       <Star size={17} fill={detail.starred ? 'currentColor' : 'none'} />
                     </button>
                     <button
+                      data-danger="outline"
                       type="button"
                       title="移至已删除"
                       aria-label="删除当前邮件"
@@ -1100,7 +1127,14 @@ export function MailPage({
                   </header>
                   {detail.thread ? (
                     <div className="weq-mail-thread">
-                      <h3>{detail.thread.length} 封邮件</h3>
+                      <h3>
+                        {
+                          <span className="weq-number weq-number-inherit">
+                            {detail.thread.length}
+                          </span>
+                        }{' '}
+                        封邮件
+                      </h3>
                       {detail.thread.map((item) => (
                         <button
                           type="button"
@@ -1126,7 +1160,14 @@ export function MailPage({
                   {detail.attachments.length ? (
                     <div className="weq-mail-attachments">
                       <h3>
-                        附件 <span>{detail.attachments.length}</span>
+                        附件{' '}
+                        <span>
+                          {
+                            <span className="weq-number weq-number-inherit">
+                              {detail.attachments.length}
+                            </span>
+                          }
+                        </span>
                       </h3>
                       {detail.attachments.map((item) => (
                         <div className="weq-mail-file" key={item.id}>
@@ -1135,7 +1176,9 @@ export function MailPage({
                             {item.name}
                           </span>
                           <small>
-                            {formatMailSize(item.size)}
+                            <span className="weq-number weq-number-inherit">
+                              {formatMailSize(item.size)}
+                            </span>
                             {item.big ? ' · 超大附件' : ''}
                           </small>
                           <button

@@ -18,7 +18,7 @@ const conversations = ['10001', '10002', '10003'].map((id, index) => ({
   updatedAt: `2030-01-0${3 - index}T00:00:00Z`,
   lastMessage: null,
   unreadCount: index,
-  preference: { pinned: false, muted: false, blocked: false },
+  preference: { pinned: index !== 1, muted: false, blocked: false },
 }));
 
 createRoot(document.getElementById('root')!).render(

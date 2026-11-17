@@ -1,39 +1,4 @@
-import * as timeFormat from '@weq/time';
-/**
- * 设置 → 数据维护 → 维护工具 → 数据库修复。
- *
- * 把「库坏了怎么办」收成一条自己走得完的路：**体检 → 修复**，回滚与记录另开一张灯箱卡片。
- * 后端是 `client.dbRepair.*`，编排在 `@weq/service` 的 `account/db_repair/`。
- *
- * 几条刻意的取舍：
- *
- *   1. **打开即体检，跳过只需一行小字**。用户回答不了「我的库坏没坏」，而体检是只读的，
- *      所以一进来就替他跑一遍；不想等的人点那行小字直接去选库。结论里**有问题的库**在
- *      修复页排在前面，其余收在「其他数据库」后面 —— 体检全过 / 压根没体检（跳过的）时
- *      没有「问题库」，那就全部直接铺出来，别让人连「能修哪个」都看不到。
- *   2. **一个库都没坏，就不给主按钮**。「一切健康」那一页只留一枚克制的「仍要修复」——
- *      修一个完好的库会白花一次替换（还会关掉账号），不该是一眼就能点到的主按钮。
- *   3. **库名是渲染层唯一的目标标识**。目录、密钥、算法都在主进程解析 —— 一旦接受路径，
- *      这个接口就变成任意路径写入器。
- *   4. **展示阶段进度**：耗时取决于库大小、损坏情况和设备性能。
- *      阶段名用主进程报的 `message`（本来就是中文），百分比直接用 `percent`，另外把 native
- *      报的 phase 画成一条阶段轨 —— 卡住时能看出卡在哪一步。
- *   5. **按失败阶段说明结果**。重建后会替换并自检；自检失败时尝试从备份还原。
- *      修复前还可能合并 WAL，不能将「未替换」表述成「源文件从未改变」。
- *   6. **替换会先关掉正在打开的这个账号**。那一刻主进程里账号已经关了、渲染层却还停在主
- *      界面上（有会话列表、没头像、点不开消息），所以修完（或替换阶段失败）由全局的
- *      `<DbRepairReturnOverlay>` 倒数几秒回首页，面板的结果卡里同时把这句话写明。
- *   7. **颜色一律走主题 token**（警示用 `--weq-warn-*`，它本身从主题强调色派生），不另配
- *      一套颜色；按钮直接复用 `.weq-set-btn` 家族。这里只加 `weq-rp-*` 这一套面板专有的
- *      样式：结论徽章、指标格、QQ 状态条、进度轨、灯箱卡片。
- *
- * 视图类型在这里重新声明（而不是从主进程 import），与 `DatabaseDamagedDialog` 的
- * `DatabaseDamagedEvent` 同一套做法：渲染层只认「主进程答应给的那个形状」。
- */
-
-import { formatBytesOrUnknown as formatBytes } from '../lib/format';
-import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -41,2239 +6,1980 @@ import {
   CheckCircle2,
   ChevronDown,
   Database,
-  DatabaseZap,
-  FileText,
+  Download,
   FolderOpen,
   HardDrive,
   History,
   Info,
-  KeyRound,
   Loader2,
-  Lock,
+  LockKeyhole,
+  Pause,
   Play,
   RefreshCw,
   RotateCcw,
-  ShieldAlert,
   ShieldCheck,
+  Settings2,
   Square,
   Stethoscope,
   Trash2,
-  Waves,
+  UnlockKeyhole,
+  Wrench,
   X,
-  XCircle,
 } from 'lucide-react';
-import { closeFromScrim } from '../im-template/template/modalUtils';
-import { createMediaId } from '../im-template/template/composerMedia';
-import { useOverlayLayer } from '../lib/overlayStack';
-import { useDbRepairReturn } from '../state/dbRepairReturn';
-import { useRenderDocument } from '../lib/renderDocument';
+import {
+  databaseReadyForRepair,
+  databaseRepairSupportLabel,
+  databaseMaintenanceRowAbnormal,
+  databaseMaintenanceKindLabel as operationLabels,
+  databaseMaintenanceStatusLabel as operationStates,
+  databaseRepairStatusLabel as repairStates,
+  type DatabaseMaintenanceSnapshot,
+  type DatabaseMaintenanceRow,
+} from '@weq/service/db-checkup';
+import type { DatabaseTaskProgress } from '@weq/service/db-progress';
 import { client, trpc } from '../trpc/client';
-import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
+import { useRenderDocument } from '../lib/renderDocument';
+import { useDbRepairReturn } from '../state/dbRepairReturn';
+import { useDialog } from './Dialog.shared';
 import { QqAvatar } from './QqAvatar';
-import { useToast } from './Toast';
-import '../styles/db-repair-storage.css';
+import { DatabaseMaintenanceProgress } from './DatabaseMaintenanceProgress';
+import { SegmentedControl } from './SegmentedControl';
+import { WindowSurface } from './WindowSurface';
+import { formatBytesOrUnknown } from '../lib/format';
+import '../styles/db-repair-maintenance.css';
 
-/** 展示当前账号用的最小信息（父级已有一份，不再重复探测）。 */
 export interface DbRepairAccountOption {
   uin: string;
+  configId?: string;
+  dbName?: string;
+  reportId?: string;
+  diagnostic?: { title: string; message: string; details: string[]; reportPath: string | null };
   name: string;
   avatarUrl: string;
 }
-
-// ────────────────────────── 主进程契约的渲染层视图 ──────────────────────────
-
-/** 与主进程 `DbRepairRecordSummary` 对齐。 */
-interface DbRepairRecordView {
-  id: string;
-  at: string;
-  dbName: string;
-  state: 'applied' | 'aborted' | 'apply-failed' | 'rolled-back';
-  /** 旧记录没有这个字段，按 `repair` 处理。 */
-  kind?: 'repair' | 'layout-migration';
-  badPages: number[];
-  durationMs: number;
-  beforeBytes: number;
-  afterBytes: number | null;
-  strictPages: boolean;
-  sourceLayout?: 'qq' | 'standard';
-  targetLayout?: 'qq' | 'standard';
-  error?: string;
-  reportPath: string | null;
-  canRestore: boolean;
-  purgedAt?: string;
-}
-
-interface DbRepairDatabaseRowView {
-  dbName: string;
-  dbPath: string;
-  exists: boolean;
-  bytes: number | null;
-  lastRecord: DbRepairRecordView | null;
-}
-
-/** 与主进程 `DbRepairAccountStatus` 对齐。 */
-interface DbRepairStatusView {
-  uin: string;
-  dataDir: string | null;
-  dbDir: string;
-  keyPresent: boolean;
-  qqPid: number | null;
-  busy: boolean;
-  databases: DbRepairDatabaseRowView[];
-  error: string | null;
-}
-
-type DbRepairReadiness =
-  | 'ready'
-  | 'blocked-by-qq'
-  | 'blocked-by-other'
-  | 'self-hold'
-  | 'unknown-lock';
-
-/** 与主进程 `DbRepairPreflight` 对齐（只列展示用到的字段）。 */
-interface DbRepairPreflightView {
-  cachePath: string;
-  storageOptimized: boolean;
-  space: Array<{
-    paths: string[];
-    freeBytes: number | null;
-    requiredBytes: number;
-    recommendedBytes: number;
-  }>;
-  readiness: DbRepairReadiness;
-  holders: Array<{ pid: number; name: string }>;
-  qqHolders: Array<{ pid: number; name: string }>;
-  selfHolders: Array<{ pid: number; name: string }>;
-  otherHolders: Array<{ pid: number; name: string }>;
-  dbPath: string;
-  dbBytes: number;
-  freeBytes: number | null;
-  requiredBytes: number;
-  keyPresent: boolean;
-  backupsKept: number;
-  pendingWalBytes: number;
-}
-
-/** 与主进程 `DbRepairRestorePreview` 对齐。 */
-interface DbRepairRestorePreviewView {
-  backupExists: boolean;
-  currentSha: string | null;
-  matchesAfter: boolean;
-}
-
-/** 与主进程 `DbRepairLayoutProbe` 对齐。 */
-interface DbRepairLayoutProbeView {
-  dbPath: string;
-  fileBytes: number;
-  headerOffset: number;
-  pageSize: number;
-  pageCount: number;
-  page262144: 'data' | 'zero' | 'missing';
-  page262145: 'data' | 'zero' | 'missing';
-  layout: 'qq' | 'standard' | 'unknown';
-  needsMigration: boolean;
-  summary: string;
-}
-
-/** 与主进程 `DbRepairErrorCode` 对齐（会被展示的那几种）。 */
-type DbRepairFailureCode =
-  | 'not-found'
-  | 'no-credentials'
-  | 'blocked'
-  | 'insufficient-space'
-  | 'space-margin'
-  | 'busy'
-  | 'changed-during-repair'
-  | 'needs-confirm'
-  | 'no-backup'
-  | 'verify-failed'
-  | 'recover-failed';
-
-/**
- * 一次修复 / 回滚的结局。失败也是返回值（不是 throw）—— 因为只有主进程知道
- * **失败之前账号是不是已经被关掉了**（见主进程 `DbRepairTaskResult` 的长注释）。
- */
-type DbRepairTaskResultView =
-  | {
-      ok: true;
-      record: {
-        id: string;
-        state: DbRepairRecordView['state'];
-        dbName: string;
-        backupPath: string | null;
-        reportPath: string | null;
-        durationMs: number;
-        badPages: number[];
-        verification: { healthy: boolean; tables: number; indexes: number } | null;
-      };
-      closedAccount: boolean;
-    }
-  | {
-      ok: false;
-      code: DbRepairFailureCode;
-      error: string;
-      closedAccount: boolean;
-    };
-
-/** 失败标题：主进程给的是**原因**，标题只说清「这是哪一类事」。 */
-const FAILURE_TITLES: Record<DbRepairFailureCode, string> = {
-  blocked: '数据库还被占着，已中止',
-  'changed-during-repair': '修复期间库被改动，已中止',
-  'verify-failed': '修复产物自检未通过',
-  'insufficient-space': '磁盘空间不够',
-  'space-margin': '磁盘建议余量不足',
-  'no-credentials': '拿不到数据库密钥',
-  'not-found': '找不到这个数据库',
-  busy: '已有修复任务在跑',
-  'needs-confirm': '这个库修复后又被改过',
-  'no-backup': '备份不在了',
-  'recover-failed': '重建失败',
+const recordStates = {
+  applied: '修复成功',
+  aborted: '已中止',
+  'apply-failed': '修复失败',
+  'rolled-back': '已恢复备份',
 };
+const dateText = (at: number | string) =>
+  new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(at));
 
-/** 这些失败一定发生在替换**之前**，所以可以说「替换还没开始」（别的不能这么说）。 */
-const PRE_SWAP_FAILURES: ReadonlySet<DbRepairFailureCode> = new Set([
-  'blocked',
-  'insufficient-space',
-  'space-margin',
-  'changed-during-repair',
-] as const);
+type Tone = 'ok' | 'warn' | 'run' | 'muted';
 
-/** 与 `@weq/service` 的 `BadPageScanReport` 对齐（与设置页那份同一形状）。 */
-interface BadPageScanReportView {
-  dbName: string;
-  dbPath: string;
-  pageSize: number;
-  pageCount: number;
-  badPages: number[];
-  zeroPages: number[];
-  plaintext: boolean;
-  trailingBytes: number;
-  usedHmac: boolean;
-  headerOffset: number;
-  affected: Array<{ name: string; pagetype: string; badPageCount: number; samplePages: number[] }>;
+function rowLabel(row: DatabaseMaintenanceRow) {
+  if (row.repair) return repairStates[row.repair.status];
+  if (row.deepStatus === 'running') return '深度检查中';
+  if (row.deepStatus === 'partial') return '深度体检部分完成';
+  if (row.deepStatus === 'failed') return '深度体检未完成';
+  if (row.deepStatus === 'cancelled') return '深度体检已停止';
+  if (row.deepStatus === 'completed') return '深度体检完成';
+  return { pending: '尚未扫描', running: '扫描中', completed: '扫描完成', failed: '扫描未完成' }[
+    row.scanStatus
+  ];
 }
-
-/** 与主进程 `DbRepairCheckup` 对齐（一次体检的结论）。 */
-interface DbRepairCheckupView {
-  dbName: string;
-  dbPath: string;
-  bytes: number;
-  /** 结构检查（`PRAGMA integrity_check`）。 */
-  integrity:
-    | { ran: true; healthy: boolean; corruptedTables: string[] }
-    | { ran: false; error: string; corrupt?: boolean };
-  /** 页级检查（坏页地图）。`usedHmac === false` = 跑成了但**没法判**。 */
-  pages: { ran: true; report: BadPageScanReportView } | { ran: false; error: string };
-  verdict: 'healthy' | 'healthy-unverified' | 'pages-bad' | 'corrupted' | 'error';
-  /** 一句话结论，口径在主进程（`concludeCheckup`），这里只负责展示。 */
-  summary: string;
-}
-
-// ────────────────────────── 展示用的小工具 ──────────────────────────
-
-/** 坏页清单只显示前若干个：整份可能上千个，铺满屏幕反而看不见结论。 */
-const BAD_PAGE_PREVIEW = 24;
-
-/** 任务跑着时的轮询间隔（锁状态、QQ pid 会变）。 */
-const POLL_MS = 2000;
-
-/** 语气。没有结论的那一档是 `muted`（既不是「好」也不是「坏」），`run` 则是「正在跑」。 */
-type Tone = 'ok' | 'warn' | 'muted' | 'run';
-
-function errMsg(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function shortTime(iso: string): string {
-  return timeFormat.formatDateTime(iso, 'millisecond') || iso;
-}
-
-/** 记录状态 → 徽章。失败原因、替换和还原结果以具体报告为准。 */
-const STATE_BADGES: Record<
-  DbRepairRecordView['state'],
-  { label: string; tone: Tone; hint: string }
-> = {
-  applied: { label: '已修复', tone: 'ok', hint: '本次修复已完成替换与自检。' },
-  'rolled-back': { label: '已回滚', tone: 'muted', hint: '已经换回修复前那一份。' },
-  aborted: {
-    label: '已中止',
-    tone: 'warn',
-    hint: '操作已中止，请查看报告中的原因，确认占用和文件状态后再试。',
-  },
-  'apply-failed': {
-    label: '修复失败',
-    tone: 'warn',
-    hint: '修复未完成，请查看报告中的失败阶段、备份及还原结果。',
-  },
-};
-
-/** 任务类型 → 徽章。旧记录没有 `kind`，按通用修复展示。 */
-function recordKindBadge(record: DbRepairRecordView): { label: string; tone: Tone } | null {
-  return record.kind === 'layout-migration' ? { label: '布局迁移', tone: 'ok' } : null;
-}
-
-/** 体检结论 → 徽章（文案就是结论本身）。 */
-function checkupBadge(row: DbRepairCheckupView): { label: string; tone: Tone } {
-  switch (row.verdict) {
-    case 'healthy':
-      return { label: '完好', tone: 'ok' };
-    case 'healthy-unverified':
-      return { label: '完好 · 页未校验', tone: 'muted' };
-    case 'pages-bad': {
-      const count = row.pages.ran ? row.pages.report.badPages.length : 0;
-      return { label: count > 0 ? `${count} 个坏页` : '有坏页', tone: 'warn' };
-    }
-    case 'corrupted':
-      return { label: '结构损坏', tone: 'warn' };
-    default:
-      return { label: '无法检查', tone: 'muted' };
+function rowTone(row: DatabaseMaintenanceRow): Tone {
+  if (row.repair) {
+    if (row.repair.status === 'running') return 'run';
+    if (row.repair.status === 'completed') return 'ok';
+    if (row.repair.status === 'failed' || row.repair.status === 'waiting') return 'warn';
+    return 'muted';
   }
+  if (row.scanStatus === 'running' || row.deepStatus === 'running') return 'run';
+  if (row.scanStatus === 'pending') return 'muted';
+  if (row.scanStatus === 'failed' || row.deepStatus === 'failed') return 'warn';
+  if (row.deepStatus === 'cancelled') return 'muted';
+  if (row.support === 'unsupported') return 'muted';
+  if (databaseMaintenanceRowAbnormal(row)) return 'warn';
+  if (row.deepStatus === 'completed' || row.deepStatus === 'partial') return 'ok';
+  return row.scanStatus === 'completed' ? 'ok' : 'muted';
+}
+function rowSummary(row: DatabaseMaintenanceRow): string {
+  if (row.repair?.status === 'running') return '正在重建这个数据库，期间不要打开这个账号的 QQ。';
+  if (row.repair?.status === 'failed') return row.repair.error ?? '修复没有完成。';
+  if (row.repair?.status === 'waiting')
+    return row.repair.error ?? '已保留扫描结果，等待处理后重试。';
+  if (row.repair?.status === 'cancelled') return '本轮修复已停止，这个库没有提交替换。';
+  if (row.repair?.status === 'completed')
+    return row.repair.record?.verification?.healthy === false
+      ? '重建产物已替换，但复核发现结构异常；请查看下方的复核结果。'
+      : '重建产物已替换，并完成了结构复核。';
+  if (row.scanStatus === 'pending') return '还没扫描这个数据库。';
+  if (row.scanStatus === 'running') {
+    const current = row.progress?.current;
+    return current?.message ? `${current.message}…` : '正在检查页签名。';
+  }
+  if (row.scanStatus === 'failed') return row.scanError ?? '扫描没有跑完，暂时没有可用结论。';
+  if (row.scan?.plaintext) return '明文数据库，当前重建工具不支持处理它。';
+  if (row.deepStatus === 'running') return '正在做结构体检，页扫描结果已经保留。';
+  if (row.deepStatus === 'partial')
+    return '深度体检部分完成，常规扫描结果可用；结构检查还有未核验的部分。';
+  if (row.deepStatus === 'failed') return '深度体检没有跑完，常规扫描结果仍然保留。';
+  if (row.deepStatus === 'cancelled') return '深度体检已停止，常规扫描结果仍然保留。';
+  if (row.integrity?.ran && !row.integrity.healthy) return '结构检查发现异常，可以尝试重建修复。';
+  if (row.integrity?.ran && row.integrity.complete === false)
+    return '已检查的结构部分没有发现异常，但仍有未核验项，不能认定整库正常。';
+  const diagnostic = row.issues.filter((issue) => issue.diagnostic !== false);
+  if (diagnostic.length) return diagnostic[0]!.message;
+  if (row.scan) {
+    if (row.scan.badPages.length)
+      return `扫出 ${row.scan.badPages.length.toLocaleString('zh-CN')} 个坏页，重建会把它们排除在外。`;
+    if (row.scan.plaintext) return '明文数据库，没有可校验的加密页签名。';
+    return '页签名检查没有发现坏页。';
+  }
+  return '等待检查结果。';
+}
+function namesText(names: string[], limit = 3): string {
+  return names.length <= limit
+    ? names.join('、')
+    : `${names.slice(0, limit).join('、')} 等 ${names.length} 个`;
 }
 
-/** 「这个库有问题」的唯一口径：坏页 / 结构损坏 / 检查失败。 */
-function isProblemCheckup(row: DbRepairCheckupView): boolean {
-  return row.verdict === 'pages-bad' || row.verdict === 'corrupted' || row.verdict === 'error';
+function Chip({ tone, children }: { tone: Tone; children: ReactNode }) {
+  return <span className={`weq-dbm-chip is-${tone}`}>{children}</span>;
 }
 
-/**
- * 体检调用本身失败（IPC / 账号解析不了 / 文件消失）时合成一行。
- * 列表照常渲染，不让一个库的失败把整张体检表变成一句 toast。
- */
-function failedCheckup(dbName: string, error: string): DbRepairCheckupView {
-  return {
-    dbName,
-    dbPath: '',
-    bytes: 0,
-    integrity: { ran: false, error },
-    pages: { ran: false, error },
-    verdict: 'error',
-    summary: `检查没跑起来：${error}`,
-  };
-}
-
-/**
- * 已经自动体检过的账号（模块级，不是组件状态）。
- *
- * 组件会在切工具页签时卸载（`activeTool` 一变就换人），用组件内的标记会在切回来时又整库
- * 读一遁。一个账号自动跑过一次就够 —— 想拿新结论自己点「重新体检」。
- */
-const autoCheckedUins = new Set<string>();
-
-/**
- * 预检结论 → 界面措辞。
- *
- * 三档的处置完全不同，别把它们合并：
- *
- *   - `blocked-by-qq`：给「结束 QQ」按钮（pid 由预检带上来，主进程还会二次校验）；
- *   - `blocked-by-other`：**真外人在占**（其它工具 / 异常残留的进程），WeQ 关不掉它，
- *     只能让用户自己去处理；
- *   - `self-hold`：占着的就是 **WeQ 自己**。替换前会自动关掉这个账号，不需要用户动手 ——
- *     Windows 上几乎每次都会命中这一档（Restart Manager 枚举的是"谁打开着文件"）。
- */
-const READINESS_COPY: Record<DbRepairReadiness, { label: string; tone: Tone; short: string }> = {
-  ready: { label: '可以开始', tone: 'ok', short: '没有进程占用这个库，随时可以修。' },
-  'blocked-by-qq': {
-    label: 'QQ 正开着这个账号',
-    tone: 'warn',
-    short: '修复要一边解密一边读，QQ 同时写会读出撕裂的页 —— 先结束这个账号的 QQ。',
-  },
-  'blocked-by-other': {
-    label: '被其它程序占用',
-    tone: 'warn',
-    short: '这个库被 WeQ 之外的进程占着，我们关不掉它 —— 先把它关掉再修。',
-  },
-  'self-hold': {
-    label: 'WeQ 自己开着（会自动释放）',
-    tone: 'ok',
-    short: '占着它的是 WeQ 自己（读消息时握着这个库）：替换前会自动关掉这个账号，不用你动手。',
-  },
-  'unknown-lock': {
-    label: '占用情况不明',
-    tone: 'muted',
-    short: '这个平台探测不到锁（权限或平台不支持）。不阻断修复，替换前会再查一次。',
-  },
-};
-
-/**
- * native 报上来的修复阶段（`RecoverPhase`）加上 TS 侧补的几条，按执行顺序排。
- * 只用来画阶段轨 —— **不做百分比换算**，进度轴的唯一真相是主进程给的 `percent`。
- */
-const REPAIR_STAGES: readonly { phase: string; label: string }[] = [
-  { phase: 'backup', label: '备份' },
-  { phase: 'Scan', label: '扫描' },
-  { phase: 'Decrypt', label: '解密' },
-  { phase: 'Repair', label: '重建' },
-  { phase: 'Encrypt', label: '加密' },
-  { phase: 'Restore', label: '回写' },
-  { phase: 'Verify', label: '自检' },
-  { phase: 'swapping', label: '替换' },
-];
-
-/** 一条进度推送（阶段 + 整体百分比 + 中文消息，与服务层 `emit` 一一对应）。 */
-interface ProgressView {
-  phase: string;
-  percent: number;
-  message: string;
-}
-
-/** 体检跑到哪了（进度条 + 「正在看哪个库」）。 */
-interface ScanView {
-  done: number;
+function StepRail({
+  phase,
+  scanned,
+  total,
+  ready,
+  repaired,
+  operationKind,
+}: {
+  phase: 'idle' | 'scan' | 'review' | 'repair' | 'done';
+  scanned: number;
   total: number;
-  current: string | null;
-}
-
-/** 面板上的结果卡：成功 / 失败 + 账号是不是已经被关掉。 */
-interface OutcomeView {
-  tone: 'ok' | 'warn';
-  title: string;
-  detail: string;
-  closedAccount: boolean;
-}
-
-// ────────────────────────── 版面零件 ──────────────────────────
-
-/** 一枚结论徽章。语气靠底色深浅区分，不另起色相。 */
-function Chip({ tone = 'muted', children }: { tone?: Tone; children: ReactNode }): ReactElement {
-  return <span className={`weq-rp-chip is-${tone}`}>{children}</span>;
-}
-
-/** 一句话提示条：语气靠左边框重量与底色区分。 */
-function Note({
-  tone = 'muted',
-  icon,
-  children,
-  action,
-}: {
-  tone?: Tone;
-  icon?: ReactNode;
-  children: ReactNode;
-  action?: ReactNode;
-}): ReactElement {
+  ready: number;
+  repaired: number;
+  operationKind?: 'scan' | 'checkup' | 'repair';
+}) {
+  const active = phase === 'idle' || phase === 'scan' ? 0 : phase === 'review' ? 1 : 2;
+  const allDone = phase === 'done';
+  const steps = [
+    {
+      title: '扫描检查',
+      caption:
+        phase === 'scan'
+          ? '进行中'
+          : scanned > 0 && scanned === total
+            ? `${total} 个库完成`
+            : scanned > 0
+              ? `${scanned} / ${total} 个库`
+              : '未开始',
+    },
+    {
+      title: '查看结果',
+      caption:
+        phase === 'review'
+          ? '待决定'
+          : phase === 'repair' || allDone
+            ? `${ready} 个可修复`
+            : '等待扫描',
+    },
+    {
+      title: '重建修复',
+      caption:
+        phase === 'repair'
+          ? '修复中'
+          : repaired > 0
+            ? `${repaired} 个已完成`
+            : allDone
+              ? operationKind === 'repair'
+                ? '本轮已结束'
+                : '未执行'
+              : '未开始',
+    },
+  ];
   return (
-    <div className={`weq-rp-note is-${tone}`}>
-      <span className="weq-rp-note-icon" aria-hidden>
-        {icon ??
-          (tone === 'ok' ? (
-            <CheckCircle2 size={14} strokeWidth={2} />
-          ) : tone === 'warn' ? (
-            <AlertTriangle size={14} strokeWidth={2} />
-          ) : (
-            <Info size={14} strokeWidth={2} />
-          ))}
-      </span>
-      <span className="weq-rp-note-text">{children}</span>
-      {action ? <span className="weq-rp-note-action">{action}</span> : null}
-    </div>
-  );
-}
-
-/** 环境检查的一格指标：标签 + 结论值 + 可选的补充。 */
-function Metric({
-  icon,
-  label,
-  value,
-  hint,
-  tone,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-  hint?: ReactNode;
-  tone?: Tone;
-}): ReactElement {
-  return (
-    <div className={`weq-rp-metric${tone ? ` is-${tone}` : ''}`}>
-      <span className="weq-rp-metric-label" aria-hidden>
-        {icon}
-        {label}
-      </span>
-      <span className="weq-rp-metric-value" title={value}>
-        {value}
-      </span>
-      {hint ? <span className="weq-rp-metric-hint">{hint}</span> : null}
-    </div>
-  );
-}
-
-/** 默认收起的说明块：重点步骤保持清爽，解释文字点开再看。 */
-function Disclosure({ summary, children }: { summary: string; children: ReactNode }): ReactElement {
-  return (
-    <details className="weq-rp-details">
-      <summary>
-        <ChevronDown size={13} strokeWidth={2.2} aria-hidden />
-        {summary}
-      </summary>
-      <div className="weq-rp-details-body">{children}</div>
-    </details>
-  );
-}
-
-/** 顶部流程条：两页，当前页高亮、走过的打勾。 */
-function Steps({ stage }: { stage: 'scan' | 'repair' }): ReactElement {
-  const index = stage === 'scan' ? 0 : 1;
-  const items = [
-    { key: 'scan', title: '体检数据库', sub: '只读，找出坏库' },
-    { key: 'repair', title: '修复', sub: '重建后替换 · 可回滚' },
-  ] as const;
-  return (
-    <ol className="weq-rp-steps">
-      {items.map((item, i) => (
-        <li
-          key={item.key}
-          className={`weq-rp-step${i === index ? ' is-active' : i < index ? ' is-done' : ''}`}
-        >
-          <span className="weq-rp-step-dot" aria-hidden>
-            {i < index ? <Check size={12} strokeWidth={2.8} /> : i + 1}
-          </span>
-          <span className="weq-rp-step-text">
-            <strong>{item.title}</strong>
-            <em>{item.sub}</em>
-          </span>
-        </li>
-      ))}
+    <ol className="weq-dbm-steps" aria-label="数据库维护流程">
+      {steps.map((step, index) => {
+        const done = allDone ? operationKind === 'repair' || index < 2 : index < active;
+        const current = !allDone && index === active;
+        return (
+          <li
+            key={step.title}
+            className={`weq-dbm-step${done ? ' is-done' : ''}${current ? ' is-current' : ''}`}
+            aria-current={current ? 'step' : undefined}
+          >
+            <span className="weq-dbm-step-dot" aria-hidden>
+              {done ? <Check size={12} strokeWidth={2.6} /> : index + 1}
+            </span>
+            <span className="weq-dbm-step-text">
+              <strong>{step.title}</strong>
+              <em>{step.caption}</em>
+            </span>
+          </li>
+        );
+      })}
     </ol>
   );
 }
-
-/** 修复进度：当前阶段 + 百分比 + 一条轨道 + 阶段轨（卡住时能看出卡在哪一步）。 */
-function RepairProgress({ progress }: { progress: ProgressView }): ReactElement {
-  const activeIndex = REPAIR_STAGES.findIndex((stage) => stage.phase === progress.phase);
-  return (
-    <div className="weq-rp-progress" aria-live="polite">
-      <div className="weq-rp-progress-head">
-        <span className="weq-rp-progress-msg">
-          <Loader2 size={13} strokeWidth={2.4} className="weq-spin" aria-hidden />
-          {progress.message || progress.phase}
-        </span>
-        <span className="weq-rp-progress-pct">{progress.percent}%</span>
-      </div>
-      <div className="weq-rp-track">
-        <div className="weq-rp-fill" style={{ width: `${progress.percent}%` }} />
-      </div>
-      {activeIndex >= 0 ? (
-        <ol className="weq-rp-stages">
-          {REPAIR_STAGES.map((stage, index) => (
-            <li
-              key={stage.phase}
-              className={
-                index < activeIndex ? 'is-done' : index === activeIndex ? 'is-active' : 'is-todo'
-              }
-            >
-              <span className="weq-rp-stage-dot" aria-hidden />
-              {stage.label}
-            </li>
-          ))}
-        </ol>
-      ) : null}
-    </div>
-  );
-}
-
-// ────────────────────────── 修复记录 / 回滚：灯箱卡片 ──────────────────────────
-
-/**
- * 「修复记录 · 回滚」灯箱。
- *
- * 它刻意**不挂在修复主线里**：这条路的每一步都指向「把库修好」，而回滚与记录是回头看的
- * 东西 —— 铺在主线下面只会把主按钮挤下去。面板标题栏那枚小按钮打开它。
- *
- * 卡片 portal 到 body（`.weq-wtools-layer` 自己是一层 stacking context，留在里面反而会
- * 被后面的层盖住），z-index 走 `useOverlayLayer`，永远压在最后打开的那层之上。
- */
-function HistoryLightbox({
-  open,
-  onClose,
-  records,
-  busy,
-  confirming,
-  preview,
-  onAskRestore,
-  onRestore,
-  onDelete,
-  onAskDelete,
-  onCancelConfirm,
-  onReveal,
-}: {
-  open: boolean;
-  onClose: () => void;
-  records: DbRepairRecordView[];
-  busy: boolean;
-  confirming: { id: string; action: 'restore' | 'delete' } | null;
-  preview: DbRepairRestorePreviewView | null;
-  onAskRestore: (record: DbRepairRecordView) => void;
-  onRestore: (record: DbRepairRecordView, force: boolean) => void;
-  onDelete: (record: DbRepairRecordView) => void;
-  onAskDelete: (record: DbRepairRecordView) => void;
-  onCancelConfirm: () => void;
-  onReveal: (record: DbRepairRecordView, what: 'report' | 'backup') => void;
-}): ReactElement | null {
-  const document = useRenderDocument();
-  const layer = useOverlayLayer(open);
-
-  /*
-   * Escape 只关这一层：在捕获阶段吃掉，否则维护与诊断工具弹窗那份 document 监听会把整个工具
-   * 弹窗一起关掉（两层同时响应同一个按键）。
-   */
-  useEffect(() => {
-    if (!open) return undefined;
-    function onKeyDown(event: KeyboardEvent): void {
-      if (event.key !== 'Escape') return;
-      event.stopPropagation();
-      onClose();
-    }
-    document.addEventListener('keydown', onKeyDown, true);
-    return () => document.removeEventListener('keydown', onKeyDown, true);
-  }, [open, onClose, document]);
-
-  if (!open) return null;
-
-  return createPortal(
-    <div
-      className="weq-rp-lb-layer"
-      style={{ zIndex: layer }}
-      role="presentation"
-      onMouseDown={closeFromScrim(onClose)}
-    >
-      <section
-        className="weq-rp-lb"
-        role="dialog"
-        aria-modal="true"
-        aria-label="修复记录与回滚"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <header className="weq-rp-lb-head">
-          <span className="weq-rp-lb-icon" aria-hidden>
-            <History size={16} strokeWidth={1.9} />
-          </span>
-          <span className="weq-rp-lb-title">
-            <strong>修复记录</strong>
-            <em>回滚到任意一次修复之前</em>
-          </span>
-          {records.length > 0 ? <Chip>{records.length}</Chip> : null}
-          <button type="button" className="weq-rp-x" title="关闭" onClick={onClose}>
-            <X size={16} strokeWidth={2} aria-hidden />
-          </button>
-        </header>
-
-        <div className="weq-rp-lb-body">
-          {records.length === 0 ? (
-            <div className="weq-rp-lb-empty">
-              <History size={22} strokeWidth={1.6} aria-hidden />
-              <span>还没有修复记录。</span>
-              <em>修复结果会列在这里；备份仍可用时，可以检查并回滚。</em>
-            </div>
-          ) : (
-            <ol className="weq-rp-recs">
-              {records.map((record) => {
-                const badge = STATE_BADGES[record.state];
-                const kindBadge = recordKindBadge(record);
-                const isConfirming = confirming?.id === record.id;
-                return (
-                  <li
-                    key={record.id}
-                    className={`weq-rp-rec is-${badge.tone}${isConfirming ? ' is-confirming' : ''}`}
-                  >
-                    <span className="weq-rp-rec-dot" aria-hidden />
-                    <div className="weq-rp-rec-main">
-                      <div className="weq-rp-rec-head">
-                        <span className="weq-rp-mono">{record.dbName}</span>
-                        <Chip tone={badge.tone}>{badge.label}</Chip>
-                        {kindBadge ? <Chip tone={kindBadge.tone}>{kindBadge.label}</Chip> : null}
-                        <span className="weq-rp-rec-time">{shortTime(record.at)}</span>
-                      </div>
-                      <div className="weq-rp-rec-meta">
-                        <span>
-                          {formatBytes(record.beforeBytes)} → {formatBytes(record.afterBytes)}
-                        </span>
-                        <span className="weq-rp-sep" aria-hidden />
-                        <span>{(record.durationMs / 1000).toFixed(1)}s</span>
-                        {record.badPages.length > 0 ? (
-                          <>
-                            <span className="weq-rp-sep" aria-hidden />
-                            <span>坏页 {record.badPages.length}</span>
-                          </>
-                        ) : null}
-                        {record.strictPages ? (
-                          <>
-                            <span className="weq-rp-sep" aria-hidden />
-                            <span>坏页已清零</span>
-                          </>
-                        ) : null}
-                        {record.sourceLayout && record.targetLayout ? (
-                          <>
-                            <span className="weq-rp-sep" aria-hidden />
-                            <span>
-                              {record.sourceLayout} → {record.targetLayout}
-                            </span>
-                          </>
-                        ) : null}
-                      </div>
-                      <p className="weq-rp-hint">
-                        {record.error ??
-                          (record.kind === 'layout-migration'
-                            ? '把旧版误修复的 standard 页布局迁回 QQ 布局。'
-                            : badge.hint)}
-                      </p>
-
-                      {/* 确认一律内联在这一行里 —— 位置与操作对象永远一致。 */}
-                      {isConfirming && confirming?.action === 'restore' ? (
-                        <div className="weq-rp-confirm">
-                          {!preview?.backupExists ? (
-                            <span>这条记录的备份已经被清理了，回滚不了。</span>
-                          ) : preview.matchesAfter ? (
-                            <span>当前库与修复产物一致，可以使用备份回滚到修复前。</span>
-                          ) : (
-                            <span className="is-warn">
-                              警告：库在这之后又被写过（QQ 进了新消息）。回滚会把这些新内容一起 丢掉
-                              —— 确认要这么做再继续。
-                            </span>
-                          )}
-                          <div className="weq-rp-actions">
-                            <button
-                              type="button"
-                              className="weq-set-btn weq-set-btn-sm weq-set-btn-danger"
-                              disabled={!preview?.backupExists || busy}
-                              onClick={() => onRestore(record, preview?.matchesAfter === false)}
-                            >
-                              {preview?.matchesAfter === false ? '丢弃新内容并回滚' : '确认回滚'}
-                            </button>
-                            <button
-                              type="button"
-                              className="weq-set-btn weq-set-btn-sm weq-set-btn-soft"
-                              onClick={onCancelConfirm}
-                            >
-                              取消
-                            </button>
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {isConfirming && confirming?.action === 'delete' ? (
-                        <div className="weq-rp-confirm">
-                          <span className="is-warn">
-                            删掉这条修复记录？记录与它的备份会一起被清理，之后不能再回滚到这一条。
-                          </span>
-                          <div className="weq-rp-actions">
-                            <button
-                              type="button"
-                              className="weq-set-btn weq-set-btn-sm weq-set-btn-danger"
-                              disabled={busy}
-                              onClick={() => onDelete(record)}
-                            >
-                              确认删除
-                            </button>
-                            <button
-                              type="button"
-                              className="weq-set-btn weq-set-btn-sm weq-set-btn-soft"
-                              onClick={onCancelConfirm}
-                            >
-                              取消
-                            </button>
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {!isConfirming ? (
-                        <div className="weq-rp-actions">
-                          {record.state === 'applied' && record.canRestore ? (
-                            <button
-                              type="button"
-                              className="weq-set-btn weq-set-btn-sm weq-set-btn-soft"
-                              disabled={busy}
-                              onClick={() => onAskRestore(record)}
-                            >
-                              <RotateCcw size={12} strokeWidth={2} aria-hidden />
-                              回滚
-                            </button>
-                          ) : null}
-                          {record.reportPath ? (
-                            <button
-                              type="button"
-                              className="weq-rp-icon-btn"
-                              title="打开修复报告"
-                              aria-label="打开修复报告"
-                              onClick={() => onReveal(record, 'report')}
-                            >
-                              <FileText size={13} strokeWidth={2} aria-hidden />
-                            </button>
-                          ) : null}
-                          {record.canRestore ? (
-                            <button
-                              type="button"
-                              className="weq-rp-icon-btn"
-                              title="打开备份所在目录"
-                              aria-label="打开备份所在目录"
-                              onClick={() => onReveal(record, 'backup')}
-                            >
-                              <FolderOpen size={13} strokeWidth={2} aria-hidden />
-                            </button>
-                          ) : (
-                            <span className="weq-rp-hint">
-                              {record.purgedAt
-                                ? `备份已于 ${shortTime(record.purgedAt)} 被保留策略清理`
-                                : '这条记录没有备份'}
-                            </span>
-                          )}
-                          <button
-                            type="button"
-                            className="weq-rp-icon-btn is-danger"
-                            disabled={busy}
-                            title="删除这条记录（连同它的备份）"
-                            aria-label="删除这条记录"
-                            onClick={() => onAskDelete(record)}
-                          >
-                            <Trash2 size={13} strokeWidth={2} aria-hidden />
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
-          )}
-        </div>
-      </section>
-    </div>,
-    document.body,
-  );
-}
-
-// ────────────────────────── 主面板 ──────────────────────────
 
 export function DbRepairPanel({
   currentUin,
   accounts,
   onRefreshAccounts,
+  reportId: requestedReportId,
+  resultRequest,
 }: {
-  /** 当前登录的账号 —— 这一屏**只修它**，不提供切换账号的入口。 */
   currentUin: string | null;
-  /** 账号列表（只用来查当前账号的昵称 / 头像，不用于选择）。 */
   accounts: DbRepairAccountOption[];
-  /** 刷新左侧那份账号列表（修复会关掉账号，pid 与在线状态都可能变）。 */
   onRefreshAccounts: () => void;
-}): ReactElement {
-  const pushToast = useToast((s) => s.push);
-  const armReturn = useDbRepairReturn((s) => s.arm);
-  const utils = trpc.useUtils();
-
-  /** 当前在哪一页。回滚 / 记录不在这条线上（见 `<HistoryLightbox>` 的注释）。 */
-  const [stage, setStage] = useState<'scan' | 'repair'>('scan');
-  /**
-   * 选中的库。从体检结论点某个坏库进来时会预选它；「跳过体检」进来是 null ——
-   * 没有选中就没有修复按钮。
-   */
-  const [dbName, setDbName] = useState<string | null>(null);
-  /** 体检结果：按库名记着。 */
-  const [checkups, setCheckups] = useState<Record<string, DbRepairCheckupView>>({});
-  /** 体检跑到哪了（标题右边那句 + 顶部进度条）。 */
-  const [scan, setScan] = useState<ScanView | null>(null);
-  /** 「其他数据库」是否展开：完好的库默认收在开关后面。 */
-  const [showOthers, setShowOthers] = useState(false);
-  /** 修复前的确认（点「开始修复」不会立刻开跑）。 */
-  /** 确认卡是哪种操作：通用修复 / 布局迁移。 */
-  const [confirmRepair, setConfirmRepair] = useState<'repair' | 'layout-migration' | null>(null);
+  reportId?: string;
+  resultRequest?: { uin: string; configId?: string; reportId?: string };
+}) {
+  const account = accounts.find((item) => item.uin === currentUin) ?? accounts[0];
+  const ownerDocument = useRenderDocument();
+  const scope = useMemo(
+    () => ({ uin: account?.uin ?? '', configId: account?.configId }),
+    [account?.uin, account?.configId],
+  );
+  const [live, setLive] = useState<DatabaseMaintenanceSnapshot | null>(null);
+  const [reportId, setReportId] = useState(requestedReportId ?? account?.reportId);
+  const [reportScope, setReportScope] = useState(scope);
+  const sameReportScope = reportScope.uin === scope.uin && reportScope.configId === scope.configId;
+  const [legacyId, setLegacyId] = useState<string>();
+  const [focused, setFocused] = useState(account?.dbName);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [backup, setBackup] = useState(true);
+  const [strictPages, setStrictPages] = useState(false);
   const [allowLowSpace, setAllowLowSpace] = useState(false);
-  /** 正在跑的那件事（按钮据此禁用，避免同时发起两个任务）。 */
-  const [busy, setBusy] = useState<'repair' | 'restore' | 'backup' | 'checkup' | 'kill' | null>(
-    null,
-  );
-  const [progress, setProgress] = useState<ProgressView | null>(null);
-  /** 一次修复之后的结果卡（含「账号已被关掉、要回启动页」）。 */
-  const [outcome, setOutcome] = useState<OutcomeView | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  /** 记录灯箱是否打开。 */
-  const [historyOpen, setHistoryOpen] = useState(false);
-  /** 记录灯箱里的内联二次确认：哪一条、等的是哪种操作。 */
-  const [confirming, setConfirming] = useState<{ id: string; action: 'restore' | 'delete' } | null>(
-    null,
-  );
-  const [preview, setPreview] = useState<DbRepairRestorePreviewView | null>(null);
-
-  const uin = currentUin;
-  const running = busy === 'repair' || busy === 'restore';
-  const autoRefresh = useQQAutoRefresh(uin !== null);
-
-  /** 停止后丢弃当前调用的迟到结果，不再检查后续数据库。 */
-  const stopScanRef = useRef(false);
-  const checkupTaskRef = useRef<Promise<void> | null>(null);
-  const scanRunRef = useRef<symbol | null>(null);
-  const activeCheckupRef = useRef<{ uin: string; taskId: string } | null>(null);
-  const [stoppingScan, setStoppingScan] = useState(false);
-
-  // ── 查询 ────────────────────────────────────────────────────────────────
-  const statusQuery = trpc.dbRepair.status.useQuery(
-    { uin: uin ?? '' },
-    { ...autoRefresh, refetchInterval: autoRefresh.enabled && running ? POLL_MS : false },
-  );
-  const status = statusQuery.data as DbRepairStatusView | undefined;
-  /** 该账号的 QQ 是否在线（决定要不要盯着锁状态）。 */
-  const qqOnline = (status?.qqPid ?? null) !== null;
-  const preflightQuery = trpc.dbRepair.preflight.useQuery(
-    { uin: uin ?? '', dbName: dbName ?? '' },
-    // 没选库就不查（整段环境检查都对着某个库说话）。
+  const [starting, setStarting] = useState<'scan' | 'checkup' | 'repair' | null>(null);
+  const [scanKind, setScanKind] = useState<'scan' | 'checkup'>('scan');
+  const [surface, setSurface] = useState<'history' | 'settings' | null>(null);
+  const [surfaceAnchor, setSurfaceAnchor] = useState<HTMLElement>();
+  const [reportFocused, setReportFocused] = useState<string>();
+  const [error, setError] = useState('');
+  const [connectionError, setConnectionError] = useState(false);
+  const touched = useRef(new Set<string>());
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const displayedOperation = useRef<string | undefined>(undefined);
+  const sessionId = useRef<string | undefined>(undefined);
+  const optionsRef = useRef<HTMLDetailsElement>(null);
+  const utils = trpc.useUtils();
+  const status = trpc.dbRepair.status.useQuery(scope, { enabled: !!scope.uin, retry: false });
+  const maintenance = trpc.dbRepair.maintenance.useQuery(scope, {
+    enabled: !!scope.uin,
+    refetchInterval: 2000,
+    retry: false,
+  });
+  const reports = trpc.dbRepair.reports.useQuery(scope, { enabled: !!scope.uin, retry: false });
+  const history = trpc.dbRepair.history.useQuery(scope, { enabled: !!scope.uin, retry: false });
+  const report = trpc.dbRepair.report.useQuery(
+    { ...reportScope, reportId: reportId ?? '' },
     {
-      ...autoRefresh,
-      enabled: autoRefresh.enabled && dbName !== null,
-      refetchInterval: autoRefresh.enabled && !running && qqOnline ? POLL_MS : false,
+      enabled: !!reportId,
+      retry: false,
+      cacheTime: 0,
+      refetchInterval: (value) =>
+        !sameReportScope && value?.operation.status === 'running' ? 1000 : false,
     },
   );
-  const preflight = preflightQuery.data as DbRepairPreflightView | undefined;
-  useEffect(() => {
-    // 确认只对本次操作与当前缓存位置有效，不沿用上一次的风险接受。
-    setAllowLowSpace(false);
-  }, [confirmRepair, dbName, preflight?.cachePath]);
-  /**
-   * 页布局检测：只在修复页选中库时跑（不在启动 / 面板挂载时自动跑）。
-   *
-   * 判据只有「文件 > 1 GiB」和「262144 / 262145 两页状态」，所以这是一次两次 4 KiB
-   * 的只读读盘，不需要整库扫描，也不会和体检抢 IO。
-   */
-  const layoutQuery = trpc.dbRepair.detectLayout.useQuery(
-    { uin: uin ?? '', dbName: dbName ?? '' },
-    { ...autoRefresh, enabled: autoRefresh.enabled && stage === 'repair' && dbName !== null },
+  const legacy = trpc.dbRepair.legacyReport.useQuery(
+    { ...scope, recordId: legacyId ?? '' },
+    { enabled: !!legacyId, retry: false },
   );
-  const layoutProbe = layoutQuery.data as DbRepairLayoutProbeView | undefined;
-  const needsMigration = layoutProbe?.needsMigration === true;
-  const historyQuery = trpc.dbRepair.history.useQuery({ uin: uin ?? '' }, autoRefresh);
-  const history = useMemo(
-    () => (historyQuery.data ?? []) as DbRepairRecordView[],
-    [historyQuery.data],
-  );
+  const cache = trpc.dbRepair.cacheLocation.useQuery(undefined);
+  const scan = trpc.dbRepair.scanAccount.useMutation();
+  const repair = trpc.dbRepair.repairSelected.useMutation();
+  const stop = trpc.dbRepair.stopMaintenance.useMutation();
+  const end = trpc.dbRepair.endMaintenance.useMutation();
+  const exportReport = trpc.dbRepair.exportMaintenanceReport.useMutation();
+  const exportLegacy = trpc.dbRepair.exportLegacyReport.useMutation();
+  const pickCache = trpc.dbRepair.pickCacheLocation.useMutation();
+  const resetCache = trpc.dbRepair.resetCacheLocation.useMutation();
+  const deleteReport = trpc.dbRepair.deleteReport.useMutation();
+  const deleteRecord = trpc.dbRepair.deleteRecord.useMutation();
 
-  const startRepair = trpc.dbRepair.start.useMutation();
-  const checkupRun = trpc.dbRepair.checkup.useMutation();
-  const cancelCheckup = trpc.dbRepair.cancelCheckup.useMutation();
-  const cancelCheckupRef = useRef(cancelCheckup.mutateAsync);
-  cancelCheckupRef.current = cancelCheckup.mutateAsync;
-  const checkupOwnerRef = useRef<{ uin: string | null } | null>(null);
   useEffect(() => {
-    const owner = { uin };
-    checkupOwnerRef.current = owner;
-    return () => {
-      const active = activeCheckupRef.current;
-      const run = scanRunRef.current;
-      checkupOwnerRef.current = null;
-      // StrictMode 会立即重挂；只取消真正卸载或切换账号前的扫描。
-      queueMicrotask(() => {
-        if (checkupOwnerRef.current?.uin === owner.uin) return;
-        if (scanRunRef.current === run) {
-          stopScanRef.current = true;
-          scanRunRef.current = null;
-          checkupTaskRef.current = null;
-          setScan(null);
-          setBusy((current) => (current === 'checkup' ? null : current));
+    if (maintenance.data !== undefined) setLive(maintenance.data);
+  }, [maintenance.data]);
+  useEffect(() => {
+    if (
+      resultRequest &&
+      !resultRequest.reportId &&
+      (resultRequest.uin !== scope.uin || resultRequest.configId !== scope.configId)
+    )
+      return;
+    setReportId(resultRequest ? resultRequest.reportId : (requestedReportId ?? account?.reportId));
+    setReportScope(
+      resultRequest?.reportId
+        ? { uin: resultRequest.uin, configId: resultRequest.configId }
+        : scope,
+    );
+    setLegacyId(undefined);
+    if (resultRequest?.reportId || requestedReportId || account?.reportId) setSurface('history');
+  }, [requestedReportId, account?.reportId, resultRequest, scope]);
+  useEffect(() => {
+    const kind = live?.operation?.kind;
+    if (kind === 'scan' || kind === 'checkup') setScanKind(kind);
+  }, [live?.operation?.id, live?.operation?.kind]);
+  useEffect(() => {
+    const sub = client.dbRepair.onMaintenance.subscribe(undefined, {
+      onData(snapshot) {
+        if (snapshot.uin !== scope.uin || snapshot.configId !== scope.configId) return;
+        setLive(snapshot);
+        setConnectionError(false);
+        if (snapshot.operation?.status !== 'running') {
+          void utils.dbRepair.reports.invalidate(scope);
+          void utils.dbRepair.history.invalidate(scope);
         }
-        if (active) void cancelCheckupRef.current(active).catch(() => {});
-      });
-    };
-  }, [uin]);
-  const killQq = trpc.dbRepair.killQq.useMutation();
-  const restore = trpc.dbRepair.restore.useMutation();
-  const removeRecord = trpc.dbRepair.deleteRecord.useMutation();
-  const backupNow = trpc.dbRepair.backup.useMutation();
-  const cacheLocation = trpc.dbRepair.cacheLocation.useQuery();
-  const pickCacheLocation = trpc.dbRepair.pickCacheLocation.useMutation();
-  const resetCacheLocation = trpc.dbRepair.resetCacheLocation.useMutation();
-  const changingCache = pickCacheLocation.isLoading || resetCacheLocation.isLoading;
-  // 只读体检不使用修复缓存，不能妨碍用户在开修前解决空间不足。
-  const cacheLocationLocked = running || busy === 'backup' || changingCache;
-
-  async function changeCacheLocation(reset: boolean): Promise<void> {
-    try {
-      if (reset) await resetCacheLocation.mutateAsync();
-      else await pickCacheLocation.mutateAsync();
-      await Promise.all([
-        utils.dbRepair.cacheLocation.invalidate(),
-        utils.dbRepair.preflight.invalidate(),
-      ]);
-      setConfirmRepair(null);
-    } catch (error) {
-      pushToast({ tone: 'error', title: '缓存位置未更改', detail: errMsg(error) });
-    }
-  }
-
-  const existingDbs = useMemo(() => status?.databases ?? [], [status]);
-  const liveDbs = useMemo(() => existingDbs.filter((row) => row.exists), [existingDbs]);
-
-  /** 修完统一刷新三个查询 —— 状态、预检、历史都变了。 */
-  const refreshAll = async (): Promise<void> => {
-    await Promise.all([
-      utils.dbRepair.status.invalidate(),
-      utils.dbRepair.preflight.invalidate(),
-      utils.dbRepair.detectLayout.invalidate(),
-      utils.dbRepair.history.invalidate(),
-    ]);
-    onRefreshAccounts();
-  };
-
-  // ── 进度订阅：只在任务跑着的时候挂着 ────────────────────────────────────
-  useEffect(() => {
-    if (!running || uin === null) return undefined;
-    const sub = client.dbRepair.onProgress.subscribe(undefined, {
-      onData: (payload) => {
-        // 主进程会把所有任务的进度推给所有人，按账号 + 库名过滤。
-        if (payload.uin !== uin || payload.dbName !== dbName) return;
-        setProgress({ phase: payload.phase, percent: payload.percent, message: payload.message });
       },
-      onError: () => {
-        // 订阅断了不影响修复本身（进度条会停在最后一帧）。
+      onError() {
+        setConnectionError(true);
       },
     });
     return () => sub.unsubscribe();
-  }, [running, uin, dbName]);
-
-  const stopCheckup = async (): Promise<void> => {
-    stopScanRef.current = true;
-    const active = activeCheckupRef.current;
-    if (!active) return;
-    setStoppingScan(true);
-    try {
-      await cancelCheckupRef.current(active);
-    } catch (error) {
-      setNotice(`停止请求未送达：${errMsg(error)}`);
-    } finally {
-      setStoppingScan(false);
-    }
-  };
-
-  /**
-   * 体检：逐个库调用主进程，**检完一个显示一个**。
-   *
-   * 为什么不在主进程里一把跑完：128MB 的 `nt_msg.db` 要整库读两遍（结构 + 页签名），
-   * 一次调用会让面板在这几秒里什么都看不到。逐个调既能边检边看，也能中途停下。
-   *
-   * 单个库失败只把那一行标成「无法检查」，不弹 toast、不中断其余库 —— 体检本来就
-   * 在排查「哪里不对」，让第一个错误把整张表打断反而更难用。
-   */
-  const runCheckup = async (names: string[]): Promise<void> => {
-    if (uin === null || names.length === 0) return;
-    // 手动跑过也算「这个账号体检过了」，自动那次就不用再补。
-    autoCheckedUins.add(uin);
-    stopScanRef.current = false;
-    const run = Symbol();
-    scanRunRef.current = run;
-    setStoppingScan(false);
-    let finishScan = () => {};
-    checkupTaskRef.current = new Promise<void>((resolve) => {
-      finishScan = resolve;
-    });
-    setBusy('checkup');
-    setNotice(null);
-    setScan({ done: 0, total: names.length, current: names[0] ?? null });
-    try {
-      for (const name of names) {
-        if (stopScanRef.current || scanRunRef.current !== run) break;
-        setScan((prev) => (prev ? { ...prev, current: name } : prev));
-        const request = { uin, taskId: createMediaId('db-checkup') };
-        activeCheckupRef.current = request;
-        try {
-          const row = (await checkupRun.mutateAsync({
-            ...request,
-            dbName: name,
-          })) as DbRepairCheckupView;
-          if (stopScanRef.current || scanRunRef.current !== run) break;
-          setCheckups((prev) => ({ ...prev, [name]: row }));
-        } catch (error) {
-          if (stopScanRef.current || scanRunRef.current !== run) break;
-          setCheckups((prev) => ({ ...prev, [name]: failedCheckup(name, errMsg(error)) }));
-        } finally {
-          if (activeCheckupRef.current === request) activeCheckupRef.current = null;
-        }
-        setScan((prev) => (prev ? { ...prev, done: prev.done + 1 } : prev));
-      }
-    } finally {
-      if (scanRunRef.current === run) {
-        setScan(null);
-        setStoppingScan(false);
-        // 已确认的修复可能正在等待本次只读检查，不能把它的写入锁清掉。
-        setBusy((current) => (current === 'checkup' ? null : current));
-        checkupTaskRef.current = null;
-        scanRunRef.current = null;
-      }
-      finishScan();
-    }
-  };
-
-  /**
-   * `runCheckup` 的最新引用：下面那个自动体检的 effect 只该依赖**状态值**，不能依赖
-   * 每次渲染都换身份的 `runCheckup`（否则它每渲染就重跑一次，lint 也会报错）。
-   */
-  const runCheckupRef = useRef(runCheckup);
-  runCheckupRef.current = runCheckup;
-  /** 自动体检只跑一次的标记（切页签重挂不再重复扫，所以标记放在模块级）。 */
-  const autoScanRef = useRef<string | null>(null);
-
-  // ── 自动体检：面板一打开就先回答「有没有问题」 ──────────────────────────
-  //
-  // 这一屏的入口问题是「库里到底有没有问题」，而用户往往答不出来。体检是只读的，
-  // 代价是几秒 I/O —— 直接替他跑，比写一句「建议先体检」有用。跳过的三种情况：没密钥
-  // （跑不了）、有任务在跑（别撞车）、这个账号已经自动跑过一次。
+  }, [scope, utils]);
   useEffect(() => {
-    if (uin === null || autoScanRef.current === uin || autoCheckedUins.has(uin)) return;
-    if (busy !== null || status?.keyPresent !== true) return;
-    const targets = liveDbs.map((row) => row.dbName);
-    if (targets.length === 0) return;
-    autoScanRef.current = uin;
-    void runCheckupRef.current(targets);
-  }, [uin, busy, status, liveDbs]);
-
-  // ── 动作 ────────────────────────────────────────────────────────────────
-
-  /** 结束挡住这个库的 QQ 进程（pid 只取自预检报上来的 QQ 持有者）。 */
-  const handleKillQq = async (): Promise<void> => {
-    const holder = preflight?.qqHolders[0];
-    if (!holder || uin === null || dbName === null) return;
-    setBusy('kill');
-    setNotice(null);
-    try {
-      const result = await killQq.mutateAsync({ uin, dbName, pid: holder.pid });
-      if (result.released) {
-        pushToast({
-          tone: 'success',
-          title: '已结束 QQ 进程',
-          detail: `pid ${holder.pid} 已退出，库的占用也释放了（等了 ${result.waitedMs}ms）。`,
-        });
-      } else {
-        // 杀了但还占着 —— 这就是「下一步要修也修不了」的原因，不能只写在底部。
-        const text = `已结束 pid ${holder.pid}，但库仍被占用（等了 ${result.waitedMs}ms）。可能还有别的 QQ 进程或别的东西在用，先把它关掉再试。`;
-        pushToast({ tone: 'warning', title: 'QQ 已结束，但库仍被占用', detail: text });
-        setNotice(text);
-      }
-      await refreshAll();
-    } catch (error) {
-      const text = errMsg(error);
-      pushToast({ tone: 'error', title: '结束 QQ 进程失败', detail: text });
-      setNotice(text);
-    } finally {
-      setBusy(null);
+    if (!live) return;
+    if (sessionId.current !== live.id) {
+      sessionId.current = live.id;
+      touched.current.clear();
+      setSelected([]);
     }
-  };
-
-  /** 库被替换 / 回滚之后旧的体检结论就不成立了 —— 清掉，别指着新库说旧结论。 */
-  const forgetCheckup = (name: string): void => {
-    setCheckups((prev) => {
-      if (!(name in prev)) return prev;
-      const next = { ...prev };
-      delete next[name];
-      return next;
-    });
-  };
-
-  const handleBackup = async (): Promise<void> => {
-    if (uin === null || dbName === null) return;
-    setBusy('backup');
-    setNotice(null);
-    try {
-      const result = await backupNow.mutateAsync({ uin, dbName });
-      pushToast({
-        tone: 'success',
-        title: '已备份',
-        detail: `${formatBytes(result.bytes)} → ${result.path}`,
-      });
-      await refreshAll();
-    } catch (error) {
-      const text = errMsg(error);
-      pushToast({ tone: 'error', title: '备份失败', detail: text });
-      setNotice(text);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  /**
-   * 失败的统一出口（修复与回滚共用）。
-   *
-   * 两件事都要做，少一件都不行：
-   *
-   *   1. **toast + 结果卡**：面板很长，失败说明只出现在面板里，用户很可能根本没看到
-   *      （他正盯着进度条）—— 尤其是「替换阶段被拦下来」这种必须马上知道的事。
-   *   2. **账号已被关掉时把人送回首页**：替换阶段的失败发生在 `releaseHandles` 之后
-   *      （替换前复核 / rename / 自检），主进程里当前账号已经关了，而渲染层还停在主界面上
-   *      是个坏界面（会话列表在、头像没有、点不开消息）。
-   */
-  const reportFailure = (
-    verb: '修复' | '布局迁移' | '回滚',
-    failure: Extract<DbRepairTaskResultView, { ok: false }>,
-  ): void => {
-    const title =
-      verb === '布局迁移' && failure.code === 'recover-failed'
-        ? '布局迁移失败'
-        : (FAILURE_TITLES[failure.code] ?? `${verb}失败`);
-    const detail = PRE_SWAP_FAILURES.has(failure.code)
-      ? `${failure.error}（本次尚未替换数据库）`
-      : failure.error;
-    pushToast({ tone: 'error', title, detail });
-    setNotice(detail);
-    setOutcome({
-      tone: 'warn',
-      title,
-      detail: failure.closedAccount
-        ? `${detail} · WeQ 里的这个账号已经被关掉了，回启动页重新打开再试。`
-        : detail,
-      closedAccount: failure.closedAccount,
-    });
-    if (failure.closedAccount) {
-      armReturn({
-        tone: 'warn',
-        title: `${verb}没有完成，但 WeQ 里的账号已经被关掉了`,
-        detail:
-          '回到首页重新打开这个账号再试一次（现在这个界面连着的是已关闭的账号，看不到正确数据）。',
-      });
-    }
-  };
-
-  const handleRepair = async (layoutMigration: boolean): Promise<void> => {
-    if (uin === null || dbName === null) return;
-    const pendingScan = checkupTaskRef.current;
-    // 热更新前发起的体检没有完成凭据，仍须等旧调用返回，不能误当作已释放。
-    if (busy === 'checkup' && !pendingScan) return;
-    void stopCheckup();
-    // 任务期间的 `dbName` 可能被用户改掉（面板不拦），所以先把目标钉住。
-    const target = dbName;
-    setConfirmRepair(null);
-    setBusy('repair');
-    setNotice(null);
-    setOutcome(null);
-    setProgress({
-      phase: 'backup',
-      percent: 0,
-      message: pendingScan ? '等待当前只读体检结束，正在停止体检进程…' : '准备中…',
-    });
-    try {
-      await pendingScan;
-      const result = (await startRepair.mutateAsync({
-        uin,
-        dbName: target,
-        ...(allowLowSpace ? { allowLowSpace: true } : {}),
-        ...(layoutMigration ? { layoutMigration: true } : {}),
-      })) as DbRepairTaskResultView;
-      // 分类好的失败是**返回值**（这样才带得回「账号是否已被关掉」），不是异常。
-      if (!result.ok) {
-        reportFailure(layoutMigration ? '布局迁移' : '修复', result);
-        return;
-      }
-      const record = result.record;
-      const summary = layoutMigration
-        ? [
-            '页布局已从 standard 迁回 QQ 布局（保留页 262144）',
-            record.verification
-              ? `自检通过：${record.verification.tables} 表 / ${record.verification.indexes} 索引`
-              : '自检信息缺失',
-          ].join(' · ')
-        : [
-            `坏页 ${record.badPages.length} 个已被重建排除`,
-            record.verification
-              ? `自检通过：${record.verification.tables} 表 / ${record.verification.indexes} 索引`
-              : '自检信息缺失',
-          ].join(' · ');
-      const title = `${layoutMigration ? '布局迁移' : '修复'}完成（${(record.durationMs / 1000).toFixed(1)}s）`;
-      setOutcome({ tone: 'ok', title, detail: summary, closedAccount: result.closedAccount });
-      if (result.closedAccount) {
-        // 主进程里当前账号已经被关掉了，渲染层还停在主界面上 —— 必须回首页重开。
-        armReturn({
-          title,
-          detail: `${summary} · 替换前 WeQ 里这个账号被关掉了，重新打开后才能看到修复后的数据`,
-        });
-      } else {
-        pushToast({ tone: 'success', title, detail: summary });
-      }
-      // 库已经是新的了，旧的体检结论作废。
-      forgetCheckup(target);
-      await refreshAll();
-    } catch (error) {
-      // 能到这里的只有「连服务都没进得去」的意外（例如 IPC 断了）；照样给一条 toast。
-      const text = errMsg(error);
-      pushToast({
-        tone: 'error',
-        title: layoutMigration ? '布局迁移请求失败' : '修复请求失败',
-        detail: text,
-      });
-      setNotice(text);
-    } finally {
-      setProgress(null);
-      setBusy(null);
-    }
-  };
-
-  /** 点「回滚」：先取预览，再让那一行变成确认态。 */
-  const askRestore = async (record: DbRepairRecordView): Promise<void> => {
-    if (uin === null) return;
-    setNotice(null);
-    try {
-      setPreview(
-        (await utils.dbRepair.restorePreview.fetch({
-          uin,
-          recordId: record.id,
-        })) as DbRepairRestorePreviewView,
+    const defaults = live.databases
+      .filter(
+        (row) =>
+          databaseReadyForRepair(row) &&
+          row.support === 'supported' &&
+          row.issues.some((issue) => issue.diagnostic !== false) &&
+          !touched.current.has(row.dbName),
+      )
+      .map((row) => row.dbName);
+    if (defaults.length)
+      setSelected((values) =>
+        defaults.every((name) => values.includes(name))
+          ? values
+          : [...new Set([...values, ...defaults])],
       );
-      setConfirming({ id: record.id, action: 'restore' });
-    } catch (error) {
-      // 取不到预览就点不了确认 —— 不说一声的话，用户会觉得「点了没反应」。
-      const text = errMsg(error);
-      pushToast({ tone: 'error', title: '回滚前检查失败', detail: text });
-      setNotice(text);
+  }, [live]);
+  const refresh = async () => {
+    await Promise.all([
+      utils.dbRepair.maintenance.invalidate(scope),
+      utils.dbRepair.reports.invalidate(scope),
+      utils.dbRepair.history.invalidate(scope),
+      utils.dbRepair.status.invalidate(scope),
+    ]);
+    onRefreshAccounts();
+  };
+  const act = async (run: () => Promise<unknown>) => {
+    setError('');
+    try {
+      await run();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
     }
   };
-
-  const handleRestore = async (record: DbRepairRecordView, force: boolean): Promise<void> => {
-    if (uin === null) return;
-    setBusy('restore');
-    setNotice(null);
-    try {
-      const result = (await restore.mutateAsync({
-        uin,
-        recordId: record.id,
-        force,
-      })) as DbRepairTaskResultView;
-      if (!result.ok) {
-        reportFailure('回滚', result);
+  const startScan = (kind: 'scan' | 'checkup') =>
+    act(async () => {
+      window.electron?.ipcRenderer.send('db-repair:scope', scope);
+      setReportId(undefined);
+      setReportScope(scope);
+      setLegacyId(undefined);
+      setStarting(kind);
+      setAllowLowSpace(false);
+      try {
+        setLive(await scan.mutateAsync({ ...scope, kind }));
+        await refresh();
+      } finally {
+        setStarting(null);
+      }
+    });
+  const endMaintenance = () =>
+    act(async () => {
+      if (
+        !(await useDialog
+          .getState()
+          .confirm(
+            '结束数据库维护？',
+            '放弃本次扫描结果并释放此账号全部目标数据库的维护锁。历史报告继续保留；下次修复需要主动重新扫描。',
+            { okLabel: '放弃结果并结束维护', cancelLabel: '继续维护', ownerDocument },
+          ))
+      )
+        return;
+      await end.mutateAsync(scope);
+      await refresh();
+    });
+  const startRepair = () =>
+    act(async () => {
+      const names = selected.filter((name) =>
+        live?.databases.some((row) => row.dbName === name && databaseReadyForRepair(row)),
+      );
+      if (!names.length) return;
+      if (
+        !(await useDialog
+          .getState()
+          .confirm(
+            '修复所选数据库？',
+            `${names.join('、')} 将使用当前维护中已有的扫描结果重建并替换。${backup ? '修复前保留备份。' : '本次不保留备份。'}${allowLowSpace ? '本次明确接受建议余量不足；后续写入空间不足时会返回查看结果。' : ''}修复过程中可以停止，已成功的库不会回退。`,
+            { okLabel: '开始修复', cancelLabel: '继续查看', ownerDocument },
+          ))
+      ) {
+        setAllowLowSpace(false);
         return;
       }
-      if (result.closedAccount) {
-        // 回滚同样是在替换库文件，所以同样要回首页重开。
-        armReturn({
-          title: '已回滚到修复前',
-          detail: '替换前 WeQ 里这个账号被关掉了，重新打开后才能看到回滚后的数据',
+      setReportId(undefined);
+      setReportScope(scope);
+      setLegacyId(undefined);
+      setStarting('repair');
+      try {
+        const result = await repair.mutateAsync({
+          ...scope,
+          dbNames: names,
+          backup,
+          strictPages,
+          allowLowSpace,
         });
-      } else {
-        pushToast({
-          tone: 'success',
-          title: '已回滚到修复前',
-          detail: '库已经换回修复前的那一份。',
-        });
+        setLive(result.snapshot);
+        if (result.closedAccount)
+          useDbRepairReturn.getState().arm({
+            title: '本轮数据库维护已结束',
+            detail: '数据库替换前已关闭当前账号，请从主页重新打开。',
+            tone: result.snapshot.operation?.status === 'completed' ? 'ok' : 'warn',
+          });
+        await refresh();
+      } finally {
+        setStarting(null);
+        setAllowLowSpace(false);
       }
-      setOutcome({
-        tone: 'ok',
-        title: '已回滚到修复前',
-        detail: `${record.dbName} 已经换回修复前的那一份。`,
-        closedAccount: result.closedAccount,
+    });
+  const restore = (recordId: string) =>
+    act(async () => {
+      const preview = await client.dbRepair.restorePreview.query({ ...scope, recordId });
+      if (!preview.backupExists) throw new Error('这份备份已经不在了。');
+      if (
+        !(await useDialog
+          .getState()
+          .confirm(
+            '恢复修复前的数据库？',
+            `${preview.record.dbName} 将恢复为这份备份。${preview.matchesAfter ? '' : '当前数据库在修复后发生过变化，恢复会覆盖这些变化。'}`,
+            { okLabel: '恢复备份', cancelLabel: '取消', ownerDocument },
+          ))
+      )
+        return;
+      const result = await client.dbRepair.restore.mutate({
+        ...scope,
+        recordId,
+        force: !preview.matchesAfter,
       });
-      // 换回的是修复前那一份，之前那份体检结论已经不对应这个文件了。
-      forgetCheckup(record.dbName);
-      await refreshAll();
-    } catch (error) {
-      const text = errMsg(error);
-      pushToast({ tone: 'error', title: '回滚请求失败', detail: text });
-      setNotice(text);
-    } finally {
-      setConfirming(null);
-      setPreview(null);
-      setBusy(null);
-    }
-  };
+      if (!result.ok) throw new Error(result.error);
+      if (result.closedAccount)
+        useDbRepairReturn
+          .getState()
+          .arm({ title: '数据库备份已恢复', detail: '请从主页重新打开账号。' });
+      await refresh();
+    });
 
-  /** 彻底删掉一条历史（连同它的备份）—— 记录与备份一起消失，这条就再也回滚不了了。 */
-  const handleDeleteRecord = async (record: DbRepairRecordView): Promise<void> => {
-    if (uin === null) return;
-    setNotice(null);
-    try {
-      await removeRecord.mutateAsync({ uin, recordId: record.id });
-      pushToast({
-        tone: 'info',
-        title: '已删除这条修复记录',
-        detail: '记录与它的备份都已清理，这条不能再回滚。',
-      });
-      await refreshAll();
-    } catch (error) {
-      const text = errMsg(error);
-      pushToast({ tone: 'error', title: '删除记录失败', detail: text });
-      setNotice(text);
-    } finally {
-      setConfirming(null);
-    }
-  };
-
-  const reveal = async (record: DbRepairRecordView, what: 'report' | 'backup'): Promise<void> => {
-    if (uin === null) return;
-    try {
-      if (what === 'report') {
-        await client.dbRepair.revealReport.mutate({ uin, recordId: record.id });
-      } else {
-        await client.dbRepair.revealBackup.mutate({ uin, recordId: record.id });
-      }
-    } catch (error) {
-      const text = errMsg(error);
-      pushToast({ tone: 'error', title: '打开失败', detail: text });
-      setNotice(text);
-    }
-  };
-
-  /** 从体检页进修复页。带上库名 = 预选它。 */
-  const goRepair = (name: string | null): void => {
-    void stopCheckup();
-    setDbName(name);
-    setConfirmRepair(null);
-    setNotice(null);
-    setOutcome(null);
-    setShowOthers(false);
-    setStage('repair');
-  };
-
-  // ── 渲染 ────────────────────────────────────────────────────────────────
-  if (currentUin === null || accounts.length === 0) {
-    return (
-      <div className="weq-wtools-state">
-        没有可用的账号 —— 先在 WeQ 里登录一个账号，再回来体检 / 修复它的数据库。
-      </div>
-    );
-  }
-
-  const account = accounts.find((item) => item.uin === uin) ?? null;
-  const checkedRows = liveDbs
-    .map((row) => checkups[row.dbName])
-    .filter((row): row is DbRepairCheckupView => row !== undefined);
-  const problemDbs = liveDbs.filter((row) => {
-    const result = checkups[row.dbName];
-    return result !== undefined && isProblemCheckup(result);
-  });
-  const healthyCount = liveDbs.length - problemDbs.length;
-  const scannedAll = liveDbs.length > 0 && checkedRows.length === liveDbs.length;
-  const scanning = scan !== null;
-  /** 当前选中的那一行（未选就是 null —— 修复按钮看它）。 */
-  const currentRow =
-    dbName === null ? null : (existingDbs.find((row) => row.dbName === dbName) ?? null);
-  const currentCheckup = dbName === null ? null : (checkups[dbName] ?? null);
-  const readiness = preflight ? READINESS_COPY[preflight.readiness] : null;
-  const spaceBudgetReady =
-    preflight?.space.every((item) => typeof item.recommendedBytes === 'number') === true;
-  const spaceShort = Boolean(
-    preflight?.space.some((item) => item.freeBytes !== null && item.freeBytes < item.requiredBytes),
+  const historical = !!reportId || !!legacyId;
+  const historicalView = reportId
+    ? sameReportScope && live?.operation?.id === reportId
+      ? live
+      : report.data
+    : undefined;
+  const historicalRow =
+    historicalView?.databases.find((row) => row.dbName === reportFocused) ??
+    historicalView?.databases[0];
+  const view = live;
+  const busyStarting = starting !== null;
+  const running = live?.operation?.status === 'running' || busyStarting;
+  const repairing =
+    live?.state === 'repairing' ||
+    starting === 'repair' ||
+    (running && live?.operation?.kind === 'repair');
+  const ending = live?.state === 'ending';
+  const locked = !!live?.locked && live.state !== 'ended';
+  const waiting = live?.state === 'waiting' && !ending;
+  const paused =
+    waiting && live?.operation?.kind !== 'repair' && live?.operation?.status === 'cancelled';
+  const databases =
+    view?.databases ??
+    status.data?.databases
+      .filter((row) => row.exists)
+      .map(
+        (row): DatabaseMaintenanceRow => ({
+          dbName: row.dbName,
+          scanStatus: 'pending',
+          support: 'possible',
+          issues: [],
+        }),
+      ) ??
+    [];
+  const bytesByName = useMemo(
+    () => new Map(status.data?.databases.map((row) => [row.dbName, row.bytes]) ?? []),
+    [status.data],
   );
-  const marginShort = Boolean(
-    preflight?.space.some(
-      (item) =>
-        item.freeBytes !== null &&
-        item.freeBytes >= item.requiredBytes &&
-        item.freeBytes < item.recommendedBytes,
+  const activeRow =
+    databases.find((row) => row.dbName === focused) ??
+    databases.find((row) => row.dbName === view?.operation?.currentDb) ??
+    databases[0];
+  const progressOwner = view?.operation?.currentDb
+    ? (databases.find((row) => row.dbName === view.operation?.currentDb) ?? activeRow)
+    : activeRow;
+  const progress = progressOwner?.progress ?? view?.progress;
+  const readyNames = live?.databases.filter(databaseReadyForRepair).map((row) => row.dbName) ?? [];
+  const selectedReady = selected.filter((name) => readyNames.includes(name));
+  const scannedCount = databases.filter((row) => row.scanStatus === 'completed').length;
+  const abnormalCount = databases.filter((row) => databaseMaintenanceRowAbnormal(row)).length;
+  const unsupportedCount = databases.filter((row) => row.support === 'unsupported').length;
+  const failedCount = databases.filter((row) => row.scanStatus === 'failed').length;
+  const repairedCount = databases.filter((row) => row.repair?.status === 'completed').length;
+  const allScanned = databases.length > 0 && scannedCount === databases.length;
+  const canScan =
+    !!status.data?.keyPresent && !status.data.error && !running && !ending && !repairing;
+  const showFooter = waiting && !running && !repairing && !ending && readyNames.length > 0;
+  const operation = view?.operation;
+  const stepPhase: 'idle' | 'scan' | 'review' | 'repair' | 'done' =
+    ending || repairing
+      ? 'repair'
+      : waiting
+        ? 'review'
+        : running ||
+            live?.state === 'locking' ||
+            live?.state === 'scanning' ||
+            live?.state === 'checking'
+          ? 'scan'
+          : live?.state === 'ended'
+            ? 'done'
+            : 'idle';
+  const activeProgress =
+    progress && (progress.status === 'running' || progress.steps.length > 0) ? progress : undefined;
+  const alerts = [
+    ...new Set(
+      [
+        surface ? '' : error,
+        live?.maintenanceError,
+        live?.reportError,
+        maintenance.error ? `无法读取维护状态：${maintenance.error.message}` : '',
+        status.error?.message,
+        status.data?.error,
+      ].filter((value): value is string => !!value),
     ),
-  );
-  const canStart =
-    uin !== null &&
-    dbName !== null &&
-    (busy === null || busy === 'checkup') &&
-    !changingCache &&
-    status?.keyPresent === true &&
-    preflight !== undefined &&
-    spaceBudgetReady &&
-    !spaceShort;
-  /**
-   * 修复页铺哪些库：**有问题的在前**，完好的收在「其他数据库」后面。
-   * 体检全过 / 压根没体检（跳过体检进来的）时没有「问题库」，那就全部直接铺出来 ——
-   * 否则用户连「能修哪个」都看不到。有问题的库在前，其余保持主进程给的顺序。
-   */
-  const folded = problemDbs.length > 0;
-  const visibleDbs = folded && !showOthers ? problemDbs : liveDbs;
+  ];
+  useLayoutEffect(() => {
+    const current = live?.operation;
+    if (current?.status === 'running' && displayedOperation.current !== current.id) {
+      if (bodyRef.current) bodyRef.current.scrollTop = 0;
+      displayedOperation.current = current.id;
+    }
+  }, [live?.operation]);
+  useLayoutEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
+  }, [scope]);
 
-  return (
-    <>
-      <header className="weq-wtools-pane-head weq-rp-head">
-        <div className="weq-wtools-pane-title">
-          <DatabaseZap size={17} strokeWidth={1.9} />
-          <h2 id="weq-wtools-title">数据库修复</h2>
-        </div>
-        <div className="weq-rp-head-actions">
-          {account ? (
-            <span className="weq-rp-account" title={account.name || account.uin}>
-              <QqAvatar uin={account.uin} url={account.avatarUrl} size={20} />
-              <span className="weq-rp-account-name">{account.name || account.uin}</span>
-            </span>
-          ) : null}
-          {/* 回滚 / 记录不在这条主线上 —— 它在标题栏占一枚小按钮，点开才是一张卡片。 */}
+  const selectAll = (checked: boolean) => {
+    for (const name of readyNames) touched.current.add(name);
+    setSelected(checked ? [...readyNames] : []);
+    setAllowLowSpace(false);
+  };
+  const allReadySelected =
+    readyNames.length > 0 && readyNames.every((name) => selected.includes(name));
+  const closeReport = () => {
+    setReportId(undefined);
+    setReportScope(scope);
+    setLegacyId(undefined);
+  };
+  const changeCache = () =>
+    act(async () => {
+      await pickCache.mutateAsync();
+      setAllowLowSpace(false);
+      await cache.refetch();
+      await utils.dbRepair.preflight.invalidate();
+      await utils.dbRepair.repairStorage.invalidate();
+    });
+  const closeSurface = () => {
+    setSurface(null);
+    closeReport();
+  };
+  const removeReport = (id: string, legacy = false, hasBackup = false) =>
+    act(async () => {
+      if (
+        !(await useDialog
+          .getState()
+          .confirm(
+            legacy ? '删除这条修复记录？' : '删除这份历史报告？',
+            hasBackup
+              ? '这条修复记录和对应备份会一并删除，之后无法使用这份备份恢复。不会更改当前数据库。'
+              : '删除后无法再查看或导出这份报告，不会更改当前数据库或其他修复备份。',
+            { okLabel: '删除', cancelLabel: '取消', danger: 'outline', ownerDocument },
+          ))
+      )
+        return;
+      if (legacy) await deleteRecord.mutateAsync({ ...scope, recordId: id });
+      else await deleteReport.mutateAsync({ ...scope, reportId: id });
+      if (reportId === id || legacyId === id) closeReport();
+      await refresh();
+    });
+  const scanControls = (
+    <div className="weq-dbm-scan-controls">
+      <SegmentedControl
+        label="体检模式"
+        value={scanKind}
+        options={[
+          { value: 'scan', label: '快速体检', title: '检查数据库页签名' },
+          { value: 'checkup', label: '深度体检', title: '检查页签名、整库结构与索引' },
+        ]}
+        disabled={running || ending || repairing}
+        onChange={setScanKind}
+      />
+      {running && !repairing ? (
+        <button
+          type="button"
+          className="weq-set-btn"
+          disabled={stop.isLoading || !!live?.operation?.stopping}
+          onClick={() =>
+            void act(async () => {
+              const result = await stop.mutateAsync(scope);
+              if (result) setLive(result);
+              await refresh();
+            })
+          }
+        >
+          <Pause size={14} />
+          {stop.isLoading || live?.operation?.stopping ? '正在暂停' : '暂停扫描'}
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="weq-set-btn weq-set-btn-primary"
+          disabled={!canScan}
+          onClick={() => void startScan(scanKind)}
+        >
+          <Play size={14} />
+          {paused ? '继续扫描' : '开始扫描'}
+        </button>
+      )}
+    </div>
+  );
+
+  const hero = (() => {
+    if (!account)
+      return {
+        tone: 'muted' as Tone,
+        icon: <Database size={22} strokeWidth={1.9} />,
+        title: '没有可用的账号',
+        sub: '先在 WeQ 里登录一个账号，再回来检查它的数据库。',
+        actions: null,
+      };
+    if (status.data && !status.data.keyPresent && !status.data.error)
+      return {
+        tone: 'warn' as Tone,
+        icon: <AlertTriangle size={22} strokeWidth={1.9} />,
+        title: '缺少数据库密钥',
+        sub: '先用 WeQ 打开一次这个账号，拿到密钥后回到这里扫描。没有密钥无法检查加密数据库。',
+        actions: null,
+      };
+    if (ending)
+      return {
+        tone: 'run' as Tone,
+        icon: <Loader2 size={22} strokeWidth={2} className="weq-spin" />,
+        title: '正在结束维护',
+        sub: '正在释放这个账号全部目标数据库的维护锁，完成后数据库会恢复可写。',
+        actions: null,
+      };
+    if (repairing) {
+      const completed = operation?.completedDatabases ?? 0;
+      const total = operation?.totalDatabases ?? selectedReady.length;
+      return {
+        tone: 'run' as Tone,
+        icon: <Loader2 size={22} strokeWidth={2} className="weq-spin" />,
+        title: operation?.stopping ? '正在停止修复' : '正在修复数据库',
+        sub: `${completed} / ${total} 个数据库完成${
+          operation?.currentDb ? ` · 当前 ${operation.currentDb}` : ''
+        }${operation?.stopping ? ' · 停止后不再开始后续数据库，已成功的库不回退' : ''}`,
+        actions: (
           <button
             type="button"
-            className="weq-rp-icon-btn"
-            title="修复记录与回滚"
-            aria-label="修复记录与回滚"
-            onClick={() => {
-              setHistoryOpen(true);
-              setConfirming(null);
-              setPreview(null);
-            }}
+            className="weq-set-btn"
+            disabled={stop.isLoading || !!operation?.stopping}
+            onClick={() =>
+              void act(async () => {
+                const result = await stop.mutateAsync(scope);
+                if (result) setLive(result);
+                await refresh();
+              })
+            }
           >
-            <History size={14} strokeWidth={1.9} aria-hidden />
+            <Square size={13} />
+            {stop.isLoading || operation?.stopping ? '正在停止' : '停止修复'}
           </button>
-          {(statusQuery.error ||
-            preflightQuery.error ||
-            layoutQuery.error ||
-            historyQuery.error) && (
+        ),
+      };
+    }
+    if (
+      running ||
+      live?.state === 'locking' ||
+      live?.state === 'scanning' ||
+      live?.state === 'checking'
+    ) {
+      const deep =
+        starting === 'checkup' ||
+        live?.state === 'checking' ||
+        (live?.operation?.kind === 'checkup' && live.operation.status === 'running');
+      const total = operation?.totalDatabases ?? databases.length;
+      const completed = operation?.completedDatabases ?? 0;
+      return {
+        tone: 'run' as Tone,
+        icon: <Loader2 size={22} strokeWidth={2} className="weq-spin" />,
+        title:
+          live?.state === 'locking' ? '正在锁定数据库' : deep ? '正在深度体检' : '正在扫描数据库',
+        sub:
+          live?.state === 'locking'
+            ? '正在为本次数据源的全部目标数据库加维护锁。锁定期间 WeQ 只能只读浏览，写库操作会暂停。'
+            : `${completed} / ${total} 个数据库完成${
+                operation?.currentDb ? ` · 正在检查 ${operation.currentDb}` : ''
+              }`,
+        actions: scanControls,
+      };
+    }
+    if (waiting) {
+      const tone: Tone = abnormalCount || failedCount ? 'warn' : unsupportedCount ? 'muted' : 'ok';
+      const title =
+        abnormalCount > 0
+          ? `${abnormalCount} 个数据库发现异常`
+          : failedCount > 0
+            ? `${failedCount} 个数据库扫描未完成`
+            : databases.length === 0
+              ? '没有可维护的数据库'
+              : scannedCount < databases.length
+                ? '只完成了部分扫描'
+                : unsupportedCount > 0
+                  ? `${unsupportedCount} 个数据库不支持修复`
+                  : '全部数据库检查通过';
+      const sub =
+        databases.length === 0
+          ? '这个账号的数据库目录里没有可维护的文件。'
+          : `数据库仍在维护中，等待决定 · ${scannedCount} / ${databases.length} 个数据库已扫描 · ${readyNames.length} 个可以重建修复${
+              unsupportedCount ? ` · ${unsupportedCount} 个不支持修复` : ''
+            }${failedCount ? ` · ${failedCount} 个没有结论` : ''}`;
+      return {
+        tone,
+        icon:
+          tone === 'ok' ? (
+            <ShieldCheck size={22} strokeWidth={1.9} />
+          ) : (
+            <AlertTriangle size={22} strokeWidth={1.9} />
+          ),
+        title:
+          operation?.status === 'waiting'
+            ? '已返回查看结果，等待处理后重试'
+            : paused
+              ? '扫描已暂停'
+              : title,
+        sub:
+          operation?.status === 'waiting'
+            ? '维护锁和未替换数据库的扫描结果仍保留，处理问题后可直接重试；已成功修复的库不会重复修复。'
+            : paused
+              ? `已保留完成的检查和维护锁，可切换体检模式后继续扫描。${scannedCount} / ${databases.length} 个数据库已有页扫描结果。`
+              : sub,
+        actions: (
+          <>
+            {scanControls}
             <button
               type="button"
-              className="weq-rp-icon-btn"
-              title="重试读取状态与修复记录"
-              aria-label="重试读取修复状态"
-              disabled={busy !== null}
-              onClick={() => {
-                onRefreshAccounts();
-                void refreshAll();
+              className="weq-set-btn"
+              disabled={end.isLoading || ending || repairing}
+              title="释放维护锁；本次扫描结果会被放弃，历史报告仍保留"
+              onClick={() => void endMaintenance()}
+            >
+              <UnlockKeyhole size={14} />
+              结束维护
+            </button>
+          </>
+        ),
+      };
+    }
+    if (live?.state === 'ended')
+      return {
+        tone: 'muted' as Tone,
+        icon: <CheckCircle2 size={22} strokeWidth={1.9} />,
+        title:
+          operation?.kind !== 'repair' && operation?.status === 'cancelled' && !scannedCount
+            ? '扫描已停止'
+            : '本次维护已结束',
+        sub:
+          operation?.kind !== 'repair' && operation?.status === 'cancelled' && !scannedCount
+            ? '本次没有完成任何数据库的扫描，维护锁已释放，未保存报告。'
+            : `数据库已解锁。本次${operation ? operationLabels[operation.kind] : '维护'}报告已保留，可随时重新扫描。`,
+        actions: scanControls,
+      };
+    const qqHint = status.data?.qqPid
+      ? `QQ 正在运行（PID ${status.data.qqPid}），建议先退出。`
+      : '建议先退出 QQ。';
+    return {
+      tone: 'muted' as Tone,
+      icon: <Stethoscope size={22} strokeWidth={1.9} />,
+      title: '先扫描一次数据库',
+      sub: databases.length
+        ? `${qqHint}扫描是只读的，但会锁定本次数据源的 ${databases.length} 个目标数据库；打开这个窗口不会自动开始检查。`
+        : `${qqHint}扫描是只读的，但会锁定本次数据源的目标数据库；打开这个窗口不会自动开始检查。`,
+      actions: scanControls,
+    };
+  })();
+
+  return (
+    <section className="weq-dbm" aria-label="数据库修复">
+      <header className="weq-dbm-head">
+        <div className="weq-dbm-title">
+          <span className="weq-dbm-title-icon" aria-hidden>
+            <Database size={17} strokeWidth={1.9} />
+          </span>
+          <div>
+            <h1>数据库修复</h1>
+            <p>扫描、检查并重建这个账号的 QQ 数据库</p>
+          </div>
+        </div>
+        <div className="weq-dbm-identity">
+          {account ? (
+            <button
+              type="button"
+              className="weq-dbm-head-btn"
+              title="历史报告与恢复"
+              aria-label="历史报告与恢复"
+              aria-expanded={surface === 'history'}
+              onClick={(event) => {
+                closeReport();
+                setSurfaceAnchor(event.currentTarget);
+                setSurface(surface === 'history' ? null : 'history');
               }}
             >
-              <RefreshCw
-                size={14}
-                strokeWidth={1.9}
-                className={busy !== null ? 'weq-spin' : ''}
-                aria-hidden
-              />
+              <History size={15} />
             </button>
-          )}
+          ) : null}
+          <button
+            type="button"
+            className="weq-dbm-head-btn"
+            title="数据库修复设置"
+            aria-label="数据库修复设置"
+            aria-expanded={surface === 'settings'}
+            onClick={(event) => {
+              closeReport();
+              setSurfaceAnchor(event.currentTarget);
+              setSurface(surface === 'settings' ? null : 'settings');
+            }}
+          >
+            <Settings2 size={15} />
+          </button>
+          {account ? (
+            <span className="weq-dbm-account">
+              <QqAvatar uin={account.uin} url={account.avatarUrl} size={22} />
+              <span>{account.name}</span>
+            </span>
+          ) : null}
+          {account?.name !== scope.uin ? (
+            <span className="weq-dbm-scope" title={scope.configId}>
+              {scope.uin}
+            </span>
+          ) : null}
+          {locked ? (
+            <span
+              className="weq-dbm-state"
+              title={repairing ? '修复中' : '维护中'}
+              aria-label={repairing ? '修复中' : '维护中'}
+            >
+              <LockKeyhole size={12} strokeWidth={2} aria-hidden />
+              {repairing ? '修复中' : '维护中'}
+            </span>
+          ) : null}
         </div>
       </header>
 
-      <Steps stage={stage} />
+      <StepRail
+        phase={stepPhase}
+        scanned={scannedCount}
+        total={databases.length}
+        ready={readyNames.length}
+        repaired={repairedCount}
+        operationKind={operation?.kind}
+      />
 
-      {status?.error ? <Note tone="warn">{status.error}</Note> : null}
-      {notice && stage === 'scan' ? (
-        <Note tone="warn" icon={<AlertTriangle size={14} strokeWidth={2} />}>
-          {notice}
-        </Note>
-      ) : null}
+      <div className="weq-dbm-body" ref={bodyRef}>
+        {alerts.map((message) => (
+          <p className="weq-dbm-alert" role="alert" key={message}>
+            <AlertTriangle size={15} aria-hidden />
+            <span>{message}</span>
+            <button
+              type="button"
+              className="weq-dbm-text-btn"
+              disabled={running}
+              onClick={() => void refresh()}
+            >
+              <RefreshCw size={12} />
+              刷新
+            </button>
+          </p>
+        ))}
+        {connectionError && running ? (
+          <p className="weq-dbm-alert" role="alert">
+            <AlertTriangle size={15} aria-hidden />
+            <span>进度连接中断，正在重新连接；任务结果尚未确认。</span>
+          </p>
+        ) : null}
 
-      {stage === 'scan' ? (
-        /* ── ① 体检：打开就跑，结论直接铺出来 ─────────────────────────────── */
-        <div className="weq-wtools-pane-body weq-rp-body">
-          <div
-            className={`weq-rp-hero is-${
-              scanning ? 'scan' : problemDbs.length > 0 ? 'warn' : scannedAll ? 'ok' : 'idle'
-            }`}
-          >
-            <span className="weq-rp-hero-icon" aria-hidden>
-              {scanning ? (
-                <Loader2 size={22} strokeWidth={2} className="weq-spin" />
-              ) : problemDbs.length > 0 ? (
-                <AlertTriangle size={22} strokeWidth={1.9} />
-              ) : scannedAll ? (
-                <ShieldCheck size={22} strokeWidth={1.9} />
-              ) : (
-                <Stethoscope size={22} strokeWidth={1.9} />
-              )}
+        {hero ? (
+          <section className={`weq-dbm-hero is-${hero.tone}`} aria-label="维护状态">
+            <span className="weq-dbm-hero-icon" aria-hidden>
+              {hero.icon}
             </span>
-            <div className="weq-rp-hero-main">
-              <h3 className="weq-rp-hero-title">
-                {scanning
-                  ? '正在体检数据库'
-                  : liveDbs.length === 0
-                    ? '没有可体检的数据库'
-                    : status?.keyPresent !== true
-                      ? '拿不到数据库密钥，体检跑不了'
-                      : problemDbs.length > 0
-                        ? `发现 ${problemDbs.length} 个数据库有问题`
-                        : scannedAll
-                          ? '一切健康'
-                          : '还没体检'}
-              </h3>
-              <p className="weq-rp-hero-sub">
-                {scanning
-                  ? `${scan.done} / ${scan.total} · 正在看 ${scan.current ?? '…'}`
-                  : liveDbs.length === 0
-                    ? '这个账号的数据库目录是空的（还没登录过 QQ，或者目录被清掉了）。'
-                    : status?.keyPresent !== true
-                      ? '先用 WeQ 打开一次这个账号，拿到密钥后回来重新体检。'
-                      : problemDbs.length > 0
-                        ? '坏库可以重建修复，没报错的库也能一起修 —— 点下面任意一行开始。'
-                        : scannedAll
-                          ? `${liveDbs.length} 个数据库都通过了结构与坏页检查。没坏就不用修；真要修，用右边那枚按钮。`
-                          : '点右边重新体检一遍，或者直接去选库。'}
-              </p>
+            <div className="weq-dbm-hero-main">
+              <h2>{hero.title}</h2>
+              <p>{hero.sub}</p>
             </div>
-            <div className="weq-rp-hero-actions">
-              {scanning ? (
-                <button
-                  type="button"
-                  className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
-                  disabled={stoppingScan}
-                  onClick={() => void stopCheckup()}
-                >
-                  <Square size={12} strokeWidth={2.4} aria-hidden />
-                  {stoppingScan ? '正在停止…' : '停止'}
-                </button>
-              ) : (
-                <>
+            {hero.actions ? <div className="weq-dbm-hero-actions">{hero.actions}</div> : null}
+          </section>
+        ) : null}
+
+        <RepairStorageWarning
+          scope={scope}
+          names={selectedReady.length ? selectedReady : readyNames}
+          backup={backup}
+          enabled={waiting && !running}
+          storage={waiting || repairing ? live?.storage : undefined}
+          onChangeCache={() => void changeCache()}
+          cacheDisabled={repairing || pickCache.isLoading || resetCache.isLoading}
+        />
+
+        {!view?.operation && account?.diagnostic ? (
+          <section className="weq-dbm-callout">
+            <AlertTriangle size={16} aria-hidden />
+            <div>
+              <strong>{account.diagnostic.title}</strong>
+              <p>{account.diagnostic.message}</p>
+              {account.diagnostic.details.map((detail) => (
+                <p key={detail}>{detail}</p>
+              ))}
+              {account.diagnostic.reportPath ? (
+                <p className="weq-dbm-path">已有报告：{account.diagnostic.reportPath}</p>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
+
+        {databases.length === 0 && status.isLoading ? (
+          <p className="weq-dbm-loading" role="status">
+            <Loader2 size={15} className="weq-spin" />
+            正在读取数据库列表…
+          </p>
+        ) : databases.length === 0 ? (
+          <p className="weq-dbm-empty">
+            <Database size={20} strokeWidth={1.6} aria-hidden />
+            这个账号的数据库目录里没有可维护的文件。
+          </p>
+        ) : (
+          <section className="weq-dbm-dbs" aria-label="数据库列表">
+            <div className="weq-dbm-dbs-head">
+              <h2>数据库</h2>
+              <span className="weq-dbm-dbs-meta">
+                {scannedCount} / {databases.length} 已扫描
+                {abnormalCount ? ` · ${abnormalCount} 个异常` : ''}
+                {readyNames.length ? ` · ${readyNames.length} 个可修复` : ''}
+              </span>
+              {waiting && readyNames.length ? (
+                <span className="weq-dbm-dbs-tools">
+                  <span className="weq-dbm-selected">
+                    已选 {selectedReady.length} / {readyNames.length}
+                  </span>
                   <button
                     type="button"
-                    className="weq-set-btn weq-set-btn-soft"
-                    disabled={busy !== null || liveDbs.length === 0}
-                    onClick={() => void runCheckup(liveDbs.map((row) => row.dbName))}
+                    className="weq-dbm-text-btn"
+                    onClick={() => selectAll(!allReadySelected)}
                   >
-                    <Stethoscope size={14} strokeWidth={2} aria-hidden />
-                    {scannedAll ? '重新体检' : '开始体检'}
+                    {allReadySelected ? '取消全选' : '全选可修复'}
                   </button>
-                  {problemDbs.length > 0 ? (
+                </span>
+              ) : null}
+            </div>
+            <ul className={`weq-dbm-list${waiting ? ' is-selectable' : ''}`}>
+              {databases.map((row) => (
+                <li key={row.dbName}>
+                  <DatabaseCard
+                    row={row}
+                    bytes={bytesByName.get(row.dbName)}
+                    selected={selected.includes(row.dbName)}
+                    current={activeRow?.dbName === row.dbName}
+                    selectable={waiting && databaseReadyForRepair(row)}
+                    disabled={running || ending || !databaseReadyForRepair(row)}
+                    onFocus={() => setFocused(row.dbName)}
+                    onSelect={(checked) => {
+                      touched.current.add(row.dbName);
+                      setAllowLowSpace(false);
+                      setSelected((values) =>
+                        checked
+                          ? [...new Set([...values, row.dbName])]
+                          : values.filter((name) => name !== row.dbName),
+                      );
+                    }}
+                  />
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {activeProgress ? (
+          <details className="weq-dbm-process" open={running || undefined}>
+            <summary>
+              <span className="weq-dbm-process-title">
+                {running ? <Loader2 size={14} className="weq-spin" /> : <History size={14} />}
+                {running ? '执行进度' : '本次执行过程'}
+              </span>
+              <span className="weq-dbm-process-hint">
+                {running
+                  ? '阶段、当前步骤与处理数量'
+                  : operation
+                    ? `${operationLabels[operation.kind]} · ${operationStates[operation.status]} · ${operation.completedDatabases} / ${operation.totalDatabases} 个数据库`
+                    : '查看阶段与步骤'}
+              </span>
+              <ChevronDown size={14} className="weq-dbm-chevron" aria-hidden />
+            </summary>
+            <div className="weq-dbm-process-body">
+              <DatabaseMaintenanceProgress
+                progress={activeProgress}
+                batch={operation ? { ...operation, locked: locked && !ending } : undefined}
+                connectionError={connectionError && running}
+                showBatch={false}
+                showMaintained={false}
+              />
+            </div>
+          </details>
+        ) : operation ? (
+          <p className="weq-dbm-operation" role="status">
+            {operationLabels[operation.kind]} · {operationStates[operation.status]} ·{' '}
+            {operation.completedDatabases} / {operation.totalDatabases} 个数据库
+            {operation.error ? `；${operation.error}` : ''}
+          </p>
+        ) : null}
+
+        {activeRow && (view?.operation || activeRow.scanStatus !== 'pending') ? (
+          <DatabaseDetail row={activeRow} bytes={bytesByName.get(activeRow.dbName)} />
+        ) : null}
+
+        {waiting && !allScanned ? (
+          <p className="weq-dbm-note">
+            <Info size={14} aria-hidden />
+            还有 {databases.length - scannedCount} 个数据库没有扫描结果；它们不会参与本轮修复。
+          </p>
+        ) : null}
+      </div>
+
+      {showFooter ? (
+        <footer className="weq-dbm-foot">
+          <div className="weq-dbm-foot-summary">
+            <strong>
+              {selectedReady.length
+                ? `已选 ${selectedReady.length} 个数据库`
+                : '勾选要修复的数据库'}
+            </strong>
+            <span>
+              {selectedReady.length
+                ? `${namesText(selectedReady)} · ${backup ? '修复前保留备份' : '不保留备份'}`
+                : `${readyNames.length} 个数据库可以重建修复`}
+            </span>
+          </div>
+          <div className="weq-dbm-foot-actions">
+            <details
+              className="weq-dbm-options"
+              ref={optionsRef}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && optionsRef.current?.open) {
+                  optionsRef.current.open = false;
+                  event.stopPropagation();
+                }
+              }}
+            >
+              <summary className="weq-set-btn weq-set-btn-sm">
+                修复选项
+                <ChevronDown size={13} aria-hidden />
+              </summary>
+              <div className="weq-dbm-options-panel">
+                <label className="weq-dbm-option">
+                  <input
+                    type="checkbox"
+                    checked={backup}
+                    disabled={!!starting}
+                    onChange={(event) => setBackup(event.target.checked)}
+                  />
+                  <span>
+                    <strong>修复前保留备份</strong>
+                    <em>修复后可在历史记录里恢复这一份备份。</em>
+                  </span>
+                </label>
+                <label className="weq-dbm-option">
+                  <input
+                    type="checkbox"
+                    checked={strictPages}
+                    disabled={!!starting}
+                    onChange={(event) => setStrictPages(event.target.checked)}
+                  />
+                  <span>
+                    <strong>严格页模式</strong>
+                    <em>丢弃坏页里的内容，只在需要尽量缩小产物时使用。</em>
+                  </span>
+                </label>
+                <label className="weq-dbm-option">
+                  <input
+                    type="checkbox"
+                    checked={allowLowSpace}
+                    disabled={!!starting}
+                    onChange={(event) => setAllowLowSpace(event.target.checked)}
+                  />
+                  <span>
+                    <strong>接受磁盘建议余量不足</strong>
+                    <em>后续写入空间不足时返回查看结果，保留锁和已有扫描结果。</em>
+                  </span>
+                </label>
+                {selectedReady.length ? (
+                  <div className="weq-dbm-space">
+                    <span className="weq-dbm-space-title">
+                      <HardDrive size={13} />
+                      空间检查
+                    </span>
+                    {selectedReady.map((name) => (
+                      <RepairBudget
+                        key={`${name}:${cache.data?.override ?? ''}`}
+                        scope={scope}
+                        dbName={name}
+                        enabled={!starting}
+                        backup={backup}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </details>
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-primary"
+              disabled={!selectedReady.length || !!starting || ending}
+              onClick={() => void startRepair()}
+            >
+              <ShieldCheck size={15} />
+              修复所选数据库
+            </button>
+          </div>
+        </footer>
+      ) : null}
+      {surface ? (
+        <WindowSurface
+          mode="anchored"
+          anchor={surfaceAnchor}
+          width={surface === 'history' ? 680 : 460}
+          title={surface === 'history' ? '历史报告与恢复' : '数据库修复设置'}
+          onClose={closeSurface}
+        >
+          <section className="weq-dbm weq-dbm-overlay">
+            <header className="weq-dbm-overlay-head">
+              <h2>{surface === 'history' ? '历史报告与恢复' : '数据库修复设置'}</h2>
+              <button
+                type="button"
+                className="weq-dbm-head-btn"
+                title="关闭"
+                aria-label="关闭"
+                onClick={closeSurface}
+              >
+                <X size={16} />
+              </button>
+            </header>
+            <div className="weq-dbm-body" key={`${surface}:${reportId ?? legacyId ?? ''}`}>
+              {error ? (
+                <p className="weq-dbm-alert" role="alert">
+                  {error}
+                </p>
+              ) : null}
+              {surface === 'settings' ? (
+                <section className="weq-dbm-cache">
+                  <h3>重建缓存位置</h3>
+                  <p>{cache.data?.override ?? '默认 WeQ 缓存目录'}</p>
+                  {cache.error ? (
+                    <p className="weq-dbm-alert" role="alert">
+                      {cache.error.message}
+                    </p>
+                  ) : null}
+                  <div className="weq-dbm-cache-actions">
                     <button
                       type="button"
-                      className="weq-set-btn weq-set-btn-danger"
-                      disabled={busy !== null}
-                      onClick={() => goRepair(problemDbs[0]!.dbName)}
+                      className="weq-set-btn weq-set-btn-sm"
+                      disabled={repairing || pickCache.isLoading || resetCache.isLoading}
+                      onClick={() => void changeCache()}
                     >
-                      <Play size={13} strokeWidth={2} aria-hidden />
-                      去修复
+                      <FolderOpen size={14} />
+                      更改位置
                     </button>
-                  ) : scannedAll ? (
-                    // 「一切健康」时不给主按钮：修一个完好的库会白花一次替换（还会关掉账号），
-                    // 这个入口只该是一枚克制的小按钮。
                     <button
                       type="button"
-                      className="weq-set-btn weq-set-btn-soft"
-                      disabled={busy !== null}
-                      onClick={() => goRepair(null)}
+                      className="weq-set-btn weq-set-btn-sm"
+                      disabled={
+                        repairing ||
+                        resetCache.isLoading ||
+                        pickCache.isLoading ||
+                        !cache.data?.override
+                      }
+                      onClick={() =>
+                        void act(async () => {
+                          await resetCache.mutateAsync();
+                          setAllowLowSpace(false);
+                          await cache.refetch();
+                          await utils.dbRepair.preflight.invalidate();
+                          await utils.dbRepair.repairStorage.invalidate();
+                        })
+                      }
                     >
-                      <Play size={13} strokeWidth={2} aria-hidden />
-                      仍要修复
+                      <RotateCcw size={14} />
+                      使用默认位置
                     </button>
+                  </div>
+                </section>
+              ) : legacyId ? (
+                legacy.data ? (
+                  <LegacyReport
+                    data={legacy.data}
+                    onBack={closeReport}
+                    onExport={(format) =>
+                      void act(() =>
+                        exportLegacy.mutateAsync({ ...scope, recordId: legacyId, format }),
+                      )
+                    }
+                  />
+                ) : legacy.error || !legacy.isLoading ? (
+                  <p className="weq-dbm-alert" role="alert">
+                    {legacy.error?.message ?? '找不到这份历史修复报告。'}
+                  </p>
+                ) : (
+                  <p className="weq-dbm-loading" role="status">
+                    正在读取历史报告…
+                  </p>
+                )
+              ) : historical ? (
+                historicalView?.operation ? (
+                  <ReportView
+                    view={historicalView}
+                    operation={historicalView.operation}
+                    bytesByName={sameReportScope ? bytesByName : new Map()}
+                    progress={historicalRow?.progress ?? historicalView.progress}
+                    activeRow={historicalRow}
+                    onFocus={setReportFocused}
+                    onBack={closeReport}
+                    onExport={(format) =>
+                      void act(() =>
+                        exportReport.mutateAsync({ ...reportScope, reportId: reportId!, format }),
+                      )
+                    }
+                  />
+                ) : report.error || !report.isLoading ? (
+                  <p className="weq-dbm-alert" role="alert">
+                    {report.error?.message ?? '找不到这份数据库维护报告。'}
+                  </p>
+                ) : (
+                  <p className="weq-dbm-loading" role="status">
+                    正在读取历史报告…
+                  </p>
+                )
+              ) : (
+                <>
+                  {reports.isLoading || history.isLoading ? (
+                    <p className="weq-dbm-loading" role="status">
+                      正在读取历史报告…
+                    </p>
+                  ) : !reports.data?.length &&
+                    !history.data?.length &&
+                    !reports.error &&
+                    !history.error ? (
+                    <p className="weq-dbm-empty">暂无历史报告</p>
+                  ) : null}
+                  {reports.data?.map((item) => (
+                    <div className="weq-dbm-history-row" key={item.id}>
+                      <span className="weq-dbm-history-icon" aria-hidden>
+                        <Database size={15} />
+                      </span>
+                      <div className="weq-dbm-history-main">
+                        <strong>{operationLabels[item.operation.kind]}</strong>
+                        <span>
+                          {dateText(item.operation.startedAt)} ·{' '}
+                          {operationStates[item.operation.status]} ·{' '}
+                          {item.operation.completedDatabases} / {item.operation.totalDatabases}{' '}
+                          个数据库
+                        </span>
+                      </div>
+                      <div className="weq-dbm-history-actions">
+                        <button
+                          type="button"
+                          className="weq-set-btn weq-set-btn-sm"
+                          onClick={() => {
+                            setReportId(item.id);
+                            setReportScope(scope);
+                            setReportFocused(undefined);
+                            setLegacyId(undefined);
+                          }}
+                        >
+                          查看结果
+                        </button>
+                        <button
+                          type="button"
+                          className="weq-set-iconbtn"
+                          data-danger="outline"
+                          title="删除报告"
+                          aria-label="删除报告"
+                          disabled={
+                            deleteReport.isLoading || (running && live?.operation?.id === item.id)
+                          }
+                          onClick={() => void removeReport(item.id)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {history.data?.map((record) => (
+                    <div className="weq-dbm-history-row" key={record.id}>
+                      <span className="weq-dbm-history-icon" aria-hidden>
+                        <Wrench size={15} />
+                      </span>
+                      <div className="weq-dbm-history-main">
+                        <strong>
+                          {record.dbName} · {recordStates[record.state]}
+                        </strong>
+                        <span>{dateText(record.at)}</span>
+                      </div>
+                      <div className="weq-dbm-history-actions">
+                        <button
+                          type="button"
+                          className="weq-set-btn weq-set-btn-sm"
+                          onClick={() => {
+                            setLegacyId(record.id);
+                            setReportId(undefined);
+                          }}
+                        >
+                          查看旧报告
+                        </button>
+                        {record.canRestore ? (
+                          <button
+                            type="button"
+                            className="weq-set-btn weq-set-btn-sm"
+                            disabled={locked || running}
+                            onClick={() => void restore(record.id)}
+                          >
+                            <RotateCcw size={13} />
+                            恢复备份
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="weq-set-iconbtn"
+                          data-danger="outline"
+                          title="删除修复记录"
+                          aria-label="删除修复记录"
+                          disabled={locked || running || deleteRecord.isLoading}
+                          onClick={() => void removeReport(record.id, true, record.canRestore)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {reports.error || history.error ? (
+                    <p className="weq-dbm-alert" role="alert">
+                      历史报告读取失败：{reports.error?.message || history.error?.message}
+                    </p>
                   ) : null}
                 </>
               )}
             </div>
-            {scanning ? (
-              <div className="weq-rp-scanbar" aria-hidden>
-                <div
-                  className="weq-rp-scanbar-fill"
-                  style={{
-                    width: `${Math.round((scan.done / Math.max(1, scan.total)) * 100)}%`,
-                  }}
-                />
-              </div>
-            ) : null}
-          </div>
+          </section>
+        </WindowSurface>
+      ) : null}
+    </section>
+  );
+}
 
-          {liveDbs.length > 0 ? (
-            <ol className="weq-rp-list">
-              {liveDbs.map((row) => {
-                const result = checkups[row.dbName];
-                const checking = scanning && result === undefined && scan.current === row.dbName;
-                const badge = result ? checkupBadge(result) : null;
-                const tone: Tone = badge ? badge.tone : 'muted';
-                return (
-                  <li key={row.dbName}>
-                    <button
-                      type="button"
-                      className={`weq-rp-db is-${tone}${checking ? ' is-busy' : ''}`}
-                      onClick={() => goRepair(row.dbName)}
-                      title={`选 ${row.dbName} 去修复`}
-                    >
-                      <span className="weq-rp-db-top">
-                        <span className="weq-rp-db-icon" aria-hidden>
-                          {checking ? (
-                            <Loader2 size={16} strokeWidth={2} className="weq-spin" />
-                          ) : (
-                            <Database size={16} strokeWidth={1.9} />
-                          )}
-                        </span>
-                        {checking ? (
-                          <Chip tone="run">
-                            <Loader2 size={10} className="weq-spin" aria-hidden />
-                            体检中
-                          </Chip>
-                        ) : badge ? (
-                          <Chip tone={badge.tone}>{badge.label}</Chip>
-                        ) : (
-                          <Chip>未体检</Chip>
-                        )}
-                      </span>
-                      <span className="weq-rp-db-name weq-rp-mono">{row.dbName}</span>
-                      <span className="weq-rp-db-note">
-                        {result
-                          ? result.summary
-                          : checking
-                            ? '正在整库校验结构与页签名…'
-                            : '还没体检 —— 点这张卡片可以直接去修它。'}
-                      </span>
-                      <span className="weq-rp-db-foot">
-                        <span className="weq-rp-row-size">{formatBytes(row.bytes)}</span>
-                        {row.lastRecord ? (
-                          <>
-                            <span className="weq-rp-sep" aria-hidden />
-                            <span>上次 {shortTime(row.lastRecord.at)}</span>
-                          </>
-                        ) : null}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ol>
-          ) : null}
-
-          {/* 跳过体检：一行小字，点了直接去选库（代价写在旁边）。 */}
-          <div className="weq-rp-skip">
-            <button type="button" className="weq-rp-link" onClick={() => goRepair(null)}>
-              跳过体检，直接选数据库 →
-            </button>
-            <span>跳过后不会先检查数据库状态，请确认需要修复的目标。</span>
-          </div>
-
-          <Disclosure summary="修复会做什么">
-            <p>
-              修复是<strong>重建</strong>而不是打补丁：产物是全新的库（没有 freelist 空洞），
-              所以页数与体积会变，这是正常的。
-            </p>
-            <p>
-              流程是「备份 → 重建 → 替换 → 自检」。修复前可能先合并尚未写回的 WAL 日志。
-              <strong>无法保证恢复全部数据</strong>；自检失败时会尝试从备份还原。
-              遇到失败请先查看报告，核对备份与还原结果后再决定是否重试。备份默认保留最近 3 份。
-            </p>
-            <p>
-              替换那一步会先关掉 WeQ 里正开着的这个账号，修完把你送回启动页 ——
-              <strong>期间不要自己打开这个账号的 QQ</strong>。
-            </p>
-            <ul>
-              <li>
-                <strong>QQ 正开着这个账号：</strong>
-                修复要先解密源库，QQ 一边写、我们一边读会读出撕裂的页 —— 得先结束这个账号的
-                QQ（修复页上有那一枚按钮）。
-              </li>
-              <li>
-                <strong>被 WeQ 自己占着：</strong>
-                可以照常开始，替换那一步会先把它关掉，之后回启动页重新打开即可。
-              </li>
-              <li>
-                <strong>未合并的预写日志：</strong>
-                QQ 崩溃 / 被强杀后留下的是主文件里还没有的最后一批改动。修复会先把它（不需要
-                QQ）并回主文件，这批改动会一起进产物和备份。
-              </li>
-            </ul>
-          </Disclosure>
-        </div>
-      ) : (
-        /* ── ② 修复：选库 → 检查环境（QQ / 占用 / 空间）→ 替换 ────────────── */
-        <div className="weq-wtools-pane-body weq-rp-body">
-          <div className="weq-rp-bar">
-            <button type="button" className="weq-rp-back" onClick={() => setStage('scan')}>
-              <ArrowLeft size={13} strokeWidth={2.2} aria-hidden />
-              体检结果
-            </button>
-            <span className="weq-rp-hint">
-              {problemDbs.length > 0
-                ? `${problemDbs.length} 个库有错误（已排在前面），其余收在下面。`
-                : liveDbs.length > 0 && checkedRows.length === liveDbs.length
-                  ? '所有库都完好 —— 真要修哪个，从这里选一个。'
-                  : '没有体检结论（跳过体检进来的），所以这里把所有库都列出来。'}
-            </span>
-          </div>
-
-          {liveDbs.length === 0 ? (
-            <div className="weq-rp-empty">
-              <DatabaseZap size={22} strokeWidth={1.6} aria-hidden />
-              <span>这个账号下没有数据库文件。</span>
-            </div>
+function DatabaseCard({
+  row,
+  bytes,
+  selected,
+  current,
+  selectable,
+  disabled,
+  onFocus,
+  onSelect,
+}: {
+  row: DatabaseMaintenanceRow;
+  bytes: number | null | undefined;
+  selected: boolean;
+  current: boolean;
+  selectable: boolean;
+  disabled: boolean;
+  onFocus: () => void;
+  onSelect: (checked: boolean) => void;
+}) {
+  const tone = rowTone(row);
+  const content = (
+    <>
+      <span className="weq-dbm-db-top">
+        <span className="weq-dbm-db-icon" aria-hidden>
+          {row.scanStatus === 'running' ||
+          row.deepStatus === 'running' ||
+          row.repair?.status === 'running' ? (
+            <Loader2 size={15} className="weq-spin" />
+          ) : tone === 'warn' ? (
+            <AlertTriangle size={15} strokeWidth={1.9} />
+          ) : tone === 'ok' ? (
+            <Check size={15} strokeWidth={2.2} />
           ) : (
-            <ol className="weq-rp-picks">
-              {visibleDbs.map((row) => {
-                const result = checkups[row.dbName];
-                const bad = result !== undefined && isProblemCheckup(result);
-                const badge = result ? checkupBadge(result) : null;
-                const tone: Tone = badge ? badge.tone : 'muted';
-                const active = row.dbName === dbName;
-                return (
-                  <li key={row.dbName}>
-                    <button
-                      type="button"
-                      className={`weq-rp-pick is-${tone}${bad ? ' is-bad' : ''}${
-                        active ? ' is-active' : ''
-                      }`}
-                      aria-pressed={active}
-                      onClick={() => {
-                        setDbName(row.dbName);
-                        setConfirmRepair(null);
-                        setNotice(null);
-                        setOutcome(null);
-                      }}
-                    >
-                      <span className="weq-rp-pick-top">
-                        <span className="weq-rp-pick-icon" aria-hidden>
-                          {active ? (
-                            <CheckCircle2 size={16} strokeWidth={2} />
-                          ) : bad ? (
-                            <AlertTriangle size={16} strokeWidth={1.9} />
-                          ) : (
-                            <Database size={16} strokeWidth={1.9} />
-                          )}
-                        </span>
-                        {active ? (
-                          <Chip tone="ok">已选中</Chip>
-                        ) : bad ? (
-                          <Chip tone="warn">有错误</Chip>
-                        ) : badge ? (
-                          <Chip tone={badge.tone}>{badge.label}</Chip>
-                        ) : (
-                          <Chip>未体检</Chip>
-                        )}
-                      </span>
-                      <span className="weq-rp-pick-name weq-rp-mono">{row.dbName}</span>
-                      {/* 有错误的库在这一页是主角，所以给它一句结论；完好的只给徽章。 */}
-                      <span className="weq-rp-pick-note">
-                        {result ? result.summary : '还没体检过这个库。'}
-                      </span>
-                      <span className="weq-rp-pick-foot">
-                        <span className="weq-rp-row-size">{formatBytes(row.bytes)}</span>
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ol>
+            <Database size={15} strokeWidth={1.9} />
           )}
+        </span>
+        <Chip tone={tone}>{rowLabel(row)}</Chip>
+        {selectable ? (
+          <input
+            type="checkbox"
+            className="weq-dbm-db-input"
+            aria-label={`修复 ${row.dbName}`}
+            checked={selected}
+            disabled={disabled}
+            onChange={(event) => {
+              onFocus();
+              onSelect(event.target.checked);
+            }}
+            onFocus={onFocus}
+          />
+        ) : null}
+      </span>
+      <span className="weq-dbm-db-name">{row.dbName}</span>
+      <span className="weq-dbm-db-note">{rowSummary(row)}</span>
+      <span className="weq-dbm-db-foot">
+        <span>{formatBytesOrUnknown(bytes)}</span>
+        {row.scan ? <span>{row.scan.pageCount.toLocaleString('zh-CN')} 页</span> : null}
+        {row.scan?.badPages.length ? (
+          <span className="is-warn">{row.scan.badPages.length.toLocaleString('zh-CN')} 坏页</span>
+        ) : null}
+        {row.deepStatus === 'partial' ||
+        (row.integrity?.ran && row.integrity.complete === false) ? (
+          <span className="is-warn">有未核验项</span>
+        ) : null}
+      </span>
+    </>
+  );
+  if (!selectable) {
+    return (
+      <button
+        type="button"
+        className={`weq-dbm-db${current ? ' is-current' : ''}`}
+        data-tone={tone}
+        aria-pressed={current}
+        onClick={onFocus}
+      >
+        {content}
+      </button>
+    );
+  }
+  return (
+    <label
+      className={`weq-dbm-db is-selectable${current ? ' is-current' : ''}${selected ? ' is-selected' : ''}${disabled ? ' is-disabled' : ''}`}
+      data-tone={tone}
+    >
+      {content}
+    </label>
+  );
+}
 
-          {problemDbs.length > 0 && healthyCount > 0 ? (
-            <button
-              type="button"
-              className="weq-rp-more"
-              aria-expanded={showOthers}
-              onClick={() => setShowOthers((prev) => !prev)}
-            >
-              <ChevronDown
-                size={13}
-                strokeWidth={2.2}
-                className={showOthers ? 'is-flip' : ''}
+function DatabaseDetail({
+  row,
+  bytes,
+}: {
+  row: DatabaseMaintenanceRow;
+  bytes: number | null | undefined;
+}) {
+  const tone = rowTone(row);
+  const integrityText = row.integrity
+    ? row.integrity.ran
+      ? row.integrity.healthy
+        ? row.integrity.complete === false
+          ? '部分正常，有未核验项'
+          : '结构正常'
+        : row.integrity.complete === false
+          ? '发现异常，另有未核验项'
+          : '发现结构异常'
+      : row.integrity.corrupt
+        ? '检查报损坏'
+        : '未完成'
+    : row.deepStatus === 'running'
+      ? '进行中'
+      : '未检查';
+  return (
+    <section className="weq-dbm-detail" aria-label={`${row.dbName}检查结果`}>
+      <header className="weq-dbm-detail-head">
+        <span className="weq-dbm-detail-icon" data-tone={tone} aria-hidden>
+          <Database size={16} strokeWidth={1.9} />
+        </span>
+        <div className="weq-dbm-detail-title">
+          <h2>数据库检查详情</h2>
+          <span>{row.dbName}</span>
+        </div>
+        <Chip tone={tone}>{rowLabel(row)}</Chip>
+        <span className="weq-dbm-detail-support">{databaseRepairSupportLabel[row.support]}</span>
+      </header>
+      <p className="weq-dbm-verdict">{rowSummary(row)}</p>
+      <dl className="weq-dbm-metrics">
+        <div>
+          <dt>文件大小</dt>
+          <dd>{formatBytesOrUnknown(bytes)}</dd>
+        </div>
+        <div>
+          <dt>页数</dt>
+          <dd>{row.scan ? row.scan.pageCount.toLocaleString('zh-CN') : '—'}</dd>
+        </div>
+        <div>
+          <dt>坏页</dt>
+          <dd className={row.scan?.badPages.length ? 'is-warn' : undefined}>
+            {row.scan ? row.scan.badPages.length.toLocaleString('zh-CN') : '—'}
+          </dd>
+        </div>
+        <div>
+          <dt>全零页</dt>
+          <dd>{row.scan ? row.scan.zeroPages.length.toLocaleString('zh-CN') : '—'}</dd>
+        </div>
+        <div>
+          <dt>深度体检</dt>
+          <dd className={row.integrity?.ran && !row.integrity.healthy ? 'is-warn' : undefined}>
+            {integrityText}
+          </dd>
+        </div>
+        <div>
+          <dt>本次修复</dt>
+          <dd className={row.repair?.status === 'failed' ? 'is-warn' : undefined}>
+            {row.repair ? repairStates[row.repair.status] : '未开始'}
+          </dd>
+        </div>
+      </dl>
+      {row.scan?.plaintext ? (
+        <p className="weq-dbm-note">
+          <Info size={14} aria-hidden />
+          明文数据库，没有加密页签名可校验；当前重建工具也不支持这个库。
+        </p>
+      ) : null}
+      {row.integrity?.ran && row.integrity.unverifiedTables?.length ? (
+        <p className="weq-dbm-note">
+          <Info size={14} aria-hidden />
+          未核验结构：{row.integrity.unverifiedTables.join('、')}
+        </p>
+      ) : null}
+      {row.integrity && !row.integrity.ran && row.integrity.error ? (
+        <p className="weq-dbm-note is-warn">
+          <AlertTriangle size={14} aria-hidden />
+          {row.integrity.error}
+        </p>
+      ) : null}
+      {row.issues.length ? (
+        <ul className="weq-dbm-issues">
+          {row.issues.map((issue) => (
+            <li key={`${issue.stage ?? 'scan'}:${issue.message}`}>
+              <span
+                className="weq-dbm-issue-icon"
+                data-tone={issue.diagnostic === false ? 'muted' : 'warn'}
                 aria-hidden
-              />
-              {showOthers ? '收起完好的数据库' : `其他数据库（${healthyCount}）`}
-            </button>
-          ) : null}
-
-          {dbName === null ? (
-            <Note tone="muted" icon={<Info size={14} strokeWidth={2} />}>
-              在上面点一行选一个数据库 —— 选好之后这里会显示它的环境检查与修复按钮。
-            </Note>
-          ) : (
-            <div className="weq-rp-detail">
-              <header className="weq-rp-detail-head">
-                <span className="weq-rp-mono weq-rp-detail-name">{dbName}</span>
-                {currentCheckup ? (
-                  <Chip tone={checkupBadge(currentCheckup).tone}>
-                    {checkupBadge(currentCheckup).label}
-                  </Chip>
-                ) : (
-                  <Chip>未体检</Chip>
-                )}
-                <span className="weq-rp-row-size">
-                  {formatBytes(currentRow?.bytes ?? preflight?.dbBytes ?? null)}
-                </span>
-              </header>
-
-              {/* 环境：密钥 / 占用 / 空间 / 待合并日志 —— 决定「能不能修」。 */}
-              <div className="weq-rp-metrics">
-                <Metric
-                  icon={<KeyRound size={12} strokeWidth={2} />}
-                  label="密钥"
-                  value={status ? (status.keyPresent ? '已就绪' : '缺失') : '检查中…'}
-                  tone={status ? (status.keyPresent ? 'ok' : 'warn') : undefined}
-                />
-                <Metric
-                  icon={<Lock size={12} strokeWidth={2} />}
-                  label="占用"
-                  value={readiness?.label ?? '检查中…'}
-                  tone={readiness?.tone}
-                />
-                {preflight?.space.map((item, index) => (
-                  <Metric
-                    key={item.paths.join('|')}
-                    icon={<HardDrive size={12} strokeWidth={2} />}
-                    label={
-                      item.paths.length > 1 ? '缓存与原库卷' : index === 0 ? '缓存卷' : '原库卷'
-                    }
-                    value={item.freeBytes !== null ? formatBytes(item.freeBytes) : '未知'}
-                    hint={
-                      spaceBudgetReady ? (
-                        <>
-                          <span className="weq-rp-space-line">
-                            预计新增 {formatBytes(item.requiredBytes)}
-                          </span>
-                          <span className="weq-rp-space-line">
-                            建议预留 {formatBytes(item.recommendedBytes)}
-                          </span>
-                        </>
-                      ) : (
-                        `旧版预检值 ${formatBytes(item.requiredBytes)}`
-                      )
-                    }
-                    tone={
-                      item.freeBytes === null
-                        ? undefined
-                        : item.freeBytes < item.recommendedBytes
-                          ? 'warn'
-                          : 'ok'
-                    }
-                  />
-                ))}
-                <Metric
-                  icon={<Waves size={12} strokeWidth={2} />}
-                  label="预写日志"
-                  value={preflight ? (preflight.pendingWalBytes > 0 ? '待合并' : '无') : '—'}
-                  hint={
-                    preflight && preflight.pendingWalBytes > 0
-                      ? formatBytes(preflight.pendingWalBytes)
-                      : undefined
-                  }
-                  tone={preflight && preflight.pendingWalBytes > 0 ? 'warn' : undefined}
-                />
-              </div>
-
-              <div className="weq-rp-cache-location">
-                <span>修复缓存</span>
-                <code>{cacheLocation.data?.override ?? preflight?.cachePath ?? '默认位置'}</code>
-                <button
-                  type="button"
-                  className="weq-set-btn weq-set-btn-sm"
-                  title="选择修复缓存位置"
-                  aria-label="选择修复缓存位置"
-                  disabled={cacheLocationLocked}
-                  onClick={() => void changeCacheLocation(false)}
-                >
-                  <FolderOpen size={14} aria-hidden />
-                </button>
-                <button
-                  type="button"
-                  className="weq-set-btn weq-set-btn-sm"
-                  title="恢复默认修复缓存位置"
-                  aria-label="恢复默认修复缓存位置"
-                  disabled={cacheLocationLocked || !cacheLocation.data?.override}
-                  onClick={() => void changeCacheLocation(true)}
-                >
-                  <RotateCcw size={14} aria-hidden />
-                </button>
-              </div>
-
-              {/* QQ 在线检查：在线就先结束它，否则会读出撕裂的页。 */}
-              <div className={`weq-rp-qq is-${qqOnline ? 'warn' : 'ok'}`}>
-                <span className="weq-rp-qq-dot" aria-hidden />
-                <span className="weq-rp-qq-text">
-                  <strong>
-                    {qqOnline ? `QQ 在线（PID ${status?.qqPid}）` : 'QQ 没在跑这个账号'}
-                  </strong>
-                  <em>
-                    {qqOnline
-                      ? (readiness?.short ?? '结束它，修复才读得到一致的页。')
-                      : '没有 QQ 在写这个库，可以放心开始。'}
-                  </em>
-                </span>
-                {preflight?.readiness === 'blocked-by-qq' && preflight.qqHolders[0] ? (
-                  <button
-                    type="button"
-                    className="weq-set-btn weq-set-btn-sm weq-set-btn-danger"
-                    disabled={busy !== null}
-                    onClick={() => void handleKillQq()}
-                  >
-                    {busy === 'kill' ? (
-                      <Loader2 size={12} className="weq-spin" aria-hidden />
-                    ) : (
-                      <XCircle size={12} strokeWidth={2} aria-hidden />
-                    )}
-                    结束 QQ
-                  </button>
-                ) : null}
-              </div>
-
-              {status && !status.keyPresent ? (
-                <Note tone="warn">没有数据库密钥，修不了 —— 先用 WeQ 打开一次这个账号。</Note>
-              ) : null}
-              {preflightQuery.error ? (
-                <Note tone="warn">{errMsg(preflightQuery.error)}</Note>
-              ) : null}
-              {preflight && !spaceBudgetReady ? (
-                <Note tone="warn">
-                  主进程仍返回旧版空间预检结果，请重启开发版加载更新后再修复。缓存位置仍可更换。
-                </Note>
-              ) : null}
-              {readiness && readiness.tone !== 'ok' && !qqOnline ? (
-                <Note tone={readiness.tone}>{readiness.short}</Note>
-              ) : null}
-              {spaceBudgetReady &&
-                preflight?.space
-                  .filter((item) => item.freeBytes !== null && item.freeBytes < item.requiredBytes)
-                  .map((item) => (
-                    <Note key={item.paths.join('|')} tone="warn">
-                      {item.paths.join('、')}：预计新增峰值约 {formatBytes(item.requiredBytes)}
-                      ，当前可用 {formatBytes(item.freeBytes)}。
-                    </Note>
-                  ))}
-              {marginShort && !spaceShort ? (
-                <Note tone="warn">
-                  预计峰值空间足够，但建议余量不足；实际占用可能超过估算，继续可能因磁盘写满而失败。
-                </Note>
-              ) : null}
-              {preflight && !preflight.storageOptimized ? (
-                <Note tone="muted">
-                  当前原生组件尚未提供低占用修复能力，预计新增空间仍按旧流程计算。
-                </Note>
-              ) : null}
-              {notice ? (
-                <Note tone="warn" icon={<AlertTriangle size={14} strokeWidth={2} />}>
-                  {notice}
-                </Note>
-              ) : null}
-              {busy === 'checkup' ? (
-                <Note tone="muted" icon={<Loader2 size={14} className="weq-spin" />}>
-                  正在停止当前只读体检。可以先确认修复或布局迁移，体检进程退出后再开始。
-                </Note>
-              ) : null}
-
-              {/* 布局迁移的优先路径：只在进入修复页、选中库后才检测。检测只读两个
-                  4 KiB 页，不扫全库；没有命中就完全不打扰通用修复流程。 */}
-              {layoutQuery.isFetching && !layoutProbe ? (
-                <Note tone="muted" icon={<Loader2 size={14} className="weq-spin" />}>
-                  正在检查页布局…
-                </Note>
-              ) : needsMigration ? (
-                <div className="weq-rp-migrate" role="status">
-                  <span className="weq-rp-migrate-icon" aria-hidden>
-                    <ShieldAlert size={16} strokeWidth={2} />
-                  </span>
-                  <div className="weq-rp-migrate-main">
-                    <strong>检测到旧版误修复留下的页布局</strong>
-                    <p>
-                      第 262144 页有数据、第 262145 页是保留页 —— 这是 standard SQLite
-                      布局，旧版修复曾把它写进带 QQ 头的库。继续按 QQ 布局读，超过 1 GiB
-                      的真实页会被当成保留页。
-                    </p>
-                    <p className="weq-rp-hint">
-                      建议先做布局迁移：按 standard 页号读出全部数据，再写回 QQ 布局。它与修复
-                      一样会先备份、重建、自检、替换，之后可回滚。
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className="weq-set-btn weq-set-btn-danger weq-set-btn-sm"
-                    disabled={!canStart}
-                    onClick={() => {
-                      setConfirmRepair('layout-migration');
-                      setNotice(null);
-                      setOutcome(null);
-                    }}
-                  >
-                    <Play size={12} strokeWidth={2} aria-hidden />
-                    布局迁移
-                  </button>
-                </div>
-              ) : layoutProbe ? (
-                <Note tone="ok" icon={<CheckCircle2 size={14} strokeWidth={2} />}>
-                  {layoutProbe.summary}
-                </Note>
-              ) : null}
-              {layoutQuery.error ? (
-                <Note tone="warn">页布局检测没跑起来：{errMsg(layoutQuery.error)}</Note>
-              ) : null}
-
-              {/* 结果 / 进度二选一：跑着的时候只该看见进度。 */}
-              {running && progress ? (
-                <RepairProgress progress={progress} />
-              ) : outcome ? (
-                <div className={`weq-rp-outcome is-${outcome.tone}`}>
-                  <span className="weq-rp-outcome-icon" aria-hidden>
-                    {outcome.tone === 'ok' ? (
-                      <CheckCircle2 size={16} strokeWidth={2} />
-                    ) : (
-                      <AlertTriangle size={16} strokeWidth={2} />
-                    )}
-                  </span>
-                  <span className="weq-rp-outcome-text">
-                    <strong>{outcome.title}</strong>
-                    <em>{outcome.detail}</em>
-                    {outcome.closedAccount ? (
-                      <em className="is-warn">
-                        这个账号在替换前已关闭。请通过顶部提示中的「立即返回」或等待倒计时回到启动页，再重新打开账号。
-                      </em>
-                    ) : null}
-                  </span>
-                </div>
-              ) : null}
-
-              {/* 替换确认：把「会动哪个文件、备份与回滚怎么算、会丢什么、账号会被关」
-                  一次说清。它不弹窗 —— 就长在主按钮的位置上，与要操作的对象同屏。 */}
-              {confirmRepair && !running ? (
-                <div className="weq-rp-confirm is-strong" role="alert">
-                  <div className="weq-rp-confirm-head">
-                    <ShieldAlert size={14} strokeWidth={2} aria-hidden />
-                    {confirmRepair === 'layout-migration'
-                      ? '布局迁移 = 按 standard 读 + 重建回 QQ 布局'
-                      : '修复 = 重建 + 替换这个库'}
-                  </div>
-                  <ul>
-                    <li>
-                      替换 <span className="weq-rp-mono">{dbName}</span>
-                      {currentRow ? `（${formatBytes(currentRow.bytes)}）` : ''}。
-                    </li>
-                    <li>替换前先备份（保留最近 {preflight?.backupsKept ?? 3} 份），之后可回滚。</li>
-                    <li>
-                      {confirmRepair === 'layout-migration'
-                        ? '全部页按 standard 页号读出后写回 QQ 布局；读不出的 cell 仍会丢。'
-                        : '坏页里的内容会被排除；替换前会关掉这个账号，修完自动回启动页。'}
-                    </li>
-                  </ul>
-                  {currentCheckup ? null : (
-                    <p className="weq-rp-hint">尚未检查该数据库，请先核对目标与修复选项。</p>
-                  )}
-                  {marginShort && !spaceShort ? (
-                    <label className="weq-rp-space-consent">
-                      <input
-                        type="checkbox"
-                        aria-label="余量不足时仍继续"
-                        checked={allowLowSpace}
-                        onChange={(event) => setAllowLowSpace(event.currentTarget.checked)}
-                      />
-                      <span>我接受磁盘余量不足的风险，仍要继续</span>
-                    </label>
-                  ) : null}
-                  <div className="weq-rp-actions">
-                    <button
-                      type="button"
-                      className="weq-set-btn weq-set-btn-danger"
-                      disabled={
-                        !canStart ||
-                        (busy === 'checkup' && !checkupTaskRef.current) ||
-                        (marginShort && !allowLowSpace)
-                      }
-                      onClick={() => void handleRepair(confirmRepair === 'layout-migration')}
-                    >
-                      <Play size={13} strokeWidth={2} aria-hidden />
-                      {marginShort
-                        ? confirmRepair === 'layout-migration'
-                          ? '仍要继续并迁移'
-                          : '仍要继续并修复'
-                        : confirmRepair === 'layout-migration'
-                          ? '确认迁移并替换'
-                          : '确认替换并修复'}
-                    </button>
-                    <button
-                      type="button"
-                      className="weq-set-btn weq-set-btn-soft"
-                      onClick={() => setConfirmRepair(null)}
-                    >
-                      取消
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-
-              {/* 体检结论的细节（结构与坏页地图）。放在末尾：它只在想深看时才要看。 */}
-              {currentCheckup ? (
-                <Disclosure summary="这个库的体检细节">
-                  {currentCheckup.integrity.ran && !currentCheckup.integrity.healthy ? (
-                    <p>
-                      结构损坏：
-                      {currentCheckup.integrity.corruptedTables.length > 0
-                        ? currentCheckup.integrity.corruptedTables.join('、')
-                        : '整体损坏，未能定位到具体表'}
-                    </p>
-                  ) : null}
-                  {currentCheckup.pages.ran ? (
-                    <>
-                      <p>
-                        共 {currentCheckup.pages.report.pageCount} 页
-                        {currentCheckup.pages.report.badPages.length > 0
-                          ? ` · 坏页 ${currentCheckup.pages.report.badPages.length}`
-                          : ''}
-                        {currentCheckup.pages.report.zeroPages.length > 0
-                          ? ` · 全零页 ${currentCheckup.pages.report.zeroPages.length}`
-                          : ''}
-                        {currentCheckup.pages.report.trailingBytes > 0
-                          ? ` · 尾部残余 ${currentCheckup.pages.report.trailingBytes} B`
-                          : ''}
-                        {currentCheckup.pages.report.usedHmac ? '' : ' · 未开启页 HMAC'}
-                      </p>
-                      {!currentCheckup.pages.report.usedHmac ? (
-                        <p>没有页 HMAC 就没有可校验的页签名，这张坏页地图在这里没有意义。</p>
-                      ) : currentCheckup.pages.report.badPages.length > 0 ? (
-                        <div className="weq-rp-pages">
-                          {currentCheckup.pages.report.badPages
-                            .slice(0, BAD_PAGE_PREVIEW)
-                            .map((page) => (
-                              <span key={page} className="weq-rp-page">
-                                {page}
-                              </span>
-                            ))}
-                          {currentCheckup.pages.report.badPages.length > BAD_PAGE_PREVIEW ? (
-                            <span className="weq-rp-hint">
-                              …共 {currentCheckup.pages.report.badPages.length} 个
-                            </span>
-                          ) : null}
-                        </div>
-                      ) : null}
-                      {currentCheckup.pages.report.affected.length > 0 ? (
-                        <ul>
-                          {currentCheckup.pages.report.affected.map((item) => (
-                            <li key={`${item.name}:${item.pagetype}`}>
-                              <span className="weq-rp-mono">{item.name}</span>（{item.pagetype}
-                              ）命中 {item.badPageCount} 个坏页
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null}
-                    </>
-                  ) : (
-                    <p>页级检查没跑起来：{currentCheckup.pages.error}</p>
-                  )}
-                  {!currentCheckup.integrity.ran ? (
-                    <p>
-                      {currentCheckup.integrity.corrupt
-                        ? `结构检查读到损坏错误：${currentCheckup.integrity.error}`
-                        : `结构检查没跑起来：${currentCheckup.integrity.error}`}
-                    </p>
-                  ) : null}
-                </Disclosure>
-              ) : null}
-
-              <div className="weq-rp-actions weq-rp-actions-end">
-                <button
-                  type="button"
-                  className="weq-rp-icon-btn is-wide"
-                  disabled={busy !== null}
-                  title="只备份这个库（不改动它）"
-                  onClick={() => void handleBackup()}
-                >
-                  {busy === 'backup' ? (
-                    <Loader2 size={13} className="weq-spin" aria-hidden />
-                  ) : (
-                    <FolderOpen size={13} strokeWidth={2} aria-hidden />
-                  )}
-                  只备份
-                </button>
-                {!confirmRepair ? (
-                  <button
-                    type="button"
-                    className={`weq-set-btn ${needsMigration ? 'weq-set-btn-soft' : 'weq-set-btn-danger'}`}
-                    disabled={!canStart}
-                    onClick={() => {
-                      setConfirmRepair('repair');
-                      setNotice(null);
-                      setOutcome(null);
-                    }}
-                  >
-                    {running ? (
-                      <Loader2 size={13} className="weq-spin" aria-hidden />
-                    ) : (
-                      <Play size={13} strokeWidth={2} aria-hidden />
-                    )}
-                    {running ? '正在修复…' : needsMigration ? '仍要通用修复' : '开始修复'}
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          )}
+              >
+                {issue.diagnostic === false ? <Info size={13} /> : <AlertTriangle size={13} />}
+              </span>
+              <span>{issue.message}</span>
+              <em>{databaseRepairSupportLabel[issue.support]}</em>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {row.scanError ? (
+        <p className="weq-dbm-note is-warn">
+          <AlertTriangle size={14} aria-hidden />
+          扫描没有完成：{row.scanError}
+        </p>
+      ) : null}
+      {row.repair?.error ? (
+        <p className="weq-dbm-note is-warn">
+          <AlertTriangle size={14} aria-hidden />
+          {row.repair.error}
+        </p>
+      ) : null}
+      {row.repair?.record?.verification ? (
+        <div className="weq-dbm-verify">
+          <CheckCircle2 size={15} aria-hidden />
+          <span>
+            修复产物复核：
+            {row.repair.record.verification.healthy
+              ? row.repair.record.verification.complete === false
+                ? '已检查部分正常，仍有未核验项'
+                : '结构正常'
+              : '结构异常'}{' '}
+            · 坏页 {row.repair.record.verification.badPages.length}
+          </span>
         </div>
-      )}
+      ) : null}
+    </section>
+  );
+}
 
-      <HistoryLightbox
-        open={historyOpen}
-        onClose={() => {
-          setHistoryOpen(false);
-          setConfirming(null);
-          setPreview(null);
-        }}
-        records={history}
-        busy={busy !== null}
-        confirming={confirming}
-        preview={preview}
-        onAskRestore={(record) => void askRestore(record)}
-        onRestore={(record, force) => void handleRestore(record, force)}
-        onDelete={(record) => void handleDeleteRecord(record)}
-        onAskDelete={(record) => setConfirming({ id: record.id, action: 'delete' })}
-        onCancelConfirm={() => {
-          setConfirming(null);
-          setPreview(null);
-        }}
-        onReveal={(record, what) => void reveal(record, what)}
-      />
+function RepairBudget({
+  scope,
+  dbName,
+  enabled,
+  backup,
+}: {
+  scope: { uin: string; configId?: string };
+  dbName: string;
+  enabled: boolean;
+  backup: boolean;
+}) {
+  const budget = trpc.dbRepair.preflight.useQuery(
+    { ...scope, dbName, backup },
+    { enabled, retry: false },
+  );
+  if (budget.error)
+    return (
+      <p className="weq-dbm-budget is-warn">
+        <strong>{dbName}</strong>
+        <span>{budget.error.message}</span>
+      </p>
+    );
+  if (!budget.data) return null;
+  const tight = budget.data.space?.some(
+    (volume) => volume.freeBytes !== null && volume.freeBytes < volume.recommendedBytes,
+  );
+  return (
+    <div className={`weq-dbm-budget${tight ? ' is-warn' : ''}`}>
+      <strong>{dbName}</strong>
+      {budget.data.space?.map((volume) => (
+        <span key={volume.paths.join(':')}>
+          可用 {formatBytesOrUnknown(volume.freeBytes)} · 预计新增峰值{' '}
+          {formatBytesOrUnknown(volume.requiredBytes)} · 建议预留{' '}
+          {formatBytesOrUnknown(volume.recommendedBytes)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function RepairStorageWarning({
+  scope,
+  names,
+  backup,
+  enabled,
+  storage,
+  onChangeCache,
+  cacheDisabled,
+}: {
+  scope: { uin: string; configId?: string };
+  names: string[];
+  backup: boolean;
+  enabled: boolean;
+  storage?: DatabaseMaintenanceSnapshot['storage'];
+  onChangeCache: () => void;
+  cacheDisabled: boolean;
+}) {
+  const budget = trpc.dbRepair.repairStorage.useQuery(
+    { ...scope, dbNames: names, backup },
+    { enabled: enabled && names.length > 0, retry: false, refetchInterval: enabled ? 2000 : false },
+  );
+  const estimates =
+    !enabled && storage ? [storage] : enabled ? (budget.data ?? (storage ? [storage] : [])) : [];
+  const tight = estimates.flatMap((item) =>
+    item.space
+      .filter((volume) => volume.freeBytes !== null && volume.freeBytes < volume.recommendedBytes)
+      .map((volume) => ({ ...volume, cachePath: item.cachePath })),
+  );
+  const previousWarning = enabled && storage?.warning;
+  if (!tight.length && !previousWarning)
+    return budget.error && enabled ? (
+      <p className="weq-dbm-alert" role="alert">
+        无法检查缓存空间：{budget.error.message}
+      </p>
+    ) : null;
+  const grouped = new Map<string, (typeof tight)[number]>();
+  const displayed = tight.length
+    ? tight
+    : estimates.flatMap((item) =>
+        item.space.map((volume) => ({ ...volume, cachePath: item.cachePath })),
+      );
+  for (const volume of displayed) {
+    const key = volume.paths.join(':');
+    if (!grouped.has(key) || grouped.get(key)!.requiredBytes < volume.requiredBytes)
+      grouped.set(key, volume);
+  }
+  const volumes = [...grouped.values()];
+  return (
+    <section className="weq-dbm-storage-warning" role="alert" aria-label="磁盘空间警告">
+      <div className="weq-dbm-storage-heading">
+        <AlertTriangle size={17} aria-hidden />
+        <strong>
+          {!tight.length && previousWarning
+            ? '上次修复遇到空间不足'
+            : tight.some((volume) => volume.freeBytes! < volume.requiredBytes)
+              ? '磁盘空间不足'
+              : '磁盘可用空间偏低'}
+        </strong>
+      </div>
+      <p>请清理磁盘或更改重建缓存位置。空间不足时会保留维护锁和扫描结果，返回查看结果后可重试。</p>
+      <dl>
+        <div>
+          <dt>当前缓存位置</dt>
+          <dd>{estimates[0]?.cachePath}</dd>
+        </div>
+        {volumes.map((volume) => (
+          <div key={volume.paths.join(':')}>
+            <dt>{volume.paths.includes(volume.cachePath) ? '缓存卷' : '原数据库卷'}</dt>
+            <dd>
+              <span className="weq-dbm-path">{volume.paths.join('、')}</span>
+              <span>
+                可用 {formatBytesOrUnknown(volume.freeBytes)} · {!enabled ? '后续' : '预计'}新增峰值{' '}
+                {formatBytesOrUnknown(volume.requiredBytes)}
+              </span>
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <div className="weq-dbm-cache-actions">
+        <button
+          type="button"
+          className="weq-set-btn weq-set-btn-sm"
+          disabled={cacheDisabled}
+          onClick={onChangeCache}
+          title={cacheDisabled ? '当前重建结束并返回查看结果后可更改位置' : undefined}
+        >
+          <FolderOpen size={14} />
+          更改缓存位置
+        </button>
+        <button
+          type="button"
+          className="weq-set-btn weq-set-btn-sm"
+          onClick={() => void budget.refetch()}
+          disabled={!enabled || budget.isFetching}
+        >
+          <RefreshCw size={14} />
+          刷新空间
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function ExportButtons({
+  disabled,
+  onExport,
+}: {
+  disabled?: boolean;
+  onExport: (format: 'html' | 'md' | 'json') => void;
+}) {
+  return (
+    <div className="weq-dbm-export">
+      {(['html', 'md', 'json'] as const).map((format) => (
+        <button
+          key={format}
+          type="button"
+          className="weq-set-btn weq-set-btn-sm"
+          disabled={disabled}
+          onClick={() => onExport(format)}
+        >
+          <Download size={13} />
+          {format === 'md' ? 'Markdown' : format.toUpperCase()}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ReportView({
+  view,
+  operation,
+  bytesByName,
+  progress,
+  activeRow,
+  onFocus,
+  onBack,
+  onExport,
+}: {
+  view: DatabaseMaintenanceSnapshot;
+  operation: NonNullable<DatabaseMaintenanceSnapshot['operation']>;
+  bytesByName: Map<string, number | null>;
+  progress?: DatabaseTaskProgress;
+  activeRow?: DatabaseMaintenanceRow;
+  onFocus: (name: string) => void;
+  onBack: () => void;
+  onExport: (format: 'html' | 'md' | 'json') => void;
+}) {
+  const rows = view.databases;
+  const abnormal = rows.filter((row) => databaseMaintenanceRowAbnormal(row)).length;
+  const repaired = rows.filter((row) => row.repair?.status === 'completed').length;
+  const ready = rows.filter(databaseReadyForRepair).length;
+  return (
+    <>
+      <div className="weq-dbm-report-bar">
+        <button type="button" className="weq-dbm-back" onClick={onBack}>
+          <ArrowLeft size={13} strokeWidth={2.2} aria-hidden />
+          返回历史报告
+        </button>
+        <span className="weq-dbm-report-kind">历史报告</span>
+      </div>
+      <header className="weq-dbm-report-head">
+        <div>
+          <h2>{operationLabels[operation.kind]}报告</h2>
+          <p>
+            {view.uin}
+            {view.configId ? ` · ${view.configId}` : ''} · {dateText(operation.startedAt)}
+          </p>
+        </div>
+        <Chip
+          tone={
+            operation.status === 'completed'
+              ? 'ok'
+              : operation.status === 'failed'
+                ? 'warn'
+                : 'muted'
+          }
+        >
+          {operationStates[operation.status]}
+        </Chip>
+        <ExportButtons onExport={onExport} />
+      </header>
+      <dl className="weq-dbm-report-metrics">
+        <div>
+          <dt>数据库</dt>
+          <dd>
+            {operation.completedDatabases} / {operation.totalDatabases} 完成
+          </dd>
+        </div>
+        <div>
+          <dt>异常</dt>
+          <dd className={abnormal ? 'is-warn' : undefined}>{abnormal} 个</dd>
+        </div>
+        <div>
+          <dt>{operation.kind === 'repair' ? '修复成功' : '可修复'}</dt>
+          <dd>{operation.kind === 'repair' ? repaired : ready} 个</dd>
+        </div>
+        <div>
+          <dt>未完成</dt>
+          <dd className={operation.failedDatabases ? 'is-warn' : undefined}>
+            {operation.failedDatabases ?? 0} 个
+          </dd>
+        </div>
+      </dl>
+      {operation.error ? (
+        <p className="weq-dbm-alert" role="alert">
+          <AlertTriangle size={15} aria-hidden />
+          {operation.error}
+        </p>
+      ) : null}
+      {rows.length ? (
+        <ul className="weq-dbm-list">
+          {rows.map((row) => (
+            <li key={row.dbName}>
+              <DatabaseCard
+                row={row}
+                bytes={bytesByName.get(row.dbName)}
+                selected={false}
+                current={activeRow?.dbName === row.dbName}
+                selectable={false}
+                disabled
+                onFocus={() => onFocus(row.dbName)}
+                onSelect={() => {}}
+              />
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {progress ? (
+        <details className="weq-dbm-process" open>
+          <summary>
+            <span className="weq-dbm-process-title">
+              <History size={14} />
+              执行过程
+            </span>
+            <span className="weq-dbm-process-hint">
+              {operationLabels[operation.kind]} · {operationStates[operation.status]}
+            </span>
+            <ChevronDown size={14} className="weq-dbm-chevron" aria-hidden />
+          </summary>
+          <div className="weq-dbm-process-body">
+            <DatabaseMaintenanceProgress
+              progress={progress}
+              batch={{ ...operation, locked: view.locked }}
+              showBatch={false}
+              showMaintained={false}
+            />
+          </div>
+        </details>
+      ) : null}
+      {activeRow ? (
+        <DatabaseDetail row={activeRow} bytes={bytesByName.get(activeRow.dbName)} />
+      ) : null}
+    </>
+  );
+}
+
+function LegacyReport({
+  data,
+  onBack,
+  onExport,
+}: {
+  data: {
+    dbName: string;
+    at: string;
+    state: keyof typeof recordStates;
+    badPages: number[];
+    beforeBytes: number;
+    afterBytes: number | null;
+    error?: string;
+  };
+  onBack: () => void;
+  onExport: (format: 'html' | 'md' | 'json') => void;
+}) {
+  return (
+    <>
+      <div className="weq-dbm-report-bar">
+        <button type="button" className="weq-dbm-back" onClick={onBack}>
+          <ArrowLeft size={13} strokeWidth={2.2} aria-hidden />
+          返回历史报告
+        </button>
+        <span className="weq-dbm-report-kind">旧版修复记录</span>
+      </div>
+      <header className="weq-dbm-report-head">
+        <div>
+          <h2>{data.dbName}</h2>
+          <p>
+            {dateText(data.at)} · {recordStates[data.state]}
+          </p>
+        </div>
+        <ExportButtons onExport={onExport} />
+      </header>
+      <dl className="weq-dbm-report-metrics">
+        <div>
+          <dt>坏页</dt>
+          <dd className={data.badPages.length ? 'is-warn' : undefined}>{data.badPages.length}</dd>
+        </div>
+        <div>
+          <dt>源库大小</dt>
+          <dd>{formatBytesOrUnknown(data.beforeBytes)}</dd>
+        </div>
+        <div>
+          <dt>产物大小</dt>
+          <dd>{formatBytesOrUnknown(data.afterBytes)}</dd>
+        </div>
+        <div>
+          <dt>修复能力</dt>
+          <dd>旧记录未逐项判定</dd>
+        </div>
+      </dl>
+      {data.error ? (
+        <p className="weq-dbm-alert" role="alert">
+          <AlertTriangle size={15} aria-hidden />
+          {data.error}
+        </p>
+      ) : null}
+      <p className="weq-dbm-note">
+        <Info size={14} aria-hidden />
+        旧报告没有记录逐项支持情况，也没有本次维护的扫描与复核过程。只能查看结果和导出。
+      </p>
     </>
   );
 }

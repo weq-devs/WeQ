@@ -4,9 +4,9 @@ import { X, RefreshCw, UsersRound } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { Modal } from '../Dialog';
-import { withQQAccountScope } from './shared';
+import { withQQAccountScope } from './shared.shared';
 import { GroupAvatar } from '../exportAvatars';
-import { GroupProfileDialog } from '../../im-template/template/profilePanes';
+import { GroupProfileDialog } from '../lazyMainPanels';
 import { ContactRow } from '../contactProfile/ContactRow';
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { avatarFromGroupCode } from '../../lib/avatarResolver';
@@ -87,7 +87,11 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
           title="查看共同群列表"
           aria-label="查看共同群列表"
         >
-          {query.data?.groups?.length ?? '读取中…'}
+          {
+            <span className="weq-number weq-number-inherit">
+              {query.data?.groups?.length ?? '读取中…'}
+            </span>
+          }
         </button>
       </ContactRow>
       {open && (

@@ -1,7 +1,10 @@
 import type { ExportTask } from './task_manager';
 
 export function supportsExportReport(task: ExportTask): boolean {
-  return task.includeIntegrityReport ?? (!task.resource && !task.marketpack && !task.emojipack);
+  return (
+    Boolean(task.databaseRecoveryRecords?.length) ||
+    (task.includeIntegrityReport ?? (!task.resource && !task.marketpack && !task.emojipack))
+  );
 }
 
 export function exportReport(task: ExportTask) {
@@ -48,6 +51,7 @@ export function exportReport(task: ExportTask) {
       : null,
     contentStatus:
       task.error ||
+      task.databaseRecoveryRecords?.length ||
       task.mergeWarnings?.conflictingMessages ||
       task.mergeWarnings?.sequenceGapCount ||
       task.skippedStages?.length ||
@@ -106,6 +110,7 @@ export function exportReport(task: ExportTask) {
     },
     unresolvedStages: unresolved.map((stage) => stage.key),
     skippedStages: task.skippedStages ?? [],
+    databaseRecovery: task.databaseRecoveryRecords ?? [],
     mergeWarnings: task.mergeWarnings ?? null,
     continuation: task.journalPath
       ? {

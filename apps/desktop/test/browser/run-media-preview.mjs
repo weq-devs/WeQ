@@ -133,6 +133,60 @@ try {
     }
   };
   const mousePage = await browser.newPage({ reducedMotion: 'reduce' });
+  let lazyPreviewCases = 0;
+  for (const [width, theme, failFirst] of [
+    [390, 'dark', false],
+    [320, 'light', true],
+    [1280, 'dark', false],
+  ]) {
+    const cold = await browser.newPage({
+      viewport: { width, height: 844 },
+      reducedMotion: 'reduce',
+    });
+    cold.on('pageerror', (error) => errors.push(error.message));
+    await cold.route('**/*', mediaRoute);
+    let release;
+    let moduleRequests = 0;
+    const delayed = new Promise((done) => {
+      release = done;
+    });
+    await cold.route('**/components/MediaPreview.tsx*', async (route) => {
+      moduleRequests++;
+      if (failFirst && moduleRequests === 1) return route.abort('failed');
+      if (!failFirst) await delayed;
+      await route.continue();
+    });
+    try {
+      await cold.goto(url.replace('media-preview.html', 'media-preview-lazy.html'), {
+        waitUntil: 'networkidle',
+      });
+      assert.equal(moduleRequests, 0, '未打开媒体时不能加载预览器');
+      await cold.evaluate((value) => window.mediaTheme.getState().setPreference(value), theme);
+      await cold.getByRole('button', { name: '打开图片', exact: true }).click();
+      await cold.getByRole('dialog').waitFor();
+      if (failFirst) {
+        await cold.getByRole('button', { name: '重新加载预览' }).waitFor();
+      } else {
+        await cold.getByRole('status').waitFor();
+      }
+      if (output) await cold.screenshot({ path: resolve(output, `lazy-${theme}-${width}.png`) });
+      if (failFirst) {
+        await cold.getByRole('button', { name: '重新加载预览' }).click();
+      } else {
+        await cold.getByRole('button', { name: '关闭预览' }).click();
+        release();
+        await cold.waitForTimeout(200);
+        assert.equal(await cold.getByRole('dialog').count(), 0, '迟到模块不能重开已关闭预览');
+        await cold.getByRole('button', { name: '打开图片', exact: true }).click();
+      }
+      await cold.locator('.weq-unified-preview img').waitFor({ state: 'visible' });
+      assert.equal(moduleRequests, failFirst ? 2 : 1, '失败可重新请求，成功模块复用');
+      lazyPreviewCases++;
+    } finally {
+      release();
+      await cold.close();
+    }
+  }
   mousePage.on('pageerror', (error) => errors.push(error.message));
   await mousePage.route('**/*', mediaRoute);
   let inlineVideoCases = 0;
@@ -218,7 +272,7 @@ try {
     }
   }
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ inlineVideoCases, inlineVideoTouchCases }));
+  console.log(JSON.stringify({ inlineVideoCases, inlineVideoTouchCases, lazyPreviewCases }));
   for (const width of [1280, 390, 320]) {
     await page.setViewportSize({ width, height: 844 });
     for (const theme of ['light', 'dark']) {
@@ -253,6 +307,30 @@ try {
           .evaluate((el) => el.contains(document.activeElement)),
         true,
       );
+      const previewClose = page.getByRole('button', { name: '关闭预览', exact: true });
+      const copyImage = page.getByRole('button', { name: '复制到剪贴板', exact: true });
+      assert.equal(await previewClose.evaluate((el) => document.activeElement === el), true);
+      await page.keyboard.press('Shift+Tab');
+      assert.equal(await copyImage.evaluate((el) => document.activeElement === el), true);
+      const controlCount = await page
+        .locator('.weq-unified-preview button:visible:enabled')
+        .count();
+      let visitedOcr = false;
+      for (let index = 0; index < controlCount * 2; index++) {
+        await page.keyboard.press('Tab');
+        const focus = await page.locator('.weq-unified-preview').evaluate((el) => ({
+          contained: el.contains(document.activeElement),
+          ocr: Boolean(document.activeElement?.closest('.weq-ocr-panel')),
+        }));
+        assert.equal(focus.contained, true, 'OCR 打开时 Tab 不得离开媒体预览');
+        visitedOcr ||= focus.ocr;
+      }
+      assert.equal(visitedOcr, true, 'Tab 必须可到达 OCR 结果操作');
+      if (output)
+        await page.screenshot({ path: resolve(output, `${theme}-${width}-ocr-focus.png`) });
+      await page.keyboard.press('Escape');
+      await page.locator('.weq-ocr-panel').waitFor({ state: 'detached' });
+      assert.equal(await page.getByRole('dialog').count(), 1, '首次 Esc 只退出 OCR');
       await close();
       assert.equal(await trigger.evaluate((el) => document.activeElement === el), true);
 

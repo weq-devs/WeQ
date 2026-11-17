@@ -2,7 +2,7 @@ import { expect, it } from 'vitest';
 import {
   contactHistoryFieldForLabel,
   groupFieldHistoryValue,
-} from '../src/renderer/src/components/contactProfile/ContactFieldHistory';
+} from '../src/renderer/src/components/contactProfile/ContactFieldHistory.shared';
 
 it('群资料字段接入逐项历史，数字零值和业务单位保留', () => {
   expect(contactHistoryFieldForLabel.群地点).toBe('addressName');

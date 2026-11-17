@@ -55,7 +55,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   try {
     if (process.argv.includes('--summary')) {
       const { tsImport } = await import('tsx/esm/api');
-      const { developmentRecord } = await tsImport(
+      const { developmentRecord, terminalColor } = await tsImport(
         '../apps/desktop/src/main/development_console.ts',
         import.meta.url,
       );
@@ -65,7 +65,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
           'info',
           '网络辅助程序已就绪',
           { scope: 'startup', path: helper },
-          Boolean(process.stdout.isTTY) && process.env.NO_COLOR === undefined,
+          terminalColor('stdout'),
         ),
       );
     } else {

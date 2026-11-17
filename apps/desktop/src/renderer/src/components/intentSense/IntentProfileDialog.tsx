@@ -11,8 +11,8 @@ import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { BrainCircuit, RefreshCw, X } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { OverlayLayer } from '../OverlayLayer';
-import { useIntentSenseStatus } from './context';
-import { useTabActive } from '../RetainedTabs';
+import { useIntentSenseStatus } from './context.shared';
+import { useTabActive } from '../RetainedTabs.shared';
 import '../../styles/intent-sense.css';
 
 const MBTI_LABELS: Record<string, [string, string]> = {
@@ -105,7 +105,7 @@ function Radar({ axes }: { axes: Array<{ axis: string; value: number }> }) {
           >
             <tspan x={x}>{a.axis}</tspan>
             <tspan x={x} dy="14">
-              {Math.round(a.value)}
+              {<tspan className="weq-number weq-number-inherit">{Math.round(a.value)}</tspan>}
             </tspan>
           </text>
         );
@@ -298,7 +298,9 @@ export function IntentProfileDialog({
             </section>
 
             <p className="weq-int-note">
-              基于 {data.sampled} 条消息（引擎分析 {data.analyzedSamples} 条）
+              基于 <span className="weq-number weq-number-inherit">{data.sampled}</span>{' '}
+              条消息（引擎分析{' '}
+              <span className="weq-number weq-number-inherit">{data.analyzedSamples}</span> 条）
               的启发式推断，仅供娱乐参考。
             </p>
           </div>

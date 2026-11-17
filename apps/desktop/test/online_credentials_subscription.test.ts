@@ -162,7 +162,7 @@ it.each([false, true])('凭据写盘后仍核对实际原生登记状态：%j', 
   expect(state.credentialsPending).toBe(false);
   expect(fixture.hasSsoSession).toHaveBeenCalledWith(42);
 });
-it('原生状态查询途中关闭自动策略时，不返回旧的完整模式', async () => {
+it('原生状态查询途中关闭自动策略时，不返回旧的 QQ 在线能力', async () => {
   completeCredentials();
   fixture.hasSsoSession.mockImplementationOnce(async () => {
     fixture.automatic = false;
@@ -174,7 +174,7 @@ it('原生状态查询途中关闭自动策略时，不返回旧的完整模式'
   });
 });
 
-it('查询原生登记期间切换账号，不返回旧账号的完整模式状态', async () => {
+it('查询原生登记期间切换账号，不返回旧账号的 QQ 在线能力状态', async () => {
   completeCredentials();
   fixture.hasSsoSession.mockImplementationOnce(async () => {
     fixture.services = {};

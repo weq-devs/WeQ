@@ -1,0 +1,12 @@
+# 仅由本地开发启动器传入，不修改 native 源码仓库的正式发布配置。
+[profile.weq-dev]
+inherits = "release"
+opt-level = 2
+lto = "off"
+codegen-units = 16
+incremental = true
+
+# 依赖很少变化，保留运行优化且不为它们积累增量缓存。
+[profile.weq-dev.package."*"]
+opt-level = 3
+incremental = false

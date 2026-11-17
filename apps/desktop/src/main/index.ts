@@ -1,6 +1,6 @@
 import { controlCompositionWindow } from './composition_window';
 import { flushConversationCalendarResults } from './ipc/routers/conversation_calendar';
-import { applicationToolPopupOptions } from './tool_window';
+import { applicationToolPopupOptions, createToolWindowRegistry } from './tool_window';
 import { installCallDisplayMediaHandler } from './call_display_media';
 import {
   appImageRelaunchCommand,
@@ -56,6 +56,8 @@ import {
 } from './protocol_register';
 import { registerUdpCaptureStorage } from './udp_capture_register';
 import { getAppContext, accountEventBus } from './context/app_context';
+import { installDesktopNetwork } from './network';
+import { configureReleaseFeeds } from './update/release_feed';
 import { handleGroupKeywordHit } from './group_keyword_notify';
 import { handleRecallNotification } from './recall_notify';
 import { handleMailNotification } from './mail_notify';
@@ -101,6 +103,11 @@ import { installPerformanceMonitor, type PerformanceMonitor } from '@weq/service
 import { createDesktopCollector } from './performance_monitor';
 import { performanceDatabaseDetails } from './performance_database';
 import { databaseCheckups } from './db_checkup';
+import { databaseMaintenance } from './ipc/routers/db_repair';
+import {
+  guardDatabaseMaintenanceQuit,
+  guardDatabaseMaintenanceWindow,
+} from './db_maintenance_lifecycle';
 import { macApplicationMenu } from './application_menu';
 import { createSystemTray } from './system_tray';
 import { registerEditUndoIpc, undoFocusedContent, redoFocusedContent } from './edit_undo';
@@ -167,6 +174,8 @@ const logger = getLogger().child({ scope: 'desktop-main' });
 /** Created once; reopening attaches a window without registering IPC again. */
 let mainIpcHandler: { attachWindow(win: BrowserWindow): void } | null = null;
 const compositionWindows = new Map<number, BrowserWindow>();
+const toolWindows = createToolWindowRegistry();
+const repairWindowScopes = new Map<number, { uin: string; configId?: string }>();
 /** System-tray icon; null until built (or if creation failed). */
 let tray: Tray | null = null;
 /** Set true right before a *real* quit so the `close` handler stops intercepting
@@ -263,6 +272,18 @@ function registerWindowLayoutIpc(): void {
   ipcMain.on('composition:control', (event, action: unknown) => {
     const child = compositionWindows.get(event.sender.id);
     if (child) controlCompositionWindow(child, action);
+  });
+  ipcMain.on('tool-window:focus', (event, name: unknown) => {
+    toolWindows.focus(event.sender.id, name);
+  });
+  ipcMain.on('db-repair:scope', (event, scope: unknown) => {
+    if (!scope || typeof scope !== 'object' || !('uin' in scope) || typeof scope.uin !== 'string')
+      return;
+    repairWindowScopes.set(event.sender.id, {
+      uin: scope.uin,
+      configId:
+        'configId' in scope && typeof scope.configId === 'string' ? scope.configId : undefined,
+    });
   });
   ipcMain.handle('window:set-layout', (event, layout: WindowLayout) => {
     const win = BrowserWindow.fromWebContents(event.sender);
@@ -662,6 +683,8 @@ function createWindow(
   });
   const recoveryId = win.webContents.id;
   win.once('closed', () => {
+    toolWindows.clear(recoveryId);
+    repairWindowScopes.delete(recoveryId);
     rendererRecoveries.delete(recoveryId);
     recovery.dispose();
   });
@@ -711,6 +734,37 @@ function createWindow(
     const composition = details.frameName === 'weq-compose';
     if (!composition) installWindowControls(child, details.options.frame === false);
     const owner = win.webContents.id;
+    toolWindows.register(owner, details.frameName, child);
+    if (details.frameName === 'weq-db-repair')
+      guardDatabaseMaintenanceWindow(child, {
+        quitting: () => isQuitting,
+        current: () => {
+          const scope = repairWindowScopes.get(owner);
+          return scope ? databaseMaintenance.current(scope) : null;
+        },
+        confirmEnd: async () =>
+          (
+            await dialog.showMessageBox(child, {
+              type: 'question',
+              title: '结束数据库维护？',
+              message: '此账号的数据库仍在维护中。',
+              detail:
+                '放弃本次扫描结果并关闭窗口，将停止检查、释放全部目标数据库的维护锁。历史报告继续保留。',
+              buttons: ['继续维护', '放弃并关闭'],
+              defaultId: 0,
+              cancelId: 0,
+              noLink: true,
+            })
+          ).response === 1,
+        end: (snapshot) => databaseMaintenance.end(snapshot),
+        failed: (error) => {
+          void dialog.showMessageBox(child, {
+            type: 'error',
+            title: '无法结束数据库维护',
+            message: String(error),
+          });
+        },
+      });
     if (composition) compositionWindows.set(owner, child);
     const reportState = () => {
       if (!win.isDestroyed() && !child.isDestroyed())
@@ -799,6 +853,8 @@ void app.whenReady().then(async () => {
   // Order matters: AppContext (loads native + platform) before IPC handler.
   // The host bridge must be installed before any router runs.
   setHost(electronHost);
+  const stopNetwork = installDesktopNetwork();
+  app.once('will-quit', stopNetwork);
   accountEventBus.on('closing', () => electronHost.setApplicationBadge?.(0));
   await migrateLegacyAutostart().catch((error: unknown) => {
     logger.warn('legacy daemon migration failed', {
@@ -815,6 +871,7 @@ void app.whenReady().then(async () => {
     })
     .catch(() => undefined);
   const userConfig = getAppContext().bootstrap?.userConfig;
+  configureReleaseFeeds(userConfig?.appDataRoot() ?? app.getPath('userData'));
   installUpdateActions({
     getInterval: () => userConfig?.getSettings().updateCheckIntervalMinutes ?? 60,
     setInterval: (minutes) => {
@@ -851,6 +908,7 @@ void app.whenReady().then(async () => {
   }
   if (userConfig) {
     const webCore = new WebCore({
+      developmentUrl: is.dev ? process.env.WEQ_DEV_WEB_URL : undefined,
       publicDir: app.isPackaged
         ? join(process.resourcesPath, 'remote-web')
         : join(app.getAppPath(), '../web/dist/public'),
@@ -1031,6 +1089,41 @@ app.on('window-all-closed', () => {
 });
 
 // A real quit is underway (tray「退出」/ Cmd+Q / Dock 菜单退出 / OS shutdown):
+guardDatabaseMaintenanceQuit(app, {
+  repairing: () => databaseMaintenance.active().some((snapshot) => snapshot.state === 'repairing'),
+  confirmStop: async () => {
+    const options = {
+      type: 'question' as const,
+      title: '停止修复并退出 WeQ？',
+      message: '数据库修复正在进行。',
+      detail:
+        '停止尚未提交的临时重建，不再启动后续数据库；已经修复成功的库保持不变，并保留本轮报告。',
+      buttons: ['继续修复', '停止修复并退出'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    };
+    const window = getMainWindow();
+    return (
+      (await (window ? dialog.showMessageBox(window, options) : dialog.showMessageBox(options)))
+        .response === 1
+    );
+  },
+  stop: () => databaseMaintenance.shutdown(),
+  cancelled: () => {
+    isQuitting = false;
+    resetQuitPreparation();
+  },
+  failed: (error) => {
+    logger.error('failed to stop database repair on quit', { error: String(error) });
+    void dialog.showMessageBox({
+      type: 'error',
+      title: '停止修复时发生错误',
+      message: 'WeQ 暂未退出，请查看修复状态和报告后重试。',
+      detail: String(error),
+    });
+  },
+});
 // 只放行窗口关闭；未保存内容仍可能取消退出，暂不停止服务或销毁托盘。
 // 退出不再弹「确认 / 最小化到托盘」：用户选的就是退出，后台服务随 `will-quit`
 // 统一释放，「会停掉哪些服务」的信息在关窗确认框展示。
@@ -1046,6 +1139,7 @@ if (hasSingleInstanceLock) {
       await Promise.all([
         flushConversationCalendarResults(),
         databaseCheckups.cancelAll(),
+        databaseMaintenance.shutdown(),
         assistantResourceServer.shutdown(),
         getAppContext().services?.unreadInfo.dispose(),
       ]);

@@ -1,16 +1,21 @@
 import { Square } from 'lucide-react';
 import type { Message } from '../im-template/template/types';
 import type { MfTarget } from './mergeForward/model';
-import { forwardUnsupportedReason } from '../lib/messageRepeat';
 import {
   forwardMessageContent,
   forwardSequentially,
   validateForwardOptions,
   estimateForwardDuration,
   formatForwardDuration,
+  forwardMessageBlockReason,
   type ForwardOptions,
 } from '../lib/sequentialForward';
-import { useToast } from './Toast';
+import { useToast } from './Toast.shared';
+import {
+  taskNotificationSource,
+  notificationSource,
+  openNotificationSource,
+} from '../lib/notificationNavigation.shared';
 import { localBackgroundTasks } from '../state/backgroundTasks';
 import type { BackgroundTaskScope } from '../../../shared/background_task';
 import '../styles/sequential-forward.css';
@@ -32,7 +37,7 @@ export function startSequentialForward({
   scope: BackgroundTaskScope;
 }): { controller: AbortController; done: Promise<void> } {
   validateForwardOptions(options);
-  if (messages.some((message) => forwardUnsupportedReason(message.qqElements ?? [])))
+  if (messages.some((message) => forwardMessageBlockReason(message)))
     throw new Error('请先确认跳过不可等价重发的消息');
   if (!messages.length || !targets.length) throw new Error('没有可发送的消息或目标');
   const controller = new AbortController();
@@ -53,6 +58,11 @@ export function startSequentialForward({
     let finished = false;
     const startedAt = Date.now();
     const taskId = localBackgroundTasks.start({ kind: 'forward', name: target.name, scope });
+    const taskSource = taskNotificationSource(taskId, 'background:window');
+    const conversationSource = notificationSource(
+      { kind: 'local', open: () => onOpenTarget(target) },
+      `打开对话：${target.name}`,
+    );
     const openAction = { id: 'open', label: '打开对话', run: () => onOpenTarget(target) };
     localBackgroundTasks.setActions(taskId, [
       {
@@ -91,20 +101,29 @@ export function startSequentialForward({
             <span className="weq-forward-time">
               <span>
                 已进行{' '}
-                {formatForwardDuration(
-                  (finished ? Math.ceil(elapsed / 1000) : Math.floor(elapsed / 1000)) * 1000,
-                )}
+                <span className="weq-number weq-number-inherit">
+                  {formatForwardDuration(
+                    (finished ? Math.ceil(elapsed / 1000) : Math.floor(elapsed / 1000)) * 1000,
+                  )}
+                </span>
               </span>
               {' / '}
               <span>
                 预计用时{' '}
-                {expected || finished
-                  ? formatForwardDuration(Math.ceil(expected / 1000) * 1000)
-                  : '待估'}
+                {expected || finished ? (
+                  <span className="weq-number weq-number-inherit">
+                    {formatForwardDuration(Math.ceil(expected / 1000) * 1000)}
+                  </span>
+                ) : (
+                  '待估'
+                )}
               </span>
             </span>
             <span className="weq-forward-count">
-              已处理 {completed} / {messages.length} 条 · 成功 {sent} · 失败 {failed}
+              已处理 <span className="weq-number weq-number-inherit">{completed}</span> /{' '}
+              {<span className="weq-number weq-number-inherit">{messages.length}</span>} 条 · 成功{' '}
+              <span className="weq-number weq-number-inherit">{sent}</span> · 失败{' '}
+              <span className="weq-number weq-number-inherit">{failed}</span>
             </span>
             {!finished ? (
               <button
@@ -124,7 +143,13 @@ export function startSequentialForward({
       title: progress(),
       ttl: 0,
       dismissible: false,
-      action: { label: `打开对话：${target.name}`, run: () => onOpenTarget(target) },
+      source: conversationSource,
+      action: {
+        label: conversationSource.label,
+        run: () => {
+          void openNotificationSource(conversationSource);
+        },
+      },
     });
     const update = () => {
       toast.update(id, { title: progress() });
@@ -195,6 +220,7 @@ export function startSequentialForward({
       tone: stopped || failed ? 'warning' : 'success',
       durationKind: failed || (stopped && !local.signal.aborted) ? 'failure' : 'success',
       title: progress(),
+      source: failed ? taskSource : conversationSource,
       detail: [stopped, ...failures].filter(Boolean).join('\n') || undefined,
       ttl: 0,
       dismissible: true,

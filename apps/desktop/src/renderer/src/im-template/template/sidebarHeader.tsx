@@ -1,12 +1,15 @@
 // @ts-nocheck
-import { Plus, Search, UserPlus, UsersRound, Download, Users, UserRound } from 'lucide-react';
+import { Plus, Search, UsersRound, Download, Users, UserRound } from 'lucide-react';
 import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { ContactDirectoryContext } from '../../lib/conversationDirectory';
 import { ContactRefreshButton } from '../../components/ContactRefreshButton';
 import { ReminderDot } from '../../components/ReminderBadge';
 import { FriendGroupCreateMenu } from '../../components/FriendGroupCreateMenu';
 import { QQExactLookup, type QQExactLookupKind } from '../../components/QQExactLookup';
-import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
+import {
+  useContentMultiSelect,
+  useRequestContentExport,
+} from '../../state/contentSelection.shared';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import { DirectoryToolbar } from '../../components/DirectoryToolbar';
 import {
@@ -19,6 +22,11 @@ import { Avatar } from './primitives';
 import type { ContactTab, MainView, User } from './types';
 import { displayUserName } from './user';
 import '../../styles/contact-navigation.css';
+import { APP_NAVIGATION } from '../../lib/appNavigation';
+
+const FriendNoticeIcon = APP_NAVIGATION['friend-notice'].icon;
+const GroupNoticeIcon = APP_NAVIGATION['group-notice'].icon;
+const GroupIntersectionIcon = APP_NAVIGATION['group-intersection'].icon;
 
 export function SidebarHeader({
   user,
@@ -28,6 +36,8 @@ export function SidebarHeader({
   onOpenProfile,
   onOpenFriendNotices,
   onOpenGroupNotices,
+  onOpenContactOverview,
+  contactOverviewActive = false,
   contactTab,
   onContactTabChange,
   onRefreshContacts,
@@ -46,6 +56,8 @@ export function SidebarHeader({
   onOpenProfile: () => void;
   onOpenFriendNotices: () => void;
   onOpenGroupNotices: () => void;
+  onOpenContactOverview?: () => void;
+  contactOverviewActive?: boolean;
   contactTab: ContactTab;
   onContactTabChange: (tab: ContactTab) => void;
   onRefreshContacts?: () => void;
@@ -276,13 +288,12 @@ export function SidebarHeader({
               type="button"
               className={cn(contactToolButtonClass(activeNotice === 'friend'))}
               aria-current={activeNotice === 'friend' ? 'page' : undefined}
-              title="好友通知"
+              title={APP_NAVIGATION['friend-notice'].label}
               onClick={onOpenFriendNotices}
             >
               <span className={cn('notice-entry-label')}>
-                <UserPlus size={15} aria-hidden />
-                <span className={cn('desktop-notice-label')}>好友通知</span>
-                <span className={cn('mobile-notice-label')}>新朋友</span>
+                <FriendNoticeIcon size={15} aria-hidden />
+                <span className="notice-entry-text">{APP_NAVIGATION['friend-notice'].label}</span>
                 {friendNoticeCount > 0 && (
                   <ReminderDot
                     className="notice-entry-dot"
@@ -296,12 +307,12 @@ export function SidebarHeader({
               type="button"
               className={cn(contactToolButtonClass(activeNotice === 'group'))}
               aria-current={activeNotice === 'group' ? 'page' : undefined}
-              title="群通知"
+              title={APP_NAVIGATION['group-notice'].label}
               onClick={onOpenGroupNotices}
             >
               <span className={cn('notice-entry-label')}>
-                <UsersRound size={15} aria-hidden />
-                群通知
+                <GroupNoticeIcon size={15} aria-hidden />
+                <span className="notice-entry-text">{APP_NAVIGATION['group-notice'].label}</span>
                 {groupNoticeCount > 0 && (
                   <ReminderDot
                     className="notice-entry-dot"
@@ -309,6 +320,21 @@ export function SidebarHeader({
                     aria-label="有新的群通知"
                   />
                 )}
+              </span>
+            </button>
+            <button
+              type="button"
+              className={cn(contactToolButtonClass(contactOverviewActive))}
+              aria-current={contactOverviewActive ? 'page' : undefined}
+              aria-label={APP_NAVIGATION['group-intersection'].label}
+              title={APP_NAVIGATION['group-intersection'].label}
+              onClick={onOpenContactOverview}
+            >
+              <span className="notice-entry-label">
+                <GroupIntersectionIcon size={15} aria-hidden />
+                <span className="notice-entry-text">
+                  {APP_NAVIGATION['group-intersection'].label}
+                </span>
               </span>
             </button>
           </div>

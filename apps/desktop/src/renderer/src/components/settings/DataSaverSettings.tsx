@@ -12,7 +12,7 @@ import {
 } from '../../lib/clientPreferences';
 import { useDataSaver, dataSaverModeOptions } from '../../lib/dataSaver';
 import { SegmentedControl } from '../SegmentedControl';
-import { IS_WEB } from '../../lib/target';
+import { IS_WEB } from '../../lib/target.shared';
 import { Card, Row, Toggle } from './controls';
 import { RotateCcw } from 'lucide-react';
 import '../../styles/data-saver-settings.css';
@@ -56,8 +56,10 @@ function BooleanRow({
 }
 function TransferThreshold() {
   const saved = preferenceValue('dataSaverLargeMiB');
+  const enabled = preferenceValue('dataSaverPauseLarge');
   const [draft, setDraft] = useState(String(saved));
   useEffect(() => setDraft(String(saved)), [saved]);
+  if (!enabled) return null;
   return (
     <Row
       label="大文件暂停阈值"
@@ -106,6 +108,7 @@ export function DataSaverSettings() {
       action={
         reset ? undefined : (
           <button
+            data-danger="outline"
             type="button"
             className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
             title="恢复省流量默认设置"
@@ -133,6 +136,9 @@ export function DataSaverSettings() {
           />
         }
       />
+      {preferenceValue('dataSaverMode') === 'auto' ? (
+        <BooleanRow name="dataSaverOnMetered" label="使用流量时自动启用" />
+      ) : null}
       <div className="weq-data-saver-behavior">
         <h4>省流量模式下的行为</h4>
         <p>仅在省流量模式生效时应用，已有缓存照常使用。</p>

@@ -11,9 +11,12 @@ import { lazyPanel } from '../lib/lazyPanel';
 import { DbRepairReturnOverlay } from './DbRepairReturnOverlay';
 import { TabActivity } from './RetainedTabs';
 import { Modal } from './Dialog';
+import { PageShell } from './PageShell';
 import { HoverTooltip } from './HoverTooltip';
-import { ToastHost } from './Toast';
+import { NotificationSourceProvider } from '../lib/notificationNavigation';
+import { notificationSource } from '../lib/notificationNavigation.shared';
 import '../styles/db-repair-window.css';
+import { useDatabaseMaintenanceNotifications } from '../hooks/useDatabaseMaintenanceNotifications';
 
 const DbRepairPanel = lazyPanel<ComponentProps<typeof import('./DbRepairPanel').DbRepairPanel>>(
   () => import('./DbRepairPanel').then((module) => ({ default: module.DbRepairPanel })),
@@ -40,7 +43,15 @@ export function DbRepairWindowHost() {
     height: 780,
     bodyClass: 'weq-db-repair-window-body',
   });
+  useDatabaseMaintenanceNotifications(tool.popup);
   const [account, setAccount] = useState<DbRepairAccountOption | null>(null);
+  useEffect(() => {
+    if (account)
+      window.electron?.ipcRenderer.send('db-repair:scope', {
+        uin: account.uin,
+        configId: account.configId,
+      });
+  }, [account]);
   const owned = useRef<Window | null>(null);
   const open = tool.open;
   useEffect(() => {
@@ -59,27 +70,50 @@ export function DbRepairWindowHost() {
     <>
       <DbRepairReturnOverlay ownerDocument={!locked && popup ? popup.document : document} />
       {tool.fallback ? (
-        <Modal width={360} onClose={close} centered>
-          <div className="weq-db-repair-window-error" role="alert">
-            <h3>无法打开数据库修复窗口</h3>
-            <button type="button" className="weq-set-btn" onClick={() => tool.open()}>
-              重新打开
-            </button>
-          </div>
+        <Modal width={360} onClose={close} centered labelledBy="weq-repair-window-error-title">
+          <PageShell
+            title="无法打开数据库修复窗口"
+            titleId="weq-repair-window-error-title"
+            onClose={close}
+            closeLabel="关闭数据库修复提示"
+          >
+            <div
+              className="weq-db-repair-window-error"
+              role="alert"
+              aria-labelledby="weq-repair-window-error-title"
+            >
+              <button type="button" className="weq-set-btn" onClick={() => tool.open()}>
+                重新打开
+              </button>
+            </div>
+          </PageShell>
         </Modal>
       ) : popup && account ? (
         createPortal(
           <RenderDocumentContext.Provider value={popup.document}>
             <TabActivity active={!locked}>
               <div className="weq-db-repair-native" hidden={locked} inert={locked}>
-                <DbRepairPanel
-                  currentUin={account.uin}
-                  accounts={[account]}
-                  onRefreshAccounts={() => {
-                    void utils.bootstrap.listAccountConfigs.invalidate();
-                  }}
-                />
-                <ToastHost />
+                <NotificationSourceProvider
+                  source={notificationSource(
+                    { kind: 'local', open: () => useDbRepairWindow.getState().open(account) },
+                    '返回对应数据库修复',
+                    null,
+                  )}
+                >
+                  <DbRepairPanel
+                    currentUin={account.uin}
+                    accounts={[account]}
+                    reportId={
+                      request?.uin === account.uin && request.configId === account.configId
+                        ? request.reportId
+                        : account.reportId
+                    }
+                    resultRequest={request ?? undefined}
+                    onRefreshAccounts={() => {
+                      void utils.bootstrap.listAccountConfigs.invalidate();
+                    }}
+                  />
+                </NotificationSourceProvider>
                 <HoverTooltip />
               </div>
             </TabActivity>

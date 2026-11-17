@@ -3,7 +3,8 @@ import { FileCode2, FileImage, FileText, LoaderCircle, Share2 } from 'lucide-rea
 import type { EndPageData, ExportSavePolicy } from '@weq/service';
 import { isAllTimeYear, reportPeriodLabel } from '@weq/service/report-time';
 import { client } from '../../../trpc/client';
-import { useToast } from '../../../components/Toast';
+import { useToast } from '../../../components/Toast.shared';
+import { taskNotificationSource } from '../../../lib/notificationNavigation.shared';
 import { PageFrame, type ReportPageProps } from '../pageFrame';
 import { useReportView } from '../reportContext';
 import { buildReportHtml, preloadReportAssets } from '../exportHtml';
@@ -11,7 +12,7 @@ import { QzoneShareLightbox } from '../QzoneShareLightbox';
 import type { AnalysisScope } from '../../analysis/model';
 import { useExportSavePolicy } from '../../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../../../components/ServerSavePrompt';
-import { IS_WEB } from '../../../lib/target';
+import { IS_WEB } from '../../../lib/target.shared';
 import { annualReportExportOutput } from '../../../../../shared/annual_report_export';
 import '../../../styles/annual-report-save.css';
 
@@ -151,7 +152,12 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
           : kind === 'pdf'
             ? await client.account.annualReport.exportPdf.mutate(input)
             : await client.account.annualReport.exportLongImage.mutate(input);
-      if (taskId && current()) pushToast({ tone: 'info', title: '报告保存任务已创建' });
+      if (taskId && current())
+        pushToast({
+          tone: 'info',
+          title: '报告保存任务已创建',
+          source: taskNotificationSource(taskId),
+        });
     } catch (error) {
       if (current())
         pushToast({

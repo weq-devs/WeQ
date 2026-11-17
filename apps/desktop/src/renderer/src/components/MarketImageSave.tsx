@@ -3,9 +3,11 @@ import { Download, Loader2 } from 'lucide-react';
 import type { ExportSavePolicy } from '@weq/service';
 import { client } from '../trpc/client';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
-import { IS_WEB } from '../lib/target';
+import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
+import { IS_WEB } from '../lib/target.shared';
 import { ServerSavePrompt } from './ServerSavePrompt';
-import { useToast } from './Toast';
+import { useToast } from './Toast.shared';
+import { taskNotificationSource } from '../lib/notificationNavigation.shared';
 import '../styles/market-image-save.css';
 
 export function MarketImageSave({
@@ -17,6 +19,7 @@ export function MarketImageSave({
   hash: string;
   name: string;
 }) {
+  const enabled = useDevelopmentDressTools();
   const save = useExportSavePolicy();
   const pushToast = useToast((state) => state.push);
   const identity = `${save.binding?.expectedAccountUin}:${save.binding?.expectedAccountConfigId}:${packId}:${hash}`;
@@ -31,11 +34,15 @@ export function MarketImageSave({
     try {
       const policy = await save.prepareSave(intent, { kind: 'file', name, format: 'gif' });
       if (!policy || !save.isCurrent()) return;
-      await client.account.marketEmoji.startImageSave.mutate({ ...selected, savePolicy: policy });
+      const taskId = await client.account.marketEmoji.startImageSave.mutate({
+        ...selected,
+        savePolicy: policy,
+      });
       if (save.isCurrent())
         pushToast({
           tone: 'info',
           title: '单张表情保存任务已创建',
+          source: taskNotificationSource(taskId),
           message: '可在导出任务列表查看结果与保存位置',
         });
     } catch (error) {
@@ -51,6 +58,7 @@ export function MarketImageSave({
     }
   }
   const disabled = busy || !save.binding || save.settings.isLoading;
+  if (!enabled) return null;
   return (
     <>
       <div className="weq-save-action-group">

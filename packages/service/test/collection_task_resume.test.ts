@@ -28,18 +28,18 @@ it('收藏暂停后重启管理器可按原 CID 继续，恢复到收藏流水�
     location: null,
     richMedia: null,
   };
-  const deps = withExportSaveDirectory(root, {
-    collection: { listCollections: async () => [row] },
+  let manager: ExportTaskManager;
+  let paused = false;
+  const listCollections = vi.fn(async () => {
+    if (!paused) {
+      paused = true;
+      manager.pauseTask(manager.listTasks()[0]!.id);
+    }
+    return [row];
   });
+  const deps = withExportSaveDirectory(root, { collection: { listCollections } });
   try {
-    const manager = new ExportTaskManager({} as MsgService, root, deps);
-    let paused = false;
-    manager.on('progress', (event) => {
-      if (!paused && event.status === 'running') {
-        paused = true;
-        manager.pauseTask(event.taskId);
-      }
-    });
+    manager = new ExportTaskManager({} as MsgService, root, deps);
     const id = await manager.startTask({
       kind: 'c2c',
       conv: 'collections',
@@ -52,11 +52,13 @@ it('收藏暂停后重启管理器可按原 CID 继续，恢复到收藏流水�
     expect(manager.getTask(id)?.status).toBe('paused');
     const restored = new ExportTaskManager({} as MsgService, root, deps);
     expect(restored.resumeTask(id)).toBe(true);
-    await vi.waitFor(() => expect(restored.getTask(id)?.status).toBe('completed'));
+    await (restored as unknown as { queue: Promise<void> }).queue;
+    expect(restored.getTask(id)?.status).toBe('completed');
     expect(restored.getTask(id)?.error).toBeUndefined();
     const task = restored.getTask(id)!;
     const archive = readArchive(JSON.parse(readFileSync(task.filePath!, 'utf8')));
     expect(archive.records.map((record) => record.data.cid)).toEqual(['selected']);
+    expect(listCollections).toHaveBeenCalledOnce();
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

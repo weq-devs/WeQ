@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
 
 /** 数字的显示草稿可保留前导零；与服务端数值相等时不再视为未保存。 */

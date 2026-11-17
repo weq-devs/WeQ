@@ -12,9 +12,10 @@
  * portal 里 —— 消息列表有自己的滚动容器 / 变换，`position: fixed` 留在里面会跟错坐标系。
  */
 
+import { NumericText } from './NumericText';
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { RotateCw, Users } from 'lucide-react';
+import { RefreshCw, Users } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { cn } from '../lib/utils';
 import { QqAvatar } from './QqAvatar';
@@ -155,7 +156,13 @@ export function ReactionLikersPanel({
           {icon}
         </span>
         <span className={cn('reaction-likers-title')}>
-          {error ? '回应人' : total ? `${total} 人贴了` : `${setNum} 人贴了`}
+          {error ? (
+            '回应人'
+          ) : total ? (
+            <NumericText>{`${total} 人贴了`}</NumericText>
+          ) : (
+            <NumericText>{`${setNum} 人贴了`}</NumericText>
+          )}
         </span>
         <Users size={13} strokeWidth={2} className={cn('reaction-likers-head-icon')} aria-hidden />
       </div>
@@ -169,7 +176,7 @@ export function ReactionLikersPanel({
             disabled={query.isFetching}
             onClick={() => void query.refetch()}
           >
-            <RotateCw size={12} strokeWidth={2.2} />
+            <RefreshCw size={12} strokeWidth={2.2} aria-hidden />
             {query.isFetching ? '重试中…' : '重试'}
           </button>
         </div>
@@ -212,7 +219,9 @@ export function ReactionLikersPanel({
                     <span className={cn('reaction-likers-meta')}>
                       <span className={cn('reaction-likers-name')}>{name}</span>
                       {name !== user.uin ? (
-                        <span className={cn('reaction-likers-uin')}>{user.uin}</span>
+                        <span className={cn('reaction-likers-uin')}>
+                          <span className="weq-number weq-number-inherit">{user.uin}</span>
+                        </span>
                       ) : null}
                     </span>
                   </ProfileAvatar>
@@ -223,7 +232,7 @@ export function ReactionLikersPanel({
             {query.isFetchingNextPage ? <SkeletonRows rows={2} /> : null}
           </div>
           <div className={cn('reaction-likers-foot')}>
-            {hasMore ? '滚动查看更多' : `共 ${users.length} 人`}
+            {hasMore ? '滚动查看更多' : <NumericText>{`共 ${users.length} 人`}</NumericText>}
           </div>
         </>
       )}

@@ -38,6 +38,8 @@ import {
   AntiRecallDb,
   expectedAntiRecallTriggers,
   withDatabaseSignal,
+  withDatabasePriority,
+  assertDatabaseWritable,
   type AntiRecallTarget,
   type AntiRecallTriggerInfo,
   type RecallConvSummary,
@@ -148,6 +150,7 @@ export class AntiRecallService {
   private monitorHandle: DbWatchHandle | null = null;
   private monitorReads: AbortController | null = null;
   private monitorGeneration = 0;
+  private reconcileAbort = new AbortController();
   private recallBaseline: Promise<void> | null = null;
   /**
    * 撤回记录的读取游标（`weq_recall_log` 的最大 msgid）。null = 尚未建立基线，
@@ -275,6 +278,7 @@ export class AntiRecallService {
 
   /** Flip the master switch, then reconcile triggers to match. Persists. */
   async setEnabled(enabled: boolean): Promise<AntiRecallStatus> {
+    if (!this.opts.readOnly) assertDatabaseWritable(this.session.msgDbPath);
     this.config = { ...this.config, enabled };
     // (重新)开启保护时重建通知基线：历史记录不该在新一轮里弹出来。
     this.resetRecallBaseline();
@@ -289,6 +293,7 @@ export class AntiRecallService {
    * 自动启用。UI 只调用这一个入口，MCP 的 setEnabled/setMode 仍保留兼容。
    */
   async setScope(scope: 'off' | 'selected' | 'all'): Promise<AntiRecallStatus> {
+    if (!this.opts.readOnly) assertDatabaseWritable(this.session.msgDbPath);
     const enabled = scope !== 'off';
     const mode: 'selected' | 'all' = scope === 'all' ? 'all' : 'selected';
     const wasEnabled = this.config.enabled;
@@ -303,6 +308,7 @@ export class AntiRecallService {
    * every conversation with no session filter (`'all'`, 永久全选). Persists.
    */
   async setMode(mode: 'selected' | 'all'): Promise<AntiRecallStatus> {
+    if (!this.opts.readOnly) assertDatabaseWritable(this.session.msgDbPath);
     this.config = { ...this.config, mode };
     this.reconcileInBackground();
     return this.optimisticStatus();
@@ -310,6 +316,7 @@ export class AntiRecallService {
 
   /** Replace the protected-conversation set, then reconcile. Persists. */
   async setTargets(targets: AntiRecallTarget[]): Promise<AntiRecallStatus> {
+    if (!this.opts.readOnly) assertDatabaseWritable(this.session.msgDbPath);
     // Normalize (u_ ids can't be group codes), drop empty ids, de-dup by (kind,id)
     // so the trigger's IN-list is clean and every id lands in the right column.
     const seen = new Set<string>();
@@ -347,6 +354,7 @@ export class AntiRecallService {
    * itself is the thing that gates on config.
    */
   startMonitor(): void {
+    if (this.reconcileAbort.signal.aborted) this.reconcileAbort = new AbortController();
     if (this.monitorHandle) return;
     const generation = ++this.monitorGeneration;
     this.monitor = new DbWatchService({ intervalMs: 1_000 });
@@ -364,6 +372,7 @@ export class AntiRecallService {
 
   /** Stop the recall monitor. Idempotent. */
   stopMonitor(): void {
+    this.reconcileAbort.abort();
     this.monitorGeneration++;
     this.monitorReads?.abort();
     this.monitorReads = null;
@@ -403,7 +412,12 @@ export class AntiRecallService {
    */
   private reconcileInBackground(): void {
     if (this.opts.readOnly) return;
-    void this.applyTriggers().catch((error) => {
+    void withDatabasePriority(
+      'background',
+      () => this.applyTriggers(),
+      this.reconcileAbort.signal,
+    ).catch((error) => {
+      if (this.reconcileAbort.signal.aborted) return;
       logger.warn('anti-recall reconcile failed', {
         event: 'anti-recall-reconcile-failed',
         ...logErrorContext(error),

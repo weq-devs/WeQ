@@ -15,6 +15,7 @@ const api = vi.hoisted(() => ({
   settings: vi.fn(),
 }));
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_MAC: true }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_MAC: true }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     bootstrap: {

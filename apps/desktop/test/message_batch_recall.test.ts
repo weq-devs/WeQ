@@ -4,12 +4,10 @@ import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from './support/templateDemoData';
-import {
-  ContentSelectionProvider,
-  useContentMultiSelect,
-} from '../src/renderer/src/state/contentSelection';
-import { useDialog } from '../src/renderer/src/components/Dialog';
-import { useToast } from '../src/renderer/src/components/Toast';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
+import { useContentMultiSelect } from '../src/renderer/src/state/contentSelection.shared';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 import type { Message } from '../src/renderer/src/im-template/template/types';
 
 const rpc = vi.hoisted(() => ({
@@ -288,7 +286,7 @@ describe('消息多选撤回', () => {
     await act(async () => f.button().click());
     expect(rpc.recall).toHaveBeenCalledTimes(2);
   });
-  it('每条撤回前重核发送权限，途中切为受限模式时不继续发包', async () => {
+  it('每条撤回前重核发送权限，途中切为在线能力受限时不继续发包', async () => {
     let complete: (() => void) | undefined;
     rpc.recall.mockImplementationOnce(
       () =>
@@ -303,10 +301,10 @@ describe('消息多选撤回', () => {
     expect(rpc.recall).toHaveBeenCalledOnce();
     expect(f.state().ids).toEqual(['2']);
   });
-  it('受限模式时禁用按钮并显示原因', async () => {
+  it('在线能力受限时禁用按钮并显示原因', async () => {
     const f = mount({ online: false });
     expect(f.button().disabled).toBe(true);
-    expect(f.button().title).toContain('受限模式');
+    expect(f.button().title).toContain('在线能力受限');
     await act(async () => f.button().click());
     expect(rpc.recall).not.toHaveBeenCalled();
   });

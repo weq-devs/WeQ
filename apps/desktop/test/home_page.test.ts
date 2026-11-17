@@ -6,6 +6,7 @@ import { ChatHome } from '../src/renderer/src/views/ChatHome';
 import { HomeSettingsSection } from '../src/renderer/src/components/settings/HomeSettingsSection';
 import { SETTINGS_GROUPS } from '../src/renderer/src/components/settings/navigation';
 import { searchAppEntries } from '../src/renderer/src/components/search/appSearchCatalog';
+import { findSettingElement } from '../src/renderer/src/components/settings/searchTarget';
 
 const fixture = vi.hoisted(() => ({
   home: {
@@ -93,6 +94,33 @@ function mount(component: typeof HomeSettingsSection | typeof ChatHome) {
 }
 
 describe('主页显示与偏好', () => {
+  it('关闭一言隐藏屏蔽词但保留内容，搜索回到一言开关，重开恢复草稿', () => {
+    fixture.home.blockedWords = ['保留词'];
+    const view = mount(HomeSettingsSection);
+    try {
+      const input = view.host.querySelector('textarea')!;
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
+          input,
+          '草稿词',
+        );
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      fixture.home = { ...fixture.home, showHitokoto: false };
+      view.render();
+      expect(view.host.querySelector('textarea')).toBeNull();
+      expect(
+        findSettingElement(view.host, { settingId: 'home-blocked-words' })?.dataset.settingId,
+      ).toBe('home-hitokoto');
+      fixture.home = { ...fixture.home, showHitokoto: true };
+      view.render();
+      expect(view.host.querySelector('textarea')?.value).toBe('草稿词');
+      expect(fixture.home.blockedWords).toEqual(['保留词']);
+      expect(fixture.save).not.toHaveBeenCalled();
+    } finally {
+      view.close();
+    }
+  });
   it('主页开关与一言屏蔽词位于同一张卡片，保留定位标识', () => {
     const view = mount(HomeSettingsSection);
     try {

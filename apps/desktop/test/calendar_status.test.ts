@@ -3,6 +3,22 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MessageCalendar } from '../src/renderer/src/components/MessageCalendar';
 
+it.each([
+  ['2026-02', 28],
+  ['2026-11', 35],
+  ['2026-05', 42],
+] as const)('紧凑月历 %s 只保留包含日期的 %s 个格子，不预留整行空白', (month, cells) => {
+  const host = document.createElement('div');
+  host.innerHTML = renderToStaticMarkup(
+    createElement(MessageCalendar, {
+      month,
+      fixedWeekCount: false,
+      onPick: () => {},
+    }),
+  );
+  expect(host.querySelector('.weq-density-calendar-grid')?.children).toHaveLength(cells + 7);
+});
+
 it('未完成的日历显示等待，不把未知计数称为零', () => {
   const html = renderToStaticMarkup(
     createElement(MessageCalendar, {
@@ -42,6 +58,8 @@ it('未完成但已有部分计数时显示累计数字与加号，不冒称全�
       onPick: () => {},
     }),
   );
-  expect(html).toContain('42+');
+  const host = document.createElement('div');
+  host.innerHTML = html;
+  expect(host.querySelector('button[aria-label^="2026-11-01"] small')?.textContent).toBe('42+');
   expect(html).toContain('已计 42 条，尚未完成');
 });

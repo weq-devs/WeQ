@@ -15,6 +15,17 @@ const stub = `
 const data = {
   'account.dbExplorer.listDatabases': [{name: 'fixture.db', path: '/fixture/db', bytes: 1}],
   'account.dbExplorer.listObjects': [],
+  'account.getAccountConfig': {uin: '10001', configId: 'fixture'},
+  'account.getGroupDetail': null,
+  'account.getGroupExtendedProfile': null,
+  'account.getGroupAlbumAccessState': {
+    qqOnline: true, attachEnabled: true, hasA2: true, hasD2: true, hasD2Key: true,
+    hasGuid: true, ssoReady: true,
+    source: {expectedAccountUin: '10001', expectedAccountConfigId: 'fixture'},
+  },
+  'account.qqWrite.commonRelationships': {
+    friendCount: 1, groups: [{groupCode: '10003', name: '合成共同群'}],
+  },
 };
 const noop = () => {};
 function proxy(path = '') {
@@ -25,7 +36,7 @@ function proxy(path = '') {
       if (key === 'useMutation') return () => ({mutate: noop, mutateAsync: async () => undefined, isLoading: false});
       if (key === 'useSubscription') return noop;
       if (key === 'useUtils') return () => proxy();
-      if (['query', 'mutate', 'fetch', 'invalidate'].includes(key)) return async () => data[path] ?? [];
+      if (['query', 'mutate', 'fetch', 'invalidate'].includes(key)) return async () => path in data ? data[path] : [];
       return proxy(path ? path + '.' + String(key) : String(key));
     },
   });
@@ -36,6 +47,7 @@ export const useSelfFace = () => ({nick: '合成账号', initial: '合'});
 const fixture = `
 import {useState} from 'react';
 import {createRoot} from 'react-dom/client';
+import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {BlobDialog} from '/src/renderer/src/views/cache/CacheShared';
 import {DbExplorer} from '/src/renderer/src/views/cache/DbExplorer';
 import {QzoneShareLightbox} from '/src/renderer/src/views/annual-report/QzoneShareLightbox';
@@ -45,13 +57,31 @@ import {MediaPreviewShell} from '/src/renderer/src/components/MediaPreviewShell'
 import {DatabaseDamagedDialog} from '/src/renderer/src/components/DatabaseDamagedDialog';
 import {ArkPanel} from '/src/renderer/src/im-template/template/arkPanel';
 import {ConfirmDialog} from '/src/renderer/src/im-template/template/chatPane';
+import {Modal} from '/src/renderer/src/components/Dialog';
+import {OverlayLayer} from '/src/renderer/src/components/OverlayLayer';
+import {GroupFeatureSurface} from '/src/renderer/src/components/GroupFeatureSurface';
+import {CommonRelationships} from '/src/renderer/src/components/qq-actions/CommonRelationships';
+import {useViewState} from '/src/renderer/src/state/view';
 import '/src/renderer/src/styles/index.css';
 import '/src/renderer/src/styles/cache.css';
 import '/src/renderer/src/styles/annual-report.css';
 import '/src/renderer/src/styles/lightbox-actions.css';
 import '/src/renderer/src/im-template/styles.css';
 import logo from '@resources/brand/logo.png';
+useViewState.setState({openedUin: '10001'});
 function unexpected() { throw Error('Esc 不应发送、发表或删除'); }
+function NestedFixture({kind, onClose}) {
+  const [child, setChild] = useState(true);
+  const content = <>
+    <button data-parent onClick={() => setChild(true)}>父窗操作</button>
+    {child && (kind === 'floating' || kind === 'popover'
+      ? <Modal presentation={kind} dismissOnOutside={false} onClose={() => setChild(false)}><button data-child>子窗操作</button></Modal>
+      : <OverlayLayer presentation="popover" dismissOnOutside={kind === 'group'} onClose={() => setChild(false)}><button data-child>子窗操作</button></OverlayLayer>)}
+  </>;
+  return kind === 'group'
+    ? <GroupFeatureSurface presentation="popover" title="合成群功能" onClose={onClose}>{content}</GroupFeatureSurface>
+    : <Modal presentation="floating" title="合成父窗" onClose={onClose}>{content}</Modal>;
+}
 function Fixture() {
   const [kind, setKind] = useState('');
   const [ocr, setOcr] = useState(true);
@@ -59,6 +89,14 @@ function Fixture() {
   window.escapeQa = {show: (next) => {setOcr(true); setKind(next);}};
   return <main style={{padding: 24}}>
     <button id="trigger">打开合成弹窗</button>
+    <button id="background">背景控件</button>
+    {kind.startsWith('nested-') && <NestedFixture kind={kind.slice(7)} onClose={close} />}
+    {kind === 'common' && <OverlayLayer presentation="popover" onClose={close}>
+      <section role="dialog" aria-label="联系人资料"><CommonRelationships uin="10002" /></section>
+    </OverlayLayer>}
+    {kind.startsWith('surface-') && <Modal presentation={kind.slice(8)} onClose={close}>
+      <header><h3>合成弹窗</h3></header><button>弹窗内容</button>
+    </Modal>}
     {kind === 'blob' && <BlobDialog title="合成表情" meta="本地资源" onClose={close}>
       <img src={logo} width="160" height="160" alt="合成预览" />
     </BlobDialog>}
@@ -81,7 +119,7 @@ function Fixture() {
     </div>}
   </main>;
 }
-createRoot(document.getElementById('root')).render(<Fixture />);
+createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}}})}><Fixture /></QueryClientProvider>);
 `;
 const server = await createServer({
   configFile: false,
@@ -253,6 +291,99 @@ try {
           await page.keyboard.press('Escape');
           await page.locator(selector).waitFor({ state: 'detached' });
         }
+        cases++;
+      }
+      for (const focus of ['inside', 'blank', 'outside', 'nested']) {
+        await page.evaluate(() => window.escapeQa.show(''));
+        await page.locator('#trigger').focus();
+        await page.evaluate(() => window.escapeQa.show('common'));
+        const trigger = page.getByRole('button', { name: '查看共同群列表', exact: true });
+        await trigger.click();
+        const common = page.locator('.weq-common-groups-dialog');
+        await common.waitFor();
+        const group = common.getByRole('button', { name: '查看 合成共同群 的群名片' });
+        if (focus === 'nested') {
+          await group.click();
+          await page.getByRole('dialog', { name: '群资料', exact: true }).waitFor();
+        }
+        if (focus === 'inside') await group.focus();
+        if (focus === 'outside') await trigger.focus();
+        if (focus === 'blank' || focus === 'nested')
+          await page.evaluate(() => document.activeElement?.blur());
+        if (output && focus === 'nested')
+          await page.screenshot({ path: resolve(output, `common-${theme}-${width}.png`) });
+        await page.keyboard.press('Escape');
+        if (focus === 'nested') {
+          await page
+            .getByRole('dialog', { name: '群资料', exact: true })
+            .waitFor({ state: 'detached' });
+          assert.equal(await common.count(), 1);
+          assert.equal(await group.evaluate((node) => node === document.activeElement), true);
+          await page.keyboard.press('Escape');
+        }
+        await common.waitFor({ state: 'detached' });
+        assert.equal(await trigger.evaluate((node) => node === document.activeElement), true);
+        assert.equal(await page.getByRole('dialog', { name: '联系人资料' }).count(), 1);
+        await page.keyboard.press('Escape');
+        await page.getByRole('dialog', { name: '联系人资料' }).waitFor({ state: 'detached' });
+        assert.equal(await page.evaluate(() => document.activeElement?.id), 'trigger');
+        cases++;
+      }
+      for (const presentation of ['panel', 'popover', 'floating', 'anchored']) {
+        await page.locator('#trigger').focus();
+        await page.evaluate((kind) => window.escapeQa.show(kind), `surface-${presentation}`);
+        const dialog = page.getByRole('dialog');
+        await dialog.waitFor();
+        await page.locator('#background').focus();
+        await page.keyboard.press('Escape');
+        assert.equal(await dialog.count(), 1);
+        await page.locator('#trigger').focus();
+        await page.keyboard.press('Escape');
+        await dialog.waitFor({ state: 'detached' });
+        await page.evaluate((kind) => window.escapeQa.show(kind), `surface-${presentation}`);
+        await dialog.waitFor();
+        await page.evaluate(() => document.activeElement?.blur());
+        await page.keyboard.press('Escape');
+        await dialog.waitFor({ state: 'detached' });
+        assert.equal(await page.evaluate(() => document.activeElement?.id), 'trigger');
+        cases++;
+      }
+      for (const kind of ['popover', 'floating', 'overlay', 'group']) {
+        await page.locator('#trigger').focus();
+        await page.evaluate((kind) => window.escapeQa.show(kind), `nested-${kind}`);
+        const child = page.locator('[data-child]');
+        const parent = page.locator('[data-parent]');
+        await child.waitFor();
+        assert.equal(await child.evaluate((node) => node === document.activeElement), true);
+        const assertOrder = async () =>
+          assert.equal(
+            await page.evaluate(() => {
+              const layer = (selector) =>
+                Number(
+                  document
+                    .querySelector(selector)
+                    .closest('.weq-window-layer, .weq-dialog-layer, .weq-overlay-layer').style
+                    .zIndex,
+                );
+              return layer('[data-child]') > layer('[data-parent]');
+            }),
+            true,
+          );
+        await assertOrder();
+        if (kind !== 'group') {
+          await parent.focus();
+          await parent.dispatchEvent('pointerdown');
+          await assertOrder();
+          await child.focus();
+        }
+        if (output)
+          await page.screenshot({ path: resolve(output, `nested-${kind}-${theme}-${width}.png`) });
+        await page.keyboard.press('Escape');
+        await child.waitFor({ state: 'detached' });
+        assert.equal(await parent.count(), 1);
+        await parent.focus();
+        await page.keyboard.press('Escape');
+        await parent.waitFor({ state: 'detached' });
         cases++;
       }
     }

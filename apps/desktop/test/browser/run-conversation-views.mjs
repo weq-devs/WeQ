@@ -199,6 +199,50 @@ try {
         '新建 WeQ 助手会话',
       ]);
       await page.keyboard.press('Escape');
+      for (const [view, id, label] of [
+        ['assistant', 'assistant:assistant-one', 'WeQ 助手会话'],
+        ['clone', 'virtual:persona:p1', '克隆会话'],
+        ['clone', 'virtual:group:g1', '克隆群聊'],
+      ]) {
+        const artifact = id.startsWith('virtual:group:') ? 'clone-group' : view;
+        await page.evaluate((view) => window.conversationViewsQa.setView(view), view);
+        await page.locator(`[data-conversation-id="${id}"]`).click({ button: 'right' });
+        const menu = page.getByRole('menu');
+        assert.equal(
+          await menu.locator('.weq-conversation-actions-target small').innerText(),
+          label,
+        );
+        assert.equal(await menu.locator('.weq-conversation-copy-number').count(), 0);
+        if (output)
+          await page.screenshot({
+            path: resolve(output, `${width}-${theme}-${artifact}-menu.png`),
+          });
+        await menu.getByRole('menuitem', { name: '永久删除', exact: true }).click();
+        const dialog = page.getByRole('dialog');
+        await dialog.waitFor();
+        const text = await dialog.innerText();
+        assert.match(text, view === 'assistant' ? /永久删除助手会话/ : /永久删除克隆会话/);
+        assert.doesNotMatch(text, view === 'assistant' ? /克隆/ : /助手会话/);
+        if (id.startsWith('virtual:group:')) {
+          assert.match(text, /不会删除成员对应的克隆体/);
+          assert.doesNotMatch(text, /所选克隆角色/);
+        }
+        const bounds = await dialog.boundingBox();
+        assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width + 1);
+        assert.ok(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth));
+        if (output)
+          await page.screenshot({
+            path: resolve(output, `${width}-${theme}-${artifact}-delete.png`),
+          });
+        await dialog.getByRole('button', { name: '取消', exact: true }).click();
+      }
+      assert.equal(
+        await page.evaluate(() =>
+          window.conversationViewsQa.events.some((event) => event.startsWith('delete:')),
+        ),
+        false,
+      );
+      await page.evaluate(() => window.conversationViewsQa.setView('assistant'));
       await page.locator('[data-conversation-id="assistant:assistant-one"]').click();
       await page.getByRole('region', { name: 'WeQ 助手会话', exact: true }).waitFor();
       const overflow = await page.evaluate(

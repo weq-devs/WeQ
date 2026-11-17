@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * `weq-media://` — streams a chat message's on-disk media to the renderer.
  *
@@ -57,6 +58,7 @@ import {
   GROUP_PTT_RKEY_TYPE,
   managedMediaDownload as downloadUrlToFile,
   resolveChatpicFile,
+  developmentDressToolsEnabled,
   chatpicRelPaths,
   type AvatarLocalFile,
   type MediaElement,
@@ -66,6 +68,7 @@ import { fullModeAllowed } from './context/full_mode';
 import { resolveResource } from './resource';
 import { redPackSkinField, resourceSkinCover } from './redpack_catalog';
 import { CallRecordingStore, recordingsRootFor } from './call_recording_store';
+import { videoPreviewResponse } from './video_preview_response';
 
 /** rkey types accepted when downloading the video COVER (thumb only; the
  *  original mp4 now goes through OIDB). ptt tries rkey first and falls back
@@ -356,7 +359,7 @@ async function albumRemoteResponse(src: string): Promise<Response> {
   };
   const range = incoming?.headers.get('range');
   if (range) headers.Range = range;
-  const res = await fetch(src, { headers });
+  const res = await networkFetch(src, { headers });
   if (!res.ok) return new Response(`album image http ${res.status}`, { status: res.status });
   const contentType = res.headers.get('content-type') ?? '';
   // 视频原样回传：要保留 range 支持（上游 206 + content-range 直接透传），
@@ -418,7 +421,7 @@ async function dressRemoteResponse(src: string, theme: string | null): Promise<R
     const dir = join(boot.userConfig.cacheDir('media'), 'dress');
     const path = join(dir, `${createHash('sha1').update(src).digest('hex')}.mp4`);
     if (existsSync(path)) return fileResponse(path);
-    const outcome = await downloadUrlToFile(src, path);
+    const outcome = await downloadUrlToFile(src, path, { reportActivity: false });
     return outcome.ok ? fileResponse(path) : notFound(`dress video failed: ${outcome.reason}`);
   }
 
@@ -603,7 +606,7 @@ export async function handleMediaRequest(request: Request, check?: () => void): 
             const response = await routeMediaRequest(request);
             return withCors(
               request.headers.get('x-weq-web') === '1'
-                ? new ManagedDownload({ name: '传输媒体到客户端' }).response(response)
+                ? new ManagedDownload().response(response)
                 : response,
             );
           }),
@@ -863,8 +866,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           mediaBinding.getStore()?.();
           if (source) return fileResponse(source);
 
-          // Missing on disk → OIDB completion (needs an online QQ). Cache the
-          // result by fileToken so a replay doesn't re-download.
+          // 本地缺片时现签 URL 并按播放器 Range 流式读取；完整收取后才发布缓存。
           const boot = getAppContext().bootstrap;
           if (!boot || !token) return notFound('video not found');
           const cacheDir = join(boot.userConfig.cacheDir('media'), 'video');
@@ -890,10 +892,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           }
           if (!url) return notFound('video OIDB returned empty url');
           mediaBinding.getStore()?.();
-          const outcome = await downloadUrlToFile(url, cachePath);
-          return outcome.ok
-            ? fileResponse(cachePath)
-            : notFound(`video download failed: ${outcome.reason}`);
+          return await videoPreviewResponse(url, cachePath, request, mediaBinding.getStore());
         }
         case 'ptt': {
           const { source } = await services.fileSearch.findFile(tMs, name, 'ptt');
@@ -935,7 +934,9 @@ async function routeMediaRequest(request: Request): Promise<Response> {
                   }
                   if (url) {
                     mediaBinding.getStore()?.();
-                    const outcome = await downloadUrlToFile(url, cachePath);
+                    const outcome = await downloadUrlToFile(url, cachePath, {
+                      reportActivity: false,
+                    });
                     if (outcome.ok) silk = cachePath;
                   }
                 }
@@ -956,6 +957,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           // 密钥（或前端手动输入时间戳派生的 key）解密成 GIF。解密失败时回退到
           // 明文 CDN（raw GIF / PNG）与本地缓存路径，保证贴纸仍可显示。
           if (q.get('enc') === 'tea') {
+            if (!developmentDressToolsEnabled()) return notFound('market pack tools disabled');
             const key = q.get('key') ?? '';
             let path = await services.emoji.getMarketPackImage(pack, hash, key || undefined);
             if (!path) path = await services.emoji.getMarketFace(pack, hash);
@@ -1126,6 +1128,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           return notFound(`unknown media kind: ${kind}`);
       }
     } catch (e) {
+      if (request.signal.aborted) return new Response(null, { status: 499 });
       console.error(`[media] ${kind} failed:`, e);
       return new Response('media error', { status: 500 });
     }

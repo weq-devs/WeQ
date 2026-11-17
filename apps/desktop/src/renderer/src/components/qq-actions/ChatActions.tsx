@@ -5,7 +5,8 @@ import { client, trpc } from '../../trpc/client';
 import type { Conversation, Message } from '../../im-template/template/types';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { useTypingStatusSettings } from '../../hooks/useTypingStatusSettings';
-import { ActionFeedback, useQQAction, useQQGroupPermissions } from './shared';
+import { ActionFeedback } from './shared';
+import { useQQAction, useQQGroupPermissions } from './shared.shared';
 
 export function MessageTodoAction({
   conversation,
@@ -36,7 +37,7 @@ export function MessageTodoAction({
         aria-label="设为群待办"
         title={
           !a.available
-            ? 'QQ 在线并启用完整功能后可设为群待办'
+            ? 'QQ 在线并启用 QQ 在线能力后可设为群待办'
             : a.pending
               ? '正在设置群待办'
               : '设为群待办'

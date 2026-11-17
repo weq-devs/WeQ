@@ -1,7 +1,8 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ToastHost, useToast } from '../src/renderer/src/components/Toast';
+import { ToastHost } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 
 let cleanup = () => {};
 beforeEach(() => {
@@ -86,12 +87,16 @@ describe('状态横幅的生命周期', () => {
       id = useToast.getState().push({ key: 'a', tone: 'warning', title: '旧问题' });
     });
     const row = host.querySelector('.weq-toast');
+    const slot = row!.parentElement!;
     act(() => useToast.getState().resolve('a'));
+    expect(slot.classList.contains('is-leaving')).toBe(true);
     await act(async () => vi.advanceTimersByTimeAsync(200));
     act(() => {
       expect(useToast.getState().push({ key: 'a', tone: 'success', title: '新阶段' })).toBe(id);
     });
     expect(host.querySelector('.weq-toast')).toBe(row);
+    expect(row!.parentElement).toBe(slot);
+    expect(slot.classList.contains('is-leaving')).toBe(false);
     expect(useToast.getState().leaving).not.toContain(id);
     await act(async () => vi.advanceTimersByTimeAsync(2900));
     expect(host.textContent).toContain('新阶段');

@@ -21,6 +21,7 @@ export const DEFAULT_OIDB_CASES: readonly string[] = [
   '6d9_4',
   '7e5_104',
   '7ed_12',
+  '88d_0',
   '88d_110',
   '89a_0',
   '89a_15',

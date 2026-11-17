@@ -1,10 +1,8 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import {
-  SelfProfileField,
-  SelfProfileEditingContext,
-} from '../src/renderer/src/components/SelfProfileField';
+import { SelfProfileField } from '../src/renderer/src/components/SelfProfileField';
+import { SelfProfileEditingContext } from '../src/renderer/src/components/SelfProfileField.shared';
 import { QQWriteTextRow } from '../src/renderer/src/components/QQWriteControls';
 
 const cleanups: (() => void)[] = [];

@@ -1,9 +1,10 @@
+import { NumericText } from '../../components/NumericText';
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, RotateCw, Search } from 'lucide-react';
+import { ChevronDown, RefreshCw, Search } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { useQzoneRequests } from '../../hooks/useQzoneRequests';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import { WindowedList } from '../../components/WindowedList';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { useExactSelectionMode } from './useExactSelectionMode';
@@ -101,7 +102,13 @@ export function QzoneScopePicker({
             { value: 'exact', label: '精确选择' },
           ]}
         />
-        <span>{exact ? `精确选中 ${selected.length} 条说说` : '按空间及日期导出'}</span>
+        <span>
+          {exact ? (
+            <NumericText>{`精确选中 ${selected.length} 条说说`}</NumericText>
+          ) : (
+            '按空间及日期导出'
+          )}
+        </span>
       </div>
       {exact ? (
         <>
@@ -131,7 +138,10 @@ export function QzoneScopePicker({
           />
           {outside.length ? (
             <details>
-              <summary>当前列表之外已选 {outside.length} 条</summary>
+              <summary>
+                当前列表之外已选{' '}
+                {<span className="weq-number weq-number-inherit">{outside.length}</span>} 条
+              </summary>
               <WindowedList
                 items={outside}
                 height={180}
@@ -157,7 +167,7 @@ export function QzoneScopePicker({
                 title="重试读取说说范围"
                 onClick={() => setRetry((value) => value + 1)}
               >
-                <RotateCw size={15} />
+                <RefreshCw size={15} aria-hidden />
               </button>
             </div>
           ) : next !== null ? (

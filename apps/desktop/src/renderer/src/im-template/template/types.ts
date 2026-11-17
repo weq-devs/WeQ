@@ -388,6 +388,8 @@ export type Message = {
     cachedBubble?: import('@weq/service').MessageBubbleSkin;
   };
   optimistic?: 'queued' | 'sending' | 'sent' | 'failed';
+  /** 发送请求尚未收到宿主回执；仅远程端显示对应阶段。 */
+  outgoingToHost?: boolean;
   optimisticError?: string;
   optimisticRejected?: boolean;
   /** 发起前的已知序号水位，仅用于失败占位定位，不是本条序号或发送确认。 */
@@ -401,7 +403,7 @@ export type Message = {
    * 这条消息的正文只是闪照的兜底文案（`[闪照]请使用新版手机QQ查看闪照。`）。
    *
    * 本地库 40800 里闪照**只剩这一句**，`commonElem(serviceType=3)` 元素从来没落库，
-   * 所以离线看到的就是一行灰字。带上这个标记后，聊天窗会按需走协议拉取（完整模式）
+   * 所以离线看到的就是一行灰字。带上这个标记后，聊天窗会按需走协议拉取（QQ 在线能力）
    * 把真正的闪照元素补回来重渲染；拉不到就继续显示兜底文案。
    */
   flashPhotoPlaceholder?: boolean;

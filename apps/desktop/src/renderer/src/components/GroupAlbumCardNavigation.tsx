@@ -6,7 +6,7 @@ import {
 import { ConversationDirectoryContext } from '../lib/conversationDirectory';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 import { GroupAlbumDialog, GroupAlbumFeedDialog } from './lazyMainPanels';
-import { useToast } from './Toast';
+import { useToastApi } from './Toast.shared';
 
 export interface GroupAlbumCardRequest extends QQWriteBinding {
   target: GroupAlbumCardTarget;
@@ -57,6 +57,7 @@ export function GroupAlbumCardNavigationProvider({
   binding: QQWriteBinding | null;
   children: ReactNode;
 }) {
+  const notificationToast = useToastApi();
   const directory = useContext(ConversationDirectoryContext);
   const [request, setRequest] = useState<GroupAlbumCardRequest | null>(null);
   const uin = binding?.expectedAccountUin,
@@ -71,7 +72,7 @@ export function GroupAlbumCardNavigationProvider({
   const navigate = useCallback(
     (target: GroupAlbumCardTarget) => {
       if (!uin || !configId) {
-        useToast.getState().push({ tone: 'error', title: '账号或数据源尚未就绪' });
+        notificationToast.push({ tone: 'error', title: '账号或数据源尚未就绪' });
         return;
       }
       const known = directory?.real?.find(
@@ -85,7 +86,7 @@ export function GroupAlbumCardNavigationProvider({
         revision: crypto.randomUUID(),
       });
     },
-    [directory, uin, configId],
+    [directory, uin, configId, notificationToast],
   );
   return (
     <GroupAlbumCardNavigationContext.Provider value={navigate}>

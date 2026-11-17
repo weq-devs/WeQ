@@ -6,11 +6,12 @@
  * 不受自己发送后的自动推荐开关限制，等待期间仍保留原候选。
  */
 
+import { NumericText } from '../NumericText';
 import { useEffect, useId, useRef, useState, type ReactElement } from 'react';
 import { Lightbulb, RefreshCw, ChevronUp, ChevronDown, Square, Info, Play } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
-import { useToast } from '../Toast';
-import { useIntentSenseStatus } from './context';
+import { useToastApi } from '../Toast.shared';
+import { useIntentSenseStatus } from './context.shared';
 import { ReplySuggestionHistory } from './ReplySuggestionHistory';
 import { ReplySuggestionDetailsPanel } from './ReplySuggestionDetailsPanel';
 import type { ReplySuggestionHistoryEntry } from '@weq/service';
@@ -34,6 +35,7 @@ export function IntentSuggestionBar({
   onInsert: (text: string) => void;
   onLocate?: (target: ReplySuggestionHistoryEntry['target']) => void | Promise<void>;
 }): ReactElement | null {
+  const notificationToast = useToastApi();
   const [busy, setBusy] = useState(false);
   const [historyScope, setHistoryScope] = useState<string | null>(null);
   const [detail, setDetail] = useState<{
@@ -251,7 +253,10 @@ export function IntentSuggestionBar({
           ) : expiredAge !== null ? (
             <span className="weq-int-suggest-empty weq-int-suggest-expired" title={emptyText}>
               <span className="weq-int-suggest-expired-label">上次推荐已过期</span>
-              <span className="weq-int-suggest-expired-age"> · {expiredAge}前</span>
+              <span className="weq-int-suggest-expired-age">
+                {' '}
+                · <NumericText>{expiredAge}</NumericText>前
+              </span>
             </span>
           ) : list.length === 0 ? (
             <span className="weq-int-suggest-empty" title={error ?? emptyText}>
@@ -327,7 +332,7 @@ export function IntentSuggestionBar({
                     setBusy(false);
                   }
                 } catch (error) {
-                  useToast.getState().push({
+                  notificationToast.push({
                     tone: 'error',
                     message: '停止推荐回复失败',
                     detail: error instanceof Error ? error.message : String(error),
@@ -366,7 +371,7 @@ export function IntentSuggestionBar({
                     context: expected,
                     message: error instanceof Error ? error.message : String(error),
                   });
-                  useToast.getState().push({
+                  notificationToast.push({
                     tone: 'error',
                     message: '刷新推荐回复失败',
                     detail: error instanceof Error ? error.message : String(error),

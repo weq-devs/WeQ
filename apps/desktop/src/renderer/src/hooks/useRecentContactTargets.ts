@@ -7,7 +7,7 @@ import { createUnreadTargetRefresh } from '../lib/unreadRefresh';
 import { RECENT_DIRECTORY_SIZE, recentContactHeadOptions } from './useRecentContactQueries';
 import type { QQWriteBinding } from './useQQWriteSession';
 import { queryInputBatches } from '../lib/queryInputBatches';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 
 type Page = Awaited<ReturnType<typeof client.account.listRecentContacts.query>>;
 

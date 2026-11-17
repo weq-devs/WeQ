@@ -7,6 +7,7 @@ import {
   Settings2,
   SlidersHorizontal,
   RotateCcw,
+  RefreshCw,
 } from 'lucide-react';
 import type { AssistantConfig } from '@weq/service';
 import {
@@ -23,6 +24,7 @@ import { useAppDialog } from '../../lib/dialogUtils';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { useSettingsAutosave, type SettingsSection } from '../../hooks/useSettingsAutosave';
 import '../../styles/assistant-settings.css';
+import { ASSISTANT_SEND_MODES } from './AssistantSettingsPanel.shared';
 
 const AssistantFields = createContext<{
   register: (id: string, value: SettingsSection<AssistantConfig> | null) => void;
@@ -39,12 +41,6 @@ function useAssistantField(id: string, value: unknown, patch: AssistantConfig, v
   }, [form?.register, id, snapshot, serializedPatch, valid]);
   return form;
 }
-
-export const ASSISTANT_SEND_MODES = [
-  { value: 'interrupt', label: '立即补充' },
-  { value: 'boundary', label: '下一步补充' },
-  { value: 'queue', label: '排队发送' },
-] as const;
 function useAssistantParameters() {
   const query = trpc.account.getAssistantConfig.useQuery();
   const mutation = trpc.account.setAssistantConfig.useMutation();
@@ -75,7 +71,7 @@ function useAssistantParameters() {
         confirmUnrestricted = await dialog.confirm(
           '开启任意权限？',
           '助手将以当前系统用户的权限执行操作，包括运行命令和修改外部文件。',
-          { okLabel: '开启任意权限', cancelLabel: '取消', tone: 'warning' },
+          { danger: 'solid', okLabel: '开启任意权限', cancelLabel: '取消', tone: 'warning' },
         );
         if (!confirmUnrestricted) {
           clearPending({ permissionMode: patch.permissionMode });
@@ -278,6 +274,7 @@ function NumberSetting({
             />
           ) : null}
           <button
+            data-danger="outline"
             type="button"
             className="weq-set-iconbtn"
             title={`恢复${label}默认值`}
@@ -328,6 +325,7 @@ function TextSetting({
       <div className="weq-setting-field-head">
         <label htmlFor={id}>{label}</label>
         <button
+          data-danger="outline"
           type="button"
           className="weq-set-iconbtn"
           title={`恢复${label}默认值`}
@@ -437,7 +435,9 @@ export function AssistantSettingsPanel({ onClose }: { onClose: () => void }) {
                   onClick={() =>
                     void (form.dirty || form.error ? form.flush() : retry()).catch(() => {})
                   }
+                  className="weq-retry-button"
                 >
+                  <RefreshCw size={14} aria-hidden />
                   重试保存
                 </button>
               </span>

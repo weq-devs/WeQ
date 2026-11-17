@@ -1,14 +1,15 @@
 import { EmptyState } from './EmptyState';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Search, RotateCw, SearchX } from 'lucide-react';
+import { Search, RefreshCw, SearchX } from 'lucide-react';
 import { client } from '../trpc/client';
 import { ChatPane } from '../im-template/template/chatPane';
 import type { Conversation, Message, User } from '../im-template/template/types';
 import type { MessageRenderer } from '../im-template/template/messageRenderers';
-import { qqMessageRenderer, ConvContext } from './QqMessageContent';
+import { qqMessageRenderer } from './QqMessageContent.shared';
+import { ConvContext } from '../state/messageContext';
 import { Modal } from './Dialog';
 import { plainContentText } from '@weq/service/message-plain-text';
-import { usePageDataCache } from './PageSnapshots';
+import { usePageDataCache } from './PageSnapshots.shared';
 import { accountBinding } from '../lib/clientPreferences';
 import { unixDate } from '@weq/time';
 import type { MessageBubbleSkin } from '@weq/service';
@@ -323,7 +324,7 @@ export function ReadonlyConversationPane({
                 void fetchPage(failed.older, failed.anchor, failed.newer);
               }}
             >
-              <RotateCw size={16} />
+              <RefreshCw size={16} aria-hidden />
             </button>
           ) : null
         }

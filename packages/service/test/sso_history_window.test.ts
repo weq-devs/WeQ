@@ -116,9 +116,10 @@ function fixture(target = group, duplicateAt?: number, twinAt?: number) {
     return result;
   };
   const path = join(root, 'tasks.json');
+  const listSeqWindow = vi.fn(async () => ({ seqs: [501n, 0n], below: null, above: null }));
   const manager = new RoamingBackfillManager(path, {
     source: 'synthetic-protocol-account',
-    listSeqWindow: async () => ({ seqs: [501n, 0n], below: null, above: null }),
+    listSeqWindow,
     cached: (peer, start, end) => history.cached(peer.kind, peer.conv, start, end),
     fetch: (peer, start, end, signal, interval, beforeRequest) =>
       history.fetch(peer.kind, peer.conv, start, end, {
@@ -140,6 +141,7 @@ function fixture(target = group, duplicateAt?: number, twinAt?: number) {
     hooks,
     steps,
     manager,
+    listSeqWindow,
     path,
     cachePath: join(root, 'cache.db'),
     changePid: () => {
@@ -215,17 +217,18 @@ describe('shared SSO physical windows', () => {
   });
   it('keeps incomplete observations unresolved in durable job coverage', async () => {
     const f = fixture();
-    withIncompleteSlot(f);
+    f.listSeqWindow.mockResolvedValue({ seqs: [61n, 0n], below: null, above: null });
+    withIncompleteSlot(f, 25);
     const job = await f.plan();
     f.manager.start(job.id);
     await f.done();
     expect(f.manager.list()[0]).toMatchObject({
       status: 'partial',
-      observed: 499,
+      observed: 59,
       remainingSeqs: 1,
       pendingSeqs: 0,
     });
-    expect(await f.history.cached('group', group.conv, 250, 250)).toHaveLength(0);
+    expect(await f.history.cached('group', group.conv, 25, 25)).toHaveLength(0);
   });
   it('does not quarantine a wrong-peer slot or checkpoint a failed observation write', async () => {
     const wrong = fixture();
@@ -338,14 +341,16 @@ describe('shared SSO physical windows', () => {
   });
   it('persists the physical request reservation before sending any bytes', async () => {
     const f = fixture();
+    f.listSeqWindow.mockResolvedValue({ seqs: [61n, 0n], below: null, above: null });
     f.sendPacket.mockImplementation(async (_pid, _cmd, body) => {
       const saved = JSON.parse(readFileSync(f.path, 'utf8')).jobs[0];
       expect(saved.requests).toBe(saved.checkedWindows + 1);
       expect(saved.inFlight).toMatchObject({ start: expect.any(Number), end: expect.any(Number) });
-      if (saved.requests === 1) expect(saved.inFlight).toMatchObject({ start: 471, end: 500 });
+      if (saved.requests === 1) expect(saved.inFlight).toMatchObject({ start: 31, end: 60 });
       return f.response(body);
     });
     const job = await f.plan(1);
+    expect(job.estimatedWindows).toBe(2);
     f.manager.start(job.id);
     await f.done();
     expect(f.sendPacket).toHaveBeenCalledTimes(job.estimatedWindows);

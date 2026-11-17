@@ -1,0 +1,96 @@
+.weq-database-recovery {
+  padding-block: 16px;
+  border-block: 1px solid var(--weq-border-subtle);
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  line-height: 1.65;
+  letter-spacing: 0;
+}
+.weq-database-recovery h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.weq-database-recovery h4 svg {
+  flex: 0 0 auto;
+}
+.weq-database-recovery p {
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+}
+.weq-database-recovery-check {
+  display: flex;
+  align-items: start;
+  gap: 8px;
+  margin-block: 12px;
+  cursor: pointer;
+}
+.weq-database-recovery-check input {
+  flex: 0 0 auto;
+  margin-block-start: 5px;
+  accent-color: var(--weq-accent-effective);
+}
+.weq-database-recovery details {
+  margin-block: 12px;
+  color: var(--weq-fg-secondary);
+}
+.weq-database-recovery summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.weq-database-recovery summary svg {
+  flex: 0 0 auto;
+}
+.weq-database-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-block-start: 16px;
+}
+.weq-database-recovery-actions button {
+  min-height: 36px;
+  max-width: 100%;
+  height: auto;
+  white-space: normal;
+  text-align: start;
+}
+.weq-database-recovery-actions button svg {
+  flex: 0 0 auto;
+}
+.weq-database-recovery-actions .weq-action-soft {
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  border: 1px solid var(--weq-border-strong);
+}
+.weq-database-recovery-actions .weq-action-soft:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-fg-primary) 8%, var(--weq-bg-surface));
+}
+.weq-database-recovery-actions .weq-action-primary {
+  background: var(--weq-accent-effective);
+  color: var(--weq-accent-solid-foreground);
+  border-color: var(--weq-accent-effective);
+}
+.weq-database-recovery [role='alert'] {
+  color: var(--weq-fg-primary);
+  font-weight: 600;
+}
+.weq-database-recovery :focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 3px;
+}
+html[data-theme='dark'] .weq-database-recovery {
+  border-color: var(--weq-border-strong);
+}
+@media (max-width: 480px) {
+  .weq-database-recovery-actions {
+    align-items: stretch;
+  }
+  .weq-database-recovery-actions button {
+    min-height: 44px;
+  }
+}

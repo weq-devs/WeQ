@@ -155,6 +155,8 @@ import type {
   GiftMallWallResponse,
 } from '@weq/protocol';
 
+import { projectQzoneArchive } from '../../common/qzone_archive';
+
 const QUN_DOMAIN = 'qun.qq.com';
 const QZONE_DOMAIN = 'qzone.qq.com';
 const VIP_DOMAIN = 'vip.qq.com';
@@ -164,6 +166,11 @@ export class WebQueryService {
   private readonly creds: WebCredentialProvider;
   private readonly mediaTypes?: QzoneMediaTypesService;
   private readonly qzoneNameCache = new Map<string, { name: string; at: number }>();
+  private archiveCapabilities?: {
+    expires: number;
+    failed: boolean;
+    task: Promise<QzonePublicJson | null>;
+  };
 
   /**
    * @param loginPskey 登录时顺带收下的 p_skey（域 → p_skey）。seed 进来后第一次
@@ -553,6 +560,67 @@ export class WebQueryService {
   ) {
     if (!this.mediaTypes) throw new Error('当前会话不支持空间原生详情。');
     return this.mediaTypes.readDetail({ ownerUin, tid, time }, signal, refresh);
+  }
+
+  private qzoneArchiveCapabilities(refresh = false) {
+    if (
+      !this.archiveCapabilities ||
+      this.archiveCapabilities.expires <= Date.now() ||
+      (refresh && this.archiveCapabilities.failed)
+    ) {
+      const task = this.getQzonePublicCapabilities().catch(() => null);
+      this.archiveCapabilities = { expires: Date.now() + 60_000, failed: false, task };
+      void task.then((value) => {
+        if (this.archiveCapabilities?.task === task)
+          this.archiveCapabilities.failed = value === null;
+      });
+    }
+    return this.archiveCapabilities.task;
+  }
+
+  async getQzoneArchiveState(
+    ownerUin: string,
+    tid: string,
+    time: number,
+    selfUin: string,
+    signal?: AbortSignal,
+    refresh = false,
+  ) {
+    const [detail, flags] = await Promise.all([
+      this.getQzoneNativeDetail(ownerUin, tid, time, signal, refresh),
+      this.qzoneArchiveCapabilities(refresh),
+    ]);
+    signal?.throwIfAborted();
+    const flag = (key: string) =>
+      flags?.[key] === true || flags?.[key] === 1 || flags?.[key] === '1';
+    const available = flag('public_qzone_entrance_switch');
+    const view = projectQzoneArchive(detail, ownerUin === selfUin);
+    return {
+      ...view,
+      showUpvote: view.showUpvote && available && flag('can_upvote'),
+      canContribute: view.canContribute && available,
+      canUncontribute: view.canUncontribute && available,
+      canUnarchive: view.canUnarchive && available,
+      capabilitiesObserved: flags !== null,
+      upvote: detail.upvote ?? null,
+    };
+  }
+
+  async setQzoneArchiveState(
+    ownerUin: string,
+    tid: string,
+    time: number,
+    selfUin: string,
+    action: import('@weq/protocol').QzoneArchiveAction,
+    beforeSend: () => void,
+    signal?: AbortSignal,
+  ) {
+    if (!this.mediaTypes) throw new Error('当前会话不支持空间状态操作。');
+    const flags = await this.qzoneArchiveCapabilities();
+    const available = flags?.public_qzone_entrance_switch;
+    if (available !== true && available !== 1 && available !== '1')
+      throw new Error('当前账号的空友爱看入口未开放或暂未读取成功。');
+    return this.mediaTypes.setArchive({ ownerUin, tid, time }, selfUin, action, beforeSend, signal);
   }
 
   /** 某个空间的说说列表;`pos`+`num` 可稳定深翻历史。 */

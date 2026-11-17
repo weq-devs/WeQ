@@ -3,7 +3,8 @@ import { Film, Upload, X } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { useDraftProtection } from '../../lib/draftClose';
-import { ActionIcon, useQQAction, useQQAlbumPermissions, withQQAccountScope } from './shared';
+import { ActionIcon } from './shared';
+import { useQQAction, useQQAlbumPermissions, withQQAccountScope } from './shared.shared';
 import { localBackgroundTasks } from '../../state/backgroundTasks';
 
 interface VideoDraft {
@@ -358,4 +359,12 @@ function GroupAlbumVideoUploadBody({
     </div>
   );
 }
-export const GroupAlbumVideoUpload = withQQAccountScope(GroupAlbumVideoUploadBody);
+export const GroupAlbumVideoUpload = withQQAccountScope(GroupAlbumVideoUploadBody, (props) => ({
+  kind: 'group-resource',
+  request: {
+    kind: 'albums',
+    groupCode: String(props.groupId),
+    groupName: String(props.groupId),
+    initialAlbumId: props.albumId,
+  },
+}));

@@ -8,7 +8,7 @@
  */
 
 import { useEffect, type ReactElement, type ReactNode } from 'react';
-import { usePageState } from '../../components/PageSnapshots';
+import { usePageState } from '../../components/PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
 import {
   Image as ImageIcon,
@@ -21,10 +21,11 @@ import {
   FileDown,
   Film,
   AudioLines,
-  Cloud,
   Construction,
   PanelLeftClose,
   PanelLeftOpen,
+  ContactRound,
+  Search,
 } from 'lucide-react';
 import { AvatarExplorer } from './AvatarExplorer';
 import { SysEmojiExplorer } from './SysEmojiExplorer';
@@ -36,7 +37,10 @@ import { FileDirExplorer } from './FileDirExplorer';
 import { DownloadFileExplorer } from './DownloadFileExplorer';
 import { FlatMediaExplorer, MonthMediaExplorer, VoiceExplorer } from './MediaResourceExplorers';
 import '../../styles/cache.css';
-import { ResourceRevisionContext } from './CacheShared';
+import { ResourceRevisionContext } from './CacheShared.shared';
+import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
+
+const QzoneIcon = FEATURE_ICONS.qzone;
 
 /** 一个缓存资源分类。`ready` 为 false 时右侧渲染占位空状态。 */
 interface CacheCategory {
@@ -91,7 +95,7 @@ const CATEGORIES: CacheCategory[] = [
     group: '表情',
     label: '关联表情',
     desc: '关键词联想表情',
-    icon: <Smile size={18} />,
+    icon: <Search size={18} />,
     ready: true,
   },
   {
@@ -99,7 +103,7 @@ const CATEGORIES: CacheCategory[] = [
     group: '头像',
     label: '头像资源',
     desc: 'nt_data 头像缓存',
-    icon: <ImageIcon size={18} />,
+    icon: <ContactRound size={18} />,
     ready: true,
   },
   {
@@ -153,9 +157,9 @@ const CATEGORIES: CacheCategory[] = [
   {
     id: 'qzone',
     group: '空间',
-    label: 'QQ空间缓存',
+    label: 'QQ 空间缓存',
     desc: '空间浏览缓存',
-    icon: <Cloud size={18} />,
+    icon: <QzoneIcon size={18} />,
     ready: true,
   },
 ];

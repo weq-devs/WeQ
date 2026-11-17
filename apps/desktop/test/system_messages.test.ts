@@ -3,14 +3,15 @@ import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { GrayTipRevokeMessage } from '../src/renderer/src/components/GrayTipRevokeMessage';
-import { MessageRow, grayTipOf } from '../src/renderer/src/im-template/template/messageRow';
+import { MessageRow } from '../src/renderer/src/im-template/template/messageRow';
+import { grayTipOf } from '../src/renderer/src/im-template/template/messageRow.shared';
 import { SetEmojiReactions } from '../src/renderer/src/components/SetEmojiReactions';
 import {
   ShowMessageTimeContext,
   ShowMessageSeqContext,
   ShowMessageDateContext,
-  SystemMessageContent,
-} from '../src/renderer/src/components/MessageProvenance';
+} from '../src/renderer/src/components/MessageProvenance.shared';
+import { SystemMessageContent } from '../src/renderer/src/components/MessageProvenance';
 import { HoverTooltip } from '../src/renderer/src/components/HoverTooltip';
 import { createTemplateDemoData } from './support/templateDemoData';
 

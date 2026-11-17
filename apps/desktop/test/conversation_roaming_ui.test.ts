@@ -9,10 +9,8 @@ import {
   virtualConversationRow,
 } from '../src/renderer/src/lib/conversationDirectory';
 import { conversationViewFixture } from './support/conversation-view-fixture';
-import {
-  ContentSelectionProvider,
-  useContentExportRequest,
-} from '../src/renderer/src/state/contentSelection';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
+import { useContentExportRequest } from '../src/renderer/src/state/contentSelection.shared';
 import { RoamingBackfillPanel } from '../src/renderer/src/components/RoamingBackfillPanel';
 
 const fixture = vi.hoisted(() => ({

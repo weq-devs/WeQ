@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import {
-  ForwardWindowHost,
-  openForwardWindow,
-} from '../../src/renderer/src/components/ForwardWindow';
+import { ForwardWindowHost } from '../../src/renderer/src/components/ForwardWindow';
+import { openForwardWindow } from '../../src/renderer/src/state/forwardWindow';
 import { MemberProfileCard } from '../../src/renderer/src/components/MemberProfileCard';
 import {
   ProfileNavigationContext,

@@ -4,15 +4,16 @@
  * 数据与开关都由应用层给：`open` 由 MainView 的 `shell.contactNotice` 驱动，
  * `requests` 是已经取好的申请列表。
  */
-import { ArrowLeft, Bell, Users } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { useRef } from 'react';
 import { cn } from '../im-template/template/classNames';
 import { Avatar, EmptyState } from '../im-template/template/primitives';
 import type { ContactRequest, GroupJoinRequest, User } from '../im-template/template/types';
 import { displayUserName } from '../im-template/template/user';
 import { PageShell } from './PageShell';
-import { RequestActions, useNoticeOperations } from './qq-actions/RequestActions';
-import { withQQAccountScope } from './qq-actions/shared';
+import { RequestActions } from './qq-actions/RequestActions';
+import { useNoticeOperations } from './qq-actions/RequestActions.shared';
+import { withQQAccountScope } from './qq-actions/shared.shared';
 import {
   bindNoticeOperations,
   formatNoticeTimestamp,
@@ -21,6 +22,10 @@ import {
 import { avatarFromUin } from '../lib/avatarResolver';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import '../styles/contact-notices.css';
+import { APP_NAVIGATION } from '../lib/appNavigation';
+
+const FriendNoticeIcon = APP_NAVIGATION['friend-notice'].icon;
+const GroupNoticeIcon = APP_NAVIGATION['group-notice'].icon;
 
 export type NoticeProfileHandler = (
   user: User,
@@ -50,7 +55,8 @@ function ContactNoticeDialogBody({
 }) {
   const inbox = useNoticeOperations(false, open);
   const panel = useRef<HTMLElement>(null);
-  useSurfaceEscape(panel, onClose, open, false);
+  // 手机返回由 shell 的来源快照负责，避免 onClose 再次进入同一个返回栈。
+  useSurfaceEscape(panel, onClose, open, false, false);
   const { cards, remaining } = bindNoticeOperations(requests, inbox.operations);
   if (!open) return null;
   return (
@@ -59,12 +65,12 @@ function ContactNoticeDialogBody({
       tabIndex={-1}
       className="weq-notice-dialog weq-notice-panel"
       role="region"
-      aria-label="好友通知"
+      aria-label={APP_NAVIGATION['friend-notice'].label}
       onMouseDown={(event) => event.stopPropagation()}
     >
       <PageShell
-        title="好友通知"
-        icon={<Bell size={15} />}
+        title={APP_NAVIGATION['friend-notice'].label}
+        icon={<FriendNoticeIcon size={15} aria-hidden />}
         leading={
           <button
             className="weq-page-back"
@@ -88,7 +94,7 @@ function ContactNoticeDialogBody({
             <EmptyState
               title="暂无好友通知"
               body="收到或发出的好友申请会显示在这里。"
-              icon={<Bell />}
+              icon={<FriendNoticeIcon />}
             />
           ) : (
             cards.map(({ notice: request, operation }) => {
@@ -124,7 +130,9 @@ function ContactNoticeDialogBody({
                       <em className={cn('notice-state', badge.tone)}>{badge.text}</em>
                     ) : null}
                     <time dateTime={request.createdAt}>
-                      {formatNoticeTimestamp(request.createdAt)}
+                      <span className="weq-number weq-number-inherit">
+                        {formatNoticeTimestamp(request.createdAt)}
+                      </span>
                     </time>
                   </div>
                   {open && operation && (
@@ -208,7 +216,7 @@ function GroupNoticeDialogBody({
 }) {
   const inbox = useNoticeOperations(true, open);
   const panel = useRef<HTMLElement>(null);
-  useSurfaceEscape(panel, onClose, open, false);
+  useSurfaceEscape(panel, onClose, open, false, false);
   const { cards, remaining } = bindNoticeOperations(requests, inbox.operations);
   if (!open) return null;
   return (
@@ -217,12 +225,12 @@ function GroupNoticeDialogBody({
       tabIndex={-1}
       className="weq-notice-dialog weq-notice-panel"
       role="region"
-      aria-label="群通知"
+      aria-label={APP_NAVIGATION['group-notice'].label}
       onMouseDown={(event) => event.stopPropagation()}
     >
       <PageShell
-        title="群通知"
-        icon={<Users size={15} />}
+        title={APP_NAVIGATION['group-notice'].label}
+        icon={<GroupNoticeIcon size={15} aria-hidden />}
         leading={
           <button
             className="weq-page-back"
@@ -246,7 +254,7 @@ function GroupNoticeDialogBody({
             <EmptyState
               title="暂无群通知"
               body="入群申请和处理结果会显示在这里。"
-              icon={<Users />}
+              icon={<GroupNoticeIcon />}
             />
           ) : (
             cards.map(({ notice: request, operation }) => {
@@ -290,7 +298,9 @@ function GroupNoticeDialogBody({
                           <>
                             {' · '}
                             <time dateTime={request.respondedAt}>
-                              {formatNoticeTimestamp(request.respondedAt)}
+                              <span className="weq-number weq-number-inherit">
+                                {formatNoticeTimestamp(request.respondedAt)}
+                              </span>
                             </time>
                           </>
                         ) : null}
@@ -305,7 +315,9 @@ function GroupNoticeDialogBody({
                       <em className={cn('notice-state', badge.tone)}>{badge.text}</em>
                     ) : null}
                     <time dateTime={request.createdAt}>
-                      {formatNoticeTimestamp(request.createdAt)}
+                      <span className="weq-number weq-number-inherit">
+                        {formatNoticeTimestamp(request.createdAt)}
+                      </span>
                     </time>
                   </div>
                   {open && operation && (

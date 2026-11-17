@@ -1,23 +1,4 @@
-/**
- * 数据库损坏弹窗。
- *
- * 与旧版的区别：
- *   - 不再强制退回 bootstrap —— 健康检查确认损坏后只弹窗提示，用户可继续使用；
- *   - **不再在弹窗里直接开启宽容级别**。这里曾经有两个"顺手开一下"的按钮
- *     （换访问路径 / 忽略损坏继续使用），问题有三：
- *       1. 宽容是**实验性**的，覆盖范围很窄（只有导出这类按键轴分块的读取），
- *          在一个"出事了"的弹窗里顺手开启，用户没有机会看到代价与边界；
- *       2. 会丢数据的级别被塞进两个小按钮（还要点两次），和"确认一个会损失数据的
- *          选项"应有的分量不匹配；
- *       3. 级别 3 与账本、隔离清单都在设置页，弹窗里给出半套入口反而让人以为
- *          "开了就没事了"。
- *     宽容级别依然只能去 设置 → 数据库宽容 自己挑，那里有完整代价说明与账本；
- *     口径文案统一来自 `@weq/service` 的 `db_tolerance_copy.ts`。
- *
- *   - **主按钮是"尝试修复"**（设置 → 数据维护 → 维护工具 → 数据库修复）。容错只保证"少读一点也能
- *     用"，不负责把坏掉的内容找回来；真正恢复数据靠那份修复（备份 → 重建 → 可回滚）。
- *     所以这里给的是一个真入口，而不是一段"应该怎么修"的说明。
- */
+/** 数据库检查详情与修复入口；跳过区间或表由对应任务单独询问。 */
 
 import { useRef, useState, type ReactElement, type ReactNode } from 'react';
 import {
@@ -30,14 +11,8 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
-// import {
-//   SALVAGE_AGGREGATE_CAVEAT,
-//   SALVAGE_EXPERIMENTAL_NOTE,
-//   SALVAGE_EXPERIMENTAL_TAG,
-//   SALVAGE_SKIPPED_SPAN_CAVEAT,
-// } from '@weq/service/db-tolerance-copy';
 import { Modal } from './Dialog';
-import { useToast } from './Toast';
+import { useToast } from './Toast.shared';
 import { client } from '../trpc/client';
 import { isRemoteClient } from '../lib/remoteClient';
 import { useSurfaceEscapeDismissal } from '../lib/surfaceEscape';
@@ -98,7 +73,7 @@ export function DatabaseDamagedDialog({
 }: {
   event: DatabaseDamagedEvent | null;
   onClose: () => void;
-  /** 打开设置并落到指定分区。宽容级别只能由用户在设置页里自己选。 */
+  /** 打开设置并定位数据库检查与修复。 */
   onOpenSettings: (section: DatabaseDamageSettingsSection) => void;
   /** 打开设置 → 数据维护 → 维护工具 → 数据库修复，并预选出问题的那个账号。 */
   onOpenRepair: (uin: string) => void;
@@ -193,7 +168,7 @@ export function DatabaseDamagedDialog({
               <p>
                 可以尝试<strong>数据库修复</strong>，将仍可读取的内容重建到新库中。修复前会备份，
                 但无法保证恢复全部数据。可从{' '}
-                <strong>设置 → 数据维护 → 维护工具 → 数据库修复</strong>
+                <strong>设置 → 凭据与数据 → QQ 数据库管理 → 数据库检查与修复</strong>
                 进入，也可以点击下方的「尝试修复」。
               </p>
             ) : null}

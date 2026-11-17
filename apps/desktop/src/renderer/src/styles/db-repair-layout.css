@@ -1,0 +1,65 @@
+.weq-db-repair-native .weq-rp-head {
+  padding-right: 22px;
+}
+.weq-rp-head-actions .weq-rp-account {
+  gap: 8px;
+  padding: 0 6px 0 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 12px;
+}
+.weq-rp-body .weq-rp-list,
+.weq-rp-body .weq-rp-picks {
+  grid-auto-flow: column;
+  grid-auto-columns: 196px;
+  grid-template-columns: none;
+  justify-content: start;
+  gap: 8px;
+  max-width: 100%;
+  padding: 2px 0 10px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--weq-border-strong) transparent;
+}
+.weq-rp-list > li,
+.weq-rp-picks > li {
+  min-width: 0;
+  scroll-snap-align: start;
+}
+.weq-rp-body .weq-rp-db,
+.weq-rp-body .weq-rp-pick {
+  border-radius: 8px;
+}
+.weq-rp-db:focus-visible,
+.weq-rp-pick:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -3px;
+}
+.weq-rp-checkup-task {
+  min-width: 0;
+}
+html[data-theme='dark'] .weq-rp-head-actions .weq-rp-account {
+  background: transparent;
+  color: var(--weq-fg-secondary);
+}
+
+@media (max-width: 620px) {
+  .weq-rp-head-actions {
+    min-width: 0;
+    max-width: 46%;
+  }
+  .weq-rp-head-actions .weq-rp-account {
+    min-width: 0;
+  }
+  .weq-rp-head-actions .weq-rp-icon-btn {
+    flex: none;
+  }
+  .weq-rp-body .weq-rp-list,
+  .weq-rp-body .weq-rp-picks {
+    grid-auto-columns: min(196px, 80%);
+  }
+}

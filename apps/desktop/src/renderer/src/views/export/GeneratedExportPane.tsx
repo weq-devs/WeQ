@@ -1,11 +1,8 @@
 import { EmptyState } from '../../components/EmptyState';
 import { useMemo, useState } from 'react';
-import {
-  StructuredExportControls,
-  structuredExportOptions,
-  type StructuredExportOptions,
-} from './StructuredExportControls';
-import { Download, RotateCw, Search, Sparkles, Users, MessagesSquare } from 'lucide-react';
+import { StructuredExportControls, type StructuredExportOptions } from './StructuredExportControls';
+import { structuredExportOptions } from './StructuredExportControls.shared';
+import { Download, RefreshCw, Search, Sparkles, Users, MessagesSquare } from 'lucide-react';
 import type {
   ExportSavePolicy,
   GeneratedContentTarget,
@@ -16,12 +13,13 @@ import { client, trpc } from '../../trpc/client';
 import { WindowedList } from '../../components/WindowedList';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { CheckPill, CheckPillGroup } from '../../components/settings/controls';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { QqAvatar } from '../../components/QqAvatar';
 import { GroupMosaicAvatar } from '../../components/GroupMosaicAvatar';
 import { ChatBubble } from '../agentlab/ChatBubble';
-import { ChatTimeDivider, shouldShowChatTime } from '../agentlab/messageTime';
+import { ChatTimeDivider } from '../agentlab/messageTime';
+import { shouldShowChatTime } from '../agentlab/messageTime.shared';
 import { PickerListSkeleton } from './ExportSkeleton';
 import {
   generatedContentContainer,
@@ -30,7 +28,7 @@ import {
 } from '../../../../shared/content_selection';
 import { BACKEND_FORMATS, type BackendFormat } from './types';
 import '../../styles/generated-export.css';
-import { useExportReportDialog } from './ExportReportControl';
+import { useExportReportDialog } from './ExportReportControl.shared';
 
 const FORMATS: BackendFormat[] = [...BACKEND_FORMATS];
 
@@ -270,7 +268,7 @@ export function GeneratedExportPane({
                   void sessions.refetch();
                 }}
               >
-                <RotateCw size={14} />
+                <RefreshCw size={14} aria-hidden />
               </button>
             </div>
           ) : null}
@@ -316,7 +314,8 @@ export function GeneratedExportPane({
                     <span className="weq-generated-export-session-text">
                       <strong>{session.title}</strong>
                       <span>
-                        {session.sessionTitle} · {session.count} 条
+                        {session.sessionTitle} ·{' '}
+                        <span className="weq-number weq-number-inherit">{session.count}</span> 条
                       </span>
                     </span>
                   </button>
@@ -338,7 +337,7 @@ export function GeneratedExportPane({
                 aria-label="重试读取生成记录"
                 onClick={() => void content.refetch()}
               >
-                <RotateCw size={14} />
+                <RefreshCw size={14} aria-hidden />
               </button>
             </div>
           ) : (
@@ -404,12 +403,13 @@ export function GeneratedExportPane({
               {supportsGroup ? (
                 <p className="weq-generated-export-group-hint">
                   <Users size={12} aria-hidden />
-                  {groupMemberCount} 位成员
+                  <span className="weq-number weq-number-inherit">{groupMemberCount}</span> 位成员
                 </p>
               ) : null}
               {missing.length ? (
                 <p role="alert">
-                  {missing.length} 条已选记录不存在或尚未持久化，请稍后重试或重新选择。
+                  <span className="weq-number weq-number-inherit">{missing.length}</span>{' '}
+                  条已选记录不存在或尚未持久化，请稍后重试或重新选择。
                 </p>
               ) : null}
             </>

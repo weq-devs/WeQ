@@ -8,7 +8,7 @@ import { elementToToken } from '../src/renderer/src/im-template/template/draftEl
 import {
   restoreComposer,
   serializeComposer,
-} from '../src/renderer/src/im-template/template/composer';
+} from '../src/renderer/src/im-template/template/composer.shared';
 
 const state = vi.hoisted(() => ({ restore: vi.fn() }));
 vi.mock('../src/renderer/src/lib/composerDraftMedia', async (importOriginal) => ({

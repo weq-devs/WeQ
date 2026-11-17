@@ -13,7 +13,11 @@ import { ManagedDownload } from '../src/common/managed_download';
 
 afterEach(() => updateTransferPolicy('auto', networkCost(false, false, 'fixture-reset')));
 
-it('十二项默认值兼容旧配置，行为偏好具有严格类型和整数阈值', () => {
+it('默认值兼容旧配置，计费触发默认关闭，行为偏好具有严格类型和整数阈值', () => {
+  expect(preferenceDefaults).toMatchObject({ dataSaverOnMetered: false });
+  for (const dataSaverOnMetered of [true, false])
+    expect(() => validatePreferencePatch({ dataSaverOnMetered })).not.toThrow();
+  expect(() => validatePreferencePatch({ dataSaverOnMetered: 'false' })).toThrow();
   expect(preferenceDefaults).toMatchObject(dataSaverBehaviorDefaults);
   expect(() => validatePreferencePatch(dataSaverBehaviorDefaults)).not.toThrow();
   for (const dataSaverImageLoading of ['none', 'thumbnail', 'original'])

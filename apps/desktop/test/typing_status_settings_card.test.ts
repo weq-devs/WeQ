@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TypingStatusSettingsCard } from '../src/renderer/src/components/settings/TypingStatusSettingsCard';
 import type { TypingStatusSettings } from '@weq/service';
 import type { PickItem } from '../src/renderer/src/views/export/types';
-import { DialogHost, useDialog } from '../src/renderer/src/components/Dialog';
+import { DialogHost } from '../src/renderer/src/components/Dialog';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import { useAppLock } from '../src/renderer/src/state/lock';
 
 const mocks = vi.hoisted(() => ({

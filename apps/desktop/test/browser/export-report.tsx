@@ -1,6 +1,6 @@
 import { createElement, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { useExportReportDialog } from '../../src/renderer/src/views/export/ExportReportControl';
+import { useExportReportDialog } from '../../src/renderer/src/views/export/ExportReportControl.shared';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/export.css';
 

@@ -8,8 +8,10 @@ import {
 } from '../src/renderer/src/lib/mobilePageLoading';
 import { useMobilePageSettled } from '../src/renderer/src/hooks/useMobilePageSettled';
 import { MobileSidebarPages } from '../src/renderer/src/components/MobileSidebarPages';
+import { scheduleBackgroundLoad } from '../src/renderer/src/lib/backgroundLoad';
 
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true }));
 let mobile = true;
 let hidden = false;
 let host: HTMLDivElement;
@@ -17,6 +19,8 @@ let root: ReturnType<typeof createRoot>;
 let cleanup: (() => void) | undefined;
 beforeEach(() => {
   vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-11-16T10:00:00Z'));
+  vi.spyOn(performance, 'now').mockImplementation(() => Date.now());
   mobile = true;
   hidden = false;
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -41,6 +45,66 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
+  delete window.weqRemoteStartup;
+});
+
+it('不同页面的预热共用单一队列，不并发执行模块初始化', async () => {
+  let release!: () => void;
+  const first = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const second = vi.fn(async () => {});
+  const visibleRows = vi.fn();
+  const stopFirst = preloadMobilePages([first]);
+  const stopSecond = preloadMobilePages([second]);
+  cleanup = () => {
+    stopFirst();
+    stopSecond();
+  };
+  await vi.advanceTimersByTimeAsync(80);
+  expect(first).toHaveBeenCalledOnce();
+  await vi.advanceTimersByTimeAsync(500);
+  expect(second).not.toHaveBeenCalled();
+  const stopRows = scheduleBackgroundLoad(visibleRows, 0);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(visibleRows).toHaveBeenCalledOnce();
+  stopRows();
+  release();
+  await vi.advanceTimersByTimeAsync(100);
+  expect(second).toHaveBeenCalledOnce();
+});
+
+it('Remote 实际页面就绪前不预热，恢复回执和错误页面不启动后台模块', async () => {
+  window.weqRemoteStartup = { state: 'loading' };
+  const load = vi.fn(async () => {});
+  cleanup = preloadMobilePages([load]);
+  expect(vi.getTimerCount()).toBe(0);
+  await vi.advanceTimersByTimeAsync(500);
+  expect(load).not.toHaveBeenCalled();
+  window.weqRemoteStartup = { state: 'action-required' };
+  window.dispatchEvent(new Event('weq-remote-startup'));
+  await vi.advanceTimersByTimeAsync(500);
+  expect(load).not.toHaveBeenCalled();
+  window.weqRemoteStartup = { state: 'ready' };
+  window.dispatchEvent(new Event('weq-remote-startup'));
+  await vi.advanceTimersByTimeAsync(100);
+  expect(load).toHaveBeenCalledOnce();
+});
+
+it('连续输入和滚动期间不启动预热，交互停稳后继续', async () => {
+  const load = vi.fn(async () => {});
+  cleanup = preloadMobilePages([load]);
+  document.dispatchEvent(new Event('input', { bubbles: true }));
+  await vi.advanceTimersByTimeAsync(150);
+  expect(load).not.toHaveBeenCalled();
+  document.dispatchEvent(new Event('scroll', { bubbles: true }));
+  await vi.advanceTimersByTimeAsync(150);
+  expect(load).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(200);
+  expect(load).toHaveBeenCalledOnce();
 });
 
 it('逐个预加载，失败继续；手势和后台暂停，销毁后不再启动', async () => {

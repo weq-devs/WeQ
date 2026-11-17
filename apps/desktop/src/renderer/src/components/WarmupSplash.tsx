@@ -45,7 +45,11 @@ export function WarmupSplash({
         </div>
         <div className="weq-warmup-status">
           <span>{message}</span>
-          {percent !== null && <span className="weq-warmup-count">{percent}%</span>}
+          {percent !== null && (
+            <span className="weq-warmup-count">
+              <span className="weq-number weq-number-inherit">{percent}</span>%
+            </span>
+          )}
         </div>
       </div>
     </div>

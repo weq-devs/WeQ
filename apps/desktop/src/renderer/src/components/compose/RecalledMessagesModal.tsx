@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import * as timeFormat from '@weq/time';
 /**
  * RecalledMessagesModal — the "撤回列表": browse the messages that were recalled
@@ -20,16 +21,16 @@ import * as timeFormat from '@weq/time';
 
 import { useMemo, useState, type ReactElement } from 'react';
 import { LoadingIndicator } from '../LoadingIndicator';
-import { CornerUpRight, RotateCcw, Search, X } from 'lucide-react';
+import { CornerUpRight, RotateCcw, Search, X, RefreshCw } from 'lucide-react';
 import { Modal } from '../Dialog';
-import { ConvContext, ForwardKindContext } from '../QqMessageContent';
+import { ConvContext, ForwardKindContext } from '../../state/messageContext';
 import { cn } from '../../im-template/template/classNames';
 import { MessageBubble } from '../../im-template/template/messageBubble';
 import { resolveMessageSender } from '../../im-template/template/conversationDisplay';
 import { displayUserName } from '../../im-template/template/user';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
 import type { Conversation, Message, User } from '../../im-template/template/types';
-import { useToast } from '../Toast';
+import { useToast } from '../Toast.shared';
 
 const noop = (): void => {};
 
@@ -269,7 +270,11 @@ export function RecalledMessagesModal({
         ) : null}
 
         <span className="weq-msglist-count">
-          {filtering ? `${filtered.length} / ${rows.length} 条` : `共 ${rows.length} 条`}
+          {filtering ? (
+            <NumericText>{`${filtered.length} / ${rows.length} 条`}</NumericText>
+          ) : (
+            <NumericText>{`共 ${rows.length} 条`}</NumericText>
+          )}
         </span>
       </div>
 
@@ -280,7 +285,8 @@ export function RecalledMessagesModal({
               <div className="weq-deleted-empty" role="alert">
                 <span>{error}</span>
                 {onRetry ? (
-                  <button className="weq-set-btn" type="button" onClick={onRetry}>
+                  <button className="weq-set-btn weq-retry-button" type="button" onClick={onRetry}>
+                    <RefreshCw size={14} aria-hidden />
                     重试读取
                   </button>
                 ) : null}

@@ -31,11 +31,12 @@ it('共享偏好仅接受三种模式；未知状态不冒充已检测的不受�
     expect(() => validatePreferencePatch({ dataSaverMode })).not.toThrow();
   expect(() => validatePreferencePatch({ dataSaverMode: 'wifi' })).toThrow();
   const restricted = networkCost(false, true, 'synthetic');
-  expect(dataSaverEnabled('auto', UNKNOWN_NETWORK)).toBe(false);
+  expect(dataSaverEnabled('auto', [UNKNOWN_NETWORK])).toBe(false);
   expect(UNKNOWN_NETWORK.state).toBe('unknown');
-  expect(dataSaverEnabled('auto', UNKNOWN_NETWORK, restricted)).toBe(true);
-  expect(dataSaverEnabled('never', restricted)).toBe(false);
-  expect(dataSaverEnabled('always', UNKNOWN_NETWORK)).toBe(true);
+  expect(dataSaverEnabled('auto', [UNKNOWN_NETWORK, restricted])).toBe(false);
+  expect(dataSaverEnabled('auto', [UNKNOWN_NETWORK, restricted], true)).toBe(true);
+  expect(dataSaverEnabled('never', [restricted], true)).toBe(false);
+  expect(dataSaverEnabled('always', [UNKNOWN_NETWORK])).toBe(true);
 });
 it('客户端状态互不接管；宿主限制与全局设置分别生效', () => {
   updateClientNetwork('phone-a', networkCost(true, false, 'synthetic'));
@@ -43,7 +44,7 @@ it('客户端状态互不接管；宿主限制与全局设置分别生效', () =
   expect(transferRestricted('phone-a')).toBe(true);
   expect(transferRestricted('phone-b')).toBe(false);
   expect(transferRestricted()).toBe(false);
-  updateTransferPolicy('auto', networkCost(false, true, 'host'));
+  updateTransferPolicy('auto', networkCost(false, true, 'host'), { dataSaverOnMetered: true });
   expect(transferRestricted('phone-b')).toBe(true);
   updateTransferPolicy('never', UNKNOWN_NETWORK);
   expect(transferRestricted('phone-a')).toBe(false);
@@ -135,6 +136,7 @@ it('真实取消在途请求并保留分段，恢复时校验 Range 和资源身
   expect(fetcher).toHaveBeenCalledTimes(2);
 });
 it('任务拥有发起客户端身份；受限手机任务不发请求，其他端不受影响', async () => {
+  updateTransferPolicy('auto', networkCost(false, false, 'host'), { dataSaverOnMetered: true });
   const root = await mkdtemp(join(tmpdir(), 'weq-transfer-owner-'));
   roots.push(root);
   updateClientNetwork('limited-phone', networkCost(false, true, 'phone'));
@@ -152,6 +154,7 @@ it('任务拥有发起客户端身份；受限手机任务不发请求，其他�
   expect(transferRestricted('limited-phone')).toBe(true);
 });
 it('宿主已有大文件仍暂停到受限客户端的字节传输，单任务继续后正常交付', async () => {
+  updateTransferPolicy('auto', networkCost(false, false, 'host'), { dataSaverOnMetered: true });
   updateClientNetwork('stream-phone', networkCost(false, true, 'phone'));
   const transfer = networkScope.run(
     { clientId: 'stream-phone', restricted: true, intent: 'interactive' },

@@ -147,13 +147,6 @@ html[data-theme='dark'] .weq-backup-review {
     min-height: 32px;
   }
 }
-.weq-backup .weq-set-btn,
-.weq-backup-gate .weq-set-btn,
-.weq-backup-native > .weq-set-btn {
-  color: var(--weq-fg-primary);
-  background: transparent;
-  border-color: var(--weq-border-strong);
-}
 .weq-defaults-modal .weq-dialog-body {
   max-height: min(65dvh, 640px);
   overflow-y: auto;
@@ -229,16 +222,8 @@ html[data-theme='dark'] .weq-defaults-row select {
   white-space: normal;
   overflow-wrap: anywhere;
 }
-.weq-backup .weq-set-btn:hover:not(:disabled),
-.weq-backup-gate .weq-set-btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
-  filter: none;
-}
 .weq-backup .weq-set-btn:focus-visible,
 .weq-backup-gate .weq-set-btn:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
-}
-.weq-backup-review .weq-set-btn:last-child {
-  border-color: var(--weq-accent-effective);
 }

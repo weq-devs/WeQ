@@ -4,6 +4,7 @@ import {
   calendarToday,
   calendarTargetKey,
   ConversationCalendarJob,
+  CALENDAR_BATCH_SIZE,
   filterCalendarTargets,
   type CalendarSource,
   type CalendarTarget,
@@ -29,6 +30,63 @@ const message = (id: string, time = start, conv = target.conv) => ({
   conv,
   time,
   anchor: { id, seq: id, time },
+});
+it('汇总页按真实条数累计，重试清除来源缓存，源缓存容量纳入总预算', async () => {
+  const invalidate = vi.fn();
+  const source: CalendarSource = {
+    kind: 'c2c',
+    cacheCapacityBytes: 128 * 1024,
+    invalidate,
+    count: async () => 0,
+    page: async () => ({ rows: [{ ...message('1'), count: 1025 }], done: true }),
+  };
+  const base = new ConversationCalendarJob(
+    '2026-11',
+    [target],
+    [{ ...source, cacheCapacityBytes: 0 }],
+  );
+  const job = new ConversationCalendarJob('2026-11', [target], [source]);
+  expect(job.memoryBytes - base.memoryBytes).toBe(source.cacheCapacityBytes);
+  job.keepAlive(day);
+  await finish(job);
+  expect(job.snapshot(day).rows[0]?.count).toBe(1025);
+  const restored = new ConversationCalendarJob('2026-11', [target], [source]);
+  expect(restored.restore(job.checkpoint())).toBe(true);
+  expect(restored.snapshot(day).rows[0]?.count).toBe(1025);
+  job.control('day', 'retry', day);
+  expect(invalidate).toHaveBeenCalledOnce();
+  job.cancel();
+  base.cancel();
+  restored.cancel();
+});
+
+it('当日明细连续读取时穿插其他日期快捷计数，月计数不必等明细结束', async () => {
+  const calls: string[] = [];
+  const job = new ConversationCalendarJob(
+    '2026-11',
+    [target],
+    [
+      {
+        kind: 'c2c',
+        count: async () => {
+          calls.push('count');
+          return 0;
+        },
+        page: async (_s, _e, cursor) => {
+          calls.push('detail');
+          const next = Number(cursor ?? 0) + 1;
+          return { rows: [message(String(next))], cursor: next, done: next >= 20 };
+        },
+      },
+    ],
+  );
+  job.keepAlive(day);
+  await vi.advanceTimersByTimeAsync(150);
+  expect(calls.slice(0, 5)).toEqual(['detail', 'detail', 'detail', 'detail', 'count']);
+  expect(job.snapshot(day).complete).toBe(false);
+  expect(job.snapshot(day).progress.completedSources).toBeGreaterThan(0);
+  job.cancel();
+  await finish(job);
 });
 it('取消勾选的来源停止后续批次并退出总数，再勾选保留原游标与计数', async () => {
   const cursors: unknown[] = [];
@@ -381,6 +439,42 @@ it('COUNT 超时降级，分页超时不提交游标或重复条数', async () =
   await finish(job);
   expect(job.snapshot(day).rows[0]?.count).toBe(2);
   expect(job.metrics.timeouts).toBe(1);
+});
+it('临时超时缩批后连续成功会恢复吞吐，失败重试不沿用极小批量', async () => {
+  const limits: number[] = [];
+  let first = true;
+  const page = vi.fn<CalendarSource['page']>(async (_start, _end, cursor, limit) => {
+    limits.push(limit);
+    if (first) {
+      first = false;
+      throw new Error('database_query_execution_timeout');
+    }
+    const next = Number(cursor ?? 0) + 1;
+    return { rows: [message(String(next))], cursor: next, done: next >= 5 };
+  });
+  const job = new ConversationCalendarJob(
+    '2026-11',
+    [target],
+    [{ kind: 'c2c', count: async () => 0, page }],
+  );
+  job.keepAlive(day);
+  await finish(job);
+  expect(limits).toEqual([
+    CALENDAR_BATCH_SIZE,
+    ...Array(4).fill(CALENDAR_BATCH_SIZE / 2),
+    CALENDAR_BATCH_SIZE,
+  ]);
+  page.mockRejectedValue(new Error('database_query_execution_timeout'));
+  job.control('day', 'retry', day);
+  job.keepAlive(day);
+  await finish(job);
+  expect(job.snapshot(day).controls.day.state).toBe('failed');
+  page.mockResolvedValue({ rows: [], done: true });
+  job.control('day', 'retry', day);
+  job.keepAlive(day);
+  await finish(job);
+  expect(page.mock.calls.at(-1)?.[3]).toBe(CALENDAR_BATCH_SIZE);
+  job.cancel();
 });
 it('三次无法推进暂停来源，结果不是完整零值，重试不丢已完成结果', async () => {
   const page = vi.fn(async () => {

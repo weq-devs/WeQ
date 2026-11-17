@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { DatabaseZap, Loader2, ShieldCheck, Zap } from 'lucide-react';
+import { DatabaseZap, Loader2, ShieldCheck, Zap, RefreshCw } from 'lucide-react';
 import type { ExportSavePolicy } from '@weq/service';
 import { client, trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
-import { useExportReportDialog } from './ExportReportControl';
+import { useExportReportDialog } from './ExportReportControl.shared';
 import { useViewState } from '../../state/view';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
@@ -11,7 +11,7 @@ import { DatabasePicker } from './DatabasePicker';
 import { fmtBytes } from './types';
 import '../../styles/database-plain-export.css';
 import '../../styles/export.css';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import {
   databaseExportTargetMatches,
   type DatabaseExportTarget,
@@ -183,7 +183,12 @@ export function DatabasePlainExport({
       {databases.isError ? (
         <p className="weq-db-cards-error" role="alert">
           {databases.error.message}
-          <button type="button" onClick={() => void databases.refetch()}>
+          <button
+            type="button"
+            onClick={() => void databases.refetch()}
+            className="weq-retry-button"
+          >
+            <RefreshCw size={14} aria-hidden />
             重试
           </button>
         </p>
@@ -203,7 +208,8 @@ export function DatabasePlainExport({
         <div className="weq-db-actionbar-summary">
           {chosen.length ? (
             <span>
-              {chosen.length} 个数据库 · {fmtBytes(totalBytes)}
+              <span className="weq-number weq-number-inherit">{chosen.length}</span> 个数据库 ·{' '}
+              <span className="weq-number weq-number-inherit">{fmtBytes(totalBytes)}</span>
             </span>
           ) : (
             <span>先选中要解密的数据库</span>

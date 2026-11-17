@@ -19,7 +19,11 @@ import type { SendMediaUploadReport } from '@weq/protocol';
 import { elementsFromEditable } from '../serde';
 import { procedure, router } from '../trpc';
 import { recentReactions } from '../../recent_reactions';
-import { resourceSourceInput, requireResourceSource } from './resource_source';
+import {
+  resourceSourceInput,
+  requireResourceSource,
+  assertResourceSource,
+} from './resource_source';
 
 function requireServices(): AccountServices {
   const ctx = getAppContext();
@@ -61,6 +65,19 @@ function recordRecentFromOutcome(
 }
 
 export const emojiPanelRouter = router({
+  shortcuts: procedure.input(resourceSourceInput).query(async ({ input }) => {
+    const services = requireResourceSource(input);
+    const emoji = services.emoji;
+    const [faces, recent] = await Promise.all([
+      emoji.listShortcutFaces(),
+      emoji.listRecentEmojis(),
+    ]);
+    assertResourceSource(services, input);
+    return {
+      faces,
+      recent: recent.filter((item) => !item.unicode).map(({ id, usedAt }) => ({ id, usedAt })),
+    };
+  }),
   recentReactions: procedure.input(resourceSourceInput).query(({ input }) => {
     return recentReactions(requireResourceSource(input)).list();
   }),

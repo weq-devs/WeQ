@@ -1,8 +1,20 @@
-import { useContext, useEffect, useRef, useState } from 'react';
-import { IS_WEB } from '../../lib/target';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { IS_WEB } from '../../lib/target.shared';
 import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
-import { Bot, Check, LoaderCircle, RotateCcw, Sparkle, TriangleAlert, X } from 'lucide-react';
+import {
+  Bot,
+  Check,
+  Clock,
+  LoaderCircle,
+  Monitor,
+  RefreshCw,
+  RotateCcw,
+  SendHorizontal,
+  TriangleAlert,
+  X,
+} from 'lucide-react';
+import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import { renderMessageWithRegistry, type MessageRenderer } from './messageRenderers';
 import { Avatar } from './primitives';
 import { ChatQqShowEnabledContext, useChatQqShow } from '../../lib/chatQqShow';
@@ -12,14 +24,19 @@ import { cn } from './classNames';
 import { SetEmojiReactions, type ReactionInteraction } from '../../components/SetEmojiReactions';
 import { MessageIntentSense } from '../../components/intentSense/MessageIntentSense';
 import { useSelfBubble, useSelfPendant } from '../../hooks/useSelfPendant';
-import { useActiveFontFx, useActiveWidget } from '../../hooks/useActiveWidget';
+import { useActiveFontFx, useActiveWidget } from '../../hooks/useActiveWidget.shared';
 import { useBubbleFontFx } from '../../hooks/useBubbleFontFx';
 import { useMsgDecoration } from '../../hooks/useMsgDecoration';
 import { localDressApplies } from '../../lib/dressSkin';
-import { MsgDecorationEnabledContext } from '../../components/QqMessageContent';
+import { MsgDecorationEnabledContext } from '../../state/messageAppearance';
 import { MessageProvenance } from '../../components/MessageProvenance';
 import '../../styles/message-deletion.css';
-import { useToast } from '../../components/Toast';
+import { useToastApi } from '../../components/Toast.shared';
+import {
+  NotificationSourceContext,
+  messageNotificationSource,
+} from '../../lib/notificationNavigation.shared';
+import { NotificationSourceProvider } from '../../lib/notificationNavigation';
 import { GroupMessageBadge } from '../../components/GroupMessageBadge';
 import { messageHasIntentText } from '../../lib/intentTimeline';
 import '../../styles/chat-interactions.css';
@@ -102,7 +119,30 @@ function PendantOverlay({
   );
 }
 
-export function MessageBubble({
+export function MessageBubble(props: Parameters<typeof MessageBubbleBody>[0]) {
+  const inherited = useContext(NotificationSourceContext);
+  const uin = inherited?.binding?.expectedAccountUin;
+  const configId = inherited?.binding?.expectedAccountConfigId;
+  const conv = props.conversation.id;
+  const kind = props.conversation.type === 'group' ? 'group' : 'c2c';
+  const { id, msgId, msgSeq, sourceFormat, ntSeqVerified } = props.message;
+  const source = useMemo(
+    () =>
+      messageNotificationSource(
+        { id: conv, type: kind },
+        { id, msgId, msgSeq, sourceFormat, ntSeqVerified },
+        uin && configId ? { expectedAccountUin: uin, expectedAccountConfigId: configId } : null,
+      ),
+    [uin, configId, kind, conv, id, msgId, msgSeq, sourceFormat, ntSeqVerified],
+  );
+  return (
+    <NotificationSourceProvider source={source}>
+      <MessageBubbleBody {...props} />
+    </NotificationSourceProvider>
+  );
+}
+
+function MessageBubbleBody({
   message,
   conversation,
   sender,
@@ -202,6 +242,7 @@ export function MessageBubble({
   /** 本地克隆等展示标识，不改变发送者或 QQ 消息能力。 */
   avatarBadge?: import('react').ReactNode;
 }) {
+  const notificationToast = useToastApi();
   // 只订阅名称、等级与头衔的组合，其他共享偏好变化不重绘消息。
   const groupDisplay = useClientPreferences(() =>
     conversation.type === 'group'
@@ -324,7 +365,7 @@ export function MessageBubble({
       : {};
 
   // 群精华角标：消息 seq 命中本地 group_essence 表（仅数据库，不联网）时，
-  // 在气泡右下角打「四芒星 精华」标。
+  // 在气泡右下角打「星形 精华」标，与群精华入口共用图形。
   const isEssence =
     conversation.type === 'group' &&
     message.msgSeq != null &&
@@ -419,7 +460,7 @@ export function MessageBubble({
     try {
       await onRestore(message.id);
     } catch (error) {
-      useToast.getState().push({
+      notificationToast.push({
         tone: 'error',
         title: '恢复消息失败',
         detail: error instanceof Error ? error.message : String(error),
@@ -567,8 +608,23 @@ export function MessageBubble({
           <div className="weq-repeat-content">
             {renderMessageWithRegistry({ message, conversation, sender, mine }, renderers)}
             {optimistic === 'sending' ? (
-              <span className="weq-message-sending" role="status" aria-label="发送中">
-                <LoaderCircle size={16} aria-hidden />
+              <span
+                className={cn(
+                  'weq-message-sending',
+                  IS_WEB && message.outgoingToHost && 'is-to-host',
+                )}
+                role="status"
+                aria-label={IS_WEB && message.outgoingToHost ? '正在传给电脑' : '发送中'}
+                title={IS_WEB && message.outgoingToHost ? '正在传给电脑' : '发送中'}
+              >
+                <LoaderCircle
+                  className="weq-message-send-spinner"
+                  size={IS_WEB && message.outgoingToHost ? 22 : 16}
+                  aria-hidden
+                />
+                {IS_WEB && message.outgoingToHost ? (
+                  <Monitor className="weq-message-send-host" size={10} aria-hidden />
+                ) : null}
               </span>
             ) : (
               repeatAction
@@ -588,7 +644,7 @@ export function MessageBubble({
         {pendingAction}
         {isEssence ? (
           <span className={cn('weq-msg-essence-badge')} title="该消息为群精华">
-            <Sparkle size={10} strokeWidth={2.6} />
+            <FEATURE_ICONS.groupEssence size={10} strokeWidth={2.6} aria-hidden />
             <span>精华</span>
           </span>
         ) : null}
@@ -622,7 +678,11 @@ export function MessageBubble({
               onStartOutgoing?.(message);
             }}
           >
-            <RotateCcw size={12} aria-hidden />
+            {reeditArmed ? (
+              <SendHorizontal size={12} aria-hidden />
+            ) : (
+              <Clock size={12} aria-hidden />
+            )}
             <span>{reeditArmed ? '立即发送' : '排队中'}</span>
           </button>
         ) : null}
@@ -647,7 +707,7 @@ export function MessageBubble({
                   onStartOutgoing?.(message);
                 }}
               >
-                <RotateCcw size={12} aria-hidden />
+                <RefreshCw size={12} aria-hidden />
                 <span>{reeditArmed ? '重试发送' : '发送失败'}</span>
               </button>
             ) : (
@@ -667,6 +727,7 @@ export function MessageBubble({
             )}
             {dismissable ? (
               <button
+                data-danger="outline"
                 type="button"
                 className={cn('weq-msg-dismiss-unsent')}
                 title="从本机列表移除这条（对方是否收到不受影响）"

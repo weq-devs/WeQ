@@ -17,7 +17,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
-import { Heart, ImageOff, Search, Star } from 'lucide-react';
+import { Heart, ImageOff, Inbox } from 'lucide-react';
 import { EmptyState } from '../../components/EmptyState';
 import type {
   CustomEmojiEntry,
@@ -28,14 +28,16 @@ import type {
 import { trpc, client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
-import { BlobDialog, CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
+import { BlobDialog, GridFooter } from './CacheShared';
+import { CURSOR_PAGE, fmtBytes, useCursorPaged } from './CacheShared.shared';
 import { GridSkeleton, InlineSkeleton } from './CacheSkeleton';
 import { FavoriteActions } from '../../components/qq-actions/FavoriteActions';
-import { TabActivity, useTabActive } from '../../components/RetainedTabs';
+import { TabActivity } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 
 const SCOPE_META: Record<CustomEmojiScope, { label: string; icon: ReactElement }> = {
-  recv: { label: '收到的表情', icon: <Search size={14} /> },
-  personal: { label: '我的表情', icon: <Star size={14} /> },
+  recv: { label: '收到的表情', icon: <Inbox size={14} /> },
+  personal: { label: '我的表情', icon: <Heart size={14} /> },
 };
 
 /** weq-media URL for one custom-emoji file, or null when that variant is absent. */
@@ -102,7 +104,9 @@ export function CustomEmojiExplorer(): ReactElement {
           >
             {SCOPE_META[s.scope].icon}
             <span>{SCOPE_META[s.scope].label}</span>
-            <em className="weq-cache-avatar-tabcount">{s.count}</em>
+            <em className="weq-cache-avatar-tabcount">
+              <span className="weq-number weq-number-inherit">{s.count}</span>
+            </em>
           </button>
         ))}
         {scopes.isLoading && scopeList.length === 0 ? (
@@ -260,7 +264,9 @@ function CustomEmojiLightbox({
             </div>
             <figcaption className="weq-marketemoji-panel-cap">
               <strong>{p.label}</strong>
-              <span>{fmtBytes(p.size)}</span>
+              <span>
+                <span className="weq-number weq-number-inherit">{fmtBytes(p.size)}</span>
+              </span>
             </figcaption>
           </figure>
         ))

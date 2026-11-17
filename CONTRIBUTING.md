@@ -33,9 +33,11 @@ pnpm dev --prepare-only # 只准备开发环境，不启动应用
 
 ## 提交前检查
 
-日常改动先运行与修改直接相关的检查，并在 PR 中说明验证范围与结果；不要求每次提交或
-push 前运行全量本地 CI。只改文档时核对命令、链接与源码行为；修改纯逻辑或修复 bug 时
-补充针对性回归测试。最终以 CI 全量门禁为准。
+日常改动按[最小充分验证](./docs/develop/testing.md#日常开发选择最小充分验证)选择检查，
+不要求每次提交新增测试或运行全量本地 CI。纯文案、图标、局部样式与入口增删通常检查差异即可；
+行为修复先复用现有测试，只有值得长期防回归的变化才新增用例，不强制每个 bug 先红后绿。
+浏览器检查只用于必须依赖真实布局、绘制或交互才能确认的问题，不默认新增自动化或展开组合矩阵。
+在 PR 中简述实际验证范围与结果；CI 全量门禁保持不变。
 
 发版前、大改动或需要全量复核时，可运行：
 
@@ -47,7 +49,7 @@ pnpm ci:local   # 一键跑 CI 的 lint / format / typecheck / test 门禁
 不 fail-fast —— 那一步红了也继续跑完，最后给一张汇总表。常用参数：
 
 - `pnpm ci:local --fix` —— 先 `pnpm format` + `pnpm lint:fix` 刷平，再跑门禁。
-  改完代码懒得管格式时用这个，省得再来一轮。
+  用于需要全量整理的场景；日常只格式化本任务文件，不顺带改其他内容。
 - `pnpm ci:local --full` —— 额外跑 web 打包冒烟（≈ CI 的 `build-web` job）。
 - `pnpm ci:local --fail-fast` / `--list` —— 失败即停 / 只打印将跑的步骤。
 
@@ -61,7 +63,7 @@ pnpm format:check # Biome 格式检查
 pnpm typecheck    # 类型检查（CI 强制，不通过会被拦截）
 pnpm test         # 有界并发的全量单测（含 @weq/web），汇总所有失败
 pnpm test:fail-fast # 本地全量范围，首个失败后尽早停止
-pnpm test:changed # 日常只跑改动相关的 Vitest 测试；Web 仍跑完整服务端断言
+pnpm test:changed # 全工作区 Git 改动相关测试，并非本任务选择器；Web 仍跑完整服务端断言
 pnpm check        # Biome 的 lint + format 汇总检查
 pnpm --filter @weq/web build
 

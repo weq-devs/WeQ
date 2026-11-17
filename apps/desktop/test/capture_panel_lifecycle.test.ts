@@ -3,7 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { Window as HappyWindow } from 'happy-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { CaptureBatchWire } from '../src/main/capture_protocol';
-import { CapturePanel, CAPTURE_SPLIT_STEP } from '../src/renderer/src/components/CapturePanel';
+import { CapturePanel } from '../src/renderer/src/components/CapturePanel';
+import { CAPTURE_SPLIT_STEP } from '../src/renderer/src/components/CapturePanel.shared';
 import { RenderDocumentContext } from '../src/renderer/src/lib/renderDocument';
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 
@@ -41,6 +42,11 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 }));
 vi.mock('../src/renderer/src/components/Toast', () => ({
   useToast: { getState: () => ({ push: f.push, update: f.update }) },
+  useToastApi: () => ({ push: f.push, update: f.update }),
+}));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
+  useToast: { getState: () => ({ push: f.push, update: f.update }) },
+  useToastApi: () => ({ push: f.push, update: f.update }),
 }));
 
 const pending: Array<(batch: CaptureBatchWire) => void> = [];

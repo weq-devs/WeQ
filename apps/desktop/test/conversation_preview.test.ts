@@ -165,6 +165,90 @@ test('群名修改摘要使用协议事件与新群名，不误报成员退出',
   }
 });
 
+test('个人禁言预览缺少昵称时仍按目标身份识别本人，不误报全员禁言', () => {
+  for (const duration of [600, 0]) {
+    for (const target of [
+      { muteInfo: { duration, mutedUser: { uid: 'u_self' } } },
+      { muteInfo: { duration, mutedUser: { uid: 'u_self', groupNick: '' } } },
+      { muteInfo: { duration }, user2Uid: '67890' },
+      { muteInfo: { duration, mutedUser: { uid: 'u_self', groupNick: '旧昵称' } } },
+    ]) {
+      const el = { kind: 'grayTipGroup', groupTipType: TipGroupElementType.KSHUTUP, ...target };
+      for (const p of [el, { previewElements: [el] }]) {
+        assert.equal(
+          previewNodesToText(previewNodes(p, new Set(['u_self', '67890']))),
+          duration > 0 ? '你 被禁言' : '你 被解除禁言',
+        );
+      }
+    }
+  }
+});
+
+test('个人禁言预览复用本地名称，未知成员也不降级成全员禁言', () => {
+  for (const duration of [600, 0]) {
+    for (const [fields, names, expectedName] of [
+      [
+        { mutedUser: { uid: 'u_alice', groupNick: '旧群名片' } },
+        new Map([['u_alice', '本地群名片']]),
+        '本地群名片',
+      ],
+      [{ mutedUser: { uid: 'u_alice', groupNick: '群名片' } }, new Map(), '群名片'],
+      [{ mutedUser: { uid: 'u_unknown' } }, new Map(), '某成员'],
+    ] as const) {
+      const el = {
+        kind: 'grayTipGroup',
+        groupTipType: TipGroupElementType.KSHUTUP,
+        muteInfo: { duration, ...fields },
+      };
+      assert.equal(
+        previewNodesToText(previewNodes(el, new Set(), names)),
+        `${expectedName} ${duration > 0 ? '被禁言' : '被解除禁言'}`,
+      );
+    }
+  }
+});
+
+test('全员禁言预览只在没有目标成员时显示全员状态，兼容仅带昵称的个人禁言', () => {
+  for (const duration of [600, 0]) {
+    for (const fields of [{}, { mutedUser: {} }]) {
+      assert.equal(
+        previewNodesToText(
+          previewNodes({
+            kind: 'grayTipGroup',
+            user1Nick: '管理员',
+            muteInfo: { duration, ...fields },
+          }),
+        ),
+        duration > 0 ? '开启了全员禁言' : '关闭了全员禁言',
+      );
+    }
+    for (const fields of [
+      { muteInfo: { duration, mutedUser: { groupNick: '成员' } } },
+      { muteInfo: { duration }, user2Nick: '成员' },
+    ]) {
+      assert.equal(
+        previewNodesToText(previewNodes({ kind: 'grayTipGroup', ...fields })),
+        duration > 0 ? '成员 被禁言' : '成员 被解除禁言',
+      );
+    }
+  }
+});
+
+test('禁言预览预取嵌套与平铺的成员身份，混合预览去重', () => {
+  const el = {
+    kind: 'grayTipGroup',
+    user1Uid: 'u_admin',
+    user2Uid: 'u_target',
+    muteInfo: { operator: { uid: 'u_admin' }, mutedUser: { uid: 'u_target' } },
+  };
+  assert.deepEqual(previewIdentityIds(el), ['u_admin', 'u_target']);
+  assert.deepEqual(previewIdentityIds({ previewElements: [el, el] }), ['u_admin', 'u_target']);
+  assert.deepEqual(previewIdentityIds({ kind: 'grayTipGroup', muteInfo: el.muteInfo }), [
+    'u_admin',
+    'u_target',
+  ]);
+});
+
 test('mixed message previews keep ordered text and every face, including face zero', () => {
   assert.deepEqual(
     previewNodes({

@@ -1,36 +1,9 @@
 import { useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
-import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import type { NoticeOperation } from '../../lib/contactNotice';
-import { ActionFeedback, useQQAction } from './shared';
-
-/** 同一弹窗共用两类收件箱，卡片不逐个发起在线读取。 */
-export function useNoticeOperations(group: boolean, open: boolean) {
-  const a = useQQAction(`requests:${group ? 'group' : 'friend'}`);
-  const options = useQQAutoRefresh(open && a.available);
-  const normal = trpc.account.qqActions.requests.useQuery(
-    { ...a.binding!, kind: group ? 'group' : 'friend' },
-    options,
-  );
-  const filtered = trpc.account.qqActions.requests.useQuery(
-    { ...a.binding!, kind: group ? 'filteredGroup' : 'doubtFriend' },
-    options,
-  );
-  const operations: NoticeOperation[] = a.available
-    ? [
-        ...(normal.data ?? []).map((r) => ({
-          ...r,
-          kind: group ? ('group' as const) : ('friend' as const),
-        })),
-        ...(filtered.data ?? []).map((r) => ({
-          ...r,
-          kind: group ? ('filteredGroup' as const) : ('doubtFriend' as const),
-        })),
-      ]
-    : [];
-  return { operations, error: normal.error?.message || filtered.error?.message };
-}
+import { ActionFeedback } from './shared';
+import { useQQAction } from './shared.shared';
 
 /** 处理后的回执沿用审核区容器，避免在通知网格中落入头像列。 */
 export function RequestActions({ operation }: { operation: NoticeOperation }) {
@@ -56,6 +29,7 @@ export function RequestActions({ operation }: { operation: NoticeOperation }) {
               type="button"
               key={String(approve)}
               aria-label={approve ? '同意申请' : '拒绝申请'}
+              data-danger={approve ? undefined : 'outline'}
               disabled={a.disabled}
               onClick={() =>
                 void a.perform(
@@ -76,6 +50,7 @@ export function RequestActions({ operation }: { operation: NoticeOperation }) {
                   },
                   `${approve ? '同意' : '拒绝'} ${operation.name}${operation.groupId ? ` 加入 ${operation.groupName}` : ' 的好友申请'}？`,
                   {
+                    danger: approve ? undefined : 'outline',
                     readback: async () => {
                       const rows = await client.account.qqActions.requests.query({
                         ...a.binding!,

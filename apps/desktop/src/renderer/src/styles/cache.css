@@ -290,7 +290,7 @@
   align-items: center;
   gap: 6px;
   padding: 10px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .weq-cache-dbpick .weq-cache-dbpick-btn {
@@ -490,7 +490,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 10px 14px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .weq-cache-subtabs {
@@ -573,7 +573,7 @@
   align-items: center;
   gap: 10px;
   padding: 8px 14px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .weq-cache-data-name {
@@ -703,6 +703,7 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+  scroll-padding: 36px 0 0 52px;
 }
 
 .weq-cache-grid {
@@ -716,8 +717,8 @@
 .weq-cache-grid th,
 .weq-cache-grid td {
   padding: 6px 12px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-  border-right: 1px solid rgba(0, 0, 0, 0.04);
+  border-bottom: 1px solid var(--weq-border-subtle);
+  border-right: 1px solid var(--weq-border-subtle);
   text-align: left;
   white-space: nowrap;
   max-width: 380px;
@@ -747,15 +748,24 @@
 }
 
 .weq-cache-grid-rownum {
-  width: 1%;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 52px;
+  width: 52px;
   color: #b0b8c4;
   text-align: right !important;
   font-variant-numeric: tabular-nums;
-  background: color-mix(in srgb, var(--weq-fg-primary) 3%, transparent);
+  background: color-mix(in srgb, var(--weq-bg-surface) 97%, var(--weq-fg-primary) 3%);
 }
 
 .weq-cache-grid thead .weq-cache-grid-rownum {
+  z-index: 3;
   color: #b0b8c4;
+}
+
+.weq-cache-grid tbody tr:hover .weq-cache-grid-rownum {
+  background: color-mix(in srgb, var(--weq-bg-surface) 95%, var(--weq-accent-effective) 5%);
 }
 
 .weq-cache-grid-actions {
@@ -888,7 +898,7 @@
   justify-content: center;
   gap: 14px;
   padding: 9px 14px;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  border-top: 1px solid var(--weq-border-subtle);
   background: color-mix(in srgb, #ffffff 30%, transparent);
 }
 
@@ -912,7 +922,7 @@
   flex-direction: column;
   gap: 7px;
   padding: 10px 14px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid var(--weq-border-subtle);
   background: color-mix(in srgb, var(--weq-accent-effective) 4%, transparent);
 }
 
@@ -977,7 +987,7 @@
 .weq-cache-sql-editor {
   display: flex;
   flex-direction: column;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .weq-cache-sql-input {
@@ -1060,7 +1070,7 @@
   padding: 8px 14px;
   font-size: 12px;
   color: #6a7280;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .weq-cache-sql-notice.is-ok {
@@ -1106,7 +1116,7 @@
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .weq-cache-avatar-tab {
@@ -1715,7 +1725,7 @@ html[data-theme='dark'] .weq-avpath-error {
   align-items: baseline;
   gap: 10px;
   padding: 10px 14px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 /* 「补全 N 个」——只在 QQ 资源目录缺表情时出现，靠右站位。 */
@@ -1947,7 +1957,7 @@ html[data-theme='dark'] .weq-avpath-error {
   align-items: baseline;
   gap: 10px;
   padding: 10px 14px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .weq-cache-marketemoji-grid {
@@ -2367,7 +2377,7 @@ html[data-theme='dark'] .weq-avpath-error {
   justify-content: space-between;
   gap: 12px;
   padding: 13px 16px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .weq-blob-title {
@@ -2558,7 +2568,7 @@ html[data-theme='dark'] .weq-avpath-error {
   align-items: center;
   gap: 10px;
   padding: 12px 16px;
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  border-top: 1px solid var(--weq-border-subtle);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -2624,17 +2634,11 @@ html[data-theme='dark'] .weq-cache-pane {
   box-shadow: 0 18px 40px -28px rgba(0, 0, 0, 0.5);
 }
 
-html[data-theme='dark'] .weq-cache-tree,
-html[data-theme='dark'] .weq-cache-dbpick,
-html[data-theme='dark'] .weq-cache-panel-head,
-html[data-theme='dark'] .weq-cache-data-bar,
-html[data-theme='dark'] .weq-cache-sql-editor,
-html[data-theme='dark'] .weq-cache-sql-notice {
+html[data-theme='dark'] .weq-cache-tree {
   border-color: rgba(255, 255, 255, 0.08);
 }
 
 html[data-theme='dark'] .weq-cache-pager {
-  border-color: rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.02);
 }
 
@@ -2685,11 +2689,6 @@ html[data-theme='dark'] .weq-cache-subtab:not(.is-on) {
   color: #99a7b8;
 }
 
-html[data-theme='dark'] .weq-cache-grid th,
-html[data-theme='dark'] .weq-cache-grid td {
-  border-color: rgba(255, 255, 255, 0.06);
-}
-
 html[data-theme='dark'] .weq-cache-grid thead th {
   color: #b8c4d2;
   background: color-mix(in srgb, #171d25 92%, var(--weq-accent-effective) 10%);
@@ -2733,7 +2732,7 @@ html[data-theme='dark'] .weq-cache-sql-input {
 }
 
 html[data-theme='dark'] .weq-cache-grid-rownum {
-  background: rgba(255, 255, 255, 0.02);
+  background: color-mix(in srgb, var(--weq-bg-surface) 98%, var(--weq-fg-primary) 2%);
   color: #6c7889;
 }
 
@@ -2766,7 +2765,6 @@ html[data-theme='dark'] .weq-cache-tree-rail {
 }
 
 html[data-theme='dark'] .weq-cache-sql-indices {
-  border-color: rgba(255, 255, 255, 0.08);
   background: rgba(86, 168, 247, 0.06);
 }
 
@@ -2801,11 +2799,6 @@ html[data-theme='dark'] .weq-blob-dialog {
   background: #1b1c1e;
   color: #eef0f3;
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
-}
-
-html[data-theme='dark'] .weq-blob-head,
-html[data-theme='dark'] .weq-blob-foot {
-  border-color: rgba(255, 255, 255, 0.08);
 }
 
 html[data-theme='dark'] .weq-blob-title h3 {
@@ -2859,9 +2852,6 @@ html[data-theme='dark'] .weq-blob-bulk-input {
 }
 
 /* ---- 头像资源浏览器 ---- */
-html[data-theme='dark'] .weq-cache-avatar-tabs {
-  border-color: rgba(255, 255, 255, 0.08);
-}
 
 html[data-theme='dark'] .weq-cache-avatar-tab {
   border-color: rgba(255, 255, 255, 0.1);
@@ -2890,9 +2880,6 @@ html[data-theme='dark'] .weq-cache-avatar-loading {
 }
 
 /* ---- 系统表情浏览器 ---- */
-html[data-theme='dark'] .weq-cache-sysemoji-bar {
-  border-color: rgba(255, 255, 255, 0.08);
-}
 
 html[data-theme='dark'] .weq-cache-sysemoji-fill {
   border-color: rgba(255, 255, 255, 0.08);
@@ -2933,9 +2920,6 @@ html[data-theme='dark'] .weq-sysemoji-panel-cap span {
 }
 
 /* ---- 商城表情浏览器 ---- */
-html[data-theme='dark'] .weq-cache-marketemoji-bar {
-  border-color: rgba(255, 255, 255, 0.08);
-}
 
 html[data-theme='dark'] .weq-cache-marketemoji-card {
   border-color: rgba(255, 255, 255, 0.08);
@@ -3045,7 +3029,7 @@ html[data-theme='dark'] .weq-related-stage {
   align-items: baseline;
   gap: 10px;
   padding: 10px 14px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 /* ---- 列表：大卡片网格 ---- */
@@ -3196,7 +3180,7 @@ html[data-theme='dark'] .weq-related-stage {
   align-items: center;
   gap: 12px;
   padding: 10px 14px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .weq-mpack-back {
@@ -3444,10 +3428,6 @@ html[data-theme='dark'] .weq-related-stage {
 }
 
 /* ---- 深色适配 ---- */
-html[data-theme='dark'] .weq-mpack-bar,
-html[data-theme='dark'] .weq-mpack-detail-head {
-  border-color: rgba(255, 255, 255, 0.08);
-}
 
 html[data-theme='dark'] .weq-mpack-card {
   border-color: rgba(255, 255, 255, 0.08);
@@ -3481,7 +3461,7 @@ html[data-theme='dark'] .weq-mpack-emoji {
   flex-direction: column;
   gap: 10px;
   padding: 10px 14px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .weq-filebrowser-tabs {
@@ -3942,7 +3922,7 @@ html[data-theme='dark'] .weq-filerow-name {
   content: '';
   flex: 1 1 auto;
   height: 1px;
-  background: color-mix(in srgb, var(--weq-fg-primary) 12%, transparent);
+  background: var(--weq-border-subtle);
 }
 
 .weq-voice-monthsep span {
@@ -4611,7 +4591,7 @@ html[data-theme='dark'] .weq-filerow-name {
   padding: 9px 6px;
   font-size: 12.5px;
   color: var(--weq-fg-secondary);
-  border-bottom: 1px solid color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
+  border-bottom: 1px solid var(--weq-border-subtle);
   font-variant-numeric: tabular-nums;
 }
 

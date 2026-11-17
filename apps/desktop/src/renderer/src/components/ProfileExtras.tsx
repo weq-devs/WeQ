@@ -6,7 +6,7 @@ import {
   GraduationCap,
   History,
   MessageCircleQuestion,
-  RotateCcw,
+  RefreshCw,
   X,
   Zap,
 } from 'lucide-react';
@@ -16,7 +16,7 @@ import { OverlayLayer } from './OverlayLayer';
 import { SegmentedControl } from './SegmentedControl';
 import { ProfileDetailsEntry, ProfileDetailsContent } from './ProfileDetailsEntry';
 import { ProfileDisplayEntry, ProfileDisplaySettingField } from './ProfileDisplaySettings';
-import { useSelfProfileFields } from './SelfProfileFields';
+import { useSelfProfileFields } from './SelfProfileFields.shared';
 import { SelfSignatureComposer } from './SelfSignatureComposer';
 import {
   SignatureInteractions,
@@ -27,7 +27,7 @@ import {
 import { MediaPreview } from './MediaPreview';
 import { useQQWriteSession, type QQWriteBinding } from '../hooks/useQQWriteSession';
 import { ContactInlineError, ContactRow, ContactSection } from './contactProfile/ContactRow';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import { trpc } from '../trpc/client';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { ShimmerImage } from './ShimmerImage';
@@ -198,7 +198,7 @@ function ExtrasBody({
                 aria-label="重试读取能量值"
                 onClick={() => void energy.refetch()}
               >
-                <RotateCcw size={13} />
+                <RefreshCw size={13} aria-hidden />
               </button>
             ) : null}
           </div>
@@ -328,7 +328,7 @@ export function EducationSection({ uin }: { uin: string }) {
             disabled={!session.available || education.fetching}
             onClick={() => void education.refetch()}
           >
-            <RotateCcw size={12} />
+            <RefreshCw size={12} aria-hidden />
             {education.fetching ? '读取中…' : '刷新'}
           </button>
         ) : undefined
@@ -374,7 +374,7 @@ function PageStatus({
             disabled={!online}
             onClick={retry}
           >
-            <RotateCcw size={14} />
+            <RefreshCw size={14} aria-hidden />
             重试
           </button>
         </>
@@ -415,7 +415,7 @@ function More({
           disabled={!online || loading}
           onClick={load}
         >
-          {error || warning ? <RotateCcw size={14} /> : <ArrowDown size={14} />}
+          {error || warning ? <RefreshCw size={14} aria-hidden /> : <ArrowDown size={14} />}
           {loading ? '读取中…' : error || warning ? '重试本页' : '加载更多'}
         </button>
       ) : null}
@@ -445,7 +445,9 @@ function Signatures({ input, online }: { input: Target; online: boolean }) {
       <div className="weq-extras-list">
         {items.map((item) => (
           <article key={item.id}>
-            <time>{time(item.createdAt)}</time>
+            <time>
+              {<span className="weq-number weq-number-inherit">{time(item.createdAt)}</span>}
+            </time>
             <p>{[item.action, item.data, item.text].filter(Boolean).join(' ') || '空签名'}</p>
             {item.location ? <small>{item.location}</small> : null}
             <SignatureInteractions
@@ -530,12 +532,19 @@ function QuestionList({
       <div className="weq-extras-list">
         {items.map((item) => (
           <article key={item.id}>
-            <time>{time(item.askedAt)}</time>
+            <time>
+              {<span className="weq-number weq-number-inherit">{time(item.askedAt)}</span>}
+            </time>
             <h3>{item.question || '未提供问题正文'}</h3>
             {item.answer || (item.answeredAt ?? 0) > 0 ? (
               <>
                 <p>{item.answer || '空回答'}</p>
-                {item.answeredAt !== null ? <small>回答于 {time(item.answeredAt)}</small> : null}
+                {item.answeredAt !== null ? (
+                  <small>
+                    回答于{' '}
+                    {<span className="weq-number weq-number-inherit">{time(item.answeredAt)}</span>}
+                  </small>
+                ) : null}
               </>
             ) : (
               <small>尚未回答</small>

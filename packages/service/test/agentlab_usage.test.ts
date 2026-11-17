@@ -80,6 +80,7 @@ it('同一请求的 pending、usage、结束与重复回调只计一次，重试
     unknownCalls: 0,
     pendingCalls: 0,
     knownCalls: 1,
+    byCategory: [expect.objectContaining({ category: 'intent', calls: 1, tokens: 12 })],
   });
   f.store.record({ ...entry, requestId: 'retry', status: 'failed' });
   expect(f.store.getStats()).toMatchObject({
@@ -237,6 +238,17 @@ it('时间筛选同时作用于全局／账号、状态、分组和趋势，按�
     failedCalls: 1,
   });
   expect(stats.byFeature[0]).toMatchObject({ calls: 2, tokens: 5 });
+  expect(stats.byCategory).toEqual([
+    expect.objectContaining({
+      category: 'intent',
+      calls: 2,
+      tokens: 5,
+      unknownCalls: 1,
+      features: [
+        { feature: 'intent-analysis', label: '意图分析', calls: 2, tokens: 5, unknownCalls: 1 },
+      ],
+    }),
+  ]);
   expect(stats.byDay).toHaveLength(7);
   expect(stats.byDay[0]).toMatchObject({ day: '2026-11-07', calls: 1, tokens: 5 });
   expect(stats.byDay.at(-1)).toMatchObject({ day: '2026-11-13', calls: 1, unknownCalls: 1 });
@@ -278,4 +290,115 @@ it('损坏账本的读取错误不伪装成零请求，不覆盖原件', () => {
   broken.record(entry);
   expect(readFileSync(path, 'utf8')).toBe('{broken');
   expect(f.store.getStats().totalCalls).toBe(0);
+});
+
+it('功能用量按业务与用途联合汇总，共用图片能力不串类或重复计数', () => {
+  const f = fixture();
+  for (const [index, [scope, feature, kind]] of (
+    [
+      ['build', '表达风格库', 'chat'],
+      ['build', '深层画像 1/5', 'chat'],
+      ['build', '深层画像分块', 'chat'],
+      ['chat', undefined, 'embedding'],
+      ['chat', 'tts-synthesis', 'speech'],
+      ['assistant', 'assistant-image', 'vision'],
+      ['chat', 'cloneChat-image', 'vision'],
+      ['build', 'cloneTraining-image', 'vision'],
+      ['intent-image', 'intent-image', 'vision'],
+      ['suggestions-image', 'suggestions-image', 'vision'],
+      ['profile-image', 'profile-image', 'vision'],
+      ['connection-test', 'capability-test', 'chat'],
+    ] as const
+  ).entries()) {
+    f.store.record({
+      ...entry,
+      requestId: `category-${index}`,
+      scope,
+      feature,
+      kind,
+      totalTokens: index === 0 ? null : 10,
+    });
+  }
+  const stats = f.store.getStats();
+  const clone = stats.byCategory.find((row) => row.category === 'clone');
+  expect(clone).toMatchObject({ label: '克隆会话', calls: 7, tokens: 60, unknownCalls: 1 });
+  expect(clone?.features).toEqual(
+    expect.arrayContaining([
+      { feature: 'expressions', label: '表达风格库', calls: 1, tokens: 0, unknownCalls: 1 },
+      {
+        feature: 'deep-profile-chunk',
+        label: '深层画像分块',
+        calls: 2,
+        tokens: 20,
+        unknownCalls: 0,
+      },
+      { feature: 'embedding', label: '向量检索与索引', calls: 1, tokens: 10, unknownCalls: 0 },
+      { feature: 'tts-synthesis', label: '语音合成', calls: 1, tokens: 10, unknownCalls: 0 },
+      { feature: 'image-analysis', label: '图片分析', calls: 2, tokens: 20, unknownCalls: 0 },
+    ]),
+  );
+  expect(stats.byCategory.map((row) => row.category).sort()).toEqual([
+    'assistant',
+    'clone',
+    'intent',
+    'profile',
+    'settings',
+    'suggestions',
+  ]);
+  for (const row of stats.byCategory) {
+    for (const metric of ['calls', 'tokens', 'unknownCalls'] as const)
+      expect(row.features.reduce((sum, child) => sum + child[metric], 0)).toBe(row[metric]);
+  }
+  expect(stats.byCategory.reduce((sum, row) => sum + row.calls, 0)).toBe(stats.totalCalls);
+  expect(stats.byCategory.reduce((sum, row) => sum + row.tokens, 0)).toBe(stats.totalTokens);
+  expect(stats.byFeature.find((row) => row.feature === '表达风格库')?.calls).toBe(1);
+});
+
+it('未知分类名与对象原型属性同名时仍按原名保留', () => {
+  const f = fixture();
+  for (const feature of ['constructor', '__proto__', 'toString']) {
+    f.store.record({ ...entry, requestId: feature, scope: feature, feature });
+  }
+  expect(f.store.getStats().byCategory).toEqual([
+    expect.objectContaining({
+      category: 'other',
+      calls: 3,
+      features: expect.arrayContaining(
+        ['constructor', '__proto__', 'toString'].map((feature) =>
+          expect.objectContaining({ feature, label: feature, calls: 1 }),
+        ),
+      ),
+    }),
+  ]);
+});
+
+it('旧记录与未知功能不猜业务来源，已知用途归类，未知名称保留', () => {
+  const f = fixture([
+    { ...entry, requestId: 'legacy', scope: 'build', feature: undefined },
+    { ...entry, requestId: 'expression', scope: 'other', feature: '表达风格库' },
+    { ...entry, requestId: 'tts', scope: 'tts', feature: 'tts-synthesis', kind: 'speech' },
+    { ...entry, requestId: 'image', scope: 'other', feature: 'image-analysis', kind: 'vision' },
+    { ...entry, requestId: 'unknown', scope: 'other', feature: '未知用途' },
+    { ...entry, requestId: 'known-scope', scope: 'assistant', feature: '自定义用途' },
+    { ...entry, requestId: 'tts-test', scope: 'tts', feature: 'tts-test', kind: 'speech' },
+  ]);
+  const stats = f.store.getStats();
+  expect(stats.byCategory.find((row) => row.category === 'clone')?.features).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ feature: 'build', label: '构建克隆（未细分）' }),
+      expect.objectContaining({ feature: 'expressions', label: '表达风格库' }),
+    ]),
+  );
+  expect(stats.byCategory.find((row) => row.category === 'speech')).toMatchObject({ calls: 1 });
+  expect(stats.byCategory.find((row) => row.category === 'recognition')).toMatchObject({
+    calls: 1,
+  });
+  expect(stats.byCategory.find((row) => row.category === 'other')?.features).toEqual([
+    expect.objectContaining({ label: '未知用途' }),
+  ]);
+  expect(stats.byCategory.find((row) => row.category === 'assistant')?.features).toEqual([
+    expect.objectContaining({ label: '自定义用途' }),
+  ]);
+  expect(stats.byCategory.find((row) => row.category === 'settings')).toMatchObject({ calls: 1 });
+  expect(JSON.parse(readFileSync(f.path, 'utf8'))[0].feature).toBeUndefined();
 });

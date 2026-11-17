@@ -3,7 +3,7 @@ import { eventTimeFormatter } from '@weq/time';
 import { useState } from 'react';
 import { FolderOpen, Trash2 } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
-import { useDialog } from '../../components/Dialog';
+import { useDialog } from '../../components/Dialog.shared';
 import { WindowedList } from '../../components/WindowedList';
 
 const reportStatus = {
@@ -71,6 +71,7 @@ export function AnalysisHistory({ enabled }: { enabled: boolean }) {
               <span className="weq-analysis-choice-time">{reportStatus[report.status]}</span>
             </button>
             <button
+              data-danger="outline"
               type="button"
               className="weq-set-iconbtn"
               title="删除报告"
@@ -80,6 +81,7 @@ export function AnalysisHistory({ enabled }: { enabled: boolean }) {
                   !(await dialog.confirm(
                     '删除报告',
                     `删除「${report.request.name}」的分析报告及结果？聊天记录不变。`,
+                    { danger: 'outline' },
                   ))
                 )
                   return;

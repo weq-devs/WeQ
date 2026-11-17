@@ -156,9 +156,13 @@ export function TimeRangePicker({
       ) : (
         <div className="weq-exp-range-summary">
           <span className="weq-exp-range-summary-main">
-            <span>{fmtDay(value.start)}</span>
+            <span>
+              <span className="weq-number weq-number-inherit">{fmtDay(value.start)}</span>
+            </span>
             <span className="weq-exp-range-arrow">→</span>
-            <span>{fmtDay(value.end)}</span>
+            <span>
+              <span className="weq-number weq-number-inherit">{fmtDay(value.end)}</span>
+            </span>
           </span>
           <button type="button" className="weq-exp-range-clear" onClick={resetAll}>
             改为全部时间

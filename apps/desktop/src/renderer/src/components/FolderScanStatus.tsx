@@ -6,7 +6,7 @@ export function FolderScanStatus({ count, unit }: { count: number; unit: string 
     <div className="weq-folder-scan-status" role="status">
       <Loader2 size={15} className="weq-spin" aria-hidden />
       <span>
-        扫描中 · 已发现 {count} {unit}
+        扫描中 · 已发现 <span className="weq-number weq-number-inherit">{count}</span> {unit}
       </span>
     </div>
   );

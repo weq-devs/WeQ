@@ -11,7 +11,7 @@
     padding: 12px;
     overflow: hidden;
     border-right: 0;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--weq-border-subtle);
   }
 
   .weq-settings-nav-title {

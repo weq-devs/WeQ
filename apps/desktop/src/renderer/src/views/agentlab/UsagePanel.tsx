@@ -1,6 +1,7 @@
 /** 通用 API 用量：记录范围、请求状态、趋势与功能／服务商明细。 */
-import { useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
-import { Activity, ChevronLeft, ChevronRight } from 'lucide-react';
+import { NumericText } from '../../components/NumericText';
+import { useId, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { Activity, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatDateTime } from '@weq/time';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../../shared/router';
@@ -19,32 +20,7 @@ const PERIODS: Array<{ value: Period; label: string }> = [
   { value: '30d', label: '近 30 天' },
   { value: 'retained', label: '全部保留记录' },
 ];
-const FEATURE_LABEL: Record<string, string> = {
-  build: '构建克隆',
-  chat: '克隆聊天',
-  assistant: 'WeQ 助手',
-  'intent-analysis': '意图感知',
-  'intent-profile': '互动画像',
-  'reply-suggestion': '推荐回复',
-  'connection-test': '模型连接测试',
-  'capability-test': '模型能力检测',
-  'assistant-title': '助手会话标题',
-  'assistant-summary': '助手摘要',
-  'profile-extract': '克隆画像提炼',
-  'voice-scenario': '语音场景总结',
-  'sticker-description': '表情解读',
-  'image-analysis': '图片分析',
-  'assistant-image': '助手图片分析',
-  'cloneChat-image': '克隆聊天图片分析',
-  'cloneTraining-image': '克隆训练图片分析',
-  'intent-image': '意图感知图片分析',
-  'suggestions-image': '推荐回复图片分析',
-  'profile-image': '互动画像图片分析',
-  'tts-synthesis': '语音合成',
-  'tts-test': '语音测试',
-  tts: '语音服务',
-  other: '其他 API',
-};
+const PAGE_SIZE = 50;
 const numberFormat = new Intl.NumberFormat('zh-CN');
 function fmt(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
@@ -102,7 +78,9 @@ export function HourLine({
         <div className="weq-usage-line-yaxis" aria-hidden>
           {ticks.map((tick, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-            <span key={`${tick}-${index}`}>{fmt(tick)}</span>
+            <span key={`${tick}-${index}`}>
+              <span className="weq-number weq-number-inherit">{fmt(tick)}</span>
+            </span>
           ))}
         </div>
         <div className="weq-usage-line-plot" ref={plotRef}>
@@ -169,9 +147,15 @@ export function HourLine({
               }}
             >
               <strong>{activeDatum.hour}</strong>
-              <span>{fmt(activeDatum.tokens)} tokens</span>
-              <span>{activeDatum.calls} 次请求</span>
-              <span>用量未知 {activeDatum.unknownCalls ?? 0} 次</span>
+              <span>
+                <span className="weq-number">{fmt(activeDatum.tokens)}</span> tokens
+              </span>
+              <span>
+                <span className="weq-number">{activeDatum.calls}</span> 次请求
+              </span>
+              <span>
+                用量未知 <span className="weq-number">{activeDatum.unknownCalls ?? 0}</span> 次
+              </span>
             </div>
           ) : null}
           <div className="weq-usage-line-axis">
@@ -196,62 +180,151 @@ export function HourLine({
   );
 }
 
+function UsageTableHead({ label }: { label: string }): ReactElement {
+  return (
+    <thead>
+      <tr>
+        <th scope="col">{label}</th>
+        <th scope="col">请求</th>
+        <th scope="col">已知 token</th>
+        <th scope="col">用量未知</th>
+      </tr>
+    </thead>
+  );
+}
+
+function UsagePagination({
+  title,
+  count,
+  page,
+  onChange,
+}: {
+  title: string;
+  count: number;
+  page: number;
+  onChange: (page: number) => void;
+}): ReactElement | null {
+  if (count <= PAGE_SIZE) return null;
+  return (
+    <nav className="weq-usage-pagination" aria-label={`${title}分页`}>
+      <span>
+        <span className="weq-number weq-number-inherit">{page * PAGE_SIZE + 1}</span>–
+        <span className="weq-number weq-number-inherit">
+          {Math.min(count, (page + 1) * PAGE_SIZE)}
+        </span>{' '}
+        / <span className="weq-number weq-number-inherit">{count}</span>
+      </span>
+      <button
+        type="button"
+        className="weq-usage-refresh"
+        aria-label={`${title}上一页`}
+        title="上一页"
+        disabled={page === 0}
+        onClick={() => onChange(page - 1)}
+      >
+        <ChevronLeft size={16} aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        className="weq-usage-refresh"
+        aria-label={`${title}下一页`}
+        title="下一页"
+        disabled={(page + 1) * PAGE_SIZE >= count}
+        onClick={() => onChange(page + 1)}
+      >
+        <ChevronRight size={16} aria-hidden="true" />
+      </button>
+    </nav>
+  );
+}
+
 function UsageTable({ title, children }: { title: string; children: ReactNode }): ReactElement {
   const [page, setPage] = useState(0);
   const rows = Array.isArray(children) ? children : [children];
-  const pageSize = 50;
-  const lastPage = Math.max(0, Math.ceil(rows.length / pageSize) - 1);
+  const lastPage = Math.max(0, Math.ceil(rows.length / PAGE_SIZE) - 1);
   const currentPage = Math.min(page, lastPage);
   return (
     <section className="weq-usage-section">
       <h4 className="weq-set-card-title">{title}</h4>
       <div className="weq-usage-accounting-table" tabIndex={0} role="region" aria-label={title}>
         <table>
-          <thead>
-            <tr>
-              <th scope="col">
-                {title === '功能用量'
-                  ? '功能'
-                  : title === '克隆体明细'
-                    ? '克隆体'
-                    : '服务商 / 模型'}
-              </th>
-              <th scope="col">请求</th>
-              <th scope="col">已知 token</th>
-              <th scope="col">用量未知</th>
-            </tr>
-          </thead>
-          <tbody>{rows.slice(currentPage * pageSize, (currentPage + 1) * pageSize)}</tbody>
+          <UsageTableHead label={title === '克隆体明细' ? '克隆体' : '服务商 / 模型'} />
+          <tbody>{rows.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE)}</tbody>
         </table>
       </div>
-      {rows.length > pageSize ? (
-        <nav className="weq-usage-pagination" aria-label={`${title}分页`}>
-          <span>
-            {currentPage * pageSize + 1}–{Math.min(rows.length, (currentPage + 1) * pageSize)} /{' '}
-            {rows.length}
-          </span>
-          <button
-            type="button"
-            className="weq-usage-refresh"
-            aria-label={`${title}上一页`}
-            title="上一页"
-            disabled={currentPage === 0}
-            onClick={() => setPage(currentPage - 1)}
-          >
-            <ChevronLeft size={16} aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            className="weq-usage-refresh"
-            aria-label={`${title}下一页`}
-            title="下一页"
-            disabled={currentPage === lastPage}
-            onClick={() => setPage(currentPage + 1)}
-          >
-            <ChevronRight size={16} aria-hidden="true" />
-          </button>
-        </nav>
-      ) : null}
+      <UsagePagination title={title} count={rows.length} page={currentPage} onChange={setPage} />
+    </section>
+  );
+}
+function UsageCategory({ row }: { row: UsageStats['byCategory'][number] }): ReactElement {
+  const [expanded, setExpanded] = useState(false);
+  const [page, setPage] = useState(0);
+  const detailsId = useId();
+  const currentPage = Math.min(page, Math.max(0, Math.ceil(row.features.length / PAGE_SIZE) - 1));
+  return (
+    <>
+      <tbody className="weq-usage-category">
+        <tr>
+          <th scope="row">
+            <button
+              type="button"
+              className="weq-usage-category-toggle"
+              aria-expanded={expanded}
+              aria-controls={detailsId}
+              title={`${expanded ? '收起' : '展开'}${row.label}明细`}
+              onClick={() => setExpanded(!expanded)}
+            >
+              {expanded ? (
+                <ChevronDown size={16} aria-hidden="true" />
+              ) : (
+                <ChevronRight size={16} aria-hidden="true" />
+              )}
+              <span>{row.label}</span>
+            </button>
+          </th>
+          <UsageCells row={row} />
+        </tr>
+      </tbody>
+      <tbody id={detailsId} hidden={!expanded} className="weq-usage-category-details">
+        {expanded
+          ? row.features
+              .slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE)
+              .map((child) => (
+                <tr key={child.feature}>
+                  <th scope="row">{child.label}</th>
+                  <UsageCells row={child} />
+                </tr>
+              ))
+          : null}
+        {expanded && row.features.length > PAGE_SIZE ? (
+          <tr>
+            <td colSpan={4}>
+              <UsagePagination
+                title={`${row.label}明细`}
+                count={row.features.length}
+                page={currentPage}
+                onChange={setPage}
+              />
+            </td>
+          </tr>
+        ) : null}
+      </tbody>
+    </>
+  );
+}
+
+function FeatureUsage({ rows }: { rows: UsageStats['byCategory'] }): ReactElement {
+  return (
+    <section className="weq-usage-section">
+      <h4 className="weq-set-card-title">功能用量</h4>
+      <div className="weq-usage-accounting-table" tabIndex={0} role="region" aria-label="功能用量">
+        <table>
+          <UsageTableHead label="功能 / 用途" />
+          {rows.map((row) => (
+            <UsageCategory key={row.category} row={row} />
+          ))}
+        </table>
+      </div>
     </section>
   );
 }
@@ -262,9 +335,19 @@ function UsageCells({
 }): ReactElement {
   return (
     <>
-      <td>{numberFormat.format(row.calls)}</td>
-      <td title={numberFormat.format(row.tokens)}>{knownTokens(row)}</td>
-      <td>{numberFormat.format(row.unknownCalls)}</td>
+      <td>
+        {<span className="weq-number weq-number-inherit">{numberFormat.format(row.calls)}</span>}
+      </td>
+      <td title={numberFormat.format(row.tokens)}>
+        <NumericText>{knownTokens(row)}</NumericText>
+      </td>
+      <td>
+        {
+          <span className="weq-number weq-number-inherit">
+            {numberFormat.format(row.unknownCalls)}
+          </span>
+        }
+      </td>
     </>
   );
 }
@@ -321,18 +404,22 @@ export function UsageReport({ data: d }: { data: UsageStats }): ReactElement {
             )}
           </p>
           <p>
-            当前账号 {d.accountCalls} 次 · 应用全局 {d.globalCalls} 次（模型测试与语音服务）
+            当前账号 <span className="weq-number weq-number-inherit">{d.accountCalls}</span> 次 ·
+            应用全局 <span className="weq-number weq-number-inherit">{d.globalCalls}</span>{' '}
+            次（模型测试与语音服务）
           </p>
         </div>
         <details className="weq-usage-retention">
           <summary>
-            每份账本最多保留 {d.ledgers[0]?.limit ?? 5000} 条
+            每份账本最多保留{' '}
+            <span className="weq-number weq-number-inherit">{d.ledgers[0]?.limit ?? 5000}</span> 条
             {d.ledgers.some((ledger) => ledger.atCapacity) ? ' · 已达保留上限' : ''}
           </summary>
           {d.ledgers.map((ledger) => (
             <p key={ledger.source}>
-              {ledger.source === 'account' ? '当前账号' : '应用全局'}：保留 {ledger.retainedCalls} /{' '}
-              {ledger.limit} 条
+              {ledger.source === 'account' ? '当前账号' : '应用全局'}：保留{' '}
+              <span className="weq-number weq-number-inherit">{ledger.retainedCalls}</span> /{' '}
+              <span className="weq-number weq-number-inherit">{ledger.limit}</span> 条
               {ledger.firstRecordAt !== null ? (
                 <>，最早 {formatDateTime(ledger.firstRecordAt)}</>
               ) : null}
@@ -353,22 +440,35 @@ export function UsageReport({ data: d }: { data: UsageStats }): ReactElement {
             <div>
               <dt>已知 token</dt>
               <dd title={numberFormat.format(d.totalTokens)}>
-                {d.knownCalls > 0 ? fmt(d.totalTokens) : '未知'}
+                <NumericText>{d.knownCalls > 0 ? fmt(d.totalTokens) : '未知'}</NumericText>
               </dd>
             </div>
             <div>
               <dt>请求次数</dt>
-              <dd>{numberFormat.format(d.totalCalls)}</dd>
+              <dd>
+                {
+                  <span className="weq-number weq-number-inherit">
+                    {numberFormat.format(d.totalCalls)}
+                  </span>
+                }
+              </dd>
             </div>
             <div>
               <dt>用量已返回</dt>
               <dd>
-                {d.knownCalls} / {d.totalCalls}
+                <span className="weq-number weq-number-inherit">{d.knownCalls}</span> /{' '}
+                <span className="weq-number weq-number-inherit">{d.totalCalls}</span>
               </dd>
             </div>
             <div>
               <dt>用量未知</dt>
-              <dd>{numberFormat.format(d.unknownCalls)}</dd>
+              <dd>
+                {
+                  <span className="weq-number weq-number-inherit">
+                    {numberFormat.format(d.unknownCalls)}
+                  </span>
+                }
+              </dd>
             </div>
           </dl>
           <dl className="weq-usage-status" aria-label="请求状态">
@@ -383,7 +483,9 @@ export function UsageReport({ data: d }: { data: UsageStats }): ReactElement {
             ).map(([label, count]) => (
               <div key={label}>
                 <dt>{label}</dt>
-                <dd>{count}</dd>
+                <dd>
+                  <span className="weq-number weq-number-inherit">{count}</span>
+                </dd>
               </div>
             ))}
           </dl>
@@ -404,14 +506,7 @@ export function UsageReport({ data: d }: { data: UsageStats }): ReactElement {
             </div>
             <HourLine data={points} metric={metric} daily={d.period !== '24h'} />
           </section>
-          <UsageTable key={`features-${d.period}`} title="功能用量">
-            {d.byFeature.map((row) => (
-              <tr key={row.feature}>
-                <th scope="row">{FEATURE_LABEL[row.feature] ?? row.feature}</th>
-                <UsageCells row={row} />
-              </tr>
-            ))}
-          </UsageTable>
+          <FeatureUsage key={`features-${d.period}`} rows={d.byCategory} />
           <UsageTable key={`models-${d.period}`} title="服务商与模型">
             {d.byModel.map((row) => (
               <tr key={row.key}>
@@ -432,15 +527,28 @@ export function UsageReport({ data: d }: { data: UsageStats }): ReactElement {
             <dl className="weq-usage-io">
               <div>
                 <dt>输入</dt>
-                <dd>{d.totalCalls > d.promptUnknownCalls ? fmt(d.promptTokens) : '未知'}</dd>
-                <small>未返回 {d.promptUnknownCalls} 次</small>
+                <dd>
+                  <NumericText>
+                    {d.totalCalls > d.promptUnknownCalls ? fmt(d.promptTokens) : '未知'}
+                  </NumericText>
+                </dd>
+                <small>
+                  未返回{' '}
+                  <span className="weq-number weq-number-inherit">{d.promptUnknownCalls}</span> 次
+                </small>
               </div>
               <div>
                 <dt>输出</dt>
                 <dd>
-                  {d.totalCalls > d.completionUnknownCalls ? fmt(d.completionTokens) : '未知'}
+                  <NumericText>
+                    {d.totalCalls > d.completionUnknownCalls ? fmt(d.completionTokens) : '未知'}
+                  </NumericText>
                 </dd>
-                <small>未返回 {d.completionUnknownCalls} 次</small>
+                <small>
+                  未返回{' '}
+                  <span className="weq-number weq-number-inherit">{d.completionUnknownCalls}</span>{' '}
+                  次
+                </small>
               </div>
             </dl>
           </section>

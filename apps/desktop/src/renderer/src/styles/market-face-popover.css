@@ -1,0 +1,109 @@
+.weq-mface-popover-layer.weq-nonmodal-layer[tabindex] > .weq-mface-popover {
+  display: flex;
+  flex-direction: column;
+  width: min(360px, calc(100vw - 16px));
+  max-width: calc(100vw - 16px);
+  max-height: min(460px, calc(100dvh - 16px));
+  overflow: hidden;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+}
+
+.weq-mface-popover > .weq-mface-lb-panel.is-embedded {
+  min-height: 0;
+  height: auto;
+}
+
+.weq-mface-popover-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+
+.weq-mface-popover-close:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
+}
+
+.weq-mface-popover-close:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}
+
+.weq-mface-popover .weq-mface-lb-head {
+  flex: none;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 42px 10px 12px;
+}
+
+.weq-mface-popover .weq-mface-lb-title {
+  flex: 1 1 100px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.weq-mface-popover .weq-mpack-fee {
+  flex: none;
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.weq-mface-popover .weq-mface-lb-scroll {
+  padding: 10px;
+  overscroll-behavior: contain;
+}
+
+.weq-mface-popover .weq-mface-lb-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.weq-mface-popover .weq-mface-lb-cell {
+  min-width: 0;
+  border-radius: 4px;
+}
+
+.weq-mface-popover .weq-mface-lb-stage {
+  width: 100%;
+  height: 56px;
+}
+
+.weq-mface-popover .weq-mface-detail-body {
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.weq-mface-popover .weq-mface-detail-stage {
+  min-height: 160px;
+  padding: 12px 36px;
+  border-right: 0;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.weq-mface-popover .weq-mface-detail-image {
+  max-height: 160px;
+}
+
+.weq-mface-popover .weq-mface-detail-meta {
+  min-width: 0;
+  padding: 12px;
+}
+
+html[data-theme='dark'] .weq-mface-popover-layer[tabindex] > .weq-mface-popover {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-strong);
+}

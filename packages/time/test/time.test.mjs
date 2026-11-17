@@ -12,6 +12,8 @@ import {
   formatTimeRange,
   formatDuration,
   formatChineseDate,
+  formatPartialDate,
+  formatMonth,
   formatDateTimeInput,
   parseDateTimeInput,
   calendarStart,
@@ -76,11 +78,34 @@ describe('功能时间格式与真实精度', () => {
     assert.equal(formatChatTime('2026-01-02T00:00:00+08:00', now), '2026-01-02 00:00:00');
     assert.equal(formatConversationTime('2026-01-02T00:00:00+08:00', now), '2026-01-02');
     assert.equal(formatChatTime('2025-12-30T15:00:09Z', now), '星期二 23:00:09');
-    assert.equal(formatChineseDate(sample, false), '3月4日');
+    assert.equal(formatChineseDate(sample, false), '3 月 4 日');
     assert.equal(formatRelativeTime('2026-01-01T00:32:00+08:00', now), '2 分钟后');
     assert.equal(
       formatTimeRange('2025-12-31T23:59:06+08:00', now, now),
       '2025-12-31 23:59:06 — 2026-01-01 00:30:00',
+    );
+  });
+  it('中文日期统一数字间距，部分日期不产生首尾或重复空格', () => {
+    assert.equal(formatChineseDate(sample), '2026 年 3 月 4 日');
+    assert.equal(formatMonth(sample), '2026 年 3 月');
+    assert.equal(formatChineseDate(calendarStart(0, 3, 4)), '0 年 3 月 4 日');
+    assert.equal(formatMonth(calendarStart(0, 3, 4)), '0 年 3 月');
+    for (const [parts, expected] of [
+      [{ year: 2026, month: 3, day: 4 }, '2026 年 3 月 4 日'],
+      [{ month: 3, day: 4 }, '3 月 4 日'],
+      [{ year: 2026 }, '2026 年'],
+      [{ month: 3 }, '3 月'],
+      [{ day: 4 }, '4 日'],
+      [{ year: 2026, day: 4 }, '2026 年 4 日'],
+      [{ year: null, month: 13, day: 0 }, ''],
+      [{}, ''],
+    ])
+      assert.equal(formatPartialDate(parts), expected);
+    assert.equal(formatChineseDate('bad'), '');
+    assert.equal(formatMonth('bad'), '');
+    assert.equal(
+      runInNewContext(`${browserTimeSource}\nformatChineseDate('${sample}')`),
+      '2026 年 3 月 4 日',
     );
   });
   it('输入按北京往返并拒绝无效日历进位', () => {
@@ -101,11 +126,16 @@ describe('功能时间格式与真实精度', () => {
     assert.equal(formatDate(calendarStart(2026, 3, 0)), '2026-02-28');
   });
   it('时长先舍入再进位，不生成分60秒', () => {
-    assert.equal(formatDuration(119.9, 'approximate'), '2分');
+    assert.equal(formatDuration(119.9, 'approximate'), '2 分钟');
     assert.equal(formatDuration(3599.9, 'countdown'), '01:00:00');
     assert.equal(formatDuration(3601, 'media'), '60:01');
     assert.equal(formatDuration(9, 'call'), '00:09');
-    assert.equal(formatDuration(90061), '1天1小时1分1秒');
+    assert.equal(formatDuration(90061), '1 天 1 小时 1 分钟 1 秒');
+    assert.equal(formatDuration(0), '0 秒');
+    assert.equal(formatDuration(0.5), '0.5 秒');
+    assert.equal(formatDuration(0.5, 'approximate'), '<1 秒');
+    assert.equal(formatDuration(5400, 'approximate'), '1.5 小时');
+    assert.equal(formatDuration(129600, 'approximate'), '1.5 天');
     assert.equal(formatDuration(0.123, 'elapsed'), '123 ms');
     assert.equal(formatDuration(1.234, 'elapsed'), '1.234 s');
     assert.equal(formatDuration(0.000123, 'elapsed'), '0.123 ms');

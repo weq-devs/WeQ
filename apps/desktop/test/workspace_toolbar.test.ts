@@ -9,7 +9,8 @@ import type { ContentSelection } from '../src/shared/content_selection';
 import { useViewState } from '../src/renderer/src/state/view';
 import { hasActiveModal } from '../src/renderer/src/lib/overlayStack';
 import type { GroupConversation } from '../src/renderer/src/im-template/template/types';
-import { PageSnapshots, usePageState } from '../src/renderer/src/components/PageSnapshots';
+import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
+import { usePageState } from '../src/renderer/src/components/PageSnapshots.shared';
 import { pageValue } from '../src/renderer/src/lib/pageSnapshots';
 
 const fixture = vi.hoisted(() => ({
@@ -26,7 +27,19 @@ vi.mock('../src/renderer/src/components/lazyWorkspaces', async () => ({
   ...(await import('../src/renderer/src/components/RoamingBackfillPanel')),
   preloadWorkspace: vi.fn(),
 }));
+vi.mock('../src/renderer/src/components/lazyWorkspaces.shared', async () => ({
+  ...(await import('../src/renderer/src/views/ExportView')),
+  ...(await import('../src/renderer/src/views/ExportViewer')),
+  ...(await import('../src/renderer/src/views/analysis/AnalysisTool')),
+  ...(await import('../src/renderer/src/components/RoamingBackfillPanel')),
+  preloadWorkspace: vi.fn(),
+}));
 vi.mock('../src/renderer/src/state/contentSelection', () => ({
+  useCurrentContentSelection: () => fixture.selection,
+  useContentExportRequest: () => fixture.exportRequest,
+  useContentAnalysisRequest: () => null,
+}));
+vi.mock('../src/renderer/src/state/contentSelection.shared', () => ({
   useCurrentContentSelection: () => fixture.selection,
   useContentExportRequest: () => fixture.exportRequest,
   useContentAnalysisRequest: () => null,

@@ -40,7 +40,7 @@ export function TimeLabel({
 }
 
 export function DurationLabel({ seconds }: { seconds: number }) {
-  const full = seconds === 0 ? '<1秒（按秒级消息时间计算）' : formatDuration(seconds);
+  const full = seconds === 0 ? '<1 秒（按秒级消息时间计算）' : formatDuration(seconds);
   return (
     <span
       className="weq-time-label"
@@ -49,7 +49,11 @@ export function DurationLabel({ seconds }: { seconds: number }) {
       data-time-detail
       data-hover-delay="0"
     >
-      {formatDuration(seconds, 'approximate') || '-'}
+      {
+        <span className="weq-number weq-number-inherit">
+          {formatDuration(seconds, 'approximate') || '-'}
+        </span>
+      }
     </span>
   );
 }

@@ -13,6 +13,7 @@ import { trpc } from '../src/renderer/src/trpc/client';
 
 const api = vi.hoisted(() => ({ read: vi.fn() }));
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true }));
 vi.mock('../src/renderer/src/trpc/client', async () => {
   const { createTRPCReact } = await import('@trpc/react-query');
   return {

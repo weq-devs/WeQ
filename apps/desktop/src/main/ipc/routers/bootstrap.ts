@@ -12,9 +12,10 @@
  * underlying `AsyncIterable<KeyEvent>` converted to an `observable`.
  * superjson moves `bigint`s through unscathed.
  */
-import { OperationError } from '@weq/service';
+import { OperationError, developmentDressToolsEnabled } from '@weq/service';
 
 import { observable } from '@trpc/server/observable';
+import { consumeNotificationClick, notificationClickEvents } from '../../notification_click_bus';
 import { reconcileLocalModelResources } from '../../context/local_model_resources';
 import { z } from 'zod';
 import { assertAccountBinding, optionalAccountBinding } from '../account_binding';
@@ -452,9 +453,9 @@ export const bootstrapRouter = router({
 
   // ---- 签名器（wrapper.node）诊断 ----
   //
-  // 完整模式发包要借 `wrapper.node` 里的 VM / sign core 算 `SecSign`。RVA 随
+  // QQ 在线能力发包要借 `wrapper.node` 里的 VM / sign core 算 `SecSign`。RVA 随
   // QQ 版本变化，所以定位结果按「版本 + 文件 hash」缓存；这里只读缓存状态，
-  // macOS 等账号完整模式确认实载模块后再预热，其他平台仍在启动期后台做。
+  // macOS 等账号 QQ 在线能力确认实载模块后再预热，其他平台仍在启动期后台做。
 
   /** 当前签名器状态：缓存是否命中、两条 RVA、上次确认时间。 */
   signerStatus: procedure.query(async () => {
@@ -646,6 +647,10 @@ export const bootstrapRouter = router({
       isDev: !host.isPackaged(),
     };
   }),
+
+  getDevelopmentFeatures: procedure.query(() => ({
+    dressTools: developmentDressToolsEnabled(),
+  })),
 
   /**
    * 内置 native 组件的构建信息（构建时间 / 过期时间 / 有效期长度）。
@@ -843,6 +848,13 @@ export const bootstrapRouter = router({
   /** 各窗口与 Web 客户端读取同一宿主的有效运行态。 */
   getFullModeState: procedure.query(() => ({ allowed: fullModeAllowed(getAppContext()) })),
 
+  setRestrictedModeIndicatorEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }).strict())
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ restrictedModeIndicatorEnabled: input.enabled });
+      return true;
+    }),
+
   setRestrictedModeBannerEnabled: procedure
     .input(z.object({ enabled: z.boolean() }).strict())
     .mutation(({ input }) => {
@@ -932,6 +944,15 @@ export const bootstrapRouter = router({
       refreshWindowControls();
       return true;
     }),
+
+  consumeNotificationClick: procedure.mutation(() => consumeNotificationClick()),
+  onNotificationClick: procedure.subscription(() =>
+    observable<{ pending: true }>((emit) => {
+      const listener = () => emit.next({ pending: true });
+      notificationClickEvents.on('click', listener);
+      return () => notificationClickEvents.off('click', listener);
+    }),
+  ),
 
   setToastDuration: procedure
     .input(
@@ -1064,6 +1085,19 @@ export const bootstrapRouter = router({
       runLogRetentionSweep(input.days);
       return true;
     }),
+
+  setDatabaseReadConcurrency: procedure
+    .input(z.object({ concurrency: z.number().int().min(1).max(8) }))
+    .mutation(
+      ({ input }) =>
+        requireBootstrap().userConfig.setSettings({ databaseReadConcurrency: input.concurrency })
+          .databaseReadConcurrency,
+    ),
+
+  databaseReadCapabilities: procedure.query(() => ({
+    parallelAvailable:
+      typeof getAppContext().platform?.native.ntHelper.executeDatabaseRead === 'function',
+  })),
 
   setQzonePublicRefreshCooldown: procedure
     .input(
@@ -3048,8 +3082,8 @@ export const bootstrapRouter = router({
         preview: z.object({
           uin: z.string().min(1),
           // Needed to derive the account directory on linux (`nt_qq_<hash>` is
-          // keyed by uid, not uin) — both for the native-media probe and for
-          // `isQqLoggedIn`. Optional so a client from an older build still opens.
+          // keyed by uid, not uin) for `isQqLoggedIn`.
+          // Optional so a client from an older build still opens.
           uid: z.string().default(''),
           displayName: z.string(),
           avatarUrl: z.string(),

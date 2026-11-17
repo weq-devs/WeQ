@@ -46,10 +46,10 @@ const OFF: CdnState = { enabled: false, rkeys: [] };
  * 广播给每条气泡。走 context 而不是各自 useQuery 的理由同 `TextMarkdownContext`：
  * QqMessageContent 每条消息一个实例，几百条就是几百个订阅。
  */
-export const CdnContext = createContext<CdnState>(OFF);
+const cdnContext = createContext<CdnState>(OFF);
 
 export function useCdn(): CdnState {
-  const state = useContext(CdnContext);
+  const state = useContext(cdnContext);
   const limited = useDataSaver((value) => value.enabled);
   return limited ? OFF : state;
 }
@@ -133,3 +133,5 @@ function buildDownloadUrl(fileToken: string, appid: string, rkey: CdnRkey): stri
   // rkey.rkey 自带 `&rkey=` 前缀，直接拼在 spec 后面。
   return `${MEDIA_HOST}/download?appid=${appid}&fileid=${encodeURIComponent(fileToken)}&spec=0${rkey.rkey}`;
 }
+
+export { cdnContext as CdnContext };

@@ -100,7 +100,9 @@ export function SqlConsole({
             <KeyRound size={13} />
             <span>
               「{tableName}」的索引
-              <em className="weq-cache-sql-indices-count">{indices.length}</em>
+              <em className="weq-cache-sql-indices-count">
+                <span className="weq-number weq-number-inherit">{indices.length}</span>
+              </em>
             </span>
           </div>
           <div className="weq-cache-sql-indices-list">
@@ -193,7 +195,9 @@ function ResultTable({ result }: { result: QueryResult }): ReactElement {
           {result.rows.map((row, ri) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
             <tr key={ri}>
-              <td className="weq-cache-grid-rownum">{ri + 1}</td>
+              <td className="weq-cache-grid-rownum">
+                <span className="weq-number weq-number-inherit">{ri + 1}</span>
+              </td>
               {row.map((cell, ci) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                 <td key={ci} className={`weq-cache-cell is-${cellKind(cell)}`}>

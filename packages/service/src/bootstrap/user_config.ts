@@ -53,6 +53,11 @@ import { generateWeqAssistantUid } from '../account/weq_assistant';
 import { writeFileAtomicSync } from '../common/atomic_write';
 import { emitSettingsChanged } from '../common/settings_changes';
 import {
+  configureDatabaseReadConcurrency,
+  normalizeDatabaseReadConcurrency,
+  DEFAULT_DATABASE_READ_CONCURRENCY,
+} from '@weq/db';
+import {
   readPreferenceObject,
   type SharedPreferences,
   type SharedPreferenceGroups,
@@ -742,7 +747,7 @@ export interface AppSettings {
   exportSaveMode: import('../account/export/save_output').ExportSaveMode;
   realtimeEnabled: boolean;
   /**
-   * 自动启用完整功能策略（设置 → 凭据与账号 → 监听与读取）。
+   * 自动启用 QQ 在线能力策略（设置 → 常规 → 在线能力与授权）。
    *
    * 默认**关闭**：是否读取登录中的 QQ 进程内存，由用户在**首次运行欢迎框**里
    * 自己选择（见 {@link WELCOME_POLICY_VERSION}）。开启后后台自动读进程内存，
@@ -754,6 +759,8 @@ export interface AppSettings {
    * 登录时的数据库密钥提取仍独立于此策略。
    */
   autoAttachQq: boolean;
+  /** 在线能力受限时在窗口右上角显示状态入口，默认开启。 */
+  restrictedModeIndicatorEnabled: boolean;
   /** 进入受限状态的被动横幅；不隐藏真实授权请求或主动错误。 */
   restrictedModeBannerEnabled: boolean;
   /** 仅桌面客户端启动时启用本机 Web 服务；默认关闭。 */
@@ -891,6 +898,8 @@ export interface AppSettings {
    * 文件名里的日期（`2026-09-20.log` / `nt_helper_2026-09-20.log`）。
    */
   logRetentionDays: number;
+  /** 同一数据库的并行只读上限；宿主级设置，所有账号和客户端共用。 */
+  databaseReadConcurrency: number;
   /** App-wide online Qzone page request budget, shared across accounts and exports. */
   qzonePagination: QzonePaginationSettings;
   /** 空友爱看自动换首页的冷却分钟数；0 表示每次进入都刷新。 */
@@ -1149,6 +1158,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   // WELCOME_POLICY_VERSION / planWelcomePolicyMigration。
   autoAttachQq: false,
   restrictedModeBannerEnabled: true,
+  restrictedModeIndicatorEnabled: true,
   webServiceAutoStart: false,
   showWindowOnAutostart: false,
   startupPage: 'home',
@@ -1217,6 +1227,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   suppressDbDamageReminder: false,
   defaultExportDir: null,
   logRetentionDays: DEFAULT_LOG_RETENTION_DAYS,
+  databaseReadConcurrency: DEFAULT_DATABASE_READ_CONCURRENCY,
   qzonePagination: { ...DEFAULT_QZONE_PAGINATION },
   qzonePublicRefreshCooldownMinutes: DEFAULT_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES,
   qzoneForwardQuotePrevious: false,
@@ -1320,6 +1331,7 @@ export class UserConfigService {
       this.logger.warn('旧全局偏好迁移失败，保留原件等待重试', logErrorContext(error));
     }
     qzonePaginationLimiter.configure(this.getSettings().qzonePagination);
+    configureDatabaseReadConcurrency(this.getSettings().databaseReadConcurrency);
   }
 
   getSharedPreference<K extends keyof SharedPreferenceGroups>(key: K): SharedPreferenceGroups[K] {
@@ -1896,7 +1908,6 @@ export class UserConfigService {
   cacheDir(category: string): string {
     const dir = join(this.cacheBaseDir(), category);
     mkdirSync(dir, { recursive: true });
-    this.logger.debug('ensured cache directory', { event: 'cache-dir', category, dir });
     return dir;
   }
 
@@ -1941,6 +1952,7 @@ export class UserConfigService {
           ? s.exportSaveMode
           : d.exportSaveMode,
       autoAttachQq,
+      restrictedModeIndicatorEnabled: s?.restrictedModeIndicatorEnabled !== false,
       restrictedModeBannerEnabled: s?.restrictedModeBannerEnabled !== false,
       webServiceAutoStart: s?.webServiceAutoStart === true,
       showWindowOnAutostart: s?.showWindowOnAutostart === true,
@@ -2007,6 +2019,7 @@ export class UserConfigService {
       suppressDbDamageReminder: s?.suppressDbDamageReminder ?? d.suppressDbDamageReminder,
       defaultExportDir: s?.defaultExportDir ?? d.defaultExportDir,
       logRetentionDays: normalizeLogRetentionDays(s?.logRetentionDays) ?? d.logRetentionDays,
+      databaseReadConcurrency: normalizeDatabaseReadConcurrency(s?.databaseReadConcurrency),
       qzonePagination: normalizeQzonePagination(s?.qzonePagination),
       qzonePublicRefreshCooldownMinutes: normalizeQzonePublicRefreshCooldown(
         s?.qzonePublicRefreshCooldownMinutes,
@@ -2116,6 +2129,8 @@ export class UserConfigService {
       exportSaveMode: patch.exportSaveMode ?? current.exportSaveMode,
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
       autoAttachQq,
+      restrictedModeIndicatorEnabled:
+        patch.restrictedModeIndicatorEnabled ?? current.restrictedModeIndicatorEnabled,
       restrictedModeBannerEnabled:
         patch.restrictedModeBannerEnabled ?? current.restrictedModeBannerEnabled,
       webServiceAutoStart: patch.webServiceAutoStart ?? current.webServiceAutoStart,
@@ -2197,6 +2212,10 @@ export class UserConfigService {
         patch.defaultExportDir !== undefined ? patch.defaultExportDir : current.defaultExportDir,
       logRetentionDays:
         normalizeLogRetentionDays(patch.logRetentionDays) ?? current.logRetentionDays,
+      databaseReadConcurrency: normalizeDatabaseReadConcurrency(
+        patch.databaseReadConcurrency,
+        current.databaseReadConcurrency,
+      ),
       qzonePagination: normalizeQzonePagination(patch.qzonePagination, current.qzonePagination),
       qzonePublicRefreshCooldownMinutes: normalizeQzonePublicRefreshCooldown(
         patch.qzonePublicRefreshCooldownMinutes,
@@ -2276,6 +2295,7 @@ export class UserConfigService {
     };
     this.write({ settings: next });
     qzonePaginationLimiter.configure(next.qzonePagination);
+    configureDatabaseReadConcurrency(next.databaseReadConcurrency);
     this.logger.info('updated app settings', {
       event: 'set-settings',
       patchKeys: Object.keys(patch),

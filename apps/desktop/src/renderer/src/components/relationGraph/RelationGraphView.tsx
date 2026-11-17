@@ -10,6 +10,7 @@
  *
  * 下方控制条按「力图 / 重合图」两套设置切换。
  */
+import { NumericText } from '../NumericText';
 import { EmptyState } from '../EmptyState';
 import type React from 'react';
 import { createPortal } from 'react-dom';
@@ -217,11 +218,13 @@ export function RelationGraphView({
             </button>
           </div>
           <span className="weq-graph-overlay-stat">
-            {overlapMode && overlap
-              ? `${overlap.groups.length} 个群 · ${overlap.totalPeople} 位群友 · ${overlap.pairs.filter((item) => item.weight > 0).length} 对群有交集`
-              : graph
-                ? `${graph.nodes.length} 节点 · ${graph.edges.length} 连线 · ${graph.communityCount} 圈子`
-                : '暂无数据'}
+            {overlapMode && overlap ? (
+              <NumericText>{`${overlap.groups.length} 个群 · ${overlap.totalPeople} 位群友 · ${overlap.pairs.filter((item) => item.weight > 0).length} 对群有交集`}</NumericText>
+            ) : graph ? (
+              <NumericText>{`${graph.nodes.length} 节点 · ${graph.edges.length} 连线 · ${graph.communityCount} 圈子`}</NumericText>
+            ) : (
+              '暂无数据'
+            )}
           </span>
         </div>
 
@@ -498,7 +501,11 @@ function GroupFilterButton({ active, count, onClick, disabled }) {
   return (
     <button className="weq-graph-pick-btn" type="button" disabled={disabled} onClick={onClick}>
       <span>{active ? '选择群聊' : '全部群聊参与计算'}</span>
-      {active ? <span className="weq-graph-pick-count">{count}</span> : null}
+      {active ? (
+        <span className="weq-graph-pick-count">
+          <span className="weq-number weq-number-inherit">{count}</span>
+        </span>
+      ) : null}
       <ChevronDown size={13} className="weq-graph-pick-caret" />
     </button>
   );
@@ -548,7 +555,8 @@ function GroupPickerModal({ groups, mode, value, onClose, onConfirm }) {
           <div>
             <strong>{title}</strong>
             <span>
-              {mode === 'blacklist' ? '黑名单' : '白名单'} · 共 {groups.length} 个群
+              {mode === 'blacklist' ? '黑名单' : '白名单'} · 共{' '}
+              {<span className="weq-number weq-number-inherit">{groups.length}</span>} 个群
             </span>
           </div>
           <button className="weq-grouppick-close" type="button" onClick={onClose} title="关闭">
@@ -574,7 +582,7 @@ function GroupPickerModal({ groups, mode, value, onClose, onConfirm }) {
         <button className="weq-grouppick-all" type="button" onClick={toggleAll}>
           <CheckCheck size={15} />
           {allSelected ? '取消全选' : '全选'}
-          <span>{filtered.length} 个</span>
+          <span>{<span className="weq-number weq-number-inherit">{filtered.length}</span>} 个</span>
         </button>
 
         <div className="weq-grouppick-list">
@@ -601,7 +609,10 @@ function GroupPickerModal({ groups, mode, value, onClose, onConfirm }) {
                   <span className="weq-grouppick-meta">
                     <strong title={group.name}>{group.name || group.code}</strong>
                     <small>
-                      命中 {group.sharedCount} 位 · {group.memberCount} 人
+                      命中{' '}
+                      <span className="weq-number weq-number-inherit">{group.sharedCount}</span> 位
+                      · <span className="weq-number weq-number-inherit">{group.memberCount}</span>{' '}
+                      人
                     </small>
                   </span>
                   <span className="weq-grouppick-check">
@@ -614,7 +625,9 @@ function GroupPickerModal({ groups, mode, value, onClose, onConfirm }) {
         </div>
 
         <footer className="weq-grouppick-foot">
-          <span>已选 {draft.size} 个</span>
+          <span>
+            已选 <span className="weq-number weq-number-inherit">{draft.size}</span> 个
+          </span>
           <div>
             <button className="weq-grouppick-btn" type="button" onClick={onClose}>
               取消
@@ -670,7 +683,7 @@ function RangeControl({ value, min, max, step, onCommit, label, unit }) {
         <span className="weq-graph-slider-label">{label}</span>
         <span className="weq-graph-slider-value">
           {unit ? `${unit} ` : ''}
-          {clampedLocal}
+          <span className="weq-number weq-number-inherit">{clampedLocal}</span>
         </span>
       </span>
       <input

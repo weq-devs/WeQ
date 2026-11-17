@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { cn } from './classNames';
+import type { JOYSTICK_SPEEDS } from './locationShareJoystick.shared';
 
 /** 手柄相对底座中心的位移上限（占底座半径的比例）。 */
 const THUMB_TRAVEL = 0.62;
@@ -146,35 +147,4 @@ export function LocationShareJoystick({
   );
 }
 
-/** 摇杆速度档位（米/秒）。越靠后越快，用于模拟步行 / 骑行 / 开车。 */
-export const JOYSTICK_SPEEDS = [
-  { id: 'walk', label: '步行', metersPerSecond: 1.4 },
-  { id: 'run', label: '跑步', metersPerSecond: 4 },
-  { id: 'bike', label: '骑行', metersPerSecond: 8 },
-  { id: 'car', label: '驾车', metersPerSecond: 22 },
-] as const;
-
 export type JoystickSpeedId = (typeof JOYSTICK_SPEEDS)[number]['id'];
-
-/**
- * 经纬度按「米」偏移。
- *
- * 纬度每度约 111320 米；经度随纬度收缩（乘 cos）。这是**球面近似**，在几公里的
- * 尺度上与真实距离的误差可以忽略，且不需要引入大地测量库。
- */
-export function offsetLatLng(
-  latitude: number,
-  longitude: number,
-  northMeters: number,
-  eastMeters: number,
-): { latitude: number; longitude: number } {
-  const latRad = (latitude * Math.PI) / 180;
-  const nextLat = latitude + northMeters / 111320;
-  const cos = Math.cos(latRad);
-  // 极点附近 cos 趋近 0，经度会爆炸 —— 夹一个下限（约 ±89.99°）。
-  const nextLng = longitude + eastMeters / (111320 * Math.max(0.0001, Math.abs(cos)));
-  return {
-    latitude: Math.max(-85, Math.min(85, nextLat)),
-    longitude: ((((nextLng + 180) % 360) + 360) % 360) - 180,
-  };
-}

@@ -58,8 +58,18 @@ export function useChatTimelineNavigation({
 
   const [unreadJump, setUnreadJump] = useState<UnreadJumpState | null>(null);
 
-  // 未读跳转坞：当前跳到第几个跳转点（越界即整串收起）。换了会话就归零。
-  const [dockIndex, setDockIndex] = useState(0);
+  // 列表与跳转坞按序号共享查看进度，乱序定位不跳过其它提醒。
+  const [visitedStops, setVisitedStops] = useState<Set<string>>(() => new Set());
+  const [locatedSeq, setLocatedSeq] = useState<string | null>(null);
+  const navigationKey = useMemo(
+    () => ({ conversationId: conversation?.id, dock: unreadDock }),
+    [conversation?.id, unreadDock],
+  );
+  const navigationScope = useRef(navigationKey);
+  navigationScope.current = navigationKey;
+  const locateTask = useRef<object | null>(null);
+  const [dockJumping, setDockJumping] = useState(false);
+  const dockTask = useRef<object | null>(null);
 
   // Count of newly-arrived (live) messages while the user is reading history.
   // Surfaces the floating "jump to bottom" pill; cleared once at the bottom.
@@ -100,7 +110,19 @@ export function useChatTimelineNavigation({
       // 滚动事件晚于消息刷新提交；先退出贴底，避免原消息刚定位就被刷新拉回末尾。
       atBottomRef.current = false;
       readGestureUntil.current = 0;
-      return parentJumpToSeq(target);
+      const started = navigationScope.current;
+      const task = {};
+      locateTask.current = task;
+      const complete = () => {
+        if (navigationScope.current !== started || locateTask.current !== task) return;
+        const seq = target.seq == null ? null : String(target.seq);
+        setLocatedSeq(seq);
+        if (seq && started.dock?.stops.some((stop) => stop.seq === seq))
+          setVisitedStops((old) => new Set([...old, seq]));
+      };
+      const result = parentJumpToSeq(target);
+      if (result) return result.then(complete);
+      complete();
     },
     [parentJumpToSeq],
   );
@@ -149,7 +171,10 @@ export function useChatTimelineNavigation({
 
   // 换会话（或上层重下了新的一份快照）时，跳转坞从第一个跳转点重新开始。
   useEffect(() => {
-    setDockIndex(0);
+    setVisitedStops(new Set());
+    setLocatedSeq(null);
+    dockTask.current = null;
+    setDockJumping(false);
   }, [conversation?.id, unreadDock]);
 
   const timelineIds = useMemo(
@@ -684,20 +709,32 @@ export function useChatTimelineNavigation({
   // 打开会话时上层已经把未读/高亮读进内存并清了库，这里只负责按顺序引导：
   // 每点一下跳一个目标（高亮按 seq 从大到小，最后是「新的 N 条未读消息」），
   // 跳完自动消失。
+  const nextDockIndex = unreadDock?.stops.findIndex((stop) => !visitedStops.has(stop.seq)) ?? -1;
+  const dockIndex = nextDockIndex < 0 ? (unreadDock?.stops.length ?? 0) : nextDockIndex;
   const dockStop = unreadDock?.stops[dockIndex] ?? null;
+  const dockRemaining = unreadDock?.stops.filter((stop) => !visitedStops.has(stop.seq)).length ?? 0;
+  const dockImportantRemaining =
+    unreadDock?.stops.filter((stop) => stop.kind !== 'unread' && !visitedStops.has(stop.seq))
+      .length ?? 0;
 
   const dockVisible = Boolean(dockStop);
 
-  async function jumpDockStop(): Promise<void> {
-    if (!dockStop || !unreadDock) return;
-    const nextIndex = dockIndex + 1;
-    // 先推进游标再跳：跳转要走「快慢路径」（可能要重建窗口、异步），期间用户
-    // 再点应该是下一条，而不是重跳当前这条。
-    setDockIndex(nextIndex);
+  async function jumpDockStop(): Promise<boolean> {
+    if (!dockStop || !unreadDock || dockTask.current) return false;
+    const task = {};
+    dockTask.current = task;
+    setDockJumping(true);
     try {
       await jumpToSeq({ seq: dockStop.seq });
+      return dockTask.current === task;
     } catch (err) {
       console.error('[unread-dock] jump failed', err);
+      return false;
+    } finally {
+      if (dockTask.current === task) {
+        dockTask.current = null;
+        setDockJumping(false);
+      }
     }
   }
   return {
@@ -705,6 +742,10 @@ export function useChatTimelineNavigation({
       atBottomRef.current = false;
     },
     dockIndex,
+    dockRemaining,
+    dockImportantRemaining,
+    locatedSeq,
+    dockJumping,
     dockStop,
     dockVisible,
     endRef,

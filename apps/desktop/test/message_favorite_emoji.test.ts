@@ -25,6 +25,15 @@ vi.mock('../src/renderer/src/components/qq-actions/shared', () => ({
     perform: state.perform,
   }),
 }));
+vi.mock('../src/renderer/src/components/qq-actions/shared.shared', () => ({
+  useQQAction: () => ({
+    available: !state.disabled,
+    disabled: state.disabled || state.pending,
+    pending: state.pending,
+    binding: { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' },
+    perform: state.perform,
+  }),
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     account: {

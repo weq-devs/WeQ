@@ -5,9 +5,10 @@ import type { QQWriteBinding } from '../../hooks/useQQWriteSession';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { client } from '../../trpc/client';
 import { ServerSavePrompt } from '../ServerSavePrompt';
-import { useToast } from '../Toast';
+import { useToast } from '../Toast.shared';
+import { taskNotificationSource } from '../../lib/notificationNavigation.shared';
 import { ActionIcon } from './shared';
-import { useExportReportDialog } from '../../views/export/ExportReportControl';
+import { useExportReportDialog } from '../../views/export/ExportReportControl.shared';
 
 export function FavoriteBundleExport({
   binding,
@@ -42,12 +43,17 @@ export function FavoriteBundleExport({
         format: 'zip',
       });
       if (!policy || !save.isCurrent()) return;
-      await client.account.qqActions.favoriteExport.mutate({
+      const taskId = await client.account.qqActions.favoriteExport.mutate({
         ...selected,
         savePolicy: policy,
         includeIntegrityReport,
       });
-      if (save.isCurrent()) push({ tone: 'info', title: '收藏表情导出任务已创建' });
+      if (save.isCurrent())
+        push({
+          tone: 'info',
+          title: '收藏表情导出任务已创建',
+          source: taskNotificationSource(taskId),
+        });
     } catch (error) {
       if (save.isCurrent())
         push({

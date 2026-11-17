@@ -208,7 +208,7 @@ describe('新增消息交互', () => {
     }
   });
 
-  it('群聊标题打开现有群名片，支持关闭且切换会话后不残留', () => {
+  it('群聊标题打开现有群名片，支持关闭且切换会话后不残留', async () => {
     const fixture = mount();
     const demo = createTemplateDemoData();
     const conversation = demo.conversations.find((item) => item.type === 'group')!;
@@ -222,7 +222,10 @@ describe('新增消息交互', () => {
         '.weq-conversation-title-profile',
       )!;
       expect(title.title).toBe('查看群名片');
-      act(() => title.click());
+      await act(async () => {
+        title.click();
+        await vi.dynamicImportSettled();
+      });
       const card = document.querySelector('[role="dialog"][aria-label="群资料"]')!;
       expect(card.querySelector('.weq-profile-name')?.textContent).toBe(
         conversation.type === 'group' ? conversation.group.name : undefined,
@@ -714,9 +717,15 @@ describe('新增消息交互', () => {
         expect(action.getAttribute('aria-label')).toBeTruthy();
       }
       act(() => button(fixture.host, '转发').click());
-      await act(async () => button(document.body, '逐条转发').click());
+      await act(async () => {
+        button(document.body, '逐条转发').click();
+        await vi.dynamicImportSettled();
+      });
       expect(forward).toHaveBeenCalledTimes(2);
-      await act(async () => button(fixture.host, '添加到素材库').click());
+      await act(async () => {
+        button(fixture.host, '添加到素材库').click();
+        await vi.dynamicImportSettled();
+      });
       expect(composition).toHaveBeenCalledTimes(2);
     } finally {
       fixture.close();

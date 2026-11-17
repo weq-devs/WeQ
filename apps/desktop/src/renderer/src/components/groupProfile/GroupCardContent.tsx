@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { GroupConversation, GroupMember } from '../../im-template/template/types';
 import { Avatar } from '../../im-template/template/primitives';
@@ -7,12 +8,13 @@ import { ContactRow, ContactSection } from '../contactProfile/ContactRow';
 import { GroupRelationshipStatus } from '../RelationshipStatus';
 import { QQProfileField } from '../QQProfileField';
 import { VirtualConversationBadge } from '../VirtualConversationAvatar';
-import { openMediaPreview } from '../mediaPreviewStore';
-import { GroupFreezeNotice, GroupTags, groupCreationDate } from './GroupContent';
+import { openMediaPreview } from '../mediaPreviewStore.shared';
+import { GroupFreezeNotice, GroupTags } from './GroupContent';
+import { groupCreationDate } from './GroupContent.shared';
 import { GroupCardMemberList } from './GroupCardMemberList';
 import { groupJoinedDate } from '../../lib/groupProfileRows';
 import { ContactFieldHistoryButton } from '../contactProfile/ContactFieldHistory';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { GroupProfileAvatarEditor } from './GroupProfileAvatarEditor';
 import '../../styles/group-quick-card.css';
 
@@ -116,7 +118,12 @@ export function GroupCardIdentity({
             valueClassName="weq-profile-identity-remark"
           />
         )}
-        <ContactRow label={generated ? 'ID' : '群号'} value={identity} copyValue={identity} />
+        <ContactRow
+          label={generated ? 'ID' : '群号'}
+          value={identity}
+          number
+          copyValue={identity}
+        />
       </div>
     </>
   );
@@ -209,7 +216,7 @@ export function GroupCardContent({
                 : setList({ kind: 'members', anchor: event.currentTarget })
             }
           >
-            {count || '查看'}
+            <span className="weq-number weq-number-inherit">{count || '查看'}</span>
           </button>
         </ContactRow>
         {!generated ? (
@@ -221,7 +228,7 @@ export function GroupCardContent({
               title="查看群内好友列表"
               onClick={(event) => setList({ kind: 'friends', anchor: event.currentTarget })}
             >
-              {friendCount === null ? '查看' : `${friendCount} 人`}
+              {friendCount === null ? '查看' : <NumericText>{`${friendCount} 人`}</NumericText>}
             </button>
           </ContactRow>
         ) : null}

@@ -3,7 +3,7 @@ import { DraftCloseContext, useDraftClose } from '../lib/draftClose';
 import { useModalBackground } from '../lib/modalBackground';
 import { OverlayLayer } from './OverlayLayer';
 import { WorkspacePage } from './WorkspacePages';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import '../styles/tool-surface.css';
 
 export type ToolPresentation = 'page' | 'modal';

@@ -1,8 +1,7 @@
 /**
  * Thin handle around one open QQ NT SQLCipher database.
  *
- * The native layer (`@weq/native`) already caches a Connection per
- * `(dbPath, mode)` and skips the open/decrypt dance on subsequent calls.
+ * 原生层按路径管理有界只读连接池，写连接独立；每条连接只初始化一次解密。
  * `QqDb` is the matching JS-side convenience: it remembers `dbPath` + `key`
  * so callers don't pass them on every query.
  *
@@ -20,11 +19,17 @@ import type {
 } from '@weq/native';
 import {
   databaseReadBudget,
+  databaseRequestPriority,
   databaseRequestSignal,
   scheduleDatabase,
-  waitForDatabaseQuiet,
 } from './query_schedule';
 import { queryDiagnosticSource } from './query_diagnostics';
+import { executeNativeRead } from './native_read';
+import {
+  assertDatabaseWritable,
+  databaseUnderMaintenance,
+  waitForDatabaseWritable,
+} from './maintenance';
 import {
   iterateSalvageWindows,
   runSalvageScan,
@@ -89,27 +94,36 @@ export class QqDb {
       databaseRequestSignal()?.throwIfAborted();
       const values = [...params, BigInt(limit)];
       try {
-        const rows = read
+        const rows = this.nt.executeDatabaseRead
           ? await scheduleDatabase(
               this.dbPath,
-              () =>
-                read.call(
-                  this.nt,
-                  this.dbPath,
-                  sql,
-                  values,
-                  15,
-                  this.encrypted ? this.key : null,
-                  this.encrypted ? this.algo : null,
-                ),
+              () => this.pooledRead(sql, values, 15),
               this.nt,
               queryDiagnosticSource(sql),
+              { read: true },
             )
-          : await this.query(sql, values);
+          : read
+            ? await scheduleDatabase(
+                this.dbPath,
+                () =>
+                  read.call(
+                    this.nt,
+                    this.dbPath,
+                    sql,
+                    values,
+                    15,
+                    this.encrypted ? this.key : null,
+                    this.encrypted ? this.algo : null,
+                  ),
+                this.nt,
+                queryDiagnosticSource(sql),
+                { read: true },
+              )
+            : await this.query(sql, values);
         return { rows, limit };
       } catch (error) {
         if (
-          read &&
+          (read || this.nt.executeDatabaseRead) &&
           error instanceof Error &&
           error.message.includes('database_query_wait_timeout') &&
           waits < 2
@@ -190,14 +204,12 @@ export class QqDb {
     const budget = databaseReadBudget();
     if (budget !== undefined) {
       const read = this.nt.executeSqlBudgeted;
-      if (!read) throw new Error('日历需要支持短预算读取的原生组件');
+      if (!read && !this.nt.executeDatabaseRead)
+        throw new Error('日历需要支持短预算读取的原生组件');
       const signal = databaseRequestSignal();
-      const waitingSince = performance.now();
-      // 短预算读取最多在队列外让路 1 秒，之后交给后台公平调度，避免周期查询使其饿死。
-      const current = () => !signal?.aborted && performance.now() - waitingSince < 1000;
-      await waitForDatabaseQuiet(this.dbPath, current, 500, budget.onWait);
       if (signal?.aborted) throw new DOMException('日历统计已取消', 'AbortError');
-      await new Promise<void>((done) => setTimeout(done, 20));
+      // 短 SQL 直接交给前台优先的公平队列；逐页等空闲会被正常轮询反复推迟。
+      await new Promise<void>((done) => setTimeout(done, 0));
       budget.onState?.('queued');
       return scheduleDatabase(
         this.dbPath,
@@ -205,7 +217,9 @@ export class QqDb {
           const began = performance.now();
           budget.onState?.('reading');
           try {
-            return await read.call(
+            if (this.nt.executeDatabaseRead)
+              return await this.pooledRead(sql, params, budget.milliseconds);
+            return await read!.call(
               this.nt,
               this.dbPath,
               sql,
@@ -220,17 +234,33 @@ export class QqDb {
         },
         this.nt,
         queryDiagnosticSource(sql),
+        { read: true, bulk: true },
       ).finally(() => budget.onState?.(undefined));
     }
     return scheduleDatabase(
       this.dbPath,
       () =>
-        this.encrypted
-          ? this.nt.executeSqlWithKey(this.dbPath, sql, this.key!, this.algo!, params ?? null)
-          : this.nt.executeSql(this.dbPath, sql, params ?? null),
+        this.nt.executeDatabaseRead
+          ? this.pooledRead(sql, params)
+          : this.encrypted
+            ? this.nt.executeSqlWithKey(this.dbPath, sql, this.key!, this.algo!, params ?? null)
+            : this.nt.executeSql(this.dbPath, sql, params ?? null),
       this.nt,
       queryDiagnosticSource(sql),
+      { read: true },
     );
+  }
+
+  private async pooledRead(sql: string, params?: SqlValue[], budgetMs?: number): Promise<SqlRow[]> {
+    const result = await executeNativeRead(this.nt, {
+      dbPath: this.dbPath,
+      sql,
+      params,
+      ...(this.encrypted ? { key: this.key!, algo: this.algo! } : {}),
+      ...(budgetMs === undefined ? {} : { budgetMs }),
+    });
+    if (!result.rows) throw new Error('原生读取未返回数据');
+    return result.rows;
   }
 
   /** 可选功能表按实际 schema 判断，不把查询错误或损坏吞成“没有数据”。 */
@@ -333,27 +363,37 @@ export class QqDb {
    * re-open + re-decrypt on the next query is a non-issue.
    */
   async write(sql: string, params?: SqlValue[]): Promise<number> {
-    return scheduleDatabase(
-      this.dbPath,
-      async () => {
-        try {
-          if (this.encrypted) {
-            return await this.nt.executeSqlWriteWithKey(
-              this.dbPath,
-              sql,
-              this.key!,
-              this.algo!,
-              params ?? null,
-            );
-          }
-          return await this.nt.executeSqlWrite(this.dbPath, sql, params ?? null);
-        } finally {
-          this.nt.closeDb(this.dbPath);
-        }
-      },
-      this.nt,
-      queryDiagnosticSource(sql),
-    );
+    const background = databaseRequestPriority() === 'background';
+    for (;;) {
+      if (background) await waitForDatabaseWritable(this.dbPath, databaseRequestSignal());
+      assertDatabaseWritable(this.dbPath);
+      try {
+        return await scheduleDatabase(
+          this.dbPath,
+          async () => {
+            assertDatabaseWritable(this.dbPath);
+            try {
+              if (this.encrypted) {
+                return await this.nt.executeSqlWriteWithKey(
+                  this.dbPath,
+                  sql,
+                  this.key!,
+                  this.algo!,
+                  params ?? null,
+                );
+              }
+              return await this.nt.executeSqlWrite(this.dbPath, sql, params ?? null);
+            } finally {
+              this.nt.closeDb(this.dbPath);
+            }
+          },
+          this.nt,
+          queryDiagnosticSource(sql),
+        );
+      } catch (error) {
+        if (!background || !databaseUnderMaintenance(this.dbPath)) throw error;
+      }
+    }
   }
 
   /** Drop both the read and write cached native connections for this database. */

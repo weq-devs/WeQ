@@ -1,12 +1,9 @@
 packages:
   - apps/*
   - packages/*
-  # 文档站自带 package.json（VitePress），单独占一个 workspace 槽位。
-  # `docs/` 是 weq-devs/WeqDocs 的 submodule —— 它有自己的 lockfile，
-  # 但主仓仍把它纳入 workspace，这样 `pnpm --filter @weq/docs dev` 能直接用。
-  # 如果没初始化 submodule，这一行会因为找不到 package.json 而报错，
-  # 属于预期的可见失败（提醒先 `git submodule update --init`）。
-  - docs
+  # 文档站是独立 submodule，使用自己的 workspace 配置与锁文件。
+  # 根目录通过 docs:* 命令转调，不参与应用依赖安装与启动检查。
+  - '!docs'
 
 # pnpm 12.1 起，workspace 任务依赖环从"静默乱序执行"变成硬错误
 # （ERR_PNPM_TASK_CYCLE）。native <-> testkit 是刻意保留的环，

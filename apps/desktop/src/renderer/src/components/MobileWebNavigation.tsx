@@ -1,24 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
-import {
-  Bookmark,
-  ChevronRight,
-  ContactRound,
-  Grid2X2,
-  Hash,
-  House,
-  Mail,
-  MessageCircle,
-  Palette,
-  Settings,
-  Sparkles,
-  Star,
-  ListTodo,
-  Bot,
-  BarChart3,
-  Download,
-  FolderOpen,
-  FileStack,
-} from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { Avatar } from '../im-template/template/primitives';
 import { ReminderCount } from './ReminderBadge';
 import { SelfProfileAvatar } from './SelfProfileAvatar';
@@ -29,14 +10,24 @@ import { TitleBarSearch } from './TitleBarSearch';
 import { DataSaverMenu } from './DataSaverMenu';
 import { RemoteShellMenuButton } from './RemoteShellMenus';
 import { OnlineStatus } from './OnlineStatus';
-import { useWorkspaceMobilePage } from './WorkspacePages';
+import { useWorkspaceMobilePage } from './WorkspacePages.shared';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
 import { preloadMobilePages } from '../lib/mobilePageLoading';
-import { mobilePageLoaders } from './lazyWorkspaces';
+import {
+  mobilePageLoaders,
+  mobileMorePageLoaders,
+  preloadWorkspace,
+} from './lazyWorkspaces.shared';
+import { useDataSaver } from '../lib/dataSaver';
 import { registerMobileBack } from '../hooks/useMobileNavigation';
 import { mobileRootTab } from '../lib/mobileRootTransition';
 import { isSingleColumnLayout, subscribeResponsiveLayout } from '../lib/responsiveLayout';
+import {
+  activateNavigation,
+  navigationEntries,
+  type AppNavigationTarget,
+} from '../lib/appNavigation';
 import '../styles/mobile-web.css';
 
 export function MobileWebNavigation({
@@ -76,6 +67,7 @@ export function MobileWebNavigation({
 }) {
   const mobilePage = useWorkspaceMobilePage();
   const mobile = useMobileWebLayout();
+  const dataSaver = useDataSaver((state) => state.enabled);
   const viewChange = useRef(onViewChange);
   viewChange.current = onViewChange;
   useEffect(() => {
@@ -90,11 +82,15 @@ export function MobileWebNavigation({
     });
   }, [mobile, view]);
   useEffect(() => {
-    if (mobile) return preloadMobilePages(mobilePageLoaders);
+    if (mobile && !dataSaver) return preloadMobilePages(mobilePageLoaders);
     return undefined;
-  }, [mobile]);
+  }, [mobile, dataSaver]);
   const openTool = useWorkspaceMenu((state) => state.openMobileTool);
   const moreOpen = view === 'more' && !mobilePage;
+  useEffect(() => {
+    if (mobile && moreOpen && !dataSaver) return preloadMobilePages(mobileMorePageLoaders);
+    return undefined;
+  }, [mobile, moreOpen, dataSaver]);
   useEffect(() => {
     if (!moreOpen) return;
     const leaveMobile = () => {
@@ -102,27 +98,30 @@ export function MobileWebNavigation({
     };
     return subscribeResponsiveLayout(leaveMobile);
   }, [moreOpen, onViewChange]);
-  const primary = view === 'messages' || view === 'contacts' || view === 'qzone';
+  const tabs = navigationEntries('mobile-tabs');
+  const primary = tabs.some((entry) => entry.id === view && entry.id !== 'more');
   const active = moreOpen || !primary ? 'more' : view;
   const select = (next: MainView) => {
     mobilePage?.close();
     if (next !== view) onViewChange(next);
   };
-  const entries = [
-    { label: '主页', icon: House, action: () => select('home') },
-    { label: 'QQ 邮箱', icon: Mail, badge: mailBadgeCount, action: () => select('mail') },
-    { label: '频道私聊', icon: Hash, action: () => select('guild-direct') },
-    { label: '我的收藏', icon: Bookmark, action: onOpenCollection },
-    { label: '年度报告', icon: Sparkles, action: () => select('annual') },
-    { label: '个性装扮', icon: Palette, action: onOpenDressUp },
-    { label: '任务', icon: ListTodo, action: () => openTool('tasks') },
-    { label: 'WeQ 助手', icon: Bot, action: () => openTool('assistant') },
-    { label: '分析与报告', icon: BarChart3, action: () => openTool('analysis') },
-    { label: '导出', icon: Download, action: () => openTool('export') },
-    { label: '导出查看器', icon: FolderOpen, action: () => openTool('viewer') },
-    { label: '合成聊天记录', icon: FileStack, action: () => openTool('composition') },
-    { label: '设置', icon: Settings, action: onOpenSettings },
-  ];
+  const activate = (target: AppNavigationTarget) =>
+    activateNavigation(target, {
+      onViewChange: select,
+      onOpenCollection,
+      onOpenDressUp,
+      onOpenSettings,
+      onOpenTool: openTool,
+      onOpenNotice: () => {},
+    });
+  const badgeFor = (id: string) =>
+    id === 'messages'
+      ? messageBadgeCount
+      : id === 'contacts'
+        ? contactBadgeCount
+        : id === 'mail' || id === 'more'
+          ? mailBadgeCount
+          : 0;
   const moreContent = (
     <section className="weq-mobile-more" aria-label="更多功能">
       <div className="weq-mobile-more-account">
@@ -132,11 +131,26 @@ export function MobileWebNavigation({
           <span>{user.identityValue}</span>
         </div>
       </div>
-      {entries.map(({ label, icon: Icon, badge, action }) => (
-        <button key={label} type="button" onClick={action}>
+      {navigationEntries('mobile-more').map(({ id, label, icon: Icon, target, workspace }) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => activate(target)}
+          onPointerEnter={() => {
+            if (workspace) preloadWorkspace(workspace);
+          }}
+          onFocus={() => {
+            if (workspace) preloadWorkspace(workspace);
+          }}
+          onPointerDown={() => {
+            if (workspace) preloadWorkspace(workspace);
+          }}
+        >
           <Icon size={22} aria-hidden />
           <span>{label}</span>
-          {badge ? <ReminderCount count={badge} className="weq-mobile-badge" /> : null}
+          {badgeFor(id) > 0 ? (
+            <ReminderCount count={badgeFor(id)} className="weq-mobile-badge" />
+          ) : null}
           <ChevronRight size={18} aria-hidden />
         </button>
       ))}
@@ -179,34 +193,32 @@ export function MobileWebNavigation({
         </div>
       )}
       <nav className="weq-mobile-tabs" aria-label="主导航">
-        {[
-          { id: 'messages', label: '消息', icon: MessageCircle, badge: messageBadgeCount },
-          { id: 'contacts', label: '联系人', icon: ContactRound, badge: contactBadgeCount },
-          { id: 'qzone', label: '空间', icon: Star, badge: 0 },
-          { id: 'more', label: '更多', icon: Grid2X2, badge: mailBadgeCount },
-        ].map(({ id, label, icon: Icon, badge }) => (
-          <button
-            key={id}
-            type="button"
-            aria-current={active === id ? 'page' : undefined}
-            data-mobile-tab={id}
-            aria-expanded={id === 'more' ? moreOpen : undefined}
-            aria-label={badge > 0 ? `${label}，${badge} 条未读` : label}
-            onClick={() => {
-              if (id === 'messages' && active === 'messages' && onMessageBadgeClick) {
-                onMessageBadgeClick();
-              } else select(id as 'messages' | 'contacts' | 'qzone' | 'more');
-            }}
-          >
-            <span className="weq-mobile-tab-icon">
-              <Icon size={24} aria-hidden />
-              {badge > 0 ? (
-                <ReminderCount count={badge} overlay className="weq-mobile-badge" />
-              ) : null}
-            </span>
-            <span>{label}</span>
-          </button>
-        ))}
+        {tabs.map(({ id, label, icon: Icon, target }) => {
+          const badge = badgeFor(id);
+          return (
+            <button
+              key={id}
+              type="button"
+              aria-current={active === id ? 'page' : undefined}
+              data-mobile-tab={id}
+              aria-expanded={id === 'more' ? moreOpen : undefined}
+              aria-label={badge > 0 ? `${label}，${badge} 条未读` : label}
+              onClick={() => {
+                if (id === 'messages' && active === 'messages' && onMessageBadgeClick) {
+                  onMessageBadgeClick();
+                } else activate(target);
+              }}
+            >
+              <span className="weq-mobile-tab-icon">
+                <Icon size={24} aria-hidden />
+                {badge > 0 ? (
+                  <ReminderCount count={badge} overlay className="weq-mobile-badge" />
+                ) : null}
+              </span>
+              <span>{label}</span>
+            </button>
+          );
+        })}
       </nav>
     </div>
   );

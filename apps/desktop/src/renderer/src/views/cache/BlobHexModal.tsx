@@ -256,8 +256,9 @@ export function BlobHexModal({
               })}
               {elided > 0 ? (
                 <div className="weq-blob-elided">
-                  仅显示前 {MAX_RENDER_BYTES} 字节，其余 {elided} 字节已省略（可在下方「原始
-                  Hex」中查看 / 编辑完整内容）。
+                  仅显示前 <span className="weq-number weq-number-inherit">{MAX_RENDER_BYTES}</span>{' '}
+                  字节，其余 <span className="weq-number weq-number-inherit">{elided}</span>{' '}
+                  字节已省略（可在下方「原始 Hex」中查看 / 编辑完整内容）。
                 </div>
               ) : null}
             </div>
@@ -265,8 +266,8 @@ export function BlobHexModal({
 
           {!isProto && canEdit && !inlineEditable && data.length > MAX_EDIT_BYTES ? (
             <div className="weq-blob-note">
-              数据较大（超过 {MAX_EDIT_BYTES} 字节），逐字节编辑已禁用；请使用下方「原始
-              Hex」整体替换。
+              数据较大（超过 <span className="weq-number weq-number-inherit">{MAX_EDIT_BYTES}</span>{' '}
+              字节），逐字节编辑已禁用；请使用下方「原始 Hex」整体替换。
             </div>
           ) : null}
 

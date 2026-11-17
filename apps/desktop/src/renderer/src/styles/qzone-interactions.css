@@ -123,3 +123,20 @@
 .weq-signature-interactions .weq-profile-comment-form {
   grid-template-columns: minmax(0, 1fr) 40px;
 }
+.weq-signature-comment-editor {
+  min-width: 0;
+}
+.weq-signature-comment-editor .weq-profile-reply-target {
+  flex-wrap: nowrap;
+  margin: 8px 0 0;
+}
+.weq-signature-comment-editor .weq-profile-reply-target > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.weq-signature-comment-editor .weq-profile-reply-target > button {
+  flex-shrink: 0;
+}
+.weq-signature-comment-editor [role='alert'] {
+  overflow-wrap: anywhere;
+}

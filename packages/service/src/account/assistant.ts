@@ -398,6 +398,7 @@ type AssistantRunState = {
   activeToolId?: string;
   taskId?: string;
   assistantMessageId?: string;
+  partialText?: string;
   question: string;
   basePrompt: string;
   messages: ApiMessage[];
@@ -1013,6 +1014,7 @@ export class AssistantService {
     mailbox.currentMessageId = `${pending.at(-1)!.messageId}:answer`;
     state.assistantMessageId = mailbox.currentMessageId;
     mailbox.body = '';
+    state.partialText = undefined;
     mailbox.stepOffset = mailbox.steps.length;
     this.persistLiveSegment(sessionId, '', 'running');
     this.persistRun(sessionId, state, 'running');
@@ -1220,7 +1222,8 @@ export class AssistantService {
       const aborted = signal?.aborted || (error instanceof Error && error.name === 'AbortError');
       if (aborted) {
         const now = Date.now();
-        const reply = (mailbox ? mailbox.body : streamed).trim() || '（已停止）';
+        const reply = mailbox ? mailbox.body : streamed;
+        state.partialText = reply;
         const toolsUsed = collectToolsUsed();
         if (mailbox) this.persistLiveSegment(sessionId, reply, 'stopped');
         else
@@ -1252,6 +1255,7 @@ export class AssistantService {
         return { text: reply, steps };
       }
       // 其它异常：同样保留现场快照（用户可「继续回答」重试），再报错。
+      state.partialText = mailbox ? mailbox.body : streamed;
       this.persistRun(sessionId, state, 'aborted');
       const message = error instanceof Error ? error.message : String(error);
       emit({ kind: 'error', message });
@@ -1295,11 +1299,21 @@ export class AssistantService {
     }
 
     const mailbox = this.mailboxes.get(sessionId);
-    const steps: AssistantStep[] = mailbox
-      ? [...(this.conversations.get(this.bucketId(sessionId)).at(-1)?.steps ?? [])]
-      : [];
-    if (mailbox) mailbox.steps = steps;
-    let streamed = '';
+    const previous = this.conversations
+      .get(this.bucketId(sessionId))
+      .findLast((turn) =>
+        snapshot.assistantMessageId
+          ? turn.id === snapshot.assistantMessageId
+          : turn.role === 'assistant',
+      );
+    const partialText =
+      snapshot.partialText ?? (previous?.text === '（已停止）' ? '' : (previous?.text ?? ''));
+    const steps: AssistantStep[] = [...(previous?.steps ?? [])];
+    if (mailbox) {
+      mailbox.steps = steps;
+      mailbox.body = partialText;
+    }
+    let streamed = partialText;
     const emit = (step: AssistantStep): void => {
       if (step.kind === 'text_delta') streamed += step.text;
       else if (step.kind === 'tool_call') streamed = '';
@@ -1317,6 +1331,7 @@ export class AssistantService {
     const state: AssistantRunState = {
       taskId: mailbox?.taskId ?? snapshot.taskId,
       assistantMessageId: mailbox?.currentMessageId ?? snapshot.assistantMessageId,
+      partialText,
       question: snapshot.question,
       basePrompt: this.systemPrompt(snapshot.question, false),
       messages: snapshot.messages,
@@ -1326,6 +1341,7 @@ export class AssistantService {
     };
 
     try {
+      if (mailbox) this.persistLiveSegment(sessionId, partialText, 'running');
       record({
         kind: 'thinking',
         text: `（已从中断处继续，保留 ${snapshot.toolCallCount} 次已完成工具调用，正在收尾调查…）`,
@@ -1357,7 +1373,8 @@ export class AssistantService {
     } catch (error) {
       const aborted = signal?.aborted || (error instanceof Error && error.name === 'AbortError');
       if (aborted) {
-        const reply = (mailbox ? mailbox.body : streamed).trim() || '（已停止）';
+        const reply = mailbox ? mailbox.body : streamed;
+        state.partialText = reply;
         if (mailbox) this.persistLiveSegment(sessionId, reply, 'stopped');
         else
           this.conversations.patchLastAssistant(this.bucketId(sessionId), {
@@ -1370,6 +1387,7 @@ export class AssistantService {
         emit({ kind: 'aborted' });
         return { text: reply, steps };
       }
+      state.partialText = mailbox ? mailbox.body : streamed;
       this.persistRun(sessionId, state, 'aborted');
       const message = error instanceof Error ? error.message : String(error);
       emit({ kind: 'error', message });
@@ -1508,7 +1526,18 @@ export class AssistantService {
         this.consumeSupplements(sessionId, state);
         // 每轮发送前先做上下文压缩（长会话/多工具循环的 token 预算管理）。
         await this.compressIfNeeded(state, endpoint, emit, ac.signal);
+        const prefix = state.partialText ?? '';
         const sourceMessages = this.buildRoundMessages(state, capabilityGuidance);
+        if (prefix) {
+          sourceMessages.push(
+            { role: 'assistant', content: prefix },
+            {
+              role: 'user',
+              content:
+                '从刚才中断的位置接着输出，只输出后续内容，不要重复已有正文、重新开头或解释恢复过程；与已有正文直接衔接，保留所需的换行和格式。',
+            },
+          );
+        }
         const prepareMessages = async (forceOcr = false): Promise<ApiMessage[]> => {
           const result: ApiMessage[] = [];
           for (const message of sourceMessages) {
@@ -1596,7 +1625,9 @@ export class AssistantService {
           response = await stream();
         }
         if (mailbox) mailbox.request = undefined;
-        const { content, toolCalls } = response;
+        const content = prefix + response.content;
+        const { toolCalls } = response;
+        state.partialText = undefined;
 
         if (allowTools && toolCalls?.length) {
           // 模型在调用工具前给出的思路 → 已随 text_delta 流式到达前端；这里只补一条 thinking 落库。
@@ -1902,6 +1933,7 @@ export class AssistantService {
       const snapshot: AssistantRunSnapshot = {
         taskId: state.taskId,
         assistantMessageId: state.assistantMessageId,
+        partialText: state.partialText,
         schemaVersion: 1,
         sessionId,
         status,
@@ -1943,6 +1975,7 @@ export class AssistantService {
       }
       return {
         ...raw,
+        partialText: typeof raw.partialText === 'string' ? raw.partialText : undefined,
         workspace:
           raw.workspace && typeof raw.workspace === 'object'
             ? {

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
-import { usePageSnapshotReset } from '../PageSnapshots';
+import { usePageSnapshotReset } from '../PageSnapshots.shared';
 import { Loader2, Plus, Play, Save, Trash2, Volume2, X } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { Modal } from '../Dialog';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { Card, QueryError, Row } from './controls';
@@ -14,7 +14,7 @@ import {
   runConnectionTest,
   useConnectionTestTasks,
 } from '../../lib/connectionTestTask';
-import { useToast } from '../Toast';
+import { useToastApi } from '../Toast.shared';
 
 function errMsg(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -66,6 +66,7 @@ function emptyTtsForm(): TtsForm {
 }
 
 export function TtsProvidersCard(): ReactElement {
+  const notificationToast = useToastApi();
   const active = useTabActive();
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
@@ -220,6 +221,7 @@ export function TtsProvidersCard(): ReactElement {
   async function onDelete(): Promise<void> {
     if (!selectedId) return;
     const ok = await dialog.confirm('删除 TTS 服务商', `确认删除「${selectedId}」？`, {
+      danger: 'outline',
       okLabel: '删除',
       cancelLabel: '返回',
       tone: 'warning',
@@ -240,7 +242,7 @@ export function TtsProvidersCard(): ReactElement {
 
   function onTest(): void {
     if (!form.baseUrl.trim()) {
-      useToast.getState().push({
+      notificationToast.push({
         tone: 'warning',
         durationKind: 'success',
         title: '无法测试',
@@ -257,13 +259,18 @@ export function TtsProvidersCard(): ReactElement {
         const audio = new Audio(`data:audio/${res.format ?? 'mp3'};base64,${res.audioBase64}`);
         const play = () => {
           void audio.play().catch((error: unknown) => {
-            useToast
-              .getState()
-              .push({ tone: 'warning', title: '样例语音播放失败', detail: errMsg(error) });
+            notificationToast.push({
+              tone: 'warning',
+              title: '样例语音播放失败',
+              detail: errMsg(error),
+            });
           });
         };
         play();
-        return { detail: '已生成样例语音。', action: { label: '播放样例语音', run: play } };
+        return {
+          detail: '已生成样例语音。',
+          action: { label: '播放样例语音', run: play, icon: 'play' },
+        };
       }
       return { detail: res.error ?? '配置可用。' };
     });
@@ -317,6 +324,7 @@ export function TtsProvidersCard(): ReactElement {
                   type="button"
                   title={providerLabels.get(item.id)}
                   className={`weq-agentlab-provider-item${open && selectedId === item.id ? ' is-active' : ''}`}
+                  data-notification-record={`tts:${item.id}`}
                   onClick={() => editProvider(item.id)}
                 >
                   <span className="weq-agentlab-provider-name">
@@ -555,7 +563,7 @@ export function TtsProvidersCard(): ReactElement {
             <div className="weq-provider-modal-actions">
               <button
                 type="button"
-                className="weq-set-btn"
+                className="weq-set-btn weq-set-btn-primary"
                 onClick={() => void onSave()}
                 disabled={saveProvider.isLoading}
               >
@@ -572,6 +580,7 @@ export function TtsProvidersCard(): ReactElement {
                 测试
               </button>
               <button
+                data-danger="outline"
                 type="button"
                 className="weq-set-btn weq-set-btn-soft"
                 onClick={() => void onDelete()}

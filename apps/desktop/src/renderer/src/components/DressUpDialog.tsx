@@ -32,15 +32,9 @@ import {
   Sparkles,
   WifiOff,
   Palette,
-  PhoneCall,
-  Type,
-  Image as ImageIcon,
-  Gem,
-  Wallet,
   Upload,
   Trophy,
   X,
-  Store,
   ChevronRight,
 } from 'lucide-react';
 import type { BubbleSkin, DressBackgroundSource, DressMallItem, DressScope } from '@weq/service';
@@ -56,20 +50,23 @@ import {
 import { bubblePreviewCss } from '../lib/dressSkin';
 import { syncDressSkin, syncDressSkinPreloaded } from '../hooks/useDressSkin';
 import { useNearViewport } from '../hooks/useNearViewport';
+import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
 import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
 import { useVideoPlaybackSlot } from '../hooks/useVideoPlaybackSlot';
 import { fontFaces } from '../lib/fontFaces';
 import { acquireDecorationStyle } from '../lib/decorationResources';
-import { useDecorationSave } from './DecorationSaveControls';
-import { useMediaSave } from './MediaSaveControls';
-import { IS_WEB } from '../lib/target';
+import { useDecorationSave } from './DecorationSaveControls.shared';
+import { useMediaSave } from './MediaSaveControls.shared';
+import { IS_WEB } from '../lib/target.shared';
 import { pickAccountFile } from '../lib/accountFilePicker';
-import { BACKDROP_VEIL_VAR, backdropVeil, ScreenWidget } from './ChatBackdrop';
+import { BACKDROP_VEIL_VAR, backdropVeil } from './ChatBackdrop.shared';
+import { ScreenWidget } from './ChatBackdrop';
 import { WorkspacePage } from './WorkspacePages';
 import { MarketEmojiBrowserLightbox } from '../views/export/MarketEmojiBrowserLightbox';
 import { RedPackSkinWall } from './gift/RedPackSkinWall';
 import '../styles/dressup.css';
 import { ShimmerImage } from './ShimmerImage';
+import { DRESS_KIND_ICONS } from '../lib/featureIcons.shared';
 
 export type DressKind =
   | 'usage'
@@ -81,17 +78,22 @@ export type DressKind =
   | 'emoji'
   | 'redpack';
 
-const KINDS: Array<{ id: DressKind; label: string; icon: ReactElement }> = [
-  { id: 'usage', label: '使用', icon: <Check size={14} /> },
-  { id: 'bubble', label: '聊天气泡', icon: <Palette size={14} /> },
-  { id: 'font', label: '聊天字体', icon: <Type size={14} /> },
-  { id: 'widget', label: '头像挂件', icon: <Gem size={14} /> },
-  { id: 'callbg', label: '通话背景', icon: <PhoneCall size={14} /> },
-  { id: 'background', label: '聊天背景', icon: <ImageIcon size={14} /> },
-  { id: 'emoji', label: '商城表情', icon: <Store size={14} /> },
-  // 红包封面同样只读，且**完全离线**：只读仓库里的 resources/redpack/skins.json。
-  { id: 'redpack', label: '红包封面', icon: <Wallet size={14} /> },
-];
+const KINDS: { id: DressKind; label: string; icon: ReactElement }[] = (
+  [
+    { id: 'usage', label: '使用' },
+    { id: 'bubble', label: '聊天气泡' },
+    { id: 'font', label: '聊天字体' },
+    { id: 'widget', label: '头像挂件' },
+    { id: 'callbg', label: '通话背景' },
+    { id: 'background', label: '聊天背景' },
+    { id: 'emoji', label: '商城表情' },
+    // 红包封面同样只读，且**完全离线**：只读仓库里的 resources/redpack/skins.json。
+    { id: 'redpack', label: '红包封面' },
+  ] satisfies Omit<{ id: DressKind; label: string; icon: ReactElement }, 'icon'>[]
+).map((entry) => {
+  const Icon = DRESS_KIND_ICONS[entry.id];
+  return { ...entry, icon: <Icon size={14} aria-hidden /> };
+});
 
 /** 商城那几类共用一套列表 UI;聊天背景和表情包是各自独立的形状。 */
 type MallKind = 'bubble' | 'font' | 'widget' | 'callbg';
@@ -279,12 +281,14 @@ export function DressUpDialog({
   initialEmojiPackName?: string;
 }): ReactElement {
   const mobile = useMobileWebLayout();
+  const developmentDressTools = useDevelopmentDressTools();
   const dialog = useAppDialog();
   const decorationSave = useDecorationSave();
   const mediaSave = useMediaSave();
   const utils = trpc.useUtils();
 
-  const [kind, setKind] = useState<DressKind>(initialKind);
+  const [selectedKind, setKind] = useState<DressKind>(initialKind);
+  const kind = developmentDressTools ? selectedKind : 'background';
   /** 输入框里的草稿。回车提交后才变成 keyword,避免每敲一个字打一次接口。 */
   const [draft, setDraft] = useState('');
   const [keyword, setKeyword] = useState('');
@@ -690,7 +694,11 @@ export function DressUpDialog({
         </DressCardPreview>
         <div className="weq-dress-card-body">
           <strong title={item.name}>{item.name}</strong>
-          <small>{item.labels.slice(0, 2).join(' · ') || item.mallName || `#${item.itemId}`}</small>
+          <small>
+            {item.labels.slice(0, 2).join(' · ') || item.mallName || (
+              <span className="weq-number weq-number-inherit">#{item.itemId}</span>
+            )}
+          </small>
         </div>
         <div className="weq-dress-card-actions">
           <button
@@ -813,7 +821,14 @@ export function DressUpDialog({
                 <div className="weq-dress-current-info">
                   <span>{item.label}</span>
                   <strong>
-                    {item.itemId ? item.name || `${item.label} ${item.itemId}` : '未使用'}
+                    {item.itemId
+                      ? item.name || (
+                          <>
+                            {item.label}{' '}
+                            <span className="weq-number weq-number-inherit">{item.itemId}</span>
+                          </>
+                        )
+                      : '未使用'}
                   </strong>
                   {!item.itemId && item.kind !== 'callbg' ? <small>按消息记录还原</small> : null}
                 </div>
@@ -978,7 +993,14 @@ export function DressUpDialog({
                 onPointerUp={(e) => void commitOpacity(Number(e.currentTarget.value))}
                 onKeyUp={(e) => void commitOpacity(Number(e.currentTarget.value))}
               />
-              <em>{Math.round(opacityDraft * 100)}%</em>
+              <em>
+                {
+                  <span className="weq-number weq-number-inherit">
+                    {Math.round(opacityDraft * 100)}
+                  </span>
+                }
+                %
+              </em>
             </label>
           ) : null}
         </section>
@@ -1142,7 +1164,7 @@ export function DressUpDialog({
           </div>
 
           <div className="weq-dress-kinds" role="tablist" aria-label="装扮类别">
-            {KINDS.map((k) => (
+            {KINDS.filter((k) => developmentDressTools || k.id === 'background').map((k) => (
               <button
                 key={k.id}
                 type="button"
@@ -1225,7 +1247,9 @@ export function DressUpDialog({
               title="只看已安装的装扮"
             >
               已装
-              <span className="weq-dress-chip-n">{mine.length}</span>
+              <span className="weq-dress-chip-n">
+                <span className="weq-number weq-number-inherit">{mine.length}</span>
+              </span>
             </button>
             {!mineOnly && !searching && rank.data?.source === 'static' ? (
               <span className="weq-dress-hint">离线目录</span>

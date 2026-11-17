@@ -36,6 +36,7 @@ import {
   type DbRepairRecoverOptions,
   type DbRepairRecoverReport,
   type DbRepairWalCheckpoint,
+  type DbRepairRequest,
 } from '../src/account/db_repair';
 import { DbRepairHistory } from '../src/account/db_repair/history';
 
@@ -84,6 +85,7 @@ interface HarnessOptions {
   recover?: (
     options: DbRepairRecoverOptions,
     onProgress: (progress: DbRepairProgress) => void,
+    signal?: AbortSignal,
   ) => Promise<DbRepairRecoverReport>;
   /** 覆盖替换后的复核。 */
   verify?: DbRepairDeps['verify'];
@@ -168,11 +170,11 @@ function createHarness(options: HarnessOptions = {}) {
         algos: options.credentials?.algos ?? { 'nt_msg.db': ALGO },
       };
     },
-    recover: async (recoverOptions, onProgress) => {
+    recover: async (recoverOptions, onProgress, signal) => {
       calls.recover += 1;
       recoverArgs.push(recoverOptions);
       const impl = options.recover ?? defaultRecover;
-      return impl(recoverOptions, onProgress);
+      return impl(recoverOptions, onProgress, signal);
     },
     probeLock: (): DbRepairLockProbe => {
       const probe = probes[Math.min(calls.probe, probes.length - 1)]!;
@@ -208,6 +210,28 @@ function createHarness(options: HarnessOptions = {}) {
 
   return {
     service,
+    repair: (request: DbRepairRequest, onProgress: (item: DbRepairProgress) => void) =>
+      service.repair(
+        {
+          ...request,
+          sourceScan: {
+            dbPath,
+            dbName: 'nt_msg.db',
+            pageSize: 4096,
+            pageCount: 16,
+            badPages: [],
+            zeroPages: [],
+            trailingBytes: 0,
+            plaintext: false,
+            usedHmac: true,
+            headerOffset: 1024,
+            fileSize: originalBytes().length,
+            scannedAt: 0,
+            affected: [],
+          },
+        },
+        onProgress,
+      ),
     dbDir,
     dbPath,
     cacheRoot,
@@ -229,9 +253,36 @@ function collect(progress: DbRepairProgress[]): (progress: DbRepairProgress) => 
 // ────────────────────────── 成功路径 ──────────────────────────
 
 describe('DbRepairService.repair 成功路径', () => {
+  it('没有完整源库扫描时拒绝独立修复，不创建产物或替换原库', async () => {
+    const h = createHarness();
+    await expect(h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {})).rejects.toThrow(
+      '常规扫描',
+    );
+    expect(h.calls.recover).toBe(0);
+    expect(h.calls.released).toBe(0);
+    expect(readFileSync(h.dbPath)).toEqual(originalBytes());
+  });
+
+  it('重建完成但提交前停止，清理临时产物并保存中止报告，原库不替换', async () => {
+    const abort = new AbortController();
+    const h = createHarness({
+      recover: async (options) => {
+        writeFileSync(options.outPath, repairedBytes());
+        abort.abort(new DOMException('主动停止修复', 'AbortError'));
+        return makeReport();
+      },
+    });
+    await expect(
+      h.repair({ uin: REF, dbName: 'nt_msg.db', signal: abort.signal }, () => {}),
+    ).rejects.toThrow();
+    expect(readFileSync(h.dbPath)).toEqual(originalBytes());
+    expect(h.calls.released).toBe(0);
+    expect(h.service.listRecords(REF)[0]?.state).toBe('aborted');
+    expect(readdirSync(h.dbDir).filter((name) => name.includes('.weq-repair-'))).toEqual([]);
+  });
   it('备份 → 重建 → 替换 → 自检，记录与报告齐备', async () => {
     const h = createHarness();
-    const record = await h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
+    const record = await h.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
 
     expect(record.state).toBe('applied');
     expect(record.afterSha).not.toBe(record.beforeSha);
@@ -276,13 +327,13 @@ describe('DbRepairService.repair 成功路径', () => {
     // native 拿到的是同目录临时产物 + 缓存里的 workDir
     const args = h.recoverArgs[0]!;
     expect(args.outPath.startsWith(h.dbDir)).toBe(true);
-    expect(args.workDir).toBe(h.paths().workDir);
+    expect(dirname(args.workDir)).toBe(h.paths().workDir);
     expect(args.key).toBe('test-key');
   });
 
   it('backup: false 时不落备份（记录里如实写 null）', async () => {
     const h = createHarness();
-    const record = await h.service.repair(
+    const record = await h.repair(
       { uin: REF, dbName: 'nt_msg.db', backup: false },
       collect(h.progress),
     );
@@ -293,7 +344,7 @@ describe('DbRepairService.repair 成功路径', () => {
 
   it('strictPages 透传给 native 并写进报告', async () => {
     const h = createHarness();
-    const record = await h.service.repair(
+    const record = await h.repair(
       { uin: REF, dbName: 'nt_msg.db', strictPages: true },
       collect(h.progress),
     );
@@ -310,7 +361,7 @@ describe('DbRepairService.repair 成功路径', () => {
         return makeReport({ sourceLayout: 'standard', targetLayout: 'qq' });
       },
     });
-    const record = await h.service.repair(
+    const record = await h.repair(
       { uin: REF, dbName: 'nt_msg.db', layoutMigration: true },
       collect(h.progress),
     );
@@ -325,7 +376,7 @@ describe('DbRepairService.repair 成功路径', () => {
 
   it('普通修复不传布局参数，记录类型是 repair', async () => {
     const h = createHarness();
-    const record = await h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
+    const record = await h.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
 
     expect(h.recoverArgs[0]?.sourceLayout).toBeUndefined();
     expect(h.recoverArgs[0]?.targetLayout).toBeUndefined();
@@ -335,10 +386,7 @@ describe('DbRepairService.repair 成功路径', () => {
   it('旧 native 产物没有回显布局 → 替换前中止，源库不动', async () => {
     const h = createHarness();
     await expect(
-      h.service.repair(
-        { uin: REF, dbName: 'nt_msg.db', layoutMigration: true },
-        collect(h.progress),
-      ),
+      h.repair({ uin: REF, dbName: 'nt_msg.db', layoutMigration: true }, collect(h.progress)),
     ).rejects.toMatchObject({ code: 'recover-failed' });
 
     expect(readFileSync(h.dbPath)).toEqual(originalBytes());
@@ -353,20 +401,75 @@ describe('DbRepairService.repair 成功路径', () => {
 // ────────────────────────── 中止与失败 ──────────────────────────
 
 describe('修复空间与自定义缓存', () => {
+  it('已写出的重建文件和随后删除的临时件不会让中途检查重复索取整轮空间', async () => {
+    let free = 1e12;
+    const h = createHarness({
+      storageOptimized: () => true,
+      diskSpace: () => ({ volume: 'same', freeBytes: free }),
+      recover: async (options, progress, signal) => {
+        mkdirSync(options.workDir, { recursive: true });
+        writeFileSync(
+          join(options.workDir, 'nt-helper-recover-1-0-rebuilt.db'),
+          Buffer.alloc(64 * 1024),
+        );
+        writeFileSync(options.outPath, Buffer.alloc(32 * 1024));
+        free = 48 * 1024;
+        progress({ phase: 'Encrypt', percent: 85, message: 'synthetic encryption' });
+        expect(signal?.aborted).toBe(false);
+        rmSync(options.workDir, { recursive: true });
+        writeFileSync(options.outPath, repairedBytes());
+        progress({ phase: 'Verify', percent: 97, message: 'synthetic verification' });
+        return makeReport();
+      },
+    });
+    const result = await h.repair(
+      { uin: REF, dbName: 'nt_msg.db', maintenanceId: 'held-lock' },
+      () => {},
+    );
+    expect(result.state).toBe('applied');
+    expect(readFileSync(h.dbPath)).toEqual(repairedBytes());
+  });
+  it('重建过程中余量跌破后续峰值时中断子任务，返回可重试原因且不动源库', async () => {
+    let free = 1e12;
+    const ticks: DbRepairProgress[] = [];
+    const h = createHarness({
+      storageOptimized: () => true,
+      diskSpace: () => ({ volume: 'same', freeBytes: free }),
+      recover: async (options, progress, signal) => {
+        writeFileSync(options.outPath, 'partial');
+        free = 1;
+        progress({ phase: 'Repair', percent: 30, message: 'synthetic recovery' });
+        expect(signal?.aborted).toBe(true);
+        throw signal!.reason;
+      },
+    });
+    await expect(
+      h.repair({ uin: REF, dbName: 'nt_msg.db', maintenanceId: 'held-lock' }, (tick) =>
+        ticks.push(tick),
+      ),
+    ).rejects.toMatchObject({
+      code: 'insufficient-space',
+      sourceUnchanged: true,
+      storage: { cachePath: expect.any(String) },
+    });
+    expect(ticks.some((tick) => tick.storage?.space.some((volume) => volume.freeBytes === 1))).toBe(
+      true,
+    );
+    expect(readFileSync(h.dbPath)).toEqual(originalBytes());
+    expect(readdirSync(h.dbDir)).toEqual(['nt_msg.db']);
+    expect(h.calls.released).toBe(0);
+  });
   it('基线足够但建议余量不足时要求明确确认，确认后正常修复且不跳过备份', async () => {
     const h = createHarness({ diskSpace: () => ({ volume: 'same', freeBytes: 1024 * 1024 }) });
     const budget = h.service.preflight(REF, 'nt_msg.db').space[0]!;
     expect(budget.requiredBytes).toBeLessThan(1024 * 1024);
     expect(budget.recommendedBytes).toBeGreaterThan(1024 * 1024);
-    await expect(
-      h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {}),
-    ).rejects.toMatchObject({ code: 'space-margin' });
+    await expect(h.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {})).rejects.toMatchObject({
+      code: 'space-margin',
+    });
     expect(h.calls.recover).toBe(0);
     expect(readFileSync(h.dbPath)).toEqual(originalBytes());
-    const record = await h.service.repair(
-      { uin: REF, dbName: 'nt_msg.db', allowLowSpace: true },
-      () => {},
-    );
+    const record = await h.repair({ uin: REF, dbName: 'nt_msg.db', allowLowSpace: true }, () => {});
     expect(record.state).toBe('applied');
     expect(readFileSync(record.backupPath!)).toEqual(originalBytes());
   });
@@ -379,7 +482,7 @@ describe('修复空间与自定义缓存', () => {
       }),
     });
     await expect(
-      h.service.repair({ uin: REF, dbName: 'nt_msg.db', allowLowSpace: true }, () => {}),
+      h.repair({ uin: REF, dbName: 'nt_msg.db', allowLowSpace: true }, () => {}),
     ).rejects.toMatchObject({ code: 'insufficient-space' });
     expect(h.calls.recover).toBe(0);
   });
@@ -395,9 +498,7 @@ describe('修复空间与自定义缓存', () => {
     expect(
       result.space.some((item) => item.freeBytes !== null && item.freeBytes < item.requiredBytes),
     ).toBe(true);
-    await expect(h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {})).rejects.toThrow(
-      /空间不足/,
-    );
+    await expect(h.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {})).rejects.toThrow(/空间不足/);
     expect(h.calls.recover).toBe(0);
   });
 
@@ -420,7 +521,7 @@ describe('修复空间与自定义缓存', () => {
   it('切换大文件缓存不移动历史，旧备份仍能回滚', async () => {
     let scratch: string | null = null;
     const h = createHarness({ scratchDir: () => scratch });
-    const old = await h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {});
+    const old = await h.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {});
     const historyFile = h.service.paths(REF).history;
     scratch = tmpDir('custom-cache');
     const paths = h.service.paths(REF);
@@ -439,7 +540,7 @@ describe('修复空间与自定义缓存', () => {
       },
     });
     for (let index = 0; index < 5; index += 1) {
-      await expect(h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {})).rejects.toThrow();
+      await expect(h.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {})).rejects.toThrow();
     }
     const records = h.service.history(REF).list();
     expect(records).toHaveLength(5);
@@ -451,8 +552,8 @@ describe('修复空间与自定义缓存', () => {
 
   it('同一秒连续修复不覆盖已有备份或成功记录', async () => {
     const h = createHarness();
-    const first = await h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {});
-    const second = await h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {});
+    const first = await h.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {});
+    const second = await h.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {});
     expect(second.id).not.toBe(first.id);
     expect(h.service.history(REF).list()).toHaveLength(2);
     expect(readFileSync(first.backupPath!)).toEqual(originalBytes());
@@ -463,7 +564,7 @@ describe('修复空间与自定义缓存', () => {
   it('自定义目录失效时不创建替代目录，仍可读取旧历史', async () => {
     let scratch: string | null = null;
     const h = createHarness({ scratchDir: () => scratch });
-    const old = await h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {});
+    const old = await h.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {});
     scratch = join(h.cacheRoot, 'missing-volume');
     expect(() => h.service.preflight(REF, 'nt_msg.db')).toThrow(/不会创建替代目录/);
     expect(h.service.history(REF).find(old.id)).toBeDefined();
@@ -479,7 +580,7 @@ describe('DbRepairService.repair 中止 / 失败', () => {
       },
     });
     await expect(
-      h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress)),
+      h.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress)),
     ).rejects.toMatchObject({ code: 'recover-failed' });
 
     expect(readFileSync(h.dbPath)).toEqual(originalBytes());
@@ -501,7 +602,7 @@ describe('DbRepairService.repair 中止 / 失败', () => {
     });
 
     await expect(
-      h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress)),
+      h.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress)),
     ).rejects.toMatchObject({ code: 'changed-during-repair' });
 
     // 替换没发生：源库是"被我们模拟写入后的"内容，而不是修复产物
@@ -525,7 +626,7 @@ describe('DbRepairService.repair 中止 / 失败', () => {
       ],
     });
     await expect(
-      h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress)),
+      h.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress)),
     ).rejects.toMatchObject({ code: 'blocked' });
 
     expect(readFileSync(h.dbPath)).toEqual(originalBytes());
@@ -538,7 +639,7 @@ describe('DbRepairService.repair 中止 / 失败', () => {
       verify: async () => ({ healthy: false, corruptedTables: ['group_msg_table'] }),
     });
     await expect(
-      h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress)),
+      h.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress)),
     ).rejects.toMatchObject({ code: 'verify-failed' });
 
     // 库回到修复前
@@ -556,7 +657,7 @@ describe('DbRepairService.repair 中止 / 失败', () => {
     });
     expect(h.service.preflight(REF, 'nt_msg.db').readiness).toBe('blocked-by-qq');
     await expect(
-      h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress)),
+      h.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress)),
     ).rejects.toMatchObject({ code: 'blocked' });
     expect(h.calls.recover).toBe(0);
     expect(h.service.listRecords(REF)).toHaveLength(0);
@@ -575,7 +676,7 @@ describe('DbRepairService.repair 中止 / 失败', () => {
     expect(preflight.readiness).toBe('self-hold');
     expect(preflight.selfHolders).toEqual([{ pid: 7, name: 'WeQ.exe' }]);
 
-    const record = await h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
+    const record = await h.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
     expect(record.state).toBe('applied');
     expect(readFileSync(h.dbPath)).toEqual(repairedBytes());
     // 句柄在替换前确实被释放过（而不是靠"碰巧没被挡住"）
@@ -597,7 +698,7 @@ describe('DbRepairService.repair 中止 / 失败', () => {
     });
     expect(h.service.preflight(REF, 'nt_msg.db').readiness).toBe('blocked-by-other');
     await expect(
-      h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress)),
+      h.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress)),
     ).rejects.toMatchObject({ code: 'blocked' });
     expect(h.calls.recover).toBe(0);
   });
@@ -615,12 +716,12 @@ describe('DbRepairService.repair 中止 / 失败', () => {
       },
     });
 
-    const first = h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
+    const first = h.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
     expect(h.service.isBusy()).toBe(true);
     expect(() => h.service.deleteBackup(REF, 'in-use')).toThrow('已有修复或回滚在进行');
     expect(() => h.service.deleteRecord(REF, 'in-use')).toThrow('已有修复或回滚在进行');
     await expect(
-      h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress)),
+      h.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress)),
     ).rejects.toMatchObject({ code: 'busy' });
     openGate?.();
     expect((await first).state).toBe('applied');
@@ -683,7 +784,7 @@ describe('DbRepairService.resolveTarget', () => {
 
 describe('DbRepairService.restore', () => {
   async function repairOnce(h: ReturnType<typeof createHarness>) {
-    return h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
+    return h.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
   }
 
   it('回滚把库还原成修复前的字节，并记下 restoredAt', async () => {
@@ -750,7 +851,7 @@ describe('DbRepairService.restore', () => {
 
   it('没有备份的记录不能回滚', async () => {
     const h = createHarness();
-    const record = await h.service.repair(
+    const record = await h.repair(
       { uin: REF, dbName: 'nt_msg.db', backup: false },
       collect(h.progress),
     );
@@ -786,7 +887,7 @@ describe('未合并的 WAL（sidecar）', () => {
     writeFileSync(`${h.dbPath}-wal`, Buffer.alloc(16512));
     writeFileSync(`${h.dbPath}-shm`, Buffer.alloc(32768));
 
-    const record = await h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
+    const record = await h.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
 
     expect(record.state).toBe('applied');
     expect(record.pendingWalBytes).toBe(16512);
@@ -817,7 +918,7 @@ describe('未合并的 WAL（sidecar）', () => {
     });
     writeFileSync(`${h.dbPath}-wal`, Buffer.alloc(16512));
 
-    const record = await h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
+    const record = await h.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
 
     expect(record.state).toBe('applied');
     expect(record.walMerged).toBe(false);
@@ -843,7 +944,7 @@ describe('未合并的 WAL（sidecar）', () => {
     });
     writeFileSync(`${h.dbPath}-wal`, Buffer.alloc(16512));
 
-    const record = await h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
+    const record = await h.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
 
     expect(record.state).toBe('applied');
     expect(record.walMerged).toBe(false);
@@ -853,7 +954,7 @@ describe('未合并的 WAL（sidecar）', () => {
 
   it('没有未合并的 WAL 时压根不去动 WAL，记录写 0，报告写"无"', async () => {
     const h = createHarness();
-    const record = await h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
+    const record = await h.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
     expect(record.pendingWalBytes).toBe(0);
     expect(record.walMerged).toBe(false);
     expect(h.calls.checkpoint).toBe(0);
@@ -864,7 +965,7 @@ describe('未合并的 WAL（sidecar）', () => {
 
   it('回滚时清掉产物那一代的 sidecar，再把备份装回去', async () => {
     const h = createHarness();
-    const record = await h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
+    const record = await h.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
     // 修复后 WeQ 又打开过这个库 → 产物旁边留下 sidecar
     writeFileSync(`${h.dbPath}-wal`, Buffer.alloc(8192));
     writeFileSync(`${h.dbPath}-shm`, Buffer.alloc(32768));
@@ -883,7 +984,7 @@ describe('DbRepairService 保留策略', () => {
     const ids: string[] = [];
     for (let round = 0; round < 5; round += 1) {
       h.advanceSeconds(60);
-      const record = await h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
+      const record = await h.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
       ids.push(record.id);
     }
 

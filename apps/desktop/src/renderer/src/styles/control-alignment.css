@@ -1,0 +1,156 @@
+/* 同组控件按所在行的交叉轴拉齐；不统一不同任务区的尺寸或横向内容宽度。 */
+html .weq-set-btn {
+  box-sizing: border-box;
+  min-height: 32px;
+  justify-content: center;
+  line-height: 18px;
+}
+
+html .weq-set-btn.weq-set-btn-sm {
+  min-height: 28px;
+  line-height: 16px;
+}
+
+/* 包装控件也参与拉伸，避免保存组件、分段选择器成为独立的高度来源。
+   保留 checkbox / radio / switch 的固有尺寸，以及多行编辑器的独立高度。 */
+html :is(
+    .weq-set-actions,
+    .weq-set-btn-group,
+    .weq-set-card-action,
+    .weq-settings-page-reset,
+    .weq-backup-actions,
+    .weq-qq-debug-actions,
+    .weq-provider-modal-actions,
+    .weq-set-server-form-actions,
+    .weq-onebot-add-actions,
+    .weq-onebot-server-form-actions,
+    .weq-remote-pair-actions,
+    .weq-clone-actions,
+    .weq-clone-add-footer,
+    .weq-asst-artifact-actions,
+    .weq-qq-action-bar,
+    .weq-dialog-foot,
+    .weq-exp-dialog-foot,
+    .weq-exp-default-actions,
+    .weq-exp-file-toolbar,
+    .weq-exp-detail-actions,
+    .weq-exp-fail-filters,
+    .weq-epk-actions,
+    .weq-compose-foot,
+    .weq-editor-actions,
+    .weq-qzshare-actions,
+    .weq-clean-confirm-foot,
+    .weq-clean-done-actions,
+    .weq-export-report-actions,
+    .weq-rp-actions,
+    .weq-database-recovery-actions,
+    .weq-wtools-rv-actions,
+    .weq-dress-card-actions,
+    .weq-save-action-group,
+    .weq-lightbox-actions,
+    .weq-ocr-panel-foot,
+    .weq-ft-actions,
+    .weq-cap-bar,
+    .weq-udp-bar,
+    .weq-udp-picker-tabs,
+    .weq-udp-filters,
+    .weq-mail-top-actions,
+    .weq-mail-list-tools,
+    .weq-mail-reader-tools,
+    .weq-mail-compose-footer,
+    .weq-mail-link-form,
+    .weq-remote-web-buttons,
+    .weq-contact-actions,
+    .weq-gift-detail-actions,
+    .weq-relhome-actions,
+    .weq-data-saver-duration,
+    .weq-avatar-history-toolbar,
+    .weq-group-bug-title-row,
+    .weq-group-bug-manual,
+    .weq-help-bug-title-row,
+    .weq-qq-write-custom-line,
+    .weq-database-read-controls,
+    .weq-suggestion-fallback-row,
+    .weq-bot-urlrow,
+    .weq-static-inputwrap,
+    .weq-avpath-form,
+    .weq-pb-add,
+    .weq-export-baseline-root,
+    .weq-export-baseline,
+    .weq-record-filters,
+    .weq-density-calendar-tools,
+    .weq-perf-toolbar,
+    .weq-ev-actions,
+    .weq-mf-manual-row,
+    .weq-directory-toolbar,
+    .weq-directory-mode,
+    .weq-msglist-toolbar,
+    .weq-filebrowser-toolbar,
+    .weq-filebrowser-controls,
+    .weq-blob-foot,
+    .weq-mpack-foot,
+    .weq-qzal-toolbar,
+    .weq-file-manager-toolbar,
+    .weq-file-selection-toolbar,
+    .group-file-toolbar,
+    .group-album-toolbar,
+    .group-album-toolbar-actions,
+    .weq-search-scope,
+    .weq-qzn-tools,
+    .weq-qzn-actions,
+    .weq-qzn-navigation nav
+  )
+  > :is(
+    button:not([role='switch'], [role='checkbox'], [role='radio']),
+    input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='hidden']),
+    select,
+    .weq-segmented,
+    .weq-save-action-group
+  ) {
+  align-self: stretch;
+  height: auto;
+}
+
+html
+  :is(
+    .weq-qzn-navigation form,
+    .weq-qzn-composer footer,
+    .weq-qzn-public-composer > div,
+    .weq-content-toolbar > div,
+    .weq-conversation-notice:has(> input)
+  )
+  > :is(button, input, select) {
+  align-self: stretch;
+  height: auto;
+}
+
+html .weq-data-saver-duration > .weq-set-btn {
+  width: 100%;
+}
+
+html .weq-cap-bar > :is(.weq-cap-btn, .weq-cap-iconbtn) {
+  min-height: 24px;
+}
+
+html .weq-density-calendar-tools > button {
+  min-height: 30px;
+}
+
+/* 分段控件的内边距也属于可见外框，旁边的图标键与整个外框等高。 */
+html .weq-graph-overlay .weq-graph-overlay-bar {
+  align-items: stretch;
+}
+
+html .weq-graph-overlay-bar > .weq-graph-icon-btn {
+  align-self: stretch;
+  width: 42px;
+  height: auto;
+  min-height: 42px;
+}
+
+@media (any-pointer: coarse) {
+  html .weq-graph-overlay-bar > .weq-graph-icon-btn {
+    width: 50px;
+    min-height: 50px;
+  }
+}

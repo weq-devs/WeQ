@@ -75,6 +75,7 @@ export function ConversationSelectionToolbar({
       )}
       {actions.includes('delete') && (
         <button
+          data-danger="solid"
           type="button"
           title={deleteReason ?? '永久删除所选 AI 会话'}
           aria-label="永久删除所选 AI 会话"

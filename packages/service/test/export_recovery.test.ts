@@ -446,8 +446,8 @@ it('旧任务只有格式断点时先建立消息基线，之后可继续增量'
   });
   await wait(() => f.manager.getTask(id)?.status === 'completed');
   const task = f.manager.getTask(id)!;
-  expect(task.journalPath).toBeUndefined();
   // 模拟尚未带正式归档字段的旧版持久任务，保留其格式断点兼容路径。
+  delete task.journalPath;
   delete task.archiveId;
   delete task.incrementalSupport;
   task.status = 'paused';
@@ -682,7 +682,7 @@ it('多格式直接写入独立目标包，增量和暂停不把几个格式写�
   expect(task.save?.path).toBe(task.bundleDir);
 });
 
-it('非结构化结果不提供增量，新增格式新建任务且不覆盖原文件', async () => {
+it('没有消息基线的旧非结构化结果不提供增量，新增格式新建任务且不覆盖原文件', async () => {
   const f = fixture(3);
   const target = join(f.root, 'options-change');
   mkdirSync(target);
@@ -698,6 +698,9 @@ it('非结构化结果不提供增量，新增格式新建任务且不覆盖原�
   const task = f.manager.getTask(id)!;
   const original = task.filePath!,
     bytes = readFileSync(original);
+  delete task.journalPath;
+  delete task.archiveId;
+  delete task.incrementalSupport;
   task.formats = ['txt', 'json'];
   expect(f.manager.resumeTask(id, true)).toBe(false);
   const next = await f.manager.startTask({

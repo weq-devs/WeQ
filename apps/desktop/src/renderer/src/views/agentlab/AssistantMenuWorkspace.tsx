@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { MessageSquarePlus, MessagesSquare, RefreshCw, Trash2 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { AssistantPanel } from './AssistantPanel';
-import { TabActivity, useTabActive } from '../../components/RetainedTabs';
+import { TabActivity } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import { useWorkspaceMenu } from '../../state/workspaceMenu';
 import type { AssistantActivity } from '../../lib/workspaceIndicators';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
@@ -164,6 +165,7 @@ export function AssistantMenuWorkspace({
     if (
       !(await dialog.confirm('删除会话', '确认删除这段对话？删除后无法恢复。', {
         okLabel: '删除',
+        danger: 'solid',
         tone: 'warning',
       }))
     )
@@ -202,6 +204,7 @@ export function AssistantMenuWorkspace({
                 <span>{session.title || '新会话'}</span>
               </button>
               <button
+                data-danger="outline"
                 type="button"
                 title="删除会话"
                 aria-label={`删除会话 ${session.title}`}

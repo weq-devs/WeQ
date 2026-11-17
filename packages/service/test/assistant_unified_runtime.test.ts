@@ -260,6 +260,9 @@ function heldResponse(init?: RequestInit, initial = '') {
   });
   return {
     response: new Response(body),
+    append(text: string) {
+      if (!closed && stream) stream.enqueue(new TextEncoder().encode(sse({ content: text })));
+    },
     finish(text: string) {
       if (!closed && stream) {
         stream.enqueue(new TextEncoder().encode(sse({ content: text }) + 'data: [DONE]\n\n'));
@@ -269,6 +272,162 @@ function heldResponse(init?: RequestInit, initial = '') {
     },
   };
 }
+it('停止保留正文和空白，重开恢复在同一消息中续流，再次立即停止也不丢内容', async () => {
+  const f = fixture();
+  const requests: Array<{ stream?: boolean; messages: Array<{ role: string; content: string }> }> =
+    [];
+  const responses: ReturnType<typeof heldResponse>[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: unknown, init?: RequestInit) => {
+      requests.push(JSON.parse(String(init?.body)));
+      const held = heldResponse(init, responses.length === 0 ? '已有正文\n\n' : '');
+      responses.push(held);
+      return held.response;
+    }),
+  );
+  f.submit('a', '问题');
+  await vi.waitFor(() =>
+    expect(f.events.some((event) => event.step.kind === 'text_delta')).toBe(true),
+  );
+  f.service.stopSession(f.sessionId);
+  await vi.waitFor(() => expect(f.service.getQueue(f.sessionId).running).toBe(false));
+  const stopped = f.service.getConversation(f.sessionId).at(-1)!;
+  expect(stopped).toMatchObject({ text: '已有正文\n\n', status: 'stopped' });
+
+  const reopened = f.create();
+  const resumed: AssistantTaskEvent[] = [];
+  reopened.continueSession(f.sessionId, (event) => resumed.push(event));
+  await vi.waitFor(() => expect(responses).toHaveLength(2));
+  expect(reopened.getConversation(f.sessionId).at(-1)).toMatchObject({
+    id: stopped.id,
+    text: stopped.text,
+    status: 'running',
+  });
+  expect(
+    resumed.some((event) => event.step.kind === 'turn' && event.step.turn.status === 'running'),
+  ).toBe(true);
+  expect(requests[1]).toMatchObject({ stream: true });
+  expect(requests[1]!.messages).toContainEqual({ role: 'assistant', content: stopped.text });
+  reopened.stopSession(f.sessionId);
+  await vi.waitFor(() => expect(reopened.getQueue(f.sessionId).running).toBe(false));
+  expect(reopened.getConversation(f.sessionId).at(-1)?.text).toBe(stopped.text);
+
+  reopened.continueSession(f.sessionId, (event) => resumed.push(event));
+  await vi.waitFor(() => expect(responses).toHaveLength(3));
+  responses[2]!.append('继续');
+  await vi.waitFor(() =>
+    expect(
+      resumed.some((event) => event.step.kind === 'text_delta' && event.step.text === '继续'),
+    ).toBe(true),
+  );
+  expect(reopened.getQueue(f.sessionId).running).toBe(true);
+  responses[2]!.finish('输出');
+  await vi.waitFor(() => expect(reopened.getQueue(f.sessionId).running).toBe(false));
+  expect(reopened.getConversation(f.sessionId)).toHaveLength(2);
+  expect(reopened.getConversation(f.sessionId).at(-1)).toMatchObject({
+    id: stopped.id,
+    text: '已有正文\n\n继续输出',
+    status: 'complete',
+  });
+  expect(
+    resumed.some(
+      (event) =>
+        event.messageId === stopped.id &&
+        event.step.kind === 'text_delta' &&
+        event.step.text === '输出',
+    ),
+  ).toBe(true);
+});
+it('未输出正文时停止不写占位，恢复仍能流式输出', async () => {
+  const f = fixture();
+  const held: ReturnType<typeof heldResponse>[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const current = heldResponse(init);
+      held.push(current);
+      return current.response;
+    }),
+  );
+  f.submit('a', '问题');
+  await vi.waitFor(() => expect(held).toHaveLength(1));
+  f.service.stopSession(f.sessionId);
+  await vi.waitFor(() => expect(f.service.getQueue(f.sessionId).running).toBe(false));
+  expect(f.service.getConversation(f.sessionId).at(-1)).toMatchObject({
+    text: '',
+    status: 'stopped',
+  });
+  f.service.continueSession(f.sessionId);
+  await vi.waitFor(() => expect(held).toHaveLength(2));
+  held[1]!.finish('正常输出');
+  await vi.waitFor(() => expect(f.service.getQueue(f.sessionId).running).toBe(false));
+  expect(f.service.getConversation(f.sessionId).at(-1)).toMatchObject({
+    text: '正常输出',
+    status: 'complete',
+  });
+});
+
+it('恢复半截正文沿用已完成工具结果，不重放工具或把旧片段带到新一轮', async () => {
+  const run = vi.fn(async () => ({ result: '已核实' }));
+  const f = fixture({
+    specs: () => [
+      {
+        type: 'function',
+        function: { name: 'read_fixture', description: 'fixture', parameters: {} },
+      },
+    ],
+    run,
+  });
+  let calls = 0;
+  let resumedMessages: Array<{ role: string; content: string; tool_call_id?: string }> = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: unknown, init?: RequestInit) => {
+      if (++calls === 1)
+        return new Response(
+          sse({
+            content: '先读取资料。',
+            tool_calls: [
+              {
+                index: 0,
+                id: 'tool-a',
+                type: 'function',
+                function: { name: 'read_fixture', arguments: '{}' },
+              },
+            ],
+          }) + 'data: [DONE]\n\n',
+        );
+      if (calls === 2) {
+        return heldResponse(init, '查询结论：').response;
+      }
+      resumedMessages = JSON.parse(String(init?.body)).messages;
+      return response('资料完整。');
+    }),
+  );
+  f.submit('a', '查资料');
+  await vi.waitFor(() =>
+    expect(
+      f.events.some(
+        (event) => event.step.kind === 'text_delta' && event.step.text === '查询结论：',
+      ),
+    ).toBe(true),
+  );
+  f.service.stopSession(f.sessionId);
+  await vi.waitFor(() => expect(f.service.getQueue(f.sessionId).running).toBe(false));
+  expect(f.service.getConversation(f.sessionId).at(-1)?.text).toBe('查询结论：');
+  f.service.continueSession(f.sessionId);
+  await vi.waitFor(() => expect(f.service.getQueue(f.sessionId).running).toBe(false));
+  expect(f.service.getConversation(f.sessionId).at(-1)?.text).toBe('查询结论：资料完整。');
+  expect(run).toHaveBeenCalledOnce();
+  expect(calls).toBe(3);
+  const toolResult = resumedMessages.find(
+    (message) => message.role === 'tool' && message.tool_call_id === 'tool-a',
+  );
+  expect(toolResult).toBeDefined();
+  expect(JSON.parse(toolResult!.content)).toEqual({ result: '已核实' });
+});
+
 it('发送不带模式覆盖时使用应用默认，重试不因默认改变而重新受理', async () => {
   const f = fixture();
   let first: ReturnType<typeof heldResponse> | undefined;

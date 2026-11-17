@@ -148,12 +148,59 @@ function syncTask(value: Entry) {
   };
   if (status === 'running') backgroundTasks.update(value.taskId, patch);
   else backgroundTasks.finish(value.taskId, status, patch);
-  if ((status === 'running') !== previous.actions.some((action) => action.id === 'stop'))
+  const actionId =
+    status === 'running'
+      ? 'stop'
+      : status === 'cancelled' || status === 'paused'
+        ? 'retry'
+        : undefined;
+  if (previous.actions[0]?.id !== actionId)
     backgroundTasks.setActions(
       value.taskId,
       status === 'running'
         ? [{ id: 'stop', label: '停止统计', run: () => value.job.cancel() }]
-        : [],
+        : actionId === 'retry'
+          ? [
+              {
+                id: 'retry',
+                label: '重试统计',
+                run: async () => {
+                  const assertCurrent = () => {
+                    if (
+                      getAppContext().account !== value.session ||
+                      ![...(sessions.get(value.session)?.values() ?? [])].includes(value)
+                    )
+                      throw new Error('日历任务已结束，请回到原账号重新打开日历');
+                  };
+                  assertCurrent();
+                  await value.job.settled();
+                  assertCurrent();
+                  if (value.job.controller.signal.aborted) {
+                    value.job.resume();
+                    value.job.controller.signal.addEventListener('abort', () => syncTask(value), {
+                      once: true,
+                    });
+                  }
+                  value.job.retryTimedOut();
+                  value.job.control('month', 'continue');
+                  withDatabasePriority(
+                    'background',
+                    () =>
+                      withDatabaseReadBudget(
+                        10,
+                        () => value.job.continueInBackground(),
+                        (ms) => value.job.observeRead(ms),
+                        () => value.job.noteWaiting(),
+                        (state) => value.job.observeState(state),
+                      ),
+                    value.job.controller.signal,
+                  );
+                  syncTask(value);
+                  void value.job.settled().then(() => syncTask(value));
+                },
+              },
+            ]
+          : [],
     );
 }
 
@@ -235,6 +282,7 @@ export const conversationCalendarRouter = router({
           });
         }
         if (input.refresh) value.job.invalidate();
+        value.job.retryTimedOut();
         value.job.setKinds(input.kinds ?? [...CALENDAR_SOURCE_ORDER]);
         runJob(value, value.day);
         syncTask(value);
@@ -259,7 +307,9 @@ export const conversationCalendarRouter = router({
         targets: unique,
         readers: new Map<CalendarKind, CalendarMetadataDb>(),
       };
+      let tracked: Entry | undefined;
       const sources = createCalendarSources(value, native, () => {
+        tracked?.job.controller.signal.throwIfAborted();
         if (getAppContext().account !== value.session)
           throw new DOMException('账号已切换', 'AbortError');
       });
@@ -277,7 +327,6 @@ export const conversationCalendarRouter = router({
         }
         return true;
       };
-      let tracked: Entry | undefined;
       let lastSync = 0;
       const job = new ConversationCalendarJob(input.month, unique, sources, reserve, () => {
         if (tracked?.loaded) tracked.store?.schedule();
@@ -329,6 +378,7 @@ export const conversationCalendarRouter = router({
         retire(cache.get(first));
         cache.delete(first);
       }
+      job.retryTimedOut();
       job.setKinds(input.kinds ?? [...CALENDAR_SOURCE_ORDER]);
       runJob(tracked);
       entry.store?.schedule();

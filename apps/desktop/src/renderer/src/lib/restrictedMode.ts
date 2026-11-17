@@ -87,8 +87,8 @@ export function restrictionReasons(input: {
   if (!access.attachEnabled)
     reasons.push({
       code: 'disabled',
-      title: '本次运行未启用完整功能',
-      guidance: '可为当前来源启用完整功能；不会改变自动启用偏好，下次启动仍按原偏好运行。',
+      title: '本次运行未启用 QQ 在线能力',
+      guidance: '可为当前来源启用 QQ 在线能力；不会改变自动启用偏好，下次启动仍按原偏好运行。',
     });
   const sessionReady =
     access.hasA2 && access.hasD2 && access.hasD2Key && access.needsMemoryRead !== true;
@@ -125,5 +125,5 @@ export function restrictionReasons(input: {
 }
 
 export function restrictedActionTitle(action: string): string {
-  return `受限模式下无法${action}`;
+  return `在线能力受限，无法${action}`;
 }

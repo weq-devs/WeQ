@@ -14,19 +14,20 @@
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
-import { Users, UsersRound, Image as ImageIcon, Calculator } from 'lucide-react';
+import { UserRound, UsersRound, Image as ImageIcon, Calculator } from 'lucide-react';
 import type { AvatarEntry, AvatarScope, AvatarScopeInfo } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { AvatarPathDialog } from './AvatarPathDialog';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { EmptyState } from '../../components/EmptyState';
-import { CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
+import { CURSOR_PAGE, fmtBytes, useCursorPaged } from './CacheShared.shared';
+import { GridFooter } from './CacheShared';
 import { GridSkeleton, InlineSkeleton } from './CacheSkeleton';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 
 const SCOPE_META: Record<AvatarScope, { label: string; icon: ReactElement }> = {
-  user: { label: '好友头像', icon: <Users size={14} /> },
+  user: { label: '好友头像', icon: <UserRound size={14} /> },
   group: { label: '群头像', icon: <UsersRound size={14} /> },
   cover: { label: '封面', icon: <ImageIcon size={14} /> },
 };
@@ -75,7 +76,9 @@ export function AvatarExplorer(): ReactElement {
           >
             {SCOPE_META[s.scope].icon}
             <span>{SCOPE_META[s.scope].label}</span>
-            <em className="weq-cache-avatar-tabcount">{s.count}</em>
+            <em className="weq-cache-avatar-tabcount">
+              <span className="weq-number weq-number-inherit">{s.count}</span>
+            </em>
           </button>
         ))}
         {scopes.isLoading && scopeList.length === 0 ? (
@@ -155,7 +158,9 @@ function AvatarCard({ scope, entry }: { scope: AvatarScope; entry: AvatarEntry }
       </div>
       <figcaption className="weq-cache-avatar-meta">
         <span className="weq-cache-avatar-hash">{entry.hash.slice(0, 10)}…</span>
-        <span className="weq-cache-avatar-size">{fmtBytes(totalBytes)}</span>
+        <span className="weq-cache-avatar-size">
+          <span className="weq-number weq-number-inherit">{fmtBytes(totalBytes)}</span>
+        </span>
       </figcaption>
     </figure>
   );

@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ExportSavePolicy } from '@weq/service';
 import { MarketImageSave } from '../src/renderer/src/components/MarketImageSave';
+vi.mock('../src/renderer/src/hooks/useDevelopmentDressTools', () => ({
+  useDevelopmentDressTools: () => true,
+}));
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -24,6 +27,11 @@ vi.mock('../src/renderer/src/lib/target', () => ({
     return state.web;
   },
 }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({
+  get IS_WEB() {
+    return state.web;
+  },
+}));
 vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   useExportSavePolicy: () => ({
     binding: { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' },
@@ -32,7 +40,14 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
     isCurrent: () => state.current,
   }),
 }));
-vi.mock('../src/renderer/src/components/Toast', () => ({ useToast: () => state.toast }));
+vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToastApi: () => ({ push: state.toast }),
+  useToast: () => state.toast,
+}));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
+  useToastApi: () => ({ push: state.toast }),
+  useToast: () => state.toast,
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     account: {

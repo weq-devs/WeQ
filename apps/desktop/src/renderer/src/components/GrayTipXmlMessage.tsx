@@ -4,7 +4,7 @@ import { DOMParser, type Node } from '@xmldom/xmldom';
 import { FaceEmoji } from './FaceEmoji';
 import { GrayTipPerson } from './GrayTipPerson';
 import { createGrayTipNameResolver, createGrayTipPersonKey } from '../lib/grayTipProfile';
-import { ReplyJumpContext } from './QqMessageContent';
+import { ReplyJumpContext } from '../state/messageContext';
 import '../styles/gray-tip-message.css';
 
 interface GrayTipXmlMessageProps {

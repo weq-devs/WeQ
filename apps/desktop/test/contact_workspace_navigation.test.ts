@@ -3,13 +3,14 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
-import { useToast } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { pageSnapshots, pageValue } from '../src/renderer/src/lib/pageSnapshots';
 import {
   useChatShellController,
   noopChatShellHistoryAdapter,
 } from '../src/renderer/src/im-template/template/shellController';
 import type { Contact, GroupConversation } from '../src/renderer/src/im-template/template/types';
+import { mobileBack, resetMobileRoot } from '../src/renderer/src/hooks/useMobileNavigation';
 
 const person: Contact = {
   id: 'u_known',
@@ -41,8 +42,30 @@ const group: GroupConversation = {
 const cleanups: Array<() => void> = [];
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
+  resetMobileRoot();
   useToast.setState({ toasts: [] });
   vi.unstubAllGlobals();
+});
+
+it('手机从通知进入资料并连续查看其他资料，逐级返回原来源而非跳到联系人首页', () => {
+  vi.stubGlobal('matchMedia', (media: string) =>
+    Object.assign(new EventTarget(), { matches: media.includes('max-width'), media }),
+  );
+  const shell = mount();
+  act(() => shell.state().switchView('contacts'));
+  act(() => shell.state().openContactNotice('friend'));
+  act(() => shell.state().openContactDetails(person));
+  act(() => shell.state().openGroupDetails(group));
+  act(() => shell.state().backGroup());
+  expect(shell.state().selectedContactId).toBe(person.id);
+  expect(shell.state().selectedGroupConversationId).toBeNull();
+  expect(shell.state().contactNotice).toBeNull();
+  act(() => shell.state().backContact());
+  expect(shell.state().contactNotice).toBe('friend');
+  expect(shell.state().selectedContactId).toBeNull();
+  act(() => shell.state().backContactNotice());
+  expect(shell.state().view).toBe('contacts');
+  expect(shell.state().contactNotice).toBeNull();
 });
 
 function mount(
@@ -253,6 +276,49 @@ it('直接进入联系人且尚未打开好友或群聊时，默认显示群交�
   expect(p.state().selectedContact).toBeUndefined();
   expect(p.state().selectedGroupConversation).toBeUndefined();
   expect(p.state().contactOverviewOpen).toBe(true);
+});
+
+it('横屏可从任意资料切换到群交集，不改变目录分类和查询', () => {
+  const p = mount();
+  act(() => p.state().openGroupDetails(group));
+  act(() => p.state().setQuery('保留筛选'));
+  act(() => p.state().openContactOverview());
+  expect(p.state().view).toBe('contacts');
+  expect(p.state().contactTab).toBe('groups');
+  expect(p.state().query).toBe('保留筛选');
+  expect(p.state().selectedContact).toBeUndefined();
+  expect(p.state().selectedGroupConversation).toBeUndefined();
+  expect(p.state().contactNotice).toBeNull();
+  expect(p.state().contactOverviewOpen).toBe(true);
+});
+
+it('竖屏群交集独立进入，资料返回图谱，再返回原目录且不残留旧返回层', () => {
+  vi.stubGlobal('matchMedia', (media: string) =>
+    Object.assign(new EventTarget(), { matches: media.includes('max-width'), media }),
+  );
+  const p = mount();
+  act(() => p.state().switchView('contacts'));
+  act(() => p.state().changeContactTab('groups'));
+  act(() => p.state().setQuery('保留筛选'));
+  expect(p.state().mainOpen).toBe(false);
+  act(() => p.state().openContactOverview());
+  expect(p.state().mainOpen).toBe(true);
+  act(() => p.state().openContactDetails(person));
+  act(() => p.state().backContact());
+  expect(p.state().mainOpen).toBe(true);
+  expect(p.state().contactOverviewOpen).toBe(true);
+  expect(p.state().selectedContact).toBeUndefined();
+  expect(p.state().contactTab).toBe('groups');
+  act(() => p.state().backContactOverview());
+  expect(p.state().mainOpen).toBe(false);
+  expect(p.state().contactTab).toBe('groups');
+  expect(p.state().query).toBe('保留筛选');
+  expect(mobileBack()).toBe(false);
+  act(() => p.state().openContactOverview());
+  act(() => p.state().switchView('messages'));
+  act(() => p.state().switchView('contacts'));
+  expect(p.state().mainOpen).toBe(false);
+  expect(mobileBack()).toBe(false);
 });
 
 it.each(['home', 'messages', 'qzone', 'export', 'agentlab'] as const)(

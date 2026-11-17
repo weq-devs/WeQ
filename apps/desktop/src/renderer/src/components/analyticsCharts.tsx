@@ -12,29 +12,7 @@ import * as timeFormat from '@weq/time';
 import { Loader2, CalendarDays } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '../im-template/template/classNames';
-
-export const ACCENT = 'var(--weq-accent-effective)';
-
-/**
- * Accent-following categorical palette. Every entry is a `color-mix` dominated
- * by the picked accent, so a multi-category chart reads as one cohesive theme
- * colour instead of a clashing rainbow — the categories stay distinguishable
- * via a small hue nudge, but the whole thing follows 设置里的主题色. Mirrors the
- * WordCloud approach below.
- */
-export const ACCENT_SERIES = [
-  'var(--weq-accent-effective)',
-  'color-mix(in srgb, var(--weq-accent-effective) 80%, #8b5cf6)',
-  'color-mix(in srgb, var(--weq-accent-effective) 72%, #06b6d4)',
-  'color-mix(in srgb, var(--weq-accent-effective) 74%, #22c55e)',
-  'color-mix(in srgb, var(--weq-accent-effective) 76%, #f59e0b)',
-  'color-mix(in srgb, var(--weq-accent-effective) 72%, #ec4899)',
-  'color-mix(in srgb, var(--weq-accent-effective) 64%, #f43f5e)',
-  'color-mix(in srgb, var(--weq-fg-primary) 42%, var(--weq-accent-effective))',
-] as const;
-
-/** A soft, theme-neutral colour for a "misc/其它" slice. */
-export const ACCENT_MUTED = 'color-mix(in srgb, var(--weq-fg-primary) 26%, transparent)';
+import { formatNumber, ACCENT } from './analyticsCharts.shared';
 
 export interface DailyActivityItem {
   date: string;
@@ -44,21 +22,6 @@ export interface DailyActivityItem {
 export interface WordCloudItem {
   word: string;
   count: number;
-}
-
-export function formatNumber(n: number): string {
-  if (n >= 10000) return `${(n / 10000).toFixed(1)}万`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return String(n);
-}
-
-export function formatDate(ts: number | null): string {
-  return ts && ts > 0 ? timeFormat.formatUnixTime(ts) || '-' : '-';
-}
-
-/** Human-readable duration from seconds: 12秒 / 3分20秒 / 1.5小时 / 2天. */
-export function formatDuration(sec: number): string {
-  return timeFormat.formatDuration(sec, 'approximate') || '-';
 }
 
 /* ------------------------------------------------------------------ */
@@ -146,7 +109,8 @@ export function DonutChart({
               <span className="ba-donut-dot" style={{ background: s.color }} />
               <span className="ba-donut-lbl">{s.label}</span>
               <span className="ba-donut-val">
-                {formatNumber(s.value)} · {pct}%
+                <span className="weq-number weq-number-inherit">{formatNumber(s.value)}</span> ·{' '}
+                <span className="weq-number weq-number-inherit">{pct}</span>%
               </span>
             </div>
           );
@@ -176,7 +140,13 @@ export function HourlyBarChart({
         return (
           // biome-ignore lint/suspicious/noArrayIndexKey: 固定 24 小时槽位,索引即稳定键
           <div className="ga-bar-col" key={hour}>
-            <div className="ga-bar-value-label">{value > 0 ? formatNumber(value) : ''}</div>
+            <div className="ga-bar-value-label">
+              {value > 0 ? (
+                <span className="weq-number weq-number-inherit">{formatNumber(value)}</span>
+              ) : (
+                ''
+              )}
+            </div>
             <div className="ga-bar-track">
               <div
                 className="ga-bar-fill"
@@ -186,7 +156,9 @@ export function HourlyBarChart({
                 }}
               />
             </div>
-            <div className="ga-bar-hour-label">{hour}</div>
+            <div className="ga-bar-hour-label">
+              <span className="weq-number weq-number-inherit">{hour}</span>
+            </div>
           </div>
         );
       })}
@@ -199,18 +171,18 @@ export function HourlyBarChart({
 /* ------------------------------------------------------------------ */
 
 const MONTH_NAMES = [
-  '1月',
-  '2月',
-  '3月',
-  '4月',
-  '5月',
-  '6月',
-  '7月',
-  '8月',
-  '9月',
-  '10月',
-  '11月',
-  '12月',
+  '1 月',
+  '2 月',
+  '3 月',
+  '4 月',
+  '5 月',
+  '6 月',
+  '7 月',
+  '8 月',
+  '9 月',
+  '10 月',
+  '11 月',
+  '12 月',
 ];
 const DAY_MS = 86400000;
 /** The heatmap always renders a full trailing year (53 weeks ≈ 371 days). */
@@ -290,8 +262,15 @@ export function ContributionHeatmap({ data }: { data: DailyActivityItem[] }) {
     <div className="ga-heatmap">
       <div className="ga-hm-meta">
         <span>
-          共 <strong>{formatNumber(model.total)}</strong> 条消息 · 活跃{' '}
-          <strong>{model.activeDays}</strong> 天
+          共{' '}
+          <strong>
+            <span className="weq-number weq-number-inherit">{formatNumber(model.total)}</span>
+          </strong>{' '}
+          条消息 · 活跃{' '}
+          <strong>
+            <span className="weq-number weq-number-inherit">{model.activeDays}</span>
+          </strong>{' '}
+          天
         </span>
       </div>
       <div className="ga-hm-scroll">

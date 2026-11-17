@@ -87,6 +87,23 @@ try {
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 844 });
     for (const theme of ['light', 'dark']) {
+      await open(30, 30, width < 760, theme, 'unsupported');
+      assert.equal(await page.getByRole('menuitem', { name: '转发', exact: true }).count(), 0);
+      if (output)
+        await page.screenshot({ path: resolve(output, `unsupported-${width}-${theme}.png`) });
+      await open(30, 30, width < 760, theme, 'offline');
+      const forward = page.getByRole('menuitem', { name: '转发', exact: true });
+      assert.equal(await forward.getAttribute('aria-disabled'), 'true');
+      await forward.focus();
+      await page.keyboard.press('Enter');
+      assert(!(await page.evaluate(() => window.menuActions.includes('转发'))));
+      assert.equal(await forward.getAttribute('title'), 'QQ 在线能力暂不可用');
+      await page.keyboard.press('Escape');
+    }
+  }
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const theme of ['light', 'dark']) {
       const scroll = page.locator('.menu-fixture-scroll');
       const thumb = page.locator('.weq-message-scrollbar .weq-custom-scrollbar-thumb');
       await scroll.evaluate((element) => {

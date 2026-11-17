@@ -1,8 +1,7 @@
 /**
  * 会话列表里的虚拟会话头像 / 徽标。
  *
- * - 克隆体：沿用源好友头像，右下角叠一个「对话气泡 + 星」的小角标，和 QQ 官方
- *   机器人的 Bot 图标区分开。
+ * - 克隆体：沿用源好友头像，右下角叠与克隆导航一致的身份角标。
  * - 克隆群：用成员头像拼合成头像（布局见 GroupMosaicAvatar，2/3/4 人都能铺满），
  *   右下角叠「群聊」角标 —— 一眼能看出这是「一群人」而不是单个克隆体。
  *
@@ -10,10 +9,11 @@
  */
 
 import { useState, type ReactElement } from 'react';
-import { MessagesSquare, Sparkles, Users } from 'lucide-react';
+import { Users } from 'lucide-react';
+import { FEATURE_ICONS } from '../lib/featureIcons.shared';
 import type { VirtualConversation } from '../lib/conversationDirectory';
 import { GroupMosaicAvatar } from './GroupMosaicAvatar';
-import { qqAvatarUrl } from './QqAvatar';
+import { qqAvatarUrl } from './QqAvatar.shared';
 import { useAvatarUrl } from '../hooks/useAvatarUrl';
 import '../styles/virtual-conversation.css';
 
@@ -67,9 +67,9 @@ export function VirtualConversationBadge({ group = false }: { group?: boolean })
       aria-label={group ? '克隆群聊' : '克隆体'}
     >
       {group ? (
-        <MessagesSquare size={10} strokeWidth={2.4} />
+        <FEATURE_ICONS.cloneGroup size={10} strokeWidth={2.4} aria-hidden />
       ) : (
-        <Sparkles size={10} strokeWidth={2.4} />
+        <FEATURE_ICONS.clone size={10} strokeWidth={2.4} aria-hidden />
       )}
     </span>
   );

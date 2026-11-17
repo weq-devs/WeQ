@@ -1,5 +1,6 @@
 export type DataSaverMode = 'auto' | 'always' | 'never';
 export const dataSaverBehaviorDefaults = {
+  dataSaverOnMetered: false,
   dataSaverImageLoading: 'thumbnail' as 'none' | 'thumbnail' | 'original',
   dataSaverAvatars: true,
   dataSaverEmoji: false,
@@ -41,8 +42,17 @@ export function networkCost(constrained: boolean, metered: boolean, source: stri
     source,
   };
 }
-export function dataSaverEnabled(mode: DataSaverMode, ...networks: NetworkCost[]): boolean {
-  return mode === 'always' || (mode !== 'never' && networks.some((n) => n.state === 'restricted'));
+export function networkRestricted(cost: NetworkCost, onMetered = false): boolean {
+  return cost.state === 'restricted' && (cost.constrained || (onMetered && cost.metered));
+}
+export function dataSaverEnabled(
+  mode: DataSaverMode,
+  networks: NetworkCost[],
+  onMetered = false,
+): boolean {
+  return (
+    mode === 'always' || (mode === 'auto' && networks.some((n) => networkRestricted(n, onMetered)))
+  );
 }
 export type DataSaverChangeReason =
   | 'initial'
@@ -78,6 +88,7 @@ export interface DataSaverStatus {
 export class DataSaverSession {
   private sessionId = globalThis.crypto.randomUUID();
   private mode: DataSaverMode = 'auto';
+  private onMetered = false;
   private host = UNKNOWN_NETWORK;
   private clients = new Map<string, NetworkCost>();
   private temporary: DataSaverTemporary | null = null;
@@ -104,18 +115,19 @@ export class DataSaverSession {
       effectiveMode,
       host: this.host,
       local,
-      enabled: dataSaverEnabled(effectiveMode, this.host, local),
+      enabled: dataSaverEnabled(effectiveMode, [this.host, local], this.onMetered),
       temporary: this.temporary ? { ...this.temporary } : null,
       pendingTasks: this.pendingTasks,
       revision: this.revision,
       reason: this.reason,
     };
   }
-  update(mode: DataSaverMode, cost: NetworkCost) {
-    const modeChanged = mode !== this.mode;
+  update(mode: DataSaverMode, cost: NetworkCost, onMetered = false) {
+    const modeChanged = mode !== this.mode || onMetered !== this.onMetered;
     const host = cost.state === 'unknown' && this.host.state !== 'unknown' ? this.host : cost;
     const networkChanged = JSON.stringify(host) !== JSON.stringify(this.host);
     this.mode = mode;
+    this.onMetered = onMetered;
     this.host = host;
     if (modeChanged) this.cancelTimer();
     if (modeChanged) this.temporary = null;

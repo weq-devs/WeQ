@@ -208,7 +208,7 @@ export function SetEmojiReactions({
               <ReactionEmoji emojiId={item.emojiId} label={item.emojiId} />
               <span className={cn('msg-reaction-count', loading && 'is-loading')}>
                 <span className="msg-reaction-count-value" aria-hidden={loading || undefined}>
-                  {item.setNum}
+                  <span className="weq-number weq-number-inherit">{item.setNum}</span>
                 </span>
                 {loading ? (
                   <span className="msg-reaction-loading" role="status" aria-label={loadingLabel}>

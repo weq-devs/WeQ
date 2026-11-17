@@ -8,20 +8,18 @@ import {
   startupRestrictionReasons,
   dataAccessRestriction,
 } from '../lib/restrictedMode';
-import { IS_MAC } from '../lib/target';
+import { IS_MAC } from '../lib/target.shared';
 import { QqDataAccessNotice } from '../views/bootstrap/QqDataAccessNotice';
 import { useRestrictedMode, type AuthorizationRequest } from '../state/restrictedMode';
 import { useViewState } from '../state/view';
-import { useToast } from './Toast';
+import { useToastApi } from './Toast.shared';
+import { notificationSource } from '../lib/notificationNavigation.shared';
 import { useOverlayLayer } from '../lib/overlayStack';
 import { topSurface } from '../lib/surfaceEscape';
 import '../styles/restricted-mode.css';
+import { ipc } from './RestrictedMode.shared';
 
 const NOTICE_KEY = 'restricted-mode';
-
-function ipc() {
-  return window.electron?.ipcRenderer;
-}
 
 /** 保留主进程的 token、取消与超时语义，只将授权入口改为非阻塞详情。 */
 function useAuthorizationBridge() {
@@ -67,6 +65,7 @@ function useAuthorizationBridge() {
 }
 
 export function RestrictedModeIndicator({ persistent = false }: { persistent?: boolean }) {
+  const settings = trpc.bootstrap.getSettings.useQuery();
   const reasons = useRestrictedMode((s) => s.reasons);
   const requests = useRestrictedMode((s) => s.requests);
   const open = useRestrictedMode((s) => s.open);
@@ -75,8 +74,14 @@ export function RestrictedModeIndicator({ persistent = false }: { persistent?: b
     useRestrictedMode((s) => s.enteringSince !== null && s.requests.length === 0) &&
     !authorizationIssue;
   const awaitingAuthorization = requests.length > 0;
-  const title = awaitingAuthorization ? '待提权' : entering ? '正在启用完整功能' : '受限模式';
-  const visible = Boolean(reasons.length || requests.length || entering);
+  const title = awaitingAuthorization
+    ? '待提权'
+    : entering
+      ? '正在启用 QQ 在线能力'
+      : '在线能力受限';
+  const visible =
+    settings.data?.restrictedModeIndicatorEnabled !== false &&
+    Boolean(reasons.length || requests.length || entering);
   if (!visible && !persistent) return null;
   return (
     <button
@@ -101,13 +106,6 @@ export function RestrictedModeIndicator({ persistent = false }: { persistent?: b
       <span>{title}</span>
     </button>
   );
-}
-
-export function cancelAuthorizationRequest(request: AuthorizationRequest): void {
-  if (request.kind === 'password')
-    ipc()?.send('elev:respond-password', { token: request.token, password: null });
-  else ipc()?.send('attach:respond-hint', { token: request.token, choice: 'cancel', password: '' });
-  useRestrictedMode.getState().remove(request.kind, request.token);
 }
 
 export function AuthorizationForm({
@@ -168,7 +166,7 @@ export function AuthorizationForm({
         onChange={(event) => setPassword(event.target.value)}
       />
       <div className="weq-restricted-actions">
-        <button type="submit" className="weq-set-btn" disabled={!password}>
+        <button type="submit" className="weq-set-btn weq-set-btn-primary" disabled={!password}>
           <KeyRound size={14} />
           提权
         </button>
@@ -194,6 +192,7 @@ export function AuthorizationForm({
 }
 
 export function RestrictedModeHost() {
+  const notificationToast = useToastApi();
   useAuthorizationBridge();
   const uin = useViewState((s) => s.openedUin);
   const view = useViewState((s) => s.view);
@@ -247,7 +246,7 @@ export function RestrictedModeHost() {
   });
   // 签名器降级（VM 定位失败 / 版本变了要重扫）后，签名会退回完整签名函数：
   // 功能还能用，但慢，而且只发 SecSign。这种「能用但退化了」的状态必须明确
-  // 告诉用户，不能等他们去翻诊断页。只在完整模式确认后提示一次。
+  // 告诉用户，不能等他们去翻诊断页。只在 QQ 在线能力确认后提示一次。
   const signer = trpc.bootstrap.signerStatus.useQuery(undefined, {
     enabled: active,
     staleTime: 60_000,
@@ -288,10 +287,10 @@ export function RestrictedModeHost() {
     previous.current = '';
     recoveryPending.current = false;
     fullModeSeen.current = false;
-    useToast.getState().resolve(NOTICE_KEY);
+    notificationToast.resolve(NOTICE_KEY);
     useRestrictedMode.getState().setOpen(false);
     useRestrictedMode.getState().endEntering();
-  }, [sourceKey]);
+  }, [sourceKey, notificationToast]);
   useEffect(
     () => () => {
       operation.current += 1;
@@ -431,27 +430,27 @@ export function RestrictedModeHost() {
     if (reasonSource !== sourceKey) return;
     const manualNotice = enteringManually || recoveryPending.current;
     const activeNotice = manualNotice && (entering || awaitingAuthorization);
-    if (!activeNotice && !passiveBanner) useToast.getState().resolve(NOTICE_KEY);
+    if (!activeNotice && !passiveBanner) notificationToast.resolve(NOTICE_KEY);
     if (enteringManually) recoveryPending.current = true;
     // 启动自动尝试只更新标题栏；确认正常运行后才提醒降级，手动启用单独回执。
     const notify =
       manualNotice || (fullModeSeen.current && passiveBanner && !globalSettings.isLoading);
     const noticeSignature = `${signature}:${enteringManually}`;
     if (signature && noticeSignature !== previous.current && notify) {
-      const toast = useToast.getState();
+      const toast = notificationToast;
       const message: Parameters<typeof toast.push>[0] = {
         key: NOTICE_KEY,
         tone: entering ? 'info' : 'warning',
         title: awaitingAuthorization
           ? '待提权：请完成管理员授权'
           : entering
-            ? '正在启用完整功能'
-            : `已进入受限模式：${reasons.map((r) => r.title).join('、')}`,
+            ? '正在启用 QQ 在线能力'
+            : `在线能力受限：${reasons.map((r) => r.title).join('、')}`,
         loading: entering,
         durationKind: entering ? 'long' : 'failure',
         ...(entering ? { ttl: 0 } : {}),
         action: {
-          label: entering ? '查看进入进度' : '查看受限模式详情',
+          label: entering ? '查看进入进度' : '查看「在线能力受限」详情',
           run: () => {
             if (
               useRestrictedMode.getState().reasons.length ||
@@ -469,19 +468,23 @@ export function RestrictedModeHost() {
     if (!signature) {
       if (fullModeConfirmed) fullModeSeen.current = true;
       useRestrictedMode.getState().setOpen(false);
-      useToast.getState().resolve(NOTICE_KEY);
+      notificationToast.resolve(NOTICE_KEY);
       if (recoveryPending.current && fullModeConfirmed) {
-        useToast.getState().push({ tone: 'success', title: '已启用完整功能' });
+        notificationToast.push({ tone: 'success', title: '已启用 QQ 在线能力' });
         recoveryPending.current = false;
-        // 刚刚确认完整模式：顺手把签名器降级的情况说清楚。
+        // 刚刚确认 QQ 在线能力：顺手把签名器降级的情况说清楚。
         if (signerDegraded && !signerWarned.current) {
           signerWarned.current = true;
-          useToast.getState().push({
+          notificationToast.push({
             key: 'signer-degraded',
             tone: 'warning',
             title: '签名器已降级：改用完整签名函数',
+            source: notificationSource({
+              kind: 'app',
+              target: { kind: 'setting', section: 'diagnostics', settingId: 'signer-status' },
+            }),
             detail: signer.data
-              ? `sign core RVA ${signer.data.signCoreRva === null ? '未定位' : `0x${signer.data.signCoreRva.toString(16)}`}，VM ${signer.data.vmRva === null ? '未定位' : `0x${signer.data.vmRva.toString(16)}`}。QQ 更新或 wrapper.node 被替换后需要重新扫描；可在「设置 → QQ 协议工具 → 签名器」里手动重扫。`
+              ? `sign core RVA ${signer.data.signCoreRva === null ? '未定位' : `0x${signer.data.signCoreRva.toString(16)}`}，VM ${signer.data.vmRva === null ? '未定位' : `0x${signer.data.vmRva.toString(16)}`}。QQ 更新或 wrapper.node 被替换后需要重新扫描；可在「设置 → 凭据与数据 → QQ 高级工具 → 签名器」里手动重扫。`
               : undefined,
           });
         }
@@ -502,6 +505,7 @@ export function RestrictedModeHost() {
     sourceKey,
     signerDegraded,
     signer.data,
+    notificationToast,
   ]);
   useEffect(() => {
     if (previousUin.current !== uin) {
@@ -570,7 +574,7 @@ export function RestrictedModeHost() {
     if (operationBusy.current) return;
     const source = access.data?.source ? { ...access.data.source } : undefined;
     if (enable && (!active || !source || source.expectedAccountUin !== uin)) {
-      setError('当前来源尚未确认，请重新检查后再启用完整功能。');
+      setError('当前来源尚未确认，请重新检查后再启用 QQ 在线能力。');
       return;
     }
     operationBusy.current = true;
@@ -607,7 +611,7 @@ export function RestrictedModeHost() {
       ) {
         const refreshed = await client.account.refreshRkeys.mutate(source);
         if (!current()) return;
-        if (!refreshed) setError('尚未恢复完整功能，请检查 QQ 登录状态及授权请求后重试。');
+        if (!refreshed) setError('尚未恢复 QQ 在线能力，请检查 QQ 登录状态及授权请求后重试。');
       }
       await Promise.all([active ? access.refetch() : online.refetch(), sip.refetch()]);
     } catch (e) {
@@ -652,7 +656,7 @@ export function RestrictedModeHost() {
         {!showDebugCopy && reasons.some((reason) => reason.code === 'offline') && (
           <button
             type="button"
-            className="weq-set-btn"
+            className="weq-set-btn weq-set-btn-primary"
             disabled={busy || launching}
             aria-busy={launching}
             onClick={() => void startQq()}
@@ -677,12 +681,12 @@ export function RestrictedModeHost() {
         {reasons.some((r) => r.code === 'disabled') && (
           <button
             type="button"
-            className="weq-set-btn"
+            className="weq-set-btn weq-set-btn-primary"
             disabled={busy || launching}
             onClick={() => void refresh(true)}
           >
             <KeyRound size={14} />
-            启用完整功能
+            启用 QQ 在线能力
           </button>
         )}
       </>
@@ -707,7 +711,11 @@ export function RestrictedModeHost() {
               ) : (
                 <ShieldAlert size={18} />
               )}
-              {awaitingAuthorization ? '待提权' : entering ? '正在启用完整功能' : '受限模式'}
+              {awaitingAuthorization
+                ? '待提权'
+                : entering
+                  ? '正在启用 QQ 在线能力'
+                  : '在线能力受限'}
             </h2>
             <button
               type="button"

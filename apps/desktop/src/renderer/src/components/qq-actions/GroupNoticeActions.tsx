@@ -13,17 +13,12 @@ import {
 import { useDraftClose, useDraftProtection } from '../../lib/draftClose';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
 import { GroupBulletinList } from '../GroupBulletinList';
-import {
-  ActionFeedback,
-  ActionIcon,
-  ImageAction,
-  useQQAction,
-  useQQGroupPermissions,
-  withQQAccountScope,
-} from './shared';
+import { ActionFeedback, ActionIcon, ImageAction } from './shared';
+import { useQQAction, useQQGroupPermissions, withQQAccountScope } from './shared.shared';
 import '../../styles/group-content-management.css';
 import { ContactEmptyState } from '../contactProfile/ContactRow';
-import { PageSnapshotsFallback, usePageDraftConfirmation, usePageState } from '../PageSnapshots';
+import { PageSnapshotsFallback } from '../PageSnapshots';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 
 const emptyDraft = {
   content: '',
@@ -222,7 +217,11 @@ function GroupNoticeActionsBody({
   return (
     <section className="weq-notice-management" aria-label="群公告内容">
       <div className="weq-content-toolbar">
-        {entries.length ? <span>{entries.length} 条历史公告</span> : null}
+        {entries.length ? (
+          <span>
+            <span className="weq-number weq-number-inherit">{entries.length}</span> 条历史公告
+          </span>
+        ) : null}
         {canManage && (
           <div>
             <button
@@ -382,6 +381,7 @@ function GroupNoticeActionsBody({
           onClose={() => setMenu(null)}
           actions={[
             {
+              danger: 'outline',
               label: '删除公告',
               icon: <Trash2 size={15} />,
               disabled: a.disabled || !menu.entry.noticeId,
@@ -398,6 +398,7 @@ function GroupNoticeActionsBody({
                   refresh,
                   `删除公告「${selected.text.slice(0, 40)}」？不能撤销。`,
                   {
+                    danger: 'outline',
                     readback: async () => {
                       const result = await notices.refetch();
                       if (result.error) throw result.error;
@@ -416,7 +417,11 @@ function GroupNoticeActionsBody({
     </section>
   );
 }
-const ScopedGroupNoticeActions = withQQAccountScope(GroupNoticeActionsBody);
+const ScopedGroupNoticeActions = withQQAccountScope(GroupNoticeActionsBody, (props) => ({
+  kind: 'group',
+  id: String(props.groupId),
+  section: 'announcements',
+}));
 export function GroupNoticeActions(props: Parameters<typeof GroupNoticeActionsBody>[0]) {
   return (
     <PageSnapshotsFallback scope="qq-group-notices">

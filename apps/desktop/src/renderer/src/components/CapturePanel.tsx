@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import * as timeFormat from '@weq/time';
 /**
  * 维护与诊断工具「ntqq 抓包」面板。
@@ -51,12 +52,15 @@ import { openExternalLink } from '../lib/openExternalLink';
 import { Modal } from './Dialog';
 import { useRenderDocument, resourceForRenderDocument } from '../lib/renderDocument';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
-import { IS_WEB } from '../lib/target';
-import { useTabActive } from './RetainedTabs';
-import { decodeAnyBytes, RvTree } from './ReverseTool';
+import { IS_WEB } from '../lib/target.shared';
+import { useTabActive } from './RetainedTabs.shared';
+import { decodeAnyBytes } from './ReverseTool.shared';
+import { RvTree } from './ReverseTool';
 import { HexDump } from './HexDump';
-import { useToast } from './Toast';
+import { useToastApi } from './Toast.shared';
+import { savedFileNotificationSource } from '../lib/notificationNavigation.shared';
 import '../styles/capture-window.css';
+import { CAPTURE_SPLIT_STEP } from './CapturePanel.shared';
 
 /** 后端传回的帧（hex 形态）。与主进程 `CaptureFrameWire` 保持一致。 */
 interface CaptureFrameWire {
@@ -108,7 +112,6 @@ const MAX_FRAMES = 4000;
 const DEFAULT_SPLIT = 0.46;
 const SPLIT_MIN = 0.24;
 const SPLIT_MAX = 0.78;
-export const CAPTURE_SPLIT_STEP = 0.05;
 const STACKED_MEDIA_QUERY = '(max-width: 600px)';
 /** 原包小于该字节数的一律当噪声丢掉（TCP ack / 心跳之流）。 */
 const MIN_RAW_BYTES = 75;
@@ -310,8 +313,8 @@ function GroupDetail({ group }: { group: CaptureGroup }): ReactElement {
           {active?.cmd ?? '（无命令字）'}
         </span>
         <span className="weq-cap-hint">
-          seq {group.seq}
-          {active ? ` · ${fmtClock(active.ts)}` : ''}
+          seq <span className="weq-number weq-number-inherit">{group.seq}</span>
+          {active ? <NumericText>{` · ${fmtClock(active.ts)}`}</NumericText> : ''}
         </span>
       </header>
 
@@ -332,7 +335,15 @@ function GroupDetail({ group }: { group: CaptureGroup }): ReactElement {
               onClick={() => setDir(d.key)}
             >
               {d.label}
-              <em>{d.frame ? fmtBytes(hexToBytes(d.frame.rawHex).length) : '—'}</em>
+              <em>
+                {d.frame ? (
+                  <span className="weq-number weq-number-inherit">
+                    {fmtBytes(hexToBytes(d.frame.rawHex).length)}
+                  </span>
+                ) : (
+                  '—'
+                )}
+              </em>
             </button>
           ))}
         </div>
@@ -457,6 +468,7 @@ export function CapturePanel({
   accounts: { uin: string; name: string; avatarUrl: string; pid: number | null }[];
   initialUin?: string;
 }): ReactElement {
+  const notificationToast = useToastApi();
   const document = useRenderDocument();
   const view = useMemo(() => document.defaultView ?? window, [document]);
   const { enabled: active, revision: activityRevision } = useQQReadActivity(true, {
@@ -784,7 +796,7 @@ export function CapturePanel({
 
       setExporting(true);
       setError(null);
-      const toast = useToast.getState();
+      const toast = notificationToast;
       const toastId = toast.push({
         tone: 'info',
         title: '正在导出抓包结果…',
@@ -823,6 +835,8 @@ export function CapturePanel({
               sizeLabel ? `（${sizeLabel}）` : ''
             }`,
             detail: canPresent ? (result.downloadId ? '已开始下载' : result.path) : undefined,
+            source:
+              !canPresent || result.downloadId ? null : savedFileNotificationSource(result.path),
             ttl: 8000,
           });
         } else if (result.canceled) {
@@ -846,7 +860,7 @@ export function CapturePanel({
         if (alive.current && !view.closed) setExporting(false);
       }
     },
-    [accounts, exporting, selectedUin, session, visible, document, view],
+    [accounts, exporting, selectedUin, session, visible, document, view, notificationToast],
   );
 
   const frameStats = useMemo(() => {
@@ -921,24 +935,36 @@ export function CapturePanel({
           className="weq-cap-env"
           title={session ? `${session.iface} · 端口 ${session.port}` : '未开始'}
         >
-          {session ? `${session.iface}:${session.port}` : '未连接'}
+          {session ? <NumericText>{`${session.iface}:${session.port}`}</NumericText> : '未连接'}
         </span>
 
         <span className="weq-cap-metrics">
           <span>
-            帧 <b>{groups.length}</b>
+            帧{' '}
+            <b>
+              <span className="weq-number weq-number-inherit">{groups.length}</span>
+            </b>
           </span>
           <span>
-            已解密 <b>{frameStats.ok}</b>
+            已解密{' '}
+            <b>
+              <span className="weq-number weq-number-inherit">{frameStats.ok}</span>
+            </b>
           </span>
           {frameStats.bad > 0 ? (
             <span className="is-warn">
-              未解密 <b>{frameStats.bad}</b>
+              未解密{' '}
+              <b>
+                <span className="weq-number weq-number-inherit">{frameStats.bad}</span>
+              </b>
             </span>
           ) : null}
           {dropped > 0 ? (
             <span className="is-warn">
-              丢 <b>{dropped}</b>
+              丢{' '}
+              <b>
+                <span className="weq-number weq-number-inherit">{dropped}</span>
+              </b>
             </span>
           ) : null}
         </span>
@@ -1028,6 +1054,7 @@ export function CapturePanel({
         </button>
 
         <button
+          data-danger="outline"
           type="button"
           className="weq-cap-iconbtn"
           onClick={clearList}
@@ -1164,12 +1191,16 @@ export function CapturePanel({
                     >
                       {dirGlyph(g)}
                     </span>
-                    <span className="is-seq">{g.seq}</span>
+                    <span className="is-seq">
+                      <span className="weq-number weq-number-inherit">{g.seq}</span>
+                    </span>
                     <span className={`is-size${failed ? ' is-bad' : ''}`}>
                       {failed ? '密文 ' : ''}
-                      {fmtBytes(totalBytes)}
+                      <span className="weq-number weq-number-inherit">{fmtBytes(totalBytes)}</span>
                     </span>
-                    <span className="is-id">{g.order + 1}</span>
+                    <span className="is-id">
+                      <span className="weq-number weq-number-inherit">{g.order + 1}</span>
+                    </span>
                   </button>
                 );
               })
@@ -1178,7 +1209,12 @@ export function CapturePanel({
 
           <div className="weq-cap-foot">
             <span>
-              共 {visible.length} 项{visible.length !== groups.length ? ` / ${groups.length}` : ''}
+              共 <span className="weq-number weq-number-inherit">{visible.length}</span> 项
+              {visible.length !== groups.length ? (
+                <NumericText>{` / ${groups.length}`}</NumericText>
+              ) : (
+                ''
+              )}
               {activeGroup ? '（选择 1 项）' : ''}
             </span>
             <span className="weq-cap-spacer" />

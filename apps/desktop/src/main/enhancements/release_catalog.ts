@@ -59,6 +59,7 @@ export function modelReleaseComponent(model: ModelEntry): EnhancementReleaseComp
         key: file.key,
         name: file.name,
         url: file.url,
+        sources: file.sources,
         sizeBytes: file.sizeBytes,
         sha256: file.sha256,
       };

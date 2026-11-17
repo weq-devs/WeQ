@@ -1,4 +1,5 @@
-﻿import { formatDateTime } from '@weq/time';
+import { NumericText } from './NumericText';
+import { formatDateTime } from '@weq/time';
 /**
  * 维护与诊断工具「Protobuf / JCE 逆向」面板。
  *
@@ -109,21 +110,6 @@ function rvItemKey(obj: object): string {
     rvItemIds.set(obj, id);
   }
   return `n${id}`;
-}
-
-// ---------------------------------------------------------------------------
-// 复用出口（ntqq 抓包等面板）
-// ---------------------------------------------------------------------------
-
-/**
- * 把一段字节解析成 `{tag: value}` 树：先自动剥离 QQ 长度前缀，再 protobuf，
- * 最后 JCE（见 {@link tryDecodeAuto}）。全部失败返回 null。
- */
-export function decodeAnyBytes(
-  bytes: Uint8Array,
-): { nodes: RvNode[]; kind: 'protobuf' | 'jce' } | null {
-  const hit = tryDecodeAuto(bytes);
-  return hit ? { nodes: hit.nodes, kind: hit.kind } : null;
 }
 
 /** 解析树的缩进步长（px），可用 CSS 变量 `--rv-indent` 覆盖；抓包面板会调小。 */
@@ -292,7 +278,8 @@ export function ReverseTool(): ReactElement {
           <div className="weq-wtools-rv-result-head">
             <span className={`weq-wtools-rv-kind is-${result.kind}`}>{result.kind}</span>
             <span className="weq-wtools-rv-meta">
-              {fieldCount} 个字段 · {bytesLabel(result.bytes)}
+              <span className="weq-number weq-number-inherit">{fieldCount}</span> 个字段 ·{' '}
+              <NumericText>{bytesLabel(result.bytes)}</NumericText>
             </span>
             {result.prefixNote ? (
               <span

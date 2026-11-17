@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import * as timeFormat from '@weq/time';
 /**
  * DeletedMessagesModal — the "删除列表": browse the messages WeQ deleted in one
@@ -25,10 +26,10 @@ import { useMemo, useState, type ReactElement } from 'react';
 import { LoadingIndicator } from '../LoadingIndicator';
 import { RotateCcw, Search, Trash2, X } from 'lucide-react';
 import { Modal } from '../Dialog';
-import { ConvContext, ForwardKindContext } from '../QqMessageContent';
+import { ConvContext, ForwardKindContext } from '../../state/messageContext';
 import { cn } from '../../im-template/template/classNames';
 import { MessageBubble } from '../../im-template/template/messageBubble';
-import { grayTipOf } from '../../im-template/template/messageRow';
+import { grayTipOf } from '../../im-template/template/messageRow.shared';
 import { resolveMessageSender } from '../../im-template/template/conversationDisplay';
 import { displayUserName } from '../../im-template/template/user';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
@@ -232,7 +233,11 @@ export function DeletedMessagesModal({
           ) : null}
 
           <span className="weq-msglist-count">
-            {filtering ? `${filtered.length} / ${rows.length} 条` : `共 ${rows.length} 条`}
+            {filtering ? (
+              <NumericText>{`${filtered.length} / ${rows.length} 条`}</NumericText>
+            ) : (
+              <NumericText>{`共 ${rows.length} 条`}</NumericText>
+            )}
           </span>
         </div>
 

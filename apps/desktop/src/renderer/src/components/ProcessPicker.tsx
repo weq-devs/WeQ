@@ -163,7 +163,9 @@ export function ProcessPicker({
                 className="weq-udp-picker-row"
                 onClick={() => onPick(entry)}
               >
-                <span className="weq-udp-picker-pid">{entry.pid}</span>
+                <span className="weq-udp-picker-pid">
+                  <span className="weq-number weq-number-inherit">{entry.pid}</span>
+                </span>
                 <span className="weq-udp-picker-main">
                   <span className="weq-udp-picker-name">
                     {entry.name || '（无名称）'}
@@ -175,7 +177,9 @@ export function ProcessPicker({
                     {entry.cmdline || '—'}
                   </span>
                 </span>
-                <span className="weq-udp-picker-ppid">父 {entry.ppid}</span>
+                <span className="weq-udp-picker-ppid">
+                  父 <span className="weq-number weq-number-inherit">{entry.ppid}</span>
+                </span>
               </button>
             ))
           )}

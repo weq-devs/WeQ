@@ -286,7 +286,9 @@ export function AppLockOverlay(): ReactElement | null {
                   className="weq-totp-countdown-bar"
                   style={{ width: `${(secondsLeft / TOTP_STEP_SECONDS) * 100}%` }}
                 />
-                <span className="weq-totp-countdown-num">{secondsLeft}s</span>
+                <span className="weq-totp-countdown-num">
+                  <span className="weq-number weq-number-inherit">{secondsLeft}</span>s
+                </span>
               </span>
             </div>
 

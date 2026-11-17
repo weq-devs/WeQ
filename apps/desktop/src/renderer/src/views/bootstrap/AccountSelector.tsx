@@ -8,10 +8,7 @@ import { QqAvatar } from '../../components/QqAvatar';
 import { formatConversationTimestamp } from '../../lib/conversationTime';
 import type { UiAccount } from './types';
 import '../../styles/startup-account.css';
-
-export function accountSource(account: UiAccount): string {
-  return account.mobile ? '手机备份' : account.static ? '本地备份' : '本机 QQ';
-}
+import { accountSource } from './AccountSelector.shared';
 
 export function AccountSelector({
   accounts,
@@ -71,7 +68,7 @@ export function AccountSelector({
                 <span className="weq-account-info">
                   <strong>{acc.name}</strong>
                   <span className="weq-account-identity">
-                    {acc.uin}
+                    <span className="weq-number weq-number-inherit">{acc.uin}</span>
                     <span>
                       <Icon size={12} aria-hidden />
                       {accountSource(acc)}
@@ -120,6 +117,7 @@ export function AccountSelector({
         >
           <div className="weq-acct-ctx-menu" role="menu" aria-label="账号操作">
             <button
+              data-danger="outline"
               type="button"
               role="menuitem"
               onClick={() => {

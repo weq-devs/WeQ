@@ -1,14 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { open, writeFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { open } from 'node:fs/promises';
+import { basename } from 'node:path';
 import { z } from 'zod';
 import { parseCustomFaceId, PROFILE_LIKE_MAX_PER_REQUEST, type GroupRequest } from '@weq/protocol';
 import { isIncomingPendingBuddyRequest } from '@weq/service/buddy-request';
-import {
-  exportOnlineFavoriteEmojiBundle,
-  FAVORITE_EMOJI_MAX_ARCHIVE_BYTES,
-  FAVORITE_EMOJI_MAX_ITEMS,
-} from '@weq/service';
+import { FAVORITE_EMOJI_MAX_ARCHIVE_BYTES, FAVORITE_EMOJI_MAX_ITEMS } from '@weq/service';
 import type { AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import type { QQWriteBinding } from './qq_write';
@@ -17,6 +13,7 @@ import { AlbumVideoStaging } from './album_video_staging';
 import { backgroundTasks, taskError } from '../../background_tasks';
 import { updateFavoriteImportTask } from '../../favorite_import_task';
 import { readFavoriteEmojiMedia } from './favorite_emoji_media';
+import { runResumableExport } from '../../resumable_exports';
 import {
   albumMediaDeleteAllowed,
   groupPermission,
@@ -54,6 +51,7 @@ export type QQActionServices = Pick<
   | 'profile'
   | 'interaction'
   | 'emoji'
+  | 'mail'
   | 'webQuery'
   | 'fileResource'
   | 'onlineStatus'
@@ -101,6 +99,7 @@ async function image(
 export function createQQActionsRouter(
   resolve: (input: QQWriteBinding) => QQActionServices,
   resolveStatus = resolve,
+  assertWritable?: (input: QQWriteBinding) => void,
 ) {
   const busy = new WeakSet<QQActionServices>();
   const videoStaging = new AlbumVideoStaging();
@@ -112,10 +111,12 @@ export function createQQActionsRouter(
     input: QQWriteBinding,
     action: (s: QQActionServices, current: () => void) => Promise<unknown>,
   ) => {
+    assertWritable?.(input);
     const services = resolve(input);
     if (busy.has(services)) throw new Error('请等待当前 QQ 操作完成');
     const pid = services.accountConfig.getRecord()?.qqPid;
     const current = () => {
+      assertWritable?.(input);
       if (resolve(input) !== services || services.accountConfig.getRecord()?.qqPid !== pid)
         throw new Error('账号或 QQ 运行时已改变，请核对 QQ 后重新打开');
     };
@@ -803,46 +804,19 @@ export function createQQActionsRouter(
       )
       .mutation(({ input: i }) =>
         read(i, async (s) => {
-          const pid = s.accountConfig.getRecord()?.qqPid;
           const current = () => {
-            if (resolve(i) !== s || s.accountConfig.getRecord()?.qqPid !== pid)
-              throw new Error('账号或 QQ 运行时已改变，请重新导出');
+            if (resolve(i) !== s) throw new Error('账号已改变，请重新导出');
           };
           if (!i.savePolicy.directory && !i.savePolicy.filePath)
             throw new Error('请先选择收藏包保存位置');
           return s.exportManager.startResourceExport({
             kind: 'favorite-emoji',
+            resume: { type: 'favorite-emoji' },
             includeIntegrityReport: i.includeIntegrityReport,
             name: '收藏表情',
             output: { kind: 'file', name: '收藏表情', extension: 'zip' },
             savePolicy: i.savePolicy,
-            run: async ({ directory, signal, progress }) => {
-              const result = await exportOnlineFavoriteEmojiBundle(s.emoji, {
-                current,
-                signal,
-                progress,
-                readLocal: (path) => image(s, path, current),
-              });
-              current();
-              signal.throwIfAborted();
-              const fileName = 'favorite-emoji.zip';
-              await writeFile(join(directory, fileName), result.archive, { flag: 'wx', signal });
-              current();
-              return {
-                fileName,
-                total: 1,
-                ok: 1,
-                failed: [],
-                contents: {
-                  total: result.total,
-                  ok: result.written,
-                  failed: result.failed.map((item) => ({
-                    fileName: `${item.position}. ${item.description || '未命名表情'}`,
-                    error: item.error,
-                  })),
-                },
-              };
-            },
+            run: (context) => runResumableExport(s, { type: 'favorite-emoji' }, context, current),
           });
         }),
       ),

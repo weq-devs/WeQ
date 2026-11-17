@@ -14,13 +14,6 @@
 }
 .weq-self-online-status > span {
   min-width: 0;
-  flex-wrap: wrap;
-}
-.weq-self-online-status > span > span {
-  min-width: 0;
-}
-.weq-self-online-status > span > :is(svg, img) {
-  flex: none;
 }
 .weq-contact-self-status-row {
   padding: 0 12px 8px 78px;

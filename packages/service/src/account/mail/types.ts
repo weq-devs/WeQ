@@ -31,6 +31,7 @@ export interface MailSummary {
 
 /** 下载凭据留在服务内，只向界面返回附件标识。 */
 export interface MailAttachment {
+  sourceKey?: string;
   id: string;
   name: string;
   size: number;

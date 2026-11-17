@@ -1,4 +1,3 @@
-import * as timeFormat from '@weq/time';
 /**
  * 设置 → 外部 RKEY 服务器.
  *
@@ -19,7 +18,7 @@ import * as timeFormat from '@weq/time';
 
 import { useEffect, useState, type FormEvent, type ReactElement } from 'react';
 import { z } from 'zod';
-import { usePageState } from '../PageSnapshots';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import {
   CheckCircle2,
   ChevronDown,
@@ -37,16 +36,18 @@ import {
   X,
 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
-import { useDialog } from '../Dialog';
-import { useToast } from '../Toast';
-import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
+import { useTabActive } from '../RetainedTabs.shared';
+import { useDialog } from '../Dialog.shared';
+import { useToast } from '../Toast.shared';
+import { EditorDialog } from '../EditorDialog';
+import { Card, QueryError, Row, Toggle } from './controls';
 import '../../styles/settings-services.css';
 import {
   connectionTestKey,
   runConnectionTest,
   useConnectionTestTasks,
 } from '../../lib/connectionTestTask';
+import { formatCacheExpiry } from './ExternalRkeySection.shared';
 
 interface ServerForm {
   id: string;
@@ -59,22 +60,6 @@ const EMPTY_FORM: ServerForm = { id: '', name: '', baseUrl: '', accessToken: '' 
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
-}
-
-/** unix 秒 → 「x 小时/分钟后过期」或「已过期」。 */
-export function formatCacheExpiry(expiredTime: number | undefined): {
-  text: string;
-  expired: boolean;
-} {
-  if (expiredTime == null) return { text: '尚未拉取 rkey', expired: false };
-  const at = expiredTime * 1000;
-  const expired = at <= Date.now();
-  if (!Number.isFinite(at) || expiredTime <= 0)
-    return { text: '缓存 rkey 未提供有效到期时间，下次下载时重新检查', expired };
-  return {
-    text: `缓存 rkey ${timeFormat.formatDateTime(at)}（${expired ? '已过期，下次下载自动重拉' : timeFormat.formatRelativeTime(at)}）`,
-    expired,
-  };
 }
 
 export function ExternalRkeySection(): ReactElement {
@@ -100,6 +85,7 @@ export function ExternalRkeySection(): ReactElement {
       .nullable(),
     true,
   );
+  usePageDraftConfirmation('rkey:form', null);
   const [revealToken, setRevealToken] = useState(false);
   useEffect(() => {
     if (!active) setRevealToken(false);
@@ -170,7 +156,7 @@ export function ExternalRkeySection(): ReactElement {
     try {
       await deleteServer.mutateAsync({ id });
       await refetch();
-      pushToast({ tone: 'success', title: '已删除', message: `${name} 已从列表移除` });
+      pushToast({ tone: 'success', title: `外部 rKey 服务器「${name}」已移除` });
     } catch (err) {
       showError('删除失败', errMsg(err));
     }
@@ -221,49 +207,10 @@ export function ExternalRkeySection(): ReactElement {
   }
 
   return (
-    <div className="weq-set weq-service-settings">
-      <SectionHeader
-        pageReset={false}
-        icon={<CloudDownload size={18} strokeWidth={1.8} />}
-        title="外部 rKey"
-        desc="通过外部 rkey 服务器为本机补全缺失的聊天图片/表情。全局配置，一次设置所有账号通用。"
-      />
-
-      <details className="weq-set-about">
-        <summary>
-          <span className="weq-set-about-summary">
-            <CloudDownload size={15} strokeWidth={1.8} />
-            了解 RKEY 与外部服务器
-          </span>
-          <ChevronDown size={15} strokeWidth={1.8} className="weq-set-about-caret" />
-        </summary>
-        <ul className="weq-set-about-list">
-          <li>
-            <b>RKEY 是做什么的：</b>RKEY 是 QQ 下发的媒体下载凭证。聊天里的图片/表情如果
-            本地没有缓存，WeQ 可以用它从 QQ 的 CDN 拉取回来补全。
-          </li>
-          <li>
-            <b>为什么需要外部服务器：</b>WeQ 本身可以从你正在登录的 QQ 进程里自动获取
-            RKEY，但前提是本机有一个登录中的 QQ。QQ 不在线（比如看导入的数据）时，媒体
-            补全就用不了。外部 RKEY 服务器可以在没有在线 QQ 的情况下提供凭证，提升补全 成功率。
-          </li>
-          <li>
-            <b>全局生效：</b>RKEY 与账号权限关系不大，这里配置一次，所有账号通用，不用
-            每个账号单独设置。
-          </li>
-          <li>
-            <b>适用范围：</b>私聊/群聊的图片与表情。视频、文件、语音走的是另一套协议， 无法通过 RKEY
-            补全。
-          </li>
-          <li>
-            <b>下载顺序：</b>优先使用本机在线 QQ 自己获取的 RKEY；本地没有或已过期时，
-            自动回退到启用的外部服务器（并缓存结果，过期前不重复请求）。
-          </li>
-        </ul>
-      </details>
-
+    <div className="weq-set weq-service-settings weq-rkey-settings">
       <Card
-        title="已导入的服务器"
+        title="外部 rKey 服务器"
+        desc="通过外部 rkey 服务器为本机补全缺失的聊天图片/表情。"
         resetId="rkey"
         icon={<Server size={15} strokeWidth={1.8} />}
         action={
@@ -271,13 +218,41 @@ export function ExternalRkeySection(): ReactElement {
             type="button"
             className="weq-set-btn weq-set-btn-sm"
             disabled={busy}
-            onClick={() => (form ? setForm(null) : startCreate())}
+            onClick={startCreate}
           >
-            {form ? <X size={13} /> : <Plus size={13} />}
-            {form ? '取消' : '导入新配置'}
+            <Plus size={13} />
+            导入新配置
           </button>
         }
       >
+        <details className="weq-set-about">
+          <summary>
+            <span className="weq-set-about-summary">
+              <CloudDownload size={15} strokeWidth={1.8} />
+              了解 RKEY 与外部服务器
+            </span>
+            <ChevronDown size={15} strokeWidth={1.8} className="weq-set-about-caret" />
+          </summary>
+          <ul className="weq-set-about-list">
+            <li>
+              <b>RKEY 是做什么的：</b>RKEY 是 QQ 下发的媒体下载凭证。聊天里的图片/表情如果
+              本地没有缓存，WeQ 可以用它从 QQ 的 CDN 拉取回来补全。
+            </li>
+            <li>
+              <b>为什么需要外部服务器：</b>WeQ 本身可以从你正在登录的 QQ 进程里自动获取
+              RKEY，但前提是本机有一个登录中的 QQ。QQ 不在线（比如看导入的数据）时，媒体
+              补全就用不了。外部 RKEY 服务器可以在没有在线 QQ 的情况下提供凭证，提升补全 成功率。
+            </li>
+            <li>
+              <b>适用范围：</b>私聊/群聊的图片与表情。视频、文件、语音走的是另一套协议， 无法通过
+              RKEY 补全。
+            </li>
+            <li>
+              <b>下载顺序：</b>优先使用本机在线 QQ 自己获取的 RKEY；本地没有或已过期时，
+              自动回退到启用的外部服务器（并缓存结果，过期前不重复请求）。
+            </li>
+          </ul>
+        </details>
         {settings.error ? (
           <QueryError
             message={`RKEY 配置读取失败：${settings.error.message}`}
@@ -302,6 +277,7 @@ export function ExternalRkeySection(): ReactElement {
               return (
                 <li
                   key={server.id}
+                  data-notification-record={`rkey:${server.id}`}
                   className={`weq-set-server-item${isEnabled ? ' is-enabled' : ''}`}
                 >
                   <div className="weq-set-server-main">
@@ -367,94 +343,114 @@ export function ExternalRkeySection(): ReactElement {
             })}
           </ul>
         )}
-      </Card>
-
-      {form ? (
-        <Card
-          title={form.id ? '编辑配置' : '导入新配置'}
-          icon={<Pencil size={15} strokeWidth={1.8} />}
-        >
-          <form className="weq-set-server-form" onSubmit={(e) => void onSave(e)}>
-            <Row
-              label="名称"
-              desc="可选，默认取服务器地址的主机名。"
-              control={
-                <input
-                  className="weq-set-input"
-                  aria-label="RKEY 名称"
-                  value={form.name}
-                  spellCheck={false}
-                  placeholder="例如：瞌睡猫"
-                  onChange={(e) => updateField('name', e.target.value)}
+        {form ? (
+          <EditorDialog
+            title={form.id ? '编辑配置' : '导入新配置'}
+            onClose={() => setForm(null)}
+            draft={form}
+            busy={busy}
+            bodyClassName="weq-set weq-service-settings"
+          >
+            {(requestClose) => (
+              <form
+                className="weq-set-server-form weq-set-server-form-wrap"
+                aria-label={form.id ? '编辑配置' : '导入新配置'}
+                onSubmit={(e) => void onSave(e)}
+              >
+                <Row
+                  label="名称"
+                  desc="可选，默认取服务器地址的主机名。"
+                  control={
+                    <input
+                      className="weq-set-input"
+                      aria-label="RKEY 名称"
+                      value={form.name}
+                      spellCheck={false}
+                      placeholder="例如：瞌睡猫"
+                      onChange={(e) => updateField('name', e.target.value)}
+                    />
+                  }
                 />
-              }
-            />
-            <Row
-              label="HTTP 服务器地址"
-              desc="结尾若带 /get_rkey_server 会自动去掉。"
-              control={
-                <input
-                  className="weq-set-input weq-set-input-wide"
-                  aria-label="RKEY HTTP 地址"
-                  value={form.baseUrl}
-                  spellCheck={false}
-                  autoComplete="off"
-                  placeholder="http://127.0.0.1:3000"
-                  onChange={(e) => updateField('baseUrl', e.target.value)}
+                <Row
+                  label="HTTP 服务器地址"
+                  desc="结尾若带 /get_rkey_server 会自动去掉。"
+                  control={
+                    <input
+                      className="weq-set-input weq-set-input-wide"
+                      aria-label="RKEY HTTP 地址"
+                      value={form.baseUrl}
+                      spellCheck={false}
+                      autoComplete="off"
+                      placeholder="http://127.0.0.1:3000"
+                      onChange={(e) => updateField('baseUrl', e.target.value)}
+                    />
+                  }
                 />
-              }
-            />
-            <Row
-              label="access_token"
-              desc="访问令牌，仅本机使用。"
-              control={
-                <div className="weq-set-keyfield weq-set-tokenfield">
-                  <KeyRound
-                    size={15}
-                    strokeWidth={1.8}
-                    className="weq-set-keyfield-icon"
-                    aria-hidden
-                  />
-                  <input
-                    className="weq-set-token-input"
-                    aria-label="RKEY access_token"
-                    type={revealToken ? 'text' : 'password'}
-                    value={form.accessToken}
-                    spellCheck={false}
-                    autoComplete="off"
-                    placeholder="access_token"
-                    onChange={(e) => updateField('accessToken', e.target.value)}
-                  />
+                <Row
+                  label="access_token"
+                  desc="访问令牌，仅本机使用。"
+                  control={
+                    <div className="weq-set-keyfield weq-set-tokenfield">
+                      <KeyRound
+                        size={15}
+                        strokeWidth={1.8}
+                        className="weq-set-keyfield-icon"
+                        aria-hidden
+                      />
+                      <input
+                        className="weq-set-token-input"
+                        aria-label="RKEY access_token"
+                        type={revealToken ? 'text' : 'password'}
+                        value={form.accessToken}
+                        spellCheck={false}
+                        autoComplete="off"
+                        placeholder="access_token"
+                        onChange={(e) => updateField('accessToken', e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        className="weq-set-iconbtn"
+                        title={revealToken ? '隐藏' : '显示'}
+                        aria-label={revealToken ? '隐藏 token' : '显示 token'}
+                        onClick={() => setRevealToken((v) => !v)}
+                      >
+                        {revealToken ? <EyeOff size={15} /> : <Eye size={15} />}
+                      </button>
+                    </div>
+                  }
+                />
+                <div className="weq-set-server-form-actions">
                   <button
                     type="button"
-                    className="weq-set-iconbtn"
-                    title={revealToken ? '隐藏' : '显示'}
-                    aria-label={revealToken ? '隐藏 token' : '显示 token'}
-                    onClick={() => setRevealToken((v) => !v)}
+                    className="weq-set-btn weq-set-btn-soft"
+                    onClick={requestClose}
                   >
-                    {revealToken ? <EyeOff size={15} /> : <Eye size={15} />}
+                    <X size={13} />
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-soft"
+                    disabled={testing}
+                    onClick={() => void onTestForm()}
+                  >
+                    {testing ? (
+                      <Loader2 size={13} className="weq-set-spin" />
+                    ) : (
+                      <RefreshCw size={13} />
+                    )}
+                    测试连接
+                  </button>
+                  <button type="submit" className="weq-set-btn weq-set-btn-primary" disabled={busy}>
+                    <Save size={13} aria-hidden="true" />
+                    保存
                   </button>
                 </div>
-              }
-            />
-            <div className="weq-set-server-form-actions">
-              <button
-                type="button"
-                className="weq-set-btn weq-set-btn-soft"
-                disabled={testing}
-                onClick={() => void onTestForm()}
-              >
-                {testing ? <Loader2 size={13} className="weq-set-spin" /> : <RefreshCw size={13} />}
-                测试连接
-              </button>
-              <button type="submit" className="weq-set-btn" disabled={busy}>
-                <Save size={13} aria-hidden="true" />
-                保存
-              </button>
-            </div>
-          </form>
-        </Card>
-      ) : null}
+              </form>
+            )}
+          </EditorDialog>
+        ) : null}
+      </Card>
     </div>
   );
 }

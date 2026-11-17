@@ -5,11 +5,11 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
 import { QzoneView, QzoneWorkspace } from '../src/renderer/src/views/QzoneView';
 import { QzoneProfileContext } from '../src/renderer/src/lib/qzoneNavigation';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
 import {
-  ContentSelectionProvider,
   useContentExportRequest,
   useCurrentContentSelection,
-} from '../src/renderer/src/state/contentSelection';
+} from '../src/renderer/src/state/contentSelection.shared';
 import { QzoneScopePicker } from '../src/renderer/src/views/export/QzoneScopePicker';
 
 const fixture = vi.hoisted(() => ({

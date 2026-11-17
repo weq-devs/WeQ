@@ -125,7 +125,7 @@ export function ScheduleSettings({ schedule }: { schedule: ScheduledTask }) {
       </section>
       <button
         type="submit"
-        className="weq-set-btn"
+        className="weq-set-btn weq-set-btn-primary"
         disabled={update.isLoading || !formats.length || !name.trim()}
       >
         <Save size={15} />

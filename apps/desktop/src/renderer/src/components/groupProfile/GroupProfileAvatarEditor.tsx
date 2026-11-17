@@ -3,8 +3,8 @@ import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { trpc } from '../../trpc/client';
 import { refreshGroupAvatar } from '../../hooks/useAvatarUrl';
-import { useQQAction } from '../qq-actions/shared';
-import { useDialog } from '../Dialog';
+import { useQQAction } from '../qq-actions/shared.shared';
+import { useDialog } from '../Dialog.shared';
 
 export function GroupProfileAvatarEditor({ groupCode }: { groupCode: string }) {
   const action = useQQAction(`group-avatar:${groupCode}`);

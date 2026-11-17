@@ -8,15 +8,8 @@ import { useDraftProtection } from '../../lib/draftClose';
 import { qzoneSelfLiked, type QzoneReplyTarget } from '../../lib/qzoneActions';
 import { qzoneReplyPresentation } from '../../lib/qzoneReplyPresentation';
 import type { QzoneInteraction } from '../../views/qzone_types';
-import {
-  ActionFeedback,
-  ActionIcon,
-  ImageAction,
-  SaveAction,
-  useQQAction,
-  useQQAlbumPermissions,
-  withQQAccountScope,
-} from './shared';
+import { ActionFeedback, ActionIcon, ImageAction, SaveAction } from './shared';
+import { useQQAction, useQQAlbumPermissions, withQQAccountScope } from './shared.shared';
 
 export interface QzoneLikeChange {
   previous: boolean | null;
@@ -128,7 +121,11 @@ function LikeAction({
       ) : (
         <ThumbsUp size={16} fill={liked ? 'currentColor' : 'none'} />
       )}
-      {count !== undefined ? `点赞 ${count ?? '?'}` : null}
+      {count !== undefined ? (
+        <>
+          点赞 <span className="weq-number">{count ?? '?'}</span>
+        </>
+      ) : null}
     </button>
   );
 }
@@ -270,6 +267,7 @@ function GroupAlbumMediaActionsBody({
         />
         {canDelete && (
           <ActionIcon
+            danger="outline"
             label="删除相册媒体"
             disabled={a.disabled || !deletionId}
             onClick={() =>
@@ -284,6 +282,7 @@ function GroupAlbumMediaActionsBody({
                 async () => onChanged(),
                 '从 QQ 群相册删除这项媒体？不能撤销。',
                 {
+                  danger: 'solid',
                   readback: async () => {
                     const rows = await client.account.listGroupAlbumMedia.query({
                       groupCode: String(groupId),
@@ -581,6 +580,25 @@ function QzoneWriteActionsBody({
     </div>
   );
 }
-export const GroupAlbumUpload = withQQAccountScope(GroupAlbumUploadBody);
-export const GroupAlbumMediaActions = withQQAccountScope(GroupAlbumMediaActionsBody);
-export const QzoneWriteActions = withQQAccountScope(QzoneWriteActionsBody);
+export const GroupAlbumUpload = withQQAccountScope(GroupAlbumUploadBody, (props) => ({
+  kind: 'group-resource',
+  request: {
+    kind: 'albums',
+    groupCode: String(props.groupId),
+    groupName: String(props.groupId),
+    initialAlbumId: props.albumId,
+  },
+}));
+export const GroupAlbumMediaActions = withQQAccountScope(GroupAlbumMediaActionsBody, (props) => ({
+  kind: 'group-resource',
+  request: {
+    kind: 'albums',
+    groupCode: String(props.groupId),
+    groupName: String(props.groupId),
+    initialAlbumId: props.albumId,
+  },
+}));
+export const QzoneWriteActions = withQQAccountScope(QzoneWriteActionsBody, (props) => ({
+  kind: 'qzone',
+  target: { kind: 'post', uin: props.hostUin, tid: props.tid },
+}));

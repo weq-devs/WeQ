@@ -46,6 +46,9 @@ function roundFor(list: { text: string }[] | undefined, targetId?: string, useHi
 vi.mock('../src/renderer/src/components/intentSense/context', () => ({
   useIntentSenseStatus: () => ({ data: fixture.status }),
 }));
+vi.mock('../src/renderer/src/components/intentSense/context.shared', () => ({
+  useIntentSenseStatus: () => ({ data: fixture.status }),
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     account: {
@@ -526,12 +529,12 @@ it.each([0, 60_000, 60_001])(
 );
 
 it.each([
-  { minutes: 1, age: 120_000, text: '上次推荐已过期 · 2分钟前' },
+  { minutes: 1, age: 120_000, text: '上次推荐已过期 · 2 分钟前' },
   { minutes: 5, age: 300_000, text: '最近推荐' },
-  { minutes: 5, age: 300_001, text: '上次推荐已过期 · 5分钟前' },
+  { minutes: 5, age: 300_001, text: '上次推荐已过期 · 5 分钟前' },
   { minutes: -1, age: 40_000_000_000, text: '最近推荐' },
-  { minutes: 0, age: 59_999, text: '上次推荐已过期 · 59秒前' },
-  { minutes: 0, age: 0, text: '上次推荐已过期 · 0秒前' },
+  { minutes: 0, age: 59_999, text: '上次推荐已过期 · 59 秒前' },
+  { minutes: 0, age: 0, text: '上次推荐已过期 · 0 秒前' },
 ])('手动模式按设置恢复最近推荐或说明过期原因：$minutes 分钟／$age ms', ({ minutes, age, text }) => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const clock = vi.spyOn(Date, 'now').mockReturnValue(50_000_000_000);
@@ -603,12 +606,12 @@ it('过期间隔随时钟更新，满一分钟改用分钟，卸载后不残留�
         }),
       ),
     );
-    expect(host.querySelector('.weq-int-suggest-empty')?.textContent).toContain('59秒');
+    expect(host.querySelector('.weq-int-suggest-empty')?.textContent).toContain('59 秒');
     act(() => vi.advanceTimersByTime(1000));
-    expect(host.querySelector('.weq-int-suggest-empty')?.textContent).toContain('1分钟');
+    expect(host.querySelector('.weq-int-suggest-empty')?.textContent).toContain('1 分钟');
     expect(host.querySelector('.weq-int-suggest-empty')?.textContent).not.toContain('秒');
     act(() => vi.advanceTimersByTime(60_000));
-    expect(host.querySelector('.weq-int-suggest-empty')?.textContent).toContain('2分钟');
+    expect(host.querySelector('.weq-int-suggest-empty')?.textContent).toContain('2 分钟');
   } finally {
     act(() => root.unmount());
     expect(vi.getTimerCount()).toBe(0);

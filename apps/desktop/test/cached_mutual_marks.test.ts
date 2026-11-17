@@ -1,10 +1,8 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import {
-  MutualMarkDialog,
-  usableCachedMarks,
-} from '../src/renderer/src/components/MutualMarkDialog';
+import { MutualMarkDialog } from '../src/renderer/src/components/MutualMarkDialog';
+import { usableCachedMarks } from '../src/renderer/src/components/MutualMarkDialog.shared';
 import { useViewState } from '../src/renderer/src/state/view';
 
 const state = vi.hoisted(() => ({
@@ -35,6 +33,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   },
 }));
 vi.mock('../src/renderer/src/components/RetainedTabs', () => ({ useTabActive: () => true }));
+vi.mock('../src/renderer/src/components/RetainedTabs.shared', () => ({ useTabActive: () => true }));
 vi.mock('../src/renderer/src/components/MutualMarkLevelDialog', () => ({
   MutualMarkLevelDialog: () => null,
 }));

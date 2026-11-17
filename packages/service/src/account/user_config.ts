@@ -179,17 +179,9 @@ export interface AccountConfig {
    * auto-derived. Shows the Android icon instead of the generic database icon.
    */
   mobile?: boolean;
-  /**
-   * 静态账号「关联本机原生目录」：探测到的本机同账号数据目录（`platform.accountDir`）。
-   * 只用于设置页展示——真正生效的路径每次开账号都重新探测，因为用户可能改了
-   * 全局数据目录覆盖。探测不到则不写。
-   */
+  /** @deprecated 仅兼容旧配置与备份输入，不再影响资源读取；保存账号时清理。 */
   nativeMediaDir?: string;
-  /**
-   * 是否允许从 {@link AccountConfig.nativeMediaDir} 读媒体。探测到就默认开（缺省视为
-   * true），用户可在设置页关掉——关掉后所有媒体目录解析为 null，聊天里的图片/语音
-   * 自动回落到 CDN 补全（本地 miss 本来就走这条路）。
-   */
+  /** @deprecated 同 nativeMediaDir。 */
   nativeMediaEnabled?: boolean;
   /**
    * p_skey per domain, harvested by the login flow while QQ was still alive.
@@ -273,8 +265,6 @@ export interface AccountConfigMetadata {
   /** Set alongside `static` when the backup was identified as an Android phone
    *  backup (auto-derived SQLCipher key). Shows the Android icon in the picker. */
   mobile?: boolean;
-  /** Local native data directory detected for this static account, if any. */
-  nativeMediaDir?: string;
 }
 
 /**
@@ -356,12 +346,10 @@ export class AccountConfigService {
       ...(metadata.avatarUrl ? { avatarUrl: metadata.avatarUrl } : {}),
       ...(metadata.static === true ? { static: true } : {}),
       ...(metadata.mobile === true ? { mobile: true } : {}),
-      // Always overwrite (not merge): the probe re-runs on every open, and a
-      // stale path left over from a since-changed data-dir override would show
-      // the user a directory we are no longer reading from.
-      nativeMediaDir: metadata.nativeMediaDir,
       lastLoginAt: Date.now(),
     };
+    delete config.nativeMediaDir;
+    delete config.nativeMediaEnabled;
     this.writeRecord(config);
     this.logger.info('saved account config', {
       event: 'save-account-config',
@@ -542,19 +530,6 @@ export class AccountConfigService {
       tier: vip?.tier ?? null,
       year: vip?.year ?? null,
       level: vip?.level ?? null,
-    });
-  }
-
-  /**
-   * Toggle reading media from the detected native directory (static accounts).
-   * Takes effect immediately — the platform wrapper reads this on every path
-   * lookup, so no account reopen is needed.
-   */
-  setNativeMediaEnabled(enabled: boolean): void {
-    this.patch({ nativeMediaEnabled: enabled });
-    this.logger.info('updated native media binding', {
-      event: 'set-native-media-enabled',
-      enabled,
     });
   }
 

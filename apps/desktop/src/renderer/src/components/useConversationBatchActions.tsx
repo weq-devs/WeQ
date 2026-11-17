@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import { useContext, useId, useMemo, useState } from 'react';
 import { ConversationDirectoryContext, virtualConversationRow } from '../lib/conversationDirectory';
 import { conversationRoamingTarget } from '../lib/conversationActions';
@@ -7,7 +8,7 @@ import {
   type ConversationBatchAction,
 } from '../lib/conversationViews';
 import type { Conversation } from '../im-template/template/types';
-import { useRequestContentExport } from '../state/contentSelection';
+import { useRequestContentExport } from '../state/contentSelection.shared';
 import { Modal } from './Dialog';
 import '../styles/conversation-directory.css';
 
@@ -141,7 +142,8 @@ export function useConversationBatchActions(conversations: Conversation[]) {
         onClose={() => setPending(null)}
       >
         <h3 id={titleId}>
-          {pending.unsupported.length} 个会话不支持{pending.label}
+          <span className="weq-number weq-number-inherit">{pending.unsupported.length}</span>{' '}
+          个会话不支持{pending.label}
         </h3>
         <ul>
           {pending.unsupported.map(({ id, name }) => (
@@ -149,9 +151,11 @@ export function useConversationBatchActions(conversations: Conversation[]) {
           ))}
         </ul>
         <p>
-          {pending.supported
-            ? `是否跳过以上会话，继续处理其余 ${pending.supported} 个会话？`
-            : '没有可处理的会话，当前选区将保留。'}
+          <NumericText>
+            {pending.supported
+              ? `是否跳过以上会话，继续处理其余 ${pending.supported} 个会话？`
+              : '没有可处理的会话，当前选区将保留。'}
+          </NumericText>
         </p>
         <div>
           <button type="button" onClick={() => setPending(null)}>

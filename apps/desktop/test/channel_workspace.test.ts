@@ -12,12 +12,12 @@ import { AppRail } from '../src/renderer/src/im-template/template/rail';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { useUpdateStore } from '../src/renderer/src/state/update';
 import * as mentionClipboard from '../src/renderer/src/lib/mentionClipboard';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
 import {
-  ContentSelectionProvider,
   useCurrentContentSelection,
   useContentExportRequest,
   useContentMultiSelect,
-} from '../src/renderer/src/state/contentSelection';
+} from '../src/renderer/src/state/contentSelection.shared';
 
 const rpc = vi.hoisted(() => ({
   around: vi.fn(async () => ({
@@ -80,6 +80,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   };
 });
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true }));
 vi.mock('../src/renderer/src/views/ExternalSiteView', () => ({
   ExternalSiteView: () =>
     createElement('input', { 'aria-label': '合成频道浏览现场', defaultValue: '初始' }),
@@ -497,7 +498,7 @@ describe('主聊天区域的频道私聊', () => {
         'QQ 空间',
         'QQ 频道',
         'QQ 邮箱',
-        '我的收藏',
+        '收藏',
         '年度报告',
         '个性装扮',
         '应用',
@@ -515,7 +516,7 @@ describe('主聊天区域的频道私聊', () => {
       expect(settingsButton.title).toContain('有新版本可更新');
       expect(settingsButton.querySelector('[aria-label="有新版本可更新"]')).not.toBeNull();
       expect(f.host.querySelector('.rail-mobile-settings')).not.toBeNull();
-      for (const title of ['我的收藏', '个性装扮']) {
+      for (const title of ['收藏', '个性装扮']) {
         act(() => f.host.querySelector<HTMLButtonElement>(`[title="${title}"]`)!.click());
       }
       expect(collection).toHaveBeenCalledOnce();

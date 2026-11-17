@@ -45,6 +45,9 @@ export async function startDevelopment({
   nativePlatform();
   const config = await loadConfig(repo, env);
   const childEnv = { ...env };
+  delete childEnv.WEQ_DEV_RESTART;
+  delete childEnv.WEQ_DEV_STARTUP_WARNING;
+  childEnv.WEQ_DEV_STARTED_AT = String(Date.now());
   delete childEnv.ELECTRON_RUN_AS_NODE;
   delete childEnv.ELECTRON_OVERRIDE_DIST_PATH;
   const options = { env: childEnv, log, run };
@@ -53,18 +56,21 @@ export async function startDevelopment({
   await unused(repo, options);
   await dependencies(repo, options);
   const executable = await electron(repo, options);
-  await native(repo, config.native, options);
+  const nativeResult = await native(repo, config.native, options);
+  if (nativeResult?.fallback) childEnv.WEQ_DEV_STARTUP_WARNING = '1';
   const helper = await network(repo, options);
   await bot(repo, options);
   childEnv.WEQ_NATIVE_DIR = join(repo, 'native');
   childEnv.NT_HELPER_DRESS_DIR = join(repo, 'resources/dress');
   childEnv.WEQ_REMOTE_HELPER = helper;
-  childEnv.WEQ_DEV_STDOUT_TTY = process.stdout.isTTY ? '1' : '0';
-  childEnv.WEQ_DEV_STDERR_TTY = process.stderr.isTTY ? '1' : '0';
+  childEnv.WEQ_DEV_STDOUT_TTY ??= process.stdout.isTTY ? '1' : '0';
+  childEnv.WEQ_DEV_STDERR_TTY ??= process.stderr.isTTY ? '1' : '0';
   const platform = nativePlatform();
   childEnv.WEQ_AUTHORIZATION_HELPER_PATH ??= join(repo, platform.directory, platform.helper);
   if (args.includes('--prepare-only')) {
-    log('开发环境准备完成（未启动应用）');
+    log(
+      `开发环境准备完成（未启动应用${nativeResult?.fallback ? '；使用旧 native，本次源码改动未生效' : ''}）`,
+    );
     return;
   }
   const launchArgs = args[0] === '--' ? args.slice(1) : [...args];
@@ -74,10 +80,11 @@ export async function startDevelopment({
   )
     launchArgs.push(`--user-data-dir=${config.userDataDir}`);
   log(
-    `依赖准备完成，开始开发构建（依赖、Electron、native、网络助手及机器人运行时已就绪；耗时 ${((performance.now() - started) / 1000).toFixed(1)}s）`,
+    `运行环境就绪${nativeResult?.fallback ? '（使用旧 native，本次源码改动未生效）' : ''}  耗时 ${((performance.now() - started) / 1000).toFixed(1)}s`,
   );
   // 继续使用现有宿主准备、内置 Web 构建、Vite 热更新及进程树清理。
   const status = await launch(launchArgs, childEnv, executable);
+  if (!status || [130, 143].includes(status)) log('开发服务已停止');
   if (status)
     throw Object.assign(new Error(`WeQ 开发进程已退出（${status}）`), { exitCode: status });
 }
@@ -85,7 +92,7 @@ export async function startDevelopment({
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
     console.log(
-      '用法：pnpm dev [--prepare-only] [-- Electron 参数]\n自动补齐依赖、准备 native 与构建后启动。\n默认读取 weq.dev.json 和 weq.dev.local.json；native.mode 为 release 或 local。\n--prepare-only 只准备环境，不启动应用。',
+      '用法：pnpm dev [--prepare-only] [-- Electron 参数]\n自动补齐依赖、准备 native 与构建后启动。\n默认读取 weq.dev.json 和 weq.dev.local.json；native.mode 为 release 或 local。\n--prepare-only 只准备环境，不启动应用。\n--enable-dress-tools 仅在开发运行环境启用装扮实验工具。',
     );
   } else {
     try {

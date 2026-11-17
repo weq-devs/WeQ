@@ -9,13 +9,13 @@ import { TimeRangePicker } from '../../views/export/TimeRangePicker';
 import { beijingDay, daySeconds } from '../../lib/messageCalendar';
 import { Modal } from '../Dialog';
 import { SearchListSkeleton } from './SearchSkeleton';
-import { c2cAvatarSrc, groupAvatarSrc, highlightText } from './SearchResultCard';
+import { c2cAvatarSrc, groupAvatarSrc, highlightText } from './SearchResultCard.shared';
 import type { ChatRecordSearchHit, ConversationRecordHit } from './types';
 import { client } from '../../trpc/client';
 import { preflightExportEstimate } from '../../views/export/preflight';
-import { useExportReportDialog } from '../../views/export/ExportReportControl';
+import { useExportReportDialog } from '../../views/export/ExportReportControl.shared';
 import { useAppDialog } from '../../lib/dialogUtils';
-import { ConvContext, ForwardKindContext, ReplyJumpContext } from '../QqMessageContent';
+import { ConvContext, ForwardKindContext, ReplyJumpContext } from '../../state/messageContext';
 import { ChatMediaGallery } from '../ChatMediaGallery';
 import { MessageBubble } from '../../im-template/template/messageBubble';
 import { displayUserName } from '../../im-template/template/user';
@@ -23,7 +23,7 @@ import type { MessageRenderer } from '../../im-template/template/messageRenderer
 import type { Conversation, Message, User } from '../../im-template/template/types';
 import '../../styles/chat-records.css';
 import { conversationExportSelection } from '../../lib/conversationActions';
-import { useRequestContentExport } from '../../state/contentSelection';
+import { useRequestContentExport } from '../../state/contentSelection.shared';
 
 const noop = (): void => {};
 
@@ -696,7 +696,13 @@ export function ChatRecordsModal({
                                       {' · '}
                                     </>
                                   ) : null}
-                                  {formatTime(msg.sendTime)} · seq {msg.msgSeq}
+                                  <span className="weq-number weq-number-inherit">
+                                    {formatTime(msg.sendTime)}
+                                  </span>{' '}
+                                  · seq{' '}
+                                  <span className="weq-number weq-number-inherit">
+                                    {msg.msgSeq}
+                                  </span>
                                 </span>
                                 <span className="weq-chatrecords-msg-content">
                                   {highlightText(msg.content, keyword.trim())}

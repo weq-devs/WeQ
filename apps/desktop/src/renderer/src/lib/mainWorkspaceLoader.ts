@@ -1,5 +1,6 @@
 import { useStartupProgress } from '../state/startupProgress';
 import { useAccountSwitch } from '../state/accountSwitch';
+import { IS_WEB } from './target.shared';
 
 let pending: Promise<{ default: typeof import('../views/MainView').MainView }> | undefined;
 
@@ -13,10 +14,15 @@ export function loadMainWorkspace() {
   return pending;
 }
 
-/** 已确认进入账号时并行取代码，不挂载工作区、不发业务查询，也不等待它阻塞预热。 */
+/** Remote 在恢复检查时并行取代码，桌面沿用身份预热；均不提前挂载或发业务查询。 */
 export function installMainWorkspacePreload() {
   const warm = () => {
-    if (useStartupProgress.getState().stage === 'identity' || useAccountSwitch.getState().active)
+    const stage = useStartupProgress.getState().stage;
+    if (
+      (IS_WEB && stage === 'restore') ||
+      stage === 'identity' ||
+      useAccountSwitch.getState().active
+    )
       void loadMainWorkspace().catch(() => {});
   };
   const stopProgress = useStartupProgress.subscribe(warm);

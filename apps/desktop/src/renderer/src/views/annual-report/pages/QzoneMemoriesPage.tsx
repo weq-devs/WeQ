@@ -12,7 +12,8 @@ import { Heart, Lock, Play, Quote } from 'lucide-react';
 import type { QzoneMemoriesPageData, ReportQzonePost } from '@weq/service';
 import { isAllTimeYear, reportCalendarParts, reportEraLabel } from '@weq/service/report-time';
 import { PageFrame, type ReportPageProps } from '../pageFrame';
-import { Odometer, usePrefersReducedMotion } from '../Odometer';
+import { Odometer } from '../Odometer';
+import { usePrefersReducedMotion } from '../Odometer.shared';
 import { albumMediaUrl } from '../../../lib/resourceUrl';
 
 function fmt(n: number): string {
@@ -93,7 +94,7 @@ export function QzoneMemoriesPage({
     <PageFrame page={page} active={active} ghost="忆" tone="#3a77b6">
       <div className="weq-qz">
         <header className="weq-qz-kicker weq-report-line" style={{ '--i': 1 } as CSSProperties}>
-          <span>{reportEraLabel(data.year)} · QQ空间回忆</span>
+          <span>{reportEraLabel(data.year)} · QQ 空间回忆</span>
           <span className="weq-qz-kicker-meta">
             {allTime && firstYear ? (
               <>

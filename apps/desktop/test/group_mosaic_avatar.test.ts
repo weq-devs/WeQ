@@ -6,7 +6,7 @@
  */
 
 import { expect, it } from 'vitest';
-import { mosaicLayout } from '../src/renderer/src/components/GroupMosaicAvatar';
+import { mosaicLayout } from '../src/renderer/src/components/GroupMosaicAvatar.shared';
 
 it('单图 / 两人并排 / 三四人铺满 2×2', () => {
   expect(mosaicLayout(0)).toEqual({ columns: 1, rows: 1 });

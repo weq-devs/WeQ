@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 /**
  * 右下角可展开横幅，完成态停留时间由全局设置控制。
@@ -26,18 +27,16 @@ import {
   type ReactElement,
   type ReactNode,
 } from 'react';
-import { create } from 'zustand';
+import { openNotificationSource } from '../lib/notificationNavigation.shared';
 import { version } from '../../../../package.json';
-import { IS_WEB } from '../lib/target';
-import {
-  DEFAULT_TOAST_DURATIONS,
-  normalizeToastDurations,
-  type ToastDurations,
-} from '@weq/service/toast-settings';
+import { IS_WEB } from '../lib/target.shared';
 import '../styles/toast-action.css';
 import '../styles/toast-layout.css';
 import {
   AlertTriangle,
+  ArrowUpRight,
+  Play,
+  RefreshCw,
   Check,
   ChevronDown,
   CircleAlert,
@@ -47,203 +46,7 @@ import {
   Loader2,
   X,
 } from 'lucide-react';
-
-export type ToastTone = 'info' | 'warning' | 'error' | 'success';
-export type ToastDurationKind = 'success' | 'failure' | 'long';
-
-interface Toast {
-  id: number;
-  /** 同一状态或操作的稳定标识，用于替换旧横幅及恢复后清理。 */
-  key?: string;
-  tone: ToastTone;
-  occurredAt: number;
-  /** 计时分类与视觉 tone 独立，long 沿用长期任务原有时长。 */
-  durationKind: ToastDurationKind;
-  loading?: boolean;
-  /** 标题（第一行主内容） */
-  title: ReactNode;
-  /** 可选的详情，传入后显示展开按钮与复制按钮 */
-  detail?: ReactNode;
-  /** 自动关闭毫秒数，0 表示常驻；所有短期横幅遵循成功／失败设置。 */
-  ttl: number;
-  timerRevision: number;
-  /** 进行中的发送任务仅提供停止按钮，避免误关进度后继续静默发送。 */
-  dismissible?: boolean;
-  /** 整条横幅的主操作；关闭、展开和内部按钮仍独立操作。 */
-  action?: { label: string; run: () => void };
-}
-
-/** 就地改一条已在屏上的 toast —— 长任务用它把「进行中」推进成「成功/失败」。 */
-export type ToastPatch = Partial<
-  Pick<
-    Toast,
-    'tone' | 'durationKind' | 'loading' | 'title' | 'detail' | 'ttl' | 'dismissible' | 'action'
-  >
->;
-
-interface ToastStore {
-  durations: ToastDurations;
-  setDurations(durations: ToastDurations): void;
-  toasts: Toast[];
-  /** 正在播放退场动画的 toast id，动画结束后才真正移除 */
-  leaving: number[];
-  seq: number;
-  /** 推一条 toast；相同 key 原地替换，返回 id 供 `update` 推进状态。 */
-  push(input: {
-    key?: string;
-    tone?: ToastTone;
-    durationKind?: ToastDurationKind;
-    loading?: boolean;
-    /** 标题；兼容旧调用点的 message */
-    title?: ReactNode;
-    /** 旧写法的主内容，未传 title 时当作标题 */
-    message?: ReactNode;
-    /** 可选的详情（展开区域） */
-    detail?: ReactNode;
-    ttl?: number;
-    dismissible?: boolean;
-    action?: Toast['action'];
-  }): number;
-  /**
-   * 原地更新一条 toast（不重播进场、不改变堆叠顺序）。
-   *
-   * 结束阶段按成功／失败偏好重新计时；长期任务仍保留原有 ttl。
-   * id 已经不在栈里（被关掉/已过期）时静默忽略。
-   */
-  update(id: number, patch: ToastPatch): void;
-  /** 触发退场动画（自动过期 / 点击关闭） */
-  dismiss(id: number): void;
-  /** 对应问题已解决，不受失败通知停留时长或悬停暂停影响。 */
-  resolve(key: string): void;
-  /** 退场动画结束后真正移除 */
-  remove(id: number): void;
-}
-
-function toastTtl(
-  toast: Pick<Toast, 'durationKind' | 'loading' | 'dismissible'> & { ttl?: number },
-  durations: ToastDurations,
-): number {
-  if (toast.loading || toast.dismissible === false || toast.durationKind === 'long')
-    return toast.ttl ?? 0;
-  const seconds =
-    toast.durationKind === 'success' ? durations.successSeconds : durations.failureSeconds;
-  return seconds === -1 ? 0 : seconds * 1000;
-}
-
-function defaultDurationKind(tone: ToastTone, ttl?: number): ToastDurationKind {
-  // 兼容旧调用点中明确常驻的普通提示，不把用户设置产生的 ttl=0 当作长期任务。
-  if (tone === 'info' && ttl === 0) return 'long';
-  return tone === 'warning' || tone === 'error' ? 'failure' : 'success';
-}
-
-export const useToast = create<ToastStore>((set, get) => ({
-  durations: { ...DEFAULT_TOAST_DURATIONS },
-  setDurations(input) {
-    const durations = normalizeToastDurations(input);
-    const before = get().durations;
-    if (
-      before.successSeconds === durations.successSeconds &&
-      before.failureSeconds === durations.failureSeconds
-    )
-      return;
-    set({
-      durations,
-      toasts: get().toasts.map((toast) => {
-        const ttl = toastTtl(toast, durations);
-        return ttl === toast.ttl
-          ? toast
-          : { ...toast, ttl, timerRevision: toast.timerRevision + 1 };
-      }),
-    });
-  },
-  toasts: [],
-  leaving: [],
-  seq: 0,
-  push({
-    key,
-    tone = 'info',
-    durationKind,
-    loading,
-    title,
-    message,
-    detail,
-    ttl,
-    dismissible,
-    action,
-  }) {
-    const state = get();
-    const existing = key === undefined ? undefined : state.toasts.find((item) => item.key === key);
-    const id = existing?.id ?? state.seq + 1;
-    // 兼容旧调用点：只传一个内容时它就是标题；传了 title 时旧 message 变成详情
-    const actualTitle = title ?? message ?? '';
-    const actualDetail = detail ?? (title != null ? message : undefined);
-    const kind = durationKind ?? defaultDurationKind(tone, ttl);
-    const toast: Toast = {
-      id,
-      key,
-      tone,
-      occurredAt: Date.now(),
-      durationKind: kind,
-      loading,
-      title: actualTitle,
-      detail: actualDetail,
-      ttl: toastTtl({ durationKind: kind, loading, dismissible, ttl }, state.durations),
-      timerRevision: existing ? existing.timerRevision + 1 : 0,
-      dismissible,
-      action,
-    };
-    set({
-      seq: Math.max(state.seq, id),
-      toasts: existing
-        ? state.toasts.map((item) => (item.id === id ? toast : item))
-        : [...state.toasts, toast],
-      leaving: existing ? state.leaving.filter((item) => item !== id) : state.leaving,
-    });
-    return id;
-  },
-  update(id, patch) {
-    if (!get().toasts.some((t) => t.id === id)) return;
-    set({
-      toasts: get().toasts.map((t) => {
-        if (t.id !== id) return t;
-        const next = { ...t, ...patch };
-        if (patch.tone !== undefined || patch.title !== undefined || patch.detail !== undefined)
-          next.occurredAt = Date.now();
-        const reset =
-          patch.tone !== undefined ||
-          patch.ttl !== undefined ||
-          patch.loading !== undefined ||
-          patch.dismissible !== undefined ||
-          patch.durationKind !== undefined;
-        next.durationKind =
-          patch.durationKind ??
-          (reset ? defaultDurationKind(next.tone, patch.ttl) : t.durationKind);
-        return {
-          ...next,
-          ttl: toastTtl(next, get().durations),
-          timerRevision: t.timerRevision + (reset ? 1 : 0),
-        };
-      }),
-    });
-  },
-  dismiss(id) {
-    if (get().leaving.includes(id)) return;
-    set({ leaving: [...get().leaving, id] });
-  },
-  resolve(key) {
-    const state = get();
-    const ids = state.toasts
-      .filter((toast) => toast.key === key && !state.leaving.includes(toast.id))
-      .map((toast) => toast.id);
-    if (ids.length) set({ leaving: [...state.leaving, ...ids] });
-  },
-  remove(id) {
-    set({
-      toasts: get().toasts.filter((t) => t.id !== id),
-      leaving: get().leaving.filter((lid) => lid !== id),
-    });
-  },
-}));
+import { type ToastTone, type Toast, useToast } from './Toast.shared';
 
 const TONE_CONFIG: Record<ToastTone, { icon: ReactElement }> = {
   info: { icon: <CircleAlert size={20} strokeWidth={2} aria-hidden /> },
@@ -290,12 +93,13 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-/** 退场动画时长，与 CSS 里 .weq-toast.fade-out 的 transition 保持一致。 */
+/** 退场动画时长，与横幅淡出及 .weq-toast-slot 占位收拢的 transition 保持一致。 */
 const LEAVE_MS = 400;
 
 function ToastRow({ toast }: { toast: Toast }): ReactElement {
   const dismiss = useToast((s) => s.dismiss);
   const remove = useToast((s) => s.remove);
+  const update = useToast((s) => s.update);
   const leaving = useToast((s) => s.leaving.includes(toast.id));
 
   const [shown, setShown] = useState(false);
@@ -372,111 +176,172 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
   const config = TONE_CONFIG[toast.tone];
   const progress = toast.ttl > 0 ? Math.max(0, Math.min(100, (timeLeft / toast.ttl) * 100)) : 0;
   const secondsLeft = Math.ceil(timeLeft / 1000);
+  const runAction = async (run: () => unknown) => {
+    try {
+      await run();
+    } catch (error) {
+      update(toast.id, { detail: error instanceof Error ? error.message : String(error) });
+      setExpanded(true);
+    }
+  };
+
+  const action = toast.source
+    ? {
+        label: toast.source.label,
+        run: () => runAction(() => openNotificationSource(toast.source!)),
+      }
+    : toast.action
+      ? { ...toast.action, run: () => runAction(toast.action!.run) }
+      : undefined;
 
   return (
-    <div
-      className={`weq-toast weq-toast-${toast.tone}${shown ? ' show' : ''}${leaving ? ' fade-out' : ''}${expanded ? ' expanded' : ''}`}
-      role="status"
-      onMouseEnter={() => setPaused(true)}
-      onMouseLeave={() => setPaused(false)}
-      onFocus={() => setPaused(true)}
-      onBlur={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setPaused(false);
-      }}
-    >
-      {/* 第一行：标题栏 */}
-      {toast.action ? (
-        <button
-          type="button"
-          className="weq-toast-open"
-          aria-label={toast.action.label}
-          title={toast.action.label}
-          onClick={toast.action.run}
-        />
-      ) : null}
-      <div className="weq-toast-header">
-        <div className="weq-toast-icon">
-          {toast.loading ? (
-            <Loader2 size={20} className="weq-spin" aria-label="加载中" />
-          ) : (
-            config.icon
-          )}
-        </div>
-        <h3 className="weq-toast-title">{toast.title}</h3>
-        <div className="weq-toast-actions">
-          {hasBody ? (
-            <button
-              type="button"
-              className="weq-toast-action"
-              onClick={() => setExpanded((v) => !v)}
-              aria-label={expanded ? '折叠详情' : '展开详情'}
-              title={expanded ? '折叠' : '展开'}
-            >
-              <ChevronDown
-                className="weq-toast-expand-icon"
-                size={16}
-                strokeWidth={2}
-                aria-hidden
-              />
-            </button>
-          ) : null}
-          {toast.dismissible !== false ? (
-            <button
-              type="button"
-              className="weq-toast-action"
-              onClick={() => dismiss(toast.id)}
-              aria-label="关闭"
-              title="关闭"
-            >
-              <X size={16} strokeWidth={2} aria-hidden />
-            </button>
-          ) : null}
-        </div>
-      </div>
-
-      {/* 中间：详细内容（默认折叠） */}
-      {hasBody ? (
-        <div className="weq-toast-body-wrapper">
-          <div className="weq-toast-body">
-            <div className="weq-toast-content">
-              {hasDetail ? <div className="weq-toast-detail">{toast.detail}</div> : null}
+    <div className={`weq-toast-slot${leaving ? ' is-leaving' : ''}`}>
+      <div
+        className={`weq-toast weq-toast-${toast.tone}${shown ? ' show' : ''}${leaving ? ' fade-out' : ''}${expanded ? ' expanded' : ''}`}
+        role="status"
+        onMouseEnter={() => setPaused(true)}
+        onMouseLeave={() => setPaused(false)}
+        onPointerUp={(event) => {
+          if (
+            !action ||
+            event.button !== 0 ||
+            (event.target as Element).closest('button, a, input, textarea, select')
+          )
+            return;
+          const selection = event.currentTarget.ownerDocument.getSelection();
+          if (
+            selection &&
+            !selection.isCollapsed &&
+            (event.currentTarget.contains(selection.anchorNode) ||
+              event.currentTarget.contains(selection.focusNode))
+          )
+            return;
+          action.run();
+        }}
+        onFocus={() => setPaused(true)}
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setPaused(false);
+        }}
+      >
+        {/* 第一行：标题栏 */}
+        <div className="weq-toast-header">
+          <div className="weq-toast-icon">
+            {toast.loading ? (
+              <Loader2 size={20} className="weq-spin" aria-label="加载中" />
+            ) : (
+              config.icon
+            )}
+          </div>
+          <h3 className="weq-toast-title">{toast.title}</h3>
+          <div className="weq-toast-actions">
+            {action ? (
               <button
                 type="button"
-                className="weq-toast-copy"
-                onClick={handleCopy}
-                aria-label={copyLabel}
+                className="weq-toast-action weq-toast-open"
+                aria-label={action.label}
+                title={action.label}
+                onClick={action.run}
               >
-                {copied ? (
-                  <Check size={13} strokeWidth={2.2} aria-hidden />
+                {!toast.source && toast.action?.icon === 'reload' ? (
+                  <RefreshCw size={16} aria-hidden />
                 ) : (
-                  <Copy size={13} strokeWidth={2} aria-hidden />
+                  <ArrowUpRight size={16} aria-hidden />
                 )}
-                {copyLabel}
               </button>
-            </div>
+            ) : null}
+            {toast.source && toast.action && toast.action.label !== toast.source.label ? (
+              <button
+                type="button"
+                className="weq-toast-action"
+                title={toast.action.label}
+                aria-label={toast.action.label}
+                onClick={() => void runAction(toast.action!.run)}
+              >
+                {toast.action.icon === 'play' ? (
+                  <Play size={16} aria-hidden />
+                ) : (
+                  <ArrowUpRight size={16} aria-hidden />
+                )}
+              </button>
+            ) : null}
+            {hasBody ? (
+              <button
+                type="button"
+                className="weq-toast-action"
+                onClick={() => setExpanded((v) => !v)}
+                aria-label={expanded ? '折叠详情' : '展开详情'}
+                title={expanded ? '折叠' : '展开'}
+              >
+                <ChevronDown
+                  className="weq-toast-expand-icon"
+                  size={16}
+                  strokeWidth={2}
+                  aria-hidden
+                />
+              </button>
+            ) : null}
+            {toast.dismissible !== false ? (
+              <button
+                type="button"
+                className="weq-toast-action"
+                onClick={() => dismiss(toast.id)}
+                aria-label="关闭"
+                title="关闭"
+              >
+                <X size={16} strokeWidth={2} aria-hidden />
+              </button>
+            ) : null}
           </div>
         </div>
-      ) : null}
 
-      {/* 第二行：倒计时信息区（悬停整张卡片即可暂停） */}
-      {toast.ttl > 0 ? (
-        <div className="weq-toast-footer">
-          <span className="weq-toast-timer-text">
-            {paused ? '已暂停自动关闭' : `将在 ${secondsLeft} 秒后关闭`}
-          </span>
+        {/* 中间：详细内容（默认折叠） */}
+        {hasBody ? (
+          <div className="weq-toast-body-wrapper">
+            <div className="weq-toast-body">
+              <div className="weq-toast-content">
+                {hasDetail ? <div className="weq-toast-detail">{toast.detail}</div> : null}
+                <button
+                  type="button"
+                  className="weq-toast-copy"
+                  onClick={handleCopy}
+                  aria-label={copyLabel}
+                >
+                  {copied ? (
+                    <Check size={13} strokeWidth={2.2} aria-hidden />
+                  ) : (
+                    <Copy size={13} strokeWidth={2} aria-hidden />
+                  )}
+                  {copyLabel}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
-          {/*<span className={`weq-toast-timer-action${paused ? ' paused' : ''}`}>*/}
-          {/*  {paused ? '移开继续' : '悬停暂停'}*/}
-          {/*</span>*/}
-        </div>
-      ) : null}
+        {/* 第二行：倒计时信息区（悬停整张卡片即可暂停） */}
+        {toast.ttl > 0 ? (
+          <div className="weq-toast-footer">
+            <span className="weq-toast-timer-text">
+              {paused ? (
+                '已暂停自动关闭'
+              ) : (
+                <NumericText>{`将在 ${secondsLeft} 秒后关闭`}</NumericText>
+              )}
+            </span>
 
-      {/* 底部倒计时进度条 */}
-      {toast.ttl > 0 ? (
-        <div className="weq-toast-progress-container">
-          <div className="weq-toast-progress-bar" style={{ width: `${progress}%` }} aria-hidden />
-        </div>
-      ) : null}
+            {/*<span className={`weq-toast-timer-action${paused ? ' paused' : ''}`}>*/}
+            {/*  {paused ? '移开继续' : '悬停暂停'}*/}
+            {/*</span>*/}
+          </div>
+        ) : null}
+
+        {/* 底部倒计时进度条 */}
+        {toast.ttl > 0 ? (
+          <div className="weq-toast-progress-container">
+            <div className="weq-toast-progress-bar" style={{ width: `${progress}%` }} aria-hidden />
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -513,3 +378,4 @@ export function ToastHost(): ReactElement | null {
     </div>
   );
 }
+export type { ToastTone, ToastDurationKind, ToastPatch, ToastAction } from './Toast.shared';

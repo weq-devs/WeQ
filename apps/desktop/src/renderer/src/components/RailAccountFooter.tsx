@@ -39,17 +39,18 @@ import {
   SYSTEM_AUTH_STATUS_QUERY_KEY,
   TOTP_STATUS_QUERY_KEY,
 } from '../lib/appLockStatus';
-import { useDialog } from './Dialog';
-import { useToast } from './Toast';
+import { useDialog } from './Dialog.shared';
+import { useToast } from './Toast.shared';
 import { LoadingIndicator } from './LoadingIndicator';
 import { QqAvatar } from './QqAvatar';
-import { DesktopOnly, shellBridge } from '../lib/target';
+import { DesktopOnly } from '../lib/target';
+import { shellBridge } from '../lib/target.shared';
 import '../styles/rail-account.css';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { useMenuCapture } from '../hooks/useMenuCapture';
 import { captureMenuScreenshot } from '../lib/menuScreenshot';
 import { captureWebWindow } from '../lib/webScreenshot';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import '../styles/menu-capture.css';
 
 function errMsg(e: unknown): string {
@@ -420,7 +421,9 @@ export function RailAccountFooter({
                         <span className="weq-rail-account-item-name">
                           {cfg.displayName || cfg.uin}
                         </span>
-                        <span className="weq-rail-account-item-uin">{cfg.uin}</span>
+                        <span className="weq-rail-account-item-uin">
+                          <span className="weq-number weq-number-inherit">{cfg.uin}</span>
+                        </span>
                       </span>
                     </button>
                   </li>
@@ -453,6 +456,7 @@ export function RailAccountFooter({
             onMouseDown={(e) => e.stopPropagation()}
           >
             <button
+              data-danger="outline"
               type="button"
               onClick={() => void deleteAccount(ctxMenu.configId)}
               disabled={busy}

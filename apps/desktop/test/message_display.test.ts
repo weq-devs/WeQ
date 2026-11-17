@@ -1,19 +1,20 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { MessageProvenance } from '../src/renderer/src/components/MessageProvenance';
 import {
-  MessageProvenance,
   ShowMessageDateContext,
   ShowMessageSeqContext,
   ShowMessageTimeContext,
-} from '../src/renderer/src/components/MessageProvenance';
+} from '../src/renderer/src/components/MessageProvenance.shared';
 import {
   beijingDay,
   daySeconds,
   messageDensity,
   pickCalendarRange,
 } from '../src/renderer/src/lib/messageCalendar';
-import { visibleListRange, WindowedList } from '../src/renderer/src/components/WindowedList';
+import { visibleListRange } from '../src/renderer/src/components/WindowedList.shared';
+import { WindowedList } from '../src/renderer/src/components/WindowedList';
 
 function metadata(
   seq: boolean,
@@ -45,7 +46,10 @@ function metadata(
 describe('消息元信息', () => {
   it('序号与精确到秒的时间分别设置，系统灰条不显示序号', () => {
     expect(metadata(false, false)).toBe('');
-    expect(metadata(true, false)).toContain('seq 42');
+    const seq = document.createElement('div');
+    seq.innerHTML = metadata(true, false);
+    expect(seq.textContent).toBe('seq 42');
+    expect(seq.querySelector('.weq-message-seq .weq-number')?.textContent).toBe('42');
     expect(metadata(true, false)).not.toContain('<time');
     expect(metadata(false, true)).toContain('01:02:03');
     expect(metadata(false, true)).not.toContain('seq 42');

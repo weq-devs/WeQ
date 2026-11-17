@@ -1,34 +1,10 @@
-﻿// @ts-nocheck
+// @ts-nocheck
 import { ChevronRight } from 'lucide-react';
 import { cn } from './classNames';
 import { defaultToolRegistry, type ToolPaneItem, type ToolPaneGroup } from './toolRegistry';
+import { flattenToolRegistry } from './toolsPane.shared';
 
 export type { ToolPaneGroup, ToolPaneItem } from './toolRegistry';
-
-export type ToolPaneEntry = {
-  group: ToolPaneGroup;
-  item: ToolPaneItem;
-};
-
-export function flattenToolRegistry(
-  registry: ToolPaneGroup[] = defaultToolRegistry,
-  query = '',
-): ToolPaneEntry[] {
-  const normalizedQuery = query.trim().toLowerCase();
-
-  return registry.flatMap((group) =>
-    group.items
-      .filter((item) => {
-        if (!normalizedQuery) {
-          return true;
-        }
-        return [item.label, item.description]
-          .filter(Boolean)
-          .some((value) => value?.toLowerCase().includes(normalizedQuery));
-      })
-      .map((item) => ({ group, item })),
-  );
-}
 
 export function ToolsPane({
   query,
@@ -182,3 +158,4 @@ export function ToolDetailPane({
     </section>
   );
 }
+export type { ToolPaneEntry } from './toolsPane.shared';

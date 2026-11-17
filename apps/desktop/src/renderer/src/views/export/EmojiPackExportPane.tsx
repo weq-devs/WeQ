@@ -9,6 +9,7 @@
  * 图片字节不过 tRPC —— 预览走 weq-media://cemoji；进度与保存复用下方任务列表。
  */
 
+import { NumericText } from '../../components/NumericText';
 import { EmptyState } from '../../components/EmptyState';
 import { useMemo, useState, type ReactElement } from 'react';
 import { Check, Download, Heart, Inbox, Loader2, Sparkles, Smile } from 'lucide-react';
@@ -25,7 +26,7 @@ import { ShimmerImage } from '../../components/ShimmerImage';
 import { LoadingIndicator } from '../../components/LoadingIndicator';
 import { useMultiSelection, type MultiSelectionItemProps } from '../../hooks/useMultiSelection';
 import '../../styles/emoji-pack-formats.css';
-import { useExportReportDialog } from './ExportReportControl';
+import { useExportReportDialog } from './ExportReportControl.shared';
 
 type EmojiPackExportFormat = EmojiPackFormat | 'favorite-zip';
 
@@ -192,11 +193,13 @@ export function EmojiPackExportPane({
           />
         </label>
         <span className="weq-epk-actions-count">
-          {favoriteBackup
-            ? '收藏原图 · 备注 · 顺序'
-            : selected.size === 0
-              ? '请至少选择一种来源'
-              : `已选 ${selected.size} 种来源 · 约 ${selectedTotal.toLocaleString('en-US')} 张`}
+          {favoriteBackup ? (
+            '收藏原图 · 备注 · 顺序'
+          ) : selected.size === 0 ? (
+            '请至少选择一种来源'
+          ) : (
+            <NumericText>{`已选 ${selected.size} 种来源 · 约 ${selectedTotal.toLocaleString('en-US')} 张`}</NumericText>
+          )}
         </span>
         <div className="weq-save-action-group">
           <button
@@ -251,7 +254,11 @@ function ScopeCard({
           <small>{meta.desc}</small>
         </span>
         <span className="weq-epk-card-count">
-          {loading ? '…' : `${(summary?.total ?? 0).toLocaleString('en-US')} 张`}
+          {loading ? (
+            '…'
+          ) : (
+            <NumericText>{`${(summary?.total ?? 0).toLocaleString('en-US')} 张`}</NumericText>
+          )}
         </span>
       </button>
 
@@ -293,7 +300,9 @@ function Stat({
   return (
     <span className={`weq-epk-stat${warn ? ' is-warn' : ''}`}>
       <em>{label}</em>
-      <b>{value.toLocaleString('en-US')}</b>
+      <b>
+        <span className="weq-number weq-number-inherit">{value.toLocaleString('en-US')}</span>
+      </b>
     </span>
   );
 }

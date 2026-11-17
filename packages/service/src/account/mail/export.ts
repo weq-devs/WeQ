@@ -124,7 +124,14 @@ export async function exportMailMessages(
     if (seen.has(id)) continue;
     seen.add(id);
     try {
-      const detail = await mail.read(id, signal, false);
+      let freshDetail: Awaited<ReturnType<typeof mail.read>> | undefined;
+      const readDetail = async () => {
+        freshDetail = await mail.read(id, signal, false);
+        return freshDetail;
+      };
+      const detail = context.checkpoint
+        ? await context.checkpoint.run(['mail-detail', id], readDetail)
+        : await readDetail();
       current();
       if (!expandThreads && detail.thread)
         throw new MailFailure('business', '邮件已变为会话，请重新查询待导出列表。');
@@ -155,7 +162,43 @@ export async function exportMailMessages(
           current();
           if (space.bavail * space.bsize < attachment.size + 64 * 1024 * 1024)
             throw new MailFailure('business', '目标磁盘空间不足。');
-          await mail.download(attachment.id, path, signal);
+          if (context.checkpoint)
+            await context.checkpoint.file(
+              [
+                'mail-attachment',
+                detail.id,
+                number,
+                attachment.name,
+                attachment.size,
+                attachment.big,
+                attachment.sourceKey,
+              ],
+              path,
+              async () => {
+                // 附件 id 是 MailAttachmentRegistry 的临时句柄，不能跨进程复用。
+                if (!freshDetail && !attachment.sourceKey)
+                  throw new MailFailure(
+                    'business',
+                    '未能确认未完成附件的来源，请重新选择邮件导出。',
+                  );
+                freshDetail ??= await mail.read(id, signal, false);
+                current();
+                const fresh = freshDetail.attachments[number];
+                if (
+                  !fresh ||
+                  freshDetail.id !== detail.id ||
+                  freshDetail.messageId !== detail.messageId ||
+                  (attachment.sourceKey !== undefined &&
+                    fresh.sourceKey !== attachment.sourceKey) ||
+                  fresh.name !== attachment.name ||
+                  fresh.size !== attachment.size ||
+                  fresh.big !== attachment.big
+                )
+                  throw new MailFailure('business', '待续作附件已发生变化，请重新选择邮件导出。');
+                await mail.download(fresh.id, path, signal);
+              },
+            );
+          else await mail.download(attachment.id, path, signal);
           current();
           attachments.push({ name: attachment.name, size: attachment.size, file });
           receipts.push(
@@ -229,7 +272,12 @@ export async function exportMailMessages(
       );
       entry.resources = receipts;
       current();
-      await writeFile(join(target, 'body.html'), exportMailBody(html), { flag: 'wx' });
+      const bodyPath = join(target, 'body.html');
+      if (context.checkpoint)
+        await context.checkpoint.file(['mail-body', detail.id], bodyPath, () =>
+          writeFile(bodyPath, exportMailBody(html), { flag: 'wx' }),
+        );
+      else await writeFile(bodyPath, exportMailBody(html), { flag: 'wx' });
       current();
       manifest.push({ id, directory: folder });
     } catch (error) {
@@ -241,10 +289,10 @@ export async function exportMailMessages(
     progress(index + 1, queue.length);
   }
   current();
-  await archive.write(
-    join(directory, `index.${archiveOptions.format ?? 'json'}`),
-    archiveOptions.format ?? 'json',
-  );
+  const indexPath = join(directory, `index.${archiveOptions.format ?? 'json'}`);
+  const writeIndex = () => archive.write(indexPath, archiveOptions.format ?? 'json');
+  if (context.checkpoint) await context.checkpoint.file('mail-index', indexPath, writeIndex);
+  else await writeIndex();
   current();
   return {
     total: manifest.length + failed.filter((item) => item.fileName.includes('/')).length,
@@ -261,7 +309,7 @@ export async function exportAllMailMessages(
   filter: MailExportFilter = {},
   archiveOptions: MailArchiveOptions = {},
 ): Promise<ResourceExportSummary> {
-  const rows = await listMailExportItems(mail, context.signal, check);
+  const rows = await listMailExportItems(mail, context.signal, check, context.checkpoint);
   return exportMailMessages(
     mail,
     rows.map((item) => item.id),
@@ -277,6 +325,7 @@ async function listMailExportItems(
   mail: Pick<QQMailService, 'folders' | 'list'>,
   signal: AbortSignal,
   check: () => void,
+  checkpoint?: ResourceExportRunContext['checkpoint'],
 ): Promise<MailSummary[]> {
   const current = () => {
     signal.throwIfAborted();
@@ -293,7 +342,9 @@ async function listMailExportItems(
         : new MailFailure('network', '邮箱列表读取失败，请重试。');
     }
   };
-  const folders = await safeRead(() => mail.folders(signal));
+  const folders = await safeRead(() =>
+    checkpoint ? checkpoint.run('mail-folders', () => mail.folders(signal)) : mail.folders(signal),
+  );
   current();
   const rows = new Map<string, MailSummary>();
   for (const folder of folders) {
@@ -301,8 +352,9 @@ async function listMailExportItems(
     const listed = new Set<string>();
     for (let page = 0; ; page++) {
       current();
+      const readPage = () => mail.list({ folderId: folder.id, page, pageSize: 100 }, signal);
       const result = await safeRead(() =>
-        mail.list({ folderId: folder.id, page, pageSize: 100 }, signal),
+        checkpoint ? checkpoint.run(['mail-list', folder.id, page], readPage) : readPage(),
       );
       current();
       const before = listed.size;

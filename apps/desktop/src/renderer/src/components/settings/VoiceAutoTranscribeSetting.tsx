@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { trpc } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { Row, Toggle } from './controls';
 
 export function VoiceAutoTranscribeSetting() {
@@ -28,7 +28,7 @@ export function VoiceAutoTranscribeSetting() {
   );
   return (
     <>
-      <Row settingId="auto-transcribe-voice" label="语音消息自动转文字" control={toggle} />
+      <Row settingId="auto-transcribe-voice" control={toggle} />
       {error ? <p role="alert">{error}</p> : null}
     </>
   );

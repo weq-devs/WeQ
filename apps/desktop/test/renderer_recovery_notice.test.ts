@@ -2,7 +2,7 @@ import { act, createElement, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { RendererRecoveryNotice } from '../src/renderer/src/components/RendererRecoveryNotice';
-import { useToast } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 
 afterEach(() => {
   useToast.setState({ toasts: [], leaving: [], seq: 0 });

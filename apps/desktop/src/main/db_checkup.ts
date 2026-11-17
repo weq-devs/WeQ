@@ -1,28 +1,55 @@
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveNtHelperPath } from '@weq/native';
-import { runOwnedChild, type DbRepairCheckup, type DbRepairTarget } from '@weq/service';
+import {
+  runOwnedChild,
+  type DbRepairCheckup,
+  type DbRepairTarget,
+  type DatabaseWorkProgress,
+} from '@weq/service';
 import { resolveChildWorkerPath } from './worker_path';
 
 export async function runDatabaseCheckup(
   target: DbRepairTarget,
   signal: AbortSignal,
-  options: { workerPath?: string; executable?: string; nativeRoot?: string } = {},
+  options: {
+    workerPath?: string;
+    executable?: string;
+    nativeRoot?: string;
+    onProgress?: (progress: DatabaseWorkProgress) => void;
+  } = {},
 ): Promise<DbRepairCheckup> {
   const worker =
     options.workerPath ??
     resolveChildWorkerPath('dbCheckupWorker.mjs', dirname(fileURLToPath(import.meta.url)));
   const nativeRoot = options.nativeRoot ?? dirname(dirname(dirname(resolveNtHelperPath())));
+  let pending = '';
+  let report: DbRepairCheckup | undefined;
+  const consume = (line: string) => {
+    if (!line.trim()) return;
+    const event = JSON.parse(line);
+    if (event.type === 'progress' && typeof event.progress?.step === 'string')
+      options.onProgress?.(event.progress);
+    else report = event.type === 'result' ? event.report : event;
+  };
   const result = await runOwnedChild(options.executable ?? process.execPath, [worker], {
     input: JSON.stringify(target),
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', WEQ_NATIVE_DIR: nativeRoot },
     signal,
     timeoutMs: 24 * 60 * 60_000,
     maxOutputBytes: 64 * 1024 * 1024,
+    onStdout: (text) => {
+      pending += text;
+      for (let newline = pending.indexOf('\n'); newline >= 0; newline = pending.indexOf('\n')) {
+        consume(pending.slice(0, newline));
+        pending = pending.slice(newline + 1);
+      }
+    },
   });
   if (result.signal || result.code !== 0) throw new Error('数据库体检进程异常退出，请重新体检。');
-  const report = JSON.parse(result.stdout) as DbRepairCheckup;
+  consume(pending);
   if (
+    !report ||
     report.dbName !== target.dbName ||
     report.dbPath !== target.dbPath ||
     !report.integrity ||
@@ -43,11 +70,16 @@ export class DatabaseCheckupTasks {
 
   constructor(private readonly run = runDatabaseCheckup) {}
 
-  start(uin: string, taskId: string, target: DbRepairTarget): Promise<DbRepairCheckup> {
+  start(
+    uin: string,
+    taskId: string,
+    target: DbRepairTarget,
+    onProgress?: (progress: DatabaseWorkProgress) => void,
+  ): Promise<DbRepairCheckup> {
     if (this.tasks.has(taskId)) throw new Error('这个体检任务已经在运行。');
     const abort = new AbortController();
     const done = Promise.resolve()
-      .then(() => this.run(target, abort.signal))
+      .then(() => this.run(target, abort.signal, { onProgress }))
       .finally(() => this.tasks.delete(taskId));
     this.tasks.set(taskId, { uin, abort, done });
     return done;

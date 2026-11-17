@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { z } from 'zod';
-import { usePageState } from '../PageSnapshots';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
 import {
   AlertTriangle,
@@ -36,9 +36,9 @@ import { Streamdown } from 'streamdown';
 import remarkGfm from 'remark-gfm';
 import { trpc, client } from '../../trpc/client';
 import { openExternalLink } from '../../lib/openExternalLink';
-import { useTabActive } from '../RetainedTabs';
-import { useDialog } from '../Dialog';
-import { useToast } from '../Toast';
+import { useTabActive } from '../RetainedTabs.shared';
+import { useDialog } from '../Dialog.shared';
+import { useToast } from '../Toast.shared';
 import { shikiCodeHighlighter } from '../../views/agentlab/shikiHighlighter';
 import { IconPicker } from '../ui/iconPicker';
 import { useThemeStore } from '../../state/theme';
@@ -49,6 +49,7 @@ import { SegmentedControl } from '../SegmentedControl';
 
 const REMARK_PLUGINS = [remarkGfm];
 const PLUGINS = { code: shikiCodeHighlighter };
+const DEFAULT_CHECKS = { isBug: true, knowCause: false, willingPr: false };
 
 const REPO = 'weq-devs/WeQ';
 const REPO_ISSUES = `https://github.com/${REPO}/issues`;
@@ -141,11 +142,24 @@ export function BugReportPanel(): ReactElement {
   });
 
   const [title, setTitle] = usePageState('feedback:title', '', pageValue.string, true);
-  const [body, setBody] = usePageState('feedback:body', '', pageValue.string, true);
+  const [templateBody, setTemplateBody] = usePageState<string | null>(
+    'feedback:template',
+    null,
+    pageValue.optionalString,
+  );
+  const [body, setBody] = usePageState(
+    'feedback:body',
+    () => templateBody ?? '',
+    pageValue.string,
+    true,
+  );
+  usePageDraftConfirmation('feedback:title', '');
+  usePageDraftConfirmation('feedback:body', templateBody ?? undefined);
+  usePageDraftConfirmation('feedback:checks', DEFAULT_CHECKS);
   const [preview, setPreview] = useState(false);
   const [checks, setChecks] = usePageState(
     'feedback:checks',
-    { isBug: true, knowCause: false, willingPr: false },
+    DEFAULT_CHECKS,
     z.object({ isBug: z.boolean(), knowCause: z.boolean(), willingPr: z.boolean() }),
     true,
   );
@@ -194,13 +208,23 @@ export function BugReportPanel(): ReactElement {
     ].join('\n');
   }, [platform, appVersion]);
 
-  // 首次进入自动填入模板（等版本信息就绪后）
+  // 生成时保存基准；自动模板及还原后的内容不参与离开检查。
   useEffect(() => {
-    if (templateFilledRef.current || body) return;
-    if (version.isLoading) return;
+    if (templateFilledRef.current || templateBody !== null) return;
+    if (version.isLoading || system.isLoading) return;
     templateFilledRef.current = true;
-    setBody(buildTemplate());
-  }, [buildTemplate, body, version.isLoading, setBody]);
+    const template = buildTemplate();
+    setTemplateBody(template);
+    if (!body) setBody(template);
+  }, [
+    buildTemplate,
+    body,
+    templateBody,
+    version.isLoading,
+    system.isLoading,
+    setBody,
+    setTemplateBody,
+  ]);
 
   /** 顶部 banner 的底部渐变模糊。 */
   const bannerStyle = useMemo(
@@ -217,8 +241,10 @@ export function BugReportPanel(): ReactElement {
   };
 
   const resetTemplate = (): void => {
-    setChecks({ isBug: true, knowCause: false, willingPr: false });
-    setBody(buildTemplate());
+    const template = buildTemplate();
+    setChecks(DEFAULT_CHECKS);
+    setTemplateBody(template);
+    setBody(template);
     pushToast({
       tone: 'info',
       title: '已填入反馈模板',
@@ -483,7 +509,9 @@ export function BugReportPanel(): ReactElement {
           <div className="weq-help-bug-hex">
             <div className="weq-help-bug-hex-head">
               <span>{hexdump.name} · 前 200 字节</span>
-              <span>共 {hexdump.totalBytes} 字节</span>
+              <span>
+                共 <span className="weq-number weq-number-inherit">{hexdump.totalBytes}</span> 字节
+              </span>
             </div>
             <pre className="weq-help-bug-hex-body">{hexdump.raw}</pre>
           </div>

@@ -23,7 +23,13 @@ export { QqDb } from './qq_db';
 export type { QqDbOptions } from './qq_db';
 export {
   scheduleDatabase,
+  configureDatabaseReadConcurrency,
+  normalizeDatabaseReadConcurrency,
+  DEFAULT_DATABASE_READ_CONCURRENCY,
+  MAX_DATABASE_READ_CONCURRENCY,
+  withDatabaseWorkload,
   observeSlowDatabaseOperations,
+  SLOW_DATABASE_OPERATION_MS,
   promoteDatabaseSignal,
   withDatabasePriority,
   withDatabaseSignal,
@@ -104,3 +110,10 @@ export * from './collection';
 
 // --- guild (QQ 频道) business ---
 export * from './guild';
+export {
+  assertDatabaseWritable,
+  databaseUnderMaintenance,
+  maintainDatabases,
+  onDatabaseMaintenanceChange,
+  DATABASE_MAINTENANCE_MESSAGE,
+} from './maintenance';

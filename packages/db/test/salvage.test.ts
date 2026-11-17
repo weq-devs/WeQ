@@ -280,6 +280,55 @@ describe('wrapBindingForSalvage', () => {
  * （键跨度不是行数上界）。
  */
 describe('runSalvageScan', () => {
+  it('确认跳过之前不返回部分行、不记录已跳过，拒绝时也不记账', async () => {
+    const { stub } = makeStub(
+      {},
+      { skipped: [{ lo: 3n, hi: 4n, errorKind: 'corrupt', errorCode: 11 }], skippedSpan: 1 },
+    );
+    const ledger = new SalvageLedger();
+    let accept = () => {};
+    const gate = new Promise<void>((resolve) => {
+      accept = resolve;
+    });
+    let done = false;
+    const result = runSalvageScan(
+      stub,
+      { dbPath: DB },
+      SCAN_SQL,
+      { lo: 0n, hi: 9n },
+      {
+        level: () => 2,
+        ledger,
+        beforeSkip: () => gate,
+      },
+    ).then((value) => {
+      done = true;
+      return value;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(done).toBe(false);
+    expect(ledger.list()).toHaveLength(0);
+    accept();
+    expect((await result).rows).toEqual([ROW]);
+    expect(ledger.list()).toHaveLength(1);
+    ledger.clear();
+    await expect(
+      runSalvageScan(
+        stub,
+        { dbPath: DB },
+        SCAN_SQL,
+        { lo: 0n, hi: 9n },
+        {
+          level: () => 2,
+          ledger,
+          beforeSkip: async () => {
+            throw new Error('先修复');
+          },
+        },
+      ),
+    ).rejects.toThrow('先修复');
+    expect(ledger.list()).toHaveLength(0);
+  });
   it('refuses to scan while the level is strict', async () => {
     const { stub, calls, scanCalls } = makeStub({});
 

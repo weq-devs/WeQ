@@ -1,42 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { LockKeyhole } from 'lucide-react';
-import {
-  groupResourceWindowName,
-  readGroupResourceWindowName,
-  type GroupResourceKind,
-} from '../../../shared/group_resource_window';
-import { openToolPopup, useToolWindow } from './useCompositionWindow';
+import { groupResourceWindowName } from '../../../shared/group_resource_window';
+import { useToolWindow } from './useCompositionWindow';
 import { RenderDocumentContext } from '../lib/renderDocument';
 import { useAppLock } from '../state/lock';
-import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
-import { GroupFileDialog } from '../components/GroupFileDialog';
+import { GroupAlbumDialog, GroupFileDialog } from '../components/lazyMainPanels';
 import { OverlayLayer } from '../components/OverlayLayer';
 import { TabActivity } from '../components/RetainedTabs';
-import { ToastHost } from '../components/Toast';
 import { HoverTooltip } from '../components/HoverTooltip';
 import { WorkspacePages, WorkspaceContent } from '../components/WorkspacePages';
 import '../styles/group-resource-window.css';
+import type { Entry } from './useGroupResourceWindows.shared';
 
-export interface GroupResourceRequest {
-  kind: GroupResourceKind;
-  groupCode: string;
-  groupName: string;
-  initialAlbumId?: string;
-  initialFolderId?: string;
-  initialFileId?: string;
-  onJumpToMessage?: (sequence: string, messageId: string) => void;
-}
-
-interface Entry {
-  ownerKey: string;
-  key: string;
-  request: GroupResourceRequest;
-  popup: Window | null;
-  instance: number;
-}
-
-function GroupResourceWindow({ entry, onClose }: { entry: Entry; onClose: () => void }) {
+export function GroupResourceWindow({ entry, onClose }: { entry: Entry; onClose: () => void }) {
   const { request } = entry;
   const title = `${request.groupName || request.groupCode} · 群${request.kind === 'albums' ? '相册' : '文件'}`;
   const locked = useAppLock((state) => state.locked);
@@ -100,7 +77,6 @@ function GroupResourceWindow({ entry, onClose }: { entry: Entry; onClose: () => 
         <RenderDocumentContext.Provider value={popup.document}>
           <TabActivity active={!locked}>
             {workspace}
-            <ToastHost />
             {!locked ? <HoverTooltip /> : null}
           </TabActivity>
           {locked ? (
@@ -114,55 +90,4 @@ function GroupResourceWindow({ entry, onClose }: { entry: Entry; onClose: () => 
       )
     : null;
 }
-
-/** 群资源窗固定绑定打开时的群；会话切换不销毁，账号或数据源变更才释放。 */
-export function useGroupResourceWindows({ ownerKey }: { ownerKey: string }) {
-  const [entries, setEntries] = useState<Entry[]>([]);
-  const registry = useRef(new Map<string, Entry>());
-  const sequence = useRef(0);
-  const close = useCallback((key: string, instance?: number) => {
-    const entry = registry.current.get(key);
-    if (!entry || (instance !== undefined && instance !== entry.instance)) return;
-    registry.current.delete(key);
-    if (entry.popup && !entry.popup.closed) entry.popup.close();
-    setEntries((current) => current.filter((item) => item.key !== key));
-  }, []);
-  useEffect(() => {
-    for (const [key, entry] of registry.current) if (entry.ownerKey !== ownerKey) close(key);
-  }, [ownerKey, close]);
-  const open = useCallback(
-    (request: GroupResourceRequest) => {
-      if (!ownerKey || useAppLock.getState().locked) return false;
-      const key = groupResourceWindowName(ownerKey, request.groupCode, request.kind);
-      if (!readGroupResourceWindowName(key)) return false;
-      const existing = registry.current.get(key);
-      if (existing && !existing.popup?.closed) {
-        existing.popup?.focus();
-        return true;
-      }
-      const entry: Entry = {
-        ownerKey,
-        key,
-        request: { ...request },
-        popup: openToolPopup(key, 1060, 780),
-        instance: ++sequence.current,
-      };
-      registry.current.set(key, entry);
-      setEntries((current) => [...current.filter((item) => item.key !== key), entry]);
-      return true;
-    },
-    [ownerKey],
-  );
-  return {
-    open,
-    windows: entries
-      .filter((entry) => entry.ownerKey === ownerKey)
-      .map((entry) => (
-        <GroupResourceWindow
-          key={`${entry.key}:${entry.instance}`}
-          entry={entry}
-          onClose={() => close(entry.key, entry.instance)}
-        />
-      )),
-  };
-}
+export type { GroupResourceRequest } from './useGroupResourceWindows.shared';

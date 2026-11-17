@@ -1,4 +1,4 @@
-import { Loader2, RotateCw } from 'lucide-react';
+import { Loader2, RefreshCw } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { GroupAnnouncementsDialog } from '../GroupAnnouncementsDialog';
 import { GroupEssenceDialog } from '../GroupEssenceDialog';
@@ -68,7 +68,7 @@ export function SearchGroupContentResult({
         <>
           <p role="alert">{query.error.message}</p>
           <button type="button" className="weq-set-btn" onClick={() => void query.refetch()}>
-            <RotateCw size={16} />
+            <RefreshCw size={16} aria-hidden />
             重试
           </button>
         </>

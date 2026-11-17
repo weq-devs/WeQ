@@ -20,6 +20,43 @@ const response = (bytes: Uint8Array | string, type = 'image/png') =>
   new Response(bytes, { headers: { 'content-type': type } });
 
 describe('verified media publication', () => {
+  it('首字节后持续收到数据的媒体不被连接期限截断', async () => {
+    const fetcher = vi.fn(
+      async (_url: string, options: { signal: AbortSignal }) =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              let at = 0;
+              const timer = setInterval(() => {
+                controller.enqueue(png.subarray(at, ++at));
+                if (at === png.length) {
+                  clearInterval(timer);
+                  controller.close();
+                }
+              }, 2);
+              options.signal.addEventListener(
+                'abort',
+                () => {
+                  clearInterval(timer);
+                  controller.error(options.signal.reason);
+                },
+                { once: true },
+              );
+            },
+          }),
+          { headers: { 'Content-Type': 'image/png' } },
+        ),
+    );
+    expect(
+      await downloadUrlToFile('https://fixture.invalid/image', join(directory, 'image.png'), {
+        fetcher,
+        timeoutMs: 20,
+        idleTimeoutMs: 30,
+        attempts: 1,
+        expectedKind: 'image',
+      }),
+    ).toMatchObject({ ok: true, bytes: png.length });
+  });
   it('uses the host network stack and reports verified-stream progress', async () => {
     const fetcher = vi.fn(async () => response(png));
     const progress = vi.fn();

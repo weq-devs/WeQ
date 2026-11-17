@@ -1,3 +1,4 @@
+import { networkFetch } from '@weq/network';
 /**
  * LbsService —— 腾讯位置服务（WebService API）的**只读**封装：关键词输入提示 +
  * 逆地址解析。用途只有一个：给「位置卡片」面板提供搜索与「点选反查地址」。
@@ -97,7 +98,7 @@ async function lbsGet(path: string, params: Record<string, string | number>): Pr
   const url = `${LBS_HOST}${path}?${query.toString()}`;
   let res: Response;
   try {
-    res = await fetch(url, { signal: AbortSignal.timeout(LBS_TIMEOUT_MS) });
+    res = await networkFetch(url, { signal: AbortSignal.timeout(LBS_TIMEOUT_MS) });
   } catch (error) {
     throw new Error(
       `无法连接腾讯位置服务（${path}）：${error instanceof Error ? error.message : String(error)}`,

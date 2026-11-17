@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
 import { Activity, Check, Copy, Save } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
-import { useDialog } from '../Dialog';
-import { useToast } from '../Toast';
+import { useDialog } from '../Dialog.shared';
+import { useToast } from '../Toast.shared';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 
 export function AssistantSection() {
@@ -110,7 +110,7 @@ export function AssistantSection() {
   }
   return (
     <div className="weq-set">
-      <SectionHeader icon={<Activity size={16} />} title="QQ 公众号推送" />
+      <SectionHeader page="assistant" title="QQ 公众号推送" />
       <Card
         title="推送与资源服务"
         icon={<Activity size={15} strokeWidth={1.8} />}
@@ -163,7 +163,7 @@ export function AssistantSection() {
               />
               <button
                 type="button"
-                className="weq-set-btn weq-set-btn-sm"
+                className="weq-set-btn weq-set-btn-primary weq-set-btn-sm"
                 disabled={busy || status.isLoading || !data}
                 onClick={() => void savePort()}
               >

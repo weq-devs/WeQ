@@ -27,10 +27,11 @@ import {
 } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { QqAvatar } from '../QqAvatar';
-import { QqMessageContent, ConvContext, ForwardKindContext } from '../QqMessageContent';
+import { QqMessageContent } from '../QqMessageContent';
+import { ConvContext, ForwardKindContext } from '../../state/messageContext';
 import { FaceEmoji } from '../FaceEmoji';
 import { client } from '../../trpc/client';
-import { IS_WEB } from '../../lib/target';
+import { IS_WEB } from '../../lib/target.shared';
 import { pickAccountFile } from '../../lib/accountFilePicker';
 import type { Conversation, User } from '../../im-template/template/types';
 import { FacePicker } from './FacePicker';
@@ -285,7 +286,9 @@ export function AddMessageModal({
                 <QqAvatar uin={sender.uin} size={34} />
                 <span className="weq-compose-sender-name">{sender.name}</span>
                 {sender.uin && sender.uin !== '0' ? (
-                  <span className="weq-compose-sender-uin">{sender.uin}</span>
+                  <span className="weq-compose-sender-uin">
+                    <span className="weq-number weq-number-inherit">{sender.uin}</span>
+                  </span>
                 ) : null}
                 <span className="weq-compose-sender-swap">切换</span>
               </button>
@@ -488,7 +491,13 @@ function SegmentRow({
           onChange={(e) => onText(e.target.value)}
           autoFocus
         />
-        <button type="button" className="weq-compose-seg-x" onClick={onRemove} title="删除">
+        <button
+          data-danger="outline"
+          type="button"
+          className="weq-compose-seg-x"
+          onClick={onRemove}
+          title="删除"
+        >
           <X size={13} />
         </button>
       </div>
@@ -511,7 +520,13 @@ function SegmentRow({
           </>
         )}
       </span>
-      <button type="button" className="weq-compose-seg-x" onClick={onRemove} title="删除">
+      <button
+        data-danger="outline"
+        type="button"
+        className="weq-compose-seg-x"
+        onClick={onRemove}
+        title="删除"
+      >
         <X size={13} />
       </button>
     </div>

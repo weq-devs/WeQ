@@ -33,7 +33,6 @@ const computerProcedures = new Set([
   'bootstrap.backupOpenDirectory',
   'bootstrap.backupRevealExport',
   'bootstrap.backupRestart',
-  'account.setNativeMediaEnabled',
   'account.pickDecryptOutputDir',
   'account.pickQzoneAlbumExportDir',
   'account.pickGroupAlbumExportDir',
@@ -83,11 +82,12 @@ export function remoteProcedureUnavailable(path: string, input: unknown): boolea
   return false;
 }
 
-const computerSettingsPages = new Set(['weq-storage', 'qq-accounts', 'database-repair', 'media']);
+const computerSettingsPages = new Set(['weq-storage']);
 const computerSettingIds = new Set([
+  'database-repair',
   'weq-space-cleanup',
   'qq-storage-cleanup',
-  'linked-resources',
+  'qq-accounts',
   'external-chatpic',
   'other-device-key',
   'qq-debug-copy',
@@ -104,7 +104,6 @@ const computerResetCards = new Set([
   'window',
   'call-directory',
   'call-trace',
-  'native-media',
   'external-chatpic',
   'logs',
 ]);

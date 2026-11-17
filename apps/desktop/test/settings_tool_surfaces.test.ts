@@ -6,6 +6,8 @@ import { SettingsDialog, type SectionId } from '../src/renderer/src/components/S
 import { useSettingsMaintenance } from '../src/renderer/src/hooks/useSettingsMaintenance';
 import { useAppLock } from '../src/renderer/src/state/lock';
 import { useCaptureWindow } from '../src/renderer/src/state/captureWindow';
+import { useLogPerformanceWindow } from '../src/renderer/src/state/logPerformanceWindow';
+import { useDatabaseBrowserWindow } from '../src/renderer/src/state/databaseBrowserWindow';
 import { useUpdateStore } from '../src/renderer/src/state/update';
 import type { MaintenanceTool } from '../src/renderer/src/components/settings/DataMaintenanceSection';
 import { DataMaintenanceDialog } from '../src/renderer/src/components/settings/DataMaintenanceDialog';
@@ -49,7 +51,7 @@ vi.mock('../src/renderer/src/views/cache/DbExplorer', () => ({
   DbExplorer: () => h('input', { 'aria-label': '合成数据库工具输入' }),
 }));
 vi.mock('../src/renderer/src/views/cache/CacheView', () => ({
-  CacheView: () => h('div', null, '合成资源列表'),
+  CacheView: () => h('input', { 'aria-label': '合成资源工具输入' }),
 }));
 vi.mock('../src/renderer/src/components/settings/LogViewerPanel', () => ({
   LogViewerPanel: () => h('div', { 'data-log-viewer': true }, '合成日志'),
@@ -57,6 +59,8 @@ vi.mock('../src/renderer/src/components/settings/LogViewerPanel', () => ({
 
 afterEach(() => {
   useCaptureWindow.getState().dismiss();
+  useLogPerformanceWindow.getState().dismiss();
+  useDatabaseBrowserWindow.getState().dismiss();
   useAppLock.setState({ locked: false });
   useUpdateStore.setState({ available: false });
   vi.unstubAllGlobals();
@@ -125,7 +129,7 @@ describe('设置来源工具不替换设置页面', () => {
     }
   });
 
-  it('数据库工具使用模态层，原设置、输入和滚动现场保持，关闭后归还焦点', () => {
+  it('资源工具使用模态层，原设置、输入和滚动现场保持，关闭后归还焦点', () => {
     const f = fixture();
     try {
       const settings = f.host.querySelector('.weq-settings-dialog')!;
@@ -140,10 +144,10 @@ describe('设置来源工具不替换设置页面', () => {
       });
       body.scrollTop = 137;
       act(() => input.focus());
-      f.open('database');
+      f.open('cache');
       expect(settings.closest('[hidden]')).toBeNull();
       expect(document.querySelector('[aria-modal="true"]')).not.toBeNull();
-      expect(document.querySelector('[aria-label="合成数据库工具输入"]')).not.toBeNull();
+      expect(document.querySelector('[aria-label="合成资源工具输入"]')).not.toBeNull();
       expect(f.host.querySelector('.weq-settings-dialog')).toBe(settings);
       f.open(null);
       expect(settings.querySelector('input')).toBe(input);
@@ -158,13 +162,13 @@ describe('设置来源工具不替换设置页面', () => {
   it('Escape 只关闭工具，不关闭或隐藏底层设置', () => {
     const f = fixture();
     try {
-      f.open('database');
+      f.open('cache');
       act(() =>
         document.dispatchEvent(
           new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
         ),
       );
-      expect(document.querySelector('[aria-label="合成数据库工具输入"]')).toBeNull();
+      expect(document.querySelector('[aria-label="合成资源工具输入"]')).toBeNull();
       expect(f.host.querySelector('.weq-settings-dialog')?.closest('[hidden]')).toBeNull();
     } finally {
       f.close();
@@ -191,11 +195,11 @@ describe('设置来源工具不替换设置页面', () => {
   it('同号不同来源、锁屏和旧回调均不能泄漏或恢复旧工具', () => {
     const f = fixture();
     try {
-      f.open('database');
+      f.open('cache');
       const previous = f.oldCallback();
       f.source('account:source-b');
       expect(document.querySelector('.weq-tool-modal')).toBeNull();
-      act(() => previous('database'));
+      act(() => previous('cache'));
       expect(document.querySelector('.weq-tool-modal')).toBeNull();
       f.open('cache');
       act(() => previous(null));
@@ -211,10 +215,13 @@ describe('设置来源工具不替换设置页面', () => {
     }
   });
 
-  it('日志查看器留在设置正文，不创建模态层或新的工作区页面', () => {
+  it('日志与性能只在设置正文展示配置和入口，不挂载查看器', () => {
     const f = fixture('logs');
     try {
-      expect(f.host.querySelector('.weq-settings-body [data-log-viewer]')).not.toBeNull();
+      expect(f.host.querySelector('.weq-settings-body [data-log-viewer]')).toBeNull();
+      expect(f.host.querySelector('.weq-settings-body')?.textContent).toContain('打开性能监视');
+      expect(f.host.querySelector('.weq-settings-body')?.textContent).toContain('打开日志查看');
+      expect(f.host.querySelector('.weq-settings-body .weq-perf-chart')).toBeNull();
       expect(document.querySelector('.weq-tool-modal')).toBeNull();
       expect(f.host.querySelectorAll('.weq-workspace-page')).toHaveLength(1);
     } finally {

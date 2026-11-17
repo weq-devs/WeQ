@@ -1,5 +1,5 @@
 /**
- * 「修复完成，N 秒后回到首页」的浮动提示。
+ * 「修复完成，N 秒后回到主页」的浮动提示。
  *
  * 由 App 里的 DbRepairWindowHost 常驻管理，只把提示 portal 到当前修复窗口；
  * 关闭修复窗口后移回主窗口，同一个倒计时与返回守卫不会重新挂载。
@@ -10,13 +10,14 @@
  * `openAccount`（也就是从首页重新打开）就完全正常。所以这里不是"建议"，是必须。
  */
 
+import { NumericText } from './NumericText';
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 import { DB_REPAIR_RETURN_SECONDS, useDbRepairReturn } from '../state/dbRepairReturn';
 import { leaveAccountForBootstrap } from '../lib/leaveAccount';
-import { useToast } from './Toast';
+import { useToast } from './Toast.shared';
 
 export function DbRepairReturnOverlay({
   ownerDocument = document,
@@ -56,8 +57,8 @@ export function DbRepairReturnOverlay({
         durationKind: warn ? 'failure' : 'success',
         title: '已回到启动页',
         detail: warn
-          ? '回到首页重新打开这个账号再试一次 —— 这次没能替换成功。'
-          : '回到首页重新打开这个账号，修复后的数据库就会生效（头像、消息都恢复正常）。',
+          ? '回到主页重新打开这个账号再试一次 —— 这次没能替换成功。'
+          : '回到主页重新打开这个账号，修复后的数据库就会生效（头像、消息都恢复正常）。',
       });
     } catch (e) {
       pushToast({
@@ -103,7 +104,7 @@ export function DbRepairReturnOverlay({
         <strong>{pending.title}</strong>
         <span>{pending.detail}</span>
         <span className="weq-rp-return-count">
-          {leaving ? '正在回到启动页…' : `${left} 秒后自动回到启动页`}
+          {leaving ? '正在回到启动页…' : <NumericText>{`${left} 秒后自动回到启动页`}</NumericText>}
         </span>
       </span>
       <button

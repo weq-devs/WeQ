@@ -43,6 +43,8 @@ export const preferenceDefaults = {
   showGroupMemberTitle: true,
   autoMentionOnQuote: false,
   backspaceRemovesQuote: true,
+  slashEmojiEnabled: true,
+  slashEmojiAutoReplace: false,
   keepConversationPositionOnHover: false,
   autoFetchMissingMessages: false,
   autoFetchMissingContext: false,

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { AnimationItem } from 'lottie-web';
-import { useTabActive } from '../components/RetainedTabs';
+import { useTabActive } from '../components/RetainedTabs.shared';
 import { useRenderDocument } from '../lib/renderDocument';
 import { useNearViewport } from './useNearViewport';
 

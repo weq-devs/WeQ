@@ -38,6 +38,10 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
   useDialog: (selector: (state: { confirm: () => Promise<boolean> }) => unknown) =>
     selector({ confirm: async () => true }),
 }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
+  useDialog: (selector: (state: { confirm: () => Promise<boolean> }) => unknown) =>
+    selector({ confirm: async () => true }),
+}));
 vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
   useQQWriteSession: () => ({
     binding: { expectedAccountUin: '10001', expectedAccountConfigId: mock.configId },

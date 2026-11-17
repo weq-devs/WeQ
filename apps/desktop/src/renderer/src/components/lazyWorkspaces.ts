@@ -58,23 +58,3 @@ export const AnnualReportView = lazyPanel<
 >(() =>
   import('../views/annual-report/AnnualReportView').then((m) => ({ default: m.AnnualReportView })),
 );
-
-const navigation = {
-  settings: SettingsDialog,
-  maintenance: DataMaintenanceDialog,
-  collections: CollectionDialog,
-  qzone: QzoneWorkspace,
-  channel: ChannelView,
-  dressup: DressUpDialog,
-  export: ExportTool,
-  viewer: ExportViewer,
-  analysis: AnalysisTool,
-  backfill: RoamingBackfillPanel,
-  agentlab: AgentLabView,
-  annual: AnnualReportView,
-};
-export const mobilePageLoaders = Object.values(navigation).map((page) => page.preload);
-export function preloadWorkspace(name: string): void {
-  if (Object.hasOwn(navigation, name))
-    void navigation[name as keyof typeof navigation].preload().catch(() => {});
-}

@@ -2,7 +2,8 @@ import { Download, ListChecks, CheckCheck, FlipHorizontal2, X } from 'lucide-rea
 import { MessageSelectionBar } from './MessageSelectionBar';
 import type { ReactNode } from 'react';
 import '../styles/content-reference-selection.css';
-import { useRequestContentExport, type useContentMultiSelect } from '../state/contentSelection';
+import { useRequestContentExport } from '../state/contentSelection.shared';
+import type { useContentMultiSelect } from '../state/contentSelection.shared';
 import type { ContentOwner } from '../../../shared/content_selection';
 
 export function ContentReferenceToolbar({

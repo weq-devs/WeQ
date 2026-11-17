@@ -38,11 +38,10 @@ it('无账号的两个客户端共用宿主配置，完整档默认一小时', a
   await second.configure({ mode: 'light', retentionDays: 7, capacityMiB: 128 });
   expect((await first.status()).settings.mode).toBe('light');
 });
-it('降低保存策略须明确确认，公开容量与时间范围校验有效', async () => {
-  await expect(
-    first.configure({ mode: 'light', retentionDays: 1, capacityMiB: 64 }),
-  ).rejects.toThrow('确认');
-  await first.configure({ mode: 'light', retentionDays: 1, capacityMiB: 64, confirmPrune: true });
+it('降低保存策略但没有实际删除时不要求确认，公开容量与时间范围校验有效', async () => {
+  const preview = await first.previewPrune({ retentionDays: 1, capacityMiB: 64 });
+  expect(preview.needsPrune).toBe(false);
+  await first.configure({ mode: 'light', retentionDays: 1, capacityMiB: 64 });
   await expect(first.history({ from: 100, to: 0 })).rejects.toThrow();
   await expect(
     first.configure({ mode: 'full', retentionDays: 0, capacityMiB: 64 }),
@@ -60,4 +59,9 @@ it('分页 JSONL 与聚合 CSV 导出使用真实文件，Web 返回下载入口
   expect(await readFile(csv!.path, 'utf8')).toContain(
     'start,end,process,segment,count,metric,min,max,mean',
   );
+  const groupedRange = { ...range, aggregate: true, processGroup: 'Web 服务' };
+  const history = await first.history(groupedRange);
+  expect(history.processGroups).toContain('Web 服务');
+  expect(history.points[0]?.process).toBe('group:Web 服务');
+  expect((await first.history({ ...range, aggregate: true })).points[0]?.label).toBe('全部进程');
 });

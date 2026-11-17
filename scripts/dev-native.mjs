@@ -2,6 +2,7 @@ import { constants } from 'node:fs';
 import { copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   AUTHORIZATION_TARGETS,
   authorizationExecutable,
@@ -17,8 +18,11 @@ import {
 } from './dev-prepare.mjs';
 import { runCommand, startupLog } from './dev-process.mjs';
 import { prepareDress } from './dev-dress.mjs';
+import { markerPath } from './native-install.mjs';
 
 const kinds = ['font', 'bubble', 'widget'];
+const devProfile = 'weq-dev';
+const devProfileConfig = fileURLToPath(new URL('./dev-native.cargo.toml', import.meta.url));
 const inputs = [
   'Cargo.toml',
   'Cargo.lock',
@@ -72,8 +76,9 @@ export async function nativeSourceFingerprint(
     ]),
   ].sort();
   const hash = createHash('sha256').update(
-    `weq-dev-native-v3\0${resolve(source)}\0${platform.target}\0`,
+    `weq-dev-native-v4\0${resolve(source)}\0${platform.target}\0${devProfile}\0`,
   );
+  hash.update(await readFile(devProfileConfig)).update('\0');
   for (const name of [
     'RUSTFLAGS',
     'CARGO_ENCODED_RUSTFLAGS',
@@ -82,7 +87,10 @@ export async function nativeSourceFingerprint(
     'CXX',
     'CFLAGS',
     'CXXFLAGS',
-  ])
+    'CARGO_INCREMENTAL',
+    'CARGO_BUILD_INCREMENTAL',
+    ...Object.keys(env).filter((name) => name.startsWith('CARGO_PROFILE_')),
+  ].sort())
     hash.update(`${name}=${env[name] ?? ''}\0`);
   for (const path of files) {
     hash.update(`${path}\0`);
@@ -111,7 +119,8 @@ export async function bundleMatches(
 ) {
   if (!marker || !Array.isArray(marker.files)) return false;
   for (const path of nativeFiles(platform, { withDress })) {
-    const expected = marker.files.find((entry) => entry.path === path)?.sha256;
+    // marker 里可能留着旧版 Windows 反斜杠写法，比较前统一成 POSIX 分隔符。
+    const expected = marker.files.find((entry) => markerPath(entry.path ?? '') === path)?.sha256;
     if (
       !/^[a-f0-9]{64}$/.test(expected ?? '') ||
       !(await exists(join(root, path))) ||
@@ -218,7 +227,11 @@ export async function installNativeBundle({
     }
     const next = {
       ...marker,
-      files: [...(marker.files ?? []).filter((entry) => !paths.includes(entry.path)), ...files],
+      // 旧 marker 的 Windows 反斜杠条目也要被本次写入覆盖，否则会留下重复记录。
+      files: [
+        ...(marker.files ?? []).filter((entry) => !paths.includes(markerPath(entry.path ?? ''))),
+        ...files,
+      ],
     };
     await writeJson(join(staging, '.installed.json'), next);
     await unused(root, { platform });
@@ -270,28 +283,28 @@ export async function prepareNative(
   const options = { env, run, platform };
   if (config.mode === 'local') {
     const source = config.source;
-    if (!(await exists(join(source, 'Cargo.toml'))))
-      throw new Error(`找不到 native 源码：${source}`);
-    const sourceFingerprint = await nativeSourceFingerprint(source, options);
-    if (
-      marker?.localBuild?.sourceFingerprint === sourceFingerprint &&
-      marker.localBuild.platform === platform.key &&
-      (await bundleMatches(root, marker, platform))
-    ) {
-      await verify(root, root, { ...options, local: true });
-      log('本地 native 与源码一致，复用现有构建', 'debug', 'native');
-      return;
-    }
     await unused(root, options);
-    const buildEnv = {
-      ...env,
-      NT_HELPER_PACK_DRESS: '0',
-      CARGO_TERM_COLOR: 'never',
-    };
-    delete buildEnv.BUILD_TIMESTAMP;
-    delete buildEnv.CARGO_BUILD_TARGET;
-    let building = true;
     try {
+      if (!(await exists(join(source, 'Cargo.toml'))))
+        throw new Error(`找不到 native 源码：${source}`);
+      const sourceFingerprint = await nativeSourceFingerprint(source, options);
+      if (
+        marker?.localBuild?.sourceFingerprint === sourceFingerprint &&
+        marker.localBuild.platform === platform.key &&
+        marker.localBuild.profile === devProfile &&
+        (await bundleMatches(root, marker, platform))
+      ) {
+        await verify(root, root, { ...options, local: true });
+        log('本地 native 与源码一致，复用现有构建', 'debug', 'native');
+        return;
+      }
+      const buildEnv = {
+        ...env,
+        NT_HELPER_PACK_DRESS: '0',
+        CARGO_TERM_COLOR: 'never',
+      };
+      delete buildEnv.BUILD_TIMESTAMP;
+      delete buildEnv.CARGO_BUILD_TARGET;
       const metadata = JSON.parse(
         await run('cargo', ['metadata', '--no-deps', '--format-version', '1', '--locked'], {
           cwd: source,
@@ -316,12 +329,15 @@ export async function prepareNative(
         });
         buildEnv.DRESS_KEY_SEED = dress.seed;
         const started = performance.now();
-        log(`正在编译本地 native（${commit.slice(0, 7)}；装扮资源已独立准备）`, 'info', 'native');
+        log(`正在构建本地 native（${commit.slice(0, 7)}；${devProfile}）`, 'info', 'native');
         await run(
           'cargo',
           [
             'build',
-            '--release',
+            '--profile',
+            devProfile,
+            '--config',
+            devProfileConfig,
             '--locked',
             '--lib',
             '--target',
@@ -331,14 +347,13 @@ export async function prepareNative(
           ],
           { cwd: source, env: buildEnv, log, scope: 'native' },
         );
-        building = false;
         if (sourceFingerprint !== (await nativeSourceFingerprint(source, options)))
           throw new Error('编译期间 native 输入发生变化，未安装，请重试');
         staging = await mkdtemp(join(target, '.weq-dev-native-'));
         for (const path of nativeFiles(platform))
           await mkdir(dirname(join(staging, path)), { recursive: true });
         await copy(
-          join(target, platform.target, 'release', platform.library),
+          join(target, platform.target, devProfile, platform.library),
           join(staging, platform.directory, 'nt_helper.node'),
         );
         for (const kind of kinds)
@@ -351,6 +366,7 @@ export async function prepareNative(
           sourceFingerprint,
           commit,
           platform: platform.key,
+          profile: devProfile,
           pairedDress: true,
           dressFingerprint: dress.fingerprint,
           dressSeed: dress.seed,
@@ -376,7 +392,8 @@ export async function prepareNative(
         await release();
       }
     } catch (error) {
-      if (!building || [130, 143].includes(error.exitCode)) throw error;
+      // 安装恢复未完成时保留恢复文件与错误，不尝试继续启动。
+      if (error instanceof AggregateError || [130, 143].includes(error.exitCode)) throw error;
       const local = Boolean(marker?.localBuild);
       try {
         if (
@@ -391,10 +408,11 @@ export async function prepareNative(
         throw error;
       }
       log(
-        `本地 native 编译失败：${error.message}；复用现有构建继续启动（未包含本次源码改动）`,
+        `本地 native 更新失败：${error.message}；复用现有构建继续启动（未包含本次源码改动）`,
         'warn',
         'native',
       );
+      return { fallback: true };
     }
     return;
   }

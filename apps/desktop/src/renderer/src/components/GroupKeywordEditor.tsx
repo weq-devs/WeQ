@@ -387,6 +387,7 @@ export function GroupKeywordEditor({
                     )}
                   </button>
                   <button
+                    data-danger="outline"
                     type="button"
                     className="group-keyword-item-remove"
                     title="删除关键词"
@@ -416,7 +417,10 @@ export function GroupKeywordEditor({
                       </span>
                     ))}
                     {selected.length > 8 ? (
-                      <span className="group-keyword-member-more">+{selected.length - 8}</span>
+                      <span className="group-keyword-member-more">
+                        +
+                        <span className="weq-number weq-number-inherit">{selected.length - 8}</span>
+                      </span>
                     ) : null}
                   </div>
                 ) : null}
@@ -490,7 +494,12 @@ export function GroupKeywordEditor({
                         {candidates.error ? (
                           <p role="alert">
                             成员读取失败
-                            <button type="button" onClick={() => void candidates.refetch()}>
+                            <button
+                              type="button"
+                              onClick={() => void candidates.refetch()}
+                              className="weq-retry-button"
+                            >
+                              <RefreshCw size={14} aria-hidden />
                               重试
                             </button>
                           </p>

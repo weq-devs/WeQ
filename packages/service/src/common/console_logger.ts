@@ -3,6 +3,7 @@ import { stripVTControlCharacters } from 'node:util';
 import { writeSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { consoleTimingLabels, formatConsoleRecord, type ConsoleSummary } from './console_format';
+import { terminalColor } from './console_header.mjs';
 
 const levels: LogLevel[] = ['debug', 'info', 'warn', 'error'];
 const secret =
@@ -11,9 +12,26 @@ const omitted =
   /^(?:body|text|content|payload|response|raw|data|bytes|buffer|message|messages|messageText|plainText|markdown|html|prompt|completion|input|output|args|params)$/i;
 const windowMs = 30_000;
 const maxEntries = 512;
-// 仅固定轮询告警合并次数；慢请求、数据库慢操作和普通错误始终逐条输出。
+// 固定轮询告警及成功的慢操作可汇总；失败仍立即输出。
 const summaryEvents = new Set(['account-monitor:online-probe-failed']);
 const volatileFields = new Set(['operationId', 'requestId', 'ts', 'timestamp']);
+const slowIdentityFields = new Set([
+  'scope',
+  'event',
+  'accountUin',
+  'path',
+  'type',
+  'caller',
+  'fingerprint',
+]);
+
+function isSuccessfulSlow(context: LoggerContext): boolean {
+  return (
+    context.outcome === 'ok' &&
+    (context.event === 'request-slow' ||
+      (context.scope === 'database' && context.event === 'database-slow'))
+  );
+}
 
 interface PendingSummary {
   at: number;
@@ -21,11 +39,19 @@ interface PendingSummary {
   message: string;
   context: LoggerContext;
   summary: ConsoleSummary;
+  affectedQueryCount: number;
+  maxBlockedMs: number;
 }
 
 function updateSummary(entry: PendingSummary, context: LoggerContext): void {
   entry.context = context;
   entry.summary.count++;
+  for (const key of ['affectedQueryCount', 'maxBlockedMs'] as const) {
+    const value = context[key];
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) continue;
+    if (key === 'affectedQueryCount') entry.affectedQueryCount += value;
+    else entry.maxBlockedMs = Math.max(entry.maxBlockedMs, value);
+  }
   for (const key of Object.keys(consoleTimingLabels) as Array<keyof typeof consoleTimingLabels>) {
     const value = context[key];
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) continue;
@@ -42,9 +68,13 @@ function updateSummary(entry: PendingSummary, context: LoggerContext): void {
 }
 
 /** 忽略每次请求的关联与计时，保留错误、对象、调用位置和堆栈的差异。 */
-function recordKey(level: LogLevel, message: string, context: LoggerContext): string {
+function recordKey(level: LogLevel, message: string, context: LoggerContext, slow = false): string {
   const stable = Object.entries(context)
-    .filter(([key]) => !volatileFields.has(key) && !(key in consoleTimingLabels))
+    .filter(([key]) =>
+      slow
+        ? slowIdentityFields.has(key)
+        : !volatileFields.has(key) && !(key in consoleTimingLabels),
+    )
     .sort(([a], [b]) => a.localeCompare(b));
   return createHash('sha256')
     .update(JSON.stringify([level, message, stable]))
@@ -124,6 +154,8 @@ export interface ConsoleLoggerOptions {
   sink?: (line: string) => void;
   color?: boolean;
   infoScopes?: ReadonlySet<string>;
+  detailEvents?: ReadonlySet<string>;
+  startup?: { startedAt: number; restarting: boolean; warning: boolean };
 }
 
 export function createConsoleLogger(options: ConsoleLoggerOptions) {
@@ -147,15 +179,18 @@ export function createConsoleLogger(options: ConsoleLoggerOptions) {
       .map((v) => v.trim())
       .filter(Boolean),
   );
-  const color =
-    (options.color ??
-      (env.WEQ_DEV_STDERR_TTY === undefined
-        ? process.stderr.isTTY
-        : env.WEQ_DEV_STDERR_TTY === '1')) &&
-    env.NO_COLOR === undefined;
+  const color = (options.color ?? terminalColor('stderr', env)) && env.NO_COLOR === undefined;
   const pending = new Map<string, PendingSummary>();
   const stacks = new Map<string, number>();
   const details = minimum === 'debug';
+  let starting = Boolean(options.startup);
+  let startupWarning = options.startup?.warning ?? false;
+  const restartDetails = new Set([
+    'desktop-main:startup',
+    'app-context:open-account-success',
+    'app-context:open-static-account-success',
+    'mcp-server:mcp-start',
+  ]);
   const output = (
     level: LogLevel,
     message: string,
@@ -177,9 +212,18 @@ export function createConsoleLogger(options: ConsoleLoggerOptions) {
   };
   const outputSummary = (entry: PendingSummary) => {
     if (entry.summary.count > 1)
-      output(entry.level, entry.message, entry.context, {
-        summary: { ...entry.summary, windowMs: Math.max(0, now() - entry.at) },
-      });
+      output(
+        entry.level,
+        entry.message,
+        {
+          ...entry.context,
+          affectedQueryCount: entry.affectedQueryCount,
+          maxBlockedMs: entry.maxBlockedMs,
+        },
+        {
+          summary: { ...entry.summary, windowMs: Math.max(0, now() - entry.at) },
+        },
+      );
   };
   const flush = () => {
     for (const entry of pending.values()) outputSummary(entry);
@@ -209,6 +253,11 @@ export function createConsoleLogger(options: ConsoleLoggerOptions) {
     });
   return {
     write(level: LogLevel, message: string, context: LoggerContext = {}) {
+      const event = `${context.scope}:${context.event}`;
+      const ready = starting && event === 'desktop-main:app-ready';
+      if (starting && (level === 'warn' || level === 'error')) startupWarning = true;
+      const startupDetail = starting && options.startup?.restarting && restartDetails.has(event);
+      if (ready) starting = false;
       if (!enabled || levels.indexOf(level) < levels.indexOf(minimum)) return;
       if (
         (level === 'info' || level === 'debug') &&
@@ -224,7 +273,26 @@ export function createConsoleLogger(options: ConsoleLoggerOptions) {
         !options.infoScopes.has(context.scope ?? 'app')
       )
         return;
-      const projected = projectConsoleContext(context) as LoggerContext;
+      if (
+        level === 'info' &&
+        !details &&
+        !scopes.size &&
+        (options.detailEvents?.has(event) || startupDetail)
+      )
+        return;
+      const projected = projectConsoleContext(
+        ready && !details
+          ? {
+              ...context,
+              event: startupWarning
+                ? 'app-ready-with-warnings'
+                : options.startup?.restarting
+                  ? 'app-restart-ready'
+                  : context.event,
+              durationMs: Math.max(0, now() - options.startup!.startedAt),
+            }
+          : context,
+      ) as LoggerContext;
       let stackRepeated = false;
       if (!details && (level === 'warn' || level === 'error')) {
         const nestedError = projected.error;
@@ -233,9 +301,13 @@ export function createConsoleLogger(options: ConsoleLoggerOptions) {
             ? { ...nestedError, ...projected }
             : projected;
         const hasStack = typeof (errorContext.errorStack ?? errorContext.stack) === 'string';
+        const slow = isSuccessfulSlow(context);
         const summarize =
-          level === 'warn' && summaryEvents.has(`${context.scope}:${context.event}`);
-        const key = hasStack || summarize ? recordKey(level, safeText(message), projected) : '';
+          level === 'warn' && (slow || summaryEvents.has(`${context.scope}:${context.event}`));
+        const key =
+          hasStack || summarize
+            ? recordKey(level, safeText(message), projected, summarize && slow)
+            : '';
         if (summarize) {
           const old = pending.get(key);
           if (old && now() - old.at < windowMs) {
@@ -257,6 +329,8 @@ export function createConsoleLogger(options: ConsoleLoggerOptions) {
             message: safeText(message),
             context: projected,
             summary: { count: 0, windowMs: 0, timings: {} },
+            affectedQueryCount: 0,
+            maxBlockedMs: 0,
           };
           updateSummary(entry, projected);
           pending.set(key, entry);

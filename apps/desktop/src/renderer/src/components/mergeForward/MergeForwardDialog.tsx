@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import { CompositionButton } from './CompositionButton';
 /**
  * MergeForwardDialog —— 合并转发的使用场景之一：在聊天里多选消息后「合并转发」。
@@ -16,7 +17,7 @@ import { CompositionButton } from './CompositionButton';
 import { useMemo, useState, type ReactElement } from 'react';
 import { ArrowLeft, ClipboardCopy, Save, Share2, X } from 'lucide-react';
 import { Modal } from '../Dialog';
-import { useToast } from '../Toast';
+import { useToast } from '../Toast.shared';
 import { copyTextToClipboard } from '../../im-template/template/clipboard';
 import { MergeForwardComposer } from './MergeForwardComposer';
 import { MergeForwardTargets } from './MergeForwardTargets';
@@ -147,12 +148,16 @@ export function MergeForwardDialog({
                 aria-label="聊天记录标题"
               />
             ) : (
-              <strong id="weq-mf-title">选择会话（{selected.size}）</strong>
+              <strong id="weq-mf-title">
+                选择会话（<span className="weq-number weq-number-inherit">{selected.size}</span>）
+              </strong>
             )}
             <span className="weq-mf-head-sub">
-              {step === 'edit'
-                ? `${draft.nodes.length} 条预览消息 · 右键可修改`
-                : '可多选，确认后一起转发'}
+              {step === 'edit' ? (
+                <NumericText>{`${draft.nodes.length} 条预览消息 · 右键可修改`}</NumericText>
+              ) : (
+                '可多选，确认后一起转发'
+              )}
             </span>
           </div>
           <CompositionButton
@@ -217,10 +222,10 @@ export function MergeForwardDialog({
                   sending
                     ? '正在转发，请稍后'
                     : !sendAvailable
-                      ? '受限模式下无法转发消息'
+                      ? '在线能力受限，无法转发消息'
                       : '请选择至少一个目标会话'
                 }
-                title={sendAvailable ? '' : '受限模式下无法转发消息'}
+                title={sendAvailable ? '' : '在线能力受限，无法转发消息'}
                 onClick={() => void forward()}
               >
                 <Share2 size={15} /> {sending ? '转发中…' : '转发'}

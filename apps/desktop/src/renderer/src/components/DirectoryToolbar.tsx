@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ListChecks, ListPlus, Search, X, FlipVertical2 } from 'lucide-react';
 import '../styles/conversation-directory.css';
@@ -56,7 +57,7 @@ export function DirectoryToolbar({
         <div key="select" className="weq-directory-mode weq-directory-selection-mode">
           <ListChecks size={16} aria-hidden />
           <span className="weq-directory-selection-count" aria-live="polite">
-            {selectingAll ? '正在补齐全选…' : `已选 ${count}`}
+            {selectingAll ? '正在补齐全选…' : <NumericText>{`已选 ${count}`}</NumericText>}
           </span>
           <button
             type="button"

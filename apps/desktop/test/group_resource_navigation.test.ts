@@ -10,7 +10,8 @@ import {
   useMobileBack,
 } from '../src/renderer/src/hooks/useMobileNavigation';
 
-vi.mock('../src/renderer/src/lib/responsiveLayout', () => ({
+vi.mock('../src/renderer/src/lib/responsiveLayout', async (original) => ({
+  ...(await original<typeof import('../src/renderer/src/lib/responsiveLayout')>()),
   isSingleColumnLayout: () => true,
   isMobileClient: () => true,
 }));

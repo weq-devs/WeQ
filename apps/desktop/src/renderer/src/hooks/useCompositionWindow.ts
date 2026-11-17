@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { USER_ACTIVITY_EVENT } from '../lib/renderDocument';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import { isRemoteClient } from '../lib/remoteClient';
 import { isSingleColumnLayout } from '../lib/responsiveLayout';
 import type { GroupResourceWindowName } from '../../../shared/group_resource_window';
@@ -15,7 +15,17 @@ export type ToolWindowName =
   | 'weq-db-repair'
   | 'weq-call'
   | 'weq-capture'
+  | 'weq-performance-monitor'
+  | 'weq-log-viewer'
+  | 'weq-database-browser'
   | GroupResourceWindowName;
+
+export function focusToolPopup(name: ToolWindowName, popup: Window | null): void {
+  if (!popup || popup.closed) return;
+  const ipc = !IS_WEB && window.electron?.ipcRenderer;
+  if (ipc) ipc.send('tool-window:focus', name);
+  else popup.focus();
+}
 
 /** 在触发点击中先创建空白窗口，避免浏览器把后续 React effect 当成弹窗拦截。 */
 export function openToolPopup(name: ToolWindowName, width: number, height: number) {
@@ -123,7 +133,7 @@ export function useToolWindow({
     }
     const existing = owned.current;
     if (existing && !existing.closed) {
-      existing.focus();
+      focusToolPopup(name, existing);
       setPopup(existing);
       return existing;
     }

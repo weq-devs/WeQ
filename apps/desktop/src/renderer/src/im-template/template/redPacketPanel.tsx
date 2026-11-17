@@ -23,6 +23,7 @@
  * 下单后会拿到一张二维码：真正付款由手机 QQ 用当前账号拉起支付页，扫码只是回退。
  */
 
+import { NumericText } from '../../components/NumericText';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import {
@@ -338,9 +339,12 @@ export function RedPacketPanel({
               {amountFen > 0 ? (
                 <>
                   <strong className={cn('redpacket-summary-amount')}>
-                    合计 ¥{formatFen(totalAmount)}
+                    合计 ¥
+                    <span className="weq-number weq-number-inherit">{formatFen(totalAmount)}</span>
                   </strong>
-                  <span className={cn('redpacket-summary-note')}>{summaryNote}</span>
+                  <span className={cn('redpacket-summary-note')}>
+                    <NumericText>{summaryNote}</NumericText>
+                  </span>
                 </>
               ) : (
                 <span className={cn('redpacket-summary-note')}>填好金额后，这里会列出红包明细</span>
@@ -424,9 +428,16 @@ export function RedPacketPanel({
           </div>
           <div className={cn('redpacket-preview-meta')}>
             <span className={cn('redpacket-preview-amount')}>
-              ¥{formatFen(previewAmount > 0 ? previewAmount : 0)}
+              ¥
+              <span className="weq-number weq-number-inherit">
+                {formatFen(previewAmount > 0 ? previewAmount : 0)}
+              </span>
             </span>
-            {group ? <span className={cn('redpacket-preview-count')}>{totalNum} 个</span> : null}
+            {group ? (
+              <span className={cn('redpacket-preview-count')}>
+                <span className="weq-number weq-number-inherit">{totalNum}</span> 个
+              </span>
+            ) : null}
           </div>
           <p className={cn('redpacket-cover-hint')}>
             {passwordOn ? '口令就写在封面这行字里' : '封面上的字可以直接点着改'}

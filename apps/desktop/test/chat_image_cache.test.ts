@@ -2,10 +2,8 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { createChatImageCache } from '../src/renderer/src/lib/chatImageCache';
-import {
-  ChatImageCacheContext,
-  ChatImageCacheProvider,
-} from '../src/renderer/src/components/ChatImageCacheProvider';
+import { ChatImageCacheContext } from '../src/renderer/src/components/ChatImageCacheProvider.shared';
+import { ChatImageCacheProvider } from '../src/renderer/src/components/ChatImageCacheProvider';
 import { ShimmerImage } from '../src/renderer/src/components/ShimmerImage';
 
 function preview(width = 512, height = 512) {

@@ -175,8 +175,12 @@ export function birthRangeText(birth: ContactBirth) {
   if (!birth.ranges.length) return null;
   return `推断生日：${birth.ranges
     .map((range) => {
-      const prefix = range.year === null ? '' : `${range.year}年`;
-      return `${prefix}${monthDayText(range.start)}${range.start === range.end ? '' : `至${monthDayText(range.end)}`}`;
+      const start = formatPartialDate({
+        year: range.year,
+        month: Math.floor(range.start / 100),
+        day: range.start % 100,
+      });
+      return `${start}${range.start === range.end ? '' : `至 ${monthDayText(range.end)}`}`;
     })
     .join('；')}`;
 }
@@ -187,7 +191,7 @@ export function contactBirthdayText(birth: ContactBirth) {
   if (!birth.constellation) return null;
   const year = birth.year ?? birth.inferredYear;
   return [
-    year ? `${year}年${birth.inferredYear !== null ? '（推断）' : ''}` : null,
+    year ? `${formatPartialDate({ year })}${birth.inferredYear !== null ? '（推断）' : ''}` : null,
     birth.constellation.name,
   ]
     .filter(Boolean)

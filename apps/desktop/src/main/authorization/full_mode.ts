@@ -8,7 +8,7 @@ interface AuthorizationHost {
   refreshRkeysNow(): Promise<boolean>;
 }
 
-/** 仅在助手真实就绪后为当前在线来源请求完整功能，不修改持久偏好。 */
+/** 仅在助手真实就绪后为当前在线来源请求 QQ 在线能力，不修改持久偏好。 */
 export class AuthorizationFullModeMonitor {
   private stopped = false;
   private timer: ReturnType<typeof setTimeout> | null = null;

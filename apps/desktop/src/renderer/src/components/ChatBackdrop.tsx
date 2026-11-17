@@ -32,19 +32,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactElement } fr
 import { screenWidgetAssetsPath, screenWidgetUrl } from '../lib/resourceUrl';
 import { widenLottie } from '../lib/widenLottie';
 import { useLottiePlayback } from '../hooks/useLottiePlayback';
-
-/** 背景层的 CSS 变量名。装扮页拖滑块时直接改它做实时预览。 */
-export const BACKDROP_VEIL_VAR = '--weq-chat-backdrop-veil';
-
-/**
- * 清晰度(0–1)→ 磨砂纱的厚度。
- *
- * 调纱而不是调整层的 `opacity`:后者会把挂件动画一起冲淡,而挂件是前景装饰,
- * 不该跟着底图变淡。纱越厚 = 底图越淡。最清晰时也留 22% —— 全裸的照片会盖过消息。
- */
-export function backdropVeil(opacity: number): string {
-  return `${Math.round((1 - opacity) * 70 + 22)}%`;
-}
+import { BACKDROP_VEIL_VAR, backdropVeil } from './ChatBackdrop.shared';
 
 export function ChatBackdrop({
   imageUrl,

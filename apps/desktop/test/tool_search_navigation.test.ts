@@ -23,6 +23,14 @@ vi.mock('../src/renderer/src/state/contentSelection', () => ({
     scope: { type: 'all' },
   }),
 }));
+vi.mock('../src/renderer/src/state/contentSelection.shared', () => ({
+  useContentExportRequest: () => null,
+  useContentAnalysisRequest: () => null,
+  useCurrentContentSelection: () => ({
+    owner: { kind: 'messages', container: 'c2c:u_fixture' },
+    scope: { type: 'all' },
+  }),
+}));
 vi.mock('../src/renderer/src/hooks/useQQAutoRefresh', () => ({
   useQQReadActivity: () => ({ enabled: false }),
 }));
@@ -40,6 +48,30 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   },
 }));
 vi.mock('../src/renderer/src/components/lazyWorkspaces', () => ({
+  preloadWorkspace: vi.fn(),
+  ExportViewer: () => null,
+  AnalysisTool: () => null,
+  ExportTool: ({
+    initialMode,
+    initialSelection,
+  }: {
+    initialMode?: string;
+    initialSelection?: unknown;
+  }) =>
+    h('div', {
+      'data-export-mode': initialMode,
+      'data-fixed-selection': Boolean(initialSelection),
+    }),
+  RoamingBackfillPanel: ({
+    targetMode,
+    initialTargets,
+  }: {
+    targetMode: string;
+    initialTargets: unknown[];
+  }) =>
+    h('div', { 'data-roaming-mode': targetMode, 'data-roaming-targets': initialTargets.length }),
+}));
+vi.mock('../src/renderer/src/components/lazyWorkspaces.shared', () => ({
   preloadWorkspace: vi.fn(),
   ExportViewer: () => null,
   AnalysisTool: () => null,

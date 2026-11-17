@@ -11,7 +11,7 @@ import {
 import {
   restoreComposer,
   serializeComposer,
-} from '../src/renderer/src/im-template/template/composer';
+} from '../src/renderer/src/im-template/template/composer.shared';
 import {
   composerClipboardFragment,
   readComposerClipboard,

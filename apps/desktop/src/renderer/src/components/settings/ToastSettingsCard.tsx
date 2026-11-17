@@ -8,9 +8,9 @@ import {
   MAX_TOAST_DURATION_SECONDS,
 } from '@weq/service/toast-settings';
 import { trpc } from '../../trpc/client';
-import { useToast } from '../Toast';
+import { useToast } from '../Toast.shared';
 import { Card, Row } from './controls';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import '../../styles/notification-settings.css';
 
 export function ToastSettingsCard() {

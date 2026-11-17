@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import { useEffect, useState, type FormEvent, type ReactElement } from 'react';
 import { nextOneBotPort } from '@weq/service/service-ports';
 import {
@@ -18,12 +19,13 @@ import {
   X,
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
-import { useDialog } from '../Dialog';
-import { useToast } from '../Toast';
+import { useTabActive } from '../RetainedTabs.shared';
+import { useDialog } from '../Dialog.shared';
+import { useToast } from '../Toast.shared';
+import { EditorDialog } from '../EditorDialog';
 import { useDraftProtection } from '../../lib/draftClose';
 import { z } from 'zod';
-import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
 import '../../styles/settings-onebot.css';
 
@@ -199,7 +201,7 @@ export function OneBotSection(): ReactElement {
     <div className="weq-set weq-set-onebot">
       <SectionHeader
         title="OneBot / cc-connect"
-        icon={<RadioTower size={16} strokeWidth={1.8} />}
+        page="onebot"
         desc="可同时运行多个 OneBot v11 WebSocket 与 HTTP API 服务器；每张卡片独立启停、端口和令牌。端口被占用时会自动顺延到附近空闲端口。"
       />
 
@@ -232,13 +234,17 @@ export function OneBotSection(): ReactElement {
           label="运行状态"
           control={
             <span>
-              {data?.running
-                ? `${data.servers.filter((server) => server.running).length} 个服务器运行中 · ${data.clients} 个连接`
-                : data?.enabled
-                  ? data.accountOpen
-                    ? '等待可用服务器'
-                    : '等待在线账号'
-                  : '已停止'}
+              {data?.running ? (
+                <NumericText>{`${data.servers.filter((server) => server.running).length} 个服务器运行中 · ${data.clients} 个连接`}</NumericText>
+              ) : data?.enabled ? (
+                data.accountOpen ? (
+                  '等待可用服务器'
+                ) : (
+                  '等待在线账号'
+                )
+              ) : (
+                '已停止'
+              )}
             </span>
           }
         />
@@ -252,7 +258,7 @@ export function OneBotSection(): ReactElement {
             <button
               type="button"
               className="weq-set-btn weq-set-btn-sm"
-              disabled={busy || Boolean(draft)}
+              disabled={busy}
               onClick={() => startCreate('ws')}
             >
               <Plus size={13} />
@@ -261,7 +267,7 @@ export function OneBotSection(): ReactElement {
             <button
               type="button"
               className="weq-set-btn weq-set-btn-sm weq-set-btn-soft"
-              disabled={busy || Boolean(draft)}
+              disabled={busy}
               onClick={() => startCreate('http')}
             >
               <Plus size={13} />
@@ -342,7 +348,9 @@ export function OneBotSection(): ReactElement {
                   <span>{label}</span>
                   {server.port !== server.requestedPort ? (
                     <span className="weq-onebot-port-shift">
-                      原端口 {server.requestedPort} 被占用，已顺延
+                      原端口{' '}
+                      <span className="weq-number weq-number-inherit">{server.requestedPort}</span>{' '}
+                      被占用，已顺延
                     </span>
                   ) : null}
                 </div>
@@ -425,143 +433,129 @@ export function OneBotSection(): ReactElement {
               </li>
             );
           })}
-
-          {draft ? (
-            <li className="weq-onebot-server-card weq-onebot-server-editor">
-              <div className="weq-onebot-server-head">
-                <span className="weq-onebot-server-icon" aria-hidden>
-                  {draft.type === 'ws' ? (
-                    <RadioTower size={17} strokeWidth={1.8} />
-                  ) : (
-                    <Globe2 size={17} strokeWidth={1.8} />
-                  )}
-                </span>
-                <div className="weq-onebot-server-title">
-                  <strong>{draft.id ? '编辑服务器' : '新建服务器'}</strong>
-                  <span>{draft.type === 'ws' ? 'WebSocket' : 'HTTP API'}</span>
-                </div>
-                <button
-                  type="button"
-                  className="weq-set-iconbtn"
-                  title="取消"
-                  aria-label="取消编辑 OneBot 服务器"
-                  onClick={() => setDraft(null)}
-                >
-                  <X size={14} />
-                </button>
-              </div>
-              <form className="weq-onebot-server-form" onSubmit={(event) => void onSave(event)}>
+        </ul>
+      </Card>
+      {draft ? (
+        <EditorDialog
+          title={`${draft.id ? '编辑' : '新建'} ${draft.type === 'ws' ? 'WebSocket' : 'HTTP'} 服务器`}
+          onClose={() => setDraft(null)}
+          draft={draft}
+          busy={busy}
+          width={460}
+          bodyClassName="weq-set weq-set-onebot"
+        >
+          {(requestClose) => (
+            <form className="weq-onebot-server-form" onSubmit={(event) => void onSave(event)}>
+              <label>
+                <span>名称</span>
+                <input
+                  className="weq-set-input"
+                  aria-label="OneBot 服务器名称"
+                  value={draft.name}
+                  maxLength={80}
+                  onChange={(event) =>
+                    setDraft((current) => current && { ...current, name: event.target.value })
+                  }
+                />
+              </label>
+              <div className="weq-onebot-form-pair">
                 <label>
-                  <span>名称</span>
+                  <span>端口</span>
                   <input
-                    className="weq-set-input"
-                    aria-label="OneBot 服务器名称"
-                    value={draft.name}
-                    maxLength={80}
+                    className="weq-set-input weq-number"
+                    aria-label="OneBot 服务器端口"
+                    type="number"
+                    min={1024}
+                    max={65535}
+                    value={draft.port}
                     onChange={(event) =>
-                      setDraft((current) => current && { ...current, name: event.target.value })
+                      setDraft((current) => current && { ...current, port: event.target.value })
                     }
                   />
                 </label>
-                <div className="weq-onebot-form-pair">
-                  <label>
-                    <span>端口</span>
-                    <input
-                      className="weq-set-input weq-number"
-                      aria-label="OneBot 服务器端口"
-                      type="number"
-                      min={1024}
-                      max={65535}
-                      value={draft.port}
-                      onChange={(event) =>
-                        setDraft((current) => current && { ...current, port: event.target.value })
-                      }
-                    />
-                  </label>
-                  <div className="weq-onebot-toggle-field">
-                    <span>保存后启用</span>
-                    <Toggle
-                      checked={draft.enabled}
-                      label="保存后启用服务器"
-                      onChange={(enabled) =>
-                        setDraft((current) => current && { ...current, enabled })
-                      }
-                    />
-                  </div>
+                <div className="weq-onebot-toggle-field">
+                  <span>保存后启用</span>
+                  <Toggle
+                    checked={draft.enabled}
+                    label="保存后启用服务器"
+                    onChange={(enabled) =>
+                      setDraft((current) => current && { ...current, enabled })
+                    }
+                  />
                 </div>
-                <label>
-                  <span>访问令牌</span>
-                  <div className="weq-onebot-token-input">
-                    <input
-                      className="weq-set-input"
-                      aria-label="OneBot 服务器访问令牌"
-                      type={revealToken ? 'text' : 'password'}
-                      value={draft.token}
-                      spellCheck={false}
-                      onChange={(event) =>
-                        setDraft((current) => current && { ...current, token: event.target.value })
-                      }
-                    />
-                    <button
-                      type="button"
-                      className="weq-set-iconbtn"
-                      title={revealToken ? '隐藏令牌' : '显示令牌'}
-                      aria-label={revealToken ? '隐藏服务器令牌' : '显示服务器令牌'}
-                      onClick={() => setRevealToken((value) => !value)}
-                    >
-                      {revealToken ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
-                    <button
-                      type="button"
-                      className="weq-set-iconbtn"
-                      title="生成新令牌"
-                      aria-label="为服务器生成新令牌"
-                      onClick={() =>
-                        setDraft((current) => current && { ...current, token: generatedToken() })
-                      }
-                    >
-                      <RefreshCw size={14} />
-                    </button>
-                  </div>
-                </label>
-                {draft.type === 'http' ? (
-                  <div className="weq-onebot-inline-toggle">
-                    <span>
-                      <strong>允许跨域</strong>
-                      <small>供浏览器中的 OneBot 客户端直接调用</small>
-                    </span>
-                    <Toggle
-                      checked={draft.enableCors}
-                      label="允许 HTTP 跨域"
-                      onChange={(enableCors) =>
-                        setDraft((current) => current && { ...current, enableCors })
-                      }
-                    />
-                  </div>
-                ) : null}
-                <div className="weq-onebot-server-form-actions">
+              </div>
+              <label>
+                <span>访问令牌</span>
+                <div className="weq-onebot-token-input">
+                  <input
+                    className="weq-set-input"
+                    aria-label="OneBot 服务器访问令牌"
+                    type={revealToken ? 'text' : 'password'}
+                    value={draft.token}
+                    spellCheck={false}
+                    onChange={(event) =>
+                      setDraft((current) => current && { ...current, token: event.target.value })
+                    }
+                  />
                   <button
                     type="button"
-                    className="weq-set-btn weq-set-btn-soft"
-                    onClick={() => setDraft(null)}
+                    className="weq-set-iconbtn"
+                    title={revealToken ? '隐藏令牌' : '显示令牌'}
+                    aria-label={revealToken ? '隐藏服务器令牌' : '显示服务器令牌'}
+                    onClick={() => setRevealToken((value) => !value)}
                   >
-                    <X size={13} />
-                    取消
+                    {revealToken ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
-                  <button type="submit" className="weq-set-btn" disabled={busy}>
-                    {saveServer.isLoading ? (
-                      <Loader2 size={13} className="weq-set-spin" />
-                    ) : (
-                      <Save size={13} />
-                    )}
-                    保存
+                  <button
+                    type="button"
+                    className="weq-set-iconbtn"
+                    title="生成新令牌"
+                    aria-label="为服务器生成新令牌"
+                    onClick={() =>
+                      setDraft((current) => current && { ...current, token: generatedToken() })
+                    }
+                  >
+                    <RefreshCw size={14} />
                   </button>
                 </div>
-              </form>
-            </li>
-          ) : null}
-        </ul>
-      </Card>
+              </label>
+              {draft.type === 'http' ? (
+                <div className="weq-onebot-inline-toggle">
+                  <span>
+                    <strong>允许跨域</strong>
+                    <small>供浏览器中的 OneBot 客户端直接调用</small>
+                  </span>
+                  <Toggle
+                    checked={draft.enableCors}
+                    label="允许 HTTP 跨域"
+                    onChange={(enableCors) =>
+                      setDraft((current) => current && { ...current, enableCors })
+                    }
+                  />
+                </div>
+              ) : null}
+              <div className="weq-onebot-server-form-actions">
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-soft"
+                  onClick={requestClose}
+                >
+                  <X size={13} />
+                  取消
+                </button>
+                <button type="submit" className="weq-set-btn weq-set-btn-primary" disabled={busy}>
+                  {saveServer.isLoading ? (
+                    <Loader2 size={13} className="weq-set-spin" />
+                  ) : (
+                    <Save size={13} />
+                  )}
+                  保存
+                </button>
+              </div>
+            </form>
+          )}
+        </EditorDialog>
+      ) : null}
 
       <Card title="cc-connect 配置" icon={<Server size={15} strokeWidth={1.8} />}>
         <Row

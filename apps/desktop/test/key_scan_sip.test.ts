@@ -30,7 +30,7 @@ it('SIP 开启的扫描失败后仍允许带权限助手兜底，不提前拒绝
 it('SIP 开启且助手不可读时提示副本，不启动无效 sudo', async () => {
   vi.stubGlobal('process', { ...process, platform: 'darwin' });
   f.helper.mockRejectedValue(new Error('task_for_pid failed'));
-  await expect(scanKeyElevated(options)).rejects.toThrow('调试副本');
+  await expect(scanKeyElevated(options)).rejects.toThrow('创建并启动副本，无需关闭 SIP');
   expect(f.password).not.toHaveBeenCalled();
   expect(f.spawn).not.toHaveBeenCalled();
 });

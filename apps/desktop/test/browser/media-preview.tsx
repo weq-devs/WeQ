@@ -1,15 +1,11 @@
 import { createRoot } from 'react-dom/client';
 import { useState } from 'react';
 import { MediaPreview, type PreviewMedia } from '../../src/renderer/src/components/MediaPreview';
-import {
-  MarketFaceLightbox,
-  openMarketFaceLightbox,
-} from '../../src/renderer/src/components/MarketFaceLightbox';
+import { MarketFaceLightbox } from '../../src/renderer/src/components/MarketFaceLightbox';
+import { openMarketFaceLightbox } from '../../src/renderer/src/state/marketFaceLightbox';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import {
-  MediaPreviewHost,
-  openMediaPreview,
-} from '../../src/renderer/src/components/mediaPreviewStore';
+import { MediaPreviewHost } from '../../src/renderer/src/components/mediaPreviewStore';
+import { openMediaPreview } from '../../src/renderer/src/components/mediaPreviewStore.shared';
 
 import { QqImage, QqVideo, QqVoice } from '../../src/renderer/src/components/QqMedia';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
@@ -50,7 +46,10 @@ function View() {
       >
         打开混排
       </button>
-      <button type="button" onClick={() => openMarketFaceLightbox('123')}>
+      <button
+        type="button"
+        onClick={(event) => openMarketFaceLightbox('123', undefined, event.currentTarget)}
+      >
         打开表情包
       </button>
       <button

@@ -214,6 +214,7 @@ export const UNCONFIRMED_SIGN_COMMANDS: Readonly<Record<string, string>> = {
   'OidbSvcTrpcTcp.0x5d6_1': '群置顶：动态子命令未找到逐项签名记录',
   'OidbSvcTrpcTcp.0x5d6_18': '好友置顶：动态子命令未找到逐项签名记录',
   'OidbSvcTrpcTcp.0x6d6_0': '群文件上传申请：现有请求说明未给出签名结论',
+  'OidbSvcTrpcTcp.0x88d_0': '群操作权限：macOS 已验证不签名查询成功，官方逐平台签名策略待确认',
   'OidbSvcTrpcTcp.0xf16_1': '群备注：现有入口未给出签名结论',
   'OidbSvcTrpcTcp.0xf90_1': '设置群待办：源码明确记载动态子命令未逐个实测',
   'OidbSvcTrpcTcp.0xf90_2': '完成群待办：源码明确记载动态子命令未逐个实测',

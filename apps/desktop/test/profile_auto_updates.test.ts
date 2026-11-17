@@ -55,6 +55,20 @@ vi.mock('../src/renderer/src/components/qq-actions/shared', () => ({
     children: ReactNode;
   }) => h('button', { 'aria-label': label, onClick }, children),
 }));
+vi.mock('../src/renderer/src/components/qq-actions/shared.shared', () => ({
+  withQQAccountScope: (component: unknown) => component,
+  useQQAction: () => ({ binding, available: true, disabled: false }),
+  ActionFeedback: () => null,
+  ActionIcon: ({
+    label,
+    onClick,
+    children,
+  }: {
+    label: string;
+    onClick: () => void;
+    children: ReactNode;
+  }) => h('button', { 'aria-label': label, onClick }, children),
+}));
 const cleanups: Array<() => void> = [];
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

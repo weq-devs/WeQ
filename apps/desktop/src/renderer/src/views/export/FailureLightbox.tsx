@@ -6,7 +6,7 @@
 import { EmptyState } from '../../components/EmptyState';
 import { useMemo, useState, type ReactElement } from 'react';
 import { FileWarning, X, CircleCheck } from 'lucide-react';
-import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
+import { OverlayLayer } from '../../components/OverlayLayer';
 import type { UiFailure } from './TaskList';
 
 /** Stage key → 中文标签（用于分组标题与筛选）。 */
@@ -37,8 +37,6 @@ export function FailureLightbox({
   failures: UiFailure[];
   onClose: () => void;
 }): ReactElement {
-  useEscapeToClose(onClose);
-
   // 各类型可用作筛选 chip：'all' + 出现过的 stage。
   const stages = useMemo(() => {
     const seen: string[] = [];
@@ -50,11 +48,7 @@ export function FailureLightbox({
   const shown = filter === 'all' ? failures : failures.filter((f) => f.stage === filter);
 
   return (
-    <div
-      className="modal-scrim weq-exp-modal-scrim"
-      role="presentation"
-      onMouseDown={closeFromScrim(onClose)}
-    >
+    <OverlayLayer className="modal-scrim weq-exp-modal-scrim" onClose={onClose}>
       <section
         className="weq-exp-dialog weq-exp-fail-dialog"
         role="dialog"
@@ -65,11 +59,18 @@ export function FailureLightbox({
           <div className="weq-exp-dialog-title">
             <strong>导出失败详情</strong>
             <span title={taskName}>
-              {taskName} · 共 {failures.length} 个失败
+              {taskName} · 共{' '}
+              <span className="weq-number weq-number-inherit">{failures.length}</span> 个失败
             </span>
           </div>
-          <button type="button" className="weq-exp-dialog-close" onClick={onClose} title="关闭">
-            <X size={18} />
+          <button
+            type="button"
+            className="weq-exp-dialog-close"
+            onClick={onClose}
+            title="关闭"
+            aria-label="关闭导出失败详情"
+          >
+            <X size={18} aria-hidden />
           </button>
         </header>
 
@@ -80,7 +81,7 @@ export function FailureLightbox({
               className={`weq-exp-fail-chip${filter === 'all' ? ' is-active' : ''}`}
               onClick={() => setFilter('all')}
             >
-              全部 {failures.length}
+              全部 {<span className="weq-number weq-number-inherit">{failures.length}</span>}
             </button>
             {stages.map((s) => (
               <button
@@ -89,7 +90,12 @@ export function FailureLightbox({
                 className={`weq-exp-fail-chip${filter === s ? ' is-active' : ''}`}
                 onClick={() => setFilter(s)}
               >
-                {stageLabel(s)} {failures.filter((f) => f.stage === s).length}
+                {stageLabel(s)}{' '}
+                {
+                  <span className="weq-number weq-number-inherit">
+                    {failures.filter((f) => f.stage === s).length}
+                  </span>
+                }
               </button>
             ))}
           </div>
@@ -125,6 +131,6 @@ export function FailureLightbox({
           </button>
         </footer>
       </section>
-    </div>
+    </OverlayLayer>
   );
 }

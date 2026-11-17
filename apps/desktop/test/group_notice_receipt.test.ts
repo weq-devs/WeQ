@@ -34,6 +34,10 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
   Modal: ({ children }: { children: ReactNode }) => children,
   useDialog: Object.assign(() => state.confirm, { getState: () => ({ confirm: state.confirm }) }),
 }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
+  Modal: ({ children }: { children: ReactNode }) => children,
+  useDialog: Object.assign(() => state.confirm, { getState: () => ({ confirm: state.confirm }) }),
+}));
 vi.mock('../src/renderer/src/hooks/useGroupNoticePublishers', () => ({
   useGroupNoticePublishers: (_groupCode: string, entries: unknown[]) => entries,
 }));
@@ -44,6 +48,39 @@ vi.mock('../src/renderer/src/hooks/useQQAutoRefresh', () => ({
   useQQAutoRefresh: () => ({ enabled: true }),
 }));
 vi.mock('../src/renderer/src/components/qq-actions/shared', () => ({
+  withQQAccountScope: (Component: (props: object) => ReactNode) => Component,
+  useQQGroupPermissions: () => ({ data: { canManage: true } }),
+  useQQAction: () => {
+    const mounted = useRef(true);
+    useEffect(() => {
+      mounted.current = true;
+      return () => {
+        mounted.current = false;
+      };
+    }, []);
+    return {
+      binding,
+      available: true,
+      disabled: false,
+      busy: false,
+      pending: false,
+      perform: async (
+        action: (source: QQWriteBinding) => Promise<QQWriteOutcome>,
+        refresh?: () => Promise<unknown>,
+      ) => {
+        await action(binding);
+        // 对照真实写会话：原组件卸载后不再调用其读回／刷新回调。
+        if (mounted.current) await refresh?.();
+        return true;
+      },
+    };
+  },
+  ActionFeedback: () => null,
+  ActionIcon: ({ label, children, ...props }: { label: string; children: ReactNode }) =>
+    h('button', { type: 'button', 'aria-label': label, ...props }, children),
+  ImageAction: () => null,
+}));
+vi.mock('../src/renderer/src/components/qq-actions/shared.shared', () => ({
   withQQAccountScope: (Component: (props: object) => ReactNode) => Component,
   useQQGroupPermissions: () => ({ data: { canManage: true } }),
   useQQAction: () => {

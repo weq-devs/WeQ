@@ -2,7 +2,9 @@
 
 ![GitHub Repo stars](https://img.shields.io/github/stars/weq-devs/WeQ?style=flat-square)![GitHub forks](https://img.shields.io/github/forks/weq-devs/WeQ?style=flat-square)![GitHub issues](https://img.shields.io/github/issues/weq-devs/WeQ?style=flat-square)![GitHub pull requests](https://img.shields.io/github/issues-pr/weq-devs/WeQ?style=flat-square)![GitHub all releases](https://img.shields.io/github/downloads/weq-devs/WeQ/total?style=flat-square)
 
-**WeQ** 是一个 NTQQ 自主的本地数据库解密、解析与导出工具。
+**WeQ** 是面向 QQ NT 聊天记录的本地查看、导出与分析工具。
+
+[下载](https://github.com/weq-devs/WeQ/releases) · [文档站](https://weq-devs.github.io/WeqDocs/) · [快速上手](https://weq-devs.github.io/WeqDocs/guide/getting-started) · [问题反馈](https://github.com/weq-devs/WeQ/issues) · [免责声明与使用说明](#免责声明与使用说明)
 
 如果你需要导出和分析**微信聊天记录**：[WeChatDataAnalysis](https://github.com/LifeArchiveProject/WeChatDataAnalysis)   是相当不错的选择
 
@@ -14,21 +16,21 @@
 
 ## 核心功能
 
-- <details> <summary>数据库密钥获取</summary> 本地保存凭据解密发包获取，离线计算（Android）等方式获取数据库密钥<br> 期间无需重启QQ，也无需预先登录，本项目会根据凭据有效期，<strong>动态选择方案获取密钥，用户无需任何操作</strong> </details>
-- <details> <summary>离线查看和修改聊天记录</summary> 本项目基于Electron，实现了高仿QQ聊天的界面，<strong>体验原汁原味的聊天记录查看</strong> <br> 本项目支持<strong>私聊，群聊，官方账号，频道私聊等</strong>几乎所有聊天记录的解析 </details>
-- <details> <summary>QQ装扮查看</summary> 仅使用电脑端的数据，即可解析出<strong>完整的消息装扮</strong> 包括气泡，字体，挂件<br> 本项目支持下载和解析装扮资源，<strong>在PC端查看和手机端同样的渲染效果</strong><br>离线索引按类别自动获取，任务列表可查看进度和重试；已有装扮素材直接复用，不阻塞消息显示。索引不包含完整素材，完全断网时使用本机已有缓存。<br><br>本项目同时支持导出装扮资源在外部使用  </details>
+- <details> <summary>账号与数据库接入</summary> 支持导入备份，并按引导为所选账号获取数据库密钥。 </details>
+- <details> <summary>聊天记录查看与本地编辑</summary> 支持按会话查看聊天记录，解析私聊、群聊、官方账号和频道私聊中的文字、图片、语音及消息装扮等内容。<br>编辑仅作用于本地数据，不修改 QQ 服务器；编辑或生成的内容不等同于原始消息。 </details>
+- <details> <summary>消息装扮还原</summary> 显示消息原有的气泡、字体和挂件，复用已有缓存。<br>当前开发分支的装扮商城、任意装扮覆盖、独立素材保存及商城表情包密钥恢复，仅在开发运行环境中显式启用；普通模式保留消息原有装扮、已缓存表情和自定义背景。已发布版本以对应版本说明为准。 </details>
 - <details> <summary>聊天记录导出</summary> 支持导出聊天记录为<strong>各种格式</strong>，json txt xlsx等等等<br> 同时支持导出联系人，我的收藏，QQ空间等等等附带资源 </details>
 - **年度报告**和单聊会话分析
-- 好友克隆和克隆好友群聊（<del>赛博斗蛐蛐</del>）
+- 基于聊天语料的 **AI 模拟对话与群聊**，生成内容不代表本人发言
 - **消息防撤回**和删除消息查看
 - 聊天分析agent和MCP
 
-| 高仿QQ聊天页面（装扮） | **好友克隆** |
+| 聊天记录查看（消息装扮） | **AI 模拟对话** |
 | -------------- | ---------- |
 | ![image-20260911055149883](./.github/readme-assets/image-20260911055149883.png) | ![image-20260911060604639](./.github/readme-assets/image-20260911060604639.png) |
-| **导出聊天记录** | **QQ个性装扮** |
+| **导出聊天记录** | **装扮开发工具（非普通模式）** |
 | ![image-20260911054056426](./.github/readme-assets/image-20260911054056426.png) | ![image-20260911081812755](./.github/readme-assets/image-20260911081812755.png) |
-| **年度/历史报告**                                            | **修改/新增消息**                                            |
+| **年度/历史报告**                                            | **本地编辑/新增消息**                                            |
 | ![image-20260911054626863](./.github/readme-assets/image-20260911054626863.png) | ![image-20260911055616318](./.github/readme-assets/image-20260911055616318.png) |
 | **离线防撤回** | **agent助手** |
 | ![image-20260911055729672](./.github/readme-assets/image-20260911055729672.png) | ![image-20260911061008294](./.github/readme-assets/image-20260911061008294.png) |
@@ -38,7 +40,16 @@
 | ![image-20260911060130806](./.github/readme-assets/image-20260911060130806.png) | ![image-20260911060406735](./.github/readme-assets/image-20260911060406735.png) |
 
 
-> 完整功能请查看[使用手册](./docs/guide/index.md)，更多内容见 [文档中心](https://weq-devs.github.io/WeqDocs/)
+> 全部功能请查看[在线使用手册](https://weq-devs.github.io/WeqDocs/guide/)，手机连接见 [WeQ Remote](https://github.com/weq-devs/WeQ-Remote)。
+
+## 免责声明与使用说明
+
+- **非官方项目**：WeQ 由独立开发者维护，不是腾讯或 QQ 官方产品，与其不存在官方隶属或背书关系。
+- **数据与素材使用**：请仅处理本人或已获合法授权的数据。项目许可证不授予对第三方软件、素材、个人信息或人格形象的额外使用、复制和传播权利。
+- **编辑与 AI 内容**：本地编辑、新增消息和 AI 模拟内容不等同于原始聊天记录，也不代表对应联系人真实发言；分享时应明确标注。
+- **实际操作影响**：消息编辑、删除及数据库修复等操作可能写入本地数据库，操作前请备份原始数据；发送消息、群管理等 QQ 在线操作会真实作用于 QQ，不能视为离线模拟。
+
+功能可用性会受系统、QQ 版本、凭据及在线接口变化影响，具体支持情况以对应版本说明和实际检测为准。详细说明见[文档站的免责声明与使用说明](https://weq-devs.github.io/WeqDocs/guide/disclaimer)。
 
 ## 使用方法
 
@@ -95,10 +106,12 @@ pnpm dev                   # 自动补齐依赖、native 和必要构建，启�
 
 源码开发需要 Node.js ≥ 22.12.0，并使用根 `package.json` 锁定的 `pnpm@12.8.1`；首次构建远程网络辅助程序需要 Go。默认无需 Rust，本地 native 模式才需要其编译工具链。来源配置与缓存行为见[一行命令开发启动](./docs/develop/dev-startup.md)。
 
+Remote 连接开发版时，电脑网页通过已有阶段协议报告已加载的代码字节和资源项数，旧版手机 App 无需升级。开发模块按需发现，不预估完整总量或百分比；正式静态网页仍使用原有资源清单与字节进度。进入实际初始化阶段后不覆盖阶段提示，界面就绪后停止启动计量，不影响后续热更新。
+
 > native 由 [nt_helper_release](https://github.com/weq-devs/nt_helper_release) 分发，
 > `pnpm dev` 默认准备 `native/pinned.json` 锚定的发布版，不预下载大装扮索引；本地源码模式仍准备自己的配套资源。
 > 装扮索引由 [dress-resources](https://github.com/weq-devs/dress-resources) 独立分发，桌面与 Web 安装包不再携带三份 `.dat`，
-> 应用以内置 `resources/dress/index-manifest.json` 为基础，在增强包页准备并统一检查更新；下载固定明确版本，在宿主缓存中复用。
+> 索引只提供素材地址，不包含完整素材；准备、缓存与更新方式见[表情与装扮资源](./docs/guide/emoji-resources.md)，装扮开发工具的启用条件见[开发启动说明](./docs/develop/dev-startup.md)。
 > native 锚点过期时需验证并升级，同时更新兼容的索引清单；反复获取同一 tag 不会延长有效期。细节见
 > [原生二进制与装扮资源的分发](./docs/develop/native-artifacts.md)。
 
@@ -128,10 +141,6 @@ pnpm --filter @weq/web build    # 浏览器版（助手资源服务随 Web 进�
   <img src="https://contrib.rocks/image?repo=weq-devs/WeQ" />
 </a>
 
-## 开源协议
+## 许可协议
 
-本项目基于 [**CC BY-NC-SA 4.0**](./LICENSE)（知识共享 署名-非商业性使用-相同方式共享 4.0 国际）协议开源。这意味着你可以自由地使用、分享和修改本项目，但需遵守以下条款：
-
-- **署名（BY）** —— 必须注明原作者及项目来源，并注明是否做了修改。
-- **非商业性使用（NC）** —— **禁止用于任何商业用途**，包括但不限于付费贩卖、倒卖本项目或其衍生作品。
-- **相同方式共享（SA）** —— 若你修改或基于本项目二次创作，衍生作品必须以**相同的 CC BY-NC-SA 4.0** 协议开源。
+本仓库的许可声明见 [LICENSE](./LICENSE)。使用与分发须遵守适用的署名、非商业性使用及相同方式共享条件。分享修改后的作品时，应按协议要求标明修改并采用相应许可；第三方组件与素材遵循各自的授权条款。

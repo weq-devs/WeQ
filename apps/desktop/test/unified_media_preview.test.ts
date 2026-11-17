@@ -1,21 +1,21 @@
 import { act, createElement as h, StrictMode } from 'react';
+vi.mock('../src/renderer/src/hooks/useDevelopmentDressTools', () => ({
+  useDevelopmentDressTools: () => true,
+}));
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import {
-  MediaPreview,
-  mergePreviewMedia,
-  type PreviewMedia,
-} from '../src/renderer/src/components/MediaPreview';
-import { ChatMediaGallery, galleryMedia } from '../src/renderer/src/components/ChatMediaGallery';
+import { MediaPreview, type PreviewMedia } from '../src/renderer/src/components/MediaPreview';
+import { mergePreviewMedia } from '../src/renderer/src/components/MediaPreview.shared';
+import { ChatMediaGallery } from '../src/renderer/src/components/ChatMediaGallery';
+import { galleryMedia } from '../src/renderer/src/components/ChatMediaGallery.shared';
 import { QqMessageContent } from '../src/renderer/src/components/QqMessageContent';
-import {
-  MarketFaceLightbox,
-  openMarketFaceLightbox,
-} from '../src/renderer/src/components/MarketFaceLightbox';
-import {
-  MediaPreviewHost,
-  openMediaPreview,
-} from '../src/renderer/src/components/mediaPreviewStore';
+import { MarketFaceLightbox } from '../src/renderer/src/components/MarketFaceLightbox';
+import { openMarketFaceLightbox } from '../src/renderer/src/state/marketFaceLightbox';
+import { MediaPreviewHost } from '../src/renderer/src/components/mediaPreviewStore';
+import { openMediaPreview } from '../src/renderer/src/components/mediaPreviewStore.shared';
+import { QqMarketFace } from '../src/renderer/src/components/QqMedia';
+import { useDataSaver } from '../src/renderer/src/lib/dataSaver';
+import { useViewState } from '../src/renderer/src/state/view';
 
 const mocks = vi.hoisted(() => ({
   ocr: vi.fn(),
@@ -276,9 +276,9 @@ it('开发严格模式的迟到分页不覆盖当前边界，关闭后不再继�
   expect(page).toHaveBeenCalledTimes(2);
   expect(document.querySelector('[role="dialog"]')).toBeNull();
 });
-it('同文档图片和视频预览互相替换', () => {
+it('同文档图片和视频预览互相替换', async () => {
   act(() => root.render(h(MediaPreviewHost)));
-  act(() =>
+  await act(async () =>
     openMediaPreview({ items: [{ key: items[0]!.src, kind: 'image', src: items[0]!.src }] }),
   );
   act(() =>
@@ -294,6 +294,49 @@ it('视频加载中也保留原生播放器的Tab入口，不把焦点锁在关�
   const event = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
   act(() => button('关闭预览').dispatchEvent(event));
   expect(event.defaultPrevented).toBe(false);
+});
+it('已挂载视频只用原生加载提示，播放失败仍可重试', () => {
+  act(() => root.render(h(MediaPreview, { items: [items[1]!], onClose: vi.fn() })));
+  const player = document.querySelector('video')!;
+  expect(player.controls).toBe(true);
+  expect(document.querySelector('[data-media-state]')?.getAttribute('aria-busy')).toBe('true');
+  expect(document.querySelector('.weq-media-load-status')).toBeNull();
+  act(() => player.dispatchEvent(new Event('error')));
+  expect(document.querySelector('.weq-media-load-error')?.textContent).toContain(
+    '视频暂时无法播放',
+  );
+  act(() => button('重试加载视频').click());
+  const retryPlayer = document.querySelector('video')!;
+  expect(retryPlayer).not.toBe(player);
+  expect(document.querySelector('.weq-media-load-status')).toBeNull();
+  act(() => retryPlayer.dispatchEvent(new Event('canplay')));
+  expect(document.querySelector('[data-media-state]')?.getAttribute('data-media-state')).toBe(
+    'ready',
+  );
+});
+it('视频原片解析期间显示一组加载提示，播放器挂载后交由原生提示接管', async () => {
+  let finish!: (value: { src: string; kind: 'video' }) => void;
+  const detail = new Promise<{ src: string; kind: 'video' }>((resolve) => {
+    finish = resolve;
+  });
+  await act(async () =>
+    root.render(
+      h(MediaPreview, { items: [{ ...items[1]!, load: () => detail }], onClose: vi.fn() }),
+    ),
+  );
+  expect(document.querySelector('video')).toBeNull();
+  expect(document.querySelectorAll('.weq-media-load-status')).toHaveLength(1);
+  expect(document.querySelector('.weq-media-load-status')?.textContent).toBe('正在加载视频…');
+  await act(async () => finish({ src: items[1]!.src, kind: 'video' }));
+  expect(document.querySelector('video')?.controls).toBe(true);
+  expect(document.querySelector('.weq-media-load-status')).toBeNull();
+});
+it('图片加载时继续保留一组加载提示', () => {
+  act(() => root.render(h(MediaPreview, { items: [items[0]!], onClose: vi.fn() })));
+  expect(document.querySelectorAll('.weq-media-load-status')).toHaveLength(1);
+  expect(document.querySelector('.weq-media-load-status')?.textContent).toBe('正在加载图片…');
+  load();
+  expect(document.querySelector('.weq-media-load-status')).toBeNull();
 });
 it('详情返回相同图片地址时不把已绘制图片退回永久加载态', async () => {
   let finish!: (value: { src: string; kind: 'image' }) => void;
@@ -405,20 +448,92 @@ it('聊天元素按消息与元素位置标识，不混入闪照、表情和嵌�
     ]).map((item) => item.key),
   ).toEqual(['roaming:native:10:1:0', 'roaming:native:11:1:0']);
 });
-it('商城表情复用外壳后保留整组、参数与分级Escape，打开时替换旧图片预览', () => {
-  act(() => root.render(h('div', null, h(MediaPreviewHost), h(MarketFaceLightbox))));
-  act(() =>
-    openMediaPreview({ items: [{ key: items[0]!.src, kind: 'image', src: items[0]!.src }] }),
-  );
-  act(() => openMarketFaceLightbox('123'));
+it('商城表情使用无全屏遮罩的小浮层，图片主动复用聊天路径并保留加密回退与分级Escape', () => {
+  act(() => root.render(h(MarketFaceLightbox)));
+  act(() => openMarketFaceLightbox('123', 'fixture'));
+  expect(document.querySelector('.weq-unified-preview')).toBeNull();
+  expect(document.querySelector('[aria-modal="true"]')).toBeNull();
+  expect(document.querySelector('.weq-mface-popover-layer.is-popover')).not.toBeNull();
+  const image = document.querySelector<HTMLImageElement>('.weq-mface-lb-cell img')!;
+  const source = new URL(image.src);
+  expect(source.searchParams.get('intent')).toBe('interactive');
+  expect(source.searchParams.has('enc')).toBe(false);
+  act(() => image.dispatchEvent(new Event('error')));
+  expect(new URL(image.src).searchParams.get('enc')).toBe('tea');
+  expect(new URL(image.src).searchParams.get('intent')).toBe('interactive');
   expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
   act(() => document.querySelector<HTMLButtonElement>('.weq-mface-lb-cell')!.click());
   expect(document.querySelector('.weq-mface-detail')?.textContent).toContain('fixture-key');
-  key('Escape');
+  // 网格按钮卸载后焦点可回落到 body，Esc 仍须先返回整包。
+  act(() =>
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    ),
+  );
   expect(document.querySelector('.weq-mface-lb-grid')).not.toBeNull();
   expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
   key('Escape');
   expect(document.querySelector('[role="dialog"]')).toBeNull();
+});
+it('省流量模式下整包与详情均为主动请求，失败后可重新加载且不依赖密钥', () => {
+  const previous = useDataSaver.getState();
+  try {
+    act(() => useDataSaver.setState({ enabled: true }));
+    act(() => root.render(h(MarketFaceLightbox)));
+    act(() => openMarketFaceLightbox('123'));
+    const cell = document.querySelector<HTMLImageElement>('.weq-mface-lb-cell img')!;
+    expect(new URL(cell.src).searchParams.get('intent')).toBe('interactive');
+    act(() => document.querySelector<HTMLButtonElement>('.weq-mface-lb-cell')!.click());
+    const image = document.querySelector<HTMLImageElement>('.weq-mface-detail-image')!;
+    expect(new URL(image.src).searchParams.has('enc')).toBe(false);
+    act(() => image.dispatchEvent(new Event('error')));
+    expect(new URL(image.src).searchParams.get('enc')).toBe('tea');
+    act(() => image.dispatchEvent(new Event('error')));
+    expect(document.querySelector('.weq-mface-detail-image')).toBeNull();
+    const retry = [...document.querySelectorAll<HTMLButtonElement>('button')].find((item) =>
+      item.textContent?.includes('重试加载'),
+    )!;
+    act(() => retry.click());
+    const retried = document.querySelector<HTMLImageElement>('.weq-mface-detail-image')!;
+    expect(new URL(retried.src).searchParams.has('enc')).toBe(false);
+    expect(new URL(retried.src).searchParams.get('intent')).toBe('interactive');
+  } finally {
+    act(() => useDataSaver.setState(previous));
+  }
+});
+it('真实聊天入口传递锚点，同包切换更新高亮，点击背景继续操作且切号关闭', () => {
+  const clicked = vi.fn();
+  act(() =>
+    root.render(
+      h(
+        'div',
+        null,
+        h(QqMarketFace, { data: { emojiPackId: 123, marketEmoticonIdHex: 'fixture' } }),
+        h(QqMarketFace, { data: { emojiPackId: 123, marketEmoticonIdHex: 'other' } }),
+        h('button', { onClick: clicked, id: 'outside' }, '背景操作'),
+        h(MarketFaceLightbox),
+      ),
+    ),
+  );
+  const triggers = document.querySelectorAll<HTMLButtonElement>('.qq-mface-wrap');
+  act(() => triggers[0]!.click());
+  expect(document.querySelector('.weq-mface-popover-layer.is-anchored-popover')).not.toBeNull();
+  expect(document.querySelector('.weq-mface-lb-cell.is-active')).not.toBeNull();
+  act(() => triggers[1]!.click());
+  expect(document.querySelectorAll('.weq-mface-popover')).toHaveLength(1);
+  expect(document.querySelector('.weq-mface-lb-cell.is-active')).toBeNull();
+  const outside = document.querySelector<HTMLButtonElement>('#outside')!;
+  act(() => {
+    outside.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    outside.click();
+  });
+  expect(document.querySelector('.weq-mface-popover')).toBeNull();
+  expect(clicked).toHaveBeenCalledOnce();
+  act(() => triggers[0]!.click());
+  const previous = useViewState.getState().openedUin;
+  act(() => useViewState.getState().setOpenedUin('different-fixture-account'));
+  expect(document.querySelector('.weq-mface-popover')).toBeNull();
+  act(() => useViewState.getState().setOpenedUin(previous));
 });
 it('真实消息渲染入口接入混排、双向分页、实时追加和账号切换', async () => {
   mocks.bound = true;

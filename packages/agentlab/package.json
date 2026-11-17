@@ -23,6 +23,7 @@
     "vitest": "^2.1.8"
   },
   "dependencies": {
+    "@weq/network": "workspace:*",
     "@weq/time": "workspace:*"
   }
 }

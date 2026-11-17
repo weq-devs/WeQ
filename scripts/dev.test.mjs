@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -115,6 +115,71 @@ console.log('installed');
   assert.equal((await dependencyState(root, env)).complete, true);
 });
 
+test('独立文档站的依赖缺失或清单变化不影响应用依赖状态', async (t) => {
+  const root = await fixture(t);
+  await installed(root);
+  const before = await dependencyState(root, {});
+  await writeJson(join(root, 'docs/package.json'), {
+    name: '@weq/docs',
+    devDependencies: { vitepress: '1.6.4' },
+  });
+  assert.deepEqual(await dependencyState(root, {}), before);
+  await writeJson(join(root, 'docs/package.json'), {
+    name: '@weq/docs',
+    devDependencies: { vitepress: '2.0.0' },
+  });
+  assert.deepEqual(await dependencyState(root, {}), before);
+});
+
+test('真实 pnpm 将文档站作为独立工作区安装，根目录文档命令转调其自身配置', async (t) => {
+  const root = await fixture(t);
+  const manifest = await readJson(new URL('../package.json', import.meta.url));
+  await writeJson(join(root, 'package.json'), {
+    name: 'fixture',
+    private: true,
+    scripts: { 'docs:check': manifest.scripts['docs:check'] },
+  });
+  await writeFile(
+    join(root, 'pnpm-workspace.yaml'),
+    await readFile(new URL('../pnpm-workspace.yaml', import.meta.url)),
+  );
+  await rm(join(root, 'pnpm-lock.yaml'));
+  await writeJson(join(root, 'docs/package.json'), {
+    name: '@weq/docs',
+    scripts: {
+      check: 'node -p "JSON.stringify({name:process.env.npm_package_name,cwd:process.cwd()})"',
+    },
+  });
+  await writeFile(join(root, 'docs/pnpm-workspace.yaml'), 'allowBuilds:\n  esbuild: true\n');
+  const env = { ...process.env, npm_execpath: actualPnpm(), CI: 'true', NO_COLOR: '1' };
+  const run = async (args) => {
+    const [command, parameters] = pnpmCommand(args, env);
+    const result = spawnSync(command, parameters, {
+      cwd: root,
+      env,
+      encoding: 'utf8',
+      timeout: 30_000,
+    });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.doesNotMatch(result.stdout + result.stderr, /The settings in .*do not apply/);
+    return result.stdout.trim();
+  };
+  await run(['install', '--offline', '--ignore-scripts']);
+  const projects = JSON.parse(await run(['--recursive', 'list', '--depth', '-1', '--json']));
+  assert(projects.every((project) => project.name !== '@weq/docs'));
+  await run(['--dir', 'docs', 'install', '--offline', '--ignore-scripts']);
+  assert.equal(await exists(join(root, 'docs/pnpm-lock.yaml')), true);
+  assert.deepEqual(JSON.parse(await run(['--dir', 'docs', 'config', 'get', 'allowBuilds'])), {
+    esbuild: true,
+  });
+  const output = await run(['--silent', 'run', 'docs:check']);
+  const lastLine = output.split(/\r?\n/).at(-1);
+  assert.deepEqual(JSON.parse(lastLine), {
+    name: '@weq/docs',
+    cwd: await realpath(join(root, 'docs')),
+  });
+});
+
 test('安装失败或安装期间清单变化不记成功，不启动后续阶段', async (t) => {
   const root = await fixture(t);
   const env = { npm_execpath: '/fixture/pnpm.cjs' };
@@ -190,6 +255,8 @@ test('一行入口按依赖、宿主、native、网络、启动顺序执行，�
       ELECTRON_RUN_AS_NODE: '1',
       ELECTRON_OVERRIDE_DIST_PATH: '/old',
       npm_execpath: '/pnpm.cjs',
+      WEQ_DEV_STDOUT_TTY: '1',
+      WEQ_DEV_STDERR_TTY: '0',
     },
     log: silent,
     dependencies: async () => events.push('dependencies'),
@@ -208,13 +275,16 @@ test('一行入口按依赖、宿主、native、网络、启动顺序执行，�
       launch = { args, options: { env: environment } };
     },
   };
-  await startDevelopment({ ...hooks, args: ['--', '--foo=space value'] });
+  await startDevelopment({ ...hooks, args: ['--', '--foo=space value', '--enable-dress-tools'] });
   assert.deepEqual(events, ['dependencies', 'electron', 'native', 'network', 'bot', 'launch']);
   assert(launch.args.includes(`--user-data-dir=${join(root, '.dev-profile')}`));
   assert(launch.args.includes('--foo=space value'));
+  assert(launch.args.includes('--enable-dress-tools'));
   assert.equal(launch.options.env.ELECTRON_RUN_AS_NODE, undefined);
   assert.equal(launch.options.env.ELECTRON_OVERRIDE_DIST_PATH, undefined);
   assert.equal(launch.options.env.WEQ_REMOTE_HELPER, '/network helper');
+  assert.equal(launch.options.env.WEQ_DEV_STDOUT_TTY, '1');
+  assert.equal(launch.options.env.WEQ_DEV_STDERR_TTY, '0');
   events.length = 0;
   await startDevelopment({ ...hooks, args: ['--prepare-only'] });
   assert.deepEqual(events, ['dependencies', 'electron', 'native', 'network', 'bot']);
@@ -243,6 +313,52 @@ test('一行入口按依赖、宿主、native、网络、启动顺序执行，�
   await writeJson(join(root, 'weq.dev.local.json'), { userDataDir: null });
   await startDevelopment(hooks);
   assert(!launch.args.some((arg) => arg.startsWith('--user-data-dir')));
+});
+
+test('缓存启动仅报环境摘要与停止，native 回退及 prepare-only 不误称源码已就绪', async (t) => {
+  const root = await fixture(t);
+  const lines = [];
+  let environment;
+  const hooks = {
+    repo: root,
+    env: { WEQ_DEV_RESTART: '1', WEQ_DEV_STARTUP_WARNING: '1' },
+    log: (...line) => lines.push(line),
+    unused: async () => {},
+    dependencies: async () => {},
+    electron: async () => '/electron',
+    native: async () => {},
+    network: async () => '/network',
+    bot: async () => {},
+    launch: async (_args, env) => {
+      environment = env;
+      return 0;
+    },
+  };
+  await startDevelopment(hooks);
+  assert.equal(lines.length, 2);
+  assert.match(lines[0][0], /^运行环境就绪/);
+  assert.equal(lines[1][0], '开发服务已停止');
+  assert.equal(environment.WEQ_DEV_RESTART, undefined);
+  assert.equal(environment.WEQ_DEV_STARTUP_WARNING, undefined);
+  assert(Number(environment.WEQ_DEV_STARTED_AT) > 0);
+  lines.length = 0;
+  await startDevelopment({ ...hooks, native: async () => ({ fallback: true }) });
+  assert.match(lines[0][0], /使用旧 native，本次源码改动未生效/);
+  assert.equal(environment.WEQ_DEV_STARTUP_WARNING, '1');
+  lines.length = 0;
+  await startDevelopment({
+    ...hooks,
+    native: async () => ({ fallback: true }),
+    args: ['--prepare-only'],
+  });
+  assert.equal(lines.length, 1);
+  assert.match(lines[0][0], /未启动应用；使用旧 native/);
+  lines.length = 0;
+  await assert.rejects(startDevelopment({ ...hooks, launch: async () => 7 }), { exitCode: 7 });
+  assert(!lines.some(([text]) => text.includes('开发服务已停止')));
+  lines.length = 0;
+  await assert.rejects(startDevelopment({ ...hooks, launch: async () => 130 }), { exitCode: 130 });
+  assert.equal(lines.at(-1)[0], '开发服务已停止');
 });
 
 test('网络辅助程序复用构建计划并校验缓存，源码与二进制变化均重建', async (t) => {
@@ -381,6 +497,54 @@ test('启动日志与应用共用行头，分块中文、CR 进度和长行均�
   ]);
 });
 
+for (const [name, tty, inherited, noColor, colors] of [
+  ['管道继承彩色终端', false, ['1', '1'], false, [true, true]],
+  ['管道不默认着色', false, [], false, [false, false]],
+  ['NO_COLOR 空值仍禁用颜色', false, ['1', '1'], true, [false, false]],
+  ['外层重定向优先于本层 TTY', true, ['0', '0'], false, [false, false]],
+  ['未继承时使用本层 TTY', true, [], false, [true, true]],
+  ['stdout 单独重定向', false, ['0', '1'], false, [false, true]],
+  ['stderr 单独重定向', false, ['1', '0'], false, [true, false]],
+]) {
+  for (const forward of [false, true]) {
+    test(`${forward ? '命令转发' : '启动日志'}：${name}`, () => {
+      const env = { ...process.env, WEQ_LOG_LEVEL: 'debug' };
+      for (const key of ['NO_COLOR', 'FORCE_COLOR', 'WEQ_DEV_STDOUT_TTY', 'WEQ_DEV_STDERR_TTY'])
+        delete env[key];
+      if (inherited[0] !== undefined) env.WEQ_DEV_STDOUT_TTY = inherited[0];
+      if (inherited[1] !== undefined) env.WEQ_DEV_STDERR_TTY = inherited[1];
+      if (noColor) env.NO_COLOR = '';
+      const child = spawnSync(
+        process.execPath,
+        [
+          '--input-type=module',
+          '-e',
+          `
+          import { startupLog, commandOutput } from ${JSON.stringify(new URL('./dev-process.mjs', import.meta.url).href)};
+          import { formatConsoleHeader } from ${JSON.stringify(new URL('../packages/service/src/common/console_header.mjs', import.meta.url).href)};
+          for (const stream of ['stdout', 'stderr'])
+            Object.defineProperty(process[stream], 'isTTY', { value: ${tty} });
+          for (const level of ['debug', 'info', 'warn', 'error']) {
+            if (${forward}) {
+              const output = commandOutput(() => { throw new Error('重复包装日志'); }, 'fixture', { env: process.env });
+              output.write(Buffer.from(formatConsoleHeader(level, 'ready', 'fixture', { now: 0, color: true }) + '\\n'));
+              output.end();
+            } else startupLog('ready', level, 'fixture');
+          }
+          `,
+        ],
+        { encoding: 'utf8', env },
+      );
+      assert.equal(child.status, 0, child.stderr);
+      for (const [index, stream] of ['stdout', 'stderr'].entries()) {
+        const lines = child[stream].trim().split('\n');
+        assert.equal(lines.length, 2);
+        for (const line of lines) assert.equal(line.includes('\x1b['), colors[index], line);
+      }
+    });
+  }
+}
+
 test('命令执行保留失败退出码、缺失工具及参数，失败输出不被吞掉', async () => {
   const lines = [];
   const run = (code, args = []) =>
@@ -440,6 +604,25 @@ test('默认收起 Cargo 过程和命令回显，保留诊断续行；debug 保�
   assert.equal(other.length, 2);
 });
 
+test('失败时只展开有界的工具尾部，成功不展开，未知输出仍直接保留', () => {
+  const lines = [];
+  const output = commandOutput((...row) => lines.push(row), 'native', { env: {} });
+  for (let i = 0; i < 1000; i++) output.write(Buffer.from(`   Compiling fixture-${i}\n`));
+  assert.equal(lines.length, 0);
+  output.write(Buffer.from('unknown output\nerror[E000]: broken\n  --> src/lib.rs:3\n'));
+  output.end({ failed: true });
+  assert.equal(lines[0][0], 'unknown output');
+  assert(lines.some(([text]) => text === 'error[E000]: broken'));
+  assert(lines.some(([text]) => text.includes('fixture-999')));
+  assert(!lines.some(([text]) => text.includes('fixture-0')));
+  assert(lines.length <= 16);
+  const success = [];
+  const cached = commandOutput((...row) => success.push(row), 'native', { env: {} });
+  cached.write(Buffer.from('   Compiling fixture\n'));
+  cached.end();
+  assert.equal(success.length, 0);
+});
+
 test('安静构建期间低频报告进度，退出后停止计时且原始错误保留', {
   skip: process.platform === 'win32',
 }, async (t) => {
@@ -490,6 +673,17 @@ test('只终止本次启动的子进程组，SIGTERM 返回 143', {
   const [status] = await exited;
   assert.equal(status, 143);
   const pid = Number(await readFile(pidFile, 'utf8'));
+  // 父进程退出通知可能先于系统回收子进程 PID；仍要求其在限定时间内消失。
+  const reaped = Date.now() + 2_000;
+  while (Date.now() < reaped) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if (error.code === 'ESRCH') break;
+      throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
   assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
 });
 

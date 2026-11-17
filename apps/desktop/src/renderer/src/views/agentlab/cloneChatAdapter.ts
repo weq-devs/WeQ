@@ -1,5 +1,5 @@
 import type { Conversation, GroupMember, Message, User } from '../../im-template/template/types';
-import { qqAvatarUrl } from '../../components/QqAvatar';
+import { qqAvatarUrl } from '../../components/QqAvatar.shared';
 import { parseMessageParts } from '../../im-template/template/emojiPacks';
 import { tokenToElement } from '../../im-template/template/draftElements';
 import type { GeneratedContentIdentity } from '../../../../shared/content_selection';

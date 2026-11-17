@@ -2,10 +2,8 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import {
-  GroupReadTools,
-  GROUP_SIGN_PAGE_SIZE,
-} from '../src/renderer/src/components/qq-actions/GroupReadTools';
+import { GroupReadTools } from '../src/renderer/src/components/qq-actions/GroupReadTools';
+import { GROUP_SIGN_PAGE_SIZE } from '../src/renderer/src/components/qq-actions/GroupReadTools.shared';
 import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 
 const state = vi.hoisted(() => ({ read: vi.fn() }));
@@ -19,6 +17,14 @@ vi.mock('../src/renderer/src/hooks/useQQAutoRefresh', () => ({
   useQQAutoRefresh: (enabled: boolean) => ({ enabled, retry: false, refetchOnWindowFocus: false }),
 }));
 vi.mock('../src/renderer/src/components/qq-actions/shared', () => ({
+  useQQAction: () => ({
+    available: true,
+    disabled: false,
+    binding: { expectedAccountUin: '99999', expectedAccountConfigId: 'source-a' },
+  }),
+  ActionFeedback: () => null,
+}));
+vi.mock('../src/renderer/src/components/qq-actions/shared.shared', () => ({
   useQQAction: () => ({
     available: true,
     disabled: false,

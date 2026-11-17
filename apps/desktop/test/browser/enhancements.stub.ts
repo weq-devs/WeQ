@@ -12,6 +12,8 @@ const descriptions = [
 let downloaded = new Set(['text', 'intent']);
 let preferences = { autoCheck: true, autoInstall: false };
 const state = new URLSearchParams(location.search).get('state');
+const checking = state?.startsWith('checking') ?? false;
+const partial = state === 'partial' || state === 'checking-partial';
 if (state === 'empty') downloaded = new Set();
 if (state === 'installed') downloaded = new Set(ids);
 let revision = 0;
@@ -25,31 +27,33 @@ const snapshot = () => {
     id,
     name: names[index],
     description: descriptions[index],
-    downloaded: downloaded.has(id) && !(state === 'partial' && id === 'text'),
-    ready: downloaded.has(id) && !(state === 'partial' && id === 'text'),
+    downloaded: downloaded.has(id) && !(partial && id === 'text'),
+    ready: downloaded.has(id) && !(partial && id === 'text'),
     installed: downloaded.has(id),
-    needsRepair: state === 'partial' && id === 'text',
-    missingComponents: state === 'partial' && id === 'text' ? ['文字筛图模型'] : [],
-    busy: state === 'busy' && id === 'voice',
+    needsRepair: partial && id === 'text',
+    missingComponents: partial && id === 'text' ? ['文字筛图模型'] : [],
+    busy: (state === 'busy' || state === 'retrying') && id === 'voice',
     blocker: state === 'incompatible' && id === 'text' ? '需先更新 WeQ 至 v3.0.0' : null,
     requiresWeqUpdate: state === 'incompatible' && id === 'text',
-    updateAvailable: (state === 'update' || state === 'partial') && id === 'text',
+    updateAvailable:
+      ['update', 'partial', 'checking-update', 'checking-partial'].includes(state ?? '') &&
+      id === 'text',
+    check: { phase: checking ? 'checking' : 'unchecked' },
     sharedBytes: 0,
     downloadBytes:
-      state === 'partial' && id === 'text'
-        ? 1048576
-        : downloaded.has(id)
-          ? 0
-          : sizes[index]! * 1048576,
+      partial && id === 'text' ? 1048576 : downloaded.has(id) ? 0 : sizes[index]! * 1048576,
     deleteBytes: sizes[index]! * 1048576,
     sizeOnDisk: downloaded.has(id) ? sizes[index]! * 1048576 : 0,
     operation:
-      state === 'busy' && id === 'voice'
+      (state === 'busy' || state === 'retrying') && id === 'voice'
         ? {
             phase: 'downloading',
             total: sizes[index]! * 1048576,
             received: (sizes[index]! * 1048576) / 2,
             note: '正在下载',
+            source: 'github-proxy.memory-echoes.cn',
+            attempt: 2,
+            retryAt: state === 'retrying' ? Date.now() + 60000 : undefined,
           }
         : state === 'failed' && id === 'voice'
           ? { phase: 'failed', error: '网络连接中断' }
@@ -104,7 +108,9 @@ const proxy = (path = ''): unknown =>
         };
       if (key === 'useMutation')
         return () => ({
-          isLoading: false,
+          isLoading:
+            (checking || state === 'manual-check') && path === 'bootstrap.checkEnhancementUpdates',
+          variables: { ids: ['text'] },
           mutateAsync: async (input: {
             ids?: string[];
             id?: string;

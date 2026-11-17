@@ -14,6 +14,89 @@ vi.mock('../src/renderer/src/trpc/client', () => ({ trpc: {}, client: {} }));
 vi.mock('../src/renderer/src/components/QQExactLookup', () => ({ QQExactLookup: () => null }));
 afterEach(() => vi.unstubAllGlobals());
 
+it.each(['initial', 'outside', 'escape', 'selection'])(
+  '结果菜单隐藏时清空不重新展开（%s）',
+  (dismissal) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const onSearchFocus = vi.fn();
+    function Harness() {
+      const [query, setQuery] = useState('合成');
+      return h(TitleBarSearch, {
+        persistent: true,
+        query,
+        onQueryChange: setQuery,
+        onSearchFocus,
+        results: h('button', { role: 'option', type: 'button' }, '合成结果'),
+      });
+    }
+    try {
+      act(() => root.render(h(Harness)));
+      const input = host.querySelector('input')!;
+      if (dismissal !== 'initial') {
+        act(() => input.focus());
+        if (dismissal === 'outside') {
+          act(() =>
+            document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })),
+          );
+        } else if (dismissal === 'escape') {
+          act(() =>
+            input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' })),
+          );
+        } else {
+          act(() => document.querySelector<HTMLButtonElement>('[role="option"]')!.click());
+        }
+      }
+      expect(document.querySelector('.weq-titlebar-search-results')).toBeNull();
+      onSearchFocus.mockClear();
+      const clear = host.querySelector<HTMLButtonElement>('[aria-label="清空搜索"]')!;
+      act(() => clear.focus());
+      act(() => clear.click());
+      expect(input.value).toBe('');
+      expect(host.querySelector('[aria-label="清空搜索"]')).toBeNull();
+      expect(document.querySelector('.weq-titlebar-search-results')).toBeNull();
+      expect(onSearchFocus).not.toHaveBeenCalled();
+      expect(document.activeElement).not.toBe(input);
+      act(() => input.focus());
+      expect(document.querySelector('.weq-titlebar-search-results')).not.toBeNull();
+      expect(onSearchFocus).toHaveBeenCalledOnce();
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  },
+);
+
+it('仅悬停展开搜索框但未显示结果菜单时，清空不聚焦输入框', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const onQueryChange = vi.fn();
+  const onSearchFocus = vi.fn();
+  try {
+    act(() => root.render(h(TitleBarSearch, { query: '合成', onQueryChange, onSearchFocus })));
+    act(() =>
+      host.firstElementChild!.dispatchEvent(
+        new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }),
+      ),
+    );
+    expect(document.querySelector('.weq-titlebar-search-results')).toBeNull();
+    const clear = host.querySelector<HTMLButtonElement>('[aria-label="清空搜索"]')!;
+    act(() => clear.focus());
+    act(() => clear.click());
+    expect(onQueryChange).toHaveBeenCalledWith('');
+    expect(document.activeElement).not.toBe(host.querySelector('input'));
+    expect(onSearchFocus).not.toHaveBeenCalled();
+    expect(document.querySelector('.weq-titlebar-search-results')).toBeNull();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
 it.each([true, false])('点击外部空白使搜索框失焦，再次聚焦可重新展开（常驻：%s）', (persistent) => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');

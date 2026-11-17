@@ -27,7 +27,7 @@ import {
   guildConversationRow,
 } from '../../lib/conversationDirectory';
 import { conversationAnalysisTarget } from '../../lib/conversationActions';
-import { useContentMultiSelect } from '../../state/contentSelection';
+import { useContentMultiSelect } from '../../state/contentSelection.shared';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import {
   allSelectionIdsSelected,
@@ -642,7 +642,10 @@ export function MergedSessionPanel({
           <div className="weq-merged-popover-title">
             {title}
             {kind === 'groupAssistant' ? (
-              <span className="weq-group-helper-count"> · {filtered.length} 个群</span>
+              <span className="weq-group-helper-count">
+                {' '}
+                · <span className="weq-number weq-number-inherit">{filtered.length}</span> 个群
+              </span>
             ) : null}
           </div>
           <button

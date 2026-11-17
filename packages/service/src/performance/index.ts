@@ -346,10 +346,18 @@ export class PerformanceMonitor {
       this.timer.unref();
     }
   }
-  async configure(settings: MonitorSettings) {
-    return this.mutate(() => this.configureNow(settings));
+  async previewPrune(policy: Pick<MonitorSettings, 'retentionDays' | 'capacityMiB'>) {
+    await this.ready;
+    await this.mutations;
+    await this.flush();
+    return this.request<import('./types').MonitorPrunePreview>('prune-preview', {
+      settings: normalizeMonitorSettings({ ...this.settings, ...policy }),
+    });
   }
-  private async configureNow(settings: MonitorSettings) {
+  async configure(settings: MonitorSettings, confirmPrune = true) {
+    return this.mutate(() => this.configureNow(settings, confirmPrune));
+  }
+  private async configureNow(settings: MonitorSettings, confirmPrune: boolean) {
     const next = normalizeMonitorSettings(settings);
     if (next.mode === 'full' && next.fullUntil !== null && next.fullUntil <= Date.now()) {
       next.mode = 'light';
@@ -359,7 +367,7 @@ export class PerformanceMonitor {
     this.epoch++;
     await this.collecting;
     try {
-      await this.request('configure', { settings: next });
+      await this.request('configure', { settings: next, confirmPrune });
     } catch (error) {
       this.reschedule();
       throw error;

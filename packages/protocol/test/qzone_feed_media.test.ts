@@ -38,6 +38,34 @@ const fixture = message([
             name: 'feed',
             tag: 1,
             type: message([
+              {
+                name: 'extension',
+                tag: 33,
+                type: message([
+                  {
+                    name: 'archive',
+                    tag: 4,
+                    type: message([
+                      {
+                        name: 'state',
+                        tag: 2,
+                        type: message([
+                          { name: 'status', tag: 1, type: 'int32', force: true },
+                          {
+                            name: 'tag',
+                            tag: 4,
+                            type: message([
+                              { name: 'label', tag: 2, type: 'string' },
+                              { name: 'icon', tag: 3, type: 'string' },
+                              { name: 'target', tag: 4, type: 'string' },
+                            ]),
+                          },
+                        ]),
+                      },
+                    ]),
+                  },
+                ]),
+              },
               { name: 'title', tag: 3, type: text },
               { name: 'text', tag: 4, type: text },
               {
@@ -140,6 +168,38 @@ const response = (
   });
 
 describe('空间 V4 媒体详情', () => {
+  it.each([0, 2, 101, 102, 103, 105, 999])(
+    '保留真实投稿状态 %s 和服务端标签，不用点赞或 appid 推算',
+    (status) => {
+      expect(
+        GetQzoneFeedMediaDetail.parseDetail(
+          response([], '10001', 'fixture-post', 311n, {
+            extension: {
+              archive: {
+                state: {
+                  status,
+                  tag: {
+                    label: '服务端标签',
+                    icon: 'https://qpic.cn/icon',
+                    target: 'mqzone://arouse/publicrecommend/feeds?source=4',
+                  },
+                },
+              },
+            },
+          }),
+          params,
+        ).archive,
+      ).toEqual({
+        rawStatus: status,
+        tag: {
+          text: '服务端标签',
+          iconUrl: 'https://qpic.cn/icon',
+          targetUrl: 'mqzone://arouse/publicrecommend/feeds?source=4',
+        },
+      });
+      expect(GetQzoneFeedMediaDetail.parseDetail(response([]), params).archive).toBeUndefined();
+    },
+  );
   it('按独立 SDK tag 读取推人数和用户预览，不借用赞数', () => {
     expect(
       GetQzoneFeedMediaDetail.parseDetail(

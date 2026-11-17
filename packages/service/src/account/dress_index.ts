@@ -28,6 +28,9 @@ export interface DressIndexState {
   error?: string;
   paused?: boolean;
   pauseReasons?: string[];
+  source?: string;
+  attempt?: number;
+  retryAt?: number;
 }
 
 export interface DressIndexEvent {
@@ -421,11 +424,15 @@ export class DressIndexStore {
               batch: true,
               total: part.size,
               maxBytes: part.size,
+              identity: { sha256: part.sha256, size: part.size },
               state: (state) =>
                 this.update(kind, {
                   downloadedBytes: state.received,
                   paused: state.paused,
                   pauseReasons: state.reasons,
+                  source: state.source,
+                  attempt: state.attempt,
+                  retryAt: state.retryAt,
                 }),
               validate: async (path) => {
                 if (!(await this.matches(path, kind)))

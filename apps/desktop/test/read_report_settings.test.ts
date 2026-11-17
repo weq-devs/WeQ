@@ -57,6 +57,14 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
     }) => unknown,
   ) => select({ showError: fixture.error, confirm: fixture.confirm }),
 }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
+  useDialog: (
+    select: (value: {
+      showError: typeof fixture.error;
+      confirm: typeof fixture.confirm;
+    }) => unknown,
+  ) => select({ showError: fixture.error, confirm: fixture.confirm }),
+}));
 vi.mock('../src/renderer/src/components/QqAvatar', () => ({ QqAvatar: () => null }));
 
 beforeEach(() => {
@@ -121,7 +129,9 @@ describe('设置中的已读上报开关', () => {
     });
     const f = mount('account');
     const toggle = () =>
-      f.host.querySelector<HTMLButtonElement>('[aria-label="进入受限模式时横幅提醒"]')!;
+      f.host.querySelector<HTMLButtonElement>(
+        '[data-setting-id="restricted-mode-banner"] [role="switch"]',
+      )!;
     try {
       expect(toggle().getAttribute('aria-checked')).toBe('true');
       await act(async () => toggle().click());
@@ -150,7 +160,7 @@ describe('设置中的已读上报开关', () => {
       expect(fixture.confirm).toHaveBeenCalledWith(
         '向 QQ 服务器上报已读位置',
         expect.stringContaining('向 QQ 服务器上报已读位置'),
-        { okLabel: '开启上报' },
+        { okLabel: '开启上报', danger: 'outline' },
       );
       expect(fixture.mutations).toContain('bootstrap.setReadSyncEnabled');
       expect(fixture.mutations).not.toContain('bootstrap.setReportReadEnabled');

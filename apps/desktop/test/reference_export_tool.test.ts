@@ -22,7 +22,14 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
     prepareSave: f.prepare,
   }),
 }));
-vi.mock('../src/renderer/src/components/Toast', () => ({ useToast: () => f.toast }));
+vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToastApi: () => ({ push: f.toast }),
+  useToast: () => f.toast,
+}));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
+  useToastApi: () => ({ push: f.toast }),
+  useToast: () => f.toast,
+}));
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();

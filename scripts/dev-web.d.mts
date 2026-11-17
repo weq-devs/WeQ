@@ -6,6 +6,17 @@ interface WebAssetsOptions {
   marker?: string;
 }
 
+export function developmentWeb(
+  root: string,
+  options?: { plugins?: import('vite').Plugin[] },
+): {
+  name: string;
+  apply: 'serve';
+  configureServer(server: {
+    httpServer: { once(event: 'close', listener: () => void): unknown } | null;
+  }): Promise<void>;
+};
+
 export function prepareWebAssets(
   root: string,
   options?: WebAssetsOptions,

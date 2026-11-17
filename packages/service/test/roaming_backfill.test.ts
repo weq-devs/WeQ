@@ -541,8 +541,10 @@ describe('durable manual roaming jobs', () => {
     await f.done();
     expect(f.manager.list()[0]).toMatchObject({ status: 'cancelled', observed: 30 });
     expect(f.manager.list()[0]?.note).not.toContain('等待');
-    expect(() => f.manager.start(job.id)).toThrow('已结束');
     expect(await f.history.cached('group', target.conv, 70, 99)).toHaveLength(30);
+    f.manager.start(job.id, true);
+    await f.done();
+    expect(f.manager.list()[0]?.status).toBe('completed');
   });
   it('reconciles an interrupted in-flight window from cache after a process restart', async () => {
     const f = setup([5n, 1n]);

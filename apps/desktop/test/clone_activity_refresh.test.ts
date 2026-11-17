@@ -4,7 +4,7 @@ import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { CloneChatPanel } from '../src/renderer/src/views/agentlab/CloneChatPanel';
 import { GroupChatPanel } from '../src/renderer/src/views/agentlab/GroupChatPanel';
-import { restoreComposer } from '../src/renderer/src/im-template/template/composer';
+import { restoreComposer } from '../src/renderer/src/im-template/template/composer.shared';
 
 const fixture = vi.hoisted(() => ({
   invalidate: vi.fn(),

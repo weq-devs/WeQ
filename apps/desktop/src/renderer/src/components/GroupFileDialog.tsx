@@ -1,19 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, LocateFixed, RotateCw, Square, X } from 'lucide-react';
+import { Loader2, LocateFixed, RefreshCw, Square, X } from 'lucide-react';
 import { client, trpc } from '../trpc/client';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
-import { useMediaSave, MediaSaveControls } from './MediaSaveControls';
+import { useMediaSave } from './MediaSaveControls.shared';
+import { MediaSaveControls } from './MediaSaveControls';
 import { ServerSavePrompt } from './ServerSavePrompt';
 import { ProfileDetailSurface } from './ProfileDetailSurface';
 import { GroupFileManager } from './GroupFileManager';
 import { GroupFileMessageResults } from './GroupFileMessageResults';
-import { useQQAction, withQQAccountScope } from './qq-actions/shared';
-import { useToast } from './Toast';
+import { useQQAction, withQQAccountScope } from './qq-actions/shared.shared';
+import { useToast } from './Toast.shared';
+import { taskNotificationSource } from '../lib/notificationNavigation.shared';
 import { collectGroupFileSubtree, resolveGroupFileSelection } from '../lib/groupFileSelection';
 import type { GroupFileWire, GroupFolderWire } from '../lib/groupFile';
 import '../styles/group-media.css';
-import { useExportReportDialog } from '../views/export/ExportReportControl';
+import { useExportReportDialog } from '../views/export/ExportReportControl.shared';
 import { GroupResourceNavigation } from './GroupResourceNavigation';
 
 export interface Props {
@@ -128,7 +130,7 @@ function GroupFileDialogBody({
     if (includeIntegrityReport === null || !isCurrent()) return;
     const savePolicy = await save.prepareSave(undefined, { kind: 'bundle', name });
     if (!savePolicy || !isCurrent()) return;
-    await client.account.startGroupFileExport.mutate({
+    const taskId = await client.account.startGroupFileExport.mutate({
       ...binding,
       includeIntegrityReport,
       groupCode,
@@ -142,7 +144,12 @@ function GroupFileDialogBody({
       })),
       concurrency: 4,
     });
-    if (isCurrent()) toast({ tone: 'info', title: '群文件保存任务已创建' });
+    if (isCurrent())
+      toast({
+        tone: 'info',
+        title: '群文件保存任务已创建',
+        source: taskNotificationSource(taskId),
+      });
   }
   return (
     <ProfileDetailSurface
@@ -213,7 +220,7 @@ function GroupFileDialogBody({
                 disabled={read.isFetching}
                 onClick={() => void read.refetch()}
               >
-                <RotateCw size={16} />
+                <RefreshCw size={16} aria-hidden />
               </button>
             </div>
           )}
@@ -290,7 +297,16 @@ function GroupFileDialogBody({
     </ProfileDetailSurface>
   );
 }
-const Scoped = withQQAccountScope(GroupFileDialogBody);
+const Scoped = withQQAccountScope(GroupFileDialogBody, (props) => ({
+  kind: 'group-resource',
+  request: {
+    kind: 'files',
+    groupCode: props.groupCode,
+    groupName: props.groupName,
+    initialFolderId: props.initialFolderId,
+    initialFileId: props.initialFileId,
+  },
+}));
 export function GroupFileDialog(props: Props) {
   return <Scoped key={props.groupCode} {...props} />;
 }

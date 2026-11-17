@@ -15,6 +15,7 @@ const target = read.extend({ hostUin: uin });
 const post = target.extend({ tid: z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/) });
 const pending = new Map<string, { services: AccountServices; controller: AbortController }>();
 const publishing = new WeakSet<AccountServices>();
+const archiveWriting = new WeakSet<AccountServices>();
 
 function online(selfUin: string): AccountServices {
   const ctx = getAppContext();
@@ -50,6 +51,61 @@ async function request<T>(
 }
 
 export const qzoneRouter = router({
+  archiveState: procedure
+    .input(post.extend({ time: z.number().int().positive(), refresh: z.boolean().default(false) }))
+    .query(({ input }) =>
+      request(input, async (services, signal) => {
+        return services.webQuery.getQzoneArchiveState(
+          input.hostUin,
+          input.tid,
+          input.time,
+          input.selfUin,
+          signal,
+          input.refresh,
+        );
+      }),
+    ),
+  setArchiveState: procedure
+    .input(
+      post.extend({
+        expectedAccountConfigId: z.string().min(1),
+        time: z.number().int().positive(),
+        action: z.enum(['contribute', 'uncontribute', 'unarchive']),
+      }),
+    )
+    .mutation(({ input }) =>
+      request(input, async (services, signal) => {
+        if (services.accountConfig.getRecord()?.configId !== input.expectedAccountConfigId)
+          throw new Error('账号数据源已切换，已停止提交。');
+        if (archiveWriting.has(services)) throw new Error('空间状态操作正在进行。');
+        archiveWriting.add(services);
+        try {
+          const result = await services.webQuery.setQzoneArchiveState(
+            input.hostUin,
+            input.tid,
+            input.time,
+            input.selfUin,
+            input.action,
+            () => {
+              if (online(input.selfUin) !== services) throw new Error('账号已切换，已停止提交。');
+            },
+            signal,
+          );
+          return {
+            accepted: result.accepted,
+            confirmed: result.confirmed,
+            expectedStatus: result.expectedStatus,
+            state: result.detail
+              ? await services.webQuery
+                  .getQzoneArchiveState(input.hostUin, input.tid, input.time, input.selfUin, signal)
+                  .catch(() => null)
+              : null,
+          };
+        } finally {
+          archiveWriting.delete(services);
+        }
+      }),
+    ),
   upvotes: procedure
     .input(post.extend({ time: z.number().int().positive(), refresh: z.boolean().default(false) }))
     .query(({ input }) =>

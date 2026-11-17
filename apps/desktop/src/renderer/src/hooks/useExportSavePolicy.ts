@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ExportSavePolicy, ExportOutputPlan } from '@weq/service';
 import { client, trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import { useRemoteClient } from '../lib/remoteClient';
 
 /** 所有保存入口只跟随全局设置；已准备的位置仅用于当前请求，不保留页面覆盖。 */

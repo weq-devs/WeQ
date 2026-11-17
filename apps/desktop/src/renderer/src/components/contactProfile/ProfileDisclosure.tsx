@@ -1,6 +1,7 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
-import { TabActivity, useTabActive } from '../RetainedTabs';
+import { TabActivity } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { ContactFieldHistoryButton } from './ContactFieldHistory';
 
 /** 展开后才挂载，收起保留分页和草稿，同时暂停读取。 */

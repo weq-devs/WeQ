@@ -467,6 +467,14 @@ async function probeOne(
     const chunk = await nt.takeFrames(pid, { cursor, waitMs: 1000, maxFrames: 4096 });
     cursor = chunk.nextCursor;
     result.captureDropped = Math.max(result.captureDropped ?? 0, chunk.dropped);
+    // `PROBE_DEBUG=1` 打印每帧摘要：方向判反、布局不符时靠它定位。
+    if (process.env.PROBE_DEBUG) {
+      for (const frame of chunk.frames) {
+        log(
+          `frame dir=${frame.direction} proto=${frame.proto} et=${frame.encryptType} seq=${frame.seq} cmd=${frame.cmd ?? '-'} plainLen=${frame.plain?.length ?? 0} body=${frame.body?.subarray(0, 16).toString('hex') ?? '-'}`,
+        );
+      }
+    }
     captured.push(...chunk.frames);
     result.observedFrames = captured.length;
     result.observedCommands = [

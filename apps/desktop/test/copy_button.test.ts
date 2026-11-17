@@ -2,7 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CopyButton } from '../src/renderer/src/components/CopyButton';
-import { useToast } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { ContactRow } from '../src/renderer/src/components/contactProfile/ContactRow';
 
 let close = () => {};
