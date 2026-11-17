@@ -6,6 +6,7 @@ export type RemoteStartupState = {
 declare global {
   interface Window {
     weqRemoteStartup?: RemoteStartupState;
+    weqRemoteStartupRetrying?: boolean;
   }
 }
 

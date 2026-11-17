@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { gzip } from 'node:zlib';
 import { createHash } from 'node:crypto';
+import { remoteStartupRecovery } from './startup_recovery';
 import {
   parse,
   serialize,
@@ -35,7 +36,7 @@ const tracker = String.raw`
   document.addEventListener('load', record, true);
   document.addEventListener('error', record, true);
   window.addEventListener('weq-remote-startup', stop);
-})();`;
+})();${remoteStartupRecovery}`;
 const trackerHash = `'sha256-${createHash('sha256').update(tracker).digest('base64')}'`;
 type Asset = { path: string; raw: number; gzip: number; preload?: boolean };
 function validAsset(value: unknown): value is Asset {
