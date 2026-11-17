@@ -703,6 +703,7 @@ export {
   isQqProcessName,
   isSelfProcessName,
   makeStamp,
+  probeDbLayout,
   productTempPath,
   renderDbRepairReportMarkdown,
   resolveAccountDbDir,
