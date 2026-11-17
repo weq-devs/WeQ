@@ -1,19 +1,20 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { MessageProvenance } from '../src/renderer/src/components/MessageProvenance';
 import {
-  MessageProvenance,
   ShowMessageDateContext,
   ShowMessageSeqContext,
   ShowMessageTimeContext,
-} from '../src/renderer/src/components/MessageProvenance';
+} from '../src/renderer/src/components/MessageProvenance.shared';
 import {
   beijingDay,
   daySeconds,
   messageDensity,
   pickCalendarRange,
 } from '../src/renderer/src/lib/messageCalendar';
-import { visibleListRange, WindowedList } from '../src/renderer/src/components/WindowedList';
+import { visibleListRange } from '../src/renderer/src/components/WindowedList.shared';
+import { WindowedList } from '../src/renderer/src/components/WindowedList';
 
 function metadata(
   seq: boolean,

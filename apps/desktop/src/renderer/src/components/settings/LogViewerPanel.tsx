@@ -19,7 +19,7 @@ import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import { ArrowDownToLine, FileText, Loader2, Pause, Play, RefreshCw } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
-import { useToast } from '../Toast';
+import { useToast } from '../Toast.shared';
 import { useRenderDocument } from '../../lib/renderDocument';
 import { IconPicker, type IconPickerOption } from '../ui/iconPicker';
 

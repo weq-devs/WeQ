@@ -12,7 +12,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Keyboard, Pencil, Save } from 'lucide-react';
 import { classifyChatType } from '@weq/codec';
 import { useTypingStatusSettings } from '../../hooks/useTypingStatusSettings';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { ToolSurface } from '../ToolSurface';
 import { LoadingIndicator } from '../LoadingIndicator';
 import { PageShell } from '../PageShell';

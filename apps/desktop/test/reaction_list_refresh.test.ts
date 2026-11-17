@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { trpc } from '../src/renderer/src/trpc/client';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from './support/templateDemoData';
-import { useToast } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 import type { Message } from '../src/renderer/src/im-template/template/types';
 
 const rpc = vi.hoisted(() => ({

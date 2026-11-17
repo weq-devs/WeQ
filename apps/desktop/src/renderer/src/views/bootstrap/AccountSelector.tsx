@@ -8,10 +8,7 @@ import { QqAvatar } from '../../components/QqAvatar';
 import { formatConversationTimestamp } from '../../lib/conversationTime';
 import type { UiAccount } from './types';
 import '../../styles/startup-account.css';
-
-export function accountSource(account: UiAccount): string {
-  return account.mobile ? '手机备份' : account.static ? '本地备份' : '本机 QQ';
-}
+import { accountSource } from './AccountSelector.shared';
 
 export function AccountSelector({
   accounts,

@@ -27,6 +27,12 @@ vi.mock('../src/renderer/src/lib/target', async (original) => ({
     return mocks.web;
   },
 }));
+vi.mock('../src/renderer/src/lib/target.shared', async (original) => ({
+  ...(await original<object>()),
+  get IS_WEB() {
+    return mocks.web;
+  },
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     call: {

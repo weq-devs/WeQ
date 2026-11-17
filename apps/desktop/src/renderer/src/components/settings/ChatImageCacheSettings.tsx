@@ -6,7 +6,7 @@ import {
   MAX_CHAT_IMAGE_CACHE_MIB,
 } from '@weq/service/chat-image-cache';
 import { trpc } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { Card, QueryError, Row } from './controls';
 import '../../styles/chat-image-cache-settings.css';
 

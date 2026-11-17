@@ -25,7 +25,16 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
   useDialog: (selector: (value: { showError: () => void }) => unknown) =>
     selector({ showError() {} }),
 }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
+  Modal: ({ children }: { children: ReactNode }) => children,
+  useDialog: (selector: (value: { showError: () => void }) => unknown) =>
+    selector({ showError() {} }),
+}));
 vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToastApi: () => ({ push() {} }),
+  useToast: (selector: (value: { push: () => void }) => unknown) => selector({ push() {} }),
+}));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
   useToastApi: () => ({ push() {} }),
   useToast: (selector: (value: { push: () => void }) => unknown) => selector({ push() {} }),
 }));

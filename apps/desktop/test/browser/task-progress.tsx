@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { BackgroundTaskDetails } from '../../src/renderer/src/components/tasks/BackgroundTaskDetails';
 import {
-  BackgroundTaskDetails,
   BACKGROUND_TASK_LABELS,
   BACKGROUND_TASK_ICONS,
-} from '../../src/renderer/src/components/tasks/BackgroundTaskDetails';
+} from '../../src/renderer/src/components/tasks/BackgroundTaskDetails.shared';
 import { LongTaskRow } from '../../src/renderer/src/components/tasks/LongTaskRow';
 import { StageRow } from '../../src/renderer/src/views/export/TaskList';
 import { CalendarScanProgress } from '../../src/renderer/src/components/CalendarScanProgress';

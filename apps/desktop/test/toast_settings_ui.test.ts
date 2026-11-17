@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_TOAST_DURATIONS, type ToastDurations } from '@weq/service/toast-settings';
 import { ToastSettingsCard } from '../src/renderer/src/components/settings/ToastSettingsCard';
-import { useToast } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 
 const state = vi.hoisted(() => ({
   settings: {} as { toastDurations?: ToastDurations },

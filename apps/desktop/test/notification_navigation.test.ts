@@ -1,14 +1,15 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { ToastHost, useToast } from '../src/renderer/src/components/Toast';
+import { ToastHost } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 import * as preferences from '../src/renderer/src/lib/clientPreferences';
+import { NotificationSourceProvider } from '../src/renderer/src/lib/notificationNavigation';
 import {
-  NotificationSourceProvider,
   notificationSource,
   onNotificationNavigation,
   messageNotificationSource,
-} from '../src/renderer/src/lib/notificationNavigation';
+} from '../src/renderer/src/lib/notificationNavigation.shared';
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

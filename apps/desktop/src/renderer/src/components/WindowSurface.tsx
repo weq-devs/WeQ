@@ -10,15 +10,15 @@ import {
 import { createPortal } from 'react-dom';
 import { MoveDiagonal2 } from 'lucide-react';
 import { OverlayLayerContext, hasActiveModal, useOverlayLayerScope } from '../lib/overlayStack';
-import { OverlayAnchorContext, useOverlayAnchor } from '../lib/overlayAnchor';
+import { OverlayAnchorContext, useOverlayAnchor } from '../lib/overlayAnchor.shared';
 import { useRenderDocument } from '../lib/renderDocument';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import '../styles/window-surface.css';
 import { useSurfaceOutside } from '../lib/surfaceOutside';
 import { visibleViewport } from '../lib/visibleViewport';
 import { useMobileWebViewport } from '../hooks/useMobileWebViewport';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 
 type Box = { x: number; y: number; width: number; height: number };
 const margin = 8;

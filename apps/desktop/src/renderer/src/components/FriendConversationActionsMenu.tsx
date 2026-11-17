@@ -1,5 +1,5 @@
 import type { ComponentProps } from 'react';
-import { FEATURE_ICONS } from '../lib/featureIcons';
+import { FEATURE_ICONS } from '../lib/featureIcons.shared';
 import { ConversationActionsMenu } from './ConversationActionsMenu';
 import { useFriendSpecialCare } from '../hooks/useFriendSpecialCare';
 

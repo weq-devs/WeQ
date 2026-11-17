@@ -30,6 +30,7 @@ vi.mock('../src/renderer/src/trpc/client', async () => {
   };
 });
 vi.mock('../src/renderer/src/components/Dialog', () => ({ useDialog: () => vi.fn() }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({ useDialog: () => vi.fn() }));
 vi.mock('../src/renderer/src/components/CalendarTaskDetails', () => ({
   CalendarTaskDetails: () => null,
 }));

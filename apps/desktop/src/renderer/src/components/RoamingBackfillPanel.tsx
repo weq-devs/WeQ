@@ -34,7 +34,7 @@ import { classifyChatType } from '@weq/codec';
 import type { RoamingTarget } from '@weq/service';
 import { trpc } from '../trpc/client';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
-import { useDialog } from './Dialog';
+import { useDialog } from './Dialog.shared';
 import { WindowedList } from './WindowedList';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import { MessageCalendar } from './MessageCalendar';

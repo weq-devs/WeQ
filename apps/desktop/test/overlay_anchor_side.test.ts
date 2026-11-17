@@ -1,7 +1,7 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import { useOverlayAnchor } from '../src/renderer/src/lib/overlayAnchor';
+import { useOverlayAnchor } from '../src/renderer/src/lib/overlayAnchor.shared';
 
 afterEach(() => vi.unstubAllGlobals());
 

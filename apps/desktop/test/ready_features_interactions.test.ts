@@ -20,13 +20,11 @@ import { GroupAlbumManagement } from '../src/renderer/src/components/qq-actions/
 import { QQExactLookup } from '../src/renderer/src/components/QQExactLookup';
 import { CommonRelationships } from '../src/renderer/src/components/qq-actions/CommonRelationships';
 import { ContactList } from '../src/renderer/src/im-template/template/conversationLists';
-import { FriendDirectoryContext } from '../src/renderer/src/components/FriendDirectoryControls';
+import { FriendDirectoryContext } from '../src/renderer/src/components/FriendDirectoryControls.shared';
 import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
 import { sharedGroupConversation } from '../src/renderer/src/components/ark/groupShareCard';
-import {
-  ContentSelectionProvider,
-  useContentMultiSelect,
-} from '../src/renderer/src/state/contentSelection';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
+import { useContentMultiSelect } from '../src/renderer/src/state/contentSelection.shared';
 import { useViewState } from '../src/renderer/src/state/view';
 import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
@@ -53,6 +51,10 @@ const state = vi.hoisted(() => ({
   profiles: [] as Array<{ uin: string; uid: string; nick: string }>,
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
+  Modal: ({ children }: { children: ReactNode }) => h('div', { role: 'dialog' }, children),
+  useDialog: () => async () => state.confirm,
+}));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
   Modal: ({ children }: { children: ReactNode }) => h('div', { role: 'dialog' }, children),
   useDialog: () => async () => state.confirm,
 }));

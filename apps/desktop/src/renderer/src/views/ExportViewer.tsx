@@ -16,14 +16,14 @@ import {
 } from 'lucide-react';
 import type { ExportViewerMessage, ExportViewerPart } from '@weq/service';
 import { client, trpc } from '../trpc/client';
-import { useTabActive } from '../components/RetainedTabs';
-import { openMediaPreview } from '../components/mediaPreviewStore';
+import { useTabActive } from '../components/RetainedTabs.shared';
+import { openMediaPreview } from '../components/mediaPreviewStore.shared';
 import { mediaUrl } from '../lib/resourceUrl';
-import { useDialog } from '../components/Dialog';
+import { useDialog } from '../components/Dialog.shared';
 import { FolderScanStatus } from '../components/FolderScanStatus';
 import '../styles/export-viewer.css';
 import type { ViewerScanEvent } from '../../../main/ipc/routers/export_viewer';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import { useRemoteClient } from '../lib/remoteClient';
 import { chooseBrowserFile, stageAccountFile } from '../lib/accountFilePicker';
 

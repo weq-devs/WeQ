@@ -96,6 +96,10 @@ vi.mock('../src/renderer/src/views/agentlab/messageSearch', () => ({
   GeneratedSearchNotice: () => null,
   useGeneratedSearchJump: () => false,
 }));
+vi.mock('../src/renderer/src/views/agentlab/messageSearch.shared', () => ({
+  GeneratedSearchNotice: () => null,
+  useGeneratedSearchJump: () => false,
+}));
 
 beforeEach(() => {
   fixture.config.model = { providerId: 'synthetic', model: 'model-a' };

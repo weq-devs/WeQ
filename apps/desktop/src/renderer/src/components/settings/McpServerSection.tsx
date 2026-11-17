@@ -19,7 +19,7 @@
 
 import { NumericText } from '../NumericText';
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
 import {
   AlertCircle,
@@ -40,10 +40,10 @@ import {
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useRemoteClient } from '../../lib/remoteClient';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
-import { useDialog } from '../Dialog';
-import { useToast } from '../Toast';
+import { useDialog } from '../Dialog.shared';
+import { useToast } from '../Toast.shared';
 import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
 import '../../styles/settings-services.css';
 

@@ -2,7 +2,8 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Plus, Pencil, Trash2, Save, X, Loader2 } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { Modal } from '../Dialog';
-import { ActionIcon, useQQAction, useQQAlbumPermissions, withQQAccountScope } from './shared';
+import { ActionIcon } from './shared';
+import { useQQAction, useQQAlbumPermissions, withQQAccountScope } from './shared.shared';
 import type { GroupAlbumWire } from '../GroupAlbumDialog';
 import '../../styles/friend-directory.css';
 

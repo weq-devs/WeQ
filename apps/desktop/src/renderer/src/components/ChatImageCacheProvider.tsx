@@ -1,7 +1,6 @@
-import { createContext, useEffect, useLayoutEffect, useMemo, type ReactNode } from 'react';
-import { createChatImageCache, type ChatImageCache } from '../lib/chatImageCache';
-
-export const ChatImageCacheContext = createContext<ChatImageCache | null>(null);
+import { useEffect, useLayoutEffect, useMemo, type ReactNode } from 'react';
+import { createChatImageCache } from '../lib/chatImageCache';
+import { ChatImageCacheContext } from './ChatImageCacheProvider.shared';
 
 export function ChatImageCacheProvider({
   scope,

@@ -15,6 +15,10 @@ vi.mock('../src/renderer/src/components/QqMessageContent', async () => {
   const { createContext } = await import('react');
   return { MsgDecorationEnabledContext: createContext({ bubble: true, font: true, widget: true }) };
 });
+vi.mock('../src/renderer/src/state/messageAppearance', async () => {
+  const { createContext } = await import('react');
+  return { MsgDecorationEnabledContext: createContext({ bubble: true, font: true, widget: true }) };
+});
 afterEach(() => {
   applyDressSkin(null, null, null);
   query.mockClear();

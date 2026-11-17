@@ -2,11 +2,8 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CurrentTaskList } from '../src/renderer/src/components/tasks/CurrentTaskList';
-import {
-  LongTaskRow,
-  orderLongTasks,
-  type LongTaskItem,
-} from '../src/renderer/src/components/tasks/LongTaskRow';
+import { LongTaskRow, type LongTaskItem } from '../src/renderer/src/components/tasks/LongTaskRow';
+import { orderLongTasks } from '../src/renderer/src/components/tasks/LongTaskRow.shared';
 import type { UiTask } from '../src/renderer/src/views/export/TaskList';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
@@ -15,7 +12,7 @@ import { dismissCloneTask, getCloneTasks } from '../src/renderer/src/views/agent
 import { localBackgroundTasks } from '../src/renderer/src/state/backgroundTasks';
 import type { BackgroundTask } from '../src/shared/background_task';
 import { TaskQuickActions } from '../src/renderer/src/components/tasks/TaskQuickActions';
-import { useToast } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { useDbRepairWindow } from '../src/renderer/src/state/dbRepairWindow';
 import { backgroundTaskNavigation } from '../src/renderer/src/components/tasks/backgroundTaskNavigation';
 import { onOpenSettingsRequest } from '../src/renderer/src/lib/callSettingsBridge';
@@ -51,6 +48,11 @@ vi.mock('../src/renderer/src/lib/target', () => ({
     return fixture.web;
   },
 }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({
+  get IS_WEB() {
+    return fixture.web;
+  },
+}));
 vi.mock('../src/renderer/src/state/view', () => ({
   useViewState: (select: (state: { openedUin: string }) => unknown) =>
     select({ openedUin: fixture.accountId }),
@@ -59,6 +61,14 @@ vi.mock('../src/renderer/src/hooks/useQQAutoRefresh', () => ({
   useQQReadActivity: () => ({ enabled: true }),
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
+  useDialog: (select: (state: unknown) => unknown) =>
+    select({
+      confirm: fixture.confirm,
+      showInfo: fixture.info,
+      showError: fixture.error,
+    }),
+}));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
   useDialog: (select: (state: unknown) => unknown) =>
     select({
       confirm: fixture.confirm,

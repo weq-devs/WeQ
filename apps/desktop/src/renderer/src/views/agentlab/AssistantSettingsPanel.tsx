@@ -24,6 +24,7 @@ import { useAppDialog } from '../../lib/dialogUtils';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { useSettingsAutosave, type SettingsSection } from '../../hooks/useSettingsAutosave';
 import '../../styles/assistant-settings.css';
+import { ASSISTANT_SEND_MODES } from './AssistantSettingsPanel.shared';
 
 const AssistantFields = createContext<{
   register: (id: string, value: SettingsSection<AssistantConfig> | null) => void;
@@ -40,12 +41,6 @@ function useAssistantField(id: string, value: unknown, patch: AssistantConfig, v
   }, [form?.register, id, snapshot, serializedPatch, valid]);
   return form;
 }
-
-export const ASSISTANT_SEND_MODES = [
-  { value: 'interrupt', label: '立即补充' },
-  { value: 'boundary', label: '下一步补充' },
-  { value: 'queue', label: '排队发送' },
-] as const;
 function useAssistantParameters() {
   const query = trpc.account.getAssistantConfig.useQuery();
   const mutation = trpc.account.setAssistantConfig.useMutation();

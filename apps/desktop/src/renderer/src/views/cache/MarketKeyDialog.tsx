@@ -13,7 +13,7 @@ import { X, Search, Clock, Package, Copy, Check, Eye } from 'lucide-react';
 import type { MarketPackKey } from '@weq/service';
 import { Modal } from '../../components/Dialog';
 import { client } from '../../trpc/client';
-import { keySourceLabel } from './MarketPackExplorer';
+import { keySourceLabel } from './MarketPackExplorer.shared';
 
 type Mode = 'timestamp' | 'packId';
 let lastInput: { mode: Mode; value: string } = { mode: 'timestamp', value: '' };

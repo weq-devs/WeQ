@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { z } from 'zod';
-import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
 import {
   AlertTriangle,
@@ -36,9 +36,9 @@ import { Streamdown } from 'streamdown';
 import remarkGfm from 'remark-gfm';
 import { trpc, client } from '../../trpc/client';
 import { openExternalLink } from '../../lib/openExternalLink';
-import { useTabActive } from '../RetainedTabs';
-import { useDialog } from '../Dialog';
-import { useToast } from '../Toast';
+import { useTabActive } from '../RetainedTabs.shared';
+import { useDialog } from '../Dialog.shared';
+import { useToast } from '../Toast.shared';
 import { shikiCodeHighlighter } from '../../views/agentlab/shikiHighlighter';
 import { IconPicker } from '../ui/iconPicker';
 import { useThemeStore } from '../../state/theme';

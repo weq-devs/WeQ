@@ -1,10 +1,8 @@
 import { act, createElement as h, Fragment } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import {
-  MediaPreviewHost,
-  openMediaPreview,
-} from '../src/renderer/src/components/mediaPreviewStore';
+import { MediaPreviewHost } from '../src/renderer/src/components/mediaPreviewStore';
+import { openMediaPreview } from '../src/renderer/src/components/mediaPreviewStore.shared';
 import { QqImage } from '../src/renderer/src/components/QqMedia';
 import { interactiveMediaUrl } from '../src/renderer/src/lib/resourceUrl';
 import {

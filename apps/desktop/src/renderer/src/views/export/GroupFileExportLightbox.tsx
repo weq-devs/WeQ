@@ -31,7 +31,7 @@ import type { ExportSavePolicy } from '@weq/service';
 import '../../styles/resource-export.css';
 import { OverlayLayer } from '../../components/OverlayLayer';
 import { client } from '../../trpc/client';
-import { useToast } from '../../components/Toast';
+import { useToast } from '../../components/Toast.shared';
 import { PickerListSkeleton } from './ExportSkeleton';
 import { fileIconUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';

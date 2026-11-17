@@ -17,13 +17,15 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { ArrowRight, KeyRound, Loader2, QrCode, Settings2, X } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
-import { Modal, useDialog } from '../../components/Dialog';
+import { Modal } from '../../components/Dialog';
+import { useDialog } from '../../components/Dialog.shared';
 import { Toggle } from '../../components/settings/controls';
-import { IS_MAC } from '../../lib/target';
+import { IS_MAC } from '../../lib/target.shared';
 import type { AutoEnterTarget } from '@weq/service';
-import { accountSource } from './AccountSelector';
+import { accountSource } from './AccountSelector.shared';
 import { QqAvatar } from '../../components/QqAvatar';
-import { KeyField, isCompleteKey } from './KeyField';
+import { KeyField } from './KeyField';
+import { isCompleteKey } from './KeyField.shared';
 import { QrDialog } from './QrDialog';
 import type { UiAccount } from './types';
 

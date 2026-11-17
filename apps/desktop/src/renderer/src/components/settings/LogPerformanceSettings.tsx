@@ -6,7 +6,7 @@ import { trpc, client } from '../../trpc/client';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import { useLogPerformanceWindow } from '../../state/logPerformanceWindow';
 import { performancePruneMessage } from '../../lib/performanceRetention';
-import { useDialog } from '../Dialog';
+import { useDialog } from '../Dialog.shared';
 import { SegmentedControl } from '../SegmentedControl';
 import { IconPicker } from '../ui/iconPicker';
 import { AutoSave } from './AutoSave';

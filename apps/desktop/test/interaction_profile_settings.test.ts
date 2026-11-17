@@ -17,6 +17,7 @@ const fixture = vi.hoisted(() => ({
   localAvailable: true,
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({ useDialog: () => vi.fn() }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({ useDialog: () => vi.fn() }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({

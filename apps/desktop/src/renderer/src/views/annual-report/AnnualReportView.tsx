@@ -21,7 +21,7 @@ import { ALL_TIME_YEAR, reportEraLabel, reportPeriodLabel } from '@weq/service/r
 import { client, trpc } from '../../trpc/client';
 import { AnnualReportStage } from './AnnualReportStage';
 import { AnnualReportEntry } from './AnnualReportEntry';
-import { renderReportPage } from './pageRegistry';
+import { renderReportPage } from './pageRegistry.shared';
 import { applyReportFont, clearReportFont } from './reportFont';
 import {
   ReportViewContext,
@@ -29,7 +29,7 @@ import {
   type ReportViewContextValue,
 } from './reportContext';
 import '../../styles/annual-report.css';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import { useMobileBack } from '../../hooks/useMobileNavigation';
 import type { AnalysisScope } from '../analysis/model';
 

@@ -2,7 +2,8 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { MonitorPoint } from '@weq/service/performance';
-import { Chart, valueLabel } from '../src/renderer/src/components/performance/PerformanceCharts';
+import { Chart } from '../src/renderer/src/components/performance/PerformanceCharts';
+import { valueLabel } from '../src/renderer/src/components/performance/PerformanceCharts.shared';
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {

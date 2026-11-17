@@ -9,7 +9,7 @@
 
 import type { ReactElement } from 'react';
 import { Minus } from 'lucide-react';
-import { FEATURE_ICONS } from '../../lib/featureIcons';
+import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import { Modal } from '../../components/Dialog';
 import type { CloneTask } from './cloneTaskStore';
 import { CloneTaskLog } from './CloneTaskLog';

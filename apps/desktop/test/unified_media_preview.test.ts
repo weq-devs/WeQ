@@ -4,19 +4,15 @@ vi.mock('../src/renderer/src/hooks/useDevelopmentDressTools', () => ({
 }));
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import {
-  MediaPreview,
-  mergePreviewMedia,
-  type PreviewMedia,
-} from '../src/renderer/src/components/MediaPreview';
-import { ChatMediaGallery, galleryMedia } from '../src/renderer/src/components/ChatMediaGallery';
+import { MediaPreview, type PreviewMedia } from '../src/renderer/src/components/MediaPreview';
+import { mergePreviewMedia } from '../src/renderer/src/components/MediaPreview.shared';
+import { ChatMediaGallery } from '../src/renderer/src/components/ChatMediaGallery';
+import { galleryMedia } from '../src/renderer/src/components/ChatMediaGallery.shared';
 import { QqMessageContent } from '../src/renderer/src/components/QqMessageContent';
 import { MarketFaceLightbox } from '../src/renderer/src/components/MarketFaceLightbox';
 import { openMarketFaceLightbox } from '../src/renderer/src/state/marketFaceLightbox';
-import {
-  MediaPreviewHost,
-  openMediaPreview,
-} from '../src/renderer/src/components/mediaPreviewStore';
+import { MediaPreviewHost } from '../src/renderer/src/components/mediaPreviewStore';
+import { openMediaPreview } from '../src/renderer/src/components/mediaPreviewStore.shared';
 import { QqMarketFace } from '../src/renderer/src/components/QqMedia';
 import { useDataSaver } from '../src/renderer/src/lib/dataSaver';
 import { useViewState } from '../src/renderer/src/state/view';

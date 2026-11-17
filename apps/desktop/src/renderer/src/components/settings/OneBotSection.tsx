@@ -19,13 +19,13 @@ import {
   X,
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
-import { useDialog } from '../Dialog';
-import { useToast } from '../Toast';
+import { useTabActive } from '../RetainedTabs.shared';
+import { useDialog } from '../Dialog.shared';
+import { useToast } from '../Toast.shared';
 import { EditorDialog } from '../EditorDialog';
 import { useDraftProtection } from '../../lib/draftClose';
 import { z } from 'zod';
-import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
 import '../../styles/settings-onebot.css';
 

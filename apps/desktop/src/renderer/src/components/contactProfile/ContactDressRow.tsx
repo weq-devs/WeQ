@@ -2,7 +2,7 @@ import type { ProfilePerson } from '../../hooks/useContactCard';
 import { useContactDress } from '../../hooks/useContactCard';
 import { dressUrl } from '../../lib/resourceUrl';
 import { ContactRow } from './ContactRow';
-import { openMediaPreview } from '../mediaPreviewStore';
+import { openMediaPreview } from '../mediaPreviewStore.shared';
 import { Film } from 'lucide-react';
 import { ShimmerImage } from '../ShimmerImage';
 

@@ -35,11 +35,11 @@ vi.mock('../src/renderer/src/lib/resourceUrl', async (original) => ({
   ...(await original<typeof import('../src/renderer/src/lib/resourceUrl')>()),
   albumMediaUrl: (url: string) => url,
 }));
+import { QzoneMediaGrid } from '../src/renderer/src/views/qzoneShared';
 import {
-  QzoneMediaGrid,
   QzonePageContext,
   QzoneReadPauseContext,
-} from '../src/renderer/src/views/qzoneShared';
+} from '../src/renderer/src/views/qzoneShared.shared';
 import { useDataSaver } from '../src/renderer/src/lib/dataSaver';
 
 let root: Root;

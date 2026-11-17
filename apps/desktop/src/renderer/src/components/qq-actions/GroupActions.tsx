@@ -32,13 +32,8 @@ import '../../styles/qq-management.css';
 import { client, trpc } from '../../trpc/client';
 import { useQQAutoRefresh, useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import { GroupJoinSettings } from './GroupJoinSettings';
-import {
-  ActionFeedback,
-  ActionIcon,
-  useQQAction,
-  useQQGroupPermissions,
-  withQQAccountScope,
-} from './shared';
+import { ActionFeedback, ActionIcon } from './shared';
+import { useQQAction, useQQGroupPermissions, withQQAccountScope } from './shared.shared';
 
 function GroupActionsBody({ groupId }: { groupId: number }) {
   const a = useQQAction(`group:${groupId}`);

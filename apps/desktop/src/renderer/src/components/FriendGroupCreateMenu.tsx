@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Plus, Search, UsersRound } from 'lucide-react';
-import { useFriendDirectory } from './FriendDirectoryControls';
+import { useFriendDirectory } from './FriendDirectoryControls.shared';
 import { useRenderDocument } from '../lib/renderDocument';
 import type { QQExactLookupKind } from './QQExactLookup';
 

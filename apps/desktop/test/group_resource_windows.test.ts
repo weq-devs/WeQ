@@ -7,18 +7,19 @@ import {
   groupResourceWindowName,
   readGroupResourceWindowName,
 } from '../src/shared/group_resource_window';
-import { useGroupResourceWindows } from '../src/renderer/src/hooks/useGroupResourceWindows';
+import { useGroupResourceWindows } from '../src/renderer/src/hooks/useGroupResourceWindows.shared';
 import { useRenderDocument } from '../src/renderer/src/lib/renderDocument';
 import { useAppLock } from '../src/renderer/src/state/lock';
 import {
   WorkspacePages,
   WorkspaceContent,
   WorkspacePage,
-  useWorkspaceActiveTitle,
 } from '../src/renderer/src/components/WorkspacePages';
+import { useWorkspaceActiveTitle } from '../src/renderer/src/components/WorkspacePages.shared';
 
 const state = vi.hoisted(() => ({ inline: false }));
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true }));
 vi.mock('../src/renderer/src/lib/remoteClient', () => ({ isRemoteClient: () => state.inline }));
 vi.mock('../src/renderer/src/lib/responsiveLayout', async (original) => ({
   ...(await original<typeof import('../src/renderer/src/lib/responsiveLayout')>()),

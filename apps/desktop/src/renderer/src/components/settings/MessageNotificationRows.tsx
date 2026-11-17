@@ -4,7 +4,7 @@ import {
   preferenceValue,
   useClientPreferences,
 } from '../../lib/clientPreferences';
-import { IS_WEB } from '../../lib/target';
+import { IS_WEB } from '../../lib/target.shared';
 import { Row, Toggle } from './controls';
 
 export function MessageNotificationRows() {

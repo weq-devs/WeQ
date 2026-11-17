@@ -65,6 +65,42 @@ vi.mock('../src/renderer/src/components/qq-actions/shared', () => ({
     },
   }),
 }));
+vi.mock('../src/renderer/src/components/qq-actions/shared.shared', () => ({
+  useQQAlbumPermissions: () => ({ data: { upload: true }, error: null }),
+  withQQAccountScope: (component: unknown) => component,
+  ActionIcon: ({
+    label,
+    disabled,
+    onClick,
+    children,
+  }: {
+    label: string;
+    disabled: boolean;
+    onClick: () => void;
+    children: React.ReactNode;
+  }) => h('button', { 'aria-label': label, disabled, onClick }, children),
+  useQQAction: () => ({
+    binding,
+    disabled: false,
+    busy: false,
+    perform: async (
+      run: (binding: typeof binding) => Promise<unknown>,
+      refresh: () => Promise<void>,
+      _warning: string,
+      options: { readback: () => Promise<boolean> },
+    ) => {
+      if (!f.confirm) return false;
+      try {
+        await run(binding);
+        const matched = await options.readback();
+        await refresh();
+        return matched;
+      } catch {
+        return false;
+      }
+    },
+  }),
+}));
 
 const cleanups: (() => void)[] = [];
 beforeEach(() => {

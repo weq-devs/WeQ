@@ -3,18 +3,19 @@ import { Loader2, LocateFixed, RefreshCw, Square, X } from 'lucide-react';
 import { client, trpc } from '../trpc/client';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
-import { useMediaSave, MediaSaveControls } from './MediaSaveControls';
+import { useMediaSave } from './MediaSaveControls.shared';
+import { MediaSaveControls } from './MediaSaveControls';
 import { ServerSavePrompt } from './ServerSavePrompt';
 import { ProfileDetailSurface } from './ProfileDetailSurface';
 import { GroupFileManager } from './GroupFileManager';
 import { GroupFileMessageResults } from './GroupFileMessageResults';
-import { useQQAction, withQQAccountScope } from './qq-actions/shared';
-import { useToast } from './Toast';
-import { taskNotificationSource } from '../lib/notificationNavigation';
+import { useQQAction, withQQAccountScope } from './qq-actions/shared.shared';
+import { useToast } from './Toast.shared';
+import { taskNotificationSource } from '../lib/notificationNavigation.shared';
 import { collectGroupFileSubtree, resolveGroupFileSelection } from '../lib/groupFileSelection';
 import type { GroupFileWire, GroupFolderWire } from '../lib/groupFile';
 import '../styles/group-media.css';
-import { useExportReportDialog } from '../views/export/ExportReportControl';
+import { useExportReportDialog } from '../views/export/ExportReportControl.shared';
 import { GroupResourceNavigation } from './GroupResourceNavigation';
 
 export interface Props {

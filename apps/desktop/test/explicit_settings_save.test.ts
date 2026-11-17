@@ -6,8 +6,8 @@ import { McpServerSection } from '../src/renderer/src/components/settings/McpSer
 import { AssistantSection } from '../src/renderer/src/components/settings/AssistantSection';
 import { SsePushSection } from '../src/renderer/src/components/settings/SsePushSection';
 import { ExternalRkeySection } from '../src/renderer/src/components/settings/ExternalRkeySection';
-import { useToast } from '../src/renderer/src/components/Toast';
-import { useDialog } from '../src/renderer/src/components/Dialog';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import { IntentTuningPanel } from '../src/renderer/src/components/settings/IntentTuningPanel';
 import { DEFAULT_INTENT_TUNING } from '@weq/service/intent-context';
 

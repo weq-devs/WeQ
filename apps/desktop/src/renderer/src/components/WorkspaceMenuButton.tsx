@@ -3,7 +3,7 @@ import { APP_NAVIGATION } from '../lib/appNavigation';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { useUpdateStore } from '../state/update';
 import { WorkspaceStatusDot } from './WorkspaceStatusDot';
-import { preloadWorkspace } from './lazyWorkspaces';
+import { preloadWorkspace } from './lazyWorkspaces.shared';
 import '../styles/rail-navigation.css';
 import '../styles/workspace-menu.css';
 

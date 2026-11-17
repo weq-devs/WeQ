@@ -1,8 +1,8 @@
 import { useEffect } from 'react';
 import { client } from '../trpc/client';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import { activateNotificationClick } from '../lib/notificationSystemClick';
-import { useToast } from './Toast';
+import { useToast } from './Toast.shared';
 
 export function NotificationClickBridge() {
   useEffect(() => {

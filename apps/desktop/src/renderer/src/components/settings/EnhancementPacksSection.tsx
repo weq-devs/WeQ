@@ -13,16 +13,15 @@ import {
   Settings2,
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { useAppDialog } from '../../lib/dialogUtils';
 import type { EnhancementPackId } from '../../../../shared/enhancement_manifest';
-import { Card, QueryError, SectionHeader, Row, Toggle, SettingsNavigateContext } from './controls';
+import { Card, QueryError, SectionHeader, Row, Toggle } from './controls';
+import { SettingsNavigateContext } from './controls.shared';
 import { LoadingIndicator } from '../LoadingIndicator';
 import '../../styles/enhancement-packs.css';
+import { enhancementBytes } from './EnhancementPacksSection.shared';
 
-export function enhancementBytes(bytes: number) {
-  return `${(bytes / 1024 / 1024).toFixed(2)} MiB`;
-}
 const ICONS = { text: ScanText, voice: AudioLines, intent: BrainCircuit, dress: Palette };
 
 export function EnhancementPacksSection() {

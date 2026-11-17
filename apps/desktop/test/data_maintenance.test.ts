@@ -4,10 +4,12 @@ import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DataMaintenanceSection,
-  MAINTENANCE_TOOLS,
-  remoteUnsupportedTools,
   type MaintenanceTool,
 } from '../src/renderer/src/components/settings/DataMaintenanceSection';
+import {
+  MAINTENANCE_TOOLS,
+  remoteUnsupportedTools,
+} from '../src/renderer/src/components/settings/DataMaintenanceSection.shared';
 import { DataMaintenanceDialog } from '../src/renderer/src/components/settings/DataMaintenanceDialog';
 import { useDbRepairWindow } from '../src/renderer/src/state/dbRepairWindow';
 import { useCaptureWindow } from '../src/renderer/src/state/captureWindow';

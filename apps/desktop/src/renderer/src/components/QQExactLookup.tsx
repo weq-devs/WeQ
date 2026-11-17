@@ -3,7 +3,7 @@ import { AlertCircle, Loader2, Search, X } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { Modal } from './Dialog';
-import { withQQAccountScope } from './qq-actions/shared';
+import { withQQAccountScope } from './qq-actions/shared.shared';
 import '../styles/friend-directory.css';
 import '../styles/qq-exact-lookup.css';
 

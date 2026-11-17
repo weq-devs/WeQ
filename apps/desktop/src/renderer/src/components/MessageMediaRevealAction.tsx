@@ -7,7 +7,7 @@ import {
   messageMediaLocationMissing,
 } from '../../../shared/message_media';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
-import { useToast } from './Toast';
+import { useToast } from './Toast.shared';
 
 export function MessageMediaRevealAction({
   target,

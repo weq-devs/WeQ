@@ -2,10 +2,12 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   mobilePageLoaders,
   mobileMorePageLoaders,
+  preloadWorkspace,
+} from '../src/renderer/src/components/lazyWorkspaces.shared';
+import {
   QzoneWorkspace,
   SettingsDialog,
   CollectionDialog,
-  preloadWorkspace,
 } from '../src/renderer/src/components/lazyWorkspaces';
 import { preloadMobilePages } from '../src/renderer/src/lib/mobilePageLoading';
 

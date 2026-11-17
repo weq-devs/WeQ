@@ -22,6 +22,11 @@ vi.mock('../src/renderer/src/components/Toast', () => ({
   useToast: (select: (store: { push: typeof state.toast }) => unknown) =>
     select({ push: state.toast }),
 }));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
+  useToastApi: () => ({ push: state.toast }),
+  useToast: (select: (store: { push: typeof state.toast }) => unknown) =>
+    select({ push: state.toast }),
+}));
 import { MessageMediaRevealAction } from '../src/renderer/src/components/MessageMediaRevealAction';
 
 const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'fixture' };

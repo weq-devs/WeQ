@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { WifiOff } from 'lucide-react';
 import { useWebConnection } from '../state/webConnection';
-import { useToastApi } from './Toast';
-import { notificationSource } from '../lib/notificationNavigation';
+import { useToastApi } from './Toast.shared';
+import { notificationSource } from '../lib/notificationNavigation.shared';
 import '../styles/web-connection.css';
 
 type RemoteConnectionState = 'connected' | 'network' | 'connection';

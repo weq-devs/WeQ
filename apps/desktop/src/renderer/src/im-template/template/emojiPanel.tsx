@@ -20,7 +20,7 @@
 import { EmptyState } from '../../components/EmptyState';
 import { useEffect, useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import { FavoriteBundleControls } from '../../components/qq-actions/FavoriteBundleControls';
 import { FavoritePickerTab } from '../../components/qq-actions/FavoritePickerTab';
 import {

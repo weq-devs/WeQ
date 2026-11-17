@@ -38,9 +38,11 @@ import {
 import { client, trpc } from '../trpc/client';
 import { openExternalLink } from '../lib/openExternalLink';
 import { z } from 'zod';
-import { PageSnapshotScope, usePageDataCache, usePageState } from '../components/PageSnapshots';
+import { PageSnapshotScope } from '../components/PageSnapshots';
+import { usePageDataCache, usePageState } from '../components/PageSnapshots.shared';
 import { PageScrollSnapshot } from '../components/PageScrollSnapshot';
-import { TabActivity, useTabActive } from '../components/RetainedTabs';
+import { TabActivity } from '../components/RetainedTabs';
+import { useTabActive } from '../components/RetainedTabs.shared';
 import { pageValue } from '../lib/pageSnapshots';
 import {
   QzonePersonIdentity,
@@ -52,11 +54,11 @@ import {
   useContentMultiSelect,
   useCurrentContentSelection,
   useRequestContentExport,
-} from '../state/contentSelection';
+} from '../state/contentSelection.shared';
 import { useMultiSelection, type MultiSelectionItemProps } from '../hooks/useMultiSelection';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { QzoneWriteActions, type QzoneLikeChange } from '../components/qq-actions/MediaActions';
-import { withQQAccountScope } from '../components/qq-actions/shared';
+import { withQQAccountScope } from '../components/qq-actions/shared.shared';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { pushMobileBack, useMobileBack } from '../hooks/useMobileNavigation';
 import { QzoneEmoji } from '../components/QzoneEmoji';
@@ -70,15 +72,13 @@ import {
 import { Modal } from '../components/Dialog';
 import { QzoneSettingsSection } from '../components/settings/QzoneSettingsSection';
 import type { QzoneEmotion, QzoneFeed, QzoneInteraction, QzoneLikesResult } from './qzone_types';
+import { LoadingStatus, QzoneMediaGrid, State } from './qzoneShared';
 import {
-  LoadingStatus,
-  QzoneMediaGrid,
   QzonePageContext,
   QzoneReadPauseContext,
-  State,
   timeText,
   useNearViewport,
-} from './qzoneShared';
+} from './qzoneShared.shared';
 import '../styles/qzone.css';
 import {
   QzoneProfileContext,

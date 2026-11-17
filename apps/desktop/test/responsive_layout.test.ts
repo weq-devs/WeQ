@@ -6,6 +6,7 @@ import {
 } from '../src/renderer/src/lib/responsiveLayout';
 
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true }));
 
 afterEach(() => {
   vi.restoreAllMocks();

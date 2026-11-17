@@ -16,7 +16,7 @@ import { OverlayLayer } from './OverlayLayer';
 import { SegmentedControl } from './SegmentedControl';
 import { ProfileDetailsEntry, ProfileDetailsContent } from './ProfileDetailsEntry';
 import { ProfileDisplayEntry, ProfileDisplaySettingField } from './ProfileDisplaySettings';
-import { useSelfProfileFields } from './SelfProfileFields';
+import { useSelfProfileFields } from './SelfProfileFields.shared';
 import { SelfSignatureComposer } from './SelfSignatureComposer';
 import {
   SignatureInteractions,
@@ -27,7 +27,7 @@ import {
 import { MediaPreview } from './MediaPreview';
 import { useQQWriteSession, type QQWriteBinding } from '../hooks/useQQWriteSession';
 import { ContactInlineError, ContactRow, ContactSection } from './contactProfile/ContactRow';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import { trpc } from '../trpc/client';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { ShimmerImage } from './ShimmerImage';

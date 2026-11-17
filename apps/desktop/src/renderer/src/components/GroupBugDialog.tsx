@@ -26,8 +26,9 @@ import {
 import { Streamdown } from 'streamdown';
 import remarkGfm from 'remark-gfm';
 import { trpc, client } from '../trpc/client';
-import { Modal, useDialog } from './Dialog';
-import { useToast } from './Toast';
+import { Modal } from './Dialog';
+import { useDialog } from './Dialog.shared';
+import { useToast } from './Toast.shared';
 import { IconPicker } from './ui/iconPicker';
 import { shikiCodeHighlighter } from '../views/agentlab/shikiHighlighter';
 import { useThemeStore } from '../state/theme';

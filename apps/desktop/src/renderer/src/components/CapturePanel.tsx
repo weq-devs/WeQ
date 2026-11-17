@@ -52,13 +52,15 @@ import { openExternalLink } from '../lib/openExternalLink';
 import { Modal } from './Dialog';
 import { useRenderDocument, resourceForRenderDocument } from '../lib/renderDocument';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
-import { IS_WEB } from '../lib/target';
-import { useTabActive } from './RetainedTabs';
-import { decodeAnyBytes, RvTree } from './ReverseTool';
+import { IS_WEB } from '../lib/target.shared';
+import { useTabActive } from './RetainedTabs.shared';
+import { decodeAnyBytes } from './ReverseTool.shared';
+import { RvTree } from './ReverseTool';
 import { HexDump } from './HexDump';
-import { useToastApi } from './Toast';
-import { savedFileNotificationSource } from '../lib/notificationNavigation';
+import { useToastApi } from './Toast.shared';
+import { savedFileNotificationSource } from '../lib/notificationNavigation.shared';
 import '../styles/capture-window.css';
+import { CAPTURE_SPLIT_STEP } from './CapturePanel.shared';
 
 /** 后端传回的帧（hex 形态）。与主进程 `CaptureFrameWire` 保持一致。 */
 interface CaptureFrameWire {
@@ -110,7 +112,6 @@ const MAX_FRAMES = 4000;
 const DEFAULT_SPLIT = 0.46;
 const SPLIT_MIN = 0.24;
 const SPLIT_MAX = 0.78;
-export const CAPTURE_SPLIT_STEP = 0.05;
 const STACKED_MEDIA_QUERY = '(max-width: 600px)';
 /** 原包小于该字节数的一律当噪声丢掉（TCP ack / 心跳之流）。 */
 const MIN_RAW_BYTES = 75;

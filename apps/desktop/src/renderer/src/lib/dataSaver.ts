@@ -10,10 +10,10 @@ import {
   type DataSaverTemporaryRequest,
 } from '@weq/service/data-saver';
 import { preferenceValue, PREFERENCES_CHANGED, useClientPreferences } from './clientPreferences';
-import { IS_WEB } from './target';
+import { IS_WEB } from './target.shared';
 import { localBackgroundTasks } from '../state/backgroundTasks';
 import { unfinishedDataSaverTasks } from '../../../shared/data_saver_tasks';
-import { useToast } from '../components/Toast';
+import { useToast } from '../components/Toast.shared';
 import { requestOpenSettings } from './callSettingsBridge';
 
 export const DATA_SAVER_MENU_EVENT = 'weq:open-data-saver';

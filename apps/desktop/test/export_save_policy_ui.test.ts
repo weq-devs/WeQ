@@ -22,6 +22,11 @@ vi.mock('../src/renderer/src/lib/target', () => ({
     return fixture.web;
   },
 }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({
+  get IS_WEB() {
+    return fixture.web;
+  },
+}));
 vi.mock('../src/renderer/src/lib/remoteClient', () => ({ useRemoteClient: () => fixture.remote }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {

@@ -7,12 +7,12 @@ import {
   useWorkspacePageOpen,
   useWorkspaceSidecarOpen,
   useWorkspaceMobilePage,
-} from '../../components/WorkspacePages';
+} from '../../components/WorkspacePages.shared';
 import { cn } from './classNames';
 import { AppRail } from './rail';
 import { SidebarHeader, SidebarResizeHandle } from './sidebar';
 import { TitleBar } from './TitleBar';
-import { IS_MAC, IS_WEB } from '../../lib/target';
+import { IS_MAC, IS_WEB } from '../../lib/target.shared';
 import { MobileWebNavigation } from '../../components/MobileWebNavigation';
 import { MobileNavigationRuntime } from '../../components/MobileNavigationRuntime';
 import { MobileRootPreviews } from '../../components/MobileRootPreviews';

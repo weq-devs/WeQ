@@ -2,7 +2,8 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { BackupSection, backupApi } from '../src/renderer/src/components/settings/BackupSection';
+import { BackupSection } from '../src/renderer/src/components/settings/BackupSection';
+import { backupApi } from '../src/renderer/src/components/settings/BackupSection.shared';
 import { localBackgroundTasks } from '../src/renderer/src/state/backgroundTasks';
 import {
   SettingsResetButton,

@@ -12,7 +12,8 @@ import {
   UsersRound,
   Zap,
 } from 'lucide-react';
-import { FEATURE_ICONS, type FeatureIcon } from '../../lib/featureIcons';
+import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
+import type { FeatureIcon } from '../../lib/featureIcons';
 import type { SearchCategory } from './types';
 import type { SearchSource } from '@weq/service/search-policy';
 

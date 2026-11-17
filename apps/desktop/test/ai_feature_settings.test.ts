@@ -27,6 +27,10 @@ vi.mock('../src/renderer/src/components/Dialog', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/renderer/src/components/Dialog')>()),
   useDialog: () => state.showError,
 }));
+vi.mock('../src/renderer/src/components/Dialog.shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/src/components/Dialog.shared')>()),
+  useDialog: () => state.showError,
+}));
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (path = ''): unknown =>
     new Proxy(() => undefined, {

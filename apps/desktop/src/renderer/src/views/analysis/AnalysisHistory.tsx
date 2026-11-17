@@ -3,7 +3,7 @@ import { eventTimeFormatter } from '@weq/time';
 import { useState } from 'react';
 import { FolderOpen, Trash2 } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
-import { useDialog } from '../../components/Dialog';
+import { useDialog } from '../../components/Dialog.shared';
 import { WindowedList } from '../../components/WindowedList';
 
 const reportStatus = {

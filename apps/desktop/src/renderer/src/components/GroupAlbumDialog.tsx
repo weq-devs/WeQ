@@ -7,7 +7,7 @@ import {
   type ReactElement,
   type HTMLAttributes,
 } from 'react';
-import { useContentMultiSelect } from '../state/contentSelection';
+import { useContentMultiSelect } from '../state/contentSelection.shared';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import { ContentReferenceToolbar } from './ContentReferenceToolbar';
 import { contentReferenceKey, type ContentReference } from '../../../shared/content_selection';
@@ -36,7 +36,7 @@ import { ProfileDetailSurface } from './ProfileDetailSurface';
 import { GroupAlbumMediaActions, GroupAlbumUpload } from './qq-actions/MediaActions';
 import { GroupAlbumManagement } from './qq-actions/GroupAlbumManagement';
 import { GroupAlbumVideoUpload } from './qq-actions/GroupAlbumVideoUpload';
-import { withQQAccountScope } from './qq-actions/shared';
+import { withQQAccountScope } from './qq-actions/shared.shared';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { readWithRetry } from '../lib/autoRead';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';

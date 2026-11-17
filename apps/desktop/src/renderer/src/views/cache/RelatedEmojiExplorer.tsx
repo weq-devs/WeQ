@@ -18,9 +18,10 @@ import type { RelatedEmojiKeyword } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
-import { BlobDialog, CURSOR_PAGE, GridFooter, useCursorPaged } from './CacheShared';
+import { BlobDialog, GridFooter } from './CacheShared';
+import { CURSOR_PAGE, useCursorPaged } from './CacheShared.shared';
 import { GridSkeleton } from './CacheSkeleton';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 
 /** weq-media URL for one related-emoji gif. */
 function relemojiUrl(hash: string, file: string): string {

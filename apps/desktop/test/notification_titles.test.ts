@@ -3,7 +3,8 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import ts from 'typescript';
-import { ToastHost, useToast } from '../src/renderer/src/components/Toast';
+import { ToastHost } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {},

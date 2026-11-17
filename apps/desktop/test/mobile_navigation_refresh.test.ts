@@ -5,6 +5,7 @@ import { MobileWebNavigation } from '../src/renderer/src/components/MobileWebNav
 import { mobileBack } from '../src/renderer/src/hooks/useMobileNavigation';
 
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true }));
 vi.mock('../src/renderer/src/trpc/client', () => ({ trpc: {}, client: {} }));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });

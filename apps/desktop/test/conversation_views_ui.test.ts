@@ -17,10 +17,8 @@ import {
   type ConversationView,
   type ConversationViewDirectory,
 } from '../src/renderer/src/lib/conversationViews';
-import {
-  ContentSelectionProvider,
-  useCurrentContentSelection,
-} from '../src/renderer/src/state/contentSelection';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
+import { useCurrentContentSelection } from '../src/renderer/src/state/contentSelection.shared';
 import { createTemplateDemoData } from './support/templateDemoData';
 import {
   mobileBack,

@@ -11,7 +11,15 @@ import SelfOnlineStatusEditor from '../src/renderer/src/components/SelfOnlineSta
 vi.mock('../src/renderer/src/components/settings/EditableSelfProfile', () => ({
   useEditableSelfProfileFields: () => ({ fields: {}, feedback: null }),
 }));
+vi.mock('../src/renderer/src/components/settings/EditableSelfProfile.shared', () => ({
+  useEditableSelfProfileFields: () => ({ fields: {}, feedback: null }),
+}));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
+  Modal: ({ children }: { children: ReactNode }) => h('div', { role: 'dialog' }, children),
+  useDialog: (selector: (s: { confirm: () => Promise<boolean> }) => unknown) =>
+    selector({ confirm: async () => true }),
+}));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
   Modal: ({ children }: { children: ReactNode }) => h('div', { role: 'dialog' }, children),
   useDialog: (selector: (s: { confirm: () => Promise<boolean> }) => unknown) =>
     selector({ confirm: async () => true }),

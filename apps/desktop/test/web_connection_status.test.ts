@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { WebConnectionStatus } from '../src/renderer/src/components/WebConnectionStatus';
 import { useWebConnection } from '../src/renderer/src/state/webConnection';
-import { useToast } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 
 const { invalidateQueries } = vi.hoisted(() => ({ invalidateQueries: vi.fn() }));
 const queryClient = { invalidateQueries };

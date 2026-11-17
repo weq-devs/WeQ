@@ -14,7 +14,8 @@ import {
 } from '../src/renderer/src/hooks/useQQWriteSession';
 import { useViewState } from '../src/renderer/src/state/view';
 import { subscribeQQPeerUpdates, type QQPeerUpdate } from '../src/renderer/src/lib/qqPeerUpdates';
-import { ToastHost, useToast } from '../src/renderer/src/components/Toast';
+import { ToastHost } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 
 const mocked = vi.hoisted(() => ({
   config: { uin: '10001', configId: 'source-a' },

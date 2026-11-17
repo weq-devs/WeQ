@@ -22,14 +22,15 @@ import {
   Undo2,
 } from 'lucide-react';
 import { MessageMenuFeedbackContext } from '../../lib/messageMenuFeedback';
-import { MessageMenuButton, MessageMenuContext } from '../../components/MessageMenuButton';
+import { MessageMenuButton } from '../../components/MessageMenuButton';
+import { MessageMenuContext } from '../../components/MessageMenuButton.shared';
 import type { Message } from './types';
 import { cn } from './classNames';
 import { canRepeatMessage, forwardUnsupportedReason } from '../../lib/messageRepeat';
 import { messageMediaTarget } from '../../lib/messageMediaTarget';
 import { useSurfaceOutside } from '../../lib/surfaceOutside';
-import { useTabActive } from '../../components/RetainedTabs';
-import { IS_WEB } from '../../lib/target';
+import { useTabActive } from '../../components/RetainedTabs.shared';
+import { IS_WEB } from '../../lib/target.shared';
 import { VoiceTranscribeMenuAction } from '../../components/VoiceTranscribeMenuAction';
 import { TextMarkdownMenuAction } from '../../components/TextMarkdownMenuAction';
 import type { MessageMediaTarget } from '../../../../shared/message_media';

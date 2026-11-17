@@ -2,7 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { QzonePublicPane } from '../src/renderer/src/views/QzonePublicView';
-import { QzonePageContext } from '../src/renderer/src/views/qzoneShared';
+import { QzonePageContext } from '../src/renderer/src/views/qzoneShared.shared';
 
 const state = vi.hoisted(() => ({
   minutes: 60,

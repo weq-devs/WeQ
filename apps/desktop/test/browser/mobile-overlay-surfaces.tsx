@@ -1,15 +1,14 @@
 import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import {
-  RedBagQrcodeHost,
-  openRedBagQrcode,
-} from '../../src/renderer/src/components/RedBagQrcodeDialog';
+import { RedBagQrcodeHost } from '../../src/renderer/src/components/RedBagQrcodeDialog';
+import { openRedBagQrcode } from '../../src/renderer/src/components/RedBagQrcodeDialog.shared';
 import { GiftMallPanel } from '../../src/renderer/src/components/gift/GiftMallPanel';
 import { AlbumExportLightbox } from '../../src/renderer/src/views/export/AlbumExportLightbox';
 import { GroupFileExportLightbox } from '../../src/renderer/src/views/export/GroupFileExportLightbox';
 import { FailureLightbox } from '../../src/renderer/src/views/export/FailureLightbox';
 import { ExportLightbox } from '../../src/renderer/src/views/export/ExportLightbox';
-import { DialogHost, useDialog } from '../../src/renderer/src/components/Dialog';
+import { DialogHost } from '../../src/renderer/src/components/Dialog';
+import { useDialog } from '../../src/renderer/src/components/Dialog.shared';
 import { attachMobileHistory, mobileBack } from '../../src/renderer/src/hooks/useMobileNavigation';
 import { subscribeResponsiveLayout } from '../../src/renderer/src/lib/responsiveLayout';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';

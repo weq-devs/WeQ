@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode } from 'react';
-import { usePageState } from '../PageSnapshots';
+import { usePageState } from '../PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import type { ResolvedSettingsTarget, SettingsPageId } from './navigation';
 import { revealSetting } from './searchTarget';
 import { SettingsResetProvider } from './SettingsReset';

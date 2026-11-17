@@ -10,44 +10,10 @@
  */
 
 import type { ReactElement } from 'react';
-import { create } from 'zustand';
 import { ScanLine, X } from 'lucide-react';
 import { OverlayLayer } from './OverlayLayer';
 import '../styles/redbag-dialog.css';
-
-export interface RedBagQrcodeResult {
-  /** 二维码 PNG 的 base64（不含 data URL 前缀）。 */
-  qrcodeBase64: string;
-  /** 是否拼手气（false = 等额）。 */
-  lucky: boolean;
-  /** 是否口令红包。 */
-  password: boolean;
-  /** 红包个数。 */
-  totalNum: number;
-  /** 总金额，单位分。 */
-  totalAmount: number;
-}
-
-interface RedBagQrcodeStore {
-  result: RedBagQrcodeResult | null;
-  open(result: RedBagQrcodeResult): void;
-  close(): void;
-}
-
-const useRedBagQrcodeStore = create<RedBagQrcodeStore>((set) => ({
-  result: null,
-  open(result) {
-    set({ result });
-  },
-  close() {
-    set({ result: null });
-  },
-}));
-
-/** 命令式打开红包二维码灯箱。 */
-export function openRedBagQrcode(result: RedBagQrcodeResult): void {
-  useRedBagQrcodeStore.getState().open(result);
-}
+import { type RedBagQrcodeResult, useRedBagQrcodeStore } from './RedBagQrcodeDialog.shared';
 
 function formatAmount(cents: number): string {
   return (cents / 100).toFixed(2);
@@ -121,3 +87,4 @@ export function RedBagQrcodeHost(): ReactElement | null {
   if (!result) return null;
   return <RedBagQrcodeDialog result={result} onClose={close} />;
 }
+export type { RedBagQrcodeResult } from './RedBagQrcodeDialog.shared';

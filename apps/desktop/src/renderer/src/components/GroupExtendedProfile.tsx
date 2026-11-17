@@ -5,7 +5,7 @@ import type { GroupProfileExtras } from '@weq/protocol';
 import { trpc } from '../trpc/client';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 import { useGroupReadScope } from '../hooks/useGroupProfile';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import { groupProfileRows } from '../lib/groupProfileRows';
 import {
   ContactEmptyState,

@@ -1,5 +1,5 @@
 import { Square } from 'lucide-react';
-import { useToast } from './Toast';
+import { useToast } from './Toast.shared';
 import type { NotificationSource } from '../lib/notificationNavigation';
 import '../styles/message-load-task.css';
 

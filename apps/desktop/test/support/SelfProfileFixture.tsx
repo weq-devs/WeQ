@@ -1,6 +1,6 @@
 import { SelfProfileProvider } from '../../src/renderer/src/components/settings/SelfQQControls';
-import { useSelfProfileFields } from '../../src/renderer/src/components/SelfProfileFields';
-import { SelfProfileEditingContext } from '../../src/renderer/src/components/SelfProfileField';
+import { useSelfProfileFields } from '../../src/renderer/src/components/SelfProfileFields.shared';
+import { SelfProfileEditingContext } from '../../src/renderer/src/components/SelfProfileField.shared';
 import { SelfSignatureComposer } from '../../src/renderer/src/components/SelfSignatureComposer';
 import { SelfAvatarChange } from '../../src/renderer/src/components/SelfAvatarHistory';
 

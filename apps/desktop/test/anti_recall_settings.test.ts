@@ -2,7 +2,8 @@ import { act, createElement as h, useState, useSyncExternalStore } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AntiRecallDialog } from '../src/renderer/src/components/AntiRecallDialog';
-import { DialogHost, useDialog } from '../src/renderer/src/components/Dialog';
+import { DialogHost } from '../src/renderer/src/components/Dialog';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import { useAppLock } from '../src/renderer/src/state/lock';
 import { useViewState } from '../src/renderer/src/state/view';
 

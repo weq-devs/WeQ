@@ -10,18 +10,11 @@
 
 import { useState, type ReactElement } from 'react';
 import { Users } from 'lucide-react';
-import { qqAvatarUrl } from './QqAvatar';
+import { qqAvatarUrl } from './QqAvatar.shared';
 import { useAvatarUrl } from '../hooks/useAvatarUrl';
 import { useRenderDocument, resourceForRenderDocument } from '../lib/renderDocument';
 import '../styles/group-mosaic-avatar.css';
-
-/** 单个格子的列/行数。导出成纯函数方便单测覆盖 2/3/4 这些少人数情况。 */
-export function mosaicLayout(count: number): { columns: number; rows: number } {
-  if (count <= 1) return { columns: 1, rows: 1 };
-  if (count === 2) return { columns: 2, rows: 1 };
-  if (count <= 4) return { columns: 2, rows: 2 };
-  return { columns: 3, rows: Math.min(3, Math.ceil(count / 3)) };
-}
+import { mosaicLayout } from './GroupMosaicAvatar.shared';
 
 function MosaicImg({ uin }: { uin: string }): ReactElement {
   const ownerDocument = useRenderDocument();

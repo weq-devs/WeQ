@@ -2,12 +2,15 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { useMessageSelectionFlow } from '../src/renderer/src/hooks/useMessageSelectionFlow';
-import { useContentMultiSelect } from '../src/renderer/src/state/contentSelection';
+import { useContentMultiSelect } from '../src/renderer/src/state/contentSelection.shared';
 import type { Message } from '../src/renderer/src/im-template/template/types';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { useMultiSelection } from '../src/renderer/src/hooks/useMultiSelection';
 
 vi.mock('../src/renderer/src/im-template/template/messageRow', () => ({ grayTipOf: () => null }));
+vi.mock('../src/renderer/src/im-template/template/messageRow.shared', () => ({
+  grayTipOf: () => null,
+}));
 afterEach(() => vi.unstubAllGlobals());
 
 it('通用多选的输入模式和禁用状态变更不重建稳定 ID 快照', () => {

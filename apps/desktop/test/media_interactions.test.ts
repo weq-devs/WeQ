@@ -2,10 +2,8 @@ import { act, createElement as h, Fragment } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { Window as HappyWindow } from 'happy-dom';
-import {
-  MediaPreviewHost,
-  openMediaPreview,
-} from '../src/renderer/src/components/mediaPreviewStore';
+import { MediaPreviewHost } from '../src/renderer/src/components/mediaPreviewStore';
+import { openMediaPreview } from '../src/renderer/src/components/mediaPreviewStore.shared';
 
 import { QqImage, QqVideo, QqVoice, QqMarketFace } from '../src/renderer/src/components/QqMedia';
 import { mediaRetryUrl } from '../src/renderer/src/lib/mediaRetryUrl';

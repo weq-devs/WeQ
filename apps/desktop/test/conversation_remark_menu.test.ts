@@ -9,10 +9,8 @@ import {
   ConversationDirectoryContext,
   virtualConversationRow,
 } from '../src/renderer/src/lib/conversationDirectory';
-import {
-  ContentSelectionProvider,
-  useContentExportRequest,
-} from '../src/renderer/src/state/contentSelection';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
+import { useContentExportRequest } from '../src/renderer/src/state/contentSelection.shared';
 import {
   initialContactScope,
   initialExportMode,

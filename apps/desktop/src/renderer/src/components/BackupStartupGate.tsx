@@ -8,11 +8,11 @@ import {
 } from '../lib/backupClientRestore';
 import { useThemeStore } from '../state/theme';
 import { usePrivacyStore } from '../state/privacy';
-import { useToast } from './Toast';
+import { useToast } from './Toast.shared';
 import { startupDeadline } from '../lib/startupDeadline';
 import { publishRemoteStartup } from '../lib/remoteStartup';
 import '../styles/backup.css';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import { WebStartupCache, hydrateWebStartupCache } from '../lib/webStartupCache';
 import { WarmupSplash } from './WarmupSplash';
 import { advanceStartup } from '../state/startupProgress';

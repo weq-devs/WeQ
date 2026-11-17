@@ -27,6 +27,9 @@ vi.mock('../src/renderer/src/state/workspaceMenu', () => ({
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   useDialog: (select) => select({ showError: state.showError, confirm: state.confirm }),
 }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
+  useDialog: (select) => select({ showError: state.showError, confirm: state.confirm }),
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({

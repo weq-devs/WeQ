@@ -73,7 +73,15 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
   useDialog: (selector: (state: unknown) => unknown) =>
     selector({ confirm: fixture.confirm, showError: vi.fn() }),
 }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
+  useDialog: (selector: (state: unknown) => unknown) =>
+    selector({ confirm: fixture.confirm, showError: vi.fn() }),
+}));
 vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToastApi: () => ({ push: fixture.push }),
+  useToast: (selector: (state: unknown) => unknown) => selector({ push: fixture.push }),
+}));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
   useToastApi: () => ({ push: fixture.push }),
   useToast: (selector: (state: unknown) => unknown) => selector({ push: fixture.push }),
 }));

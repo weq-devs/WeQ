@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { AnalyticsRetry } from '../src/renderer/src/components/AnalyticsRetry';
 import { VirtualConversationBadge } from '../src/renderer/src/components/VirtualConversationAvatar';
 import { ExportContentSelector } from '../src/renderer/src/views/export/ExportContentSelector';
-import { DRESS_KIND_ICONS, FEATURE_ICONS } from '../src/renderer/src/lib/featureIcons';
+import { DRESS_KIND_ICONS, FEATURE_ICONS } from '../src/renderer/src/lib/featureIcons.shared';
 import { SEARCH_CATEGORY_ICONS } from '../src/renderer/src/components/search/searchIcons';
 import { QzoneForwardDialog } from '../src/renderer/src/components/QzoneForwardDialog';
 import { BackgroundTaskActionIcon } from '../src/renderer/src/components/tasks/BackgroundTaskDetails';

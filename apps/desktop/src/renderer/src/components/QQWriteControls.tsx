@@ -4,12 +4,10 @@ import { MessageMenuFeedbackContext } from '../lib/messageMenuFeedback';
 import { Check, Eraser, Save } from 'lucide-react';
 import { Row, Toggle } from './settings/controls';
 import '../styles/qq-write.css';
-import { useSelfProfileSave } from './SelfProfileField';
-import {
-  ProfileEditorRow,
-  ProfileEditorAction,
-  ProfileFieldEditorContext,
-} from './ProfileFieldEditor';
+import { useSelfProfileSave } from './SelfProfileField.shared';
+import { ProfileEditorRow, ProfileEditorAction } from './ProfileFieldEditor';
+import { ProfileFieldEditorContext } from './ProfileFieldEditor.shared';
+import { SegmentedControl } from './SegmentedControl';
 
 export function QQWriteResult({ result }: { result: { text: string; error: boolean } | null }) {
   const target = useContext(MessageMenuFeedbackContext);
@@ -380,8 +378,3 @@ export function QQWriteActionRow({
     />
   );
 }
-
-export function qqWriteNeedsConfirmation(policy: number): boolean {
-  return policy === 2 || policy === 3;
-}
-import { SegmentedControl } from './SegmentedControl';

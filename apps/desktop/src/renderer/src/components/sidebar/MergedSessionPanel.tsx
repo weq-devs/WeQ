@@ -27,7 +27,7 @@ import {
   guildConversationRow,
 } from '../../lib/conversationDirectory';
 import { conversationAnalysisTarget } from '../../lib/conversationActions';
-import { useContentMultiSelect } from '../../state/contentSelection';
+import { useContentMultiSelect } from '../../state/contentSelection.shared';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import {
   allSelectionIdsSelected,

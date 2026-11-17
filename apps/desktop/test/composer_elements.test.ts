@@ -3,7 +3,7 @@ import {
   composerQuoteElement,
   composerQuoteToken,
   quoteFromMessage,
-} from '../src/renderer/src/im-template/template/composerQuote';
+} from '../src/renderer/src/im-template/template/composerQuote.shared';
 import {
   buildOptimisticRender,
   buildComposerSendPlan,

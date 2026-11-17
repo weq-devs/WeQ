@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, Copy, LoaderCircle, Play, RefreshCw, Settings, Trash2 } from 'lucide-react';
 import { client, trpc } from '../trpc/client';
-import { useDialog } from './Dialog';
-import { useTabActive } from './RetainedTabs';
+import { useDialog } from './Dialog.shared';
+import { useTabActive } from './RetainedTabs.shared';
 import { QqDebugCopyPermissions } from './QqDebugCopyPermissions';
 import type { QqDebugCopyAction, QqDebugCopyPhase } from '../../../shared/qq_debug_copy';
 import '../styles/qq-debug-copy.css';

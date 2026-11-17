@@ -4,7 +4,8 @@ import { Modal } from '../Dialog';
 import { client, trpc } from '../../trpc/client';
 import { useViewState } from '../../state/view';
 import { useContactStats } from '../../hooks/useContactCard';
-import { ActionFeedback, ActionIcon, useQQAction, withQQAccountScope } from './shared';
+import { ActionFeedback, ActionIcon } from './shared';
+import { useQQAction, withQQAccountScope } from './shared.shared';
 import '../../styles/profile-like.css';
 
 interface ProfileLikeProps {

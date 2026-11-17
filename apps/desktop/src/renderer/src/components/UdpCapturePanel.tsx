@@ -20,9 +20,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import { ArrowDown, ArrowUp, Download, Pause, Play, RefreshCw, Square, Trash2 } from 'lucide-react';
 import { client } from '../trpc/client';
 import { useRenderDocument } from '../lib/renderDocument';
-import { useToast } from './Toast';
+import { useToast } from './Toast.shared';
 import { HexDump } from './HexDump';
-import { decodeAnyBytes, RvTree } from './ReverseTool';
+import { decodeAnyBytes } from './ReverseTool.shared';
+import { RvTree } from './ReverseTool';
 import { ProcessPicker } from './ProcessPicker';
 import '../styles/udp-capture.css';
 

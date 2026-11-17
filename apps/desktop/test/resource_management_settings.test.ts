@@ -1,7 +1,8 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
-import { PageSnapshots, usePageState } from '../src/renderer/src/components/PageSnapshots';
+import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
+import { usePageState } from '../src/renderer/src/components/PageSnapshots.shared';
 import { pageValue } from '../src/renderer/src/lib/pageSnapshots';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { CleanupInstruction, CleanupTargetStat, ResourceTreeKey } from '@weq/service';

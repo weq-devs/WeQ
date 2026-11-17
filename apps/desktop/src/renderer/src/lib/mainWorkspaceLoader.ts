@@ -1,6 +1,6 @@
 import { useStartupProgress } from '../state/startupProgress';
 import { useAccountSwitch } from '../state/accountSwitch';
-import { IS_WEB } from './target';
+import { IS_WEB } from './target.shared';
 
 let pending: Promise<{ default: typeof import('../views/MainView').MainView }> | undefined;
 

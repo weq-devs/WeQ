@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_SIDEBAR_WIDTH, loadLayoutNumber, saveLayoutNumber } from './layoutStorage';
 import { defaultConversationPreference } from './preferences';
-import { usePageSnapshotKey, usePageState } from '../../components/PageSnapshots';
+import { usePageSnapshotKey, usePageState } from '../../components/PageSnapshots.shared';
 import { pageSnapshots, pageValue } from '../../lib/pageSnapshots';
 import {
   isMobileNavigation,

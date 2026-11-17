@@ -12,7 +12,8 @@ import { Heart, Lock, Play, Quote } from 'lucide-react';
 import type { QzoneMemoriesPageData, ReportQzonePost } from '@weq/service';
 import { isAllTimeYear, reportCalendarParts, reportEraLabel } from '@weq/service/report-time';
 import { PageFrame, type ReportPageProps } from '../pageFrame';
-import { Odometer, usePrefersReducedMotion } from '../Odometer';
+import { Odometer } from '../Odometer';
+import { usePrefersReducedMotion } from '../Odometer.shared';
 import { albumMediaUrl } from '../../../lib/resourceUrl';
 
 function fmt(n: number): string {

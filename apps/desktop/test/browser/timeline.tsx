@@ -2,12 +2,12 @@ import { createElement, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ChatPane } from '../../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from '../support/templateDemoData';
-import { qqMessageRenderer } from '../../src/renderer/src/components/QqMessageContent';
+import { qqMessageRenderer } from '../../src/renderer/src/components/QqMessageContent.shared';
+import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSelection';
 import {
-  ContentSelectionProvider,
   useContentMultiSelect,
   useContentExportRequest,
-} from '../../src/renderer/src/state/contentSelection';
+} from '../../src/renderer/src/state/contentSelection.shared';
 import {
   captureReadingPosition,
   restoreReadingPosition,

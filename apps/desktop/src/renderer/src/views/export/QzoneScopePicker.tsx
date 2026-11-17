@@ -4,7 +4,7 @@ import { ChevronDown, RefreshCw, Search } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { useQzoneRequests } from '../../hooks/useQzoneRequests';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import { WindowedList } from '../../components/WindowedList';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { useExactSelectionMode } from './useExactSelectionMode';

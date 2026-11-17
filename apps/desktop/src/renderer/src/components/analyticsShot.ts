@@ -17,7 +17,7 @@ import type {
   AnalyticsExportPayload,
   AnalyticsExportResult,
 } from '../../../shared/analytics_export';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import { client } from '../trpc/client';
 
 type ExportBridge = {

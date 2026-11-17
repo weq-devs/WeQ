@@ -26,6 +26,9 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   useDialog: () => rpc.confirm,
 }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
+  useDialog: () => rpc.confirm,
+}));
 vi.mock('../src/renderer/src/components/QzoneLikesPopover', () => ({
   QzoneLikesPopover: ({ trigger }: { trigger: ReactNode }) => trigger,
 }));

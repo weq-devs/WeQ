@@ -10,7 +10,7 @@ import { NumericText } from '../NumericText';
 import { useContext, useEffect, useRef, useState } from 'react';
 import { Heart, Sparkles, Star, Zap, Flame } from 'lucide-react';
 import { trpc } from '../../trpc/client';
-import { useIntentSenseStatus } from './context';
+import { useIntentSenseStatus } from './context.shared';
 import { ContactWorkspaceNavigationContext } from '../../lib/profileNavigation';
 import '../../styles/intent-sense.css';
 

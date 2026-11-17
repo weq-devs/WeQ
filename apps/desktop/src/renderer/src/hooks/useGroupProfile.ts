@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useRef } from 'react';
 import { client, trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
-import { useTabActive } from '../components/RetainedTabs';
+import { useTabActive } from '../components/RetainedTabs.shared';
 import type { GroupConversation, GroupMember } from '../im-template/template/types';
 import { avatarFromUin } from '../lib/avatarResolver';
 import { PROFILE_QUERY_OPTIONS } from '../lib/profileQuery';

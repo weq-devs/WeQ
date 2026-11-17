@@ -8,6 +8,10 @@ vi.mock('../src/renderer/src/lib/target', async (original) => ({
   ...(await original<object>()),
   IS_WEB: true,
 }));
+vi.mock('../src/renderer/src/lib/target.shared', async (original) => ({
+  ...(await original<object>()),
+  IS_WEB: true,
+}));
 
 let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;

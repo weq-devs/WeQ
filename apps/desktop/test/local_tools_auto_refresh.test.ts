@@ -28,6 +28,10 @@ vi.mock('../src/renderer/src/components/Toast', () => ({
   useToastApi: () => ({ push() {} }),
   useToast: () => ({ push() {} }),
 }));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
+  useToastApi: () => ({ push() {} }),
+  useToast: () => ({ push() {} }),
+}));
 vi.mock('../src/renderer/src/components/QqAvatar', () => ({ QqAvatar: () => null }));
 vi.mock('../src/renderer/src/components/OverlayLayer', () => ({
   OverlayLayer: ({ children }: { children: ReactNode }) => children,

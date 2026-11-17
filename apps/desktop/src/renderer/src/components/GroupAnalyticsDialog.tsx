@@ -42,11 +42,10 @@ import {
   ContributionHeatmap,
   HourlyBarChart,
   WordCloud,
-  formatDate,
-  formatNumber,
   type DailyActivityItem,
   type WordCloudItem,
 } from './analyticsCharts';
+import { formatDate, formatNumber } from './analyticsCharts.shared';
 import { GroupJoinBatches, type JoinBatchReport } from './GroupJoinBatches';
 import { GroupConversationGraph, type ConversationGraphReport } from './GroupConversationGraph';
 import { useAnalyticsExport } from './useAnalyticsExport';

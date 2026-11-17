@@ -6,7 +6,7 @@ import { applicationToolPopupOptions } from '../src/main/tool_window';
 import { DatabaseBrowserWindowHost } from '../src/renderer/src/components/DatabaseBrowserWindow';
 import { useDatabaseBrowserWindow } from '../src/renderer/src/state/databaseBrowserWindow';
 import { useAppLock } from '../src/renderer/src/state/lock';
-import { useTabActive } from '../src/renderer/src/components/RetainedTabs';
+import { useTabActive } from '../src/renderer/src/components/RetainedTabs.shared';
 import { useRenderDocument } from '../src/renderer/src/lib/renderDocument';
 
 vi.mock('../src/renderer/src/components/DatabaseBrowser', () => ({

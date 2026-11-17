@@ -19,7 +19,8 @@ import {
 } from '@weq/service/search-policy';
 import { AppSearchResults } from './AppSearchResults';
 import { appSearchEntryRank, searchAppEntries, type AppSearchEntry } from './appSearchCatalog';
-import { restoreSearchPosition, type SearchPosition } from './searchPosition';
+import { restoreSearchPosition } from './searchPosition.shared';
+import type { SearchPosition } from './searchPosition';
 import { SEARCH_CATEGORY_ICONS, SEARCH_SOURCE_ICONS } from './searchIcons';
 import type { FeatureIcon } from '../../lib/featureIcons';
 import {

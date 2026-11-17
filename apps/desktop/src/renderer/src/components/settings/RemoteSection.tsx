@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { client, trpc } from '../../trpc/client';
 import { RemotePanel } from './RemotePanel';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { Card, Row, Toggle, SectionHeader } from './controls';
-import { useToast } from '../Toast';
+import { useToast } from '../Toast.shared';
 import { Check, Copy, ExternalLink, Globe } from 'lucide-react';
-import { IS_WEB } from '../../lib/target';
+import { IS_WEB } from '../../lib/target.shared';
 import { copyTextToClipboard } from '../../im-template/template/clipboard';
 
 export function RemoteSection() {

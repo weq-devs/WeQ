@@ -2,6 +2,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 const f = vi.hoisted(() => ({ analytics: vi.fn(), external: vi.fn() }));
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     account: { exportAnalyticsCard: { mutate: f.analytics } },

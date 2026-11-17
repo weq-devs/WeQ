@@ -2,7 +2,7 @@ import { PAGE_SIZE, GROUP_INITIAL_PAGE_SIZE } from './paging';
 import { toMessageWire } from './messageProjection';
 import type { MessageWire, ChatMsgWire } from './types';
 import { useCallback, useEffect, useLayoutEffect } from 'react';
-import { IS_WEB } from '../../lib/target';
+import { IS_WEB } from '../../lib/target.shared';
 import { unreadRequestBatches, type UnreadRequest } from '../../lib/unreadRequests';
 import { timelineViewport } from '../../lib/timelineViewport';
 import {

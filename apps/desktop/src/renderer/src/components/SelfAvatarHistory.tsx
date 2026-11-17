@@ -1,5 +1,4 @@
 import { NumericText } from './NumericText';
-import { eventTimeFormatter } from '@weq/time';
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ArrowDownWideNarrow, ArrowUpWideNarrow, ImagePlus, RefreshCw, X } from 'lucide-react';
 import type { HistoricalAvatar } from '@weq/protocol';
@@ -15,10 +14,7 @@ import { sortHistoricalAvatars } from '../lib/avatarHistory';
 import { pickAccountFile } from '../lib/accountFilePicker';
 import { refreshUserAvatar } from '../hooks/useAvatarUrl';
 import '../styles/avatar-history.css';
-
-const formatter = eventTimeFormatter;
-export const avatarHistoryTime = (value: number | null) =>
-  value === null ? '时间未记录' : formatter.format(value * 1000);
+import { avatarHistoryTime } from './SelfAvatarHistory.shared';
 
 export function SelfAvatarHistory({
   uin,

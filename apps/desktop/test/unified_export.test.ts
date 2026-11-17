@@ -86,6 +86,11 @@ vi.mock('../src/renderer/src/lib/target', () => ({
     return fixture.web;
   },
 }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({
+  get IS_WEB() {
+    return fixture.web;
+  },
+}));
 const emptyQuery = { data: [], isLoading: false, isError: false, refetch: vi.fn() };
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {

@@ -12,13 +12,13 @@ import {
 import {
   SETTINGS_GROUP_ICONS,
   SETTINGS_PAGE_ICONS,
-} from '../src/renderer/src/components/settings/pageIcons';
+} from '../src/renderer/src/components/settings/pageIcons.shared';
 import {
   DRESS_KIND_ICONS,
   EXPORT_MODE_ICONS,
   FEATURE_ICONS,
   MAINTENANCE_TOOL_ICONS,
-} from '../src/renderer/src/lib/featureIcons';
+} from '../src/renderer/src/lib/featureIcons.shared';
 import {
   SEARCH_CATEGORY_ICONS,
   SEARCH_SOURCE_ICONS,

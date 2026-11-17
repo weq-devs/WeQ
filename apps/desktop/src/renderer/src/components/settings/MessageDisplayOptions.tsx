@@ -4,7 +4,7 @@ import {
   useClientPreferences,
 } from '../../lib/clientPreferences';
 import { trpc } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { Row } from './controls';
 import '../../styles/message-display-settings.css';
 import '../../styles/search-scope.css';

@@ -21,7 +21,7 @@ import { useOverlayLayer } from '../../lib/overlayStack';
 import { useRenderDocument } from '../../lib/renderDocument';
 import { useSurfaceEscape } from '../../lib/surfaceEscape';
 import { dressUrl } from '../../lib/resourceUrl';
-import { DRESS_KIND_ICONS, FEATURE_ICONS } from '../../lib/featureIcons';
+import { DRESS_KIND_ICONS, FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import { closeFromScrim } from '../../im-template/template/modalUtils';
 import { cn } from '../../im-template/template/classNames';
 import { QqMessageContent } from '../QqMessageContent';

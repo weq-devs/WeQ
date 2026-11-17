@@ -29,7 +29,7 @@ import { trpc } from '../../trpc/client';
 import { DbDataGrid } from './DbDataGrid';
 import { SqlConsole } from './SqlConsole';
 import { InlineSkeleton, TreeSkeleton } from './CacheSkeleton';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import { useRemoteClient } from '../../lib/remoteClient';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { CheckPill } from '../../components/settings/controls';

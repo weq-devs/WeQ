@@ -1,5 +1,4 @@
 import { NumericText } from '../../components/NumericText';
-import * as timeFormat from '@weq/time';
 /**
  * Shared bits for the 本地资源 (cache) view: formatting helpers, the file-browser
  * toolbar + offset-paged infinite-scroll hook, the cursor-paged infinite-scroll
@@ -9,26 +8,10 @@ import * as timeFormat from '@weq/time';
  * the cursor hook + footer + lightbox + `fmtBytes`).
  */
 
-import {
-  createContext,
-  useContext,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactElement,
-  type ReactNode,
-} from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import {
   Files,
-  Image as ImageIcon,
-  Film,
-  Music,
-  FileText,
-  Archive,
-  Code,
   Package,
-  File as FileIcon,
   Search,
   ArrowDownWideNarrow,
   ArrowUpWideNarrow,
@@ -38,38 +21,8 @@ import {
 import type { FileCategory, FileSortKey, FileSortOrder } from '@weq/service';
 import { FooterSkeleton } from './CacheSkeleton';
 import { EmptyState } from '../../components/EmptyState';
-import { useTabActive } from '../../components/RetainedTabs';
 import { OverlayLayer } from '../../components/OverlayLayer';
-
-/** 重扫完成后重读资源数据，分类和筛选控件本身不重建。 */
-export const ResourceRevisionContext = createContext(0);
-
-/** `all` (the landing tab) plus the real categories. */
-export type CategoryTab = FileCategory | 'all';
-
-export const CATEGORY_META: Record<CategoryTab, { label: string; icon: ReactElement }> = {
-  all: { label: '全部', icon: <Files size={14} /> },
-  image: { label: '图片', icon: <ImageIcon size={14} /> },
-  video: { label: '视频', icon: <Film size={14} /> },
-  audio: { label: '音频', icon: <Music size={14} /> },
-  document: { label: '文档', icon: <FileText size={14} /> },
-  archive: { label: '压缩包', icon: <Archive size={14} /> },
-  code: { label: '代码', icon: <Code size={14} /> },
-  program: { label: '程序', icon: <Package size={14} /> },
-  other: { label: '其它', icon: <FileIcon size={14} /> },
-};
-
-/** Category order for the tab row. */
-export const CATEGORY_ORDER: FileCategory[] = [
-  'image',
-  'video',
-  'audio',
-  'document',
-  'archive',
-  'code',
-  'program',
-  'other',
-];
+import { type CategoryTab, CATEGORY_ORDER, CATEGORY_META, cn } from './CacheShared.shared';
 
 const SORT_META: Record<FileSortKey, string> = {
   time: '时间',
@@ -77,27 +30,6 @@ const SORT_META: Record<FileSortKey, string> = {
   size: '大小',
 };
 const SORT_KEYS: FileSortKey[] = ['time', 'name', 'size'];
-
-export function fmtBytes(bytes: number): string {
-  if (!bytes || bytes < 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let n = bytes;
-  let i = 0;
-  while (n >= 1024 && i < units.length - 1) {
-    n /= 1024;
-    i += 1;
-  }
-  return `${n.toFixed(n >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
-}
-
-export function fmtDate(ms: number): string {
-  return ms ? timeFormat.formatDateTime(ms) : '';
-}
-
-/** The category is an image kind — used to decide whether to try an inline preview. */
-export function isImageCategory(cat: FileCategory): boolean {
-  return cat === 'image';
-}
 
 // ── toolbar ─────────────────────────────────────────────────────────────────
 
@@ -201,126 +133,6 @@ export function FileResourceToolbar({
   );
 }
 
-// ── paged infinite-scroll hook ────────────────────────────────────────────────
-
-const PAGE = 80;
-
-export interface PagedResult<T> {
-  entries: T[];
-  total: number;
-  loading: boolean;
-  error: string | null;
-  done: boolean;
-  sentinelRef: React.RefObject<HTMLDivElement | null>;
-}
-
-/**
- * Offset-paged loader with an IntersectionObserver sentinel. `fetchPage` pulls
- * one page for the current filter; changing `filterKey` resets the list and
- * reloads from offset 0. All fetches are async off the render thread.
- */
-export function usePagedList<T>(
-  fetchPage: (offset: number, limit: number) => Promise<{ entries: T[]; total: number }>,
-  filterKey: string,
-): PagedResult<T> {
-  const active = useTabActive(),
-    revision = useContext(ResourceRevisionContext);
-  const activeRef = useRef(active),
-    needed = useRef(true);
-  activeRef.current = active;
-  const [entries, setEntries] = useState<T[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
-
-  const offsetRef = useRef(0);
-  const loadingRef = useRef(false);
-  const doneRef = useRef(false);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-  // Bump on every filter change so a late in-flight page from the previous
-  // filter can't append into the reset list.
-  const genRef = useRef(0);
-  const fetchRef = useRef(fetchPage);
-  fetchRef.current = fetchPage;
-
-  const loadMore = useCallback(async (): Promise<void> => {
-    if (!activeRef.current || loadingRef.current || doneRef.current) return;
-    needed.current = false;
-    loadingRef.current = true;
-    setLoading(true);
-    setError(null);
-    const gen = genRef.current;
-    try {
-      const page = await fetchRef.current(offsetRef.current, PAGE);
-      if (gen !== genRef.current || !activeRef.current) return;
-      setTotal(page.total);
-      setEntries((prev) => [...prev, ...page.entries]);
-      offsetRef.current += page.entries.length;
-      if (page.entries.length < PAGE || offsetRef.current >= page.total) {
-        doneRef.current = true;
-        setDone(true);
-      }
-    } catch (e) {
-      if (gen !== genRef.current) return;
-      setError(e instanceof Error ? e.message : String(e));
-      doneRef.current = true;
-      setDone(true);
-    } finally {
-      if (gen === genRef.current) {
-        loadingRef.current = false;
-        setLoading(false);
-      }
-    }
-  }, []);
-
-  // Reset + reload whenever the filter changes.
-  useEffect(() => {
-    genRef.current += 1;
-    offsetRef.current = 0;
-    loadingRef.current = false;
-    doneRef.current = false;
-    setEntries([]);
-    setTotal(0);
-    setDone(false);
-    setError(null);
-    needed.current = true;
-    void loadMore();
-  }, [filterKey, revision, loadMore]);
-  useEffect(() => {
-    if (active) {
-      if (needed.current) void loadMore();
-    } else {
-      if (loadingRef.current) needed.current = true;
-      genRef.current += 1;
-      loadingRef.current = false;
-      setLoading(false);
-    }
-  }, [active, loadMore]);
-  useEffect(
-    () => () => {
-      genRef.current += 1;
-    },
-    [],
-  );
-
-  // Auto-load the next page as the sentinel scrolls into view.
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!active || !el || done) return undefined;
-    const io = new IntersectionObserver(
-      (obs) => {
-        if (obs.some((o) => o.isIntersecting)) void loadMore();
-      },
-      { rootMargin: '500px' },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [active, loadMore, done, entries.length]);
-
-  return { entries, total, loading, error, done, sentinelRef };
-}
-
 /** Footer row for the infinite-scroll list (sentinel / loading / end state). */
 export function ListFooter({
   loading,
@@ -354,142 +166,6 @@ export function ListFooter({
       滚动加载更多
     </div>
   );
-}
-
-// ── cursor-paged infinite scroll (emoji / avatar / media grids) ─────────────────
-
-/** Page size for the cursor-paged grids (backend cap is 500). */
-export const CURSOR_PAGE = 120;
-
-/** One page as the backend reports it: entries + an opaque resume cursor. */
-export interface CursorPage<T> {
-  entries: T[];
-  nextCursor: string | null;
-  /** Optional total reported by the backend (header counts); absent for some kinds. */
-  total?: number;
-}
-
-export interface CursorPagedResult<T> {
-  entries: T[];
-  /** Latest `total` the backend reported, else null (no total on some kinds). */
-  total: number | null;
-  loading: boolean;
-  error: string | null;
-  done: boolean;
-  sentinelRef: React.RefObject<HTMLDivElement | null>;
-  /** Reset to page 1 and refetch (e.g. after a bulk download added entries). */
-  reload: () => Promise<void>;
-}
-
-/**
- * Cursor-based infinite-scroll loader. `fetchPage(cursor)` pulls one page; the
- * sentinel auto-loads the next as it scrolls into view. Not filter-aware — each
- * grid mounts its own instance (via `key`), and `reload` imperatively restarts
- * the walk from page 1 (dropping any in-flight page that raced it).
- */
-export function useCursorPaged<T>(
-  fetchPage: (cursor: string | null) => Promise<CursorPage<T>>,
-): CursorPagedResult<T> {
-  const active = useTabActive(),
-    revision = useContext(ResourceRevisionContext);
-  const activeRef = useRef(active),
-    needed = useRef(true);
-  activeRef.current = active;
-  const [entries, setEntries] = useState<T[]>([]);
-  const [total, setTotal] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
-
-  const cursorRef = useRef<string | null>(null);
-  const loadingRef = useRef(false);
-  const doneRef = useRef(false);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-  const fetchRef = useRef(fetchPage);
-  fetchRef.current = fetchPage;
-  // Bump on every reload so a late in-flight page from the old walk can't
-  // append into the reset list.
-  const genRef = useRef(0);
-
-  const loadMore = useCallback(async (): Promise<void> => {
-    if (!activeRef.current || loadingRef.current || doneRef.current) return;
-    needed.current = false;
-    loadingRef.current = true;
-    setLoading(true);
-    setError(null);
-    const gen = genRef.current;
-    try {
-      const page = await fetchRef.current(cursorRef.current);
-      if (gen !== genRef.current || !activeRef.current) return;
-      setEntries((prev) => [...prev, ...page.entries]);
-      if (typeof page.total === 'number') setTotal(page.total);
-      cursorRef.current = page.nextCursor;
-      if (page.nextCursor === null) {
-        doneRef.current = true;
-        setDone(true);
-      }
-    } catch (e) {
-      if (gen !== genRef.current) return;
-      setError(e instanceof Error ? e.message : String(e));
-      // Stop the sentinel from hammering a failing kind.
-      doneRef.current = true;
-      setDone(true);
-    } finally {
-      if (gen === genRef.current) {
-        loadingRef.current = false;
-        setLoading(false);
-      }
-    }
-  }, []);
-
-  // Auto-load the next page as the sentinel scrolls into view.
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!active || !el || done) return undefined;
-    const io = new IntersectionObserver(
-      (obs) => {
-        if (obs.some((o) => o.isIntersecting)) void loadMore();
-      },
-      { rootMargin: '500px' },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [active, loadMore, done, entries.length]);
-
-  // Imperative reset: drop everything and refetch page 1.
-  const reload = useCallback(async (): Promise<void> => {
-    genRef.current += 1;
-    cursorRef.current = null;
-    loadingRef.current = false;
-    doneRef.current = false;
-    setEntries([]);
-    setTotal(null);
-    setDone(false);
-    setError(null);
-    needed.current = true;
-    await loadMore();
-  }, [loadMore]);
-  useEffect(() => {
-    void reload();
-  }, [reload, revision]);
-  useEffect(() => {
-    if (active) {
-      if (needed.current) void loadMore();
-    } else {
-      if (loadingRef.current) needed.current = true;
-      genRef.current += 1;
-      loadingRef.current = false;
-      setLoading(false);
-    }
-  }, [active, loadMore]);
-  useEffect(
-    () => () => {
-      genRef.current += 1;
-    },
-    [],
-  );
-
-  return { entries, total, loading, error, done, sentinelRef, reload };
 }
 
 /** Footer row for a cursor-paged grid (sentinel / loading / end state). */
@@ -572,6 +248,4 @@ export function BlobDialog({
     </OverlayLayer>
   );
 }
-
-type Cn = (...parts: (string | false | null | undefined)[]) => string;
-export const cn: Cn = (...parts) => parts.filter(Boolean).join(' ');
+export type { CategoryTab, PagedResult, CursorPage, CursorPagedResult } from './CacheShared.shared';

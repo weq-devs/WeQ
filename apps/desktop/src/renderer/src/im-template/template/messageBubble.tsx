@@ -1,5 +1,5 @@
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { IS_WEB } from '../../lib/target';
+import { IS_WEB } from '../../lib/target.shared';
 import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import {
@@ -14,7 +14,7 @@ import {
   TriangleAlert,
   X,
 } from 'lucide-react';
-import { FEATURE_ICONS } from '../../lib/featureIcons';
+import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import { renderMessageWithRegistry, type MessageRenderer } from './messageRenderers';
 import { Avatar } from './primitives';
 import { ChatQqShowEnabledContext, useChatQqShow } from '../../lib/chatQqShow';
@@ -24,19 +24,19 @@ import { cn } from './classNames';
 import { SetEmojiReactions, type ReactionInteraction } from '../../components/SetEmojiReactions';
 import { MessageIntentSense } from '../../components/intentSense/MessageIntentSense';
 import { useSelfBubble, useSelfPendant } from '../../hooks/useSelfPendant';
-import { useActiveFontFx, useActiveWidget } from '../../hooks/useActiveWidget';
+import { useActiveFontFx, useActiveWidget } from '../../hooks/useActiveWidget.shared';
 import { useBubbleFontFx } from '../../hooks/useBubbleFontFx';
 import { useMsgDecoration } from '../../hooks/useMsgDecoration';
 import { localDressApplies } from '../../lib/dressSkin';
-import { MsgDecorationEnabledContext } from '../../components/QqMessageContent';
+import { MsgDecorationEnabledContext } from '../../state/messageAppearance';
 import { MessageProvenance } from '../../components/MessageProvenance';
 import '../../styles/message-deletion.css';
-import { useToastApi } from '../../components/Toast';
+import { useToastApi } from '../../components/Toast.shared';
 import {
   NotificationSourceContext,
-  NotificationSourceProvider,
   messageNotificationSource,
-} from '../../lib/notificationNavigation';
+} from '../../lib/notificationNavigation.shared';
+import { NotificationSourceProvider } from '../../lib/notificationNavigation';
 import { GroupMessageBadge } from '../../components/GroupMessageBadge';
 import { messageHasIntentText } from '../../lib/intentTimeline';
 import '../../styles/chat-interactions.css';

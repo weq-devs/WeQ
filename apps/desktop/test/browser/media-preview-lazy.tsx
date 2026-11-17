@@ -1,9 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import {
-  MediaPreviewHost,
-  openMediaPreview,
-} from '../../src/renderer/src/components/mediaPreviewStore';
+import { MediaPreviewHost } from '../../src/renderer/src/components/mediaPreviewStore';
+import { openMediaPreview } from '../../src/renderer/src/components/mediaPreviewStore.shared';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import '../../src/renderer/src/styles/index.css';
 

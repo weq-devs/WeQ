@@ -7,7 +7,7 @@ import { createTemplateDemoData } from './support/templateDemoData';
 import {
   restoreComposer,
   serializeComposer,
-} from '../src/renderer/src/im-template/template/composer';
+} from '../src/renderer/src/im-template/template/composer.shared';
 import {
   buildComposerSendPlan,
   type LocalMediaRef,

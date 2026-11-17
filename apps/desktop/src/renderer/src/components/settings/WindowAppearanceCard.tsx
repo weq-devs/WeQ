@@ -1,8 +1,8 @@
 import { PanelsTopLeft } from 'lucide-react';
 import { supportsWindowsStyleControls } from '../../../../shared/window_controls';
 import { trpc } from '../../trpc/client';
-import { useDialog } from '../Dialog';
-import { useTabActive } from '../RetainedTabs';
+import { useDialog } from '../Dialog.shared';
+import { useTabActive } from '../RetainedTabs.shared';
 import { Card, Row, Toggle } from './controls';
 
 export function WindowAppearanceCard() {

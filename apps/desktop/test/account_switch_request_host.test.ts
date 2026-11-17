@@ -36,6 +36,9 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   useDialog: () => io.error,
 }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
+  useDialog: () => io.error,
+}));
 vi.mock('../src/renderer/src/lib/switchAccount', () => ({ switchAccount: io.switch }));
 import { AccountSwitchRequestHost } from '../src/renderer/src/components/AccountSwitchRequestHost';
 import { useAccountSwitch } from '../src/renderer/src/state/accountSwitch';

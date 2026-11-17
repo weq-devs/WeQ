@@ -1,6 +1,6 @@
 import { ExternalLink } from 'lucide-react';
 import type { BackgroundTask } from '../../../../shared/background_task';
-import { IS_WEB } from '../../lib/target';
+import { IS_WEB } from '../../lib/target.shared';
 import { useDbRepairWindow } from '../../state/dbRepairWindow';
 import { requestOpenSettings } from '../../lib/callSettingsBridge';
 import type { TaskQuickAction } from './TaskQuickActions';

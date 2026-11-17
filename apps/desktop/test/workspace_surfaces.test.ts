@@ -4,7 +4,8 @@ import { createRoot } from 'react-dom/client';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Modal, DialogHost, useDialog } from '../src/renderer/src/components/Dialog';
+import { Modal, DialogHost } from '../src/renderer/src/components/Dialog';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import {
   WorkspaceContent,
   WorkspacePage,
@@ -13,7 +14,8 @@ import {
 import { OverlayLayer } from '../src/renderer/src/components/OverlayLayer';
 import { hasActiveModal } from '../src/renderer/src/lib/overlayStack';
 import { useMultiSelection } from '../src/renderer/src/hooks/useMultiSelection';
-import { PageSnapshots, usePageState } from '../src/renderer/src/components/PageSnapshots';
+import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
+import { usePageState } from '../src/renderer/src/components/PageSnapshots.shared';
 import { pageValue } from '../src/renderer/src/lib/pageSnapshots';
 
 afterEach(() => {

@@ -7,7 +7,7 @@ import { APP_SEARCH_ENTRIES } from '../../src/renderer/src/components/search/app
 import { SettingsDialog } from '../../src/renderer/src/components/SettingsDialog';
 import type { SettingsPageId } from '../../src/renderer/src/components/settings/navigation';
 import { WorkspaceContent, WorkspacePages } from '../../src/renderer/src/components/WorkspacePages';
-import { FEATURE_ICONS } from '../../src/renderer/src/lib/featureIcons';
+import { FEATURE_ICONS } from '../../src/renderer/src/lib/featureIcons.shared';
 import { ExportContentSelector } from '../../src/renderer/src/views/export/ExportContentSelector';
 import type { ExportContentPolicy } from '@weq/service/export-content';
 import { VirtualConversationBadge } from '../../src/renderer/src/components/VirtualConversationAvatar';

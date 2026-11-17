@@ -20,17 +20,12 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import { Minus, Plus } from 'lucide-react';
 import { cn } from './classNames';
 import { Avatar } from './primitives';
-import { project, tileUrl, unproject } from './locationPicker';
+import { project, tileUrl, unproject } from './locationPicker.shared';
+import { type MapView, MIN_ZOOM, MAX_ZOOM, clampView } from './locationShareMap.shared';
 
 const TILE_SIZE = 256;
-const MIN_ZOOM = 3;
-const MAX_ZOOM = 18;
-/** Web Mercator 纬度上限；超出会让整块地图空掉。 */
-const MAX_LAT = 85.05112878;
 /** 拖拽判定阈值（像素）：超过就不算「点击落点」。 */
 const CLICK_SLOP = 5;
-
-export type MapView = { lng: number; lat: number; zoom: number };
 
 /** 地图上的一个成员标记。 */
 export interface MapMember {
@@ -47,61 +42,6 @@ export interface MapMember {
   isSelf?: boolean;
   /** 最近一次上报距今多少秒；用于「位置陈旧」的视觉提示。 */
   ageSeconds?: number;
-}
-
-function wrapLng(lng: number): number {
-  return ((((lng + 180) % 360) + 360) % 360) - 180;
-}
-
-export function clampView(view: MapView): MapView {
-  const zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, view.zoom));
-  const lat = Math.max(-MAX_LAT, Math.min(MAX_LAT, view.lat));
-  const lng = wrapLng(view.lng);
-  // 三个分量都没变就原样返回，避免调用方拿到新对象触发多余重渲染。
-  if (zoom === view.zoom && lat === view.lat && lng === view.lng) return view;
-  return { lng, lat, zoom };
-}
-
-/**
- * 把一组坐标收进视野：算出让所有点都可见的中心与缩放。
- *
- * `padding` 是给标记留的边距（像素），否则贴边的头像会被裁掉一半。
- */
-export function fitView(
-  points: Array<{ longitude: number; latitude: number }>,
-  size: { width: number; height: number },
-  padding = 56,
-): MapView | null {
-  if (!points.length || size.width <= 0 || size.height <= 0) return null;
-  if (points.length === 1) {
-    return clampView({
-      lng: points[0].longitude,
-      lat: points[0].latitude,
-      zoom: 16,
-    });
-  }
-  const usableW = Math.max(1, size.width - padding * 2);
-  const usableH = Math.max(1, size.height - padding * 2);
-  // 先在最细粒度上投影，再按「需要缩多少」反推 zoom。
-  const baseZoom = 18;
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let minY = Infinity;
-  let maxY = -Infinity;
-  for (const point of points) {
-    const px = project(point.longitude, point.latitude, baseZoom);
-    minX = Math.min(minX, px.x);
-    maxX = Math.max(maxX, px.x);
-    minY = Math.min(minY, px.y);
-    maxY = Math.max(maxY, px.y);
-  }
-  const spanX = Math.max(1, maxX - minX);
-  const spanY = Math.max(1, maxY - minY);
-  const zoomX = baseZoom + Math.log2(usableW / spanX);
-  const zoomY = baseZoom + Math.log2(usableH / spanY);
-  const zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(zoomX, zoomY)));
-  const center = unproject((minX + maxX) / 2, (minY + maxY) / 2, baseZoom);
-  return clampView({ lng: center.lng, lat: center.lat, zoom });
 }
 
 export function LocationShareMap({
@@ -332,3 +272,4 @@ export function LocationShareMap({
     </div>
   );
 }
+export type { MapView } from './locationShareMap.shared';

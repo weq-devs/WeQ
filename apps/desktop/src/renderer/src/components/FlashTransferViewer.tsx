@@ -38,7 +38,7 @@ import { FlashShareDialog } from './FlashShareDialog';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { client } from '../trpc/client';
 import { fileIconUrl } from '../lib/resourceUrl';
-import { useToast } from './Toast';
+import { useToast } from './Toast.shared';
 import '../styles/flash-transfer.css';
 
 function EmbeddedTransfer({ children }: ComponentProps<typeof Modal>): ReactElement {

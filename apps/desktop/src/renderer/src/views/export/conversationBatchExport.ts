@@ -3,7 +3,7 @@ import { client } from '../../trpc/client';
 import type { ConversationBatchTarget } from '../../../../shared/content_selection';
 import { buildChatExportMedia } from './chatExport';
 import { ocrReadiness } from './preflight';
-import { structuredExportOptions } from './StructuredExportControls';
+import { structuredExportOptions } from './StructuredExportControls.shared';
 import { isBackendFormat, type ExportFormat, type ExportOptions } from './types';
 import { normalizeExportContent } from '@weq/service/export-content';
 

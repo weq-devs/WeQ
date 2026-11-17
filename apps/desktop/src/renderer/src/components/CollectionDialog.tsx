@@ -18,7 +18,7 @@ import { eventTimeFormatter } from '@weq/time';
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { usePageDataCache, usePageState } from './PageSnapshots';
+import { usePageDataCache, usePageState } from './PageSnapshots.shared';
 import { pageValue } from '../lib/pageSnapshots';
 import { APP_NAVIGATION } from '../lib/appNavigation';
 import {
@@ -48,15 +48,16 @@ import {
 import { client } from '../trpc/client';
 import { QqAvatar } from './QqAvatar';
 import { ProfileAvatar } from './ProfileAvatar';
-import { openMediaPreview } from './mediaPreviewStore';
+import { openMediaPreview } from './mediaPreviewStore.shared';
 import { collectionImageUrl } from '../lib/resourceUrl';
 import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
-import { CollectionContent, collectionContentText } from './CollectionContent';
+import { CollectionContent } from './CollectionContent';
+import { collectionContentText } from './CollectionContent.shared';
 import { CollectionImage } from './CollectionImage';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import { CollectionExportDialog } from '../views/export/CollectionExportDialog';
 import { useMultiSelection, type MultiSelectionItemProps } from '../hooks/useMultiSelection';
-import { useContentMultiSelect } from '../state/contentSelection';
+import { useContentMultiSelect } from '../state/contentSelection.shared';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import '../styles/collection-search.css';
 

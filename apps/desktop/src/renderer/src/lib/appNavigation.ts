@@ -10,7 +10,8 @@ import {
   Settings,
   Waypoints,
 } from 'lucide-react';
-import { FEATURE_ICONS, type FeatureIcon } from './featureIcons';
+import { FEATURE_ICONS } from './featureIcons.shared';
+import type { FeatureIcon } from './featureIcons';
 import type { MainView } from '../im-template/template/types';
 
 export type NavigationTool = 'export' | 'viewer' | 'analysis' | 'tasks' | 'assistant' | 'backfill';

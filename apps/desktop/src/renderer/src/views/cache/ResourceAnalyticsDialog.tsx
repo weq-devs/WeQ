@@ -29,8 +29,8 @@ import {
 } from 'lucide-react';
 import type { ResourceStat, ResourceTreeKey } from '@weq/service';
 import { client } from '../../trpc/client';
-import { ACCENT_MUTED, ACCENT_SERIES, formatNumber } from '../../components/analyticsCharts';
-import { fmtBytes } from './CacheShared';
+import { ACCENT_MUTED, ACCENT_SERIES, formatNumber } from '../../components/analyticsCharts.shared';
+import { fmtBytes } from './CacheShared.shared';
 import { RESOURCE_CATEGORIES, type ResourceManagementSnapshot } from './resourceManagement';
 
 /**

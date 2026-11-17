@@ -3,7 +3,7 @@ import type { ProfilePerson } from './useContactCard';
 import type { CalendarNavigate } from '../lib/calendarNavigation';
 import { client } from '../trpc/client';
 import { useQQWriteSession } from './useQQWriteSession';
-import { useToastApi } from '../components/Toast';
+import { useToastApi } from '../components/Toast.shared';
 
 /** 仅在点击时读取一个目标；发言严格匹配成员及 QQ 记录的秒级时间。 */
 export function useGroupMemberTimeNavigation(

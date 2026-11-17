@@ -12,6 +12,9 @@ vi.mock('../src/renderer/src/components/QqAvatar', () => ({ QqAvatar: () => null
 vi.mock('../src/renderer/src/components/qq-actions/shared', () => ({
   useQQAction: () => ({ disabled: true, pending: false }),
 }));
+vi.mock('../src/renderer/src/components/qq-actions/shared.shared', () => ({
+  useQQAction: () => ({ disabled: true, pending: false }),
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     account: {

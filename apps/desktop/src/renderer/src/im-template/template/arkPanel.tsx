@@ -21,7 +21,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import type { FormEvent, ReactNode, RefObject } from 'react';
 import { useOverlayLayer } from '../../lib/overlayStack';
 import { useSurfaceEscapeDismissal } from '../../lib/surfaceEscape';

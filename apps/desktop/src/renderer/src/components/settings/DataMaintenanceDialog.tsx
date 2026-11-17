@@ -11,11 +11,8 @@ import { ResourceCleanupDialog } from '../../views/cache/ResourceCleanupDialog';
 import { WonderfulToolsDialog } from '../WonderfulToolsDialog';
 import { ExportTool } from '../lazyWorkspaces';
 import { useRemoteClient } from '../../lib/remoteClient';
-import {
-  MAINTENANCE_TOOLS,
-  remoteUnsupportedTools,
-  type MaintenanceTool,
-} from './DataMaintenanceSection';
+import { MAINTENANCE_TOOLS, remoteUnsupportedTools } from './DataMaintenanceSection.shared';
+import type { MaintenanceTool } from './DataMaintenanceSection';
 import '../../styles/cache.css';
 import '../../styles/data-maintenance.css';
 

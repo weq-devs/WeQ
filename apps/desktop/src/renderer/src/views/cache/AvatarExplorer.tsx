@@ -21,9 +21,10 @@ import { AvatarPathDialog } from './AvatarPathDialog';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { EmptyState } from '../../components/EmptyState';
-import { CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
+import { CURSOR_PAGE, fmtBytes, useCursorPaged } from './CacheShared.shared';
+import { GridFooter } from './CacheShared';
 import { GridSkeleton, InlineSkeleton } from './CacheSkeleton';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 
 const SCOPE_META: Record<AvatarScope, { label: string; icon: ReactElement }> = {
   user: { label: '好友头像', icon: <UserRound size={14} /> },

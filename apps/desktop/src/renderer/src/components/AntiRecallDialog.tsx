@@ -29,8 +29,8 @@ import {
   X,
 } from 'lucide-react';
 import { trpc } from '../trpc/client';
-import { useDialog } from './Dialog';
-import { useToast } from './Toast';
+import { useDialog } from './Dialog.shared';
+import { useToast } from './Toast.shared';
 import { LoadingIndicator } from './LoadingIndicator';
 import { Card, Row, QueryError, SettingsScopeBadge, Toggle } from './settings/controls';
 import { ConversationPicker } from '../views/export/ConversationPicker';
@@ -42,7 +42,7 @@ import { OverlayLayer } from './OverlayLayer';
 import { cn } from '../im-template/template/classNames';
 import { ToolSurface } from './ToolSurface';
 import { PageShell } from './PageShell';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import { useAppLock } from '../state/lock';
 import { useViewState } from '../state/view';
 import { acceptSettingsReply } from '../lib/clientPreferences';

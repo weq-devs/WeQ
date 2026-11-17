@@ -13,7 +13,7 @@ import { Row, Toggle } from './controls';
 import { ApiModelSelect } from './ApiModelSelect';
 import { AiImagePreferenceSetting } from './AiImageSettings';
 import { useCloneSettingsSection } from '../../views/agentlab/cloneSettingsDraft';
-import { useDialog } from '../Dialog';
+import { useDialog } from '../Dialog.shared';
 
 export function CloneGenerationPanel({
   persona,

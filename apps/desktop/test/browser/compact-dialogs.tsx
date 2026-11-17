@@ -3,10 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { QQExactLookup } from '../../src/renderer/src/components/QQExactLookup';
 import { GroupAlbumManagement } from '../../src/renderer/src/components/qq-actions/GroupAlbumManagement';
-import {
-  FriendDirectoryControls,
-  useFriendDirectory,
-} from '../../src/renderer/src/components/FriendDirectoryControls';
+import { FriendDirectoryControls } from '../../src/renderer/src/components/FriendDirectoryControls';
+import { useFriendDirectory } from '../../src/renderer/src/components/FriendDirectoryControls.shared';
 import { useViewState } from '../../src/renderer/src/state/view';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import { subscribeResponsiveLayout } from '../../src/renderer/src/lib/responsiveLayout';

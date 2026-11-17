@@ -7,7 +7,7 @@
  * 按钮仍是灰色、重启才恢复」的过期状态。
  */
 
-import { shellBridge } from './target';
+import { shellBridge } from './target.shared';
 
 export type TotpStatus = Awaited<ReturnType<typeof window.weq.totp.getStatus>>;
 export type SystemAuthStatus = Awaited<ReturnType<typeof window.weq.systemAuth.getStatus>>;

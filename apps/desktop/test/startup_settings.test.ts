@@ -2,7 +2,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StartupSection } from '../src/renderer/src/components/settings/StartupSection';
-import { useToast } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 
 const fixture = vi.hoisted(() => ({
   data: {

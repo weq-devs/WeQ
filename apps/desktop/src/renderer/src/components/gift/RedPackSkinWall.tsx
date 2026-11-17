@@ -19,7 +19,7 @@ import { Gift as GiftIcon, Search, Wallet, X, RefreshCw } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { redPackSkinUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../ShimmerImage';
-import { openMediaPreview } from '../mediaPreviewStore';
+import { openMediaPreview } from '../mediaPreviewStore.shared';
 import '../../styles/redpack-wall.css';
 
 type Variant = 'preview' | 'popup' | 'background' | 'image';

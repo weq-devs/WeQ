@@ -9,7 +9,7 @@ import { ContactWorkspace } from '../ContactWorkspace';
 import { ContactIdentity } from './ContactContent';
 import { ContactActions } from './ContactActions';
 import { ProfilePageHeader } from './ProfilePageHeader';
-import { toPersonalityProfile } from '../../im-template/template/profilePanes';
+import { toPersonalityProfile } from '../../im-template/template/profilePanes.shared';
 import { ContactFieldHistoryProvider } from './ContactFieldHistory';
 import { GroupSpeechPreviewContext, ProfilePreviewSourceContext } from '../../lib/chatNavigation';
 import { usePersonRelationship } from '../../lib/contactRelationship';

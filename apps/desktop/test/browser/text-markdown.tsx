@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { qqMessageRenderer } from '../../src/renderer/src/components/QqMessageContent';
+import { qqMessageRenderer } from '../../src/renderer/src/components/QqMessageContent.shared';
 import { TextMarkdownContext } from '../../src/renderer/src/state/textMarkdown';
 import { MessageContextMenu } from '../../src/renderer/src/im-template/template/messageContextMenu';
 import { createTemplateDemoData } from '../support/templateDemoData';

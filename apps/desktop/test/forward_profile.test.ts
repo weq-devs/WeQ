@@ -5,7 +5,8 @@ import ts from 'typescript';
 import { expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { forwardRecordToWire } from '../src/main/ipc/serde';
-import { ForwardWindowHost, openForwardWindow } from '../src/renderer/src/components/ForwardWindow';
+import { ForwardWindowHost } from '../src/renderer/src/components/ForwardWindow';
+import { openForwardWindow } from '../src/renderer/src/state/forwardWindow';
 import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 import { useForwardStore, type ForwardRecordWire } from '../src/renderer/src/state/forwardWindow';
 
@@ -29,6 +30,9 @@ vi.mock('../src/renderer/src/components/QqMessageContent', async () => {
   return { ...contexts, ...appearance, QqMessageContent: () => h('p', null, '合成正文') };
 });
 vi.mock('../src/renderer/src/im-template/template/messageRow', () => ({
+  grayTipOf: () => null,
+}));
+vi.mock('../src/renderer/src/im-template/template/messageRow.shared', () => ({
   grayTipOf: () => null,
 }));
 

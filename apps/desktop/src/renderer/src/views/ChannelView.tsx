@@ -7,7 +7,7 @@ import { useEffect, type ReactElement } from 'react';
 import { Hash, MessagesSquare } from 'lucide-react';
 import { EmbeddedBrowserView } from './EmbeddedBrowserView';
 import { ExternalSiteView } from './ExternalSiteView';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import '../styles/channel.css';
 
 export function ChannelView({

@@ -10,7 +10,8 @@
 import { useId, type ReactNode } from 'react';
 import { CopyButton } from '../CopyButton';
 import { EmptyState } from '../EmptyState';
-import { ContactFieldHistoryButton, useContactFieldHistoryAvailable } from './ContactFieldHistory';
+import { ContactFieldHistoryButton } from './ContactFieldHistory';
+import { useContactFieldHistoryAvailable } from './ContactFieldHistory.shared';
 import '../../styles/profile-workspace.css';
 
 function isBlank(value: ReactNode): boolean {

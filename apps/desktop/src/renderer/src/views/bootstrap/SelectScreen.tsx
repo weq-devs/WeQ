@@ -13,14 +13,15 @@ import {
   Copy,
 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
-import { Modal, useDialog } from '../../components/Dialog';
+import { Modal } from '../../components/Dialog';
+import { useDialog } from '../../components/Dialog.shared';
 import { useViewState } from '../../state/view';
 import type { GlobalInstallInfo } from '@weq/service';
 import { AccountSelector } from './AccountSelector';
 import { LoginPanel } from './LoginPanel';
 import { StaticBackupPanel } from './StaticBackupPanel';
 import { StatsPanel } from './StatsPanel';
-import { IS_MAC } from '../../lib/target';
+import { IS_MAC } from '../../lib/target.shared';
 import { useRemoteClient } from '../../lib/remoteClient';
 import { QqDebugCopy } from '../../components/QqDebugCopy';
 import { BootstrapWindowActions } from '../../components/BootstrapWindowActions';

@@ -12,7 +12,11 @@ import type { GroupWorkspaceTab } from '../src/renderer/src/lib/profileNavigatio
 vi.mock('../src/renderer/src/hooks/useGroupResourceWindows', () => ({
   useGroupResourceWindows: () => ({ open: vi.fn(), windows: [] }),
 }));
+vi.mock('../src/renderer/src/hooks/useGroupResourceWindows.shared', () => ({
+  useGroupResourceWindows: () => ({ open: vi.fn(), windows: [] }),
+}));
 vi.mock('../src/renderer/src/components/RetainedTabs', () => ({ useTabActive: () => true }));
+vi.mock('../src/renderer/src/components/RetainedTabs.shared', () => ({ useTabActive: () => true }));
 vi.mock('../src/renderer/src/components/GroupAnnouncementsDialog', () => ({
   GroupAnnouncementsDialog: () => h('section', { 'data-feature-body': '公告' }),
 }));

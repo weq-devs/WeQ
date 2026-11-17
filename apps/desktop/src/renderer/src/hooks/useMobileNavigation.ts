@@ -7,7 +7,7 @@ import {
   subscribeResponsiveLayout,
 } from '../lib/responsiveLayout';
 import { useRenderDocument } from '../lib/renderDocument';
-import { useTabActive } from '../components/RetainedTabs';
+import { useTabActive } from '../components/RetainedTabs.shared';
 
 const stack = new MobileBackStack(compareMobileBackEntries);
 let sequence = 0;

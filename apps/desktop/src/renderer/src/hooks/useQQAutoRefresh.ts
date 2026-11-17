@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useTabActive } from '../components/RetainedTabs';
+import { useTabActive } from '../components/RetainedTabs.shared';
 import { useRenderDocument } from '../lib/renderDocument';
 
 /** 手写异步页与查询缓存共用可读状态，不用定时器维持前台刷新。 */

@@ -3,7 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { Star, ListTodo, BrainCircuit, SmilePlus, FolderSearch } from 'lucide-react';
 import { MessageMenuButton } from '../../src/renderer/src/components/MessageMenuButton';
 import { MessageMediaRevealAction } from '../../src/renderer/src/components/MessageMediaRevealAction';
-import { ToastHost, useToast } from '../../src/renderer/src/components/Toast';
+import { ToastHost } from '../../src/renderer/src/components/Toast';
+import { useToast } from '../../src/renderer/src/components/Toast.shared';
 import {
   MessageContextMenu,
   type MessageContextMenuState,

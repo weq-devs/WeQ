@@ -5,12 +5,12 @@ import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SettingsDialog, type SectionId } from '../src/renderer/src/components/SettingsDialog';
 import { SETTINGS_GROUPS } from '../src/renderer/src/components/settings/navigation';
-import { useTabActive } from '../src/renderer/src/components/RetainedTabs';
+import { useTabActive } from '../src/renderer/src/components/RetainedTabs.shared';
 import { useAppLock } from '../src/renderer/src/state/lock';
 import { useViewState } from '../src/renderer/src/state/view';
 import type { SettingsSearchTarget } from '../src/renderer/src/components/settings/searchTarget';
 import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
-import { useDialog } from '../src/renderer/src/components/Dialog';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import type { SettingsNavigation } from '../src/renderer/src/hooks/useSettingsNavigation';
 
 const fixture = vi.hoisted(() => ({

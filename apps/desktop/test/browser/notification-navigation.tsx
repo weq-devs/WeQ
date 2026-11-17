@@ -1,11 +1,12 @@
 import { createRoot } from 'react-dom/client';
 import { useState } from 'react';
-import { ToastHost, useToast } from '../../src/renderer/src/components/Toast';
+import { ToastHost } from '../../src/renderer/src/components/Toast';
+import { useToast } from '../../src/renderer/src/components/Toast.shared';
 import {
   notificationSource,
   onNotificationNavigation,
-  type NotificationTarget,
-} from '../../src/renderer/src/lib/notificationNavigation';
+} from '../../src/renderer/src/lib/notificationNavigation.shared';
+import type { NotificationTarget } from '../../src/renderer/src/lib/notificationNavigation';
 import { useThemeStore } from '../../src/renderer/src/state/theme';
 import '../../src/renderer/src/styles/index.css';
 

@@ -19,9 +19,7 @@ export interface ReplyJumpTarget {
   senderUin?: number | string;
   sendTime?: number | string;
 }
-export const ReplyJumpContext = createContext<(target: ReplyJumpTarget) => void | Promise<void>>(
-  () => {},
-);
+const replyJumpContext = createContext<(target: ReplyJumpTarget) => void | Promise<void>>(() => {});
 
 /**
  * The conversation kind of the open chat. MultiMsg lookups (合并转发) hit a
@@ -66,3 +64,5 @@ export const ForwardCarrierContext = createContext<ForwardCarrier | null>(null);
  * ForwardWindow 形成类型环路，取值点自己收窄。
  */
 export const ForwardSubRecordsContext = createContext<Map<string, unknown[]> | null>(null);
+
+export { replyJumpContext as ReplyJumpContext };

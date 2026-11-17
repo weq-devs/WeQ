@@ -1,6 +1,8 @@
 import { createRoot } from 'react-dom/client';
-import { DialogHost, useDialog } from '../../src/renderer/src/components/Dialog';
-import { ToastHost, useToast } from '../../src/renderer/src/components/Toast';
+import { DialogHost } from '../../src/renderer/src/components/Dialog';
+import { useDialog } from '../../src/renderer/src/components/Dialog.shared';
+import { ToastHost } from '../../src/renderer/src/components/Toast';
+import { useToast } from '../../src/renderer/src/components/Toast.shared';
 import { McpServerSection } from '../../src/renderer/src/components/settings/McpServerSection';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import '../../src/renderer/src/styles/index.css';

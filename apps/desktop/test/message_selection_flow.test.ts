@@ -4,14 +4,15 @@ import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from './support/templateDemoData';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
 import {
-  ContentSelectionProvider,
   useContentMultiSelect,
   useContentExportRequest,
   useContentAnalysisRequest,
-} from '../src/renderer/src/state/contentSelection';
-import { useDialog } from '../src/renderer/src/components/Dialog';
-import { ToastHost, useToast } from '../src/renderer/src/components/Toast';
+} from '../src/renderer/src/state/contentSelection.shared';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
+import { ToastHost } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 import type { Message } from '../src/renderer/src/im-template/template/types';
 import type { LoadSelectionMessages } from '../src/renderer/src/lib/messageSelection';
 import { GapMessagesModal } from '../src/renderer/src/components/lazyMainPanels';

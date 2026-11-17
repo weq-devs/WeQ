@@ -1,6 +1,7 @@
 import { RefreshCw, UserRound, UsersRound } from 'lucide-react';
 import { useNumberLookup, type NumberLookupProfile } from '../../hooks/useNumberLookup';
-import { SearchAvatar, c2cAvatarSrc, groupAvatarSrc } from './SearchResultCard';
+import { SearchAvatar } from './SearchResultCard';
+import { c2cAvatarSrc, groupAvatarSrc } from './SearchResultCard.shared';
 import '../../styles/identity-links.css';
 
 export type OpenNumberProfile = (profile: NumberLookupProfile, anchor: HTMLElement) => void;

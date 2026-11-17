@@ -57,6 +57,14 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
     }) => unknown,
   ) => select({ showError: fixture.error, confirm: fixture.confirm }),
 }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
+  useDialog: (
+    select: (value: {
+      showError: typeof fixture.error;
+      confirm: typeof fixture.confirm;
+    }) => unknown,
+  ) => select({ showError: fixture.error, confirm: fixture.confirm }),
+}));
 vi.mock('../src/renderer/src/components/QqAvatar', () => ({ QqAvatar: () => null }));
 
 beforeEach(() => {

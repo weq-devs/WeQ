@@ -3,7 +3,7 @@ import * as timeFormat from '@weq/time';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Play, RefreshCw, Search, Users } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import { WindowedList } from '../../components/WindowedList';
 import { QqAvatar } from '../../components/QqAvatar';
 import { useViewState } from '../../state/view';

@@ -1,22 +1,10 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
+import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Check, X } from 'lucide-react';
 import { ContactRow } from './contactProfile/ContactRow';
 import '../styles/self-profile-card.css';
-import { ProfileFieldEditorContext } from './ProfileFieldEditor';
+import { ProfileFieldEditorContext } from './ProfileFieldEditor.shared';
 import { useProfileFieldEscape } from '../hooks/useProfileFieldEscape';
-
-export type Save = (action: () => Promise<boolean>) => Promise<boolean>;
-const SaveContext = createContext<Save>((action) => action());
-export const SelfProfileEditingContext = createContext(true);
-export const useSelfProfileSave = () => useContext(SaveContext);
+import { type Save, SelfProfileEditingContext, SaveContext } from './SelfProfileField.shared';
 
 export function SelfProfileField({
   label,
@@ -261,3 +249,4 @@ export function SelfProfileField({
     );
   }
 }
+export type { Save } from './SelfProfileField.shared';

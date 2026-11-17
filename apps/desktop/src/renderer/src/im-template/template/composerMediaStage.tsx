@@ -5,7 +5,7 @@
  */
 
 import { useState } from 'react';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import { FolderOpen, X } from 'lucide-react';
 import type { ReactNode, RefObject } from 'react';
 import { MediaPreview } from '../../components/lazyMainPanels';
@@ -204,10 +204,4 @@ export function ComposerDropVeil({ visible }: { visible: boolean }) {
       </div>
     </div>
   );
-}
-
-/** 从剪贴板 / 拖拽里挑出可用的文件。 */
-export function collectFiles(files: FileList | File[] | null | undefined): File[] {
-  if (!files) return [];
-  return Array.from(files).filter((file) => file.size >= 0);
 }

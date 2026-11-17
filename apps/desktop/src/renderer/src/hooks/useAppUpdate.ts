@@ -11,8 +11,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { trpc, client } from '../trpc/client';
-import { useDialog } from '../components/Dialog';
-import { useTabActive } from '../components/RetainedTabs';
+import { useDialog } from '../components/Dialog.shared';
+import { useTabActive } from '../components/RetainedTabs.shared';
 import { useUpdateStore } from '../state/update';
 import { DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES } from '@weq/service/update-settings';
 

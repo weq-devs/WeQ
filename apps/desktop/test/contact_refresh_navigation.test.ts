@@ -32,6 +32,11 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
   Modal: ({ children, labelledBy }: { children: ReactNode; labelledBy: string }) =>
     h('div', { role: 'dialog', 'aria-labelledby': labelledBy }, children),
 }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
+  useDialog: (select: (value: typeof state) => unknown) => select(state),
+  Modal: ({ children, labelledBy }: { children: ReactNode; labelledBy: string }) =>
+    h('div', { role: 'dialog', 'aria-labelledby': labelledBy }, children),
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({

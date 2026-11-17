@@ -14,7 +14,7 @@ import { ArrowLeft, CircleAlert, Coins, Gift as GiftIcon, Sparkles, X } from 'lu
 import type { GroupGiftItem, GroupGiftPanelResult } from '@weq/protocol';
 import { client } from '../../trpc/client';
 import { OverlayLayer } from '../OverlayLayer';
-import { useToast } from '../Toast';
+import { useToast } from '../Toast.shared';
 import { giftImageUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../ShimmerImage';
 import { cn } from '../../im-template/template/classNames';

@@ -12,12 +12,12 @@ import { AppRail } from '../src/renderer/src/im-template/template/rail';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { useUpdateStore } from '../src/renderer/src/state/update';
 import * as mentionClipboard from '../src/renderer/src/lib/mentionClipboard';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
 import {
-  ContentSelectionProvider,
   useCurrentContentSelection,
   useContentExportRequest,
   useContentMultiSelect,
-} from '../src/renderer/src/state/contentSelection';
+} from '../src/renderer/src/state/contentSelection.shared';
 
 const rpc = vi.hoisted(() => ({
   around: vi.fn(async () => ({
@@ -80,6 +80,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   };
 });
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true }));
 vi.mock('../src/renderer/src/views/ExternalSiteView', () => ({
   ExternalSiteView: () =>
     createElement('input', { 'aria-label': '合成频道浏览现场', defaultValue: '初始' }),

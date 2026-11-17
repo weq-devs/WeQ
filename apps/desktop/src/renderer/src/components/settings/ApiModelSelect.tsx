@@ -1,7 +1,7 @@
 import type { AgentLabModelSelection } from '@weq/agentlab/model-selection';
 import { isDefaultModelSelection, modelSelectionKey } from '@weq/agentlab/model-selection';
 import { trpc } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { providerDisplayLabels } from '../../lib/providerDisplayLabels';
 import { Row, QueryError } from './controls';
 import { DEFAULT_API_MODEL_LABELS, useDefaultApiModel } from './useDefaultApiModel';

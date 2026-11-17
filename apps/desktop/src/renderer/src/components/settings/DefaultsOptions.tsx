@@ -1,8 +1,7 @@
 import type { WeqDefaultsChoice, WeqDefaultsPath, WeqDefaultsConnection } from '@weq/service';
 import { Row, Toggle } from './controls';
+import { DEFAULTS_DESCRIPTION } from './DefaultsOptions.shared';
 
-export const DEFAULTS_DESCRIPTION =
-  '恢复通用设置、界面外观与布局、联系人分组与排序、消息显示范围、搜索与日历偏好、默认进入账号、导出预设、应用锁偏好及所有账号的功能设置。';
 export interface DefaultsInfo {
   hasApi: boolean;
   paths: { id: WeqDefaultsPath; label: string; value: string }[];

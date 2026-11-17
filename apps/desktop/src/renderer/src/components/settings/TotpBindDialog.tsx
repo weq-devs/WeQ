@@ -20,9 +20,10 @@ import {
   X,
 } from 'lucide-react';
 import QRCode from 'qrcode';
-import { Modal, useDialog } from '../Dialog';
-import { useToast } from '../Toast';
-import { shellBridge } from '../../lib/target';
+import { Modal } from '../Dialog';
+import { useDialog } from '../Dialog.shared';
+import { useToast } from '../Toast.shared';
+import { shellBridge } from '../../lib/target.shared';
 import { TotpDigits } from '../TotpDigits';
 
 type TotpStatus = Awaited<ReturnType<typeof window.weq.totp.getStatus>>;

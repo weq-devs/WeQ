@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
 import { House } from 'lucide-react';
 import { AutoSave } from './AutoSave';
@@ -9,8 +9,8 @@ import {
   type HomeSettings,
 } from '@weq/service/home-settings';
 import { trpc } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
-import { useDialog } from '../Dialog';
+import { useTabActive } from '../RetainedTabs.shared';
+import { useDialog } from '../Dialog.shared';
 import { Card, Row, Toggle } from './controls';
 import '../../styles/settings-home.css';
 

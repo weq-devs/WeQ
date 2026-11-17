@@ -61,6 +61,28 @@ vi.mock('../src/renderer/src/components/qq-actions/shared', () => ({
   }) => h('button', { type: 'button', 'aria-label': label, onClick, disabled }, children),
   ActionFeedback: () => null,
 }));
+vi.mock('../src/renderer/src/components/qq-actions/shared.shared', () => ({
+  withQQAccountScope: (component: unknown) => component,
+  useQQAction: () => ({
+    disabled: false,
+    pending: false,
+    available: true,
+    binding: { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' },
+    perform: state.perform,
+  }),
+  ActionIcon: ({
+    label,
+    children,
+    onClick,
+    disabled,
+  }: {
+    label: string;
+    children: ReactNode;
+    onClick: () => void;
+    disabled?: boolean;
+  }) => h('button', { type: 'button', 'aria-label': label, onClick, disabled }, children),
+  ActionFeedback: () => null,
+}));
 afterEach(() => {
   vi.unstubAllGlobals();
   state.count = 12345;

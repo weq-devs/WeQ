@@ -8,13 +8,9 @@ import { isRemoteClient } from '../../lib/remoteClient';
 import { remoteSettingAvailable } from '../../../../shared/remote_capabilities';
 import { APP_NAVIGATION, navigationEntries, type NavigationTool } from '../../lib/appNavigation';
 import { ContactRound, Gift, UsersRound } from 'lucide-react';
-import {
-  DRESS_KIND_ICONS,
-  EXPORT_MODE_ICONS,
-  FEATURE_ICONS,
-  type FeatureIcon,
-} from '../../lib/featureIcons';
-import { SETTINGS_PAGE_ICONS } from '../settings/pageIcons';
+import { DRESS_KIND_ICONS, EXPORT_MODE_ICONS, FEATURE_ICONS } from '../../lib/featureIcons.shared';
+import type { FeatureIcon } from '../../lib/featureIcons';
+import { SETTINGS_PAGE_ICONS } from '../settings/pageIcons.shared';
 import {
   SETTINGS_PAGE_LABELS,
   resolveSettingsTarget,
@@ -113,7 +109,7 @@ function uniqueEntries(entries: AppSearchEntry[]): AppSearchEntry[] {
   return [...unique.values()];
 }
 
-export const APP_SEARCH_ENTRIES: readonly AppSearchEntry[] = uniqueEntries([
+const appSearchEntries: readonly AppSearchEntry[] = uniqueEntries([
   ...navigationEntries('search').flatMap(({ label, target, keywords }) =>
     target.kind === 'contact-notice' || target.kind === 'contact-overview'
       ? []
@@ -184,12 +180,13 @@ export function appSearchEntryRank(keyword: string, entry: AppSearchEntry): numb
 export function searchAppEntries(keyword: string): AppSearchEntry[] {
   const query = keyword.trim();
   if (!query) return [];
-  return APP_SEARCH_ENTRIES.filter((entry) => {
-    if (!isRemoteClient() || entry.target.kind !== 'setting') return true;
-    const target = resolveSettingsTarget(entry.target);
-    // 页面 / settingId / 行名三种禁项都在 shared/remote_capabilities 里，这里只消费。
-    return remoteSettingAvailable(target.section, target.settingId, target.item);
-  })
+  return appSearchEntries
+    .filter((entry) => {
+      if (!isRemoteClient() || entry.target.kind !== 'setting') return true;
+      const target = resolveSettingsTarget(entry.target);
+      // 页面 / settingId / 行名三种禁项都在 shared/remote_capabilities 里，这里只消费。
+      return remoteSettingAvailable(target.section, target.settingId, target.item);
+    })
     .map((entry, index) => ({
       entry,
       index,
@@ -199,3 +196,5 @@ export function searchAppEntries(keyword: string): AppSearchEntry[] {
     .sort((a, b) => b.rank - a.rank || a.index - b.index)
     .map(({ entry }) => entry);
 }
+
+export { appSearchEntries as APP_SEARCH_ENTRIES };

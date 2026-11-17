@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from 'rea
 import { z } from 'zod';
 import { captureReadingPosition, restoreReadingPosition } from '../lib/conversationReadingPosition';
 import { pageSnapshots } from '../lib/pageSnapshots';
-import { usePageSnapshotKey } from './PageSnapshots';
+import { usePageSnapshotKey } from './PageSnapshots.shared';
 
 const reading = z.object({
   scrollTop: z.number(),

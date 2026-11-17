@@ -3,7 +3,7 @@ import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useAccountSwitch } from '../state/accountSwitch';
 import { publishRemoteStartup } from '../lib/remoteStartup';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import { observeRemoteStartupSurface } from '../lib/remoteStartupSurface';
 
 /** 启动只等待必要配置与真实界面，业务列表在界面内异步加载。 */

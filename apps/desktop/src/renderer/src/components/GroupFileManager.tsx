@@ -26,20 +26,15 @@ import {
 } from 'lucide-react';
 import { ContactEmptyState } from './contactProfile/ContactRow';
 import { client, trpc } from '../trpc/client';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import { stageAccountFile } from '../lib/accountFilePicker';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { useMultiSelection } from '../hooks/useMultiSelection';
-import { useTabActive } from './RetainedTabs';
-import { useDialog } from './Dialog';
+import { useTabActive } from './RetainedTabs.shared';
+import { useDialog } from './Dialog.shared';
 import { ConversationActionsMenu } from './ConversationActionsMenu';
-import {
-  ActionFeedback,
-  ActionIcon,
-  useQQAction,
-  useQQGroupPermissions,
-  withQQAccountScope,
-} from './qq-actions/shared';
+import { ActionFeedback, ActionIcon } from './qq-actions/shared';
+import { useQQAction, useQQGroupPermissions, withQQAccountScope } from './qq-actions/shared.shared';
 import type { QQWriteBinding, QQWriteOutcome } from '../hooks/useQQWriteSession';
 import { fileIconUrl } from '../lib/resourceUrl';
 import { cn } from '../lib/utils';

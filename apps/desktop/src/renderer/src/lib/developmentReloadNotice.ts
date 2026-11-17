@@ -1,4 +1,4 @@
-import { useToast } from '../components/Toast';
+import { useToast } from '../components/Toast.shared';
 import {
   DEVELOPMENT_RELOAD_APPLY,
   DEVELOPMENT_RELOAD_QUERY,

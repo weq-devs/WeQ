@@ -25,6 +25,11 @@ vi.mock('../src/renderer/src/lib/target', () => ({
     return f.web;
   },
 }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({
+  get IS_WEB() {
+    return f.web;
+  },
+}));
 vi.mock('../src/renderer/src/state/lock', () => ({
   useAppLock: (select: (state: { locked: boolean }) => unknown) => select(f),
 }));

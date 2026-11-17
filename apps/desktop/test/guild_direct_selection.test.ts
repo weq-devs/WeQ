@@ -4,11 +4,9 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { GuildDirectDialog } from '../src/renderer/src/components/GuildDirectDialog';
 import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
-import { qqMessageRenderer } from '../src/renderer/src/components/QqMessageContent';
-import {
-  ContentSelectionProvider,
-  useContentExportRequest,
-} from '../src/renderer/src/state/contentSelection';
+import { qqMessageRenderer } from '../src/renderer/src/components/QqMessageContent.shared';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
+import { useContentExportRequest } from '../src/renderer/src/state/contentSelection.shared';
 import { createTemplateDemoData } from './support/templateDemoData';
 import {
   fixedScopeSummary,

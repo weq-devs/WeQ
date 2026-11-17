@@ -14,13 +14,8 @@ import { ShieldAlert, X, Maximize2, Minimize2 } from 'lucide-react';
 import type { ExportAuthorizationIndicatorState } from '../views/export/authorization';
 import { Modal } from './Dialog';
 import { RetainedTabs } from './RetainedTabs';
-import {
-  ExportTool,
-  ExportViewer,
-  AnalysisTool,
-  RoamingBackfillPanel,
-  preloadWorkspace,
-} from './lazyWorkspaces';
+import { ExportTool, ExportViewer, AnalysisTool, RoamingBackfillPanel } from './lazyWorkspaces';
+import { preloadWorkspace } from './lazyWorkspaces.shared';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { summarizeWorkspaceTasks } from '../lib/workspaceIndicators';
 import { trpc } from '../trpc/client';
@@ -28,7 +23,7 @@ import {
   useContentExportRequest,
   useContentAnalysisRequest,
   useCurrentContentSelection,
-} from '../state/contentSelection';
+} from '../state/contentSelection.shared';
 import '../styles/workspace-tools.css';
 import '../styles/workspace-menu.css';
 import { useViewState } from '../state/view';

@@ -24,6 +24,9 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   useDialog: () => ({ confirm: f.confirm }),
 }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
+  useDialog: () => ({ confirm: f.confirm }),
+}));
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();

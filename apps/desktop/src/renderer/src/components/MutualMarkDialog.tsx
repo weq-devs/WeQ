@@ -16,25 +16,12 @@ import { trpc } from '../trpc/client';
 import { cn } from '../im-template/template/classNames';
 import { OverlayLayer } from './OverlayLayer';
 import { EmptyState } from './EmptyState';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import { useViewState } from '../state/view';
-import type { ProfileExtInfo } from '../im-template/template/types';
 import { collectionImageUrl } from '../lib/resourceUrl';
 import { profileCode } from '@weq/protocol/profile-values';
 import '../styles/profile-cache.css';
-
-type CachedMark = ProfileExtInfo['interactMarks'][number];
-export function usableCachedMarks(marks: readonly CachedMark[]) {
-  const found = new Map<string, CachedMark>();
-  for (const mark of marks) {
-    const id = profileCode(mark.markId);
-    const type = mark.type?.trim();
-    if (id === null && !type) continue;
-    const key = `${type ?? ''}:${id ?? ''}`;
-    if (!found.has(key)) found.set(key, mark);
-  }
-  return [...found.values()];
-}
+import { type CachedMark, usableCachedMarks } from './MutualMarkDialog.shared';
 
 function CachedMarkCell({ mark }: { mark: CachedMark }) {
   const [failed, setFailed] = useState(false);

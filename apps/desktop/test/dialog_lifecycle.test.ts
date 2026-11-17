@@ -1,7 +1,8 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import { DialogHost, useDialog } from '../src/renderer/src/components/Dialog';
+import { DialogHost } from '../src/renderer/src/components/Dialog';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 
 afterEach(() => {
   useDialog.getState().close();

@@ -11,7 +11,8 @@ import { Modal } from './Dialog';
 import { PageShell } from './PageShell';
 import { HoverTooltip } from './HoverTooltip';
 import { ToastHost } from './Toast';
-import { NotificationSourceProvider, notificationSource } from '../lib/notificationNavigation';
+import { NotificationSourceProvider } from '../lib/notificationNavigation';
+import { notificationSource } from '../lib/notificationNavigation.shared';
 import '../styles/database-browser-window.css';
 
 const DatabaseBrowser = lazy(() => import('./DatabaseBrowser'));

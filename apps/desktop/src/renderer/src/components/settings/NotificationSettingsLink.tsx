@@ -1,6 +1,6 @@
 import { useContext } from 'react';
 import { ChevronRight } from 'lucide-react';
-import { SettingsNavigateContext } from './controls';
+import { SettingsNavigateContext } from './controls.shared';
 import {
   requestNotificationSettings,
   type NotificationConversation,

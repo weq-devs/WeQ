@@ -1,13 +1,11 @@
 import { act, createElement as h, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import { PageSnapshots, usePageState } from '../src/renderer/src/components/PageSnapshots';
+import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
+import { usePageState } from '../src/renderer/src/components/PageSnapshots.shared';
 import { pageValue } from '../src/renderer/src/lib/pageSnapshots';
-import {
-  RetainedTabs,
-  TabActivity,
-  useTabActive,
-} from '../src/renderer/src/components/RetainedTabs';
+import { RetainedTabs, TabActivity } from '../src/renderer/src/components/RetainedTabs';
+import { useTabActive } from '../src/renderer/src/components/RetainedTabs.shared';
 import {
   WorkspaceContent,
   WorkspacePage,

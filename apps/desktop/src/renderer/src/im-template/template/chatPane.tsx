@@ -11,7 +11,7 @@ import {
   useContentMultiSelect,
   useRequestContentExport,
   useRequestContentAnalysis,
-} from '../../state/contentSelection';
+} from '../../state/contentSelection.shared';
 import {
   conversationExportSelection,
   conversationAnalysisTarget,
@@ -33,7 +33,7 @@ import { OverlayScrollbar } from '../../components/OverlayScrollbar';
 import { observeConversationPaging } from '../../lib/conversationPaging';
 import { isDataline } from '../../lib/deviceAvatar';
 import { MessageSelectionBar } from '../../components/MessageSelectionBar';
-import { useMediaSave } from '../../components/MediaSaveControls';
+import { useMediaSave } from '../../components/MediaSaveControls.shared';
 import { useMessageMarquee } from '../../hooks/useMessageMarquee';
 import { useStableCallback } from '../../hooks/useStableCallback';
 import { useMobileWebLayout } from '../../hooks/useMobileWebViewport';
@@ -46,7 +46,7 @@ import {
 } from '../../lib/responsiveLayout';
 import { revealTimelineMessage, timelineViewport } from '../../lib/timelineViewport';
 import { adjacentMessageId } from '../../lib/messageKeyboardNav';
-import { IS_WEB } from '../../lib/target';
+import { IS_WEB } from '../../lib/target.shared';
 import '../../styles/message-selection-toolbar.css';
 import '../../styles/conversation-title.css';
 import '../../styles/unified-conversation.css';
@@ -68,7 +68,7 @@ import { createSelectionGapIndex } from '../../lib/selectionGapIndex';
 import { hasActiveModal } from '../../lib/overlayStack';
 import { topSurface } from '../../lib/surfaceEscape';
 import { OverlayLayer } from '../../components/OverlayLayer';
-import { useWorkspaceSidecarOpen } from '../../components/WorkspacePages';
+import { useWorkspaceSidecarOpen } from '../../components/WorkspacePages.shared';
 import { useAtAllMention } from '../../hooks/useAtAllMention';
 import { nextMentionIndex, type AtAllMentionState } from '../../lib/atAllMention';
 import '../../styles/at-all-mention.css';
@@ -140,13 +140,13 @@ import {
   useRef,
   useState,
 } from 'react';
-import { ReplyJumpContext } from '../../components/QqMessageContent';
+import { ReplyJumpContext } from '../../state/messageContext';
 import {
   ImportantMessagesButton,
   ImportantMessagesPanel,
 } from '../../components/ImportantMessages';
 import { ChatMediaGallery } from '../../components/ChatMediaGallery';
-import { openMediaPreview } from '../../components/mediaPreviewStore';
+import { openMediaPreview } from '../../components/mediaPreviewStore.shared';
 import { releaseObjectUrl } from '../../lib/objectUrl';
 import '../../styles/composer-image-preview.css';
 import '../../styles/composer-grouped-actions.css';
@@ -189,8 +189,8 @@ import {
   ComposerDropVeil,
   ComposerMediaStage,
   ComposerSuperEmojiStage,
-  collectFiles,
 } from './composerMediaStage';
+import { collectFiles } from './composerMediaStage.shared';
 import { VoicePanel, type TtsSpeechResult } from './voicePanel';
 import { FlashComposer, type FlashSendPayload } from './flashComposer';
 
@@ -226,24 +226,17 @@ export type BubbleVideoSendPayload = {
   /** 泡泡模板名；缺省用协议层的 `video_penguin_dance`。 */
   templateName?: string;
 };
-import {
-  ComposerQuoteBar,
-  composerQuoteToken,
-  quoteBlockReason,
-  quoteFromMessage,
-  type ComposerQuote,
-} from './composerQuote';
+import { ComposerQuoteBar, type ComposerQuote } from './composerQuote';
+import { composerQuoteToken, quoteBlockReason, quoteFromMessage } from './composerQuote.shared';
 import type { LocationCardPayload } from './locationCardPanel';
 import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
-import { AiVoicePanel, aiVoiceToken, type AiVoiceDraft } from './aiVoicePanel';
-import { bounceEmojiToken, type BounceEmojiDraft } from './bounceEmojiPanel';
+import { AiVoicePanel, type AiVoiceDraft } from './aiVoicePanel';
+import { aiVoiceToken } from './aiVoicePanel.shared';
+import { bounceEmojiToken } from './bounceEmojiPanel.shared';
+import type { BounceEmojiDraft } from './bounceEmojiPanel';
 import type { RedPacketDraft } from './redPacketPanel';
-import {
-  pokeEmojiToken,
-  randomFaceToken,
-  type PokeEmojiDraft,
-  type RandomFaceDraft,
-} from './pokeEmojiPanel';
+import { pokeEmojiToken, randomFaceToken } from './pokeEmojiPanel.shared';
+import type { PokeEmojiDraft, RandomFaceDraft } from './pokeEmojiPanel';
 import { copyTextToClipboard } from './clipboard';
 import {
   isLocalOutgoingMessage,
@@ -272,8 +265,8 @@ import {
 import { localKeyOf, planNeedsLocalMedia, type LocalMediaRef } from './composerSend';
 import { composerSubmission, type ComposerSubmitOptions } from './composerSubmission';
 import { prepareReeditDraft } from './composerReedit';
+import { ComposerResizeHandle } from './composer';
 import {
-  ComposerResizeHandle,
   createComposerLineBreak,
   focusComposerEnd,
   getActiveComposerMentionTrigger,
@@ -283,7 +276,7 @@ import {
   replaceComposerTextRange,
   restoreComposer,
   serializeComposer,
-} from './composer';
+} from './composer.shared';
 import {
   isComposerActionDisabled,
   resolveComposerActionRegistry,
@@ -293,14 +286,16 @@ import {
 } from './composerActions';
 import { GroupInfoPanel, type GroupInfoDetail, type GroupSidebarFeature } from './groupInfoPanel';
 import { EmojiPanel } from './emojiPanel';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import { loadHiddenMessageIds, saveHiddenMessageIds } from './hiddenMessages';
-import { MessageRow, grayTipOf, messageElements } from './messageRow';
-import { IntentSenseProvider, useIntentSenseStatus } from '../../components/intentSense/context';
+import { MessageRow } from './messageRow';
+import { grayTipOf, messageElements } from './messageRow.shared';
+import { IntentSenseProvider } from '../../components/intentSense/context';
+import { useIntentSenseStatus } from '../../components/intentSense/context.shared';
 import { intentTimelineTargets, messageHasIntentText } from '../../lib/intentTimeline';
 import { AffinityPill } from '../../components/intentSense/AffinityPill';
 import { IntentSuggestionBar } from '../../components/intentSense/IntentSuggestionBar';
-import { useDialog } from '../../components/Dialog';
+import { useDialog } from '../../components/Dialog.shared';
 import { MessageContextMenu } from './messageContextMenu';
 import { AvatarContextMenu, type AvatarContextMenuState } from './avatarContextMenu';
 import { useGroupMemberUnmute } from '../../hooks/useGroupMemberUnmute';
@@ -332,8 +327,10 @@ import '../../styles/message-repeat.css';
 import '../../styles/new-message-preview.css';
 import '../../styles/conversation-loading.css';
 import type { ConversationReadingPosition } from '../../lib/conversationReadingPosition';
-import { MessageTimeDivider, shouldShowMessageTime } from './messageTime';
-import { MessageGapDivider, isSeqBetween, messageGapCount } from './messageGap';
+import { MessageTimeDivider } from './messageTime';
+import { shouldShowMessageTime } from './messageTime.shared';
+import { MessageGapDivider } from './messageGap';
+import { isSeqBetween, messageGapCount } from './messageGap.shared';
 import { defaultConversationPreference } from './preferences';
 import { Avatar, ChatMessagesSkeleton, EmptyState } from './primitives';
 import type {
@@ -350,7 +347,7 @@ import { displayGroupName, displayUserName } from './user';
 import { OnlineStatus } from '../../components/OnlineStatus';
 import { MessageDecorationCard } from '../../components/MessageDecorationCard';
 import { client, trpc } from '../../trpc/client';
-import { useToast } from '../../components/Toast';
+import { useToast } from '../../components/Toast.shared';
 
 import {
   composerHeightStorageKey,

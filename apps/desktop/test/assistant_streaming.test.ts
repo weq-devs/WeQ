@@ -137,6 +137,10 @@ vi.mock('../src/renderer/src/views/agentlab/messageSearch', () => ({
   GeneratedSearchNotice: () => null,
   useGeneratedSearchJump: () => false,
 }));
+vi.mock('../src/renderer/src/views/agentlab/messageSearch.shared', () => ({
+  GeneratedSearchNotice: () => null,
+  useGeneratedSearchJump: () => false,
+}));
 vi.mock('../src/renderer/src/views/agentlab/AssistantMessage', () => ({
   AssistantMessage: ({ text, streaming }: { text: string; streaming?: boolean }) =>
     h('div', { className: 'stream-body', 'data-streaming': Boolean(streaming) }, text),

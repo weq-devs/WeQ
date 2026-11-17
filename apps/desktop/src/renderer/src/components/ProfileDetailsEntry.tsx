@@ -4,7 +4,7 @@ import type { ProfileDetailInfo } from '@weq/protocol';
 import { useQQWriteSession, type QQWriteBinding } from '../hooks/useQQWriteSession';
 import { trpc } from '../trpc/client';
 import { Modal } from './Dialog';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import { ContactInlineError, ContactRow, ContactSection } from './contactProfile/ContactRow';
 import '../styles/profile-extras.css';
 

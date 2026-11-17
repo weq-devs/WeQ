@@ -15,17 +15,18 @@ import {
 import { X } from 'lucide-react';
 import { client } from '../trpc/client';
 import { LoadingIndicator } from './LoadingIndicator';
+import { QqMessageContent } from './QqMessageContent';
 import {
-  QqMessageContent,
   ConvContext,
   ForwardCarrierContext,
   ForwardKindContext,
   ForwardSubRecordsContext,
-  MsgDecorationEnabledContext,
-} from './QqMessageContent';
-import { GrayTipLine, grayTipOf } from '../im-template/template/messageRow';
+} from '../state/messageContext';
+import { MsgDecorationEnabledContext } from '../state/messageAppearance';
+import { GrayTipLine } from '../im-template/template/messageRow';
+import { grayTipOf } from '../im-template/template/messageRow.shared';
 import { useMsgDecoration } from '../hooks/useMsgDecoration';
-import { useActiveWidget } from '../hooks/useActiveWidget';
+import { useActiveWidget } from '../hooks/useActiveWidget.shared';
 import { localDressApplies } from '../lib/dressSkin';
 import { useBubbleFontFx } from '../hooks/useBubbleFontFx';
 import { useSurfaceEscape } from '../lib/surfaceEscape';

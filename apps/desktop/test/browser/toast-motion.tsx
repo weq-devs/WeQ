@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
-import { ToastHost, useToast } from '../../src/renderer/src/components/Toast';
+import { ToastHost } from '../../src/renderer/src/components/Toast';
+import { useToast } from '../../src/renderer/src/components/Toast.shared';
 import { useThemeStore } from '../../src/renderer/src/state/theme';
 import '../../src/renderer/src/styles/index.css';
 

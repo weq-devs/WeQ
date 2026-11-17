@@ -11,7 +11,8 @@ import { useMemo, type ReactElement } from 'react';
 import { trpc } from '../../trpc/client';
 import { QqAvatar } from '../QqAvatar';
 import { LoadingIndicator } from '../LoadingIndicator';
-import { QqMessageContent, ConvContext, ForwardKindContext } from '../QqMessageContent';
+import { QqMessageContent } from '../QqMessageContent';
+import { ConvContext, ForwardKindContext } from '../../state/messageContext';
 import type { RenderEl } from './composeModel';
 
 export interface PickedMessage {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { USER_ACTIVITY_EVENT } from '../lib/renderDocument';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import { isRemoteClient } from '../lib/remoteClient';
 import { isSingleColumnLayout } from '../lib/responsiveLayout';
 import type { GroupResourceWindowName } from '../../../shared/group_resource_window';

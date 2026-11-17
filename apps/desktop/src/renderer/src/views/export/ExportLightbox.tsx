@@ -27,7 +27,7 @@ import {
   type ReactNode,
 } from 'react';
 import { z } from 'zod';
-import { usePageState } from '../../components/PageSnapshots';
+import { usePageState } from '../../components/PageSnapshots.shared';
 import {
   CalendarClock,
   Check,
@@ -43,17 +43,14 @@ import {
 } from 'lucide-react';
 import { Card, Row, Toggle } from '../../components/settings/controls';
 import { client } from '../../trpc/client';
-import { useDialog } from '../../components/Dialog';
+import { useDialog } from '../../components/Dialog.shared';
 import { ocrReadiness, type OcrReadiness } from './preflight';
 import { useExportAuthorization, type ExportAuthorizationIndicatorState } from './authorization';
 import { BaselinePicker } from './BaselinePicker';
 import { useRemoteClient } from '../../lib/remoteClient';
 import { ExportReportControl } from './ExportReportControl';
-import {
-  BusinessExportDetails,
-  ExportFormatHint,
-  structuredExportOptions,
-} from './StructuredExportControls';
+import { BusinessExportDetails, ExportFormatHint } from './StructuredExportControls';
+import { structuredExportOptions } from './StructuredExportControls.shared';
 import { ExportContentSelector } from './ExportContentSelector';
 import {
   normalizeExportContent,

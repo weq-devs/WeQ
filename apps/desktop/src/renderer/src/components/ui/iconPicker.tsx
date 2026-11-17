@@ -18,7 +18,7 @@ import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react';
 import { useOverlayLayer } from '../../lib/overlayStack';
 import { useRenderDocument } from '../../lib/renderDocument';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import '../../styles/icon-picker.css';
 
 export interface IconPickerOption {

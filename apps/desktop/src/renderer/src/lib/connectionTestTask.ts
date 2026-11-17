@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import { create } from 'zustand';
-import { useToast, type ToastAction } from '../components/Toast';
-import { notificationSource } from './notificationNavigation';
+import { useToast } from '../components/Toast.shared';
+import type { ToastAction } from '../components/Toast';
+import { notificationSource } from './notificationNavigation.shared';
 
 export const useConnectionTestTasks = create<{ running: ReadonlySet<string> }>(() => ({
   running: new Set(),

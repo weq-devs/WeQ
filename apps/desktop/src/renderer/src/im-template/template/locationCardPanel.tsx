@@ -21,7 +21,8 @@ import type { RefObject } from 'react';
 import { Loader2, MapPin, RotateCcw, SendHorizontal, X } from 'lucide-react';
 import { cn } from './classNames';
 import { isDecimalCoordinate, type ArkLocationProvider, type ArkPayload } from './arkCards';
-import { ArkLocationTab, emptyLocationDraft, type ArkLocationDraft } from './arkLocationTab';
+import { ArkLocationTab, type ArkLocationDraft } from './arkLocationTab';
+import { emptyLocationDraft } from './arkLocationTab.shared';
 
 /** 位置卡片的载荷（形状由 `@weq/trpc` 的 sendLocationArkCard 与乐观卡片共用）。 */
 export type LocationCardPayload = Extract<ArkPayload, { type: 'location' }>;

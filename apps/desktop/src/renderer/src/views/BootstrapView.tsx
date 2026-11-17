@@ -25,14 +25,14 @@ import {
 import { X } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useViewState } from '../state/view';
-import { useDialog } from '../components/Dialog';
+import { useDialog } from '../components/Dialog.shared';
 import { BootstrapWindowActions } from '../components/BootstrapWindowActions';
 import { lazyPanel } from '../lib/lazyPanel';
 import { WarmupSplash } from '../components/WarmupSplash';
 import { NativeExpiredDialog } from '../components/NativeExpiredDialog';
 import { runDesktopStartupWarmup, type WarmupProgress } from '../lib/accountWarmup';
 import { setWindowLayout } from '../lib/windowLayout';
-import { IS_MAC, IS_WEB } from '../lib/target';
+import { IS_MAC, IS_WEB } from '../lib/target.shared';
 import logoUrl from '@resources/brand/logo.png';
 const BackupSection = lazy(() =>
   import('../components/settings/BackupSection').then((module) => ({

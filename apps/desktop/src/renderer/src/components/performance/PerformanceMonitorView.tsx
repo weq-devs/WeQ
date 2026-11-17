@@ -19,7 +19,8 @@ import { trpc } from '../../trpc/client';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import { useRenderDocument } from '../../lib/renderDocument';
 import { Modal } from '../Dialog';
-import { Chart, DetailTree, eventLabels, labels, metricLabels, time } from './PerformanceCharts';
+import { Chart, DetailTree } from './PerformanceCharts';
+import { eventLabels, labels, metricLabels, time } from './PerformanceCharts.shared';
 import '../../styles/performance-monitor.css';
 
 const dateInput = (at: number) => formatDateTimeInput(at, 'minute');

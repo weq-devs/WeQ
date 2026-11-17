@@ -13,12 +13,12 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePrivacyStore } from '../state/privacy';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import { useThemeStore } from '../state/theme';
-import { usePrefersReducedMotion } from '../views/annual-report/Odometer';
+import { usePrefersReducedMotion } from '../views/annual-report/Odometer.shared';
 import * as d3 from 'd3';
 import { cachedAvatarUrl } from '../lib/avatarCache';
-import { formatNumber } from './analyticsCharts';
+import { formatNumber } from './analyticsCharts.shared';
 
 interface WireNode {
   uid: string;

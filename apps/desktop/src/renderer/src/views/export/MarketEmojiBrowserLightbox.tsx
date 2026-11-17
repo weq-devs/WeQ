@@ -16,7 +16,7 @@ import { ArrowLeft, Store, X, RefreshCw, Loader2, Download, SearchX, Sticker } f
 import type { MarketPackFeeType, ExportSavePolicy } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { useMultiSelection, type MultiSelectionItemProps } from '../../hooks/useMultiSelection';
-import { useContentMultiSelect } from '../../state/contentSelection';
+import { useContentMultiSelect } from '../../state/contentSelection.shared';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { useDevelopmentDressTools } from '../../hooks/useDevelopmentDressTools';
 import { DirectoryToolbar } from '../../components/DirectoryToolbar';
@@ -29,7 +29,7 @@ import '../../styles/market-browser.css';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { useAppDialog } from '../../lib/dialogUtils';
-import { useExportReportDialog } from './ExportReportControl';
+import { useExportReportDialog } from './ExportReportControl.shared';
 import { GridSkeleton } from './ExportSkeleton';
 
 const PAGE = 60;

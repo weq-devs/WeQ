@@ -2,10 +2,8 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  ComposerSendButton,
-  muteCountdownText,
-} from '../src/renderer/src/im-template/template/composerSendButton';
+import { ComposerSendButton } from '../src/renderer/src/im-template/template/composerSendButton';
+import { muteCountdownText } from '../src/renderer/src/im-template/template/composerSendButton.shared';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from './support/templateDemoData';
 

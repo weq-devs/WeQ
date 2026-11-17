@@ -7,7 +7,7 @@ import { createTemplateDemoData } from './support/templateDemoData';
 import { AvatarOrb } from '../src/renderer/src/components/dressPieces';
 import { cachedAvatarUrl, refreshAvatarUrl } from '../src/renderer/src/lib/avatarCache';
 import { setPreferCdnFlag } from '../src/renderer/src/lib/cdn';
-import { ShowMessageTimeContext } from '../src/renderer/src/components/MessageProvenance';
+import { ShowMessageTimeContext } from '../src/renderer/src/components/MessageProvenance.shared';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>

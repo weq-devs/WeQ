@@ -9,7 +9,7 @@ import { TipGroupElementType } from '@weq/codec';
 import { seedMessageBubbles, messageBubble } from '../../lib/messageBubbles';
 import type { Conversation, GroupMember, Message, User } from '../../im-template/template';
 import type { SetEmojiItem } from '@weq/codec';
-import { flashTransferTitle } from '../../components/QqFlashTransfer';
+import { flashTransferTitle } from '../../components/QqFlashTransfer.shared';
 import type {
   MessageWire,
   ChatMsgWire,

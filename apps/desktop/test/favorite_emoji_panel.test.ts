@@ -6,7 +6,14 @@ vi.mock('../src/renderer/src/components/qq-actions/shared', () => ({
   withQQAccountScope: (component: unknown) => component,
   useQQAction: () => ({ binding: null, available: false, disabled: true }),
 }));
+vi.mock('../src/renderer/src/components/qq-actions/shared.shared', () => ({
+  withQQAccountScope: (component: unknown) => component,
+  useQQAction: () => ({ binding: null, available: false, disabled: true }),
+}));
 vi.mock('../src/renderer/src/components/MediaSaveControls', () => ({
+  useMediaSave: () => ({ disabled: false, prompt: null }),
+}));
+vi.mock('../src/renderer/src/components/MediaSaveControls.shared', () => ({
   useMediaSave: () => ({ disabled: false, prompt: null }),
 }));
 vi.mock('../src/renderer/src/components/qq-actions/FavoriteBundleControls', () => ({

@@ -28,62 +28,17 @@ import { Rocket, Search, SendHorizontal, Smile, Sparkles, X, SearchX } from 'luc
 import { trpc } from '../../trpc/client';
 import { formatBounceCount } from '../../lib/bounceCount';
 import { cn } from './classNames';
-import { elementToToken } from './draftElements';
 import { systemFaceItem } from './emojiPacks';
-
-/**
- * 弹射个数上限 —— QQ 把 `count` 当 **int32** 读，`2^31` 起回绕成负数（收端静默
- * 不弹），所以面板只允许到 int32 上限。
- */
-export const BOUNCE_COUNT_MAX = 2147483647;
+import { BOUNCE_COUNT_MAX, type BounceEmojiDraft } from './bounceEmojiPanel.shared';
 
 /** 面板里的快捷数量。最后一条直接顶到 int32 上限，省得手敲十个数字。 */
 const COUNT_PRESETS: number[] = [1, 3, 10, 99, BOUNCE_COUNT_MAX];
-
-export type BounceEmojiDraft = {
-  /** 小黄脸 faceId（与系统表情目录同一套 id）。 */
-  faceId: number;
-  /** 表情名，**不带**方括号（如 `笑哭`）—— 真机样本的 `name` 就是这个形状。 */
-  name: string;
-  /** 弹射个数（1 – {@link BOUNCE_COUNT_MAX}）。 */
-  count: number;
-};
 
 /** `[笑哭]` → `笑哭`：`name` 字段不带方括号。 */
 function bareFaceName(desc: string, faceId: string): string {
   const trimmed = desc.trim();
   const inner = /^\[(.*)\]$/.exec(trimmed)?.[1];
   return (inner ?? trimmed) || faceId;
-}
-
-/**
- * 草稿 → codec 元素（`kind: 'emojiBounce'`）。
- *
- * 字段与 `docs/database/nt_msg/elements/emoji-bounce.md` 一一对应：
- *   - 52132 `emojiBounceId` / 52134 `emojiBounceName`；
- *   - 52138 `emojiBounceTextSummary` 是**带个数的文本总结**（真机样本
- *     「你弹射了3个[大笑]」），`QqEmojiBounce` 就是从它里面读 ×N 角标的；
- *   - 52139 `emojiBouncePcText` 给桌面端兜底显示；
- *   - 52137 `emojiBounceDetail` 冗余一份名字与总结。
- */
-export function bounceEmojiElement(draft: BounceEmojiDraft): Record<string, unknown> {
-  const count = Math.min(Math.max(Math.trunc(draft.count) || 1, 1), BOUNCE_COUNT_MAX);
-  const name = draft.name.trim();
-  const summary = `你弹射了${count}个[${name}]`;
-  return {
-    kind: 'emojiBounce',
-    emojiBounceId: draft.faceId,
-    emojiBounceFlag52133: false,
-    emojiBounceName: name,
-    emojiBounceDetail: { flag52142: 0, name, textSummary: summary },
-    emojiBounceTextSummary: summary,
-    emojiBouncePcText: summary,
-  };
-}
-
-/** 草稿 → 元素 token（chatPane 的 extraTokens 直接吃）。 */
-export function bounceEmojiToken(draft: BounceEmojiDraft): string {
-  return elementToToken(bounceEmojiElement(draft));
 }
 
 /** 输入框里的原始文本 → 合法个数；非法时给出给人看的错误文案。 */
@@ -414,3 +369,4 @@ export function BounceEmojiPanel({
     </div>
   );
 }
+export type { BounceEmojiDraft } from './bounceEmojiPanel.shared';

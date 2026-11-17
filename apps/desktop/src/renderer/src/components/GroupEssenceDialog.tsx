@@ -8,7 +8,7 @@ import { albumMediaUrl } from '../lib/resourceUrl';
 import { ShimmerImage } from './ShimmerImage';
 import { GroupFeatureSurface, type GroupFeaturePresentation } from './GroupFeatureSurface';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
-import { useQQGroupPermissions } from './qq-actions/shared';
+import { useQQGroupPermissions } from './qq-actions/shared.shared';
 import {
   essenceActive,
   essenceSource,

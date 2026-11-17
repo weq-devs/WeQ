@@ -2,7 +2,7 @@ import { NumericText } from '../NumericText';
 import { eventTimeFormatter, formatRelativeTime } from '@weq/time';
 import { TimeLabel } from '../TimeLabel';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import {
   Check,
   ChevronRight,

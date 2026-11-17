@@ -28,10 +28,12 @@ import type {
 import { trpc, client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
-import { BlobDialog, CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
+import { BlobDialog, GridFooter } from './CacheShared';
+import { CURSOR_PAGE, fmtBytes, useCursorPaged } from './CacheShared.shared';
 import { GridSkeleton, InlineSkeleton } from './CacheSkeleton';
 import { FavoriteActions } from '../../components/qq-actions/FavoriteActions';
-import { TabActivity, useTabActive } from '../../components/RetainedTabs';
+import { TabActivity } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 
 const SCOPE_META: Record<CustomEmojiScope, { label: string; icon: ReactElement }> = {
   recv: { label: '收到的表情', icon: <Inbox size={14} /> },

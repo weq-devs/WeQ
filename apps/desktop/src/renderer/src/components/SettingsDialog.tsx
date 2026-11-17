@@ -74,14 +74,8 @@ import { QqShowSettings } from './settings/QqShowSettings';
 import { VoiceAutoTranscribeSetting } from './settings/VoiceAutoTranscribeSetting';
 import { ClearReadRecordsSetting } from './settings/ClearReadRecordsSetting';
 import { MessageDisplayOptions } from './settings/MessageDisplayOptions';
-import {
-  Card,
-  Row,
-  SectionHeader,
-  SettingsNavigateContext,
-  SettingsScopeContext,
-  Toggle,
-} from './settings/controls';
+import { Card, Row, SectionHeader, Toggle } from './settings/controls';
+import { SettingsNavigateContext, SettingsScopeContext } from './settings/controls.shared';
 import { trpc } from '../trpc/client';
 import { DEFAULT_ACCENT, normalizeHex } from '../../../shared/theme_colors';
 import { AntiRecallDialog } from './AntiRecallDialog';
@@ -95,16 +89,13 @@ import '../styles/settings-responsive.css';
 import '../styles/settings-navigation.css';
 import '../styles/app-search.css';
 import type { SettingsSearchTarget } from './settings/searchTarget';
-import { RetainedTabs, TabActivity, useTabActive } from './RetainedTabs';
-import {
-  PageSnapshotsFallback,
-  usePageSnapshotKey,
-  usePageSnapshotReset,
-  usePageState,
-} from './PageSnapshots';
+import { RetainedTabs, TabActivity } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
+import { PageSnapshotsFallback } from './PageSnapshots';
+import { usePageSnapshotKey, usePageSnapshotReset, usePageState } from './PageSnapshots.shared';
 import { pageSnapshots } from '../lib/pageSnapshots';
 import { DraftCloseContext, useDraftClose } from '../lib/draftClose';
-import { useToastApi } from './Toast';
+import { useToastApi } from './Toast.shared';
 import { SettingsNotificationSource } from '../lib/notificationNavigation';
 import { Modal } from './Dialog';
 import type { SettingsNavigation } from '../hooks/useSettingsNavigation';
@@ -128,7 +119,7 @@ import { ContactCardSettings } from './settings/ContactCardSettings';
 import { useRemoteClient } from '../lib/remoteClient';
 import { remoteSettingAvailable } from '../../../shared/remote_capabilities';
 import { SettingsGroupIcon, SettingsPageIcon } from './settings/pageIcons';
-import { MAINTENANCE_TOOL_ICONS } from '../lib/featureIcons';
+import { MAINTENANCE_TOOL_ICONS } from '../lib/featureIcons.shared';
 
 const LoginAccountsIcon = MAINTENANCE_TOOL_ICONS['login-accounts'];
 

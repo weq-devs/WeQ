@@ -12,7 +12,7 @@ import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { Loader2, X } from 'lucide-react';
 import { Modal } from './Dialog';
 import { useThemeStore } from '../state/theme';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import { openExternalLink } from '../lib/openExternalLink';
 import { ExternalLink } from 'lucide-react';
 

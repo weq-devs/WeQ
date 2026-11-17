@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { QqDebugCopy } from '../src/renderer/src/components/QqDebugCopy';
 import { RestrictedQqAction } from '../src/renderer/src/components/RestrictedQqAction';
-import { useDialog } from '../src/renderer/src/components/Dialog';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import type { QqDebugCopyStatus } from '../src/shared/qq_debug_copy';
 
 const f = vi.hoisted(() => ({

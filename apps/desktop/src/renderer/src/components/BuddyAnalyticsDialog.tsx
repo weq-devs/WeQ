@@ -20,14 +20,8 @@ import { Avatar } from '../im-template/template/primitives';
 import { OverlayLayer } from './OverlayLayer';
 import { FaceEmoji } from './FaceEmoji';
 import { AnalyticsSkeleton } from './AnalyticsSkeleton';
-import {
-  ContributionHeatmap,
-  DonutChart,
-  HourlyBarChart,
-  WordCloud,
-  formatDate,
-  formatNumber,
-} from './analyticsCharts';
+import { ContributionHeatmap, DonutChart, HourlyBarChart, WordCloud } from './analyticsCharts';
+import { formatDate, formatNumber } from './analyticsCharts.shared';
 import { useAnalyticsExport } from './useAnalyticsExport';
 import type { AnalysisScope } from '../views/analysis/model';
 import { AnalyticsRetry } from './AnalyticsRetry';

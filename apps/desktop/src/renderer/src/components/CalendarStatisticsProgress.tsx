@@ -4,7 +4,8 @@ import {
 } from '@weq/service/conversation-calendar';
 import { NumericText } from './NumericText';
 import { CalendarScanProgress } from './CalendarScanProgress';
-import { calendarReadLabel, type CalendarSnapshot } from './CalendarStatistics';
+import { calendarReadLabel } from './CalendarStatistics.shared';
+import type { CalendarSnapshot } from './CalendarStatistics';
 import { TaskLogDisclosure } from './TaskLogDisclosure';
 
 export function CalendarStatisticsProgress({

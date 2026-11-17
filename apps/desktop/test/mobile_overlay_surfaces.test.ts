@@ -1,10 +1,8 @@
 import { act, createElement as h, type ReactElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import {
-  openRedBagQrcode,
-  RedBagQrcodeHost,
-} from '../src/renderer/src/components/RedBagQrcodeDialog';
+import { openRedBagQrcode } from '../src/renderer/src/components/RedBagQrcodeDialog.shared';
+import { RedBagQrcodeHost } from '../src/renderer/src/components/RedBagQrcodeDialog';
 import { AlbumExportLightbox } from '../src/renderer/src/views/export/AlbumExportLightbox';
 import { GroupFileExportLightbox } from '../src/renderer/src/views/export/GroupFileExportLightbox';
 import { FailureLightbox } from '../src/renderer/src/views/export/FailureLightbox';
@@ -12,6 +10,10 @@ import { ExportLightbox } from '../src/renderer/src/views/export/ExportLightbox'
 import { mobileBack, mobileBackEntry } from '../src/renderer/src/hooks/useMobileNavigation';
 
 vi.mock('../src/renderer/src/lib/target', async (original) => ({
+  ...(await original<object>()),
+  IS_WEB: true,
+}));
+vi.mock('../src/renderer/src/lib/target.shared', async (original) => ({
   ...(await original<object>()),
   IS_WEB: true,
 }));

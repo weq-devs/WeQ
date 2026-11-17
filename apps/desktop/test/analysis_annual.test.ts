@@ -45,6 +45,10 @@ vi.mock('../src/renderer/src/views/annual-report/pageRegistry', () => ({
   renderReportPage: (page: { id: string }, _data: unknown, active: boolean) =>
     createElement('p', { 'data-report-page': page.id, 'data-active': active }, page.id),
 }));
+vi.mock('../src/renderer/src/views/annual-report/pageRegistry.shared', () => ({
+  renderReportPage: (page: { id: string }, _data: unknown, active: boolean) =>
+    createElement('p', { 'data-report-page': page.id, 'data-active': active }, page.id),
+}));
 afterEach(() => {
   vi.restoreAllMocks();
   vi.resetAllMocks();

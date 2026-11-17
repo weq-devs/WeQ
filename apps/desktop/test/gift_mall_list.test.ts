@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { uniqueGiftItems } from '../src/renderer/src/components/gift/GiftMallPanel';
+import { uniqueGiftItems } from '../src/renderer/src/components/gift/GiftMallPanel.shared';
 
 describe('礼物商城列表', () => {
   it('按礼物 ID 去掉同一响应中的重复项，保留首次出现的顺序', () => {

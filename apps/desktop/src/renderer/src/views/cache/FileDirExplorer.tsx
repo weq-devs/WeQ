@@ -12,23 +12,16 @@ import { NumericText } from '../../components/NumericText';
 import { EmptyState } from '../../components/EmptyState';
 import { useMemo, useState, type ReactElement } from 'react';
 import { FolderOpen, ExternalLink, AlertTriangle } from 'lucide-react';
-import { DesktopOnly, IS_ELECTRON } from '../../lib/target';
+import { DesktopOnly } from '../../lib/target';
+import { IS_ELECTRON } from '../../lib/target.shared';
 import type { FileResourceEntry } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { fileIconUrl, localFileUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
-import {
-  FileResourceToolbar,
-  ListFooter,
-  usePagedList,
-  fmtBytes,
-  fmtDate,
-  isImageCategory,
-  cn,
-  type ToolbarState,
-} from './CacheShared';
+import { FileResourceToolbar, ListFooter, type ToolbarState } from './CacheShared';
+import { usePagedList, fmtBytes, fmtDate, isImageCategory, cn } from './CacheShared.shared';
 import { FileGridSkeleton } from './CacheSkeleton';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 
 export function FileDirExplorer(): ReactElement {
   const visible = useTabActive();

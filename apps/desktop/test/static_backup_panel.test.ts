@@ -2,7 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { StaticBackupPanel } from '../src/renderer/src/views/bootstrap/StaticBackupPanel';
-import { useDialog } from '../src/renderer/src/components/Dialog';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import type { BackupScanEvent } from '../src/main/static_backup';
 
 const f = vi.hoisted(() => ({

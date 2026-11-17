@@ -17,7 +17,7 @@ import { CompositionButton } from './CompositionButton';
 import { useMemo, useState, type ReactElement } from 'react';
 import { ArrowLeft, ClipboardCopy, Save, Share2, X } from 'lucide-react';
 import { Modal } from '../Dialog';
-import { useToast } from '../Toast';
+import { useToast } from '../Toast.shared';
 import { copyTextToClipboard } from '../../im-template/template/clipboard';
 import { MergeForwardComposer } from './MergeForwardComposer';
 import { MergeForwardTargets } from './MergeForwardTargets';

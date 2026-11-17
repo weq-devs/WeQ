@@ -46,6 +46,9 @@ function roundFor(list: { text: string }[] | undefined, targetId?: string, useHi
 vi.mock('../src/renderer/src/components/intentSense/context', () => ({
   useIntentSenseStatus: () => ({ data: fixture.status }),
 }));
+vi.mock('../src/renderer/src/components/intentSense/context.shared', () => ({
+  useIntentSenseStatus: () => ({ data: fixture.status }),
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     account: {

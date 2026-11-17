@@ -1,19 +1,11 @@
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { useState } from 'react';
-import { useDialog } from '../../components/Dialog';
-import {
-  EXPORT_EXTRA_LABELS,
-  type ExportExtraKey,
-  type ExportExtraOptions,
-} from '@weq/service/export-content';
+import { useDialog } from '../../components/Dialog.shared';
+import { EXPORT_EXTRA_LABELS, type ExportExtraKey } from '@weq/service/export-content';
 import '../../styles/structured-export.css';
 import '../../styles/export-content-selector.css';
+import type { StructuredExportOptions } from './StructuredExportControls.shared';
 
-export interface StructuredExportOptions {
-  extra?: ExportExtraOptions;
-  profile?: 'basic' | 'full';
-  incrementalSupport?: boolean;
-}
 export interface ResourceArchiveOptions extends StructuredExportOptions {
   metadataFormat?: 'json' | 'jsonl' | 'jsonl.gz' | 'none';
 }
@@ -145,19 +137,7 @@ export function ResourceArchiveControls({
     </div>
   );
 }
-export function structuredExportOptions(
-  _options: StructuredExportOptions,
-  formats: readonly string[],
-  chatlab = false,
-): StructuredExportOptions & { profile: 'full'; incrementalSupport: boolean } {
-  return {
-    ...(_options.extra ? { extra: _options.extra } : {}),
-    profile: 'full',
-    incrementalSupport:
-      !chatlab &&
-      formats.some((format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz'),
-  };
-}
 export function ExportFormatHint() {
   return <small className="weq-exp-format-note">仅 JSON、JSONL、JSONL（压缩）支持增量导出</small>;
 }
+export type { StructuredExportOptions } from './StructuredExportControls.shared';

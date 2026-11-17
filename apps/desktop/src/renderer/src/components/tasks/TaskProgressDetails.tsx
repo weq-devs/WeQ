@@ -2,7 +2,8 @@ import { NumericText } from '../NumericText';
 import { useEffect, useState } from 'react';
 import { formatDuration } from '@weq/time';
 import { TimeLabel } from '../TimeLabel';
-import { longTaskProgress, longTaskStatusLabel, type LongTaskStatus } from './LongTaskRow';
+import { longTaskProgress, longTaskStatusLabel } from './LongTaskRow.shared';
+import type { LongTaskStatus } from './LongTaskRow';
 import { TaskProgressBar } from './TaskProgressBar';
 
 export function TaskProgressDetails({

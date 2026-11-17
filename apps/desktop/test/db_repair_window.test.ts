@@ -44,6 +44,11 @@ vi.mock('../src/renderer/src/components/Toast', () => ({
   ToastHost: () => null,
   useToast: (select: (state: { push: typeof pushToast }) => unknown) => select({ push: pushToast }),
 }));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
+  useToastApi: () => ({ push: pushToast }),
+  ToastHost: () => null,
+  useToast: (select: (state: { push: typeof pushToast }) => unknown) => select({ push: pushToast }),
+}));
 vi.mock('../src/renderer/src/components/HoverTooltip', () => ({ HoverTooltip: () => null }));
 
 afterEach(() => {

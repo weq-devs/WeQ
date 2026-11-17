@@ -5,7 +5,7 @@ import { MailSettingsSection } from '../../src/renderer/src/components/settings/
 import { SidebarHeader } from '../../src/renderer/src/im-template/template/sidebarHeader';
 import { CurrentTaskList } from '../../src/renderer/src/components/tasks/CurrentTaskList';
 import type { UiTask } from '../../src/renderer/src/views/export/TaskList';
-import { SettingsNavigateContext } from '../../src/renderer/src/components/settings/controls';
+import { SettingsNavigateContext } from '../../src/renderer/src/components/settings/controls.shared';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import { useViewState } from '../../src/renderer/src/state/view';
 import '../../src/renderer/src/styles/index.css';

@@ -13,14 +13,15 @@ import { Storage } from 'happy-dom';
 import { z } from 'zod';
 import { afterEach, expect, it, vi } from 'vitest';
 import { RetainedTabs, TabActivity } from '../src/renderer/src/components/RetainedTabs';
-import { PageSnapshots, usePageState } from '../src/renderer/src/components/PageSnapshots';
+import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
+import { usePageState } from '../src/renderer/src/components/PageSnapshots.shared';
 import {
   createPageSnapshotStorage,
   PAGE_SNAPSHOT_MAX_BYTES,
   PAGE_SNAPSHOT_MAX_ENTRIES,
   pageValue,
 } from '../src/renderer/src/lib/pageSnapshots';
-import { useToast } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 
 afterEach(() => {
   document.body.replaceChildren();

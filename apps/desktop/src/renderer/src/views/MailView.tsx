@@ -4,7 +4,7 @@ import { createMailApi } from './mail/api';
 import { X } from 'lucide-react';
 import { Modal } from '../components/Dialog';
 import { MailSettingsSection } from '../components/settings/MailSettingsSection';
-import { useTabActive } from '../components/RetainedTabs';
+import { useTabActive } from '../components/RetainedTabs.shared';
 import { PageSnapshotScope } from '../components/PageSnapshots';
 
 export const MailWorkspace = memo(function MailWorkspace({

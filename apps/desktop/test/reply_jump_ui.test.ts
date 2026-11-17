@@ -4,10 +4,8 @@ import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from './support/templateDemoData';
-import {
-  QqMessageContent,
-  ReplyJumpContext,
-} from '../src/renderer/src/components/QqMessageContent';
+import { QqMessageContent } from '../src/renderer/src/components/QqMessageContent';
+import { ReplyJumpContext } from '../src/renderer/src/state/messageContext';
 import { useDataSaver } from '../src/renderer/src/lib/dataSaver';
 
 const dataSaverPolicy = useDataSaver.getState();
@@ -16,6 +14,10 @@ const gallery = vi.hoisted(() =>
   vi.fn((_options: unknown) => ({ close: vi.fn(), update: vi.fn() })),
 );
 vi.mock('../src/renderer/src/components/mediaPreviewStore', () => ({
+  openMediaPreview: gallery,
+  MediaPreviewHost: () => null,
+}));
+vi.mock('../src/renderer/src/components/mediaPreviewStore.shared', () => ({
   openMediaPreview: gallery,
   MediaPreviewHost: () => null,
 }));

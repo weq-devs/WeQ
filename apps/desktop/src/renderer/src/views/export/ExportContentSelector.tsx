@@ -23,7 +23,7 @@ import {
   type ExportContentPolicy,
 } from '@weq/service/export-content';
 import { SegmentedControl } from '../../components/SegmentedControl';
-import { DRESS_KIND_ICONS, FEATURE_ICONS } from '../../lib/featureIcons';
+import { DRESS_KIND_ICONS, FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import '../../styles/export-content-selector.css';
 
 const items = {

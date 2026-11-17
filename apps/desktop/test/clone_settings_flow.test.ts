@@ -48,6 +48,10 @@ vi.mock('../src/renderer/src/components/Dialog', async (original) => ({
   ...(await original<typeof import('../src/renderer/src/components/Dialog')>()),
   useDialog: Object.assign(() => f.error, { getState: () => ({ confirm: f.confirm }) }),
 }));
+vi.mock('../src/renderer/src/components/Dialog.shared', async (original) => ({
+  ...(await original<typeof import('../src/renderer/src/components/Dialog.shared')>()),
+  useDialog: Object.assign(() => f.error, { getState: () => ({ confirm: f.confirm }) }),
+}));
 vi.mock('../src/renderer/src/components/settings/ApiModelSelect', () => ({
   ApiModelSelect: () => h('span', null, '合成模型'),
 }));

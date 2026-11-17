@@ -1,10 +1,7 @@
 import { EmptyState } from '../../components/EmptyState';
 import { useMemo, useState } from 'react';
-import {
-  StructuredExportControls,
-  structuredExportOptions,
-  type StructuredExportOptions,
-} from './StructuredExportControls';
+import { StructuredExportControls, type StructuredExportOptions } from './StructuredExportControls';
+import { structuredExportOptions } from './StructuredExportControls.shared';
 import { Download, RefreshCw, Search, Sparkles, Users, MessagesSquare } from 'lucide-react';
 import type {
   ExportSavePolicy,
@@ -16,12 +13,13 @@ import { client, trpc } from '../../trpc/client';
 import { WindowedList } from '../../components/WindowedList';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { CheckPill, CheckPillGroup } from '../../components/settings/controls';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { QqAvatar } from '../../components/QqAvatar';
 import { GroupMosaicAvatar } from '../../components/GroupMosaicAvatar';
 import { ChatBubble } from '../agentlab/ChatBubble';
-import { ChatTimeDivider, shouldShowChatTime } from '../agentlab/messageTime';
+import { ChatTimeDivider } from '../agentlab/messageTime';
+import { shouldShowChatTime } from '../agentlab/messageTime.shared';
 import { PickerListSkeleton } from './ExportSkeleton';
 import {
   generatedContentContainer,
@@ -30,7 +28,7 @@ import {
 } from '../../../../shared/content_selection';
 import { BACKEND_FORMATS, type BackendFormat } from './types';
 import '../../styles/generated-export.css';
-import { useExportReportDialog } from './ExportReportControl';
+import { useExportReportDialog } from './ExportReportControl.shared';
 
 const FORMATS: BackendFormat[] = [...BACKEND_FORMATS];
 

@@ -8,15 +8,8 @@ import { useDraftProtection } from '../../lib/draftClose';
 import { qzoneSelfLiked, type QzoneReplyTarget } from '../../lib/qzoneActions';
 import { qzoneReplyPresentation } from '../../lib/qzoneReplyPresentation';
 import type { QzoneInteraction } from '../../views/qzone_types';
-import {
-  ActionFeedback,
-  ActionIcon,
-  ImageAction,
-  SaveAction,
-  useQQAction,
-  useQQAlbumPermissions,
-  withQQAccountScope,
-} from './shared';
+import { ActionFeedback, ActionIcon, ImageAction, SaveAction } from './shared';
+import { useQQAction, useQQAlbumPermissions, withQQAccountScope } from './shared.shared';
 
 export interface QzoneLikeChange {
   previous: boolean | null;

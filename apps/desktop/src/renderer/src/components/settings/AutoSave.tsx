@@ -3,9 +3,9 @@ import { createPortal } from 'react-dom';
 import { RefreshCw } from 'lucide-react';
 import { SettingsSaveQueue, settingsSaves } from '../../lib/settingsSaveQueue';
 import { useDraftProtection } from '../../lib/draftClose';
-import { SaveStatusSlotContext } from './controls';
+import { SaveStatusSlotContext } from './controls.shared';
 import { SettingsResetCardContext } from './resetContext';
-import { usePageSnapshotKey } from '../PageSnapshots';
+import { usePageSnapshotKey } from '../PageSnapshots.shared';
 import '../../styles/settings-autosave.css';
 
 interface AutoSaveProps<T> {

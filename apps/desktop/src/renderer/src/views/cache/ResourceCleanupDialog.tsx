@@ -50,12 +50,12 @@ import {
 } from 'lucide-react';
 import type { CleanupTargetStat, CleanupVariant, CleanupResult } from '@weq/service';
 import { z } from 'zod';
-import { usePageState } from '../../components/PageSnapshots';
+import { usePageState } from '../../components/PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
 import { client, trpc } from '../../trpc/client';
 import { useMultiSelection, type MultiSelectionItemProps } from '../../hooks/useMultiSelection';
-import { fmtBytes } from './CacheShared';
-import { useTabActive } from '../../components/RetainedTabs';
+import { fmtBytes } from './CacheShared.shared';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import { useDraftProtection } from '../../lib/draftClose';
 import type { ResourceManagementSnapshot } from './resourceManagement';
 

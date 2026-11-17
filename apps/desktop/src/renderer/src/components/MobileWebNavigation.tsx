@@ -10,11 +10,15 @@ import { TitleBarSearch } from './TitleBarSearch';
 import { DataSaverMenu } from './DataSaverMenu';
 import { RemoteShellMenuButton } from './RemoteShellMenus';
 import { OnlineStatus } from './OnlineStatus';
-import { useWorkspaceMobilePage } from './WorkspacePages';
+import { useWorkspaceMobilePage } from './WorkspacePages.shared';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
 import { preloadMobilePages } from '../lib/mobilePageLoading';
-import { mobilePageLoaders, mobileMorePageLoaders, preloadWorkspace } from './lazyWorkspaces';
+import {
+  mobilePageLoaders,
+  mobileMorePageLoaders,
+  preloadWorkspace,
+} from './lazyWorkspaces.shared';
 import { useDataSaver } from '../lib/dataSaver';
 import { registerMobileBack } from '../hooks/useMobileNavigation';
 import { mobileRootTab } from '../lib/mobileRootTransition';

@@ -8,7 +8,7 @@ import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { avatarFromGroupCode } from '../../lib/avatarResolver';
 import { GroupAvatar } from '../exportAvatars';
 import { sharedGroupConversation } from '../ark/groupShareCard';
-import { withQQAccountScope } from './shared';
+import { withQQAccountScope } from './shared.shared';
 import '../../styles/friend-clue.css';
 
 const dateFormat = eventTimeFormatter;

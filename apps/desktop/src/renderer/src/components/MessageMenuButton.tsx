@@ -1,6 +1,5 @@
-import { createContext, useContext, type ButtonHTMLAttributes } from 'react';
-
-export const MessageMenuContext = createContext(false);
+import { useContext, type ButtonHTMLAttributes } from 'react';
+import { MessageMenuContext } from './MessageMenuButton.shared';
 
 /** 菜单中的禁用项仍能获得焦点，以便读取不可用原因。其他界面保留原生按钮行为。 */
 export function MessageMenuButton({

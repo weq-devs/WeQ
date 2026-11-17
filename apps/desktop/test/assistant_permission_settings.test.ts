@@ -4,7 +4,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { expect, it, vi } from 'vitest';
 import { AssistantSettings } from '../src/renderer/src/views/agentlab/AssistantPanel';
-import { DialogHost, useDialog } from '../src/renderer/src/components/Dialog';
+import { DialogHost } from '../src/renderer/src/components/Dialog';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import type { AssistantConfig } from '@weq/service';
 
 const f = vi.hoisted(() => ({

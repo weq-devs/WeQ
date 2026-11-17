@@ -14,9 +14,9 @@ import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { useFriendSpecialCare } from '../hooks/useFriendSpecialCare';
 import { groupMemberEditing } from '../lib/groupMemberEditing';
-import { FEATURE_ICONS } from '../lib/featureIcons';
+import { FEATURE_ICONS } from '../lib/featureIcons.shared';
 import { Card } from './settings/controls';
-import { useDialog } from './Dialog';
+import { useDialog } from './Dialog.shared';
 import { GroupActions } from './qq-actions/GroupActions';
 import { QzoneFriendPermissions } from './qq-actions/QzoneFriendPermissions';
 import {
@@ -24,15 +24,9 @@ import {
   QQWriteSelectRow,
   QQWriteTextRow,
   QQWriteToggleRow,
-  qqWriteNeedsConfirmation,
 } from './QQWriteControls';
-
-export const GROUP_MESSAGE_POLICY_OPTIONS = [
-  { value: 1, label: '正常提醒' },
-  { value: 4, label: '接收但不提醒' },
-  { value: 2, label: '收进群助手' },
-  { value: 3, label: '屏蔽消息' },
-] as const;
+import { qqWriteNeedsConfirmation } from './QQWriteControls.shared';
+import { GROUP_MESSAGE_POLICY_OPTIONS } from './QQConversationControls.shared';
 
 export function QQConversationControls({
   kind,

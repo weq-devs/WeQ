@@ -1,6 +1,6 @@
 import { Component, type ReactNode } from 'react';
 import { RefreshCw, TriangleAlert } from 'lucide-react';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import { publishRemoteStartup } from '../lib/remoteStartup';
 import '../styles/renderer-recovery.css';
 

@@ -2,7 +2,8 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { PageDataCache } from '../src/renderer/src/lib/pageDataCache';
-import { PageSnapshots, usePageDataCache } from '../src/renderer/src/components/PageSnapshots';
+import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
+import { usePageDataCache } from '../src/renderer/src/components/PageSnapshots.shared';
 import { messageTemplateContext } from '../src/renderer/src/lib/messageTemplateContext';
 import { createTemplateDemoData } from './support/templateDemoData';
 

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { useTabActive } from '../components/RetainedTabs';
+import { useTabActive } from '../components/RetainedTabs.shared';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { publishQQPeerUpdate } from '../lib/qqPeerUpdates';
-import { useToastApi, sourceToastPush } from '../components/Toast';
+import { useToastApi, sourceToastPush } from '../components/Toast.shared';
 import type { NotificationSource } from '../lib/notificationNavigation';
 
 export interface QQWriteBinding {

@@ -165,8 +165,8 @@ import {
 } from '@renderer/lib/profileNavigation';
 import { client, trpc } from '@renderer/trpc/client';
 import { copyTextToClipboard } from '@renderer/im-template/template/clipboard';
+import { contactCardFieldGroup } from '../src/renderer/src/lib/contactCardSections';
 import {
-  contactCardFieldGroup,
   ContactContent,
   ContactIdentity,
 } from '@renderer/components/contactProfile/ContactContent';

@@ -11,6 +11,7 @@ import { MobileSidebarPages } from '../src/renderer/src/components/MobileSidebar
 import { scheduleBackgroundLoad } from '../src/renderer/src/lib/backgroundLoad';
 
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true }));
 let mobile = true;
 let hidden = false;
 let host: HTMLDivElement;

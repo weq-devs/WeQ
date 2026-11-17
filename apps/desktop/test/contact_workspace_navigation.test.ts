@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
-import { useToast } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { pageSnapshots, pageValue } from '../src/renderer/src/lib/pageSnapshots';
 import {
   useChatShellController,

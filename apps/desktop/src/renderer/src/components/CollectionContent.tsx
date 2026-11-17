@@ -1,26 +1,9 @@
 import { createElement, useMemo, type ReactNode } from 'react';
-import { openMediaPreview } from './mediaPreviewStore';
+import { openMediaPreview } from './mediaPreviewStore.shared';
 import { collectionImageUrl } from '../lib/resourceUrl';
 import { CollectionImage } from './CollectionImage';
+import { DROP_TAGS } from './CollectionContent.shared';
 
-const DROP_TAGS = new Set([
-  'script',
-  'style',
-  'iframe',
-  'frame',
-  'frameset',
-  'embed',
-  'svg',
-  'math',
-  'template',
-  'link',
-  'meta',
-  'base',
-  'form',
-  'input',
-  'button',
-  'textarea',
-]);
 const TEXT_TAGS = new Set([
   'p',
   'div',
@@ -134,16 +117,6 @@ function contentNode(node: Node, key: string, depth = 0): ReactNode {
   if (!TEXT_TAGS.has(tag)) return <span key={key}>{children}</span>;
   if (tag === 'br' || tag === 'hr') return createElement(tag, { key });
   return createElement(tag, { key }, children);
-}
-
-export function collectionContentText(html: string): string {
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  for (const tag of DROP_TAGS) {
-    for (const element of doc.querySelectorAll(tag)) element.remove();
-  }
-  for (const element of doc.querySelectorAll('br')) element.replaceWith('\n');
-  for (const element of doc.querySelectorAll('p, div, li')) element.append('\n');
-  return (doc.body.textContent ?? '').trim();
 }
 
 export function CollectionContent({

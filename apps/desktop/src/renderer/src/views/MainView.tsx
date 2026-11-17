@@ -69,7 +69,7 @@ import React, {
 import { z } from 'zod';
 import { OverlayScrollbar } from '../components/OverlayScrollbar';
 import { trpc } from '../trpc/client';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import { isSingleColumnLayout } from '../lib/responsiveLayout';
 import { replaceEqualDeep, useQueryClient } from '@tanstack/react-query';
 import { WebBusinessCache } from '../components/WebBusinessCache';
@@ -100,7 +100,7 @@ import { useMobileBack } from '../hooks/useMobileNavigation';
 import { MobileSidebarPages } from '../components/MobileSidebarPages';
 import { withBrowserFile } from '../lib/browserFileUpload';
 import { stageAccountFile } from '../lib/accountFilePicker';
-import { WEB_NOTICE_OPEN } from '../components/WebNotifications';
+import { WEB_NOTICE_OPEN } from '../lib/browserNotifications';
 import type { WebNotice } from '../../../main/web/notices';
 import type { ChatMsgWire as IncomingMessageWire } from '../../../main/ipc/serde';
 import { createReplyPreviewIndex } from '../lib/replyPreview';
@@ -129,7 +129,7 @@ import { useWebConnection } from '../state/webConnection';
 import { useUpdateStore } from '../state/update';
 import { useEnhancementUpdates } from '../hooks/useEnhancementUpdates';
 import { client } from '../trpc/client';
-import { useToast, sourceToastPush } from '../components/Toast';
+import { useToast, sourceToastPush } from '../components/Toast.shared';
 import {
   notificationContent,
   notificationSource,
@@ -137,11 +137,11 @@ import {
   onNotificationNavigation,
   conversationNotificationSource,
   messageNotificationSource,
-} from '../lib/notificationNavigation';
+} from '../lib/notificationNavigation.shared';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { useMessageLocateFeedback } from '../hooks/useMessageLocateFeedback';
 import { onOpenSettingsRequest } from '../lib/callSettingsBridge';
-import { useDialog } from '../components/Dialog';
+import { useDialog } from '../components/Dialog.shared';
 import { generatedConversationDeletion } from '../lib/generatedConversationDeletion';
 import { ForwardWindowHost } from '../components/ForwardWindow';
 import { Undo2 } from 'lucide-react';
@@ -224,7 +224,10 @@ import {
   recentContactPreviewIsBehind,
   type ObservedContactPreview,
 } from '../lib/recentContacts';
-import { useContentSelectionScope, useRequestContentExport } from '../state/contentSelection';
+import {
+  useContentSelectionScope,
+  useRequestContentExport,
+} from '../state/contentSelection.shared';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { conversationWindowKey } from '../lib/conversationWindowCache';
 import { firstPageKey } from '../lib/conversationFirstPage';
@@ -246,10 +249,8 @@ import { RailAccountFooter } from '../components/RailAccountFooter';
 import { WorkspaceMenuButton, WorkspaceSettingsButton } from '../components/WorkspaceMenuButton';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
 import type { SectionId as SettingsDialogSectionId } from '../components/SettingsDialog';
-import {
-  remoteUnsupportedTools,
-  type MaintenanceTool,
-} from '../components/settings/DataMaintenanceSection';
+import { remoteUnsupportedTools } from '../components/settings/DataMaintenanceSection.shared';
+import type { MaintenanceTool } from '../components/settings/DataMaintenanceSection';
 import { isRemoteClient } from '../lib/remoteClient';
 import {
   SettingsDialog,
@@ -326,11 +327,11 @@ import {
   GROUP_ESSENCE_ONLINE_LIMIT,
 } from '../lib/groupEssenceProjection';
 import { sharedGroupConversation } from '../components/ark/groupShareCard';
-import { openRedBagQrcode } from '../components/RedBagQrcodeDialog';
+import { openRedBagQrcode } from '../components/RedBagQrcodeDialog.shared';
 import type { GroupLeftMemberRow } from '../components/GroupLeftMembersDialog';
 import type { CompositionBinding } from '../components/mergeForward/workspaceModel';
 import { useCompositionWindow } from '../hooks/useCompositionWindow';
-import { useGroupResourceWindows } from '../hooks/useGroupResourceWindows';
+import { useGroupResourceWindows } from '../hooks/useGroupResourceWindows.shared';
 import {
   cleanNtPath,
   codecElementsToSegs,
@@ -412,7 +413,8 @@ import {
 } from '../lib/chatNavigation';
 import { readProfilePreviewPage, type ProfilePreviewCursor } from '../lib/profileMessagePreview';
 import { RetainedTabs } from '../components/RetainedTabs';
-import { PageSnapshots, usePageState } from '../components/PageSnapshots';
+import { PageSnapshots } from '../components/PageSnapshots';
+import { usePageState } from '../components/PageSnapshots.shared';
 import { pageValue } from '../lib/pageSnapshots';
 import { RendererRecoveryNotice } from '../components/RendererRecoveryNotice';
 import {
@@ -441,8 +443,8 @@ import type {
 import {
   buildFlashOptimisticElement,
   flashDescOf,
-  type FlashSendPayload,
-} from '../im-template/template/flashComposer';
+} from '../im-template/template/flashComposer.shared';
+import type { FlashSendPayload } from '../im-template/template/flashComposer';
 import {
   arkCardSignature,
   buildContactPlaceholderArk,
@@ -484,13 +486,9 @@ import {
   resolveSendMentions,
   type MentionIdentity,
 } from '../lib/mentionIdentity';
-import {
-  qqMessageRenderer,
-  ReplyJumpContext,
-  ForwardKindContext,
-  ConvContext,
-  type ReplyJumpTarget,
-} from '../components/QqMessageContent';
+import { qqMessageRenderer } from '../components/QqMessageContent.shared';
+import { ReplyJumpContext, ForwardKindContext, ConvContext } from '../state/messageContext';
+import type { ReplyJumpTarget } from '../components/QqMessageContent';
 import {
   DatabaseDamagedDialog,
   type DatabaseDamagedEvent,

@@ -3,8 +3,8 @@ import { FileCode2, FileImage, FileText, LoaderCircle, Share2 } from 'lucide-rea
 import type { EndPageData, ExportSavePolicy } from '@weq/service';
 import { isAllTimeYear, reportPeriodLabel } from '@weq/service/report-time';
 import { client } from '../../../trpc/client';
-import { useToast } from '../../../components/Toast';
-import { taskNotificationSource } from '../../../lib/notificationNavigation';
+import { useToast } from '../../../components/Toast.shared';
+import { taskNotificationSource } from '../../../lib/notificationNavigation.shared';
 import { PageFrame, type ReportPageProps } from '../pageFrame';
 import { useReportView } from '../reportContext';
 import { buildReportHtml, preloadReportAssets } from '../exportHtml';
@@ -12,7 +12,7 @@ import { QzoneShareLightbox } from '../QzoneShareLightbox';
 import type { AnalysisScope } from '../../analysis/model';
 import { useExportSavePolicy } from '../../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../../../components/ServerSavePrompt';
-import { IS_WEB } from '../../../lib/target';
+import { IS_WEB } from '../../../lib/target.shared';
 import { annualReportExportOutput } from '../../../../../shared/annual_report_export';
 import '../../../styles/annual-report-save.css';
 

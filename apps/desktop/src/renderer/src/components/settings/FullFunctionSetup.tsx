@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { ChevronDown, Copy, GitBranch, Monitor, RefreshCw, Settings, Zap } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
-import { IS_WEB } from '../../lib/target';
+import { IS_WEB } from '../../lib/target.shared';
 import { QqDebugCopyDialog } from '../QqDebugCopyDialog';
 import { Card } from './controls';
 import { useViewState } from '../../state/view';

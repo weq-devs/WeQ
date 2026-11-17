@@ -3,10 +3,10 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   IntentSenseProvider,
-  useIntentSenseContext,
   type IntentAnalysis,
   type IntentSenseContextValue,
 } from '../src/renderer/src/components/intentSense/context';
+import { useIntentSenseContext } from '../src/renderer/src/components/intentSense/context.shared';
 import { IntentSuggestionBar } from '../src/renderer/src/components/intentSense/IntentSuggestionBar';
 import { MessageIntentSense } from '../src/renderer/src/components/intentSense/MessageIntentSense';
 import { DEFAULT_ANALYSIS_CONTEXT_MESSAGES } from '@weq/service/intent-context';

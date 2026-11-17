@@ -29,6 +29,11 @@ vi.mock('../src/renderer/src/components/groupProfile/GroupContent', () => ({
   GroupTags: () => null,
   groupCreationDate: () => '',
 }));
+vi.mock('../src/renderer/src/components/groupProfile/GroupContent.shared', () => ({
+  GroupFreezeNotice: () => null,
+  GroupTags: () => null,
+  groupCreationDate: () => '',
+}));
 
 let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;

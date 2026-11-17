@@ -10,8 +10,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { canExportAnalyticsCard, exportAnalyticsCard } from './analyticsShot';
-import { useToastApi } from './Toast';
-import { taskNotificationSource, savedFileNotificationSource } from '../lib/notificationNavigation';
+import { useToastApi } from './Toast.shared';
+import {
+  taskNotificationSource,
+  savedFileNotificationSource,
+} from '../lib/notificationNavigation.shared';
 import type { AnalyticsExportPayload } from '../../../shared/analytics_export';
 import { client } from '../trpc/client';
 import { useViewState } from '../state/view';

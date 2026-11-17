@@ -1,7 +1,7 @@
 import { useContext, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BarChart3, Eye, MessageSquareText } from 'lucide-react';
-import { FEATURE_ICONS } from '../../lib/featureIcons';
+import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import {
   ChatNavigationContext,
   GroupSpeechPreviewContext,

@@ -11,7 +11,7 @@ import {
   replaceComposerTextRange,
   restoreComposer,
   serializeComposer,
-} from '../src/renderer/src/im-template/template/composer';
+} from '../src/renderer/src/im-template/template/composer.shared';
 
 afterEach(() => {
   window.getSelection()?.removeAllRanges();

@@ -15,7 +15,6 @@
 import { NumericText } from '../NumericText';
 import { useState } from 'react';
 import { ChevronDown, Settings2 } from 'lucide-react';
-import { trpc } from '../../trpc/client';
 
 export interface CallSettingsDrawerProps {
   roomId: string | null;
@@ -115,25 +114,4 @@ export function CallSettingsDrawer({
       ) : null}
     </div>
   );
-}
-
-/**
- * 通话窗口里需要的录音设置（只读）。
- *
- * 抽屉不再编辑它，但窗口仍要知道默认值去启动录音 —— 与设置页共用同一份配置。
- */
-export function useCallRecordingSettings() {
-  const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-    staleTime: 0,
-  });
-  const capabilities = trpc.call.recordingCapabilities.useQuery(undefined, {
-    staleTime: 60_000,
-  });
-  return {
-    config: settings.data?.callRecording ?? null,
-    capability: capabilities.data?.systemAudio ?? null,
-    /** 当前生效的录音目录（没自选时是默认那一层）。 */
-    dir: capabilities.data?.dir ?? null,
-  };
 }

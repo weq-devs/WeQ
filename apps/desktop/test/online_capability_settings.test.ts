@@ -57,6 +57,10 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
   useDialog: (select: (value: { showError: typeof mock.error; confirm: () => void }) => unknown) =>
     select({ showError: mock.error, confirm: () => {} }),
 }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
+  useDialog: (select: (value: { showError: typeof mock.error; confirm: () => void }) => unknown) =>
+    select({ showError: mock.error, confirm: () => {} }),
+}));
 let cleanup = () => {};
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

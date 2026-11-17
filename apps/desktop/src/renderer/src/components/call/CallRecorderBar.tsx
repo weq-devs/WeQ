@@ -1,4 +1,3 @@
-import * as timeFormat from '@weq/time';
 /**
  * 录音状态条 / 录音结果卡片。
  *
@@ -17,6 +16,7 @@ import type {
   FinishedRecording,
   RecordingState,
 } from '../../hooks/useCallRecorder';
+import { formatDuration } from './CallRecorderBar.shared';
 
 const MODE_LABEL: Record<CallRecordingMode, string> = {
   self: '仅本端',
@@ -132,8 +132,4 @@ export function CallRecordingCard({
       </div>
     </div>
   );
-}
-
-export function formatDuration(seconds: number): string {
-  return timeFormat.formatDuration(Math.max(0, seconds), 'call');
 }

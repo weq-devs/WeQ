@@ -29,12 +29,10 @@ import * as conversationOrder from '@weq/service/conversation-order';
 import * as conversationRows from '../src/renderer/src/lib/conversationListOrder';
 import { timelineViewport } from '../src/renderer/src/lib/timelineViewport';
 import type { QQWriteBinding } from '../src/renderer/src/hooks/useQQWriteSession';
-import {
-  ReplyJumpContext,
-  type ReplyJumpTarget,
-} from '../src/renderer/src/components/QqMessageContent';
+import { ReplyJumpContext } from '../src/renderer/src/state/messageContext';
+import type { ReplyJumpTarget } from '../src/renderer/src/components/QqMessageContent';
 import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
-import { useToast } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { elementToToken } from '../src/renderer/src/im-template/template/draftElements';
 
 beforeAll(() => LazyGapMessagesModal.preload());

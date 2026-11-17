@@ -10,10 +10,10 @@
 
 import { useState, type ReactElement } from 'react';
 import { Users } from 'lucide-react';
-import { FEATURE_ICONS } from '../lib/featureIcons';
+import { FEATURE_ICONS } from '../lib/featureIcons.shared';
 import type { VirtualConversation } from '../lib/conversationDirectory';
 import { GroupMosaicAvatar } from './GroupMosaicAvatar';
-import { qqAvatarUrl } from './QqAvatar';
+import { qqAvatarUrl } from './QqAvatar.shared';
 import { useAvatarUrl } from '../hooks/useAvatarUrl';
 import '../styles/virtual-conversation.css';
 

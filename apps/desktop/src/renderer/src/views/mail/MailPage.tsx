@@ -10,7 +10,7 @@ import {
 } from '../../lib/clientPreferences';
 import { MailListResizeHandle } from './MailListResizeHandle';
 import { z } from 'zod';
-import { usePageState } from '../../components/PageSnapshots';
+import { usePageState } from '../../components/PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
 import {
   AlertCircle,
@@ -47,10 +47,13 @@ import type {
   MailSummary,
 } from '@weq/service/mail';
 import { SYSTEM_MAIL_FOLDERS } from '@weq/service/mail-wire';
-import { useDialog } from '../../components/Dialog';
+import { useDialog } from '../../components/Dialog.shared';
 import { CheckPill } from '../../components/settings/controls';
-import { useToastApi } from '../../components/Toast';
-import { notificationSource, taskNotificationSource } from '../../lib/notificationNavigation';
+import { useToastApi } from '../../components/Toast.shared';
+import {
+  notificationSource,
+  taskNotificationSource,
+} from '../../lib/notificationNavigation.shared';
 import { usePrivacyStore } from '../../state/privacy';
 import type { MailApi } from './api';
 import { MailBody } from './MailBody';
@@ -69,12 +72,12 @@ import '../../styles/mail.css';
 import type { ExportSavePolicy } from '@weq/service';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
-import { IS_WEB } from '../../lib/target';
+import { IS_WEB } from '../../lib/target.shared';
 import { isRemoteClient } from '../../lib/remoteClient';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import { readWithRetry } from '../../lib/autoRead';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
-import { useRequestContentExport } from '../../state/contentSelection';
+import { useRequestContentExport } from '../../state/contentSelection.shared';
 import { useMobileBack } from '../../hooks/useMobileNavigation';
 
 const initialStatus: MailStatus = {

@@ -3,8 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssistantSection } from '../src/renderer/src/components/settings/AssistantSection';
 import { StartupSection } from '../src/renderer/src/components/settings/StartupSection';
-import { useDialog } from '../src/renderer/src/components/Dialog';
-import { useToast } from '../src/renderer/src/components/Toast';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 
 const fixture = vi.hoisted(() => ({
   assistant: { enabled: false, port: 27182, running: false, url: 'http://127.0.0.1:27182' },

@@ -10,8 +10,9 @@ import { OverlayLayer } from './OverlayLayer';
 import { trpc } from '../trpc/client';
 import { dressFontUrl } from '../lib/resourceUrl';
 import { fontFaces } from '../lib/fontFaces';
-import { DRESS_KIND_ICONS, FEATURE_ICONS } from '../lib/featureIcons';
-import { DecorationSaveControls, useDecorationSave } from './DecorationSaveControls';
+import { DRESS_KIND_ICONS, FEATURE_ICONS } from '../lib/featureIcons.shared';
+import { DecorationSaveControls } from './DecorationSaveControls';
+import { useDecorationSave } from './DecorationSaveControls.shared';
 import '../styles/message-decoration-card.css';
 
 interface MessageDecorationCardProps {

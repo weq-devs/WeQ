@@ -1,10 +1,8 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
-import {
-  MediaPreviewHost,
-  openMediaPreview,
-} from '../src/renderer/src/components/mediaPreviewStore';
+import { MediaPreviewHost } from '../src/renderer/src/components/mediaPreviewStore';
+import { openMediaPreview } from '../src/renderer/src/components/mediaPreviewStore.shared';
 
 const fixture = vi.hoisted(() => ({ loads: vi.fn(), pending: Promise.resolve() }));
 vi.mock('../src/renderer/src/components/MediaPreview', async () => {

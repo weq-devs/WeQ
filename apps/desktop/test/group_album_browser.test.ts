@@ -37,7 +37,19 @@ vi.mock('../src/renderer/src/lib/target', () => ({
     return !state.web;
   },
 }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({
+  get IS_WEB() {
+    return state.web;
+  },
+  get IS_ELECTRON() {
+    return !state.web;
+  },
+}));
 vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToastApi: () => ({ push: vi.fn() }),
+  useToast: () => vi.fn(),
+}));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
   useToastApi: () => ({ push: vi.fn() }),
   useToast: () => vi.fn(),
 }));

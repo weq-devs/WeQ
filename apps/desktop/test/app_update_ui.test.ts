@@ -64,6 +64,10 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
   useDialog: () => fixture.showError,
   Modal: ({ children }: { children: ReactNode }) => children,
 }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
+  useDialog: () => fixture.showError,
+  Modal: ({ children }: { children: ReactNode }) => children,
+}));
 
 let root: Root;
 beforeEach(() => {

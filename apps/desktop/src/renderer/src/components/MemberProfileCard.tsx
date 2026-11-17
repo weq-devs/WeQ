@@ -16,7 +16,7 @@ import {
 } from './contactProfile/ContactContent';
 import { ContactActions } from './contactProfile/ContactActions';
 import '../styles/profile-workspace.css';
-import { SelfProfileFieldsContext } from './SelfProfileFields';
+import { SelfProfileFieldsContext } from './SelfProfileFields.shared';
 import { ReadonlyProfileDisplay } from './ProfileDisplaySettings';
 import { visibleViewport } from '../lib/visibleViewport';
 

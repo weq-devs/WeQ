@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Conversation, Message } from '../im-template/template/types';
-import type { useContentMultiSelect } from '../state/contentSelection';
-import { useDialog } from '../components/Dialog';
-import { useToastApi } from '../components/Toast';
-import { conversationNotificationSource } from '../lib/notificationNavigation';
+import type { useContentMultiSelect } from '../state/contentSelection.shared';
+import { useDialog } from '../components/Dialog.shared';
+import { useToastApi } from '../components/Toast.shared';
+import { conversationNotificationSource } from '../lib/notificationNavigation.shared';
 import { runMessageLoadTask } from '../components/MessageLoadTask';
-import { grayTipOf } from '../im-template/template/messageRow';
+import { grayTipOf } from '../im-template/template/messageRow.shared';
 import { createSelectionGapIndex } from '../lib/selectionGapIndex';
 import {
   messageSelectionItems,

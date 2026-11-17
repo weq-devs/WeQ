@@ -26,9 +26,10 @@ import { trpc, client } from '../../trpc/client';
 import { emojiUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { useAppDialog } from '../../lib/dialogUtils';
-import { BlobDialog, CURSOR_PAGE, GridFooter, useCursorPaged } from './CacheShared';
+import { BlobDialog, GridFooter } from './CacheShared';
+import { CURSOR_PAGE, useCursorPaged } from './CacheShared.shared';
 import { GridSkeleton } from './CacheSkeleton';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 
 /** weq-asset URL for one face's file in a given format dir. */
 function faceUrl(name: string, fmt: 'png' | 'apng' | 'lottie', file: string): string {

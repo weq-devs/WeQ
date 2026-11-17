@@ -5,12 +5,12 @@ import { CalendarCheck, Loader2, RefreshCw } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { ContactEmptyState } from '../contactProfile/ContactRow';
-import { ActionFeedback, useQQAction } from './shared';
+import { ActionFeedback } from './shared';
+import { useQQAction } from './shared.shared';
 import { ProfileAvatar } from '../ProfileAvatar';
 import { QqAvatar } from '../QqAvatar';
 import '../../styles/group-sign.css';
-
-export const GROUP_SIGN_PAGE_SIZE = 100;
+import { GROUP_SIGN_PAGE_SIZE } from './GroupReadTools.shared';
 
 export function GroupReadTools({
   groupId,

@@ -1,10 +1,8 @@
 import { useContext } from 'react';
 import { createRoot } from 'react-dom/client';
 import { SelfAvatarHistory } from '../../src/renderer/src/components/SelfAvatarHistory';
-import {
-  FriendDirectoryContext,
-  FriendDirectoryControls,
-} from '../../src/renderer/src/components/FriendDirectoryControls';
+import { FriendDirectoryContext } from '../../src/renderer/src/components/FriendDirectoryControls.shared';
+import { FriendDirectoryControls } from '../../src/renderer/src/components/FriendDirectoryControls';
 import { ProfileExtras } from '../../src/renderer/src/components/ProfileExtras';
 import { useViewState } from '../../src/renderer/src/state/view';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';

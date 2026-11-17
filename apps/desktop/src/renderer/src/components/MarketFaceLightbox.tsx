@@ -10,7 +10,7 @@ import { ChevronLeft, ChevronRight, Copy, Store, RefreshCw, X } from 'lucide-rea
 import type { MarketPackFeeType } from '@weq/service';
 import { trpc } from '@renderer/trpc/client';
 import { mediaUrl } from '@renderer/lib/resourceUrl';
-import { useToast } from './Toast';
+import { useToast } from './Toast.shared';
 import { MarketImageSave } from './MarketImageSave';
 import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
 import { RenderDocumentContext, useRenderDocument } from '../lib/renderDocument';

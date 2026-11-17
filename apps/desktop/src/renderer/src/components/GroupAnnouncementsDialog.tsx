@@ -2,7 +2,7 @@ import { useContext, type ReactElement } from 'react';
 import { X } from 'lucide-react';
 import { GroupFeatureSurface, type GroupFeaturePresentation } from './GroupFeatureSurface';
 import { GroupNoticeActions } from './qq-actions/GroupNoticeActions';
-import { withQQAccountScope } from './qq-actions/shared';
+import { withQQAccountScope } from './qq-actions/shared.shared';
 import { DraftCloseContext, useDraftClose } from '../lib/draftClose';
 import type { GroupBulletinWire } from '../lib/groupNotices';
 export type { GroupBulletinWire, GroupBulletinImage } from '../lib/groupNotices';

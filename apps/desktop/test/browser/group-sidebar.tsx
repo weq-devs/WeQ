@@ -6,7 +6,7 @@ import { GroupAnnouncementsDialog } from '../../src/renderer/src/components/Grou
 import { GroupSignDialog } from '../../src/renderer/src/components/GroupSignDialog';
 import { GroupEssenceDialog } from '../../src/renderer/src/components/GroupEssenceDialog';
 import { GroupTodos } from '../../src/renderer/src/components/qq-actions/GroupActions';
-import { useGroupResourceWindows } from '../../src/renderer/src/hooks/useGroupResourceWindows';
+import { useGroupResourceWindows } from '../../src/renderer/src/hooks/useGroupResourceWindows.shared';
 import { RelationshipDirectoryContext } from '../../src/renderer/src/lib/contactRelationship';
 import { ProfileNavigationContext } from '../../src/renderer/src/lib/profileNavigation';
 import { useViewState } from '../../src/renderer/src/state/view';

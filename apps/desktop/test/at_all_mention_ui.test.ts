@@ -9,7 +9,7 @@ import {
   focusComposerEnd,
   insertComposerNode,
   serializeComposer,
-} from '../src/renderer/src/im-template/template/composer';
+} from '../src/renderer/src/im-template/template/composer.shared';
 import { buildComposerSendPlan } from '../src/renderer/src/im-template/template/composerSend';
 import { atAllMentionState } from '../src/renderer/src/lib/atAllMention';
 

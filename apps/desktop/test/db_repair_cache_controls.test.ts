@@ -22,6 +22,10 @@ vi.mock('../src/renderer/src/components/Toast', () => ({
   useToastApi: () => ({ push: vi.fn() }),
   useToast: () => vi.fn(),
 }));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
+  useToastApi: () => ({ push: vi.fn() }),
+  useToast: () => vi.fn(),
+}));
 vi.mock('../src/renderer/src/hooks/useQQAutoRefresh', () => ({
   useQQAutoRefresh: () => ({ enabled: true }),
 }));

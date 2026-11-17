@@ -41,6 +41,7 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
   Modal: ({ children }: { children: ReactNode }) => createElement('div', null, children),
 }));
 vi.mock('../src/renderer/src/components/RetainedTabs', () => ({ useTabActive: () => true }));
+vi.mock('../src/renderer/src/components/RetainedTabs.shared', () => ({ useTabActive: () => true }));
 vi.mock('@tanstack/react-virtual', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@tanstack/react-virtual')>();
   return { ...actual, useVirtualizer: vi.fn(actual.useVirtualizer) };

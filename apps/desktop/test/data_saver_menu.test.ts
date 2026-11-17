@@ -6,7 +6,7 @@ import { DataSaverMenu } from '../src/renderer/src/components/DataSaverMenu';
 import { DataSaverSettings } from '../src/renderer/src/components/settings/DataSaverSettings';
 import { applyDataSaverStatus, useDataSaver } from '../src/renderer/src/lib/dataSaver';
 import { acceptPreferences, useClientPreferences } from '../src/renderer/src/lib/clientPreferences';
-import { useToast } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { OPEN_SETTINGS_COMMAND } from '../src/renderer/src/lib/callSettingsBridge';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

@@ -6,7 +6,10 @@ import { ContactRefreshButton } from '../../components/ContactRefreshButton';
 import { ReminderDot } from '../../components/ReminderBadge';
 import { FriendGroupCreateMenu } from '../../components/FriendGroupCreateMenu';
 import { QQExactLookup, type QQExactLookupKind } from '../../components/QQExactLookup';
-import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
+import {
+  useContentMultiSelect,
+  useRequestContentExport,
+} from '../../state/contentSelection.shared';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import { DirectoryToolbar } from '../../components/DirectoryToolbar';
 import {

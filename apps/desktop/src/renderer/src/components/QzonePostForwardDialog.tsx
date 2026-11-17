@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { client } from '../trpc/client';
 import { QzoneForwardDialog } from './QzoneForwardDialog';
-import { useQQAction } from './qq-actions/shared';
+import { useQQAction } from './qq-actions/shared.shared';
 
 /** 仅打开转发框时建立写入会话，不给信息流每条动态增加账号轮询。 */
 export function QzonePostForwardDialog({

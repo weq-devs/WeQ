@@ -3,7 +3,7 @@ import { toMessageWire } from './messageProjection';
 import type { MessageWire, ChatMsgWire, PendingScrollRestore } from './types';
 import type React from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { IS_WEB } from '../../lib/target';
+import { IS_WEB } from '../../lib/target.shared';
 import { dataSaverActive, useDataSaver } from '../../lib/dataSaver';
 import { createCoalescedRefresh } from '../../lib/coalescedRefresh';
 import { timelineViewport } from '../../lib/timelineViewport';

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { MoreHorizontal } from 'lucide-react';
-import { useDialog, type DangerLevel } from '../Dialog';
+import { useDialog } from '../Dialog.shared';
+import type { DangerLevel } from '../Dialog';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
 
 export interface TaskQuickAction {

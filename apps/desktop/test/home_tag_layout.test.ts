@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('../src/renderer/src/trpc/client', () => ({ trpc: {} }));
-import { boundTagPosition } from '../src/renderer/src/components/dressPieces';
+import { boundTagPosition } from '../src/renderer/src/components/dressPieces.shared';
 
 describe('主页标签环边界', () => {
   it('入场或缩窗时将超出边界的标签沿原方向收回', () => {

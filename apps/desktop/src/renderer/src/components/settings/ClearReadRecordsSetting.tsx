@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { Row } from './controls';
 
 export function ClearReadRecordsSetting() {

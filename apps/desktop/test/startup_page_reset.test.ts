@@ -2,11 +2,8 @@ import { act, createElement as h, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
-import {
-  PageSnapshots,
-  PageSnapshotScope,
-  usePageState,
-} from '../src/renderer/src/components/PageSnapshots';
+import { PageSnapshots, PageSnapshotScope } from '../src/renderer/src/components/PageSnapshots';
+import { usePageState } from '../src/renderer/src/components/PageSnapshots.shared';
 import { pageSnapshots, pageValue } from '../src/renderer/src/lib/pageSnapshots';
 
 afterEach(() => vi.unstubAllGlobals());

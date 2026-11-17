@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useRef } from 'react';
-import { useToastApi } from '../components/Toast';
+import { useToastApi } from '../components/Toast.shared';
 import type { NotificationSource } from '../lib/notificationNavigation';
 
 /** 定位任务独占一条进度提示；换会话或后续定位会使旧任务失效。 */

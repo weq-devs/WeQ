@@ -12,6 +12,11 @@ vi.mock('../src/renderer/src/lib/target', () => ({
     return fixture.web;
   },
 }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({
+  get IS_WEB() {
+    return fixture.web;
+  },
+}));
 vi.mock('../src/renderer/src/views/MainView', () => {
   fixture.loads();
   return { MainView: fixture.render };

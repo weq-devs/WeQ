@@ -74,11 +74,20 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   },
 }));
 vi.mock('../src/renderer/src/components/RetainedTabs', () => ({ useTabActive: () => true }));
+vi.mock('../src/renderer/src/components/RetainedTabs.shared', () => ({ useTabActive: () => true }));
 vi.mock('../src/renderer/src/components/Dialog', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/renderer/src/components/Dialog')>()),
   useDialog: (select: (store: unknown) => unknown) => select({ showError: mocks.error }),
 }));
+vi.mock('../src/renderer/src/components/Dialog.shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/src/components/Dialog.shared')>()),
+  useDialog: (select: (store: unknown) => unknown) => select({ showError: mocks.error }),
+}));
 vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToast: (select: (store: unknown) => unknown) => select({ push: mocks.toast }),
+  useToastApi: () => ({ push: mocks.toast }),
+}));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
   useToast: (select: (store: unknown) => unknown) => select({ push: mocks.toast }),
   useToastApi: () => ({ push: mocks.toast }),
 }));

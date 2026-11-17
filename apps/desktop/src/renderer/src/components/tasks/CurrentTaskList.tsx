@@ -8,7 +8,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from 'react';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { useWorkspaceMenu } from '../../state/workspaceMenu';
 import {
   CloudDownload,
@@ -27,8 +27,8 @@ import {
 import { client, trpc } from '../../trpc/client';
 import { useViewState } from '../../state/view';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
-import { useDialog } from '../Dialog';
-import { useToast } from '../Toast';
+import { useDialog } from '../Dialog.shared';
+import { useToast } from '../Toast.shared';
 import { RoamingBackfillPanel } from '../RoamingBackfillPanel';
 import { formatSize } from '../../lib/groupFile';
 import {
@@ -44,9 +44,10 @@ import {
   taskResumeActionLabel,
   taskCancelActionLabel,
   taskCanPause,
-  type UiTask,
-} from '../../views/export/TaskList';
-import { LongTaskRow, orderLongTasks, type LongTaskItem } from './LongTaskRow';
+} from '../../views/export/TaskList.shared';
+import type { UiTask } from '../../views/export/TaskList';
+import { LongTaskRow, type LongTaskItem } from './LongTaskRow';
+import { orderLongTasks } from './LongTaskRow.shared';
 import '../../styles/flash-transfer.css';
 import { CloneTaskLog } from '../../views/agentlab/CloneTaskLog';
 import {
@@ -54,15 +55,11 @@ import {
   backgroundTaskId,
   removeBackgroundTask,
 } from '../../hooks/useBackgroundTasks';
-import {
-  BACKGROUND_TASK_ICONS,
-  BACKGROUND_TASK_LABELS,
-  BackgroundTaskActionIcon,
-  BackgroundTaskDetails,
-} from './BackgroundTaskDetails';
+import { BACKGROUND_TASK_ICONS, BACKGROUND_TASK_LABELS } from './BackgroundTaskDetails.shared';
+import { BackgroundTaskActionIcon, BackgroundTaskDetails } from './BackgroundTaskDetails';
 import { TaskQuickActions, type TaskQuickAction } from './TaskQuickActions';
 import { localBackgroundTasks } from '../../state/backgroundTasks';
-import { IS_WEB } from '../../lib/target';
+import { IS_WEB } from '../../lib/target.shared';
 import { backgroundTaskNavigation } from './backgroundTaskNavigation';
 import { EmptyState } from '../EmptyState';
 import { TaskProgressDetails } from './TaskProgressDetails';

@@ -1,7 +1,8 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import { DialogHost, useDialog, type DangerLevel } from '../src/renderer/src/components/Dialog';
+import { DialogHost, type DangerLevel } from '../src/renderer/src/components/Dialog';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {

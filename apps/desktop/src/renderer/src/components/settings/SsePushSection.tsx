@@ -18,7 +18,7 @@
 import { useEffect, useState, type FormEvent, type ReactElement } from 'react';
 import { EditorDialog } from '../EditorDialog';
 import { z } from 'zod';
-import { usePageState } from '../PageSnapshots';
+import { usePageState } from '../PageSnapshots.shared';
 import { useNumericSettingDraft } from './useNumericSettingDraft';
 import {
   ChevronRight,
@@ -36,10 +36,10 @@ import {
   X,
 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { AutoSave } from './AutoSave';
-import { useDialog } from '../Dialog';
-import { useToast } from '../Toast';
+import { useDialog } from '../Dialog.shared';
+import { useToast } from '../Toast.shared';
 import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
 import '../../styles/settings-services.css';
 import {

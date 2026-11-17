@@ -11,7 +11,8 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent, SyntheticEvent }
 import * as d3 from 'd3';
 import { refreshAvatarUrl } from '../lib/avatarCache';
 import { useAvatarUrl } from '../hooks/useAvatarUrl';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
+import { boundTagPosition } from './dressPieces.shared';
 
 // 挂件是直接拼 CDN 地址、不做探测的,常年会有下架/过期 404。加载失败就把 <img> 藏起来,
 // 别让浏览器画裂图占位 —— 头像本体照常显示,只是没有这个装饰角标。
@@ -169,13 +170,6 @@ export function ScreenRain({ src, count = 9 }: { src: string; count?: number }) 
 interface TagNode extends d3.SimulationNodeDatum {
   label: string;
   r: number;
-}
-
-/** 首页限制视觉边界，避免力导入场或窗口缩小时的过冲遮挡正文。 */
-export function boundTagPosition(x: number, y: number, radius?: number) {
-  const distance = Math.hypot(x, y);
-  const scale = radius !== undefined && distance > radius ? radius / distance : 1;
-  return { x: x * scale, y: y * scale };
 }
 
 export function TagRing({

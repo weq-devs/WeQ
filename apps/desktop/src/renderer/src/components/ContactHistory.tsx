@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight, RefreshCw, History } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import '../styles/contact-history.css';
 import { contactHistorySection, type ContactWorkspaceSection } from '../lib/contactWorkspace';
 import { CONTACT_HISTORY_DISPLAY_ENABLED } from '../lib/contactHistoryVisibility';

@@ -2,7 +2,7 @@ import { useNumericSettingDraft } from './useNumericSettingDraft';
 import { Gauge } from 'lucide-react';
 import { AutoSave } from './AutoSave';
 import { trpc } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { Card } from './controls';
 import '../../styles/settings-qzone.css';
 

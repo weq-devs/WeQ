@@ -43,16 +43,16 @@ import {
 } from 'react';
 import { cn } from '../im-template/template/classNames';
 import { OverlayLayerContext, useOverlayLayerScope } from '../lib/overlayStack';
-import { OverlayAnchorContext, useOverlayAnchor } from '../lib/overlayAnchor';
+import { OverlayAnchorContext, useOverlayAnchor } from '../lib/overlayAnchor.shared';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { WorkspacePage } from './WorkspacePages';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import { useRenderDocument } from '../lib/renderDocument';
 import { WindowSurface } from './WindowSurface';
 import { useSurfaceOutside } from '../lib/surfaceOutside';
 import { ContactFieldHistoryBoundary } from '../lib/contactFieldHistoryContext';
 import { useMobileWebViewport } from '../hooks/useMobileWebViewport';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import '../styles/dialog-layout.css';
 
 export type OverlayLayerProps = {

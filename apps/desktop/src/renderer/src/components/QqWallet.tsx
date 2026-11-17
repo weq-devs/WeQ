@@ -22,7 +22,7 @@ import { useEffect, useState, type ReactElement } from 'react';
 import { redbagSkinUrl, resourceUrl } from '../lib/resourceUrl';
 import { QqAvatar } from './QqAvatar';
 import { client } from '../trpc/client';
-import { openRedBagDetail } from './RedBagDetailDialog';
+import { openRedBagDetail } from './RedBagDetailDialog.shared';
 import { useAppDialog } from '../lib/dialogUtils';
 
 // ---- helpers -------------------------------------------------------------

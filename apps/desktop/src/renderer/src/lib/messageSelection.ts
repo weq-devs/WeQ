@@ -4,7 +4,7 @@ import { displayUserName } from '../im-template/template/user';
 import { previewNodes, previewNodesToText } from './conversationPreview';
 import { selfIdentityValues } from './selfIdentity';
 import { plainMessageText } from '@weq/service/message-plain-text';
-import { messageGapCount, isSeqBetween } from '../im-template/template/messageGap';
+import { messageGapCount, isSeqBetween } from '../im-template/template/messageGap.shared';
 import { isUnpositionedFailure } from './localOutgoing';
 
 export interface SelectionMessageLoad {

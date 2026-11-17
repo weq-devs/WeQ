@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { BellRing } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { Card, Row, SectionHeader, Toggle } from './controls';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import {
   DEFAULT_MAIL_POLL_INTERVAL_MINUTES,
   MAX_MAIL_POLL_INTERVAL_MINUTES,

@@ -18,12 +18,12 @@ import {
   conversationSourceLabel,
 } from '../lib/conversationActions';
 import { ConversationDirectoryContext } from '../lib/conversationDirectory';
-import { useRequestContentExport } from '../state/contentSelection';
-import { useTabActive } from './RetainedTabs';
+import { useRequestContentExport } from '../state/contentSelection.shared';
+import { useTabActive } from './RetainedTabs.shared';
 import { trpc } from '../trpc/client';
 import { ConversationActionsMenu } from './ConversationActionsMenu';
 import '../styles/conversation-actions.css';
-import { FEATURE_ICONS } from '../lib/featureIcons';
+import { FEATURE_ICONS } from '../lib/featureIcons.shared';
 
 const ExportIcon = FEATURE_ICONS.export;
 const BackfillIcon = FEATURE_ICONS.backfill;

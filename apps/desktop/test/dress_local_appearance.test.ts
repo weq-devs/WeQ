@@ -83,7 +83,13 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 vi.mock('../src/renderer/src/components/DecorationSaveControls', () => ({
   useDecorationSave: () => ({ run: fixture.download, disabled: false }),
 }));
+vi.mock('../src/renderer/src/components/DecorationSaveControls.shared', () => ({
+  useDecorationSave: () => ({ run: fixture.download, disabled: false }),
+}));
 vi.mock('../src/renderer/src/components/MediaSaveControls', () => ({
+  useMediaSave: () => ({ run: fixture.mediaDownload, disabled: false, isBusy: () => false }),
+}));
+vi.mock('../src/renderer/src/components/MediaSaveControls.shared', () => ({
   useMediaSave: () => ({ run: fixture.mediaDownload, disabled: false, isBusy: () => false }),
 }));
 vi.mock('../src/renderer/src/components/ChatBackdrop', () => ({ ScreenWidget: () => null }));

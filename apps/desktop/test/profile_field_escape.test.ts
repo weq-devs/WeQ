@@ -2,10 +2,8 @@ import { act, createElement as h, useRef, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ProfileInlineField } from '../src/renderer/src/components/ProfileInlineField';
-import {
-  SelfProfileField,
-  useSelfProfileSave,
-} from '../src/renderer/src/components/SelfProfileField';
+import { SelfProfileField } from '../src/renderer/src/components/SelfProfileField';
+import { useSelfProfileSave } from '../src/renderer/src/components/SelfProfileField.shared';
 import { useSurfaceEscape } from '../src/renderer/src/lib/surfaceEscape';
 
 let root: Root;

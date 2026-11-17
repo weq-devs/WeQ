@@ -1,7 +1,8 @@
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DialogHost, Modal, useDialog } from '../src/renderer/src/components/Dialog';
+import { DialogHost, Modal } from '../src/renderer/src/components/Dialog';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 
 let host: HTMLDivElement;
 let root: Root;

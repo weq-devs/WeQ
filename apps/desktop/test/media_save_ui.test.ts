@@ -2,13 +2,12 @@ import { act, createElement as h, useEffect, useState, type ReactNode } from 're
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ExportSavePolicy } from '@weq/service';
-import { MediaSourceSave, useMediaSave } from '../src/renderer/src/components/MediaSaveControls';
+import { MediaSourceSave } from '../src/renderer/src/components/MediaSaveControls';
+import { useMediaSave } from '../src/renderer/src/components/MediaSaveControls.shared';
 import { QqFile, QqVoice } from '../src/renderer/src/components/QqMedia';
 import { GroupFileDialog } from '../src/renderer/src/components/GroupFileDialog';
-import {
-  MediaPreviewHost,
-  openMediaPreview,
-} from '../src/renderer/src/components/mediaPreviewStore';
+import { MediaPreviewHost } from '../src/renderer/src/components/mediaPreviewStore';
+import { openMediaPreview } from '../src/renderer/src/components/mediaPreviewStore.shared';
 
 import {
   FlatMediaExplorer,
@@ -72,7 +71,25 @@ vi.mock('../src/renderer/src/views/cache/CacheShared', async (importOriginal) =>
     sentinelRef: { current: null },
   }),
 }));
+vi.mock('../src/renderer/src/views/cache/CacheShared.shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/src/views/cache/CacheShared.shared')>()),
+  useCursorPaged: () => ({
+    entries: state.cacheEntries,
+    loading: false,
+    error: null,
+    done: true,
+    sentinelRef: { current: null },
+  }),
+}));
 vi.mock('../src/renderer/src/lib/target', () => ({
+  get IS_WEB() {
+    return state.web;
+  },
+  get IS_ELECTRON() {
+    return !state.web;
+  },
+}));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({
   get IS_WEB() {
     return state.web;
   },
@@ -97,6 +114,10 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   },
 }));
 vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToast: () => state.toast,
+  useToastApi: () => ({ push: state.toast }),
+}));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
   useToast: () => state.toast,
   useToastApi: () => ({ push: state.toast }),
 }));

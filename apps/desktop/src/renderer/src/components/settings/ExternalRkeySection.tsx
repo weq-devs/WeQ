@@ -1,4 +1,3 @@
-import * as timeFormat from '@weq/time';
 /**
  * 设置 → 外部 RKEY 服务器.
  *
@@ -19,7 +18,7 @@ import * as timeFormat from '@weq/time';
 
 import { useEffect, useState, type FormEvent, type ReactElement } from 'react';
 import { z } from 'zod';
-import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import {
   CheckCircle2,
   ChevronDown,
@@ -37,9 +36,9 @@ import {
   X,
 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
-import { useDialog } from '../Dialog';
-import { useToast } from '../Toast';
+import { useTabActive } from '../RetainedTabs.shared';
+import { useDialog } from '../Dialog.shared';
+import { useToast } from '../Toast.shared';
 import { EditorDialog } from '../EditorDialog';
 import { Card, QueryError, Row, Toggle } from './controls';
 import '../../styles/settings-services.css';
@@ -48,6 +47,7 @@ import {
   runConnectionTest,
   useConnectionTestTasks,
 } from '../../lib/connectionTestTask';
+import { formatCacheExpiry } from './ExternalRkeySection.shared';
 
 interface ServerForm {
   id: string;
@@ -60,22 +60,6 @@ const EMPTY_FORM: ServerForm = { id: '', name: '', baseUrl: '', accessToken: '' 
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
-}
-
-/** unix 秒 → 「x 小时/分钟后过期」或「已过期」。 */
-export function formatCacheExpiry(expiredTime: number | undefined): {
-  text: string;
-  expired: boolean;
-} {
-  if (expiredTime == null) return { text: '尚未拉取 rkey', expired: false };
-  const at = expiredTime * 1000;
-  const expired = at <= Date.now();
-  if (!Number.isFinite(at) || expiredTime <= 0)
-    return { text: '缓存 rkey 未提供有效到期时间，下次下载时重新检查', expired };
-  return {
-    text: `缓存 rkey ${timeFormat.formatDateTime(at)}（${expired ? '已过期，下次下载自动重拉' : timeFormat.formatRelativeTime(at)}）`,
-    expired,
-  };
 }
 
 export function ExternalRkeySection(): ReactElement {

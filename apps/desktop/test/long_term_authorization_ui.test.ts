@@ -2,7 +2,7 @@ import { act, createElement, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LongTermAuthorizationSection } from '../src/renderer/src/components/settings/LongTermAuthorizationSection';
-import { useDialog } from '../src/renderer/src/components/Dialog';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import { LongTermAuthorizationLink } from '../src/renderer/src/components/LongTermAuthorizationLink';
 import {
   onOpenSettingsRequest,
@@ -11,6 +11,7 @@ import {
 import type { LongTermAuthorizationStatus } from '../src/shared/long_term_authorization';
 
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: false }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: false }));
 const state = (value: LongTermAuthorizationStatus['state']): LongTermAuthorizationStatus => ({
   platform: 'darwin',
   state: value,

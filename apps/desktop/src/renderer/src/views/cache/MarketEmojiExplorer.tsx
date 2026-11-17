@@ -20,7 +20,8 @@ import type { MarketFaceEntry } from '@weq/service';
 import { client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
-import { BlobDialog, CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
+import { BlobDialog, GridFooter } from './CacheShared';
+import { CURSOR_PAGE, fmtBytes, useCursorPaged } from './CacheShared.shared';
 import { GridSkeleton } from './CacheSkeleton';
 
 /** weq-media URL for one market face by pack+hash. */

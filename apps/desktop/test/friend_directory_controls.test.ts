@@ -1,10 +1,8 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import {
-  FriendDirectoryControls,
-  useFriendDirectory,
-} from '../src/renderer/src/components/FriendDirectoryControls';
+import { FriendDirectoryControls } from '../src/renderer/src/components/FriendDirectoryControls';
+import { useFriendDirectory } from '../src/renderer/src/components/FriendDirectoryControls.shared';
 
 const state = vi.hoisted(() => ({
   mutate: vi.fn(async (_input: unknown) => ({ state: 'confirmed' })),

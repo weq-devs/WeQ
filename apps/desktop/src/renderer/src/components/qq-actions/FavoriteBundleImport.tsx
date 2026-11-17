@@ -6,8 +6,9 @@ import type { QQWriteBinding } from '../../hooks/useQQWriteSession';
 import { client, trpc } from '../../trpc/client';
 import { localFileUrl } from '../../lib/resourceUrl';
 import { pickAccountFile } from '../../lib/accountFilePicker';
-import { Modal, useDialog } from '../Dialog';
-import { useTabActive } from '../RetainedTabs';
+import { Modal } from '../Dialog';
+import { useDialog } from '../Dialog.shared';
+import { useTabActive } from '../RetainedTabs.shared';
 import { ActionIcon } from './shared';
 import '../../styles/favorite-emoji-import.css';
 

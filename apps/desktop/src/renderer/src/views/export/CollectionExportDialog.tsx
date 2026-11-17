@@ -2,15 +2,12 @@ import { NumericText } from '../../components/NumericText';
 import { useState } from 'react';
 import { Download, X } from 'lucide-react';
 import { Modal } from '../../components/Dialog';
-import { useToast } from '../../components/Toast';
-import { taskNotificationSource } from '../../lib/notificationNavigation';
+import { useToast } from '../../components/Toast.shared';
+import { taskNotificationSource } from '../../lib/notificationNavigation.shared';
 import { client } from '../../trpc/client';
 import { ExportReportControl } from './ExportReportControl';
-import {
-  StructuredExportControls,
-  structuredExportOptions,
-  type StructuredExportOptions,
-} from './StructuredExportControls';
+import { StructuredExportControls, type StructuredExportOptions } from './StructuredExportControls';
+import { structuredExportOptions } from './StructuredExportControls.shared';
 
 export function CollectionExportDialog({
   cids,

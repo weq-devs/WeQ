@@ -30,6 +30,10 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
   useDialog: () => vi.fn(),
   Modal: ({ children }: { children: ReactNode }) => h('div', null, children),
 }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
+  useDialog: () => vi.fn(),
+  Modal: ({ children }: { children: ReactNode }) => h('div', null, children),
+}));
 vi.mock('../src/renderer/src/components/qq-actions/shared', () => ({
   ActionIcon: ({
     label,

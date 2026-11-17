@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
 import { Activity, Check, Copy, Save } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
-import { useDialog } from '../Dialog';
-import { useToast } from '../Toast';
+import { useDialog } from '../Dialog.shared';
+import { useToast } from '../Toast.shared';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 
 export function AssistantSection() {

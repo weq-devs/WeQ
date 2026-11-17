@@ -59,7 +59,8 @@ import {
   type PublicFeedView,
   type PublicJson,
 } from '../lib/qzonePublic';
-import { LoadingStatus, QzoneMediaGrid, QzonePageContext, State, timeText } from './qzoneShared';
+import { LoadingStatus, QzoneMediaGrid, State } from './qzoneShared';
+import { QzonePageContext, timeText } from './qzoneShared.shared';
 import '../styles/qzone-public.css';
 import '../styles/qzone.css';
 

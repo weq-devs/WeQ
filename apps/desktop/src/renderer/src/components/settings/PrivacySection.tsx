@@ -2,7 +2,7 @@ import { EyeOff } from 'lucide-react';
 import { usePrivacyStore } from '../../state/privacy';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { AppLockSection } from './AppLockSection';
-import { IS_WEB } from '../../lib/target';
+import { IS_WEB } from '../../lib/target.shared';
 import { WebNotificationsSection } from './WebNotificationsSection';
 
 export function PrivacySection() {

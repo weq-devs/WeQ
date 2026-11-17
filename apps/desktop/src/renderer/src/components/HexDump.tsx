@@ -9,10 +9,8 @@ import { NumericText } from './NumericText';
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { useRenderDocument } from '../lib/renderDocument';
-import { useToastApi } from './Toast';
-
-/** 默认渲染的字节数；超过可用「显示全部」展开。 */
-export const HEX_PREVIEW_BYTES = 2048;
+import { useToastApi } from './Toast.shared';
+import { HEX_PREVIEW_BYTES } from './HexDump.shared';
 
 function fmtBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

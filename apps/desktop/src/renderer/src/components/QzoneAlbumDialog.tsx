@@ -27,7 +27,7 @@ import {
   type ReactElement,
   type SetStateAction,
 } from 'react';
-import { useContentMultiSelect } from '../state/contentSelection';
+import { useContentMultiSelect } from '../state/contentSelection.shared';
 import { ContentReferenceToolbar } from './ContentReferenceToolbar';
 import { contentReferenceKey, type ContentReference } from '../../../shared/content_selection';
 import { qzoneAlbumMediaKey } from '../../../shared/album_media_identity';

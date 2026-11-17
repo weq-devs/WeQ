@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { trpc, client } from '../../trpc/client';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
-import { useDialog } from '../Dialog';
+import { useDialog } from '../Dialog.shared';
 import { Row, Toggle, QueryError } from './controls';
 
 export function NativeDebugLogSetting() {

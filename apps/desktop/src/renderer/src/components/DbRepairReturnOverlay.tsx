@@ -17,7 +17,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 import { DB_REPAIR_RETURN_SECONDS, useDbRepairReturn } from '../state/dbRepairReturn';
 import { leaveAccountForBootstrap } from '../lib/leaveAccount';
-import { useToast } from './Toast';
+import { useToast } from './Toast.shared';
 
 export function DbRepairReturnOverlay({
   ownerDocument = document,

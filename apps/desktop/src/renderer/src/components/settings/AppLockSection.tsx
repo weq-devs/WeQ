@@ -19,11 +19,11 @@ import {
 } from 'lucide-react';
 import type { AppLockMethod } from '@weq/service';
 import { trpc } from '../../trpc/client';
-import { useDialog } from '../Dialog';
-import { useToast } from '../Toast';
+import { useDialog } from '../Dialog.shared';
+import { useToast } from '../Toast.shared';
 import { Card, Row, SectionHeader, Toggle } from './controls';
-import { useTabActive } from '../RetainedTabs';
-import { shellBridge } from '../../lib/target';
+import { useTabActive } from '../RetainedTabs.shared';
+import { shellBridge } from '../../lib/target.shared';
 import {
   fetchSystemAuthStatus,
   fetchTotpStatus,

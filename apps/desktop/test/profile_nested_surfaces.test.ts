@@ -20,7 +20,7 @@ import {
 import { QzoneNavigationContext } from '../src/renderer/src/lib/qzoneNavigation';
 import { ContactWorkspaceNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 import { ChatMainContent } from '../src/renderer/src/im-template/template/chatMainContent';
-import { useTabActive } from '../src/renderer/src/components/RetainedTabs';
+import { useTabActive } from '../src/renderer/src/components/RetainedTabs.shared';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { normalizeContactCard } from '@weq/service/contact-card';

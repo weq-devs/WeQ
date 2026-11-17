@@ -33,6 +33,9 @@ vi.mock('../src/renderer/src/components/WindowSurface', () => ({
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   useDialog: () => vi.fn(),
 }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
+  useDialog: () => vi.fn(),
+}));
 vi.mock('../src/renderer/src/components/GroupKeywordEditor', () => ({
   GroupKeywordEditor: () => h('div', null, '关键词编辑器'),
 }));

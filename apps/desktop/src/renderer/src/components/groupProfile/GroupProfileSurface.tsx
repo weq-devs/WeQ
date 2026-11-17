@@ -1,6 +1,6 @@
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Eye } from 'lucide-react';
-import { FEATURE_ICONS } from '../../lib/featureIcons';
+import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import { ProfileCardControls } from '../ProfileCardControls';
 import type { GroupConversation, User, GroupMember } from '../../im-template/template/types';
 import { ChatNavigationContext, GroupMessagePreviewContext } from '../../lib/chatNavigation';

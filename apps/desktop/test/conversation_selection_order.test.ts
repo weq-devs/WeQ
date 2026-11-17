@@ -5,10 +5,8 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { ConversationList } from '../src/renderer/src/im-template/template/conversationLists';
 import { createTemplateDemoData } from './support/templateDemoData';
 import type { Conversation } from '../src/renderer/src/im-template/template/types';
-import {
-  ContentSelectionProvider,
-  useCurrentContentSelection,
-} from '../src/renderer/src/state/contentSelection';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
+import { useCurrentContentSelection } from '../src/renderer/src/state/contentSelection.shared';
 import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
 import { useViewState } from '../src/renderer/src/state/view';
 import { copyTextToClipboard } from '../src/renderer/src/im-template/template/clipboard';

@@ -24,12 +24,13 @@ import { Play, Pause, FileText, Loader2 } from 'lucide-react';
 import type { FlatMediaEntry, MonthMediaEntry, VoiceMediaEntry } from '@weq/service';
 import { client, trpc } from '../../trpc/client';
 import { localMediaUrl, localVoiceUrl } from '../../lib/resourceUrl';
-import { openMediaPreview } from '../../components/mediaPreviewStore';
+import { openMediaPreview } from '../../components/mediaPreviewStore.shared';
 
 import { ShimmerImage } from '../../components/ShimmerImage';
-import { CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
+import { CURSOR_PAGE, fmtBytes, useCursorPaged } from './CacheShared.shared';
+import { GridFooter } from './CacheShared';
 import { GridSkeleton } from './CacheSkeleton';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 
 type FlatKind = 'photoWall' | 'qzone';
 type MonthKind = 'pic' | 'video';

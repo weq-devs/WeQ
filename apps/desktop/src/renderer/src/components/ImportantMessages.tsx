@@ -14,7 +14,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { eventTimeFormatter } from '@weq/time';
-import { FEATURE_ICONS } from '../lib/featureIcons';
+import { FEATURE_ICONS } from '../lib/featureIcons.shared';
 import { client, trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { OverlayLayer } from './OverlayLayer';

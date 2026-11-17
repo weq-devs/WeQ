@@ -4,7 +4,7 @@ import { DraftCloseContext, useDraftClose } from '../lib/draftClose';
 import { useModalBackground } from '../lib/modalBackground';
 import { useRenderDocument } from '../lib/renderDocument';
 import { Modal } from './Dialog';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import '../styles/editor-dialog.css';
 
 /** 列表中的编辑任务独立呈现；沿用统一的关闭确认、焦点约束与返回位置。 */

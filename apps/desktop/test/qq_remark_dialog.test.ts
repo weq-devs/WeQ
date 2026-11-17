@@ -18,6 +18,11 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
   useDialog: (selector: (s: { confirm: typeof state.confirm }) => unknown) =>
     selector({ confirm: state.confirm }),
 }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
+  Modal: ({ children }: { children: ReactNode }) => h('div', { role: 'dialog' }, children),
+  useDialog: (selector: (s: { confirm: typeof state.confirm }) => unknown) =>
+    selector({ confirm: state.confirm }),
+}));
 vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
   useQQWriteSession: () => ({
     binding: { expectedAccountUin: '10001', expectedAccountConfigId: state.configId },

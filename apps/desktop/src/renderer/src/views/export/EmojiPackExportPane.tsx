@@ -26,7 +26,7 @@ import { ShimmerImage } from '../../components/ShimmerImage';
 import { LoadingIndicator } from '../../components/LoadingIndicator';
 import { useMultiSelection, type MultiSelectionItemProps } from '../../hooks/useMultiSelection';
 import '../../styles/emoji-pack-formats.css';
-import { useExportReportDialog } from './ExportReportControl';
+import { useExportReportDialog } from './ExportReportControl.shared';
 
 type EmojiPackExportFormat = EmojiPackFormat | 'favorite-zip';
 

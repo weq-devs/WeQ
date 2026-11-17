@@ -21,7 +21,8 @@ import { useSharedAssistantDraft } from '../../hooks/useSharedAssistantDraft';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { ConversationSettingsFrame } from '../../components/ConversationSettingsFrame';
 import { QqAvatar } from '../../components/QqAvatar';
-import { AgentMessageContent, inputFaceContext, type FaceContext } from './ChatBubble';
+import { AgentMessageContent, type FaceContext } from './ChatBubble';
+import { inputFaceContext } from './ChatBubble.shared';
 import {
   cloneChatUser,
   cloneChatConversation,

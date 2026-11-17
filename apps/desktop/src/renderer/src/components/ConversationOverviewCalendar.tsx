@@ -17,9 +17,10 @@ import { calendarTargetsWithHiddenMessages } from '../lib/calendarHiddenMessages
 import { calendarTargetSetKey } from '../lib/calendarSourceRevision';
 import { Modal } from './Dialog';
 import { MessageCalendar } from './MessageCalendar';
-import { CalendarStatistics, calendarReadLabel } from './CalendarStatistics';
+import { CalendarStatistics } from './CalendarStatistics';
+import { calendarReadLabel } from './CalendarStatistics.shared';
 import { CalendarStatisticsProgress } from './CalendarStatisticsProgress';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import '../styles/conversation-overview-calendar.css';
 import { CONVERSATION_VIEW_LABELS, type ConversationView } from '../lib/conversationViews';
 

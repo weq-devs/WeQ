@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, RefreshCw, ShieldCheck, Trash2, Wrench } from 'lucide-react';
 import type { LongTermAuthorizationStatus } from '../../../../shared/long_term_authorization';
-import { useTabActive } from '../RetainedTabs';
-import { useDialog } from '../Dialog';
+import { useTabActive } from '../RetainedTabs.shared';
+import { useDialog } from '../Dialog.shared';
 import { Card, Row } from './controls';
 import { authorizationFailure, type AuthorizationFailure } from '../../lib/authorizationError';
-import { IS_WEB } from '../../lib/target';
+import { IS_WEB } from '../../lib/target.shared';
 
 const STATE_LABELS = {
   unavailable: '当前环境不可用',

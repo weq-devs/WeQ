@@ -29,66 +29,14 @@ import { GrayTipGroupMessage } from '../../components/GrayTipGroupMessage';
 import { GrayTipXmlMessage } from '../../components/GrayTipXmlMessage';
 import { GrayTipFileRecvMessage } from '../../components/GrayTipFileRecvMessage';
 import { GrayTipTempSessionMessage } from '../../components/GrayTipTempSessionMessage';
-import {
-  GroupCallEndedMessage,
-  GROUP_CALL_ENDED_SUBTYPES,
-} from '../../components/GroupCallEndedMessage';
-import { QqDynamic, qqDynamicElementProps } from '../../components/QqDynamic';
+import { GroupCallEndedMessage } from '../../components/GroupCallEndedMessage';
+import { QqDynamic } from '../../components/QqDynamic';
+import { qqDynamicElementProps } from '../../components/QqDynamic.shared';
 import { SystemMessageContent } from '../../components/MessageProvenance';
 import type { ReactionInteraction } from '../../components/SetEmojiReactions';
 import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
 import { VirtualConversationBadge } from '../../components/VirtualConversationAvatar';
-
-/**
- * 画成**居中灰条**（不套气泡、不显示头像昵称）的元素 kind。
- *
- * 群通话 / 群课堂的「已结束」（CALL 元素，subType 16/25/29）也算：那条消息的发送者
- * 是空的，套气泡会凭空多出一个发送者，所以走灰条；发起那条有正常发送人，仍走气泡。
- */
-export const GRAY_TIP_KINDS: string[] = [
-  'grayTipPoke',
-  'grayTipRevoke',
-  'grayTipGroup',
-  'grayTipXml',
-  'grayTipFileRecv',
-  'grayTipTempSession',
-  'qqDynamic',
-];
-
-/** 一条消息携带的元素（模板层叫 qqElements，转发窗口用 elements）。 */
-export function messageElements(
-  message: unknown,
-): { type?: string; data?: Record<string, unknown> }[] {
-  const raw =
-    (message as { qqElements?: unknown[] })?.qqElements ??
-    (message as { elements?: unknown[] })?.elements ??
-    [];
-  return Array.isArray(raw) ? (raw as { type?: string; data?: Record<string, unknown> }[]) : [];
-}
-
-export interface GrayTipMatch {
-  kind: string;
-  el: { type?: string; data?: Record<string, unknown> };
-}
-
-/**
- * 这条消息该不该画成灰条、画成哪一种。
- *
- * 返回 null = 普通消息，走气泡。判断顺序与旧的 chatPane 内联实现完全一致（按
- * {@link GRAY_TIP_KINDS} 的顺序取第一个命中的元素），所以聊天区行为不变。
- */
-export function grayTipOf(message: unknown): GrayTipMatch | null {
-  const els = messageElements(message);
-  for (const kind of GRAY_TIP_KINDS) {
-    const el = els.find((e) => e?.type === kind);
-    if (el) return { kind, el };
-  }
-  const callEnded = els.find(
-    (e) => e?.type === 'call' && GROUP_CALL_ENDED_SUBTYPES.has(Number(e?.data?.subType)),
-  );
-  if (callEnded) return { kind: 'groupCallEnded', el: callEnded };
-  return null;
-}
+import { type GrayTipMatch, grayTipOf } from './messageRow.shared';
 
 /**
  * 一条灰条的**内容**（不含外层容器）。宿主自己决定外面包什么 —— 聊天区包一层带
@@ -340,3 +288,4 @@ export const MessageRow = memo(function MessageRow({
 function displayNameOf(user: User): string {
   return user.displayName || user.username || '';
 }
+export type { GrayTipMatch } from './messageRow.shared';

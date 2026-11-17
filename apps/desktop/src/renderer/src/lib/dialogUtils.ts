@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
-import { useDialog, type ConfirmDialogOptions } from '../components/Dialog';
-import { useToast } from '../components/Toast';
+import { useDialog } from '../components/Dialog.shared';
+import type { ConfirmDialogOptions } from '../components/Dialog';
+import { useToast } from '../components/Toast.shared';
 
 export interface AppDialogApi {
   info(title: string, message: ReactNode): void;

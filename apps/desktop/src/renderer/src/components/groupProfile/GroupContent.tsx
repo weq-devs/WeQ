@@ -1,5 +1,5 @@
 import { NumericText } from '../NumericText';
-import { preciseTimeFormatter as eventTimeFormatter, formatDateTime, timeDate } from '@weq/time';
+import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 import { useContext, useState } from 'react';
 import { CalendarDays, RefreshCw, Users } from 'lucide-react';
 import type { GroupConversation, GroupMember } from '../../im-template/template/types';
@@ -15,11 +15,7 @@ import { mergeGroupPreviewMembers } from '../../lib/groupPreviewMembers';
 import { QQProfileField } from '../QQProfileField';
 import { groupJoinedDate } from '../../lib/groupProfileRows';
 import { GroupLabelSources } from '../GroupLabelSources';
-
-export function groupCreationDate(value?: string | null) {
-  const date = timeDate(value);
-  return date && date.getTime() > 0 ? formatDateTime(value) : '';
-}
+import { groupCreationDate } from './GroupContent.shared';
 
 /** 群标签：普通标签与自定义标签合并成一行 chip，与联系人名片的标签同一视觉。 */
 export function GroupTags({

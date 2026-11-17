@@ -3,10 +3,10 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RecognitionSettingsSection } from '../src/renderer/src/components/settings/RecognitionSettingsSection';
 import { EnhancementPacksSection } from '../src/renderer/src/components/settings/EnhancementPacksSection';
-import { SettingsNavigateContext } from '../src/renderer/src/components/settings/controls';
+import { SettingsNavigateContext } from '../src/renderer/src/components/settings/controls.shared';
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import { useAppUpdate } from '../src/renderer/src/hooks/useAppUpdate';
-import { useDialog } from '../src/renderer/src/components/Dialog';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 
 type Progress = { kind?: string };
 const fixture = vi.hoisted(() => ({

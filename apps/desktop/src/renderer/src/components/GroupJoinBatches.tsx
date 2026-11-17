@@ -16,7 +16,7 @@ import * as timeFormat from '@weq/time';
 import type { CSSProperties } from 'react';
 import { CalendarClock, Users } from 'lucide-react';
 import { Avatar } from '../im-template/template/primitives';
-import { ACCENT_SERIES, formatNumber } from './analyticsCharts';
+import { ACCENT_SERIES, formatNumber } from './analyticsCharts.shared';
 import { ProfileAvatar } from './ProfileAvatar';
 import type { ProfileGroup } from '../lib/profileNavigation';
 

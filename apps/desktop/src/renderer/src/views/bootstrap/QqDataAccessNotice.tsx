@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { FolderOpen, RefreshCw } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
-import { IS_MAC } from '../../lib/target';
+import { IS_MAC } from '../../lib/target.shared';
 import type { QqDataAccess } from '../../../../main/qq_data_access';
 import '../../styles/qq-data-access.css';
 

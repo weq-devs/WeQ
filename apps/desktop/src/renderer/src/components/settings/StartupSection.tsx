@@ -3,12 +3,13 @@ import { useEffect, useRef, useState } from 'react';
 import type { WindowCloseBehavior } from '@weq/service';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
-import { useDialog } from '../Dialog';
-import { useToast } from '../Toast';
+import { useDialog } from '../Dialog.shared';
+import { useToast } from '../Toast.shared';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { SegmentedControl } from '../SegmentedControl';
 import { HomeSettingsSection } from './HomeSettingsSection';
-import { DesktopOnly, IS_WEB } from '../../lib/target';
+import { DesktopOnly } from '../../lib/target';
+import { IS_WEB } from '../../lib/target.shared';
 
 const CLOSE_BEHAVIOR_OPTIONS = [
   { value: 'ask', label: '每次询问' },

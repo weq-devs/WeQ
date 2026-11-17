@@ -14,20 +14,14 @@ import { client, trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
-import { useDialog } from '../Dialog';
-import { useTabActive } from '../RetainedTabs';
+import { useDialog } from '../Dialog.shared';
+import { useTabActive } from '../RetainedTabs.shared';
 import { FavoriteBundleExport } from './FavoriteBundleExport';
 import { FavoriteBundleImport } from './FavoriteBundleImport';
 import '../../styles/group-content-management.css';
 import '../../styles/qq-management.css';
-import {
-  ActionFeedback,
-  ActionIcon,
-  ImageAction,
-  SaveAction,
-  useQQAction,
-  withQQAccountScope,
-} from './shared';
+import { ActionFeedback, ActionIcon, ImageAction, SaveAction } from './shared';
+import { useQQAction, withQQAccountScope } from './shared.shared';
 
 function FavoriteActionsBody() {
   const a = useQQAction('favorites');

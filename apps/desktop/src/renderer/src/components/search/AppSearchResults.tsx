@@ -1,6 +1,6 @@
 import { EmptyState } from '../EmptyState';
 import { SearchX } from 'lucide-react';
-import { highlightText } from './SearchResultCard';
+import { highlightText } from './SearchResultCard.shared';
 import { appSearchIcon, searchAppEntries, type AppSearchEntry } from './appSearchCatalog';
 import '../../styles/app-search.css';
 

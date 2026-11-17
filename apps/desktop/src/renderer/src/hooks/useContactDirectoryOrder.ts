@@ -19,13 +19,13 @@ import {
 } from '../lib/contactListOrder';
 const EMPTY_ROWS: ContactMetricRows = {};
 const EMPTY_REGIONS: RegionNode[] = [];
-const EMPTY_SEEDS = () => EMPTY_ROWS;
+const emptySeeds = () => EMPTY_ROWS;
 
 export function useContactDirectoryOrder(
   kind: 'friends' | 'groups',
   freeze: boolean,
   entities: readonly (readonly string[])[],
-  seedTimes: () => DirectoryRows = EMPTY_SEEDS,
+  seedTimes: () => DirectoryRows = emptySeeds,
 ) {
   const uin = useViewState((state) => state.openedUin);
   const config = trpc.account.getAccountConfig.useQuery(undefined, { enabled: Boolean(uin) });

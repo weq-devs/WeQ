@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { trpc } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { Row } from './controls';
 import '../../styles/recognition-settings.css';
 

@@ -7,10 +7,7 @@ import { useLayoutEffect, useRef, useState, type ReactElement } from 'react';
 import { UserRound } from 'lucide-react';
 import { useAvatarUrl } from '../hooks/useAvatarUrl';
 import { useRenderDocument, resourceForRenderDocument } from '../lib/renderDocument';
-
-export function qqAvatarUrl(uin: string): string {
-  return `https://thirdqq.qlogo.cn/g?b=sdk&nk=${uin}&s=0`;
-}
+import { qqAvatarUrl } from './QqAvatar.shared';
 
 export function QqAvatar({
   uin,

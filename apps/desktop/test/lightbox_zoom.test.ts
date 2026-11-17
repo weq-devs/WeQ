@@ -32,7 +32,8 @@ vi.mock('@renderer/trpc/client', () => ({
   },
 }));
 
-import { MediaPreviewHost, openMediaPreview } from '@renderer/components/mediaPreviewStore';
+import { MediaPreviewHost } from '@renderer/components/mediaPreviewStore';
+import { openMediaPreview } from '../src/renderer/src/components/mediaPreviewStore.shared';
 
 declare global {
   // eslint-disable-next-line no-var

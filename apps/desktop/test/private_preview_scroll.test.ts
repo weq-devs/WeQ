@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { GapMessagesModal } from '../src/renderer/src/components/compose/GapMessagesModal';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { GRAY_TIP_KINDS } from '../src/renderer/src/im-template/template/messageRow';
+import { GRAY_TIP_KINDS } from '../src/renderer/src/im-template/template/messageRow.shared';
 import { createTemplateDemoData } from './support/templateDemoData';
 
 vi.mock('../src/renderer/src/trpc/client', () => {

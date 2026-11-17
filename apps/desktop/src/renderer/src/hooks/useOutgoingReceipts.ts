@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
 import { client } from '../trpc/client';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 
 type Pending = { id: string; state: string; hostReceived?: boolean };
 type Setter<T> = Dispatch<SetStateAction<T[]>>;

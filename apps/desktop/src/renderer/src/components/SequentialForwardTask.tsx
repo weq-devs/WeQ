@@ -10,12 +10,12 @@ import {
   forwardMessageBlockReason,
   type ForwardOptions,
 } from '../lib/sequentialForward';
-import { useToast } from './Toast';
+import { useToast } from './Toast.shared';
 import {
   taskNotificationSource,
   notificationSource,
   openNotificationSource,
-} from '../lib/notificationNavigation';
+} from '../lib/notificationNavigation.shared';
 import { localBackgroundTasks } from '../state/backgroundTasks';
 import type { BackgroundTaskScope } from '../../../shared/background_task';
 import '../styles/sequential-forward.css';

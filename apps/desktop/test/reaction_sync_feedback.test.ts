@@ -12,6 +12,10 @@ vi.mock('../src/renderer/src/components/Toast', () => ({
   useToast: { getState: () => ({ push: warn }) },
   useToastApi: () => ({ push: warn }),
 }));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
+  useToast: { getState: () => ({ push: warn }) },
+  useToastApi: () => ({ push: warn }),
+}));
 vi.mock('../src/renderer/src/components/FaceEmoji', () => ({
   FaceEmoji: () => createElement('span', { className: 'face-emoji' }),
 }));

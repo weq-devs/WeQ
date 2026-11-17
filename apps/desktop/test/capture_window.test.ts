@@ -7,7 +7,7 @@ import { CaptureWindowHost } from '../src/renderer/src/components/CaptureWindow'
 import { useCaptureWindow } from '../src/renderer/src/state/captureWindow';
 import { useAppLock } from '../src/renderer/src/state/lock';
 import { useRenderDocument } from '../src/renderer/src/lib/renderDocument';
-import { useTabActive } from '../src/renderer/src/components/RetainedTabs';
+import { useTabActive } from '../src/renderer/src/components/RetainedTabs.shared';
 
 const f = vi.hoisted(() => ({
   read: vi.fn(),

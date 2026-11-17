@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { useOverlayAnchor } from '../lib/overlayAnchor';
+import { useOverlayAnchor } from '../lib/overlayAnchor.shared';
 import { useOverlayLayer } from '../lib/overlayStack';
 import { useRenderDocument } from '../lib/renderDocument';
 import '../styles/qzone-actions.css';

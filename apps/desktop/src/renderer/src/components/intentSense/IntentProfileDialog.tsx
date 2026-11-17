@@ -11,8 +11,8 @@ import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { BrainCircuit, RefreshCw, X } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { OverlayLayer } from '../OverlayLayer';
-import { useIntentSenseStatus } from './context';
-import { useTabActive } from '../RetainedTabs';
+import { useIntentSenseStatus } from './context.shared';
+import { useTabActive } from '../RetainedTabs.shared';
 import '../../styles/intent-sense.css';
 
 const MBTI_LABELS: Record<string, [string, string]> = {

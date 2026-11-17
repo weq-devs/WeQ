@@ -22,7 +22,7 @@ import type {
 } from '@weq/protocol';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 import { client, trpc } from '../trpc/client';
-import { useDialog } from './Dialog';
+import { useDialog } from './Dialog.shared';
 import { QqAvatar } from './QqAvatar';
 import { ProfileAvatar } from './ProfileAvatar';
 import { QzoneLikesPopover } from './QzoneLikesPopover';

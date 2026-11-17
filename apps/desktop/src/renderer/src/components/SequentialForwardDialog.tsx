@@ -18,7 +18,7 @@ import {
 } from '../lib/sequentialForward';
 import { startSequentialForward } from './SequentialForwardTask';
 import { GapMessagesModal } from './compose/GapMessagesModal';
-import { qqMessageRenderer } from './QqMessageContent';
+import { qqMessageRenderer } from './QqMessageContent.shared';
 import { trpc } from '../trpc/client';
 import '../styles/sequential-forward.css';
 

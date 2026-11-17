@@ -2,11 +2,8 @@ import { lazy, Suspense, useEffect, useId, useRef, useState, type ReactNode } fr
 import { X } from 'lucide-react';
 import { OverlayLayer } from './OverlayLayer';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
-import {
-  NotificationSourceProvider,
-  notificationSource,
-  openNotificationSource,
-} from '../lib/notificationNavigation';
+import { NotificationSourceProvider } from '../lib/notificationNavigation';
+import { notificationSource, openNotificationSource } from '../lib/notificationNavigation.shared';
 import '../styles/self-online-status.css';
 
 const StatusEditor = lazy(() => import('./SelfOnlineStatusEditor'));

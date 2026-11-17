@@ -9,11 +9,10 @@ import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigat
 import { QzoneCardNavigationContext } from '../src/renderer/src/lib/qzoneNavigation';
 import { QqDynamic } from '../src/renderer/src/components/QqDynamic';
 import { QqGroupReceipt } from '../src/renderer/src/components/QqGroupReceipt';
-import {
-  RedBagDetailHost,
-  openRedBagDetail,
-} from '../src/renderer/src/components/RedBagDetailDialog';
-import { ForwardWindowHost, openForwardWindow } from '../src/renderer/src/components/ForwardWindow';
+import { RedBagDetailHost } from '../src/renderer/src/components/RedBagDetailDialog';
+import { openRedBagDetail } from '../src/renderer/src/components/RedBagDetailDialog.shared';
+import { ForwardWindowHost } from '../src/renderer/src/components/ForwardWindow';
+import { openForwardWindow } from '../src/renderer/src/state/forwardWindow';
 import { GroupKeywordEditor } from '../src/renderer/src/components/GroupKeywordEditor';
 import { BuddyAnalyticsDialog } from '../src/renderer/src/components/BuddyAnalyticsDialog';
 import { MemberAnalyticsDialog } from '../src/renderer/src/components/MemberAnalyticsDialog';
@@ -51,6 +50,9 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
 }));
 vi.mock('../src/renderer/src/hooks/useMsgDecoration', () => ({ useMsgDecoration: () => ({}) }));
 vi.mock('../src/renderer/src/hooks/useActiveWidget', () => ({
+  useActiveWidget: () => ({ widget: null }),
+}));
+vi.mock('../src/renderer/src/hooks/useActiveWidget.shared', () => ({
   useActiveWidget: () => ({ widget: null }),
 }));
 vi.mock('../src/renderer/src/components/useAnalyticsExport', () => ({

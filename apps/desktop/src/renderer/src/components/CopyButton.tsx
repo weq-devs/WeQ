@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ComponentPropsWithoutRef } from 'react';
 import { copyTextToClipboard } from '../im-template/template/clipboard';
-import { useToastApi } from './Toast';
+import { useToastApi } from './Toast.shared';
 import '../styles/copy-feedback.css';
 
 /** 字段复制共用就地反馈，不改变原按钮内容或布局。 */

@@ -12,7 +12,7 @@ import {
   type useGroupProfile,
 } from '../../hooks/useGroupProfile';
 import { PROFILE_QUERY_OPTIONS } from '../../lib/profileQuery';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { projectGroupEssence } from '../../lib/groupEssenceProjection';
 import { GroupProfileData } from './GroupProfileData';
 import '../../styles/group-card.css';

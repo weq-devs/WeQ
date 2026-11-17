@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement } from 'react';
 import { TimeLabel, DurationLabel } from '../src/renderer/src/components/TimeLabel';
-import { groupCreationDate } from '../src/renderer/src/components/groupProfile/GroupContent';
-import { formatExpiry } from '../src/renderer/src/components/settings/AccountBasicsSection';
-import { formatCacheExpiry } from '../src/renderer/src/components/settings/ExternalRkeySection';
+import { groupCreationDate } from '../src/renderer/src/components/groupProfile/GroupContent.shared';
+import { formatExpiry } from '../src/renderer/src/components/settings/AccountBasicsSection.shared';
+import { formatCacheExpiry } from '../src/renderer/src/components/settings/ExternalRkeySection.shared';
 import { MessageTimeDivider } from '../src/renderer/src/im-template/template/messageTime';
 import { ChatTimeDivider } from '../src/renderer/src/views/agentlab/messageTime';
 import { formatFileTime } from '../src/renderer/src/lib/groupFile';
@@ -16,7 +16,7 @@ import {
 import {
   nodeTimeValue,
   parseNodeTime,
-} from '../src/renderer/src/components/mergeForward/NodeTimeInput';
+} from '../src/renderer/src/components/mergeForward/NodeTimeInput.shared';
 
 afterEach(() => vi.useRealTimers());
 

@@ -1,7 +1,8 @@
 import { createRoot } from 'react-dom/client';
 import { BootstrapShell } from '../../src/renderer/src/views/BootstrapView';
 import { SelectScreen } from '../../src/renderer/src/views/bootstrap/SelectScreen';
-import { ToastHost, useToast } from '../../src/renderer/src/components/Toast';
+import { ToastHost } from '../../src/renderer/src/components/Toast';
+import { useToast } from '../../src/renderer/src/components/Toast.shared';
 import { useRestrictedMode } from '../../src/renderer/src/state/restrictedMode';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import { useViewState } from '../../src/renderer/src/state/view';

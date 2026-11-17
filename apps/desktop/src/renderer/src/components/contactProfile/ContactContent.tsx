@@ -42,7 +42,7 @@ import { ProfileLikeAction } from '../qq-actions/ProfileLikeAction';
 import { QQProfileField } from '../QQProfileField';
 import { VirtualConversationBadge } from '../VirtualConversationAvatar';
 import { QQGroupMemberControls } from '../QQGroupMemberControls';
-import { openMediaPreview } from '../mediaPreviewStore';
+import { openMediaPreview } from '../mediaPreviewStore.shared';
 import { QqShowGallery } from '../QqShowGallery';
 import { ProfileExtraDialog, ProfileLabelAlbum, type ProfileExtraView } from '../ProfileExtras';
 import {
@@ -53,12 +53,14 @@ import {
   ContactTechnicalDetails,
 } from './ContactRow';
 import '../../styles/contact-card.css';
-import { ContactFieldHistoryButton, useContactFieldHistoryAvailable } from './ContactFieldHistory';
+import { ContactFieldHistoryButton } from './ContactFieldHistory';
+import { useContactFieldHistoryAvailable } from './ContactFieldHistory.shared';
 import { useGroupMemberUnmute } from '../../hooks/useGroupMemberUnmute';
 import { CalendarNavigationContext } from '../../lib/calendarNavigation';
 import { useGroupMemberTimeNavigation } from '../../hooks/useGroupMemberTimeNavigation';
 import { previewMemberView } from '../../hooks/useGroupProfile';
-import { SelfProfileSlot, useSelfProfileFields } from '../SelfProfileFields';
+import { SelfProfileSlot } from '../SelfProfileFields';
+import { useSelfProfileFields } from '../SelfProfileFields.shared';
 import { ProfileDisplayEntry } from '../ProfileDisplaySettings';
 import { SelfAvatarHistory } from '../SelfAvatarHistory';
 import { SelfOnlineStatus } from '../SelfOnlineStatus';
@@ -67,9 +69,8 @@ import {
   ContactOnlineRegion,
   ContactOnlineSchool,
 } from './ContactOnlineFields';
-import { useTabActive } from '../RetainedTabs';
-
-export { contactCardFieldGroup, type ContactCardGroup } from '../../lib/contactCardSections';
+import { useTabActive } from '../RetainedTabs.shared';
+export type { ContactCardGroup } from '../../lib/contactCardSections';
 
 const automaticFields: readonly ContactCardContent[] = [
   'qqShow',

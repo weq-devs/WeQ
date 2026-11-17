@@ -31,7 +31,7 @@ import { Loader2, Users } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { Modal } from './Dialog';
 import { GroupJoinQr } from './GroupJoinQr';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import { openExternalLink } from '../lib/openExternalLink';
 import logoUrl from '@resources/brand/logo.png';
 

@@ -1,7 +1,5 @@
 import { lazy, memo, Suspense } from 'react';
 
-export { looksLikeMarkdown } from '../state/textMarkdown';
-
 const Content = lazy(() =>
   import('./QqMarkdownContent').then((module) => ({ default: module.QqMarkdown })),
 );

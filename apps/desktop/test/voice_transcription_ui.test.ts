@@ -53,6 +53,11 @@ vi.mock('../src/renderer/src/components/MediaSaveControls', () => ({
   MediaSaveControls: () => null,
   useMediaSave: () => ({}),
 }));
+vi.mock('../src/renderer/src/components/MediaSaveControls.shared', () => ({
+  MediaSourceSave: () => null,
+  MediaSaveControls: () => null,
+  useMediaSave: () => ({}),
+}));
 
 const message: Message = {
   id: 'voice',

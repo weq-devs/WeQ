@@ -23,6 +23,10 @@ vi.mock('../src/renderer/src/components/Toast', () => ({
   useToast: { getState: () => ({ push: state.toast }) },
   useToastApi: () => ({ push: state.toast }),
 }));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
+  useToast: { getState: () => ({ push: state.toast }) },
+  useToastApi: () => ({ push: state.toast }),
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     account: {

@@ -1,7 +1,7 @@
 import { SmilePlus } from 'lucide-react';
 import { MessageMenuButton } from '../MessageMenuButton';
 import { client, trpc } from '../../trpc/client';
-import { useQQAction } from './shared';
+import { useQQAction } from './shared.shared';
 
 export function MessageFavoriteEmojiAction({
   url,

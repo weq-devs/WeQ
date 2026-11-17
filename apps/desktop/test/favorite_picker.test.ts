@@ -39,7 +39,32 @@ vi.mock('../src/renderer/src/hooks/useQQAutoRefresh', () => ({ useQQAutoRefresh:
 vi.mock('../src/renderer/src/components/MediaSaveControls', () => ({
   useMediaSave: () => ({ run: state.save, disabled: false, prompt: null }),
 }));
+vi.mock('../src/renderer/src/components/MediaSaveControls.shared', () => ({
+  useMediaSave: () => ({ run: state.save, disabled: false, prompt: null }),
+}));
 vi.mock('../src/renderer/src/components/qq-actions/shared', () => ({
+  withQQAccountScope: (component: unknown) => component,
+  useQQAction: () => ({
+    binding,
+    available: state.available,
+    disabled: !state.available,
+    perform: async (
+      run: (b: unknown) => Promise<unknown>,
+      refresh: () => Promise<void>,
+      warning?: string,
+      options?: { readback?: () => Promise<boolean> },
+    ) => {
+      if (warning && !(await state.confirm())) return false;
+      await run(binding);
+      const ok = await options?.readback?.();
+      await refresh();
+      return ok;
+    },
+  }),
+  ActionIcon: (props: { label: string; disabled?: boolean; onClick: () => void }) =>
+    h('button', { 'aria-label': props.label, disabled: props.disabled, onClick: props.onClick }),
+}));
+vi.mock('../src/renderer/src/components/qq-actions/shared.shared', () => ({
   withQQAccountScope: (component: unknown) => component,
   useQQAction: () => ({
     binding,

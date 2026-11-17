@@ -3,9 +3,10 @@ import { X } from 'lucide-react';
 import type { RoamingTarget } from '@weq/service';
 import { trpc } from '../trpc/client';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
-import { Modal, useDialog } from './Dialog';
+import { Modal } from './Dialog';
+import { useDialog } from './Dialog.shared';
 import { QQWriteResult, QQWriteTextRow } from './QQWriteControls';
-import { withQQAccountScope } from './qq-actions/shared';
+import { withQQAccountScope } from './qq-actions/shared.shared';
 import '../styles/qq-remark.css';
 
 function QQRemarkDialogBody({ target, onClose }: { target: RoamingTarget; onClose: () => void }) {

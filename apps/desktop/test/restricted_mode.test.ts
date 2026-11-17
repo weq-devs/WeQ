@@ -13,11 +13,14 @@ import {
   AuthorizationForm,
 } from '../src/renderer/src/components/RestrictedMode';
 import { useViewState } from '../src/renderer/src/state/view';
-import { ToastHost, useToast } from '../src/renderer/src/components/Toast';
-import { DialogHost, useDialog } from '../src/renderer/src/components/Dialog';
+import { ToastHost } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
+import { DialogHost } from '../src/renderer/src/components/Dialog';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import type { QqDataAccess } from '../src/main/qq_data_access';
 import type { QqDebugCopyStatus } from '../src/shared/qq_debug_copy';
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_MAC: true, IS_WEB: false }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_MAC: true, IS_WEB: false }));
 
 const ready: OnlineAccess = {
   qqOnline: true,

@@ -1,7 +1,7 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { useToast } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { NotificationClickBridge } from '../src/renderer/src/components/NotificationClickBridge';
 import {
   registerNotificationClick,
@@ -15,6 +15,7 @@ const state = vi.hoisted(() => ({
   unsubscribe: vi.fn(),
 }));
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: false }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: false }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     bootstrap: {

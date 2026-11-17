@@ -1,7 +1,7 @@
 import { createContext, useEffect, useRef } from 'react';
 import { trpc } from '../../trpc/client';
-import { useDialog } from '../Dialog';
-import { useTabActive } from '../RetainedTabs';
+import { useDialog } from '../Dialog.shared';
+import { useTabActive } from '../RetainedTabs.shared';
 import { acceptSettingsReply } from '../../lib/clientPreferences';
 
 /** 三项功能共用全局配置，只提交本次修改的字段。 */

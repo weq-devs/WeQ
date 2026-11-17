@@ -8,7 +8,7 @@ import {
   type ConversationBatchAction,
 } from '../lib/conversationViews';
 import type { Conversation } from '../im-template/template/types';
-import { useRequestContentExport } from '../state/contentSelection';
+import { useRequestContentExport } from '../state/contentSelection.shared';
 import { Modal } from './Dialog';
 import '../styles/conversation-directory.css';
 

@@ -4,7 +4,7 @@ import { X, RefreshCw, UsersRound } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { Modal } from '../Dialog';
-import { withQQAccountScope } from './shared';
+import { withQQAccountScope } from './shared.shared';
 import { GroupAvatar } from '../exportAvatars';
 import { GroupProfileDialog } from '../lazyMainPanels';
 import { ContactRow } from '../contactProfile/ContactRow';

@@ -5,7 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { elementsToComposerText } from '../src/renderer/src/im-template/template/draftElements';
-import { serializeComposer } from '../src/renderer/src/im-template/template/composer';
+import { serializeComposer } from '../src/renderer/src/im-template/template/composer.shared';
 
 const state = vi.hoisted(() => ({
   open: vi.fn(
@@ -13,6 +13,9 @@ const state = vi.hoisted(() => ({
   ),
 }));
 vi.mock('../src/renderer/src/components/mediaPreviewStore', () => ({
+  openMediaPreview: state.open,
+}));
+vi.mock('../src/renderer/src/components/mediaPreviewStore.shared', () => ({
   openMediaPreview: state.open,
 }));
 vi.mock('../src/renderer/src/trpc/client', () => {

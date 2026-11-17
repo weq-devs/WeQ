@@ -17,10 +17,8 @@ import {
   type ConversationView,
   type ConversationViewDirectory,
 } from '../../src/renderer/src/lib/conversationViews';
-import {
-  ContentSelectionProvider,
-  useCurrentContentSelection,
-} from '../../src/renderer/src/state/contentSelection';
+import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSelection';
+import { useCurrentContentSelection } from '../../src/renderer/src/state/contentSelection.shared';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import { AssistantConversationPane } from '../../src/renderer/src/views/agentlab/AssistantConversationPane';
 import { ConversationBatchExportPane } from '../../src/renderer/src/views/export/ConversationBatchExportPane';
@@ -29,7 +27,8 @@ import { useViewState } from '../../src/renderer/src/state/view';
 import { groupAssistantPreferences } from '../../src/renderer/src/lib/groupAssistant';
 import { createTemplateDemoData } from '../support/templateDemoData';
 import { MobileNavigationRuntime } from '../../src/renderer/src/components/MobileNavigationRuntime';
-import { DialogHost, useDialog } from '../../src/renderer/src/components/Dialog';
+import { DialogHost } from '../../src/renderer/src/components/Dialog';
+import { useDialog } from '../../src/renderer/src/components/Dialog.shared';
 import { generatedConversationDeletion } from '../../src/renderer/src/lib/generatedConversationDeletion';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/rail-navigation.css';

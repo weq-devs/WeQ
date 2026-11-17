@@ -7,6 +7,11 @@ vi.mock('../src/renderer/src/lib/target', () => ({
     return target.web;
   },
 }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({
+  get IS_WEB() {
+    return target.web;
+  },
+}));
 afterEach(() => {
   delete window.weqRemoteShell;
   target.web = true;

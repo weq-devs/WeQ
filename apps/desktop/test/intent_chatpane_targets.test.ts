@@ -4,8 +4,9 @@ import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from './support/templateDemoData';
-import { ToastHost, useToast } from '../src/renderer/src/components/Toast';
-import { useDialog } from '../src/renderer/src/components/Dialog';
+import { ToastHost } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 
 const fixture = vi.hoisted(() => ({
   provider: {} as {
@@ -21,6 +22,24 @@ const fixture = vi.hoisted(() => ({
   analyze: vi.fn<(input: unknown) => Promise<unknown>>(async () => null),
 }));
 vi.mock('../src/renderer/src/components/intentSense/context', () => ({
+  IntentSenseProvider: ({
+    children,
+    ...props
+  }: {
+    children: ReactNode;
+    latestMessageId?: string | null;
+    latestPeerMsgId?: string | null;
+    latestSelfMessageIds?: readonly string[];
+    roamingMessageKey?: string;
+    manualPendingMessageIds?: ReadonlySet<string>;
+  }) => {
+    fixture.provider = props;
+    return children;
+  },
+  useIntentSenseStatus: () => ({ data: { enabled: fixture.enabled, analysisMode: 'manual' } }),
+  useIntentSenseContext: () => null,
+}));
+vi.mock('../src/renderer/src/components/intentSense/context.shared', () => ({
   IntentSenseProvider: ({
     children,
     ...props

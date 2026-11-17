@@ -27,6 +27,9 @@ const state = vi.hoisted(() => ({
 vi.mock('../src/renderer/src/components/qq-actions/shared', () => ({
   withQQAccountScope: (component: unknown) => component,
 }));
+vi.mock('../src/renderer/src/components/qq-actions/shared.shared', () => ({
+  withQQAccountScope: (component: unknown) => component,
+}));
 vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
   useQQWriteSession: () => ({
     available: state.available,

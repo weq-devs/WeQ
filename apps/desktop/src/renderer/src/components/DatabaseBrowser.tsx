@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useAccountSwitch } from '../state/accountSwitch';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import { QueryError } from './settings/controls';
 import { DbExplorer } from '../views/cache/DbExplorer';
 import { ExportTool } from './lazyWorkspaces';

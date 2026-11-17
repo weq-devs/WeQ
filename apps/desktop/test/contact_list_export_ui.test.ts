@@ -3,10 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SidebarHeader } from '../src/renderer/src/im-template/template/sidebarHeader';
 import { createTemplateDemoData } from './support/templateDemoData';
-import {
-  ContentSelectionProvider,
-  useContentExportRequest,
-} from '../src/renderer/src/state/contentSelection';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
+import { useContentExportRequest } from '../src/renderer/src/state/contentSelection.shared';
 import { initialContactScope } from '../src/renderer/src/views/export/exportScope';
 
 vi.mock('../src/renderer/src/trpc/client', () => ({ trpc: {}, client: {} }));

@@ -4,12 +4,10 @@ import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from './support/templateDemoData';
-import {
-  ContentSelectionProvider,
-  useContentMultiSelect,
-} from '../src/renderer/src/state/contentSelection';
-import { useDialog } from '../src/renderer/src/components/Dialog';
-import { useToast } from '../src/renderer/src/components/Toast';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
+import { useContentMultiSelect } from '../src/renderer/src/state/contentSelection.shared';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 import type { Message } from '../src/renderer/src/im-template/template/types';
 
 const rpc = vi.hoisted(() => ({

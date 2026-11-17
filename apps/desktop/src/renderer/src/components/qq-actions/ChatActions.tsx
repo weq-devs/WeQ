@@ -5,7 +5,8 @@ import { client, trpc } from '../../trpc/client';
 import type { Conversation, Message } from '../../im-template/template/types';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { useTypingStatusSettings } from '../../hooks/useTypingStatusSettings';
-import { ActionFeedback, useQQAction, useQQGroupPermissions } from './shared';
+import { ActionFeedback } from './shared';
+import { useQQAction, useQQGroupPermissions } from './shared.shared';
 
 export function MessageTodoAction({
   conversation,

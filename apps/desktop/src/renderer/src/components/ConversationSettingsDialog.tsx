@@ -18,7 +18,7 @@ import { accountBinding } from '../lib/clientPreferences';
 import { ContactWorkspaceNavigationContext, profileTargetUser } from '../lib/profileNavigation';
 import { BellRing, BrainCircuit, Settings2, ShieldCheck, UsersRound } from 'lucide-react';
 import { trpc } from '../trpc/client';
-import { useDialog } from './Dialog';
+import { useDialog } from './Dialog.shared';
 import { Card, Row, Toggle } from './settings/controls';
 import { GroupKeywordEditor, type KeywordMember } from './GroupKeywordEditor';
 import { ConversationSettingsFrame } from './ConversationSettingsFrame';

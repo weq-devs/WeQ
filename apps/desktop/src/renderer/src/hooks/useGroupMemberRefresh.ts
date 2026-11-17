@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
-import { useDialog } from '../components/Dialog';
+import { useDialog } from '../components/Dialog.shared';
 import { useContactRefreshTask } from './useContactRefreshTask';
 
 /** 群交集与联系人共用同一刷新任务，只选择群成员名单范围。 */

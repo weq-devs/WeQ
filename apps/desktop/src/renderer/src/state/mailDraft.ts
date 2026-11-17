@@ -1,4 +1,4 @@
-import { useDialog } from '../components/Dialog';
+import { useDialog } from '../components/Dialog.shared';
 
 let current: { owner: symbol; dirty: boolean; busy: boolean } | null = null;
 

@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
   setMode: vi.fn(async (_input: { mode: ExportSavePolicy['mode'] }) => {}),
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({ useDialog: () => vi.fn() }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({ useDialog: () => vi.fn() }));
 vi.mock('../src/renderer/src/trpc/client', () => {
   function proxy(path = ''): unknown {
     return new Proxy(() => {}, {

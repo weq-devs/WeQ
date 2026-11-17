@@ -2,7 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { ExportViewer } from '../src/renderer/src/views/ExportViewer';
-import { useDialog } from '../src/renderer/src/components/Dialog';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import type { ViewerScanEvent } from '../src/main/ipc/routers/export_viewer';
 
 const f = vi.hoisted(() => ({
@@ -84,6 +84,9 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   },
 }));
 vi.mock('../src/renderer/src/components/mediaPreviewStore', () => ({ openMediaPreview: vi.fn() }));
+vi.mock('../src/renderer/src/components/mediaPreviewStore.shared', () => ({
+  openMediaPreview: vi.fn(),
+}));
 const source = {
   id: 'synthetic-id',
   name: '合成归档',

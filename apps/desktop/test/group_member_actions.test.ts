@@ -33,7 +33,14 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   useDialog: { getState: () => ({ confirm: rpc.confirm }) },
 }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
+  useDialog: { getState: () => ({ confirm: rpc.confirm }) },
+}));
 vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToast: { getState: () => ({ push: rpc.toast }) },
+  useToastApi: () => ({ push: rpc.toast }),
+}));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
   useToast: { getState: () => ({ push: rpc.toast }) },
   useToastApi: () => ({ push: rpc.toast }),
 }));

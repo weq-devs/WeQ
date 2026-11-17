@@ -30,13 +30,14 @@ import {
 import type { StorageUsageItem } from '@weq/service';
 import { client, trpc } from '../../trpc/client';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
-import { useDialog } from '../Dialog';
-import { useToast } from '../Toast';
+import { useDialog } from '../Dialog.shared';
+import { useToast } from '../Toast.shared';
 import { LoadingIndicator } from '../LoadingIndicator';
 import { useViewState } from '../../state/view';
 import { QqAvatar } from '../QqAvatar';
-import { Card, CheckPill, Row, SectionHeader, Toggle, SettingsNavigateContext } from './controls';
-import { useTabActive } from '../RetainedTabs';
+import { Card, CheckPill, Row, SectionHeader, Toggle } from './controls';
+import { SettingsNavigateContext } from './controls.shared';
+import { useTabActive } from '../RetainedTabs.shared';
 import { ToastSettingsCard } from './ToastSettingsCard';
 import { MessageNotificationRows } from './MessageNotificationRows';
 import { groupStorage, mergeStorageEntries } from '../../lib/storage-groups';

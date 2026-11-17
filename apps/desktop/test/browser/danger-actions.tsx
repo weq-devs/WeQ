@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { Trash2, Undo2 } from 'lucide-react';
-import { DialogHost, useDialog } from '../../src/renderer/src/components/Dialog';
+import { DialogHost } from '../../src/renderer/src/components/Dialog';
+import { useDialog } from '../../src/renderer/src/components/Dialog.shared';
 import { ClearReadRecordsSetting } from '../../src/renderer/src/components/settings/ClearReadRecordsSetting';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import '../../src/renderer/src/styles/index.css';

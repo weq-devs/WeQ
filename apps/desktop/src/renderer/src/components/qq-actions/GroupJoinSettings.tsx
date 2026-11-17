@@ -4,7 +4,8 @@ import { client, trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useDraftProtection } from '../../lib/draftClose';
 import { Row } from '../settings/controls';
-import { ActionFeedback, useQQAction, useQQGroupPermissions } from './shared';
+import { ActionFeedback } from './shared';
+import { useQQAction, useQQGroupPermissions } from './shared.shared';
 
 type JoinMode = 1 | 2 | 3 | 4 | 5;
 function joinMode(value: number | null | undefined): JoinMode | '' {

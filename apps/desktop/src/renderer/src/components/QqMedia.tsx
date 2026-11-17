@@ -33,21 +33,22 @@ import {
 } from 'lucide-react';
 import { fileIconUrl, localFileUrl, localVoiceFileUrl, mediaUrl } from '@renderer/lib/resourceUrl';
 import { useDataSaver } from '@renderer/lib/dataSaver';
-import { IS_WEB } from '@renderer/lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import { cn } from '@renderer/lib/utils';
 import { trpc } from '@renderer/trpc/client';
-import { openMediaPreview } from './mediaPreviewStore';
+import { openMediaPreview } from './mediaPreviewStore.shared';
 
-import { MediaItemKeyContext, useChatMediaOpen } from './ChatMediaGallery';
+import { MediaItemKeyContext, useChatMediaOpen } from './ChatMediaGallery.shared';
 import { useRenderDocument, resourceForRenderDocument } from '../lib/renderDocument';
 import { openMarketFaceLightbox } from '../state/marketFaceLightbox';
 import { ShimmerImage } from './ShimmerImage';
-import { IS_ELECTRON } from '@renderer/lib/target';
+import { IS_ELECTRON } from '../lib/target.shared';
 import { cdnImageUrl, cdnVideoCoverUrl, flashPicUrl, useCdn } from '@renderer/lib/cdn';
-import { MediaSaveControls, useMediaSave } from './MediaSaveControls';
+import { MediaSaveControls } from './MediaSaveControls';
+import { useMediaSave } from './MediaSaveControls.shared';
 import type { MediaSaveSource } from '../../../shared/media_save';
 import { useVoiceTranscription } from '../hooks/useVoiceTranscription';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import { useRemoteClient } from '../lib/remoteClient';
 import { mediaRetryUrl } from '../lib/mediaRetryUrl';
 import '../styles/media-preview.css';

@@ -8,21 +8,18 @@ import {
   startupRestrictionReasons,
   dataAccessRestriction,
 } from '../lib/restrictedMode';
-import { IS_MAC } from '../lib/target';
+import { IS_MAC } from '../lib/target.shared';
 import { QqDataAccessNotice } from '../views/bootstrap/QqDataAccessNotice';
 import { useRestrictedMode, type AuthorizationRequest } from '../state/restrictedMode';
 import { useViewState } from '../state/view';
-import { useToastApi } from './Toast';
-import { notificationSource } from '../lib/notificationNavigation';
+import { useToastApi } from './Toast.shared';
+import { notificationSource } from '../lib/notificationNavigation.shared';
 import { useOverlayLayer } from '../lib/overlayStack';
 import { topSurface } from '../lib/surfaceEscape';
 import '../styles/restricted-mode.css';
+import { ipc } from './RestrictedMode.shared';
 
 const NOTICE_KEY = 'restricted-mode';
-
-function ipc() {
-  return window.electron?.ipcRenderer;
-}
 
 /** 保留主进程的 token、取消与超时语义，只将授权入口改为非阻塞详情。 */
 function useAuthorizationBridge() {
@@ -109,13 +106,6 @@ export function RestrictedModeIndicator({ persistent = false }: { persistent?: b
       <span>{title}</span>
     </button>
   );
-}
-
-export function cancelAuthorizationRequest(request: AuthorizationRequest): void {
-  if (request.kind === 'password')
-    ipc()?.send('elev:respond-password', { token: request.token, password: null });
-  else ipc()?.send('attach:respond-hint', { token: request.token, choice: 'cancel', password: '' });
-  useRestrictedMode.getState().remove(request.kind, request.token);
 }
 
 export function AuthorizationForm({

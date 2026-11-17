@@ -1,12 +1,13 @@
 import { TimeLabel } from './TimeLabel';
 import { clockFormatter, formatDateTime } from '@weq/time';
-import { createContext, useContext, type ReactNode } from 'react';
+import { useContext, type ReactNode } from 'react';
 import { beijingDay } from '../lib/messageCalendar';
 import '../styles/message-metadata.css';
-
-export const ShowMessageSeqContext = createContext(false);
-export const ShowMessageDateContext = createContext(false);
-export const ShowMessageTimeContext = createContext(false);
+import {
+  ShowMessageDateContext,
+  ShowMessageTimeContext,
+  ShowMessageSeqContext,
+} from './MessageProvenance.shared';
 
 type MessageMetadataSource = {
   msgSeq?: string;

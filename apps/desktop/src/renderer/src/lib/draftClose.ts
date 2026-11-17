@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef } from 'react';
-import { useDialog } from '../components/Dialog';
+import { useDialog } from '../components/Dialog.shared';
 
 type DraftState = { dirty: boolean; busy: boolean };
 type Drafts = Set<() => DraftState>;

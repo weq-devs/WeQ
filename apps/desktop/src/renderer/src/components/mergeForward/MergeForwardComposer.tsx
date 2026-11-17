@@ -61,13 +61,14 @@ import {
   X,
 } from 'lucide-react';
 import { QqMessageContent } from '../QqMessageContent';
-import { GrayTipLine, grayTipOf } from '../../im-template/template/messageRow';
+import { GrayTipLine } from '../../im-template/template/messageRow';
+import { grayTipOf } from '../../im-template/template/messageRow.shared';
 import { FaceEmoji } from '../FaceEmoji';
 import { FacePicker } from '../compose/FacePicker';
 import { QqAvatar } from '../QqAvatar';
-import { useToast } from '../Toast';
+import { useToast } from '../Toast.shared';
 import { useMsgDecoration } from '../../hooks/useMsgDecoration';
-import { useActiveWidget } from '../../hooks/useActiveWidget';
+import { useActiveWidget } from '../../hooks/useActiveWidget.shared';
 import { localDressApplies } from '../../lib/dressSkin';
 import { useBubbleFontFx } from '../../hooks/useBubbleFontFx';
 import { useOverlayLayer } from '../../lib/overlayStack';
@@ -75,7 +76,8 @@ import { localFileUrl } from '../../lib/resourceUrl';
 import { trpc } from '../../trpc/client';
 import { pickAccountFile } from '../../lib/accountFilePicker';
 import { cn } from '../../im-template/template/classNames';
-import { dedupePersons, SenderPicker, type MfPerson } from './SenderPicker';
+import { dedupePersons } from './SenderPicker.shared';
+import { SenderPicker, type MfPerson } from './SenderPicker';
 import { MsgDressEditor } from './MsgDressEditor';
 import { moveCompositionNode } from './workspaceModel';
 import { NodeTimeInput } from './NodeTimeInput';
@@ -2216,9 +2218,4 @@ function NodeMenu({
     </div>,
     document.body,
   );
-}
-
-/** 供外层对话框显示默认标题。 */
-export function composerDefaultTitle(draft: MfDraft): string {
-  return draft.title || draftTitle(draft.nodes);
 }

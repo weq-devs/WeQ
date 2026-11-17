@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { RefreshCw, Search } from 'lucide-react';
 import { trpc } from '../../trpc/client';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import { ExportTab } from '../agentlab/PersonaSettingsModal';
 import { SingleSelectPicker } from './SingleSelectPicker';
 import { SegmentedControl } from '../../components/SegmentedControl';

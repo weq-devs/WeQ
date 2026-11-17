@@ -8,20 +8,15 @@ import {
   type ReactNode,
 } from 'react';
 import { ChevronLeft, ChevronRight, Copy, RefreshCw } from 'lucide-react';
-import { compareMessageOrder } from '@weq/codec';
 import { interactiveMediaUrl } from '../lib/resourceUrl';
 import { MediaPreviewShell } from './MediaPreviewShell';
-import {
-  MediaLoadStatus,
-  MediaZoomControls,
-  mediaZoomKeyDown,
-  type MediaLoadState,
-} from './MediaPreviewControls';
+import { MediaLoadStatus, MediaZoomControls, type MediaLoadState } from './MediaPreviewControls';
+import { mediaZoomKeyDown } from './MediaPreviewControls.shared';
 import { useZoomPan } from './useZoomPan';
 import { PreviewOcr } from './usePreviewOcr';
 import { MediaSourceSave } from './MediaSaveControls';
 import { exportMedia } from '../lib/mediaExport';
-import { useToastApi } from './Toast';
+import { useToastApi } from './Toast.shared';
 import { retainObjectUrl } from '../lib/objectUrl';
 import {
   resourceForRenderDocument,
@@ -29,41 +24,14 @@ import {
   useRenderDocument,
 } from '../lib/renderDocument';
 import { mediaRetryUrl } from '../lib/mediaRetryUrl';
-import { NotificationSourceProvider, notificationSource } from '../lib/notificationNavigation';
-import { openMediaPreview } from './mediaPreviewStore';
+import { NotificationSourceProvider } from '../lib/notificationNavigation';
+import { notificationSource } from '../lib/notificationNavigation.shared';
+import { openMediaPreview } from './mediaPreviewStore.shared';
 import { topSurface } from '../lib/surfaceEscape';
 import type { MediaPreviewOptions, PreviewMedia } from './mediaPreviewTypes';
-export type { PreviewMedia, MediaPreviewOptions } from './mediaPreviewTypes';
+import { mergePreviewMedia } from './MediaPreview.shared';
 
-export function mergePreviewMedia(previous: PreviewMedia[], incoming: PreviewMedia[]) {
-  const keys = new Set(previous.map((item) => item.key));
-  const merged = [
-    ...previous,
-    ...incoming.filter((item) => !keys.has(item.key) && keys.add(item.key)),
-  ];
-  if (merged.every((item) => item.order)) {
-    // 聊天沿用消息时间线的序号/时间/ID 排序；无序号的其他来源保留传入顺序。
-    const groups = new Map<string, PreviewMedia[]>();
-    for (const item of merged) {
-      const group = groups.get(item.order!.messageId) ?? [];
-      group.push(item);
-      groups.set(item.order!.messageId, group);
-    }
-    return [...groups.values()]
-      .sort((left, right) => {
-        const a = left[0]!.order!,
-          b = right[0]!.order!;
-        return a.sequence !== undefined && b.sequence !== undefined
-          ? compareMessageOrder(
-              { msgSeq: a.sequence, sendTime: String(a.time), msgId: a.rawId ?? a.messageId },
-              { msgSeq: b.sequence, sendTime: String(b.time), msgId: b.rawId ?? b.messageId },
-            )
-          : a.time - b.time;
-      })
-      .flatMap((group) => group.sort((a, b) => a.order!.element - b.order!.element));
-  }
-  return merged;
-}
+export type { PreviewMedia, MediaPreviewOptions } from './mediaPreviewTypes';
 
 export function MediaPreview(options: MediaPreviewOptions) {
   const contextDocument = useRenderDocument();

@@ -1,4 +1,4 @@
-import { useDialog } from './Dialog';
+import { useDialog } from './Dialog.shared';
 import '../styles/message-deletion.css';
 
 export async function confirmMessageDeletion(count: number): Promise<boolean | null> {

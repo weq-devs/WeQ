@@ -4,10 +4,11 @@ import { NumericText } from '../../components/NumericText';
 import { useState, useRef, useEffect, useId, type ReactElement } from 'react';
 import { ArrowRight, Database, FolderSearch, KeyRound, Loader2, Smartphone, X } from 'lucide-react';
 import { client } from '../../trpc/client';
-import { Modal, useDialog } from '../../components/Dialog';
+import { Modal } from '../../components/Dialog';
+import { useDialog } from '../../components/Dialog.shared';
 import { QqAvatar } from '../../components/QqAvatar';
 import { FolderScanStatus } from '../../components/FolderScanStatus';
-import { KEY_LEN_HINT } from './KeyField';
+import { KEY_LEN_HINT } from './KeyField.shared';
 import qqLogoUrl from '@resources/img/QQ.png';
 import '../../styles/static-backup-scan.css';
 

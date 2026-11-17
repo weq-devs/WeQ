@@ -5,10 +5,10 @@ import type { QQWriteBinding } from '../../hooks/useQQWriteSession';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { client } from '../../trpc/client';
 import { ServerSavePrompt } from '../ServerSavePrompt';
-import { useToast } from '../Toast';
-import { taskNotificationSource } from '../../lib/notificationNavigation';
+import { useToast } from '../Toast.shared';
+import { taskNotificationSource } from '../../lib/notificationNavigation.shared';
 import { ActionIcon } from './shared';
-import { useExportReportDialog } from '../../views/export/ExportReportControl';
+import { useExportReportDialog } from '../../views/export/ExportReportControl.shared';
 
 export function FavoriteBundleExport({
   binding,

@@ -21,10 +21,10 @@ import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
-import { useToast } from '../../components/Toast';
-import { taskNotificationSource } from '../../lib/notificationNavigation';
-import { IS_WEB } from '../../lib/target';
-import { presentClientDocument } from '../../components/ClientDocumentPreview';
+import { useToast } from '../../components/Toast.shared';
+import { taskNotificationSource } from '../../lib/notificationNavigation.shared';
+import { IS_WEB } from '../../lib/target.shared';
+import { presentClientDocument } from '../../components/ClientDocumentPreview.shared';
 import '../../styles/assistant-artifact-save.css';
 
 function kindIcon(kind: AssistantArtifact['kind']): ReactElement {

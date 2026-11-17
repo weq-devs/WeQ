@@ -1,7 +1,8 @@
 import { createRoot } from 'react-dom/client';
 import { Download, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { Card, Row } from '../../src/renderer/src/components/settings/controls';
-import { BackupSection, backupApi } from '../../src/renderer/src/components/settings/BackupSection';
+import { BackupSection } from '../../src/renderer/src/components/settings/BackupSection';
+import { backupApi } from '../../src/renderer/src/components/settings/BackupSection.shared';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/im-template/styles.css';

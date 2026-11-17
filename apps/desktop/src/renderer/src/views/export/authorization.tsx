@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ShieldAlert, X } from 'lucide-react';
 import { client } from '../../trpc/client';
-import { AuthorizationForm, cancelAuthorizationRequest } from '../../components/RestrictedMode';
+import { AuthorizationForm } from '../../components/RestrictedMode';
+import { cancelAuthorizationRequest } from '../../components/RestrictedMode.shared';
 import { OverlayLayer } from '../../components/OverlayLayer';
 import { useRestrictedMode } from '../../state/restrictedMode';
 import type { OnlineAccess } from '../../lib/restrictedMode';
 import type { ExportOptions } from './types';
-import { useToastApi } from '../../components/Toast';
+import { useToastApi } from '../../components/Toast.shared';
 import { LongTermAuthorizationLink } from '../../components/LongTermAuthorizationLink';
 
 export interface ExportAuthorizationState {

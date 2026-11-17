@@ -2,10 +2,8 @@ import { createRoot } from 'react-dom/client';
 import { Check, ExternalLink, Heart, Sparkles } from 'lucide-react';
 import { QqArk } from '../../src/renderer/src/components/ark/QqArk';
 import { GrayTipXmlMessage } from '../../src/renderer/src/components/GrayTipXmlMessage';
-import {
-  QqMessageContent,
-  ReplyJumpContext,
-} from '../../src/renderer/src/components/QqMessageContent';
+import { QqMessageContent } from '../../src/renderer/src/components/QqMessageContent';
+import { ReplyJumpContext } from '../../src/renderer/src/state/messageContext';
 import { GrayTipFileRecvMessage } from '../../src/renderer/src/components/GrayTipFileRecvMessage';
 import { ExternalSiteView } from '../../src/renderer/src/views/ExternalSiteView';
 import {

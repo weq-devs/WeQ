@@ -1,6 +1,6 @@
 import { trpc } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
-import { useDialog } from '../Dialog';
+import { useTabActive } from '../RetainedTabs.shared';
+import { useDialog } from '../Dialog.shared';
 import { QueryError, Row } from './controls';
 import { EnhancementPacksLink } from './RecognitionSettingsSection';
 

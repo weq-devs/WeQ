@@ -7,7 +7,7 @@ import { useId, useRef, useState } from 'react';
 import { X, Save, ChevronLeft, ChevronRight, Hash, Type, Binary, Box, Copy } from 'lucide-react';
 import { cn } from '../im-template/template/classNames';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
-import { useToastApi } from './Toast';
+import { useToastApi } from './Toast.shared';
 
 export interface Props {
   msgId: string;

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { AiImageFeature, AiImageMode } from '@weq/agentlab';
 import { trpc } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { Row } from './controls';
 import { DefaultApiModelRow } from './DefaultApiModelRow';
 import { SegmentedControl } from '../SegmentedControl';

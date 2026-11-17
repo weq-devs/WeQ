@@ -27,10 +27,11 @@ import {
 } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { QqAvatar } from '../QqAvatar';
-import { QqMessageContent, ConvContext, ForwardKindContext } from '../QqMessageContent';
+import { QqMessageContent } from '../QqMessageContent';
+import { ConvContext, ForwardKindContext } from '../../state/messageContext';
 import { FaceEmoji } from '../FaceEmoji';
 import { client } from '../../trpc/client';
-import { IS_WEB } from '../../lib/target';
+import { IS_WEB } from '../../lib/target.shared';
 import { pickAccountFile } from '../../lib/accountFilePicker';
 import type { Conversation, User } from '../../im-template/template/types';
 import { FacePicker } from './FacePicker';

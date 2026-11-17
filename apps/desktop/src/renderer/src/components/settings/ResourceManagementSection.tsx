@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { z } from 'zod';
-import { usePageState } from '../PageSnapshots';
+import { usePageState } from '../PageSnapshots.shared';
 import { BarChart3, FolderOpen, Trash2 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useViewState } from '../../state/view';
-import { RetainedTabs, TabActivity, useTabActive } from '../RetainedTabs';
+import { RetainedTabs, TabActivity } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { SegmentedControl } from '../SegmentedControl';
 import { SectionHeader, QueryError } from './controls';
 import { CacheView } from '../../views/cache/CacheView';

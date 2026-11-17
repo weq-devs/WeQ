@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { MessageBubble } from '../src/renderer/src/im-template/template/messageBubble';
 import { createTemplateDemoData } from './support/templateDemoData';
-import { MsgDecorationEnabledContext } from '../src/renderer/src/components/QqMessageContent';
+import { MsgDecorationEnabledContext } from '../src/renderer/src/state/messageAppearance';
 import { composerSendError } from '../src/renderer/src/im-template/template/composerSend';
 import { stubReadyDecorationResources } from './support/readyDecorationResources';
 
@@ -17,6 +17,11 @@ const fixture = vi.hoisted(() => ({
   remote: false,
 }));
 vi.mock('../src/renderer/src/lib/target', () => ({
+  get IS_WEB() {
+    return fixture.remote;
+  },
+}));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({
   get IS_WEB() {
     return fixture.remote;
   },
@@ -68,6 +73,17 @@ vi.mock('../src/renderer/src/hooks/useSelfPendant', () => ({
   useSelfBubble: () => 2116371,
 }));
 vi.mock('../src/renderer/src/hooks/useActiveWidget', () => ({
+  useActiveWidget: () => ({
+    widget: fixture.widgetActive
+      ? { animated: false, itemId: 10002, url: 'https://example.test/local-widget.png' }
+      : null,
+    scope: fixture.scope,
+    fontActive: fixture.fontActive,
+    bubbleActive: fixture.bubbleActive,
+  }),
+  useActiveFontFx: () => null,
+}));
+vi.mock('../src/renderer/src/hooks/useActiveWidget.shared', () => ({
   useActiveWidget: () => ({
     widget: fixture.widgetActive
       ? { animated: false, itemId: 10002, url: 'https://example.test/local-widget.png' }

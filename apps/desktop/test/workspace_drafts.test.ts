@@ -20,8 +20,13 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   client: { account: { saveDraft: { mutate: f.save } } },
 }));
 vi.mock('../src/renderer/src/components/Toast', () => ({ useToast: () => f.notify }));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({ useToast: () => f.notify }));
 vi.mock('../src/renderer/src/lib/accountFilePicker', () => ({ stageAccountFile: vi.fn() }));
 vi.mock('../src/renderer/src/lib/notificationNavigation', () => ({
+  notificationSource: (value: unknown) => value,
+  conversationNotificationSource: (value: unknown) => value,
+}));
+vi.mock('../src/renderer/src/lib/notificationNavigation.shared', () => ({
   notificationSource: (value: unknown) => value,
   conversationNotificationSource: (value: unknown) => value,
 }));

@@ -10,20 +10,14 @@
 import { NumericText } from '../../components/NumericText';
 import { useState, type ReactElement } from 'react';
 import { FolderOpen, ExternalLink, CheckCircle2, XCircle } from 'lucide-react';
-import { DesktopOnly, IS_ELECTRON } from '../../lib/target';
+import { DesktopOnly } from '../../lib/target';
+import { IS_ELECTRON } from '../../lib/target.shared';
 import type { DownloadFileEntry } from '@weq/service';
 import { client } from '../../trpc/client';
 import { fileIconUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
-import {
-  FileResourceToolbar,
-  ListFooter,
-  usePagedList,
-  fmtBytes,
-  fmtDate,
-  cn,
-  type ToolbarState,
-} from './CacheShared';
+import { FileResourceToolbar, ListFooter, type ToolbarState } from './CacheShared';
+import { usePagedList, fmtBytes, fmtDate, cn } from './CacheShared.shared';
 import { ListRowsSkeleton } from './CacheSkeleton';
 
 export function DownloadFileExplorer(): ReactElement {

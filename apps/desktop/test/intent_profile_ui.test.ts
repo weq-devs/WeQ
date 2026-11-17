@@ -35,6 +35,18 @@ vi.mock('../src/renderer/src/components/intentSense/context', () => ({
     },
   }),
 }));
+vi.mock('../src/renderer/src/components/intentSense/context.shared', () => ({
+  useIntentSenseStatus: () => ({
+    data: {
+      enabled: false,
+      conversationOverrides: { 'c2c:u_synthetic': false },
+      profileEnabled: true,
+      profileAvailable: true,
+      profileCacheSeconds: 60,
+      profileMode: fixture.profileMode,
+    },
+  }),
+}));
 
 let root: Root;
 beforeEach(() => {

@@ -13,17 +13,12 @@ import {
 import { useDraftClose, useDraftProtection } from '../../lib/draftClose';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
 import { GroupBulletinList } from '../GroupBulletinList';
-import {
-  ActionFeedback,
-  ActionIcon,
-  ImageAction,
-  useQQAction,
-  useQQGroupPermissions,
-  withQQAccountScope,
-} from './shared';
+import { ActionFeedback, ActionIcon, ImageAction } from './shared';
+import { useQQAction, useQQGroupPermissions, withQQAccountScope } from './shared.shared';
 import '../../styles/group-content-management.css';
 import { ContactEmptyState } from '../contactProfile/ContactRow';
-import { PageSnapshotsFallback, usePageDraftConfirmation, usePageState } from '../PageSnapshots';
+import { PageSnapshotsFallback } from '../PageSnapshots';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 
 const emptyDraft = {
   content: '',

@@ -31,7 +31,15 @@ const state = vi.hoisted(() => ({
 vi.mock('../src/renderer/src/components/ClientDocumentPreview', () => ({
   presentClientDocument: state.present,
 }));
+vi.mock('../src/renderer/src/components/ClientDocumentPreview.shared', () => ({
+  presentClientDocument: state.present,
+}));
 vi.mock('../src/renderer/src/lib/target', () => ({
+  get IS_WEB() {
+    return state.web;
+  },
+}));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({
   get IS_WEB() {
     return state.web;
   },
@@ -40,6 +48,11 @@ vi.mock('../src/renderer/src/lib/dialogUtils', () => ({
   useAppDialog: () => ({ error: state.error }),
 }));
 vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToastApi: () => ({ push: state.toast }),
+  useToast: (select: (store: { push: typeof state.toast }) => unknown) =>
+    select({ push: state.toast }),
+}));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
   useToastApi: () => ({ push: state.toast }),
   useToast: (select: (store: { push: typeof state.toast }) => unknown) =>
     select({ push: state.toast }),

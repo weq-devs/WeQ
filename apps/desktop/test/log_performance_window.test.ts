@@ -7,7 +7,8 @@ import { LogPerformanceWindowHost } from '../src/renderer/src/components/LogPerf
 import { useLogPerformanceWindow } from '../src/renderer/src/state/logPerformanceWindow';
 import { useAppLock } from '../src/renderer/src/state/lock';
 import { RenderDocumentContext, useRenderDocument } from '../src/renderer/src/lib/renderDocument';
-import { TabActivity, useTabActive } from '../src/renderer/src/components/RetainedTabs';
+import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
+import { useTabActive } from '../src/renderer/src/components/RetainedTabs.shared';
 import { IconPicker } from '../src/renderer/src/components/ui/iconPicker';
 
 vi.mock('../src/renderer/src/components/settings/PerformanceMonitor', () => ({

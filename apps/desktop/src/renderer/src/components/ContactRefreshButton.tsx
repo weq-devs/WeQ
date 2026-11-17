@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Database, RefreshCw, X } from 'lucide-react';
-import { Modal, useDialog } from './Dialog';
+import { Modal } from './Dialog';
+import { useDialog } from './Dialog.shared';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useWorkspaceMenu } from '../state/workspaceMenu';

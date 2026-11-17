@@ -1,6 +1,7 @@
 ﻿// @ts-nocheck
 import { FileText, Folder, Gamepad2, Music } from 'lucide-react';
-import { FEATURE_ICONS, type FeatureIcon } from '../../lib/featureIcons';
+import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
+import type { FeatureIcon } from '../../lib/featureIcons';
 
 export type ToolPaneItem = {
   id: string;

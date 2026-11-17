@@ -11,8 +11,9 @@ import { Avatar, EmptyState } from '../im-template/template/primitives';
 import type { ContactRequest, GroupJoinRequest, User } from '../im-template/template/types';
 import { displayUserName } from '../im-template/template/user';
 import { PageShell } from './PageShell';
-import { RequestActions, useNoticeOperations } from './qq-actions/RequestActions';
-import { withQQAccountScope } from './qq-actions/shared';
+import { RequestActions } from './qq-actions/RequestActions';
+import { useNoticeOperations } from './qq-actions/RequestActions.shared';
+import { withQQAccountScope } from './qq-actions/shared.shared';
 import {
   bindNoticeOperations,
   formatNoticeTimestamp,

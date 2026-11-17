@@ -1,6 +1,7 @@
 import { useContext } from 'react';
 import { AudioLines, Package, ScanText } from 'lucide-react';
-import { Card, SectionHeader, SettingsNavigateContext } from './controls';
+import { Card, SectionHeader } from './controls';
+import { SettingsNavigateContext } from './controls.shared';
 import { RecognitionConcurrencySetting } from './RecognitionConcurrencySetting';
 import { OcrPrefilterSetting } from './OcrPrefilterSetting';
 

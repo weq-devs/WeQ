@@ -1,4 +1,4 @@
-import { IS_WEB } from './target';
+import { IS_WEB } from './target.shared';
 import { isRemoteClient } from './remoteClient';
 
 export { isRemoteClient } from './remoteClient';

@@ -55,17 +55,18 @@ import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
 import { useVideoPlaybackSlot } from '../hooks/useVideoPlaybackSlot';
 import { fontFaces } from '../lib/fontFaces';
 import { acquireDecorationStyle } from '../lib/decorationResources';
-import { useDecorationSave } from './DecorationSaveControls';
-import { useMediaSave } from './MediaSaveControls';
-import { IS_WEB } from '../lib/target';
+import { useDecorationSave } from './DecorationSaveControls.shared';
+import { useMediaSave } from './MediaSaveControls.shared';
+import { IS_WEB } from '../lib/target.shared';
 import { pickAccountFile } from '../lib/accountFilePicker';
-import { BACKDROP_VEIL_VAR, backdropVeil, ScreenWidget } from './ChatBackdrop';
+import { BACKDROP_VEIL_VAR, backdropVeil } from './ChatBackdrop.shared';
+import { ScreenWidget } from './ChatBackdrop';
 import { WorkspacePage } from './WorkspacePages';
 import { MarketEmojiBrowserLightbox } from '../views/export/MarketEmojiBrowserLightbox';
 import { RedPackSkinWall } from './gift/RedPackSkinWall';
 import '../styles/dressup.css';
 import { ShimmerImage } from './ShimmerImage';
-import { DRESS_KIND_ICONS } from '../lib/featureIcons';
+import { DRESS_KIND_ICONS } from '../lib/featureIcons.shared';
 
 export type DressKind =
   | 'usage'

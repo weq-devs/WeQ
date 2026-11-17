@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ProfileLikeAction } from '../src/renderer/src/components/qq-actions/ProfileLikeAction';
 import { useViewState } from '../src/renderer/src/state/view';
-import { useToast } from '../src/renderer/src/components/Toast';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 
 const state = vi.hoisted(() => ({
   write: vi.fn(async () => ({ state: 'accepted' as const })),

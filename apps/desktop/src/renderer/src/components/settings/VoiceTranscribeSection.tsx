@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
-import { usePageSnapshotReset } from '../PageSnapshots';
+import { usePageSnapshotReset } from '../PageSnapshots.shared';
 import { Loader2, Plus, Play, Save, Trash2, Volume2, X } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { Modal } from '../Dialog';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { Card, QueryError, Row } from './controls';
@@ -14,7 +14,7 @@ import {
   runConnectionTest,
   useConnectionTestTasks,
 } from '../../lib/connectionTestTask';
-import { useToastApi } from '../Toast';
+import { useToastApi } from '../Toast.shared';
 
 function errMsg(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

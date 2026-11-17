@@ -3,8 +3,8 @@ import { Download, CheckCheck, FlipHorizontal2, X, Check, Loader2 } from 'lucide
 import { client } from '../../trpc/client';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
-import { useToast } from '../../components/Toast';
-import { taskNotificationSource } from '../../lib/notificationNavigation';
+import { useToast } from '../../components/Toast.shared';
+import { taskNotificationSource } from '../../lib/notificationNavigation.shared';
 import { ExportReportControl } from './ExportReportControl';
 import { WindowedList } from '../../components/WindowedList';
 import { contentReferenceKey, type ContentReference } from '../../../../shared/content_selection';

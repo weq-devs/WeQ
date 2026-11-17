@@ -12,7 +12,7 @@ import {
 } from '../../lib/clientPreferences';
 import { useDataSaver, dataSaverModeOptions } from '../../lib/dataSaver';
 import { SegmentedControl } from '../SegmentedControl';
-import { IS_WEB } from '../../lib/target';
+import { IS_WEB } from '../../lib/target.shared';
 import { Card, Row, Toggle } from './controls';
 import { RotateCcw } from 'lucide-react';
 import '../../styles/data-saver-settings.css';

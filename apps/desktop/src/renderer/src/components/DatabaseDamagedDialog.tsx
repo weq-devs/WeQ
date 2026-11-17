@@ -12,7 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { Modal } from './Dialog';
-import { useToast } from './Toast';
+import { useToast } from './Toast.shared';
 import { client } from '../trpc/client';
 import { isRemoteClient } from '../lib/remoteClient';
 import { useSurfaceEscapeDismissal } from '../lib/surfaceEscape';

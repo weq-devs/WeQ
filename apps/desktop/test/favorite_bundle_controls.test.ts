@@ -55,6 +55,37 @@ vi.mock('../src/renderer/src/components/qq-actions/shared', () => ({
       props.label,
     ),
 }));
+vi.mock('../src/renderer/src/components/qq-actions/shared.shared', () => ({
+  withQQAccountScope: (component: unknown) => component,
+  useQQAction: () => ({
+    binding,
+    available: true,
+    pending: false,
+    disabled: false,
+    pickImage: state.pick,
+    perform: async (
+      run: (binding: unknown) => Promise<unknown>,
+      refresh: () => Promise<void>,
+      _warning: unknown,
+      options: { readback: () => Promise<boolean> },
+    ) => {
+      await run(binding);
+      state.verified(await options.readback());
+      await refresh();
+    },
+  }),
+  ActionIcon: (props: { label: string; disabled: boolean; onClick: () => void }) =>
+    h(
+      'button',
+      {
+        'aria-label': props.label,
+        disabled: props.disabled,
+        onClick: props.onClick,
+        'data-binding': JSON.stringify(binding),
+      },
+      props.label,
+    ),
+}));
 vi.mock('../src/renderer/src/components/qq-actions/FavoriteBundleImport', () => ({
   FavoriteBundleImport: (props: {
     binding: unknown;

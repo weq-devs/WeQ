@@ -27,6 +27,7 @@ vi.mock('../src/renderer/src/components/qq-actions/GroupActions', () => ({
   GroupActions: () => null,
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({ useDialog: () => vi.fn() }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({ useDialog: () => vi.fn() }));
 vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
   useQQWriteSession: () => ({
     binding: { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' },

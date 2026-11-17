@@ -5,17 +5,14 @@ import type { ExportOutputPlan, ExportSavePolicy } from '@weq/service';
 import type { MailSummary } from '@weq/service/mail';
 import type { ContentSelection } from '../../../../shared/content_selection';
 import { client, trpc } from '../../trpc/client';
-import { useToastApi } from '../../components/Toast';
-import { taskNotificationSource } from '../../lib/notificationNavigation';
+import { useToastApi } from '../../components/Toast.shared';
+import { taskNotificationSource } from '../../lib/notificationNavigation.shared';
 import { WindowedList } from '../../components/WindowedList';
 import { formatMailTime } from '../mail/content';
 import '../../styles/mail-export.css';
-import { useExportReportDialog } from './ExportReportControl';
-import {
-  StructuredExportControls,
-  structuredExportOptions,
-  type StructuredExportOptions,
-} from './StructuredExportControls';
+import { useExportReportDialog } from './ExportReportControl.shared';
+import { StructuredExportControls, type StructuredExportOptions } from './StructuredExportControls';
+import { structuredExportOptions } from './StructuredExportControls.shared';
 
 export function MailExportPane({
   initialSelection,

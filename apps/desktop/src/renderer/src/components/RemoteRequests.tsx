@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { trpc } from '../trpc/client';
-import { IS_WEB } from '../lib/target';
-import { useDialog } from './Dialog';
-import { useToastApi } from './Toast';
-import { notificationSource } from '../lib/notificationNavigation';
+import { IS_WEB } from '../lib/target.shared';
+import { useDialog } from './Dialog.shared';
+import { useToastApi } from './Toast.shared';
+import { notificationSource } from '../lib/notificationNavigation.shared';
 
 export function RemoteRequests() {
   return IS_WEB ? null : <DesktopRemoteRequests />;

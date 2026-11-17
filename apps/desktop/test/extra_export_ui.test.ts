@@ -32,6 +32,9 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
 vi.mock('../src/renderer/src/views/export/ExportReportControl', () => ({
   useExportReportDialog: () => ({ choose: state.chooseReport, dialog: null }),
 }));
+vi.mock('../src/renderer/src/views/export/ExportReportControl.shared', () => ({
+  useExportReportDialog: () => ({ choose: state.chooseReport, dialog: null }),
+}));
 vi.mock('../src/renderer/src/lib/dialogUtils', () => ({
   useAppDialog: () => ({ success: state.success, error: state.error }),
 }));

@@ -17,7 +17,7 @@ import { NumericText } from './NumericText';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ImageOff, Loader2, Maximize2, RefreshCw, Sparkles, X } from 'lucide-react';
 import { client } from '../trpc/client';
-import { openMediaPreview } from './mediaPreviewStore';
+import { openMediaPreview } from './mediaPreviewStore.shared';
 import { qqShowUrl } from '../lib/resourceUrl';
 import { ShimmerImage } from './ShimmerImage';
 import { OverlayLayer } from './OverlayLayer';

@@ -42,14 +42,11 @@ import {
 } from 'lucide-react';
 import { cn } from './classNames';
 import { client } from '../../trpc/client';
-import { LocationShareMap, fitView, type MapMember, type MapView } from './locationShareMap';
-import {
-  JOYSTICK_SPEEDS,
-  LocationShareJoystick,
-  offsetLatLng,
-  type JoystickSpeedId,
-} from './locationShareJoystick';
-import { DEFAULT_CENTER, DEFAULT_ZOOM } from './locationPicker';
+import { LocationShareMap, type MapMember, type MapView } from './locationShareMap';
+import { fitView } from './locationShareMap.shared';
+import { JOYSTICK_SPEEDS, offsetLatLng } from './locationShareJoystick.shared';
+import { LocationShareJoystick, type JoystickSpeedId } from './locationShareJoystick';
+import { DEFAULT_CENTER, DEFAULT_ZOOM } from './locationPicker.shared';
 
 /** 心跳兜底间隔（服务端没给 interval 时）。 */
 const DEFAULT_INTERVAL_SECONDS = 2;

@@ -1,6 +1,6 @@
 import { NumericText } from '../NumericText';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { usePageSnapshotReset } from '../PageSnapshots';
+import { usePageSnapshotReset } from '../PageSnapshots.shared';
 import type {
   CapabilityProbeResult,
   AgentLabProviderModel,
@@ -26,7 +26,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { Modal } from '../../components/Dialog';
 import { Card, CheckPillGroup, QueryError, Row, SectionHeader } from './controls';
@@ -37,7 +37,7 @@ import {
   runConnectionTest,
   useConnectionTestTasks,
 } from '../../lib/connectionTestTask';
-import { useToastApi } from '../Toast';
+import { useToastApi } from '../Toast.shared';
 import { DefaultApiModelRow } from './DefaultApiModelRow';
 import { DefaultVisionModelRow } from './AiImageSettings';
 import '../../styles/search-scope.css';

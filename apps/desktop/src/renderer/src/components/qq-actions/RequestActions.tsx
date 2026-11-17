@@ -1,36 +1,9 @@
 import { useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
-import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import type { NoticeOperation } from '../../lib/contactNotice';
-import { ActionFeedback, useQQAction } from './shared';
-
-/** 同一弹窗共用两类收件箱，卡片不逐个发起在线读取。 */
-export function useNoticeOperations(group: boolean, open: boolean) {
-  const a = useQQAction(`requests:${group ? 'group' : 'friend'}`);
-  const options = useQQAutoRefresh(open && a.available);
-  const normal = trpc.account.qqActions.requests.useQuery(
-    { ...a.binding!, kind: group ? 'group' : 'friend' },
-    options,
-  );
-  const filtered = trpc.account.qqActions.requests.useQuery(
-    { ...a.binding!, kind: group ? 'filteredGroup' : 'doubtFriend' },
-    options,
-  );
-  const operations: NoticeOperation[] = a.available
-    ? [
-        ...(normal.data ?? []).map((r) => ({
-          ...r,
-          kind: group ? ('group' as const) : ('friend' as const),
-        })),
-        ...(filtered.data ?? []).map((r) => ({
-          ...r,
-          kind: group ? ('filteredGroup' as const) : ('doubtFriend' as const),
-        })),
-      ]
-    : [];
-  return { operations, error: normal.error?.message || filtered.error?.message };
-}
+import { ActionFeedback } from './shared';
+import { useQQAction } from './shared.shared';
 
 /** 处理后的回执沿用审核区容器，避免在通知网格中落入头像列。 */
 export function RequestActions({ operation }: { operation: NoticeOperation }) {

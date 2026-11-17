@@ -11,7 +11,7 @@ import {
   type ClientStateSnapshot,
   type StateNamespace,
 } from '@weq/service/client-preferences';
-import { IS_WEB } from './target';
+import { IS_WEB } from './target.shared';
 
 export const PREFERENCES_CHANGED = 'weq-shared-preferences';
 export const ACCOUNT_STATE_CHANGED = 'weq-shared-account-state';

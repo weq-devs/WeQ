@@ -15,7 +15,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import type { User } from './types';
 import { cn } from './classNames';
 import { useSurfaceOutside } from '../../lib/surfaceOutside';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 
 export type AvatarContextMenuState = {
   sender: User;

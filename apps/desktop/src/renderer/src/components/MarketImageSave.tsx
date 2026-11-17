@@ -4,10 +4,10 @@ import type { ExportSavePolicy } from '@weq/service';
 import { client } from '../trpc/client';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
 import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import { ServerSavePrompt } from './ServerSavePrompt';
-import { useToast } from './Toast';
-import { taskNotificationSource } from '../lib/notificationNavigation';
+import { useToast } from './Toast.shared';
+import { taskNotificationSource } from '../lib/notificationNavigation.shared';
 import '../styles/market-image-save.css';
 
 export function MarketImageSave({

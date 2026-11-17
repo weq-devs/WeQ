@@ -8,10 +8,8 @@ import { SearchDropdown } from '../src/renderer/src/components/search/SearchDrop
 import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
 import type { GeneratedSearchHit } from '../src/renderer/src/components/search/types';
 import { isGeneratedSearchHit } from '../src/renderer/src/components/search/types';
-import {
-  ContentSelectionProvider,
-  useCurrentContentSelection,
-} from '../src/renderer/src/state/contentSelection';
+import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
+import { useCurrentContentSelection } from '../src/renderer/src/state/contentSelection.shared';
 
 const fixture = vi.hoisted(() => ({
   query: vi.fn(),

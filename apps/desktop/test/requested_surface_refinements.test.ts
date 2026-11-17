@@ -5,7 +5,7 @@ import { GroupLeftMembersDialog } from '../src/renderer/src/components/GroupLeft
 import { NewCloneModal } from '../src/renderer/src/views/agentlab/NewCloneModal';
 import { NewGroupModal } from '../src/renderer/src/views/agentlab/NewGroupModal';
 import { ConversationMessageActions } from '../src/renderer/src/components/ConversationMessageActions';
-import { OverlayAnchorContext } from '../src/renderer/src/lib/overlayAnchor';
+import { OverlayAnchorContext } from '../src/renderer/src/lib/overlayAnchor.shared';
 import { createTemplateDemoData } from './support/templateDemoData';
 
 const state = vi.hoisted(() => ({ status: 'paused' }));

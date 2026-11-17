@@ -25,6 +25,13 @@ vi.mock('../src/renderer/src/components/lazyWorkspaces', async () => ({
   ...(await import('../src/renderer/src/components/RoamingBackfillPanel')),
   preloadWorkspace: vi.fn(),
 }));
+vi.mock('../src/renderer/src/components/lazyWorkspaces.shared', async () => ({
+  ...(await import('../src/renderer/src/views/ExportView')),
+  ...(await import('../src/renderer/src/views/ExportViewer')),
+  ...(await import('../src/renderer/src/views/analysis/AnalysisTool')),
+  ...(await import('../src/renderer/src/components/RoamingBackfillPanel')),
+  preloadWorkspace: vi.fn(),
+}));
 vi.mock('../src/renderer/src/views/agentlab/cloneTaskStore', () => ({
   getCloneTasks: () => fixture.clones,
   subscribeCloneTasks: () => () => {},
@@ -34,6 +41,11 @@ vi.mock('../src/renderer/src/state/view', () => ({
     select({ openedUin: 'fixture' }),
 }));
 vi.mock('../src/renderer/src/state/contentSelection', () => ({
+  useContentExportRequest: () => null,
+  useContentAnalysisRequest: () => null,
+  useCurrentContentSelection: () => null,
+}));
+vi.mock('../src/renderer/src/state/contentSelection.shared', () => ({
   useContentExportRequest: () => null,
   useContentAnalysisRequest: () => null,
   useCurrentContentSelection: () => null,

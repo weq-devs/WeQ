@@ -1,7 +1,7 @@
 import { X } from 'lucide-react';
 import { GroupFeatureSurface, type GroupFeaturePresentation } from './GroupFeatureSurface';
 import { GroupReadTools } from './qq-actions/GroupReadTools';
-import { withQQAccountScope } from './qq-actions/shared';
+import { withQQAccountScope } from './qq-actions/shared.shared';
 import '../styles/group-sign.css';
 
 function GroupSignDialogBody({

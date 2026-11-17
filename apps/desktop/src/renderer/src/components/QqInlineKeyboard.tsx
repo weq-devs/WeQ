@@ -11,7 +11,8 @@
 import { ExternalLink } from 'lucide-react';
 import { openLink } from '../lib/linkify';
 import { client } from '../trpc/client';
-import { ActionFeedback, useQQAction } from './qq-actions/shared';
+import { ActionFeedback } from './qq-actions/shared';
+import { useQQAction } from './qq-actions/shared.shared';
 
 export interface KeyboardButton {
   buttonId?: string;

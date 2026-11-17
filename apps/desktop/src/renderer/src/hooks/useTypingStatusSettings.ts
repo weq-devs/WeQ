@@ -1,8 +1,8 @@
 import { useRef } from 'react';
 import { trpc } from '../trpc/client';
-import { useTabActive } from '../components/RetainedTabs';
-import { useToastApi } from '../components/Toast';
-import { notificationSource } from '../lib/notificationNavigation';
+import { useTabActive } from '../components/RetainedTabs.shared';
+import { useToastApi } from '../components/Toast.shared';
+import { notificationSource } from '../lib/notificationNavigation.shared';
 import type {
   TypingStatusConversation,
   TypingStatusMode,

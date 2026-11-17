@@ -7,8 +7,8 @@ import type { MainView, SettingsTab, User } from './types';
 import { displayUserName } from './user';
 import { useUpdateStore } from '../../state/update';
 import '../../styles/rail-navigation.css';
-import { useWorkspaceActiveTitle } from '../../components/WorkspacePages';
-import { preloadWorkspace } from '../../components/lazyWorkspaces';
+import { useWorkspaceActiveTitle } from '../../components/WorkspacePages.shared';
+import { preloadWorkspace } from '../../components/lazyWorkspaces.shared';
 import { ReminderCount, ReminderDot } from '../../components/ReminderBadge';
 import { APP_NAVIGATION, activateNavigation, navigationEntries } from '../../lib/appNavigation';
 

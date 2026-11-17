@@ -2,7 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { NotificationSettingsLink } from '../src/renderer/src/components/settings/NotificationSettingsLink';
-import { SettingsNavigateContext } from '../src/renderer/src/components/settings/controls';
+import { SettingsNavigateContext } from '../src/renderer/src/components/settings/controls.shared';
 import { OPEN_NOTIFICATION_SETTINGS } from '../src/renderer/src/lib/notificationSettingsNavigation';
 import { bindAccountState } from '../src/renderer/src/lib/clientPreferences';
 

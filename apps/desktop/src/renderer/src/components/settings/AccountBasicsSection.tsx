@@ -1,5 +1,4 @@
 import { NumericText } from '../NumericText';
-import * as timeFormat from '@weq/time';
 import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 /**
  * 设置 → 账号基础.
@@ -33,13 +32,14 @@ import {
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
-import { useTabActive } from '../RetainedTabs';
-import { useDialog } from '../Dialog';
+import { useTabActive } from '../RetainedTabs.shared';
+import { useDialog } from '../Dialog.shared';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { LongTermAuthorizationSection } from './LongTermAuthorizationSection';
 import { DatabaseReadSettings } from './DatabaseReadSettings';
 import { FullFunctionSetup } from './FullFunctionSetup';
 import { CopyButton } from '../CopyButton';
+import { formatExpiry } from './AccountBasicsSection.shared';
 
 /** rkey `type_` → human label. Mirrors media_download.ts scene constants. */
 const RKEY_TYPE_LABEL: Record<number, string> = {
@@ -114,20 +114,6 @@ function KeyValueRow({
       </div>
     </div>
   );
-}
-
-/** "3 小时 / 12 分钟后过期" or "已过期", from create + ttl (both unix seconds). */
-export function formatExpiry(
-  createTime: number,
-  ttlSeconds: number,
-): { text: string; expired: boolean } {
-  const at = (createTime + ttlSeconds) * 1000;
-  const expired = at <= Date.now();
-  if (!Number.isFinite(at) || createTime <= 0) return { text: '到期时间未知', expired };
-  return {
-    text: `${timeFormat.formatDateTime(at)}（${expired ? '已过期' : timeFormat.formatRelativeTime(at)}）`,
-    expired,
-  };
 }
 
 export function AccountBasicsSection({

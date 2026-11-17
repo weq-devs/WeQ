@@ -4,11 +4,8 @@ import {
   SettingsResetProvider,
   SettingsResetButton,
 } from '../../src/renderer/src/components/settings/SettingsReset';
-import {
-  Card,
-  SectionHeader,
-  SettingsScopeContext,
-} from '../../src/renderer/src/components/settings/controls';
+import { Card, SectionHeader } from '../../src/renderer/src/components/settings/controls';
+import { SettingsScopeContext } from '../../src/renderer/src/components/settings/controls.shared';
 import { Globe } from 'lucide-react';
 import { QzonePaginationSettings } from '../../src/renderer/src/components/settings/QzonePaginationSettings';
 import { CallRecordingSection } from '../../src/renderer/src/components/settings/CallRecordingSection';

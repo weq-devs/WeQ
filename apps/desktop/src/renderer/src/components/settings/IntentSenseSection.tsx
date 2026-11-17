@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Eye, MousePointerClick, RotateCcw, Database } from 'lucide-react';
 import { trpc } from '../../trpc/client';
-import { useDialog } from '../Dialog';
+import { useDialog } from '../Dialog.shared';
 import { SegmentedControl } from '../SegmentedControl';
 import { Card, Row, Toggle } from './controls';
 import { IntentModelsSection } from './IntentModelsSection';

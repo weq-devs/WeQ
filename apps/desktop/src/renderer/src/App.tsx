@@ -28,7 +28,8 @@ import { ClientDocumentPreview } from './components/ClientDocumentPreview';
 import { AccountSwitchRequestHost } from './components/AccountSwitchRequestHost';
 import { RemoteRequests } from './components/RemoteRequests';
 import { HoverTooltip } from './components/HoverTooltip';
-import { ToastHost, useToast } from './components/Toast';
+import { ToastHost } from './components/Toast';
+import { useToast } from './components/Toast.shared';
 import { NotificationClickBridge } from './components/NotificationClickBridge';
 import { DbRepairWindowHost } from './components/DbRepairWindow';
 import { CaptureWindowHost } from './components/CaptureWindow';
@@ -38,7 +39,8 @@ import { WelcomeDialog } from './components/WelcomeDialog';
 import { JoinGroupDialog } from './components/JoinGroupDialog';
 import { CloseConfirmDialog } from './components/CloseConfirmDialog';
 import { RestrictedModeHost } from './components/RestrictedMode';
-import { DesktopOnly, IS_WEB } from './lib/target';
+import { DesktopOnly } from './lib/target';
+import { IS_WEB } from './lib/target.shared';
 import { WebNotifications } from './components/WebNotifications';
 import { WebConnectionStatus } from './components/WebConnectionStatus';
 import { MediaPreviewHost } from './components/mediaPreviewStore';
@@ -67,7 +69,7 @@ import {
   ShowMessageDateContext,
   ShowMessageSeqContext,
   ShowMessageTimeContext,
-} from './components/MessageProvenance';
+} from './components/MessageProvenance.shared';
 import { ContentSelectionProvider } from './state/contentSelection';
 import { ChatImageCacheProvider } from './components/ChatImageCacheProvider';
 import { DEFAULT_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';

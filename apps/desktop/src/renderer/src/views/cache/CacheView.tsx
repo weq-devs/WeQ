@@ -8,7 +8,7 @@
  */
 
 import { useEffect, type ReactElement, type ReactNode } from 'react';
-import { usePageState } from '../../components/PageSnapshots';
+import { usePageState } from '../../components/PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
 import {
   Image as ImageIcon,
@@ -37,8 +37,8 @@ import { FileDirExplorer } from './FileDirExplorer';
 import { DownloadFileExplorer } from './DownloadFileExplorer';
 import { FlatMediaExplorer, MonthMediaExplorer, VoiceExplorer } from './MediaResourceExplorers';
 import '../../styles/cache.css';
-import { ResourceRevisionContext } from './CacheShared';
-import { FEATURE_ICONS } from '../../lib/featureIcons';
+import { ResourceRevisionContext } from './CacheShared.shared';
+import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
 
 const QzoneIcon = FEATURE_ICONS.qzone;
 

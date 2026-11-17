@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SetEmojiItem } from '@weq/codec';
-import { useToastApi } from '../components/Toast';
+import { useToastApi } from '../components/Toast.shared';
 
 export const REACTION_SYNC_TIMEOUT_MS = 15_000;
 

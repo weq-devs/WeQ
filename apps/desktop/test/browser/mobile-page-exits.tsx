@@ -7,7 +7,8 @@ import { SettingsDialog } from '../../src/renderer/src/components/SettingsDialog
 import { AnalysisReportPage } from '../../src/renderer/src/views/analysis/AnalysisReportPage';
 import { CaptureWindowHost } from '../../src/renderer/src/components/CaptureWindow';
 import { DbRepairWindowHost } from '../../src/renderer/src/components/DbRepairWindow';
-import { DialogHost, useDialog } from '../../src/renderer/src/components/Dialog';
+import { DialogHost } from '../../src/renderer/src/components/Dialog';
+import { useDialog } from '../../src/renderer/src/components/Dialog.shared';
 import { WorkspaceContent, WorkspacePages } from '../../src/renderer/src/components/WorkspacePages';
 import { useDatabaseBrowserWindow } from '../../src/renderer/src/state/databaseBrowserWindow';
 import { useLogPerformanceWindow } from '../../src/renderer/src/state/logPerformanceWindow';

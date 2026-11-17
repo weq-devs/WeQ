@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { RendererErrorBoundary } from '../src/renderer/src/components/RendererErrorBoundary';
 
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true }));
 
 afterEach(() => {
   delete window.weqRemoteStartup;

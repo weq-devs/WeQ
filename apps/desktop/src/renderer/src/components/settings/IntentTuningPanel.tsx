@@ -1,6 +1,6 @@
 import { Fragment, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { z } from 'zod';
-import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { SlidersHorizontal } from 'lucide-react';
 import { AutoSave } from './AutoSave';
 import {
@@ -13,7 +13,7 @@ import {
 import { Card, Row } from './controls';
 import { intentTuningSettingId } from './aiSettingsCatalog';
 import { AiFeatureSettingsContext, useAiFeatureSettings } from './useAiFeatureSettings';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 
 const TITLES = {
   analysis: '分析范围',

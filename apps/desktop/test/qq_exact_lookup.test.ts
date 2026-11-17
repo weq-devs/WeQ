@@ -21,6 +21,9 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
 vi.mock('../src/renderer/src/components/qq-actions/shared', () => ({
   withQQAccountScope: (component: ComponentType) => component,
 }));
+vi.mock('../src/renderer/src/components/qq-actions/shared.shared', () => ({
+  withQQAccountScope: (component: ComponentType) => component,
+}));
 vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
   useQQWriteSession: () => ({ available: state.available, binding: {} }),
 }));

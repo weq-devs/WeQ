@@ -21,9 +21,9 @@ import { useContext, useState } from 'react';
 import { OverlayLayer } from './OverlayLayer';
 import { EmptyState } from './EmptyState';
 import { Loader2, MapPin, Sparkles, UserRound, WifiOff, X } from 'lucide-react';
-import { FEATURE_ICONS } from '../lib/featureIcons';
+import { FEATURE_ICONS } from '../lib/featureIcons.shared';
 import { AvatarOrb, CardBackdrop, ScreenRain, TagRing } from './dressPieces';
-import { openMediaPreview } from './mediaPreviewStore';
+import { openMediaPreview } from './mediaPreviewStore.shared';
 import { ShimmerImage } from './ShimmerImage';
 import {
   albumMediaUrl,
@@ -36,7 +36,7 @@ import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { useContactDress, useContactQqShow, useContactStats } from '../hooks/useContactCard';
 import { ProfileLikesRow } from './qq-actions/ProfileLikesRow';
 import { ProfileExtras } from './ProfileExtras';
-import { useTabActive } from './RetainedTabs';
+import { useTabActive } from './RetainedTabs.shared';
 import botCardUrl from '@resources/img/bot.png';
 
 /**

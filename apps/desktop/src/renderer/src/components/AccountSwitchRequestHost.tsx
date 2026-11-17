@@ -14,7 +14,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { client, trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useAccountSwitch } from '../state/accountSwitch';
-import { useDialog } from './Dialog';
+import { useDialog } from './Dialog.shared';
 import { switchAccount } from '../lib/switchAccount';
 
 function errMsg(e: unknown): string {

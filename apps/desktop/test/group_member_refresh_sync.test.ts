@@ -23,6 +23,9 @@ vi.mock('../src/renderer/src/state/workspaceMenu', () => ({
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   useDialog: (select) => select({ showError() {}, confirm: async () => true }),
 }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
+  useDialog: (select) => select({ showError() {}, confirm: async () => true }),
+}));
 vi.mock('../src/renderer/src/trpc/client', async () => {
   const { createTRPCReact } = await import('@trpc/react-query');
   const { observable } = await import('@trpc/server/observable');

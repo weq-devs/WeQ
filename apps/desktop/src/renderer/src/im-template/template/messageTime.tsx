@@ -1,10 +1,7 @@
 // @ts-nocheck
 import { TimeLabel } from '../../components/TimeLabel';
 import * as timeFormat from '@weq/time';
-import type { Message } from './types';
 import { cn } from './classNames';
-
-const messageTimeDividerIntervalMs = 5 * 60 * 1000;
 
 export function MessageTimeDivider({
   value,
@@ -24,20 +21,6 @@ export function MessageTimeDivider({
       {label}
     </TimeLabel>
   );
-}
-
-export function shouldShowMessageTime(previous: Message | undefined, current: Message) {
-  if (!previous) {
-    return true;
-  }
-
-  const previousTime = new Date(previous.createdAt).getTime();
-  const currentTime = new Date(current.createdAt).getTime();
-  if (!Number.isFinite(previousTime) || !Number.isFinite(currentTime)) {
-    return false;
-  }
-
-  return currentTime - previousTime >= messageTimeDividerIntervalMs;
 }
 
 function formatMessageTimeDivider(value: string | undefined) {

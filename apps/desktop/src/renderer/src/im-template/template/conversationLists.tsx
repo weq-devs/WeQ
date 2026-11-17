@@ -70,7 +70,6 @@ import { useContactDirectoryOrder, useFrozenDirectory } from '../../hooks/useCon
 import { ContactDirectoryOrder } from '../../components/ContactDirectoryOrder';
 import { conversationListSearchText } from '../../lib/conversationListSearchText';
 import { formatConversationTime } from '../../lib/conversationTime';
-export { formatConversationTime } from '../../lib/conversationTime';
 import { useConversationClickTarget } from '../../hooks/useConversationClickTarget';
 import { useConversationHoverOrder } from '../../hooks/useConversationHoverOrder';
 import { useMobileBack } from '../../hooks/useMobileNavigation';
@@ -89,7 +88,10 @@ import {
 } from '../../lib/contactRelationship';
 import { OnlineStatus } from '../../components/OnlineStatus';
 import { SourceGroup } from '../../components/qq-actions/FriendClue';
-import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
+import {
+  useContentMultiSelect,
+  useRequestContentExport,
+} from '../../state/contentSelection.shared';
 import {
   conversationAnalysisTarget,
   conversationRoamingTarget,
@@ -109,7 +111,7 @@ import { ConversationBatchToolbar } from '../../components/ConversationBatchTool
 import { useConversationBatchActions } from '../../components/useConversationBatchActions';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { FriendConversationActionsMenu } from '../../components/FriendConversationActionsMenu';
-import { useFriendDirectory } from '../../components/FriendDirectoryControls';
+import { useFriendDirectory } from '../../components/FriendDirectoryControls.shared';
 import { QQExactLookup, type QQExactLookupKind } from '../../components/QQExactLookup';
 import {
   allSelectionIdsSelected,
@@ -120,7 +122,7 @@ import { WindowedList } from '../../components/WindowedList';
 import { useThemeStore } from '../../state/theme';
 import '../../styles/conversation-directory.css';
 import { cn } from './classNames';
-import { FEATURE_ICONS } from '../../lib/featureIcons';
+import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import { Avatar, EmptyState, ListSkeleton } from './primitives';
 import { isBotConversation } from './conversationDisplay';
 import { messageMentionsUser } from './mentions';

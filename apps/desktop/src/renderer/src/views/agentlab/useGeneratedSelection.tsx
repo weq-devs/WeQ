@@ -1,7 +1,7 @@
 import { CheckSquare, X } from 'lucide-react';
 import type { GeneratedContentIdentity } from '../../../../shared/content_selection';
 import { generatedContentContainer } from '../../../../shared/content_selection';
-import { useContentMultiSelect } from '../../state/contentSelection';
+import { useContentMultiSelect } from '../../state/contentSelection.shared';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import '../../styles/generated-selection.css';
 

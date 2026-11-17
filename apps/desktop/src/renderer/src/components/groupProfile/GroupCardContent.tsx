@@ -8,12 +8,13 @@ import { ContactRow, ContactSection } from '../contactProfile/ContactRow';
 import { GroupRelationshipStatus } from '../RelationshipStatus';
 import { QQProfileField } from '../QQProfileField';
 import { VirtualConversationBadge } from '../VirtualConversationAvatar';
-import { openMediaPreview } from '../mediaPreviewStore';
-import { GroupFreezeNotice, GroupTags, groupCreationDate } from './GroupContent';
+import { openMediaPreview } from '../mediaPreviewStore.shared';
+import { GroupFreezeNotice, GroupTags } from './GroupContent';
+import { groupCreationDate } from './GroupContent.shared';
 import { GroupCardMemberList } from './GroupCardMemberList';
 import { groupJoinedDate } from '../../lib/groupProfileRows';
 import { ContactFieldHistoryButton } from '../contactProfile/ContactFieldHistory';
-import { useTabActive } from '../RetainedTabs';
+import { useTabActive } from '../RetainedTabs.shared';
 import { GroupProfileAvatarEditor } from './GroupProfileAvatarEditor';
 import '../../styles/group-quick-card.css';
 

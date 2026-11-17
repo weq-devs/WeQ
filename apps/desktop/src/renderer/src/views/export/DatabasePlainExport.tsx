@@ -3,7 +3,7 @@ import { DatabaseZap, Loader2, ShieldCheck, Zap, RefreshCw } from 'lucide-react'
 import type { ExportSavePolicy } from '@weq/service';
 import { client, trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
-import { useExportReportDialog } from './ExportReportControl';
+import { useExportReportDialog } from './ExportReportControl.shared';
 import { useViewState } from '../../state/view';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
@@ -11,7 +11,7 @@ import { DatabasePicker } from './DatabasePicker';
 import { fmtBytes } from './types';
 import '../../styles/database-plain-export.css';
 import '../../styles/export.css';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import {
   databaseExportTargetMatches,
   type DatabaseExportTarget,

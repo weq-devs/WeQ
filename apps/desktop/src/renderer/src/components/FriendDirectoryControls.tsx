@@ -1,14 +1,14 @@
-import { createContext, useContext, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useEventContextValue } from '../hooks/useEventContextValue';
 import { X, Save } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { useViewState } from '../state/view';
-import { useToastApi } from './Toast';
+import { useToastApi } from './Toast.shared';
 import { Modal } from './Dialog';
 import '../styles/friend-directory.css';
+import { FriendDirectoryContext } from './FriendDirectoryControls.shared';
 
-type Category = { id: number; name: string; buddyCount: number | null; sortOrder: number | null };
 type Operation =
   | { type: 'create'; name: string }
   | { type: 'rename'; id: number; name: string }
@@ -20,18 +20,6 @@ type Editor = { scope: string } & (
   | { type: 'rename' | 'delete'; id: number }
   | { type: 'move'; uids: string[] }
 );
-export const FriendDirectoryContext = createContext<{
-  categories: Category[] | null;
-  assignments: Map<string, number>;
-  busy: boolean;
-  available: boolean;
-  error?: string;
-  retry?: () => void;
-  create: () => void;
-  edit: (type: 'rename' | 'delete', id: number) => void;
-  move: (uids: string[], categoryId?: number) => void;
-  sort: (id: number, target: number | 'first' | 'last', position?: 'before' | 'after') => void;
-} | null>(null);
 
 export function FriendDirectoryControls({ children }: { children: ReactNode }) {
   const titleId = useId();
@@ -316,5 +304,3 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
     </FriendDirectoryContext.Provider>
   );
 }
-
-export const useFriendDirectory = () => useContext(FriendDirectoryContext);

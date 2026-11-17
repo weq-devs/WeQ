@@ -9,7 +9,7 @@ import {
   useClientPreferences,
 } from '../../lib/clientPreferences';
 import { client } from '../../trpc/client';
-import { useToast } from '../../components/Toast';
+import { useToast } from '../../components/Toast.shared';
 import { localDraftToWrite, setLocalDraft } from '@weq/service/draft-edit';
 import { composerDraftRecovery } from '../../lib/composerDraftRecovery';
 import { composerAssetIds, shareComposerImages } from '../../lib/composerDraftMedia';

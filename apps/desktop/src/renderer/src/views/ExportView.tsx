@@ -7,7 +7,7 @@ import { eventTimeFormatter } from '@weq/time';
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import { ReferenceExportTool } from './export/ReferenceExportTool';
-import { EXPORT_MODE_ICONS } from '../lib/featureIcons';
+import { EXPORT_MODE_ICONS } from '../lib/featureIcons.shared';
 import {
   Bookmark,
   CalendarClock,
@@ -29,14 +29,15 @@ import {
 } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
-import { useExportReportDialog } from './export/ExportReportControl';
+import { useExportReportDialog } from './export/ExportReportControl.shared';
 import {
   StructuredExportControls,
-  structuredExportOptions,
   type StructuredExportOptions,
 } from './export/StructuredExportControls';
-import { useToast } from '../components/Toast';
-import { NotificationSourceProvider, notificationSource } from '../lib/notificationNavigation';
+import { structuredExportOptions } from './export/StructuredExportControls.shared';
+import { useToast } from '../components/Toast.shared';
+import { NotificationSourceProvider } from '../lib/notificationNavigation';
+import { notificationSource } from '../lib/notificationNavigation.shared';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { fixProfileAvatarUrl } from '../lib/avatarResolver';
 import { classifyChatType, datalineName, toChatTypeNumber } from '@weq/codec';
@@ -85,8 +86,8 @@ import '../styles/export.css';
 import { MessageScopePicker } from './export/MessageScopePicker';
 import { ServerSavePrompt } from '../components/ServerSavePrompt';
 import { SaveResultLocation } from './export/SaveResultLocation';
-import { IS_WEB } from '../lib/target';
-import { presentClientDocument } from '../components/ClientDocumentPreview';
+import { IS_WEB } from '../lib/target.shared';
+import { presentClientDocument } from '../components/ClientDocumentPreview.shared';
 import type { ContentSelection } from '../../../shared/content_selection';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
 import { DatabasePlainExport } from './export/DatabasePlainExport';
@@ -108,8 +109,9 @@ import { MailExportPane } from './export/MailExportPane';
 import { QzoneScopePicker } from './export/QzoneScopePicker';
 import '../styles/workspace-tools.css';
 import '../styles/unified-export.css';
-import { RetainedTabs, useTabActive } from '../components/RetainedTabs';
-import { usePageState } from '../components/PageSnapshots';
+import { RetainedTabs } from '../components/RetainedTabs';
+import { useTabActive } from '../components/RetainedTabs.shared';
+import { usePageState } from '../components/PageSnapshots.shared';
 import { pageValue } from '../lib/pageSnapshots';
 import { z } from 'zod';
 import { ScheduleSettings } from '../components/tasks/ScheduleSettings';

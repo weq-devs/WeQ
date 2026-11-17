@@ -1,8 +1,9 @@
 import { FolderOpen, X } from 'lucide-react';
-import { DesktopOnly, shellBridge } from '../lib/target';
-import { useDialog } from './Dialog';
+import { DesktopOnly } from '../lib/target';
+import { shellBridge } from '../lib/target.shared';
+import { useDialog } from './Dialog.shared';
 import { RestrictedModeIndicator } from './RestrictedMode';
-import { useToast } from './Toast';
+import { useToast } from './Toast.shared';
 import '../styles/startup-shell.css';
 
 /** 账号页与启动状态页共用窗口操作，关闭行为交给主进程统一处理。 */

@@ -1,5 +1,5 @@
 import { client } from '../trpc/client';
-import { IS_WEB } from './target';
+import { IS_WEB } from './target.shared';
 import { useViewState } from '../state/view';
 import { BROWSER_FILE_CHUNK_BYTES } from '../../../shared/browser_file_upload';
 

@@ -4,7 +4,7 @@ import { plainContentText, type PlainElement } from '@weq/service/message-plain-
 import { client } from '../trpc/client';
 import { accountBinding, preferenceValue, useClientPreferences } from '../lib/clientPreferences';
 import { useAppLock } from '../state/lock';
-import { IS_WEB } from '../lib/target';
+import { IS_WEB } from '../lib/target.shared';
 import { defaultConversationPreference } from '../im-template/template/preferences';
 import type { Conversation, ConversationPreferences } from '../im-template/template/types';
 import type { ChatMsgWire } from '../../../main/ipc/serde';

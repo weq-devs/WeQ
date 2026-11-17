@@ -1,9 +1,7 @@
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import {
-  ContentSelectionProvider,
-  useContentExportRequest,
-} from '../../src/renderer/src/state/contentSelection';
+import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSelection';
+import { useContentExportRequest } from '../../src/renderer/src/state/contentSelection.shared';
 import type { ContentReference } from '../../src/shared/content_selection';
 import { ReferenceExportTool } from '../../src/renderer/src/views/export/ReferenceExportTool';
 import { MessageNotificationRows } from '../../src/renderer/src/components/settings/MessageNotificationRows';

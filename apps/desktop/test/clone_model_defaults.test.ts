@@ -12,6 +12,14 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
     { getState: () => ({ confirm: async () => true }) },
   ),
 }));
+vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
+  Modal: ({ children }: { children: ReactNode }) => children,
+  useDialog: Object.assign(
+    (select: (state: { confirm: () => Promise<boolean> }) => unknown) =>
+      select({ confirm: async () => true }),
+    { getState: () => ({ confirm: async () => true }) },
+  ),
+}));
 vi.mock('../src/renderer/src/lib/dialogUtils', () => ({
   useAppDialog: () => ({ error: vi.fn() }),
 }));

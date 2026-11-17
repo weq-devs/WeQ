@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState, type CSSProperties, type ReactElement } f
 import type { EchoPageData } from '@weq/service';
 import { isAllTimeYear, reportEraLabel } from '@weq/service/report-time';
 import { PageFrame, type ReportPageProps } from '../pageFrame';
-import { Odometer, usePrefersReducedMotion } from '../Odometer';
+import { Odometer } from '../Odometer';
+import { usePrefersReducedMotion } from '../Odometer.shared';
 
 function fmt(n: number): string {
   return new Intl.NumberFormat('zh-CN').format(n);

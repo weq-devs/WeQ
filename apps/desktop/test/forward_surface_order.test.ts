@@ -1,7 +1,8 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
-import { ForwardWindowHost, openForwardWindow } from '../src/renderer/src/components/ForwardWindow';
+import { ForwardWindowHost } from '../src/renderer/src/components/ForwardWindow';
+import { openForwardWindow } from '../src/renderer/src/state/forwardWindow';
 import { Modal } from '../src/renderer/src/components/Dialog';
 
 vi.mock('../src/renderer/src/trpc/client', () => ({ client: { account: {} }, trpc: {} }));

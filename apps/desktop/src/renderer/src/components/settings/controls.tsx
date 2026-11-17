@@ -6,7 +6,6 @@
  */
 
 import {
-  createContext,
   useContext,
   useMemo,
   useRef,
@@ -16,7 +15,6 @@ import {
   type ReactNode,
 } from 'react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
-import type { SettingsScope } from './navigation';
 import { Minus, RefreshCw } from 'lucide-react';
 import '../../styles/settings-query.css';
 import '../../styles/settings-controls.css';
@@ -31,6 +29,7 @@ import { useRemoteClient } from '../../lib/remoteClient';
 import { findSettingDefinition } from '@weq/service/settings-catalog';
 import { SettingsPageIcon } from './pageIcons';
 import type { SettingsPageId } from './navigation';
+import { SettingsScopeContext, SaveStatusSlotContext } from './controls.shared';
 
 /** 查询失败不冒充空配置；有缓存时由调用方继续展示原数据。 */
 export function QueryError({
@@ -60,26 +59,10 @@ export function QueryError({
   );
 }
 
-export const SettingsScopeContext = createContext<SettingsScope | null>(null);
-
-/**
- * 卡片 head 右侧的保存状态位。`AutoSave` 有槽位时把「正在保存／已保存／失败」
- * 放进卡片标题行，避免它挤在行描述的位置上被当成人话说明。
- */
-export const SaveStatusSlotContext = createContext<{ take: () => HTMLElement | null } | null>(null);
-
 export function SettingsScopeBadge() {
   const scope = useContext(SettingsScopeContext);
   return scope ? <span className="weq-settings-scope">{scope.label}</span> : null;
 }
-
-/**
- * 在设置页之间跳转。由 `SettingsDialog` 提供，页面里的「去管理」这类入口消费。
- * 不提供时（例如单测直接渲染某个 section）为 `null`，调用方应自行降级。
- */
-export const SettingsNavigateContext = createContext<
-  ((section: string, settingId?: string) => void) | null
->(null);
 
 /** Section heading + optional description (and optional leading icon), shown at the top of each panel. */
 export function SectionHeader({

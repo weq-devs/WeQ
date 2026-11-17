@@ -13,7 +13,8 @@ import { CloneUpdateButton } from './CloneUpdateButton';
 import '../../styles/persona-settings.css';
 import type { AgentLabModelSelection } from '@weq/agentlab';
 import { ApiModelSelect } from '../../components/settings/ApiModelSelect';
-import { TabActivity, useTabActive } from '../../components/RetainedTabs';
+import { TabActivity } from '../../components/RetainedTabs';
+import { useTabActive } from '../../components/RetainedTabs.shared';
 import { DraftCloseContext, useDraftClose, useDraftProtection } from '../../lib/draftClose';
 import {
   Download,
@@ -52,7 +53,7 @@ import { openExternalLink } from '../../lib/openExternalLink';
 import { isRemoteClient } from '../../lib/remoteClient';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
-import { useExportReportDialog } from '../export/ExportReportControl';
+import { useExportReportDialog } from '../export/ExportReportControl.shared';
 
 /** ④ 记忆 / 画像：克隆体「对你」记住的事（来自聊天蒸馏），可单条遗忘 / 全部清空。 */
 function MemoryTab({ personaId }: { personaId: string }): ReactElement {

@@ -11,8 +11,8 @@
 import type { ReactElement } from 'react';
 import { FolderOpen, Info, PhoneCall, Radio, Waypoints } from 'lucide-react';
 import { trpc } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
-import { useToast } from '../Toast';
+import { useTabActive } from '../RetainedTabs.shared';
+import { useToast } from '../Toast.shared';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import type { CallRecordingMode } from '@weq/service';
 

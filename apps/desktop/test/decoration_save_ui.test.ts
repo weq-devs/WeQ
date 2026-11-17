@@ -4,10 +4,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { ExportSavePolicy } from '@weq/service';
-import {
-  DecorationSaveControls,
-  useDecorationSave,
-} from '../src/renderer/src/components/DecorationSaveControls';
+import { DecorationSaveControls } from '../src/renderer/src/components/DecorationSaveControls';
+import { useDecorationSave } from '../src/renderer/src/components/DecorationSaveControls.shared';
 const state = vi.hoisted(() => ({
   developmentTools: true,
   web: false,
@@ -37,6 +35,11 @@ vi.mock('../src/renderer/src/lib/target', () => ({
     return state.web;
   },
 }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({
+  get IS_WEB() {
+    return state.web;
+  },
+}));
 vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   useExportSavePolicy: () => ({
     binding: { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' },
@@ -47,6 +50,10 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   }),
 }));
 vi.mock('../src/renderer/src/components/Toast', () => ({
+  useToastApi: () => ({ push: state.toast }),
+  useToast: () => state.toast,
+}));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
   useToastApi: () => ({ push: state.toast }),
   useToast: () => state.toast,
 }));

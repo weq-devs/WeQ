@@ -7,7 +7,7 @@ import {
   useDraftClose,
   useDraftProtection,
 } from '../src/renderer/src/lib/draftClose';
-import { useDialog } from '../src/renderer/src/components/Dialog';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 const cleanups: Array<() => void> = [];
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();

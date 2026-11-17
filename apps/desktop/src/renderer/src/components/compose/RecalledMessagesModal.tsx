@@ -23,14 +23,14 @@ import { useMemo, useState, type ReactElement } from 'react';
 import { LoadingIndicator } from '../LoadingIndicator';
 import { CornerUpRight, RotateCcw, Search, X, RefreshCw } from 'lucide-react';
 import { Modal } from '../Dialog';
-import { ConvContext, ForwardKindContext } from '../QqMessageContent';
+import { ConvContext, ForwardKindContext } from '../../state/messageContext';
 import { cn } from '../../im-template/template/classNames';
 import { MessageBubble } from '../../im-template/template/messageBubble';
 import { resolveMessageSender } from '../../im-template/template/conversationDisplay';
 import { displayUserName } from '../../im-template/template/user';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
 import type { Conversation, Message, User } from '../../im-template/template/types';
-import { useToast } from '../Toast';
+import { useToast } from '../Toast.shared';
 
 const noop = (): void => {};
 

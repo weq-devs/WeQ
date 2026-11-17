@@ -36,6 +36,10 @@ vi.mock('../src/renderer/src/components/Toast', () => ({
   useToastApi: () => ({ push: fixture.toast }),
   useToast: () => fixture.toast,
 }));
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
+  useToastApi: () => ({ push: fixture.toast }),
+  useToast: () => fixture.toast,
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: { account: { searchTargets: { group: { useQuery: () => fixture } } } },
   client: { account: { flashListFiles: { query: async () => ({ files: [] }) } } },
