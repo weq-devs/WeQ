@@ -70,7 +70,7 @@ import { useRenderDocument } from '../lib/renderDocument';
 import { client, trpc } from '../trpc/client';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { QqAvatar } from './QqAvatar';
-import { useToast } from './Toast';
+import { useToast } from './Toast.shared';
 import '../styles/db-repair-storage.css';
 import '../styles/db-repair-layout.css';
 import { DatabaseMaintenanceProgress } from './DatabaseMaintenanceProgress';

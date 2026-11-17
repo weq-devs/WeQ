@@ -19,7 +19,19 @@ test('真实 Vite 开发服务持续推送源码更新，并随桌面服务关�
   timeout: 20_000,
 }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'weq-live-web-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  const desktop = createServer();
+  const old = process.env.WEQ_DEV_WEB_URL;
+  let ws;
+  t.after(async () => {
+    ws?.terminate();
+    try {
+      if (desktop.listening) await new Promise((resolve) => desktop.close(resolve));
+    } finally {
+      if (old === undefined) delete process.env.WEQ_DEV_WEB_URL;
+      else process.env.WEQ_DEV_WEB_URL = old;
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   const directory = join(root, 'apps/web');
   await mkdir(directory, { recursive: true });
   await writeFile(join(directory, 'package.json'), '{"type":"module"}');
@@ -36,15 +48,9 @@ test('真实 Vite 开发服务持续推送源码更新，并随桌面服务关�
   await writeFile(join(directory, 'index.html'), '<script type="module" src="/entry.js"></script>');
   const entry = join(directory, 'entry.js');
   await writeFile(entry, 'export const value = 1; if (import.meta.hot) import.meta.hot.accept();');
-  const desktop = createServer();
+  await writeFile(join(directory, 'source.ts'), 'export const value: number = 42;');
   desktop.listen(0, '127.0.0.1');
   await once(desktop, 'listening');
-  const old = process.env.WEQ_DEV_WEB_URL;
-  t.after(async () => {
-    if (desktop.listening) await new Promise((resolve) => desktop.close(resolve));
-    if (old === undefined) delete process.env.WEQ_DEV_WEB_URL;
-    else process.env.WEQ_DEV_WEB_URL = old;
-  });
   const plugin = developmentWeb(root, { plugins: [developmentSourceMaps()] });
   assert.equal(plugin.apply, 'serve');
   await plugin.configureServer({ httpServer: desktop });
@@ -56,18 +62,13 @@ test('真实 Vite 开发服务持续推送源码更新，并随桌面服务关�
   assert(token, '必须使用真实 Vite 返回的 WebSocket token');
   const require = createRequire(new URL('../apps/desktop/package.json', import.meta.url));
   const { default: WebSocket } = await import(pathToFileURL(require.resolve('ws')).href);
-  const ws = new WebSocket(
-    `${url.replace('http:', 'ws:')}/_weq-dev/hmr?token=${token}`,
-    'vite-hmr',
-  );
-  t.after(() => ws.terminate());
+  ws = new WebSocket(`${url.replace('http:', 'ws:')}/_weq-dev/hmr?token=${token}`, 'vite-hmr');
   const connected = once(ws, 'message');
   await once(ws, 'open');
   assert.equal(JSON.parse(String((await connected)[0])).type, 'connected');
   assert.match(await (await fetch(`${url}/entry.js`)).text(), /value = 1/);
   const module = await (await fetch(`${url}/entry.js`)).text();
   assert(!module.includes('sourceMappingURL=data:'), '运行模块不应携带整份内联源码映射');
-  await writeFile(join(directory, 'source.ts'), 'export const value: number = 42;');
   const source = await (await fetch(`${url}/source.ts?t=123`)).text();
   assert(!source.includes('sourceMappingURL=data:'));
   const mapPath = /sourceMappingURL=(\S+)/.exec(source)?.[1];
