@@ -1,7 +1,14 @@
 import http, { type IncomingMessage, type ServerResponse, type ClientRequest } from 'node:http';
 import type { Duplex } from 'node:stream';
-import { parse, serialize, type DefaultTreeAdapterMap } from 'parse5';
+import {
+  parse,
+  serialize,
+  defaultTreeAdapter,
+  html as htmlNames,
+  type DefaultTreeAdapterMap,
+} from 'parse5';
 import type { AuthGate } from './auth';
+import { developmentStartupProgress } from './development_progress';
 
 /** 仅开发入口显式启用；页面、模块与 HMR 都经原宿主认证，客户端无需访问环回端口。 */
 export class DevelopmentWebProxy {
@@ -77,7 +84,11 @@ export class DevelopmentWebProxy {
           } else chunks.push(chunk);
         });
         upstream.once('end', () => {
-          const html = developmentHtml(Buffer.concat(chunks).toString('utf8'));
+          const html = developmentHtml(
+            Buffer.concat(chunks).toString('utf8'),
+            /\bWeQRemote\b/.test(req.headers['user-agent'] ?? ''),
+          );
+          headers['content-type'] = 'text/html; charset=utf-8';
           delete headers['content-length'];
           delete headers.etag;
           res.writeHead(status, headers).end(html);
@@ -143,9 +154,11 @@ export class DevelopmentWebProxy {
 }
 
 /** React Refresh 的内联引导只在开发 HTML 放行，正式页的 CSP 保持原样。 */
-function developmentHtml(html: string): string {
+function developmentHtml(html: string, remote: boolean): string {
   const document = parse(html);
+  let head: DefaultTreeAdapterMap['element'] | undefined;
   const visit = (node: DefaultTreeAdapterMap['node']) => {
+    if ('tagName' in node && node.tagName === 'head') head = node;
     if (
       'tagName' in node &&
       node.tagName === 'meta' &&
@@ -172,5 +185,16 @@ function developmentHtml(html: string): string {
     if ('childNodes' in node) node.childNodes.forEach(visit);
   };
   visit(document);
+  if (remote && head) {
+    const progress = defaultTreeAdapter.createElement('script', htmlNames.NS.HTML, [
+      { name: 'data-weq-development-progress', value: '' },
+    ]);
+    defaultTreeAdapter.insertText(progress, developmentStartupProgress);
+    const first = head.childNodes.find(
+      (node) => 'tagName' in node && (node.tagName === 'script' || node.tagName === 'link'),
+    );
+    if (first) defaultTreeAdapter.insertBefore(head, progress, first);
+    else defaultTreeAdapter.appendChild(head, progress);
+  }
   return serialize(document);
 }

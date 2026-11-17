@@ -95,6 +95,8 @@ pnpm dev                   # 自动补齐依赖、native 和必要构建，启�
 
 源码开发需要 Node.js ≥ 22.12.0，并使用根 `package.json` 锁定的 `pnpm@12.8.1`；首次构建远程网络辅助程序需要 Go。默认无需 Rust，本地 native 模式才需要其编译工具链。来源配置与缓存行为见[一行命令开发启动](./docs/develop/dev-startup.md)。
 
+Remote 连接开发版时，电脑网页通过已有阶段协议报告已加载的代码字节和资源项数，旧版手机 App 无需升级。开发模块按需发现，不预估完整总量或百分比；正式静态网页仍使用原有资源清单与字节进度。进入实际初始化阶段后不覆盖阶段提示，界面就绪后停止启动计量，不影响后续热更新。
+
 > native 由 [nt_helper_release](https://github.com/weq-devs/nt_helper_release) 分发，
 > `pnpm dev` 默认准备 `native/pinned.json` 锚定的发布版，不预下载大装扮索引；本地源码模式仍准备自己的配套资源。
 > 装扮索引由 [dress-resources](https://github.com/weq-devs/dress-resources) 独立分发，桌面与 Web 安装包不再携带三份 `.dat`，

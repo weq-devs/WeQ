@@ -38,7 +38,7 @@ async function fixture() {
     res.setHeader('Content-Type', req.url === '/' ? 'text/html' : 'text/javascript');
     res.end(
       req.url === '/'
-        ? `<html><head><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; img-src 'self' data:"></head><body>dev page</body></html>`
+        ? `<html><head><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; img-src 'self' data:"><script type="module" src="/src/main.tsx"></script></head><body>dev page</body></html>`
         : 'export const updated = true;',
     );
   });
@@ -102,6 +102,18 @@ it('无静态构建仍可使用开发页，资源实时转发，业务 API 不�
   f.deny();
   expect((await fetch(`${f.base}/@vite/client`)).status).toBe(401);
   expect(f.seen).toHaveLength(2);
+});
+it('旧版 Remote 开发页在模块前接入已有阶段协议，普通浏览器不附带进度桥', async () => {
+  const f = await fixture();
+  const response = await fetch(f.base, { headers: { 'User-Agent': 'old WeQRemote' } });
+  expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8');
+  const html = await response.text();
+  expect(html).toContain('data-weq-development-progress');
+  expect(html.indexOf('data-weq-development-progress')).toBeLessThan(
+    html.indexOf('src="/src/main.tsx"'),
+  );
+  expect(html).toContain('weq-remote-startup');
+  expect(await (await fetch(f.base)).text()).not.toContain('data-weq-development-progress');
 });
 it('热更新 WebSocket 与业务订阅并存，撤销和关闭释放连接，未登录不升级', async () => {
   const f = await fixture();
