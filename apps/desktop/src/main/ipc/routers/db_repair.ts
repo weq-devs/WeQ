@@ -405,6 +405,9 @@ export const dbRepairRouter = router({
     })),
   ),
   report: procedure.input(reportRef).query(({ input }) => savedReport(input, input.reportId)),
+  deleteReport: procedure.input(reportRef).mutation(({ input }) => ({
+    removed: databaseMaintenance.deleteReport(input, input.reportId),
+  })),
   exportMaintenanceReport: procedure
     .input(reportRef.extend({ format: z.enum(['html', 'md', 'json']) }))
     .mutation(async ({ input }) => {

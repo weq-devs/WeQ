@@ -12,6 +12,7 @@ type Input = {
   kind?: 'scan' | 'checkup';
   dbNames?: string[];
   reportId?: string;
+  recordId?: string;
   format?: string;
   allowLowSpace?: boolean;
   backup?: boolean;
@@ -36,6 +37,7 @@ const calls = {
   pick: 0,
   reset: 0,
   export: [] as Input[],
+  delete: [] as Input[],
 };
 const names = ['nt_msg.db', 'profile.db', 'unsupported.db'];
 const notify = () => {
@@ -124,7 +126,7 @@ function retain() {
     saved.set(live.operation.id, structuredClone(live) as DatabaseMaintenanceReport);
 }
 function finish(status: 'completed' | 'cancelled' = 'completed') {
-  if (!live?.operation || live.operation.status !== 'running') return;
+  if (live?.operation?.status !== 'running') return;
   const repair = live.operation.kind === 'repair';
   if (repair) {
     for (const row of live.databases)
@@ -161,7 +163,10 @@ function finish(status: 'completed' | 'cancelled' = 'completed') {
     } else
       for (const row of live.databases)
         if (row.scanStatus === 'running') row.scanStatus = 'pending';
-    live.state = 'waiting';
+    const empty =
+      status === 'cancelled' && !live.databases.some((row) => row.scanStatus === 'completed');
+    live.state = empty ? 'ended' : 'waiting';
+    if (empty) live.locked = false;
   }
   const done = tracker?.finish(status);
   if (done) {
@@ -176,7 +181,12 @@ function finish(status: 'completed' | 'cancelled' = 'completed') {
     repair ? row.repair?.status === 'completed' : row.scanStatus === 'completed',
   ).length;
   live.operation.currentDb = undefined;
-  retain();
+  if (
+    repair ||
+    status !== 'cancelled' ||
+    live.databases.some((row) => row.scanStatus === 'completed')
+  )
+    retain();
   publish();
   resolveRun?.(repair ? { snapshot: live, closedAccount: false } : live);
   resolveRun = undefined;
@@ -195,6 +205,7 @@ export const maintenanceQa = {
     calls.scan.length = 0;
     calls.repair.length = 0;
     calls.export.length = 0;
+    calls.delete.length = 0;
     calls.stop = calls.end = calls.pick = calls.reset = 0;
     notify();
   },
@@ -435,6 +446,13 @@ export const trpc = {
       return null;
     }),
     exportLegacyReport: mutation(),
+    deleteReport: mutation(async (input) => {
+      calls.delete.push(input);
+      saved.delete(input.reportId!);
+      notify();
+      return { removed: true };
+    }),
+    deleteRecord: mutation(),
   },
 };
 export const client = {

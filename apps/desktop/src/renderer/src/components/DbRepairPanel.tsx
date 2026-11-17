@@ -5,7 +5,6 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
-  ChevronRight,
   Database,
   Download,
   FolderOpen,
@@ -14,14 +13,18 @@ import {
   Info,
   Loader2,
   LockKeyhole,
+  Pause,
   Play,
   RefreshCw,
   RotateCcw,
   ShieldCheck,
+  Settings2,
   Square,
   Stethoscope,
+  Trash2,
   UnlockKeyhole,
   Wrench,
+  X,
 } from 'lucide-react';
 import {
   databaseReadyForRepair,
@@ -40,6 +43,8 @@ import { useDbRepairReturn } from '../state/dbRepairReturn';
 import { useDialog } from './Dialog.shared';
 import { QqAvatar } from './QqAvatar';
 import { DatabaseMaintenanceProgress } from './DatabaseMaintenanceProgress';
+import { SegmentedControl } from './SegmentedControl';
+import { WindowSurface } from './WindowSurface';
 import { formatBytesOrUnknown } from '../lib/format';
 import '../styles/db-repair-maintenance.css';
 
@@ -244,6 +249,10 @@ export function DbRepairPanel({
   const [strictPages, setStrictPages] = useState(false);
   const [allowLowSpace, setAllowLowSpace] = useState(false);
   const [starting, setStarting] = useState<'scan' | 'checkup' | 'repair' | null>(null);
+  const [scanKind, setScanKind] = useState<'scan' | 'checkup'>('scan');
+  const [surface, setSurface] = useState<'history' | 'settings' | null>(null);
+  const [surfaceAnchor, setSurfaceAnchor] = useState<HTMLElement>();
+  const [reportFocused, setReportFocused] = useState<string>();
   const [error, setError] = useState('');
   const [connectionError, setConnectionError] = useState(false);
   const touched = useRef(new Set<string>());
@@ -251,7 +260,6 @@ export function DbRepairPanel({
   const displayedOperation = useRef<string | undefined>(undefined);
   const sessionId = useRef<string | undefined>(undefined);
   const optionsRef = useRef<HTMLDetailsElement>(null);
-  const historyRef = useRef<HTMLDetailsElement>(null);
   const utils = trpc.useUtils();
   const status = trpc.dbRepair.status.useQuery(scope, { enabled: !!scope.uin, retry: false });
   const maintenance = trpc.dbRepair.maintenance.useQuery(scope, {
@@ -284,6 +292,8 @@ export function DbRepairPanel({
   const exportLegacy = trpc.dbRepair.exportLegacyReport.useMutation();
   const pickCache = trpc.dbRepair.pickCacheLocation.useMutation();
   const resetCache = trpc.dbRepair.resetCacheLocation.useMutation();
+  const deleteReport = trpc.dbRepair.deleteReport.useMutation();
+  const deleteRecord = trpc.dbRepair.deleteRecord.useMutation();
 
   useEffect(() => {
     if (maintenance.data !== undefined) setLive(maintenance.data);
@@ -302,7 +312,12 @@ export function DbRepairPanel({
         : scope,
     );
     setLegacyId(undefined);
+    if (resultRequest?.reportId || requestedReportId || account?.reportId) setSurface('history');
   }, [requestedReportId, account?.reportId, resultRequest, scope]);
+  useEffect(() => {
+    const kind = live?.operation?.kind;
+    if (kind === 'scan' || kind === 'checkup') setScanKind(kind);
+  }, [live?.operation?.id, live?.operation?.kind]);
   useEffect(() => {
     const sub = client.dbRepair.onMaintenance.subscribe(undefined, {
       onData(snapshot) {
@@ -461,11 +476,15 @@ export function DbRepairPanel({
     });
 
   const historical = !!reportId || !!legacyId;
-  const view = reportId
+  const historicalView = reportId
     ? sameReportScope && live?.operation?.id === reportId
       ? live
       : report.data
-    : live;
+    : undefined;
+  const historicalRow =
+    historicalView?.databases.find((row) => row.dbName === reportFocused) ??
+    historicalView?.databases[0];
+  const view = live;
   const busyStarting = starting !== null;
   const running = live?.operation?.status === 'running' || busyStarting;
   const repairing =
@@ -474,7 +493,9 @@ export function DbRepairPanel({
     (running && live?.operation?.kind === 'repair');
   const ending = live?.state === 'ending';
   const locked = !!live?.locked && live.state !== 'ended';
-  const waiting = !historical && live?.state === 'waiting' && !ending;
+  const waiting = live?.state === 'waiting' && !ending;
+  const paused =
+    waiting && live?.operation?.kind !== 'repair' && live?.operation?.status === 'cancelled';
   const databases =
     view?.databases ??
     status.data?.databases
@@ -499,9 +520,7 @@ export function DbRepairPanel({
   const progressOwner = view?.operation?.currentDb
     ? (databases.find((row) => row.dbName === view.operation?.currentDb) ?? activeRow)
     : activeRow;
-  const progress = historical
-    ? (view?.progress ?? activeRow?.progress)
-    : (progressOwner?.progress ?? view?.progress);
+  const progress = progressOwner?.progress ?? view?.progress;
   const readyNames = live?.databases.filter(databaseReadyForRepair).map((row) => row.dbName) ?? [];
   const selectedReady = selected.filter((name) => readyNames.includes(name));
   const scannedCount = databases.filter((row) => row.scanStatus === 'completed').length;
@@ -514,9 +533,8 @@ export function DbRepairPanel({
     !!status.data?.keyPresent && !status.data.error && !running && !ending && !repairing;
   const showFooter = waiting && !running && !repairing && !ending && readyNames.length > 0;
   const operation = view?.operation;
-  const stepPhase: 'idle' | 'scan' | 'review' | 'repair' | 'done' = historical
-    ? 'review'
-    : ending || repairing
+  const stepPhase: 'idle' | 'scan' | 'review' | 'repair' | 'done' =
+    ending || repairing
       ? 'repair'
       : waiting
         ? 'review'
@@ -533,25 +551,24 @@ export function DbRepairPanel({
   const alerts = [
     ...new Set(
       [
-        error,
+        surface ? '' : error,
         live?.maintenanceError,
         maintenance.error ? `无法读取维护状态：${maintenance.error.message}` : '',
         status.error?.message,
         status.data?.error,
-        report.error?.message,
       ].filter((value): value is string => !!value),
     ),
   ];
   useLayoutEffect(() => {
     const current = live?.operation;
-    if (!historical && current?.status === 'running' && displayedOperation.current !== current.id) {
+    if (current?.status === 'running' && displayedOperation.current !== current.id) {
       if (bodyRef.current) bodyRef.current.scrollTop = 0;
       displayedOperation.current = current.id;
     }
-  }, [live?.operation, historical]);
+  }, [live?.operation]);
   useLayoutEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
-  }, [historical, reportId, legacyId, scope]);
+  }, [scope]);
 
   const selectAll = (checked: boolean) => {
     for (const name of readyNames) touched.current.add(name);
@@ -565,15 +582,72 @@ export function DbRepairPanel({
     setReportScope(scope);
     setLegacyId(undefined);
   };
-  const openHistory = () => {
-    const section = historyRef.current;
-    if (!section) return;
-    section.open = true;
-    section.scrollIntoView({ block: 'start' });
+  const closeSurface = () => {
+    setSurface(null);
+    closeReport();
   };
+  const removeReport = (id: string, legacy = false, hasBackup = false) =>
+    act(async () => {
+      if (
+        !(await useDialog
+          .getState()
+          .confirm(
+            legacy ? '删除这条修复记录？' : '删除这份历史报告？',
+            hasBackup
+              ? '这条修复记录和对应备份会一并删除，之后无法使用这份备份恢复。不会更改当前数据库。'
+              : '删除后无法再查看或导出这份报告，不会更改当前数据库或其他修复备份。',
+            { okLabel: '删除', cancelLabel: '取消', danger: 'outline', ownerDocument },
+          ))
+      )
+        return;
+      if (legacy) await deleteRecord.mutateAsync({ ...scope, recordId: id });
+      else await deleteReport.mutateAsync({ ...scope, reportId: id });
+      if (reportId === id || legacyId === id) closeReport();
+      await refresh();
+    });
+  const scanControls = (
+    <div className="weq-dbm-scan-controls">
+      <SegmentedControl
+        label="体检模式"
+        value={scanKind}
+        options={[
+          { value: 'scan', label: '快速体检', title: '检查数据库页签名' },
+          { value: 'checkup', label: '深度体检', title: '检查页签名、整库结构与索引' },
+        ]}
+        disabled={running || ending || repairing}
+        onChange={setScanKind}
+      />
+      {running && !repairing ? (
+        <button
+          type="button"
+          className="weq-set-btn"
+          disabled={stop.isLoading || !!live?.operation?.stopping}
+          onClick={() =>
+            void act(async () => {
+              const result = await stop.mutateAsync(scope);
+              if (result) setLive(result);
+              await refresh();
+            })
+          }
+        >
+          <Pause size={14} />
+          {stop.isLoading || live?.operation?.stopping ? '正在暂停' : '暂停扫描'}
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="weq-set-btn weq-set-btn-primary"
+          disabled={!canScan}
+          onClick={() => void startScan(scanKind)}
+        >
+          <Play size={14} />
+          {paused ? '继续扫描' : '开始扫描'}
+        </button>
+      )}
+    </div>
+  );
 
   const hero = (() => {
-    if (historical) return null;
     if (!account)
       return {
         tone: 'muted' as Tone,
@@ -650,23 +724,7 @@ export function DbRepairPanel({
             : `${completed} / ${total} 个数据库完成${
                 operation?.currentDb ? ` · 正在检查 ${operation.currentDb}` : ''
               }`,
-        actions: (
-          <button
-            type="button"
-            className="weq-set-btn"
-            disabled={stop.isLoading || !!operation?.stopping || ending}
-            onClick={() =>
-              void act(async () => {
-                const result = await stop.mutateAsync(scope);
-                if (result) setLive(result);
-                await refresh();
-              })
-            }
-          >
-            <Square size={13} />
-            {stop.isLoading || operation?.stopping ? '正在停止' : deep ? '停止体检' : '停止扫描'}
-          </button>
-        ),
+        actions: scanControls,
       };
     }
     if (waiting) {
@@ -697,31 +755,13 @@ export function DbRepairPanel({
           ) : (
             <AlertTriangle size={22} strokeWidth={1.9} />
           ),
-        title,
-        sub,
+        title: paused ? '扫描已暂停' : title,
+        sub: paused
+          ? `已保留完成的检查和维护锁，可切换体检模式后继续扫描。${scannedCount} / ${databases.length} 个数据库已有页扫描结果。`
+          : sub,
         actions: (
           <>
-            <button
-              type="button"
-              className="weq-set-btn"
-              disabled={!canScan}
-              title="先扫描页签名，再检查整库结构与索引，耗时更长"
-              onClick={() => void startScan('checkup')}
-            >
-              <Stethoscope size={15} />
-              深度体检
-            </button>
-            {!allScanned && readyNames.length < databases.length ? (
-              <button
-                type="button"
-                className="weq-set-btn"
-                disabled={!canScan}
-                onClick={() => void startScan('scan')}
-              >
-                <Play size={14} />
-                继续扫描
-              </button>
-            ) : null}
+            {scanControls}
             <button
               type="button"
               className="weq-set-btn"
@@ -740,19 +780,15 @@ export function DbRepairPanel({
       return {
         tone: 'muted' as Tone,
         icon: <CheckCircle2 size={22} strokeWidth={1.9} />,
-        title: '本次维护已结束',
-        sub: `数据库已解锁。本次${operation ? operationLabels[operation.kind] : '维护'}报告已保留，可随时重新扫描。`,
-        actions: (
-          <button
-            type="button"
-            className="weq-set-btn weq-set-btn-primary"
-            disabled={!canScan}
-            onClick={() => void startScan('scan')}
-          >
-            <Play size={14} />
-            重新扫描
-          </button>
-        ),
+        title:
+          operation?.kind !== 'repair' && operation?.status === 'cancelled' && !scannedCount
+            ? '扫描已停止'
+            : '本次维护已结束',
+        sub:
+          operation?.kind !== 'repair' && operation?.status === 'cancelled' && !scannedCount
+            ? '本次没有完成任何数据库的扫描，维护锁已释放，未保存报告。'
+            : `数据库已解锁。本次${operation ? operationLabels[operation.kind] : '维护'}报告已保留，可随时重新扫描。`,
+        actions: scanControls,
       };
     const qqHint = status.data?.qqPid
       ? `QQ 正在运行（PID ${status.data.qqPid}），建议先退出。`
@@ -764,30 +800,7 @@ export function DbRepairPanel({
       sub: databases.length
         ? `${qqHint}扫描是只读的，但会锁定本次数据源的 ${databases.length} 个目标数据库；打开这个窗口不会自动开始检查。`
         : `${qqHint}扫描是只读的，但会锁定本次数据源的目标数据库；打开这个窗口不会自动开始检查。`,
-      actions: (
-        <>
-          <button
-            type="button"
-            className="weq-set-btn weq-set-btn-primary"
-            disabled={!canScan}
-            title="逐个数据库检查页签名，不解密重建"
-            onClick={() => void startScan('scan')}
-          >
-            <Play size={14} />
-            开始扫描
-          </button>
-          <button
-            type="button"
-            className="weq-set-btn"
-            disabled={!canScan}
-            title="先扫描页签名，再检查整库结构与索引，耗时更长"
-            onClick={() => void startScan('checkup')}
-          >
-            <Stethoscope size={15} />
-            深度体检
-          </button>
-        </>
-      ),
+      actions: scanControls,
     };
   })();
 
@@ -800,31 +813,51 @@ export function DbRepairPanel({
           </span>
           <div>
             <h1>数据库修复</h1>
-            <p>{historical ? '历史报告' : '扫描、检查并重建这个账号的 QQ 数据库'}</p>
+            <p>扫描、检查并重建这个账号的 QQ 数据库</p>
           </div>
         </div>
         <div className="weq-dbm-identity">
-          {!historical && account ? (
+          {account ? (
             <button
               type="button"
               className="weq-dbm-head-btn"
               title="历史报告与恢复"
               aria-label="历史报告与恢复"
-              onClick={openHistory}
+              aria-expanded={surface === 'history'}
+              onClick={(event) => {
+                closeReport();
+                setSurfaceAnchor(event.currentTarget);
+                setSurface(surface === 'history' ? null : 'history');
+              }}
             >
               <History size={15} />
             </button>
           ) : null}
+          <button
+            type="button"
+            className="weq-dbm-head-btn"
+            title="数据库修复设置"
+            aria-label="数据库修复设置"
+            aria-expanded={surface === 'settings'}
+            onClick={(event) => {
+              closeReport();
+              setSurfaceAnchor(event.currentTarget);
+              setSurface(surface === 'settings' ? null : 'settings');
+            }}
+          >
+            <Settings2 size={15} />
+          </button>
           {account ? (
             <span className="weq-dbm-account">
               <QqAvatar uin={account.uin} url={account.avatarUrl} size={22} />
               <span>{account.name}</span>
             </span>
           ) : null}
-          <span className="weq-dbm-scope" title={`${scope.uin}${scope.configId ?? ''}`}>
-            {scope.uin}
-            {scope.configId ? ` · ${scope.configId}` : ''}
-          </span>
+          {account?.name !== scope.uin ? (
+            <span className="weq-dbm-scope" title={scope.configId}>
+              {scope.uin}
+            </span>
+          ) : null}
           {locked ? (
             <span
               className="weq-dbm-state"
@@ -838,16 +871,14 @@ export function DbRepairPanel({
         </div>
       </header>
 
-      {!historical ? (
-        <StepRail
-          phase={stepPhase}
-          scanned={scannedCount}
-          total={databases.length}
-          ready={readyNames.length}
-          repaired={repairedCount}
-          operationKind={operation?.kind}
-        />
-      ) : null}
+      <StepRail
+        phase={stepPhase}
+        scanned={scannedCount}
+        total={databases.length}
+        ready={readyNames.length}
+        repaired={repairedCount}
+        operationKind={operation?.kind}
+      />
 
       <div className="weq-dbm-body" ref={bodyRef}>
         {alerts.map((message) => (
@@ -872,314 +903,140 @@ export function DbRepairPanel({
           </p>
         ) : null}
 
-        {legacyId ? (
-          legacy.data ? (
-            <LegacyReport
-              data={legacy.data}
-              onBack={closeReport}
-              onExport={(format) =>
-                void act(() => exportLegacy.mutateAsync({ ...scope, recordId: legacyId, format }))
-              }
-            />
-          ) : (
-            <p className="weq-dbm-loading" role="status">
-              <Loader2 size={15} className="weq-spin" />
-              正在读取历史报告…
-            </p>
-          )
-        ) : historical ? (
-          view?.operation ? (
-            <ReportView
-              view={view}
-              operation={operation!}
-              bytesByName={bytesByName}
-              progress={activeProgress}
-              activeRow={activeRow}
-              onFocus={setFocused}
-              onBack={closeReport}
-              onExport={(format) =>
-                void act(() =>
-                  exportReport.mutateAsync({
-                    ...(reportId ? reportScope : scope),
-                    reportId: operation!.id,
-                    format,
-                  }),
-                )
-              }
-            />
-          ) : (
-            <p className="weq-dbm-loading" role="status">
-              <Loader2 size={15} className="weq-spin" />
-              正在读取历史报告…
-            </p>
-          )
-        ) : (
-          <>
-            {hero ? (
-              <section className={`weq-dbm-hero is-${hero.tone}`} aria-label="维护状态">
-                <span className="weq-dbm-hero-icon" aria-hidden>
-                  {hero.icon}
-                </span>
-                <div className="weq-dbm-hero-main">
-                  <h2>{hero.title}</h2>
-                  <p>{hero.sub}</p>
-                </div>
-                {hero.actions ? <div className="weq-dbm-hero-actions">{hero.actions}</div> : null}
-              </section>
-            ) : null}
+        {hero ? (
+          <section className={`weq-dbm-hero is-${hero.tone}`} aria-label="维护状态">
+            <span className="weq-dbm-hero-icon" aria-hidden>
+              {hero.icon}
+            </span>
+            <div className="weq-dbm-hero-main">
+              <h2>{hero.title}</h2>
+              <p>{hero.sub}</p>
+            </div>
+            {hero.actions ? <div className="weq-dbm-hero-actions">{hero.actions}</div> : null}
+          </section>
+        ) : null}
 
-            {!view?.operation && account?.diagnostic ? (
-              <section className="weq-dbm-callout">
-                <AlertTriangle size={16} aria-hidden />
-                <div>
-                  <strong>{account.diagnostic.title}</strong>
-                  <p>{account.diagnostic.message}</p>
-                  {account.diagnostic.details.map((detail) => (
-                    <p key={detail}>{detail}</p>
-                  ))}
-                  {account.diagnostic.reportPath ? (
-                    <p className="weq-dbm-path">已有报告：{account.diagnostic.reportPath}</p>
-                  ) : null}
-                </div>
-              </section>
-            ) : null}
-
-            {databases.length === 0 && status.isLoading ? (
-              <p className="weq-dbm-loading" role="status">
-                <Loader2 size={15} className="weq-spin" />
-                正在读取数据库列表…
-              </p>
-            ) : databases.length === 0 ? (
-              <p className="weq-dbm-empty">
-                <Database size={20} strokeWidth={1.6} aria-hidden />
-                这个账号的数据库目录里没有可维护的文件。
-              </p>
-            ) : (
-              <section className="weq-dbm-dbs" aria-label="数据库列表">
-                <div className="weq-dbm-dbs-head">
-                  <h2>数据库</h2>
-                  <span className="weq-dbm-dbs-meta">
-                    {scannedCount} / {databases.length} 已扫描
-                    {abnormalCount ? ` · ${abnormalCount} 个异常` : ''}
-                    {readyNames.length ? ` · ${readyNames.length} 个可修复` : ''}
-                  </span>
-                  {waiting && readyNames.length ? (
-                    <span className="weq-dbm-dbs-tools">
-                      <span className="weq-dbm-selected">
-                        已选 {selectedReady.length} / {readyNames.length}
-                      </span>
-                      <button
-                        type="button"
-                        className="weq-dbm-text-btn"
-                        onClick={() => selectAll(!allReadySelected)}
-                      >
-                        {allReadySelected ? '取消全选' : '全选可修复'}
-                      </button>
-                    </span>
-                  ) : null}
-                </div>
-                <ul className={`weq-dbm-list${waiting ? ' is-selectable' : ''}`}>
-                  {databases.map((row) => (
-                    <li key={row.dbName}>
-                      <DatabaseCard
-                        row={row}
-                        bytes={bytesByName.get(row.dbName)}
-                        selected={selected.includes(row.dbName)}
-                        current={activeRow?.dbName === row.dbName}
-                        selectable={waiting && databaseReadyForRepair(row)}
-                        disabled={running || ending || !databaseReadyForRepair(row)}
-                        onFocus={() => setFocused(row.dbName)}
-                        onSelect={(checked) => {
-                          touched.current.add(row.dbName);
-                          setAllowLowSpace(false);
-                          setSelected((values) =>
-                            checked
-                              ? [...new Set([...values, row.dbName])]
-                              : values.filter((name) => name !== row.dbName),
-                          );
-                        }}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-
-            {activeProgress ? (
-              <details className="weq-dbm-process" open={running || undefined}>
-                <summary>
-                  <span className="weq-dbm-process-title">
-                    {running ? <Loader2 size={14} className="weq-spin" /> : <History size={14} />}
-                    {running ? '执行进度' : '本次执行过程'}
-                  </span>
-                  <span className="weq-dbm-process-hint">
-                    {running
-                      ? '阶段、当前步骤与处理数量'
-                      : operation
-                        ? `${operationLabels[operation.kind]} · ${operationStates[operation.status]} · ${operation.completedDatabases} / ${operation.totalDatabases} 个数据库`
-                        : '查看阶段与步骤'}
-                  </span>
-                  <ChevronDown size={14} className="weq-dbm-chevron" aria-hidden />
-                </summary>
-                <div className="weq-dbm-process-body">
-                  <DatabaseMaintenanceProgress
-                    progress={activeProgress}
-                    batch={operation ? { ...operation, locked: locked && !ending } : undefined}
-                    connectionError={connectionError && running}
-                    showBatch={false}
-                    showMaintained={false}
-                  />
-                </div>
-              </details>
-            ) : operation ? (
-              <p className="weq-dbm-operation" role="status">
-                {operationLabels[operation.kind]} · {operationStates[operation.status]} ·{' '}
-                {operation.completedDatabases} / {operation.totalDatabases} 个数据库
-                {operation.error ? `；${operation.error}` : ''}
-              </p>
-            ) : null}
-
-            {activeRow && (view?.operation || activeRow.scanStatus !== 'pending') ? (
-              <DatabaseDetail row={activeRow} bytes={bytesByName.get(activeRow.dbName)} />
-            ) : null}
-
-            {waiting && !allScanned ? (
-              <p className="weq-dbm-note">
-                <Info size={14} aria-hidden />
-                还有 {databases.length - scannedCount} 个数据库没有扫描结果；它们不会参与本轮修复。
-              </p>
-            ) : null}
-
-            <details className="weq-dbm-fold" ref={historyRef}>
-              <summary>
-                <History size={15} />
-                <span>历史报告</span>
-                {reports.data?.length || history.data?.length ? (
-                  <em>{(reports.data?.length ?? 0) + (history.data?.length ?? 0)}</em>
-                ) : null}
-                <ChevronRight size={14} className="weq-dbm-chevron" />
-              </summary>
-              {reports.data?.length || history.data?.length ? null : (
-                <p className="weq-dbm-fold-empty">
-                  暂无历史报告。每次执行完成后都会在这里留下记录。
-                </p>
-              )}
-              {reports.data?.map((item) => (
-                <div className="weq-dbm-history-row" key={item.id}>
-                  <span className="weq-dbm-history-icon" aria-hidden>
-                    <Database size={15} />
-                  </span>
-                  <div className="weq-dbm-history-main">
-                    <strong>{operationLabels[item.operation.kind]}</strong>
-                    <span>
-                      {dateText(item.operation.startedAt)} ·{' '}
-                      {operationStates[item.operation.status]} · {item.operation.completedDatabases}{' '}
-                      / {item.operation.totalDatabases} 个数据库
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    className="weq-set-btn weq-set-btn-sm"
-                    onClick={() => {
-                      setReportId(item.id);
-                      setReportScope(scope);
-                      setLegacyId(undefined);
-                    }}
-                  >
-                    查看结果
-                  </button>
-                </div>
+        {!view?.operation && account?.diagnostic ? (
+          <section className="weq-dbm-callout">
+            <AlertTriangle size={16} aria-hidden />
+            <div>
+              <strong>{account.diagnostic.title}</strong>
+              <p>{account.diagnostic.message}</p>
+              {account.diagnostic.details.map((detail) => (
+                <p key={detail}>{detail}</p>
               ))}
-              {history.data?.map((record) => (
-                <div className="weq-dbm-history-row" key={record.id}>
-                  <span className="weq-dbm-history-icon" aria-hidden>
-                    <Wrench size={15} />
-                  </span>
-                  <div className="weq-dbm-history-main">
-                    <strong>
-                      {record.dbName} · {recordStates[record.state]}
-                    </strong>
-                    <span>{dateText(record.at)}</span>
-                  </div>
-                  <div className="weq-dbm-history-actions">
-                    <button
-                      type="button"
-                      className="weq-set-btn weq-set-btn-sm"
-                      onClick={() => {
-                        setLegacyId(record.id);
-                        setReportId(undefined);
-                      }}
-                    >
-                      查看旧报告
-                    </button>
-                    {record.canRestore ? (
-                      <button
-                        type="button"
-                        className="weq-set-btn weq-set-btn-sm"
-                        disabled={locked || running}
-                        onClick={() => void restore(record.id)}
-                      >
-                        <RotateCcw size={13} />
-                        恢复备份
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
-              {reports.error || history.error ? (
-                <p className="weq-dbm-alert" role="alert">
-                  <AlertTriangle size={15} aria-hidden />
-                  历史报告读取失败：{reports.error?.message || history.error?.message}
-                </p>
+              {account.diagnostic.reportPath ? (
+                <p className="weq-dbm-path">已有报告：{account.diagnostic.reportPath}</p>
               ) : null}
-            </details>
+            </div>
+          </section>
+        ) : null}
 
-            <details className="weq-dbm-fold">
-              <summary>
-                <FolderOpen size={15} />
-                <span>重建缓存位置</span>
-                <ChevronRight size={14} className="weq-dbm-chevron" />
-              </summary>
-              <div className="weq-dbm-cache">
-                <p>{cache.data?.override ?? '默认 WeQ 缓存目录'}</p>
-                <div className="weq-dbm-cache-actions">
+        {databases.length === 0 && status.isLoading ? (
+          <p className="weq-dbm-loading" role="status">
+            <Loader2 size={15} className="weq-spin" />
+            正在读取数据库列表…
+          </p>
+        ) : databases.length === 0 ? (
+          <p className="weq-dbm-empty">
+            <Database size={20} strokeWidth={1.6} aria-hidden />
+            这个账号的数据库目录里没有可维护的文件。
+          </p>
+        ) : (
+          <section className="weq-dbm-dbs" aria-label="数据库列表">
+            <div className="weq-dbm-dbs-head">
+              <h2>数据库</h2>
+              <span className="weq-dbm-dbs-meta">
+                {scannedCount} / {databases.length} 已扫描
+                {abnormalCount ? ` · ${abnormalCount} 个异常` : ''}
+                {readyNames.length ? ` · ${readyNames.length} 个可修复` : ''}
+              </span>
+              {waiting && readyNames.length ? (
+                <span className="weq-dbm-dbs-tools">
+                  <span className="weq-dbm-selected">
+                    已选 {selectedReady.length} / {readyNames.length}
+                  </span>
                   <button
                     type="button"
-                    className="weq-set-btn weq-set-btn-sm"
-                    disabled={repairing || pickCache.isLoading}
-                    onClick={() =>
-                      void act(async () => {
-                        await pickCache.mutateAsync();
-                        setAllowLowSpace(false);
-                        await cache.refetch();
-                        await utils.dbRepair.preflight.invalidate();
-                      })
-                    }
+                    className="weq-dbm-text-btn"
+                    onClick={() => selectAll(!allReadySelected)}
                   >
-                    <FolderOpen size={14} />
-                    更改位置
+                    {allReadySelected ? '取消全选' : '全选可修复'}
                   </button>
-                  <button
-                    type="button"
-                    className="weq-set-btn weq-set-btn-sm"
-                    disabled={repairing || resetCache.isLoading || !cache.data?.override}
-                    onClick={() =>
-                      void act(async () => {
-                        await resetCache.mutateAsync();
-                        setAllowLowSpace(false);
-                        await cache.refetch();
-                        await utils.dbRepair.preflight.invalidate();
-                      })
-                    }
-                  >
-                    <RotateCcw size={14} />
-                    使用默认位置
-                  </button>
-                </div>
-              </div>
-            </details>
-          </>
+                </span>
+              ) : null}
+            </div>
+            <ul className={`weq-dbm-list${waiting ? ' is-selectable' : ''}`}>
+              {databases.map((row) => (
+                <li key={row.dbName}>
+                  <DatabaseCard
+                    row={row}
+                    bytes={bytesByName.get(row.dbName)}
+                    selected={selected.includes(row.dbName)}
+                    current={activeRow?.dbName === row.dbName}
+                    selectable={waiting && databaseReadyForRepair(row)}
+                    disabled={running || ending || !databaseReadyForRepair(row)}
+                    onFocus={() => setFocused(row.dbName)}
+                    onSelect={(checked) => {
+                      touched.current.add(row.dbName);
+                      setAllowLowSpace(false);
+                      setSelected((values) =>
+                        checked
+                          ? [...new Set([...values, row.dbName])]
+                          : values.filter((name) => name !== row.dbName),
+                      );
+                    }}
+                  />
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
+
+        {activeProgress ? (
+          <details className="weq-dbm-process" open={running || undefined}>
+            <summary>
+              <span className="weq-dbm-process-title">
+                {running ? <Loader2 size={14} className="weq-spin" /> : <History size={14} />}
+                {running ? '执行进度' : '本次执行过程'}
+              </span>
+              <span className="weq-dbm-process-hint">
+                {running
+                  ? '阶段、当前步骤与处理数量'
+                  : operation
+                    ? `${operationLabels[operation.kind]} · ${operationStates[operation.status]} · ${operation.completedDatabases} / ${operation.totalDatabases} 个数据库`
+                    : '查看阶段与步骤'}
+              </span>
+              <ChevronDown size={14} className="weq-dbm-chevron" aria-hidden />
+            </summary>
+            <div className="weq-dbm-process-body">
+              <DatabaseMaintenanceProgress
+                progress={activeProgress}
+                batch={operation ? { ...operation, locked: locked && !ending } : undefined}
+                connectionError={connectionError && running}
+                showBatch={false}
+                showMaintained={false}
+              />
+            </div>
+          </details>
+        ) : operation ? (
+          <p className="weq-dbm-operation" role="status">
+            {operationLabels[operation.kind]} · {operationStates[operation.status]} ·{' '}
+            {operation.completedDatabases} / {operation.totalDatabases} 个数据库
+            {operation.error ? `；${operation.error}` : ''}
+          </p>
+        ) : null}
+
+        {activeRow && (view?.operation || activeRow.scanStatus !== 'pending') ? (
+          <DatabaseDetail row={activeRow} bytes={bytesByName.get(activeRow.dbName)} />
+        ) : null}
+
+        {waiting && !allScanned ? (
+          <p className="weq-dbm-note">
+            <Info size={14} aria-hidden />
+            还有 {databases.length - scannedCount} 个数据库没有扫描结果；它们不会参与本轮修复。
+          </p>
+        ) : null}
       </div>
 
       {showFooter ? (
@@ -1277,6 +1134,240 @@ export function DbRepairPanel({
             </button>
           </div>
         </footer>
+      ) : null}
+      {surface ? (
+        <WindowSurface
+          mode="anchored"
+          anchor={surfaceAnchor}
+          width={surface === 'history' ? 680 : 460}
+          title={surface === 'history' ? '历史报告与恢复' : '数据库修复设置'}
+          onClose={closeSurface}
+        >
+          <section className="weq-dbm weq-dbm-overlay">
+            <header className="weq-dbm-overlay-head">
+              <h2>{surface === 'history' ? '历史报告与恢复' : '数据库修复设置'}</h2>
+              <button
+                type="button"
+                className="weq-dbm-head-btn"
+                title="关闭"
+                aria-label="关闭"
+                onClick={closeSurface}
+              >
+                <X size={16} />
+              </button>
+            </header>
+            <div className="weq-dbm-body" key={`${surface}:${reportId ?? legacyId ?? ''}`}>
+              {error ? (
+                <p className="weq-dbm-alert" role="alert">
+                  {error}
+                </p>
+              ) : null}
+              {surface === 'settings' ? (
+                <section className="weq-dbm-cache">
+                  <h3>重建缓存位置</h3>
+                  <p>{cache.data?.override ?? '默认 WeQ 缓存目录'}</p>
+                  {cache.error ? (
+                    <p className="weq-dbm-alert" role="alert">
+                      {cache.error.message}
+                    </p>
+                  ) : null}
+                  <div className="weq-dbm-cache-actions">
+                    <button
+                      type="button"
+                      className="weq-set-btn weq-set-btn-sm"
+                      disabled={repairing || pickCache.isLoading || resetCache.isLoading}
+                      onClick={() =>
+                        void act(async () => {
+                          await pickCache.mutateAsync();
+                          setAllowLowSpace(false);
+                          await cache.refetch();
+                          await utils.dbRepair.preflight.invalidate();
+                        })
+                      }
+                    >
+                      <FolderOpen size={14} />
+                      更改位置
+                    </button>
+                    <button
+                      type="button"
+                      className="weq-set-btn weq-set-btn-sm"
+                      disabled={
+                        repairing ||
+                        resetCache.isLoading ||
+                        pickCache.isLoading ||
+                        !cache.data?.override
+                      }
+                      onClick={() =>
+                        void act(async () => {
+                          await resetCache.mutateAsync();
+                          setAllowLowSpace(false);
+                          await cache.refetch();
+                          await utils.dbRepair.preflight.invalidate();
+                        })
+                      }
+                    >
+                      <RotateCcw size={14} />
+                      使用默认位置
+                    </button>
+                  </div>
+                </section>
+              ) : legacyId ? (
+                legacy.data ? (
+                  <LegacyReport
+                    data={legacy.data}
+                    onBack={closeReport}
+                    onExport={(format) =>
+                      void act(() =>
+                        exportLegacy.mutateAsync({ ...scope, recordId: legacyId, format }),
+                      )
+                    }
+                  />
+                ) : legacy.error || !legacy.isLoading ? (
+                  <p className="weq-dbm-alert" role="alert">
+                    {legacy.error?.message ?? '找不到这份历史修复报告。'}
+                  </p>
+                ) : (
+                  <p className="weq-dbm-loading" role="status">
+                    正在读取历史报告…
+                  </p>
+                )
+              ) : historical ? (
+                historicalView?.operation ? (
+                  <ReportView
+                    view={historicalView}
+                    operation={historicalView.operation}
+                    bytesByName={sameReportScope ? bytesByName : new Map()}
+                    progress={historicalRow?.progress ?? historicalView.progress}
+                    activeRow={historicalRow}
+                    onFocus={setReportFocused}
+                    onBack={closeReport}
+                    onExport={(format) =>
+                      void act(() =>
+                        exportReport.mutateAsync({ ...reportScope, reportId: reportId!, format }),
+                      )
+                    }
+                  />
+                ) : report.error || !report.isLoading ? (
+                  <p className="weq-dbm-alert" role="alert">
+                    {report.error?.message ?? '找不到这份数据库维护报告。'}
+                  </p>
+                ) : (
+                  <p className="weq-dbm-loading" role="status">
+                    正在读取历史报告…
+                  </p>
+                )
+              ) : (
+                <>
+                  {reports.isLoading || history.isLoading ? (
+                    <p className="weq-dbm-loading" role="status">
+                      正在读取历史报告…
+                    </p>
+                  ) : !reports.data?.length &&
+                    !history.data?.length &&
+                    !reports.error &&
+                    !history.error ? (
+                    <p className="weq-dbm-empty">暂无历史报告</p>
+                  ) : null}
+                  {reports.data?.map((item) => (
+                    <div className="weq-dbm-history-row" key={item.id}>
+                      <span className="weq-dbm-history-icon" aria-hidden>
+                        <Database size={15} />
+                      </span>
+                      <div className="weq-dbm-history-main">
+                        <strong>{operationLabels[item.operation.kind]}</strong>
+                        <span>
+                          {dateText(item.operation.startedAt)} ·{' '}
+                          {operationStates[item.operation.status]} ·{' '}
+                          {item.operation.completedDatabases} / {item.operation.totalDatabases}{' '}
+                          个数据库
+                        </span>
+                      </div>
+                      <div className="weq-dbm-history-actions">
+                        <button
+                          type="button"
+                          className="weq-set-btn weq-set-btn-sm"
+                          onClick={() => {
+                            setReportId(item.id);
+                            setReportScope(scope);
+                            setReportFocused(undefined);
+                            setLegacyId(undefined);
+                          }}
+                        >
+                          查看结果
+                        </button>
+                        <button
+                          type="button"
+                          className="weq-set-iconbtn"
+                          data-danger="outline"
+                          title="删除报告"
+                          aria-label="删除报告"
+                          disabled={
+                            deleteReport.isLoading || (running && live?.operation?.id === item.id)
+                          }
+                          onClick={() => void removeReport(item.id)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {history.data?.map((record) => (
+                    <div className="weq-dbm-history-row" key={record.id}>
+                      <span className="weq-dbm-history-icon" aria-hidden>
+                        <Wrench size={15} />
+                      </span>
+                      <div className="weq-dbm-history-main">
+                        <strong>
+                          {record.dbName} · {recordStates[record.state]}
+                        </strong>
+                        <span>{dateText(record.at)}</span>
+                      </div>
+                      <div className="weq-dbm-history-actions">
+                        <button
+                          type="button"
+                          className="weq-set-btn weq-set-btn-sm"
+                          onClick={() => {
+                            setLegacyId(record.id);
+                            setReportId(undefined);
+                          }}
+                        >
+                          查看旧报告
+                        </button>
+                        {record.canRestore ? (
+                          <button
+                            type="button"
+                            className="weq-set-btn weq-set-btn-sm"
+                            disabled={locked || running}
+                            onClick={() => void restore(record.id)}
+                          >
+                            <RotateCcw size={13} />
+                            恢复备份
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="weq-set-iconbtn"
+                          data-danger="outline"
+                          title="删除修复记录"
+                          aria-label="删除修复记录"
+                          disabled={locked || running || deleteRecord.isLoading}
+                          onClick={() => void removeReport(record.id, true, record.canRestore)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {reports.error || history.error ? (
+                    <p className="weq-dbm-alert" role="alert">
+                      历史报告读取失败：{reports.error?.message || history.error?.message}
+                    </p>
+                  ) : null}
+                </>
+              )}
+            </div>
+          </section>
+        </WindowSurface>
       ) : null}
     </section>
   );
@@ -1401,7 +1492,10 @@ function DatabaseDetail({
         <span className="weq-dbm-detail-icon" data-tone={tone} aria-hidden>
           <Database size={16} strokeWidth={1.9} />
         </span>
-        <h2>{row.dbName}</h2>
+        <div className="weq-dbm-detail-title">
+          <h2>数据库检查详情</h2>
+          <span>{row.dbName}</span>
+        </div>
         <Chip tone={tone}>{rowLabel(row)}</Chip>
         <span className="weq-dbm-detail-support">{databaseRepairSupportLabel[row.support]}</span>
       </header>
@@ -1591,7 +1685,7 @@ function ReportView({
       <div className="weq-dbm-report-bar">
         <button type="button" className="weq-dbm-back" onClick={onBack}>
           <ArrowLeft size={13} strokeWidth={2.2} aria-hidden />
-          返回当前维护
+          返回历史报告
         </button>
         <span className="weq-dbm-report-kind">历史报告</span>
       </div>
@@ -1713,7 +1807,7 @@ function LegacyReport({
       <div className="weq-dbm-report-bar">
         <button type="button" className="weq-dbm-back" onClick={onBack}>
           <ArrowLeft size={13} strokeWidth={2.2} aria-hidden />
-          返回当前维护
+          返回历史报告
         </button>
         <span className="weq-dbm-report-kind">旧版修复记录</span>
       </div>

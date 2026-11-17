@@ -25,7 +25,7 @@
  */
 
 import { createTRPCReact, type CreateTRPCReact } from '@trpc/react-query';
-import { createTRPCClientProxy } from '@trpc/client';
+import { createTRPCClientProxy, type CreateTRPCProxyClient } from '@trpc/client';
 import superjson from 'superjson';
 import { createLinks } from '@transport';
 import type { AppRouter } from '../../../shared/router';
@@ -50,4 +50,4 @@ export const trpcClient = trpc.createClient({
  * React), wrapping the SAME underlying client as the React hooks so there is a
  * single request-id space over the shared IPC channel.
  */
-export const client = createTRPCClientProxy(trpcClient);
+export const client: CreateTRPCProxyClient<AppRouter> = createTRPCClientProxy(trpcClient);

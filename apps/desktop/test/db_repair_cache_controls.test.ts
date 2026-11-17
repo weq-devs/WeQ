@@ -35,9 +35,14 @@ async function mount(
   );
 }
 function button(name: string) {
-  const found = [...host.querySelectorAll('button')].find(
+  const found = [...document.body.querySelectorAll('button')].find(
     (item) => item.textContent?.trim() === name,
   );
+  if (!found) throw new Error(`按钮不存在：${name}`);
+  return found;
+}
+function iconButton(name: string) {
+  const found = document.body.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`);
   if (!found) throw new Error(`按钮不存在：${name}`);
   return found;
 }
@@ -81,25 +86,33 @@ it('打开修复和 StrictMode 重挂载均不启动检查或修复', async () =
   expect(button('深度体检').disabled).toBe(false);
 });
 
-it('主动扫描绑定当前数据源，停止后保留维护与就绪库并可继续扫描', async () => {
+it('扫描时不可切换模式，暂停后保留就绪库，切换深度体检后按当前来源继续', async () => {
   await mount();
   await act(async () => button('开始扫描').click());
   expect(maintenanceQa.calls.scan).toEqual([
     { uin: account.uin, configId: account.configId, kind: 'scan' },
   ]);
+  expect(button('深度体检').disabled).toBe(true);
   await act(async () => maintenanceQa.completeFirst());
-  await act(async () => button('停止检查').click());
+  await act(async () => button('暂停扫描').click());
   expect(maintenanceQa.calls.stop).toBe(1);
   expect(maintenanceQa.calls.end).toBe(0);
   expect(choice('nt_msg.db').disabled).toBe(false);
   expect(button('继续扫描').disabled).toBe(false);
+  expect(button('深度体检').disabled).toBe(false);
+  await act(async () => button('深度体检').click());
   await act(async () => button('继续扫描').click());
-  expect(maintenanceQa.calls.scan).toHaveLength(2);
+  expect(maintenanceQa.calls.scan[1]).toEqual({
+    uin: account.uin,
+    configId: account.configId,
+    kind: 'checkup',
+  });
 });
 
 it('界面卸载不取消扫描、不删除已有结果或结束维护', async () => {
   await mount();
   await act(async () => button('深度体检').click());
+  await act(async () => button('开始扫描').click());
   await act(async () => root!.unmount());
   root = null;
   expect(maintenanceQa.calls.scan).toHaveLength(1);
@@ -113,7 +126,7 @@ it('默认勾选支持修复的异常库，健康库可手选，不支持的库�
   expect(choice('nt_msg.db').checked).toBe(true);
   expect(choice('profile.db').checked).toBe(false);
   expect(choice('profile.db').disabled).toBe(false);
-  expect(choice('unsupported.db').disabled).toBe(true);
+  expect(host.querySelector('input[aria-label="修复 unsupported.db"]')).toBeNull();
   await act(async () => choice('profile.db').click());
   await act(async () => button('修复所选数据库').click());
   expect(maintenanceQa.calls.repair).toHaveLength(0);
@@ -131,6 +144,7 @@ it('空间不足和持锁等待不阻止改缓存位置，开始修复后禁止�
   maintenanceQa.lowSpace();
   await mount();
   await act(async () => button('开始扫描').click());
+  await act(async () => iconButton('数据库修复设置').click());
   expect(button('更改位置').disabled).toBe(false);
   await act(async () => button('更改位置').click());
   expect(maintenanceQa.calls.pick).toBe(1);
@@ -171,7 +185,8 @@ it('跨数据源查看报告不切换正在维护的账号，返回当前结果�
   });
   expect(maintenanceQa.snapshot()?.uin).toBe(account.uin);
   expect(maintenanceQa.snapshot()?.locked).toBe(true);
-  await act(async () => button('返回本次维护').click());
+  await act(async () => button('返回历史报告').click());
+  await act(async () => button('查看结果').click());
   await act(async () => button('JSON').click());
   expect(maintenanceQa.calls.export[1]).toMatchObject({
     uin: account.uin,
@@ -191,6 +206,7 @@ it('放弃扫描结果必须明确确认，取消继续持锁，确认后仍能�
   await act(async () => button('结束维护').click());
   await confirm(true);
   expect(maintenanceQa.calls.end).toBe(1);
+  await act(async () => iconButton('历史报告与恢复').click());
   expect(button('查看结果')).toBeDefined();
   await act(async () => button('查看结果').click());
   expect(maintenanceQa.calls.scan).toHaveLength(0);
@@ -209,4 +225,27 @@ it('建议余量确认不沿用到取消后重新打开的修复', async () => {
   await act(async () => button('修复所选数据库').click());
   await confirm(true);
   expect(maintenanceQa.calls.repair[0]?.allowLowSpace).toBe(false);
+});
+
+it('历史报告独立打开，删除需确认且不会结束维护或重扫', async () => {
+  maintenanceQa.ready();
+  await mount();
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  await act(async () => iconButton('历史报告与恢复').click());
+  expect(document.querySelector('[role="dialog"][aria-label="历史报告与恢复"]')).not.toBeNull();
+  await act(async () => iconButton('删除报告').click());
+  await confirm(false);
+  expect(maintenanceQa.calls.delete).toHaveLength(0);
+  await act(async () => iconButton('删除报告').click());
+  await confirm(true);
+  expect(maintenanceQa.calls.delete).toEqual([
+    {
+      uin: account.uin,
+      configId: account.configId,
+      reportId: maintenanceQa.snapshot()?.operation?.id,
+    },
+  ]);
+  expect(maintenanceQa.snapshot()?.locked).toBe(true);
+  expect(maintenanceQa.calls.scan).toHaveLength(0);
+  expect(maintenanceQa.calls.end).toBe(0);
 });

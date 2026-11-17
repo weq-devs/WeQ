@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { writeFileAtomicSync } from '../../common/atomic_write';
 import type { DatabaseMaintenanceReport } from './maintenance_types';
@@ -39,6 +39,13 @@ export class DatabaseMaintenanceReports {
         }
       })
       .sort((a, b) => b.operation.startedAt - a.operation.startedAt);
+  }
+
+  remove(id: string): boolean {
+    const path = this.path(id);
+    if (!existsSync(path)) return false;
+    rmSync(path);
+    return true;
   }
 
   private path(id: string): string {
@@ -88,7 +95,7 @@ export function renderDatabaseMaintenanceReport(
       '',
       `## ${row.dbName}`,
       '',
-      `常规扫描：${row.scanStatus === 'completed' ? '已完成' : (row.scanError ?? '未完成')}`,
+      `快速体检：${row.scanStatus === 'completed' ? '已完成' : (row.scanError ?? '未完成')}`,
       `修复能力：${databaseRepairSupportLabel[row.support]}`,
     );
     if (row.scan?.plaintext) lines.push('明文数据库：未执行加密页签名检查，当前重建工具不支持。');

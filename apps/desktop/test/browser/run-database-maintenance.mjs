@@ -61,7 +61,20 @@ try {
   );
   await page.getByRole('button', { name: '开始扫描', exact: true }).waitFor();
   assert.equal(await page.evaluate(() => window.maintenanceQa.calls.scan.length), 0);
-  await page.getByRole('button', { name: '深度体检', exact: true }).click();
+  const checkScanAlignment = async () => {
+    const mode = await page.getByRole('radiogroup', { name: '体检模式' }).boundingBox();
+    const action = await page
+      .getByRole('button', { name: /^(开始扫描|继续扫描|暂停扫描)$/ })
+      .boundingBox();
+    assert.ok(Math.abs(mode.height - action.height) <= 1, '模式与操作按钮等高');
+    assert.ok(Math.abs(mode.y - action.y) <= 1, '模式与操作按钮垂直对齐');
+    assert.ok(action.x - mode.x - mode.width >= 8, '模式与操作按钮保留间距');
+  };
+  await checkScanAlignment();
+  await capture('scan-controls-desktop');
+  await page.getByRole('radio', { name: '深度体检', exact: true }).click();
+  await page.getByRole('button', { name: '开始扫描', exact: true }).click();
+  assert.equal(await page.getByRole('radio', { name: '快速体检', exact: true }).isEnabled(), false);
   await page.evaluate(() => window.maintenanceQa.structure());
   await page.getByText('检查页结构与引用', { exact: true }).waitFor();
   assert.equal(
@@ -69,15 +82,34 @@ try {
     (800 / 2048) * 100,
   );
   await capture('deep-active-desktop');
+  await page.getByRole('button', { name: '暂停扫描', exact: true }).click();
+  assert.equal(await page.getByRole('radio', { name: '快速体检', exact: true }).isEnabled(), true);
+  await checkScanAlignment();
+  await page.getByRole('button', { name: '继续扫描', exact: true }).click();
 
   await page.evaluate(() => window.maintenanceQa.complete());
   await page.getByText(/数据库仍在维护中，等待决定/).waitFor();
+  await page.getByRole('button', { name: '历史报告与恢复', exact: true }).click();
+  const historyPane = page.getByRole('dialog', { name: '历史报告与恢复' });
+  await historyPane.getByRole('button', { name: '查看结果', exact: true }).first().waitFor();
+  await capture('history-overlay-desktop');
+  await historyPane.getByRole('button', { name: '删除报告', exact: true }).first().click();
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await historyPane.getByRole('button', { name: '查看结果', exact: true }).first().click();
+  await historyPane.getByRole('button', { name: 'JSON', exact: true }).click();
+  await historyPane.getByRole('button', { name: '关闭', exact: true }).click();
+  await page.getByRole('button', { name: '数据库修复设置', exact: true }).click();
+  const settingsPane = page.getByRole('dialog', { name: '数据库修复设置' });
+  await settingsPane.getByText('重建缓存位置', { exact: true }).waitFor();
+  await capture('cache-settings-desktop');
+  await settingsPane.getByRole('button', { name: '关闭', exact: true }).click();
   await page.setViewportSize({ width: 680, height: 780 });
   await page.evaluate(() => {
     window.maintenanceQa.theme.getState().setPreference('dark');
     window.maintenanceQa.theme.getState().setAccent('#91d7ad');
   });
   await capture('waiting-narrow-dark');
+  await checkScanAlignment();
   assert.equal(
     await page.getByRole('checkbox', { name: '修复 nt_msg.db', exact: true }).isChecked(),
     true,
@@ -96,10 +128,12 @@ try {
   await page.evaluate(() => window.maintenanceQa.theme.getState().setPreference('light'));
   await capture('repair-desktop');
   await page.getByRole('button', { name: '停止修复', exact: true }).click();
-  await page.getByRole('button', { name: '重新扫描', exact: true }).waitFor({ state: 'visible' });
+  await page.getByRole('button', { name: '开始扫描', exact: true }).waitFor({ state: 'visible' });
   assert.equal(await page.evaluate(() => window.maintenanceQa.snapshot().locked), false);
   assert.deepEqual(errors, []);
-  console.log('数据库维护：主动启动、深度步骤、持锁等待、健康库勾选、停止修复及三处代表布局通过。');
+  console.log(
+    '数据库维护：扫描模式与暂停、等高与间距、历史与设置浮层、导出、持锁等待、修复和代表布局通过。',
+  );
 } finally {
   await browser?.close();
   await server.close();

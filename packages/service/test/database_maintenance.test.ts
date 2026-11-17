@@ -277,3 +277,107 @@ it('停止额外的深度体检不撤销已完成的常规扫描，可直接修�
   expect(h.repair).toHaveBeenCalledOnce();
   expect(h.release).toHaveBeenCalledOnce();
 });
+
+it('深度检查暂停后可切到快速再继续深度，已完成的结构检查和页扫描不重复', async () => {
+  const h = fixture();
+  let entered!: () => void;
+  const started = new Promise<void>((done) => {
+    entered = done;
+  });
+  h.deep.mockImplementationOnce(async () => ({ ran: true, healthy: true, corruptedTables: [] }));
+  h.deep.mockImplementationOnce(
+    (_target, signal) =>
+      new Promise((_done, reject) => {
+        entered();
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      }),
+  );
+  const run = h.maintenance.scan(scope, h.targets, 'checkup');
+  await started;
+  expect(() => h.maintenance.scan(scope, h.targets, 'scan')).toThrow('正在执行');
+  await h.maintenance.stop(scope);
+  await run;
+  expect(h.maintenance.current(scope)?.databases[0]?.deepStatus).toBe('completed');
+  await h.maintenance.scan(scope, h.targets, 'scan');
+  await h.maintenance.scan(scope, h.targets, 'checkup');
+  expect(h.scan).toHaveBeenCalledTimes(3);
+  expect(h.deep.mock.calls.map(([target]) => target.dbName)).toEqual([
+    'msg.db',
+    'profile.db',
+    'profile.db',
+    'unsupported.db',
+  ]);
+  expect(h.release).not.toHaveBeenCalled();
+  await h.maintenance.end(scope);
+});
+
+it('删除报告拒绝执行中的报告，结束后只删指定报告且不会被解锁或下一轮恢复', async () => {
+  const h = fixture();
+  let entered!: () => void;
+  const started = new Promise<void>((done) => {
+    entered = done;
+  });
+  h.scan.mockImplementationOnce(h.scan.getMockImplementation()!);
+  h.scan.mockImplementationOnce(
+    (_target, signal) =>
+      new Promise((_done, reject) => {
+        entered();
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      }),
+  );
+  const run = h.maintenance.scan(scope, h.targets, 'scan');
+  await started;
+  const id = h.maintenance.current(scope)!.operation!.id;
+  expect(() => h.maintenance.deleteReport(scope, id)).toThrow('仍在更新');
+  await h.maintenance.stop(scope);
+  await run;
+  expect(h.maintenance.deleteReport(scope, id)).toBe(true);
+  expect(h.maintenance.current(scope)?.locked).toBe(true);
+  expect(h.reports.get(id)).toBeNull();
+  expect(() => h.reports.remove('../outside')).toThrow('标识无效');
+  await h.maintenance.scan(scope, h.targets, 'scan');
+  await h.maintenance.end(scope);
+  expect(h.reports.get(id)).toBeNull();
+  expect(h.reports.list()).toHaveLength(1);
+});
+
+it.each([false, true])(
+  '未完成任何数据库就停止扫描不生成报告，解锁失败可重试（首次失败：%s）',
+  async (failRelease) => {
+    const h = fixture();
+    if (failRelease)
+      h.release.mockImplementationOnce(() => {
+        throw new Error('synthetic release failure');
+      });
+    let entered!: () => void;
+    const started = new Promise<void>((done) => {
+      entered = done;
+    });
+    h.scan.mockImplementationOnce(
+      (_target, signal) =>
+        new Promise((_done, reject) => {
+          entered();
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+        }),
+    );
+    const run = h.maintenance.scan(scope, h.targets, 'scan');
+    await started;
+    expect(h.reports.list()).toEqual([]);
+    const result = await h.maintenance.stop(scope);
+    await run;
+    expect(result).toMatchObject({
+      state: failRelease ? 'waiting' : 'ended',
+      locked: failRelease,
+      operation: { status: 'cancelled' },
+    });
+    expect(h.release).toHaveBeenCalledOnce();
+    expect(h.maintenance.reports(scope)).toEqual([]);
+    if (failRelease) {
+      expect(result?.maintenanceError).toContain('释放维护锁失败');
+      await h.maintenance.end(scope);
+      expect(h.maintenance.current(scope)).toMatchObject({ state: 'ended', locked: false });
+      expect(h.maintenance.reports(scope)).toEqual([]);
+    }
+    expect(() => h.maintenance.repair(scope, ['msg.db'])).toThrow('扫描');
+  },
+);

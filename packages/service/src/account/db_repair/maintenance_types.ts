@@ -66,7 +66,7 @@ export const databaseRepairSupportLabel: Record<DatabaseRepairSupport, string> =
   unsupported: 'WeQ 不支持修复',
 };
 export const databaseMaintenanceKindLabel = {
-  scan: '常规扫描',
+  scan: '快速体检',
   checkup: '深度体检',
   repair: '数据库修复',
 };

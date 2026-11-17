@@ -101,6 +101,13 @@ export class DatabaseMaintenance {
       });
   }
 
+  deleteReport(scope: DatabaseMaintenanceScope, id: string): boolean {
+    const operation = this.sessions.get(keyFor(scope))?.snapshot.operation;
+    if (operation?.id === id && operation.status === 'running')
+      throw new Error('这份报告仍在更新，请暂停扫描或等待执行结束后再删除。');
+    return this.deps.reports(scope).remove(id);
+  }
+
   scan(
     scope: DatabaseMaintenanceScope,
     targets: DbRepairTarget[],
@@ -247,15 +254,12 @@ export class DatabaseMaintenance {
       }
       if (kind === 'checkup') {
         snapshot.state = 'checking';
-        for (const row of snapshot.databases) {
-          row.deepStatus = undefined;
-          row.integrity = undefined;
-          row.issues = row.issues.filter((issue) => issue.stage !== 'deep');
-        }
         for (const target of session.targets) {
           signal.throwIfAborted();
           const row = snapshot.databases.find((item) => item.dbName === target.dbName)!;
-          if (row.scanStatus !== 'completed') continue;
+          if (row.scanStatus !== 'completed' || row.deepStatus === 'completed') continue;
+          row.integrity = undefined;
+          row.issues = row.issues.filter((issue) => issue.stage !== 'deep');
           const tracker = this.tracker(session, row, 'checkup');
           row.deepStatus = 'running';
           this.tick(session, row, tracker, 'checkup', {
@@ -314,6 +318,17 @@ export class DatabaseMaintenance {
       await session.lease!.release();
       session.lease = undefined;
       snapshot.locked = false;
+    } else if (
+      signal.aborted &&
+      !snapshot.databases.some((row) => row.scanStatus === 'completed')
+    ) {
+      try {
+        await session.lease?.release();
+        session.lease = undefined;
+        snapshot.locked = false;
+      } catch (error) {
+        snapshot.maintenanceError = `扫描已停止，但释放维护锁失败，请重试结束维护：${errorText(error)}`;
+      }
     }
     this.finish(
       session,
@@ -590,6 +605,9 @@ export class DatabaseMaintenance {
     if (op?.status === 'running') op.elapsedMs = Math.max(0, Date.now() - op.startedAt);
     if (
       op &&
+      (op.kind === 'repair' ||
+        session.snapshot.databases.some((item) => item.scanStatus === 'completed') ||
+        (op.status !== 'running' && op.status !== 'cancelled')) &&
       session.finalizedReportId !== op.id &&
       (force || Date.now() - session.lastSaved >= 500)
     ) {
