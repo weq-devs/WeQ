@@ -388,6 +388,8 @@ export type Message = {
     cachedBubble?: import('@weq/service').MessageBubbleSkin;
   };
   optimistic?: 'queued' | 'sending' | 'sent' | 'failed';
+  /** 发送请求尚未收到宿主回执；仅远程端显示对应阶段。 */
+  outgoingToHost?: boolean;
   optimisticError?: string;
   optimisticRejected?: boolean;
   /** 发起前的已知序号水位，仅用于失败占位定位，不是本条序号或发送确认。 */

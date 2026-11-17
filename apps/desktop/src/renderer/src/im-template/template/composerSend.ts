@@ -50,6 +50,27 @@ export type LocalMediaRef = {
   waveform?: number[];
 };
 
+/** 预览只交接 File／URL；真正出队后才读媒体字节，普通文件继续走分片上传。 */
+export async function resolveComposerMedia(
+  body: string,
+  locals: LocalMediaRef[] = [],
+): Promise<LocalMediaRef[]> {
+  const mediaKeys = new Set<string>();
+  for (const part of parseMessageParts(body)) {
+    if (part.type !== 'element') continue;
+    const element = tokenToElement(part.raw) as Record<string, unknown> | null;
+    if (!element || !['pic', 'video', 'ptt'].includes(String(element.kind))) continue;
+    const key = localKeyOf(element);
+    if (key) mediaKeys.add(key);
+  }
+  return Promise.all(
+    locals.map(async (local) => {
+      if (local.path || local.bytes || !local.file || !mediaKeys.has(local.key)) return local;
+      return { ...local, bytes: new Uint8Array(await local.file.arrayBuffer()) };
+    }),
+  );
+}
+
 /** 超级表情目录项（来自 `emojiPanel.overview` 的 `sticker/packId/stickerId`）。 */
 export type SuperStickerEntry = {
   packId: string;

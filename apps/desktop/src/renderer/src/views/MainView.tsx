@@ -183,8 +183,10 @@ import {
 } from '../lib/localOutgoing';
 import { useFailedOutgoingRemoval } from '../hooks/useFailedOutgoingRemoval';
 import { OutgoingQueue } from '../lib/outgoingQueue';
+import { matchGeneratedMessages } from '../lib/generatedOutgoing';
+import { useOutgoingReceipts } from '../hooks/useOutgoingReceipts';
+import { readVideoMeta } from '../im-template/template/composerMedia';
 import { releaseObjectUrl } from '../lib/objectUrl';
-import { prepareOutgoingDecoration } from '../lib/prepareOutgoingDecoration';
 import { useDismissUnsentOutgoing } from '../hooks/useDismissUnsentOutgoing';
 import { useOutgoingConversationPreviews } from '../hooks/useOutgoingConversationPreviews';
 import { reconcileFileMessages } from '../lib/fileSendReconcile';
@@ -198,7 +200,7 @@ import {
   createUnreadRefreshState,
 } from '../lib/unreadRefresh';
 import { firstUnreadConversation } from '../lib/unreadNavigation';
-import { flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
+import { flashShareCodeOfUrl } from '../lib/flashShare';
 import {
   classifyFlashPhotoFetch,
   FLASH_PHOTO_MAX_ATTEMPTS,
@@ -464,6 +466,7 @@ import {
   composerNeedsStickerCatalog,
   buildOptimisticRender,
   composerSendError,
+  resolveComposerMedia,
   decodeRecordingToWav,
   type LocalMediaRef,
   type ComposerSendPlan,
@@ -1497,14 +1500,14 @@ function MainWorkspace(): ReactElement {
   const [optimisticArks, setOptimisticArks] = useState<OptimisticArk[]>([]);
   // 同上，但发出去的是普通消息（文本 / @ / 表情 / 图片 / 视频 / 语音 / 文件…）。
   const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessage[]>([]);
-  const preparedOutgoingDecorations = useRef(
-    new Map<
-      string,
-      {
-        snapshot: { bubbleId: number; font: { fontId: number; fontId2Raw: number } | null };
-        release(): void;
-      }
-    >(),
+  const outgoingReceipt = useOutgoingReceipts(
+    messageScope,
+    optimisticMessages,
+    optimisticArks,
+    optimisticForwards,
+    setOptimisticMessages,
+    setOptimisticArks,
+    setOptimisticForwards,
   );
   const outgoingConversationPreviews = useOutgoingConversationPreviews(
     messageScope,
@@ -1515,18 +1518,10 @@ function MainWorkspace(): ReactElement {
   useEffect(() => {
     return () => {
       outgoingQueue.current.clear();
-      for (const preparation of preparedOutgoingDecorations.current.values()) preparation.release();
-      preparedOutgoingDecorations.current.clear();
     };
   }, [messageScope]);
   useEffect(() => {
     outgoingQueue.current.retain(new Set(optimisticMessages.map((item) => item.id)));
-    const retained = new Set(optimisticMessages.map((item) => item.id));
-    for (const [id, preparation] of preparedOutgoingDecorations.current) {
-      if (retained.has(id)) continue;
-      preparation.release();
-      preparedOutgoingDecorations.current.delete(id);
-    }
   }, [optimisticMessages]);
   /**
    * 当前通话的初始快照。非 null 就渲染通话窗口，窗口自己订阅后续状态并在
@@ -1569,6 +1564,10 @@ function MainWorkspace(): ReactElement {
   const dismissFailedOutgoing = useFailedOutgoingRemoval(applyOutgoingRemoval, refreshAfterRemoval);
   const dismissUnsentOutgoing = useDismissUnsentOutgoing(applyOutgoingRemoval, refreshAfterRemoval);
   const consumedFileMessages = useRef(new Set<string>());
+  const consumedGeneratedMessages = useRef(new Map<string, string>());
+  useEffect(() => {
+    consumedGeneratedMessages.current.clear();
+  }, [messageScope]);
   // "删除列表" panel: which conversation is open + its fetched deleted rows.
   const [deletedConv, setDeletedConv] = useState<Conversation | null>(null);
   const [deletedWires, setDeletedWires] = useState<MessageWire[]>([]);
@@ -2936,6 +2935,7 @@ function MainWorkspace(): ReactElement {
         );
       try {
         const outcome = await client.account.sendForward.mutate({
+          ...outgoingReceipt(optimisticId),
           expectedAccountUin: user.identityValue,
           ...binding,
           peerType,
@@ -2978,10 +2978,15 @@ function MainWorkspace(): ReactElement {
         }
       } catch (error) {
         patch({ state: 'failed', error: error instanceof Error ? error.message : String(error) });
+        pushToast({
+          tone: 'error',
+          message: '发送失败',
+          detail: error instanceof Error ? error.message : String(error),
+        });
         throw error;
       }
     },
-    [client, pushToast, user.identityValue, outgoingAfterSeq],
+    [client, pushToast, user.identityValue, outgoingAfterSeq, outgoingReceipt],
   );
 
   const handleSelectConversation = useCallback(
@@ -4314,40 +4319,9 @@ function MainWorkspace(): ReactElement {
     if (!openConvId) return;
     const cids = new Set<string>();
     const seqs = new Set<string>();
-    const signatures = new Map<string, number>();
-    /** 给某个对账签名加一次出现次数（同一签名可能来自多条消息）。 */
-    const bump = (signature: string): void => {
-      signatures.set(signature, (signatures.get(signature) ?? 0) + 1);
-    };
     for (const wire of loadedMessageWires) {
       if (wire.msgRandom && wire.msgRandom !== '0') cids.add(wire.msgRandom);
       if (wire.msgSeq) seqs.add(String(wire.msgSeq));
-      // AI 声聊回执没有 random / seq：真消息回来时靠「合成原文」签名收掉。
-      for (const element of wire.elements ?? []) {
-        const el = element as { type?: string; data?: Record<string, unknown> };
-        // 闪传（0x93d7）回执也不给 seq：真消息带 flashTransferInfo.fileSetId，
-        // 与发出时拿到的 filesetUuid 是同一个值，拿它当签名。
-        if (el.type === 'markdown') {
-          const info = el.data?.flashTransferInfo as { fileSetId?: unknown } | undefined;
-          const fileSetId = typeof info?.fileSetId === 'string' ? info.fileSetId : '';
-          if (fileSetId) {
-            bump(`flash:${fileSetId}`);
-          }
-          continue;
-        }
-        // Linux / 鸿蒙端收到的闪传会降级成纯文本（卡片元素一概没有），只剩分享短码；
-        // 发送回执的 shareUrl 也是同一个短码，所以这里补一条短码签名 —— 让发出的乐观
-        // 卡片能被这条降级文本收掉。
-        if (el.type === 'text') {
-          const code = parseFlashShareCode(String(el.data?.textContent ?? ''));
-          if (code) bump(`flash:${code}`);
-          continue;
-        }
-        if (el.type !== 'ptt' || !el.data?.isAiVoice) continue;
-        const transcript = String(el.data.pttTranscript ?? '');
-        if (!transcript) continue;
-        bump(`aiVoice:${transcript}`);
-      }
     }
     // 对账结论必须在 updater **外面**算完：updater 里一旦消耗 `signatures` 的计数，它
     // 就不再纯净 —— React 的开发构建会把 updater 跑两遍，**第二次的结果才是最终值**
@@ -4360,6 +4334,20 @@ function MainWorkspace(): ReactElement {
       openConvId,
       consumedFileMessages.current,
     );
+    const generated = matchGeneratedMessages(
+      optimisticMessages,
+      loadedMessageWires.filter((wire) => isMineMessage(wire, selectedConversation, user)),
+      openConvId,
+      consumedGeneratedMessages.current,
+    );
+    for (const [id, key] of generated) {
+      dropIds.add(id);
+      while (consumedGeneratedMessages.current.size >= 512)
+        consumedGeneratedMessages.current.delete(
+          consumedGeneratedMessages.current.keys().next().value!,
+        );
+      consumedGeneratedMessages.current.set(key, id);
+    }
     for (const item of optimisticMessages) {
       if (item.convId !== openConvId) continue;
       if (item.cid && cids.has(item.cid)) {
@@ -4368,19 +4356,7 @@ function MainWorkspace(): ReactElement {
       }
       if (item.seq && seqs.has(item.seq)) {
         dropIds.add(item.id);
-        continue;
       }
-      if (!item.signatures || item.signatures.length === 0) continue;
-      // 签名会撞（同一条内容连发两次），所以按**出现次数**消耗；多个签名取任一命中。
-      let matched = false;
-      for (const signature of item.signatures) {
-        const left = signatures.get(signature);
-        if (!left) continue;
-        signatures.set(signature, left - 1);
-        matched = true;
-        break;
-      }
-      if (matched) dropIds.add(item.id);
     }
     if (dropIds.size === 0) return;
     // 乐观条目被真消息收掉后，它持有的本地预览 blob 也就没人用了（闪照）。
@@ -6172,7 +6148,7 @@ function MainWorkspace(): ReactElement {
    * 这里把它翻成协议元素（见 {@link buildComposerSendPlan}）再分派 IPC：
    *   - `elements` → `account.sendElements`（媒体在服务层真实上传）；
    *   - `file`     → `account.sendFile`（独立文件管线，需要本机路径）；
-   *   - `aiVoice`  → `account.sendAiVoice`（0x929b_0，合成即发送，仅群聊；**不做乐观渲染**）。
+   *   - `aiVoice`  → `account.sendAiVoice`（0x929b_0，合成即发送，仅群聊）。
    *
    * 失败一律抛错，服务端拒绝也不算成功。输入区在提交时交接内容；失败消息保留
    * 原稿与重新编辑入口，不自动回填或覆盖下一条草稿。
@@ -6210,17 +6186,33 @@ function MainWorkspace(): ReactElement {
   async function repeatMessage(message: Message, conversation: Conversation): Promise<void> {
     const context = conversation.id;
     if (repeatContext.current !== context) throw new Error('会话已切换，未发送。');
-    const elements = await resolveMentions(
-      (message as Message & { qqElements?: RepeatElement[] }).qqElements ?? [],
-      conversation,
-    );
+    const elements = (message as Message & { qqElements?: RepeatElement[] }).qqElements ?? [];
+    await sendMessage(messageBody(elements), undefined, {
+      elements,
+      plan: () =>
+        prepareRepeatPlan(
+          elements,
+          conversation,
+          message.createdAt,
+          () => repeatContext.current === context,
+        ),
+    });
+  }
+
+  async function prepareRepeatPlan(
+    source: RepeatElement[],
+    conversation: Conversation,
+    createdAt: string,
+    isCurrent: () => boolean,
+    signal?: AbortSignal,
+  ) {
+    const elements = await resolveMentions(source, conversation, isCurrent);
     const stickers = new Map<string, ComposerSuperSticker>();
     if (repeatNeedsStickerCatalog(elements))
       collectSuperStickers(await client.account.emojiPanel.overview.query(), stickers);
-    const images = await repeatImageSources(elements, Date.parse(message.createdAt));
-    const plan = repeatSendPlan(elements, stickers, conversation.type === 'group', images);
-    if (repeatContext.current !== context) throw new Error('会话已切换，未发送。');
-    await sendMessage(messageBody(elements), undefined, { plan, elements });
+    const images = await repeatImageSources(elements, Date.parse(createdAt), signal);
+    if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
+    return repeatSendPlan(elements, stickers, conversation.type === 'group', images);
   }
 
   async function resolveMentions(
@@ -6320,17 +6312,13 @@ function MainWorkspace(): ReactElement {
     const source = (
       (message as Message & { qqElements?: RepeatElement[] }).qqElements ?? []
     ).filter((element) => element.type !== 'reply');
-    const elements = await resolveMentions(source, destination, isCurrent);
-    const stickers = new Map<string, ComposerSuperSticker>();
-    if (repeatNeedsStickerCatalog(elements))
-      collectSuperStickers(await client.account.emojiPanel.overview.query(), stickers);
-    const images = await repeatImageSources(elements, Date.parse(message.createdAt), signal);
-    const plan = repeatSendPlan(elements, stickers, destination.type === 'group', images);
-    if (!isCurrent()) throw new Error('账号已切换或转发已停止');
     await sendMessage(
-      messageBody(elements),
+      messageBody(source),
       undefined,
-      { plan, elements },
+      {
+        elements: source,
+        plan: () => prepareRepeatPlan(source, destination, message.createdAt, isCurrent, signal),
+      },
       destination,
       isCurrent,
       expectedAccountConfigId,
@@ -6356,20 +6344,8 @@ function MainWorkspace(): ReactElement {
     } catch {
       // 原稿仍交给发送计划校验，失败时保留编辑和重试入口。
     }
-    const target = sendTargetOf(conversation);
     const isCurrent = () =>
       useViewState.getState().openedUin === account && messageScopeRef.current === scope;
-    const preparation = target
-      ? await prepareOutgoingChatDecoration(
-          target,
-          render.elements.some((element) => {
-            const type = (element as { type?: string }).type;
-            return type === 'text' || type === 'at';
-          }),
-          isCurrent,
-        )
-      : undefined;
-    if (preparation) preparedOutgoingDecorations.current.set(submission.id, preparation);
     setOptimisticMessages((current) => [
       ...current,
       {
@@ -6378,27 +6354,16 @@ function MainWorkspace(): ReactElement {
         afterSeq: submission.afterSeq,
         ...render,
         composerDraft: submission.draft,
-        ...(preparation
-          ? {
-              decoration: {
-                bubbleId: preparation.snapshot.bubbleId,
-                fontId: preparation.snapshot.font?.fontId ?? 0,
-                widgetId: 0,
-              },
-            }
-          : {}),
         state: 'queued',
         at: submission.at ?? Date.now(),
       },
     ]);
     outgoingQueue.current.add(submission.id, conversation.id, async () => {
-      if (submission.started) {
-        preparedOutgoingDecorations.current.get(submission.id)?.release();
-        preparedOutgoingDecorations.current.delete(submission.id);
-      }
       setOptimisticMessages((current) =>
         current.map((item) =>
-          item.id === submission.id ? { ...item, state: 'sending', error: undefined } : item,
+          item.id === submission.id
+            ? { ...item, state: 'sending', hostReceived: false, error: undefined }
+            : item,
         ),
       );
       try {
@@ -6420,42 +6385,16 @@ function MainWorkspace(): ReactElement {
     });
   }
 
-  async function prepareOutgoingChatDecoration(
-    target: { peerType: 'c2c' | 'group'; targetId: string; tempGroupCode?: string },
-    hasText: boolean,
-    isCurrent: () => boolean,
-    expectedAccountConfigId?: string,
-  ) {
-    if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
-    const snapshot = await client.account.prepareChatDecoration.query({
-      ...target,
-      hasText,
-      expectedAccountUin: user.identityValue,
-      ...(expectedAccountConfigId ? { expectedAccountConfigId } : {}),
-    });
-    if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
-    const release = await prepareOutgoingDecoration(
-      {
-        bubbleId: displaySettings.data?.showMessageBubble === false ? 0 : snapshot.bubbleId,
-        fontId: displaySettings.data?.showMessageFont === false ? 0 : (snapshot.font?.fontId ?? 0),
-        widgetId: 0,
-      },
-      (ids) => utils.account.dressup.resolveMsgDecoration.fetch(ids, { staleTime: Infinity }),
-    );
-    if (!isCurrent()) {
-      release();
-      throw new Error('账号或会话已切换，未发送');
-    }
-    return { snapshot, release };
-  }
-
   async function sendMessage(
     body: string,
     locals?: LocalMediaRef[],
-    repeated?: { plan: ComposerSendPlan; elements: RepeatElement[] },
+    repeated?: {
+      plan: ComposerSendPlan | (() => Promise<ComposerSendPlan>);
+      elements: RepeatElement[];
+    },
     destination?: Conversation,
     isCurrent = () => repeatContext.current === selectedConversation?.id,
-    expectedAccountConfigId?: string,
+    expectedAccountConfigId = pinSession.binding?.expectedAccountConfigId,
     submission?: ComposerSubmission,
   ): Promise<void> {
     if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
@@ -6484,78 +6423,22 @@ function MainWorkspace(): ReactElement {
       throw new Error('unsupported conversation');
     }
 
-    // 选择或粘贴超级表情时才拉目录；普通消息不为它多打一次 IPC。
-    const superStickers = new Map<string, ComposerSuperSticker>();
-    if (composerNeedsStickerCatalog(body)) {
-      try {
-        collectSuperStickers(await client.account.emojiPanel.overview.query(), superStickers);
-      } catch {
-        // 拉不到目录时保持空 Map —— 真发超级表情会由 buildComposerSendPlan 如实报错。
-      }
-    }
-
-    const plan =
-      repeated?.plan ?? buildComposerSendPlan({ body, locals: locals ?? [], superStickers });
-
-    if (plan.kind === 'elements') {
-      // 发送前重解提及，防止旧草稿或复制来的 token 带出备注；媒体等其他字段原样保留。
-      plan.elements = await resolveSendMentions(plan.elements, (elements) =>
-        resolveMentions(elements, conversation, isCurrent),
-      );
-    }
-
-    // ── 乐观渲染 ─────────────────────────────────────────────────────────
-    // 与 Ark / 合并转发同一条路子：不等 QQ 同步回来，先把这条消息按真实气泡画出来
-    // +「发送中」标识。本地媒体用 localPath / localPreviewUrl 直接预览。只活在
-    // 前端 state 里，不写库、不落缓存文件。
-    //
-    // **AI 声聊与已有闪传分享除外**：两者由服务端生成消息，分享不沿用原卡片做本地对账。
-    // AI 声聊（`0x929b_0` 合成即发送）：语音是**服务端**合成后直接落进群里的，
-    // 我们这边那个 ptt 元素只是个占位（本地没有音频、回执也没有 random / seq 可对账），
-    // 画一条假气泡只会和真消息重影 / 排错位置。等 QQ 同步回来就是真气泡；失败靠 toast。
-    // 注意「文字转语音」（本机合成 → `sendVoice`）走的是 `voice` 计划，是一条**真消息**，
-    // 照常乐观渲染。
-    if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
-    const optimistic = plan.kind !== 'aiVoice' && plan.kind !== 'flashTransfer';
-    const fileExistingMsgIds =
-      plan.kind === 'file' ? loadedRef.current.map((message) => message.msgId) : [];
+    // 所有发送入口均先回显，再准备目录、媒体、提及和网络请求。
+    const fileExistingMsgIds = loadedRef.current.map((message) => message.msgId);
     const optimisticId = submission?.id ?? `optimistic-${mfId('msg')}`;
-    let preparation = preparedOutgoingDecorations.current.get(optimisticId);
-    if (optimistic && !preparation) {
-      preparation = await prepareOutgoingChatDecoration(
-        target,
-        plan.kind === 'elements' &&
-          plan.elements.some((element) => {
-            const kind = (element as { kind?: string }).kind;
-            return kind === 'text' || kind === 'at';
-          }),
-        isCurrent,
-        expectedAccountConfigId,
-      );
-      preparedOutgoingDecorations.current.set(optimisticId, preparation);
-    }
-    if (optimistic) {
+    if (submission) submission.started = true;
+    if (!submission) {
       const render = repeated
         ? { body, elements: repeated.elements }
-        : buildOptimisticRender({ body, locals: locals ?? [], superStickers });
-      if (submission) submission.started = true;
+        : buildOptimisticRender({ body, locals: locals ?? [], superStickers: new Map() });
       const pending: OptimisticMessage = {
         id: optimisticId,
         convId: conversation.id,
-        afterSeq: submission ? submission.afterSeq : outgoingAfterSeq(conversation.id),
+        afterSeq: outgoingAfterSeq(conversation.id),
         body: render.body,
         elements: render.elements,
-        ...(plan.kind === 'file'
-          ? { fileSync: { fileId: '', existingMsgIds: fileExistingMsgIds } }
-          : {}),
-        composerDraft: submission?.draft,
-        decoration: {
-          bubbleId: preparation?.snapshot.bubbleId ?? 0,
-          fontId: preparation?.snapshot.font?.fontId ?? 0,
-          widgetId: 0,
-        },
         state: 'sending',
-        at: submission?.at ?? Date.now(),
+        at: Date.now(),
       };
       setOptimisticMessages((current) =>
         current.some((item) => item.id === optimisticId)
@@ -6563,14 +6446,13 @@ function MainWorkspace(): ReactElement {
           : [...current, pending],
       );
     }
-    // 没有乐观条目（AI 声聊）时是个 no-op：下面失败 / 成功路径照旧调它，不必到处分叉。
     const patchOptimistic = (next: Partial<OptimisticMessage>): void => {
-      if (!optimistic) return;
       setOptimisticMessages((current) =>
         current.map((item) => (item.id === optimisticId ? { ...item, ...next } : item)),
       );
     };
 
+    let plan: ComposerSendPlan;
     let outcome: {
       ok: boolean;
       result?: number;
@@ -6581,20 +6463,31 @@ function MainWorkspace(): ReactElement {
       random?: number;
     };
     try {
+      const superStickers = new Map<string, ComposerSuperSticker>();
+      if (composerNeedsStickerCatalog(body)) {
+        try {
+          collectSuperStickers(await client.account.emojiPanel.overview.query(), superStickers);
+        } catch {
+          // 原发送计划负责报告缺少目录，不静默降级超级表情。
+        }
+      }
+      locals = await resolveComposerMedia(body, locals);
+      plan = repeated
+        ? typeof repeated.plan === 'function'
+          ? await repeated.plan()
+          : repeated.plan
+        : buildComposerSendPlan({ body, locals: locals ?? [], superStickers });
+      if (plan.kind === 'elements')
+        plan.elements = await resolveSendMentions(plan.elements, (elements) =>
+          resolveMentions(elements, conversation, isCurrent),
+        );
+      if (plan.kind === 'file')
+        patchOptimistic({ fileSync: { fileId: '', existingMsgIds: fileExistingMsgIds } });
       if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
-      // 预览和请求固定使用同一份快照；读回后整条消息由真实记录替换。
-      const preparedDecoration = preparation?.snapshot ?? { bubbleId: 0, font: null };
-      const preparedChatFont = preparedDecoration.font;
-      if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
-      patchOptimistic({
-        decoration: {
-          bubbleId: preparedDecoration.bubbleId,
-          widgetId: 0,
-          fontId: preparedChatFont?.fontId ?? 0,
-        },
-      });
+      // 装扮由消息行异步补齐；发送字体沿用服务端当前账号配置，不为预览增加往返。
       if (plan.kind === 'flashTransfer') {
         outcome = await client.account.forwardFlashTransfer.mutate({
+          ...outgoingReceipt(optimisticId),
           expectedAccountUin: user.identityValue,
           ...(expectedAccountConfigId ? { expectedAccountConfigId } : {}),
           peerType: target.peerType,
@@ -6603,6 +6496,7 @@ function MainWorkspace(): ReactElement {
           fileSetId: plan.fileSetId,
         });
       } else if (plan.kind === 'file') {
+        const fileName = plan.fileName;
         if (target.tempGroupCode) {
           // 私聊文件走的是 trans0x211 路由（c2c 专用），临时会话还没验证过对应的文件
           // 管线：与其发一条大概率被拒的 c2c 文件，不如如实说清楚。
@@ -6616,12 +6510,13 @@ function MainWorkspace(): ReactElement {
         }
         const sendFile = (source: { path: string } | { uploadId: string }) =>
           client.account.sendFile.mutate({
+            ...outgoingReceipt(optimisticId),
             expectedAccountUin: user.identityValue,
             ...(expectedAccountConfigId ? { expectedAccountConfigId } : {}),
             peerType: target.peerType,
             targetId: target.targetId,
             ...source,
-            fileName: plan.fileName,
+            fileName,
           });
         if (plan.file !== undefined) {
           if (!expectedAccountConfigId) throw new Error('账号来源未就绪，请重新打开会话');
@@ -6649,6 +6544,7 @@ function MainWorkspace(): ReactElement {
         // 录音是 webm/opus，主进程只收 WAV/SILK：先在渲染层解成 24k WAV。
         const wav = await decodeRecordingToWav(plan.recording);
         outcome = await client.account.sendVoice.mutate({
+          ...outgoingReceipt(optimisticId),
           peerType: target.peerType,
           targetId: target.targetId,
           ...(target.tempGroupCode ? { tempGroupCode: target.tempGroupCode } : {}),
@@ -6668,19 +6564,20 @@ function MainWorkspace(): ReactElement {
           throw new Error('ai voice requires group');
         }
         outcome = await client.account.sendAiVoice.mutate({
+          ...outgoingReceipt(optimisticId),
           groupId: target.targetId,
           voiceId: plan.voiceId,
           text: plan.text,
         });
       } else {
         outcome = await client.account.sendElements.mutate({
+          ...outgoingReceipt(optimisticId),
           expectedAccountUin: user.identityValue,
           ...(expectedAccountConfigId ? { expectedAccountConfigId } : {}),
           peerType: target.peerType,
           targetId: target.targetId,
           ...(target.tempGroupCode ? { tempGroupCode: target.tempGroupCode } : {}),
           elements: toIpcElements(plan.elements),
-          preparedChatFont,
         });
       }
     } catch (error) {
@@ -6733,8 +6630,11 @@ function MainWorkspace(): ReactElement {
     }
     if (plan.kind === 'aiVoice' || plan.kind === 'flashTransfer') {
       // 两者均由服务端生成消息，没有 PbSendMsg 的 random / seq，不伪造普通消息对账。
-      if (submission)
-        setOptimisticMessages((current) => current.filter((item) => item.id !== optimisticId));
+      patchOptimistic({
+        state: 'sent',
+        generatedExistingMsgIds: fileExistingMsgIds,
+        signatures: [plan.kind === 'aiVoice' ? `aiVoice:${plan.text}` : `flash:${plan.fileSetId}`],
+      });
       return;
     }
     patchOptimistic({
@@ -6875,6 +6775,8 @@ function MainWorkspace(): ReactElement {
     conversation: Conversation,
     payload: FlashPhotoSendPayload,
   ): Promise<void> {
+    const scope = messageScopeRef.current;
+    const expectedAccountConfigId = pinSession.binding?.expectedAccountConfigId;
     const pushToast = sourceToastPush(conversationNotificationSource(conversation));
     if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
       pushToast({
@@ -6906,9 +6808,10 @@ function MainWorkspace(): ReactElement {
     }
     // 乐观气泡：先拿本地字节画一张预览图（与真实闪照气泡同形），上传完成后再换真图。
     const previewUrl = URL.createObjectURL(
-      new Blob([new Uint8Array(payload.bytes ?? new Uint8Array(0))], {
-        type: 'image/*',
-      }),
+      payload.file ??
+        new Blob([new Uint8Array(payload.bytes ?? new Uint8Array(0))], {
+          type: 'image/*',
+        }),
     );
     const optimisticId = `optimistic-${mfId('flp')}`;
     const optimisticElement = (url: string, name: string): unknown => ({
@@ -6941,21 +6844,28 @@ function MainWorkspace(): ReactElement {
         current.map((item) => (item.id === optimisticId ? { ...item, ...next } : item)),
       );
     try {
+      const source = payload.file
+        ? new Uint8Array(await payload.file.arrayBuffer())
+        : (payload.bytes ?? payload.path);
+      if (source instanceof Uint8Array && source.length === 0)
+        throw new Error('图片是空的，无法发送闪照。');
+      if (messageScopeRef.current !== scope) throw new Error('账号数据源已切换，未发送闪照');
       const outcome = await client.account.sendElements.mutate({
+        ...outgoingReceipt(optimisticId),
         expectedAccountUin: user.identityValue,
+        expectedAccountConfigId,
         peerType: target.peerType,
         targetId: target.targetId,
         elements: toIpcElements([
           {
             kind: 'flashPhoto',
-            source: payload.bytes ?? payload.path,
+            source,
           },
         ]),
       });
       if (!outcome.ok) {
         const reason = outcome.errMsg || outcome.hint || '服务端拒绝了这条闪照';
         patchOptimistic({ state: 'failed', error: reason });
-        pushToast({ tone: 'error', message: '闪照发送失败', detail: reason });
         throw new Error(reason);
       }
       patchOptimistic({
@@ -6981,6 +6891,11 @@ function MainWorkspace(): ReactElement {
         state: 'failed',
         error: error instanceof Error ? error.message : String(error),
       });
+      pushToast({
+        tone: 'error',
+        message: '发送失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     } finally {
       // blob 由乐观条目持有：真消息回来后整条被收掉，届时统一释放。
@@ -7003,6 +6918,8 @@ function MainWorkspace(): ReactElement {
     conversation: Conversation,
     payload: BubbleVideoSendPayload,
   ): Promise<void> {
+    const scope = messageScopeRef.current;
+    const expectedAccountConfigId = pinSession.binding?.expectedAccountConfigId;
     const pushToast = sourceToastPush(conversationNotificationSource(conversation));
     if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
       pushToast({
@@ -7033,7 +6950,9 @@ function MainWorkspace(): ReactElement {
     }
 
     const bytes = new Uint8Array(payload.bytes ?? new Uint8Array(0));
-    const previewUrl = URL.createObjectURL(new Blob([bytes], { type: 'video/mp4' }));
+    const previewUrl = URL.createObjectURL(
+      payload.file ?? new Blob([bytes], { type: 'video/mp4' }),
+    );
     const optimisticId = `optimistic-${mfId('bub')}`;
     setOptimisticMessages((current) => [
       ...current,
@@ -7064,17 +6983,26 @@ function MainWorkspace(): ReactElement {
         current.map((item) => (item.id === optimisticId ? { ...item, ...next } : item)),
       );
     try {
+      const source = payload.file
+        ? new Uint8Array(await payload.file.arrayBuffer())
+        : (payload.bytes ?? payload.path);
+      if (source instanceof Uint8Array && source.length === 0)
+        throw new Error('视频是空的，无法发送泡泡消息。');
+      const meta = payload.file ? await readVideoMeta(previewUrl) : payload;
+      if (messageScopeRef.current !== scope) throw new Error('账号数据源已切换，未发送泡泡消息');
       const outcome = await client.account.sendElements.mutate({
+        ...outgoingReceipt(optimisticId),
         expectedAccountUin: user.identityValue,
+        expectedAccountConfigId,
         peerType: target.peerType,
         targetId: target.targetId,
         elements: toIpcElements([
           {
             kind: 'bubbleVideo',
-            source: payload.bytes ?? payload.path,
-            ...(payload.duration !== undefined ? { duration: payload.duration } : {}),
-            ...(payload.width !== undefined ? { width: payload.width } : {}),
-            ...(payload.height !== undefined ? { height: payload.height } : {}),
+            source,
+            ...(meta.duration !== undefined ? { duration: meta.duration } : {}),
+            ...(meta.width !== undefined ? { width: meta.width } : {}),
+            ...(meta.height !== undefined ? { height: meta.height } : {}),
             fileName: payload.name,
             ...(payload.templateName ? { templateName: payload.templateName } : {}),
           },
@@ -7083,7 +7011,6 @@ function MainWorkspace(): ReactElement {
       if (!outcome.ok) {
         const reason = outcome.errMsg || outcome.hint || '服务端拒绝了这条泡泡消息';
         patchOptimistic({ state: 'failed', error: reason });
-        pushToast({ tone: 'error', message: '泡泡消息发送失败', detail: reason });
         throw new Error(reason);
       }
       patchOptimistic({
@@ -7108,6 +7035,11 @@ function MainWorkspace(): ReactElement {
       patchOptimistic({
         state: 'failed',
         error: error instanceof Error ? error.message : String(error),
+      });
+      pushToast({
+        tone: 'error',
+        message: '发送失败',
+        detail: error instanceof Error ? error.message : String(error),
       });
       throw error;
     } finally {
@@ -7156,6 +7088,7 @@ function MainWorkspace(): ReactElement {
         id: optimisticId,
         convId: conversation.id,
         body: `[QQ闪传] ${title}`,
+        generatedExistingMsgIds: loadedRef.current.map((message) => message.msgId),
         afterSeq: outgoingAfterSeq(conversation.id),
         elements: [
           buildFlashOptimisticElement({
@@ -7176,6 +7109,7 @@ function MainWorkspace(): ReactElement {
 
     try {
       const result = await client.account.sendFlashTransfer.mutate({
+        ...outgoingReceipt(optimisticId),
         peerType: target.peerType,
         targetId: target.targetId,
         files: payload.files.map((file) => ({ path: file.path, name: file.name })),
@@ -7203,6 +7137,11 @@ function MainWorkspace(): ReactElement {
       patchOptimistic({
         state: 'failed',
         error: err instanceof Error ? err.message : String(err),
+      });
+      pushToast({
+        tone: 'error',
+        message: '发送失败',
+        detail: err instanceof Error ? err.message : String(err),
       });
       throw err;
     }
@@ -7343,6 +7282,7 @@ function MainWorkspace(): ReactElement {
       if (payload.type === 'contact') {
         startOptimistic(buildContactPlaceholderArk(payload.kind, payload.contactId));
         const outcome = await client.account.sendContactArkCard.mutate({
+          ...outgoingReceipt(optimisticId),
           peerType: target.peerType,
           targetId: target.targetId,
           kind: payload.kind,
@@ -7390,6 +7330,7 @@ function MainWorkspace(): ReactElement {
           }),
         );
         await client.account.sendGroupSignup.mutate({
+          ...outgoingReceipt(optimisticId),
           groupCode: String(payload.groupCode),
           title: payload.title,
           detail: payload.detail,
@@ -7406,6 +7347,7 @@ function MainWorkspace(): ReactElement {
       if (payload.type === 'location') {
         startOptimistic(buildLocationArkJson(payload));
         const outcome = await client.account.sendLocationArkCard.mutate({
+          ...outgoingReceipt(optimisticId),
           peerType: target.peerType,
           targetId: target.targetId,
           address: payload.address,
@@ -7448,6 +7390,7 @@ function MainWorkspace(): ReactElement {
           }),
         );
         const outcome = await client.account.sendTuwenArk.mutate({
+          ...outgoingReceipt(optimisticId),
           peerType: target.peerType,
           targetId,
           title: payload.title,
@@ -7466,6 +7409,7 @@ function MainWorkspace(): ReactElement {
 
       startOptimistic(payload.arkData);
       const outcome = await client.account.sendArkCard.mutate({
+        ...outgoingReceipt(optimisticId),
         peerType: target.peerType,
         targetId: target.targetId,
         arkData: payload.arkData,

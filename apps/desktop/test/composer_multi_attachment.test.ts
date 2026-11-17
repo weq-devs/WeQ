@@ -225,22 +225,21 @@ it('连续添加共用数量上限，超大项跳过后仍接收可用文件', a
   }
 });
 
-it('读取媒体期间切会话不向新会话交接，也不清除新草稿', async () => {
+it('媒体同步交接给原会话，不等待字节读取，切会话后保留新草稿', async () => {
   const f = mount();
   try {
     const file = new File(['video'], 'slow.mp4', { type: 'video/mp4' });
-    let finish!: (value: ArrayBuffer) => void;
+    const read = vi.fn(() => new Promise<ArrayBuffer>(() => {}));
     Object.defineProperty(file, 'arrayBuffer', {
-      value: () =>
-        new Promise<ArrayBuffer>((resolve) => {
-          finish = resolve;
-        }),
+      value: read,
     });
     await f.add([file]);
     act(() => f.host.querySelector<HTMLButtonElement>('.composer-send')!.click());
+    expect(f.onSend).toHaveBeenCalledOnce();
+    expect(f.onSend.mock.calls[0]?.[1]?.[0]?.file).toBe(file);
+    expect(read).not.toHaveBeenCalled();
     f.render({ conversation: { ...f.props.conversation, id: 'another' }, draft: '新会话草稿' });
-    await act(async () => finish(new ArrayBuffer(4)));
-    expect(f.onSend).not.toHaveBeenCalled();
+    expect(f.onSend).toHaveBeenCalledOnce();
     expect(serializeComposer(f.editor())).toBe('新会话草稿');
   } finally {
     f.close();

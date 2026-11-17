@@ -7,6 +7,7 @@ import {
   Check,
   Clock,
   LoaderCircle,
+  Monitor,
   RefreshCw,
   RotateCcw,
   SendHorizontal,
@@ -607,8 +608,23 @@ function MessageBubbleBody({
           <div className="weq-repeat-content">
             {renderMessageWithRegistry({ message, conversation, sender, mine }, renderers)}
             {optimistic === 'sending' ? (
-              <span className="weq-message-sending" role="status" aria-label="发送中">
-                <LoaderCircle size={16} aria-hidden />
+              <span
+                className={cn(
+                  'weq-message-sending',
+                  IS_WEB && message.outgoingToHost && 'is-to-host',
+                )}
+                role="status"
+                aria-label={IS_WEB && message.outgoingToHost ? '正在传给电脑' : '发送中'}
+                title={IS_WEB && message.outgoingToHost ? '正在传给电脑' : '发送中'}
+              >
+                <LoaderCircle
+                  className="weq-message-send-spinner"
+                  size={IS_WEB && message.outgoingToHost ? 22 : 16}
+                  aria-hidden
+                />
+                {IS_WEB && message.outgoingToHost ? (
+                  <Monitor className="weq-message-send-host" size={10} aria-hidden />
+                ) : null}
               </span>
             ) : (
               repeatAction

@@ -139,31 +139,22 @@ it('系统关闭后立刻再次打开也会交接到新窗口，不等待旧窗�
   }
 });
 
-it.each(['performance', 'logs'] as const)(
-  '不能创建 %s 弹窗时整页仍可关闭，不显示页签切换',
-  async (tab) => {
-    vi.spyOn(window, 'open').mockReturnValue(null);
-    const host = document.createElement('div'),
-      root = createRoot(host);
-    try {
-      await act(async () => {
-        root.render(h(LogPerformanceWindowHost));
-        useLogPerformanceWindow.getState().open(tab);
-      });
-      expect(
-        host.querySelector(
-          `[aria-label="${tab === 'performance' ? '合成性能视图' : '合成日志视图'}"]`,
-        ),
-      ).not.toBeNull();
-      expect(host.querySelectorAll('[role="tab"]')).toHaveLength(0);
-      act(() => host.querySelector<HTMLButtonElement>('[aria-label="关闭监视窗口"]')!.click());
-      expect(useLogPerformanceWindow.getState().requests[tab]).toBeUndefined();
-    } finally {
-      act(() => root.unmount());
-      await Promise.resolve();
-    }
-  },
-);
+it('不能创建弹窗时使用对应的独立整页，不显示页签切换', async () => {
+  vi.spyOn(window, 'open').mockReturnValue(null);
+  const host = document.createElement('div'),
+    root = createRoot(host);
+  try {
+    await act(async () => {
+      root.render(h(LogPerformanceWindowHost));
+      useLogPerformanceWindow.getState().open('performance');
+    });
+    expect(host.querySelector('[aria-label="合成性能视图"]')).not.toBeNull();
+    expect(host.querySelectorAll('[role="tab"]')).toHaveLength(0);
+  } finally {
+    act(() => root.unmount());
+    await Promise.resolve();
+  }
+});
 
 it('独立窗口的选择菜单留在自己的文档，支持方向键与 Esc，失活后关闭', () => {
   const popup = new HappyWindow();

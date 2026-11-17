@@ -95,10 +95,6 @@
 .weq-monitor-head-actions button:hover {
   background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
 }
-:is(html[data-weq-layout='single'], html[data-weq-input='touch']) .weq-monitor-head-actions button {
-  width: 44px;
-  height: 44px;
-}
 .weq-log-performance-window :focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;

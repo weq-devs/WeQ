@@ -201,6 +201,7 @@ import { FlashComposer, type FlashSendPayload } from './flashComposer';
  * `commonElem{serviceType:3}`），所以和闪传一样走「菜单 → 应用层 → IPC」。
  */
 export type FlashPhotoSendPayload = {
+  file?: File;
   path?: string;
   bytes?: Uint8Array;
   name: string;
@@ -213,6 +214,7 @@ export type FlashPhotoSendPayload = {
  * 它是独立的一条消息，走「菜单 → 应用层 → IPC」这条通路。
  */
 export type BubbleVideoSendPayload = {
+  file?: File;
   path?: string;
   bytes?: Uint8Array;
   name: string;
@@ -3652,7 +3654,7 @@ export function ChatPane({
    * 优先给绝对路径（`webUtils.getPathForFile`）；剪贴板截图这类没有落盘来源的图
    * 读不到路径，回退成字节。
    */
-  async function collectLocalMedia(extra: LocalMediaRef[]): Promise<LocalMediaRef[]> {
+  function collectLocalMedia(extra: LocalMediaRef[]): LocalMediaRef[] {
     const out: LocalMediaRef[] = [...extra];
     const attachments = [...inlineImagesRef.current, ...mediaAttachmentRef.current];
     for (const attachment of attachments) {
@@ -3665,25 +3667,12 @@ export function ChatPane({
         out.push({ key, path, name: attachment.name, ...(previewUrl ? { previewUrl } : {}) });
         continue;
       }
-      if (attachment.kind === 'file') {
-        out.push({
-          key,
-          file: attachment.file,
-          name: attachment.name,
-          ...(previewUrl ? { previewUrl } : {}),
-        });
-        continue;
-      }
-      try {
-        out.push({
-          key,
-          bytes: new Uint8Array(await attachment.file.arrayBuffer()),
-          name: attachment.name,
-          ...(previewUrl ? { previewUrl } : {}),
-        });
-      } catch {
-        // 读不出字节就让上层报缺路径 / 字节，而不是发一条空消息。
-      }
+      out.push({
+        key,
+        file: attachment.file,
+        name: attachment.name,
+        ...(previewUrl ? { previewUrl } : {}),
+      });
     }
     return out;
   }
@@ -3776,7 +3765,7 @@ export function ChatPane({
       }
       restoreSendFocus();
       window.requestAnimationFrame(restoreSendFocus);
-      const locals = localMedia ? await localMedia : undefined;
+      const locals = localMedia;
       // 读媒体期间切会话时不交给新会话的发送回调，也不清除它的新附件。
       if (!isCurrentComposer()) return;
       // 内容交接后即允许下一条输入；不能让迟到回执清掉下一张附件或下一条草稿。
@@ -3796,7 +3785,7 @@ export function ChatPane({
       const bodies = [...(!empty ? [payloadBody] : []), ...stagedMedia.map(attachmentToken)];
       const sent = (async () => {
         const failures: unknown[] = [];
-        // onSend 会先异步准备字体与气泡再入队，逐项等待交接才能保持批次内顺序。
+        // 每项同步建立本地预览并入队；网络与媒体准备不阻塞下一项回显。
         for (const value of bodies) {
           try {
             const keys = new Set(
@@ -3852,10 +3841,9 @@ export function ChatPane({
     const locals: LocalMediaRef[] = [];
     if (clip.blob) {
       try {
-        const bytes = new Uint8Array(await clip.blob.arrayBuffer());
         locals.push({
           key: `voice-${clip.id}.silk`,
-          bytes,
+          file: new File([clip.blob], `voice-${clip.id}.silk`, { type: clip.blob.type }),
           name: `voice-${clip.id}.silk`,
           // 乐观渲染：直接放录音 blob（浏览器放得了 webm/opus），并用采样峰值画波形。
           ...(clip.url ? { previewUrl: clip.url } : {}),
@@ -3939,11 +3927,9 @@ export function ChatPane({
     if (!conversation || conversation.type === 'merged' || !onSendFlashPhoto) {
       throw new Error('这个会话不支持发送闪照。');
     }
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    if (bytes.length === 0) throw new Error('图片是空的，无法发送闪照。');
     // 闪照只能单独发：顶掉挂着的引用（与视频 / 文件同一套互斥）。
     setPendingQuote(null);
-    await onSendFlashPhoto(conversation, { bytes, name: file.name });
+    await onSendFlashPhoto(conversation, { file, name: file.name });
     await jumpAfterSuccessfulSend(conversation);
   }
 
@@ -3957,51 +3943,13 @@ export function ChatPane({
     if (!conversation || conversation.type === 'merged' || !onSendBubbleVideo) {
       throw new Error('这个会话不支持发送泡泡消息。');
     }
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    if (bytes.length === 0) throw new Error('视频是空的，无法发送泡泡消息。');
-    // 元信息读不到不影响发送：时长 / 尺寸都是可选的（缺了按 0 发）。
-    const meta = await readVideoMetaFromBytes(bytes, file.type);
     // 泡泡只能单独发：顶掉挂着的引用（与视频 / 文件同一套互斥）。
     setPendingQuote(null);
     await onSendBubbleVideo(conversation, {
-      bytes,
+      file,
       name: file.name,
-      ...(meta.duration > 0 ? { duration: meta.duration } : {}),
-      ...(meta.width > 0 ? { width: meta.width } : {}),
-      ...(meta.height > 0 ? { height: meta.height } : {}),
     });
     await jumpAfterSuccessfulSend(conversation);
-  }
-
-  /** 从内存字节读视频元信息（时长 / 宽高）；读不出来就返回全 0，不阻断发送。 */
-  async function readVideoMetaFromBytes(
-    bytes: Uint8Array,
-    mime: string,
-  ): Promise<{ duration: number; width: number; height: number }> {
-    const url = URL.createObjectURL(
-      new Blob([bytes.slice().buffer], { type: mime || 'video/mp4' }),
-    );
-    try {
-      return await new Promise((resolve) => {
-        const video = document.createElement('video');
-        const finish = (meta: { duration: number; width: number; height: number }) => {
-          video.removeAttribute('src');
-          video.load();
-          resolve(meta);
-        };
-        video.preload = 'metadata';
-        video.onloadedmetadata = () =>
-          finish({
-            duration: Number.isFinite(video.duration) ? video.duration : 0,
-            width: video.videoWidth,
-            height: video.videoHeight,
-          });
-        video.onerror = () => finish({ duration: 0, width: 0, height: 0 });
-        video.src = url;
-      });
-    } finally {
-      releaseObjectUrl(url);
-    }
   }
 
   async function sendArkCard(payload: ArkPayload) {

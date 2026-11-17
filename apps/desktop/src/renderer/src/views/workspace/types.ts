@@ -306,6 +306,7 @@ export type RawElementWire = NonNullable<
  * 不落缓存文件，开关应用即消失。
  */
 export type OptimisticForward = {
+  hostReceived?: boolean;
   id: string;
   /** 目标会话 id（模板层 Conversation.id）。 */
   convId: string;
@@ -342,6 +343,7 @@ export type OptimisticForward = {
  *   - 位置卡片：本地按发送字段拼一张（渲染器走静态地图缩略图那条路）。
  */
 export type OptimisticArk = {
+  hostReceived?: boolean;
   id: string;
   /** 目标会话 id（模板层 Conversation.id）。 */
   convId: string;
@@ -407,6 +409,7 @@ export type PendingScrollRestore = {
  * `composerSend.buildOptimisticRender`），所以同步到位后不会跳变。
  */
 export type OptimisticMessage = {
+  hostReceived?: boolean;
   id: string;
   /** 目标会话 id（模板层 Conversation.id）。 */
   convId: string;
@@ -425,6 +428,7 @@ export type OptimisticMessage = {
    *     回来都能把乐观卡片收掉。
    */
   signatures?: string[];
+  generatedExistingMsgIds?: string[];
   /** 文件发布没有普通消息序号，按文件 ID 与发送前的消息快照对账。 */
   fileSync?: FileSyncReceipt;
   state: 'queued' | 'sending' | 'sent' | 'failed';

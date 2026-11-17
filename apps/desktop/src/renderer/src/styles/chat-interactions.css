@@ -1,11 +1,20 @@
 .weq-message-sending {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: var(--weq-fg-secondary);
 }
-.weq-message-sending svg {
+.weq-message-sending .weq-message-send-spinner {
   animation: weq-message-send-spin 1s linear infinite;
+}
+.weq-message-send-host {
+  position: absolute;
+  inset: 0;
+  margin: auto;
 }
 .weq-inline-interaction-pending {
   display: flex;
@@ -65,7 +74,7 @@ html[data-theme='dark'] .weq-message-sending {
   justify-content: center;
 }
 @media (prefers-reduced-motion: reduce) {
-  .weq-message-sending svg {
+  .weq-message-sending .weq-message-send-spinner {
     animation: none;
   }
 }

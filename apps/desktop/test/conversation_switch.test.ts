@@ -34,6 +34,8 @@ import {
   type ReplyJumpTarget,
 } from '../src/renderer/src/components/QqMessageContent';
 import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
+import { useToast } from '../src/renderer/src/components/Toast';
+import { elementToToken } from '../src/renderer/src/im-template/template/draftElements';
 
 beforeAll(() => LazyGapMessagesModal.preload());
 
@@ -122,6 +124,10 @@ const f = vi.hoisted(() => ({
     | { uid: string; uin: string; card: string; nick: string; adminFlag: number; joinTime: string }
     | undefined,
   messages: [] as ComponentProps<typeof ChatMainContent>['messages'],
+  send: undefined as ComponentProps<typeof ChatMainContent>['onSend'] | undefined,
+  sendCalls: [] as string[],
+  sendPending: false,
+  sendError: undefined as string | undefined,
   messageCommits: [] as Array<{ id?: string; rows: string[] }>,
   atLatest: true as ComponentProps<typeof ChatMainContent>['atLatest'],
   commit: undefined as (() => void) | undefined,
@@ -155,7 +161,15 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             if (path.join('.') === 'account.listRecentContacts')
               f.headEnabled = options?.enabled === true;
             if (path.join('.') === 'bootstrap.getSettings')
-              return { ...empty, data: { readFromFirstUnread: f.readFromFirstUnread } };
+              return {
+                ...empty,
+                data: {
+                  readFromFirstUnread: f.readFromFirstUnread,
+                  voiceTranscribe: { modelId: '' },
+                },
+              };
+            if (path.at(-1) === 'getGroupAlbumAccessState' && (f.sendPending || f.sendError))
+              return { ...empty, data: { qqOnline: true, attachEnabled: true } };
             return path.join('.') === 'account.getAccountConfig'
               ? config
               : path.join('.') === 'account.listProfiles'
@@ -202,6 +216,19 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         if (key === 'useSubscription') return () => {};
         if (key === 'query' || key === 'mutate' || key === 'invalidate')
           return async (input?: UnreadInput) => {
+            if (path.at(-1) === 'peerQqShow') return null;
+            if (
+              [
+                'prepareChatDecoration',
+                'sendElements',
+                'sendAiVoice',
+                'forwardFlashTransfer',
+              ].includes(path.at(-1) ?? '')
+            ) {
+              f.sendCalls.push(path.at(-1)!);
+              if (f.sendError) throw new Error(f.sendError);
+              if (f.sendPending) return new Promise(() => {});
+            }
             if (path.at(-1) === 'consumeGroupKeywordJump') {
               f.notificationReads.group++;
               return f.groupJumps.shift() ?? null;
@@ -333,6 +360,7 @@ vi.mock('../src/renderer/src/im-template/template/chatMainContent', async (impor
     ChatMainContent: (props: ComponentProps<typeof ChatMainContent>) => {
       f.jump = useContext(ReplyJumpContext);
       f.messages = props.messages;
+      f.send = props.onSend;
       f.readCurrent = () => {
         if (props.activeConversation) props.onReadCurrentConversation?.(props.activeConversation);
       };
@@ -450,6 +478,10 @@ afterEach(() => {
   f.bots = [];
   f.memberDetails = undefined;
   f.messages = [];
+  f.send = undefined;
+  f.sendCalls = [];
+  f.sendPending = false;
+  f.sendError = undefined;
   f.messageCommits = [];
   f.markedRead = [];
   f.readCurrent = undefined;
@@ -458,6 +490,137 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
+
+it('电脑请求不返回时，发送内容仍立即在本端回显且不查询装扮', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  f.sendPending = true;
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    await act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+        .find((button) => button.textContent === '10001')!
+        .click(),
+    );
+    await act(async () => f.reads.at(-1)!.show({ complete: true, rows: [] }));
+    await act(async () => {
+      void f.send!('本地立即显示');
+    });
+    expect(
+      f.messages.some((row) => row.body === '本地立即显示' && row.optimistic === 'sending'),
+    ).toBe(true);
+    expect(host.textContent).toContain('本地立即显示');
+    expect(f.sendCalls).not.toContain('prepareChatDecoration');
+  } finally {
+    await act(async () => root.unmount());
+    client.clear();
+    host.remove();
+  }
+});
+
+it.each(['video', 'aiVoice', 'flashTransfer'])(
+  '%s 在媒体读取或电脑请求未完成时也保留本地回显',
+  async (kind) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    useViewState.getState().setOpenedUin('90001');
+    f.sendPending = true;
+    const file = new File(['video'], 'slow.mp4');
+    Object.defineProperty(file, 'arrayBuffer', { value: () => new Promise(() => {}) });
+    const body = elementToToken(
+      kind === 'video'
+        ? { kind: 'video', localPreviewUrl: 'blob:slow', fileName: 'slow.mp4' }
+        : kind === 'aiVoice'
+          ? { kind: 'ptt', isAiVoice: true, pttTranscript: '合成语音', pttVoiceId: 'voice' }
+          : { kind: 'markdown', flashTransferInfo: { fileSetId: 'fileset' } },
+    );
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    try {
+      await act(async () =>
+        root.render(
+          h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+        ),
+      );
+      await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+      await act(async () =>
+        [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+          .find((button) => button.textContent === '10001')!
+          .click(),
+      );
+      await act(async () => f.reads.at(-1)!.show({ complete: true, rows: [] }));
+      await act(async () => {
+        void f.send!(body, [{ key: 'blob:slow', name: file.name, file, previewUrl: 'blob:slow' }]);
+      });
+      expect(f.messages).toHaveLength(1);
+      expect(f.messages[0]?.optimistic).toBe('sending');
+      expect(f.sendCalls).not.toContain('prepareChatDecoration');
+      if (kind === 'video') expect(f.sendCalls).not.toContain('sendElements');
+    } finally {
+      await act(async () => root.unmount());
+      client.clear();
+      host.remove();
+    }
+  },
+);
+
+it.each(['传给电脑失败', '请求超时，操作结果暂未确认，请刷新核对。'])(
+  '发送请求异常时保留失败消息并显示失败横幅：%s',
+  async (reason) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    useViewState.getState().setOpenedUin('90001');
+    useToast.setState({ toasts: [], leaving: [] });
+    f.sendError = reason;
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    try {
+      await act(async () =>
+        root.render(
+          h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+        ),
+      );
+      await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+      await act(async () =>
+        [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+          .find((button) => button.textContent === '10001')!
+          .click(),
+      );
+      await act(async () => f.reads.at(-1)!.show({ complete: true, rows: [] }));
+      await act(async () => {
+        void f.send!('不能丢失的内容');
+      });
+      const failed = f.messages.find((row) => row.body === '不能丢失的内容');
+      expect(failed?.optimistic).toBe('failed');
+      expect(failed?.optimisticError).toBe(reason);
+      expect(
+        useToast
+          .getState()
+          .toasts.some((toast) => toast.tone === 'error' && toast.detail === reason),
+      ).toBe(true);
+      expect(f.sendCalls.filter((call) => call === 'sendElements')).toHaveLength(1);
+    } finally {
+      await act(async () => root.unmount());
+      client.clear();
+      host.remove();
+      useToast.setState({ toasts: [], leaving: [] });
+    }
+  },
+);
 
 it.each(['10001', 'u_peer'])(
   '会话 %s 的同序号戳一戳灰条不等待未读变化或一秒目录校准',

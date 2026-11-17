@@ -14,6 +14,12 @@ const fixture = vi.hoisted(() => ({
   widgetActive: false,
   scope: 'all',
   unresolved: false,
+  remote: false,
+}));
+vi.mock('../src/renderer/src/lib/target', () => ({
+  get IS_WEB() {
+    return fixture.remote;
+  },
 }));
 vi.mock('../src/renderer/src/trpc/client', () => {
   const resolved = new Map<string, object>();
@@ -73,6 +79,61 @@ vi.mock('../src/renderer/src/hooks/useActiveWidget', () => ({
   useActiveFontFx: () => null,
 }));
 afterEach(() => vi.unstubAllGlobals());
+
+it('装扮请求悬挂不隐藏正文；远程传输圈含电脑图标，宿主回执后切回普通圈，失败保留标签', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('IntersectionObserver', undefined);
+  fixture.unresolved = true;
+  fixture.remote = true;
+  const demo = createTemplateDemoData();
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const render = (outgoingToHost: boolean, optimistic: 'sending' | 'failed' = 'sending') =>
+    act(async () =>
+      root.render(
+        createElement(MessageBubble, {
+          message: {
+            id: 'local',
+            conversationId: demo.conversations[0]!.id,
+            senderId: demo.user.id,
+            body: '不等电脑和装扮',
+            createdAt: new Date().toISOString(),
+            optimistic,
+            outgoingToHost,
+            decoration: { bubbleId: 21001, fontId: 32002, widgetId: 10001 },
+          },
+          conversation: demo.conversations[0]!,
+          sender: demo.user,
+          mine: true,
+          senderName: '我',
+          onContextMenu: vi.fn(),
+          onLongPress: vi.fn(),
+          renderers: [{ id: 'local', match: () => true, render: () => '不等电脑和装扮' }],
+        }),
+      ),
+    );
+  try {
+    await render(true);
+    expect(host.textContent).toContain('不等电脑和装扮');
+    expect(host.querySelector('[aria-label="正在传给电脑"] .lucide-monitor')).not.toBeNull();
+    await render(false);
+    expect(host.querySelector('[aria-label="发送中"]')).not.toBeNull();
+    expect(host.querySelector('.lucide-monitor')).toBeNull();
+    await render(true, 'failed');
+    expect(host.textContent).toContain('发送失败');
+    expect(host.querySelector('.weq-message-sending')).toBeNull();
+    fixture.remote = false;
+    await render(true);
+    expect(host.querySelector('[aria-label="发送中"]')).not.toBeNull();
+    expect(host.querySelector('.lucide-monitor')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    fixture.remote = false;
+    fixture.unresolved = false;
+  }
+});
 
 it('排队、立即发送与失败重试使用不同语义图标，发送回调保持不变', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

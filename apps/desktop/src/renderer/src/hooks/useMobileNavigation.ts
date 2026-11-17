@@ -1,6 +1,5 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { MobileBackStack, type MobileBackEntry } from '../lib/mobileNavigation';
-import { compareMobileBackEntries } from '../lib/mobileBackSurface';
 import {
   isMobileClient,
   isSingleColumnLayout,
@@ -9,7 +8,7 @@ import {
 import { useRenderDocument } from '../lib/renderDocument';
 import { useTabActive } from '../components/RetainedTabs';
 
-const stack = new MobileBackStack(compareMobileBackEntries);
+const stack = new MobileBackStack();
 let sequence = 0;
 let syncQueued = false;
 let guardInstalled = false;

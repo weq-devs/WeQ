@@ -1,0 +1,140 @@
+import assert from 'node:assert/strict';
+import { mkdir } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createServer } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwind from '@tailwindcss/vite';
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const { chromium, webkit } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
+const server = await createServer({
+  configFile: false,
+  root,
+  cacheDir: resolve(root, 'node_modules/.cache/outgoing-echo'),
+  plugins: [react(), tailwind()],
+  define: { 'import.meta.env.VITE_WEQ_TARGET': '"web"' },
+  resolve: {
+    alias: [
+      {
+        find: /^.*\/trpc\/client$/,
+        replacement: resolve(root, 'test/browser/slash-emoji.stub.ts'),
+      },
+      { find: '@renderer', replacement: resolve(root, 'src/renderer/src') },
+      { find: '@resources', replacement: resolve(root, '../../resources') },
+      { find: '@transport', replacement: resolve(root, 'test/support/transport.stub.ts') },
+    ],
+  },
+  server: {
+    host: '127.0.0.1',
+    port: 0,
+    hmr: false,
+    watch: null,
+    fs: { allow: [resolve(root, '../..')] },
+  },
+});
+const output = process.env.WEQ_ECHO_ARTIFACTS;
+if (output) await mkdir(output, { recursive: true });
+let cases = 0;
+try {
+  await server.listen();
+  for (const [engine, type] of [
+    ['chromium', chromium],
+    ['webkit', webkit],
+  ]) {
+    const executablePath =
+      engine === 'webkit' ? process.env.WEQ_WEBKIT_EXECUTABLE : process.env.WEQ_BROWSER_EXECUTABLE;
+    const browser = await type.launch({
+      headless: true,
+      ...(executablePath ? { executablePath } : {}),
+    });
+    try {
+      for (const width of [320, 390, 1280])
+        for (const theme of ['light', 'dark']) {
+          const page = await browser.newPage({ viewport: { width, height: 800 } });
+          const errors = [];
+          page.on('pageerror', (error) => errors.push(error.message));
+          try {
+            await page.goto(
+              `http://127.0.0.1:${server.httpServer.address().port}/test/browser/outgoing-echo.html`,
+            );
+            await page.evaluate((theme) => {
+              document.documentElement.dataset.theme = theme;
+              document.documentElement.style.setProperty(
+                '--weq-accent-effective',
+                theme === 'light' ? '#15764a' : '#ebbd51',
+              );
+            }, theme);
+            await page.getByText('不等电脑和装扮，发送后立即显示。', { exact: true }).waitFor();
+            assert.equal(await page.getByRole('status', { name: '正在传给电脑' }).count(), 2);
+            const metrics = await page.locator('.weq-message-sending').evaluateAll((nodes) =>
+              nodes.map((node) => {
+                const rect = node.getBoundingClientRect();
+                const icon = node.querySelector('.lucide-monitor');
+                const monitor = icon.getBoundingClientRect();
+                return {
+                  left: rect.left,
+                  right: rect.right,
+                  width: rect.width,
+                  height: rect.height,
+                  dx: monitor.x + monitor.width / 2 - rect.x - rect.width / 2,
+                  dy: monitor.y + monitor.height / 2 - rect.y - rect.height / 2,
+                  animation: getComputedStyle(icon).animationName,
+                  spin: getComputedStyle(node.querySelector('.weq-message-send-spinner'))
+                    .animationName,
+                };
+              }),
+            );
+            for (const row of metrics) {
+              assert.ok(row.left >= 0 && row.right <= width, JSON.stringify(row));
+              assert.ok(Math.abs(row.dx) < 0.1 && Math.abs(row.dy) < 0.1, JSON.stringify(row));
+              assert.equal(row.animation, 'none');
+              assert.equal(row.spin, 'weq-message-send-spin');
+            }
+            if (output)
+              await page.screenshot({ path: resolve(output, `${engine}-${theme}-${width}.png`) });
+            await page.evaluate(() => window.echoQA.setStage('qq'));
+            await page.getByRole('status', { name: '发送中', exact: true }).first().waitFor();
+            assert.equal(await page.locator('.lucide-monitor').count(), 0);
+            const settled = await page.locator('.weq-message-sending').evaluateAll((nodes) =>
+              nodes.map((node) => ({
+                width: node.getBoundingClientRect().width,
+                height: node.getBoundingClientRect().height,
+              })),
+            );
+            assert.deepEqual(
+              settled,
+              metrics.map(({ width, height }) => ({ width, height })),
+            );
+            await page.emulateMedia({ reducedMotion: 'reduce' });
+            assert.ok(
+              await page
+                .locator('.weq-message-send-spinner')
+                .evaluateAll((nodes) =>
+                  nodes.every((node) => getComputedStyle(node).animationName === 'none'),
+                ),
+            );
+            await page.evaluate(() => window.echoQA.setStage('failed'));
+            await page.getByText('发送失败', { exact: true }).first().waitFor();
+            assert.equal(await page.locator('.weq-message-sending').count(), 0);
+            assert.equal(
+              await page.getByText('不等电脑和装扮，发送后立即显示。', { exact: true }).count(),
+              1,
+            );
+            assert.ok(
+              await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+            );
+            assert.deepEqual(errors, []);
+            cases++;
+          } finally {
+            await page.close();
+          }
+        }
+    } finally {
+      await browser.close();
+    }
+  }
+  console.log(`PASS ${cases} Chromium/WebKit outgoing echo theme/viewport cases`);
+} finally {
+  await server.close();
+}

@@ -101,6 +101,7 @@ import {
 } from '../../ocr/local';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
+import { outgoingProcedure, outgoingRouter } from '../outgoing_receipts';
 import { createQQWriteRouter } from './qq_write';
 import { createProfileExtrasRouter } from './profile_extras';
 import { createAnalysisReportsRouter } from './analysis_reports';
@@ -1889,6 +1890,7 @@ const browserFiles = new FileUploadStaging(30 * 60000, {
 });
 
 export const accountRouter = router({
+  outgoing: outgoingRouter,
   noticeRead: createNoticeReadRouter((input) => {
     const config = requireExpectedAccount(
       input.expectedAccountUin,
@@ -5809,7 +5811,7 @@ export const accountRouter = router({
    * 路径，服务层按目标场景做 NTV2 上传。需要 QQ 在线且未开完全离线模式。
    * `nodes` 的形状见 @weq/service 的 `SendForwardNodeInput`（含嵌套 `innerForward`）。
    */
-  sendForward: procedure
+  sendForward: outgoingProcedure
     .input(
       z.object({
         expectedAccountUin: z.string().min(1).optional(),
@@ -6610,7 +6612,7 @@ export const accountRouter = router({
       return decoration;
     }),
 
-  sendElements: procedure
+  sendElements: outgoingProcedure
     .input(
       z.object({
         peerType: z.enum(['c2c', 'group']),
@@ -6710,7 +6712,7 @@ export const accountRouter = router({
     ),
 
   /** 桌面文件走原路径；浏览器附件使用已完整接收、绑定当前账号的暂存句柄。 */
-  sendFile: procedure
+  sendFile: outgoingProcedure
     .input(
       z
         .object({
@@ -6773,7 +6775,7 @@ export const accountRouter = router({
    *
    * `tempGroupCode` 同 `sendElements`：群临时会话里给来源群号，走 grpTmp 路由。
    */
-  sendVoice: procedure
+  sendVoice: outgoingProcedure
     .input(
       z.object({
         peerType: z.enum(['c2c', 'group']),
@@ -6816,7 +6818,7 @@ export const accountRouter = router({
     }),
 
   /** 分享已有闪传文件集，由服务端生成新卡片，不走普通 Markdown 消息。 */
-  forwardFlashTransfer: procedure
+  forwardFlashTransfer: outgoingProcedure
     .input(
       z.object({
         peerType: z.enum(['c2c', 'group']),
@@ -6862,7 +6864,7 @@ export const accountRouter = router({
    * **原图直通**（渲染层只校验大小与格式，不重绘不压缩），可能是 PNG 或 JPEG。
    * 这里只做大小与落盘，格式由协议层按 magic 探测。
    */
-  sendFlashTransfer: procedure
+  sendFlashTransfer: outgoingProcedure
     .input(
       z.object({
         peerType: z.enum(['c2c', 'group']),
@@ -6929,7 +6931,7 @@ export const accountRouter = router({
    * AI 声聊（TTS）：`0x929b_0` 合成即发送（只支持群聊），**没有第二步** ——
    * 不要再拼一条 ptt 元素手动发。见 `MessageSendService.sendAiVoice`。
    */
-  sendAiVoice: procedure
+  sendAiVoice: outgoingProcedure
     .input(
       z.object({ groupId: z.string().min(1), voiceId: z.string().min(1), text: z.string().min(1) }),
     )
@@ -6951,7 +6953,7 @@ export const accountRouter = router({
    *
    * `targetId` = 当前会话：群聊给群号，私聊给对方 QQ 号（或 uid）。
    */
-  sendArkCard: procedure
+  sendArkCard: outgoingProcedure
     .input(
       z.object({
         peerType: z.enum(['c2c', 'group']),
@@ -6974,7 +6976,7 @@ export const accountRouter = router({
    * 取自服务端的**业务 result** —— OIDB 外层 errorCode=0 也可能根本没下发出去
    * （见 `docs/develop/ark-send.md`），不要把「调用了」当「发成功」。
    */
-  sendTuwenArk: procedure
+  sendTuwenArk: outgoingProcedure
     .input(
       z.object({
         peerType: z.enum(['c2c', 'group']),
@@ -7022,7 +7024,7 @@ export const accountRouter = router({
    * `kind` = 卡片推荐**什么**（`qq` 好友 / `group` 群），`contactId` = 被推荐的
    * QQ 号 / 群号；别与 `targetId`（发到哪）填反。
    */
-  sendContactArkCard: procedure
+  sendContactArkCard: outgoingProcedure
     .input(
       z.object({
         peerType: z.enum(['c2c', 'group']),
@@ -7047,7 +7049,7 @@ export const accountRouter = router({
    * ⚠️ 已知缺口：PC/Linux 端会被服务端在 OIDB 外层以 `319 [oidb] rule type not
    * match appid` 拒绝（与图文 Ark 的 901501 同源），服务层会把错误翻译成人话再抛。
    */
-  sendGroupSignup: procedure
+  sendGroupSignup: outgoingProcedure
     .input(
       z.object({
         groupCode: z.string().regex(/^\d+$/),
@@ -7080,7 +7082,7 @@ export const accountRouter = router({
    * 给出 —— 地图组件不做逆地理（没有安全密钥），地址是用户自己填 / 改的。
    * 返回值里的 `hint` 会如实说明「响应无法判定业务结果」，不要当它是成功回执。
    */
-  sendLocationArkCard: procedure
+  sendLocationArkCard: outgoingProcedure
     .input(
       z.object({
         peerType: z.enum(['c2c', 'group']),

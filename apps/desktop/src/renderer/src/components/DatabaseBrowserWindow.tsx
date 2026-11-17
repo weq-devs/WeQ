@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Database, LockKeyhole } from 'lucide-react';
+import { Database, LockKeyhole, X } from 'lucide-react';
 import { useDatabaseBrowserWindow, type BrowserRequest } from '../state/databaseBrowserWindow';
 import { DATABASE_BROWSER_WINDOW } from '../../../shared/database_window';
 import { useToolWindow } from '../hooks/useCompositionWindow';
@@ -8,7 +8,6 @@ import { RenderDocumentContext } from '../lib/renderDocument';
 import { useAppLock } from '../state/lock';
 import { TabActivity } from './RetainedTabs';
 import { Modal } from './Dialog';
-import { PageShell } from './PageShell';
 import { HoverTooltip } from './HoverTooltip';
 import { ToastHost } from './Toast';
 import { NotificationSourceProvider, notificationSource } from '../lib/notificationNavigation';
@@ -45,23 +44,33 @@ function BrowserWindow({ request }: { request: BrowserRequest }) {
   const body = (
     <TabActivity active={!locked}>
       <div className="weq-database-browser-window" hidden={locked} inert={locked}>
-        <PageShell
-          title="数据库浏览"
-          icon={<Database size={17} />}
-          onClose={close}
-          closeLabel="关闭数据库浏览"
-        >
-          <Suspense fallback={<div role="status">正在加载数据库浏览…</div>}>
-            <NotificationSourceProvider
-              source={notificationSource(
-                { kind: 'local', open: () => useDatabaseBrowserWindow.getState().open() },
-                '返回数据库浏览器',
-              )}
+        {!tool.fallback && (
+          <header>
+            <h2>
+              <Database size={17} />
+              数据库浏览
+            </h2>
+            <button
+              type="button"
+              className="weq-set-iconbtn"
+              title="关闭数据库浏览"
+              aria-label="关闭数据库浏览"
+              onClick={close}
             >
-              <DatabaseBrowser />
-            </NotificationSourceProvider>
-          </Suspense>
-        </PageShell>
+              <X size={17} />
+            </button>
+          </header>
+        )}
+        <Suspense fallback={<div role="status">正在加载数据库浏览…</div>}>
+          <NotificationSourceProvider
+            source={notificationSource(
+              { kind: 'local', open: () => useDatabaseBrowserWindow.getState().open() },
+              '返回数据库浏览器',
+            )}
+          >
+            <DatabaseBrowser />
+          </NotificationSourceProvider>
+        </Suspense>
         <ToastHost />
         <HoverTooltip />
       </div>

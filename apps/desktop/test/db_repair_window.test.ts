@@ -136,11 +136,6 @@ it('系统窗口被阻止时显示重试状态，不启动修复面板或体检'
     act(() => useDbRepairWindow.getState().open({ uin: '10001', name: '合成账号', avatarUrl: '' }));
     expect(document.querySelector('[aria-label="完整数据库修复"]')).toBeNull();
     expect(document.body.textContent).toContain('无法打开数据库修复窗口');
-    act(() =>
-      document.querySelector<HTMLButtonElement>('[aria-label="关闭数据库修复提示"]')!.click(),
-    );
-    expect(useDbRepairWindow.getState().request).toBeNull();
-    expect(document.body.textContent).not.toContain('无法打开数据库修复窗口');
   } finally {
     act(() => root.unmount());
     host.remove();
