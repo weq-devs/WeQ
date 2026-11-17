@@ -298,6 +298,14 @@ export function DbRepairPanel({
   const deleteRecord = trpc.dbRepair.deleteRecord.useMutation();
 
   useEffect(() => {
+    const dismissOptions = (event: PointerEvent) => {
+      const options = optionsRef.current;
+      if (options?.open && !event.composedPath().includes(options)) options.open = false;
+    };
+    ownerDocument.addEventListener('pointerdown', dismissOptions, true);
+    return () => ownerDocument.removeEventListener('pointerdown', dismissOptions, true);
+  }, [ownerDocument]);
+  useEffect(() => {
     if (maintenance.data !== undefined) setLive(maintenance.data);
   }, [maintenance.data]);
   useEffect(() => {
@@ -418,7 +426,7 @@ export function DbRepairPanel({
           .getState()
           .confirm(
             '修复所选数据库？',
-            `${names.join('、')} 将使用当前维护中已有的扫描结果重建并替换。${backup ? '修复前保留备份。' : '本次不保留备份。'}${allowLowSpace ? '本次明确接受建议余量不足；后续写入空间不足时会返回查看结果。' : ''}修复过程中可以停止，已成功的库不会回退。`,
+            `${names.join('、')} 将使用当前维护中已有的扫描结果重建并替换。${backup ? '修复前保留备份。' : '本次不保留备份。'}${allowLowSpace ? '本次允许在预留空间不足时尝试修复；实际空间不足时会返回查看结果。' : ''}修复过程中可以停止，已成功的库不会回退。`,
             { okLabel: '开始修复', cancelLabel: '继续查看', ownerDocument },
           ))
       ) {
@@ -1118,8 +1126,8 @@ export function DbRepairPanel({
                     onChange={(event) => setStrictPages(event.target.checked)}
                   />
                   <span>
-                    <strong>严格页模式</strong>
-                    <em>丢弃坏页里的内容，只在需要尽量缩小产物时使用。</em>
+                    <strong>丢弃损坏部分的数据</strong>
+                    <em>不尝试恢复损坏页中仍可读取的内容，可能丢失更多记录；默认关闭。</em>
                   </span>
                 </label>
                 <label className="weq-dbm-option">
@@ -1130,8 +1138,8 @@ export function DbRepairPanel({
                     onChange={(event) => setAllowLowSpace(event.target.checked)}
                   />
                   <span>
-                    <strong>接受磁盘建议余量不足</strong>
-                    <em>后续写入空间不足时返回查看结果，保留锁和已有扫描结果。</em>
+                    <strong>预留空间不足时仍尝试修复</strong>
+                    <em>仍需满足预计写入空间；后续空间不足时保留扫描结果，腾出空间后可重试。</em>
                   </span>
                 </label>
                 {selectedReady.length ? (

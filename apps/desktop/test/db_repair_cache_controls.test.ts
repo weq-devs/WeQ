@@ -216,7 +216,7 @@ it('建议余量确认不沿用到取消后重新打开的修复', async () => {
   maintenanceQa.ready();
   await mount();
   const input = [...host.querySelectorAll('label')]
-    .find((label) => label.textContent?.includes('接受磁盘建议余量不足'))!
+    .find((label) => label.textContent?.includes('预留空间不足时仍尝试修复'))!
     .querySelector('input')!;
   await act(async () => input.click());
   await act(async () => button('修复所选数据库').click());
@@ -225,6 +225,35 @@ it('建议余量确认不沿用到取消后重新打开的修复', async () => {
   await act(async () => button('修复所选数据库').click());
   await confirm(true);
   expect(maintenanceQa.calls.repair[0]?.allowLowSpace).toBe(false);
+});
+
+it('修复选项内部点击不关闭，外部点击关闭但保留选项，Esc 仍可关闭', async () => {
+  maintenanceQa.ready();
+  await mount();
+  const summary = [...host.querySelectorAll('summary')].find((item) =>
+    item.textContent?.includes('修复选项'),
+  )!;
+  const options = summary.parentElement as HTMLDetailsElement;
+  const input = options.querySelector<HTMLInputElement>('input')!;
+  await act(async () => summary.click());
+  expect(options.open).toBe(true);
+  await act(async () => {
+    input.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    input.click();
+  });
+  expect(options.open).toBe(true);
+  expect(input.checked).toBe(false);
+  await act(async () => {
+    host.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+  });
+  expect(options.open).toBe(false);
+  await act(async () => summary.click());
+  expect(options.open).toBe(true);
+  expect(input.checked).toBe(false);
+  await act(async () => {
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  });
+  expect(options.open).toBe(false);
 });
 
 it('历史报告独立打开，删除需确认且不会结束维护或重扫', async () => {
