@@ -6,6 +6,12 @@
   width: 100%;
   height: var(--weq-mobile-viewport-height, 100dvh);
 }
+.weq-report-root:is([data-immersive='true'], :fullscreen) {
+  padding: var(--weq-safe-top, env(safe-area-inset-top, 0px))
+    var(--weq-safe-right, env(safe-area-inset-right, 0px))
+    var(--weq-safe-bottom, env(safe-area-inset-bottom, 0px))
+    var(--weq-safe-left, env(safe-area-inset-left, 0px));
+}
 .weq-report-root:has(.weq-report-stage-host[data-layout='reading']) {
   --rp-accent: var(--weq-accent-effective);
   --rp-ghost-stroke: color-mix(in srgb, var(--rp-accent) 14%, transparent);

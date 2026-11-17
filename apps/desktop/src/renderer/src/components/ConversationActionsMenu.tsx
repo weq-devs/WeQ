@@ -4,6 +4,7 @@ import '../styles/conversation-actions.css';
 import { useRenderDocument } from '../lib/renderDocument';
 import { RemoteShellMenuItem } from './RemoteShellMenus';
 import type { DangerLevel } from './Dialog';
+import { visibleViewport } from '../lib/visibleViewport';
 
 export function ConversationActionsMenu({
   x,
@@ -44,19 +45,27 @@ export function ConversationActionsMenu({
       onClose();
     };
     window.addEventListener('resize', close);
+    window.visualViewport?.addEventListener('resize', close);
+    window.visualViewport?.addEventListener('scroll', close);
     document.addEventListener('scroll', close, true);
     return () => {
       window.removeEventListener('resize', close);
+      window.visualViewport?.removeEventListener('resize', close);
+      window.visualViewport?.removeEventListener('scroll', close);
       document.removeEventListener('scroll', close, true);
     };
   }, [onClose, document, window]);
   useLayoutEffect(() => {
     const menu = ref.current;
     if (!menu) return;
-    if (dropdown) menu.style.maxHeight = `${Math.max(44, window.innerHeight - y - 8)}px`;
+    const viewport = visibleViewport(window);
+    const bottom = viewport.top + viewport.height - 8;
+    const top = Math.max(viewport.top + 8, Math.min(y, bottom - 44));
+    menu.style.maxWidth = `${Math.max(1, viewport.width - 16)}px`;
+    menu.style.maxHeight = `${Math.max(1, dropdown ? bottom - top : viewport.height - 16)}px`;
     const rect = menu.getBoundingClientRect();
-    menu.style.left = `${Math.max(8, Math.min(dropdown ? x - rect.width : x, window.innerWidth - rect.width - 8))}px`;
-    menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - rect.height - 8))}px`;
+    menu.style.left = `${Math.max(viewport.left + 8, Math.min(dropdown ? x - rect.width : x, viewport.left + viewport.width - rect.width - 8))}px`;
+    menu.style.top = `${Math.max(viewport.top + 8, Math.min(top, bottom - rect.height))}px`;
     menu.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
   }, [x, y, window, dropdown]);
   return (

@@ -18,6 +18,7 @@ import { ContactActions } from './contactProfile/ContactActions';
 import '../styles/profile-workspace.css';
 import { SelfProfileFieldsContext } from './SelfProfileFields';
 import { ReadonlyProfileDisplay } from './ProfileDisplaySettings';
+import { visibleViewport } from '../lib/visibleViewport';
 
 /** 群成员、私聊头像和联系人浮层共用内容，只保留贴屏定位这一层差异。 */
 export function MemberProfileCard({
@@ -71,7 +72,12 @@ export function MemberProfileCard({
         }
       : undefined;
   const card = useRef<HTMLElement>(null);
-  const [position, setPosition] = useState({ left: 10, top: 10 });
+  const [position, setPosition] = useState({
+    left: 10,
+    top: 10,
+    maxWidth: 'calc(100vw - 24px)',
+    maxHeight: 'min(calc(100dvh - 24px), 720px)',
+  });
   // 关闭后把焦点还给打开名片的那个元素，键盘用户不会「丢了位置」。
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -82,28 +88,47 @@ export function MemberProfileCard({
   useLayoutEffect(() => {
     const element = card.current;
     if (!element) return;
+    const view = element.ownerDocument.defaultView;
     const place = () => {
+      const viewport = visibleViewport(view);
+      const maxWidth = Math.max(1, viewport.width - 24);
+      const maxHeight = Math.max(1, Math.min(720, viewport.height - 24));
       const width = element.offsetWidth;
       const height = element.offsetHeight;
       const left = Math.max(
-        10,
+        viewport.left + 10,
         Math.min(
-          anchor.x + 14 + width > innerWidth - 10 ? anchor.x - width - 14 : anchor.x + 14,
-          innerWidth - width - 10,
+          anchor.x + 14 + width > viewport.left + viewport.width - 10
+            ? anchor.x - width - 14
+            : anchor.x + 14,
+          viewport.left + viewport.width - width - 10,
         ),
       );
-      const top = Math.max(10, Math.min(anchor.y + 8, innerHeight - height - 10));
+      const top = Math.max(
+        viewport.top + 10,
+        Math.min(anchor.y + 8, viewport.top + viewport.height - height - 10),
+      );
+      const next = { left, top, maxWidth: `${maxWidth}px`, maxHeight: `${maxHeight}px` };
       setPosition((previous) =>
-        previous.left === left && previous.top === top ? previous : { left, top },
+        previous.left === left &&
+        previous.top === top &&
+        previous.maxWidth === next.maxWidth &&
+        previous.maxHeight === next.maxHeight
+          ? previous
+          : next,
       );
     };
     place();
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place);
     observer?.observe(element);
-    window.addEventListener('resize', place);
+    view?.addEventListener('resize', place);
+    view?.visualViewport?.addEventListener('resize', place);
+    view?.visualViewport?.addEventListener('scroll', place);
     return () => {
       observer?.disconnect();
-      window.removeEventListener('resize', place);
+      view?.removeEventListener('resize', place);
+      view?.visualViewport?.removeEventListener('resize', place);
+      view?.visualViewport?.removeEventListener('scroll', place);
     };
   }, [anchor.x, anchor.y]);
   return (

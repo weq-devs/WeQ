@@ -108,8 +108,8 @@ html[data-weq-mobile-client='true'][data-weq-layout='wide'] .app-shell > .sideba
 }
 
 html[data-weq-mobile-client='true'][data-weq-layout='wide'] .app-title-bar {
-  height: calc(44px + env(safe-area-inset-top, 0px));
-  padding-top: env(safe-area-inset-top, 0px);
+  height: calc(44px + var(--weq-safe-top, env(safe-area-inset-top, 0px)));
+  padding-top: var(--weq-safe-top, env(safe-area-inset-top, 0px));
 }
 
 html[data-weq-mobile-client='true'][data-weq-layout='wide'] .app-shell .chat-pane {

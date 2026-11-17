@@ -110,9 +110,14 @@ html[data-theme='dark'] .weq-message-modal .weq-dialog-foot .weq-action-soft:hov
     max-height: var(--weq-dialog-max-height);
   }
 
-  .weq-web-dialog-layer.is-anchored-popover > :first-child {
-    max-width: calc(100vw - 16px);
-    max-height: calc(var(--weq-mobile-viewport-height, 100dvh) - 16px);
+  .weq-web-dialog-layer.is-anchored-popover[tabindex] > :first-child {
+    max-width: calc(100vw - var(--weq-safe-left) - var(--weq-safe-right) - 16px);
+    max-height: calc(
+      var(--weq-mobile-viewport-height, 100dvh) -
+      var(--weq-safe-top) -
+      var(--weq-mobile-safe-bottom, var(--weq-safe-bottom)) -
+      16px
+    );
     overflow: auto;
   }
 
