@@ -13,6 +13,7 @@ import type { DatabaseWorkProgress } from '../src/account/db_repair/progress';
 
 const roots: string[] = [];
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
@@ -82,8 +83,9 @@ function fixture() {
 }
 const scope = { uin: '10001', configId: 'source-a' };
 
-it('普通进度每两秒保存报告，期间继续推送进度；单库完成和停止立即保存', async () => {
-  const clock = vi.spyOn(Date, 'now').mockReturnValue(10000);
+it('高频进度每秒只复制和推送最新完整快照，每两秒保存报告，停止立即发布且不残留回调', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(10000);
   const h = fixture();
   const save = vi.spyOn(h.reports, 'save');
   let emit!: (tick: DatabaseWorkProgress) => void;
@@ -91,7 +93,9 @@ it('普通进度每两秒保存报告，期间继续推送进度；单库完成�
   const started = new Promise<void>((done) => {
     entered = done;
   });
-  h.scan.mockImplementationOnce(h.scan.getMockImplementation()!);
+  const scan = h.scan.getMockImplementation()!;
+  const zeroPages = Array.from({ length: 60_000 }, (_, index) => index + 10);
+  h.scan.mockImplementationOnce(async (...args) => ({ ...(await scan(...args)), zeroPages }));
   h.scan.mockImplementationOnce(
     (_target, signal, progress) =>
       new Promise((_done, reject) => {
@@ -106,19 +110,29 @@ it('普通进度每两秒保存报告，期间继续推送进度；单库完成�
   expect(h.reports.get(id)?.databases[0]?.scanStatus).toBe('completed');
   save.mockClear();
   h.changed.mockClear();
-  const tick = (at: number, completed: number) => {
-    clock.mockReturnValue(at);
+  const clone = vi.spyOn(globalThis, 'structuredClone');
+  const tick = (completed: number) => {
     emit({ step: 'pages', message: 'scan', completed, total: 10, unit: 'pages' });
-    expect(h.maintenance.current(scope)?.progress?.current.completed).toBe(completed);
   };
-  tick(10500, 1);
-  tick(11999, 2);
+  for (let count = 0; count < 1000; count++) tick(count);
+  expect(clone).not.toHaveBeenCalled();
+  expect(h.changed).not.toHaveBeenCalled();
+  expect(h.maintenance.current(scope)?.progress?.current.completed).toBe(999);
+  await vi.advanceTimersByTimeAsync(999);
   expect(save).not.toHaveBeenCalled();
-  expect(h.changed).toHaveBeenCalledTimes(2);
-  tick(12000, 3);
+  expect(h.changed).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(h.changed).toHaveBeenCalledOnce();
+  const published = h.changed.mock.calls[0]![0];
+  expect(published.progress.current.completed).toBe(999);
+  expect(published.databases[0].scan.zeroPages).toEqual(zeroPages);
+  expect(save).not.toHaveBeenCalled();
+  tick(3);
+  await vi.advanceTimersByTimeAsync(1000);
   expect(save).toHaveBeenCalledOnce();
   expect(h.reports.get(id)?.databases[1]?.progress?.current.completed).toBe(3);
-  tick(12001, 4);
+  expect(published.progress.current.completed).toBe(999);
+  tick(4);
   expect(save).toHaveBeenCalledOnce();
   await h.maintenance.stop(scope);
   await run;
@@ -127,6 +141,10 @@ it('普通进度每两秒保存报告，期间继续推送进度；单库完成�
   );
   expect(h.reports.get(id)?.operation.status).toBe('cancelled');
   await h.maintenance.end(scope);
+  expect(h.changed.mock.lastCall![0]).toMatchObject({ state: 'ended', locked: false });
+  const publishedCount = h.changed.mock.calls.length;
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(h.changed).toHaveBeenCalledTimes(publishedCount);
 });
 
 it('未提交的可恢复问题返回查看结果，锁与扫描保留，重试不重复处理已成功库', async () => {
