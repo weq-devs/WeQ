@@ -210,7 +210,9 @@ export {
   findVideoDir,
   findFileDir,
   tencentFilesRootFromUserDataInfo,
+  readUserDataInfo,
 } from './paths';
+export type { UserDataInfo } from './paths';
 export { findQqInstallRoot, findQqExe } from './registry';
 export {
   resolveQqVersionDir,
