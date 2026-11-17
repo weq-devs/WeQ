@@ -82,6 +82,7 @@ try {
         return {
           label: node.textContent?.trim() || node.getAttribute('aria-label'),
           level: node.dataset.danger ?? 'outline',
+          menu: Boolean(node.closest('.message-context-menu, .weq-conversation-actions-menu')),
           foreground: red(fg),
           colors: {
             foreground: style.color,
@@ -89,25 +90,35 @@ try {
             surface: getComputedStyle(document.body).backgroundColor,
           },
           background: red(bg) && bg[3] > 230,
+          transparent: bg[3] === 0,
           border: red(border) && parseFloat(style.borderTopWidth) >= 1,
+          borderless: parseFloat(style.borderTopWidth) === 0,
           contrast: (levels[0] + 0.05) / (levels[1] + 0.05),
           overflow: node.scrollWidth > node.clientWidth + 1,
           radius: style.borderTopLeftRadius,
         };
       });
-      const disabledNeutral = [...document.querySelectorAll('button[data-danger]:disabled')].every(
-        (node) => {
-          const style = getComputedStyle(node);
-          return (
-            style.backgroundColor ===
-              getComputedStyle(document.querySelector('[data-danger="outline"]:disabled'))
-                .backgroundColor && style.cursor === 'not-allowed'
-          );
-        },
-      );
+      const disabledNeutral = [
+        ...document.querySelectorAll('button[data-danger]:disabled:not([data-menu-disabled])'),
+      ].every((node) => {
+        const style = getComputedStyle(node);
+        return (
+          style.backgroundColor ===
+            getComputedStyle(document.querySelector('[data-danger="outline"]:disabled'))
+              .backgroundColor && style.cursor === 'not-allowed'
+        );
+      });
       return {
         metrics,
         disabledNeutral,
+        disabledMenu: [...document.querySelectorAll('[data-menu-disabled]')].every((node) => {
+          const style = getComputedStyle(node);
+          return (
+            parseFloat(style.borderTopWidth) === 0 &&
+            rgba(style.backgroundColor)[3] === 0 &&
+            style.cursor === 'default'
+          );
+        }),
         overflow: document.documentElement.scrollWidth > innerWidth,
       };
     });
@@ -129,18 +140,18 @@ try {
           const label = `${width}/${theme}/${style}/${accent}`;
           const result = await inspect();
           for (const row of result.metrics) {
-            if (
-              !row.border ||
-              row.overflow ||
-              row.contrast < 4.5 ||
-              (row.level === 'solid' ? !row.background : !row.foreground || row.background)
-            )
+            const appearance = row.menu
+              ? row.borderless && row.transparent && row.foreground
+              : row.border &&
+                (row.level === 'solid' ? row.background : row.foreground && !row.background);
+            if (!appearance || row.overflow || row.contrast < 4.5)
               failures.push({ case: label, ...row });
             if (style === 'retro' && row.radius !== '0px')
               failures.push({ case: label, reason: '复古外观圆角被覆盖', ...row });
           }
           if (result.overflow) failures.push({ label, reason: '页面溢出' });
           if (!result.disabledNeutral) failures.push({ label, reason: '禁用状态未统一' });
+          if (!result.disabledMenu) failures.push({ label, reason: '禁用菜单出现边框或底色' });
           if (output && accent === '#075c30')
             await page.screenshot({
               path: resolve(output, `${width}-${theme}-${style}-controls.png`),
@@ -166,6 +177,35 @@ try {
           await dialog.getByRole('button', { name: '取消', exact: true }).click();
           cases++;
         }
+  }
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((theme) => {
+      window.dangerActionsQa.getState().setPreference(theme);
+    }, theme);
+    const buttons = page.locator(
+      ':is(.message-context-menu, .weq-conversation-actions-menu) button[data-danger]:not(:disabled)',
+    );
+    for (const button of await buttons.all()) {
+      for (const state of ['hover', 'focus']) {
+        if (state === 'hover') await button.hover();
+        else {
+          await button.focus();
+          await page.keyboard.press('Tab');
+          await page.keyboard.press('Shift+Tab');
+        }
+        assert(
+          await button.evaluate((node, state) => {
+            const style = getComputedStyle(node);
+            return (
+              parseFloat(style.borderTopWidth) === 0 &&
+              style.backgroundColor !== 'rgba(0, 0, 0, 0)' &&
+              (state !== 'focus' || style.outlineStyle !== 'none')
+            );
+          }, state),
+          `${theme}/${state}: 菜单保留轻量反馈及键盘焦点，不恢复边框或实底`,
+        );
+      }
+    }
   }
   await page.getByRole('button', { name: '清除 WeQ 已读记录', exact: true }).focus();
   await page.keyboard.press('Tab');

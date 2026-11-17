@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Undo2 } from 'lucide-react';
 import { DialogHost, useDialog } from '../../src/renderer/src/components/Dialog';
 import { ClearReadRecordsSetting } from '../../src/renderer/src/components/settings/ClearReadRecordsSetting';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
@@ -7,6 +7,8 @@ import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/component-appearance.css';
 import '../../src/renderer/src/styles/backup.css';
 import '../../src/renderer/src/styles/cache.css';
+import '../../src/renderer/src/styles/message-context-menu.css';
+import '../../src/renderer/src/styles/conversation-actions.css';
 
 ensureThemeInitialized();
 Object.assign(window, { dangerActionsQa: useThemeStore });
@@ -17,6 +19,7 @@ createRoot(document.getElementById('root')!).render(
       body{background:var(--weq-bg-surface);color:var(--weq-fg-primary)}
       main{max-width:760px;margin:0 auto;padding:24px}
       .danger-fixture-row{display:flex;flex-wrap:wrap;gap:12px;margin:16px 0}
+      .danger-fixture-row>.message-context-menu{position:static}
     `}</style>
     <main>
       <div className="weq-set">
@@ -77,6 +80,29 @@ createRoot(document.getElementById('root')!).render(
         <button type="button" className="weq-set-btn" data-danger="solid" disabled>
           禁用全局恢复
         </button>
+      </div>
+      <div className="danger-fixture-row">
+        <div className="message-menu-v2 message-context-menu">
+          <div className="message-menu-group">
+            <button type="button" data-danger="outline">
+              <Undo2 /> <span>撤回</span>
+            </button>
+            <button type="button" data-danger="outline">
+              <Trash2 /> <span>本地删除</span>
+            </button>
+          </div>
+        </div>
+        <div className="weq-conversation-actions-menu">
+          <button type="button" data-danger="solid">
+            <Trash2 size={16} /> <span>永久删除克隆会话</span>
+          </button>
+          <button type="button" data-danger="solid">
+            <Trash2 size={16} /> <span>永久删除助手会话</span>
+          </button>
+          <button type="button" data-danger="solid" disabled data-menu-disabled>
+            <Trash2 size={16} /> <span>正在删除会话</span>
+          </button>
+        </div>
       </div>
     </main>
     <DialogHost />

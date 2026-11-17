@@ -91,3 +91,28 @@ html[data-theme]
   filter: none;
   opacity: 1;
 }
+
+/* 菜单入口只标红文字与图标，实际确认按钮仍沿用操作的危险等级。 */
+html[data-theme] body
+  :is(.message-menu-v2.message-context-menu, .weq-conversation-actions-menu)
+  button[data-danger] {
+  border: 0;
+  background: transparent;
+  color: var(--weq-danger-ink);
+}
+
+html[data-theme]
+  body
+  :is(.message-menu-v2.message-context-menu, .weq-conversation-actions-menu)
+  button[data-danger]:is(:hover, :focus-visible):not(:disabled):not([aria-disabled='true']) {
+  background: var(--weq-danger-soft-hover);
+  color: var(--weq-danger-ink);
+}
+
+html[data-theme]
+  body
+  :is(.message-menu-v2.message-context-menu, .weq-conversation-actions-menu)
+  button[data-danger]:is(:disabled, [aria-disabled='true']) {
+  color: var(--weq-fg-muted);
+  cursor: default;
+}
