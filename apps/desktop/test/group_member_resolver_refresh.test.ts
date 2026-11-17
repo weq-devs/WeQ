@@ -6,6 +6,7 @@ import {
   GROUP_MEMBER_PREVIEW_REFRESH_MS,
   type GroupMemberResolver,
 } from '../src/renderer/src/hooks/useGroupMemberResolver';
+import { createGroupMemberLookup } from '../src/renderer/src/lib/groupMemberRefresh';
 
 type Member = { uid: string; card: string };
 const mock = vi.hoisted(() => ({
@@ -20,6 +21,35 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+it('当前聊天与列表解析器实际共用同一在途读取，各自正常回填', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  let finish!: (members: Member[]) => void;
+  mock.query.mockReset().mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const lookup = createGroupMemberLookup(mock.query);
+  let chat!: GroupMemberResolver<Member>, preview!: GroupMemberResolver<Member>;
+  const root = createRoot(document.createElement('div'));
+  function Probe() {
+    chat = useGroupMemberResolver<Member>(0, lookup.load);
+    preview = useGroupMemberResolver<Member>(GROUP_MEMBER_PREVIEW_REFRESH_MS, lookup.load);
+    return null;
+  }
+  act(() => root.render(h(Probe)));
+  cleanups.push(() => act(() => root.unmount()));
+  await act(async () => {
+    chat.resolveMembers('123', ['u_peer'], new Set(), () => true);
+    preview.resolveMembers('123', ['u_peer'], new Set(), () => true);
+  });
+  expect(mock.query).toHaveBeenCalledOnce();
+  await act(async () => finish([{ uid: 'u_peer', card: '最新名片' }]));
+  expect(chat.missingMembers['123'].u_peer.card).toBe('最新名片');
+  expect(preview.missingMembers['123'].u_peer).toBe(chat.missingMembers['123'].u_peer);
 });
 
 it('成批登记冷却任务不反复读取前面任务的 UID 时间，冷却后仍全部查询', async () => {

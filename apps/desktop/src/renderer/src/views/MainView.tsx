@@ -243,7 +243,11 @@ import {
   useGroupMemberResolver,
 } from '../hooks/useGroupMemberResolver';
 import { useGroupMemberSearch } from '../hooks/useGroupMemberSearch';
-import { readFreshGroupMemberPage, activeGroupMembers } from '../lib/groupMemberRefresh';
+import {
+  readFreshGroupMemberPage,
+  activeGroupMembers,
+  createGroupMemberLookup,
+} from '../lib/groupMemberRefresh';
 import { useDressSkin } from '../hooks/useDressSkin';
 import { RailAccountFooter } from '../components/RailAccountFooter';
 import { WorkspaceMenuButton, WorkspaceSettingsButton } from '../components/WorkspaceMenuButton';
@@ -2159,18 +2163,27 @@ function MainWorkspace(): ReactElement {
   // Off-page message senders resolved on demand (groupCode → uid → member),
   // batched + deduped by useGroupMemberResolver. Kept separate from the global
   // profile cache because a group card is a (group × uid) thing, not a profile.
+  const groupMemberLookup = useMemo(() => {
+    const binding = messageScope ? messageBindingRef.current : null;
+    return createGroupMemberLookup<GroupMemberWire>((input) =>
+      client.account.getGroupMembersByUids.query({ ...binding, ...input }),
+    );
+  }, [messageScope, messageBindingRef]);
   const {
     missingMembers,
     resolveMembers,
     updateMembers: updateCachedMembers,
     invalidate: invalidateCachedMembers,
-  } = useGroupMemberResolver<GroupMemberWire>();
+  } = useGroupMemberResolver<GroupMemberWire>(0, groupMemberLookup.load);
   const {
     missingMembers: previewMembers,
     resolveMembers: resolvePreviewMembers,
     updateMembers: updatePreviewMembers,
     invalidate: invalidatePreviewMembers,
-  } = useGroupMemberResolver<GroupMemberWire>(GROUP_MEMBER_PREVIEW_REFRESH_MS);
+  } = useGroupMemberResolver<GroupMemberWire>(
+    GROUP_MEMBER_PREVIEW_REFRESH_MS,
+    groupMemberLookup.load,
+  );
   const [analysisReports, setAnalysisReports] = useState<AnalysisReportRequest[]>([]);
   useEffect(() => {
     const open = (event: Event) => {
@@ -2543,8 +2556,7 @@ function MainWorkspace(): ReactElement {
       if (!binding || (!message.senderUid && !/^[1-9]\d*$/.test(message.senderUin)))
         return profileName || '';
       const members = await (message.senderUid
-        ? client.account.getGroupMembersByUids.query({
-            ...binding,
+        ? groupMemberLookup.load({
             groupCode: message.conv,
             uids: [message.senderUid],
           })
@@ -2562,7 +2574,7 @@ function MainWorkspace(): ReactElement {
         profileName || '',
       );
     },
-    [previewGroupNames, previewDisplayNames, profileByUid, messageBindingRef],
+    [previewGroupNames, previewDisplayNames, profileByUid, messageBindingRef, groupMemberLookup],
   );
   useMessageNotifications({
     selfUin: user.identityValue,
@@ -3525,6 +3537,7 @@ function MainWorkspace(): ReactElement {
       setGroupMemberPages({});
       setGroupMemberHasMore({});
       setGroupMemberError({});
+      groupMemberLookup.invalidate();
       invalidateCachedMembers();
       invalidatePreviewMembers();
       setGroupInfoRevision((revision) => revision + 1);
@@ -3554,6 +3567,7 @@ function MainWorkspace(): ReactElement {
     utils,
     invalidateCachedMembers,
     invalidatePreviewMembers,
+    groupMemberLookup,
     messageBindingRef,
     messageScopeRef,
   ]);

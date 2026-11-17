@@ -3,6 +3,10 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MailEvent, MailStatus } from '@weq/service/mail';
 import { MailWorkspace } from '../src/renderer/src/views/MailView';
+import {
+  notificationContent,
+  notificationSource,
+} from '../src/renderer/src/lib/notificationNavigation.shared';
 
 const rpc = vi.hoisted(() => ({
   status: vi.fn(),
@@ -70,7 +74,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function fixture(preferences: { showUnread: boolean; notifications: boolean } | undefined) {
+function fixture(
+  preferences: { showUnread: boolean; notifications: boolean } | undefined,
+  changingSource = false,
+) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -78,12 +85,21 @@ function fixture(preferences: { showUnread: boolean; notifications: boolean } | 
   const render = async (active: boolean, nextPreferences = preferences) => {
     await act(async () =>
       root.render(
-        h(MailWorkspace, {
-          selfUin: '12345678',
-          active,
-          preferences: nextPreferences,
-          onUnreadChange,
-        }),
+        notificationContent(
+          changingSource
+            ? notificationSource(
+                { kind: 'mail', folderId: 1, mailId: 'mail-fixture' },
+                '邮箱',
+                null,
+              )
+            : null,
+          h(MailWorkspace, {
+            selfUin: '12345678',
+            active,
+            preferences: nextPreferences,
+            onUnreadChange,
+          }),
+        ),
       ),
     );
   };
@@ -231,6 +247,21 @@ describe('已加载邮件恢复窗口', () => {
 });
 
 describe('邮箱后台状态订阅', () => {
+  it('通知来源与页面回调反复更新时不重建连接、状态读取或订阅', async () => {
+    const f = fixture({ showUnread: true, notifications: false }, true);
+    await f.render(true);
+    for (let revision = 0; revision < 20; revision++) {
+      await f.render(revision % 2 === 0);
+      await act(async () =>
+        listener?.({ type: 'status', status: { ...status, unread: revision } }),
+      );
+    }
+    expect(rpc.subscribe).toHaveBeenCalledOnce();
+    expect(rpc.status).toHaveBeenCalledOnce();
+    expect(rpc.dispose).not.toHaveBeenCalled();
+    expect(f.onUnreadChange).toHaveBeenLastCalledWith(19);
+  });
+
   it.each([undefined, { showUnread: false, notifications: false }])(
     '未取得偏好或两个开关都关闭时，不提前订阅邮箱：%j',
     async (preferences) => {
