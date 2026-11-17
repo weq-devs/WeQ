@@ -862,6 +862,7 @@ void app.whenReady().then(async () => {
   }
   if (userConfig) {
     const webCore = new WebCore({
+      developmentUrl: is.dev ? process.env.WEQ_DEV_WEB_URL : undefined,
       publicDir: app.isPackaged
         ? join(process.resourcesPath, 'remote-web')
         : join(app.getAppPath(), '../web/dist/public'),

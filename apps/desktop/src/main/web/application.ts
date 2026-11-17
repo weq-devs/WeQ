@@ -7,6 +7,7 @@ import type { AuthGate } from './auth';
 import { handleRequest, type RequestOptions } from './http';
 import { createWebHost } from './host';
 import { attachWsHandler, createTrpcHandler } from './trpc_adapter';
+import { DevelopmentWebProxy } from './development';
 
 export type WebAuth = Pick<AuthGate, 'login' | 'logout' | 'isAuthed' | 'watchSession'> & {
   remoteClient?: boolean;
@@ -17,6 +18,7 @@ export interface WebCoreConfig {
   exportDir: string;
   version: string;
   router: AnyRouter;
+  developmentUrl?: string;
   renderer?: Pick<HostBridge, 'renderHtmlToPdf' | 'renderHtmlToSlidesPng' | 'renderHtmlToLongPng'>;
 }
 
@@ -29,7 +31,7 @@ export class WebCore {
   }
 
   get assetsInstalled(): boolean {
-    return existsSync(join(this.config.publicDir, 'index.html'));
+    return !!this.config.developmentUrl || existsSync(join(this.config.publicDir, 'index.html'));
   }
 
   entry(auth: WebAuth): WebApplication {
@@ -45,17 +47,21 @@ export class WebApplication {
   private readonly responses = new Set<ServerResponse>();
   private closed = false;
   private readonly options: RequestOptions;
+  private readonly development?: DevelopmentWebProxy;
 
   constructor(
     private readonly config: WebCoreConfig,
     private readonly host: HostBridge,
     private readonly auth: WebAuth,
   ) {
+    if (config.developmentUrl)
+      this.development = new DevelopmentWebProxy(config.developmentUrl, auth);
     this.options = {
       publicDir: config.publicDir,
       auth,
       trpc: createTrpcHandler(config.router, auth, host),
       hostBridge: host,
+      development: this.development?.handle,
     };
   }
 
@@ -80,13 +86,20 @@ export class WebApplication {
   }
 
   attach(server: Server): void {
-    this.closeWs = attachWsHandler(server, this.config.router, this.auth, this.host);
+    this.closeWs = attachWsHandler(
+      server,
+      this.config.router,
+      this.auth,
+      this.host,
+      this.development?.upgrade,
+    );
   }
 
   close(): void {
     this.closed = true;
     this.closeWs?.();
     this.closeWs = null;
+    this.development?.close();
     for (const response of this.responses) response.destroy();
     this.responses.clear();
   }

@@ -24,6 +24,7 @@ export function developmentViteLogging(
   }[target];
   let started = 0;
   let building = target !== 'renderer';
+  let serving = false;
   const warned = new Set<string>();
   const errors = new WeakSet<object>();
   const ineffectiveImports = new Set<string>();
@@ -78,7 +79,12 @@ export function developmentViteLogging(
   };
   const plugin: Plugin = {
     name: `weq-development-summary-${target}`,
+    configResolved(config) {
+      serving = config.command === 'serve';
+      if (serving) building = false;
+    },
     buildStart() {
+      if (serving) return;
       building = true;
       ineffectiveImports.clear();
       started = now();

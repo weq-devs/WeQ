@@ -11,6 +11,7 @@
  */
 
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
+import type { Duplex } from 'node:stream';
 import { createHTTPHandler } from '@trpc/server/adapters/standalone';
 import { applyWSSHandler } from '@trpc/server/adapters/ws';
 import { TRPCError, type AnyRouter } from '@trpc/server';
@@ -149,12 +150,14 @@ export function attachWsHandler(
   router: AnyRouter,
   auth: Pick<AuthGate, 'isAuthed' | 'watchSession'>,
   host?: HostBridge,
+  extraUpgrade?: (req: IncomingMessage, socket: Duplex, head: Buffer) => boolean,
 ): () => void {
   const wss = new WebSocketServer({ noServer: true });
 
-  server.on('upgrade', (req, socket, head) => {
+  const upgrade = (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     const path = (req.url ?? '').split('?')[0];
     if (path !== '/trpc-ws') {
+      if (extraUpgrade?.(req, socket, head)) return;
       socket.destroy();
       return;
     }
@@ -168,7 +171,8 @@ export function attachWsHandler(
       ws.once('close', unwatch);
       wss.emit('connection', ws, req);
     });
-  });
+  };
+  server.on('upgrade', upgrade);
 
   applyWSSHandler({
     wss,
@@ -182,6 +186,7 @@ export function attachWsHandler(
     }),
   });
   return () => {
+    server.off('upgrade', upgrade);
     for (const client of wss.clients) client.terminate();
     wss.close();
   };

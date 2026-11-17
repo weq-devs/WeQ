@@ -219,7 +219,7 @@ describe('开发进程输出', () => {
 
 function hook(
   plugin: Plugin,
-  name: 'buildStart' | 'writeBundle' | 'closeBundle',
+  name: 'configResolved' | 'buildStart' | 'writeBundle' | 'closeBundle',
   ...args: unknown[]
 ) {
   const value = plugin[name];
@@ -228,6 +228,17 @@ function hook(
   return Reflect.apply(fn, {}, args);
 }
 describe('开发构建摘要', () => {
+  it('开发服务生命周期不误进入打包状态，Web 与桌面热更新持续输出', () => {
+    for (const target of ['web', 'renderer'] as const) {
+      const sink = vi.fn();
+      const logging = developmentViteLogging(target, { WEQ_DEV_CONSOLE: '1' }, sink);
+      hook(logging.plugins[0]!, 'configResolved', { command: 'serve' });
+      hook(logging.plugins[0]!, 'buildStart');
+      logging.config.customLogger!.info('(client) hmr update /App.tsx');
+      expect(sink.mock.calls).toHaveLength(1);
+      expect(sink.mock.calls[0]![0]).toContain(`vite-${target}  热更新 /App.tsx`);
+    }
+  });
   it('真实 Vite 大包告警只显示阈值摘要，不输出通用建议', async () => {
     const { build } = await import('vite');
     const directory = await mkdtemp(join(tmpdir(), 'weq-console-warning-'));

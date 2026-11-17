@@ -40,6 +40,7 @@ export interface RequestOptions {
   /** Mounted at /trpc — created in index.ts so this file stays transport-only. */
   trpc: (req: http.IncomingMessage, res: http.ServerResponse) => void;
   hostBridge?: HostBridge;
+  development?: (req: http.IncomingMessage, res: http.ServerResponse) => Promise<void>;
 }
 
 export interface ServerOptions extends RequestOptions {
@@ -187,6 +188,8 @@ export async function handleRequest(
     }
     return writeResponse(res, new Response(out.body, { status: out.status, headers }));
   }
+
+  if (opts.development) return opts.development(req, res);
 
   await serveStatic(
     res,

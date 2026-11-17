@@ -1,9 +1,10 @@
 import { resolve } from 'node:path';
-import { prepareWebAssets } from '../../scripts/dev-web.mjs';
+import { developmentWeb, prepareWebAssets } from '../../scripts/dev-web.mjs';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { ozonePlatformArgs } from './src/main/linux_window_backend';
+import { successfulDevelopmentReload } from './src/main/development_reload';
 import { tsImport } from 'tsx/esm/api';
 
 // 配置加载器会外置裸包导入；仅开发摘要需要通过现有 TS 加载器读取工作区源码。
@@ -44,6 +45,7 @@ const EXCLUDE_FROM_EXTERNAL = [
 ];
 
 let remoteWebBuilt = false;
+const development = process.env.NODE_ENV_ELECTRON_VITE === 'development';
 const mainLogging = developmentViteLogging('main');
 const preloadLogging = developmentViteLogging('preload');
 const rendererLogging = developmentViteLogging('renderer');
@@ -66,9 +68,11 @@ export default defineConfig({
     clearScreen: false,
     plugins: [
       ...mainLogging.plugins,
+      successfulDevelopmentReload(),
       {
         name: 'weq-remote-web-assets',
         async buildStart() {
+          if (development) return;
           if (remoteWebBuilt) return;
           await prepareWebAssets(resolve(import.meta.dirname, '../..'));
           remoteWebBuilt = true;
@@ -82,6 +86,7 @@ export default defineConfig({
       },
     },
     build: {
+      watch: development ? { buildDelay: 200 } : null,
       rollupOptions: {
         // The voice-transcription recognizer runs in a forked child process,
         // so it must be a SEPARATE entry the main process can `fork()` by path.
@@ -144,7 +149,8 @@ export default defineConfig({
   preload: {
     ...preloadLogging.config,
     clearScreen: false,
-    plugins: [...preloadLogging.plugins, externalizeDepsPlugin()],
+    plugins: [...preloadLogging.plugins, successfulDevelopmentReload(), externalizeDepsPlugin()],
+    build: { watch: development ? { buildDelay: 200 } : null },
   },
   renderer: {
     ...rendererLogging.config,
@@ -152,7 +158,12 @@ export default defineConfig({
     root: resolve(import.meta.dirname, 'src/renderer'),
     // Web 复用 renderer 源码，但不能覆盖桌面进程仍在使用的预构建分块。
     cacheDir: resolve(import.meta.dirname, 'node_modules/.vite-desktop'),
-    plugins: [...rendererLogging.plugins, react(), tailwindcss()],
+    plugins: [
+      ...rendererLogging.plugins,
+      developmentWeb(resolve(import.meta.dirname, '../..')),
+      react(),
+      tailwindcss(),
+    ],
     resolve: {
       alias: {
         '@renderer': resolve(import.meta.dirname, 'src/renderer/src'),
