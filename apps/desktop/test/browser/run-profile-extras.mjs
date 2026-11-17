@@ -105,13 +105,20 @@ async function run() {
       await firstSignature.getByRole('button', { name: '取消签名点赞', exact: true }).waitFor();
       await firstSignature.getByRole('button', { name: '取消签名点赞', exact: true }).click();
       await firstSignature.getByRole('button', { name: '评论', exact: true }).click();
+      assert.equal(await firstSignature.getByLabel('签名评论').count(), 1);
+      assert.equal(
+        await firstSignature.getByRole('button', { name: '写签名评论', exact: true }).count(),
+        0,
+      );
       await firstSignature.locator('.weq-qzn-comment .weq-identity-link strong').first().click();
       assert.equal(
         await page.evaluate(() => document.documentElement.dataset.profileTarget),
         '10001',
       );
       await firstSignature.getByRole('button', { name: '回复评论', exact: true }).click();
-      const signatureEditor = page.getByRole('dialog', { name: '回复合成昵称', exact: true });
+      const signatureEditor = firstSignature.locator(
+        '.weq-qzn-comment .weq-signature-comment-editor',
+      );
       await signatureEditor.getByLabel('签名评论').fill('合成回复验收');
       await page.evaluate(() => window.profileExtrasQa.failNext('signatureComment'));
       await signatureEditor.getByRole('button', { name: '发送评论', exact: true }).click();
@@ -122,6 +129,13 @@ async function run() {
         .getByRole('button', { name: '删除评论：合成回复验收', exact: true })
         .waitFor();
       await signatureEditor.waitFor({ state: 'detached' });
+      assert.equal(await firstSignature.getByLabel('签名评论').inputValue(), '');
+      assert.equal(
+        await firstSignature
+          .getByRole('button', { name: '评论', exact: true })
+          .getAttribute('aria-expanded'),
+        'true',
+      );
       await firstSignature
         .getByRole('button', { name: '删除评论：合成回复验收', exact: true })
         .click();

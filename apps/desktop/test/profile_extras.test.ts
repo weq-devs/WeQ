@@ -203,9 +203,9 @@ it('签名互动复用空间操作栏和评论排版，点赞名单通过悬浮�
     '合成评论正文',
   );
   expect(document.querySelector('.weq-qzn-comment-meta time')).not.toBeNull();
-  expect(document.querySelector('.weq-qzn-comment-composer')).toBeNull();
-  await act(async () =>
-    document.querySelector<HTMLButtonElement>('[aria-label="写签名评论"]')!.click(),
+  expect(document.querySelector('[aria-label="写签名评论"]')).toBeNull();
+  expect(document.querySelector('.weq-qzn-comment-composer [aria-label="签名评论"]')).toBe(
+    document.activeElement,
   );
   expect(
     document.querySelector('.weq-qzn-comment-composer [aria-label="发送评论"]'),

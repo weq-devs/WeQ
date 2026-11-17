@@ -30,6 +30,7 @@ const server = await createServer({
 let browser;
 const errors = [];
 let cases = 0;
+const signaturesOnly = process.argv.includes('--signatures');
 try {
   await server.listen();
   browser = await chromium.launch({
@@ -150,7 +151,7 @@ try {
           field: 'OneBot 服务器名称',
           path: 'bootstrap.saveOneBotServer',
         },
-      ]) {
+      ].filter(() => !signaturesOnly)) {
         console.log(`checking ${spec.surface} ${width} ${theme}`);
         await open(spec.surface);
         const add = page.getByRole('button', { name: spec.add, exact: true });
@@ -200,38 +201,76 @@ try {
         cases += 2;
       }
       await open('signature');
+      assert.equal(await page.getByRole('button', { name: '写签名评论', exact: true }).count(), 0);
       await page.getByRole('button', { name: '评论', exact: true }).click();
+      const editor = page.getByLabel('签名评论', { exact: true });
+      assert(await editor.evaluate((node) => node === document.activeElement));
+      assert.equal(await page.getByRole('dialog').count(), 0);
+      await editor.fill('合成回复');
+      await page.getByRole('button', { name: '评论', exact: true }).click();
+      assert.equal(await editor.count(), 0);
+      await page.getByRole('button', { name: '评论', exact: true }).click();
+      assert.equal(await editor.inputValue(), '合成回复');
       const reply = page.getByRole('button', { name: '回复评论', exact: true }).first();
       await reply.click();
-      let dialog = page.getByRole('dialog', { name: '回复合成好友', exact: true });
-      await check(dialog);
-      await dialog.getByLabel('签名评论', { exact: true }).fill('合成回复');
+      const replyEditor = page.locator('.weq-qzn-comment .weq-signature-comment-editor');
+      await replyEditor.waitFor();
+      assert(await editor.evaluate((node) => node === document.activeElement));
+      assert.equal(await editor.inputValue(), '合成回复');
+      await page.getByRole('button', { name: '取消回复', exact: true }).click();
+      await replyEditor.waitFor({ state: 'detached' });
+      assert.equal(await editor.inputValue(), '合成回复');
+      await reply.click();
       await page.evaluate(() => {
         window.disclosureQa.fail = true;
       });
-      await dialog.getByRole('button', { name: '发送评论', exact: true }).click();
-      await dialog.getByText('合成操作失败', { exact: true }).waitFor();
-      assert.equal(await dialog.getByLabel('签名评论', { exact: true }).inputValue(), '合成回复');
+      await page.getByRole('button', { name: '发送评论', exact: true }).click();
+      await replyEditor.getByRole('alert').waitFor();
+      assert.equal(await editor.inputValue(), '合成回复');
+      await editor.fill('LongCommentWithoutSpaces'.repeat(10));
+      const overflow = await page
+        .locator('.weq-signature-interactions')
+        .evaluate((node) =>
+          [
+            node,
+            ...node.querySelectorAll(
+              '.weq-qzn-comment, .weq-signature-comment-editor, form, textarea',
+            ),
+          ]
+            .filter((child) => child.scrollWidth > child.clientWidth + 2)
+            .map((child) => child.className),
+        );
+      assert.deepEqual(overflow, [], `${width}/${theme}: signature editor overflow`);
       if (output)
         await page.screenshot({ path: resolve(output, `signature-${width}-${theme}.png`) });
+      await editor.fill('合成回复');
       await page.evaluate(() => {
         window.disclosureQa.fail = false;
       });
-      await dialog.getByRole('button', { name: '发送评论', exact: true }).click();
-      await dialog.waitFor({ state: 'detached' });
-      assert(await reply.evaluate((node) => node === document.activeElement));
+      await page.getByRole('button', { name: '发送评论', exact: true }).click();
+      await replyEditor.waitFor({ state: 'detached' });
+      assert.equal(await editor.inputValue(), '');
+      assert.equal(await page.getByRole('dialog').count(), 0);
+      assert.equal(
+        await page.getByRole('button', { name: '评论', exact: true }).getAttribute('aria-expanded'),
+        'true',
+      );
       const sent = await page.evaluate(() => window.disclosureQa.calls.at(-1));
       assert.equal(sent.input.replyId, 'comment-0');
-      await page.getByRole('button', { name: '写签名评论', exact: true }).click();
-      dialog = page.getByRole('dialog', { name: '写签名评论', exact: true });
-      await check(dialog);
-      await page.keyboard.press('Escape');
-      await dialog.waitFor({ state: 'detached' });
-      cases += 2;
+      await editor.fill('合成普通评论');
+      await page.getByRole('button', { name: '发送评论', exact: true }).click();
+      await page.waitForFunction(() => document.querySelector('textarea')?.value === '');
+      const rootComment = await page.evaluate(() => window.disclosureQa.calls.at(-1));
+      assert.equal(rootComment.input.replyId, undefined);
+      cases += 4;
+      if (signaturesOnly) {
+        await page.close();
+        continue;
+      }
       await open('permissions');
       const add = page.getByRole('button', { name: '添加到不让 ta 看我的空间', exact: true });
       await add.click();
-      dialog = page.getByRole('dialog', { name: '添加到不让 ta 看我的空间', exact: true });
+      const dialog = page.getByRole('dialog', { name: '添加到不让 ta 看我的空间', exact: true });
       await check(dialog);
       await dialog
         .getByLabel('搜索好友或输入 QQ 号：不让 ta 看我的空间', { exact: true })

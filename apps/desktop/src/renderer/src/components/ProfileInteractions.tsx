@@ -1,11 +1,10 @@
 import { NumericText } from './NumericText';
 import { eventTimeFormatter } from '@weq/time';
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowDown,
   ImagePlus,
   MessageCircle,
-  PenLine,
   Reply,
   RefreshCw,
   Send,
@@ -24,7 +23,6 @@ import type {
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 import { client, trpc } from '../trpc/client';
 import { useDialog } from './Dialog';
-import { EditorDialog } from './EditorDialog';
 import { QqAvatar } from './QqAvatar';
 import { ProfileAvatar } from './ProfileAvatar';
 import { QzoneLikesPopover } from './QzoneLikesPopover';
@@ -125,6 +123,7 @@ function CommentRows({
   reply,
   remove,
   canRemove,
+  renderReply,
   qzone = false,
   disabled = false,
 }: {
@@ -132,6 +131,7 @@ function CommentRows({
   reply?: (item: ProfileComment) => void;
   remove?: (item: ProfileComment) => void;
   canRemove?: (item: ProfileComment) => boolean;
+  renderReply?: (item: ProfileComment) => ReactNode;
   qzone?: boolean;
   disabled?: boolean;
 }) {
@@ -202,6 +202,7 @@ function CommentRows({
               ) : null}
               {qzone ? <p>{item.text}</p> : <span>：{item.text}</span>}
               {qzone ? tools : null}
+              {renderReply?.(item)}
             </div>
             {!qzone ? tools : null}
           </li>
@@ -227,8 +228,8 @@ export function SignatureInteractions({
   const [expanded, setExpanded] = useState(false),
     [showLikes, setShowLikes] = useState(false);
   const [content, setContent] = useState(''),
-    [reply, setReply] = useState<ProfileComment | null>(null);
-  const [composerOpen, setComposerOpen] = useState(false);
+    [selectedReplyId, setReplyId] = useState<string | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const [likedOverride, setLiked] = useState<boolean | null>(null);
   const [added, setAdded] = useState<ProfileComment[]>([]),
     [removed, setRemoved] = useState<string[]>([]);
@@ -243,6 +244,11 @@ export function SignatureInteractions({
   const comments = [
     ...new Map([...(item.commentItems ?? []), ...added].map((row) => [row.id, row])).values(),
   ].filter((row) => !removed.includes(row.id));
+  const reply = comments.find((comment) => comment.id === selectedReplyId) ?? null;
+  const replyId = reply?.id;
+  useEffect(() => {
+    if (expanded) composerRef.current?.focus();
+  }, [expanded, replyId]);
   async function reload() {
     try {
       await refresh();
@@ -251,6 +257,81 @@ export function SignatureInteractions({
       /* 写入已完成，保留当前互动，列表可独立刷新。 */
     }
   }
+  const composer = online ? (
+    <div className="weq-signature-comment-editor">
+      {reply ? (
+        <div className="weq-profile-reply-target">
+          <span>回复 {name(reply.fromUin, reply.fromName)}</span>
+          <button
+            type="button"
+            title="取消回复"
+            aria-label="取消回复"
+            disabled={op.pending}
+            onClick={() => setReplyId(null)}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      ) : null}
+      <form
+        className="weq-profile-comment-form weq-qzn-comment-composer"
+        aria-busy={op.pending || undefined}
+        onSubmit={(event) => {
+          event.preventDefault();
+          const text = content.trim();
+          if (text)
+            void op.run(async () => {
+              const result = await client.account.qqActions.signatureComment.mutate({
+                ...input,
+                id: item.id,
+                text,
+                replyId: reply?.id,
+              });
+              if (op.mounted.current) {
+                if (result.commentId)
+                  setAdded((rows) => [
+                    ...rows,
+                    {
+                      id: result.commentId!,
+                      text,
+                      fromUin: input.expectedAccountUin,
+                      fromName: '我',
+                      toUin: reply?.fromUin ?? null,
+                      toName: reply?.fromName ?? null,
+                      replyId: reply?.id ?? null,
+                      time: Math.floor(Date.now() / 1000),
+                    },
+                  ]);
+                setContent('');
+                setReplyId(null);
+              }
+              await reload();
+            });
+        }}
+      >
+        <textarea
+          ref={composerRef}
+          aria-label="签名评论"
+          placeholder={reply ? `回复 ${name(reply.fromUin, reply.fromName)}` : '写评论'}
+          maxLength={4096}
+          rows={2}
+          value={content}
+          disabled={op.pending}
+          onChange={(event) => setContent(event.target.value)}
+        />
+        <button
+          type="submit"
+          className="weq-set-iconbtn"
+          title="发送评论"
+          aria-label="发送评论"
+          disabled={op.pending || !content.trim()}
+        >
+          <Send size={16} />
+        </button>
+      </form>
+      {op.error ? <p role="alert">{op.error}</p> : null}
+    </div>
+  ) : null;
   return (
     <div className="weq-signature-interactions">
       <div className="weq-qzn-actions">
@@ -329,34 +410,16 @@ export function SignatureInteractions({
           <MessageCircle size={16} />
           评论
         </button>
-        <button
-          type="button"
-          title="写签名评论"
-          aria-label="写签名评论"
-          disabled={!online || (op.pending && !composerOpen)}
-          onClick={() => {
-            setReply(null);
-            setComposerOpen(true);
-          }}
-        >
-          <PenLine size={16} />
-          写评论
-        </button>
       </div>
       {expanded ? (
         <div className="weq-qzn-interaction">
+          {!reply ? composer : null}
           <CommentRows
             qzone
             items={comments}
-            disabled={op.pending && !composerOpen}
-            reply={
-              online
-                ? (comment) => {
-                    setReply(comment);
-                    setComposerOpen(true);
-                  }
-                : undefined
-            }
+            disabled={op.pending}
+            reply={online ? (comment) => setReplyId(comment.id) : undefined}
+            renderReply={(comment) => (reply?.id === comment.id ? composer : null)}
             canRemove={(comment) =>
               comment.fromUin === input.expectedAccountUin || input.uin === input.expectedAccountUin
             }
@@ -376,83 +439,17 @@ export function SignatureInteractions({
                       });
                       if (op.mounted.current) {
                         setRemoved((rows) => [...rows, comment.id]);
-                        if (reply?.id === comment.id) setReply(null);
+                        if (reply?.id === comment.id) setReplyId(null);
                       }
                       await reload();
                     })
                 : undefined
             }
           />
+          {!comments.length ? <p className="weq-profile-like-summary">暂无评论</p> : null}
         </div>
       ) : null}
-      {composerOpen ? (
-        <EditorDialog
-          title={reply ? `回复${name(reply.fromUin, reply.fromName)}` : '写签名评论'}
-          onClose={() => setComposerOpen(false)}
-          busy={op.pending}
-        >
-          {reply ? (
-            <blockquote className="weq-profile-reply-target">{reply.text}</blockquote>
-          ) : null}
-          <form
-            className="weq-profile-comment-form weq-qzn-comment-composer"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const text = content.trim();
-              if (text)
-                void op.run(async () => {
-                  const result = await client.account.qqActions.signatureComment.mutate({
-                    ...input,
-                    id: item.id,
-                    text,
-                    replyId: reply?.id,
-                  });
-                  if (op.mounted.current) {
-                    if (result.commentId)
-                      setAdded((rows) => [
-                        ...rows,
-                        {
-                          id: result.commentId!,
-                          text,
-                          fromUin: input.expectedAccountUin,
-                          fromName: '我',
-                          toUin: reply?.fromUin ?? null,
-                          toName: reply?.fromName ?? null,
-                          replyId: reply?.id ?? null,
-                          time: Math.floor(Date.now() / 1000),
-                        },
-                      ]);
-                    setContent('');
-                    setReply(null);
-                    setComposerOpen(false);
-                  }
-                  await reload();
-                });
-            }}
-          >
-            <textarea
-              aria-label="签名评论"
-              placeholder="写评论"
-              maxLength={4096}
-              rows={2}
-              value={content}
-              disabled={!online || op.pending}
-              onChange={(event) => setContent(event.target.value)}
-            />
-            <button
-              type="submit"
-              className="weq-set-iconbtn"
-              title="发送评论"
-              aria-label="发送评论"
-              disabled={!online || op.pending || !content.trim()}
-            >
-              <Send size={16} />
-            </button>
-          </form>
-          {op.error ? <p role="alert">{op.error}</p> : null}
-        </EditorDialog>
-      ) : null}
-      {!composerOpen && op.error ? <p role="status">{op.error}</p> : null}
+      {(!expanded || !online) && op.error ? <p role="status">{op.error}</p> : null}
     </div>
   );
 }
