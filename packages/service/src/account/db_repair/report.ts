@@ -134,7 +134,13 @@ export function renderDbRepairReportMarkdown(
   if (!record.verification) {
     lines.push('（没有自检结果；请结合失败原因与阶段记录核对替换状态）');
   } else {
-    lines.push(`- 完整性检查：${record.verification.healthy ? '通过' : '**未通过**'}`);
+    lines.push(
+      `- 完整性检查：${record.verification.healthy ? (record.verification.complete === false ? '已检查部分通过，仍有未核验项' : '通过') : '**未通过**'}`,
+    );
+    if (record.verification.complete === false)
+      lines.push(
+        `- 未完成核验的结构：${record.verification.unverifiedTables?.join('、') || '部分结构检查'}`,
+      );
     lines.push(
       `- 有问题的表：${record.verification.corruptedTables.length === 0 ? '（无）' : record.verification.corruptedTables.join('、')}`,
     );
@@ -148,7 +154,7 @@ export function renderDbRepairReportMarkdown(
   if (record.backupPath && record.purgedAt === undefined) {
     lines.push(`- 备份：\`${record.backupPath}\``);
     lines.push(`- 备份体积：${formatBytes(record.backupBytes)}`);
-    lines.push('- 回滚方式：设置 → 数据与存储 → 维护工具 → 数据库修复 → 修复记录与回滚 → 「回滚」');
+    lines.push('- 恢复方式：数据库修复 → 历史报告 → 「恢复备份」');
   } else if (record.backupPath && record.purgedAt !== undefined) {
     lines.push(`- 备份已被保留策略清理（${formatLocalTime(record.purgedAt)}），不可回滚。`);
   } else {

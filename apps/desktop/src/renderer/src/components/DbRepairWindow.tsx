@@ -17,6 +17,7 @@ import { ToastHost } from './Toast';
 import { NotificationSourceProvider } from '../lib/notificationNavigation';
 import { notificationSource } from '../lib/notificationNavigation.shared';
 import '../styles/db-repair-window.css';
+import { useDatabaseMaintenanceNotifications } from '../hooks/useDatabaseMaintenanceNotifications';
 
 const DbRepairPanel = lazyPanel<ComponentProps<typeof import('./DbRepairPanel').DbRepairPanel>>(
   () => import('./DbRepairPanel').then((module) => ({ default: module.DbRepairPanel })),
@@ -33,6 +34,7 @@ export function DbRepairWindowRequest({ account }: { account: DbRepairAccountOpt
 
 /** 挂在 App：主界面返回首页或关闭设置，不会卸载正在使用的修复系统窗。 */
 export function DbRepairWindowHost() {
+  useDatabaseMaintenanceNotifications();
   const request = useDbRepairWindow((state) => state.request);
   const locked = useAppLock((state) => state.locked);
   const utils = trpc.useUtils();
@@ -44,6 +46,13 @@ export function DbRepairWindowHost() {
     bodyClass: 'weq-db-repair-window-body',
   });
   const [account, setAccount] = useState<DbRepairAccountOption | null>(null);
+  useEffect(() => {
+    if (account)
+      window.electron?.ipcRenderer.send('db-repair:scope', {
+        uin: account.uin,
+        configId: account.configId,
+      });
+  }, [account]);
   const owned = useRef<Window | null>(null);
   const open = tool.open;
   useEffect(() => {
@@ -95,6 +104,12 @@ export function DbRepairWindowHost() {
                   <DbRepairPanel
                     currentUin={account.uin}
                     accounts={[account]}
+                    reportId={
+                      request?.uin === account.uin && request.configId === account.configId
+                        ? request.reportId
+                        : account.reportId
+                    }
+                    resultRequest={request ?? undefined}
                     onRefreshAccounts={() => {
                       void utils.bootstrap.listAccountConfigs.invalidate();
                     }}

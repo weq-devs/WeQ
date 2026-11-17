@@ -14,6 +14,9 @@ const { leaveAccount, pushToast } = vi.hoisted(() => ({
   leaveAccount: vi.fn(async () => {}),
   pushToast: vi.fn(),
 }));
+vi.mock('../src/renderer/src/hooks/useDatabaseMaintenanceNotifications', () => ({
+  useDatabaseMaintenanceNotifications() {},
+}));
 vi.mock('../src/renderer/src/lib/leaveAccount', () => ({
   leaveAccountForBootstrap: leaveAccount,
 }));

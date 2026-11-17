@@ -1384,3 +1384,15 @@ export type {
   DatabaseStepProgress,
   DatabaseWorkProgress,
 } from './account/db_repair/progress';
+export {
+  DatabaseMaintenance,
+  DatabaseMaintenanceReports,
+  renderDatabaseMaintenanceReport,
+} from './account/db_repair';
+export type {
+  DatabaseMaintenanceSnapshot,
+  DatabaseMaintenanceReport,
+  DatabaseMaintenanceScope,
+  DatabaseMaintenanceRow,
+  DatabaseMaintenanceOperation,
+} from './account/db_repair/maintenance_types';

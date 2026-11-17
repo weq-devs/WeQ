@@ -16,7 +16,7 @@ export interface DatabaseStepProgress extends DatabaseWorkProgress {
 }
 
 export interface DatabaseTaskProgress {
-  kind: 'checkup' | 'repair';
+  kind: 'scan' | 'checkup' | 'repair';
   dbName: string;
   startedAt: number;
   updatedAt: number;
@@ -57,9 +57,21 @@ export class DatabaseProgressTracker {
     private readonly kind: DatabaseTaskProgress['kind'],
     private readonly dbName: string,
     private readonly now: () => number = Date.now,
-  ) {}
+    seed?: DatabaseTaskProgress,
+  ) {
+    if (seed) this.snapshot = { ...seed, kind, status: 'running', steps: [...seed.steps] };
+  }
 
-  update(phase: string, tick: DatabaseWorkProgress): DatabaseTaskProgress {
+  update(phase: string, work: DatabaseWorkProgress): DatabaseTaskProgress {
+    const tick: DatabaseWorkProgress =
+      work.step === 'integrity-unverified' || work.step.endsWith('-integrity-unverified')
+        ? {
+            ...work,
+            status: work.status ?? 'skipped',
+            outcome: work.outcome ?? 'unverified',
+            detail: work.detail ?? 'QQ 专用分词器不可用，相关虚拟表未完成核验。',
+          }
+        : work;
     if (this.snapshot && this.snapshot.status !== 'running') return this.snapshot;
     const at = this.now();
     const old = this.snapshot;
@@ -132,7 +144,15 @@ export class DatabaseProgressTracker {
       const index = steps.findIndex((step) => step.step === 'integrity');
       if (index >= 0) steps[index] = { ...steps[index]!, outcome: 'abnormal' };
     }
-    const retained = steps.slice(-63);
+    const retained = steps.filter(
+      (step, index) =>
+        index >= steps.length - 63 ||
+        step.status === 'failed' ||
+        step.status === 'incomplete' ||
+        step.outcome === 'abnormal' ||
+        step.status === 'skipped' ||
+        step.outcome === 'unverified',
+    );
     const summary = steps.find((step) => step.step === 'integrity');
     if (this.kind === 'checkup' && summary && !retained.includes(summary)) retained[0] = summary;
     this.snapshot = {

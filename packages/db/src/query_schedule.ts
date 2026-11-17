@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { resolve } from 'node:path';
 import type { DatabaseReadTiming, NtHelperBinding } from '@weq/native';
+import { databaseUnderMaintenance } from './maintenance';
 import {
   beginQueryTrace,
   databaseQueryDiagnostics,
@@ -125,6 +126,9 @@ export function databaseReadBudget() {
 const promotedSignals = new WeakSet<AbortSignal>();
 export function databaseRequestSignal(): AbortSignal | undefined {
   return priority.getStore()?.signal;
+}
+export function databaseRequestPriority(): DatabasePriority {
+  return priority.getStore()?.priority ?? 'interactive';
 }
 export function withDatabasePriority<T>(
   value: DatabasePriority,
@@ -553,7 +557,12 @@ export async function waitForDatabaseQuiet(
         (queue.running || queue.interactive.length || queue.background.length),
     );
     const data = metric(key);
-    if (!active && performance.now() - data.lastInteractiveAt >= quietMs) return true;
+    if (
+      !databaseUnderMaintenance(dbPath) &&
+      !active &&
+      performance.now() - data.lastInteractiveAt >= quietMs
+    )
+      return true;
     if (!notified) {
       onWait?.();
       notified = true;

@@ -67,4 +67,8 @@ it('修复入口按任务的数据源解析，同号备份不串库，显式来�
   expect((await caller.status({ uin: '10001', configId: 'missing' })).dbDir).toBe('');
   await rm(join(state.root, 'backup', 'nt_msg.db'));
   expect((await caller.status({ uin: '10001', configId: 'backup' })).dbDir).toBe('');
+  await writeFile(join(state.root, 'backup', 'profile.db'), 'synthetic profile');
+  expect((await caller.status({ uin: '10001', configId: 'backup' })).dbDir).toBe(
+    join(state.root, 'backup'),
+  );
 });

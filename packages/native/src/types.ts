@@ -339,6 +339,9 @@ export interface DatabaseProbeResult {
 }
 
 export interface DatabaseHealthResult {
+  /** false 时 healthy 只描述已检查部分。 */
+  complete?: boolean;
+  unverifiedTables?: string[];
   healthy: boolean;
   corruptedTables: string[];
 }
@@ -483,6 +486,8 @@ export interface RecoverOptions {
   sourceLayout?: 'qq' | 'standard';
   /** 目标库逻辑页布局（默认 `qq`；迁移固定为 `qq`）。 */
   targetLayout?: 'qq' | 'standard';
+  /** 同一维护锁内已完成的源库扫描，修复不得重新扫描源库。 */
+  sourceScan?: BadPageScanResult;
 }
 
 /** 一次进度回调（napi 的 TSFN 约定：第一个参数是投递失败的错误）。 */
@@ -515,6 +520,9 @@ export interface RecoverPhaseTiming {
 
 /** 产物自检结果。 */
 export interface RecoverVerification {
+  /** 结构复核覆盖是否完整；未核验项不能当作已经修复。 */
+  complete?: boolean;
+  unverifiedTables?: string[];
   /** `PRAGMA integrity_check`（经 offset VFS + 密钥）是否通过。 */
   healthy: boolean;
   /** 自检判定有问题的表（正常为空）。 */
@@ -1145,10 +1153,17 @@ export interface NtHelperBinding {
   safeDecryptDatabase(dbPath: string, outPath: string, key: string, algo: DatabaseAlgorithms): void;
 
   // --- database repair ---
+  beginDatabaseMaintenance?(
+    id: string,
+    targets: Array<{ dbPath: string; key: string; algo: DatabaseAlgorithms }>,
+  ): Promise<Array<{ dbPath: string; error?: string }>>;
+  protectDatabaseMaintenanceProduct?(id: string, dbPath: string, product: string): void;
+  endDatabaseMaintenance?(id: string): boolean;
+  setDatabaseMaintenanceWriteBarrier?(id: string, paths: string[], enabled: boolean): void;
   /** 1 = 提前释放明文源库并直接写带头产物；旧模块没有该方法。 */
   databaseRepairStorageVersion?(): number;
   /**
-   * 修复损坏的库，产出一份可直接使用的新库：坏页扫描 → 解密（不校验页 HMAC，
+   * 消费同一维护锁内的 sourceScan，产出新库：解密（不校验页 HMAC，
    * 所以坏页也能救回大部分 cell）→ SQLite 官方 `recover` 重建 → 用 QQ 的参数
    * 重新加密 → 补回自定义头 → 自检。**源库只读**，产物写到 `options.outPath`。
    *

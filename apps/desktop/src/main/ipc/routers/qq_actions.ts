@@ -99,6 +99,7 @@ async function image(
 export function createQQActionsRouter(
   resolve: (input: QQWriteBinding) => QQActionServices,
   resolveStatus = resolve,
+  assertWritable?: (input: QQWriteBinding) => void,
 ) {
   const busy = new WeakSet<QQActionServices>();
   const videoStaging = new AlbumVideoStaging();
@@ -110,10 +111,12 @@ export function createQQActionsRouter(
     input: QQWriteBinding,
     action: (s: QQActionServices, current: () => void) => Promise<unknown>,
   ) => {
+    assertWritable?.(input);
     const services = resolve(input);
     if (busy.has(services)) throw new Error('请等待当前 QQ 操作完成');
     const pid = services.accountConfig.getRecord()?.qqPid;
     const current = () => {
+      assertWritable?.(input);
       if (resolve(input) !== services || services.accountConfig.getRecord()?.qqPid !== pid)
         throw new Error('账号或 QQ 运行时已改变，请核对 QQ 后重新打开');
     };

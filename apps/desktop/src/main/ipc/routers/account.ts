@@ -22,7 +22,7 @@ import {
   assertResourceSource,
 } from './resource_source';
 import { exportContentPolicyInput, exportExtraInput } from '../../../shared/export_content';
-import { withDatabaseRequest } from '@weq/db';
+import { withDatabaseRequest, assertDatabaseWritable } from '@weq/db';
 import { clearFinishedTasks } from './clear_finished_tasks';
 import { cardDisplayNames } from './card_display_names';
 import { readContactSpecialCare } from './contact_special_care';
@@ -246,6 +246,14 @@ function requireExpectedAccount(expected?: string, expectedConfigId?: string): A
   if (expectedConfigId && ctx.services?.accountConfig.getRecord()?.configId !== expectedConfigId)
     throw new DOMException('账号数据源已切换，已停止操作', 'AbortError');
   return requireServices();
+}
+function assertCurrentAccountWritable(input: {
+  expectedAccountUin: string;
+  expectedAccountConfigId: string;
+}): void {
+  requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+  const account = getAppContext().account;
+  if (account) assertDatabaseWritable(account.msgDbPath);
 }
 
 async function scopedGroupRead<T>(
@@ -2055,6 +2063,7 @@ export const accountRouter = router({
       return services;
     },
     (input) => requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
+    assertCurrentAccountWritable,
   ),
   qqWrite: createQQWriteRouter(
     (input) => {
@@ -2066,6 +2075,7 @@ export const accountRouter = router({
       return services;
     },
     (input) => requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
+    assertCurrentAccountWritable,
   ),
   analysisReports: createAnalysisReportsRouter((input) =>
     requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),

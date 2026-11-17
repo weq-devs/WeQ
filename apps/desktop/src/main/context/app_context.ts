@@ -257,6 +257,7 @@ export interface AccountForcedClosedEvent {
    * 数据库修复页，并把账号预选好。多账号下不传这个就会修到别人的库上。
    */
   uin: string;
+  configId?: string;
   title: string;
   message: string;
   details: string[];
@@ -827,6 +828,7 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
         reason: 'database-damaged',
         kind: confirmed ? 'confirmed' : 'check-error',
         uin: session.context.uin,
+        configId: ctx.services?.accountConfig.getRecord()?.configId,
         title: confirmed ? '数据库损坏' : '数据库无法读取',
         message: confirmed
           ? '数据库健康检查检出了损坏，已生成检查报告；请保留原件并核对原因后再决定是否修复。'
@@ -865,6 +867,7 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
         reason: 'database-damaged',
         kind: 'check-error',
         uin: session.context.uin,
+        configId: ctx.services?.accountConfig.getRecord()?.configId,
         title: '数据库无法读取',
         message:
           '数据库健康检查未能完成，尚不能确认文件损坏。请先核对数据源、密钥和加密算法，并保留原库。',
@@ -3493,7 +3496,21 @@ export function initAppContext(fileRoot?: string): AppContext {
           const storePath = tweetsStorePath(userConfig.cacheDir('weq-assistant'));
           const tweets = ensureDefaultTweets(storePath);
           const logo = resolveResource('brand', 'logo.png') ?? undefined;
-          await svc.syncTweets(boundPort, tweets, logo);
+          const syncingAccount = this.account;
+          const writes = new AbortController();
+          const closing = (account: AccountSession | null) => {
+            if (account === syncingAccount) writes.abort();
+          };
+          accountEventBus.on('closing', closing);
+          try {
+            await withDatabasePriority(
+              'background',
+              () => svc.syncTweets(boundPort, tweets, logo),
+              writes.signal,
+            );
+          } finally {
+            accountEventBus.off('closing', closing);
+          }
         } catch (error) {
           logger.error('failed to sync weq assistant tweets', {
             event: 'weq-ensure-failed',

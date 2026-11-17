@@ -72,6 +72,10 @@ function TaskDetails({
   refresh: () => Promise<unknown>;
 }) {
   const { task } = entry;
+  const maintenance = trpc.dbRepair.maintenance.useQuery(
+    { uin: task.scope?.uin ?? '', configId: task.scope?.configId },
+    { enabled: task.destination === 'db-checkup' && !!task.scope?.uin, refetchInterval: 2000 },
+  );
   const navigation = backgroundTaskNavigation(task);
   const hostDetails = trpc.backgroundTasks.details.useQuery(
     { id: task.id, scope, updatedAt: task.updatedAt },
@@ -114,7 +118,18 @@ function TaskDetails({
   return (
     <div className="weq-background-task-details">
       {task.databaseProgress ? (
-        <DatabaseMaintenanceProgress progress={task.databaseProgress} compact />
+        <DatabaseMaintenanceProgress
+          progress={task.databaseProgress}
+          batch={
+            task.databaseBatch
+              ? {
+                  ...task.databaseBatch,
+                  locked: maintenance.data?.state === 'waiting' && maintenance.data.locked,
+                }
+              : undefined
+          }
+          compact
+        />
       ) : (
         <TaskProgressDetails
           name={task.name}

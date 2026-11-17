@@ -489,10 +489,6 @@ import {
 import { qqMessageRenderer } from '../components/QqMessageContent.shared';
 import { ReplyJumpContext, ForwardKindContext, ConvContext } from '../state/messageContext';
 import type { ReplyJumpTarget } from '../components/QqMessageContent';
-import {
-  DatabaseDamagedDialog,
-  type DatabaseDamagedEvent,
-} from '../components/DatabaseDamagedDialog';
 
 const AnalysisReportPage = lazy(() =>
   import('./analysis/AnalysisReportPage').then((module) => ({
@@ -973,7 +969,6 @@ function MainWorkspace(): ReactElement {
       setRefreshingContacts(false);
     }
   };
-  const [damagedEvent, setDamagedEvent] = useState<DatabaseDamagedEvent | null>(null);
 
   // ARK Feed 显示状态（公众号/服务号消息流）
   const [arkFeedState, setArkFeedState] = useState<{
@@ -1110,21 +1105,6 @@ function MainWorkspace(): ReactElement {
     messageScopeRef,
     dbRevisionRef,
   ]);
-
-  useEffect(() => {
-    const sub = client.bootstrap.onAccountForcedClosed.subscribe(undefined, {
-      onData(event) {
-        // Defensive: only react to a real database-damaged event.
-        if (event?.reason !== 'database-damaged') return;
-        // 不强制退回 bootstrap：只弹窗提示，用户可关闭后继续使用。
-        setDamagedEvent(event);
-      },
-      onError(err) {
-        console.error('[account] onAccountForcedClosed subscription error', err);
-      },
-    });
-    return () => sub.unsubscribe();
-  }, []);
 
   useEnhancementUpdates();
 
@@ -1339,9 +1319,12 @@ function MainWorkspace(): ReactElement {
     }
     if (tool === 'db-repair') {
       setMaintenanceTool(null);
-      useDbRepairWindow
-        .getState()
-        .open({ uin: openedUin ?? '', name: user.displayName, avatarUrl: user.avatarUrl ?? '' });
+      useDbRepairWindow.getState().open({
+        uin: openedUin ?? '',
+        configId,
+        name: user.displayName,
+        avatarUrl: user.avatarUrl ?? '',
+      });
       return;
     }
     setMaintenanceTool(tool);
@@ -9340,6 +9323,7 @@ function MainWorkspace(): ReactElement {
               tool={maintenanceTool}
               account={{
                 uin: openedUin ?? '',
+                configId,
                 name: user.displayName,
                 avatarUrl: user.avatarUrl ?? '',
               }}
@@ -9438,22 +9422,6 @@ function MainWorkspace(): ReactElement {
             open={qzoneAlbumOpen}
             onClose={() => setQzoneAlbumOpen(false)}
             hostUin={user.identityValue}
-          />
-          <DatabaseDamagedDialog
-            event={damagedEvent}
-            onClose={() => setDamagedEvent(null)}
-            onOpenSettings={(section) => {
-              // 宽容级别只能在设置页里选，弹窗只负责把人送过去。
-              setSettingsSection(section);
-              setMaintenanceTool(null);
-              setSettingsOpen(true);
-            }}
-            onOpenRepair={() => {
-              // 故障捷径复用数据与维护的修复面板，进度与回滚仍走原服务。
-              // 修复对象只能是当前登录的账号，所以这里不需要带 uin —— 面板自己取当前账号。
-              setDamagedEvent(null);
-              openMaintenance('db-repair');
-            }}
           />
           {dressUpOpen ? (
             <DressUpDialog

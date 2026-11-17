@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { AccountServices } from '../../context/app_context';
-import { procedure, router } from '../trpc';
+import { procedure as baseProcedure, router } from '../trpc';
 import { groupMemberToWire, userProfileToWire } from '../serde';
 import { QQ_REGIONS, QQ_PROFESSIONS } from '@weq/protocol';
 import { PROFILE_DISPLAY_KEYS } from '@weq/protocol';
@@ -96,7 +96,15 @@ async function getGroupRole(services: QQWriteServices, groupId: number) {
 export function createQQWriteRouter(
   resolve: (input: QQWriteBinding) => QQWriteServices,
   read: (input: QQWriteBinding) => QQWriteServices,
+  assertWritable?: (input: QQWriteBinding) => void,
 ) {
+  const procedure = baseProcedure.use(({ type, rawInput, next }) => {
+    if (type === 'mutation') {
+      const input = binding.safeParse(rawInput);
+      if (input.success) assertWritable?.(input.data);
+    }
+    return next();
+  });
   return router({
     selfProfileDisplaySettings: procedure.input(binding.strict()).query(async ({ input }) => {
       const services = resolve(input);

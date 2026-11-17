@@ -275,10 +275,13 @@ export function pendingWalBytes(dbPath: string): number {
  * 或只多一个旧 `-shm`、或只有**空**`-wal`，都一切正常，所以罪魁就是非空 `-wal` 的
  * 帧。空的 sidecar 无害，但这里按"有就删"处理，不留任何含糊状态。
  */
-export function removeSqliteSidecars(dbPath: string): string[] {
-  const { wal, shm } = sqliteSidecarPaths(dbPath);
+export function removeSqliteSidecars(
+  dbPath: string,
+  suffixes: readonly string[] = ['-wal', '-shm'],
+): string[] {
   const removed: string[] = [];
-  for (const path of [wal, shm]) {
+  for (const suffix of suffixes) {
+    const path = `${dbPath}${suffix}`;
     if (!existsSync(path)) continue;
     removeQuietly(path);
     if (!existsSync(path)) removed.push(path);

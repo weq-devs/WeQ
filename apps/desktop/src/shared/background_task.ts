@@ -30,6 +30,8 @@ export interface BackgroundTask {
   statusLabel?: string;
   progress?: number;
   databaseProgress?: DatabaseTaskProgress;
+  databaseBatch?: DatabaseMaintenanceOperation & { locked: boolean };
+  diagnosticAbnormal?: boolean;
   note?: string;
   details?: string[];
   logs?: BackgroundTaskLogLine[];
@@ -70,6 +72,8 @@ type TaskPatch = Partial<
     | 'logs'
     | 'reportId'
     | 'databaseProgress'
+    | 'databaseBatch'
+    | 'diagnosticAbnormal'
   >
 >;
 export type BackgroundTaskAction = {
@@ -299,4 +303,4 @@ export class BackgroundTaskRegistry {
     }
   }
 }
-import type { DatabaseTaskProgress } from '@weq/service';
+import type { DatabaseTaskProgress, DatabaseMaintenanceOperation } from '@weq/service';

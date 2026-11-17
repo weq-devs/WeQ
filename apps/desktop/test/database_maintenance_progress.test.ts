@@ -35,7 +35,7 @@ it('步骤在同一时间线展示一次，无分母时使用不定进度，失�
     expect(host.querySelectorAll('.weq-db-progress-timeline')).toHaveLength(1);
     expect(host.textContent?.match(/解密源数据库/g)).toHaveLength(1);
     expect(host.querySelector('.weq-db-progress-groups')).toBeNull();
-    expect(host.querySelector('details')).toBeNull();
+    expect(host.querySelector('details')?.open).toBe(true);
     await render(
       tracker.update('Repair', {
         step: 'data',
@@ -78,8 +78,7 @@ it('长步骤只显示一处任务耗时，不展示更新间隔或重复的步�
     expect(host.textContent).not.toContain('进度更新');
     expect(host.textContent).not.toContain('本步骤');
     expect(host.querySelectorAll('[aria-current="step"]')).toHaveLength(1);
-    expect(host.textContent).toContain('页签名检查');
-    expect(host.textContent).toContain('归属分析');
+    expect(host.querySelector('.is-pending')).toBeNull();
   } finally {
     await act(async () => root.unmount());
     vi.useRealTimers();
@@ -114,7 +113,7 @@ it('结构检查的记录阶段展示自身百分比与记录数，不把阶段�
     expect(host.querySelector('[aria-current="step"]')?.textContent).toContain(
       '检查记录与索引对应',
     );
-    expect(host.textContent).toContain('页签名检查');
+    expect(host.querySelector('.is-pending')).toBeNull();
   } finally {
     await act(async () => root.unmount());
   }
@@ -126,16 +125,18 @@ it('长过程在同一时间线收起较早步骤，展开不重复当前步骤�
   const root = createRoot(host);
   const tracker = new DatabaseProgressTracker('repair', 'synthetic.db');
   for (let index = 0; index < 8; index++) {
-    tracker.update('Repair', { step: String(index), message: `恢复步骤 ${index}` });
+    tracker.update('Decrypt', { step: String(index), message: `恢复步骤 ${index}` });
   }
   const progress = tracker.update('Repair', { step: 'current', message: '恢复当前数据' });
   try {
     await act(async () => root.render(h(DatabaseMaintenanceProgress, { progress })));
-    expect(host.querySelectorAll('.weq-db-progress-entry:not(.is-pending)')).toHaveLength(4);
-    expect(host.textContent).not.toContain('恢复步骤 0');
-    const expand = host.querySelector<HTMLButtonElement>('.weq-db-progress-expand button')!;
-    expect(expand.textContent).toContain('5');
-    await act(async () => expand.click());
+    const earlier = host.querySelector<HTMLDetailsElement>('details')!;
+    expect(earlier.open).toBe(false);
+    await act(async () => {
+      earlier.open = true;
+      earlier.dispatchEvent(new Event('toggle'));
+    });
+    expect(earlier.open).toBe(true);
     expect(host.textContent).toContain('恢复步骤 0');
     expect(host.textContent?.match(/恢复当前数据/g)).toHaveLength(1);
     await act(async () =>
@@ -225,7 +226,7 @@ it('未扫完的阶段显示提前结束，异常在继续定位和历史折叠�
 
 it.each([
   ['normal', '正常'],
-  ['abnormal', '异常'],
+  ['abnormal', '发现异常'],
   ['unverified', '未判定'],
 ] as const)('检查结果 %s 有明确文字，不以完成勾代替', async (outcome, label) => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

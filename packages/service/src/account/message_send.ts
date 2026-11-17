@@ -1,4 +1,5 @@
 import { OperationError } from '../common/operation_error';
+import { assertDatabaseWritable } from '@weq/db';
 /**
  * MessageSendService —— 往群聊 / 私聊**发消息**（MessageSvc.PbSendMsg + 媒体上传）。
  *
@@ -491,6 +492,9 @@ function elementsNeedUpload(elements: readonly SendElement[]): boolean {
 export class MessageSendService {
   private fontWireCache?: { fontId: number; raw: number | undefined; checkedAt: number };
   private fontWirePending?: { fontId: number; promise: Promise<number | undefined> };
+  private assertWritable(): void {
+    if (this.session.msgDbPath) assertDatabaseWritable(this.session.msgDbPath);
+  }
 
   constructor(
     private readonly nt: Pick<NtHelperBinding, 'sendPacket' | 'sendOidbPacket'>,
@@ -811,6 +815,7 @@ export class MessageSendService {
    * 给出合成音频的文件信息，便于日后再排查「发出去了但收端说没声音」。
    */
   async sendAiVoice(params: SendAiVoiceParams): Promise<SendAiVoiceOutcome> {
+    this.assertWritable();
     const groupText = String(params.groupId).trim();
     if (!/^\d+$/.test(groupText)) {
       throw new Error(`AI 声聊只支持群聊，目标是群号（纯数字），收到「${groupText}」。`);
@@ -869,6 +874,7 @@ export class MessageSendService {
    * 与媒体消息同一套理由。
    */
   async sendFile(params: SendFileParams): Promise<SendFileOutcome> {
+    this.assertWritable();
     const filePath = params.path?.trim();
     if (!filePath) throw new Error('文件路径不能为空。');
     const deviceUid = String(params.targetId).trim();
@@ -1028,6 +1034,7 @@ export class MessageSendService {
    * 组装（nt / pid / 自己 uin），调用方不用管。
    */
   async sendElements(params: SendElementsParams): Promise<SendMessageOutcome> {
+    this.assertWritable();
     if (!Array.isArray(params.elements) || params.elements.length === 0) {
       throw new Error('消息至少需要一个元素。');
     }
@@ -1261,6 +1268,7 @@ export class MessageSendService {
    * 如实放进 `result` / `errMsg`，调用方必须检查 `ok`。
    */
   async sendContactCard(params: SendContactCardParams): Promise<SendContactCardOutcome> {
+    this.assertWritable();
     const target = this.resolveTarget(params.targetId, params.peerType, false);
     await this.checkGroupTarget(target);
     const pid = this.resolvePid();
@@ -1306,6 +1314,7 @@ export class MessageSendService {
    * 提供（前端可让用户自己写了改），这里只做非空与范围校验。
    */
   async sendLocationCard(params: SendLocationCardParams): Promise<SendLocationCardOutcome> {
+    this.assertWritable();
     const address = params.address?.trim() ?? '';
     const region = params.region?.trim() ?? '';
     if (!address) throw new Error('位置卡片的详细地址不能为空。');
@@ -1356,6 +1365,7 @@ export class MessageSendService {
    * 还需要对方的 uid（上传场景），本地目录查不到就如实报错。
    */
   async sendForward(params: SendForwardMessageParams): Promise<SendForwardOutcome> {
+    this.assertWritable();
     if (!Array.isArray(params.nodes) || params.nodes.length === 0) {
       throw new Error('合并转发至少需要一个节点（nodes 不能为空）。');
     }

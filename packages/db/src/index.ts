@@ -110,3 +110,10 @@ export * from './collection';
 
 // --- guild (QQ 频道) business ---
 export * from './guild';
+export {
+  assertDatabaseWritable,
+  databaseUnderMaintenance,
+  maintainDatabases,
+  onDatabaseMaintenanceChange,
+  DATABASE_MAINTENANCE_MESSAGE,
+} from './maintenance';

@@ -45,6 +45,20 @@ const healthyIntegrity: DbRepairCheckupIntegrity = {
 const okPages: DbRepairCheckupPages = { ran: true, report: pageReport() };
 
 describe('concludeCheckup', () => {
+  it('可检查部分正常但仍有未核验表时不能认定整库结构正常', () => {
+    const result = concludeCheckup(
+      {
+        ran: true,
+        healthy: true,
+        corruptedTables: [],
+        complete: false,
+        unverifiedTables: ['qq_fts'],
+      },
+      okPages,
+    );
+    expect(result.verdict).toBe('healthy-unverified');
+    expect(result.summary).toContain('qq_fts');
+  });
   it('结构完好 + 页签名全过 → healthy', () => {
     const result = concludeCheckup({ ...healthyIntegrity, healthy: true }, okPages);
     expect(result.verdict).toBe('healthy');

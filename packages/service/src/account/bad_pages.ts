@@ -32,6 +32,7 @@ export interface BadPageScanReport extends BadPageScanResult {
   dbPath: string;
   /** `dbstat` 查不到时为空数组 —— 只意味着"没映射出来"，不代表没有坏页。 */
   affected: AffectedObject[];
+  sourceLayout?: 'qq' | 'standard';
 }
 
 /** 每个受影响对象最多回传的样例页号数量。 */

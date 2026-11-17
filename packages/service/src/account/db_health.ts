@@ -98,7 +98,14 @@ async function checkOneDatabase(
       session.context.dbKey,
       algo,
     );
-    if (result.healthy) return null;
+    if (result.healthy && result.complete !== false) return null;
+    if (result.healthy)
+      return {
+        dbName,
+        dbPath,
+        corruptedTables: [],
+        error: `部分结构未核验：${result.unverifiedTables?.join('、') || 'QQ 专用虚拟表或整体结构检查'}`,
+      };
     return {
       dbName,
       dbPath,

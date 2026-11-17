@@ -17,9 +17,19 @@ import type {
   SqlValue,
   DatabaseAlgorithms,
 } from '@weq/native';
-import { databaseReadBudget, databaseRequestSignal, scheduleDatabase } from './query_schedule';
+import {
+  databaseReadBudget,
+  databaseRequestPriority,
+  databaseRequestSignal,
+  scheduleDatabase,
+} from './query_schedule';
 import { queryDiagnosticSource } from './query_diagnostics';
 import { executeNativeRead } from './native_read';
+import {
+  assertDatabaseWritable,
+  databaseUnderMaintenance,
+  waitForDatabaseWritable,
+} from './maintenance';
 import {
   iterateSalvageWindows,
   runSalvageScan,
@@ -353,27 +363,37 @@ export class QqDb {
    * re-open + re-decrypt on the next query is a non-issue.
    */
   async write(sql: string, params?: SqlValue[]): Promise<number> {
-    return scheduleDatabase(
-      this.dbPath,
-      async () => {
-        try {
-          if (this.encrypted) {
-            return await this.nt.executeSqlWriteWithKey(
-              this.dbPath,
-              sql,
-              this.key!,
-              this.algo!,
-              params ?? null,
-            );
-          }
-          return await this.nt.executeSqlWrite(this.dbPath, sql, params ?? null);
-        } finally {
-          this.nt.closeDb(this.dbPath);
-        }
-      },
-      this.nt,
-      queryDiagnosticSource(sql),
-    );
+    const background = databaseRequestPriority() === 'background';
+    for (;;) {
+      if (background) await waitForDatabaseWritable(this.dbPath, databaseRequestSignal());
+      assertDatabaseWritable(this.dbPath);
+      try {
+        return await scheduleDatabase(
+          this.dbPath,
+          async () => {
+            assertDatabaseWritable(this.dbPath);
+            try {
+              if (this.encrypted) {
+                return await this.nt.executeSqlWriteWithKey(
+                  this.dbPath,
+                  sql,
+                  this.key!,
+                  this.algo!,
+                  params ?? null,
+                );
+              }
+              return await this.nt.executeSqlWrite(this.dbPath, sql, params ?? null);
+            } finally {
+              this.nt.closeDb(this.dbPath);
+            }
+          },
+          this.nt,
+          queryDiagnosticSource(sql),
+        );
+      } catch (error) {
+        if (!background || !databaseUnderMaintenance(this.dbPath)) throw error;
+      }
+    }
   }
 
   /** Drop both the read and write cached native connections for this database. */

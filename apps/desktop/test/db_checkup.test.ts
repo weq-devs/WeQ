@@ -34,6 +34,23 @@ function fixture() {
   return { target, options };
 }
 
+it('已确认的明文来源执行完整只读结构检查，不把加密参数不适用诊断成损坏', async () => {
+  const { target } = fixture();
+  const executeSql = vi.fn(async () => [['ok']]);
+  const health = vi.fn();
+  const nt = { executeSql, checkDatabaseHealth: health } as unknown as NtHelperBinding;
+  const result = await inspectDatabase(nt, { ...target, key: '' }, () => {}, 'deep');
+  expect(result.integrity).toEqual({
+    ran: true,
+    healthy: true,
+    corruptedTables: [],
+    complete: true,
+    unverifiedTables: [],
+  });
+  expect(executeSql).toHaveBeenCalledWith(target.dbPath, 'PRAGMA main.integrity_check');
+  expect(health).not.toHaveBeenCalled();
+});
+
 it('停止正在运行的扫描后，等实际子进程退出才释放任务，随后可以重新体检', async () => {
   const { target, options } = fixture();
   const tasks = new DatabaseCheckupTasks((request, signal) =>

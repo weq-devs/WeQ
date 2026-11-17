@@ -30,6 +30,90 @@
   padding: 0;
   list-style: none;
 }
+.weq-db-progress-stage {
+  position: relative;
+  padding: 0 0 12px;
+}
+.weq-db-progress-stage:not(:last-child)::before {
+  position: absolute;
+  content: '';
+  top: 28px;
+  bottom: 4px;
+  left: 11px;
+  width: 1px;
+  background: var(--weq-border-subtle);
+}
+.weq-db-progress-stage > details > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 28px;
+  list-style: none;
+  cursor: pointer;
+}
+.weq-db-progress-stage > details > summary::-webkit-details-marker {
+  display: none;
+}
+.weq-db-progress-stage summary > span:nth-child(2) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+.weq-db-progress-stage summary > strong {
+  margin-left: auto;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  flex: none;
+}
+.weq-db-progress-stage summary:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 3px;
+}
+.weq-db-progress-stage .weq-db-progress-chevron {
+  flex: none;
+  transition: transform 150ms ease;
+}
+.weq-db-progress-stage details[open] > summary > .weq-db-progress-chevron {
+  transform: rotate(90deg);
+}
+.weq-db-progress-stage.is-current > details > summary .weq-db-progress-node {
+  color: var(--weq-accent-effective);
+  border-color: var(--weq-accent-effective);
+}
+.weq-db-progress-stage.is-pending {
+  color: var(--weq-fg-muted);
+}
+.weq-db-progress-stage.is-pending summary {
+  cursor: default;
+}
+.weq-db-progress-stage .weq-db-progress-entry {
+  display: block;
+  padding: 12px 0 4px 36px;
+}
+.weq-db-progress-stage .weq-db-progress-entry::before {
+  display: none;
+}
+.weq-db-progress-batch {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+.weq-db-progress-maintained {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 12px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .weq-db-progress-stage .weq-db-progress-chevron {
+    transition: none;
+  }
+}
 .weq-db-progress-expand button {
   display: inline-flex;
   align-items: center;

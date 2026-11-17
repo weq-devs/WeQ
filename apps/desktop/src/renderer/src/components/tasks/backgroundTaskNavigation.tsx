@@ -17,8 +17,17 @@ export function backgroundTaskNavigation(task: BackgroundTask): TaskQuickAction 
   if (IS_WEB || task.destination !== 'db-checkup' || !uin) return null;
   return {
     id: 'open-db-checkup',
-    label: '打开数据库体检',
+    label: '查看数据库检查结果',
     icon: <ExternalLink size={14} />,
-    run: () => useDbRepairWindow.getState().open({ uin, name: uin, avatarUrl: '' }),
+    run: () =>
+      useDbRepairWindow
+        .getState()
+        .open({
+          uin,
+          configId: task.scope?.configId,
+          reportId: task.reportId,
+          name: uin,
+          avatarUrl: '',
+        }),
   };
 }

@@ -15,6 +15,26 @@
  */
 
 import type { BadPageScanReport } from '../bad_pages';
+export class DatabaseScanUnsupportedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DatabaseScanUnsupportedError';
+  }
+}
+export {
+  databaseReadyForRepair,
+  databaseRepairSupportLabel,
+  databaseMaintenanceKindLabel,
+  databaseMaintenanceStatusLabel,
+  databaseRepairStatusLabel,
+  databaseMaintenanceRowAbnormal,
+} from './maintenance_types';
+export type {
+  DatabaseMaintenanceSnapshot,
+  DatabaseMaintenanceReport,
+  DatabaseMaintenanceRow,
+  DatabaseMaintenanceOperation,
+} from './maintenance_types';
 
 /** 体检的结论（严重程度从下到上）。 */
 export type DbRepairCheckupVerdict =
@@ -31,7 +51,13 @@ export type DbRepairCheckupVerdict =
 
 /** 结构体检那一格。 */
 export type DbRepairCheckupIntegrity =
-  | { ran: true; healthy: boolean; corruptedTables: string[] }
+  | {
+      ran: true;
+      healthy: boolean;
+      corruptedTables: string[];
+      complete?: boolean;
+      unverifiedTables?: string[];
+    }
   | {
       ran: false;
       error: string;
@@ -123,6 +149,11 @@ export function concludeCheckup(
   }
 
   if (integrity.ran && integrity.healthy) {
+    if (integrity.complete === false)
+      return {
+        verdict: 'healthy-unverified',
+        summary: `已检查的结构部分未发现异常，但仍有未核验项${integrity.unverifiedTables?.length ? `：${integrity.unverifiedTables.join('、')}` : ''}，不能认定整库结构正常。`,
+      };
     if (!pages.ran) {
       return {
         verdict: 'healthy-unverified',

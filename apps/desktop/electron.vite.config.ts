@@ -132,6 +132,11 @@ export default defineConfig({
           storageCleanupWorker: resolve(import.meta.dirname, 'src/main/storage_cleanup_worker.ts'),
           backupProbeWorker: resolve(import.meta.dirname, 'src/main/backup_probe_worker.ts'),
           dbCheckupWorker: resolve(import.meta.dirname, 'src/main/db_checkup_worker.ts'),
+          dbMaintenanceWorker: resolve(import.meta.dirname, 'src/main/db_maintenance_worker.ts'),
+          dbMaintenanceLockWorker: resolve(
+            import.meta.dirname,
+            'src/main/db_maintenance_lock_worker.ts',
+          ),
           sourceSearchWorker: resolve(import.meta.dirname, 'src/main/source_search_worker.ts'),
           sourceSearchRetirementWorker: resolve(
             import.meta.dirname,
@@ -155,6 +160,8 @@ export default defineConfig({
             chunk.name === 'storageCleanupWorker' ||
             chunk.name === 'backupProbeWorker' ||
             chunk.name === 'dbCheckupWorker' ||
+            chunk.name === 'dbMaintenanceWorker' ||
+            chunk.name === 'dbMaintenanceLockWorker' ||
             chunk.name === 'sourceSearchWorker' ||
             chunk.name === 'sourceSearchRetirementWorker' ||
             chunk.name === 'macUpdateWorker' ||
