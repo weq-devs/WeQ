@@ -1,5 +1,7 @@
 import http, { type IncomingMessage, type ServerResponse, type ClientRequest } from 'node:http';
 import type { Duplex } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import { createGzip } from 'node:zlib';
 import {
   parse,
   serialize,
@@ -9,6 +11,7 @@ import {
 } from 'parse5';
 import type { AuthGate } from './auth';
 import { developmentStartupProgress } from './development_progress';
+import { acceptsGzip } from './compression';
 
 /** 仅开发入口显式启用；页面、模块与 HMR 都经原宿主认证，客户端无需访问环回端口。 */
 export class DevelopmentWebProxy {
@@ -66,10 +69,31 @@ export class DevelopmentWebProxy {
         else res.destroy();
       });
       outgoing.once('response', (upstream) => {
-        const headers = { ...upstream.headers, 'cache-control': 'no-store' };
+        const headers = { ...upstream.headers };
         const status = upstream.statusCode ?? 502;
+        const html = headers['content-type']?.includes('text/html');
+        const cache = headers['cache-control'] ?? 'no-cache';
+        headers['cache-control'] =
+          html || status >= 400 ? 'no-store' : `private, ${cache.replace(/\bpublic,?\s*/i, '')}`;
         upstream.once('error', () => res.destroy());
-        if (!headers['content-type']?.includes('text/html') || req.method === 'HEAD') {
+        if (!html || req.method === 'HEAD') {
+          const compressible =
+            status === 200 &&
+            !headers['content-encoding'] &&
+            /^(?:text\/|application\/(?:javascript|json)|image\/svg\+xml)/i.test(
+              headers['content-type'] ?? '',
+            );
+          if (compressible || status === 304)
+            headers.vary = [headers.vary, 'Accept-Encoding'].filter(Boolean).join(', ');
+          if (compressible && acceptsGzip(req.headers['accept-encoding'] ?? '')) {
+            headers['content-encoding'] = 'gzip';
+            delete headers['content-length'];
+            if (req.method !== 'HEAD') {
+              res.writeHead(status, headers);
+              void pipeline(upstream, createGzip(), res).catch(() => res.destroy());
+              return;
+            }
+          }
           res.writeHead(status, headers);
           upstream.pipe(res);
           return;
@@ -84,14 +108,14 @@ export class DevelopmentWebProxy {
           } else chunks.push(chunk);
         });
         upstream.once('end', () => {
-          const html = developmentHtml(
+          const page = developmentHtml(
             Buffer.concat(chunks).toString('utf8'),
             /\bWeQRemote\b/.test(req.headers['user-agent'] ?? ''),
           );
           headers['content-type'] = 'text/html; charset=utf-8';
           delete headers['content-length'];
           delete headers.etag;
-          res.writeHead(status, headers).end(html);
+          res.writeHead(status, headers).end(page);
         });
       });
       outgoing.end();

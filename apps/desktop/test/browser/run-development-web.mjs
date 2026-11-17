@@ -22,10 +22,12 @@ const { RemoteWebGateway } = await tsImport(
 );
 const { createRemoteServer } = await tsImport('../../src/main/remote/http.ts', import.meta.url);
 const root = await realpath(await mkdtemp(join(tmpdir(), 'weq-browser-hmr-')));
-let browser;
+let activeContext;
 let remote;
 const desktop = createServer();
 const pairing = new RemotePairing();
+const dependencyRequests = new Map();
+const responses = [];
 try {
   const web = join(root, 'apps/web');
   await mkdir(web, { recursive: true });
@@ -75,21 +77,29 @@ try {
   });
   pairing.decide(claim.id, true);
   remote = createRemoteServer(pairing, new RemoteWebGateway(pairing, (auth) => core.entry(auth)));
+  remote.on('request', (req, res) => {
+    if (/\/deps\/[^/?]+\.js\?v=/.test(req.url))
+      dependencyRequests.set(req.url, (dependencyRequests.get(req.url) ?? 0) + 1);
+    res.once('finish', () => responses.push({ path: req.url, status: res.statusCode }));
+  });
   remote.listen(0, '127.0.0.1');
   await once(remote, 'listening');
   const base = `http://127.0.0.1:${remote.address().port}`;
   const engine = process.env.WEQ_BROWSER_ENGINE === 'webkit' ? webkit : chromium;
-  browser = await engine.launch({
+  const launch = {
     headless: true,
     ...(process.env.WEQ_BROWSER_EXECUTABLE
       ? { executablePath: process.env.WEQ_BROWSER_EXECUTABLE }
       : {}),
-  });
+  };
   for (const width of [390, 1180]) {
-    const context = await browser.newContext({
+    // Remote 使用持久网页存储；WebKit 无痕 context 的新页面不共享磁盘缓存。
+    const context = await engine.launchPersistentContext(join(root, `profile-${width}`), {
+      ...launch,
       viewport: { width, height: 800 },
       userAgent: 'Mozilla/5.0 WeQRemote',
     });
+    activeContext = context;
     await context.addCookies([{ name: 'weq_remote', value: token, url: base }]);
     await context.addInitScript(
       (platform) => {
@@ -123,6 +133,12 @@ try {
     );
     const page = await context.newPage();
     const errors = [];
+    dependencyRequests.clear();
+    responses.length = 0;
+    const scripts = [];
+    page.on('response', (response) => {
+      if (response.headers()['content-type']?.includes('javascript')) scripts.push(response.text());
+    });
     page.on('pageerror', (error) => errors.push(error.message));
     await writeFile(join(web, 'App.tsx'), app('version one'));
     const deadline = Date.now() + 5000;
@@ -181,6 +197,19 @@ try {
       window.dispatchEvent(new Event('weq-remote-startup'));
     });
     const progressCount = await page.evaluate(() => window.legacyStartupReports.length);
+    const code = await Promise.all(scripts);
+    assert(code.length > 3);
+    assert(code.every((source) => !source.includes('sourceMappingURL=data:')));
+    const transfer = await page.evaluate(() => {
+      const code = performance
+        .getEntriesByType('resource')
+        .filter((entry) => /\.(?:[cm]?js|tsx?|css)(?:\?|$)/.test(entry.name));
+      return {
+        encoded: code.reduce((sum, entry) => sum + entry.encodedBodySize, 0),
+        decoded: code.reduce((sum, entry) => sum + entry.decodedBodySize, 0),
+      };
+    });
+    assert(transfer.encoded > 0 && transfer.encoded < transfer.decoded / 2);
     await page.getByRole('button').click();
     await page.getByRole('textbox').fill('keep this draft');
     await page.evaluate(() => {
@@ -212,10 +241,22 @@ try {
         'PASS syntax error: last rendered page retained, repaired source recovers without reload',
       );
     }
+    const before = [...dependencyRequests];
+    assert(before.length > 0, '真实依赖预构建应有独立网络请求');
+    const reconnected = await context.newPage();
+    await reconnected.goto(base, { waitUntil: 'commit' });
+    await reconnected.evaluate(() => window.releaseStartup());
+    await reconnected.getByRole('heading', { name: /version (?:two|repaired)/ }).waitFor();
+    assert.deepEqual([...dependencyRequests], before, '重连不应重新下载未变的版本化依赖');
+    assert(responses.some((response) => response.status === 304));
+    console.log(
+      `PASS ${width}px transfer: ${transfer.encoded}/${transfer.decoded} encoded/decoded bytes, no inline maps, immutable dependencies reused, source revalidated`,
+    );
     await context.close();
+    activeContext = undefined;
   }
 } finally {
-  await browser?.close();
+  await activeContext?.close();
   remote?.closeAllConnections();
   if (remote) await new Promise((resolve) => remote.close(resolve));
   pairing.clear();

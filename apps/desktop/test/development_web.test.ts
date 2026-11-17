@@ -1,5 +1,6 @@
 // @vitest-environment node
-import { createServer, type Server } from 'node:http';
+import { createServer, get, type Server } from 'node:http';
+import { gunzipSync } from 'node:zlib';
 import { once } from 'node:events';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -35,6 +36,27 @@ async function fixture() {
     seen.push(req.url!);
     expect(req.headers.cookie).toBeUndefined();
     expect(req.headers.authorization).toBeUndefined();
+    expect(req.headers['accept-encoding']).toBeUndefined();
+    if (req.url === '/large.js' || req.url === '/large.css') {
+      res.setHeader('Content-Type', req.url.endsWith('.js') ? 'text/javascript' : 'text/css');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('ETag', 'W/"fixture-code"');
+      if (req.headers['if-none-match'] === 'W/"fixture-code"') res.writeHead(304).end();
+      else res.end('/* fixture payload */\n'.repeat(1000));
+      return;
+    }
+    if (req.url === '/deps/shared.js?v=fixture') {
+      res.setHeader('Content-Type', 'text/javascript');
+      res.setHeader('Cache-Control', 'max-age=31536000,immutable');
+      res.end('export const shared = true;');
+      return;
+    }
+    if (req.url === '/image.png') {
+      res.setHeader('Content-Type', 'image/png');
+      res.end(Buffer.alloc(4096, 42));
+      return;
+    }
     res.setHeader('Content-Type', req.url === '/' ? 'text/html' : 'text/javascript');
     res.end(
       req.url === '/'
@@ -102,6 +124,56 @@ it('无静态构建仍可使用开发页，资源实时转发，业务 API 不�
   f.deny();
   expect((await fetch(`${f.base}/@vite/client`)).status).toBe(401);
   expect(f.seen).toHaveLength(2);
+});
+function rawGet(url: string, encoding: string) {
+  return new Promise<{ headers: import('node:http').IncomingHttpHeaders; body: Buffer }>(
+    (resolve, reject) => {
+      get(url, { headers: { 'Accept-Encoding': encoding } }, (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.once('end', () => resolve({ headers: res.headers, body: Buffer.concat(chunks) }));
+        res.once('error', reject);
+      }).once('error', reject);
+    },
+  );
+}
+it.each(['js', 'css'])(
+  '开发 %s 使用真实 gzip 传输，保留来源 Vary，不压缩图片',
+  async (extension) => {
+    const f = await fixture();
+    const encoded = await rawGet(`${f.base}/large.${extension}`, 'br, gzip');
+    expect(encoded.headers['content-encoding']).toBe('gzip');
+    expect(encoded.headers.vary).toContain('Origin');
+    expect(encoded.headers.vary).toContain('Accept-Encoding');
+    expect(encoded.headers['content-length']).toBeUndefined();
+    expect(gunzipSync(encoded.body).toString()).toBe('/* fixture payload */\n'.repeat(1000));
+    expect(encoded.body.length).toBeLessThan(500);
+    const identity = await rawGet(`${f.base}/large.${extension}`, '*;q=1, gzip;q=0');
+    expect(identity.headers['content-encoding']).toBeUndefined();
+    expect(identity.body).toEqual(gunzipSync(encoded.body));
+    const image = await rawGet(`${f.base}/image.png`, 'gzip');
+    expect(image.headers['content-encoding']).toBeUndefined();
+    expect(image.body).toEqual(Buffer.alloc(4096, 42));
+  },
+);
+it('开发源码保留 ETag 条件验证，带版本依赖复用缓存，HTML 仍不缓存', async () => {
+  const f = await fixture();
+  const source = await fetch(`${f.base}/large.js`);
+  expect(source.headers.get('cache-control')).toBe('private, no-cache');
+  await source.text();
+  const unchanged = await fetch(`${f.base}/large.js`, {
+    headers: { 'If-None-Match': source.headers.get('etag')! },
+  });
+  expect(unchanged.status).toBe(304);
+  expect(await unchanged.text()).toBe('');
+  const dep = await fetch(`${f.base}/deps/shared.js?v=fixture`);
+  expect(dep.headers.get('cache-control')).toBe('private, max-age=31536000,immutable');
+  await dep.text();
+  const head = await fetch(`${f.base}/large.js`, { method: 'HEAD' });
+  expect(head.status).toBe(200);
+  expect(head.headers.get('content-encoding')).toBe('gzip');
+  expect(await head.text()).toBe('');
+  expect((await fetch(f.base)).headers.get('cache-control')).toBe('no-store');
 });
 it('旧版 Remote 开发页在模块前接入已有阶段协议，普通浏览器不附带进度桥', async () => {
   const f = await fixture();

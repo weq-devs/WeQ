@@ -7,6 +7,7 @@ import { once } from 'node:events';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { developmentWeb, prepareWebAssets } from './dev-web.mjs';
 
 test('真实 Vite 开发服务持续推送源码更新，并随桌面服务关闭；不写正式产物', {
@@ -24,7 +25,8 @@ test('真实 Vite 开发服务持续推送源码更新，并随桌面服务关�
   );
   await writeFile(
     join(directory, 'vite.config.ts'),
-    `export default { root: ${JSON.stringify(directory)}, cacheDir: ${JSON.stringify(join(root, 'vite-cache'))}, server: { watch: { usePolling: true, interval: 20 } } };`,
+    `import {developmentSourceMaps} from ${JSON.stringify(fileURLToPath(new URL('../apps/web/scripts/development-assets.ts', import.meta.url)))};
+    export default { plugins: [developmentSourceMaps()], root: ${JSON.stringify(directory)}, cacheDir: ${JSON.stringify(join(root, 'vite-cache'))}, server: { watch: { usePolling: true, interval: 20 } } };`,
   );
   await writeFile(join(directory, 'index.html'), '<script type="module" src="/entry.js"></script>');
   const entry = join(directory, 'entry.js');
@@ -58,6 +60,16 @@ test('真实 Vite 开发服务持续推送源码更新，并随桌面服务关�
   await once(ws, 'open');
   assert.equal(JSON.parse(String((await connected)[0])).type, 'connected');
   assert.match(await (await fetch(`${url}/entry.js`)).text(), /value = 1/);
+  const module = await (await fetch(`${url}/entry.js`)).text();
+  assert(!module.includes('sourceMappingURL=data:'), '运行模块不应携带整份内联源码映射');
+  await writeFile(join(directory, 'source.ts'), 'export const value: number = 42;');
+  const source = await (await fetch(`${url}/source.ts?t=123`)).text();
+  assert(!source.includes('sourceMappingURL=data:'));
+  const mapPath = /sourceMappingURL=(\S+)/.exec(source)?.[1];
+  assert(mapPath, '真正转换过的源码仍应能按需调试');
+  const map = await (await fetch(new URL(mapPath, url))).json();
+  assert.equal(map.version, 3);
+  assert(map.sourcesContent.includes('export const value: number = 42;'));
   const update = new Promise((resolve) =>
     ws.on('message', (message) => {
       const data = JSON.parse(String(message));

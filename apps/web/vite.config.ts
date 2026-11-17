@@ -6,6 +6,7 @@ import { tsImport } from 'tsx/esm/api';
 import { webChunkBudget } from './scripts/chunk-budget.ts';
 import { remoteStartupAssets } from './scripts/startup-assets.ts';
 import { remoteStartupChunks } from './scripts/startup-chunks.ts';
+import { developmentSourceMaps } from './scripts/development-assets.ts';
 
 const developmentViteLogging: typeof import('../desktop/src/main/development_vite').developmentViteLogging =
   process.env.WEQ_DEV_CONSOLE === '1' && process.env.WEQ_LOG_LEVEL !== 'debug'
@@ -34,6 +35,7 @@ export default defineConfig({
   cacheDir: resolve(import.meta.dirname, 'node_modules/.vite-web'),
   plugins: [
     ...logging.plugins,
+    developmentSourceMaps(),
     chunkBudget.plugin,
     startupChunks.plugin,
     remoteStartupAssets(),
