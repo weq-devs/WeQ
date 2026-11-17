@@ -607,6 +607,17 @@ test('只终止本次启动的子进程组，SIGTERM 返回 143', {
   const [status] = await exited;
   assert.equal(status, 143);
   const pid = Number(await readFile(pidFile, 'utf8'));
+  // 父进程退出通知可能先于系统回收子进程 PID；仍要求其在限定时间内消失。
+  const reaped = Date.now() + 2_000;
+  while (Date.now() < reaped) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if (error.code === 'ESRCH') break;
+      throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
   assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
 });
 

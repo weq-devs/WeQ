@@ -453,6 +453,8 @@ opt-level = 3
     '#[no_mangle]\npub extern "C" fn fixture() -> u32 { fixture_dependency::value() }\n',
   );
   const env = { ...process.env, CARGO_TERM_COLOR: 'never' };
+  // 验证本地开发 profile；Cargo 在 CI 环境下会自动关闭增量编译。
+  delete env.CI;
   for (const key of Object.keys(env))
     if (
       key.startsWith('CARGO_PROFILE_') ||
