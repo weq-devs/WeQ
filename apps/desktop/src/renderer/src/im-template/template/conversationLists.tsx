@@ -11,6 +11,7 @@ import {
   MailOpen,
   Mail,
   EyeOff,
+  List,
   MessageSquare,
   Users,
   UserRound,
@@ -142,7 +143,7 @@ import '../../styles/contact-relations.css';
 
 const VIEW_ICONS = {
   regular: FEATURE_ICONS.messages,
-  all: FEATURE_ICONS.messages,
+  all: List,
   groupAssistant: Users,
   official: Newspaper,
   service: Mail,

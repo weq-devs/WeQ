@@ -173,6 +173,26 @@ const selected = (): string[] => {
   const value = JSON.parse(host.querySelector('[data-selection]')!.textContent!);
   return value?.scope.ids ?? [];
 };
+it('常规视图与全部会话图标不同，切换按钮跟随当前视图', () => {
+  act(() => root.render(h(Fixture)));
+  click('[aria-label="会话视图"]');
+  const options = [...host.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')];
+  const regular = options.find((node) => node.textContent === '常规视图')!;
+  const all = options.find((node) => node.textContent === '全部会话')!;
+  const regularIcon = regular.querySelector('svg')!.innerHTML;
+  const allIcon = all.querySelector('svg')!.innerHTML;
+  expect(allIcon).not.toBe(regularIcon);
+  expect(host.querySelector('[aria-label="会话视图"] svg')!.innerHTML).toBe(regularIcon);
+  act(() => all.click());
+  expect(host.querySelector('[aria-label="会话视图"] svg')!.innerHTML).toBe(allIcon);
+  click('[aria-label="会话视图"]');
+  act(() =>
+    [...host.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')]
+      .find((node) => node.textContent === '常规视图')!
+      .click(),
+  );
+  expect(host.querySelector('[aria-label="会话视图"] svg')!.innerHTML).toBe(regularIcon);
+});
 it('聚合入口不进入全选或反选，点击只切列表且保留右侧聊天', () => {
   act(() => root.render(h(Fixture)));
   click('[aria-label="多选会话"]');
