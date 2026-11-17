@@ -11,7 +11,7 @@
  * "重新取产物"，与 salvage 链路同一套做法。
  */
 
-import type { DatabaseAlgorithms } from '@weq/native';
+import type { DatabaseAlgorithms, DatabaseProgress } from '@weq/native';
 
 /** 一个账号 + 它的数据目录 —— 与 `accountConfigId(uin, dataDir)` 是同一套主键。 */
 export interface DbRepairAccountRef {
@@ -57,6 +57,7 @@ export interface DbRepairProgress {
   phase: DbRepairPhase | string;
   percent: number;
   message: string;
+  detail?: DatabaseProgress;
 }
 
 /** native `checkpointWal` 的产出（结构类型，理由同文件头）。 */

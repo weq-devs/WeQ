@@ -112,3 +112,38 @@ it('应用退出取消全部在途体检，并等待各任务释放', async () =
   await rejected;
   expect(await tasks.cancel(target.uin, 'first')).toEqual({ cancelled: false });
 });
+
+it('体检持续回报真实页数，并分别保留结构与页检查的结束状态', async () => {
+  const { target } = fixture();
+  const events: import('@weq/service').DatabaseWorkProgress[] = [];
+  const nt = {
+    checkDatabaseHealth: vi.fn(async (_path, _key, _algo, callback) => {
+      callback(null, { step: 'integrity', message: '整体检查' });
+      return { healthy: true, corruptedTables: [] };
+    }),
+    scanBadPages: vi.fn(async (_path, _key, _algo, callback) => {
+      callback(null, { step: 'pages', message: '页检查', completed: 2, total: 4, unit: 'pages' });
+      return { pageCount: 4, pageSize: 4096, badPages: [], zeroPages: [], usedHmac: true };
+    }),
+  } as unknown as NtHelperBinding;
+  await inspectDatabase(nt, target, (tick) => events.push(tick));
+  expect(events).toContainEqual(expect.objectContaining({ completed: 2, total: 4 }));
+  expect(events).toContainEqual(
+    expect.objectContaining({ step: 'pages', completed: 4, total: 4, status: 'completed' }),
+  );
+  expect(events.at(-1)).toMatchObject({ step: 'mapping', status: 'skipped' });
+});
+
+it('独立体检进程支持分段 UTF-8 进度流，结果返回前已收到进度', async () => {
+  const { target, options } = fixture();
+  const events: import('@weq/service').DatabaseWorkProgress[] = [];
+  const result = await runDatabaseCheckup(
+    { ...target, dbName: 'stream.db' },
+    new AbortController().signal,
+    { ...options, onProgress: (tick) => events.push(tick) },
+  );
+  expect(events).toEqual([
+    { step: 'pages', message: '页检查', completed: 2, total: 4, unit: 'pages' },
+  ]);
+  expect(result.summary).toBe('synthetic result');
+});

@@ -23,11 +23,85 @@ import {
   writeSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { copyFile, open } from 'node:fs/promises';
 
 /** 一次全量读取后的文件指纹。 */
 export interface FileFingerprint {
   bytes: number;
   sha256: string;
+}
+
+/** 异步分块读写，让进度事件在大库处理期间也能送达渲染层。 */
+export async function fingerprintFile(
+  src: string,
+  onProgress: (completed: number, total: number) => void,
+  dest?: string,
+): Promise<FileFingerprint> {
+  const input = await open(src, 'r');
+  let output: Awaited<ReturnType<typeof open>> | undefined;
+  let created = false;
+  const hash = createHash('sha256');
+  const buffer = Buffer.allocUnsafe(CHUNK_BYTES);
+  let bytes = 0;
+  let last = 0;
+  try {
+    const total = (await input.stat()).size;
+    if (dest) {
+      mkdirSync(dirname(dest), { recursive: true });
+      output = await open(dest, 'wx');
+      created = true;
+    }
+    onProgress(0, total);
+    for (;;) {
+      const { bytesRead } = await input.read(buffer, 0, buffer.length, null);
+      if (!bytesRead) break;
+      if (output) {
+        let offset = 0;
+        while (offset < bytesRead) {
+          const { bytesWritten } = await output.write(buffer, offset, bytesRead - offset, null);
+          if (!bytesWritten) throw new Error('备份写入未取得进展');
+          offset += bytesWritten;
+        }
+      }
+      hash.update(buffer.subarray(0, bytesRead));
+      bytes += bytesRead;
+      if (Date.now() - last >= 200 || bytes >= total) {
+        onProgress(bytes, total);
+        last = Date.now();
+      }
+    }
+    return { bytes, sha256: hash.digest('hex') };
+  } catch (error) {
+    await output?.close();
+    output = undefined;
+    if (created) removeQuietly(dest);
+    throw error;
+  } finally {
+    await input.close();
+    await output?.close();
+  }
+}
+
+export async function backupFileAndHash(
+  src: string,
+  dest: string,
+  onProgress: (completed: number, total: number) => void,
+): Promise<FileFingerprint> {
+  mkdirSync(dirname(dest), { recursive: true });
+  try {
+    await copyFile(src, dest, constants.COPYFILE_FICLONE_FORCE | constants.COPYFILE_EXCL);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (!code || !['ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EXDEV', 'EINVAL'].includes(code))
+      throw error;
+    return fingerprintFile(src, onProgress, dest);
+  }
+  try {
+    return await fingerprintFile(dest, onProgress);
+  } catch (error) {
+    removeQuietly(dest);
+    throw error;
+  }
 }
 
 /** 分块大小：1 MiB（大库拷贝时既不让内存爆，也不至于每块都系统调用）。 */

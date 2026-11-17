@@ -30,6 +30,8 @@ import {
   ACCOUNT_HEALTH_DATABASES,
   DbRepairError,
   DbRepairService,
+  DatabaseProgressTracker,
+  type DatabaseTaskProgress,
   getHost,
   getLogger,
   classifyLock,
@@ -76,6 +78,28 @@ const KILL_POLL_MS = 200;
 export interface DbRepairTaskProgress extends DbRepairProgress {
   uin: string;
   dbName: string;
+  kind?: 'checkup' | 'repair';
+  taskId?: string;
+  requestId?: string;
+  maintenance?: DatabaseTaskProgress;
+}
+
+function updateMaintenanceTask(id: string, snapshot: DatabaseTaskProgress) {
+  const step = snapshot.current;
+  backgroundTasks.update(id, {
+    databaseProgress: snapshot,
+    progress: snapshot.status === 'completed' ? 100 : undefined,
+    statusLabel: step.message,
+    note: [
+      snapshot.dbName,
+      step.objectName,
+      step.completed === undefined
+        ? ''
+        : `${step.completed.toLocaleString('zh-CN')}${step.total === undefined ? '' : ` / ${step.total.toLocaleString('zh-CN')}`} ${({ pages: '页', bytes: 'B', tables: '张表', fields: '个字段' } as Record<string, string>)[step.unit ?? ''] ?? ''}`,
+    ]
+      .filter(Boolean)
+      .join(' · '),
+  });
 }
 
 const progressBus = new EventEmitter();
@@ -577,6 +601,20 @@ export const dbRepairRouter = router({
           },
           async (id) => {
             backgroundId = id;
+            const tracker = new DatabaseProgressTracker('checkup', input.dbName);
+            const publish = (maintenance: DatabaseTaskProgress) => {
+              updateMaintenanceTask(id, maintenance);
+              progressBus.emit('progress', {
+                uin: input.uin,
+                dbName: input.dbName,
+                kind: 'checkup',
+                taskId: input.taskId,
+                maintenance,
+                phase: maintenance.current.phase,
+                percent: 0,
+                message: maintenance.current.message,
+              } satisfies DbRepairTaskProgress);
+            };
             const tracked = {
               id,
               uin: input.uin,
@@ -593,8 +631,21 @@ export const dbRepairRouter = router({
               },
             ]);
             try {
-              return await databaseCheckups.start(input.uin, input.taskId, target);
+              publish(tracker.update('checkup', { step: 'opening', message: '打开只读体检进程' }));
+              const report = await databaseCheckups.start(
+                input.uin,
+                input.taskId,
+                target,
+                (tick) => {
+                  if (!tracked.cancelled) publish(tracker.update('checkup', tick));
+                },
+              );
+              const finished = tracker.finish('completed');
+              if (finished) publish(finished);
+              return report;
             } catch (error) {
+              const finished = tracker.finish(tracked.cancelled ? 'cancelled' : 'failed');
+              if (finished) publish(finished);
               if (tracked.cancelled)
                 backgroundTasks.finish(id, 'cancelled', { note: '体检已停止' });
               throw error;
@@ -756,6 +807,7 @@ export const dbRepairRouter = router({
         strictPages: z.boolean().optional(),
         /** 走布局迁移：按 standard 源布局读、写回 QQ 布局。 */
         layoutMigration: z.boolean().optional(),
+        requestId: z.string().min(1).max(128).optional(),
       }),
     )
     .mutation(
@@ -768,6 +820,18 @@ export const dbRepairRouter = router({
           },
           async (taskId): Promise<DbRepairTaskResult> => {
             closedAccountDuringRun = false;
+            const tracker = new DatabaseProgressTracker('repair', input.dbName);
+            const publish = (maintenance: DatabaseTaskProgress, progress: DbRepairProgress) => {
+              updateMaintenanceTask(taskId, maintenance);
+              progressBus.emit('progress', {
+                ...progress,
+                uin: input.uin,
+                dbName: input.dbName,
+                kind: 'repair',
+                requestId: input.requestId,
+                maintenance,
+              } satisfies DbRepairTaskProgress);
+            };
             const platform = requirePlatform();
             try {
               assertRecoverCapable(platform.native.ntHelper, '数据库修复');
@@ -785,19 +849,35 @@ export const dbRepairRouter = router({
                     : { layoutMigration: input.layoutMigration }),
                 },
                 (progress) => {
-                  backgroundTasks.update(taskId, {
-                    progress: progress.percent,
-                    note: progress.message || progress.phase,
-                  });
-                  progressBus.emit('progress', {
-                    ...progress,
-                    uin: input.uin,
-                    dbName: input.dbName,
-                  } satisfies DbRepairTaskProgress);
+                  if (progress.phase === 'done') return;
+                  publish(
+                    tracker.update(
+                      progress.phase,
+                      progress.detail ?? {
+                        step:
+                          (
+                            {
+                              Scan: 'pages',
+                              Decrypt: 'decrypt',
+                              Repair: 'recover-data',
+                              Encrypt: 'encrypt',
+                              Restore: 'output-pages',
+                            } as Record<string, string>
+                          )[progress.phase] ?? progress.phase,
+                        message: progress.message || progress.phase,
+                      },
+                    ),
+                    progress,
+                  );
                 },
               );
+              const finished = tracker.finish('completed');
+              if (finished) publish(finished, { phase: 'done', percent: 100, message: '修复完成' });
               return { ok: true, record, closedAccount: closedAccountDuringRun };
             } catch (error) {
+              const finished = tracker.finish('failed');
+              if (finished)
+                publish(finished, { phase: 'failed', percent: 0, message: '修复未完成' });
               return failedResult(error, closedAccountDuringRun, 'db-repair-start-failed');
             } finally {
               closedAccountDuringRun = false;

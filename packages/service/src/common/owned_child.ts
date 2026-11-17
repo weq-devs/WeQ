@@ -8,6 +8,8 @@ export interface OwnedChildOptions {
   /** Sensitive stdin is never included in errors or logs. */
   input?: string;
   env?: NodeJS.ProcessEnv;
+  /** 增量消费 UTF-8 输出，仍遵循总输出上限和真实进程退出语义。 */
+  onStdout?: (text: string) => void;
 }
 export interface OwnedChildResult {
   code: number | null;
@@ -62,8 +64,15 @@ export function runOwnedChild(
         terminate(new Error('读取 worker 输出超过限制。'));
         return;
       }
-      if (stream === 'stdout') stdout += outDecoder.write(chunk);
-      else stderr += errDecoder.write(chunk);
+      if (stream === 'stdout') {
+        const text = outDecoder.write(chunk);
+        stdout += text;
+        try {
+          options.onStdout?.(text);
+        } catch (error) {
+          terminate(error);
+        }
+      } else stderr += errDecoder.write(chunk);
     };
     child.stdout.on('data', (chunk: Buffer) => collect(chunk, 'stdout'));
     child.stderr.on('data', (chunk: Buffer) => collect(chunk, 'stderr'));

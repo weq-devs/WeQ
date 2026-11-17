@@ -1,0 +1,256 @@
+.weq-db-progress {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 18px 0;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+.weq-db-progress-heading,
+.weq-db-progress-step {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+.weq-db-progress-heading strong {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.weq-db-progress-heading > span {
+  flex: none;
+  color: var(--weq-fg-secondary);
+}
+.weq-db-progress-step > span {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.weq-db-progress-step > strong {
+  flex: none;
+  min-width: 64px;
+  text-align: right;
+}
+.weq-db-progress.is-running .weq-db-progress-step > strong {
+  color: var(--weq-accent-effective);
+}
+.weq-db-progress-object {
+  margin: -4px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--weq-fg-secondary);
+}
+.weq-db-progress .weq-task-progress-track {
+  height: 5px;
+}
+.weq-db-progress-readouts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  min-height: 36px;
+  align-content: start;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+.weq-db-progress-readouts > span:first-child {
+  flex-basis: 100%;
+  color: var(--weq-fg-primary);
+}
+.weq-db-progress-groups {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 0 10px;
+  margin: 0;
+  list-style: none;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+.weq-db-progress-groups li {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+}
+.weq-db-progress-groups li.is-done {
+  color: var(--weq-fg-secondary);
+}
+.weq-db-progress-groups li.is-current {
+  color: var(--weq-accent-effective);
+  font-weight: 650;
+}
+.weq-db-progress-mobile-phase {
+  display: none;
+}
+.weq-db-progress-warning,
+.weq-db-progress-activity {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--weq-fg-secondary);
+}
+.weq-db-progress-warning {
+  color: var(--weq-warn-fg);
+}
+.weq-db-progress-history {
+  border-top: 1px solid var(--weq-border-subtle);
+  padding-top: 10px;
+}
+.weq-db-progress-history summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  cursor: pointer;
+  color: var(--weq-fg-secondary);
+  list-style: none;
+}
+.weq-db-progress-history summary::-webkit-details-marker {
+  display: none;
+}
+.weq-db-progress-history summary > span:last-child {
+  margin-left: auto;
+  font-size: 12px;
+}
+.weq-db-progress-history[open] summary > svg {
+  transform: rotate(180deg);
+}
+.weq-db-progress-history summary:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.weq-db-progress-history ol {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.weq-db-progress-history li {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 9px;
+  padding: 9px 0;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+.weq-db-progress-history li > svg {
+  margin-top: 3px;
+  color: var(--weq-fg-secondary);
+}
+.weq-db-progress-history li > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.weq-db-progress-history li > span:last-child,
+.weq-db-progress-history-object,
+.weq-db-progress-history-count {
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+}
+.weq-db-progress-history-count:empty {
+  display: none;
+}
+.weq-db-progress-history li.is-failed > svg {
+  color: var(--weq-warn-fg);
+}
+.weq-db-progress.is-compact {
+  padding-top: 0;
+}
+html[data-theme='dark'] .weq-db-progress {
+  background: transparent;
+}
+
+.weq-rp-batch {
+  position: sticky;
+  top: -12px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  background: var(--background);
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+.weq-rp-batch > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.weq-rp-batch strong {
+  font-size: 14px;
+}
+.weq-rp-batch p {
+  margin: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.weq-rp-batch .weq-set-btn {
+  flex: none;
+}
+.weq-rp-hero[hidden] {
+  display: none;
+}
+.weq-rp-actions[hidden] {
+  display: none;
+}
+.weq-rp-preparation {
+  margin-bottom: 10px;
+}
+.weq-rp-preparation > summary {
+  cursor: pointer;
+  padding: 10px 0;
+  color: var(--weq-fg-secondary);
+  font-size: 13px;
+}
+.weq-rp-preparation > div {
+  display: grid;
+  gap: 10px;
+}
+.weq-rp-body.is-running .weq-rp-detail {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.weq-rp-body.is-running .weq-rp-detail-head {
+  display: none;
+}
+.weq-rp-body.is-running .weq-rp-picks {
+  display: none;
+}
+
+@media (max-width: 620px) {
+  .weq-db-progress-groups {
+    display: none;
+  }
+  .weq-db-progress-mobile-phase {
+    display: block;
+    margin: 0;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--weq-border-subtle);
+    color: var(--weq-fg-secondary);
+    font-size: 12px;
+  }
+  .weq-db-progress-heading {
+    align-items: flex-start;
+  }
+  .weq-db-progress-readouts {
+    gap: 6px 12px;
+  }
+  .weq-db-progress-history summary {
+    min-height: 44px;
+  }
+  .weq-rp-batch .weq-set-btn {
+    min-height: 44px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .weq-db-progress .weq-spin {
+    animation: none;
+  }
+}

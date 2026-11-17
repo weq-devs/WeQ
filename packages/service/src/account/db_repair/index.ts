@@ -77,3 +77,5 @@ export type {
   DbRepairTarget,
   DbRepairWalCheckpoint,
 } from './types';
+export { DatabaseProgressTracker, databaseStepPercent } from './progress';
+export type { DatabaseTaskProgress, DatabaseStepProgress, DatabaseWorkProgress } from './progress';

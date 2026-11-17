@@ -1373,3 +1373,9 @@ export {
   projectQzoneArchive,
 } from './common/qzone_archive';
 export type { QzoneArchiveConfig } from './common/qzone_archive';
+export { DatabaseProgressTracker, databaseStepPercent } from './account/db_repair/progress';
+export type {
+  DatabaseTaskProgress,
+  DatabaseStepProgress,
+  DatabaseWorkProgress,
+} from './account/db_repair/progress';

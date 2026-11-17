@@ -15,6 +15,7 @@
 
 import { assertSalvageCapable } from '@weq/db';
 import type { BadPageScanResult, DatabaseAlgorithms, NtHelperBinding } from '@weq/native';
+import type { DatabaseWorkProgress } from './db_repair/progress';
 
 /** 一个被坏页波及的表 / 索引。 */
 export interface AffectedObject {
@@ -53,9 +54,33 @@ export interface ScanBadPagesInput {
 export async function scanDatabaseBadPages(
   nt: NtHelperBinding,
   input: ScanBadPagesInput,
+  onProgress?: (progress: DatabaseWorkProgress) => void,
 ): Promise<BadPageScanReport> {
   assertSalvageCapable(nt, '坏页扫描', ['scanBadPages']);
-  const scan = await nt.scanBadPages(input.dbPath, input.key, input.algo);
+  let scanning = true;
+  let scan: BadPageScanResult;
+  try {
+    scan = await nt.scanBadPages(input.dbPath, input.key, input.algo, (error, tick) => {
+      if (!error && scanning) onProgress?.(tick);
+    });
+  } finally {
+    scanning = false;
+  }
+  onProgress?.({
+    step: 'pages',
+    message: scan.usedHmac ? '页签名检查完成' : '此数据库没有可校验的页签名',
+    completed: scan.pageCount,
+    total: scan.pageCount,
+    unit: 'pages',
+    badPages: scan.badPages.length,
+    zeroPages: scan.zeroPages.length,
+    status: scan.usedHmac ? 'completed' : 'skipped',
+  });
+  onProgress?.({
+    step: 'mapping',
+    message: scan.badPages.length ? '分析坏页所属表与索引' : '没有坏页需要分析',
+    status: scan.badPages.length ? 'running' : 'skipped',
+  });
   const affected = await mapBadPagesToObjects(
     nt,
     input.dbPath,
@@ -63,6 +88,8 @@ export async function scanDatabaseBadPages(
     input.algo,
     scan.badPages,
   );
+  if (scan.badPages.length)
+    onProgress?.({ step: 'mapping', message: '坏页归属分析完成', status: 'completed' });
   return { ...scan, dbName: input.dbName, dbPath: input.dbPath, affected };
 }
 

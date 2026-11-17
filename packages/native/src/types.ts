@@ -492,6 +492,19 @@ export interface RecoverProgress {
   percent: number;
   /** 给用户看的短句，例如"正在恢复 group_msg_table（第 1024/22454 页）"。 */
   message: string;
+  detail?: DatabaseProgress;
+}
+
+/** 原生数据库维护的真实工作量；total 缺省表示没有可靠分母。 */
+export interface DatabaseProgress {
+  step: string;
+  message: string;
+  completed?: number;
+  total?: number;
+  unit?: string;
+  objectName?: string;
+  badPages?: number;
+  zeroPages?: number;
 }
 
 /** 单个阶段的耗时。 */
@@ -881,6 +894,7 @@ export interface NtHelperBinding {
     dbPath: string,
     key: string,
     algo: DatabaseAlgorithms,
+    onProgress?: (error: Error | null, progress: DatabaseProgress) => void,
   ): Promise<DatabaseHealthResult>;
 
   // --- 内存扫描（attach） ---
@@ -1106,7 +1120,12 @@ export interface NtHelperBinding {
     level?: number | null,
   ): Promise<SalvageScanOutcome>;
   /** 逐页复算页 HMAC，产出物理坏页清单（"坏页地图"）。 */
-  scanBadPages(dbPath: string, key: string, algo: DatabaseAlgorithms): Promise<BadPageScanResult>;
+  scanBadPages(
+    dbPath: string,
+    key: string,
+    algo: DatabaseAlgorithms,
+    onProgress?: (error: Error | null, progress: DatabaseProgress) => void,
+  ): Promise<BadPageScanResult>;
   /**
    * 列出当前被 L3（整表放弃）隔离的表。进程内状态，条目有存活时间（默认 300 秒）。
    */

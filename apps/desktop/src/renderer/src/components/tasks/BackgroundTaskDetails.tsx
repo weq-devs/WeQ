@@ -30,6 +30,7 @@ import { ContactTaskStages } from './ContactTaskStages';
 import { backgroundTaskNavigation } from './backgroundTaskNavigation';
 import { TaskActivityLog } from './TaskActivityLog';
 import { TaskProgressDetails } from './TaskProgressDetails';
+import { DatabaseMaintenanceProgress } from '../DatabaseMaintenanceProgress';
 import '../../styles/export.css';
 import '../../styles/conversation-overview-calendar.css';
 import '../../styles/contact-directory-order.css';
@@ -121,7 +122,7 @@ function TaskDetails({
   const taskLogs = trpc.backgroundTasks.logs.useQuery(
     { id: task.id, scope, updatedAt: task.updatedAt },
     {
-      enabled: entry.source === 'host' && task.kind !== 'calendar',
+      enabled: entry.source === 'host' && task.kind !== 'calendar' && !task.databaseProgress,
       cacheTime: 0,
       keepPreviousData: true,
     },
@@ -149,15 +150,20 @@ function TaskDetails({
   };
   return (
     <div className="weq-background-task-details">
-      <TaskProgressDetails
-        name={task.name}
-        status={task.status}
-        statusLabel={task.statusLabel}
-        progress={task.progress}
-        note={task.kind === 'contacts' && task.subtasks?.length ? undefined : task.note}
-        startedAt={task.startedAt}
-        finishedAt={task.finishedAt}
-      />
+      {task.databaseProgress ? (
+        <DatabaseMaintenanceProgress progress={task.databaseProgress} compact />
+      ) : (
+        <TaskProgressDetails
+          name={task.name}
+          status={task.status}
+          statusLabel={task.statusLabel}
+          progress={task.progress}
+          note={task.kind === 'contacts' && task.subtasks?.length ? undefined : task.note}
+          startedAt={task.startedAt}
+          finishedAt={task.finishedAt}
+        />
+      )}
+      {task.databaseProgress && task.status !== 'running' && task.note ? <p>{task.note}</p> : null}
       {task.kind === 'calendar' ? (
         <CalendarTaskDetails
           key={task.id}
@@ -191,7 +197,9 @@ function TaskDetails({
           </ul>
         </div>
       ) : null}
-      {task.kind !== 'calendar' && (task.kind !== 'contacts' || !task.subtasks?.length) ? (
+      {!task.databaseProgress &&
+      task.kind !== 'calendar' &&
+      (task.kind !== 'contacts' || !task.subtasks?.length) ? (
         <TaskActivityLog
           lines={logs}
           loading={entry.source === 'host' && taskLogs.isLoading}

@@ -38,6 +38,7 @@
     "./mail": "./src/account/mail/index.ts",
     "./mail-wire": "./src/account/mail/wire.ts",
     "./db-checkup": "./src/account/db_repair/checkup.ts",
+    "./db-progress": "./src/account/db_repair/progress.ts",
     "./bad-pages": "./src/account/bad_pages.ts",
     "./qzone-pagination": "./src/common/qzone_pagination.ts",
     "./qzone-public-settings": "./src/common/qzone_public_settings.ts",

@@ -13,8 +13,12 @@ async function main(): Promise<void> {
   const target = JSON.parse(input) as DbRepairTarget;
   process.chdir(dirname(resolveNtHelperPath()));
   const { ntHelper } = loadNative();
-  const result = await inspectDatabase(ntHelper, target);
-  process.stdout.write(JSON.stringify(result), () => process.exit(0));
+  const result = await inspectDatabase(ntHelper, target, (progress) => {
+    process.stdout.write(`${JSON.stringify({ type: 'progress', progress })}\n`);
+  });
+  process.stdout.write(`${JSON.stringify({ type: 'result', report: result })}\n`, () =>
+    process.exit(0),
+  );
 }
 
 void main().catch(() => process.exit(1));

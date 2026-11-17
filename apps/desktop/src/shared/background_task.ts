@@ -29,6 +29,7 @@ export interface BackgroundTask {
   status: BackgroundTaskStatus;
   statusLabel?: string;
   progress?: number;
+  databaseProgress?: DatabaseTaskProgress;
   note?: string;
   details?: string[];
   logs?: BackgroundTaskLogLine[];
@@ -60,7 +61,15 @@ export interface BackgroundTaskLogLine {
 type TaskPatch = Partial<
   Pick<
     BackgroundTask,
-    'progress' | 'note' | 'details' | 'statusLabel' | 'download' | 'subtasks' | 'logs' | 'reportId'
+    | 'progress'
+    | 'note'
+    | 'details'
+    | 'statusLabel'
+    | 'download'
+    | 'subtasks'
+    | 'logs'
+    | 'reportId'
+    | 'databaseProgress'
   >
 >;
 export type BackgroundTaskAction = {
@@ -290,3 +299,4 @@ export class BackgroundTaskRegistry {
     }
   }
 }
+import type { DatabaseTaskProgress } from '@weq/service';

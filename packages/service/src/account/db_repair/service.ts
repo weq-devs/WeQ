@@ -32,6 +32,8 @@ import { getHost } from '../../common/host';
 import { getLogger } from '../../common/logger';
 import {
   backupFileAndHashSync,
+  backupFileAndHash,
+  fingerprintFile,
   copyFileAndHashSync,
   fileBytes,
   freeBytesAt,
@@ -461,13 +463,44 @@ export class DbRepairService {
       sweepStaleProducts(target.dbDir, target.dbName);
 
       // 先合并 WAL（如果有）：必须在**备份之前**做，备份里才含最后那批改动。
+      if (pendingWal > 0) emit({ phase: 'wal', percent: 0, message: '合并预写日志' });
       walMerged = await this.mergePendingWal(target, pendingWal);
 
       emit({ phase: 'backup', percent: 0, message: '备份到 WeQ 缓存…' });
       if (request.backup === false) {
-        before = hashFileSync(target.dbPath);
+        before = await fingerprintFile(target.dbPath, (completed, total) =>
+          emit({
+            phase: 'backup',
+            percent: 0,
+            message: '计算源库指纹',
+            detail: {
+              step: 'source-fingerprint',
+              message: '计算源库指纹',
+              completed,
+              total,
+              unit: 'bytes',
+            },
+          }),
+        );
       } else {
-        backup = this.writeBackup(target, paths, stamp);
+        const fingerprint = await backupFileAndHash(
+          target.dbPath,
+          paths.backupFile(stamp, target.dbName),
+          (completed, total) =>
+            emit({
+              phase: 'backup',
+              percent: 0,
+              message: '备份并校验数据库',
+              detail: {
+                step: 'backup',
+                message: '备份并校验数据库',
+                completed,
+                total,
+                unit: 'bytes',
+              },
+            }),
+        );
+        backup = this.writeBackup(target, paths, stamp, fingerprint);
         before = { bytes: backup.bytes, sha256: backup.sha256 };
       }
       emit({
@@ -508,7 +541,20 @@ export class DbRepairService {
       }
 
       // ── 保险：修复期间源库被写过就中止（源库一个字节没动） ──
-      const current = hashFileSync(target.dbPath);
+      const current = await fingerprintFile(target.dbPath, (completed, total) =>
+        emit({
+          phase: 'source-check',
+          percent: 100,
+          message: '替换前核对源库指纹',
+          detail: {
+            step: 'source-check',
+            message: '替换前核对源库指纹',
+            completed,
+            total,
+            unit: 'bytes',
+          },
+        }),
+      );
       if (current.sha256 !== before.sha256) {
         throw new DbRepairError(
           'changed-during-repair',
@@ -545,9 +591,23 @@ export class DbRepairService {
       }
 
       this.replaceIntoPlace(product, target.dbPath, target.uin, lockAgain);
-      after = hashFileSync(target.dbPath);
+      after = await fingerprintFile(target.dbPath, (completed, total) =>
+        emit({
+          phase: 'final-check',
+          percent: 100,
+          message: '校验替换后数据库指纹',
+          detail: {
+            step: 'final-fingerprint',
+            message: '校验替换后数据库指纹',
+            completed,
+            total,
+            unit: 'bytes',
+          },
+        }),
+      );
 
       // ── 自检：产物不可用就自动还原（备份就是为了这一刻） ──
+      emit({ phase: 'final-check', percent: 100, message: '复核替换后的数据库结构' });
       verification = await this.verifyProduct(target, recovered);
       if (!verification.healthy || verification.badPages.length > 0) {
         // 记录交给 catch 统一落盘（同 stamp → 同 id，不会写出两条），这里只负责
@@ -573,7 +633,7 @@ export class DbRepairService {
         );
       }
 
-      emit({ phase: 'done', percent: 100, message: '修复完成' });
+      emit({ phase: 'report', percent: 100, message: '保存修复报告' });
       const record = this.record(history, paths, {
         stamp,
         target,
@@ -598,6 +658,7 @@ export class DbRepairService {
         badPages: record.badPages.length,
         purgedBackups: purged.length,
       });
+      emit({ phase: 'done', percent: 100, message: '修复完成' });
       return record;
     } catch (error) {
       removeQuietly(product);
@@ -805,9 +866,10 @@ export class DbRepairService {
     target: DbRepairTarget,
     paths: DbRepairPaths,
     stamp: string,
+    prepared?: { bytes: number; sha256: string },
   ): DbRepairBackupResult {
     const dest = paths.backupFile(stamp, target.dbName);
-    const fingerprint = backupFileAndHashSync(target.dbPath, dest);
+    const fingerprint = prepared ?? backupFileAndHashSync(target.dbPath, dest);
     try {
       writeFileAtomicSync(
         paths.backupMetaFile(stamp),
