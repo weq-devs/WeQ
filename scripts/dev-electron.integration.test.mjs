@@ -21,7 +21,21 @@ test('真实 electron-vite 监听：成功后等待点击，连续构建合并�
   timeout: 30_000,
 }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'weq-watch-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  let child;
+  let ws;
+  t.after(async () => {
+    try {
+      ws?.terminate();
+      if (child && child.exitCode === null && child.signalCode === null) {
+        const closed = once(child, 'close');
+        if (process.platform !== 'win32') process.kill(-child.pid, 'SIGTERM');
+        else await run('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
+        await closed;
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   await writeFile(join(root, 'package.json'), '{"type":"module","main":"out/main/index.js"}');
   await writeFile(join(root, 'index.html'), '<script type="module" src="/renderer.js"></script>');
   await writeFile(
@@ -91,7 +105,7 @@ test('真实 electron-vite 监听：成功后等待点击，连续构建合并�
     'WEQ_DEV_RESTART',
   ])
     delete env[key];
-  const child = spawn(process.execPath, [bin, 'dev'], {
+  child = spawn(process.execPath, [bin, 'dev'], {
     cwd: root,
     env,
     detached: process.platform !== 'win32',
@@ -103,14 +117,6 @@ test('真实 electron-vite 监听：成功后等待点击，连续构建合并�
   });
   child.stderr.on('data', (data) => {
     output += data;
-  });
-  t.after(async () => {
-    if (child.exitCode === null && child.signalCode === null) {
-      const closed = once(child, 'close');
-      if (process.platform !== 'win32') process.kill(-child.pid, 'SIGTERM');
-      else child.kill();
-      await closed;
-    }
   });
   const until = async (check) => {
     const deadline = Date.now() + 10_000;
@@ -140,8 +146,7 @@ test('真实 electron-vite 监听：成功后等待点击，连续构建合并�
   const client = await (await fetch(`${first.url}/@vite/client`)).text();
   const token = /const wsToken = "([^"]+)"/.exec(client)?.[1];
   const { default: WebSocket } = await import(pathToFileURL(require.resolve('ws')).href);
-  const ws = new WebSocket(`${first.url.replace('http:', 'ws:')}/?token=${token}`, 'vite-hmr');
-  t.after(() => ws.terminate());
+  ws = new WebSocket(`${first.url.replace('http:', 'ws:')}/?token=${token}`, 'vite-hmr');
   let pending = null;
   let reloads = 0;
   let updates = 0;
