@@ -222,10 +222,10 @@ export function MergeForwardDialog({
                   sending
                     ? '正在转发，请稍后'
                     : !sendAvailable
-                      ? '受限模式下无法转发消息'
+                      ? '在线能力受限，无法转发消息'
                       : '请选择至少一个目标会话'
                 }
-                title={sendAvailable ? '' : '受限模式下无法转发消息'}
+                title={sendAvailable ? '' : '在线能力受限，无法转发消息'}
                 onClick={() => void forward()}
               >
                 <Share2 size={15} /> {sending ? '转发中…' : '转发'}

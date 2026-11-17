@@ -15,7 +15,7 @@ useViewState.getState().enterSelect('existing');
 useRestrictedMode.setState({
   reasons: [{ code: 'offline', title: 'QQ 不在线', guidance: '登录 QQ' }],
 });
-useToast.getState().push({ title: '合成受限模式提醒', durationKind: 'long', ttl: 0 });
+useToast.getState().push({ title: '合成在线能力受限提醒', durationKind: 'long', ttl: 0 });
 Object.assign(window, {
   startupQa: { theme: useThemeStore, restricted: useRestrictedMode, toast: useToast },
 });

@@ -77,7 +77,11 @@ export function RestrictedModeIndicator({ persistent = false }: { persistent?: b
     useRestrictedMode((s) => s.enteringSince !== null && s.requests.length === 0) &&
     !authorizationIssue;
   const awaitingAuthorization = requests.length > 0;
-  const title = awaitingAuthorization ? '待提权' : entering ? '正在启用 QQ 在线能力' : '受限模式';
+  const title = awaitingAuthorization
+    ? '待提权'
+    : entering
+      ? '正在启用 QQ 在线能力'
+      : '在线能力受限';
   const visible =
     settings.data?.restrictedModeIndicatorEnabled !== false &&
     Boolean(reasons.length || requests.length || entering);
@@ -451,12 +455,12 @@ export function RestrictedModeHost() {
           ? '待提权：请完成管理员授权'
           : entering
             ? '正在启用 QQ 在线能力'
-            : `已进入受限模式：${reasons.map((r) => r.title).join('、')}`,
+            : `在线能力受限：${reasons.map((r) => r.title).join('、')}`,
         loading: entering,
         durationKind: entering ? 'long' : 'failure',
         ...(entering ? { ttl: 0 } : {}),
         action: {
-          label: entering ? '查看进入进度' : '查看受限模式详情',
+          label: entering ? '查看进入进度' : '查看「在线能力受限」详情',
           run: () => {
             if (
               useRestrictedMode.getState().reasons.length ||
@@ -717,7 +721,11 @@ export function RestrictedModeHost() {
               ) : (
                 <ShieldAlert size={18} />
               )}
-              {awaitingAuthorization ? '待提权' : entering ? '正在启用 QQ 在线能力' : '受限模式'}
+              {awaitingAuthorization
+                ? '待提权'
+                : entering
+                  ? '正在启用 QQ 在线能力'
+                  : '在线能力受限'}
             </h2>
             <button
               type="button"

@@ -120,6 +120,19 @@ try {
           status,
         );
         const indicator = page.locator('.weq-restricted-indicator');
+        assert.equal(
+          await indicator.textContent(),
+          status === 'restricted'
+            ? '在线能力受限'
+            : status === 'entering'
+              ? '正在启用 QQ 在线能力'
+              : '待提权',
+        );
+        assert.equal(
+          await indicator.evaluate((button) => button.scrollWidth > button.clientWidth + 1),
+          false,
+          '在线能力状态文字不能被裁切',
+        );
         const dragOverlaps = await indicator.evaluate((button) => {
           const box = button.getBoundingClientRect();
           return [...document.querySelectorAll('*')]
@@ -138,7 +151,7 @@ try {
             })
             .map((element) => element.className);
         });
-        assert.deepEqual(dragOverlaps, [], '原生窗口拖动区不能覆盖受限模式按钮');
+        assert.deepEqual(dragOverlaps, [], '原生窗口拖动区不能覆盖在线能力受限按钮');
         await indicator.click();
         assert.equal(await page.evaluate(() => window.startupQa.restricted.getState().open), true);
         await indicator.click();
@@ -152,7 +165,7 @@ try {
       await page.evaluate(() => {
         const store = window.startupQa.toast;
         store.setState({ toasts: [], leaving: [] });
-        store.getState().push({ title: '合成受限模式提醒', durationKind: 'long', ttl: 0 });
+        store.getState().push({ title: '合成在线能力受限提醒', durationKind: 'long', ttl: 0 });
       });
       const metrics = await page.evaluate(() => {
         const rect = (selector) =>

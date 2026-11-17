@@ -125,5 +125,5 @@ export function restrictionReasons(input: {
 }
 
 export function restrictedActionTitle(action: string): string {
-  return `受限模式下无法${action}`;
+  return `在线能力受限，无法${action}`;
 }

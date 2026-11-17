@@ -210,7 +210,7 @@ describe('设置归位后的实际页面', () => {
       expect(overview.querySelector('[data-setting-id="long-term-authorization"]')).toBeNull();
       for (const label of ['QQ 调试副本路线', '原版 QQ 路线'])
         expect(routes.querySelector(`section[aria-label="${label}"]`)).not.toBeNull();
-      expect(overview.textContent).toContain('受限模式');
+      expect(overview.textContent).toContain('在线能力受限');
       expect(overview.textContent).toContain('漫游消息');
       expect(overview.textContent).toContain('发送消息');
       expect(overview.textContent).toContain('已有缓存和可用下载链路');
@@ -234,7 +234,7 @@ describe('设置归位后的实际页面', () => {
         expect(
           nodes[i - 1]!.compareDocumentPosition(nodes[i]!) & Node.DOCUMENT_POSITION_FOLLOWING,
         ).not.toBe(0);
-      expect(f.body().textContent).toContain('进入受限模式时通知');
+      expect(f.body().textContent).toContain('在线能力受限时通知');
       expect(
         f.body().querySelector('[data-setting-id="restricted-mode-indicator"]'),
       ).not.toBeNull();

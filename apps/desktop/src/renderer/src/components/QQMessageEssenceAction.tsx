@@ -112,7 +112,7 @@ export function QQEssenceAction({
     : !allowed
       ? '当前账号无权管理这条精华消息'
       : !session.available
-        ? '受限模式下无法设置或取消精华消息'
+        ? '在线能力受限，无法设置或取消精华消息'
         : '';
   async function submit() {
     if (!target || reason) return;

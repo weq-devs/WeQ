@@ -541,7 +541,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     id: 'full-features',
     section: 'account',
     label: 'QQ 在线能力',
-    aliases: ['功能差异', '受限模式', '在线能力', '漫游消息', '发送消息'],
+    aliases: ['功能差异', '在线能力受限', '在线能力', '漫游消息', '发送消息'],
     from: ['account'],
   },
   {
@@ -561,8 +561,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   {
     id: 'restricted-mode-indicator',
     section: 'account',
-    label: '受限模式时在窗口右上角显示',
-    aliases: ['受限模式标记', '标题栏受限模式', '受限状态显示'],
+    label: '在线能力受限时在窗口右上角显示',
+    aliases: ['在线能力受限标记', '标题栏在线能力受限', '受限状态显示'],
     from: ['account'],
   },
   {
@@ -736,8 +736,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   {
     id: 'restricted-mode-banner',
     section: 'account',
-    label: '进入受限模式时通知',
-    aliases: ['进入受限模式时横幅提醒'],
+    label: '在线能力受限时通知',
+    aliases: ['在线能力受限时横幅提醒'],
     from: ['account'],
   },
   {

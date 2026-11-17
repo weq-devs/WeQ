@@ -634,7 +634,7 @@ export function AccountBasicsSection({
                   自动启用 QQ 在线能力
                 </span>
               }
-              desc="打开账号后自动尝试读取 QQ 会话凭据并启用 QQ 在线能力。关闭后仍可在受限模式详情中为当前来源手动启用；手动请求仅在宿主本次运行中有效，不改变下次启动偏好。"
+              desc="打开账号后自动尝试读取 QQ 会话凭据并启用 QQ 在线能力。关闭后仍可在「在线能力受限」详情中为当前来源手动启用；手动请求仅在宿主本次运行中有效，不改变下次启动偏好。"
               control={
                 <Toggle
                   checked={autoAttach}
@@ -651,7 +651,7 @@ export function AccountBasicsSection({
             />
             <Row
               settingId="restricted-mode-indicator"
-              label="受限模式时在窗口右上角显示"
+              label="在线能力受限时在窗口右上角显示"
               control={
                 <Toggle
                   checked={restrictedIndicator}
@@ -659,13 +659,13 @@ export function AccountBasicsSection({
                     settingsLoading || !settings.data || Boolean(settings.error) || savingIndicator
                   }
                   onChange={(value) => void toggleRestrictedIndicator(value)}
-                  label="受限模式时在窗口右上角显示"
+                  label="在线能力受限时在窗口右上角显示"
                 />
               }
             />
             <Row
               settingId="restricted-mode-banner"
-              label="进入受限模式时通知"
+              label="在线能力受限时通知"
               desc="QQ 在线能力就绪后再次受限时，按通知设置提醒。授权请求、主动操作错误和启用进度不受影响。"
               control={
                 <Toggle
@@ -674,7 +674,7 @@ export function AccountBasicsSection({
                     settingsLoading || !settings.data || Boolean(settings.error) || savingBanner
                   }
                   onChange={(value) => void toggleRestrictedBanner(value)}
-                  label="进入受限模式时通知"
+                  label="在线能力受限时通知"
                 />
               }
             />

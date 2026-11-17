@@ -1167,7 +1167,7 @@ export interface AppContext {
    */
   refreshRkeysNow(): Promise<boolean>;
   onlineCredentialsPending(): boolean;
-  /** 需要用户处理的凭据原因；有值时受限模式应直接展示，而不是继续等待。 */
+  /** 需要用户处理的凭据原因；有值时「在线能力受限」详情应直接展示，而不是继续等待。 */
   onlineCredentialsIssue(): OnlineCredentialIssue | null;
   /** 等待当前账号的原生 SSO 登记，不刷新在线票据。 */
   ensureOnlineCredentials(): Promise<void>;
@@ -3588,7 +3588,7 @@ export function getAppContext(): AppContext {
 export function requireAttachEnabled(): void {
   const ctx = getAppContext();
   if (!fullModeAllowed(ctx)) {
-    throw new Error('本次运行尚未启用 QQ 在线能力，请在受限模式详情中启用后重试。');
+    throw new Error('本次运行尚未启用 QQ 在线能力，请在「在线能力受限」详情中启用后重试。');
   }
 }
 

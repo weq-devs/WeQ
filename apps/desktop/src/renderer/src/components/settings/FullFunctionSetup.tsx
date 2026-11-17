@@ -93,14 +93,14 @@ export function FullFunctionSetup({ isMac, children }: { isMac: boolean; childre
         <details className="weq-set-details weq-full-function-comparison-details">
           <summary>
             <ChevronDown size={13} aria-hidden />
-            受限模式与 QQ 在线能力对照
+            QQ 在线能力对照
           </summary>
-          <table className="weq-full-function-comparison" aria-label="受限模式与 QQ 在线能力对照">
+          <table className="weq-full-function-comparison" aria-label="QQ 在线能力对照">
             <thead>
               <tr>
                 <th scope="col">功能</th>
-                <th scope="col">受限模式</th>
-                <th scope="col">QQ 在线能力</th>
+                <th scope="col">在线能力受限</th>
+                <th scope="col">在线能力已启用</th>
               </tr>
             </thead>
             <tbody>
@@ -115,7 +115,7 @@ export function FullFunctionSetup({ isMac, children }: { isMac: boolean; childre
           </table>
           <p className="weq-set-note">
             <span>
-              本地能力以数据库可读取为前提；受限模式不等于完全离线，已有媒体链接、外部 rKey
+              本地能力以数据库可读取为前提；在线能力受限不等于完全离线，已有媒体链接、外部 rKey
               等可用下载方式仍会保留。在线操作需当前账号登录、凭据与在线会话就绪。
             </span>
           </p>
@@ -212,7 +212,7 @@ export function FullFunctionSetup({ isMac, children }: { isMac: boolean; childre
           )}
           <p className="weq-set-note">
             QQ 已启动、调试副本已就绪或权限助手已连接，都不等于 QQ
-            在线能力已启用。关闭自动启用时，可点击标题旁的状态标签，或从标题栏的「受限模式」详情为当前来源手动启用。
+            在线能力已启用。关闭自动启用时，可点击标题旁的状态标签，或从标题栏的「在线能力受限」详情为当前来源手动启用。
           </p>
         </section>
       </Card>

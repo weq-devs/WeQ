@@ -759,7 +759,7 @@ export interface AppSettings {
    * 登录时的数据库密钥提取仍独立于此策略。
    */
   autoAttachQq: boolean;
-  /** 受限模式时在窗口右上角显示状态入口，默认开启。 */
+  /** 在线能力受限时在窗口右上角显示状态入口，默认开启。 */
   restrictedModeIndicatorEnabled: boolean;
   /** 进入受限状态的被动横幅；不隐藏真实授权请求或主动错误。 */
   restrictedModeBannerEnabled: boolean;

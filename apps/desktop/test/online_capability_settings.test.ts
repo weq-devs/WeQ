@@ -137,12 +137,12 @@ it('右上角标记开关位于通知之前，默认开启，保存失败还原�
   const f = mount();
   const toggle = () =>
     f.host.querySelector<HTMLButtonElement>(
-      '[role="switch"][aria-label="受限模式时在窗口右上角显示"]',
+      '[role="switch"][aria-label="在线能力受限时在窗口右上角显示"]',
     )!;
   expect(toggle().getAttribute('aria-checked')).toBe('true');
   const row = toggle().closest('.weq-set-row')!;
-  expect(row.nextElementSibling?.textContent).toContain('进入受限模式时通知');
-  expect(f.host.textContent).not.toContain('进入受限模式时横幅提醒');
+  expect(row.nextElementSibling?.textContent).toContain('在线能力受限时通知');
+  expect(f.host.textContent).not.toContain('在线能力受限时横幅提醒');
   await act(async () => toggle().click());
   expect(mock.save).toHaveBeenCalledWith({ enabled: false });
   expect(toggle().getAttribute('aria-checked')).toBe('false');

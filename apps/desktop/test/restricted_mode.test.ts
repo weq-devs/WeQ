@@ -334,7 +334,7 @@ it.each([false, true])(
     mock.indicator = true;
     f.render();
     expect(indicator()?.getAttribute('aria-hidden')).toBeNull();
-    expect(indicator()?.textContent).toBe('受限模式');
+    expect(indicator()?.textContent).toBe('在线能力受限');
   },
 );
 
@@ -362,7 +362,7 @@ it('正常运行后降为受限才提醒，自动恢复不发成功通知', () =
   const f = fixture();
   mock.access = { ...ready, qqOnline: false };
   f.render();
-  expect(useToast.getState().toasts.at(-1)?.title).toContain('已进入受限模式');
+  expect(useToast.getState().toasts.at(-1)?.title).toContain('在线能力受限');
   mock.access = { ...ready };
   f.render();
   expect(useToast.getState().toasts.some((toast) => toast.tone === 'success')).toBe(false);
@@ -578,7 +578,7 @@ it('同号切源丢弃手动请求的迟到结果，不在新来源继续采集'
   expect(f.host.textContent).not.toContain('尚未恢复 QQ 在线能力');
 });
 
-it('启动数据授权只在受限模式详情显示，运行中的 QQ 不显示为离线', async () => {
+it('启动数据授权只在「在线能力受限」详情显示，运行中的 QQ 不显示为离线', async () => {
   useViewState.setState({ view: 'startup', openedUin: null });
   mock.onlineCount = null;
   mock.runningCount = 1;
@@ -608,7 +608,7 @@ it('启动数据授权只在受限模式详情显示，运行中的 QQ 不显示
   expect(mock.openSettings).toHaveBeenCalledOnce();
 });
 
-it('受限模式统一重试在数据恢复后刷新账号并收起提示，不虚报 QQ 在线能力', async () => {
+it('在线能力受限统一重试在数据恢复后刷新账号并收起提示，不虚报 QQ 在线能力', async () => {
   useViewState.setState({ view: 'startup', openedUin: null });
   mock.onlineCount = null;
   mock.dataAccess = { status: 'denied', applicationPath: '/fixture/Electron.app', issues: [] };
@@ -769,7 +769,7 @@ function submitAuthorization(form: HTMLFormElement) {
   act(() => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
 }
 
-describe('受限模式启动 QQ', () => {
+describe('在线能力受限启动 QQ', () => {
   function launchButton(host: HTMLElement) {
     return [...host.querySelectorAll('button')].find((button) => button.textContent === '启动 QQ');
   }
@@ -1113,7 +1113,7 @@ describe('非阻塞提权入口', () => {
     const f = fixture();
     act(() => useRestrictedMode.getState().beginEntering());
     act(() => useRestrictedMode.getState().setOpen(true));
-    expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toBe('受限模式');
+    expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toBe('在线能力受限');
     expect(f.host.textContent).toContain('长期授权需要修复');
     expect(f.host.textContent).toContain('权限助手接口已更新');
     expect(f.host.textContent).not.toContain('正在启用 QQ 在线能力');
@@ -1152,7 +1152,7 @@ describe('非阻塞提权入口', () => {
     mock.access = { ...ready, ssoReady: false, credentialsPending: false };
     mock.updatedAt = Date.now() + 1;
     f.render();
-    expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toBe('受限模式');
+    expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toBe('在线能力受限');
     expect(useRestrictedMode.getState().enteringSince).toBeNull();
     expect(useToast.getState().toasts.some((t) => t.tone === 'success')).toBe(false);
   });
@@ -1183,7 +1183,7 @@ describe('非阻塞提权入口', () => {
     const f = fixture();
     await act(async () => mock.credentialsReady?.());
     expect(mock.invalidateAccess).toHaveBeenCalledOnce();
-    expect(f.host.textContent).toContain('受限模式');
+    expect(f.host.textContent).toContain('在线能力受限');
     expect(useToast.getState().toasts.some((t) => t.tone === 'success')).toBe(false);
     event('elev:request-password', { token: 41 });
     mock.access = { ...ready };
@@ -1212,7 +1212,9 @@ describe('非阻塞提权入口', () => {
     const f = fixture();
     mock.access = { ...ready, qqOnline: false };
     f.render();
-    expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toContain('受限模式');
+    expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toContain(
+      '在线能力受限',
+    );
     expect(f.host.querySelector('[role="dialog"]')).toBeNull();
     expect(useToast.getState().toasts).toHaveLength(1);
     f.render();

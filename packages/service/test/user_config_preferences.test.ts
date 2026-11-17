@@ -38,7 +38,7 @@ describe('QQ 秀分钟缓存配置', () => {
 });
 
 describe('聊天阅读偏好', () => {
-  it('受限模式右上角标记默认开启，独立持久化并支持备份与恢复', () => {
+  it('在线能力受限右上角标记默认开启，独立持久化并支持备份与恢复', () => {
     const f = fixture({ settings: { restrictedModeBannerEnabled: false } });
     expect(f.open().getSettings().restrictedModeIndicatorEnabled).toBe(true);
     f.service.setSettings({ restrictedModeIndicatorEnabled: false });

@@ -76,7 +76,7 @@ try {
   );
   assert.equal(await comparison.evaluate((node) => node.open), false);
   await comparison.locator('summary').click();
-  await page.getByRole('table', { name: '受限模式与 QQ 在线能力对照' }).waitFor();
+  await page.getByRole('table', { name: 'QQ 在线能力对照' }).waitFor();
   assert.equal(await page.locator('.weq-full-function-comparison td strong').count(), 4);
   await comparison.locator('summary').click();
   assert.equal(await page.locator('[data-setting-id="qq-debug-copy"] .weq-qq-debug').count(), 0);
@@ -93,11 +93,14 @@ try {
   const auto = page.getByRole('switch', { name: '自动启用 QQ 在线能力', exact: true });
   await auto.click();
   assert.equal(await auto.getAttribute('aria-checked'), 'false');
-  const indicator = page.getByRole('switch', { name: '受限模式时在窗口右上角显示', exact: true });
+  const indicator = page.getByRole('switch', {
+    name: '在线能力受限时在窗口右上角显示',
+    exact: true,
+  });
   assert.equal(await indicator.getAttribute('aria-checked'), 'true');
   await indicator.click();
   assert.equal(await indicator.getAttribute('aria-checked'), 'false');
-  await page.getByText('进入受限模式时通知', { exact: true }).waitFor();
+  await page.getByText('在线能力受限时通知', { exact: true }).waitFor();
   const status = page.locator('.weq-full-function-status');
   await page.evaluate(() =>
     window.fullFunctionsQa.setOnlineFixture({
@@ -117,13 +120,13 @@ try {
   await page.getByRole('button', { name: 'QQ 在线能力：未启用，查看详情', exact: true }).waitFor();
   await status.click();
   assert.equal(await page.evaluate(() => window.fullFunctionsQa.restricted.getState().open), true);
-  const banner = page.getByRole('switch', { name: '进入受限模式时通知', exact: true });
+  const banner = page.getByRole('switch', { name: '在线能力受限时通知', exact: true });
   const inlineReminder = (await banner.count()) > 0;
   if (inlineReminder) {
     await banner.click();
     assert.equal(await banner.getAttribute('aria-checked'), 'false');
   } else {
-    await page.getByRole('button', { name: '受限模式提醒设置', exact: true }).waitFor();
+    await page.getByRole('button', { name: '在线能力受限提醒设置', exact: true }).waitFor();
   }
   assert.deepEqual(
     await page.evaluate(() => window.fullFunctionsQa.saves),

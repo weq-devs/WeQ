@@ -5685,7 +5685,7 @@ export function ChatPane({
     sending ||
     (body.length === 0 && !hasSingleSend && !hasQuote && !hasExternalAttachments);
   const sendTitle = !sendAvailable
-    ? sendBlockedReason || '受限模式下无法发送消息'
+    ? sendBlockedReason || '在线能力受限，无法发送消息'
     : groupSpeechBlocked
       ? groupSpeechReason
       : '发送';
@@ -5693,7 +5693,7 @@ export function ChatPane({
   // QQ 在线且未完全离线 + 会话未被屏蔽 + 当前没有消息正在发送。渲染层不再各自放一套
   // 宽松判断，避免「戳一戳能点、发送键却灰着」这类不一致。
   const actionGateReason = !sendAvailable
-    ? sendBlockedReason || '受限模式下无法发送消息'
+    ? sendBlockedReason || '在线能力受限，无法发送消息'
     : currentPreference.blocked
       ? '当前会话已被屏蔽'
       : sending
@@ -5701,7 +5701,7 @@ export function ChatPane({
         : null;
   const sendGateReason = actionGateReason || (groupSpeechBlocked ? groupSpeechReason : null);
   const pokeBlockedReason = !sendAvailable
-    ? '受限模式下无法戳一戳'
+    ? '在线能力受限，无法戳一戳'
     : actionGateReason
       ? `${actionGateReason}，暂不可戳一戳`
       : null;
@@ -5709,12 +5709,12 @@ export function ChatPane({
     conversation.type !== 'group'
       ? '仅群消息支持贴表情'
       : !sendAvailable
-        ? '受限模式下无法贴表情'
+        ? '在线能力受限，无法贴表情'
         : actionGateReason
           ? `${actionGateReason}，暂不可贴表情`
           : null;
   const moderationBlockedReason = !sendAvailable
-    ? '受限模式下无法撤回消息或执行群管理操作'
+    ? '在线能力受限，无法撤回消息或执行群管理操作'
     : actionGateReason
       ? `${actionGateReason}，暂不可执行该操作`
       : null;
@@ -6102,7 +6102,7 @@ export function ChatPane({
                                 icon: <Bug size={16} />,
                                 action: () => onOpenGroupBug(conversation),
                                 disabled: !groupBugOnline,
-                                reason: groupBugOnline ? undefined : '受限模式下无法反馈 Bug',
+                                reason: groupBugOnline ? undefined : '在线能力受限，无法反馈 Bug',
                               },
                             ]
                           : []),
@@ -6146,7 +6146,7 @@ export function ChatPane({
                       'group-header-bug-action',
                     )}
                     type="button"
-                    title={groupBugOnline ? '反馈 Bug' : '受限模式下无法反馈 Bug'}
+                    title={groupBugOnline ? '反馈 Bug' : '在线能力受限，无法反馈 Bug'}
                     disabled={!groupBugOnline}
                     onClick={() => onOpenGroupBug(conversation)}
                   >
@@ -6423,7 +6423,7 @@ export function ChatPane({
                             className="weq-message-repeat"
                             title={
                               !sendAvailable
-                                ? '受限模式下无法复读消息'
+                                ? '在线能力受限，无法复读消息'
                                 : sendGateReason || '发送一条相同的消息'
                             }
                             aria-label="+1，发送相同消息"
@@ -6868,7 +6868,7 @@ export function ChatPane({
                     selectionUnavailable ||
                     selectionBlockedReason ||
                     (!sendAvailable
-                      ? '受限模式下无法转发消息'
+                      ? '在线能力受限，无法转发消息'
                       : sendGateReason
                         ? `${sendGateReason}，暂不可发送`
                         : '转发')
