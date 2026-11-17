@@ -40,12 +40,12 @@ git checkout -b feat/your-feature
 
 ## 2. 本地检查：按需跑，别每次都跑全量
 
-**为了省时间，push 之前不用跑全量 `pnpm ci:local`。** 它把 `.github/workflows/ci.yml` 的门禁在本地按同样顺序复刻一遍（lint / format / typecheck / 单测），整轮很慢；日常改动跑一下**和改动相关的那一两项**就够，最终以 CI 结果为准。
+日常开发按 [测试约定](./docs/develop/testing.md#日常开发选择最小充分验证) 选择最小充分验证，已有证据足够就停止。**不要求每次改动新增测试，也不要求提交前复刻 CI**；纯文案、图标、局部样式及入口增删通常检查差异即可。CI 继续执行全量门禁。
 
 - **CI 跑在 Linux 上**，Windows 本地跑红**不一定**是真问题（路径、换行、大小写、原生模块等平台差异都可能误报）。Windows 本地红的项，先判断是不是平台差异，别急着改代码。
-- 改了 TS / 前端：`pnpm lint`、`pnpm typecheck` 通常就够；只动了某个包可以 `pnpm --filter @weq/<pkg> test`。
-- 改了格式就 `pnpm format`（或 `pnpm lint:fix`）刷一遍，别手写对齐。
-- 发版前 / 大改动 / 心里没底时，再跑全量：
+- 格式／lint 优先指定修改文件；涉及类型或接口时选对应类型检查；需要回归时优先指定已有用例／文件，不因改了某包就跑整个包。
+- 格式化仅处理本任务文件或片段，不为小改运行全仓 `pnpm format`／`pnpm lint:fix`。
+- 发版前、跨模块大改动或明确需要全量复核时，再按影响面选择全量；不能仅因「心里没底」叠加所有检查：
 
 ```bash
 pnpm ci:local             # 全量门禁；不 fail-fast，跑完给一张汇总表
@@ -108,7 +108,7 @@ pnpm ci:local --full      # 额外跑 web 打包冒烟（≈ CI 的 build-web）
 - 界面背景会换掉聊天画布（`data-background`：plain / paper / grid / dots / wash / telegram → `--weq-chat-bg`）。浮层、卡片如果贴在画布上，让它跟着透出底色，别自己铺一层不透明底。
 - 新样式放 `apps/desktop/src/renderer/src/styles/<功能>.css`，由对应组件 `import`（参考 `views/QzoneView.tsx`、`views/annual-report/AnnualReportView.tsx`），别一股脑塞进 `index.css`。
 - `apps/web` 的独立页面（如 `src/server/login_page.ts`）不走 app 主题，用 `prefers-color-scheme` 和自己那套 `--fg` / `--card` / `--accent` 变量，**同样要给深色写一份**。
-- 自验方式：浅色 / 深色 / 跟随系统切一遍，再在设置里换几个主题色（浅色系和深色系各试一个）和几款界面背景看一眼，顺手过一下系统「减少动态效果」。
+- 自验按改动选择：颜色变化看受影响的深浅主题，布局变化看相关宽度，动画变化看减少动态效果；复用既有 token 的简单增删不默认切全套主题／背景或启动浏览器。只有真实渲染或交互才能判断的问题才做对应检查，不为每次 UI 修改新增 Playwright 脚本。
 
 ## 6. 什么时候加单测
 
@@ -116,13 +116,9 @@ pnpm ci:local --full      # 额外跑 web 打包冒烟（≈ CI 的 build-web）
 
 位置：`packages/*/test/*.test.ts`、`apps/desktop/test/*.test.ts`（`pnpm -r test` 会跑到）。
 
-**必须写**：
+**按风险和长期价值决定，不按「修 bug」一刀切**：先看现有测试是否已覆盖，优先修改已有用例。协议、SQL、数据写入／迁移、并发、状态机与失败恢复等行为变化应补足有价值的回归；简单映射或局部判断不自动另起一组测试。需要验证 `packages/db` 的 SQL 行为时，用 `@weq/testkit` 的 `createSqliteStub()` 对明文 SQLite 夹具跑真实 src 代码路径。
 
-- **修 bug**：先补一个能复现的失败用例，再改代码让它变绿（回归测试，别让同一个人踩两次）。
-- 新增或修改纯逻辑：协议编解码、字段/标签映射、解析、排序/过滤/分页、时间与 hash 计算、状态机。
-- 改动 `packages/db` 的 SQL 行为：用 `@weq/testkit` 的 `createSqliteStub()` 对明文 SQLite 夹具跑真实 src 代码路径。
-
-**可以不加**：纯 UI 布局 / 样式 / 文案改动，以及只能靠真机真 QQ 验证的路径（这种在 PR 里写清怎么验的）。
+纯 UI 布局／样式／文案、图标和入口增删默认不新增自动化；不为固定措辞、类名、DOM 形状或源码片段写锁定测试。不强制每个修复先红后绿，不为缺少测试专门新建夹具、浏览器脚本或测试框架。只能靠真机真 QQ 验证的路径，如实说明实际验证范围。
 
 写的时候注意两个真踩过的坑：
 
@@ -177,7 +173,7 @@ clone 主仓时要带 `--recurse-submodules`，否则 `docs/` 是空的。
 ### 检查
 
 - `pnpm docs:check`：调用文档仓的 `check-docs.mjs` 检查链接完整性，`build` 前自动跑。
-- 提交前跑一次 `pnpm docs:build`，构建通过再提。
+- 文字修改只核改动内容、新增链接和命令；新增站点页面／导航或修改 Markdown 扩展、主题和构建配置时，再按需运行 `pnpm docs:check`／`pnpm docs:build`。不为一处文案默认构建整站。
 - 改了对外行为 / 配置项 / 接口，顺手把对应文档一起改，别留旧描述。
 
 ## 9. 红线
@@ -191,9 +187,9 @@ clone 主仓时要带 `--recurse-submodules`，否则 `docs/` 是空的。
 ## 10. 收工前自检
 
 - [ ] 落点正确（提 PR 走特性分支、直接 push 落 `dev`），改动聚焦单一主题
-- [ ] 跑过和改动相关的检查项（`pnpm lint` / `pnpm typecheck` / 相关包单测）；不要求 push 前跑全量 `pnpm ci:local`，最终以 CI 为准
+- [ ] 已按实际风险完成最小充分验证；没有因检查清单而补跑无关或重复项目
 - [ ] 新功能 / bug 修复已写进 `CHANGELOG.md` 的 `## Unreleased - 进行中`（没有这一节就先补上）
-- [ ] 该加的单测加了，且没碰真 QQ 数据 / 网络
-- [ ] 动过 UI 的话：浅色 / 深色 / 换主题色都看过一眼
+- [ ] 如有新增自动化，保护的是长期行为且不重复现有覆盖，没碰真 QQ 数据／网络
+- [ ] 如需 UI 自验，只检查受影响的代表状态，不默认展开主题／尺寸／背景矩阵
 - [ ] 相关类型、常量、文档同步更新
 - [ ] 提交信息符合 Conventional Commits

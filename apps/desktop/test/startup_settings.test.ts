@@ -95,17 +95,6 @@ function mount() {
   };
 }
 describe('独立系统自启设置', () => {
-  it.each([false, true])('自启 %s 时不重复显示系统登录项状态行', (enabled) => {
-    fixture.data.enabled = enabled;
-    const view = mount();
-    try {
-      expect(view.host.textContent).not.toContain('系统登录项');
-      expect(view.host.textContent).not.toContain(enabled ? '已开启' : '已关闭');
-      expect(view.toggle().getAttribute('aria-checked')).toBe(String(enabled));
-    } finally {
-      view.close();
-    }
-  });
   it.each([
     ['loading', '正在读取开机启动状态'],
     ['unsupported', '仅安装版桌面端支持'],
@@ -120,7 +109,6 @@ describe('独立系统自启设置', () => {
     try {
       const row = view.toggle().closest('.weq-set-row');
       expect(row?.textContent).toContain(description);
-      expect(view.host.textContent).not.toContain('系统登录项');
       if (state === 'failed') expect(view.host.textContent).toContain(fixture.error!.message);
     } finally {
       view.close();

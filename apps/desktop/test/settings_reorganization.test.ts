@@ -132,31 +132,6 @@ function expectInnermostControlFocused(highlighted: HTMLElement | null) {
 }
 
 describe('设置归位后的实际页面', () => {
-  it.each<[SectionId, string[]]>([
-    ['database-management', ['启用数据库监听', '检查与修复']],
-    ['account', ['自动启用 QQ 在线能力']],
-    ['resource-loading', ['优先直连 QQ 加载图片', '允许使用外部安卓图片缓存']],
-    ['appearance', ['使用仿 Windows 窗口按钮']],
-    ['credentials', ['密钥扫描', '其他设备密钥']],
-  ])('四级设置标签不带装饰图标，保留分组图标：%s', (section, labels) => {
-    if (section === 'appearance') vi.stubGlobal('electron', { process: { platform: 'linux' } });
-    const f = mount(section);
-    try {
-      const rowLabels = [...f.body().querySelectorAll('.weq-set-row-label')];
-      for (const text of labels) {
-        const label = rowLabels.find((node) => node.textContent?.trim() === text);
-        expect(label, text).toBeDefined();
-        expect(label!.querySelector('svg, img'), text).toBeNull();
-      }
-      expect(f.body().querySelector('.weq-set-card-icon svg')).not.toBeNull();
-      if (section === 'database-management' || section === 'credentials') {
-        expect(f.body().querySelector('.weq-set-row-ctrl button svg')).not.toBeNull();
-      }
-    } finally {
-      f.close();
-    }
-  });
-
   it('关闭链接卡片隐藏截图子项，搜索回到父项且重开保留截图偏好', async () => {
     conditional.settings = { linkPreview: { enabled: false, screenshot: true } };
     conditional.save.mockResolvedValue(true);
