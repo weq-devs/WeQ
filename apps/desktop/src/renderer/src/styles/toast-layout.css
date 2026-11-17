@@ -4,6 +4,7 @@ html .weq-toast-host {
   max-width: calc(100vw - 40px);
   max-height: calc(100dvh - 40px);
   align-items: flex-end;
+  gap: 0;
   padding: 2px;
   overflow-x: hidden;
   overflow-y: auto;
@@ -11,9 +12,40 @@ html .weq-toast-host {
   scrollbar-width: thin;
 }
 
+.weq-toast-slot {
+  display: grid;
+  grid-template-rows: 1fr;
+  justify-items: end;
+  flex-shrink: 0;
+  width: 100%;
+  padding-top: 12px;
+  transition:
+    grid-template-rows 0.4s cubic-bezier(0.2, 0.8, 0.2, 1),
+    padding-top 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.weq-toast-slot:first-child,
+.weq-toast-slot.is-leaving {
+  padding-top: 0;
+}
+
+.weq-toast-slot.is-leaving {
+  grid-template-rows: 0fr;
+}
+
 .weq-toast-host .weq-toast {
   flex-shrink: 0;
+  min-height: 0;
   max-width: 100%;
+}
+.weq-toast-host .weq-toast-slot:has(> .weq-toast[hidden]) {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-toast-slot {
+    transition: none;
+  }
 }
 
 .weq-toast .weq-toast-header {
