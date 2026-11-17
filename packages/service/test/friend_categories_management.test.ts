@@ -7,7 +7,7 @@ import {
   UpdateFriendCategories,
   DeleteFriendCategory,
   CreateFriendCategory,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import { AccountWriteService } from '../src/account/account_write';
 
 function fixture() {

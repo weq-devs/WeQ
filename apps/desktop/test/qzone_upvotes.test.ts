@@ -5,7 +5,7 @@ import {
   QzonePostUpvotes,
   QzoneUpvoteAction,
 } from '../src/renderer/src/components/QzoneUpvoteAction';
-import type { QzoneUpvotePreview } from '@weq/protocol';
+import type { QzoneUpvotePreview } from '@weqbot/protocol';
 
 const state = vi.hoisted(() => ({ read: vi.fn(), people: vi.fn(), cancel: vi.fn(async () => {}) }));
 vi.mock('../src/renderer/src/components/QqAvatar', () => ({ QqAvatar: () => null }));

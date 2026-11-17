@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ExportTaskManager, type MediaElement, type MsgService } from '@weq/service';
-import { makeSolidPng } from '@weq/protocol';
+import { makeSolidPng } from '@weqbot/protocol';
 import { mediaSaveRouter } from '../src/main/ipc/routers/media_save';
 import { messageMediaLocations } from '../src/main/message_media_local';
 import type { AccountServices } from '../src/main/context/app_context';

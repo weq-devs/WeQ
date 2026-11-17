@@ -11,7 +11,7 @@
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { ArrowLeft, CircleAlert, Coins, Gift as GiftIcon, Sparkles, X } from 'lucide-react';
-import type { GroupGiftItem, GroupGiftPanelResult } from '@weq/protocol';
+import type { GroupGiftItem, GroupGiftPanelResult } from '@weqbot/protocol';
 import { client } from '../../trpc/client';
 import { OverlayLayer } from '../OverlayLayer';
 import { useToast } from '../Toast.shared';

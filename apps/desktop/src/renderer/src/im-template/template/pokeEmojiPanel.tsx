@@ -16,7 +16,7 @@
  *
  * ⚠️ 元素用的是草稿 token 形状（`{ kind:'pokeEmoji', pokeId, combo }` /
  * `{ kind:'face', superSticker:{ resultId } }`），由 `composerSend` 翻成
- * `@weq/protocol` 的发送元素。
+ * `@weqbot/protocol` 的发送元素。
  */
 
 import { useState } from 'react';

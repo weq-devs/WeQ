@@ -57,7 +57,7 @@ export const PicElementSchema = BaseElementFieldsSchema.extend({
   imgHeight: z.number(),
   imgType: z.nativeEnum(PicType),
   isOriginal: z.boolean(),
-  /** StoreId（@weq/protocol 老 wire 解码带出，本地 codec 元素无此字段）。 */
+  /** StoreId（@weqbot/protocol 老 wire 解码带出，本地 codec 元素无此字段）。 */
   storeId: z.number().optional(),
   md5: z.string(),
   fileToken: z.string(),
@@ -119,7 +119,7 @@ export const FileElementSchema = BaseElementFieldsSchema.extend({
   imgWidth: z.number(),
   imgHeight: z.number(),
   fileFlag45415: z.number(),
-  /** 群文件 busId（@weq/protocol 老 wire 解码带出，本地 codec 元素无此字段）。 */
+  /** 群文件 busId（@weqbot/protocol 老 wire 解码带出，本地 codec 元素无此字段）。 */
   busId: z.number().optional(),
   fileToken: z.string(),
   transferFlag45504: z.string(),
@@ -158,7 +158,7 @@ export const VideoElementSchema = BaseElementFieldsSchema.extend({
   imgWidth: z.number(),
   imgHeight: z.number(),
   fileFlag45415: z.number(),
-  /** StoreId（@weq/protocol 老 wire 解码带出，本地 codec 元素无此字段）。 */
+  /** StoreId（@weqbot/protocol 老 wire 解码带出，本地 codec 元素无此字段）。 */
   storeId: z.number().optional(),
   isOriginal: z.boolean(),
   fileToken: z.string(),
@@ -204,7 +204,7 @@ export const BubbleVideoElementSchema = BaseElementFieldsSchema.extend({
   imgWidth: z.number(),
   imgHeight: z.number(),
   fileFlag45415: z.number(),
-  /** StoreId（@weq/protocol 老 wire 解码带出，本地 codec 元素无此字段）。 */
+  /** StoreId（@weqbot/protocol 老 wire 解码带出，本地 codec 元素无此字段）。 */
   storeId: z.number().optional(),
   isOriginal: z.boolean(),
   fileToken: z.string(),
@@ -253,7 +253,7 @@ export const PttElementSchema = BaseElementFieldsSchema.extend({
   uploadTime: z.number(),
   uploadTimestamp: z.number(),
   fileTTL: z.number(),
-  /** StoreId（@weq/protocol 老 wire 解码带出，本地 codec 元素无此字段）。 */
+  /** StoreId（@weqbot/protocol 老 wire 解码带出，本地 codec 元素无此字段）。 */
   storeId: z.number().optional(),
   summary: z.array(z.string()),
   /** Clip duration in seconds (wire tag 45906). Authoritative for both the

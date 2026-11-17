@@ -1,4 +1,4 @@
-import type { SendElement } from '@weq/protocol';
+import type { SendElement } from '@weqbot/protocol';
 import { FaceSubType } from '@weq/codec';
 import { cleanNtPath, codecElementToSeg, segToSendElement } from '../components/mergeForward/model';
 import type { ComposerSendPlan, SuperStickerEntry } from '../im-template/template/composerSend';

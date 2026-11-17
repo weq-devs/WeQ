@@ -15,6 +15,7 @@
       "!**/release",
       "!**/*.tsbuildinfo",
       "!packages/ninebird",
+      "!vendor",
       "!resources/bot-runtime",
       "!resources/ninebird-runtime",
       "!resources/hitokoto.json",

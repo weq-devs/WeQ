@@ -23,7 +23,7 @@ import {
   type GroupOperationInfo,
   type GroupMemberListItem,
   type GroupMessagePolicySnapshot,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 
 /** 在线群成员缓存时长：0xFE7_3 高频会风控，60s 是 SnowLuma 验证过的折中值。 */
 const ONLINE_MEMBERS_TTL_MS = 60_000;

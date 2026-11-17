@@ -19,7 +19,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { NtHelperBinding } from '@weq/native';
-import type { TrpcNative } from '@weq/protocol';
+import type { TrpcNative } from '@weqbot/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   DRESS_DERIVE_VERSION,

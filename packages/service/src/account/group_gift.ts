@@ -2,11 +2,11 @@
  * 群礼物面板 —— 只读。
  *
  * 走 `trpc.qqva.gift_midground_panel.GiftMidgroundPanel.SsoGetSceneItem`
- * （见 `@weq/protocol` 的 `group-gift-panel`），需要已 attach 的在线 QQ 进程。
+ * （见 `@weqbot/protocol` 的 `group-gift-panel`），需要已 attach 的在线 QQ 进程。
  * 面板是纯查询，不涉及下单 / 付款。
  */
 
-import { GroupGiftPanel, type GroupGiftPanelResult, type TrpcNative } from '@weq/protocol';
+import { GroupGiftPanel, type GroupGiftPanelResult, type TrpcNative } from '@weqbot/protocol';
 
 export class GroupGiftService {
   constructor(

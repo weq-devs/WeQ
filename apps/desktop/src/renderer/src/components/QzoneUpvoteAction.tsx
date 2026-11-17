@@ -1,6 +1,6 @@
 import { useContext, useEffect, useRef, useState } from 'react';
 import { Heart, Loader2, RefreshCw, MoreHorizontal } from 'lucide-react';
-import type { QzoneUpvotePreview } from '@weq/protocol';
+import type { QzoneUpvotePreview } from '@weqbot/protocol';
 import { client } from '../trpc/client';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { QzoneLikesPopover } from './QzoneLikesPopover';

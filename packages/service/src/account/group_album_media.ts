@@ -1,7 +1,7 @@
 /**
  * GroupAlbumMediaService — thin service wrapper for the group album media list
  * (QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetMediaList). Proto
- * definitions and trpc dispatch live in @weq/protocol; this layer only builds
+ * definitions and trpc dispatch live in @weqbot/protocol; this layer only builds
  * the typed result and maps bigint → string for JSON friendliness.
  */
 import type { AccountSession } from '@weq/account';
@@ -14,7 +14,7 @@ import {
   GetGroupAlbumFeedDetail,
   SetGroupAlbumLike,
   type GroupAlbumLikeParams,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 
 export interface AlbumMediaUrl {
   url: string;

@@ -15,7 +15,7 @@
  */
 
 /**
- * ⚠️ **不要**从 `@weq/protocol` 值导入 `splitHevcNals`。
+ * ⚠️ **不要**从 `@weqbot/protocol` 值导入 `splitHevcNals`。
  *
  * protocol 的主入口会 `export * from './call'`，而 `call/signaling.ts` 一路引到
  * `oidb/invoke.ts` → `transport.ts` → `redbag/sign.ts`，那里用了 `node:crypto`。

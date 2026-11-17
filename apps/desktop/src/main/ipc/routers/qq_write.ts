@@ -2,8 +2,8 @@ import { z } from 'zod';
 import type { AccountServices } from '../../context/app_context';
 import { procedure as baseProcedure, router } from '../trpc';
 import { groupMemberToWire, userProfileToWire } from '../serde';
-import { QQ_REGIONS, QQ_PROFESSIONS } from '@weq/protocol';
-import { PROFILE_DISPLAY_KEYS } from '@weq/protocol';
+import { QQ_REGIONS, QQ_PROFESSIONS } from '@weqbot/protocol';
+import { PROFILE_DISPLAY_KEYS } from '@weqbot/protocol';
 
 const binding = z.object({
   expectedAccountUin: z.string().min(1),

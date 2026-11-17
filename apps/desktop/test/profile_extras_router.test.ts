@@ -6,7 +6,7 @@ import {
   getPersonalityLabels,
   getPersonalityPhotos,
   getAnonymousQuestions,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import { createProfileExtrasRouter } from '../src/main/ipc/routers/profile_extras';
 
 const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source', uin: '10002' };

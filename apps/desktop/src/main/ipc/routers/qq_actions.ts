@@ -2,7 +2,11 @@ import { createHash, randomUUID } from 'node:crypto';
 import { open } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { z } from 'zod';
-import { parseCustomFaceId, PROFILE_LIKE_MAX_PER_REQUEST, type GroupRequest } from '@weq/protocol';
+import {
+  parseCustomFaceId,
+  PROFILE_LIKE_MAX_PER_REQUEST,
+  type GroupRequest,
+} from '@weqbot/protocol';
 import { isIncomingPendingBuddyRequest } from '@weq/service/buddy-request';
 import { FAVORITE_EMOJI_MAX_ARCHIVE_BYTES, FAVORITE_EMOJI_MAX_ITEMS } from '@weq/service';
 import type { AccountServices } from '../../context/app_context';

@@ -28,9 +28,9 @@ import {
   composeGroupFileDownloadUrl,
   type GroupFileDownload,
   type MediaIndexNode,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 
-export type { GroupFileDownload } from '@weq/protocol';
+export type { GroupFileDownload } from '@weqbot/protocol';
 
 /** Minimal element surface used to build a {@link MediaIndexNode}. Compatible
  *  with `VideoElement`, `PttElement`, and `FileElement` from `@weq/codec`. */

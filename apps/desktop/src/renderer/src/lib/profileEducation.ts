@@ -1,4 +1,4 @@
-import type { ProfileEducationRecord } from '@weq/protocol';
+import type { ProfileEducationRecord } from '@weqbot/protocol';
 
 // Android QQ getDegreeName 的完整映射（2、3 均为中学）；H5 仅提供 5–9。
 const degrees: Record<number, string> = {

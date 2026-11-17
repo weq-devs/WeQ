@@ -1,4 +1,4 @@
-import type { GroupProfileExtras } from '@weq/protocol';
+import type { GroupProfileExtras } from '@weqbot/protocol';
 import type { GroupRosterMember } from './group_member_roster';
 
 const numberOrNull = (value: unknown) =>

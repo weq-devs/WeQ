@@ -1,7 +1,7 @@
 /**
  * `account.giftMall.*` —— 私聊礼物商城(首页推荐 / 分类列表 / 搜索 / 详情 / 礼物墙 / 赠送)。
  *
- * 全部走 `club.vip.qq.com` 的 trpc JSON 接口(见 `@weq/protocol` 的 `web/gift-mall`),
+ * 全部走 `club.vip.qq.com` 的 trpc JSON 接口(见 `@weqbot/protocol` 的 `web/gift-mall`),
  * 需要在线 QQ 实例去取 `vip.qq.com` / `qzone.qq.com` 的 p_skey;完全离线模式一律报错,
  * 不做静态兜底 —— 商城内容每天都在变,存一份假目录只会误导人。
  *
@@ -15,7 +15,7 @@
 import { OperationError } from '@weq/service';
 
 import { z } from 'zod';
-import { GIFT_MALL_SUBTABS, GIFT_MALL_TABS } from '@weq/protocol';
+import { GIFT_MALL_SUBTABS, GIFT_MALL_TABS } from '@weqbot/protocol';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import { fullModeAllowed } from '../../context/full_mode';
 import { procedure, router } from '../trpc';

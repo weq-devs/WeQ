@@ -2,7 +2,7 @@
  * 红包皮肤元数据批量抓取脚本。
  *
  * 以「skin_id 范围」批量调 `trpc.qpay.red_pack_skin.Skin.SsoGetSkinInfo`
- * （协议层见 `@weq/protocol` 的 `GetRedPackSkin`），把每只皮肤的
+ * （协议层见 `@weqbot/protocol` 的 `GetRedPackSkin`），把每只皮肤的
  * 名称 / 封面 / 跳转 / 图链 / TTL 落盘成一份**给人看**的 JSON。
  *
  * 产物：`resources/redpack/skins.json`（**入库**，不 ignore —— 这是要长期留的数据）
@@ -41,7 +41,7 @@ import {
   type Platform,
 } from '../packages/platform/src';
 import { registerSsoSession, resolveDeviceGuid } from '../packages/service/src/account/sso_session';
-import { GetRedPackSkin, type RedPackSkinInfo } from '../packages/protocol/src';
+import { GetRedPackSkin, type RedPackSkinInfo } from '../vendor/weqbot/packages/protocol/src';
 
 // ─────────────────────────── 参数 ───────────────────────────
 

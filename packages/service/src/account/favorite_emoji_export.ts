@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { parseCustomFaceId } from '@weq/protocol';
+import { parseCustomFaceId } from '@weqbot/protocol';
 import { canonicalHash, type FavEmojiRow } from './export/emoji_export';
 import { webRequestBytes } from './web/http';
 import type { ExportCheckpoint } from './export/checkpoint';

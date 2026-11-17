@@ -1,5 +1,5 @@
 /** 探测请求的纯数据解析；显式请求正文与占位正文分开记录。 */
-import { encode, message } from '../packages/protocol/src/protobuf';
+import { encode, message } from '../vendor/weqbot/packages/protocol/src/protobuf';
 import { posix, win32 } from 'node:path';
 
 export function validateControlSocketPath(

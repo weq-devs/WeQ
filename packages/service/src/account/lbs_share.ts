@@ -2,7 +2,7 @@
  * LocationShareService —— 位置共享（`QQLBSShareSvc`）：发起 / 上报 / 查询。
  *
  * 与 {@link GroupModerationService} 同构：只负责在在线 pid 上发包，离线 / 风控失败
- * 原样上抛。协议细节见 `@weq/protocol` 的 `msg/lbs-share.ts`。
+ * 原样上抛。协议细节见 `@weqbot/protocol` 的 `msg/lbs-share.ts`。
  *
  * ## 三条命令的分工
  *
@@ -39,7 +39,7 @@ import {
   type LocationReportResult,
   type LocationRoom,
   type LocationShareStartResult,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 
 /** 一次共享的会话定位。 */
 export interface LocationShareTarget {
@@ -138,7 +138,7 @@ export class LocationShareService {
    * 发一条「发起了位置共享」消息卡片。
    *
    * 私聊只需要灰条 + 文本；群聊必须额外带 `generalFlags(37)`，否则能显示但点不了。
-   * 具体元素由 `buildShareLocationElements` 构造（见 `@weq/protocol`）。
+   * 具体元素由 `buildShareLocationElements` 构造（见 `@weqbot/protocol`）。
    *
    * 这里**不直接调 sendMessage** —— 发消息要走 `MessageSendService`（它管 uid
    * 解析、字体、装扮）。本方法只负责给出元素，实际发送由调用方转交。

@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { Check, Copy, LogOut, X } from 'lucide-react';
-import type { OcrBlock } from '@weq/protocol';
+import type { OcrBlock } from '@weqbot/protocol';
 import { useSurfaceEscapeDismissal } from '../lib/surfaceEscape';
 
 /** 面板与视口边缘的最小间距（拖动时的夹取边界）。 */

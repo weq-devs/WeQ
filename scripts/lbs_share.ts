@@ -3,7 +3,7 @@ import { formatClock } from '../packages/time/src/index.mjs';
  * 位置共享联调脚本：借同机在线 QQ 的凭据，发起一次私聊 / 群聊位置共享，
  * 按服务端要求的心跳持续上报，并周期性查询房间成员。
  *
- * 协议实现本身在 `@weq/protocol` 的 `msg/lbs-share` 与 `@weq/service` 的
+ * 协议实现本身在 `@weqbot/protocol` 的 `msg/lbs-share` 与 `@weq/service` 的
  * `LocationShareService` 里 —— 本脚本只负责「拿到凭据 + 驱动心跳」，
  * 不再自己拼 protobuf。
  *
@@ -32,8 +32,8 @@ import {
 import { readLoginAccounts } from '../packages/service/src/bootstrap/login_db';
 import { ensureAttached } from '../packages/testkit/src/attach';
 import { LocationShareService } from '../packages/service/src/account/lbs_share';
-import { LbsRoomStatus } from '../packages/protocol/src/msg/lbs-share';
-import { sendMessage } from '../packages/protocol/src/msg/send';
+import { LbsRoomStatus } from '../vendor/weqbot/packages/protocol/src/msg/lbs-share';
+import { sendMessage } from '../vendor/weqbot/packages/protocol/src/msg/send';
 
 const LABEL = 'lbs-share';
 

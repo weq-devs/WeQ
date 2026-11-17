@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import { makeSolidPng } from '@weq/protocol';
+import { makeSolidPng } from '@weqbot/protocol';
 import { buildZip, readZipEntries } from '../src/common/zip';
 import {
   createFavoriteEmojiBundle,

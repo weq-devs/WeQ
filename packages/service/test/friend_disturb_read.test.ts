@@ -6,7 +6,7 @@ import {
   oidbCommand,
   resolveSign,
   SNS_FRIEND_DISTURB,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import { AccountWriteService } from '../src/account/account_write';
 
 const friend = { uid: 'u_friend', uin: 10002n, qid: '', categoryId: 0 };

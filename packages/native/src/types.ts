@@ -655,7 +655,7 @@ export interface CapturedFrame {
   seq: number;
   /** SSO 头里的命令字（如 `pttTrans.TransC2CPttReq`）。 */
   cmd?: string;
-  /** 解密后的正文（protobuf 原始字节，展开交给 `@weq/protocol`）。 */
+  /** 解密后的正文（protobuf 原始字节，展开交给 `@weqbot/protocol`）。 */
   body?: Buffer;
   /** 完整解密明文。 */
   plain?: Buffer;
@@ -1196,7 +1196,7 @@ export interface NtHelperBinding {
    * `isUid` sets the UIN-form variant (reserved=1). Returns the inner reply body.
    *
    * 传输走原生 SSO：`pid` 必须先经 {@link setSsoSession} 登记过会话。
-   * `needSign` / `mode` 由 `@weq/protocol` 的签名策略表解析后传入：
+   * `needSign` / `mode` 由 `@weqbot/protocol` 的签名策略表解析后传入：
    * `needSign` 缺省 true；`mode` 是签名器 VM mode（2 = 完整签名，3 = 精简，
    * 缺省 3），只在 macOS / Windows 生效，Linux 的 VM ABI 没有这个参数。
    */

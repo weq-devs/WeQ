@@ -1,7 +1,7 @@
 import { mkdtemp, open, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { detectImageFormat } from '@weq/protocol';
+import { detectImageFormat } from '@weqbot/protocol';
 import { previewFromPath, type EmojiPreviewAddress } from './export/emoji_export';
 import { downloadUrlToFile } from './media_url';
 

@@ -2,7 +2,7 @@
  * SVG 不是 QQ 收的图片格式（真机实测 2026-11-03）。
  *
  * 渲染层这里只负责「别把它送进图片通道」：分类成文件、走文件发送；真正的硬闸门在
- * `@weq/protocol` 的 `assertUploadableImage`（见 packages/protocol 的 media_upload 单测）。
+ * `@weqbot/protocol` 的 `assertUploadableImage`（见 packages/protocol 的 media_upload 单测）。
  */
 import { expect, it } from 'vitest';
 import {

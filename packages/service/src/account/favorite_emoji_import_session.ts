@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseCustomFaceId } from '@weq/protocol';
+import { parseCustomFaceId } from '@weqbot/protocol';
 import {
   readEmojiImportArchive,
   planFavoriteEmojiImport,

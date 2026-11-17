@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AccountSession } from '@weq/account';
-import { decode } from '@weq/protocol';
-import { ReportRead } from '@weq/protocol';
+import { decode } from '@weqbot/protocol';
+import { ReportRead } from '@weqbot/protocol';
 import { UnreadInfoService } from '../src/account/unread_info';
 import { ssoWorkState } from '../src/account/sso_lifecycle';
 

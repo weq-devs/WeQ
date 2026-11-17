@@ -2,7 +2,7 @@
  * LocationShareService 的离线单测：断言三条命令真正上 wire 的 cmd / body，
  * 并钉住私聊与群聊的会话键差异。不连任何网络。
  *
- * 报文里的每个字节都对着真机抓包核对过（见 `@weq/protocol` 的 `msg/lbs-share`）。
+ * 报文里的每个字节都对着真机抓包核对过（见 `@weqbot/protocol` 的 `msg/lbs-share`）。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -13,7 +13,7 @@ import {
   QueryLocation,
   ReportLocation,
   StartLocationShare,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 
 interface TrpcCall {
   pid: number;

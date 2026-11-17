@@ -12,7 +12,7 @@ import { DressConfigService, type DressScope, type DressBackgroundSource } from 
 import type { DressConfig } from './dress_config';
 import type { PreferencePersistence } from '../common/shared_preferences';
 import { DressSharedCache, type FontDerived, type FontFx } from './dress_shared_cache';
-import type { TrpcNative } from '@weq/protocol';
+import type { TrpcNative } from '@weqbot/protocol';
 import type { NtHelperBinding } from '@weq/native';
 import type { DressIndexKind } from './dress_index';
 

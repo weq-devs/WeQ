@@ -114,7 +114,7 @@ export interface RenderPicElement {
     /**
      * 闪照（阅后即焚图）。
      *
-     * 只有走**协议拉取**（`commonElem serviceType=3`，见 `@weq/protocol` 的
+     * 只有走**协议拉取**（`commonElem serviceType=3`，见 `@weqbot/protocol` 的
      * `liftFlashPhotoElem`）才带这个标记：本地库 40800 里闪照只剩一句兜底文本
      * `[闪照]请使用新版手机QQ查看闪照。`，元素本体从来没落过库。
      *

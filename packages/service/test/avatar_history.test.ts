@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import * as protocol from '@weq/protocol';
+import * as protocol from '@weqbot/protocol';
 import { ProfileExtrasService } from '../src/account/profile_extras';
 
 const readers = {

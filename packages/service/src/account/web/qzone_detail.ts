@@ -1,7 +1,7 @@
 import { computeBkn, cookieHeader, WebAuthError, type WebCredential } from './credential';
 import { WEB_READ_RETRY, webRequestText } from './http';
 import { mapMsgList, parseQzoneCallback } from './qzone';
-import type { QzoneNativeDetail } from '@weq/protocol';
+import type { QzoneNativeDetail } from '@weqbot/protocol';
 
 function hasMore(value: unknown): boolean | null {
   if (value === true || value === 1 || value === '1') return true;

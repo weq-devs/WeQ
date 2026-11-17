@@ -8,7 +8,7 @@ import {
 } from '../src/renderer/src/components/GroupAlbumDialog';
 import { useViewState } from '../src/renderer/src/state/view';
 import { albumMediaUrl, interactiveMediaUrl } from '../src/renderer/src/lib/resourceUrl';
-import { makeSolidPng } from '@weq/protocol';
+import { makeSolidPng } from '@weqbot/protocol';
 import { MediaPreview } from '../src/renderer/src/components/MediaPreview';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';

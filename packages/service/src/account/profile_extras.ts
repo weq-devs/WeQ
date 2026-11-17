@@ -15,7 +15,7 @@ import {
   type SignatureTarget,
   type TrpcNative,
   type OidbNative,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import type { ContactMetricsService } from './contact_metrics';
 
 const readers = {

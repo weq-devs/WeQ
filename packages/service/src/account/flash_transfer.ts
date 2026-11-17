@@ -29,7 +29,7 @@ import {
   type FlashUploadOptions,
   type FlashUploaderInfo,
   type SendTuwenArkResult,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import { getLogger } from '../common/logger';
 
 const logger = getLogger().child({ scope: 'flash-transfer' });

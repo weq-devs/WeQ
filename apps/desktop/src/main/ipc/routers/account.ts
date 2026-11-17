@@ -86,7 +86,7 @@ import { MessageReadWindows } from '../message_reads';
 import type { MessagePageStage, MessageReadWindow } from '../../../shared/message_read';
 import { classifyChatType, ProtoMsg } from '@weq/codec';
 import { WalletFlag48417Wire } from '@weq/codec/proto/msg/element';
-import { buildShareLocationElements, detectThumbType, type OcrBlock } from '@weq/protocol';
+import { buildShareLocationElements, detectThumbType, type OcrBlock } from '@weqbot/protocol';
 
 /** 48417 的嵌套块解码器（红包定位：orderId + packetId）。 */
 const walletFlag48417Wire = new ProtoMsg(WalletFlag48417Wire);
@@ -7239,7 +7239,7 @@ export const accountRouter = router({
    * 真实客户端由服务端推送这条消息；WeQ 的 SSO 是「发一包就断」，服务端判定发起方
    * 不在线就不投递 —— 所以自己发。
    *
-   * **元素必须在主进程构造**：`buildShareLocationElements` 在 `@weq/protocol` 里，
+   * **元素必须在主进程构造**：`buildShareLocationElements` 在 `@weqbot/protocol` 里，
    * 而渲染层不能引那个包（远程 Web 端复用渲染层代码，protocol 里有 `node:crypto`
    * 的红包签名，浏览器端打不出来）。所以这里收「场景 + 目标」，元素自己拼。
    */

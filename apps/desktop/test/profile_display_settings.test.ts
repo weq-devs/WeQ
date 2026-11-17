@@ -1,7 +1,7 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { ProfileDisplaySetting } from '@weq/protocol';
+import type { ProfileDisplaySetting } from '@weqbot/protocol';
 import {
   DisplaySelfProfileField,
   ProfileDisplayEntry,

@@ -2,7 +2,7 @@
  * 输入框正文 → 一条可发送的「发送计划」。
  *
  * 输入框把内容序列化成「正文文本 + token」（见 `composer.tsx` / `draftElements.ts` /
- * `emojiPacks.ts`）。这里把这些 token 还原成 @weq/protocol 的 `SendElement`：
+ * `emojiPacks.ts`）。这里把这些 token 还原成 @weqbot/protocol 的 `SendElement`：
  *
  *   - 纯文本              → `{ kind: 'text' }`
  *   - `[[chat:elem:…]]`   → 原样还原的元素（@ / 引用 / 弹射表情 / 图片 / 语音 / 文件…）

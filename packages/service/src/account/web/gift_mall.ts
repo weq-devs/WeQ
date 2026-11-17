@@ -20,7 +20,7 @@ import {
   type GiftMallVipInfoResponse,
   type GiftMallWallOptions,
   type GiftMallWallResponse,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import { computeBkn, cookieHeader, WebAuthError, type WebCredential } from './credential';
 import { WEB_READ_RETRY, WebRequestError, webRequestJson } from './http';
 

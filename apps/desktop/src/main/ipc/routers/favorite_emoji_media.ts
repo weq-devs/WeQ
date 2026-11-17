@@ -1,4 +1,4 @@
-import { detectImageFormat } from '@weq/protocol';
+import { detectImageFormat } from '@weqbot/protocol';
 import { toProtocolAssetUrl } from '../../protocol_asset_url';
 import { readResponseBytes } from '../../bounded_response';
 

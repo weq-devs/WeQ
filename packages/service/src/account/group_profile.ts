@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { GetGroupJoinInfo, type GroupProfileExtras, type OidbNative } from '@weq/protocol';
+import { GetGroupJoinInfo, type GroupProfileExtras, type OidbNative } from '@weqbot/protocol';
 import { writeFileAtomic } from '../common/atomic_write';
 import type { ContactMetricsService } from './contact_metrics';
 import type { ContactHistoryService } from './contact_history';

@@ -33,7 +33,7 @@ const EXCLUDE_FROM_EXTERNAL = [
   '@weq/native',
   '@weq/native/authorization.mjs',
   '@weq/platform',
-  '@weq/protocol',
+  '@weqbot/protocol',
   '@weq/service',
   '@weq/service/conversation-calendar',
   '@weq/service/conversation-calendar-store',

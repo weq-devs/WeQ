@@ -3,7 +3,7 @@
  * 没有在线 QQ / OIDB 能力时用它把面板画出来（会同时弹错误 toast 说明是示例）。
  * 只保留渲染需要的字段；`attributes` 不重复存，`description`/`charm` 已经拍平。
  */
-import type { GroupGiftPanelResult } from '@weq/protocol';
+import type { GroupGiftPanelResult } from '@weqbot/protocol';
 
 export const GROUP_GIFT_FALLBACK: GroupGiftPanelResult = {
   panelId: 'fallback-20261103',

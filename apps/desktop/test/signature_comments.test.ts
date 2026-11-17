@@ -1,7 +1,7 @@
 import { act, createElement as h, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { HistoricalSignature } from '@weq/protocol';
+import type { HistoricalSignature } from '@weqbot/protocol';
 import { SignatureInteractions } from '../src/renderer/src/components/ProfileInteractions';
 
 const rpc = vi.hoisted(() => ({

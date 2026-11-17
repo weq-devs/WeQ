@@ -8,7 +8,7 @@ import {
   getPersonalityPhotos,
   type SignatureTarget,
   type TrpcNative,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 
 const operations = {
   addSignatureComment,

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { closeAllFixtureDbs, createSqliteStub } from '@weq/testkit';
-import { encode, GetC2cHistory, GetGroupHistory } from '@weq/protocol';
+import { encode, GetC2cHistory, GetGroupHistory } from '@weqbot/protocol';
 import { DeletedMsgStore } from '../src/account/deleted_msgs';
 import { GapHistoryService, type GapFetchedMessage } from '../src/account/gap_history';
 import { MsgService } from '../src/account/msg';

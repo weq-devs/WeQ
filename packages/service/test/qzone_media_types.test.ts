@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { GetQzoneFeedMediaDetail, SetQzoneFeedStatus } from '@weq/protocol';
+import { GetQzoneFeedMediaDetail, SetQzoneFeedStatus } from '@weqbot/protocol';
 import { QzoneMediaTypesService } from '../src/account/qzone_media_types';
 
 const target = { ownerUin: '10001', tid: 'post', time: 1700000000 };

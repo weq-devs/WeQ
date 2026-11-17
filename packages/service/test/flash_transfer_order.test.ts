@@ -17,7 +17,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ApplyFileset, ApplyUpload, decode, encode, PrepareUpload } from '@weq/protocol';
+import { ApplyFileset, ApplyUpload, decode, encode, PrepareUpload } from '@weqbot/protocol';
 import type { AccountSession } from '@weq/account';
 import { FlashTransferService } from '../src/account/flash_transfer';
 

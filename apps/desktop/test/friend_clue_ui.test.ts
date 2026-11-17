@@ -5,7 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { FriendClue } from '../src/renderer/src/components/qq-actions/FriendClue';
 import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
 import { sharedGroupConversation } from '../src/renderer/src/components/ark/groupShareCard';
-import type { FriendClue as Clue } from '@weq/protocol';
+import type { FriendClue as Clue } from '@weqbot/protocol';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 

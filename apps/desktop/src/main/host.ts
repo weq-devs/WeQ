@@ -5,7 +5,7 @@
  */
 
 import { app, dialog, shell, nativeImage, Notification } from 'electron';
-import { makeSolidPng } from '@weq/protocol';
+import { makeSolidPng } from '@weqbot/protocol';
 import { applicationBadgeBitmap } from '../shared/message_notifications';
 import { getMainWindow } from './main_window';
 import { spawn } from 'node:child_process';

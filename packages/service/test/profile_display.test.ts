@@ -4,11 +4,11 @@ import {
   setSelfProfileDisplaySetting,
   LegacyOidbRejectedError,
   type ProfileDisplayField,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import { SelfProfileDisplayService } from '../src/account/profile_display';
 
-vi.mock('@weq/protocol', async (original) => ({
-  ...(await original<typeof import('@weq/protocol')>()),
+vi.mock('@weqbot/protocol', async (original) => ({
+  ...(await original<typeof import('@weqbot/protocol')>()),
   getSelfProfileDisplaySettings: vi.fn(),
   setSelfProfileDisplaySetting: vi.fn(),
 }));

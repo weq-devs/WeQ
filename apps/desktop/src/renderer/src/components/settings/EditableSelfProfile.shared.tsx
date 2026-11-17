@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { formatQqRegion } from '@weq/protocol/profile-regions';
+import { formatQqRegion } from '@weqbot/protocol/profile-regions';
 import { Mail, BriefcaseBusiness, RefreshCw, FileText } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';

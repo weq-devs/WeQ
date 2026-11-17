@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Eye, EyeOff, Loader2, ScanText } from 'lucide-react';
-import type { OcrBlock } from '@weq/protocol';
+import type { OcrBlock } from '@weqbot/protocol';
 import { trpc } from '../trpc/client';
 import { OcrTextPanel } from './OcrTextPanel';
 import { useToastApi } from './Toast.shared';

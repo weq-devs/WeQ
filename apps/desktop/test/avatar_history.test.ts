@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import type { HistoricalAvatar } from '@weq/protocol';
+import type { HistoricalAvatar } from '@weqbot/protocol';
 import { sortHistoricalAvatars } from '../src/renderer/src/lib/avatarHistory';
 import { mergeExtrasPages, extrasPageWarning } from '../src/renderer/src/lib/profileExtrasPages';
 

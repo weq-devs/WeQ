@@ -18,7 +18,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { OcrBlock } from '@weq/protocol';
+import type { OcrBlock } from '@weqbot/protocol';
 import {
   getOcrModel,
   localOcrBlocker,

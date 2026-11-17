@@ -25,7 +25,7 @@ import {
   SetReaction,
   type ClickInlineButtonResult,
   type SendGroupSignupImage,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 
 /** 报名图片下载超时（毫秒）。 */
 const SIGNUP_IMAGE_TIMEOUT_MS = 15_000;

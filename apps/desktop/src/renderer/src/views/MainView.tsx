@@ -6890,7 +6890,7 @@ function MainWorkspace(): ReactElement {
    * 泡泡消息「选视频即发」。
    *
    * 协议上它就是一条视频消息，只是 `commonElem.businessType=14` 且 `pbElem.extBizInfo`
-   * 里带模板名（见 `@weq/protocol` 的 `SendBubbleVideoElement`），所以复用
+   * 里带模板名（见 `@weqbot/protocol` 的 `SendBubbleVideoElement`），所以复用
    * `sendElements`；服务层看到 `bubbleVideo` 会带上媒体上传上下文。
    *
    * 乐观渲染按 `bubbleVideo` 画圆形循环预览（与真消息同一条渲染通路），对账走回执

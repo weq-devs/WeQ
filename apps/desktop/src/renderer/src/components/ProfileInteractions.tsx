@@ -19,7 +19,7 @@ import type {
   PersonalityLabel,
   ProfileComment,
   ProfileLikeUser,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 import { client, trpc } from '../trpc/client';
 import { useDialog } from './Dialog.shared';

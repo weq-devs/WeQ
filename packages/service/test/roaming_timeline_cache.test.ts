@@ -11,7 +11,7 @@ import { DeletedMsgStore } from '../src/account/deleted_msgs';
 import { MsgService } from '../src/account/msg';
 import { UserConfigService } from '../src/bootstrap/user_config';
 import { MessageSendService } from '../src/account/message_send';
-import { encode, SEND_MESSAGE_RESPONSE } from '@weq/protocol';
+import { encode, SEND_MESSAGE_RESPONSE } from '@weqbot/protocol';
 import { databasePerformance } from '@weq/db';
 
 const roots: string[] = [];

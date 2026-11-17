@@ -1,5 +1,5 @@
 import type { AccountSession } from '@weq/account';
-import { cloudProfileResponse, encode } from '@weq/protocol';
+import { cloudProfileResponse, encode } from '@weqbot/protocol';
 import { expect, it, vi } from 'vitest';
 import { ProfileService } from '../src/account/profile';
 

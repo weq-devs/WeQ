@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { QQ_REGIONS } from '@weq/protocol';
+import { QQ_REGIONS } from '@weqbot/protocol';
 vi.mock(
   '../src/renderer/src/hooks/useContactDirectoryOrder',
   () => import('./support/contact-order.stub'),

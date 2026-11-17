@@ -4002,7 +4002,7 @@ export function ChatPane({
    */
   async function sendLocationShareCard(): Promise<void> {
     if (!conversation || conversation.type === 'merged') return;
-    // 元素在主进程构造：渲染层不能 import `@weq/protocol`（远程 Web 端复用这份
+    // 元素在主进程构造：渲染层不能 import `@weqbot/protocol`（远程 Web 端复用这份
     // 代码，而 protocol 里有 `node:crypto` 的红包签名，浏览器端打不出来）。
     await client.account.sendLocationShareCard.mutate({
       expectedAccountUin: user.identityValue,
@@ -4090,7 +4090,7 @@ export function ChatPane({
 
   /**
    * 发起语音通话：独立动作，不动输入框内容。
-   * 群聊暂不支持（协议侧要先进群房间，见 `@weq/protocol` 的 group 信令）。
+   * 群聊暂不支持（协议侧要先进群房间，见 `@weqbot/protocol` 的 group 信令）。
    */
   async function startCall(media: 'audio' | 'video') {
     if (conversation?.type !== 'direct' || !onStartCall) return;

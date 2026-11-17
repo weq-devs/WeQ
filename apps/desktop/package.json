@@ -34,7 +34,7 @@
     "@weq/native": "workspace:*",
     "@weq/network": "workspace:*",
     "@weq/platform": "workspace:*",
-    "@weq/protocol": "workspace:*",
+    "@weqbot/protocol": "workspace:*",
     "@weq/service": "workspace:*",
     "@weq/time": "workspace:*",
     "@xmldom/xmldom": "^0.9.12",

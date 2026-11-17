@@ -5,7 +5,7 @@ import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { makeSolidPng } from '@weq/protocol';
+import { makeSolidPng } from '@weqbot/protocol';
 import { GroupFileManager } from '../src/renderer/src/components/GroupFileManager';
 import { GroupNoticeActions } from '../src/renderer/src/components/qq-actions/GroupNoticeActions';
 import {
@@ -27,7 +27,7 @@ import { FavoriteActions } from '../src/renderer/src/components/qq-actions/Favor
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import { GroupActions, GroupTodos } from '../src/renderer/src/components/qq-actions/GroupActions';
 import { ProfileLikeAction } from '../src/renderer/src/components/qq-actions/ProfileLikeAction';
-import { PROFILE_LIKE_MAX_PER_REQUEST } from '@weq/protocol';
+import { PROFILE_LIKE_MAX_PER_REQUEST } from '@weqbot/protocol';
 import { GroupAnnouncementsDialog } from '../src/renderer/src/components/GroupAnnouncementsDialog';
 import { GroupInfoPanel } from '../src/renderer/src/im-template/template/groupInfoPanel';
 import { createTemplateDemoData } from './support/templateDemoData';

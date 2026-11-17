@@ -39,7 +39,7 @@ import {
   RedBagPasswordPool,
   RedBagPrePack,
   type OcrBlock,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import type {
   DressMallItem,
   OcrResultCache,
@@ -4172,7 +4172,7 @@ export const AI_TOOLS: AiTool[] = [
   // 发送工具仅限明确授权的内置助手；外部 MCP 的显式只读清单不会注册它们。
 
   // 三个发送工具共用的「带装扮」入参 —— 注意这是**未通过真机验证**的实验开关：
-  // 服务端不采信客户端自报的装扮（实测落库全 0），详见 @weq/protocol 的 SendDress。
+  // 服务端不采信客户端自报的装扮（实测落库全 0），详见 @weqbot/protocol 的 SendDress。
 
   tool({
     name: 'send_text_message',
@@ -5130,7 +5130,7 @@ export const AI_TOOLS: AiTool[] = [
 
   // ── 红包（sso_handle 加密载荷）────────────────────────────────────────────
   // 红包载荷不是 OIDB、也不是 JCE：它是「16B salt + AES-128-CBC」，key/iv 由 salt
-  // 现场派生（协议实现与推导见 @weq/protocol 的 redbag 与 docs/develop/redbag.md）。
+  // 现场派生（协议实现与推导见 @weqbot/protocol 的 redbag 与 docs/develop/redbag.md）。
   // 所以喂给 decode_blob 只会得到乱码，必须先走这一层。
   //
   // pack_red_bag 会在服务端建订单，只在助手的任意权限模式开放。

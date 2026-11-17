@@ -3,7 +3,7 @@ import {
   PROFILE_DISPLAY_FIELDS,
   PROFILE_DISPLAY_KEYS,
   type ProfileDisplayField,
-} from '@weq/protocol/profile-display';
+} from '@weqbot/protocol/profile-display';
 import { trpc as base, useQQWriteSession, client, withFallback } from './self-profile.stub';
 export { useQQWriteSession, client };
 

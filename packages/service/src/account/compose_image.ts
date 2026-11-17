@@ -26,7 +26,7 @@ import {
   PIC_FORMAT_GIF,
   PIC_FORMAT_PNG,
   PIC_FORMAT_WEBP,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import { PicType } from '@weq/codec';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';

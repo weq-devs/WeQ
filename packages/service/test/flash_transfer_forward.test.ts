@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AccountSession } from '@weq/account';
 import { FlashTransferService } from '../src/account/flash_transfer';
-import { resolveSign } from '@weq/protocol';
+import { resolveSign } from '@weqbot/protocol';
 
 const FILESET = 'fixture-fileset';
 const session = {

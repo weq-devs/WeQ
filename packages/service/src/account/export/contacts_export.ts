@@ -21,7 +21,7 @@ import {
   bloodTypeText,
   chineseZodiacText,
   profileTimeText,
-} from '@weq/protocol/profile-values';
+} from '@weqbot/protocol/profile-values';
 
 /** 注入的联系人数据拉取能力（bigint 已归一化为字符串）。 */
 export interface ContactsExportDeps {

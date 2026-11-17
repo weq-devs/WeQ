@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { expect, it } from 'vitest';
-import type { TrpcNative } from '@weq/protocol';
+import type { TrpcNative } from '@weqbot/protocol';
 import type { NtHelperBinding } from '@weq/native';
 import { DressSharedCache } from '../src/account/dress_shared_cache';
 

@@ -5,7 +5,7 @@ import {
   type TrpcNative,
   SetQzoneFeedStatus,
   type QzoneArchiveAction,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import { projectQzoneArchive } from '../common/qzone_archive';
 
 export class QzoneMediaTypesService {
