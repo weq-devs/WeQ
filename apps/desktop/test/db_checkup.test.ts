@@ -119,6 +119,21 @@ it('体检持续回报真实页数，并分别保留结构与页检查的结束�
   const nt = {
     checkDatabaseHealth: vi.fn(async (_path, _key, _algo, callback) => {
       callback(null, { step: 'integrity', message: '整体检查' });
+      callback(null, {
+        step: 'integrity-pages',
+        message: '检查页结构与引用',
+        completed: 2,
+        total: 4,
+        unit: 'pages',
+      });
+      callback(null, {
+        step: 'integrity-records-2',
+        message: '检查记录与索引对应',
+        completed: 500,
+        total: 2000,
+        unit: 'records',
+        objectName: 'synthetic_table',
+      });
       return { healthy: true, corruptedTables: [] };
     }),
     scanBadPages: vi.fn(async (_path, _key, _algo, callback) => {
@@ -128,6 +143,15 @@ it('体检持续回报真实页数，并分别保留结构与页检查的结束�
   } as unknown as NtHelperBinding;
   await inspectDatabase(nt, target, (tick) => events.push(tick));
   expect(events).toContainEqual(expect.objectContaining({ completed: 2, total: 4 }));
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      step: 'integrity-records-2',
+      completed: 500,
+      total: 2000,
+      unit: 'records',
+      objectName: 'synthetic_table',
+    }),
+  );
   expect(events).toContainEqual(
     expect.objectContaining({ step: 'pages', completed: 4, total: 4, status: 'completed' }),
   );

@@ -25,6 +25,7 @@ try {
       index,
       'synthetic'.repeat(240),
     ]);
+  await nt.executeSqlWrite(source, 'CREATE INDEX synthetic_body ON synthetic(body)');
   nt.closeDb(source);
   const pages = [];
   const scan = await nt.scanBadPages(source, key, algo, (error, tick) => {
@@ -32,10 +33,14 @@ try {
     pages.push(tick);
   });
   const healthTicks = [];
+  const healthBeforeResult = [];
+  let healthSettled = false;
   const health = await nt.checkDatabaseHealth(source, key, algo, (error, tick) => {
     assert.equal(error, null);
     healthTicks.push(tick);
+    if (!healthSettled) healthBeforeResult.push(tick);
   });
+  healthSettled = true;
   const recover = [];
   const report = await nt.recoverDatabase(
     { dbPath: source, outPath: output, workDir: join(root, 'work'), key, algo },
@@ -47,6 +52,33 @@ try {
   await new Promise((done) => setImmediate(done));
   assert.equal(health.healthy, true);
   assert.ok(healthTicks.some((tick) => tick.step === 'integrity'));
+  assert.ok(
+    healthBeforeResult.some((tick) => tick.unit === 'records'),
+    '结果返回前应已收到库内记录进度',
+  );
+  assert.ok(
+    healthTicks.some(
+      (tick) => tick.step === 'integrity-pages' && tick.completed === tick.total && tick.total > 0,
+    ),
+  );
+  assert.ok(
+    healthTicks.some(
+      (tick) =>
+        tick.step.startsWith('integrity-records-') &&
+        tick.objectName === 'synthetic' &&
+        tick.completed === 80 &&
+        tick.total === 80 &&
+        tick.unit === 'records',
+    ),
+  );
+  assert.ok(
+    healthTicks.some(
+      (tick) =>
+        tick.step.startsWith('integrity-index-') &&
+        tick.objectName === 'synthetic_body' &&
+        tick.completed === tick.total,
+    ),
+  );
   assert.equal(pages.at(-1)?.completed, scan.pageCount);
   assert.equal(pages.at(-1)?.total, scan.pageCount);
   for (const step of ['pages', 'decrypt', 'output-pages', 'output-integrity'])

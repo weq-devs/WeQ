@@ -36,8 +36,30 @@ export const maintenanceQa = {
   structure() {
     checkupTracker.update('checkup', { step: 'opening', message: '打开只读体检进程' });
     const maintenance = checkupTracker.update('checkup', {
-      step: 'integrity',
-      message: '检查数据库整体结构',
+      step: 'integrity-pages',
+      message: '检查页结构与引用',
+      completed: 800,
+      total: 2048,
+      unit: 'pages',
+    });
+    for (const listener of listeners)
+      listener.onData({ ...checkupRequest, kind: 'checkup', maintenance });
+  },
+  structureRecords() {
+    checkupTracker.update('checkup', {
+      step: 'integrity-pages',
+      message: '检查页结构与引用',
+      completed: 2048,
+      total: 2048,
+      unit: 'pages',
+    });
+    const maintenance = checkupTracker.update('checkup', {
+      step: 'integrity-records-2',
+      message: '检查记录与索引对应',
+      completed: 500,
+      total: 2000,
+      unit: 'records',
+      objectName: 'synthetic_table',
     });
     for (const listener of listeners)
       listener.onData({ ...checkupRequest, kind: 'checkup', maintenance });

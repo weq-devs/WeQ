@@ -86,6 +86,40 @@ it('长步骤只显示一处任务耗时，不展示更新间隔或重复的步�
   }
 });
 
+it('结构检查的记录阶段展示自身百分比与记录数，不把阶段完成当作整库完成', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const tracker = new DatabaseProgressTracker('checkup', 'synthetic.db');
+  tracker.update('checkup', {
+    step: 'integrity-pages',
+    message: '检查页结构与引用',
+    completed: 1024,
+    total: 1024,
+    unit: 'pages',
+  });
+  const progress = tracker.update('checkup', {
+    step: 'integrity-records-2',
+    message: '检查记录与索引对应',
+    objectName: 'synthetic_table',
+    completed: 500,
+    total: 2000,
+    unit: 'records',
+  });
+  try {
+    await act(async () => root.render(h(DatabaseMaintenanceProgress, { progress })));
+    expect(host.querySelector('progress')?.getAttribute('value')).toBe('25');
+    expect(host.textContent).toContain('500 / 2,000 条记录');
+    expect(host.textContent).toContain('synthetic_table');
+    expect(host.querySelector('[aria-current="step"]')?.textContent).toContain(
+      '检查记录与索引对应',
+    );
+    expect(host.textContent).toContain('页签名检查');
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 it('长过程在同一时间线收起较早步骤，展开不重复当前步骤，停止后不再显示待开始', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');

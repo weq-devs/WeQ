@@ -60,7 +60,7 @@ try {
         store.setAccent(theme === 'light' ? '#006d50' : '#ffe593');
         window.maintenanceQa.structure();
       }, theme);
-      await page.getByText('检查数据库整体结构', { exact: true }).waitFor();
+      await page.getByText('检查页结构与引用', { exact: true }).waitFor();
       const capture = async (name) => {
         assert.equal(
           await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
@@ -130,6 +130,11 @@ try {
         0,
       );
       await capture('structure');
+      await page.getByText('39.1%', { exact: true }).waitFor();
+      await page.evaluate(() => window.maintenanceQa.structureRecords());
+      await page.getByText('25.0%', { exact: true }).waitFor();
+      await page.getByText('500 / 2,000 条记录', { exact: true }).waitFor();
+      await capture('structure-records');
       await strip.locator('button').last().focus();
       assert.ok((await strip.evaluate((node) => node.scrollLeft)) > 0);
       await strip.evaluate((node) => {

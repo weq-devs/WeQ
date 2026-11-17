@@ -35,9 +35,9 @@ function countText(step: DatabaseStepProgress): string | undefined {
   const count = (value: number) =>
     step.unit === 'bytes' ? formatBytesOrUnknown(value) : Math.floor(value).toLocaleString('zh-CN');
   const suffix =
-    ({ pages: '页', tables: '张表', fields: '个字段' } as Record<string, string>)[
-      step.unit ?? ''
-    ] ?? '';
+    (
+      { pages: '页', tables: '张表', fields: '个字段', records: '条记录' } as Record<string, string>
+    )[step.unit ?? ''] ?? '';
   return `${count(step.completed)}${step.total === undefined ? '' : ` / ${count(step.total)}`}${suffix ? ` ${suffix}` : ''}`;
 }
 
