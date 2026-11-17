@@ -163,6 +163,12 @@ try {
         }),
       );
       await page.waitForFunction(() => window.fixtureNativeMode === 'never');
+      assert.equal(
+        await page.getByRole('button', { name: '省流量菜单', exact: true }).count(),
+        0,
+        '仅使用流量且省流量未生效时隐藏入口',
+      );
+      await page.screenshot({ path: resolve(output, `${width}-${theme}-metered-inactive.png`) });
       await settingToggle.click();
       await page.waitForFunction(() => window.fixtureNativeMode === 'always');
       await page.getByRole('button', { name: '省流量菜单', exact: true }).click();
@@ -199,6 +205,7 @@ try {
       await page.getByLabel('恢复省流量默认设置', { exact: true }).click();
       await page.waitForFunction(() => window.fixtureNativeMode === 'never');
       assert.equal(await settingToggle.getAttribute('aria-checked'), 'false');
+      assert.equal(await page.getByRole('button', { name: '省流量菜单', exact: true }).count(), 0);
       await page.screenshot({
         path: resolve(output, `${width}-${theme}-metered-default.png`),
         fullPage: true,
@@ -224,10 +231,13 @@ try {
       });
       await menu.getByRole('button', { name: '确认临时关闭', exact: true }).click();
       await menu.getByText('正常加载', { exact: false }).waitFor();
+      await page.keyboard.press('Escape');
+      await menu.waitFor({ state: 'detached' });
       assert.equal(
         await page.getByRole('button', { name: '省流量菜单', exact: true }).isVisible(),
         true,
       );
+      await page.getByRole('button', { name: '省流量菜单', exact: true }).click();
       await menu.getByRole('button', { name: '临时开启', exact: true }).click();
       assert.equal(await menu.getByRole('radio', { name: '直到全部任务完成' }).count(), 0);
       await menu.getByRole('button', { name: '恢复基础设置', exact: true }).click();
@@ -273,7 +283,7 @@ try {
     }
   assert.deepEqual(errors, []);
   console.log(
-    '省流量浏览器验证通过：6 个桌面／移动浅深色场景，计费触发默认关闭、两处条件显示及同步、旧壳更新策略桥、临时期限、自动横幅、图片加载及无横向溢出。',
+    '省流量浏览器验证通过：6 个桌面／移动浅深色场景，计费网络未启用省流量时隐藏入口、临时关闭后保留入口、两处条件显示及同步、旧壳更新策略桥、临时期限、自动横幅、图片加载及无横向溢出。',
   );
 } finally {
   await browser?.close();

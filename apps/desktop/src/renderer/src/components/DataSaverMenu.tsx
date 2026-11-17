@@ -36,7 +36,7 @@ function temporaryLabel(value: DataSaverTemporary) {
 }
 
 export function DataSaverMenu() {
-  const { enabled, host, local, status } = useDataSaver();
+  const { enabled, status } = useDataSaver();
   const preferences = useClientPreferences();
   const [open, setOpen] = useState(false);
   const [target, setTarget] = useState<boolean | null>(null);
@@ -53,11 +53,7 @@ export function DataSaverMenu() {
   const pending = useRef(false);
   const titleId = useId();
   const layer = useOverlayLayer(open);
-  const visible =
-    enabled ||
-    host.state === 'restricted' ||
-    local.state === 'restricted' ||
-    Boolean(status?.temporary);
+  const visible = enabled || Boolean(status?.temporary);
   const close = useCallback(() => {
     setOpen(false);
     setTarget(null);

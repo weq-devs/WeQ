@@ -156,15 +156,33 @@ it('计费触发初次提醒说明实际原因，默认关闭时不弹自动开�
   applyDataSaverStatus(fixture.session!.status());
   expect(useToast.getState().toasts[0].detail).toBe('使用流量时自动启用');
 });
-it('省流量关闭且无系统限制时隐藏入口，系统仍限制时保留', async () => {
-  await mountMenu();
-  expect(host.querySelector('button')?.hidden).toBe(true);
-  await act(async () => {
-    fixture.session!.update('never', networkCost(true, false, 'fixture'));
-    applyDataSaverStatus(fixture.session!.status());
-  });
-  expect(host.querySelector('button')?.hidden).toBe(false);
-});
+it.each(['host', 'local'] as const)(
+  '入口跟随实际省流量状态，不因 %s 端仅使用流量或系统限制而单独显示',
+  async (source) => {
+    await mountMenu();
+    expect(host.querySelector('button')?.hidden).toBe(true);
+    for (const [mode, constrained, metered, onMetered, enabled] of [
+      ['auto', false, true, false, false],
+      ['never', false, true, true, false],
+      ['never', true, true, true, false],
+      ['auto', false, true, true, true],
+      ['auto', true, false, false, true],
+      ['always', false, false, false, true],
+      ['auto', false, false, false, false],
+    ] as const) {
+      await act(async () => {
+        const cost = networkCost(constrained, metered, 'fixture');
+        fixture.session!.update(mode, source === 'host' ? cost : UNKNOWN_NETWORK, onMetered);
+        if (source === 'local') fixture.session!.updateClient('phone', cost);
+        const status = fixture.session!.status('phone');
+        applyDataSaverStatus(status);
+        if (source === 'local') useDataSaver.setState({ local: status.local });
+      });
+      expect(useDataSaver.getState().enabled).toBe(enabled);
+      expect(host.querySelector('button')?.hidden).toBe(!enabled);
+    }
+  },
+);
 it('临时关闭提供三种期限，临时开启没有任务期限，支持恢复与设置跳转', async () => {
   fixture.session!.update('always', UNKNOWN_NETWORK);
   fixture.session!.setPendingTasks(2);
@@ -177,7 +195,9 @@ it('临时关闭提供三种期限，临时开启没有任务期限，支持恢�
   await click('直到全部任务完成');
   await click('确认临时关闭');
   expect(fixture.session!.status().temporary?.duration).toBe('tasks');
+  await click('关闭省流量菜单');
   expect(host.querySelector('button')?.hidden).toBe(false);
+  await click('省流量菜单');
   await click('临时开启');
   expect(document.querySelector('[aria-label="临时省流量期限"]')?.textContent).not.toContain(
     '直到全部任务完成',
@@ -261,10 +281,15 @@ it('计费选项默认关闭且仅跟随系统显示，设置和菜单共享值�
   const selector = '[role="switch"][aria-label="使用流量时自动启用"]';
   expect(host.querySelector(selector)?.getAttribute('aria-checked')).toBe('false');
   expect(useDataSaver.getState().enabled).toBe(false);
+  expect(host.querySelector<HTMLButtonElement>('.weq-data-saver-indicator')?.hidden).toBe(true);
+  await act(async () => host.querySelector<HTMLButtonElement>(selector)!.click());
   await click('省流量菜单');
   const menuToggle = () =>
     document.querySelector<HTMLButtonElement>(`.weq-data-saver-panel ${selector}`);
-  expect(menuToggle()?.getAttribute('aria-checked')).toBe('false');
+  expect(menuToggle()?.getAttribute('aria-checked')).toBe('true');
+  await act(async () => menuToggle()!.click());
+  expect(useDataSaver.getState().enabled).toBe(false);
+  expect(host.querySelector<HTMLButtonElement>('.weq-data-saver-indicator')?.hidden).toBe(false);
   await act(async () => menuToggle()!.click());
   expect(menuToggle()?.getAttribute('aria-checked')).toBe('true');
   expect(host.querySelector(selector)?.getAttribute('aria-checked')).toBe('true');
