@@ -148,6 +148,9 @@ export function GlobalSettingsSection({
     (sum, item) => sum + item.bytes,
     0,
   );
+  const cleanupDanger = selectedItems.some((item) => item.requiresExit || item.action === 'data')
+    ? 'solid'
+    : 'outline';
 
   useEffect(() => {
     const enabled = settings.data?.preferCdn;
@@ -157,9 +160,6 @@ export function GlobalSettingsSection({
   const cacheMulti = useMultiSelection({
     ids: storageEntries.filter(({ item }) => item.clearable).map(({ item }) => item.id),
     selected: pickedCats,
-  const cleanupDanger = selectedItems.some((item) => item.requiresExit || item.action === 'data')
-    ? 'solid'
-    : 'outline';
     onChange: setPickedCats,
     disabled: cleanupBusy || cacheUsage.isFetching,
   });
@@ -482,6 +482,7 @@ export function GlobalSettingsSection({
           {autoEnterTarget ? (
             <div className="weq-set-actions">
               <button
+                data-danger="outline"
                 type="button"
                 className="weq-set-btn weq-set-btn-soft"
                 onClick={() => void onClearAutoEnter()}
@@ -497,7 +498,6 @@ export function GlobalSettingsSection({
 
       {section === 'network' && (
         <Card title="加载来源" icon={<Cloud size={15} strokeWidth={1.8} />} settingId="prefer-cdn">
-                data-danger="outline"
           <Row
             label={
               <span className="weq-set-row-icon">
@@ -559,6 +559,7 @@ export function GlobalSettingsSection({
           </div>
           {restartIds.length > 0 && (
             <button
+              data-danger="solid"
               type="button"
               className="weq-set-btn"
               disabled={cleanupBusy}
@@ -574,7 +575,6 @@ export function GlobalSettingsSection({
             </button>
           )}
           <div className="weq-set-cache-list" {...cacheMulti.rootProps}>
-              data-danger="solid"
             {cacheUsage.isLoading ? (
               <div className="weq-set-empty" role="status">
                 读取存储占用中…
@@ -620,6 +620,7 @@ export function GlobalSettingsSection({
                 cleanupBusy || cacheUsage.isFetching || cacheUsage.isError || cleanupBytes === 0
               }
               onClick={() => void onClearWeqCache()}
+              data-danger={cleanupDanger}
             >
               {cleanupBusy ? (
                 <Loader2 size={14} strokeWidth={1.8} className="weq-spin" aria-hidden />
@@ -635,7 +636,6 @@ export function GlobalSettingsSection({
       {section === 'logs' && <LogFileSettings />}
     </div>
   );
-              data-danger={cleanupDanger}
 }
 import { formatBytes } from '../../lib/format';
 import { LogFileSettings } from './LogFileSettings';

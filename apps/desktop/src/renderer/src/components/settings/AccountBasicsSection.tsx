@@ -488,10 +488,10 @@ export function AccountBasicsSection({
               </div>
             ) : (
               <ul className="weq-set-rkey-list">
-                {rkeys.map((r, i) => {
+                {rkeys.map((r) => {
                   const exp = formatExpiry(r.createTime, r.ttlSeconds);
                   return (
-                    <li key={`${r.type}-${i}`} className="weq-set-rkey-item">
+                    <li key={`${r.type}-${r.rkey}`} className="weq-set-rkey-item">
                       <div className="weq-set-rkey-head">
                         <span className="weq-set-rkey-type">
                           <NumericText>{RKEY_TYPE_LABEL[r.type] ?? `类型 ${r.type}`}</NumericText>

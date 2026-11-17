@@ -76,7 +76,6 @@ export const APP_SETTING_FIELDS = (
     ['realtime', 'realtimeEnabled', 'realtime-enabled', '数据库监听'],
     ['attach', 'autoAttachQq', 'auto-full-mode', '自动启用 QQ 在线能力'],
     ['attach', 'restrictedModeBannerEnabled', 'restricted-mode-banner', '受限模式横幅提醒'],
-    ['db-tolerance', 'suppressDbDamageReminder', 'damage-reminder', '损坏提醒'],
     [
       'attach',
       'restrictedModeIndicatorEnabled',
