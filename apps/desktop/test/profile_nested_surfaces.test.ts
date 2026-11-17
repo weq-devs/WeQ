@@ -788,12 +788,12 @@ it('详情切换后的空标签不自动挂载群交集，关闭后卸载，主�
   try {
     render('friends');
     expect(host.querySelector('[aria-label="合成关系图状态"]')).toBeNull();
-    act(() => host.querySelector<HTMLButtonElement>('.weq-contact-reserved button')!.click());
-    expect(backContact).toHaveBeenCalledOnce();
+    expect(host.querySelector('.weq-contact-reserved button')).toBeNull();
     render('groups');
     expect(host.querySelector('[aria-label="合成关系图状态"]')).toBeNull();
-    act(() => host.querySelector<HTMLButtonElement>('.weq-contact-reserved button')!.click());
-    expect(backGroup).toHaveBeenCalledOnce();
+    expect(host.querySelector('.weq-contact-reserved button')).toBeNull();
+    expect(backContact).not.toHaveBeenCalled();
+    expect(backGroup).not.toHaveBeenCalled();
     render('groups', true);
     const graph = host.querySelector<HTMLInputElement>('[aria-label="合成关系图状态"]')!;
     expect(graph.dataset.active).toBe('true');

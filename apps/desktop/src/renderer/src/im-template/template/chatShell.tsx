@@ -27,6 +27,7 @@ export function ChatShell({
   query,
   contactTab,
   activeNotice,
+  contactOverviewActive = false,
   sidebarWidth,
   mainOpen,
   messageBadgeCount,
@@ -56,6 +57,7 @@ export function ChatShell({
   onQueryChange,
   onOpenFriendNotices,
   onOpenGroupNotices,
+  onOpenContactOverview,
   onContactTabChange,
   onRefreshContacts,
   refreshingContacts,
@@ -69,6 +71,7 @@ export function ChatShell({
   query: string;
   contactTab: ContactTab;
   activeNotice: ContactNoticeView | null;
+  contactOverviewActive?: boolean;
   sidebarWidth: number;
   mainOpen: boolean;
   messageBadgeCount: number;
@@ -99,6 +102,7 @@ export function ChatShell({
   onQueryChange: (query: string) => void;
   onOpenFriendNotices: () => void;
   onOpenGroupNotices: () => void;
+  onOpenContactOverview?: () => void;
   onContactTabChange: (tab: ContactTab) => void;
   onRefreshContacts?: () => void;
   refreshingContacts?: boolean;
@@ -133,6 +137,8 @@ export function ChatShell({
       onOpenProfile={onOpenProfile}
       onOpenFriendNotices={onOpenFriendNotices}
       onOpenGroupNotices={onOpenGroupNotices}
+      onOpenContactOverview={onOpenContactOverview}
+      contactOverviewActive={contactOverviewActive && (!singleColumn || mainOpen)}
       contactTab={contactTab}
       onContactTabChange={onContactTabChange}
       onRefreshContacts={onRefreshContacts}

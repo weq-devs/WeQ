@@ -8,6 +8,7 @@ import {
   LayoutGrid,
   ListTodo,
   Settings,
+  Waypoints,
 } from 'lucide-react';
 import { FEATURE_ICONS, type FeatureIcon } from './featureIcons';
 import type { MainView } from '../im-template/template/types';
@@ -19,6 +20,7 @@ export type AppNavigationTarget =
   | { kind: 'setting'; section: 'startup' }
   | { kind: 'dressup' }
   | { kind: 'composition' }
+  | { kind: 'contact-overview' }
   | { kind: 'contact-notice'; notice: 'friend' | 'group' };
 export type NavigationSurface = 'rail' | 'mobile-tabs' | 'mobile-more' | 'workspace' | 'search';
 export interface AppNavigationEntry {
@@ -198,6 +200,13 @@ export const APP_NAVIGATION = {
     keywords: [],
     placements: {},
   },
+  'group-intersection': {
+    label: '群交集',
+    icon: Waypoints,
+    target: { kind: 'contact-overview' },
+    keywords: ['群成员重合', '关系图谱'],
+    placements: {},
+  },
 } satisfies Record<string, Omit<AppNavigationEntry, 'id'>>;
 
 export type AppNavigationId = keyof typeof APP_NAVIGATION;
@@ -215,6 +224,7 @@ export interface AppNavigationActions {
   onOpenSettings: () => void;
   onOpenTool: (tool: NavigationTool | 'composition') => void;
   onOpenNotice: (notice: 'friend' | 'group') => void;
+  onOpenContactOverview?: () => void;
 }
 
 export function activateNavigation(target: AppNavigationTarget, actions: AppNavigationActions) {
@@ -233,5 +243,7 @@ export function activateNavigation(target: AppNavigationTarget, actions: AppNavi
       return actions.onOpenTool('composition');
     case 'contact-notice':
       return actions.onOpenNotice(target.notice);
+    case 'contact-overview':
+      return actions.onOpenContactOverview?.();
   }
 }

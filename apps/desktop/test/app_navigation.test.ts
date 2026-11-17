@@ -54,6 +54,7 @@ describe('共用功能导航', () => {
       onOpenDressUp: vi.fn(),
       onOpenTool: vi.fn(),
       onOpenNotice: vi.fn(),
+      onOpenContactOverview: vi.fn(),
     };
     for (const entry of Object.values(APP_NAVIGATION)) activateNavigation(entry.target, actions);
     for (const view of [
@@ -85,5 +86,6 @@ describe('共用功能导航', () => {
       expect(actions.onOpenTool).toHaveBeenCalledWith(tool);
     expect(actions.onOpenNotice).toHaveBeenCalledWith('friend');
     expect(actions.onOpenNotice).toHaveBeenCalledWith('group');
+    expect(actions.onOpenContactOverview).toHaveBeenCalledOnce();
   });
 });

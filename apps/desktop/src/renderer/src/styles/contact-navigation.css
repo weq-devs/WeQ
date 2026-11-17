@@ -55,11 +55,11 @@ html[data-theme] body .sidebar .weq-contact-directory-scroll .contact-cat-header
   background: var(--weq-contact-directory-surface);
 }
 
-/* 好友/群通知压成一行两个轻量入口：与工具行同高，不再冒充列表行。 */
+/* 联系人通知与群交集共用一排轻量入口。 */
 html[data-theme] .sidebar .contact-notice-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+  grid-template-columns: minmax(0, 1.2fr) repeat(2, minmax(0, 1fr));
+  gap: 4px;
   min-width: 0;
 }
 
@@ -69,7 +69,7 @@ html[data-theme] .sidebar .contact-notice-row > .weq-contact-notice-entry {
   min-height: 32px;
   align-items: center;
   justify-content: center;
-  padding: 0 8px;
+  padding: 0 4px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -89,10 +89,20 @@ html[data-theme] .sidebar .contact-notice-row > .weq-contact-notice-entry:nth-ch
   container-name: weq-group-notice;
 }
 
+html[data-theme] .sidebar .contact-notice-row > .weq-contact-notice-entry:nth-child(3) {
+  container-name: weq-group-intersection;
+}
+
 html[data-theme] .sidebar .contact-notice-row > .weq-contact-notice-entry .notice-entry-label {
+  position: relative;
   min-width: 0;
   gap: 5px;
-  overflow: hidden;
+}
+
+html[data-theme] .sidebar .contact-notice-row .notice-entry-dot {
+  position: absolute;
+  top: 0;
+  left: 10px;
 }
 
 html[data-theme]
@@ -144,35 +154,21 @@ html[data-theme='dark'] .sidebar .contact-notice-row > .weq-contact-notice-entry
   background: color-mix(in srgb, var(--weq-fg-primary) 9%, transparent);
 }
 
-/* 按入口内容区计算字宽、图标、间距及可选红点，另留 1px 字形取整余量。 */
-@container weq-friend-notice (width < calc(4ic + 21px)) {
+/* 按入口内容区计算字宽、图标及间距，红点叠放在图标上不挤占文字。 */
+@container weq-friend-notice (width < calc(4ic + 20px)) {
   html[data-theme] .sidebar .contact-notice-row .notice-entry-text {
     display: none;
   }
 }
 
-@container weq-group-notice (width < calc(3ic + 21px)) {
+@container weq-group-notice (width < calc(3ic + 20px)) {
   html[data-theme] .sidebar .contact-notice-row .notice-entry-text {
     display: none;
   }
 }
 
-@container weq-friend-notice (width < calc(4ic + 34px)) {
-  html[data-theme]
-    .sidebar
-    .contact-notice-row
-    .notice-entry-label:has(.notice-entry-dot)
-    .notice-entry-text {
-    display: none;
-  }
-}
-
-@container weq-group-notice (width < calc(3ic + 34px)) {
-  html[data-theme]
-    .sidebar
-    .contact-notice-row
-    .notice-entry-label:has(.notice-entry-dot)
-    .notice-entry-text {
+@container weq-group-intersection (width < calc(3ic + 20px)) {
+  html[data-theme] .sidebar .contact-notice-row .notice-entry-text {
     display: none;
   }
 }
@@ -181,8 +177,8 @@ html:where([data-weq-layout='single'])[data-theme]
   .sidebar
   .contact-notice-row
   > .weq-contact-notice-entry {
-  min-height: 36px;
-  padding-inline: 10px;
+  min-height: 44px;
+  padding-inline: 4px;
   font-size: 13px;
 }
 

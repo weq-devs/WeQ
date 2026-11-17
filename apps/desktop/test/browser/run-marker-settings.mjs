@@ -74,7 +74,7 @@ try {
       assert.equal(await page.locator('.weq-set-head .weq-set-iconbtn').count(), 0);
       assert.equal(await page.locator('.weq-current-tasks-head .weq-set-iconbtn').count(), 0);
       assert.equal(await page.locator('.weq-current-tasks-results').innerText(), '1 项已结束');
-      assert.equal(await page.locator('.contact-notice-row > button').count(), 2);
+      assert.equal(await page.locator('.contact-notice-row > button').count(), 3);
       assert.equal(await page.locator('button .lucide-settings2').count(), 0);
       for (const [label, settingId] of [
         ['邮件通知设置', 'mail-banner'],
@@ -108,7 +108,7 @@ try {
           node.style.width = `min(100%, ${size}px)`;
         }, size);
         const row = page.locator('.contact-notice-row');
-        assert.equal(await row.locator('.notice-entry-text:visible').count(), size === 160 ? 0 : 2);
+        assert.equal(await row.locator('.notice-entry-text:visible').count(), size === 160 ? 0 : 3);
         const overlap = await row.locator(':scope > button').evaluateAll((buttons) =>
           buttons.some((button, index) => {
             const box = button.getBoundingClientRect();

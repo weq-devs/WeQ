@@ -115,7 +115,9 @@ function uniqueEntries(entries: AppSearchEntry[]): AppSearchEntry[] {
 
 export const APP_SEARCH_ENTRIES: readonly AppSearchEntry[] = uniqueEntries([
   ...navigationEntries('search').flatMap(({ label, target, keywords }) =>
-    target.kind === 'contact-notice' ? [] : [feature(label, target, ...keywords)],
+    target.kind === 'contact-notice' || target.kind === 'contact-overview'
+      ? []
+      : [feature(label, target, ...keywords)],
   ),
   feature('好友克隆', { kind: 'conversation-directory', scope: 'virtual' }, '克隆聊天'),
   feature('新建好友克隆', { kind: 'clone-create' }, '创建克隆'),

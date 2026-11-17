@@ -8889,6 +8889,13 @@ function MainWorkspace(): ReactElement {
             onOpenGroupNotices={() =>
               settingsNavigation.navigate(() => shell.openContactNotice('group'))
             }
+            onOpenContactOverview={() => settingsNavigation.navigate(shell.openContactOverview)}
+            contactOverviewActive={
+              shell.contactOverviewOpen &&
+              !shell.selectedContact &&
+              !shell.selectedGroupConversation &&
+              !shell.contactNotice
+            }
             onContactTabChange={shell.changeContactTab}
             onRefreshContacts={() => {
               void refreshContacts();
@@ -9145,6 +9152,7 @@ function MainWorkspace(): ReactElement {
                           view={shell.view}
                           contactTab={shell.contactTab}
                           contactOverviewOpen={shell.contactOverviewOpen}
+                          onBackContactOverview={shell.backContactOverview}
                           relationGraphSlot={
                             <Suspense fallback={workspaceLoading}>
                               <RelationGraphView onOpenMember={handleOpenGraphMember} />

@@ -23,6 +23,7 @@ import { APP_NAVIGATION } from '../../lib/appNavigation';
 
 const FriendNoticeIcon = APP_NAVIGATION['friend-notice'].icon;
 const GroupNoticeIcon = APP_NAVIGATION['group-notice'].icon;
+const GroupIntersectionIcon = APP_NAVIGATION['group-intersection'].icon;
 
 export function SidebarHeader({
   user,
@@ -32,6 +33,8 @@ export function SidebarHeader({
   onOpenProfile,
   onOpenFriendNotices,
   onOpenGroupNotices,
+  onOpenContactOverview,
+  contactOverviewActive = false,
   contactTab,
   onContactTabChange,
   onRefreshContacts,
@@ -50,6 +53,8 @@ export function SidebarHeader({
   onOpenProfile: () => void;
   onOpenFriendNotices: () => void;
   onOpenGroupNotices: () => void;
+  onOpenContactOverview?: () => void;
+  contactOverviewActive?: boolean;
   contactTab: ContactTab;
   onContactTabChange: (tab: ContactTab) => void;
   onRefreshContacts?: () => void;
@@ -312,6 +317,21 @@ export function SidebarHeader({
                     aria-label="有新的群通知"
                   />
                 )}
+              </span>
+            </button>
+            <button
+              type="button"
+              className={cn(contactToolButtonClass(contactOverviewActive))}
+              aria-current={contactOverviewActive ? 'page' : undefined}
+              aria-label={APP_NAVIGATION['group-intersection'].label}
+              title={APP_NAVIGATION['group-intersection'].label}
+              onClick={onOpenContactOverview}
+            >
+              <span className="notice-entry-label">
+                <GroupIntersectionIcon size={15} aria-hidden />
+                <span className="notice-entry-text">
+                  {APP_NAVIGATION['group-intersection'].label}
+                </span>
               </span>
             </button>
           </div>
