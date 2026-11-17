@@ -1,10 +1,8 @@
 import { createRoot } from 'react-dom/client';
 import { useState } from 'react';
 import { MediaPreview, type PreviewMedia } from '../../src/renderer/src/components/MediaPreview';
-import {
-  MarketFaceLightbox,
-  openMarketFaceLightbox,
-} from '../../src/renderer/src/components/MarketFaceLightbox';
+import { MarketFaceLightbox } from '../../src/renderer/src/components/MarketFaceLightbox';
+import { openMarketFaceLightbox } from '../../src/renderer/src/state/marketFaceLightbox';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   MediaPreviewHost,

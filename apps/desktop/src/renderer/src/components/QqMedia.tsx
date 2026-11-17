@@ -40,7 +40,7 @@ import { openMediaPreview } from './mediaPreviewStore';
 
 import { MediaItemKeyContext, useChatMediaOpen } from './ChatMediaGallery';
 import { useRenderDocument, resourceForRenderDocument } from '../lib/renderDocument';
-import { openMarketFaceLightbox } from './MarketFaceLightbox';
+import { openMarketFaceLightbox } from '../state/marketFaceLightbox';
 import { ShimmerImage } from './ShimmerImage';
 import { IS_ELECTRON } from '@renderer/lib/target';
 import { cdnImageUrl, cdnVideoCoverUrl, flashPicUrl, useCdn } from '@renderer/lib/cdn';

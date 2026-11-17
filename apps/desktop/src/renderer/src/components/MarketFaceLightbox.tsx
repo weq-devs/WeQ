@@ -6,7 +6,6 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { OverlayLayer } from './OverlayLayer';
-import { create } from 'zustand';
 import { ChevronLeft, ChevronRight, Copy, Store, RefreshCw, X } from 'lucide-react';
 import type { MarketPackFeeType } from '@weq/service';
 import { trpc } from '@renderer/trpc/client';
@@ -16,6 +15,7 @@ import { MarketImageSave } from './MarketImageSave';
 import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
 import { RenderDocumentContext, useRenderDocument } from '../lib/renderDocument';
 import { useViewState } from '../state/view';
+import { useMarketFaceLightbox } from '../state/marketFaceLightbox';
 import { useSurfaceEscapeDismissal } from '../lib/surfaceEscape';
 import '../styles/market-face-popover.css';
 
@@ -54,36 +54,6 @@ function usePackImage(packId: string, hash: string, key?: string) {
       setBroken(false);
     },
   };
-}
-
-interface MarketFaceLightboxStore {
-  packId: string | null;
-  activeHash: string;
-  anchor: HTMLElement | null;
-  open(packId: string, activeHash?: string, anchor?: HTMLElement): void;
-  close(): void;
-}
-
-const useMarketFaceLightbox = create<MarketFaceLightboxStore>((set) => ({
-  packId: null,
-  activeHash: '',
-  anchor: null,
-  open(packId, activeHash = '', anchor) {
-    if (!packId) return;
-    set({ packId, activeHash, anchor: anchor ?? null });
-  },
-  close() {
-    set({ packId: null, activeHash: '', anchor: null });
-  },
-}));
-
-/** 打开整包浮层；再次点击同包其他消息时更新锚点与高亮。 */
-export function openMarketFaceLightbox(
-  packId: string,
-  activeHash?: string,
-  anchor?: HTMLElement,
-): void {
-  useMarketFaceLightbox.getState().open(packId, activeHash, anchor);
 }
 
 /** 挂载一次。渲染当前商城表情包的整组表情网格（若有）。 */

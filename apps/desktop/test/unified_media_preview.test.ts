@@ -11,10 +11,8 @@ import {
 } from '../src/renderer/src/components/MediaPreview';
 import { ChatMediaGallery, galleryMedia } from '../src/renderer/src/components/ChatMediaGallery';
 import { QqMessageContent } from '../src/renderer/src/components/QqMessageContent';
-import {
-  MarketFaceLightbox,
-  openMarketFaceLightbox,
-} from '../src/renderer/src/components/MarketFaceLightbox';
+import { MarketFaceLightbox } from '../src/renderer/src/components/MarketFaceLightbox';
+import { openMarketFaceLightbox } from '../src/renderer/src/state/marketFaceLightbox';
 import {
   MediaPreviewHost,
   openMediaPreview,
