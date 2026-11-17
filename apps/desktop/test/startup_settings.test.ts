@@ -95,6 +95,37 @@ function mount() {
   };
 }
 describe('独立系统自启设置', () => {
+  it.each([false, true])('自启 %s 时不重复显示系统登录项状态行', (enabled) => {
+    fixture.data.enabled = enabled;
+    const view = mount();
+    try {
+      expect(view.host.textContent).not.toContain('系统登录项');
+      expect(view.host.textContent).not.toContain(enabled ? '已开启' : '已关闭');
+      expect(view.toggle().getAttribute('aria-checked')).toBe(String(enabled));
+    } finally {
+      view.close();
+    }
+  });
+  it.each([
+    ['loading', '正在读取开机启动状态'],
+    ['unsupported', '仅安装版桌面端支持'],
+    ['failed', '读取开机启动状态失败'],
+    ['approval', '需要系统批准'],
+  ] as const)('%s 状态直接在开机启动开关旁说明', (state, description) => {
+    fixture.loading = state === 'loading';
+    fixture.data.supported = state !== 'unsupported';
+    fixture.error = state === 'failed' ? new Error('合成自启读取失败') : null;
+    fixture.data.requiresApproval = state === 'approval';
+    const view = mount();
+    try {
+      const row = view.toggle().closest('.weq-set-row');
+      expect(row?.textContent).toContain(description);
+      expect(view.host.textContent).not.toContain('系统登录项');
+      if (state === 'failed') expect(view.host.textContent).toContain(fixture.error!.message);
+    } finally {
+      view.close();
+    }
+  });
   it('自启下方显示默认关闭的窗口开关，不把窗口偏好写入自启注册接口', async () => {
     fixture.data.enabled = true;
     const view = mount();

@@ -49,17 +49,15 @@ export function StartupSection() {
       showError('保存关闭行为设置失败', error instanceof Error ? error.message : String(error));
     }
   }
-  const label = status.error
-    ? '读取失败'
+  const autostartDescription = status.error
+    ? '读取开机启动状态失败。'
     : status.isLoading
-      ? '读取中'
+      ? '正在读取开机启动状态…'
       : !data?.supported
-        ? '当前环境不支持'
+        ? '仅安装版桌面端支持；Web 服务由部署方管理。'
         : data.requiresApproval
-          ? '需要系统批准'
-          : data.enabled
-            ? '已开启'
-            : '已关闭';
+          ? '需要系统批准，批准后将在登录系统时启动 WeQ。'
+          : '登录系统时启动 WeQ，完全退出后不会在本次登录中重新拉起。';
   async function change(enabled: boolean) {
     if (changingRef.current) return;
     changingRef.current = true;
@@ -107,11 +105,7 @@ export function StartupSection() {
       <Card title="开机启动" icon={<Power size={15} strokeWidth={1.8} />} remoteUnsupported>
         <Row
           settingId="startup-enabled"
-          desc={
-            data?.supported
-              ? '登录系统时启动 WeQ，完全退出后不会在本次登录中重新拉起。'
-              : '仅安装版桌面端支持；Web 服务由部署方管理。'
-          }
+          desc={autostartDescription}
           control={
             <Toggle
               label="开机自动启动"
@@ -127,6 +121,7 @@ export function StartupSection() {
             />
           }
         />
+        {status.error && <p className="weq-set-note weq-set-note-warn">{status.error.message}</p>}
         {data?.enabled || data?.requiresApproval ? (
           <Row
             label="自启时显示窗口"
@@ -151,8 +146,6 @@ export function StartupSection() {
             }
           />
         ) : null}
-        <Row label="系统登录项" desc={label} control={<Power size={14} aria-hidden />} />
-        {status.error && <p className="weq-set-note weq-set-note-warn">{status.error.message}</p>}
         {settings.error && (
           <p className="weq-set-note weq-set-note-warn">{settings.error.message}</p>
         )}
