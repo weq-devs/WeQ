@@ -1078,7 +1078,10 @@ void app.whenReady().then(async () => {
   // dot. Deferred so it never competes with first paint; failures are ignored.
   startAutomaticUpdateChecks();
 
-  app.on('activate', openMainWindow);
+  app.on('activate', (_event, hasVisibleWindows) => {
+    // 已有可见窗口时由 macOS 恢复窗口顺序，不让主窗口盖过工具窗口。
+    if (!hasVisibleWindows) openMainWindow();
+  });
 });
 
 app.on('window-all-closed', () => {
