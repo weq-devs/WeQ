@@ -581,12 +581,18 @@ html[data-theme='dark'] .weq-dbm {
   scroll-snap-align: start;
 }
 
+.weq-dbm-db-wrap {
+  position: relative;
+  height: 100%;
+}
+
 .weq-dbm-db {
   position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
   width: 100%;
+  height: 100%;
   min-height: 134px;
   padding: 11px 12px 10px;
   border: 1px solid var(--dbm-hair);
@@ -616,21 +622,15 @@ html[data-theme='dark'] .weq-dbm {
   background: color-mix(in srgb, var(--weq-accent-effective) 6%, var(--dbm-surface));
 }
 
-.weq-dbm-db.is-disabled {
-  cursor: default;
-  opacity: 0.62;
-}
-
-.weq-dbm-db.is-disabled:hover {
-  border-color: var(--dbm-hair);
-  transform: none;
-}
-
 .weq-dbm-db-top {
   display: flex;
   align-items: center;
   gap: 7px;
   min-width: 0;
+}
+
+.weq-dbm-db.is-selectable .weq-dbm-db-top {
+  padding-right: 28px;
 }
 
 .weq-dbm-db-icon {
@@ -695,10 +695,12 @@ html[data-theme='dark'] .weq-dbm {
 }
 
 .weq-dbm-db-input {
-  flex: none;
-  width: 15px;
-  height: 15px;
-  margin: 0 0 0 auto;
+  position: absolute;
+  top: 14px;
+  right: 12px;
+  width: 20px;
+  height: 20px;
+  margin: 0;
   accent-color: var(--weq-accent-solid);
   cursor: pointer;
 }
@@ -707,7 +709,7 @@ html[data-theme='dark'] .weq-dbm {
   cursor: default;
 }
 
-.weq-dbm-db.is-selectable:has(.weq-dbm-db-input:focus-visible) {
+.weq-dbm-db-wrap:has(.weq-dbm-db-input:focus-visible) .weq-dbm-db {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
 }

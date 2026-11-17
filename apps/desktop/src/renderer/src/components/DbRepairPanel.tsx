@@ -386,6 +386,17 @@ export function DbRepairPanel({
   };
   const startScan = (kind: 'scan' | 'checkup') =>
     act(async () => {
+      if (
+        rescanning &&
+        !(await useDialog
+          .getState()
+          .confirm(
+            '重新扫描数据库？',
+            '将重新检查全部目标数据库，替换当前页内结果。已有历史报告会保留，扫描不会执行修复。',
+            { okLabel: '重新扫描', cancelLabel: '继续查看', ownerDocument },
+          ))
+      )
+        return;
       window.electron?.ipcRenderer.send('db-repair:scope', scope);
       setReportId(undefined);
       setReportScope(scope);
@@ -393,6 +404,7 @@ export function DbRepairPanel({
       setStarting(kind);
       setAllowLowSpace(false);
       try {
+        if (rescanning) await end.mutateAsync(scope);
         setLive(await scan.mutateAsync({ ...scope, kind }));
         await refresh();
       } finally {
@@ -505,6 +517,7 @@ export function DbRepairPanel({
   const waiting = live?.state === 'waiting' && !ending;
   const paused =
     waiting && live?.operation?.kind !== 'repair' && live?.operation?.status === 'cancelled';
+  const rescanning = !!live?.operation && !paused;
   const databases =
     view?.databases ??
     status.data?.databases
@@ -654,12 +667,12 @@ export function DbRepairPanel({
       ) : (
         <button
           type="button"
-          className="weq-set-btn weq-set-btn-primary"
+          className={`weq-set-btn${rescanning ? '' : ' weq-set-btn-primary'}`}
           disabled={!canScan}
           onClick={() => void startScan(scanKind)}
         >
-          <Play size={14} />
-          {paused ? '继续扫描' : '开始扫描'}
+          {rescanning ? <RefreshCw size={14} /> : <Play size={14} />}
+          {paused ? '继续扫描' : rescanning ? '重新扫描' : '开始扫描'}
         </button>
       )}
     </div>
@@ -1098,7 +1111,7 @@ export function DbRepairPanel({
                 }
               }}
             >
-              <summary className="weq-set-btn weq-set-btn-sm">
+              <summary className="weq-set-btn">
                 修复选项
                 <ChevronDown size={13} aria-hidden />
               </summary>
@@ -1439,20 +1452,6 @@ function DatabaseCard({
           )}
         </span>
         <Chip tone={tone}>{rowLabel(row)}</Chip>
-        {selectable ? (
-          <input
-            type="checkbox"
-            className="weq-dbm-db-input"
-            aria-label={`修复 ${row.dbName}`}
-            checked={selected}
-            disabled={disabled}
-            onChange={(event) => {
-              onFocus();
-              onSelect(event.target.checked);
-            }}
-            onFocus={onFocus}
-          />
-        ) : null}
       </span>
       <span className="weq-dbm-db-name">{row.dbName}</span>
       <span className="weq-dbm-db-note">{rowSummary(row)}</span>
@@ -1469,26 +1468,30 @@ function DatabaseCard({
       </span>
     </>
   );
-  if (!selectable) {
-    return (
+  return (
+    <div className="weq-dbm-db-wrap">
       <button
         type="button"
-        className={`weq-dbm-db${current ? ' is-current' : ''}`}
+        className={`weq-dbm-db${selectable ? ' is-selectable' : ''}${current ? ' is-current' : ''}${selectable && selected ? ' is-selected' : ''}`}
         data-tone={tone}
+        aria-label={`查看 ${row.dbName} 检查详情`}
         aria-pressed={current}
         onClick={onFocus}
       >
         {content}
       </button>
-    );
-  }
-  return (
-    <label
-      className={`weq-dbm-db is-selectable${current ? ' is-current' : ''}${selected ? ' is-selected' : ''}${disabled ? ' is-disabled' : ''}`}
-      data-tone={tone}
-    >
-      {content}
-    </label>
+      {selectable ? (
+        <input
+          type="checkbox"
+          className="weq-dbm-db-input"
+          aria-label={`修复 ${row.dbName}`}
+          checked={selected}
+          disabled={disabled}
+          onChange={(event) => onSelect(event.target.checked)}
+          onFocus={onFocus}
+        />
+      ) : null}
+    </div>
   );
 }
 
