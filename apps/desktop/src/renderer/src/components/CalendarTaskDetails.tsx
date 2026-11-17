@@ -37,7 +37,9 @@ export function CalendarTaskDetails({
         running || (data?.snapshot.hasPending && data.snapshot.controls.day.state === 'running')
           ? 1000
           : false,
-      cacheTime: 0,
+      cacheTime: 60_000,
+      staleTime: 0,
+      refetchOnMount: 'always',
     },
   );
   const value = query.data;
