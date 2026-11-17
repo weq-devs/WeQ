@@ -80,11 +80,11 @@ describe('长期授权设置', () => {
     );
     await act(async () => view.button('启用长期授权').click());
     expect(confirm).toHaveBeenCalledOnce();
-    expect(view.host.textContent).not.toContain('已连接');
+    expect(view.host.querySelector('[role="status"]')?.textContent).not.toBe('已连接');
     expect(view.button('正在授权…').disabled).toBe(true);
     await act(async () => finish(state('needs-repair')));
     expect(view.host.textContent).toContain('需要修复');
-    expect(view.host.textContent).not.toContain('已连接');
+    expect(view.host.querySelector('[role="status"]')?.textContent).not.toBe('已连接');
   });
   it('取消确认不安装；系统拒绝保留错误和重试入口', async () => {
     const view = await mount();

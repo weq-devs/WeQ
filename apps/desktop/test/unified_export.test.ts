@@ -357,19 +357,28 @@ it.each(['album', 'groupfile'] as const)(
         node.textContent?.includes('合成群甲'),
       )!;
       act(() => group.click());
-      await act(async () => f.host.querySelector<HTMLButtonElement>('.weq-exp-primary')!.click());
+      await act(async () => {
+        f.host.querySelector<HTMLButtonElement>('.weq-exp-primary')!.click();
+        await vi.dynamicImportSettled();
+      });
       if (mode === 'groupfile') {
         await act(async () => {
-          await vi.waitFor(() => expect(f.host.querySelector('.weq-exp-file-row')).not.toBeNull());
-          f.host.querySelector<HTMLButtonElement>('.weq-exp-file-row')!.click();
+          await vi.waitFor(() =>
+            expect(document.querySelector('.weq-exp-file-row')).not.toBeNull(),
+          );
+          document.querySelector<HTMLButtonElement>('.weq-exp-file-row')!.click();
+
+          await vi.dynamicImportSettled();
         });
       }
       expect(f.host.querySelector('.weq-exp-album-path')).toBeNull();
       captureLayout(f.host, `resource-${mode}`);
       await act(async () => {
-        const modal = f.host.querySelector<HTMLElement>('.weq-exp-album-dialog')!;
+        const modal = document.querySelector<HTMLElement>('.weq-exp-album-dialog')!;
         expect(modal.querySelector('.weq-save-options')).toBeNull();
         modal.querySelector<HTMLButtonElement>('.is-primary')!.click();
+
+        await vi.dynamicImportSettled();
       });
       expect(fixture.prepare).toHaveBeenCalledWith(undefined, {
         kind: 'bundle',
@@ -401,11 +410,17 @@ it('相册保存准备取消后保留选择且不创建任务', async () => {
         .find((node) => node.textContent?.includes('合成群甲'))!
         .click(),
     );
-    await act(async () => f.host.querySelector<HTMLButtonElement>('.weq-exp-primary')!.click());
+    await act(async () => {
+      f.host.querySelector<HTMLButtonElement>('.weq-exp-primary')!.click();
+      await vi.dynamicImportSettled();
+    });
     fixture.prepare.mockResolvedValueOnce(null);
-    await act(async () => click(f.host, '开始导出'));
+    await act(async () => {
+      click(document.body, '开始导出');
+      await vi.dynamicImportSettled();
+    });
     expect(fixture.startResource).not.toHaveBeenCalled();
-    expect(f.host.querySelector('.weq-exp-album-dialog')).not.toBeNull();
+    expect(document.querySelector('.weq-exp-album-dialog')).not.toBeNull();
   } finally {
     f.close();
   }
@@ -478,11 +493,12 @@ describe('统一导出实际界面', () => {
     try {
       act(() => click(f.host, '保存合成任务'));
       expect(f.host.querySelector('.weq-save-result-location')).not.toBeNull();
-      await act(async () =>
+      await act(async () => {
         f.host
           .querySelector<HTMLFormElement>('.weq-save-result-location')!
-          .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
-      );
+          .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+        await vi.dynamicImportSettled();
+      });
       expect(fixture.serverPrepare).toHaveBeenCalledWith({
         mode: 'before',
         directory: undefined,
@@ -497,7 +513,10 @@ describe('统一导出实际界面', () => {
       });
       act(() => click(f.host, '保存合成任务'));
       fixture.configId = 'other-source';
-      await act(async () => f.setActive(true));
+      await act(async () => {
+        f.setActive(true);
+        await vi.dynamicImportSettled();
+      });
       expect(f.host.querySelector('.weq-save-result-location')).toBeNull();
       expect(fixture.serverPrepare).toHaveBeenCalledOnce();
       expect(fixture.saveOutput).toHaveBeenCalledOnce();
@@ -520,10 +539,16 @@ describe('统一导出实际界面', () => {
     });
     try {
       click(f.host, '导出');
-      await act(async () => click(f.host, '夹具确认导出'));
+      await act(async () => {
+        click(f.host, '夹具确认导出');
+        await vi.dynamicImportSettled();
+      });
       expect(fixture.prepare).toHaveBeenCalledOnce();
       fixture.configId = 'other-source';
-      await act(async () => finish({ mode: 'before', directory: '/fixture/export' }));
+      await act(async () => {
+        finish({ mode: 'before', directory: '/fixture/export' });
+        await vi.dynamicImportSettled();
+      });
       expect(fixture.startGuild).not.toHaveBeenCalled();
     } finally {
       f.close();
@@ -539,9 +564,15 @@ describe('统一导出实际界面', () => {
     try {
       expect(f.host.querySelector('.weq-export-save-control')).toBeNull();
       expect(f.host.querySelector('.weq-save-options')).toBeNull();
-      await act(async () => click(f.host, '导出联系人'));
+      await act(async () => {
+        click(f.host, '导出联系人');
+        await vi.dynamicImportSettled();
+      });
       expect(fixture.prepare).not.toHaveBeenCalled();
-      await act(async () => click(f.host, '夹具确认导出'));
+      await act(async () => {
+        click(f.host, '夹具确认导出');
+        await vi.dynamicImportSettled();
+      });
       expect(fixture.prepare).toHaveBeenLastCalledWith(
         undefined,
         expect.objectContaining({
@@ -555,8 +586,14 @@ describe('统一导出实际界面', () => {
       expect(fixture.startContacts).toHaveBeenLastCalledWith(
         expect.objectContaining({ savePolicy: { mode: 'before', directory: '/fixture/export' } }),
       );
-      await act(async () => click(f.host, '导出联系人'));
-      await act(async () => click(f.host, '夹具确认导出'));
+      await act(async () => {
+        click(f.host, '导出联系人');
+        await vi.dynamicImportSettled();
+      });
+      await act(async () => {
+        click(f.host, '夹具确认导出');
+        await vi.dynamicImportSettled();
+      });
       expect(fixture.prepare).toHaveBeenLastCalledWith(
         undefined,
         expect.objectContaining({ kind: 'contacts', contactScope: 'friends', targetCount: 1 }),
@@ -588,7 +625,10 @@ describe('统一导出实际界面', () => {
     fixture.saveOutput.mockResolvedValue(null);
     const f = mount({ surface: 'tasks' });
     try {
-      await act(async () => click(f.host, '保存合成任务'));
+      await act(async () => {
+        click(f.host, '保存合成任务');
+        await vi.dynamicImportSettled();
+      });
       expect(fixture.prepare).not.toHaveBeenCalled();
       expect(fixture.saveOutput).toHaveBeenCalledWith({
         taskId: 'save-a',
@@ -613,7 +653,9 @@ describe('统一导出实际界面', () => {
     };
     const f = mount(props);
     try {
-      await act(async () => {});
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
       const modes = f.host.querySelector<HTMLSelectElement>('#weq-export-content-kind');
       expect(modes?.value).toBe('full');
       expect(modes!.options.length).toBeGreaterThan(1);
@@ -648,7 +690,9 @@ describe('统一导出实际界面', () => {
       },
     });
     try {
-      await act(async () => {});
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
       expect(f.host.querySelector('#weq-export-content-kind')).toBeNull();
       expect(f.host.querySelector('[data-export-summary]')?.textContent).toBe('2 个会话');
       const config = f.host.querySelector('[data-config]');
@@ -677,7 +721,9 @@ describe('统一导出实际界面', () => {
       },
     });
     try {
-      await act(async () => {});
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
       expect(f.host.querySelector('#weq-export-content-kind')).toBeNull();
       expect(f.host.querySelector('[data-scope-seed]')).toBeNull();
       expect(f.host.querySelector('[data-export-summary]')?.textContent).toContain(
@@ -703,7 +749,9 @@ describe('统一导出实际界面', () => {
         select.dispatchEvent(new Event('change', { bubbles: true }));
       });
     try {
-      await act(async () => {});
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
       expect(f.host.querySelector('[data-scope-seed]')?.getAttribute('data-scope-seed')).toBe(
         'group',
       );
@@ -732,7 +780,9 @@ describe('统一导出实际界面', () => {
       },
     });
     try {
-      await act(async () => {});
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
       expect(f.host.querySelectorAll('.weq-exp-row')).toHaveLength(1);
       expect(f.host.querySelector('.weq-exp-row')!.textContent).toContain('自己（我）');
       expect(f.host.textContent).not.toContain('不应覆盖自己');
@@ -754,7 +804,9 @@ describe('统一导出实际界面', () => {
     };
     const f = mount({ initialSelection: selection });
     try {
-      await act(async () => {});
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
       expect(f.host.querySelector<HTMLSelectElement>('#weq-export-content-kind')!.value).toBe(
         'qzone',
       );
@@ -763,11 +815,17 @@ describe('统一导出实际界面', () => {
       expect(f.host.querySelector('[data-export-summary]')!.textContent).toContain(
         '精确选中 2 条说说',
       );
-      await act(async () => click(f.host, '夹具确认导出'));
+      await act(async () => {
+        click(f.host, '夹具确认导出');
+        await vi.dynamicImportSettled();
+      });
       click(f.host, '夹具关闭配置');
       click(f.host, '夹具改说说选择');
       expect(fixture.startQzone).not.toHaveBeenCalled();
-      await act(async () => release({ mode: 'before', directory: '/fixture/export' }));
+      await act(async () => {
+        release({ mode: 'before', directory: '/fixture/export' });
+        await vi.dynamicImportSettled();
+      });
       expect(fixture.startQzone).toHaveBeenCalledWith(
         expect.objectContaining({
           targetUin: '19999',
@@ -790,7 +848,9 @@ describe('统一导出实际界面', () => {
       },
     });
     try {
-      await act(async () => {});
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
       expect(f.host.querySelector<HTMLButtonElement>('.weq-exp-primary')!.disabled).toBe(true);
     } finally {
       f.close();
@@ -809,7 +869,9 @@ describe('统一导出实际界面', () => {
     };
     const f = mount({ initialSelection: selection });
     try {
-      await act(async () => {});
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
       expect(f.host.querySelector<HTMLSelectElement>('#weq-export-content-kind')!.value).toBe(
         'guild',
       );
@@ -818,11 +880,17 @@ describe('统一导出实际界面', () => {
       expect(f.host.querySelector('[data-export-summary]')!.textContent).toContain(
         '精确选中 2 条消息',
       );
-      await act(async () => click(f.host, '夹具确认导出'));
+      await act(async () => {
+        click(f.host, '夹具确认导出');
+        await vi.dynamicImportSettled();
+      });
       click(f.host, '夹具关闭配置');
       click(f.host, '夹具改消息选择');
       expect(fixture.startGuild).not.toHaveBeenCalled();
-      await act(async () => release({ mode: 'before', directory: '/fixture/export' }));
+      await act(async () => {
+        release({ mode: 'before', directory: '/fixture/export' });
+        await vi.dynamicImportSettled();
+      });
       expect(fixture.startGuild).toHaveBeenCalledWith(
         expect.objectContaining({
           nodeId: '100',
@@ -844,7 +912,9 @@ describe('统一导出实际界面', () => {
     };
     const empty = mount(props);
     try {
-      await act(async () => {});
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
       expect(empty.host.querySelector<HTMLButtonElement>('.weq-exp-primary')!.disabled).toBe(true);
     } finally {
       empty.close();
@@ -853,10 +923,15 @@ describe('统一导出实际界面', () => {
       initialSelection: { ...props.initialSelection, scope: { type: 'items', ids: ['1'] } },
     });
     try {
-      await act(async () => {});
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
       act(() => f.host.querySelector<HTMLButtonElement>('.weq-exp-primary')!.click());
       fixture.current = false;
-      await act(async () => click(f.host, '夹具确认导出'));
+      await act(async () => {
+        click(f.host, '夹具确认导出');
+        await vi.dynamicImportSettled();
+      });
       expect(fixture.startGuild).not.toHaveBeenCalled();
     } finally {
       f.close();
@@ -870,7 +945,9 @@ describe('统一导出实际界面', () => {
       },
     });
     try {
-      await act(async () => {});
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
       expect(fixture.nativeReads).not.toHaveBeenCalled();
       fixture.contactPreview.mockClear();
       f.setActive(false);
@@ -895,7 +972,9 @@ describe('统一导出实际界面', () => {
       },
     });
     try {
-      await act(async () => {});
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
       expect(f.host.querySelectorAll('.weq-exp-row')).toHaveLength(3);
       expect(f.host.querySelector('.weq-exp-row[aria-pressed="true"]')?.textContent).toContain(
         '合成好友b',
@@ -914,7 +993,9 @@ describe('统一导出实际界面', () => {
       },
     });
     try {
-      await act(async () => {});
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
       expect(group.host.querySelectorAll('.weq-export-contact-panel .weq-exp-row')).toHaveLength(3);
       expect(
         group.host.querySelectorAll('.weq-export-contact-panel .weq-exp-row[aria-pressed="true"]'),
@@ -933,7 +1014,9 @@ describe('统一导出实际界面', () => {
     };
     const f = mount({ initialSelection: selection });
     try {
-      await act(async () => {});
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
       expect(f.host.querySelector<HTMLSelectElement>('#weq-export-content-kind')!.value).toBe(
         'contacts',
       );
@@ -944,6 +1027,8 @@ describe('统一导出实际界面', () => {
       );
       await act(async () => {
         click(f.host, '夹具确认导出');
+
+        await vi.dynamicImportSettled();
       });
       expect(fixture.startContacts).toHaveBeenCalledWith(
         expect.objectContaining({ scope: 'friends', uids: ['friend-b'] }),
@@ -969,10 +1054,14 @@ describe('统一导出实际界面', () => {
       },
     });
     try {
-      await act(async () => {});
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
       click(f.host, '导出联系人');
       await act(async () => {
         click(f.host, '夹具确认导出');
+
+        await vi.dynamicImportSettled();
       });
       click(f.host, '夹具关闭配置');
       click(f.host, '按条件');
@@ -980,6 +1069,8 @@ describe('统一导出实际界面', () => {
       f.setActive(false);
       await act(async () => {
         resolve({ mode: 'before', directory: '/fixture/export' });
+
+        await vi.dynamicImportSettled();
       });
       expect(fixture.startContacts).toHaveBeenCalledWith(
         expect.objectContaining({ uids: ['friend-b'] }),
@@ -996,12 +1087,16 @@ describe('统一导出实际界面', () => {
       },
     });
     try {
-      await act(async () => {});
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
       expect(f.host.querySelector('[aria-label="当前群成员范围"]')).not.toBeNull();
       expect(fixture.contactPreview).toHaveBeenCalledWith({ scope: 'group', groupCode: '10001' });
       click(f.host, '导出联系人');
       await act(async () => {
         click(f.host, '夹具确认导出');
+
+        await vi.dynamicImportSettled();
       });
       expect(fixture.startContacts).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1022,12 +1117,16 @@ describe('统一导出实际界面', () => {
       },
     });
     try {
-      await act(async () => {});
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
       expect(all.host.querySelector('[aria-label="当前群成员范围"]')).toBeNull();
       expect(fixture.contactPreview).not.toHaveBeenCalled();
       click(all.host, '导出联系人');
       await act(async () => {
         click(all.host, '夹具确认导出');
+
+        await vi.dynamicImportSettled();
       });
       expect(fixture.startContacts.mock.calls.map((call) => call[0].groupCode)).toEqual([
         '10001',
@@ -1047,7 +1146,9 @@ describe('统一导出实际界面', () => {
       },
     });
     try {
-      await act(async () => {});
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
       expect(empty.host.querySelector<HTMLButtonElement>('.weq-exp-primary')!.disabled).toBe(true);
     } finally {
       empty.close();
@@ -1063,10 +1164,14 @@ describe('统一导出实际界面', () => {
       },
     });
     try {
-      await act(async () => {});
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
       click(f.host, '导出联系人');
       await act(async () => {
         click(f.host, '夹具确认导出');
+
+        await vi.dynamicImportSettled();
       });
       expect(fixture.startContacts).toHaveBeenCalledOnce();
     } finally {
@@ -1083,7 +1188,9 @@ describe('统一导出实际界面', () => {
     }));
     const f = mount();
     try {
-      await act(async () => {});
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
       act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="全选"]')!.click());
       expect(f.host.textContent).toContain('已选 1500 个会话');
       expect(f.host.querySelectorAll('.weq-exp-row').length).toBeLessThan(40);
@@ -1105,7 +1212,9 @@ describe('统一导出实际界面', () => {
     }));
     const f = mount();
     try {
-      await act(async () => {});
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
       click(f.host, '夹具全选');
       expect(f.host.querySelectorAll('[data-scope-picker]')).toHaveLength(0);
       expect(f.host.querySelectorAll('.weq-message-scope-conversation')).toHaveLength(0);
@@ -1124,7 +1233,9 @@ describe('统一导出实际界面', () => {
       },
     });
     try {
-      await act(async () => {});
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
       const select = f.host.querySelector<HTMLSelectElement>('#weq-export-content-kind')!;
       expect([...select.options].map((option) => option.value)).not.toContain('scheduled');
       expect(f.host.querySelector('[data-selection]')?.getAttribute('data-selection')).toBe(
@@ -1157,7 +1268,9 @@ describe('统一导出实际界面', () => {
       },
     });
     try {
-      await act(async () => {});
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
       expect(f.host.querySelector<HTMLButtonElement>('.weq-exp-primary')!.disabled).toBe(false);
       click(f.host, '定时执行');
       expect(f.host.querySelector<HTMLButtonElement>('.weq-exp-primary')!.disabled).toBe(true);
@@ -1171,7 +1284,9 @@ describe('统一导出实际界面', () => {
   it('任务工具仅保留当前任务与定时任务，不包含新建导出选择器', async () => {
     const f = mount({ surface: 'tasks' });
     try {
-      await act(async () => {});
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
       expect(f.host.textContent).toContain('合成当前任务');
       expect(f.host.textContent).not.toContain('漫游拉取');
       expect(f.host.textContent).not.toContain('好友克隆');

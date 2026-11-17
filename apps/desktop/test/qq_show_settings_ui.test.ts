@@ -22,7 +22,7 @@ it('分钟设置默认显示 5，拒绝零分钟并保存新的分钟数', async
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  act(() => root.render(h(QqShowSettings)));
+  act(() => root.render(h(QqShowSettings, { cacheOnly: true })));
   try {
     const input = host.querySelector<HTMLInputElement>('input[type="number"]')!;
     expect(input.value).toBe('5');

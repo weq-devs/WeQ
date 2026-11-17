@@ -217,7 +217,7 @@ it.each(['unmount', 'reading', 'disabled'])(
   '发送者查询未完成时 %s，不再弹出旧通知',
   async (state) => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    vi.spyOn(Document.prototype, 'hasFocus').mockReturnValue(true);
     vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
     f.values.messageNotifications = true;
     let finish!: (name: string) => void;
@@ -262,7 +262,7 @@ it('默认不开实时订阅，角标使用现成计数，开关互不影响', a
 });
 it('去重、历史、免打扰、群助手、前台阅读与隐私状态共同约束通知', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+  vi.spyOn(Document.prototype, 'hasFocus').mockReturnValue(true);
   vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
   f.values.messageNotifications = true;
   const root = createRoot(document.createElement('div'));

@@ -60,6 +60,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
   trpc: {
+    bootstrap: { getSettings: { useQuery: () => ({ data: {} }) } },
     useUtils: () => ({
       account: {
         getSelfProfile: { invalidate: state.invalidate },

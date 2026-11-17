@@ -115,7 +115,7 @@ it('联系人任务保留总进度，不影响导出日志的默认行为', () =
   };
   const row = renderToStaticMarkup(h(LongTaskRow, { task, active: false, onSelect: () => {} }));
   expect(row).toContain('<progress');
-  expect(row).toContain('50%');
+  expect(row).toContain('value="50"');
   const stage = renderToStaticMarkup(
     h(StageRow, {
       stage: { key: 'message', label: '消息', status: 'running', current: 1, total: 2 },

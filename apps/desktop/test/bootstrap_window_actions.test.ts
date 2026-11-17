@@ -4,7 +4,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { BootstrapWindowActions } from '../src/renderer/src/components/BootstrapWindowActions';
 import { useRestrictedMode } from '../src/renderer/src/state/restrictedMode';
 
-vi.mock('../src/renderer/src/trpc/client', () => ({ trpc: {}, client: {} }));
+vi.mock('../src/renderer/src/trpc/client', () => ({
+  trpc: { bootstrap: { getSettings: { useQuery: () => ({ data: {} }) } } },
+  client: {},
+}));
 
 let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;

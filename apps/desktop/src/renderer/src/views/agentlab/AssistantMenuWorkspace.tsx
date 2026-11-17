@@ -203,6 +203,7 @@ export function AssistantMenuWorkspace({
                 <span>{session.title || '新会话'}</span>
               </button>
               <button
+                data-danger="outline"
                 type="button"
                 title="删除会话"
                 aria-label={`删除会话 ${session.title}`}
@@ -210,7 +211,6 @@ export function AssistantMenuWorkspace({
                 disabled={remove.isLoading}
               >
                 <Trash2 size={14} />
-                data-danger="outline"
               </button>
             </div>
           ))}

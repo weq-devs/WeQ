@@ -212,6 +212,7 @@ it.each(['official', 'service'] as const)(
       updatedAt: 1,
     };
     const legacy = manager as unknown as {
+      abortControllers: Map<string, AbortController>;
       exportMessagesOne(
         task: ExportTask,
         format: 'csv' | 'xlsx',
@@ -221,6 +222,7 @@ it.each(['official', 'service'] as const)(
         progress: () => void,
       ): Promise<ExportResult>;
     };
+    legacy.abortControllers.set(task.id, new AbortController());
     for (const format of ['csv', 'xlsx'] as const) {
       const path = join(f.root, `legacy.${format}`);
       const result = await legacy.exportMessagesOne(task, format, path, undefined, false, () => {});

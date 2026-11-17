@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AccountSession } from '@weq/account';
 import { FlashTransferService } from '../src/account/flash_transfer';
+import { resolveSign } from '@weq/protocol';
 
 const FILESET = 'fixture-fileset';
 const session = {
@@ -33,7 +34,7 @@ describe('已有闪传文件集专用转发', () => {
           Buffer.from('0a0e0801120a0a08755f667269656e64120f666978747572652d66696c65736574', 'hex'),
           false,
           true,
-          2,
+          resolveSign('OidbSvcTrpcTcp.0x93d7_1').mode,
         ],
       ]);
     },
@@ -50,7 +51,7 @@ describe('已有闪传文件集专用转发', () => {
         Buffer.from('0a0608021a02087b120f666978747572652d66696c65736574', 'hex'),
         false,
         true,
-        2,
+        resolveSign('OidbSvcTrpcTcp.0x93d7_1').mode,
       ],
     ]);
   });

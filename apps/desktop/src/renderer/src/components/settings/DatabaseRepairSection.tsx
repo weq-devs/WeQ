@@ -7,6 +7,7 @@ export function DatabaseRepairSection({ onOpen }: { onOpen: (tool: MaintenanceTo
   return (
     <Card title="数据库检查与修复" icon={<DatabaseZap size={15} />} settingId="database-repair">
       <Row
+        settingId="damage-reminder"
         label="数据库异常提醒"
         control={
           <NotificationSettingsLink settingId="damage-reminder">通知设置</NotificationSettingsLink>

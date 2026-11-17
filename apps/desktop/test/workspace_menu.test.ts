@@ -377,7 +377,7 @@ describe('统一竖向工作菜单', () => {
         [...document.querySelectorAll('.weq-workspace-actions button span')].map(
           (item) => item.textContent,
         ),
-      ).toEqual(['分析', '导出', '查看', '合成']);
+      ).toEqual(['分析与报告', '导出', '导出查看器', '合成聊天记录']);
       // 菜单里只有任务面板：紧凑布局展开成完整面板再收起，仍复用同一棵子树。
       const compact = document.querySelector('[data-task-layout="compact"]');
       expect(compact).not.toBeNull();

@@ -56,10 +56,17 @@ describe('功能目录与真实设置控件同步', () => {
         ts.isVariableDeclaration(node) &&
         ts.isIdentifier(node.name) &&
         node.name.text === 'MODES' &&
-        node.initializer &&
-        ts.isArrayLiteralExpression(node.initializer)
+        node.initializer
       ) {
-        for (const item of node.initializer.elements) {
+        let array: ts.ArrayLiteralExpression | undefined;
+        function findArray(value: ts.Node) {
+          if (array) return;
+          if (ts.isArrayLiteralExpression(value)) array = value;
+          else ts.forEachChild(value, findArray);
+        }
+        findArray(node.initializer);
+        expect(array, 'MODES 必须来自真实菜单数组').toBeDefined();
+        for (const item of array!.elements) {
           if (!ts.isObjectLiteralExpression(item)) continue;
           for (const prop of item.properties) {
             if (

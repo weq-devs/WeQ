@@ -121,7 +121,7 @@ describe('设置中的已读上报开关', () => {
     });
     const f = mount('account');
     const toggle = () =>
-      f.host.querySelector<HTMLButtonElement>('[aria-label="进入受限模式时横幅提醒"]')!;
+      f.host.querySelector<HTMLButtonElement>('[aria-label="进入受限模式时通知"]')!;
     try {
       expect(toggle().getAttribute('aria-checked')).toBe('true');
       await act(async () => toggle().click());
@@ -150,7 +150,7 @@ describe('设置中的已读上报开关', () => {
       expect(fixture.confirm).toHaveBeenCalledWith(
         '向 QQ 服务器上报已读位置',
         expect.stringContaining('向 QQ 服务器上报已读位置'),
-        { okLabel: '开启上报' },
+        { okLabel: '开启上报', danger: 'outline' },
       );
       expect(fixture.mutations).toContain('bootstrap.setReadSyncEnabled');
       expect(fixture.mutations).not.toContain('bootstrap.setReportReadEnabled');

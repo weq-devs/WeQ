@@ -16,7 +16,10 @@ it('从真实类型声明枚举全部旧 section，均归属于现行页面，�
   const source = ts.createSourceFile(
     'navigation.ts',
     readFileSync(
-      new URL('../src/renderer/src/components/settings/navigation.ts', import.meta.url),
+      new URL(
+        '../../../packages/service/src/common/settings_catalog/navigation.ts',
+        import.meta.url,
+      ),
       'utf8',
     ),
     ts.ScriptTarget.Latest,

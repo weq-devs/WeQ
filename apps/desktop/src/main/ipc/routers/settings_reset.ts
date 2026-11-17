@@ -114,8 +114,6 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     autoAttachQq: () => b.setAutoAttachQq({ enabled: defaults.autoAttachQq }),
     restrictedModeBannerEnabled: () =>
       b.setRestrictedModeBannerEnabled({ enabled: defaults.restrictedModeBannerEnabled }),
-    suppressDbDamageReminder: () =>
-      b.setSuppressDbDamageReminder({ suppressed: defaults.suppressDbDamageReminder }),
     restrictedModeIndicatorEnabled: () =>
       b.setRestrictedModeIndicatorEnabled({ enabled: defaults.restrictedModeIndicatorEnabled }),
     preferCdn: () => b.setPreferCdn({ enabled: defaults.preferCdn }),

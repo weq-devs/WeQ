@@ -130,7 +130,6 @@ import { useUpdateStore } from '../state/update';
 import { useEnhancementUpdates } from '../hooks/useEnhancementUpdates';
 import { client } from '../trpc/client';
 import { useToast, sourceToastPush } from '../components/Toast';
-import { useDatabaseDamageNotifications } from '../hooks/useDatabaseDamageNotifications';
 import {
   notificationContent,
   notificationSource,
@@ -1139,7 +1138,6 @@ function MainWorkspace(): ReactElement {
         if ((e.kind === 'available' || e.kind === 'downloaded') && e.latest) {
           setAvailable(e.latest);
           useToast.getState().push({
-            event: 'update',
             key: 'weq-update',
             title: e.kind === 'downloaded' ? '新版本已下载，等待安装' : `发现新版本 ${e.latest}`,
             source: notificationSource({

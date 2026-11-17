@@ -147,7 +147,7 @@ afterEach(() => {
 
 it.each([true, false])(
   '来源名称严格使用线索接口原文，点开后才读取真实群名片（本地收录 %s）',
-  (known) => {
+  async (known) => {
     state.data = data();
     const f = render(known);
     try {
@@ -160,7 +160,10 @@ it.each([true, false])(
       expect(f.host.textContent).not.toContain('来源群号');
       const source = f.host.querySelector<HTMLButtonElement>('[aria-label="查看来源群名片"]')!;
       expect(source.querySelector('img')?.src).toContain('12345');
-      act(() => source.click());
+      await act(async () => {
+        source.click();
+        await vi.dynamicImportSettled();
+      });
       expect(state.groupQuery.mock.calls.at(-1)?.[1]).toMatchObject({ enabled: true });
       const dialog = document.querySelector('[aria-label="群资料"]')!;
       expect(dialog.querySelector('.weq-profile-name')?.textContent).toBe('接口真实群名');

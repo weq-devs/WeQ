@@ -110,13 +110,18 @@ describe('功能与设置搜索界面', () => {
       act(() =>
         host
           .querySelector<HTMLButtonElement>(
-            '[data-search-hit-key="app:setting:appearance:基础模式"]',
+            '[data-search-hit-key="app:setting:appearance:theme-mode"]',
           )!
           .click(),
       );
       expect(select).toHaveBeenCalledWith(
         expect.objectContaining({
-          target: { kind: 'setting', section: 'appearance', item: '基础模式' },
+          target: {
+            kind: 'setting',
+            section: 'appearance',
+            item: '基础模式',
+            settingId: 'theme-mode',
+          },
         }),
       );
       const all = host.querySelector<HTMLButtonElement>('[aria-label="全部来源"]')!;

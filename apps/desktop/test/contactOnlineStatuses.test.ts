@@ -47,7 +47,7 @@ it('离开联系人页后不再发后续批次', async () => {
   expect(query).toHaveBeenCalledTimes(12);
 });
 it('目录补页让出首屏时间并支持取消排队任务', () => {
-  vi.useFakeTimers();
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
   const run = vi.fn();
   const idle = vi.fn(() => 123);
   const cancel = vi.fn();

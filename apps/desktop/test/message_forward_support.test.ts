@@ -1,12 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import {
-  buildSendElems,
-  decodeMessage,
-  encode,
-  PUSH_MSG_BODY,
-  type SendElement,
-} from '@weq/protocol';
-import {
   forwardUnsupportedReason,
   repeatImageSources,
   repeatSendPlan,
@@ -121,7 +114,7 @@ it('闪传缺少文件集身份时不可降级 Markdown；普通 Markdown 不受
 });
 
 it.each([false, true])(
-  '闪传经转发计划及实际 wire 编码后，收侧仍识别同一文件集（群聊：%s）',
+  '闪传使用专用分享计划并保留同一文件集，不降级普通消息（群聊：%s）',
   (group) => {
     const element = {
       type: 'markdown',
@@ -132,17 +125,7 @@ it.each([false, true])(
       },
     };
     const plan = repeatSendPlan([element], new Map(), group);
-    if (plan.kind !== 'elements') throw new Error('缺少闪传发送计划');
-    const elems = buildSendElems(plan.elements as SendElement[], {
-      scene: group ? 'group' : 'c2c',
-    });
-    const decoded = decodeMessage(
-      encode(PUSH_MSG_BODY, {
-        contentHead: { msgType: group ? 82 : 166, sequence: 1, timestamp: 1 },
-        body: { richText: { elems } },
-      }),
-    );
-    expect(decoded.elements).toMatchObject([{ kind: 'markdown', ...element.data }]);
+    expect(plan).toEqual({ kind: 'flashTransfer', fileSetId: 'fixture-fileset' });
   },
 );
 

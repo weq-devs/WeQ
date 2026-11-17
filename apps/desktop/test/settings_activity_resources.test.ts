@@ -346,7 +346,7 @@ describe('增强设置与非活动页面资源', () => {
       expect(fixture.confirm).toHaveBeenCalledWith(
         '删除本地文字识别？',
         expect.stringContaining('1.00 MiB'),
-        { okLabel: '删除', cancelLabel: '取消', tone: 'warning' },
+        { okLabel: '删除', cancelLabel: '取消', tone: 'warning', danger: 'outline' },
       );
       await act(async () => remove.click());
       expect(fixture.mutate).toHaveBeenCalledWith({ id: 'text' });

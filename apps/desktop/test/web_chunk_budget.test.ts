@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { build, createLogger, type Plugin } from 'vite';
+import webConfig from '../../web/vite.config';
 import { expect, it, vi } from 'vitest';
 
 async function fixture({
@@ -82,11 +83,14 @@ async function fixture({
   };
   try {
     await build({
-      configFile: resolve(__dirname, '../../web/vite.config.ts'),
+      ...webConfig,
+      configFile: false,
       root,
       customLogger: logger,
       logLevel: 'warn',
       plugins: [
+        // 此夹具只有虚拟 JS 入口；真实网页入口清单由 startup-assets 专项测试覆盖。
+        ...webConfig.plugins.filter((plugin) => plugin?.name !== 'weq-remote-startup-assets'),
         plugin,
         ...(earlyNativeWarning
           ? [

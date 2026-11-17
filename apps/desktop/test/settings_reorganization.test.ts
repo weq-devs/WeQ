@@ -244,7 +244,7 @@ describe('设置归位后的实际页面', () => {
       expect(
         f.body().querySelector('[data-setting-id="database-read-concurrency"]'),
       ).not.toBeNull();
-      expect(titles()).toEqual(['数据库浏览', '监听与读取', '容错与修复']);
+      expect(titles()).toEqual(['数据库浏览', '监听与读取', '数据库检查与修复']);
       conditional.platform = 'linux';
       f.render('account');
       expect(titles()).toEqual(['QQ 在线能力', '长期授权']);
@@ -1012,7 +1012,9 @@ describe('设置归位后的实际页面', () => {
     const f = mount('global');
     try {
       expect(f.body().querySelector('h3')?.textContent).toBe('通知与提醒');
-      expect(f.body().querySelector('[data-setting-id="notification-events"]')).not.toBeNull();
+      expect(
+        f.body().querySelector('[data-setting-id="message-system-notifications"]'),
+      ).not.toBeNull();
       expect(f.body().querySelector('[data-setting-id="window-close-behavior"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="windows-style-controls"]')).toBeNull();
       f.render('appearance');
@@ -1126,7 +1128,7 @@ describe('设置归位后的实际页面', () => {
       ).toEqual(['数据库浏览', '监听与读取', '数据库检查与修复']);
       expect(f.body().querySelector('.weq-cache-db')).toBeNull();
       expect(f.body().querySelector('.weq-set-head-title .weq-settings-scope')).toBeNull();
-      expect(f.body().textContent).toContain('数据库异常时弹窗提醒');
+      expect(f.body().textContent).toContain('数据库异常提醒');
       expect(f.body().textContent).not.toContain('降级账本');
       f.render('database-status');
       const entry = f.body().querySelector<HTMLElement>('[data-setting-id="database-repair"]')!;
@@ -1144,7 +1146,7 @@ describe('设置归位后的实际页面', () => {
           .querySelector('[data-setting-id="damage-reminder"]')
           ?.getAttribute('data-search-highlight'),
       ).toBe('true');
-      expect(f.body().textContent).toContain('容错级别');
+      expect(f.body().textContent).not.toContain('容错级别');
     } finally {
       f.close();
     }

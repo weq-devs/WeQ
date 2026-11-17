@@ -74,14 +74,20 @@ const page = {
 let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 async function render(section: 'signature' | 'details' = 'details') {
-  await act(async () => root.render(h(ProfileExtras, { uin: state.target, section })));
+  await act(async () => {
+    root.render(h(ProfileExtras, { uin: state.target, section }));
+    await vi.dynamicImportSettled();
+  });
 }
 async function click(text: string) {
   const button = [...document.querySelectorAll('button')].find((button) =>
     button.textContent?.includes(text),
   );
   expect(button).toBeTruthy();
-  await act(async () => button!.click());
+  await act(async () => {
+    button!.click();
+    await vi.dynamicImportSettled();
+  });
 }
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -103,7 +109,10 @@ beforeEach(() => {
   root = createRoot(host);
 });
 afterEach(async () => {
-  await act(async () => root.unmount());
+  await act(async () => {
+    root.unmount();
+    await vi.dynamicImportSettled();
+  });
   host.remove();
   vi.unstubAllGlobals();
 });
@@ -144,9 +153,10 @@ it('重复点击签名入口收起历史，关闭按钮同样有效', async () =
   expect(document.querySelector('.weq-extras-dialog')).toBeNull();
   expect(host.querySelector('button')?.getAttribute('aria-expanded')).toBe('false');
   await click('历史签名');
-  await act(async () =>
-    document.querySelector<HTMLButtonElement>('[aria-label="关闭资料详情"]')!.click(),
-  );
+  await act(async () => {
+    document.querySelector<HTMLButtonElement>('[aria-label="关闭资料详情"]')!.click();
+    await vi.dynamicImportSettled();
+  });
   expect(document.querySelector('.weq-extras-dialog')).toBeNull();
 });
 it('签名互动复用空间操作栏和评论排版，点赞名单通过悬浮面板展示', async () => {
@@ -181,7 +191,10 @@ it('签名互动复用空间操作栏和评论排版，点赞名单通过悬浮�
   expect(document.querySelector('.weq-qzn-actions')?.textContent).toContain('评论');
   expect(document.body.textContent).not.toContain('点赞人');
   const like = document.querySelector<HTMLButtonElement>('[aria-label="点赞签名"]')!;
-  await act(async () => like.focus());
+  await act(async () => {
+    like.focus();
+    await vi.dynamicImportSettled();
+  });
   expect(
     document.querySelector('.weq-qzn-like-popover .weq-qzn-like-users')?.textContent,
   ).toContain('合成点赞人');
@@ -190,7 +203,13 @@ it('签名互动复用空间操作栏和评论排版，点赞名单通过悬浮�
     '合成评论正文',
   );
   expect(document.querySelector('.weq-qzn-comment-meta time')).not.toBeNull();
-  expect(document.querySelector('.weq-qzn-comment-composer .weq-set-iconbtn')).not.toBeNull();
+  expect(document.querySelector('.weq-qzn-comment-composer')).toBeNull();
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>('[aria-label="写签名评论"]')!.click(),
+  );
+  expect(
+    document.querySelector('.weq-qzn-comment-composer [aria-label="发送评论"]'),
+  ).not.toBeNull();
 });
 it('切账号或切目标关闭旧详情，不带入旧分页', async () => {
   await render('signature');
@@ -268,7 +287,7 @@ const label: PersonalityLabel = {
   likes: null,
 };
 async function renderAlbum(value = label) {
-  await act(async () =>
+  await act(async () => {
     root.render(
       h(
         ProfileNavigationContext.Provider,
@@ -285,8 +304,9 @@ async function renderAlbum(value = label) {
           refresh: async () => {},
         }),
       ),
-    ),
-  );
+    );
+    await vi.dynamicImportSettled();
+  });
 }
 it('标签点赞头像昵称共用一个名片入口，末尾使用总数且不带点赞按钮', async () => {
   await renderAlbum({
@@ -310,10 +330,14 @@ it('标签点赞头像昵称共用一个名片入口，末尾使用总数且不�
   const person = likes.querySelector<HTMLButtonElement>('[aria-label="查看 合成点赞人 的名片"]')!;
   expect(person.querySelector('.weq-avatar-img, .weq-avatar-fallback')).not.toBeNull();
   expect(person.querySelector('.weq-profile-label-like-name')?.textContent).toBe('合成点赞人');
-  await act(async () =>
-    person.querySelector<HTMLElement>('.weq-avatar-img, .weq-avatar-fallback')!.click(),
-  );
-  await act(async () => person.querySelector<HTMLElement>('.weq-profile-label-like-name')!.click());
+  await act(async () => {
+    person.querySelector<HTMLElement>('.weq-avatar-img, .weq-avatar-fallback')!.click();
+    await vi.dynamicImportSettled();
+  });
+  await act(async () => {
+    person.querySelector<HTMLElement>('.weq-profile-label-like-name')!.click();
+    await vi.dynamicImportSettled();
+  });
   expect(openProfile).toHaveBeenCalledTimes(2);
   for (const [user] of openProfile.mock.calls) {
     expect(user).toMatchObject({
@@ -348,7 +372,10 @@ it('已结束的照片首批直接展示，点击复用预览', async () => {
   expect(document.body.textContent).not.toContain('全部标签');
   expect(state.photos.mock.calls.at(-1)?.[1].enabled).toBe(false);
   const photo = document.querySelector<HTMLButtonElement>('[aria-label="查看第 1 张照片"]');
-  await act(async () => photo!.click());
+  await act(async () => {
+    photo!.click();
+    await vi.dynamicImportSettled();
+  });
   expect(document.querySelector('[aria-label="标签照片预览"]')).toBeTruthy();
 });
 it('重复点击标签收起相册，关闭按钮也可收起', async () => {
@@ -358,9 +385,10 @@ it('重复点击标签收起相册，关闭按钮也可收起', async () => {
   await click('合成相册');
   expect(document.querySelector('.weq-label-album')).toBeNull();
   await click('合成相册');
-  await act(async () =>
-    document.querySelector<HTMLButtonElement>('[aria-label="关闭标签相册"]')!.click(),
-  );
+  await act(async () => {
+    document.querySelector<HTMLButtonElement>('[aria-label="关闭标签相册"]')!.click();
+    await vi.dynamicImportSettled();
+  });
   expect(document.querySelector('.weq-label-album')).toBeNull();
 });
 it('空相册不请求照片，未知总数的相册按需读取并保留首批', async () => {

@@ -77,7 +77,9 @@ export function SettingsScopeBadge() {
  * 在设置页之间跳转。由 `SettingsDialog` 提供，页面里的「去管理」这类入口消费。
  * 不提供时（例如单测直接渲染某个 section）为 `null`，调用方应自行降级。
  */
-export const SettingsNavigateContext = createContext<((section: string) => void) | null>(null);
+export const SettingsNavigateContext = createContext<
+  ((section: string, settingId?: string) => void) | null
+>(null);
 
 /** Section heading + optional description (and optional leading icon), shown at the top of each panel. */
 export function SectionHeader({
@@ -120,9 +122,7 @@ export function SectionHeader({
       {actions || (reset && pageReset) ? (
         <div
           className="weq-settings-page-reset"
-          data-setting-id={
-            reset && pageReset ? `settings-reset-${reset.page}` : undefined
-          }
+          data-setting-id={reset && pageReset ? `settings-reset-${reset.page}` : undefined}
         >
           {actions}
           {reset && pageReset ? <SettingsResetButton /> : null}

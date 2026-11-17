@@ -39,7 +39,7 @@ describe('公共消息框的受限布局', () => {
     expect(modal.closest('.weq-centered-panel.weq-nonmodal-layer')).not.toBeNull();
     expect(modal.closest('.is-popover, .is-anchored-popover')).toBeNull();
     expect(modal.hasAttribute('aria-modal')).toBe(false);
-    act(() => modal.querySelector<HTMLButtonElement>('.weq-action-primary')!.click());
+    act(() => modal.querySelector<HTMLButtonElement>('.weq-dialog-foot button')!.click());
     expect(document.querySelector('.weq-message-modal')).toBeNull();
   });
 

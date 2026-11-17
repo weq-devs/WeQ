@@ -795,9 +795,17 @@ it('空间媒体任务取消会中止所有在途下载，半成品不发布', a
   expect(manager.cancelTask(id!)).toBe(true);
   await (manager as unknown as { queue: Promise<void> }).queue;
   expect(manager.getTask(id!)?.status).toBe('cancelled');
-  expect(manager.listTasks().find((task) => task.id === id)?.canResume).toBe(false);
-  expect(manager.resumeTask(id!)).toBe(false);
+  expect(manager.listTasks().find((task) => task.id === id)?.canResume).toBe(true);
   expect(manager.getTask(id!)?.error).toBeUndefined();
   expect(manager.getTask(id!)?.bundleDir).toBeUndefined();
   expect(manager.getTask(id!)?.filePath).toBeUndefined();
+  state.download.mockImplementation(async (_url, path) => {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, 'retried');
+    return { ok: true, reason: '' };
+  });
+  expect(manager.resumeTask(id!)).toBe(true);
+  await (manager as unknown as { queue: Promise<void> }).queue;
+  expect(manager.getTask(id!)?.status).toBe('completed');
+  expect(state.download).toHaveBeenCalledTimes(4);
 });

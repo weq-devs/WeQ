@@ -248,25 +248,21 @@ describe('设置二级页现场与活动生命周期', () => {
           );
           if (operation === '保存配置') {
             inputValue(
-              f.body().querySelector<HTMLInputElement>('[aria-label="RKEY HTTP 地址"]')!,
+              document.querySelector<HTMLInputElement>('[aria-label="RKEY HTTP 地址"]')!,
               'https://example.invalid',
             );
             inputValue(
-              f.body().querySelector<HTMLInputElement>('[aria-label="RKEY access_token"]')!,
+              document.querySelector<HTMLInputElement>('[aria-label="RKEY access_token"]')!,
               'synthetic-token',
             );
             await act(async () =>
-              f
-                .body()
-                .querySelector('form')!
+              document
+                .querySelector('.weq-editor-dialog form')!
                 .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
             );
           } else {
             act(() =>
-              f
-                .body()
-                .querySelector<HTMLButtonElement>('.weq-rkey-settings .weq-set-card-action button')!
-                .click(),
+              document.querySelector<HTMLButtonElement>('[aria-label="关闭导入新配置"]')!.click(),
             );
           }
         }
@@ -297,7 +293,7 @@ describe('设置二级页现场与活动生命周期', () => {
           .click(),
       );
       inputValue(
-        f.body().querySelector<HTMLInputElement>('[aria-label="RKEY 名称"]')!,
+        document.querySelector<HTMLInputElement>('[aria-label="RKEY 名称"]')!,
         '未保存服务器',
       );
       const navigate = vi.fn();
@@ -307,7 +303,7 @@ describe('设置二级页现场与活动生命周期', () => {
       chooseNavigation('暂时离开');
       expect(navigate).toHaveBeenCalledOnce();
       f.render(undefined, undefined, 1);
-      expect(f.body().querySelector<HTMLInputElement>('[aria-label="RKEY 名称"]')?.value).toBe(
+      expect(document.querySelector<HTMLInputElement>('[aria-label="RKEY 名称"]')?.value).toBe(
         '未保存服务器',
       );
       f.navigate(navigate);
@@ -430,16 +426,19 @@ describe('设置二级页现场与活动生命周期', () => {
           .click(),
       );
       inputValue(
-        f.body().querySelector<HTMLInputElement>('[aria-label="OneBot 服务器名称"]')!,
+        document.querySelector<HTMLInputElement>('[aria-label="OneBot 服务器名称"]')!,
         '未保存服务器',
       );
       f.render(undefined, undefined, 1);
       expect(
-        f.body().querySelector<HTMLInputElement>('[aria-label="OneBot 服务器名称"]')!.value,
+        document.querySelector<HTMLInputElement>('[aria-label="OneBot 服务器名称"]')!.value,
       ).toBe('未保存服务器');
       act(() =>
-        f.body().querySelector<HTMLButtonElement>('[aria-label="取消编辑 OneBot 服务器"]')!.click(),
+        document
+          .querySelector<HTMLButtonElement>('.weq-onebot-server-form-actions button')!
+          .click(),
       );
+      expect(document.querySelector('.weq-editor-dialog')).toBeNull();
       const navigate = vi.fn();
       f.navigate(navigate);
       expect(navigate).toHaveBeenCalledOnce();

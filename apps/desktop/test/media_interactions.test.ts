@@ -97,9 +97,9 @@ it('可操作图片、闪照、语音、视频及商城表情使用原生按钮�
   expect(host.querySelector('.qq-media-wrap-emoji')!.tagName).toBe('SPAN');
 });
 
-it('图片候选全部失败才显示终态，重试从原始候选重新进入同一媒体链并忽略迟到事件', () => {
+it('图片候选全部失败才显示终态，重试从原始候选重新进入同一媒体链并忽略迟到事件', async () => {
   act(() => root.render(h(MediaPreviewHost)));
-  act(() =>
+  await act(async () => {
     openMediaPreview({
       items: [
         {
@@ -112,8 +112,9 @@ it('图片候选全部失败才显示终态，重试从原始候选重新进入�
         },
       ],
       ownerDocument: document,
-    }),
-  );
+    });
+    await vi.dynamicImportSettled();
+  });
   expect(document.querySelector('[role="status"]')?.textContent).toContain('正在加载图片');
   expect(button('复制到剪贴板').disabled).toBe(true);
   const original = image();
@@ -177,8 +178,8 @@ it('引用定位缩略图不再叠加媒体按钮或失败重试入口', () => {
   expect(host.querySelector('.qq-media-retry')).toBeNull();
 });
 
-it('预览焦点进入、Tab回环、键盘缩放、关闭后归还触发点', () => {
-  act(() =>
+it('预览焦点进入、Tab回环、键盘缩放、关闭后归还触发点', async () => {
+  await act(async () => {
     root.render(
       h(
         Fragment,
@@ -201,8 +202,9 @@ it('预览焦点进入、Tab回环、键盘缩放、关闭后归还触发点', (
         ),
         h(MediaPreviewHost),
       ),
-    ),
-  );
+    );
+    await vi.dynamicImportSettled();
+  });
   const trigger = button('打开图片');
   trigger.focus();
   act(() => trigger.click());
@@ -226,9 +228,9 @@ it('预览焦点进入、Tab回环、键盘缩放、关闭后归还触发点', (
   expect(document.activeElement).toBe(trigger);
 });
 
-it('上层表面存在时 Escape 不关闭下层预览', () => {
+it('上层表面存在时 Escape 不关闭下层预览', async () => {
   act(() => root.render(h(MediaPreviewHost)));
-  act(() =>
+  await act(async () => {
     openMediaPreview({
       items: [
         {
@@ -237,8 +239,9 @@ it('上层表面存在时 Escape 不关闭下层预览', () => {
           src: 'data:image/png;base64,fixture',
         },
       ],
-    }),
-  );
+    });
+    await vi.dynamicImportSettled();
+  });
   const upper = document.createElement('div');
   upper.setAttribute('role', 'dialog');
   upper.style.zIndex = '99999';
@@ -251,23 +254,24 @@ it('上层表面存在时 Escape 不关闭下层预览', () => {
   }
 });
 
-it('不同文档的预览独立，焦点和 Escape 跟随所属文档', () => {
+it('不同文档的预览独立，焦点和 Escape 跟随所属文档', async () => {
   const child = new HappyWindow();
   act(() => root.render(h(Fragment, null, h('button', null, '主窗入口'), h(MediaPreviewHost))));
   const trigger = button('主窗入口');
   trigger.focus();
-  act(() =>
+  await act(async () => {
     openMediaPreview({
       items: [
         { key: 'data:image/png;base64,main', kind: 'image', src: 'data:image/png;base64,main' },
       ],
-    }),
-  );
+    });
+    await vi.dynamicImportSettled();
+  });
   const childTrigger = child.document.createElement('button');
   child.document.body.append(childTrigger);
   childTrigger.focus();
   try {
-    act(() =>
+    await act(async () => {
       openMediaPreview({
         items: [
           {
@@ -279,8 +283,9 @@ it('不同文档的预览独立，焦点和 Escape 跟随所属文档', () => {
           },
         ],
         ownerDocument: child.document as unknown as Document,
-      }),
-    );
+      });
+      await vi.dynamicImportSettled();
+    });
     expect(document.querySelector('.weq-lightbox-layer')?.contains(document.activeElement)).toBe(
       true,
     );
@@ -299,8 +304,8 @@ it('不同文档的预览独立，焦点和 Escape 跟随所属文档', () => {
   }
 });
 
-it('视频预览具有模态语义、失败提示、重试及焦点归还', () => {
-  act(() =>
+it('视频预览具有模态语义、失败提示、重试及焦点归还', async () => {
+  await act(async () => {
     root.render(
       h(
         Fragment,
@@ -323,8 +328,9 @@ it('视频预览具有模态语义、失败提示、重试及焦点归还', () =
         ),
         h(MediaPreviewHost),
       ),
-    ),
-  );
+    );
+    await vi.dynamicImportSettled();
+  });
   const trigger = button('打开视频');
   trigger.focus();
   act(() => trigger.click());
@@ -383,9 +389,9 @@ it('重试仅刷新媒体桥，保留定位参数，不改写 CDN 签名与 Blob
     expect(mediaRetryUrl(source, 1)).toBe(source);
 });
 
-it('触屏平移在取消、第二指针或窗口失焦后可继续，不把中断误当点击缩放', () => {
+it('触屏平移在取消、第二指针或窗口失焦后可继续，不把中断误当点击缩放', async () => {
   act(() => root.render(h(MediaPreviewHost)));
-  act(() =>
+  await act(async () => {
     openMediaPreview({
       items: [
         {
@@ -394,8 +400,9 @@ it('触屏平移在取消、第二指针或窗口失焦后可继续，不把中�
           src: 'data:image/png;base64,fixture',
         },
       ],
-    }),
-  );
+    });
+    await vi.dynamicImportSettled();
+  });
   send(image(), 'load');
   act(() => button('放大').click());
   const frame = document.querySelector<HTMLElement>('.weq-lightbox-frame')!;
@@ -441,9 +448,15 @@ it('语音播放失败可用同一按钮重试，卸载后不继续播放', asyn
     .mockResolvedValue();
   const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
   act(() => root.render(h(QqVoice, { data: { fileToken: 'voice' }, sendTimeMs: 1 })));
-  await act(async () => button('播放语音').click());
+  await act(async () => {
+    button('播放语音').click();
+    await vi.dynamicImportSettled();
+  });
   expect(document.querySelector('[role="status"]')?.textContent).toContain('语音暂时无法播放');
-  await act(async () => button('重试播放语音').click());
+  await act(async () => {
+    button('重试播放语音').click();
+    await vi.dynamicImportSettled();
+  });
   expect(play).toHaveBeenCalledTimes(2);
   expect(button('暂停语音').getAttribute('aria-pressed')).toBe('true');
   act(() => root.render(null));
