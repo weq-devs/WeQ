@@ -87,6 +87,12 @@ html[data-theme='dark'] .weq-page-head {
   outline-offset: 2px;
 }
 
+:is(html[data-weq-layout='single'], html[data-weq-input='touch'])
+  :is(.weq-page-back, .weq-page-close) {
+  width: 44px;
+  height: 44px;
+}
+
 @media (max-width: 650px) {
   .weq-page-head {
     min-height: 56px;

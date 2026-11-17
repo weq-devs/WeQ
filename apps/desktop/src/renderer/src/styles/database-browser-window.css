@@ -14,22 +14,6 @@
 .weq-database-browser-window[hidden] {
   display: none;
 }
-.weq-database-browser-window > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex: none;
-  height: 46px;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--weq-border-subtle);
-}
-.weq-database-browser-window h2 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  font-size: 14px;
-}
 .weq-database-browser-content {
   display: flex;
   flex: 1;
