@@ -8,6 +8,7 @@ import { renderDatabaseMaintenanceReport } from '../src/account/db_repair/mainte
 import type { BadPageScanReport } from '../src/account/bad_pages';
 import type { DbRepairTarget, DbRepairRecord } from '../src/account/db_repair/types';
 import type { DbRepairCheckupIntegrity } from '../src/account/db_repair/checkup';
+import { DbRepairError } from '../src/account/db_repair/service';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -76,6 +77,61 @@ function fixture() {
   return { maintenance, targets, scan, deep, repair, release, reports, lease };
 }
 const scope = { uin: '10001', configId: 'source-a' };
+
+it('未提交的可恢复问题返回查看结果，锁与扫描保留，重试不重复处理已成功库', async () => {
+  const h = fixture();
+  await h.maintenance.scan(scope, h.targets, 'scan');
+  h.repair.mockImplementationOnce(
+    async (target) =>
+      ({ id: 'applied', dbName: target.dbName, state: 'applied' }) as DbRepairRecord,
+  );
+  const failure = new DbRepairError('insufficient-space', 'synthetic disk full');
+  failure.sourceUnchanged = true;
+  h.repair.mockRejectedValueOnce(failure);
+  const result = await h.maintenance.repair(scope, ['msg.db', 'profile.db']);
+  expect(result).toMatchObject({
+    state: 'waiting',
+    locked: true,
+    operation: { status: 'waiting', completedDatabases: 1 },
+  });
+  expect(result.databases[1]?.repair?.status).toBe('waiting');
+  expect(h.release).not.toHaveBeenCalled();
+  expect(() => h.maintenance.repair(scope, ['msg.db'])).toThrow('支持修复');
+  const retried = await h.maintenance.repair(scope, ['profile.db']);
+  expect(retried).toMatchObject({
+    state: 'ended',
+    operation: { status: 'completed', totalDatabases: 1, completedDatabases: 1 },
+  });
+  expect(retried.databases[0]?.repair?.record?.id).toBe('applied');
+  expect(h.scan).toHaveBeenCalledTimes(3);
+  expect(h.repair.mock.calls.map(([target]) => target.dbName)).toEqual([
+    'msg.db',
+    'profile.db',
+    'profile.db',
+  ]);
+  expect(h.release).toHaveBeenCalledOnce();
+});
+
+it('报告写满磁盘不打断维护，空间恢复后补存原报告', async () => {
+  const h = fixture();
+  const save = vi.spyOn(h.reports, 'save').mockImplementation(() => {
+    throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' });
+  });
+  const result = await h.maintenance.scan(scope, h.targets, 'scan');
+  expect(result).toMatchObject({
+    state: 'waiting',
+    locked: true,
+    operation: { status: 'completed' },
+    reportError: expect.stringContaining('ENOSPC'),
+  });
+  expect(h.maintenance.reports(scope)[0]?.operation.id).toBe(result.operation!.id);
+  expect(h.release).not.toHaveBeenCalled();
+  save.mockRestore();
+  h.maintenance.reports(scope);
+  expect(h.reports.get(result.operation!.id)?.operation.status).toBe('completed');
+  expect(h.maintenance.current(scope)?.reportError).toBeUndefined();
+  await h.maintenance.end(scope);
+});
 
 it('结束维护和启动修复不能交错，重复结束等待同一次统一解锁', async () => {
   const h = fixture();

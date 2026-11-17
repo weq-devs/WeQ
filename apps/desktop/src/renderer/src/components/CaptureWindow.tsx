@@ -13,7 +13,6 @@ import { lazyPanel } from '../lib/lazyPanel';
 import { TabActivity } from './RetainedTabs';
 import { Modal } from './Dialog';
 import { PageShell } from './PageShell';
-import { ToastHost } from './Toast';
 import { notificationContent, notificationSource } from '../lib/notificationNavigation.shared';
 import { HoverTooltip } from './HoverTooltip';
 import { QueryError } from './settings/controls';
@@ -248,7 +247,6 @@ export function CaptureWindowHost() {
                 source={request.source}
                 onClose={dismiss}
               />
-              <ToastHost />
               {!locked ? <HoverTooltip /> : null}
             </div>
           </TabActivity>

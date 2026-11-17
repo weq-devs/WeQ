@@ -8,7 +8,6 @@ import { useAppLock } from '../state/lock';
 import { GroupAlbumDialog, GroupFileDialog } from '../components/lazyMainPanels';
 import { OverlayLayer } from '../components/OverlayLayer';
 import { TabActivity } from '../components/RetainedTabs';
-import { ToastHost } from '../components/Toast';
 import { HoverTooltip } from '../components/HoverTooltip';
 import { WorkspacePages, WorkspaceContent } from '../components/WorkspacePages';
 import '../styles/group-resource-window.css';
@@ -78,7 +77,6 @@ export function GroupResourceWindow({ entry, onClose }: { entry: Entry; onClose:
         <RenderDocumentContext.Provider value={popup.document}>
           <TabActivity active={!locked}>
             {workspace}
-            <ToastHost />
             {!locked ? <HoverTooltip /> : null}
           </TabActivity>
           {locked ? (

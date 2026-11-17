@@ -10,7 +10,6 @@ import { TabActivity } from './RetainedTabs';
 import { Modal } from './Dialog';
 import { PageShell } from './PageShell';
 import { HoverTooltip } from './HoverTooltip';
-import { ToastHost } from './Toast';
 import { NotificationSourceProvider } from '../lib/notificationNavigation';
 import { notificationSource } from '../lib/notificationNavigation.shared';
 import '../styles/database-browser-window.css';
@@ -63,7 +62,6 @@ function BrowserWindow({ request }: { request: BrowserRequest }) {
             </NotificationSourceProvider>
           </Suspense>
         </PageShell>
-        <ToastHost />
         <HoverTooltip />
       </div>
       {locked && (

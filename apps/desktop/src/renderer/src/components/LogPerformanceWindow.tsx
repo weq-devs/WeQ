@@ -13,7 +13,6 @@ import { useAppLock } from '../state/lock';
 import { TabActivity } from './RetainedTabs';
 import { Modal } from './Dialog';
 import { HoverTooltip } from './HoverTooltip';
-import { ToastHost } from './Toast';
 import '../styles/log-performance.css';
 
 const PerformanceMonitor = lazy(() => import('./settings/PerformanceMonitor'));
@@ -64,7 +63,6 @@ function MonitorWindow({ tab, request }: { tab: MonitorTab; request: MonitorWind
           {tab === 'performance' ? <PerformanceMonitor /> : <LogViewer />}
         </Suspense>
       </div>
-      <ToastHost />
       <HoverTooltip />
     </div>
   );

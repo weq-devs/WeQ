@@ -13,7 +13,6 @@ import { TabActivity } from './RetainedTabs';
 import { Modal } from './Dialog';
 import { PageShell } from './PageShell';
 import { HoverTooltip } from './HoverTooltip';
-import { ToastHost } from './Toast';
 import { NotificationSourceProvider } from '../lib/notificationNavigation';
 import { notificationSource } from '../lib/notificationNavigation.shared';
 import '../styles/db-repair-window.css';
@@ -34,7 +33,6 @@ export function DbRepairWindowRequest({ account }: { account: DbRepairAccountOpt
 
 /** 挂在 App：主界面返回首页或关闭设置，不会卸载正在使用的修复系统窗。 */
 export function DbRepairWindowHost() {
-  useDatabaseMaintenanceNotifications();
   const request = useDbRepairWindow((state) => state.request);
   const locked = useAppLock((state) => state.locked);
   const utils = trpc.useUtils();
@@ -45,6 +43,7 @@ export function DbRepairWindowHost() {
     height: 780,
     bodyClass: 'weq-db-repair-window-body',
   });
+  useDatabaseMaintenanceNotifications(tool.popup);
   const [account, setAccount] = useState<DbRepairAccountOption | null>(null);
   useEffect(() => {
     if (account)
@@ -115,7 +114,6 @@ export function DbRepairWindowHost() {
                     }}
                   />
                 </NotificationSourceProvider>
-                <ToastHost />
                 <HoverTooltip />
               </div>
             </TabActivity>

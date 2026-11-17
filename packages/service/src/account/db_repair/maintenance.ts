@@ -4,6 +4,7 @@ import { DatabaseScanUnsupportedError, type DbRepairCheckupIntegrity } from './c
 import { DatabaseProgressTracker, type DatabaseWorkProgress } from './progress';
 import type { DbRepairProgress, DbRepairRecord, DbRepairTarget } from './types';
 import type { DatabaseMaintenanceReports } from './maintenance_reports';
+import { DbRepairError } from './service';
 import {
   databaseReadyForRepair,
   type DatabaseMaintenanceRow,
@@ -56,6 +57,7 @@ interface Session {
   preparation?: DatabaseProgressTracker;
   finalizedReportId?: string;
   ending?: Promise<void>;
+  unsavedReports: Map<string, DatabaseMaintenanceReport>;
 }
 const keyFor = (scope: DatabaseMaintenanceScope) =>
   JSON.stringify([scope.uin, scope.configId ?? null]);
@@ -67,7 +69,9 @@ export class DatabaseMaintenance {
   constructor(private readonly deps: DatabaseMaintenanceDeps) {}
 
   current(scope: DatabaseMaintenanceScope): DatabaseMaintenanceSnapshot | null {
-    const snapshot = this.sessions.get(keyFor(scope))?.snapshot;
+    const session = this.sessions.get(keyFor(scope));
+    if (session?.unsavedReports.size) this.flushReports(session);
+    const snapshot = session?.snapshot;
     return snapshot ? structuredClone(snapshot) : null;
   }
   active(): DatabaseMaintenanceSnapshot[] {
@@ -76,9 +80,17 @@ export class DatabaseMaintenance {
       .map((session) => structuredClone(session.snapshot));
   }
   reports(scope: DatabaseMaintenanceScope): DatabaseMaintenanceReport[] {
-    return this.deps
-      .reports(scope)
-      .list()
+    const session = this.sessions.get(keyFor(scope));
+    if (session) this.flushReports(session);
+    const saved = new Map(
+      this.deps
+        .reports(scope)
+        .list()
+        .map((report) => [report.operation.id, report]),
+    );
+    for (const [id, report] of session?.unsavedReports ?? []) saved.set(id, report);
+    return [...saved.values()]
+      .sort((a, b) => b.operation.startedAt - a.operation.startedAt)
       .map((report) => {
         const active = this.sessions.get(keyFor(scope));
         if (
@@ -105,7 +117,8 @@ export class DatabaseMaintenance {
     const operation = this.sessions.get(keyFor(scope))?.snapshot.operation;
     if (operation?.id === id && operation.status === 'running')
       throw new Error('这份报告仍在更新，请暂停扫描或等待执行结束后再删除。');
-    return this.deps.reports(scope).remove(id);
+    const pending = this.sessions.get(keyFor(scope))?.unsavedReports.delete(id) ?? false;
+    return this.deps.reports(scope).remove(id) || pending;
   }
 
   scan(
@@ -143,6 +156,7 @@ export class DatabaseMaintenance {
         },
         targets,
         lastSaved: 0,
+        unsavedReports: session?.unsavedReports ?? new Map(),
       };
       this.sessions.set(keyFor(scope), session);
     }
@@ -370,9 +384,11 @@ export class DatabaseMaintenance {
       if (!databaseReadyForRepair(row)) throw new Error(`${name} 当前不支持修复。`);
     }
     this.begin(session, 'repair', selected.length);
+    session.snapshot.operation!.databaseNames = selected;
     session.snapshot.state = 'repairing';
     for (const row of session.snapshot.databases) {
-      row.repair = selected.includes(row.dbName) ? { status: 'pending' } : undefined;
+      if (row.repair?.status !== 'completed')
+        row.repair = selected.includes(row.dbName) ? { status: 'pending' } : undefined;
     }
     const current = session;
     current.pending = this.repairSession(current, selected, options).finally(() => {
@@ -388,6 +404,7 @@ export class DatabaseMaintenance {
   ): Promise<DatabaseMaintenanceSnapshot> {
     const snapshot = session.snapshot;
     const signal = session.abort!.signal;
+    let waiting = false;
     this.publish(session, true);
     try {
       for (const name of selected) {
@@ -405,6 +422,7 @@ export class DatabaseMaintenance {
             row.scan!,
             signal,
             (tick) => {
+              if (tick.storage) snapshot.storage = tick.storage;
               if (tick.phase === 'done') return;
               this.tick(
                 session,
@@ -419,6 +437,25 @@ export class DatabaseMaintenance {
           row.repair = { status: 'completed', record };
           row.progress = tracker.finish('completed');
         } catch (error) {
+          if (
+            !signal.aborted &&
+            !session.lease?.signal?.aborted &&
+            error instanceof DbRepairError &&
+            error.sourceUnchanged
+          ) {
+            waiting = true;
+            row.repair = { status: 'waiting', error: errorText(error) };
+            if (error.storage) snapshot.storage = error.storage;
+            row.progress = tracker.finish('cancelled');
+            for (const pending of snapshot.databases)
+              if (pending.repair?.status === 'pending')
+                pending.repair = {
+                  status: 'waiting',
+                  error: '等待处理当前问题后继续，尚未启动此数据库。',
+                };
+            this.countCompleted(session);
+            break;
+          }
           row.repair = { status: signal.aborted ? 'cancelled' : 'failed', error: errorText(error) };
           row.progress = tracker.finish(signal.aborted ? 'cancelled' : 'failed');
         }
@@ -434,17 +471,21 @@ export class DatabaseMaintenance {
           ? 'failed'
           : signal.aborted
             ? 'cancelled'
-            : rows.some((row) => row.repair?.status === 'failed')
-              ? rows.some((row) => row.repair?.status === 'completed')
-                ? 'partial'
-                : 'failed'
-              : 'completed',
+            : waiting
+              ? 'waiting'
+              : rows.some((row) => row.repair?.status === 'failed')
+                ? rows.some((row) => row.repair?.status === 'completed')
+                  ? 'partial'
+                  : 'failed'
+                : 'completed',
         lost ? '持续维护锁进程意外退出，已停止后续修复；已经成功的库保持不变。' : undefined,
       );
-      await session.lease!.release();
-      session.lease = undefined;
-      snapshot.locked = false;
-      snapshot.state = 'ended';
+      if (!waiting || signal.aborted || lost) {
+        await session.lease!.release();
+        session.lease = undefined;
+        snapshot.locked = false;
+      }
+      snapshot.state = session.lease ? 'waiting' : 'ended';
       this.publish(session, true);
     }
     return structuredClone(snapshot);
@@ -509,6 +550,7 @@ export class DatabaseMaintenance {
   }
   private begin(session: Session, kind: 'scan' | 'checkup' | 'repair', total: number) {
     session.abort = new AbortController();
+    session.snapshot.storage = undefined;
     session.snapshot.operation = {
       id: randomUUID(),
       kind,
@@ -555,14 +597,17 @@ export class DatabaseMaintenance {
   }
   private countCompleted(session: Session) {
     const op = session.snapshot.operation!;
-    op.completedDatabases = session.snapshot.databases.filter((row) =>
+    const rows = session.snapshot.databases.filter(
+      (row) => !op.databaseNames || op.databaseNames.includes(row.dbName),
+    );
+    op.completedDatabases = rows.filter((row) =>
       op.kind === 'repair'
         ? row.repair?.status === 'completed'
         : op.kind === 'checkup'
           ? row.deepStatus === 'completed'
           : row.scanStatus === 'completed',
     ).length;
-    op.failedDatabases = session.snapshot.databases.filter((row) =>
+    op.failedDatabases = rows.filter((row) =>
       op.kind === 'repair'
         ? row.repair?.status === 'failed'
         : op.kind === 'checkup'
@@ -611,12 +656,25 @@ export class DatabaseMaintenance {
       session.finalizedReportId !== op.id &&
       (force || Date.now() - session.lastSaved >= 500)
     ) {
-      this.deps
-        .reports(session.snapshot)
-        .save(structuredClone(session.snapshot) as DatabaseMaintenanceReport);
+      session.unsavedReports.set(
+        op.id,
+        structuredClone(session.snapshot) as DatabaseMaintenanceReport,
+      );
+      this.flushReports(session);
       session.lastSaved = Date.now();
       if (op.status !== 'running') session.finalizedReportId = op.id;
     }
     this.deps.changed?.(structuredClone(session.snapshot));
+  }
+  private flushReports(session: Session) {
+    try {
+      for (const [id, report] of session.unsavedReports) {
+        this.deps.reports(session.snapshot).save(report);
+        session.unsavedReports.delete(id);
+      }
+      session.snapshot.reportError = undefined;
+    } catch (error) {
+      session.snapshot.reportError = `历史报告尚未写入磁盘，当前结果仍保留在本次维护中：${errorText(error)}`;
+    }
   }
 }

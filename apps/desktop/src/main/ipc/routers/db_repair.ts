@@ -324,7 +324,7 @@ function savedReport(scope: DatabaseMaintenanceScope, id: string) {
   const current = databaseMaintenance.current(scope);
   if (current?.operation?.id === id && current.operation.status === 'running')
     return { ...current, operation: current.operation };
-  const report = reports(scope).get(id);
+  const report = databaseMaintenance.reports(scope).find((item) => item.operation.id === id);
   if (!report) throw new Error('找不到这份数据库维护报告。');
   if (report.operation.status === 'running')
     return {
@@ -430,10 +430,20 @@ export const dbRepairRouter = router({
       };
     }),
   ),
-  preflight: procedure.input(targetRef).query(({ input }) => {
-    const { key: _key, ...budget } = service.preflight(input.uin, input.dbName);
-    return budget;
-  }),
+  preflight: procedure
+    .input(targetRef.extend({ backup: z.boolean().optional() }))
+    .query(({ input }) => {
+      const { key: _key, ...budget } = service.preflight(input.uin, input.dbName, input.backup);
+      return budget;
+    }),
+  repairStorage: procedure
+    .input(accountRef.extend({ dbNames: z.array(z.string()), backup: z.boolean() }))
+    .query(({ input }) =>
+      input.dbNames.map((name) => {
+        const { cachePath, space } = service.preflight(input.uin, name, input.backup);
+        return { dbName: name, cachePath, space, phase: 'preparing' };
+      }),
+    ),
   detectLayout: procedure
     .input(targetRef)
     .query(({ input }) => service.probeLayout(input.uin, input.dbName)),

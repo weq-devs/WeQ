@@ -20,13 +20,25 @@ export function databaseMaintenanceNotification(snapshot: DatabaseMaintenanceSna
       key: `database-maintenance-lost:${snapshot.id}`,
       event: 'databaseDamage' as const,
       tone: 'error' as const,
+      loading: false,
       title: '数据库维护已中断',
       detail: snapshot.maintenanceError,
       account,
     };
-  if (op.status === 'running') return null;
+  if (op.status === 'running')
+    return op.kind !== 'repair'
+      ? null
+      : {
+          key: `database-maintenance-progress:${snapshot.id}`,
+          event: 'progress' as const,
+          tone: 'info' as const,
+          loading: true,
+          title: '正在修复数据库',
+          detail: `${op.completedDatabases} / ${op.totalDatabases} 个数据库已完成${op.currentDb ? ` · ${op.currentDb}` : ''}${snapshot.progress?.current?.message ? `\n${snapshot.progress.current.message}` : ''}`,
+          account: { ...account, reportId: undefined },
+        };
   const abnormal = snapshot.databases.filter(databaseMaintenanceRowAbnormal).length;
-  const failed = ['failed', 'partial', 'interrupted'].includes(op.status);
+  const failed = ['failed', 'partial', 'interrupted', 'waiting'].includes(op.status);
   if (op.kind !== 'repair' && (op.status === 'cancelled' || (!failed && !abnormal))) return null;
   return {
     key: `database-maintenance:${op.id}`,
@@ -45,7 +57,11 @@ export function databaseMaintenanceNotification(snapshot: DatabaseMaintenanceSna
           ? ('info' as const)
           : ('success' as const)
         : ('warning' as const),
-    title: `${databaseMaintenanceKindLabel[op.kind]}${failed ? (op.status === 'partial' ? '部分完成' : '未完成') : op.status === 'cancelled' ? '已停止' : op.kind === 'repair' ? '已完成' : '已完成，发现数据库异常'}`,
+    title:
+      op.status === 'waiting'
+        ? '数据库修复等待处理'
+        : `${databaseMaintenanceKindLabel[op.kind]}${failed ? (op.status === 'partial' ? '部分完成' : '未完成') : op.status === 'cancelled' ? '已停止' : op.kind === 'repair' ? '已完成' : '已完成，发现数据库异常'}`,
+    loading: false,
     detail: [
       `${op.completedDatabases} / ${op.totalDatabases} 个数据库已完成`,
       ...(op.kind !== 'repair' && abnormal ? [`${abnormal} 个库发现异常`] : []),
@@ -63,6 +79,6 @@ export function databaseMaintenanceNotification(snapshot: DatabaseMaintenanceSna
     ]
       .filter(Boolean)
       .join('\n'),
-    account,
+    account: op.status === 'waiting' ? { ...account, reportId: undefined } : account,
   };
 }

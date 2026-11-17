@@ -1238,6 +1238,53 @@ html[data-theme='dark'] .weq-dbm {
   gap: 8px;
 }
 
+.weq-dbm-storage-warning {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--weq-warn-border);
+  border-radius: 8px;
+  background: var(--weq-warn-bg);
+  color: var(--weq-warn-fg);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.weq-dbm-storage-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.weq-dbm-storage-warning p,
+.weq-dbm-storage-warning dl,
+.weq-dbm-storage-warning dd {
+  margin: 0;
+}
+
+.weq-dbm-storage-warning dl,
+.weq-dbm-storage-warning dd {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.weq-dbm-storage-warning dl > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.weq-dbm-storage-warning dt {
+  flex: 0 0 90px;
+}
+
+.weq-dbm-storage-warning dd {
+  flex: 1 1 240px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── 历史报告视图 ─────────────────────────────────────────────────── */
 
 .weq-dbm-report-bar {

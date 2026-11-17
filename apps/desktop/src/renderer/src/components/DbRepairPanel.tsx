@@ -87,7 +87,7 @@ function rowTone(row: DatabaseMaintenanceRow): Tone {
   if (row.repair) {
     if (row.repair.status === 'running') return 'run';
     if (row.repair.status === 'completed') return 'ok';
-    if (row.repair.status === 'failed') return 'warn';
+    if (row.repair.status === 'failed' || row.repair.status === 'waiting') return 'warn';
     return 'muted';
   }
   if (row.scanStatus === 'running' || row.deepStatus === 'running') return 'run';
@@ -102,6 +102,8 @@ function rowTone(row: DatabaseMaintenanceRow): Tone {
 function rowSummary(row: DatabaseMaintenanceRow): string {
   if (row.repair?.status === 'running') return '正在重建这个数据库，期间不要打开这个账号的 QQ。';
   if (row.repair?.status === 'failed') return row.repair.error ?? '修复没有完成。';
+  if (row.repair?.status === 'waiting')
+    return row.repair.error ?? '已保留扫描结果，等待处理后重试。';
   if (row.repair?.status === 'cancelled') return '本轮修复已停止，这个库没有提交替换。';
   if (row.repair?.status === 'completed')
     return row.repair.record?.verification?.healthy === false
@@ -416,7 +418,7 @@ export function DbRepairPanel({
           .getState()
           .confirm(
             '修复所选数据库？',
-            `${names.join('、')} 将使用当前维护中已有的扫描结果重建并替换。${backup ? '修复前保留备份。' : '本次不保留备份。'}${allowLowSpace ? '本次明确接受建议余量不足；预计峰值不足仍会中止对应数据库。' : ''}修复过程中可以停止，已成功的库不会回退。`,
+            `${names.join('、')} 将使用当前维护中已有的扫描结果重建并替换。${backup ? '修复前保留备份。' : '本次不保留备份。'}${allowLowSpace ? '本次明确接受建议余量不足；后续写入空间不足时会返回查看结果。' : ''}修复过程中可以停止，已成功的库不会回退。`,
             { okLabel: '开始修复', cancelLabel: '继续查看', ownerDocument },
           ))
       ) {
@@ -553,6 +555,7 @@ export function DbRepairPanel({
       [
         surface ? '' : error,
         live?.maintenanceError,
+        live?.reportError,
         maintenance.error ? `无法读取维护状态：${maintenance.error.message}` : '',
         status.error?.message,
         status.data?.error,
@@ -582,6 +585,14 @@ export function DbRepairPanel({
     setReportScope(scope);
     setLegacyId(undefined);
   };
+  const changeCache = () =>
+    act(async () => {
+      await pickCache.mutateAsync();
+      setAllowLowSpace(false);
+      await cache.refetch();
+      await utils.dbRepair.preflight.invalidate();
+      await utils.dbRepair.repairStorage.invalidate();
+    });
   const closeSurface = () => {
     setSurface(null);
     closeReport();
@@ -755,10 +766,18 @@ export function DbRepairPanel({
           ) : (
             <AlertTriangle size={22} strokeWidth={1.9} />
           ),
-        title: paused ? '扫描已暂停' : title,
-        sub: paused
-          ? `已保留完成的检查和维护锁，可切换体检模式后继续扫描。${scannedCount} / ${databases.length} 个数据库已有页扫描结果。`
-          : sub,
+        title:
+          operation?.status === 'waiting'
+            ? '已返回查看结果，等待处理后重试'
+            : paused
+              ? '扫描已暂停'
+              : title,
+        sub:
+          operation?.status === 'waiting'
+            ? '维护锁和未替换数据库的扫描结果仍保留，处理问题后可直接重试；已成功修复的库不会重复修复。'
+            : paused
+              ? `已保留完成的检查和维护锁，可切换体检模式后继续扫描。${scannedCount} / ${databases.length} 个数据库已有页扫描结果。`
+              : sub,
         actions: (
           <>
             {scanControls}
@@ -915,6 +934,16 @@ export function DbRepairPanel({
             {hero.actions ? <div className="weq-dbm-hero-actions">{hero.actions}</div> : null}
           </section>
         ) : null}
+
+        <RepairStorageWarning
+          scope={scope}
+          names={selectedReady.length ? selectedReady : readyNames}
+          backup={backup}
+          enabled={waiting && !running}
+          storage={waiting || repairing ? live?.storage : undefined}
+          onChangeCache={() => void changeCache()}
+          cacheDisabled={repairing || pickCache.isLoading || resetCache.isLoading}
+        />
 
         {!view?.operation && account?.diagnostic ? (
           <section className="weq-dbm-callout">
@@ -1102,7 +1131,7 @@ export function DbRepairPanel({
                   />
                   <span>
                     <strong>接受磁盘建议余量不足</strong>
-                    <em>预计峰值仍不够时，对应数据库会中止，不会强行写满磁盘。</em>
+                    <em>后续写入空间不足时返回查看结果，保留锁和已有扫描结果。</em>
                   </span>
                 </label>
                 {selectedReady.length ? (
@@ -1117,6 +1146,7 @@ export function DbRepairPanel({
                         scope={scope}
                         dbName={name}
                         enabled={!starting}
+                        backup={backup}
                       />
                     ))}
                   </div>
@@ -1176,14 +1206,7 @@ export function DbRepairPanel({
                       type="button"
                       className="weq-set-btn weq-set-btn-sm"
                       disabled={repairing || pickCache.isLoading || resetCache.isLoading}
-                      onClick={() =>
-                        void act(async () => {
-                          await pickCache.mutateAsync();
-                          setAllowLowSpace(false);
-                          await cache.refetch();
-                          await utils.dbRepair.preflight.invalidate();
-                        })
-                      }
+                      onClick={() => void changeCache()}
                     >
                       <FolderOpen size={14} />
                       更改位置
@@ -1203,6 +1226,7 @@ export function DbRepairPanel({
                           setAllowLowSpace(false);
                           await cache.refetch();
                           await utils.dbRepair.preflight.invalidate();
+                          await utils.dbRepair.repairStorage.invalidate();
                         })
                       }
                     >
@@ -1601,12 +1625,17 @@ function RepairBudget({
   scope,
   dbName,
   enabled,
+  backup,
 }: {
   scope: { uin: string; configId?: string };
   dbName: string;
   enabled: boolean;
+  backup: boolean;
 }) {
-  const budget = trpc.dbRepair.preflight.useQuery({ ...scope, dbName }, { enabled, retry: false });
+  const budget = trpc.dbRepair.preflight.useQuery(
+    { ...scope, dbName, backup },
+    { enabled, retry: false },
+  );
   if (budget.error)
     return (
       <p className="weq-dbm-budget is-warn">
@@ -1629,6 +1658,109 @@ function RepairBudget({
         </span>
       ))}
     </div>
+  );
+}
+
+function RepairStorageWarning({
+  scope,
+  names,
+  backup,
+  enabled,
+  storage,
+  onChangeCache,
+  cacheDisabled,
+}: {
+  scope: { uin: string; configId?: string };
+  names: string[];
+  backup: boolean;
+  enabled: boolean;
+  storage?: DatabaseMaintenanceSnapshot['storage'];
+  onChangeCache: () => void;
+  cacheDisabled: boolean;
+}) {
+  const budget = trpc.dbRepair.repairStorage.useQuery(
+    { ...scope, dbNames: names, backup },
+    { enabled: enabled && names.length > 0, retry: false, refetchInterval: enabled ? 2000 : false },
+  );
+  const estimates =
+    !enabled && storage ? [storage] : enabled ? (budget.data ?? (storage ? [storage] : [])) : [];
+  const tight = estimates.flatMap((item) =>
+    item.space
+      .filter((volume) => volume.freeBytes !== null && volume.freeBytes < volume.recommendedBytes)
+      .map((volume) => ({ ...volume, cachePath: item.cachePath })),
+  );
+  const previousWarning = enabled && storage?.warning;
+  if (!tight.length && !previousWarning)
+    return budget.error && enabled ? (
+      <p className="weq-dbm-alert" role="alert">
+        无法检查缓存空间：{budget.error.message}
+      </p>
+    ) : null;
+  const grouped = new Map<string, (typeof tight)[number]>();
+  const displayed = tight.length
+    ? tight
+    : estimates.flatMap((item) =>
+        item.space.map((volume) => ({ ...volume, cachePath: item.cachePath })),
+      );
+  for (const volume of displayed) {
+    const key = volume.paths.join(':');
+    if (!grouped.has(key) || grouped.get(key)!.requiredBytes < volume.requiredBytes)
+      grouped.set(key, volume);
+  }
+  const volumes = [...grouped.values()];
+  return (
+    <section className="weq-dbm-storage-warning" role="alert" aria-label="磁盘空间警告">
+      <div className="weq-dbm-storage-heading">
+        <AlertTriangle size={17} aria-hidden />
+        <strong>
+          {!tight.length && previousWarning
+            ? '上次修复遇到空间不足'
+            : tight.some((volume) => volume.freeBytes! < volume.requiredBytes)
+              ? '磁盘空间不足'
+              : '磁盘可用空间偏低'}
+        </strong>
+      </div>
+      <p>请清理磁盘或更改重建缓存位置。空间不足时会保留维护锁和扫描结果，返回查看结果后可重试。</p>
+      <dl>
+        <div>
+          <dt>当前缓存位置</dt>
+          <dd>{estimates[0]?.cachePath}</dd>
+        </div>
+        {volumes.map((volume) => (
+          <div key={volume.paths.join(':')}>
+            <dt>{volume.paths.includes(volume.cachePath) ? '缓存卷' : '原数据库卷'}</dt>
+            <dd>
+              <span className="weq-dbm-path">{volume.paths.join('、')}</span>
+              <span>
+                可用 {formatBytesOrUnknown(volume.freeBytes)} · {!enabled ? '后续' : '预计'}新增峰值{' '}
+                {formatBytesOrUnknown(volume.requiredBytes)}
+              </span>
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <div className="weq-dbm-cache-actions">
+        <button
+          type="button"
+          className="weq-set-btn weq-set-btn-sm"
+          disabled={cacheDisabled}
+          onClick={onChangeCache}
+          title={cacheDisabled ? '当前重建结束并返回查看结果后可更改位置' : undefined}
+        >
+          <FolderOpen size={14} />
+          更改缓存位置
+        </button>
+        <button
+          type="button"
+          className="weq-set-btn weq-set-btn-sm"
+          onClick={() => void budget.refetch()}
+          disabled={!enabled || budget.isFetching}
+        >
+          <RefreshCw size={14} />
+          刷新空间
+        </button>
+      </div>
+    </section>
   );
 }
 

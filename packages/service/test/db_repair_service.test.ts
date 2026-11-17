@@ -85,6 +85,7 @@ interface HarnessOptions {
   recover?: (
     options: DbRepairRecoverOptions,
     onProgress: (progress: DbRepairProgress) => void,
+    signal?: AbortSignal,
   ) => Promise<DbRepairRecoverReport>;
   /** 覆盖替换后的复核。 */
   verify?: DbRepairDeps['verify'];
@@ -169,11 +170,11 @@ function createHarness(options: HarnessOptions = {}) {
         algos: options.credentials?.algos ?? { 'nt_msg.db': ALGO },
       };
     },
-    recover: async (recoverOptions, onProgress) => {
+    recover: async (recoverOptions, onProgress, signal) => {
       calls.recover += 1;
       recoverArgs.push(recoverOptions);
       const impl = options.recover ?? defaultRecover;
-      return impl(recoverOptions, onProgress);
+      return impl(recoverOptions, onProgress, signal);
     },
     probeLock: (): DbRepairLockProbe => {
       const probe = probes[Math.min(calls.probe, probes.length - 1)]!;
@@ -400,6 +401,64 @@ describe('DbRepairService.repair 成功路径', () => {
 // ────────────────────────── 中止与失败 ──────────────────────────
 
 describe('修复空间与自定义缓存', () => {
+  it('已写出的重建文件和随后删除的临时件不会让中途检查重复索取整轮空间', async () => {
+    let free = 1e12;
+    const h = createHarness({
+      storageOptimized: () => true,
+      diskSpace: () => ({ volume: 'same', freeBytes: free }),
+      recover: async (options, progress, signal) => {
+        mkdirSync(options.workDir, { recursive: true });
+        writeFileSync(
+          join(options.workDir, 'nt-helper-recover-1-0-rebuilt.db'),
+          Buffer.alloc(64 * 1024),
+        );
+        writeFileSync(options.outPath, Buffer.alloc(32 * 1024));
+        free = 48 * 1024;
+        progress({ phase: 'Encrypt', percent: 85, message: 'synthetic encryption' });
+        expect(signal?.aborted).toBe(false);
+        rmSync(options.workDir, { recursive: true });
+        writeFileSync(options.outPath, repairedBytes());
+        progress({ phase: 'Verify', percent: 97, message: 'synthetic verification' });
+        return makeReport();
+      },
+    });
+    const result = await h.repair(
+      { uin: REF, dbName: 'nt_msg.db', maintenanceId: 'held-lock' },
+      () => {},
+    );
+    expect(result.state).toBe('applied');
+    expect(readFileSync(h.dbPath)).toEqual(repairedBytes());
+  });
+  it('重建过程中余量跌破后续峰值时中断子任务，返回可重试原因且不动源库', async () => {
+    let free = 1e12;
+    const ticks: DbRepairProgress[] = [];
+    const h = createHarness({
+      storageOptimized: () => true,
+      diskSpace: () => ({ volume: 'same', freeBytes: free }),
+      recover: async (options, progress, signal) => {
+        writeFileSync(options.outPath, 'partial');
+        free = 1;
+        progress({ phase: 'Repair', percent: 30, message: 'synthetic recovery' });
+        expect(signal?.aborted).toBe(true);
+        throw signal!.reason;
+      },
+    });
+    await expect(
+      h.repair({ uin: REF, dbName: 'nt_msg.db', maintenanceId: 'held-lock' }, (tick) =>
+        ticks.push(tick),
+      ),
+    ).rejects.toMatchObject({
+      code: 'insufficient-space',
+      sourceUnchanged: true,
+      storage: { cachePath: expect.any(String) },
+    });
+    expect(ticks.some((tick) => tick.storage?.space.some((volume) => volume.freeBytes === 1))).toBe(
+      true,
+    );
+    expect(readFileSync(h.dbPath)).toEqual(originalBytes());
+    expect(readdirSync(h.dbDir)).toEqual(['nt_msg.db']);
+    expect(h.calls.released).toBe(0);
+  });
   it('基线足够但建议余量不足时要求明确确认，确认后正常修复且不跳过备份', async () => {
     const h = createHarness({ diskSpace: () => ({ volume: 'same', freeBytes: 1024 * 1024 }) });
     const budget = h.service.preflight(REF, 'nt_msg.db').space[0]!;

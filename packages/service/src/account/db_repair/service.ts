@@ -42,7 +42,12 @@ import {
   type DbRepairPaths,
 } from './paths';
 import { renderDbRepairReportMarkdown } from './report';
-import { repairSpaceBudget, type RepairDiskSpace } from './space';
+import {
+  repairSpaceBudget,
+  repairWorkingBytes,
+  type RepairDiskSpace,
+  type RepairStorageStatus,
+} from './space';
 import type {
   DbRepairLockHolder,
   DbRepairPreflight,
@@ -84,6 +89,8 @@ export type DbRepairErrorCode =
   | 'recover-failed';
 
 export class DbRepairError extends Error {
+  sourceUnchanged = false;
+  storage?: RepairStorageStatus;
   constructor(
     readonly code: DbRepairErrorCode,
     message: string,
@@ -374,6 +381,29 @@ export class DbRepairService {
     request: DbRepairRequest,
     onProgress: (progress: DbRepairProgress) => void,
   ): Promise<DbRepairRecord> {
+    let committing = false;
+    try {
+      return await this.repairDatabase(request, onProgress, () => {
+        committing = true;
+      });
+    } catch (error) {
+      const classified = classifyFailure(error);
+      const failure =
+        error instanceof DbRepairError
+          ? error
+          : new DbRepairError(classified.code, classified.message);
+      // 只有持续锁内、尚未进入提交且未发现源库变化，才允许继续消费同一份扫描结果。
+      failure.sourceUnchanged =
+        !!request.maintenanceId && !committing && failure.code !== 'changed-during-repair';
+      throw failure;
+    }
+  }
+
+  private async repairDatabase(
+    request: DbRepairRequest,
+    onProgress: (progress: DbRepairProgress) => void,
+    onCommit: () => void,
+  ): Promise<DbRepairRecord> {
     if (this.running) {
       throw new DbRepairError(
         'busy',
@@ -393,22 +423,44 @@ export class DbRepairService {
     const layoutMigration =
       request.layoutMigration === true || request.sourceScan.sourceLayout === 'standard';
     const preflight = this.preflight(uin, request.dbName, request.backup !== false);
+    const initialStorage: RepairStorageStatus = {
+      cachePath: preflight.cachePath,
+      phase: 'backup',
+      space: preflight.space,
+    };
+    const spaceError = (
+      code: 'insufficient-space' | 'space-margin',
+      message: string,
+      storage: RepairStorageStatus,
+    ) => {
+      const error = new DbRepairError(code, message);
+      error.storage = { ...storage, warning: code };
+      return error;
+    };
+    onProgress({
+      phase: 'backup',
+      percent: 0,
+      message: '检查重建缓存空间',
+      storage: initialStorage,
+    });
     const shortage = preflight.space.find(
       (item) => item.freeBytes !== null && item.freeBytes < item.requiredBytes,
     );
     if (shortage) {
-      throw new DbRepairError(
+      throw spaceError(
         'insufficient-space',
         `磁盘空间不足（${shortage.paths.join('、')}）：预计新增峰值约 ${formatMb(shortage.requiredBytes)}，当前可用 ${formatMb(shortage.freeBytes!)}`,
+        initialStorage,
       );
     }
     const margin = preflight.space.find(
       (item) => item.freeBytes !== null && item.freeBytes < item.recommendedBytes,
     );
     if (margin && request.allowLowSpace !== true) {
-      throw new DbRepairError(
+      throw spaceError(
         'space-margin',
         `磁盘建议余量不足（${margin.paths.join('、')}）：预计新增峰值约 ${formatMb(margin.requiredBytes)}，建议预留 ${formatMb(margin.recommendedBytes)}，当前可用 ${formatMb(margin.freeBytes!)}。可在修复确认中明确接受风险后继续。`,
+        initialStorage,
       );
     }
     if (preflight.readiness === 'blocked-by-qq') {
@@ -433,10 +485,81 @@ export class DbRepairService {
     const startMs = Date.now();
     const guardedEmit = progressGuard(onProgress);
     let committing = false;
-    const emit = (progress: DbRepairProgress) => {
-      if (!committing) request.signal?.throwIfAborted();
-      guardedEmit(progress);
+    const spaceAbort = new AbortController();
+    const recoverSignal = AbortSignal.any([
+      spaceAbort.signal,
+      ...(request.signal ? [request.signal] : []),
+    ]);
+    let latest: DbRepairProgress = { phase: 'backup', percent: 0, message: '准备重建' };
+    let lastSpaceCheck = 0;
+    let storage = initialStorage;
+    const checkSpace = () => {
+      lastSpaceCheck = Date.now();
+      const working = repairWorkingBytes(join(paths.workDir, stamp));
+      const productBytes = repairWorkingBytes(productDirectory).allocated;
+      // 文件释放与 IPC 进度可能先后到达，不把刚被删除的输入再次计入未来写入。
+      let budgetPhase = latest.phase.toLowerCase();
+      if (
+        preflight.storageOptimized &&
+        budgetPhase === 'repair' &&
+        working.rebuilt > 0 &&
+        !working.sourcePresent
+      )
+        budgetPhase = 'encrypt';
+      if (
+        preflight.storageOptimized &&
+        budgetPhase === 'encrypt' &&
+        working.rebuilt === 0 &&
+        productBytes > 0
+      )
+        budgetPhase = 'restore';
+      storage = {
+        cachePath: preflight.cachePath,
+        phase: latest.phase,
+        space: repairSpaceBudget({
+          sourceDir: target.dbDir,
+          cacheDir: preflight.cachePath,
+          dbBytes: preflight.dbBytes,
+          walBytes: preflight.pendingWalBytes,
+          backup: request.backup !== false,
+          optimized: preflight.storageOptimized,
+          probe: this.deps.diskSpace,
+          current: {
+            phase: budgetPhase,
+            cacheBytes: working.allocated,
+            rebuiltBytes: working.rebuilt,
+            productBytes,
+            backupRemainingBytes:
+              latest.phase.toLowerCase() === 'backup' && request.backup !== false
+                ? Math.max(
+                    0,
+                    preflight.dbBytes - (fileBytes(paths.backupFile(stamp, target.dbName)) ?? 0),
+                  )
+                : 0,
+          },
+        }),
+      };
+      const low = storage.space.find(
+        (volume) => volume.freeBytes !== null && volume.freeBytes < volume.requiredBytes,
+      );
+      if (low && !committing)
+        spaceAbort.abort(
+          spaceError(
+            'insufficient-space',
+            `剩余磁盘空间不足（${low.paths.join('、')}）：后续新增峰值约 ${formatMb(low.requiredBytes)}，当前可用 ${formatMb(low.freeBytes!)}。已保留维护锁和扫描结果，请清理磁盘或更改缓存位置后重试。`,
+            storage,
+          ),
+        );
     };
+    const emit = (progress: DbRepairProgress, interrupt = true) => {
+      if (!committing && interrupt) request.signal?.throwIfAborted();
+      const phaseChanged = latest.phase !== progress.phase;
+      latest = progress;
+      if (!committing && (phaseChanged || Date.now() - lastSpaceCheck >= 1000)) checkSpace();
+      guardedEmit({ ...progress, storage });
+      if (!committing && interrupt) spaceAbort.signal.throwIfAborted();
+    };
+    let spaceTimer: ReturnType<typeof setInterval> | undefined;
     // 未合并的 WAL：页级读取看不到它的帧，所以这部分改动不在修复范围内。先量下来，
     // 记进记录与报告里（不能悄悄丢掉用户的最后一批消息）。
     const pendingWal = pendingWalBytes(target.dbPath);
@@ -519,25 +642,36 @@ export class DbRepairService {
         message: backup ? `已备份 ${formatMb(backup.bytes)}` : '已跳过备份（按请求）',
       });
 
-      recovered = await this.deps.recover(
-        {
-          dbPath: target.dbPath,
-          outPath: product,
-          workDir: join(paths.workDir, stamp),
-          key: target.key,
-          algo: target.algo,
-          strictPages: request.strictPages,
-          recoverFreelist: request.recoverFreelist,
-          lostAndFoundName: request.lostAndFoundName,
-          slowIndexes: request.slowIndexes,
-          sourceScan: request.sourceScan,
-          ...(layoutMigration
-            ? { sourceLayout: 'standard' as const, targetLayout: 'qq' as const }
-            : {}),
-        },
-        (progress) => emit(progress),
-        request.signal,
-      );
+      // 原生工作在子进程中；即使某个步骤不再发进度，也继续观测文件增长与可用空间。
+      spaceTimer = setInterval(() => {
+        checkSpace();
+        guardedEmit({ ...latest, storage });
+      }, 1000);
+      try {
+        recovered = await this.deps.recover(
+          {
+            dbPath: target.dbPath,
+            outPath: product,
+            workDir: join(paths.workDir, stamp),
+            key: target.key,
+            algo: target.algo,
+            strictPages: request.strictPages,
+            recoverFreelist: request.recoverFreelist,
+            lostAndFoundName: request.lostAndFoundName,
+            slowIndexes: request.slowIndexes,
+            sourceScan: request.sourceScan,
+            ...(layoutMigration
+              ? { sourceLayout: 'standard' as const, targetLayout: 'qq' as const }
+              : {}),
+          },
+          (progress) => emit(progress, false),
+          recoverSignal,
+        );
+        spaceAbort.signal.throwIfAborted();
+      } finally {
+        clearInterval(spaceTimer);
+        spaceTimer = undefined;
+      }
       request.signal?.throwIfAborted();
 
       // 旧产物会静默忽略未知参数：迁移请求传下去后，它仍按 QQ 布局读 standard 源，
@@ -602,6 +736,7 @@ export class DbRepairService {
       request.signal?.throwIfAborted();
       // 提交开始后完成替换与验证；停止不回退已经提交成功的数据库。
       committing = true;
+      onCommit();
       const removedSidecars = request.maintenanceId
         ? removeSqliteSidecars(target.dbPath, ['-wal', '-journal'])
         : removeSqliteSidecars(target.dbPath);
@@ -696,34 +831,49 @@ export class DbRepairService {
       return record;
     } catch (error) {
       removeQuietly(product);
-      const classified = classifyFailure(error);
-      const record = this.record(history, paths, {
-        stamp,
-        target,
-        state: classified.state,
-        error: classified.message,
-        backup,
-        before,
-        after,
-        recovered: recovered && verification ? { ...recovered, verification } : recovered,
-        pendingWalBytes: pendingWal,
-        walMerged,
-        layoutMigration,
-        durationMs: Date.now() - startMs,
-        startedAt,
-      });
-      this.log.warn('db repair did not apply', {
-        event: 'db-repair-failed',
-        accountUin: target.uin,
-        dbPath: target.dbPath,
-        recordId: record.id,
-        code: classified.code,
-        error: classified.message,
-      });
-      history.pruneBackups(this.deps.keepBackups ?? DEFAULT_BACKUP_KEEP);
-      if (error instanceof DbRepairError) throw error;
-      throw new DbRepairError(classified.code, classified.message);
+      const cause = spaceAbort.signal.aborted ? spaceAbort.signal.reason : error;
+      const classified = classifyFailure(cause);
+      // 写满磁盘时报告也可能写不出，不能让次生错误遮盖可恢复的执行结果。
+      try {
+        const record = this.record(history, paths, {
+          stamp,
+          target,
+          state: classified.state,
+          error: classified.message,
+          backup,
+          before,
+          after,
+          recovered: recovered && verification ? { ...recovered, verification } : recovered,
+          pendingWalBytes: pendingWal,
+          walMerged,
+          layoutMigration,
+          durationMs: Date.now() - startMs,
+          startedAt,
+        });
+        this.log.warn('db repair did not apply', {
+          event: 'db-repair-failed',
+          accountUin: target.uin,
+          dbPath: target.dbPath,
+          recordId: record.id,
+          code: classified.code,
+          error: classified.message,
+        });
+        history.pruneBackups(this.deps.keepBackups ?? DEFAULT_BACKUP_KEEP);
+      } catch (reportError) {
+        this.log.warn('could not save failed repair report', { error: String(reportError) });
+      }
+      if (cause instanceof DbRepairError) throw cause;
+      const failure = new DbRepairError(classified.code, classified.message);
+      if (
+        /ENOSPC|SQLITE_FULL|database or disk is full|no space left|磁盘.*不足/i.test(
+          classified.message,
+        )
+      ) {
+        failure.storage = { ...storage, warning: 'insufficient-space' };
+      }
+      throw failure;
     } finally {
+      clearInterval(spaceTimer);
       removeDirQuietly(join(paths.workDir, stamp));
       removeDirQuietly(productDirectory);
       this.running = null;

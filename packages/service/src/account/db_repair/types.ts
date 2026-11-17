@@ -57,6 +57,7 @@ export interface DbRepairProgress {
   percent: number;
   message: string;
   detail?: DatabaseProgress;
+  storage?: import('./space').RepairStorageStatus;
 }
 
 /** native `checkpointWal` 的产出（结构类型，理由同文件头）。 */

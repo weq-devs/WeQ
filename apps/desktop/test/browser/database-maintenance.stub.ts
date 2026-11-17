@@ -354,10 +354,15 @@ const invalidation = {
 };
 const utils = {
   dbRepair: Object.fromEntries(
-    ['status', 'maintenance', 'preflight', 'reports', 'history', 'cacheLocation'].map((key) => [
-      key,
-      invalidation,
-    ]),
+    [
+      'status',
+      'maintenance',
+      'preflight',
+      'repairStorage',
+      'reports',
+      'history',
+      'cacheLocation',
+    ].map((key) => [key, invalidation]),
   ),
 };
 const status = {
@@ -390,6 +395,21 @@ export const trpc = {
         },
       ],
     })),
+    repairStorage: query((input) =>
+      (input.dbNames ?? []).map((dbName) => ({
+        dbName,
+        phase: 'preparing',
+        cachePath: cache ?? '/default/cache',
+        space: [
+          {
+            paths: [cache ?? '/default/cache'],
+            freeBytes,
+            requiredBytes: 1_000_000,
+            recommendedBytes: 1_250_000,
+          },
+        ],
+      })),
+    ),
     pickCacheLocation: mutation(async () => {
       calls.pick++;
       cache = '/synthetic/changed';

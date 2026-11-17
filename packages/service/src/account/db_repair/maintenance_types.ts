@@ -26,7 +26,7 @@ export interface DatabaseMaintenanceRow {
   progress?: DatabaseTaskProgress;
   scanProgress?: DatabaseTaskProgress;
   repair?: {
-    status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+    status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'waiting';
     record?: DbRepairRecord;
     error?: string;
   };
@@ -34,11 +34,12 @@ export interface DatabaseMaintenanceRow {
 export interface DatabaseMaintenanceOperation {
   id: string;
   kind: 'scan' | 'checkup' | 'repair';
-  status: 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'interrupted';
+  status: 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'interrupted' | 'waiting';
   startedAt: number;
   finishedAt?: number;
   elapsedMs: number;
   totalDatabases: number;
+  databaseNames?: string[];
   completedDatabases: number;
   failedDatabases?: number;
   currentDb?: string;
@@ -53,12 +54,19 @@ export interface DatabaseMaintenanceSnapshot extends DatabaseMaintenanceScope {
   operation?: DatabaseMaintenanceOperation;
   progress?: DatabaseTaskProgress;
   maintenanceError?: string;
+  reportError?: string;
+  storage?: import('./space').RepairStorageStatus;
 }
 export interface DatabaseMaintenanceReport extends DatabaseMaintenanceSnapshot {
   operation: DatabaseMaintenanceOperation;
 }
 export function databaseReadyForRepair(row: DatabaseMaintenanceRow): boolean {
-  return row.scanStatus === 'completed' && !!row.scan && row.support !== 'unsupported';
+  return (
+    row.scanStatus === 'completed' &&
+    !!row.scan &&
+    row.support !== 'unsupported' &&
+    row.repair?.status !== 'completed'
+  );
 }
 export const databaseRepairSupportLabel: Record<DatabaseRepairSupport, string> = {
   supported: 'WeQ 支持修复',
@@ -80,6 +88,7 @@ export const databaseMaintenanceStatusLabel: Record<
   failed: '执行失败',
   cancelled: '已停止',
   interrupted: '执行中断',
+  waiting: '等待处理后继续',
 };
 export const databaseRepairStatusLabel = {
   pending: '待修复',
@@ -87,6 +96,7 @@ export const databaseRepairStatusLabel = {
   completed: '修复成功',
   failed: '修复失败',
   cancelled: '已停止',
+  waiting: '等待重试',
 };
 export function databaseMaintenanceRowAbnormal(row: DatabaseMaintenanceRow): boolean {
   return (
