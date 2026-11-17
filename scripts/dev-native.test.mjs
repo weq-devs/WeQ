@@ -182,6 +182,36 @@ test('配套安装与来源记录成功，失败时恢复所有旧文件及原�
   assert(!(await readdir(join(root, 'native'))).some((path) => path.startsWith('.dev-install-')));
 });
 
+test('Windows 反斜杠写法的旧 marker 也能匹配，并在下次安装时归一化', async (t) => {
+  const { root, bundle, platform } = await fixture(t);
+  await fill(root, platform, 'old');
+  await fill(bundle, platform, 'new');
+  // 旧版 fetch-native 在 Windows 上用 join() 写 marker，得到反斜杠路径。
+  const legacy = {
+    tag: 'fixture-tag',
+    files: await Promise.all(
+      nativeFiles(platform).map(async (path) => ({
+        path: path.replaceAll('/', '\\'),
+        sha256: await hashFile(join(root, path)),
+      })),
+    ),
+  };
+  await writeJson(join(root, 'native/.installed.json'), legacy);
+  assert.equal(await bundleMatches(root, legacy, platform), true);
+  const next = await installNativeBundle({
+    root,
+    bundle,
+    platform,
+    marker: legacy,
+    verify: noop,
+    unused: noop,
+  });
+  assert.deepEqual(
+    next.files.map((entry) => entry.path),
+    nativeFiles(platform),
+  );
+});
+
 test('验证与进程占用失败不替换；首次安装失败清理本轮新增文件', async (t) => {
   for (const hook of ['verify', 'unused', 'replace']) {
     const { root, bundle, platform } = await fixture(t);

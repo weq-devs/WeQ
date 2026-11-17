@@ -23,8 +23,8 @@ export interface QqInstallInfo {
   wrapperNodePath: string | null;
   /**
    * Tencent Files roots that actually exist on disk. Platform's
-   * `tencentFilesRoots()` returns three CANDIDATE locations (used for
-   * error messages), but the diagnostics screen only wants the ones
+   * `tencentFilesRoots()` returns the CANDIDATE locations in priority order
+   * (used for error messages), but the diagnostics screen only wants the ones
    * the user actually has.
    */
   tencentFilesRoots: string[];

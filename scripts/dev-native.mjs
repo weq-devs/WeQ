@@ -18,6 +18,7 @@ import {
 } from './dev-prepare.mjs';
 import { runCommand, startupLog } from './dev-process.mjs';
 import { prepareDress } from './dev-dress.mjs';
+import { markerPath } from './native-install.mjs';
 
 const kinds = ['font', 'bubble', 'widget'];
 const devProfile = 'weq-dev';
@@ -118,7 +119,8 @@ export async function bundleMatches(
 ) {
   if (!marker || !Array.isArray(marker.files)) return false;
   for (const path of nativeFiles(platform, { withDress })) {
-    const expected = marker.files.find((entry) => entry.path === path)?.sha256;
+    // marker 里可能留着旧版 Windows 反斜杠写法，比较前统一成 POSIX 分隔符。
+    const expected = marker.files.find((entry) => markerPath(entry.path ?? '') === path)?.sha256;
     if (
       !/^[a-f0-9]{64}$/.test(expected ?? '') ||
       !(await exists(join(root, path))) ||
@@ -225,7 +227,11 @@ export async function installNativeBundle({
     }
     const next = {
       ...marker,
-      files: [...(marker.files ?? []).filter((entry) => !paths.includes(entry.path)), ...files],
+      // 旧 marker 的 Windows 反斜杠条目也要被本次写入覆盖，否则会留下重复记录。
+      files: [
+        ...(marker.files ?? []).filter((entry) => !paths.includes(markerPath(entry.path ?? ''))),
+        ...files,
+      ],
     };
     await writeJson(join(staging, '.installed.json'), next);
     await unused(root, { platform });
