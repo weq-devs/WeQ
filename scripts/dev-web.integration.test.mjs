@@ -18,7 +18,7 @@ const { developmentSourceMaps } = await tsImport(
 test('真实 Vite 开发服务持续推送源码更新，并随桌面服务关闭；不写正式产物', {
   timeout: 20_000,
 }, async (t) => {
-  const root = await mkdtemp(join(tmpdir(), 'weq-live-web-'));
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'weq-live-web-')));
   const desktop = createServer();
   const old = process.env.WEQ_DEV_WEB_URL;
   let ws;
