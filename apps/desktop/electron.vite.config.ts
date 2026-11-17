@@ -4,7 +4,10 @@ import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { ozonePlatformArgs } from './src/main/linux_window_backend';
-import { successfulDevelopmentReload } from './src/main/development_reload';
+import {
+  createDevelopmentReload,
+  successfulDevelopmentReload,
+} from './src/main/development_reload';
 import { tsImport } from 'tsx/esm/api';
 
 // 配置加载器会外置裸包导入；仅开发摘要需要通过现有 TS 加载器读取工作区源码。
@@ -64,6 +67,7 @@ const preloadLogging = developmentViteLogging(
   initialSummary,
 );
 const rendererLogging = developmentViteLogging('renderer');
+const developmentReload = createDevelopmentReload();
 
 // Wayland 会话默认让 Electron 走 XWayland（平铺合成器会把 `type: 'toolbar'` 平铺掉）。
 // 这个开关**必须出现在 Electron 启动参数里**，`app.commandLine.appendSwitch` 在 ready
@@ -83,7 +87,7 @@ export default defineConfig({
     clearScreen: false,
     plugins: [
       ...mainLogging.plugins,
-      successfulDevelopmentReload('main'),
+      successfulDevelopmentReload('main', developmentReload),
       {
         name: 'weq-remote-web-assets',
         async buildStart() {
@@ -166,7 +170,7 @@ export default defineConfig({
     clearScreen: false,
     plugins: [
       ...preloadLogging.plugins,
-      successfulDevelopmentReload('preload'),
+      successfulDevelopmentReload('preload', developmentReload),
       externalizeDepsPlugin(),
     ],
     build: { watch: development ? { buildDelay: 200 } : null },
@@ -179,7 +183,10 @@ export default defineConfig({
     cacheDir: resolve(import.meta.dirname, 'node_modules/.vite-desktop'),
     plugins: [
       ...rendererLogging.plugins,
-      developmentWeb(resolve(import.meta.dirname, '../..')),
+      developmentReload.rendererPlugin(),
+      developmentWeb(resolve(import.meta.dirname, '../..'), {
+        plugins: [createDevelopmentReload().rendererPlugin()],
+      }),
       react(),
       tailwindcss(),
     ],

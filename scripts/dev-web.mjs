@@ -8,7 +8,7 @@ import { hashFile, readCache, writeJson } from './dev-prepare.mjs';
 import { startupLog } from './dev-process.mjs';
 
 /** 跟随桌面开发服务启停，Electron 重启不重启 Web 的模块图与预构建。 */
-export function developmentWeb(root) {
+export function developmentWeb(root, { plugins = [] } = {}) {
   return {
     name: 'weq-development-web',
     apply: 'serve',
@@ -17,6 +17,7 @@ export function developmentWeb(root) {
       const require = createRequire(join(root, 'apps/web/package.json'));
       const { createServer } = await import(pathToFileURL(require.resolve('vite')).href);
       const web = await createServer({
+        plugins,
         configFile: join(root, 'apps/web/vite.config.ts'),
         mode: 'development',
         server: {

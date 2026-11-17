@@ -48,6 +48,7 @@ import {
   AlertTriangle,
   ArrowUpRight,
   Play,
+  RefreshCw,
   Check,
   ChevronDown,
   CircleAlert,
@@ -64,7 +65,7 @@ export type ToastDurationKind = 'success' | 'failure' | 'long';
 export interface ToastAction {
   label: string;
   run: () => void;
-  icon?: 'play' | 'open';
+  icon?: 'play' | 'open' | 'reload';
 }
 
 interface Toast {
@@ -527,7 +528,11 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
               title={action.label}
               onClick={action.run}
             >
-              <ArrowUpRight size={16} aria-hidden />
+              {!toast.source && toast.action?.icon === 'reload' ? (
+                <RefreshCw size={16} aria-hidden />
+              ) : (
+                <ArrowUpRight size={16} aria-hidden />
+              )}
             </button>
           ) : null}
           {toast.source && toast.action && toast.action.label !== toast.source.label ? (

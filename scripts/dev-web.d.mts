@@ -6,7 +6,10 @@ interface WebAssetsOptions {
   marker?: string;
 }
 
-export function developmentWeb(root: string): {
+export function developmentWeb(
+  root: string,
+  options?: { plugins?: import('vite').Plugin[] },
+): {
   name: string;
   apply: 'serve';
   configureServer(server: {

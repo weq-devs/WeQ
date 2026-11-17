@@ -15,6 +15,16 @@ import { IS_WEB } from './lib/target';
 import './styles/touch-context-menu.css';
 import { installDataSaver } from './lib/dataSaver';
 import { installMainWorkspacePreload } from './lib/mainWorkspaceLoader';
+import {
+  installDevelopmentReloadNotice,
+  type DevelopmentReloadNoticeState,
+} from './lib/developmentReloadNotice';
+
+if (import.meta.hot) {
+  import.meta.hot.data.developmentReloadNotice ??= {};
+  const state: DevelopmentReloadNoticeState = import.meta.hot.data.developmentReloadNotice;
+  import.meta.hot.dispose(installDevelopmentReloadNotice(import.meta.hot, state));
+}
 
 const stopWorkspacePreload = installMainWorkspacePreload();
 import.meta.hot?.dispose(stopWorkspacePreload);

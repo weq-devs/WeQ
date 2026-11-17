@@ -9,17 +9,26 @@ import { promisify } from 'node:util';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { prepareDevElectron } from './prepare-dev-electron.mjs';
+import { tsImport } from 'tsx/esm/api';
+
+const { DEVELOPMENT_RELOAD_APPLY, DEVELOPMENT_RELOAD_STATUS } = await tsImport(
+  '../apps/desktop/src/shared/development_reload.ts',
+  import.meta.url,
+);
 
 const run = promisify(execFile);
 
-test('真实 electron-vite 监听：主进程成功才重启，语法错误保留旧进程，预加载只通知刷新', {
+test('真实 electron-vite 监听：成功后等待点击，连续构建合并，失败不重载，界面热更新照常', {
   timeout: 30_000,
 }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'weq-watch-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   await writeFile(join(root, 'package.json'), '{"type":"module","main":"out/main/index.js"}');
   await writeFile(join(root, 'index.html'), '<script type="module" src="/renderer.js"></script>');
-  await writeFile(join(root, 'renderer.js'), 'console.log("fixture");');
+  await writeFile(
+    join(root, 'renderer.js'),
+    'console.log("fixture"); if(import.meta.hot) import.meta.hot.accept();',
+  );
   const log = join(root, 'started.jsonl');
   const main = join(root, 'main.js');
   const source = (value) =>
@@ -47,16 +56,17 @@ test('真实 electron-vite 监听：主进程成功才重启，语法错误保�
   await writeFile(
     join(root, 'electron.vite.config.mjs'),
     `
-    import {successfulDevelopmentReload} from ${JSON.stringify(fileURLToPath(new URL('../apps/desktop/src/main/development_reload.ts', import.meta.url)))};
+    import {createDevelopmentReload,successfulDevelopmentReload} from ${JSON.stringify(fileURLToPath(new URL('../apps/desktop/src/main/development_reload.ts', import.meta.url)))};
     import {tsImport} from ${JSON.stringify(pathToFileURL(createRequire(import.meta.url).resolve('tsx/esm/api')).href)};
     const {developmentBuildSummary, developmentViteLogging} = await tsImport(${JSON.stringify(fileURLToPath(new URL('../apps/desktop/src/main/development_vite.ts', import.meta.url)))}, import.meta.url);
     const summary = developmentBuildSummary();
     const mainLogging = developmentViteLogging('main', process.env, undefined, undefined, summary);
     const preloadLogging = developmentViteLogging('preload', process.env, undefined, undefined, summary);
+    const reload = createDevelopmentReload();
     export default {
-      main: {...mainLogging.config, plugins:[...mainLogging.plugins, successfulDevelopmentReload('main')], build: {watch: ${JSON.stringify(watch.main)}, rollupOptions: {input: ${JSON.stringify(main)}}}},
-      preload: {...preloadLogging.config, plugins:[...preloadLogging.plugins, successfulDevelopmentReload('preload')], build: {watch: ${JSON.stringify(watch.preload)}, rollupOptions: {input: ${JSON.stringify(join(root, 'preload.js'))}}}},
-      renderer: {root: ${JSON.stringify(root)}, server: {host:'127.0.0.1',port:0}, build:{rollupOptions:{input:${JSON.stringify(join(root, 'index.html'))}}}}
+      main: {...mainLogging.config, plugins:[...mainLogging.plugins, successfulDevelopmentReload('main',reload)], build: {watch: ${JSON.stringify(watch.main)}, rollupOptions: {input: ${JSON.stringify(main)}}}},
+      preload: {...preloadLogging.config, plugins:[...preloadLogging.plugins, successfulDevelopmentReload('preload',reload)], build: {watch: ${JSON.stringify(watch.preload)}, rollupOptions: {input: ${JSON.stringify(join(root, 'preload.js'))}}}},
+      renderer: {root: ${JSON.stringify(root)}, plugins:[reload.rendererPlugin()], server: {host:'127.0.0.1',port:0}, build:{rollupOptions:{input:${JSON.stringify(join(root, 'index.html'))}}}}
     };
   `,
   );
@@ -128,6 +138,29 @@ test('真实 electron-vite 监听：主进程成功才重启，语法错误保�
   assert.equal(first.restarting, undefined);
   assert.match(output, /初始构建完成/);
   assert.doesNotMatch(output, /watching for file changes|build started|built in \d+ms/);
+  const client = await (await fetch(`${first.url}/@vite/client`)).text();
+  const token = /const wsToken = "([^"]+)"/.exec(client)?.[1];
+  const { default: WebSocket } = await import(pathToFileURL(require.resolve('ws')).href);
+  const ws = new WebSocket(`${first.url.replace('http:', 'ws:')}/?token=${token}`, 'vite-hmr');
+  t.after(() => ws.terminate());
+  let pending = null;
+  let reloads = 0;
+  let updates = 0;
+  const statuses = [];
+  ws.on('message', (message) => {
+    const data = JSON.parse(String(message));
+    if (data.type === 'full-reload') reloads++;
+    if (data.type === 'update') updates++;
+    if (data.type === 'custom' && data.event === DEVELOPMENT_RELOAD_STATUS) {
+      pending = data.data;
+      statuses.push(pending);
+    }
+  });
+  await once(ws, 'open');
+  const apply = () =>
+    ws.send(
+      JSON.stringify({ type: 'custom', event: DEVELOPMENT_RELOAD_APPLY, data: { id: pending.id } }),
+    );
   await writeFile(main, 'export const = ;');
   await until(() => /Expected|PARSE_ERROR|Unexpected/.test(output));
   await new Promise((resolve) => setTimeout(resolve, 400));
@@ -135,34 +168,45 @@ test('真实 electron-vite 监听：主进程成功才重启，语法错误保�
   assert.match(output, /仍运行上次成功构建/);
   process.kill(first.pid, 0);
   await writeFile(main, source(2));
+  await until(() => pending?.ready && pending.restart);
+  const batch = pending.id;
+  assert.equal((await starts()).length, 1, '成功构建不能自动重启');
+  await writeFile(main, source(3));
+  const previous = statuses.length;
+  await until(() => statuses.length > previous && pending?.ready);
+  assert.equal(pending.id, batch, '连续构建合为同一批');
+  apply();
   await until(async () => (await starts()).length === 2);
-  assert.equal((await starts())[1].value, 2);
+  assert.equal((await starts())[1].value, 3);
   assert.equal((await starts())[1].restarting, '1');
   assert.match(output, /主进程增量构建完成（构建已恢复）/);
-  const client = await (await fetch(`${first.url}/@vite/client`)).text();
-  const token = /const wsToken = "([^"]+)"/.exec(client)?.[1];
-  const { default: WebSocket } = await import(pathToFileURL(require.resolve('ws')).href);
-  const ws = new WebSocket(`${first.url.replace('http:', 'ws:')}/?token=${token}`, 'vite-hmr');
-  t.after(() => ws.terminate());
-  await once(ws, 'open');
   output = '';
-  let reloads = 0;
-  ws.on('message', (message) => {
-    if (JSON.parse(String(message)).type === 'full-reload') reloads++;
-  });
   await writeFile(join(root, 'preload.js'), 'export const = ;');
   await until(() => /Expected|PARSE_ERROR|Unexpected/.test(output));
   await new Promise((resolve) => setTimeout(resolve, 400));
   assert.equal(reloads, 0, '预加载构建失败不刷新正在运行的页面');
-  const refreshed = new Promise((resolve) =>
-    ws.on('message', (message) => {
-      if (JSON.parse(String(message)).type === 'full-reload') resolve();
-    }),
-  );
   await writeFile(join(root, 'preload.js'), 'export const value = 2;');
-  await refreshed;
+  await until(() => pending?.ready && !pending.restart);
+  assert.equal(reloads, 0, '预加载成功也等待点击');
+  apply();
+  await until(() => reloads === 1);
   assert.equal(reloads, 1);
   assert.equal((await starts()).length, 2);
+  await fetch(`${first.url}/renderer.js`);
+  await writeFile(
+    join(root, 'renderer.js'),
+    'console.log("updated"); if(import.meta.hot) import.meta.hot.accept();',
+  );
+  await until(() => updates > 0);
+  assert.equal(pending, null, '兼容热更新不弹重载提示');
+  await writeFile(
+    join(root, 'index.html'),
+    '<title>updated</title><script type="module" src="/renderer.js"></script>',
+  );
+  await until(() => pending?.ready);
+  assert.equal(reloads, 1, 'HTML 完整刷新先提示');
+  apply();
+  await until(() => reloads === 2);
 });
 
 async function bitmapPixels(path) {
