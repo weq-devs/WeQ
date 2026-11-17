@@ -591,6 +591,7 @@ function MainWorkspace(): ReactElement {
   const pushToast = useToast((s) => s.push);
   const confirmReadState = useDialog((s) => s.confirm);
   const pinSession = useQQWriteSession('conversation-pin');
+  const configId = pinSession.binding?.expectedAccountConfigId;
   useContactNoticeUpdates(pinSession.binding);
   const messageScope = pinSession.binding
     ? JSON.stringify([
@@ -877,6 +878,10 @@ function MainWorkspace(): ReactElement {
     noticeOptions,
   );
   const openedUin = useViewState((s) => s.openedUin);
+  const user = useMemo(
+    () => currentUser(openedUin, selfProfile.data),
+    [openedUin, selfProfile.data],
+  );
   const mailPreferences = trpc.mail.preferences.useQuery(
     { selfUin: openedUin ?? '' },
     { enabled: Boolean(openedUin) && onlineReady, staleTime: 0, refetchOnMount: 'always' },
@@ -2241,10 +2246,6 @@ function MainWorkspace(): ReactElement {
     fixed?: boolean;
   } | null>(null);
 
-  const user = useMemo(
-    () => currentUser(openedUin, selfProfile.data),
-    [openedUin, selfProfile.data],
-  );
   // 统一的 profile 内存缓存：listProfiles 预热 + 缺失项按需批量补全，所有消费方
   // （好友列表 / 通知 / 搜索）共用这一个 Map。补全在下方的解析 effect 触发。
   const [restoredProfiles] = useState(() =>
