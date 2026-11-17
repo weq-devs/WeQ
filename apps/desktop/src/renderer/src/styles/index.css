@@ -5129,8 +5129,6 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   position: relative;
   height: 16px;
   border-radius: 999px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
   cursor: pointer;
   touch-action: none;
 }
@@ -6682,10 +6680,6 @@ html[data-theme='dark'] .weq-set-toggle-track {
 
 html[data-theme='dark'] .weq-cp-swatch {
   border-color: rgba(17, 23, 31, 0.92);
-}
-
-html[data-theme='dark'] .weq-cp-bar {
-  border-color: rgba(255, 255, 255, 0.12);
 }
 
 html[data-theme='dark'] .weq-cp-hex {
