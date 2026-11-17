@@ -8,6 +8,7 @@ type Entry = Record<string, unknown>;
 function fixture(early: Entry[] = []) {
   const window = Object.assign(new EventTarget(), {
     weqRemoteStartup: undefined as State | undefined,
+    webkit: { messageHandlers: { weqResources: {} } },
   });
   const document = new EventTarget();
   const reports: State[] = [];
@@ -67,12 +68,64 @@ const entry = (path: string, size: number, extra: Entry = {}): Entry => ({
   ...extra,
 });
 
+it('iPhone 状态码未知但有接收字节时仍持续报告压缩后的实际下载量', () => {
+  const f = fixture();
+  const compressed = entry('/src/workspace.tsx', 15_000_000, {
+    encodedBodySize: 2_000_000,
+    transferSize: 2_000_300,
+    responseStatus: 0,
+    workerStart: 0,
+    startTime: 1,
+    responseEnd: 10,
+  });
+  f.notify(compressed);
+  f.flush();
+  expect(f.window.weqRemoteStartup?.message).toContain('已下载 2.0 MB');
+  expect(f.window.weqRemoteStartup?.message).toContain('完成 1 项');
+  expect(f.window.weqRemoteStartup?.message).not.toContain('15.0 MB');
+  f.stage({ state: 'loading', message: '正在检查恢复状态' });
+  f.notify({ ...compressed });
+  f.flush();
+  expect(f.window.weqRemoteStartup?.message).toMatch(/^正在检查恢复状态/);
+  expect(f.window.weqRemoteStartup?.message).toContain('已下载 2.0 MB');
+  expect(f.window.weqRemoteStartup?.message).toContain('完成 1 项');
+});
+
+it('缓存不重复计为下载，失败响应不计完成，未知来源不拿解压大小冒充下载量', () => {
+  const f = fixture();
+  f.notify(
+    entry('/src/cached.ts', 3_000_000, { encodedBodySize: 1_000_000, transferSize: 0 }),
+    entry('/src/unknown.ts', 4_000_000),
+    entry('/src/failure.ts', 1000, { responseStatus: 500 }),
+    entry('/src/aborted.ts', 0, { responseStatus: 0 }),
+  );
+  f.flush();
+  expect(f.window.weqRemoteStartup?.message).toContain('完成 2 项');
+  expect(f.window.weqRemoteStartup?.message).toContain('缓存 1 项');
+  expect(f.window.weqRemoteStartup?.message).toContain('1 项下载量待确认');
+  expect(f.window.weqRemoteStartup?.message).not.toMatch(/[34]\.0 MB/);
+});
+
+it('零尺寸的明确缓存回执仍计完成，缺少网络证据的零状态不猜成缓存或下载', () => {
+  const f = fixture();
+  f.notify(
+    entry('/src/revalidated.ts', 0, { responseStatus: 304 }),
+    entry('/src/memory.ts', 0, { deliveryType: 'cache' }),
+    entry('/src/no-metrics.ts', 1_000_000, { responseStatus: 0, transferSize: 0 }),
+  );
+  f.flush();
+  expect(f.window.weqRemoteStartup?.message).toContain('完成 3 项');
+  expect(f.window.weqRemoteStartup?.message).toContain('缓存 2 项');
+  expect(f.window.weqRemoteStartup?.message).toContain('1 项下载量待确认');
+  expect(f.window.weqRemoteStartup?.message).not.toContain('MB');
+});
+
 it('旧壳仅需原有字符串阶段协议：补读早到资源，去重并排除 API、外站和失败响应', () => {
   const first = entry('/@vite/client', 2000);
   const f = fixture([first]);
   expect(f.reports.at(-1)).toEqual({
     state: 'loading',
-    message: '正在加载网页资源（已加载 2.0 KB，1 项）',
+    message: '正在加载网页资源（完成 1 项，1 项下载量待确认）',
   });
   f.notify(
     first,
@@ -81,13 +134,13 @@ it('旧壳仅需原有字符串阶段协议：补读早到资源，去重并排�
     entry('/trpc/startup.snapshot', 9000),
     entry('/image.png', 9000),
     entry('/src/error.tsx', 500, { responseStatus: 500 }),
-    entry('/src/aborted.ts', 500, { responseStatus: 0 }),
+    entry('/src/aborted.ts', 0, { responseStatus: 0 }),
     { name: 'http://other.invalid/app.js', decodedBodySize: 9000 },
   );
   f.flush();
   expect(f.window.weqRemoteStartup).toEqual({
     state: 'loading',
-    message: '正在加载网页资源（已加载 1.0 MB，3 项）',
+    message: '正在加载网页资源（完成 3 项，3 项下载量待确认）',
   });
   expect(Object.keys(f.window.weqRemoteStartup!)).toEqual(['state', 'message']);
   runInNewContext(developmentStartupProgress, f.context);
@@ -95,16 +148,18 @@ it('旧壳仅需原有字符串阶段协议：补读早到资源，去重并排�
   expect(f.reports).toHaveLength(2);
 });
 
-it('没有大小时不编造百分比，资源加载不覆盖恢复检查，重新等待模块时可继续报告', () => {
+it('没有大小时不编造百分比，恢复检查期间仍显示资源回执并保留实际阶段标题', () => {
   const f = fixture();
   expect(f.reports.at(-1)?.message).toBe('正在加载网页资源');
   f.stage({ state: 'loading', message: '正在检查恢复状态' });
   f.notify(entry('/src/dependency.ts', 5000));
   f.flush();
-  expect(f.window.weqRemoteStartup?.message).toBe('正在检查恢复状态');
+  expect(f.window.weqRemoteStartup?.message).toBe(
+    '正在检查恢复状态（完成 1 项，1 项下载量待确认）',
+  );
   f.stage({ state: 'loading', message: '正在加载界面模块' });
   f.flush();
-  expect(f.window.weqRemoteStartup?.message).toContain('5.0 KB，1 项');
+  expect(f.window.weqRemoteStartup?.message).toContain('正在加载界面模块（完成 1 项');
   expect(f.window.weqRemoteStartup?.message).not.toContain('%');
 });
 

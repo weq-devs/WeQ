@@ -56,7 +56,7 @@ try {
   );
   await writeFile(join(web, 'style.css'), 'body { color: rgb(20, 40, 60); }');
   const app = (version) =>
-    `import {useState} from 'react'; import './style.css'; export default function App() { const [count,setCount]=useState(0); return <main><h1>${version}</h1><input aria-label="draft" defaultValue=""/><button onClick={()=>setCount(count+1)}>{count}</button></main>; }`;
+    `import {useState} from 'react'; import {SiQzone,AiOutlineRedEnvelope} from ${JSON.stringify(join(desktopRoot, 'src/renderer/src/lib/reactIcons.ts'))}; import './style.css'; export default function App() { const [count,setCount]=useState(0); return <main><h1>${version}</h1><SiQzone data-test-icon="qzone"/><AiOutlineRedEnvelope data-test-icon="red-envelope"/><input aria-label="draft" defaultValue=""/><button onClick={()=>setCount(count+1)}>{count}</button></main>; }`;
   await writeFile(join(web, 'App.tsx'), app('version one'));
   desktop.listen(0, '127.0.0.1');
   await once(desktop, 'listening');
@@ -113,7 +113,9 @@ try {
           window.legacyStartupReports.push({ ...state });
         };
         if (platform === 'ios') {
-          window.webkit = { messageHandlers: { weqStartup: { postMessage: receive } } };
+          window.webkit = {
+            messageHandlers: { weqStartup: { postMessage: receive }, weqResources: {} },
+          };
           window.addEventListener('weq-remote-startup', () =>
             window.webkit.messageHandlers.weqStartup.postMessage(window.weqRemoteStartup),
           );
@@ -153,10 +155,7 @@ try {
     await page.goto(base, { waitUntil: 'commit' });
     try {
       await page.waitForFunction(
-        () =>
-          window.legacyStartupReports.some((state) =>
-            /已加载 [\d.]+ [KM]B，\d+ 项/.test(state.message || ''),
-          ),
+        () => window.legacyStartupReports.some((state) => /完成 \d+ 项/.test(state.message || '')),
         undefined,
         { timeout: 20_000 },
       );
@@ -179,6 +178,14 @@ try {
       throw error;
     }
     assert.equal(await page.getByRole('heading', { name: 'version one' }).count(), 0);
+    if (width === 390)
+      assert(
+        await page.evaluate(() =>
+          window.legacyStartupReports.some((state) =>
+            /已下载 [\d.]+ [KM]B/.test(state.message || ''),
+          ),
+        ),
+      );
     assert.equal(
       await page.evaluate(() =>
         window.legacyStartupReports.some((state) => state.message?.includes('%')),
@@ -200,6 +207,8 @@ try {
     const code = await Promise.all(scripts);
     assert(code.length > 3);
     assert(code.every((source) => !source.includes('sourceMappingURL=data:')));
+    assert(responses.every((response) => !/react-icons_(?:si|ai)\.js/.test(response.path)));
+    assert.equal(await page.locator('svg[data-test-icon] path').count(), 2);
     const transfer = await page.evaluate(() => {
       const code = performance
         .getEntriesByType('resource')

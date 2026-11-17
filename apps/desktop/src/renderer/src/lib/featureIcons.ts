@@ -40,7 +40,7 @@ import {
   Wallet,
   ChartPie,
 } from 'lucide-react';
-import { SiQzone } from 'react-icons/si';
+import { SiQzone } from './reactIcons';
 import type { DressKind } from '../components/DressUpDialog';
 import type { ExportMode } from '../views/export/types';
 import type { MaintenanceTool } from '../components/settings/DataMaintenanceSection';

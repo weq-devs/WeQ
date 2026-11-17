@@ -114,7 +114,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { AiOutlineRedEnvelope } from 'react-icons/ai';
+import { AiOutlineRedEnvelope } from '../../lib/reactIcons';
 import { dressUrl, resourceUrl } from '../../lib/resourceUrl';
 import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
 import { groupMemberEditing } from '../../lib/groupMemberEditing';
