@@ -13,6 +13,7 @@ import { OnlineStatus } from './OnlineStatus';
 import { useWorkspaceMobilePage } from './WorkspacePages.shared';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
+import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
 import { preloadMobilePages } from '../lib/mobilePageLoading';
 import {
   mobilePageLoaders,
@@ -67,6 +68,7 @@ export function MobileWebNavigation({
 }) {
   const mobilePage = useWorkspaceMobilePage();
   const mobile = useMobileWebLayout();
+  const developmentDressTools = useDevelopmentDressTools();
   const dataSaver = useDataSaver((state) => state.enabled);
   const viewChange = useRef(onViewChange);
   viewChange.current = onViewChange;
@@ -131,29 +133,31 @@ export function MobileWebNavigation({
           <span>{user.identityValue}</span>
         </div>
       </div>
-      {navigationEntries('mobile-more').map(({ id, label, icon: Icon, target, workspace }) => (
-        <button
-          key={id}
-          type="button"
-          onClick={() => activate(target)}
-          onPointerEnter={() => {
-            if (workspace) preloadWorkspace(workspace);
-          }}
-          onFocus={() => {
-            if (workspace) preloadWorkspace(workspace);
-          }}
-          onPointerDown={() => {
-            if (workspace) preloadWorkspace(workspace);
-          }}
-        >
-          <Icon size={22} aria-hidden />
-          <span>{label}</span>
-          {badgeFor(id) > 0 ? (
-            <ReminderCount count={badgeFor(id)} className="weq-mobile-badge" />
-          ) : null}
-          <ChevronRight size={18} aria-hidden />
-        </button>
-      ))}
+      {navigationEntries('mobile-more', developmentDressTools).map(
+        ({ id, label, icon: Icon, target, workspace }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => activate(target)}
+            onPointerEnter={() => {
+              if (workspace) preloadWorkspace(workspace);
+            }}
+            onFocus={() => {
+              if (workspace) preloadWorkspace(workspace);
+            }}
+            onPointerDown={() => {
+              if (workspace) preloadWorkspace(workspace);
+            }}
+          >
+            <Icon size={22} aria-hidden />
+            <span>{label}</span>
+            {badgeFor(id) > 0 ? (
+              <ReminderCount count={badgeFor(id)} className="weq-mobile-badge" />
+            ) : null}
+            <ChevronRight size={18} aria-hidden />
+          </button>
+        ),
+      )}
     </section>
   );
 

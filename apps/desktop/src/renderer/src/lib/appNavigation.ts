@@ -211,10 +211,14 @@ export const APP_NAVIGATION = {
 } satisfies Record<string, Omit<AppNavigationEntry, 'id'>>;
 
 export type AppNavigationId = keyof typeof APP_NAVIGATION;
-export function navigationEntries(surface: NavigationSurface): AppNavigationEntry[] {
+export function navigationEntries(
+  surface: NavigationSurface,
+  developmentDressTools = false,
+): AppNavigationEntry[] {
   return Object.entries(APP_NAVIGATION)
     .map(([id, entry]): AppNavigationEntry => ({ id, ...entry }))
     .filter((entry) => entry.placements[surface] !== undefined)
+    .filter((entry) => entry.target.kind !== 'dressup' || developmentDressTools)
     .sort((a, b) => a.placements[surface]! - b.placements[surface]!);
 }
 

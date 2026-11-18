@@ -216,7 +216,7 @@ describe('功能搜索实际导航', () => {
       setDressUpEmojiTarget: vi.fn(),
       setDressUpSearchKind: vi.fn(),
     };
-    searchHandler(context)(searchAppEntries(query)[0]!);
+    searchHandler(context)(searchAppEntries(query, true)[0]!);
     expect(context.setDressUpEmojiTarget).toHaveBeenCalledWith(null);
     expect(context.setDressUpSearchKind).toHaveBeenCalledWith(kind);
     expect(context.setDressUpOpen).toHaveBeenLastCalledWith(true);

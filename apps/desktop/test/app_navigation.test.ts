@@ -5,9 +5,28 @@ import {
   navigationEntries,
   type AppNavigationActions,
 } from '../src/renderer/src/lib/appNavigation';
-import { APP_SEARCH_ENTRIES } from '../src/renderer/src/components/search/appSearchCatalog';
+import {
+  APP_SEARCH_ENTRIES,
+  searchAppEntries,
+} from '../src/renderer/src/components/search/appSearchCatalog';
 
 describe('共用功能导航', () => {
+  it('装扮导航和搜索仅在显式开放开发工具时展示', () => {
+    for (const surface of ['rail', 'mobile-more', 'search'] as const) {
+      expect(navigationEntries(surface).some((entry) => entry.target.kind === 'dressup')).toBe(
+        false,
+      );
+      expect(
+        navigationEntries(surface, true).some((entry) => entry.target.kind === 'dressup'),
+      ).toBe(true);
+    }
+    for (const query of ['个性装扮', '商城表情', '聊天背景']) {
+      expect(searchAppEntries(query).some((entry) => entry.target.kind === 'dressup')).toBe(false);
+      expect(searchAppEntries(query, true).some((entry) => entry.target.kind === 'dressup')).toBe(
+        true,
+      );
+    }
+  });
   it('各导航位置使用同一份名称、图标、目标和预加载配置', () => {
     for (const surface of ['rail', 'mobile-tabs', 'mobile-more', 'workspace'] as const) {
       const entries = navigationEntries(surface);

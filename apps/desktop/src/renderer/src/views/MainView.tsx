@@ -255,6 +255,7 @@ import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
 import type { SectionId as SettingsDialogSectionId } from '../components/SettingsDialog';
 import { remoteUnsupportedTools } from '../components/settings/DataMaintenanceSection.shared';
 import type { MaintenanceTool } from '../components/settings/DataMaintenanceSection';
+import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
 import { isRemoteClient } from '../lib/remoteClient';
 import {
   SettingsDialog,
@@ -1354,7 +1355,8 @@ function MainWorkspace(): ReactElement {
   const [guildSearchTarget, setGuildSearchTarget] = useState<
     (Extract<ContentSearchTarget, { kind: 'guildMessage' }> & { revision: string }) | null
   >(null);
-  const [dressUpOpen, setDressUpOpen] = usePageState(
+  const developmentDressTools = useDevelopmentDressTools();
+  const [dressUpRequested, setDressUpOpen] = usePageState(
     'workspace:dress-up',
     false,
     pageValue.boolean,
@@ -1381,6 +1383,7 @@ function MainWorkspace(): ReactElement {
     kind: GroupSidebarFeature;
     groupCode: string;
     groupName: string;
+  const dressUpOpen = developmentDressTools && dressUpRequested;
     anchor: HTMLElement;
     ownerKey: string;
   } | null>(null);

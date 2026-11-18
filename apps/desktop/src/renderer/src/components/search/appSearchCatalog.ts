@@ -110,7 +110,7 @@ function uniqueEntries(entries: AppSearchEntry[]): AppSearchEntry[] {
 }
 
 const appSearchEntries: readonly AppSearchEntry[] = uniqueEntries([
-  ...navigationEntries('search').flatMap(({ label, target, keywords }) =>
+  ...navigationEntries('search', true).flatMap(({ label, target, keywords }) =>
     target.kind === 'contact-notice' || target.kind === 'contact-overview'
       ? []
       : [feature(label, target, ...keywords)],
@@ -177,10 +177,11 @@ export function appSearchEntryRank(keyword: string, entry: AppSearchEntry): numb
   );
 }
 
-export function searchAppEntries(keyword: string): AppSearchEntry[] {
+export function searchAppEntries(keyword: string, developmentDressTools = false): AppSearchEntry[] {
   const query = keyword.trim();
   if (!query) return [];
   return appSearchEntries
+    .filter((entry) => entry.target.kind !== 'dressup' || developmentDressTools)
     .filter((entry) => {
       if (!isRemoteClient() || entry.target.kind !== 'setting') return true;
       const target = resolveSettingsTarget(entry.target);
