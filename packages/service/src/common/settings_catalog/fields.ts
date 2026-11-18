@@ -137,6 +137,12 @@ export const CLIENT_SETTING_FIELDS = (
     ),
     [
       'conversation-preview',
+      'showConversationPreview',
+      'show-conversation-preview',
+      '显示会话预览',
+    ],
+    [
+      'conversation-preview',
       'showImportantMessageMarkers',
       'important-message-markers',
       '重要消息标记',

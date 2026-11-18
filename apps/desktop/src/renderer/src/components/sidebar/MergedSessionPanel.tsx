@@ -158,6 +158,7 @@ export function MergedSessionPanel({
   } | null>(null);
   useClientPreferences((state) => state.tick);
   const keepPosition = preferenceValue('keepConversationPositionOnHover');
+  const showPreview = preferenceValue('showConversationPreview');
   const account = useViewState((state) => state.openedUin);
   const [pointerInside, setPointerInside] = useState(false);
   useEffect(() => {
@@ -690,7 +691,7 @@ export function MergedSessionPanel({
             </div>
           ) : null}
           {orderedThreads.map((conv) => {
-            const preview = conv.lastMessage?.body ?? '';
+            const preview = showPreview ? (conv.lastMessage?.body ?? '') : '';
             const unreadCount = conv.unreadCount ?? 0;
             const time =
               kind === 'groupAssistant'
@@ -764,9 +765,11 @@ export function MergedSessionPanel({
                         <strong>
                           <span className="row-title-text">{name}</span>
                         </strong>
-                        <span className="row-preview-line">
-                          <span className="row-message-preview">{preview}</span>
-                        </span>
+                        {showPreview ? (
+                          <span className="row-preview-line">
+                            <span className="row-message-preview">{preview}</span>
+                          </span>
+                        ) : null}
                       </span>
                       <span className="row-meta">
                         <span className="row-time-line">

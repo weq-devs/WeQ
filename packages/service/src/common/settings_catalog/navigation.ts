@@ -226,6 +226,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     }),
   ),
   {
+    id: 'show-conversation-preview',
+    section: 'chat-messages',
+    label: '显示会话预览',
+    aliases: ['消息摘要', '草稿预览'],
+    from: ['chat-messages'],
+  },
+  {
     id: 'important-message-markers',
     section: 'chat-messages',
     label: '重要消息标记',

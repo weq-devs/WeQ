@@ -36,6 +36,7 @@ export const preferenceDefaults = {
   showAssistantAggregateBadge: true,
   showHiddenUnreadBadge: true,
   showDeletedUnreadBadge: true,
+  showConversationPreview: true,
   showImportantMessageMarkers: true,
   showContactRequestBadge: true,
   showTaskRunningBadge: true,

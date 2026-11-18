@@ -301,6 +301,7 @@ export function ConversationList({
   const menuRef = useRef<HTMLDivElement>(null);
   useClientPreferences((state) => state.tick);
   const keepPosition = preferenceValue('keepConversationPositionOnHover');
+  const showPreview = preferenceValue('showConversationPreview');
   const account = useViewState((state) => state.openedUin);
   const listKey = `${account}:${view}:${keyword}`;
   const [pointerInside, setPointerInside] = useState(false);
@@ -749,8 +750,9 @@ export function ConversationList({
             const active = conversation.id === activeConversationId;
             const updatedAt = conversation.updatedAt;
             const unreadCount = conversation.unreadCount ?? 0;
-            const hasDraft = !active && Boolean(drafts[conversation.id]?.trim());
-            const preview = conversationLastMessage(conversation, user);
+            const hasDraft = showPreview && !active && Boolean(drafts[conversation.id]?.trim());
+            const lastMessage = conversation.lastMessage;
+            const preview = showPreview && !hasDraft ? conversationPreviewNodes(conversation) : [];
             // 提醒高亮：来自 48902 的权威标记（特别关心 / @我 …）。
             const highlightKinds = new Set(
               (markers.important ? (conversation.highlights ?? []) : []).map((h) => h.kind),
@@ -759,7 +761,11 @@ export function ConversationList({
             const showMentionAlert =
               markers.important &&
               unreadCount > 0 &&
-              (highlightKinds.has('atMe') || preview.mentionsMe);
+              (highlightKinds.has('atMe') ||
+                (conversation.type === 'group' &&
+                  lastMessage?.body &&
+                  lastMessage.senderId !== user?.id &&
+                  messageMentionsUser(lastMessage.body, user)));
             // @全体成员：同属「找你」红色告警类。
             const showAtAll = unreadCount > 0 && highlightKinds.has('atAll');
             // 回复我：同属「找你」红色告警类。
@@ -775,6 +781,16 @@ export function ConversationList({
               unreadCount > 0 && highlightKinds.has('groupAnnouncement');
             // 群提醒词：命中用户设置的关注词，与「找你」同类，行首挂红色标记。
             const showGroupKeyword = unreadCount > 0 && highlightKinds.has('groupKeyword');
+            const showPreviewLine =
+              showPreview ||
+              showSpecialCare ||
+              showMentionAlert ||
+              showAtAll ||
+              showReplyMe ||
+              showGroupKeyword ||
+              showNewFile ||
+              showGroupAnnouncement ||
+              showRedPacket;
             // 命中的关键词（可能多个）；让「[群提醒词]」能区分是哪个词命中的。
             const groupKeywordWords =
               markers.important && unreadCount > 0
@@ -907,51 +923,51 @@ export function ConversationList({
                       </small>
                     ) : null}
                   </strong>
-                  <span className={cn('row-preview-line')}>
-                    {hasDraft ? (
-                      <span className={cn('row-draft')}>
-                        <PenLine size={15} />
-                        <span className={cn('row-draft-text')}>
-                          {formatDraftPreview(drafts[conversation.id])}
-                        </span>
-                      </span>
-                    ) : (
-                      <span className={cn('row-message-preview')}>
-                        {showSpecialCare ? (
-                          <span className={cn('row-specialcare-alert')}>[特别关心]</span>
-                        ) : null}
-                        {showMentionAlert ? (
-                          <span className={cn('row-mention-alert')}>[有人@我]</span>
-                        ) : null}
-                        {showAtAll ? (
-                          <span className={cn('row-mention-alert')}>[@全体]</span>
-                        ) : null}
-                        {showReplyMe ? (
-                          <span className={cn('row-mention-alert')}>[有人回复我]</span>
-                        ) : null}
-                        {showGroupKeyword ? (
-                          <span className={cn('row-mention-alert')}>
-                            {groupKeywordWords.length > 0
-                              ? `[群提醒词·${groupKeywordWords.join('、')}]`
-                              : '[群提醒词]'}
+                  {showPreviewLine ? (
+                    <span className={cn('row-preview-line')}>
+                      {hasDraft ? (
+                        <span className={cn('row-draft')}>
+                          <PenLine size={15} />
+                          <span className={cn('row-draft-text')}>
+                            {formatDraftPreview(drafts[conversation.id])}
                           </span>
-                        ) : null}
-                        {showNewFile ? (
-                          <span className={cn('row-newfile-alert')}>[新文件]</span>
-                        ) : null}
-                        {showGroupAnnouncement ? (
-                          <span className={cn('row-newfile-alert')}>[群公告]</span>
-                        ) : null}
-                        {showRedPacket ? (
-                          <span className={cn('row-redpacket-alert')}>[红包]</span>
-                        ) : null}
-                        {preview.nodes.length ? <PreviewNodes nodes={preview.nodes} /> : null}
-                      </span>
-                    )}
-                    {!unreadCount && muted ? (
-                      <BellOff className={cn('row-muted')} size={15} />
-                    ) : null}
-                  </span>
+                        </span>
+                      ) : (
+                        <span className={cn('row-message-preview')}>
+                          {showSpecialCare ? (
+                            <span className={cn('row-specialcare-alert')}>[特别关心]</span>
+                          ) : null}
+                          {showMentionAlert ? (
+                            <span className={cn('row-mention-alert')}>[有人@我]</span>
+                          ) : null}
+                          {showAtAll ? (
+                            <span className={cn('row-mention-alert')}>[@全体]</span>
+                          ) : null}
+                          {showReplyMe ? (
+                            <span className={cn('row-mention-alert')}>[有人回复我]</span>
+                          ) : null}
+                          {showGroupKeyword ? (
+                            <span className={cn('row-mention-alert')}>
+                              {groupKeywordWords.length > 0
+                                ? `[群提醒词·${groupKeywordWords.join('、')}]`
+                                : '[群提醒词]'}
+                            </span>
+                          ) : null}
+                          {showNewFile ? (
+                            <span className={cn('row-newfile-alert')}>[新文件]</span>
+                          ) : null}
+                          {showGroupAnnouncement ? (
+                            <span className={cn('row-newfile-alert')}>[群公告]</span>
+                          ) : null}
+                          {showRedPacket ? (
+                            <span className={cn('row-redpacket-alert')}>[红包]</span>
+                          ) : null}
+                          {preview.length ? <PreviewNodes nodes={preview} /> : null}
+                        </span>
+                      )}
+                    </span>
+                  ) : null}
+                  {!unreadCount && muted ? <BellOff className={cn('row-muted')} size={15} /> : null}
                 </span>
                 <span className={cn('row-meta')}>
                   <span className={cn('row-time-line')}>
@@ -2486,23 +2502,12 @@ function conversationSeed(conversation: Conversation) {
   return conversation.type === 'group' ? conversation.id : conversation.otherUser.identityValue;
 }
 
-function conversationLastMessage(conversation: Conversation, user?: User) {
+function conversationPreviewNodes(conversation: Conversation): PreviewNode[] {
   // When the last message has no text body (e.g. element-only messages like
   // pure image / sticker / file with no preview text), keep the row's
   // preview line empty rather than printing a placeholder — the timestamp
   // and unread-count next to it already convey "there is activity".
-  if (!conversation.lastMessage?.body) {
-    return {
-      nodes: [],
-      text: '',
-      mentionsMe: false,
-    };
-  }
-
-  const mentionsMe =
-    conversation.type === 'group' &&
-    conversation.lastMessage.senderId !== user?.id &&
-    messageMentionsUser(conversation.lastMessage.body, user);
+  if (!conversation.lastMessage?.body) return [];
 
   // 富节点（文本 + 表情）优先；没有就把纯文本包成单个文本节点，渲染路径统一。
   const body: PreviewNode[] = conversation.lastMessage.previewNodes?.length
@@ -2518,11 +2523,7 @@ function conversationLastMessage(conversation: Conversation, user?: User) {
       ? `${conversation.lastMessage.senderDisplayName}：`
       : '';
 
-  return {
-    nodes: prefix ? [{ t: 'text', text: prefix } as PreviewNode, ...body] : body,
-    text: `${prefix}${conversation.lastMessage.body}`,
-    mentionsMe,
-  };
+  return prefix ? [{ t: 'text', text: prefix }, ...body] : body;
 }
 
 /** 预览节点 → React：文本原样输出，表情画成图（与聊天区同一个 FaceEmoji）。 */

@@ -981,6 +981,16 @@ function AppearanceSection({
               icon={<MessagesSquare size={15} />}
               resetId="conversation-preview"
             >
+              <Row
+                settingId="show-conversation-preview"
+                control={
+                  <SharedDisplayToggle
+                    name="showConversationPreview"
+                    label="显示会话预览"
+                    fallback={true}
+                  />
+                }
+              />
               <BadgeSettingRow
                 name="showImportantMessageMarkers"
                 settingId="important-message-markers"
