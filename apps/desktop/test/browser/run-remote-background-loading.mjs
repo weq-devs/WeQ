@@ -3,9 +3,9 @@ import { createServer } from 'node:http';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
+import { launchBrowser } from '../../../../scripts/browser-runtime.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const engines = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
 const bundle = await build({
   stdin: {
     resolveDir: root,
@@ -56,20 +56,16 @@ const server = createServer((request, response) => {
 });
 await new Promise((done) => server.listen(0, '127.0.0.1', done));
 try {
-  for (const [name, executablePath] of [
-    ['chromium', process.env.WEQ_CHROMIUM_EXECUTABLE ?? process.env.WEQ_BROWSER_EXECUTABLE],
-    ['webkit', process.env.WEQ_WEBKIT_EXECUTABLE],
-  ]) {
-    const browser = await engines[name].launch({
-      headless: true,
-      ...(executablePath ? { executablePath } : {}),
-    });
+  for (const name of ['chromium', 'webkit']) {
+    const browser = await launchBrowser(name);
     try {
       for (const width of [390, 1180]) {
         const page = await browser.newPage({ viewport: { width, height: 844 } });
         const errors = [];
         page.on('pageerror', (error) => errors.push(error.message));
         await page.goto(`http://127.0.0.1:${server.address().port}/`);
+        // 提前完成 hover 的稳定性等待，避免两段交互之间出现真实空闲。
+        await page.locator('main').hover();
         await page.evaluate(() => window.remoteLoadingQa.queue());
         await page.waitForTimeout(300);
         assert.deepEqual(await page.evaluate(() => window.remoteLoadingQa.calls), []);
@@ -84,7 +80,6 @@ try {
           [],
           '持续输入期间不能派发模块预热',
         );
-        await page.locator('main').hover();
         for (let turn = 0; turn < 5; turn++) {
           await page.mouse.wheel(0, 120);
           await page.waitForTimeout(50);

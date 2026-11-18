@@ -2,18 +2,13 @@ import { readFile, mkdir } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { transformWithOxc } from 'vite';
+import { launchBrowser } from '../../../../scripts/browser-runtime.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const engines = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
-const engine = process.env.WEQ_STARTUP_BROWSER === 'webkit' ? engines.webkit : engines.chromium;
+const engine = process.env.WEQ_STARTUP_BROWSER === 'webkit' ? 'webkit' : 'chromium';
 const source = resolve(root, 'src/renderer/src/lib/remoteStartupSurface.ts');
 const { code } = await transformWithOxc(await readFile(source, 'utf8'), source);
-const browser = await engine.launch({
-  headless: true,
-  ...(process.env.WEQ_BROWSER_EXECUTABLE
-    ? { executablePath: process.env.WEQ_BROWSER_EXECUTABLE }
-    : {}),
-});
+const browser = await launchBrowser(engine);
 try {
   const page = await browser.newPage();
   const errors = [];
