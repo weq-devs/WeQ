@@ -431,6 +431,7 @@ export {
 } from './account/weq_assistant';
 export type { WeqTweetCard } from './account/weq_assistant';
 export { AssistantService, ASSISTANT_AGENT_ID, mergeAssistantConfig } from './account/assistant';
+export { withAssistantToolDeadline } from './account/assistant_tool_deadline';
 export type { AssistantSendMode } from './account/assistant_config';
 export type {
   AssistantConfig,

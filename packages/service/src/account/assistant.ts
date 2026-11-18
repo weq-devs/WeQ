@@ -50,6 +50,7 @@ import { sessionTitleFromText } from './agentlab_session';
 import { JsonStore } from '../common/json_store';
 import type { PreferencePersistence } from '../common/shared_preferences';
 import { assistantCapabilityGuidance } from './assistant_capabilities';
+import { AssistantToolTimeoutError, withAssistantToolDeadline } from './assistant_tool_deadline';
 
 export type EndpointResolver = (
   ref: AgentLabModelSelection,
@@ -93,6 +94,8 @@ export interface AssistantTools {
     args: Record<string, unknown>,
     options?: { permissionMode?: 'sandbox' | 'unrestricted'; signal?: AbortSignal },
   ) => Promise<unknown>;
+  /** 由宿主确认不会改变业务状态的工具；不可按模型给出的信息或工具名前缀推断。 */
+  isReadOnly?: (name: string, permissionMode: 'sandbox' | 'unrestricted') => boolean;
   /** 配置变更时把外部 MCP 服务器原始配置同步给应用层的 Hub（可选）。 */
   syncExternalMcp?: (raw: string | undefined) => void;
   /**
@@ -472,7 +475,7 @@ const DEFAULT_SESSION_TITLE = '新对话';
 /** 单轮任务最多调用工具的轮数。任务型 agent 要敢多试，故给得宽一些。 */
 const TOOL_LOOP_LIMIT = 24;
 
-/** 单个工具执行的超时上限：到点算失败回灌模型继续，避免某个工具挂住拖死整轮。 */
+/** 单个工具执行的超时上限；只读工具超时不影响同批的其他调用。 */
 const TOOL_TIMEOUT_MS = 60_000;
 /** 整轮任务（多轮工具调用 + LLM）总时限：超时自动中止并给出可读错误，防前端永久转圈。 */
 const RUN_TIMEOUT_MS = 600_000;
@@ -1630,8 +1633,8 @@ export class AssistantService {
     }, RUN_TIMEOUT_MS);
 
     try {
-      const available = await withTimeout(
-        Promise.resolve(this.tools?.specs({ permissionMode, signal: ac.signal })),
+      const available = await withAssistantToolDeadline(
+        (signal) => this.tools?.specs({ permissionMode, signal }),
         TOOL_TIMEOUT_MS,
         '工具列表载入',
         ac.signal,
@@ -1652,7 +1655,7 @@ export class AssistantService {
       const attachmentIds = new WeakMap<ApiMessage, string[]>();
       const imageToolResults = new Map<
         string,
-        ReturnType<AssistantService['analyzeAttachedImage']>
+        Awaited<ReturnType<AssistantService['analyzeAttachedImage']>>
       >();
       let nextImageId = 0;
       for (let loop = 0; loop < TOOL_LOOP_LIMIT; loop += 1) {
@@ -1840,33 +1843,49 @@ export class AssistantService {
             let result: unknown;
             let ok = true;
             let outcomeUnknown = false;
+            const name = call.function.name;
+            const attachmentTool = name === ANALYZE_ATTACHED_IMAGE_SPEC.function.name;
             try {
-              if (!this.tools) throw new Error(`未知工具：${call.function.name}`);
-              // 单工具超时不能证明未执行；标明未知终态并停止本轮，不自动重复副作用。
-              result = await withTimeout(
-                call.function.name === ANALYZE_ATTACHED_IMAGE_SPEC.function.name
-                  ? this.analyzeAttachedImage(
-                      sessionId,
-                      state,
-                      attachments,
-                      preparedImages,
-                      imageToolResults,
-                      args,
-                      ac.signal,
-                    )
-                  : this.tools.run(call.function.name, args, { permissionMode, signal: ac.signal }),
+              const tools = this.tools;
+              if (!tools) throw new Error(`未知工具：${name}`);
+              result = await withAssistantToolDeadline(
+                (signal) =>
+                  attachmentTool
+                    ? this.analyzeAttachedImage(
+                        sessionId,
+                        state,
+                        attachments,
+                        preparedImages,
+                        imageToolResults,
+                        args,
+                        signal,
+                      )
+                    : tools.run(name, args, { permissionMode, signal }),
                 TOOL_TIMEOUT_MS,
-                `工具 ${call.function.name} 执行`,
+                `工具 ${name} 执行`,
                 ac.signal,
               );
               outcomeUnknown = hasUnknownToolOutcome(result);
-              if (outcomeUnknown) ok = false;
+              ok =
+                !outcomeUnknown &&
+                !(result && typeof result === 'object' && 'ok' in result && result.ok === false);
             } catch (error) {
+              // 用户停止或总时限由任务层处理，保留仍在执行的工具检查点。
+              ac.signal.throwIfAborted();
               ok = false;
-              outcomeUnknown = error instanceof ToolOutcomeUnknownError;
+              const timedOut = error instanceof AssistantToolTimeoutError;
+              const readOnly = attachmentTool || this.tools?.isReadOnly?.(name, permissionMode);
+              outcomeUnknown = timedOut && !readOnly;
               result = {
                 error: error instanceof Error ? error.message : String(error),
-                ...(outcomeUnknown ? { status: 'unknown', operationId: call.id } : {}),
+                ...(outcomeUnknown
+                  ? { status: 'unknown', operationId: call.id }
+                  : timedOut
+                    ? {
+                        status: 'timeout',
+                        hint: '本次查询未返回结果。可缩小范围、改用其他工具，或依据已有结果回答。',
+                      }
+                    : {}),
               };
             }
             const serialized = safeStringify(result);
@@ -1942,7 +1961,7 @@ export class AssistantService {
     state: AssistantRunState,
     attachments: ReadonlyMap<string, AssistantAttachment>,
     preparedImages: WeakMap<ApiMessage, string>,
-    results: Map<string, Promise<{ text: string; image: AiImageOutcome }>>,
+    results: Map<string, { text: string; image: AiImageOutcome }>,
     args: Record<string, unknown>,
     signal: AbortSignal,
   ): Promise<{ text: string; image: AiImageOutcome }> {
@@ -1954,27 +1973,23 @@ export class AssistantService {
     const key = JSON.stringify([args.imageId, question, refresh]);
     const existing = results.get(key);
     if (existing) return existing;
-    const port = this.tools.images;
-    const read = async () => {
-      const prepared = await port.prepare({
-        feature: 'assistant',
-        text: '',
-        images: [image],
-        question,
-        refresh,
-        signal,
-      });
-      const outcome = prepared.outcomes[0];
-      if (!outcome || outcome.status === 'failed')
-        throw new Error(outcome?.notes.join('；') || '未能重新读取图片');
-      return {
-        text: imageOutcomeAnnotation({ ...outcome, id: String(args.imageId) }),
-        image: outcome,
-      };
+    const prepared = await this.tools.images.prepare({
+      feature: 'assistant',
+      text: '',
+      images: [image],
+      question,
+      refresh,
+      signal,
+    });
+    signal.throwIfAborted();
+    const outcome = prepared.outcomes[0];
+    if (!outcome || outcome.status === 'failed')
+      throw new Error(outcome?.notes.join('；') || '未能重新读取图片');
+    const result = {
+      text: imageOutcomeAnnotation({ ...outcome, id: String(args.imageId) }),
+      image: outcome,
     };
-    const result = read();
     results.set(key, result);
-    const { image: outcome } = await result;
     const index = ids.indexOf(String(args.imageId));
     const previous = message.imageOutcomes?.[index];
     if (
@@ -2704,12 +2719,6 @@ function throwIfAborted(signal?: AbortSignal): void {
   }
 }
 
-/**
- * 给一个 promise 套超时：到点抛可读的普通 Error（name≠AbortError，故不会被 chat() 误判为用户取消）。
- * 可取消下游由调用者传递 signal；无法确认终态的操作停止本轮，不能当普通失败继续重试。
- */
-class ToolOutcomeUnknownError extends Error {}
-
 /** 检查点补齐未完成的工具批次；恢复时保留已确认结果，不重发已开始的调用。 */
 function checkpointMessages(messages: ApiMessage[], activeToolId?: string): ApiMessage[] {
   const result: ApiMessage[] = [];
@@ -2746,50 +2755,6 @@ function hasUnknownToolOutcome(result: unknown): boolean {
     (call: unknown) =>
       !!call && typeof call === 'object' && 'state' in call && call.state === 'unknown',
   );
-}
-
-function withTimeout<T>(
-  p: Promise<T>,
-  ms: number | null,
-  label: string,
-  signal?: AbortSignal,
-): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = (): void => {
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', onAbort);
-      reject(
-        new ToolOutcomeUnknownError(
-          `${label}已停止；已发出的操作可能仍会完成，请先核对实际结果，不要自动重试。`,
-        ),
-      );
-    };
-    const timer =
-      ms === null
-        ? undefined
-        : setTimeout(() => {
-            signal?.removeEventListener('abort', onAbort);
-            reject(
-              new ToolOutcomeUnknownError(
-                `${label}超时（${Math.round(ms / 1000)}s），终态未知；已发出的操作可能仍会完成，不要自动重试。`,
-              ),
-            );
-          }, ms);
-    signal?.addEventListener('abort', onAbort, { once: true });
-    if (signal?.aborted) onAbort();
-    p.then(
-      (v) => {
-        clearTimeout(timer);
-        signal?.removeEventListener('abort', onAbort);
-        resolve(v);
-      },
-      (e) => {
-        clearTimeout(timer);
-        signal?.removeEventListener('abort', onAbort);
-        reject(e);
-      },
-    );
-  });
 }
 
 /** 可被 signal 打断的 sleep（用于 429 退避重试；用户点停止时立即抛 AbortError）。 */

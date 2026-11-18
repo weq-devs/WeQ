@@ -2,7 +2,11 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import { AssistantService, type AssistantTaskEvent } from '../src/account/assistant';
+import {
+  AssistantService,
+  type AssistantTaskEvent,
+  type AssistantTools,
+} from '../src/account/assistant';
 import { ConversationStore } from '../src/account/agentlab_conversation';
 import { TokenUsageStore } from '../src/account/agentlab_usage';
 import { AssistantQueue } from '../src/account/assistant_queue';
@@ -10,6 +14,7 @@ import { DEFAULT_ASSISTANT_SEND_MODE } from '../src/account/assistant_config';
 
 const dirs: string[] = [];
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
@@ -179,6 +184,80 @@ it('工具执行中补充保留已开始的结果，尚未执行的同批工具�
       .filter((turn) => turn.role === 'user')
       .map((turn) => turn.text),
   ).toEqual(['查资料', '改变方向']);
+});
+it('只读工具超时后回传失败，继续同批工具和排队消息', async () => {
+  vi.useFakeTimers();
+  const names = ['search_messages', 'get_messages'];
+  let releaseLateResult!: (value: unknown) => void;
+  const run = vi.fn<AssistantTools['run']>(async (name) =>
+    name === names[0]
+      ? new Promise((resolve) => {
+          releaseLateResult = resolve;
+        })
+      : { rows: 1 },
+  );
+  const f = fixture({
+    specs: () =>
+      names.map((name) => ({
+        type: 'function',
+        function: { name, description: 'fixture', parameters: {} },
+      })),
+    isReadOnly: (name: string) => names.includes(name),
+    run,
+  });
+  const fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+    switch (fetch.mock.calls.length) {
+      case 1:
+        return new Response(
+          sse({
+            tool_calls: names.map((name, index) => ({
+              id: `tool-${index}`,
+              index,
+              type: 'function',
+              function: { name, arguments: '{}' },
+            })),
+          }) + 'data: [DONE]\n\n',
+        );
+      case 2: {
+        const { messages } = JSON.parse(String(init?.body));
+        const results = messages.filter((message: { role: string }) => message.role === 'tool');
+        expect(results.map((result: { tool_call_id: string }) => result.tool_call_id)).toEqual([
+          'tool-0',
+          'tool-1',
+        ]);
+        expect(JSON.parse(results[0].content)).toMatchObject({ status: 'timeout' });
+        expect(JSON.parse(results[1].content)).toEqual({ rows: 1 });
+        return response('用已有结果回答');
+      }
+      default:
+        return response('下一条回答');
+    }
+  });
+  vi.stubGlobal('fetch', fetch);
+  f.submit('a', '查资料');
+  await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
+  f.submit('b', '下一条消息', 'queue');
+  await vi.advanceTimersByTimeAsync(60_000);
+
+  expect(f.service.getQueue(f.sessionId)).toMatchObject({ paused: false, items: [] });
+  expect(run.mock.calls.map(([name, , options]) => [name, options?.signal?.aborted])).toEqual([
+    [names[0], true],
+    [names[1], false],
+  ]);
+  releaseLateResult({ rows: 42 });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(
+    f.events.filter((event) => event.step.kind === 'tool_result').map((event) => event.step),
+  ).toMatchObject([
+    { id: 'tool-0', ok: false },
+    { id: 'tool-1', ok: true },
+  ]);
+  expect(f.service.getConversation(f.sessionId).map((turn) => turn.text)).toEqual([
+    '查资料',
+    '用已有结果回答',
+    '下一条消息',
+    '下一条回答',
+  ]);
 });
 it('当前任务使用参数快照，队列中的下一项独立任务读取新参数', async () => {
   const f = fixture();

@@ -110,6 +110,30 @@ it('outer tool timeout aborts the execution signal and ends the turn without ret
   expect(calls).toHaveBeenCalledOnce();
 });
 
+it('stopping an in-flight tool leaves a resumable checkpoint instead of a final answer', async () => {
+  let started!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const run = vi.fn<AssistantTools['run']>(async () => {
+    started();
+    return new Promise(() => {});
+  });
+  const { service, calls } = fixture(run);
+  const sessionId = service.createSession().id;
+  const controller = new AbortController();
+  const pending = service.chat(sessionId, '合成问题', undefined, controller.signal);
+  await ready;
+  controller.abort();
+
+  const result = await pending;
+  expect(result.steps.at(-1)).toMatchObject({ kind: 'aborted' });
+  expect(service.getResumeState(sessionId).resumable).toBe(true);
+  expect(run.mock.calls[0]?.[2]?.signal?.aborted).toBe(true);
+  expect(run).toHaveBeenCalledOnce();
+  expect(calls).toHaveBeenCalledOnce();
+});
+
 it.each(['sandbox', 'unrestricted'] as const)(
   'changing %s permission applies to the next task and preserves the current task snapshot',
   async (initial) => {

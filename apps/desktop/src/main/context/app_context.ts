@@ -58,6 +58,7 @@ import { createReportQzoneCapability } from '../report_qzone';
 import { refreshWeqStats, setWeqStats, statsCachePath } from '../weq_assistant/stats';
 import { ensureDefaultTweets, tweetsStorePath } from '../weq_assistant/tweets';
 import { assistantToolSpecs, runAssistantTool } from '../mcp/openai_tools';
+import { isAssistantToolReadOnly } from '../mcp/tool_permissions';
 import { bindAccountTools, invalidateAccountTools } from '../mcp/account_scope';
 import { cancelAssistantRuns } from '../mcp/assistant_bus';
 import {
@@ -1930,6 +1931,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           {
             // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
             specs: assistantToolSpecs,
+            isReadOnly: isAssistantToolReadOnly,
             withConfig: (config, run) =>
               withExternalMcpConfiguration(config.mcpServers, () =>
                 withImageTaskConfiguration(run),
@@ -2847,6 +2849,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           {
             // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
             specs: assistantToolSpecs,
+            isReadOnly: isAssistantToolReadOnly,
             withConfig: (config, run) =>
               withExternalMcpConfiguration(config.mcpServers, () =>
                 withImageTaskConfiguration(run),

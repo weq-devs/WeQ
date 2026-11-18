@@ -63,11 +63,14 @@ it('only explicit unrestricted execution can remove a synthetic external file', 
   }
 });
 
-it('propagates cancellation and snapshots an unknown outcome without mutating the returned trace later', async () => {
+it.each([
+  { name: 'search_messages', state: 'interrupted' },
+  { name: 'delayed', state: 'unknown' },
+])('propagates cancellation and preserves the $state result of $name', async (entry) => {
   let complete!: () => void;
   let aborted = false;
   const result = await runJsSandbox(
-    'return await callTool("delayed", {});',
+    `return await callTool(${JSON.stringify(entry.name)}, {});`,
     async (_name, _args, signal) => {
       signal?.addEventListener('abort', () => {
         aborted = true;
@@ -81,11 +84,12 @@ it('propagates cancellation and snapshots an unknown outcome without mutating th
   );
   expect(result.ok).toBe(false);
   expect(aborted).toBe(true);
-  expect(result.calls[0]?.state).toBe('unknown');
+  expect(result.calls[0]?.state).toBe(entry.state);
+  if (entry.state === 'unknown') expect(result.notes?.join(' ')).toContain('不要自动重试');
+  else expect(result.notes).toBeUndefined();
   complete();
   await new Promise((resolve) => setTimeout(resolve, 10));
-  expect(result.calls[0]?.state).toBe('unknown');
-  expect(result.notes?.join(' ')).toContain('不要自动重试');
+  expect(result.calls[0]?.state).toBe(entry.state);
 });
 
 it.each([

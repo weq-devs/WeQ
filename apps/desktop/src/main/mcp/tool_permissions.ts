@@ -75,6 +75,17 @@ export function isReadOnlyTool(name: string): boolean {
   return READ_ONLY_TOOLS.has(name);
 }
 
+/** 切换账号有副作用；脚本只有在沙箱内才限于只读宿主调用。 */
+export function isAssistantToolReadOnly(
+  name: string,
+  permissionMode: 'sandbox' | 'unrestricted' = 'unrestricted',
+): boolean {
+  return (
+    (name !== 'switch_account' && isReadOnlyTool(name)) ||
+    (permissionMode === 'sandbox' && name === 'run_js')
+  );
+}
+
 /**
  * 沙箱（内置助手的默认权限）能用的工具。
  *
@@ -83,5 +94,5 @@ export function isReadOnlyTool(name: string): boolean {
  * 查询全部作废，属于用户该亲自决定的事，必须显式开「任意权限」才允许。
  */
 export function isSandboxTool(name: string): boolean {
-  return name === 'run_js' || (isReadOnlyTool(name) && name !== 'switch_account');
+  return isAssistantToolReadOnly(name, 'sandbox');
 }
