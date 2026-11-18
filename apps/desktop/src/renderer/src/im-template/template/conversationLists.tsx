@@ -290,11 +290,14 @@ export function ConversationList({
   const invertFrom = useRef<Set<string> | null>(null);
   const createMenuRef = useRef<HTMLDivElement>(null);
   const createTriggerRef = useRef<HTMLButtonElement>(null);
-  const { selectionMode, selectedIds, setSelectedIds, setSelectionMode, anchorRef } =
-    useContentMultiSelect({
-      kind: 'conversations',
-      container: 'main-list',
-    });
+  const {
+    selectionMode,
+    selectedIds,
+    setSelectedIds,
+    setSelectionMode,
+    removeSelectedIds,
+    anchorRef,
+  } = useContentMultiSelect({ kind: 'conversations', container: 'main-list' });
   const viewportRef = useRef<HTMLDivElement>(null);
   const [listHeight, setListHeight] = useState(600);
   const [rowHeight, setRowHeight] = useState(62);
@@ -320,6 +323,15 @@ export function ConversationList({
     setSelectingAll(false);
     anchorRef.current = null;
   }, [view, account, setSelectedIds, setSelectionMode, anchorRef]);
+  // 克隆和助手列表不分页；用完整列表核对删除结果，搜索过滤不改变选区。
+  const generatedRows = view === 'clone' || view === 'assistant' ? directory?.rows : undefined;
+  useEffect(() => {
+    if (!generatedRows || loading || !selectedIds.size) return;
+    const availableIds = new Set(generatedRows.map((row) => row.id));
+    const removed = [...selectedIds].filter((id) => !availableIds.has(id));
+    if (removed.length === selectedIds.size) setSelectionMode(false);
+    else if (removed.length) removeSelectedIds(removed);
+  }, [generatedRows, loading, selectedIds, removeSelectedIds, setSelectionMode]);
   const sorted = useMemo(() => {
     const needle = keyword.trim().toLocaleLowerCase();
     const rows = directory?.rows ?? conversations;

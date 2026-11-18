@@ -105,22 +105,24 @@ function Probe() {
 function Fixture({
   initialView = 'regular',
   active = true,
+  entries = directory,
 }: {
   initialView?: ConversationView;
   active?: boolean;
+  entries?: ConversationViewDirectory;
 }) {
   const [view, setView] = useState(initialView);
   const [back, setBack] = useState(false);
   const [chat, setChat] = useState('原先打开的聊天');
   const rows = useMemo(
-    () => conversationViewRows(directory, view, { includeHidden: false, includeDeleted: false }),
-    [view],
+    () => conversationViewRows(entries, view, { includeHidden: false, includeDeleted: false }),
+    [entries, view],
   );
   const value = useMemo(
     () => ({
       view,
       rows,
-      views: directory,
+      views: entries,
       virtual: [],
       returnToRegular: back,
       onViewChange: (next: ConversationView, aggregate = false) => {
@@ -141,7 +143,7 @@ function Fixture({
       onRoaming: roaming,
       onReadState: () => {},
     }),
-    [view, rows, back],
+    [view, rows, entries, back],
   );
   return h(
     ContentSelectionProvider,
@@ -283,6 +285,32 @@ it('助手视图只展示导出和永久删除，未选对象时保留禁用及�
   expect(del.disabled).toBe(false);
   act(() => del.click());
   expect(remove).toHaveBeenCalledWith([assistant]);
+});
+it.each([
+  ['clone', clone, cloneGroup],
+  ['assistant', assistant, assistantConversationRow({ id: 's2', title: '另一会话', updatedAt: 0 })],
+] as const)('%s 刷新删除结果后，只保留仍存在的选中项，再删完则退出多选', (view, first, second) => {
+  const refresh = (rows: Conversation[]) =>
+    act(() =>
+      root.render(h(Fixture, { initialView: view, entries: { ...directory, [view]: rows } })),
+    );
+  refresh([first, second]);
+  click('[aria-label="多选会话"]');
+  click('[aria-label="全选当前结果"]');
+  expect(host.querySelector('.weq-directory-selection-count')?.textContent).toBe('已选 2');
+  click('[aria-label="永久删除所选 AI 会话"]');
+  expect(remove).toHaveBeenCalledWith(expect.arrayContaining([first, second]));
+  expect(selected()).toHaveLength(2);
+
+  refresh([second]);
+  expect(selected()).toEqual([second.id]);
+  expect(host.querySelector('.weq-directory-selection-count')?.textContent).toBe('已选 1');
+  click('[aria-label="永久删除所选 AI 会话"]');
+  expect(remove).toHaveBeenLastCalledWith([second]);
+  refresh([]);
+  expect(host.querySelector('[data-selection]')?.textContent).toBe('null');
+  expect(host.querySelector('[aria-label="会话多选操作"]')).toBeNull();
+  expect(host.querySelector('[aria-label="多选会话"]')).not.toBeNull();
 });
 it.each([
   ['assistant', assistant, 'WeQ 助手会话'],
