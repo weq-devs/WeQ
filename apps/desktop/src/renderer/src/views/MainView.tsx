@@ -1361,6 +1361,7 @@ function MainWorkspace(): ReactElement {
     false,
     pageValue.boolean,
   );
+  const dressUpOpen = developmentDressTools && dressUpRequested;
   useEffect(() => {
     if (settingsOpen) setDressUpOpen(false);
   }, [settingsOpen, setDressUpOpen]);
@@ -1383,7 +1384,6 @@ function MainWorkspace(): ReactElement {
     kind: GroupSidebarFeature;
     groupCode: string;
     groupName: string;
-  const dressUpOpen = developmentDressTools && dressUpRequested;
     anchor: HTMLElement;
     ownerKey: string;
   } | null>(null);
