@@ -835,6 +835,9 @@ export function ConversationList({
             );
             const pinned = isPinned(conversation, preferences);
             const virtualRow = directory?.virtual.find((item) => item.id === conversation.id);
+            const canOpenContextMenu =
+              conversation.type !== 'merged' ||
+              (conversation.mergedKind === 'groupAssistant' && Boolean(directory?.onPin));
 
             return (
               <button
@@ -860,6 +863,7 @@ export function ConversationList({
                 }}
                 onContextMenu={(event) => {
                   event.preventDefault();
+                  if (!canOpenContextMenu) return;
                   setActionMenu({
                     conversation,
                     ids: menuIds(conversation),
@@ -868,6 +872,7 @@ export function ConversationList({
                   });
                 }}
                 onKeyDown={(event) => {
+                  if (!canOpenContextMenu) return;
                   if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
                     return;
                   event.preventDefault();
@@ -1074,16 +1079,6 @@ export function ConversationList({
           onClose={() => setActionMenu(null)}
           actions={(() => {
             return [
-              ...(aggregateMenu
-                ? [
-                    {
-                      label: `进入${CONVERSATION_VIEW_LABELS[aggregateView(actionMenu.conversation.mergedKind)]}`,
-                      icon: <ChevronRight size={16} />,
-                      action: () =>
-                        setView(aggregateView(actionMenu.conversation.mergedKind), true),
-                    },
-                  ]
-                : []),
               ...(!aggregateMenu && conversationViewActions(view).includes('read')
                 ? batch.readStateMenuActions(actionMenu.ids)
                 : []),
