@@ -28,7 +28,10 @@ export function OfficialConversationPane({
         : { kind: 'official' as const, peerUid: id },
     [service, id],
   );
-  const known = directory?.rows?.find((row) => row.type === 'direct' && row.id === conversationId);
+  // 切换左侧视图可以保留当前聊天，资料仍从该会话所属目录读取。
+  const known = directory?.views?.[service ? 'service' : 'official'].find(
+    (row) => row.type === 'direct' && row.id === conversationId,
+  );
   const conversation = useMemo<DirectConversation>(
     () =>
       known?.type === 'direct'
