@@ -15,17 +15,20 @@
 
 import {
   appendFileSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DatabaseAlgorithms } from '@weq/native';
 import {
   DbRepairError,
@@ -40,6 +43,20 @@ import {
 } from '../src/account/db_repair';
 import { DbRepairHistory } from '../src/account/db_repair/history';
 
+vi.mock('node:fs', async (original) => {
+  const fs = await original<typeof import('node:fs')>();
+  return {
+    ...fs,
+    copyFileSync: vi.fn(fs.copyFileSync),
+    renameSync: vi.fn(fs.renameSync),
+    rmSync: vi.fn(fs.rmSync),
+  };
+});
+
+const require = createRequire(import.meta.url);
+const { DatabaseSync } = require('node:sqlite') as typeof import('node:sqlite');
+const realFs = require('node:fs') as typeof import('node:fs');
+
 const ALGO: DatabaseAlgorithms = { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' };
 /** 服务只认 uin —— 目录与密钥由 `resolveAccount` 解析，测试里就是这个假账号。 */
 const REF = '1707889225';
@@ -53,6 +70,9 @@ function tmpDir(tag: string): string {
 }
 
 afterEach(() => {
+  vi.mocked(copyFileSync).mockReset().mockImplementation(realFs.copyFileSync);
+  vi.mocked(renameSync).mockReset().mockImplementation(realFs.renameSync);
+  vi.mocked(rmSync).mockReset().mockImplementation(realFs.rmSync);
   for (const dir of tmpRoots) rmSync(dir, { recursive: true, force: true });
   tmpRoots.length = 0;
 });
@@ -978,6 +998,102 @@ describe('DbRepairService.restore', () => {
     expect(readFileSync(h.dbPath)).toEqual(originalBytes());
   });
 
+  async function repairWithCommittedWal() {
+    const h = createHarness({
+      recover: async ({ outPath }) => {
+        const db = new DatabaseSync(outPath);
+        try {
+          db.exec(
+            'PRAGMA journal_mode=WAL; CREATE TABLE messages(id INTEGER); INSERT INTO messages VALUES(1);',
+          );
+        } finally {
+          db.close();
+        }
+        return makeReport();
+      },
+    });
+    const record = await repairOnce(h);
+    const walPath = `${h.dbPath}-wal`;
+    const shmPath = `${h.dbPath}-shm`;
+    const main = readFileSync(h.dbPath);
+    const writer = new DatabaseSync(h.dbPath);
+    let wal: Buffer;
+    try {
+      writer.exec('PRAGMA wal_autocheckpoint=0; INSERT INTO messages VALUES(2);');
+      expect(readFileSync(h.dbPath)).toEqual(main);
+      wal = readFileSync(walPath);
+      expect(wal.length).toBeGreaterThan(32);
+    } finally {
+      writer.close();
+    }
+    // 恢复无进程占用的快照；最后一个 SQLite 连接正常关闭时会 checkpoint。
+    writeFileSync(h.dbPath, main);
+    writeFileSync(walPath, wal);
+    const assertTwoRows = () => {
+      expect(readFileSync(h.dbPath)).toEqual(main);
+      expect(readFileSync(walPath)).toEqual(wal);
+      const reader = new DatabaseSync(h.dbPath, { readOnly: true });
+      try {
+        expect(reader.prepare('SELECT id FROM messages ORDER BY id').all()).toEqual([
+          { id: 1 },
+          { id: 2 },
+        ]);
+      } finally {
+        reader.close();
+      }
+    };
+    return { h, record, walPath, shmPath, assertTwoRows };
+  }
+
+  it('主库仍匹配但真实 WAL 含新提交时，必须确认覆盖且拒绝时两行都可读', async () => {
+    const { h, record, walPath, assertTwoRows } = await repairWithCommittedWal();
+    expect(h.service.restorePreview(REF, record.id)).toMatchObject({
+      currentSha: record.afterSha,
+      matchesAfter: false,
+    });
+    expect(() => h.service.restore(REF, record.id)).toThrow(
+      expect.objectContaining({ code: 'needs-confirm' }),
+    );
+    assertTwoRows();
+    expect(h.service.restore(REF, record.id, { force: true }).state).toBe('rolled-back');
+    expect(existsSync(walPath)).toBe(false);
+  });
+
+  it.each(['校验', '复制', '替换'])('%s失败保留主库与真实 WAL，恢复仍可重试', async (failure) => {
+    const { h, record, walPath, shmPath, assertTwoRows } = await repairWithCommittedWal();
+    const backup = readFileSync(record.backupPath!);
+    const shm = Buffer.alloc(32768);
+    writeFileSync(shmPath, shm);
+    const full = Object.assign(new Error('volume full'), { code: 'ENOSPC' });
+    if (failure === '校验') {
+      const damaged = Buffer.from(backup);
+      damaged[0] = damaged[0]! ^ 1;
+      writeFileSync(record.backupPath!, damaged);
+    } else if (failure === '复制') {
+      vi.mocked(copyFileSync).mockImplementationOnce(() => {
+        throw full;
+      });
+    } else {
+      vi.mocked(renameSync).mockImplementation((from, to) => {
+        if (to === h.dbPath) {
+          expect(existsSync(walPath)).toBe(false);
+          throw full;
+        }
+        realFs.renameSync(from, to);
+      });
+    }
+
+    const restore = () => h.service.restore(REF, record.id, { force: true });
+    expect(restore).toThrow(failure === '校验' ? /校验值与修复记录不符/ : /volume full/);
+    expect(readFileSync(shmPath)).toEqual(shm);
+    expect(readdirSync(h.dbDir).filter((name) => name.includes('.weq-restore-'))).toEqual([]);
+    expect(h.service.listRecords(REF)[0]?.state).toBe('applied');
+    assertTwoRows();
+    writeFileSync(record.backupPath!, backup);
+    vi.mocked(renameSync).mockImplementation(realFs.renameSync);
+    expect(restore().state).toBe('rolled-back');
+  });
+
   it('备份被清理后回滚给出明确原因', async () => {
     const h = createHarness();
     const record = await repairOnce(h);
@@ -1009,6 +1125,26 @@ describe('DbRepairService.restore', () => {
     expect(h.service.listRecords(REF)).toHaveLength(0);
     expect(() => h.service.restorePreview(REF, record.id)).toThrow(/找不到修复记录/);
     expect(() => h.service.deleteRecord(REF, record.id)).toThrow(/找不到修复记录/);
+  });
+
+  it('仅删除最后一个备份引用；清理失败时保留仍可重试的记录', async () => {
+    const h = createHarness();
+    const record = await repairOnce(h);
+    const second = { ...record, id: `${record.id}-retry` };
+    new DbRepairHistory(h.service.paths(REF)).add(second);
+    expect(h.service.deleteRecord(REF, record.id).removed).toBe(true);
+    expect(existsSync(record.backupPath!)).toBe(true);
+
+    vi.mocked(rmSync).mockImplementationOnce(() => {
+      throw Object.assign(new Error('busy'), { code: 'EBUSY' });
+    });
+    expect(() => h.service.deleteRecord(REF, second.id)).toThrow(/修复记录已保留/);
+    expect(new DbRepairHistory(h.service.paths(REF)).list().map((item) => item.id)).toEqual([
+      second.id,
+    ]);
+    expect(existsSync(record.backupPath!)).toBe(true);
+    expect(h.service.deleteRecord(REF, second.id).removed).toBe(true);
+    expect(existsSync(record.backupPath!)).toBe(false);
   });
 
   it('没有备份的记录不能回滚', async () => {
@@ -1129,7 +1265,7 @@ describe('未合并的 WAL（sidecar）', () => {
     const h = createHarness();
     const record = await h.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
     // 修复后 WeQ 又打开过这个库 → 产物旁边留下 sidecar
-    writeFileSync(`${h.dbPath}-wal`, Buffer.alloc(8192));
+    writeFileSync(`${h.dbPath}-wal`, '');
     writeFileSync(`${h.dbPath}-shm`, Buffer.alloc(32768));
 
     h.service.restore(REF, record.id);

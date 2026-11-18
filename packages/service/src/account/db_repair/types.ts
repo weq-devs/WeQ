@@ -290,6 +290,6 @@ export interface DbRepairRestorePreview {
   backupExists: boolean;
   /** 当前库的 sha256。 */
   currentSha: string | null;
-  /** 当前库是否仍是"修复后那一份"（`afterSha` 一致）。`false` = 之后又被写过。 */
+  /** 只有主库与 `afterSha` 一致且没有可能含待应用变化的日志，才认为未变化。 */
   matchesAfter: boolean;
 }

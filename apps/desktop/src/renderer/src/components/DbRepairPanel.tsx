@@ -478,7 +478,7 @@ export function DbRepairPanel({
           .getState()
           .confirm(
             '恢复修复前的数据库？',
-            `${preview.record.dbName} 将恢复为这份备份。${preview.matchesAfter ? '' : '当前数据库在修复后发生过变化，恢复会覆盖这些变化。'}`,
+            `${preview.record.dbName} 将恢复为这份备份。${preview.matchesAfter ? '' : '当前数据库已变化或仍有未合并的日志，恢复会覆盖修复之后的数据。'}`,
             { okLabel: '恢复备份', cancelLabel: '取消', ownerDocument },
           ))
       )

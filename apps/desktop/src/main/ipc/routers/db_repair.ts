@@ -177,7 +177,7 @@ function reports(scope: DatabaseMaintenanceScope) {
   return new DatabaseMaintenanceReports(join(historyRoot(scope), 'maintenance-reports'));
 }
 function historicalRecords(scope: DatabaseMaintenanceScope) {
-  return new DbRepairHistory(dbRepairPaths(historyRoot(scope))).list();
+  return new DbRepairHistory(dbRepairPaths(historyRoot(scope)));
 }
 
 export const databaseMaintenance = new DatabaseMaintenance({
@@ -475,13 +475,10 @@ export const dbRepairRouter = router({
   }),
   history: procedure
     .input(accountRef)
-    .query(({ input }) => historicalRecords(input).map(summarize)),
+    .query(({ input }) => historicalRecords(input).list().map(summarize)),
   legacyReport: procedure
     .input(recordRef)
-    .query(
-      ({ input }) =>
-        historicalRecords(input).find((record) => record.id === input.recordId) ?? null,
-    ),
+    .query(({ input }) => historicalRecords(input).find(input.recordId) ?? null),
   restorePreview: procedure
     .input(recordRef)
     .query(({ input }) => service.restorePreview(input.uin, input.recordId)),
@@ -520,22 +517,23 @@ export const dbRepairRouter = router({
     return service.deleteRecord(input.uin, input.recordId);
   }),
   revealReport: procedure.input(recordRef).mutation(async ({ input }) => {
-    const record = historicalRecords(input).find((item) => item.id === input.recordId);
+    const record = historicalRecords(input).find(input.recordId);
     if (!record?.reportPath) throw new Error('这条记录没有报告文件。');
     await getHost().revealInFolder(record.reportPath);
     return true;
   }),
   revealBackup: procedure.input(recordRef).mutation(async ({ input }) => {
-    const preview = service.restorePreview(input.uin, input.recordId);
-    if (!preview.backupExists || !preview.record.backupPath)
+    const history = historicalRecords(input);
+    const record = history.find(input.recordId);
+    if (!record?.backupPath || !history.backupExists(record))
       throw new Error('这条记录的备份已经不在了。');
-    await getHost().revealInFolder(preview.record.backupPath);
+    await getHost().revealInFolder(record.backupPath);
     return true;
   }),
   exportLegacyReport: procedure
     .input(recordRef.extend({ format: z.enum(['html', 'md', 'json']) }))
     .mutation(async ({ input }) => {
-      const record = historicalRecords(input).find((item) => item.id === input.recordId);
+      const record = historicalRecords(input).find(input.recordId);
       if (!record) throw new Error('找不到这份历史修复报告。');
       const target = await getHost().pickSaveTarget({
         defaultName: `repair-${record.id}.${input.format}`,

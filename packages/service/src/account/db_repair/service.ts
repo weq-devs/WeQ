@@ -10,7 +10,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, renameSync, rmdirSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import type { DatabaseAlgorithms } from '@weq/native';
 import type { BadPageScanReport } from '../bad_pages';
@@ -98,6 +98,22 @@ export class DbRepairError extends Error {
     super(message);
     this.name = 'DbRepairError';
   }
+}
+
+const RESTORE_JOURNALS = ['-wal', '-journal'] as const;
+const RESTORE_SIDECARS = [...RESTORE_JOURNALS, '-shm'] as const;
+
+function hasRestoreJournal(dbPath: string): boolean {
+  return RESTORE_JOURNALS.some(
+    (suffix) => (statSync(`${dbPath}${suffix}`, { throwIfNoEntry: false })?.size ?? 0) > 0,
+  );
+}
+
+function confirmRestoreChanges(): never {
+  throw new DbRepairError(
+    'needs-confirm',
+    '当前数据库已变化或仍有未合并的日志，恢复会覆盖修复之后的数据。请重新打开恢复确认。',
+  );
 }
 
 /**
@@ -972,68 +988,65 @@ export class DbRepairService {
       record,
       backupExists,
       currentSha,
-      matchesAfter: record.afterSha !== null && currentSha === record.afterSha,
+      matchesAfter:
+        record.afterSha !== null &&
+        currentSha === record.afterSha &&
+        !hasRestoreJournal(record.dbPath),
     };
   }
 
   /**
    * 回滚到修复前。
    *
-   * `matchesAfter === false`（修完之后 QQ 又写过新消息）时**必须**显式 `force` ——
-   * 否则"后悔"会变成"丢消息"。
+   * 主库与修复产物不一致，或仍有可能包含新数据的日志时，必须显式确认覆盖。
    */
   restore(uin: string, recordId: string, options: { force?: boolean } = {}): DbRepairRecord {
     if (this.running) {
       throw new DbRepairError('busy', '已有修复任务在进行中，请等它结束再回滚');
     }
     const history = this.history(uin);
-    const preview = this.restorePreview(uin, recordId);
-    const record = preview.record;
-    if (!record.backupPath || !preview.backupExists) {
+    const record = history.find(recordId);
+    if (!record) throw new DbRepairError('not-found', `找不到修复记录：${recordId}`);
+    if (!record.backupPath || !history.backupExists(record)) {
       throw new DbRepairError(
         'no-backup',
         record.backupPath ? '该记录的备份已被保留策略清理，无法回滚' : '该记录没有备份，无法回滚',
       );
     }
-    if (!preview.matchesAfter && !options.force) {
-      throw new DbRepairError(
-        'needs-confirm',
-        '这个数据库在修复之后又被改动过（可能有新消息）—— 回滚会丢掉这些改动，请确认后重试。',
-      );
-    }
-
-    const lock = this.classifyLock(record.dbPath, uin);
-    if (lock.readiness === 'blocked-by-qq') {
-      throw new DbRepairError(
-        'blocked',
-        `QQ 正在使用该数据库（${describeHolders(lock.qqHolders)}），请先结束 QQ 进程`,
-      );
-    }
-    if (lock.readiness === 'blocked-by-other') {
-      throw new DbRepairError(
-        'blocked',
-        `该数据库被其它进程占用（${describeHolders(lock.otherHolders)}）—— 请先关掉它们再试`,
-      );
-    }
-
+    if (!options.force && hasRestoreJournal(record.dbPath)) confirmRestoreChanges();
+    this.checkRestoreLock(record.dbPath, uin);
     const stamp = this.operationStamp();
+    const stagingDir = join(
+      dirname(record.dbPath),
+      `.${basename(record.dbPath)}.weq-restore-${stamp}`,
+    );
     this.running = { dbPath: record.dbPath, startedAt: this.now().toISOString() };
     try {
-      this.deps.releaseHandles?.(uin, record.dbPath);
-      // 回滚同理：现在旁边的 sidecar 属于**修复产物**，不能留给被还原的旧库。
-      removeSqliteSidecars(record.dbPath);
-      this.installFromBackup(
-        record.backupPath,
-        { dbDir: dirname(record.dbPath), dbName: record.dbName },
-        stamp,
-        uin,
-      );
-      const restored = hashFileSync(record.dbPath);
-      if (restored.sha256 !== record.beforeSha) {
-        throw new DbRepairError(
-          'verify-failed',
-          '回滚后的文件 sha256 与备份不一致，可能没有写入成功，请重试（原库仍在，未被破坏）',
-        );
+      mkdirSync(stagingDir, { mode: 0o700 });
+      const staged = join(stagingDir, 'verified-backup.db');
+      try {
+        const fingerprint = backupFileAndHashSync(record.backupPath, staged);
+        if (fingerprint.bytes !== record.beforeBytes || fingerprint.sha256 !== record.beforeSha) {
+          throw new DbRepairError(
+            'verify-failed',
+            '备份大小或校验值与修复记录不符，未替换当前数据库。',
+          );
+        }
+        this.deps.releaseHandles?.(uin, record.dbPath);
+        if (!options.force) {
+          const currentSha = existsSync(record.dbPath) ? hashFileSync(record.dbPath).sha256 : null;
+          if (!record.afterSha || currentSha !== record.afterSha) confirmRestoreChanges();
+        }
+        const lock = this.checkRestoreLock(record.dbPath, uin);
+        // 原子换入已经核对的文件；旧代日志只在替换成功后丢弃。
+        this.replaceRestoredDatabase(record.dbPath, stagingDir, staged, uin, lock, !!options.force);
+      } finally {
+        removeQuietly(staged);
+        try {
+          rmdirSync(stagingDir);
+        } catch {
+          // 不能递归清理：失败后未归位的日志是恢复材料。
+        }
       }
       const next = history.update(recordId, {
         state: 'rolled-back',
@@ -1049,6 +1062,73 @@ export class DbRepairService {
     } finally {
       this.running = null;
     }
+  }
+
+  private checkRestoreLock(dbPath: string, uin: string): DbRepairLockClassification {
+    const lock = this.classifyLock(dbPath, uin);
+    if (lock.readiness === 'blocked-by-qq') {
+      throw new DbRepairError(
+        'blocked',
+        `QQ 正在使用该数据库（${describeHolders(lock.qqHolders)}），请先结束 QQ 进程`,
+      );
+    }
+    if (lock.readiness === 'blocked-by-other') {
+      throw new DbRepairError(
+        'blocked',
+        `该数据库被其它进程占用（${describeHolders(lock.otherHolders)}）—— 请先关闭后再试`,
+      );
+    }
+    return lock;
+  }
+
+  private replaceRestoredDatabase(
+    dbPath: string,
+    stagingDir: string,
+    staged: string,
+    uin: string,
+    lock: DbRepairLockClassification,
+    force: boolean,
+  ): void {
+    const detached: Array<{ path: string; saved: string }> = [];
+    try {
+      for (const suffix of RESTORE_SIDECARS) {
+        const path = `${dbPath}${suffix}`;
+        if (!lstatSync(path, { throwIfNoEntry: false })) continue;
+        const saved = join(stagingDir, basename(path));
+        renameSync(path, saved);
+        detached.push({ path, saved });
+      }
+      if (!force && hasRestoreJournal(join(stagingDir, basename(dbPath)))) confirmRestoreChanges();
+      if (
+        RESTORE_SIDECARS.some((suffix) =>
+          lstatSync(`${dbPath}${suffix}`, { throwIfNoEntry: false }),
+        )
+      ) {
+        throw new DbRepairError(
+          'blocked',
+          '替换前发现数据库日志被重新打开，未替换主文件。请退出写库程序后重试。',
+        );
+      }
+      this.replaceIntoPlace(staged, dbPath, uin, lock);
+    } catch (error) {
+      const remaining = detached.reverse().filter(({ path, saved }) => {
+        try {
+          if (lstatSync(path, { throwIfNoEntry: false })) return true;
+          renameSync(saved, path);
+          return false;
+        } catch {
+          return true;
+        }
+      });
+      if (remaining.length) {
+        throw new DbRepairError(
+          'recover-failed',
+          `未替换主文件，但部分数据库日志无法放回，原日志保留在 ${stagingDir}。请先不要打开或写入该库，关闭写库程序后检查这些日志。`,
+        );
+      }
+      throw error;
+    }
+    for (const { saved } of detached) removeQuietly(saved);
   }
 
   /** 删掉一条记录的备份（释放空间）；记录保留并标记 `purgedAt`。 */
@@ -1072,10 +1152,7 @@ export class DbRepairService {
     const history = this.history(uin);
     const record = history.find(recordId);
     if (!record) throw new DbRepairError('not-found', `找不到修复记录：${recordId}`);
-    // 先删记录再删目录：即使删目录失败，界面上这条也已经不在了（不会留半截）。
     const removed = history.remove(recordId);
-    if (record.backupPath && !history.list().some((item) => item.backupPath === record.backupPath))
-      removeDirQuietly(dirname(record.backupPath));
     this.log.info('db repair record deleted', {
       event: 'db-repair-record-deleted',
       accountUin: uin,
@@ -1221,7 +1298,7 @@ export class DbRepairService {
         });
         throw new DbRepairError(
           'blocked',
-          `写入数据库文件时被占用挡住（${describeHolders(holders)}）—— 临时文件还在，源库没有被动过。关掉占着它的程序（QQ / 其它工具）后重试即可`,
+          `写入数据库文件时被占用挡住（${describeHolders(holders)}），未替换主文件。关掉占着它的程序（QQ / 其它工具）后重试即可`,
         );
       }
       throw error;
