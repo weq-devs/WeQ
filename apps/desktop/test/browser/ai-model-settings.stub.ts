@@ -3,6 +3,10 @@ import {
   DEFAULT_SUGGESTION_FALLBACK_TEXTS,
 } from '@weq/service/intent-context';
 import { useSyncExternalStore } from 'react';
+import {
+  DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS,
+  DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
+} from '@weq/agentlab/model-metadata';
 
 const listeners = new Set<() => void>();
 const subscribe = (listener: () => void) => {
@@ -10,7 +14,12 @@ const subscribe = (listener: () => void) => {
   return () => listeners.delete(listener);
 };
 
+const tokenDefaults = {
+  defaultContextWindowTokens: DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS,
+  defaultMaxOutputTokens: DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
+};
 const data: Record<string, unknown> = {
+  'bootstrap.getSettings': { agentLab: tokenDefaults },
   'settings.intent.getStatus': {
     ...DEFAULT_INTENT_TUNING,
     suggestionFallbackTexts: [...DEFAULT_SUGGESTION_FALLBACK_TEXTS],
@@ -52,7 +61,8 @@ const proxy = (path = ''): unknown =>
       if (key === 'useUtils') return () => proxy('utils');
       if (key === 'setData')
         return (_input: unknown, next: unknown) => {
-          data[path.replace(/^utils\./, '')] = next;
+          const query = path.replace(/^utils\./, '');
+          data[query] = typeof next === 'function' ? next(data[query]) : next;
           for (const listener of listeners) listener();
         };
       if (key === 'useQuery')
@@ -83,7 +93,9 @@ const proxy = (path = ''): unknown =>
                       fetchedAt: 1,
                     },
                   }))
-                : undefined,
+                : path === 'bootstrap.setAgentLabModelTokenDefaults'
+                  ? { ...Object.assign(tokenDefaults, input) }
+                  : undefined,
         });
       if (key === 'useSubscription') return () => {};
       return proxy(path ? `${path}.${String(key)}` : String(key));

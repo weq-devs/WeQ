@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -6,10 +6,7 @@ import { AssistantService, type AssistantTaskEvent } from '../src/account/assist
 import { ConversationStore } from '../src/account/agentlab_conversation';
 import { TokenUsageStore } from '../src/account/agentlab_usage';
 import { AssistantQueue } from '../src/account/assistant_queue';
-import {
-  ASSISTANT_PARAMETER_DEFAULTS,
-  resolveAssistantContextBudget,
-} from '../src/account/assistant_config';
+import { DEFAULT_ASSISTANT_SEND_MODE } from '../src/account/assistant_config';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -24,16 +21,18 @@ function fixture(
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'weq-assistant-unified-'));
   dirs.push(dir);
-  const create = () =>
+  const conversationPath = join(dir, 'conversation.json');
+  const create = (conversations = new ConversationStore(conversationPath)) =>
     new AssistantService(
       dir,
       resolve ??
         (() => ({ baseUrl: 'https://fixture.invalid', apiKey: 'fixture', model: 'fixture' })),
       new TokenUsageStore(join(dir, 'usage.json')),
-      new ConversationStore(join(dir, 'conversation.json')),
+      conversations,
       tools,
     );
-  const service = create();
+  const conversations = new ConversationStore(conversationPath);
+  const service = create(conversations);
   service.setConfig({ model: { providerId: 'fixture', model: 'fixture' } });
   const session = service.createSession();
   const initialTitle = session.title;
@@ -45,7 +44,7 @@ function fixture(
     text: string,
     mode: 'interrupt' | 'boundary' | 'queue' = 'interrupt',
   ) => service.submitMessage({ requestId, sessionId, text, mode }, (event) => events.push(event));
-  return { dir, create, service, sessionId, initialTitle, events, submit };
+  return { dir, create, service, sessionId, initialTitle, events, submit, conversations };
 }
 it('立即补充打断单次生成，按时间分段落库且不重复受理同一请求', async () => {
   const f = fixture();
@@ -206,14 +205,13 @@ it('当前任务使用参数快照，队列中的下一项独立任务读取新�
   );
   f.submit('a', '问题');
   await vi.waitFor(() => expect(release).toBeDefined());
-  f.service.setConfig({ temperature: 1.4, reasoningEffort: 'high', maxOutputTokens: 1234 });
+  f.service.setConfig({ reasoningEffort: 'high' });
   f.submit('b', '下一项', 'queue');
   release!();
   await vi.waitFor(() => expect(bodies).toHaveLength(2));
   await vi.waitFor(() => expect(f.service.getQueue(f.sessionId).running).toBe(false));
-  expect(bodies[0]?.temperature ?? null).toBe(ASSISTANT_PARAMETER_DEFAULTS.temperature);
-  expect(bodies[0]).not.toHaveProperty('temperature');
-  expect(bodies[1]).toMatchObject({ temperature: 1.4, reasoning_effort: 'high', max_tokens: 1234 });
+  expect(bodies[0]).not.toHaveProperty('reasoning_effort');
+  expect(bodies[1]).toMatchObject({ reasoning_effort: 'high' });
 });
 it('会话模型和思考强度随记录持久化，继承与不指定分别生效', async () => {
   const f = fixture(undefined, (selection) => ({
@@ -610,24 +608,50 @@ it('取消的队列消息保留幂等回执，重试不会把它重新加入队�
   expect(queue.get('s').items).toEqual([]);
 });
 
-it('参数验证拒绝无效组合，明确区分不限制与模型默认', () => {
+it('旧参数直接弃用，旧的立即补充升级为下一步补充，新版可显式选回', () => {
   const f = fixture();
-  expect(() => f.service.setConfig({ compressionTarget: 0.9 })).toThrow('压缩目标');
-  expect(() => f.service.setConfig({ maxRounds: 0 })).toThrow();
-  f.service.setConfig({
-    maxRounds: null,
-    toolTimeoutMs: null,
-    taskTimeoutMs: null,
-    maxOutputTokens: null,
+  writeFileSync(
+    join(f.dir, 'assistant.json'),
+    JSON.stringify({
+      sendMode: 'interrupt',
+      temperature: 0.3,
+      maxRounds: null,
+      historyMessages: 0,
+      contextTokens: 4096,
+      customPrompt: '合成提示',
+      reasoningEffort: 'high',
+    }),
+  );
+  const reopened = f.create();
+  expect(reopened.getConfig()).toMatchObject({
+    sendMode: DEFAULT_ASSISTANT_SEND_MODE,
+    customPrompt: '合成提示',
+    reasoningEffort: 'high',
   });
-  expect(f.service.getConfig()).toMatchObject({ maxRounds: null, maxOutputTokens: null });
+  for (const key of ['temperature', 'maxRounds', 'historyMessages', 'contextTokens'])
+    expect(reopened.getConfig()).not.toHaveProperty(key);
+  reopened.setConfig({ sendMode: 'interrupt' });
+  expect(f.create().getConfig().sendMode).toBe('interrupt');
 });
 
-it('助手优先沿用模型窗口，识别旧默认值并保留低于当前窗口的自定义预算', () => {
-  const fallback = ASSISTANT_PARAMETER_DEFAULTS.contextTokens;
-  expect(resolveAssistantContextBudget(fallback, 128_000)).toBe(128_000);
-  expect(resolveAssistantContextBudget(fallback, 8_192)).toBe(8_192);
-  expect(resolveAssistantContextBudget(undefined, undefined)).toBe(fallback);
-  expect(resolveAssistantContextBudget(16_384, 128_000)).toBe(16_384);
-  expect(resolveAssistantContextBudget(16_384, 8_192)).toBe(8_192);
+it('默认发送方式实际用于受理，未触发压缩时完整带入历史', async () => {
+  const f = fixture();
+  const prior = Array.from({ length: 26 }, (_, index) => ({
+    role: 'user' as const,
+    ts: index,
+    text: `历史-${index}`,
+  }));
+  f.conversations.append(`assistant:${f.sessionId}`, prior);
+  const fetch = vi.fn(async (_url: unknown, _init: RequestInit) => response('回答'));
+  vi.stubGlobal('fetch', fetch);
+  f.service.submitMessage({ sessionId: f.sessionId, requestId: 'auto', text: '追问' });
+  await vi.waitFor(() => expect(f.service.getConversation(f.sessionId).at(-1)?.text).toBe('回答'));
+  const body = JSON.parse(String(fetch.mock.calls[0]?.[1].body));
+  expect(body.messages.map((row: { content: string }) => row.content).slice(1)).toEqual([
+    ...prior.map(({ text }) => text),
+    '追问',
+  ]);
+  expect(f.service.getConversation(f.sessionId).find((turn) => turn.id === 'auto')?.sendMode).toBe(
+    DEFAULT_ASSISTANT_SEND_MODE,
+  );
 });

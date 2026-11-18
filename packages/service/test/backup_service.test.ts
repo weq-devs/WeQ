@@ -20,7 +20,7 @@ import {
 } from '../src/bootstrap/backup_restore';
 import { weqAccountSettingPath } from '../src/bootstrap/backup_accounts';
 import { DEFAULT_INTENT_SENSE_CONFIG } from '../src/account/intent_sense';
-import { ASSISTANT_PARAMETER_DEFAULTS } from '../src/account/assistant_config';
+import { DEFAULT_ASSISTANT_SEND_MODE } from '../src/account/assistant_config';
 import { snapshotWeqApiSettings } from '../src/bootstrap/backup_settings';
 
 const roots: string[] = [];
@@ -216,7 +216,7 @@ it('恢复默认暂存后经事务应用，保留 API、账号与本机锁密钥
     customPrompt: '合成助手提示词',
     mcpServers: 'synthetic=https://example.invalid',
     model: { providerId: 'synthetic', model: 'other' },
-    maxRounds: null,
+    sendMode: 'queue',
   });
   f.config.setSettings({ aiImages: { assistant: 'ocr' } });
   const before = f.config.getSettings();
@@ -235,7 +235,7 @@ it('恢复默认暂存后经事务应用，保留 API、账号与本机锁密钥
     model: { useDefault: true },
     customPrompt: '',
     mcpServers: '',
-    maxRounds: ASSISTANT_PARAMETER_DEFAULTS.maxRounds,
+    sendMode: DEFAULT_ASSISTANT_SEND_MODE,
   });
   expect(reopened.getSettings().aiImages.assistant).toBe(DEFAULT_APP_SETTINGS.aiImages.assistant);
   expect(reopened.getSettings().mcp).toEqual(before.mcp);

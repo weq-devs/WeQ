@@ -20,18 +20,12 @@ import {
 } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import {
-  ASSISTANT_PARAMETER_DEFAULTS,
-  resolveAssistantContextBudget,
-  validateAssistantParameters,
-  type AssistantParameters,
-} from './assistant_config';
+import { DEFAULT_ASSISTANT_SEND_MODE, type AssistantSendMode } from './assistant_config';
 import {
   AssistantQueue,
   type AssistantQueueItem,
   type AssistantSubmission,
 } from './assistant_queue';
-export { ASSISTANT_PARAMETER_DEFAULTS } from './assistant_config';
 export type { AssistantSendMode } from './assistant_config';
 import { basename, extname, join, resolve, sep } from 'node:path';
 import {
@@ -39,11 +33,12 @@ import {
   requestApiJson,
   withApiDeadline,
   ApiHttpError,
-  isUnsupportedTemperature,
   isApiCancellation,
   apiErrorMessage,
   pickMessageText,
   imageOutcomeAnnotation,
+  ConversationContextCompactor,
+  estimateContextTokens,
   type AgentLabEndpoint,
   type AgentLabModelSelection,
   normalizeModelSelection,
@@ -110,7 +105,9 @@ export interface AssistantTools {
 /** 思考等级（reasoning effort）。映射为 OpenAI 兼容请求的 `reasoning_effort` 参数（`off` = 不带）。 */
 export type AssistantReasoningEffort = string;
 
-export interface AssistantConfig extends Partial<AssistantParameters> {
+export interface AssistantConfig {
+  modelSettingsVersion?: 2;
+  sendMode?: AssistantSendMode;
   permissionMode?: 'sandbox' | 'unrestricted';
   model?: AgentLabModelSelection;
   customPrompt?: string;
@@ -121,7 +118,8 @@ export interface AssistantConfig extends Partial<AssistantParameters> {
 }
 
 export const DEFAULT_ASSISTANT_CONFIG: AssistantConfig = {
-  ...ASSISTANT_PARAMETER_DEFAULTS,
+  modelSettingsVersion: 2,
+  sendMode: DEFAULT_ASSISTANT_SEND_MODE,
   model: { useDefault: true },
   permissionMode: 'sandbox',
   customPrompt: '',
@@ -134,8 +132,6 @@ export function mergeAssistantConfig(
   patch: AssistantConfig & { confirmUnrestricted?: boolean },
 ): AssistantConfig {
   const current = { ...DEFAULT_ASSISTANT_CONFIG, ...config };
-  const parameters = { ...ASSISTANT_PARAMETER_DEFAULTS, ...current, ...patch };
-  validateAssistantParameters(parameters);
   if (
     patch.permissionMode === 'unrestricted' &&
     current.permissionMode !== 'unrestricted' &&
@@ -145,12 +141,14 @@ export function mergeAssistantConfig(
       '开启任意权限前必须确认风险：助手可执行任意操作，包括删除 WeQ 目录之外的文件。',
     );
   return {
-    ...Object.fromEntries(
-      Object.keys(ASSISTANT_PARAMETER_DEFAULTS).map((key) => [
-        key,
-        parameters[key as keyof AssistantParameters],
-      ]),
-    ),
+    modelSettingsVersion: 2,
+    // 旧默认会落盘为 interrupt；首次读取升级，之后显式选回「立即补充」仍有效。
+    sendMode:
+      patch.sendMode ??
+      (config.modelSettingsVersion !== 2 && config.sendMode === 'interrupt'
+        ? DEFAULT_ASSISTANT_SEND_MODE
+        : current.sendMode) ??
+      DEFAULT_ASSISTANT_SEND_MODE,
     permissionMode: patch.permissionMode ?? current.permissionMode ?? 'sandbox',
     model:
       patch.model === undefined
@@ -479,22 +477,6 @@ const RUN_TIMEOUT_MS = 600_000;
 // 摘要随每轮注入 + 落一条 compaction step 供前端展示。只折叠「本轮提问之前的历史」，
 // 本轮内的工具过程永远保留（避免破坏 tool_calls/tool 配对）。
 
-/** 消息 token 估算（中文约 1.5~2 字符/token，英文约 4；取 1.8 折中 + 每条消息开销）。 */
-const CHARS_PER_TOKEN = 1.8;
-const MESSAGE_OVERHEAD_TOKENS = 6;
-/** 达到窗口比例触发压缩。 */
-const COMPRESS_TRIGGER_RATIO = 0.7;
-/** 压缩目标：折叠后历史+本轮降到窗口比例。 */
-const COMPRESS_TARGET_RATIO = 0.5;
-/** 压缩后至少保留的「最近完整回合」数（历史侧）。 */
-const MIN_RETAINED_ROUNDS = 1;
-/** 摘要生成的最大 token（输入侧同样受限）。 */
-const MAX_SUMMARY_TOKENS = 1_500;
-/** 摘要输入单条消息的最大字符数。 */
-const SUMMARY_INPUT_MSG_CHARS = 1_200;
-/** 摘要失败时的本地兜底长度。 */
-const SUMMARY_FALLBACK_CHARS = 5_000;
-
 /**
  * 证据追问检测：用户是不是在质疑/追问上一条结论的依据（「真的假的 / 有证据吗 / 原话呢 / 为什么这么说」）。
  * 命中且**上一轮助手确实用过工具**时，systemPrompt 会注入一条硬规则：本轮必须重新调工具查证再答，
@@ -564,6 +546,7 @@ interface StreamChunk {
 }
 
 export class AssistantService {
+  private readonly contextCompactor = new ConversationContextCompactor();
   private readonly taskConfig = new AsyncLocalStorage<AssistantConfig>();
   private readonly taskEndpoint = new AsyncLocalStorage<{
     endpoint?: AgentLabEndpoint;
@@ -620,15 +603,13 @@ export class AssistantService {
           if (!raw || typeof raw !== 'object' || Array.isArray(raw))
             throw new Error('助手配置必须是 JSON 对象');
           const config = raw as AssistantConfig;
-          return {
-            ...DEFAULT_ASSISTANT_CONFIG,
-            ...config,
-            permissionMode: config.permissionMode === 'unrestricted' ? 'unrestricted' : 'sandbox',
-            model:
-              config.model == null
-                ? { useDefault: true }
-                : (normalizeModelSelection(config.model) ?? undefined),
-          };
+          return mergeAssistantConfig(
+            {
+              ...config,
+              permissionMode: config.permissionMode === 'unrestricted' ? 'unrestricted' : 'sandbox',
+            },
+            config.model == null ? {} : { model: config.model },
+          );
         },
       },
     );
@@ -856,7 +837,7 @@ export class AssistantService {
       this.queue.submissionMode(input.sessionId, input.requestId) ??
       previous?.sendMode ??
       this.getConfig().sendMode ??
-      'interrupt';
+      DEFAULT_ASSISTANT_SEND_MODE;
     if (previous) {
       if (
         previous.text !== input.text ||
@@ -1234,15 +1215,9 @@ export class AssistantService {
 
     // 新问题取代旧任务：丢弃该会话任何未完成的 run 快照（resume 只针对「同一任务」）。
     this.clearRun(sessionId);
-    // 只取最近若干条历史（过长的历史由上下文压缩在 runLoop 内折叠，而不是硬切）。
-    const historyCount =
-      this.config.historyMessages ?? ASSISTANT_PARAMETER_DEFAULTS.historyMessages;
-    const prior = historyCount
-      ? this.conversations
-          .get(this.bucketId(sessionId))
-          .filter((turn) => !mailbox || turn.taskId !== mailbox.taskId)
-          .slice(-historyCount)
-      : [];
+    const prior = this.conversations
+      .get(this.bucketId(sessionId))
+      .filter((turn) => !mailbox || turn.taskId !== mailbox.taskId);
     // 证据追问：本轮像在质疑上一结论，且上一条助手回复确实用过工具时，才强制重新查证。
     // （像开场就问「真的假的」这种没有可查证对象，强制反而诱导模型编造，故要求 prior 用过工具。）
     const lastAssistant = [...prior].reverse().find((t) => t.role === 'assistant');
@@ -1540,8 +1515,7 @@ export class AssistantService {
         },
         { role: 'user', content: `用户：${userText.slice(0, 600)}\n助手：${reply.slice(0, 600)}` },
       ],
-      [],
-      { signal },
+      signal,
     );
     const raw = pickMessageText(data.choices?.[0]?.message);
     return cleanTitle(raw);
@@ -1590,20 +1564,15 @@ export class AssistantService {
       if (signal.aborted) ac.abort();
       else signal.addEventListener('abort', onExternalAbort);
     }
-    const taskTimeout =
-      this.config.taskTimeoutMs === undefined ? RUN_TIMEOUT_MS : this.config.taskTimeoutMs;
-    const runTimer =
-      taskTimeout === null
-        ? undefined
-        : setTimeout(() => {
-            timedOut = true;
-            ac.abort();
-          }, taskTimeout);
+    const runTimer = setTimeout(() => {
+      timedOut = true;
+      ac.abort();
+    }, RUN_TIMEOUT_MS);
 
     try {
       const available = await withTimeout(
         Promise.resolve(this.tools?.specs({ permissionMode, signal: ac.signal })),
-        this.config.toolTimeoutMs === undefined ? TOOL_TIMEOUT_MS : this.config.toolTimeoutMs,
+        TOOL_TIMEOUT_MS,
         '工具列表载入',
         ac.signal,
       );
@@ -1618,8 +1587,7 @@ export class AssistantService {
         specs.map((spec) => spec.function.name),
         permissionMode,
       );
-      const maxRounds =
-        this.config.maxRounds === undefined ? TOOL_LOOP_LIMIT : this.config.maxRounds;
+      const toolTokens = estimateContextTokens(JSON.stringify(specs));
       const preparedImages = new WeakMap<ApiMessage, string>();
       const attachmentIds = new WeakMap<ApiMessage, string[]>();
       const imageToolResults = new Map<
@@ -1627,11 +1595,18 @@ export class AssistantService {
         ReturnType<AssistantService['analyzeAttachedImage']>
       >();
       let nextImageId = 0;
-      for (let loop = 0; maxRounds === null || loop < maxRounds; loop += 1) {
+      for (let loop = 0; loop < TOOL_LOOP_LIMIT; loop += 1) {
         throwIfAborted(ac.signal);
         this.consumeSupplements(sessionId, state);
         // 每轮发送前先做上下文压缩（长会话/多工具循环的 token 预算管理）。
-        await this.compressIfNeeded(state, endpoint, emit, ac.signal);
+        await this.compressIfNeeded(
+          sessionId,
+          state,
+          { ...endpoint, signal: ac.signal },
+          toolTokens,
+          capabilityGuidance,
+          emit,
+        );
         const prefix = state.partialText ?? '';
         const sourceMessages = this.buildRoundMessages(state, capabilityGuidance);
         if (prefix) {
@@ -1696,7 +1671,7 @@ export class AssistantService {
           roundMessages.push({ ...plain, content });
         }
         // 最后一轮强制关闭工具，逼模型给出文字结论，避免"用尽轮数"硬中断。
-        const allowTools = specs.length > 0 && (maxRounds === null || loop < maxRounds - 1);
+        const allowTools = specs.length > 0 && loop < TOOL_LOOP_LIMIT - 1;
         const roundSpecs = attachments.size ? [...specs, ANALYZE_ATTACHED_IMAGE_SPEC] : specs;
         const mailbox = this.mailboxes.get(sessionId);
         const requestController = new AbortController();
@@ -1820,9 +1795,7 @@ export class AssistantService {
                       ac.signal,
                     )
                   : this.tools.run(call.function.name, args, { permissionMode, signal: ac.signal }),
-                this.config.toolTimeoutMs === undefined
-                  ? TOOL_TIMEOUT_MS
-                  : this.config.toolTimeoutMs,
+                TOOL_TIMEOUT_MS,
                 `工具 ${call.function.name} 执行`,
                 ac.signal,
               );
@@ -1894,9 +1867,7 @@ export class AssistantService {
       // 总超时：外部 signal 未被用户 abort，但内部 ac 因 runTimer 触发。转成普通 Error（name≠AbortError）
       // 让 chat() 走 error 分支给出清晰提示；用户主动停止则原样抛（AbortError）走 aborted 分支。
       if (timedOut && !signal?.aborted) {
-        throw new Error(
-          `任务运行超过 ${Math.round((taskTimeout ?? 0) / 1000)} 秒总时限，已自动中止。`,
-        );
+        throw new Error(`任务运行超过 ${Math.round(RUN_TIMEOUT_MS / 1000)} 秒总时限，已自动中止。`);
       }
       throw error;
     } finally {
@@ -1997,79 +1968,43 @@ export class AssistantService {
     ];
   }
 
-  /**
-   * 上下文压缩（借鉴 WeFlow agentContextManager）：估算 token 超阈值时，把本轮提问之前
-   * 的早期历史折叠成摘要（LLM 生成，失败本地兜底），随每轮注入 + 落一条 compaction step。
-   * 只折叠完整回合（不切断 tool_calls/tool 配对），且保留最近至少 1 轮历史与全部本轮内容。
-   */
   private async compressIfNeeded(
+    sessionId: string,
     state: AssistantRunState,
     endpoint: AgentLabEndpoint,
+    toolTokens: number,
+    capabilityGuidance: string,
     emit: (step: AssistantStep) => void,
-    signal?: AbortSignal,
   ): Promise<void> {
     const messages = state.messages;
-    const totalTokens = estimateMessagesTokens(messages);
-    const contextTokens = resolveAssistantContextBudget(
-      this.config.contextTokens,
-      endpoint.requestProperties?.contextWindowTokens,
-    );
-    const triggerTokens = Math.floor(
-      contextTokens * (this.config.compressionTrigger ?? COMPRESS_TRIGGER_RATIO),
-    );
-    if (totalTokens <= triggerTokens) return;
-
-    const rounds = foldableRounds(messages);
-    if (rounds.length <= MIN_RETAINED_ROUNDS) return; // 没有可折叠的历史（只剩最近一轮/本轮）。
-    const foldableCount = rounds.length - MIN_RETAINED_ROUNDS;
-    const targetTokens = Math.floor(
-      contextTokens * (this.config.compressionTarget ?? COMPRESS_TARGET_RATIO),
-    );
-    const foldedRanges: Array<[number, number]> = [];
-    let foldedTokens = 0;
-    for (let i = 0; i < foldableCount; i += 1) {
-      const [s, e] = rounds[i]!;
-      foldedRanges.push([s, e]);
-      foldedTokens += estimateMessagesTokens(messages.slice(s, e));
-      if (totalTokens - foldedTokens <= targetTokens) break;
-    }
-    if (foldedRanges.length === 0) return;
-
-    const foldedText = renderFoldableMessages(
-      messages,
-      foldedRanges,
-      Math.min(120_000, Math.floor(contextTokens * 1.5)),
-    );
-    // 旧摘要一并喂给模型，让它综合（旧摘要 + 新折叠内容 → 一份新摘要）。
-    const userContent = [
-      state.summary ? `较早的摘要（保留要点，可合并）：\n${state.summary.slice(0, 4_000)}` : '',
-      `需要折叠的对话记录：\n${foldedText}`,
-    ]
-      .filter(Boolean)
-      .join('\n\n');
-    let summary = '';
-    try {
-      const data = await this.callApi(
-        { ...endpoint, feature: 'assistant-summary' },
-        [
-          { role: 'system', content: summarySystemPrompt() },
-          { role: 'user', content: userContent },
-        ],
-        [],
-        { maxTokens: this.config.summaryTokens ?? MAX_SUMMARY_TOKENS, signal },
+    const currentTurn = messages.findLastIndex((message) => message.role === 'user');
+    if (currentTurn <= 1) return;
+    const history = messages.slice(1, currentTurn).map(contextLine);
+    const fixedTokens = messages
+      .slice(currentTurn)
+      .reduce(
+        (total, message) => total + estimateContextTokens(contextLine(message).text),
+        toolTokens +
+          estimateContextTokens(
+            [
+              state.basePrompt,
+              capabilityGuidance,
+              workspaceBlock(state.workspace),
+              state.partialText,
+            ].join('\n'),
+          ),
       );
-      summary = pickMessageText(data.choices?.[0]?.message).trim().slice(0, 5_000);
-    } catch {
-      /* 摘要失败走本地兜底 */
-    }
-    if (!summary) summary = fallbackSummary(state.summary, foldedText);
-
-    // 折叠区间是连续前缀 [1, lastFoldedEnd)：替换为新摘要，保留最近的历史轮 + 本轮。
-    const lastFoldedEnd = foldedRanges[foldedRanges.length - 1]![1];
-    state.messages = [messages[0]!, ...messages.slice(lastFoldedEnd)];
+    const { folded, summary } = await this.contextCompactor.compact(endpoint, history, {
+      fixedTokens,
+      summary: state.summary,
+      scope: sessionId,
+      feature: 'assistant-summary',
+    });
+    if (!folded) return;
+    state.messages = [messages[0]!, ...messages.slice(1 + folded)];
     state.summary = summary;
-    emit({ kind: 'compaction', summary, foldedTurns: foldedRanges.length });
-    throwIfAborted(signal); // 摘要生成期间用户可能已停止。
+    const foldedTurns = history.slice(0, folded).filter((line) => line.role === 'user').length;
+    emit({ kind: 'compaction', summary, foldedTurns: Math.max(1, foldedTurns) });
   }
 
   /** 处理调查过程记忆工具：更新 workspace + emit 专用 step。返回回灌给模型的简短结果。 */
@@ -2325,33 +2260,25 @@ export class AssistantService {
   private async callApi(
     endpoint: AgentLabEndpoint,
     messages: ApiMessage[],
-    specs: AssistantToolSpec[],
-    options: { maxTokens?: number; signal?: AbortSignal } = {},
+    signal?: AbortSignal,
   ): Promise<{ choices?: Array<{ message?: ApiMessage }>; usage?: unknown }> {
-    const maxTokens = this.config.maxOutputTokens
-      ? Math.min(options.maxTokens ?? this.config.maxOutputTokens, this.config.maxOutputTokens)
-      : options.maxTokens;
     try {
       return await requestApiJson(
         {
           ...endpoint,
-          timeoutMs:
-            endpoint.timeoutMs ?? (endpoint.feature === 'assistant-title' ? 30_000 : 90_000),
+          timeoutMs: endpoint.timeoutMs ?? 30_000,
         },
         '/chat/completions',
         {
           method: 'POST',
-          signal: options.signal,
+          signal,
           headers: {
             'content-type': 'application/json',
             authorization: `Bearer ${endpoint.apiKey}`,
           },
           body: JSON.stringify({
             model: endpoint.model,
-            ...(this.config.temperature == null ? {} : { temperature: this.config.temperature }),
             messages,
-            ...(maxTokens ? { max_tokens: maxTokens } : {}),
-            ...(specs.length ? { tools: specs, tool_choice: 'auto' } : {}),
           }),
         },
       );
@@ -2370,7 +2297,6 @@ export class AssistantService {
    * - reasoning：`reasoningEffort` 非 off 时带 `reasoning_effort`；若 provider 不认（400），
    *   去掉该参数重试一次，并回填 `this.reasoningUnsupported` 让本进程后续不再带（防基础聊天回归）。
    * - tool_calls：流式下每片是 `delta.tool_calls[]`，需按 `index` 分槽把 name/arguments 碎片拼全。
-   * - 温度：明确拒绝时只去参重试一次；SSE 必须尚无正文、推理或工具片段，避免重复生成。
    */
   private callApiStream(
     endpoint: AgentLabEndpoint,
@@ -2408,16 +2334,11 @@ export class AssistantService {
       endpoint.modelIdentity ?? JSON.stringify([endpoint.baseUrl, endpoint.model]);
     const withReasoning =
       !!effort && effort !== 'off' && !this.reasoningUnsupported.has(modelIdentity);
-    let temperatureOmitted = false;
     let lastReasoning = withReasoning;
 
     const buildBody = (reasoning: boolean): string =>
       JSON.stringify({
         model: endpoint.model,
-        ...(temperatureOmitted || this.config.temperature == null
-          ? {}
-          : { temperature: this.config.temperature }),
-        ...(this.config.maxOutputTokens ? { max_tokens: this.config.maxOutputTokens } : {}),
         stream: true,
         stream_options: { include_usage: true },
         messages,
@@ -2444,7 +2365,6 @@ export class AssistantService {
         true,
       );
       accounting = result.usage;
-      temperatureOmitted ||= result.temperatureOmitted;
       return result.response;
     };
     const rejectResponse = async (response: Response) => {
@@ -2492,7 +2412,7 @@ export class AssistantService {
         );
       }
     };
-    let res = await requestResponse(withReasoning);
+    const res = await requestResponse(withReasoning);
     if (!res.ok || !res.body) {
       const detail = await rejectResponse(res);
       throw new Error(httpErrorMessage(res.status, detail));
@@ -2502,7 +2422,6 @@ export class AssistantService {
     let reasoning = '';
     // 按 index 累积的工具调用槽（流式下 arguments 是逐片拼接的）。
     const toolSlots = new Map<number, { id: string; name: string; args: string }>();
-    let temperatureRejected = false;
 
     // 消费 SSE data 行，也识别兼容端点在拒绝请求时返回的普通 JSON。
     const consumeEvent = (rawEvent: string): void => {
@@ -2522,14 +2441,8 @@ export class AssistantService {
           continue; // 半个 JSON（理论上被事件切分保护，兜底跳过）
         }
         if (chunk.usage) accounting?.report({ usage: chunk.usage });
-        const rejectedTemperature = isUnsupportedTemperature(chunk, 200);
-        const error =
-          apiErrorMessage(chunk) ??
-          (rejectedTemperature ? apiErrorMessage({ error: chunk }) : null);
-        if (error || rejectedTemperature) {
-          temperatureRejected = rejectedTemperature;
-          throw new Error(`模型服务错误：${error ?? '模型不支持温度参数'}`);
-        }
+        const error = apiErrorMessage(chunk);
+        if (error) throw new Error(`模型服务错误：${error}`);
         const delta = chunk.choices?.[0]?.delta;
         if (!delta) continue;
         if (typeof delta.content === 'string' && delta.content) {
@@ -2551,7 +2464,7 @@ export class AssistantService {
       }
     };
 
-    const readResponse = async (response: Response): Promise<boolean> => {
+    const readResponse = async (response: Response): Promise<void> => {
       const reader = response.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -2574,32 +2487,13 @@ export class AssistantService {
         accounting?.finish('success');
       } catch (error) {
         accounting?.finish(isApiCancellation(error, signal) ? 'cancelled' : 'failed');
-        if (
-          temperatureRejected &&
-          !temperatureOmitted &&
-          !content &&
-          !reasoning &&
-          toolSlots.size === 0 &&
-          !signal.aborted &&
-          !isApiCancellation(error, signal)
-        ) {
-          await reader.cancel().catch(() => {});
-          return true;
-        }
+        await reader.cancel().catch(() => {});
         throw error;
       } finally {
         reader.releaseLock();
       }
-      return false;
     };
-
-    if (await readResponse(res)) {
-      temperatureOmitted = true;
-      res = await requestResponse(lastReasoning);
-      if (!res.ok || !res.body)
-        throw new Error(httpErrorMessage(res.status, await rejectResponse(res)));
-      await readResponse(res);
-    }
+    await readResponse(res);
 
     const toolCalls = [...toolSlots.entries()]
       .sort((a, b) => a[0] - b[0])
@@ -2872,117 +2766,20 @@ function hostOf(url: string): string {
 
 // ── 上下文压缩 / 运行时注入的工具函数 ────────────────────────────────────────
 
-/** 粗略 token 估算：中文 ~1.8 字符/token。只用于压缩触发判断，无需精确。 */
-function estimateTokens(text: string): number {
-  return Math.max(
-    1,
-    Math.ceil(String(text || '').length / CHARS_PER_TOKEN) + MESSAGE_OVERHEAD_TOKENS,
-  );
-}
-
-function estimateMessagesTokens(messages: ApiMessage[]): number {
-  let total = 0;
-  for (const m of messages) {
-    total += estimateTokens(typeof m.content === 'string' ? m.content : '');
-    if (m.tool_calls?.length) {
-      for (const c of m.tool_calls) total += estimateTokens(c.function.name + c.function.arguments);
-    }
-  }
-  return total;
-}
-
-/** 裁剪文本：保留头尾，中间插入提示（优先保留尾部，因为结论/最新信息通常在后面）。 */
-function clipText(value: string, maxChars: number, notice = '\n…[较早内容已裁剪]…\n'): string {
-  if (value.length <= maxChars) return value;
-  const available = Math.max(80, maxChars - notice.length);
-  const head = Math.ceil(available * 0.62);
-  const tail = Math.max(0, available - head);
-  return `${value.slice(0, head)}${notice}${tail > 0 ? value.slice(-tail) : ''}`;
-}
-
-/** 把一条 API 消息渲染成压缩输入/兜底摘要用的可读文本。 */
-function messageToCompactText(message: ApiMessage, maxChars: number): string {
-  if (message.role === 'system')
-    return `[系统] ${clipText(String(message.content ?? ''), maxChars)}`;
-  if (message.role === 'user') {
-    return `用户：${clipText(String(message.content ?? ''), maxChars)}`;
-  }
-  if (message.role === 'tool') {
-    return `  [工具结果] ${clipText(String(message.content ?? ''), maxChars)}`;
-  }
-  // assistant
-  const content = String(message.content ?? '');
-  const calls = (message.tool_calls ?? []).map((c) => c.function.name).join('、');
-  const head = content ? `助手：${clipText(content, maxChars)}` : '';
-  const toolHead = calls ? `[调用工具：${calls}]` : '';
-  return [head, toolHead].filter(Boolean).join(' ');
-}
-
-/**
- * 把 messages 中「本轮提问之前的可折叠历史」按完整回合分组。
- * 一组 = 一条 user 消息 + 其后到下一个 user 之前的全部消息（assistant/tool 序列天然
- * 成对），保证折叠不破坏 tool_calls 与 tool 结果的配对。返回组区间 [start, end)。
- */
-function foldableRounds(messages: ApiMessage[]): Array<[number, number]> {
-  // messages[0] 恒为 system，不参与折叠。
-  const rounds: Array<[number, number]> = [];
-  let start = 1;
-  for (let i = start; i < messages.length; i += 1) {
-    if (messages[i]?.role === 'user') {
-      if (i > start) rounds.push([start, i]);
-      start = i;
-    }
-  }
-  // 最后一个 user 是「本轮提问」，其后的本轮内容永不折叠。
-  if (start < messages.length && messages[start]?.role === 'user') {
-    // 前面的历史轮次已经收集；最后一组（本轮）不加入。
-  } else if (start < messages.length && start > 1) {
-    rounds.push([start, messages.length]);
-  }
-  return rounds;
-}
-
-/** 渲染要被折叠的区间为摘要输入（限量）。 */
-function renderFoldableMessages(
-  messages: ApiMessage[],
-  ranges: Array<[number, number]>,
-  maxChars: number,
-): string {
-  const blocks: string[] = [];
-  let used = 0;
-  for (const [s, e] of ranges) {
-    for (let i = s; i < e; i += 1) {
-      const block = messageToCompactText(messages[i]!, SUMMARY_INPUT_MSG_CHARS);
-      if (used + block.length > maxChars) {
-        const remaining = maxChars - used;
-        if (remaining > 240) blocks.push(clipText(block, remaining));
-        return blocks.join('\n');
-      }
-      blocks.push(block);
-      used += block.length + 2;
-    }
-  }
-  return blocks.join('\n');
-}
-
-/** 摘要生成失败时的本地兜底：旧摘要 + 折叠内容的开头（不丢信息优先）。 */
-function fallbackSummary(previousSummary: string, foldedText: string): string {
-  const sections: string[] = [];
-  if (previousSummary) sections.push(`此前摘要：\n${clipText(previousSummary, 2_500)}`);
-  if (foldedText)
-    sections.push(`较早已折叠的记录：\n${clipText(foldedText, SUMMARY_FALLBACK_CHARS)}`);
-  return clipText(sections.join('\n\n') || '较早的对话已被折叠。', 6_000);
-}
-
-/** 摘要生成调用的 system 提示。 */
-function summarySystemPrompt(): string {
-  return [
-    '你是一个会话压缩器。下面是一段较长的对话记录（用户与 AI 助手的多轮问答与工具调用）。',
-    '把它压缩成一份结构化摘要，保留：用户的核心目标与问题、已确认的事实与结论（谁、何时、说了什么）、' +
-      '关键约束、已做的调查与结论、**未完成的事项与待办**（后续要继续查的）。',
-    '丢弃客套话、重复与琐碎过程。用中文，分点列出，控制在 500 字以内。',
-    '只输出摘要正文，不要解释。',
-  ].join('\n');
+function contextLine(message: ApiMessage) {
+  return {
+    role: message.role,
+    text: [
+      typeof message.content === 'string' ? message.content : '',
+      ...(message.imageOutcomes?.map(imageOutcomeAnnotation) ??
+        (message.images?.length ? ['[图片]'] : [])),
+      ...(message.tool_calls?.map(
+        (call) => `[调用 ${call.function.name}] ${call.function.arguments}`,
+      ) ?? []),
+    ]
+      .filter(Boolean)
+      .join('\n'),
+  };
 }
 
 /** 把「会话摘要」渲染成运行时注入段（压缩折叠后的早期历史）。 */

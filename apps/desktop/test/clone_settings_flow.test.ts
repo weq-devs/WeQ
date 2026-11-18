@@ -3,7 +3,6 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { PersonaSettingsModal } from '../src/renderer/src/views/agentlab/PersonaSettingsModal';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
-import { normalizeCloneGeneration } from '@weq/agentlab/generation';
 
 const f = vi.hoisted(() => ({
   update: vi.fn(async (_input: unknown): Promise<unknown> => ({ id: 'p' })),
@@ -73,7 +72,7 @@ const persona = {
   name: '合成克隆',
   customPrompt: '原提示',
   models: { chat: { providerId: 'fixture', model: 'chat' } },
-  generation: normalizeCloneGeneration({ historyMessages: 13, temperature: 0.4 }),
+  generation: { useTrainingSamples: false, historyMessages: 13, temperature: 0.4 },
   voiceProfile: { ratio: 0.1 },
 };
 function fixture() {
@@ -130,12 +129,7 @@ it('分类保留草稿，跨页补交配置，语音切换自动保存而不显�
     expect(t.pane().querySelector('.weq-cvs-nav')?.textContent).not.toContain('训练参数');
     expect(t.button('删除克隆体')).toBeUndefined();
     expect(t.button('模型设置').getAttribute('aria-current')).toBe('true');
-    const history = t.pane().querySelector<HTMLSelectElement>('[aria-label="对话上下文"]')!;
-    expect(history.value).toBe('13');
-    act(() => {
-      history.value = '0';
-      history.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    act(() => t.pane().querySelector<HTMLButtonElement>('[aria-label="检索训练样本"]')!.click());
     act(() => t.pane().querySelector<HTMLButtonElement>('[aria-label="引用长期记忆"]')!.click());
     act(() => t.button('人格与画像').click());
     t.change(t.pane().querySelector('textarea')!, '新提示');
@@ -157,11 +151,7 @@ it('分类保留草稿，跨页补交配置，语音切换自动保存而不显�
         customPrompt: '新提示',
         voiceCloneEnabled: true,
         voice: { providerId: 'tts', mode: 'preset', voice: undefined },
-        generation: expect.objectContaining({
-          historyMessages: 0,
-          memoryItems: 0,
-          temperature: 0.4,
-        }),
+        generation: { useTrainingSamples: true, useLongTermMemory: false },
         willing: expect.objectContaining({ level: 75 }),
       }),
     );

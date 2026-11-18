@@ -156,11 +156,13 @@ it('选择保存失败仍保留当前选择，重试成功后才清除失败状�
       effort.value = 'medium';
       effort.dispatchEvent(new Event('change', { bubbles: true }));
     });
-    await act(async () =>
-      [...document.querySelectorAll<HTMLButtonElement>('[aria-label="运行中默认发送方式"] button')]
-        .find((button) => button.textContent === '排队发送')!
-        .click(),
-    );
+    await act(async () => {
+      const sending = document.querySelector<HTMLSelectElement>(
+        '[aria-label="运行中默认发送方式"]',
+      )!;
+      sending.value = 'queue';
+      sending.dispatchEvent(new Event('change', { bubbles: true }));
+    });
     expect(f.save).toHaveBeenLastCalledWith(
       expect.objectContaining({ reasoningEffort: 'medium', sendMode: 'queue' }),
     );

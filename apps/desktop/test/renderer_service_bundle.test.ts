@@ -41,7 +41,7 @@ it('渲染层不从服务端总入口导入运行时值，助手默认参数可�
   expect(violations).toEqual([]);
   const result = buildSync({
     stdin: {
-      contents: "export { ASSISTANT_PARAMETER_DEFAULTS } from '@weq/service/assistant-config';",
+      contents: "export { DEFAULT_ASSISTANT_SEND_MODE } from '@weq/service/assistant-config';",
       resolveDir: root,
     },
     bundle: true,

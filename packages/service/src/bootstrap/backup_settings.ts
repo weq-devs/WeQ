@@ -13,7 +13,8 @@ import {
   SHARED_PREFERENCE_DEFINITIONS,
 } from '../common/shared_preferences';
 import type { AssistantConfig } from '../account/assistant';
-import { DEFAULT_ASSISTANT_CONFIG, mergeAssistantConfig } from '../account/assistant';
+import { DEFAULT_ASSISTANT_CONFIG } from '../account/assistant';
+import { RETIRED_ASSISTANT_PARAMETERS } from '../account/assistant_config';
 
 export type WeqAppBackupSettings = Omit<
   AppSettings,
@@ -252,7 +253,12 @@ export function validateSharedPreferences(value: unknown): asserts value is Shar
 }
 
 function validateSharedAssistant(value: unknown): void {
-  const row = fields(value, 'api.sharedAssistant', [], Object.keys(DEFAULT_ASSISTANT_CONFIG));
+  const row = fields(
+    value,
+    'api.sharedAssistant',
+    [],
+    [...Object.keys(DEFAULT_ASSISTANT_CONFIG), ...RETIRED_ASSISTANT_PARAMETERS],
+  );
   strings(row, 'api.sharedAssistant', [], ['customPrompt', 'mcpServers']);
   if (
     row.permissionMode !== undefined &&
@@ -261,13 +267,13 @@ function validateSharedAssistant(value: unknown): void {
     fail('api.sharedAssistant.permissionMode');
   if (row.reasoningEffort !== undefined && typeof row.reasoningEffort !== 'string')
     fail('api.sharedAssistant.reasoningEffort');
-  try {
-    mergeAssistantConfig({}, { ...row, confirmUnrestricted: true } as AssistantConfig & {
-      confirmUnrestricted: boolean;
-    });
-  } catch {
-    fail('api.sharedAssistant');
-  }
+  if (
+    row.sendMode !== undefined &&
+    !['interrupt', 'boundary', 'queue'].includes(String(row.sendMode))
+  )
+    fail('api.sharedAssistant.sendMode');
+  if (row.modelSettingsVersion !== undefined && row.modelSettingsVersion !== 2)
+    fail('api.sharedAssistant.modelSettingsVersion');
   if (row.model !== undefined) {
     const model = record(row.model, 'api.sharedAssistant.model');
     if (model.useDefault === true) fields(model, 'api.sharedAssistant.model', ['useDefault']);
@@ -643,8 +649,18 @@ export function validateWeqApiSettings(
       api.agentLab,
       'api.agentLab',
       ['providers'],
-      ['defaultModel', 'defaultVisionModel', 'defaultEmbeddingModel'],
+      [
+        'defaultModel',
+        'defaultVisionModel',
+        'defaultEmbeddingModel',
+        'defaultContextWindowTokens',
+        'defaultMaxOutputTokens',
+      ],
     );
+    if (agent.defaultContextWindowTokens !== undefined)
+      number(agent.defaultContextWindowTokens, 'api.agentLab.defaultContextWindowTokens', 1);
+    if (agent.defaultMaxOutputTokens != null)
+      number(agent.defaultMaxOutputTokens, 'api.agentLab.defaultMaxOutputTokens', 1);
     if (agent.defaultVisionModel !== undefined && agent.defaultVisionModel !== null) {
       const ref = fields(agent.defaultVisionModel, 'api.agentLab.defaultVisionModel', [
         'providerId',

@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { ASSISTANT_PARAMETER_DEFAULTS } from '@weq/service/assistant-config';
+import { DEFAULT_ASSISTANT_SEND_MODE } from '@weq/service/assistant-config';
 import type { AssistantStep, ConversationTurn } from '@weq/service';
 
 export const requests: Array<{ name: string; input: unknown }> = [];
@@ -51,7 +51,7 @@ const data: Record<string, unknown> = {
   getAccountConfig: { uin: '10000', configId: 'synthetic' },
   getSelfProfile: { uin: '10000', uid: 'u_self', nick: '我' },
   getAssistantConfig: {
-    ...ASSISTANT_PARAMETER_DEFAULTS,
+    sendMode: DEFAULT_ASSISTANT_SEND_MODE,
     model: { useDefault: true },
     reasoningEffort: 'off',
     permissionMode: 'sandbox',

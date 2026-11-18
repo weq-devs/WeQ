@@ -54,6 +54,7 @@ import {
   type WeqDefaultsChoice,
 } from './backup_defaults';
 import { DEFAULT_INTENT_SENSE_CONFIG } from '../account/intent_sense';
+import { mergeAssistantConfig, type AssistantConfig } from '../account/assistant';
 import type { UserConfig } from './user_config';
 
 export interface WeqRestoreChoice {
@@ -608,15 +609,20 @@ function configPlan(
       if (choice.conflict !== 'skip' || groups.assistant === undefined)
         settings.sharedPreferences = {
           ...groups,
-          assistant: {
-            ...(record(groups.assistant) ? groups.assistant : {}),
+          assistant: mergeAssistantConfig(record(groups.assistant) ? groups.assistant : {}, {
             ...value.sharedAssistant,
-          },
+            sendMode:
+              value.sharedAssistant.sendMode === undefined
+                ? undefined
+                : mergeAssistantConfig(value.sharedAssistant as AssistantConfig, {}).sendMode,
+            confirmUnrestricted: true,
+          }),
         };
       else skipped.push('api:assistant');
       delete settings.sharedAssistant;
     }
     if (record(value.agentLab)) {
+      const importedAgentLab = value.agentLab;
       const previous = record(base.agentLab) ? base.agentLab : {};
       const preserveDefault =
         value.agentLab.defaultModel === undefined ||
@@ -634,6 +640,19 @@ function configPlan(
       const defaultEmbeddingModel = preserveEmbedding
         ? previous.defaultEmbeddingModel
         : value.agentLab.defaultEmbeddingModel;
+      const tokenDefaults = Object.fromEntries(
+        (['defaultContextWindowTokens', 'defaultMaxOutputTokens'] as const).flatMap((key) => {
+          const incoming = importedAgentLab[key];
+          if (
+            incoming === undefined ||
+            (choice.conflict === 'skip' && previous[key] !== undefined)
+          ) {
+            if (incoming !== undefined) skipped.push(`api:llm-${key}`);
+            return previous[key] === undefined ? [] : [[key, previous[key]]];
+          }
+          return [[key, incoming]];
+        }),
+      );
       settings.agentLab = {
         providers: mergeRows(
           previous.providers,
@@ -645,6 +664,7 @@ function configPlan(
         ...(defaultModel !== undefined ? { defaultModel } : {}),
         ...(defaultVisionModel !== undefined ? { defaultVisionModel } : {}),
         ...(defaultEmbeddingModel !== undefined ? { defaultEmbeddingModel } : {}),
+        ...tokenDefaults,
       };
       if (value.agentLab.defaultModel !== undefined && preserveDefault)
         skipped.push('api:llm-default');

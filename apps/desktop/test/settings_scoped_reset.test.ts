@@ -30,6 +30,8 @@ vi.mock('../src/main/context/app_context', () => ({
         Object.assign(state.settings.sharedPreferences, {
           [key]: { ...state.settings.sharedPreferences[key], ...patch },
         }),
+      replaceSharedPreference: (key: keyof AppSettings['sharedPreferences'], value: object) =>
+        Object.assign(state.settings.sharedPreferences, { [key]: value }),
     },
   }),
   closeSalvageConnections: vi.fn(),
@@ -121,8 +123,7 @@ describe('分级恢复默认', () => {
   it('助手页面成组恢复联动参数与图片偏好，预览不返回原始提示词和 MCP 配置', async () => {
     const defaults = mergeAssistantConfig({}, {});
     state.settings.sharedPreferences.assistant = {
-      contextTokens: 5000,
-      summaryTokens: 3500,
+      sendMode: 'queue',
       customPrompt: 'synthetic-prompt',
       mcpServers: 'synthetic= https://example.invalid/synthetic-mcp-secret',
       model: { providerId: 'synthetic', model: 'synthetic-model' },
@@ -253,21 +254,33 @@ describe('分级恢复默认', () => {
     }
     expect(state.settings.sharedPreferences.client.mailListWidth).toBe(400);
   });
-  it('API 默认模型预览与重置按聊天、视觉、向量排列，分别清空而不改服务商', async () => {
+  it('API 默认模型与容量缺省值独立恢复，不改服务商', async () => {
     state.settings.agentLab.defaultModel = { providerId: 'p', model: 'chat' };
     state.settings.agentLab.defaultVisionModel = { providerId: 'p', model: 'vision' };
     state.settings.agentLab.defaultEmbeddingModel = { providerId: 'p', model: 'embedding' };
+    state.settings.agentLab.defaultContextWindowTokens = 240_000;
+    state.settings.agentLab.defaultMaxOutputTokens = null;
     const preview = await caller().preview({ page: 'agentlab', card: 'api-default' });
     expect(preview.items.map((item) => item.label)).toEqual([
       '默认聊天模型',
       '默认视觉模型',
       '默认向量模型',
+      '默认上下文窗口',
+      '默认最大输出',
     ]);
     await caller().restore({ page: 'agentlab', card: 'api-default', source: null });
     expect(state.calls).toEqual([
       ['setAgentLabDefaultModel', { ref: null }],
       ['setDefaultVisionModel', { ref: null }],
       ['setDefaultEmbeddingModel', { ref: null }],
+      [
+        'setAgentLabModelTokenDefaults',
+        { defaultContextWindowTokens: DEFAULT_APP_SETTINGS.agentLab.defaultContextWindowTokens },
+      ],
+      [
+        'setAgentLabModelTokenDefaults',
+        { defaultMaxOutputTokens: DEFAULT_APP_SETTINGS.agentLab.defaultMaxOutputTokens },
+      ],
     ]);
   });
   it('阅读定位恢复预览包含条件隐藏的上下文配置', async () => {

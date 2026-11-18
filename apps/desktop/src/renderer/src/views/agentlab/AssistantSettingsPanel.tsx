@@ -7,17 +7,11 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { Cpu, ListOrdered, SlidersHorizontal, RefreshCw } from 'lucide-react';
+import { Cpu, SlidersHorizontal, RefreshCw } from 'lucide-react';
 import type { AssistantConfig } from '@weq/service';
-import {
-  ASSISTANT_PARAMETER_DEFAULTS,
-  validateAssistantParameters,
-} from '@weq/service/assistant-config';
+import { DEFAULT_ASSISTANT_SEND_MODE, type AssistantSendMode } from '@weq/service/assistant-config';
 import { trpc } from '../../trpc/client';
-import {
-  ConversationModelSettings,
-  LegacyModelOverrides,
-} from '../../components/settings/ConversationModelSettings';
+import { ConversationModelSettings } from '../../components/settings/ConversationModelSettings';
 import { Card, Row, SectionHeader } from '../../components/settings/controls';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { SegmentedControl } from '../../components/SegmentedControl';
@@ -175,21 +169,8 @@ function TextSetting({
 const GLOBAL_GROUPS = [
   { id: 'model', label: '模型设置', icon: <Cpu size={16} /> },
   { id: 'tools', label: '提示与工具', icon: <SlidersHorizontal size={16} /> },
-  { id: 'sending', label: '运行中发送', icon: <ListOrdered size={16} /> },
 ] as const;
 type GlobalGroup = (typeof GLOBAL_GROUPS)[number]['id'];
-
-const LEGACY_PARAMETERS = [
-  ['temperature', '温度'],
-  ['maxOutputTokens', '输出上限'],
-  ['maxRounds', '任务轮数'],
-  ['toolTimeoutMs', '工具时限'],
-  ['taskTimeoutMs', '任务时限'],
-  ['contextTokens', '上下文预算'],
-  ['compressionTrigger', '压缩触发比例'],
-  ['compressionTarget', '压缩目标比例'],
-  ['summaryTokens', '摘要上限'],
-] as const;
 
 type AssistantSettingsProps = {
   conversation?: {
@@ -218,10 +199,7 @@ function AssistantSettingsFields({
   const { data, save, saving, error, settle, suspend, release, retry, reload } =
     useAssistantParameters();
   const reset = useContext(SettingsResetContext);
-  const form = useSettingsAutosave<AssistantConfig>(async (patch) => {
-    validateAssistantParameters({ ...ASSISTANT_PARAMETER_DEFAULTS, ...data, ...patch });
-    await save(patch);
-  });
+  const form = useSettingsAutosave<AssistantConfig>(save);
   useSettingsSaveBanner(saving || form.saving);
   const protection = useDraftProtection(form.dirty || (data && error) ? true : null, false);
   if (!form.dirty && !(data && error)) protection.reset(null);
@@ -267,9 +245,6 @@ function AssistantSettingsFields({
       resetSaves?.delete(entry);
     };
   }, [resetSaves]);
-  const overrides = LEGACY_PARAMETERS.filter(
-    ([key]) => data?.[key] !== undefined && data[key] !== ASSISTANT_PARAMETER_DEFAULTS[key],
-  );
   const group = (id: GlobalGroup, children: ReactNode) => {
     if (conversation)
       return (
@@ -297,6 +272,7 @@ function AssistantSettingsFields({
     }
     conversation.onClose();
   };
+  const sendMode = data?.sendMode ?? DEFAULT_ASSISTANT_SEND_MODE;
   const contents = (
     <>
       {error || form.error || !data ? (
@@ -334,29 +310,7 @@ function AssistantSettingsFields({
               disabled={saving}
               onModelChange={(model) => void save({ model }).catch(() => {})}
               onEffortChange={(reasoningEffort) => void save({ reasoningEffort }).catch(() => {})}
-              history={{
-                value: data.historyMessages ?? ASSISTANT_PARAMETER_DEFAULTS.historyMessages,
-                standard: ASSISTANT_PARAMETER_DEFAULTS.historyMessages,
-                extended: 48,
-                onChange: (historyMessages) => void save({ historyMessages }).catch(() => {}),
-              }}
             >
-              <LegacyModelOverrides
-                disabled={saving}
-                fields={overrides.map(([, label]) => label)}
-                onReset={() =>
-                  void save(
-                    Object.fromEntries(
-                      overrides.map(([key]) => [key, ASSISTANT_PARAMETER_DEFAULTS[key]]),
-                    ),
-                  ).catch(() => {})
-                }
-              />
-            </ConversationModelSettings>,
-          )}
-          {group(
-            'tools',
-            <>
               <Row
                 settingId="weq-assistant-permission"
                 label="运行模式"
@@ -381,6 +335,40 @@ function AssistantSettingsFields({
                   />
                 }
               />
+              <Row
+                settingId="weq-assistant-send-mode"
+                label="运行中默认发送方式"
+                desc={
+                  sendMode === 'queue'
+                    ? '当前任务完成后，按顺序启动独立任务。'
+                    : sendMode === 'boundary'
+                      ? '本次模型调用和工具批次结束后补入当前任务。'
+                      : '中断当前模型请求，工具收尾后带补充继续。'
+                }
+                control={
+                  <select
+                    className="weq-set-input"
+                    aria-label="运行中默认发送方式"
+                    value={sendMode}
+                    onChange={(event) =>
+                      void save({ sendMode: event.target.value as AssistantSendMode }).catch(
+                        () => {},
+                      )
+                    }
+                  >
+                    {ASSISTANT_SEND_MODES.map(({ value, label }) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                }
+              />
+            </ConversationModelSettings>,
+          )}
+          {group(
+            'tools',
+            <>
               <TextSetting
                 label="额外提示词"
                 value={data?.customPrompt ?? ''}
@@ -392,32 +380,6 @@ function AssistantSettingsFields({
                 name="mcpServers"
               />
             </>,
-          )}
-          {group(
-            'sending',
-            <Row
-              settingId="weq-assistant-send-mode"
-              label="运行中默认发送方式"
-              desc={
-                data.sendMode === 'queue'
-                  ? '当前任务完成后，按顺序启动独立任务。'
-                  : data.sendMode === 'boundary'
-                    ? '当前模型调用与工具批次结束后补入当前任务。'
-                    : '中断当前模型请求，工具收尾后带补充继续。'
-              }
-              control={
-                <SegmentedControl
-                  label="运行中默认发送方式"
-                  value={data?.sendMode ?? 'interrupt'}
-                  onChange={(sendMode) =>
-                    void save({
-                      sendMode,
-                    }).catch(() => {})
-                  }
-                  options={ASSISTANT_SEND_MODES}
-                />
-              }
-            />,
           )}
         </>
       ) : null}

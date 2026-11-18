@@ -669,13 +669,17 @@ export class AgentLabService extends EventEmitter {
     personaId: string,
     members: AgentLabGroupMember[],
     messages: AgentLabGroupMessage[],
-    limit = 16,
   ): AgentLabChatTurn[] {
     const nameById = new Map(members.map((m) => [m.memberId, m.displayName]));
-    return messages.slice(-limit).map((m) => {
+    return messages.map((m) => {
       if (m.senderId === personaId) return { role: 'assistant', text: m.text };
       const name = nameById.get(m.senderId) ?? '某人';
-      return { role: 'user', text: `「${name}」：${m.text}`, images: m.images };
+      return {
+        role: 'user',
+        text: `「${name}」：${m.text}`,
+        images: m.images,
+        imageOutcomes: m.imageOutcomes,
+      };
     });
   }
 
@@ -956,6 +960,7 @@ export class AgentLabService extends EventEmitter {
         chatEndpoint,
         embeddingEndpoint,
         history,
+        historyScope: JSON.stringify(['group', groupId, member.memberId]),
         input: inputText,
         now: Date.now(),
         relationNote,

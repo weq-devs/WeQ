@@ -227,12 +227,35 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     defaults.agentLab.defaultEmbeddingModel,
     () => b.setDefaultEmbeddingModel({ ref: defaults.agentLab.defaultEmbeddingModel }),
   );
+  bind(
+    'api-default:context-window',
+    current.agentLab.defaultContextWindowTokens,
+    defaults.agentLab.defaultContextWindowTokens,
+    () =>
+      b.setAgentLabModelTokenDefaults({
+        defaultContextWindowTokens: defaults.agentLab.defaultContextWindowTokens,
+      }),
+  );
+  bind(
+    'api-default:max-output',
+    current.agentLab.defaultMaxOutputTokens,
+    defaults.agentLab.defaultMaxOutputTokens,
+    () =>
+      b.setAgentLabModelTokenDefaults({
+        defaultMaxOutputTokens: defaults.agentLab.defaultMaxOutputTokens,
+      }),
+  );
   if (selected.has('assistant-config')) {
     const assistant = shared.assistant;
     const defaultConfig = mergeAssistantConfig({}, {});
     const currentConfig = mergeAssistantConfig(await assistant.getConfig(), {});
     // 恢复预览只说明文本已配置，不回传可能含密钥的 MCP 配置。
-    const previewConfig = ({ customPrompt, mcpServers, ...value }: typeof defaultConfig) => ({
+    const previewConfig = ({
+      customPrompt,
+      mcpServers,
+      modelSettingsVersion: _version,
+      ...value
+    }: typeof defaultConfig) => ({
       ...value,
       customPrompt: Boolean(customPrompt),
       mcpServers: Boolean(mcpServers),

@@ -3,6 +3,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentLabUsage } from '@weq/agentlab';
+import {
+  DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS,
+  DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
+} from '@weq/agentlab/model-metadata';
 import type { Platform } from '@weq/platform';
 import { AgentLabConfigService } from '../src/bootstrap/agentlab_config';
 import { UserConfigService } from '../src/bootstrap/user_config';
@@ -24,6 +28,46 @@ function fixture() {
   };
 }
 describe('多 provider 持久化与调用隔离', () => {
+  it('API 缺省值独立补充未声明字段，不覆盖模型值，清空输出只移除该兜底', () => {
+    const f = fixture();
+    f.service.saveProvider({
+      id: 'p',
+      name: '合成',
+      vendor: 'openai-compatible',
+      baseUrl: 'https://synthetic.invalid',
+      apiKey: '',
+      models: [
+        { id: 'missing', capabilities: ['chat'] },
+        {
+          id: 'known-window',
+          capabilities: ['chat'],
+          overrides: { request: { contextWindowTokens: 1_000_000 } },
+        },
+        {
+          id: 'known-output',
+          capabilities: ['chat'],
+          overrides: { request: { maxOutputTokens: 64_000 } },
+        },
+      ],
+    });
+    const props = (model: string) =>
+      f.reload().resolveEndpoint({ providerId: 'p', model }).requestProperties;
+    expect(props('missing')).toEqual({
+      contextWindowTokens: DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS,
+      maxOutputTokens: DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
+    });
+    f.config.setSettings({
+      agentLab: { defaultContextWindowTokens: 98_000, defaultMaxOutputTokens: 24_000 },
+    });
+    expect(props('known-window')).toEqual({
+      contextWindowTokens: 1_000_000,
+      maxOutputTokens: 24_000,
+    });
+    expect(props('known-output')).toEqual({ contextWindowTokens: 98_000, maxOutputTokens: 64_000 });
+    f.config.setSettings({ agentLab: { defaultMaxOutputTokens: null } });
+    expect(props('missing')).toEqual({ contextWindowTokens: 98_000 });
+    expect(props('known-output')?.maxOutputTokens).toBe(64_000);
+  });
   it('元数据读取不发推理，原始控制、默认值与手改标记跨重启保留', async () => {
     const f = fixture();
     const raw = {

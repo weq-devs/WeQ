@@ -57,6 +57,14 @@ export class AgentLabConfigService {
     return this.userConfig.getSettings().agentLab[DEFAULT_MODEL_FIELDS[capability]];
   }
 
+  getModelTokenDefaults() {
+    const config = this.userConfig.getSettings().agentLab;
+    return {
+      contextWindowTokens: config.defaultContextWindowTokens,
+      maxOutputTokens: config.defaultMaxOutputTokens ?? undefined,
+    };
+  }
+
   getDefaultVisionModelStatus() {
     return this.getDefaultModelStatus('vision');
   }
@@ -168,7 +176,11 @@ export class AgentLabConfigService {
         `已保存的模型不支持${DEFAULT_MODEL_LABELS[capability].slice(2)}用途：${ref.model}`,
       );
     return {
-      ...resolveEndpoint(provider, ref),
+      ...resolveEndpoint(
+        provider,
+        ref,
+        capability === 'embedding' ? undefined : this.getModelTokenDefaults(),
+      ),
       providerId: provider.id,
       providerName: provider.name,
       modelIdentity: modelEndpointIdentity(ref, provider.baseUrl),

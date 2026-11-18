@@ -37,7 +37,7 @@ import type {
 } from './types';
 import { isStickerUsable } from './sticker';
 import { assertEmbeddingModelIdentity } from './model_selection';
-import { normalizeCloneGeneration } from './generation';
+import { ConversationContextCompactor } from './conversation_context';
 import type { AiImagePort, AiImageRef, AiImageOutcome } from './images';
 
 /**
@@ -170,6 +170,7 @@ const REFLECT_EVERY = 8;
 const MIN_UNREFLECTED = 4;
 
 export class AgentRuntime {
+  private readonly contextCompactor = new ConversationContextCompactor();
   private readonly images?: AiImagePort;
   private readonly lifecycle = new AbortController();
   private readonly externalSignal?: AbortSignal;
@@ -453,6 +454,7 @@ export class AgentRuntime {
       chatEndpoint: AgentLabEndpoint;
       embeddingEndpoint: AgentLabEndpoint | null;
       history: AgentLabChatTurn[];
+      historyScope?: string;
       input: string;
       images?: AiImageRef[];
       now: number;
@@ -482,14 +484,27 @@ export class AgentRuntime {
       images: opts.images,
       signal,
     });
-    const history: AgentLabChatTurn[] = [];
-    const historyCount = normalizeCloneGeneration(persona.generation).historyMessages;
-    for (const turn of historyCount === 0 ? [] : opts.history.slice(-historyCount))
-      history.push(
-        turn.images?.length && this.images
-          ? {
-              ...turn,
-              text: (
+    const result = await runPersonaChat(
+      chatEndpoint,
+      embeddingEndpoint,
+      {
+        persona,
+        pairs,
+        history: opts.history,
+        input: prepared?.text ?? opts.input,
+        memories: opts.memories ?? this.memories.get(opts.dataKey ?? persona.id),
+        notes: this.notes.get(opts.dataKey ?? persona.id),
+        voiceEnabled,
+        typoIntensity: resolveTypoIntensity(persona.typo),
+        relationNote: opts.relationNote,
+        replyReason: opts.replyReason,
+      },
+      {
+        compactor: this.contextCompactor,
+        scope: opts.historyScope,
+        prepareHistory: async (turn) =>
+          turn.images?.length && this.images
+            ? (
                 await this.images.prepare({
                   feature: 'cloneChat',
                   personaId: persona.id,
@@ -497,22 +512,10 @@ export class AgentRuntime {
                   images: turn.images,
                   signal,
                 })
-              ).text,
-            }
-          : turn,
-      );
-    const result = await runPersonaChat(chatEndpoint, embeddingEndpoint, {
-      persona,
-      pairs,
-      history,
-      input: prepared?.text ?? opts.input,
-      memories: opts.memories ?? this.memories.get(opts.dataKey ?? persona.id),
-      notes: this.notes.get(opts.dataKey ?? persona.id),
-      voiceEnabled,
-      typoIntensity: resolveTypoIntensity(persona.typo),
-      relationNote: opts.relationNote,
-      replyReason: opts.replyReason,
-    });
+              ).text
+            : turn.text,
+      },
+    );
     signal.throwIfAborted();
     result.imageOutcomes = prepared?.outcomes;
     result.imageRefs = prepared?.images;
@@ -632,6 +635,7 @@ export class AgentRuntime {
         chatEndpoint,
         embeddingEndpoint,
         history: input.history.length ? input.history : this.conversations.get(bucket),
+        historyScope: bucket,
         input: input.text,
         images: input.images,
         now,
@@ -905,6 +909,7 @@ export class AgentRuntime {
       chatEndpoint,
       embeddingEndpoint,
       history: input.history,
+      historyScope: input.groupId === undefined ? undefined : dataKey,
       input: `「${input.senderName}」：${input.text}`,
       now,
       relationNote,

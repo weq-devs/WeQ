@@ -12,11 +12,7 @@ import {
   WEQ_ACCOUNT_SETTING_FILES,
   type WeqAccountSettingFile,
 } from '../common/backup_account_paths';
-import {
-  normalizeCloneGeneration,
-  CLONE_GENERATION_KEYS,
-  isDefaultModelSelection,
-} from '@weq/agentlab';
+import { isDefaultModelSelection } from '@weq/agentlab';
 
 function invalid(path: string): never {
   throw new Error(`备份数据结构无效：${path}`);
@@ -180,13 +176,28 @@ function persona(value: unknown, path: string, id: string): void {
     invalid(`${path}.voiceCloneEnabled`);
   if (item.generation !== undefined) {
     const generation = row(item.generation, `${path}.generation`);
-    const normalized = normalizeCloneGeneration(generation);
-    for (const [key, value] of Object.entries(generation))
-      if (
-        !CLONE_GENERATION_KEYS.includes(key as (typeof CLONE_GENERATION_KEYS)[number]) ||
-        value !== normalized[key as keyof typeof normalized]
-      )
-        invalid(`${path}.generation.${key}`);
+    for (const [key, value] of Object.entries(generation)) {
+      const location = `${path}.generation.${key}`;
+      if (key === 'useTrainingSamples' || key === 'useLongTermMemory') {
+        if (typeof value !== 'boolean') invalid(location);
+      } else if (key === 'reasoningEffort') {
+        if (typeof value !== 'string' || value.trim().length === 0 || value.length > 64)
+          invalid(location);
+      } else if (key === 'temperature') {
+        if (value !== null && (typeof value !== 'number' || value < 0 || value > 2))
+          invalid(location);
+      } else if (
+        [
+          'historyMessages',
+          'pairExamples',
+          'memoryItems',
+          'expressionItems',
+          'maxOutputTokens',
+        ].includes(key)
+      ) {
+        number(value, location);
+      } else invalid(location);
+    }
   }
   for (const [name, booleanKeys, numberKey, min, max] of [
     ['willing', ['gatePrivate', 'mustReplyOnMention'], 'level', 0, 100],

@@ -5,6 +5,9 @@ import type {
   ModelRequestProperties,
 } from './types';
 
+export const DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS = 128_000;
+export const DEFAULT_MODEL_MAX_OUTPUT_TOKENS = 32_000;
+
 export function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)

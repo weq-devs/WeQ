@@ -71,16 +71,17 @@ it('助手控制器复用会话页，默认模型设置及会话覆盖独立保�
     expect(document.querySelector('.weq-cvs-nav-item[aria-current="true"]')?.textContent).toBe(
       '模型设置',
     );
-    const history = document.querySelector<HTMLSelectElement>('[aria-label="对话上下文"]')!;
+    const sending = document.querySelector<HTMLSelectElement>('[aria-label="运行中默认发送方式"]')!;
+    expect(sending.value).toBe('boundary');
     await act(async () => {
-      history.value = '0';
-      history.dispatchEvent(new Event('change', { bubbles: true }));
+      sending.value = 'queue';
+      sending.dispatchEvent(new Event('change', { bubbles: true }));
     });
     expect(
       requests.some(
         (call) =>
           call.name === 'setAssistantConfig' &&
-          (call.input as { historyMessages?: number }).historyMessages === 0,
+          (call.input as { sendMode?: string }).sendMode === 'queue',
       ),
     ).toBe(true);
     await act(async () => document.querySelector<HTMLButtonElement>('.weq-cvs-close')!.click());

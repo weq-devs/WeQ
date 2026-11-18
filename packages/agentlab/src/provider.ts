@@ -4,6 +4,7 @@ import type {
   AgentLabModelRef,
   AgentLabProviderConfig,
   AgentLabProviderModel,
+  ModelRequestProperties,
 } from './types';
 import { readModelRequestProperties } from './model_metadata';
 
@@ -82,9 +83,14 @@ export function modelsWithCapability(
 export function resolveEndpoint(
   provider: AgentLabProviderConfig,
   ref: AgentLabModelRef,
+  defaults?: Pick<ModelRequestProperties, 'contextWindowTokens' | 'maxOutputTokens'>,
 ): AgentLabEndpoint {
   const model = provider.models.find((item) => item.id === ref.model);
   const request = { ...readModelRequestProperties(model?.metadata), ...model?.overrides?.request };
+  if (request.contextWindowTokens === undefined && defaults?.contextWindowTokens !== undefined)
+    request.contextWindowTokens = defaults.contextWindowTokens;
+  if (request.maxOutputTokens === undefined && defaults?.maxOutputTokens !== undefined)
+    request.maxOutputTokens = defaults.maxOutputTokens;
   return {
     baseUrl: provider.baseUrl,
     apiKey: provider.apiKey,

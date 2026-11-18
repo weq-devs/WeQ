@@ -8,7 +8,12 @@ import type {
   ModelRequestProperties,
   ReasoningProbeResult,
 } from '@weq/agentlab';
-import { modelReasoningEfforts, readModelRequestProperties } from '@weq/agentlab/model-metadata';
+import {
+  DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS,
+  DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
+  modelReasoningEfforts,
+  readModelRequestProperties,
+} from '@weq/agentlab/model-metadata';
 import {
   CheckCheck,
   ChevronDown,
@@ -42,6 +47,7 @@ import {
 import { useToastApi } from '../Toast.shared';
 import { DefaultApiModelRow } from './DefaultApiModelRow';
 import { DefaultVisionModelRow } from './AiImageSettings';
+import { AutoSave } from './AutoSave';
 import '../../styles/search-scope.css';
 import '../../styles/provider-settings.css';
 
@@ -135,6 +141,119 @@ function parseTokenCount(input: string): number | undefined {
   if (!digits || power < 0) return undefined;
   const tokens = Number(`${digits}e${power}`);
   return Number.isSafeInteger(tokens) ? tokens : undefined;
+}
+
+const MODEL_TOKEN_DEFAULT_ROWS = [
+  {
+    field: 'defaultContextWindowTokens',
+    id: 'llm-default-context-window',
+    reset: 'api-default:context-window',
+    label: '默认上下文窗口',
+    desc: '模型未声明窗口时使用。',
+    defaultValue: DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS,
+  },
+  {
+    field: 'defaultMaxOutputTokens',
+    id: 'llm-default-max-output',
+    reset: 'api-default:max-output',
+    label: '默认最大输出',
+    desc: '模型未声明上限时使用，仅约束指定了输出预算的请求。',
+    defaultValue: DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
+  },
+] as const;
+
+function ModelTokenDefaultRow({
+  definition,
+  saved,
+  ready,
+}: {
+  definition: (typeof MODEL_TOKEN_DEFAULT_ROWS)[number];
+  saved: number | null;
+  ready: boolean;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const change = trpc.bootstrap.setAgentLabModelTokenDefaults.useMutation();
+  const utils = trpc.useUtils();
+  const { field, id, label, desc, defaultValue, reset } = definition;
+  const formatted = (value: number | null) =>
+    value === null ? '' : value % 1000 === 0 ? `${value / 1000}k` : String(value);
+  const input = draft ?? formatted(saved);
+  const value = input.trim()
+    ? parseTokenCount(input)
+    : field === 'defaultContextWindowTokens'
+      ? defaultValue
+      : null;
+  return (
+    <AutoSave
+      value={value}
+      saved={saved}
+      ready={ready}
+      valid={value !== undefined}
+      resetKeys={[reset]}
+      reset={() => setDraft(null)}
+      save={async (next) => {
+        if (next === undefined) return;
+        const saved = await change.mutateAsync(
+          field === 'defaultContextWindowTokens'
+            ? { defaultContextWindowTokens: next ?? defaultValue }
+            : { defaultMaxOutputTokens: next },
+        );
+        utils.bootstrap.getSettings.setData(undefined, (current) =>
+          current
+            ? { ...current, agentLab: { ...current.agentLab, [field]: saved[field] } }
+            : current,
+        );
+        setDraft((current) => (current === input ? null : current));
+      }}
+    >
+      <Row
+        settingId={id}
+        label={label}
+        desc={desc}
+        control={
+          <input
+            className="weq-set-input weq-number w-28"
+            aria-label={label}
+            aria-invalid={ready && value === undefined}
+            title="Token；支持 k、M 简写"
+            placeholder={field === 'defaultContextWindowTokens' ? formatted(defaultValue) : '不设'}
+            value={input}
+            disabled={!ready}
+            onChange={(event) => setDraft(event.target.value)}
+          />
+        }
+      />
+    </AutoSave>
+  );
+}
+
+function ModelTokenDefaults() {
+  const active = useTabActive();
+  const settings = trpc.bootstrap.getSettings.useQuery(undefined, { enabled: active });
+  if (!settings.data && settings.error)
+    return (
+      <QueryError
+        message={`容量缺省值读取失败：${settings.error.message}`}
+        retryLabel="重新读取容量缺省值"
+        retrying={settings.isFetching}
+        onRetry={() => void settings.refetch()}
+      />
+    );
+  return (
+    <>
+      {MODEL_TOKEN_DEFAULT_ROWS.map((definition) => {
+        const saved = settings.data?.agentLab?.[definition.field];
+        return (
+          <ModelTokenDefaultRow
+            key={definition.field}
+            definition={definition}
+            ready={saved !== undefined}
+            saved={saved === undefined ? definition.defaultValue : saved}
+          />
+        );
+      })}
+    </>
+  );
 }
 
 function requestOverrides(model: ModelForm): ModelRequestProperties | undefined {
@@ -968,6 +1087,7 @@ export function AgentLabSection(): ReactElement {
         <DefaultApiModelRow />
         <DefaultVisionModelRow />
         <DefaultApiModelRow capability="embedding" />
+        <ModelTokenDefaults />
         <div className="weq-set-card-title">已保存的服务商</div>
         {providers.error ? (
           <QueryError

@@ -41,6 +41,10 @@ import { DEFAULT_SERVICE_PORTS } from '../common/service_ports';
 import { DEFAULT_CONTACT_CARD, normalizeContactCard } from '../common/contact_card';
 import type { AgentLabModelRef, AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
 import { normalizeImagePreferences, type AiImagePreferences } from '@weq/agentlab';
+import {
+  DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS,
+  DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
+} from '@weq/agentlab/model-metadata';
 import type { AccountConfig } from '../account/user_config';
 import { normalizeAccountConfig } from '../account/user_config';
 import {
@@ -705,6 +709,12 @@ export interface AgentLabSettings {
   defaultModel: AgentLabModelRef | null;
   defaultVisionModel: AgentLabModelRef | null;
   defaultEmbeddingModel: AgentLabModelRef | null;
+  defaultContextWindowTokens: number;
+  defaultMaxOutputTokens: number | null;
+}
+
+function modelTokenCount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined;
 }
 
 /**
@@ -1197,6 +1207,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     defaultModel: null,
     defaultVisionModel: null,
     defaultEmbeddingModel: null,
+    defaultContextWindowTokens: DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS,
+    defaultMaxOutputTokens: DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
   },
   aiImages: normalizeImagePreferences(null),
   windowCloseBehavior: 'tray',
@@ -2084,6 +2096,14 @@ export class UserConfigService {
         defaultModel: normalizeAgentLabDefaultModel(s?.agentLab?.defaultModel),
         defaultVisionModel: normalizeAgentLabDefaultModel(s?.agentLab?.defaultVisionModel),
         defaultEmbeddingModel: normalizeAgentLabDefaultModel(s?.agentLab?.defaultEmbeddingModel),
+        defaultContextWindowTokens:
+          modelTokenCount(s?.agentLab?.defaultContextWindowTokens) ??
+          d.agentLab.defaultContextWindowTokens,
+        defaultMaxOutputTokens:
+          s?.agentLab?.defaultMaxOutputTokens === null
+            ? null
+            : (modelTokenCount(s?.agentLab?.defaultMaxOutputTokens) ??
+              d.agentLab.defaultMaxOutputTokens),
       },
       aiImages: normalizeImagePreferences(s?.aiImages),
     };
@@ -2304,6 +2324,14 @@ export class UserConfigService {
           patch.agentLab?.defaultEmbeddingModel !== undefined
             ? normalizeAgentLabDefaultModel(patch.agentLab.defaultEmbeddingModel)
             : current.agentLab.defaultEmbeddingModel,
+        defaultContextWindowTokens:
+          modelTokenCount(patch.agentLab?.defaultContextWindowTokens) ??
+          current.agentLab.defaultContextWindowTokens,
+        defaultMaxOutputTokens:
+          patch.agentLab?.defaultMaxOutputTokens === null
+            ? null
+            : (modelTokenCount(patch.agentLab?.defaultMaxOutputTokens) ??
+              current.agentLab.defaultMaxOutputTokens),
       },
       aiImages: normalizeImagePreferences({ ...current.aiImages, ...patch.aiImages }),
     };

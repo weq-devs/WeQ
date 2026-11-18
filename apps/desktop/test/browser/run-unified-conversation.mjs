@@ -152,7 +152,7 @@ try {
           throw new Error(JSON.stringify({ kind, width, theme, layout }));
         if (kind === 'assistant') {
           await openAssistantSettings();
-          for (const label of ['模型设置', '提示与工具', '运行中发送']) {
+          for (const label of ['模型设置', '提示与工具']) {
             await page.locator('.weq-cvs-nav-item').filter({ hasText: label }).click();
             const fit = await page.locator('.weq-cvs-dialog').evaluate((node) => {
               const rect = node.getBoundingClientRect();
@@ -200,11 +200,9 @@ try {
           if (await page.getByLabel('运行中发送方式', { exact: true }).count())
             throw new Error('输入区不应提供逐条发送模式切换');
           await openAssistantSettings();
-          await page.locator('.weq-cvs-nav-item').filter({ hasText: '运行中发送' }).click();
           await page
-            .getByRole('radiogroup', { name: '运行中默认发送方式', exact: true })
-            .getByRole('radio', { name: '排队发送', exact: true })
-            .click();
+            .getByRole('combobox', { name: '运行中默认发送方式', exact: true })
+            .selectOption('queue');
           await page.locator('.weq-cvs-close').click();
           await send('排队的问题');
           await page.getByLabel('待处理消息', { exact: true }).waitFor();

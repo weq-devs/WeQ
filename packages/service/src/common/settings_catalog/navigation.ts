@@ -388,7 +388,6 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['model-settings', '助手模型设置'],
       ['default-model', '助手默认聊天模型'],
       ['default-effort', '助手默认思考强度'],
-      ['historyMessages', '对话上下文'],
       ['permission', '运行模式'],
       ['customPrompt', '额外提示词'],
       ['mcpServers', '外部 MCP 服务器'],
@@ -423,6 +422,20 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     from: ['agentlab'],
   },
   { id: 'llm-default-model', section: 'agentlab', label: '默认聊天模型', from: ['agentlab'] },
+  {
+    id: 'llm-default-context-window',
+    section: 'agentlab',
+    label: '默认上下文窗口',
+    aliases: ['上下文预算', '上下文长度'],
+    from: ['agentlab'],
+  },
+  {
+    id: 'llm-default-max-output',
+    section: 'agentlab',
+    label: '默认最大输出',
+    aliases: ['输出上限', '最大输出 Token'],
+    from: ['agentlab'],
+  },
   {
     id: 'llm-default-vision-model',
     section: 'agentlab',

@@ -420,6 +420,38 @@ it.each([
   }
 });
 
+it('API 恢复只覆盖备份中的缺省值，并规范化旧助手设置', () => {
+  const f = fixture();
+  write(join(f.root, 'config.json'), {
+    ...f.initial,
+    settings: {
+      ...f.initial.settings,
+      agentLab: { providers: [], defaultContextWindowTokens: 160_000 },
+    },
+  });
+  const archive = buildWeqBackup([
+    file('api/settings.json', {
+      agentLab: { providers: [], defaultMaxOutputTokens: null },
+      sharedAssistant: {
+        sendMode: 'interrupt',
+        temperature: 0.8,
+        historyMessages: 0,
+        customPrompt: '合成',
+      },
+    }),
+  ]);
+  stageWeqBackupRestore(f.root, archive, { parts: ['api'], conflict: 'overwrite' });
+  expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+  const { agentLab, sharedPreferences } = read(join(f.root, 'config.json')).settings;
+  expect(agentLab).toMatchObject({
+    defaultContextWindowTokens: 160_000,
+    defaultMaxOutputTokens: null,
+  });
+  expect(sharedPreferences.assistant).toMatchObject({ sendMode: 'boundary', customPrompt: '合成' });
+  expect(sharedPreferences.assistant).not.toHaveProperty('historyMessages');
+  expect(sharedPreferences.assistant).not.toHaveProperty('temperature');
+});
+
 it.each([false, true])('旧退出提醒字段在真实备份恢复事务中被丢弃：%s', (quitConfirmSuppressed) => {
   const f = fixture();
   write(join(f.root, 'config.json'), {

@@ -77,6 +77,14 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         },
       }),
       bootstrap: {
+        getSettings: {
+          useQuery: () => ({
+            data: {
+              agentLab: { defaultContextWindowTokens: 128_000, defaultMaxOutputTokens: 32_000 },
+            },
+          }),
+        },
+        setAgentLabModelTokenDefaults: { useMutation: () => ({ mutateAsync: vi.fn() }) },
         getDefaultVisionModel: {
           useQuery: () => ({ data: { ref: null, available: false, error: null } }),
         },

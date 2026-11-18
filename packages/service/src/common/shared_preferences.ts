@@ -145,12 +145,11 @@ export function sharedPreferencePersistence<
       const entries = Object.entries(value);
       const previousRules = rules();
       const previous = owner.getSharedPreference(key);
-      owner.patchSharedPreference(
-        key,
-        Object.fromEntries(
-          entries.filter(([name]) => !ruleKeys.includes(name)),
-        ) as SharedPreferenceGroups[K],
-      );
+      const next = Object.fromEntries(
+        entries.filter(([name]) => !ruleKeys.includes(name)),
+      ) as SharedPreferenceGroups[K];
+      if (key === 'assistant') owner.replaceSharedPreference(key, next);
+      else owner.patchSharedPreference(key, next);
       if (rulesPath) {
         const next = Object.fromEntries(entries.filter(([name]) => ruleKeys.includes(name)));
         if (JSON.stringify(previousRules) !== JSON.stringify(next)) {

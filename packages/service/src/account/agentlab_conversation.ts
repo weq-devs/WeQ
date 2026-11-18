@@ -32,12 +32,9 @@ export interface ConversationTurn {
   steps?: AssistantProcessStep[];
 }
 
-/** 单个 agent 最多保留的回合数（防文件无限增长）。 */
-export const MAX_CONVERSATION_TURNS = 400;
-
 export class ConversationStore {
   private readonly store: JsonStore<Record<string, ConversationTurn[]>>;
-  private readonly unbounded = new Set<string>();
+  private readonly mergedOwners = new Set<string>();
 
   constructor(filePath: string) {
     this.store = new JsonStore(filePath, () => ({}), {
@@ -76,7 +73,7 @@ export class ConversationStore {
   /** 在同一个原子文件内合并旧分会话；身份、时间及来源都保持不变。 */
   mergeOwner(agentId: string, titles: ReadonlyMap<string, string>): void {
     this.store.assertReadable();
-    if (this.unbounded.has(agentId)) return;
+    if (this.mergedOwners.has(agentId)) return;
     const keys = Object.keys(this.store.data).filter((key) => key.startsWith(`${agentId}:`));
     if (!keys.length) {
       const current = this.get(agentId);
@@ -96,7 +93,7 @@ export class ConversationStore {
           true,
         );
       }
-      this.unbounded.add(agentId);
+      this.mergedOwners.add(agentId);
       return;
     }
     const merged = [
@@ -117,7 +114,7 @@ export class ConversationStore {
     const next = { ...this.store.data, [agentId]: uniqueCloneMessageIds(agentId, merged) };
     for (const key of keys) delete next[key];
     this.store.replace(next, true);
-    this.unbounded.add(agentId);
+    this.mergedOwners.add(agentId);
   }
 
   clearOwner(agentId: string): void {
@@ -126,16 +123,12 @@ export class ConversationStore {
       if (key === agentId || key.startsWith(`${agentId}:`)) delete next[key];
     }
     this.store.replace(next, true);
-    this.unbounded.delete(agentId);
+    this.mergedOwners.delete(agentId);
   }
 
   append(agentId: string, turns: ConversationTurn[]): void {
     const cur = this.get(agentId);
-    const next = [...cur, ...turns.map((turn) => ({ ...turn, id: randomUUID() }))];
-    this.store.data[agentId] =
-      !this.unbounded.has(agentId) && next.length > MAX_CONVERSATION_TURNS
-        ? next.slice(next.length - MAX_CONVERSATION_TURNS)
-        : next;
+    this.store.data[agentId] = [...cur, ...turns.map((turn) => ({ ...turn, id: randomUUID() }))];
     this.store.save();
   }
 
@@ -190,10 +183,7 @@ export class ConversationStore {
     else current[index] = { ...current[index], ...turn };
     this.store.replace({
       ...this.store.data,
-      [agentId]:
-        !this.unbounded.has(agentId) && current.length > MAX_CONVERSATION_TURNS
-          ? current.slice(-MAX_CONVERSATION_TURNS)
-          : current,
+      [agentId]: current,
     });
   }
   removeTurn(agentId: string, id: string): void {

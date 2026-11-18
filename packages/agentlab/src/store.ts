@@ -15,6 +15,7 @@ import {
 import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AgentLabPersona, AgentLabStoredPair } from './types';
+import { normalizeCloneGeneration } from './generation';
 
 export interface StoredPersonaRecord {
   persona: AgentLabPersona;
@@ -64,6 +65,8 @@ export class AgentLabStore {
         return null;
       if (!record?.persona || record.persona.id !== personaId || !Array.isArray(record.pairs))
         throw new Error('记录结构或 ID 不匹配');
+      if (record.persona.generation)
+        record.persona.generation = normalizeCloneGeneration(record.persona.generation);
       return record;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;

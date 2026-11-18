@@ -445,8 +445,6 @@ async function sampleHomeChatLines(
 }
 
 const agentLabModelRef = agentLabModelSelectionSchema;
-const cloneQuantity = (key: CloneGenerationKey) =>
-  z.number().int().min(CLONE_GENERATION[key].min).max(CLONE_GENERATION[key].max).optional();
 const agentLabModels = z.object({
   chat: agentLabModelRef,
   embedding: agentLabModelRef.optional(),
@@ -2516,14 +2514,19 @@ export const accountRouter = router({
         llmModels.set(m.providerId, ids);
       }
       const llmProviders: import('@weq/service').BotExportInput['llmProviders'] = [];
+      const tokenDefaults = cfg.getModelTokenDefaults();
       for (const [id, modelIds] of llmModels) {
         const p = cfg.getProvider(id);
         if (!p) throw new Error(`缺少 LLM provider 配置：${id}（请先在设置里配置该厂商）`);
         const modelProperties = [...modelIds].flatMap((model) => {
-          const { requestProperties, reasoningEfforts } = resolveProviderEndpoint(p, {
-            providerId: id,
-            model,
-          });
+          const { requestProperties, reasoningEfforts } = resolveProviderEndpoint(
+            p,
+            {
+              providerId: id,
+              model,
+            },
+            tokenDefaults,
+          );
           return requestProperties || reasoningEfforts
             ? [{ id: model, requestProperties, reasoningEfforts }]
             : [];
@@ -2949,12 +2952,8 @@ export const accountRouter = router({
         chatModel: agentLabModelRef.optional(),
         generation: z
           .object({
-            historyMessages: cloneQuantity('historyMessages'),
-            pairExamples: cloneQuantity('pairExamples'),
-            memoryItems: cloneQuantity('memoryItems'),
-            expressionItems: cloneQuantity('expressionItems'),
-            maxOutputTokens: cloneQuantity('maxOutputTokens'),
-            temperature: z.number().min(0).max(2).nullable().optional(),
+            useTrainingSamples: z.boolean().optional(),
+            useLongTermMemory: z.boolean().optional(),
             reasoningEffort: z.string().trim().min(1).max(64).optional(),
           })
           .optional(),
@@ -10022,5 +10021,4 @@ function directoryReadPositions(
   return reads as Record<string, string>;
 }
 
-import { CLONE_GENERATION, type CloneGenerationKey } from '@weq/agentlab';
 import { retainAiImage } from '../../ai_images';

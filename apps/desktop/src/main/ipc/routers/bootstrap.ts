@@ -2251,6 +2251,30 @@ export const bootstrapRouter = router({
     requireBootstrap().agentLabConfig.getDefaultModelStatus(),
   ),
 
+  setAgentLabModelTokenDefaults: procedure
+    .input(
+      z.object({
+        defaultContextWindowTokens: z
+          .number()
+          .int()
+          .positive()
+          .max(Number.MAX_SAFE_INTEGER)
+          .optional(),
+        defaultMaxOutputTokens: z
+          .number()
+          .int()
+          .positive()
+          .max(Number.MAX_SAFE_INTEGER)
+          .nullable()
+          .optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      const { defaultContextWindowTokens, defaultMaxOutputTokens } =
+        requireBootstrap().userConfig.setSettings({ agentLab: input }).agentLab;
+      return { defaultContextWindowTokens, defaultMaxOutputTokens };
+    }),
+
   getDefaultVisionModel: procedure.query(() =>
     requireBootstrap().agentLabConfig.getDefaultVisionModelStatus(),
   ),
@@ -2352,6 +2376,7 @@ export const bootstrapRouter = router({
                 .object({
                   capabilities: z.array(z.enum(['chat', 'embedding', 'vision'])).optional(),
                   reasoning: z.boolean().optional(),
+                  request: modelRequestPropertiesSchema.optional(),
                 })
                 .optional(),
               metadata: z
@@ -2362,7 +2387,6 @@ export const bootstrapRouter = router({
                     vision: z.enum(['supported', 'unsupported', 'unknown']),
                   }),
                   reasoning: z.object({
-                  request: modelRequestPropertiesSchema.optional(),
                     supported: z.boolean().optional(),
                     mandatory: z.boolean().optional(),
                     controls: z.array(
@@ -2412,6 +2436,8 @@ export const bootstrapRouter = router({
         model: z.string().min(1),
         providerId: z.string().min(1).optional(),
         providerName: z.string().optional(),
+        capability: z.enum(['chat', 'embedding', 'vision']).optional(),
+        requestProperties: modelRequestPropertiesSchema.optional(),
       }),
     )
     .mutation(({ input }) => {
@@ -2422,14 +2448,13 @@ export const bootstrapRouter = router({
     .input(
       z.object({
         baseUrl: z.string().min(1),
-        capability: z.enum(['chat', 'embedding', 'vision']).optional(),
-        requestProperties: modelRequestPropertiesSchema.optional(),
         apiKey: z.string().default(''),
         model: z.string().min(1),
         providerId: z.string().min(1).optional(),
         providerName: z.string().optional(),
         capabilities: z.array(z.enum(['chat', 'embedding', 'vision'])).optional(),
         reasoning: z.boolean().optional(),
+        requestProperties: modelRequestPropertiesSchema.optional(),
       }),
     )
     .mutation(({ input }) => requireBootstrap().agentLabConfig.detectCapabilities(input)),
@@ -2440,7 +2465,6 @@ export const bootstrapRouter = router({
   getTtsCatalog: procedure.query(() => {
     return requireBootstrap().tts.listCatalog();
   }),
-        requestProperties: modelRequestPropertiesSchema.optional(),
 
   /** 已保存的 TTS 服务商列表。 */
   listTtsProviders: procedure.query(() => {

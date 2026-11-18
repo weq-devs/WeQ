@@ -275,6 +275,10 @@ export class WeqBackupService {
         api.agentLab.defaultModel !== null ||
         api.agentLab.defaultVisionModel !== null ||
         api.agentLab.defaultEmbeddingModel !== null ||
+        api.agentLab.defaultContextWindowTokens !==
+          DEFAULT_APP_SETTINGS.agentLab.defaultContextWindowTokens ||
+        api.agentLab.defaultMaxOutputTokens !==
+          DEFAULT_APP_SETTINGS.agentLab.defaultMaxOutputTokens ||
         api.ttsProviders.length > 0 ||
         api.mcp.enabled ||
         Boolean(api.mcp.token) ||
