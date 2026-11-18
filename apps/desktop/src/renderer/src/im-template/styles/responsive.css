@@ -759,7 +759,11 @@
 
 :where(html[data-weq-layout='single']) .chat-pane:has(.composer > .emoji-panel),
 :where(html[data-weq-layout='single']) .chat-pane:has(.composer > .composer-plus-panel) {
-  --composer-height: 336px !important;
+  --composer-height: var(--mobile-composer-panel-height, 336px) !important;
+}
+
+:where(html[data-weq-layout='single']) .chat-pane:has(.composer > .emoji-panel .poke-panel) {
+  --mobile-composer-panel-height: 364px;
 }
 
 :where(html[data-weq-layout='single']) .chat-pane:has(.composer > .emoji-panel) .composer {

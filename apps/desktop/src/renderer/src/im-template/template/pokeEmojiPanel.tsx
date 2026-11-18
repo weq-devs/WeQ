@@ -50,11 +50,11 @@ const COMBO_STEPS = Array.from({ length: POKE_COMBO_MAX + 1 }, (_, index) => ind
 
 /** 连击按钮里那枚小图的目标高度：越大的档位图越大。 */
 function comboThumbSize(step: number): number {
-  return 12 + step * 4;
+  return 11 + step * 3;
 }
 
 /** 面板预览的目标边长。 */
-const PREVIEW_SIZE = 40;
+const PREVIEW_SIZE = 64;
 
 type Mode = 'poke' | 'random';
 
@@ -154,7 +154,7 @@ export function PokeEmojiPanel({
             <FaceEmoji
               key={random ? selectedRandom.faceId : `poke-${pokeId}`}
               element={previewElement}
-              size={random ? PREVIEW_SIZE : 24 + combo * 5}
+              size={random ? PREVIEW_SIZE : 46 + combo * 6}
               className={cn('poke-preview-face')}
             />
           </div>

@@ -236,7 +236,7 @@ html[data-weq-mobile-client='true'][data-weq-layout='wide'] .composer-editor {
   html[data-weq-layout='single']
     .chat-pane:has(.composer > :is(.emoji-panel, .composer-plus-panel)) {
     --composer-height: min(
-      336px,
+      var(--mobile-composer-panel-height, 336px),
       calc(var(--weq-mobile-viewport-height, 100dvh) - 112px)
     ) !important;
   }
