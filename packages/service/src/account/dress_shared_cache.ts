@@ -43,6 +43,7 @@ import {
   readFileSync,
   readSync,
   readdirSync,
+  statSync,
   writeFileSync,
   rmSync,
 } from 'node:fs';
@@ -52,6 +53,7 @@ import type { TrpcNative } from '@weq/protocol';
 import { getBubbleResources, getFontResource, getPendantResources } from '@weq/protocol';
 import type { NtHelperBinding } from '@weq/native';
 import { getHost } from '../common/host';
+import { writeFileAtomic } from '../common/atomic_write';
 import { getLogger, logErrorContext } from '../common/logger';
 import {
   extractAllFromZip,
@@ -164,6 +166,9 @@ export interface BubbleSidecar {
   animationRepeat?: number;
 }
 
+const MAX_CACHED_BUBBLE_ARCHIVE_BYTES = 16 * 1024 * 1024;
+const MAX_BUBBLE_CONFIG_BYTES = 256 * 1024;
+
 /** 挂件元数据 sidecar。 */
 export interface PendantSidecar {
   itemId: number;
@@ -209,28 +214,26 @@ export class DressSharedCache {
   private async cacheMessageBubble(itemId: number): Promise<void> {
     try {
       const path = join(this.bubblesDir, `${itemId}.png`);
-      const [json, info, config] = await Promise.all([
-        readFile(join(this.bubblesDir, `${itemId}.json`), 'utf8'),
-        stat(path),
-        readFile(join(this.bubblesDir, `${itemId}-config.json`), 'utf8').catch(() => null),
-      ]);
+      const sidecarPath = join(this.bubblesDir, `${itemId}.json`);
+      const [json, info] = await Promise.all([readFile(sidecarPath, 'utf8'), stat(path)]);
       if (!info.isFile()) return;
       const png = await readFile(path);
       let meta = JSON.parse(json) as BubbleSidecar;
       if (!meta.slice || !meta.imageSize || !meta.textColor || !pngSize(png)) return;
       if (meta.geometryVersion !== BUBBLE_GEOMETRY_VERSION) {
-        const zoomPoint = cachedBubbleMetadata(config).zoomPoint ?? meta.zoomPoint;
-        const geometry = readBubbleGeometry(png, zoomPoint);
-        if (!geometry) return;
-        meta = { ...meta, ...geometry, zoomPoint, geometryVersion: BUBBLE_GEOMETRY_VERSION };
+        const config = await this.readCachedBubbleConfig(itemId);
+        const refreshed = refreshBubbleSidecar(meta, png, config);
+        if (!refreshed) return;
+        meta = refreshed;
+        if (config)
+          await writeFileAtomic(sidecarPath, JSON.stringify(meta, null, 2)).catch(() => {});
       }
-      const linkColor = cachedBubbleMetadata(config).linkColor;
       const skin: MessageBubbleSkin = {
         itemId,
         slice: meta.slice,
         imageSize: meta.imageSize,
         textColor: meta.textColor,
-        linkColor: linkColor ? argbToCss(linkColor) : meta.linkColor,
+        linkColor: meta.linkColor,
         localFile: join(this.bubblesDir, `${itemId}.png`),
         animationFrameCount: meta.animationFrameCount,
         animationFrameTimeMs: meta.animationFrameTimeMs,
@@ -335,20 +338,13 @@ export class DressSharedCache {
       let sidecar = JSON.parse(readFileSync(sidecarPath, 'utf-8')) as BubbleSidecar;
       if (!sidecar.slice || !sidecar.imageSize || !sidecar.textColor) return null;
       if (sidecar.geometryVersion !== BUBBLE_GEOMETRY_VERSION) {
-        const configPath = join(this.bubblesDir, `${itemId}-config.json`);
-        const config = cachedBubbleMetadata(
-          existsSync(configPath) ? readFileSync(configPath, 'utf8') : null,
+        const refreshed = refreshBubbleSidecar(
+          sidecar,
+          readFileSync(localFile),
+          this.readCachedBubbleConfigSync(itemId),
         );
-        const zoomPoint = config.zoomPoint ?? sidecar.zoomPoint;
-        const geometry = readBubbleGeometry(readFileSync(localFile), zoomPoint);
-        if (!geometry) return null;
-        sidecar = {
-          ...sidecar,
-          ...geometry,
-          zoomPoint,
-          linkColor: config.linkColor ? argbToCss(config.linkColor) : sidecar.linkColor,
-          geometryVersion: BUBBLE_GEOMETRY_VERSION,
-        };
+        if (!refreshed) return null;
+        sidecar = refreshed;
       }
       return {
         itemId,
@@ -369,6 +365,39 @@ export class DressSharedCache {
       });
       return null;
     }
+  }
+
+  private async readCachedBubbleConfig(itemId: number) {
+    const config = parseBubbleConfig(
+      await readFile(join(this.bubblesDir, `${itemId}-config.json`), 'utf8').catch(() => null),
+    );
+    if (config) return config;
+    const zip = join(this.bubblesDir, `${itemId}-other.zip`);
+    try {
+      if ((await stat(zip)).size <= MAX_CACHED_BUBBLE_ARCHIVE_BYTES)
+        return bubbleConfigFromZip(await readFile(zip));
+    } catch {
+      // 以前未保存原包，或原包已清理；仍保留 PNG 的切片回退。
+    }
+    return undefined;
+  }
+
+  private readCachedBubbleConfigSync(itemId: number) {
+    const configPath = join(this.bubblesDir, `${itemId}-config.json`);
+    try {
+      const config = parseBubbleConfig(readFileSync(configPath, 'utf8'));
+      if (config) return config;
+    } catch {
+      // 无独立配置时复用动画 ZIP 自带的配置。
+    }
+    const zip = join(this.bubblesDir, `${itemId}-other.zip`);
+    try {
+      if (statSync(zip).size <= MAX_CACHED_BUBBLE_ARCHIVE_BYTES)
+        return bubbleConfigFromZip(readFileSync(zip));
+    } catch {
+      // 切片仍可从 PNG 推导。
+    }
+    return undefined;
   }
 
   /**
@@ -435,15 +464,33 @@ export class DressSharedCache {
     const pngPath = join(this.bubblesDir, `${itemId}.png`);
     writeFileSync(pngPath, png);
 
-    // 帧动画 / 配色都来自 zip 侧的 config.json；拿不到就当纯静态款。
-    const config = await fetchBubbleConfig(
+    // 优先手机的独立配置；缺失时再看动画包中的配置。
+    let config = await fetchBubbleConfig(
       urls.configUrl,
       join(this.bubblesDir, `${itemId}-config.json`),
     );
-    const animation =
-      config?.animation && urls.otherZipUrl
-        ? await this.extractBubbleFrames(itemId, urls.otherZipUrl, config.animation)
-        : undefined;
+    let animation: ReturnType<DressSharedCache['extractBubbleFrames']>;
+    if (urls.otherZipUrl && (!config || config.animation)) {
+      try {
+        const otherZipPath = join(this.bubblesDir, `${itemId}-other.zip`);
+        const other = await downloadUrlToFile(
+          urls.otherZipUrl,
+          otherZipPath,
+          config ? undefined : { maxBytes: MAX_CACHED_BUBBLE_ARCHIVE_BYTES },
+        );
+        if (other.ok) {
+          const archive = readFileSync(otherZipPath);
+          config ??= bubbleConfigFromZip(archive);
+          if (config?.animation)
+            animation = this.extractBubbleFrames(itemId, archive, config.animation);
+        }
+      } catch (e) {
+        this.logger.warn('could not load bubble animation archive', {
+          itemId,
+          ...logErrorContext(e),
+        });
+      }
+    }
 
     const skin = buildLocalBubbleSkin({
       itemId,
@@ -487,27 +534,21 @@ export class DressSharedCache {
   }
 
   /**
-   * 下 other.zip，把帧动画解出来。
+   * 从同一个动画 ZIP 解包，避免再下载一次原件。
    */
-  private async extractBubbleFrames(
+  private extractBubbleFrames(
     itemId: number,
-    otherZipUrl: string,
+    archive: Buffer,
     anim: { zipName: string; frameTimeMs: number; repeat: number },
-  ): Promise<{ frameCount: number; frameTimeMs: number; repeat: number } | undefined> {
+  ): { frameCount: number; frameTimeMs: number; repeat: number } | undefined {
     try {
-      const zipPath = join(this.bubblesDir, `${itemId}-other.zip`);
-      const dl = await downloadUrlToFile(otherZipUrl, zipPath);
-      if (!dl.ok) return undefined;
-
       const prefix = anim.zipName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const frameRe = new RegExp(`^${prefix}/.*\\.9\\.png$`, 'i');
-      const frames = extractAllFromZip(readFileSync(zipPath), (n) => frameRe.test(n)).sort(
-        (a, b) => {
-          const na = Number(a.name.match(/(\d+)/)?.[1] ?? 0);
-          const nb = Number(b.name.match(/(\d+)/)?.[1] ?? 0);
-          return na - nb;
-        },
-      );
+      const frames = extractAllFromZip(archive, (n) => frameRe.test(n)).sort((a, b) => {
+        const na = Number(a.name.match(/(\d+)/)?.[1] ?? 0);
+        const nb = Number(b.name.match(/(\d+)/)?.[1] ?? 0);
+        return na - nb;
+      });
       if (frames.length === 0) return undefined;
 
       frames.forEach((frame, i) => {
@@ -1212,43 +1253,21 @@ export function readFontFx(assetsDir: string): FontFx | null {
   return variants.length > 0 ? { variants } : null;
 }
 
-/** 下 config.json，拿顶层 color 与 animation_sets.bubbleframe_anim。 */
-async function fetchBubbleConfig(
-  url: string | undefined,
-  cachePath: string,
-): Promise<
-  | {
-      color?: string;
-      linkColor?: string;
-      zoomPoint?: [number, number];
-      animation?: { zipName: string; frameTimeMs: number; repeat: number };
-    }
-  | undefined
-> {
-  if (!url) return undefined;
+/** 独立配置和动画原包中的 config.json 共用字段解析。 */
+function parseBubbleConfig(text: string | null) {
+  if (!text) return undefined;
   try {
-    const res = await networkFetch(url);
-    if (!res.ok) return undefined;
-    const text = await res.text();
-    const json = JSON.parse(text) as {
-      color?: unknown;
+    const json: unknown = JSON.parse(text);
+    if (!json || typeof json !== 'object' || Array.isArray(json)) return undefined;
+    const config = json as {
       bubbleframe_animation?: { animation_set?: unknown };
       animation_sets?: Record<
         string,
         { zip_name?: unknown; time?: unknown; repeat?: unknown; count?: unknown }
       >;
     };
-    try {
-      writeFileSync(cachePath, text);
-    } catch (error) {
-      getLogger().warn('could not cache bubble config', {
-        event: 'dress-bubble-config-cache',
-        ...logErrorContext(error),
-      });
-    }
-
-    const setKey = json.bubbleframe_animation?.animation_set;
-    const set = typeof setKey === 'string' ? json.animation_sets?.[setKey] : undefined;
+    const setKey = config.bubbleframe_animation?.animation_set;
+    const set = typeof setKey === 'string' ? config.animation_sets?.[setKey] : undefined;
     const zipName = typeof set?.zip_name === 'string' ? set.zip_name : undefined;
     const frameTimeMs = Number(set?.time ?? 0);
     const hasFrames = Number(set?.count ?? 0) > 0;
@@ -1263,11 +1282,49 @@ async function fetchBubbleConfig(
   }
 }
 
-function cachedBubbleMetadata(json: string | null) {
+function bubbleConfigFromZip(zip: Buffer) {
+  const config = extractFromZip(zip, (name) => name === 'config.json', MAX_BUBBLE_CONFIG_BYTES);
+  return parseBubbleConfig(config?.toString('utf8') ?? null);
+}
+
+function refreshBubbleSidecar(
+  sidecar: BubbleSidecar,
+  png: Buffer,
+  config: ReturnType<typeof parseBubbleConfig>,
+): BubbleSidecar | null {
+  const zoomPoint = config?.zoomPoint ?? sidecar.zoomPoint;
+  const geometry = readBubbleGeometry(png, zoomPoint);
+  if (!geometry) return null;
+  return {
+    ...sidecar,
+    ...geometry,
+    zoomPoint,
+    textColor: config?.color ? argbToCss(config.color) : sidecar.textColor,
+    linkColor: config?.linkColor ? argbToCss(config.linkColor) : sidecar.linkColor,
+    geometryVersion: BUBBLE_GEOMETRY_VERSION,
+  };
+}
+
+async function fetchBubbleConfig(url: string | undefined, cachePath: string) {
+  if (!url) return undefined;
   try {
-    return bubbleConfigMetadata(json ? JSON.parse(json) : null);
+    const res = await networkFetch(url);
+    if (!res.ok) return undefined;
+    const text = await res.text();
+    const config = parseBubbleConfig(text);
+    if (config) {
+      try {
+        writeFileSync(cachePath, text);
+      } catch (error) {
+        getLogger().warn('could not cache bubble config', {
+          event: 'dress-bubble-config-cache',
+          ...logErrorContext(error),
+        });
+      }
+    }
+    return config;
   } catch {
-    return {};
+    return undefined;
   }
 }
 

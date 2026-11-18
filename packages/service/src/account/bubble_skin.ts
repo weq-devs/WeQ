@@ -31,7 +31,7 @@ export interface BubbleSlice {
 }
 
 /** 仅气泡几何派生号，不触发字体重解或修改产品版本。 */
-export const BUBBLE_GEOMETRY_VERSION = 1;
+export const BUBBLE_GEOMETRY_VERSION = 2;
 
 export interface BubbleGeometry {
   slice: BubbleSlice;
@@ -47,14 +47,23 @@ export function bubbleConfigMetadata(json: unknown): {
   const config = json as Record<string, unknown>;
   const color = (value: unknown) =>
     typeof value === 'string' && /^0x[0-9a-f]{8}$/i.test(value) ? value : undefined;
-  const point = config.zoom_point;
+  // 官方 JSON 可用十进制字符串；Android 用 JSONArray.getInt 读取。
+  const point = Array.isArray(config.zoom_point) ? config.zoom_point : [];
+  const coordinate = (value: unknown) =>
+    typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value;
+  const x = coordinate(point[0]);
+  const y = coordinate(point[1]);
   return {
     color: color(config.color),
     linkColor: color(config.link_color),
-    ...(Array.isArray(point) &&
-    point.length === 2 &&
-    point.every((n) => Number.isInteger(n) && n >= 0)
-      ? { zoomPoint: [point[0] as number, point[1] as number] }
+    ...(point.length === 2 &&
+    typeof x === 'number' &&
+    Number.isSafeInteger(x) &&
+    x >= 0 &&
+    typeof y === 'number' &&
+    Number.isSafeInteger(y) &&
+    y >= 0
+      ? { zoomPoint: [x, y] }
       : {}),
   };
 }

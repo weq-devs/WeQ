@@ -62,7 +62,7 @@ describe('手机气泡几何', () => {
     const config = bubbleConfigMetadata({
       color: '0xFF112233',
       link_color: '0xFF445566',
-      zoom_point: [63, 55],
+      zoom_point: ['63', 55],
     });
     const dir = mkdtempSync(join(tmpdir(), 'weq-bubble-skin-'));
     dirs.push(dir);
@@ -76,5 +76,6 @@ describe('手机气泡几何', () => {
     expect(
       bubbleConfigMetadata({ link_color: 'invalid', zoom_point: [-1, 2] }).linkColor,
     ).toBeUndefined();
+    expect(bubbleConfigMetadata({ zoom_point: ['', '55'] }).zoomPoint).toBeUndefined();
   });
 });
