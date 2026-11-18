@@ -127,6 +127,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: 'source-a' } }) },
       contactMetrics: {
         snapshot: { useQuery: () => ({ data: { rows: {} } }) },
+        groupFriendSources: { useQuery: () => ({ data: undefined }) },
         changed: { useSubscription: () => undefined },
       },
       getGroupAlbumAccessState: {

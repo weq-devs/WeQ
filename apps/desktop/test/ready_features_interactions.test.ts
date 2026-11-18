@@ -110,6 +110,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
       account: {
         contactMetrics: {
           snapshot: { useQuery: () => ({ data: undefined }) },
+          groupFriendSources: { useQuery: () => ({ data: undefined }) },
           changed: { useSubscription: vi.fn() },
         },
         getSelfProfile: { useQuery: () => ({ data: null }) },

@@ -1,6 +1,7 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
+import { generatedMuteKey } from '@weq/service/client-preferences';
 import type { GeneratedReply } from '../src/shared/generated_reply';
 import { useGeneratedReplyNotifications } from '../src/renderer/src/hooks/useGeneratedReplyNotifications';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
@@ -17,11 +18,13 @@ const fixture = vi.hoisted(() => ({
   banner: true,
   system: true,
   private: false,
+  muted: false,
 }));
 
 vi.mock('../src/renderer/src/lib/clientPreferences', () => ({
   accountBinding: () => fixture.binding,
   preferenceValue: (key: string) => key === 'privacyMode' && fixture.private,
+  sharedAccountRecords: () => ({ [generatedMuteKey('virtual:group:g')]: fixture.muted }),
 }));
 vi.mock('../src/renderer/src/lib/notificationPolicy', () => ({
   notificationEnabled: (_event: string, channel: 'system' | 'banner') => fixture[channel],
@@ -99,6 +102,10 @@ it('新回复按渠道发送并带原消息目标，过滤正在阅读、重复�
       '收到新回复',
     ]);
     expect(useToast.getState().toasts).toHaveLength(1);
+    fixture.muted = true;
+    fixture.onData?.({ ...reply, id: 'muted' });
+    expect(fixture.publish).toHaveBeenCalledTimes(2);
+    fixture.muted = false;
     fixture.binding.expectedAccountConfigId = 'new-source';
     fixture.onData?.({ ...reply, id: 'late' });
     expect(fixture.publish).toHaveBeenCalledTimes(2);

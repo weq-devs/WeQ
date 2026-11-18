@@ -394,6 +394,7 @@ describe('主聊天区域的频道私聊', () => {
         nodeId: 'synthetic-node',
         limit: 50,
         stablePaging: true,
+        expectedAccountUin: createTemplateDemoData().user.identityValue,
       });
       expect(f.host.querySelector('.has-selected-session')).not.toBeNull();
       await act(async () => f.render(workspace(false)));

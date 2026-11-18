@@ -69,7 +69,8 @@ async function fixture() {
       }),
     ),
   );
-  act(() => host.querySelector<HTMLButtonElement>('[aria-label="导入收藏表情包"]')!.click());
+  act(() => host.querySelector<HTMLButtonElement>('[aria-label="导入收藏表情"]')!.click());
+  expect(host.querySelector('[aria-label="选择收藏包"]')).not.toBeNull();
   return host;
 }
 it('正常导入预览没有常驻刷新或重新核对按钮', async () => {

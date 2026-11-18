@@ -89,7 +89,9 @@ export function CloneChatPanel({
   const { history, send, typing, ready } = useLiveCloneConversation<ChatTurn>(
     'persona',
     personaId,
-    conversation.data,
+    searchTarget && conversation.isFetching && !conversation.isFetchedAfterMount
+      ? undefined
+      : conversation.data,
     !legacy,
     (event) => (event.kind === 'persona-message' ? event.message : undefined),
   );

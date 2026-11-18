@@ -111,7 +111,8 @@ describe('通知停留时长设置', () => {
     const reopened = fixture();
     expect(reopened.input('成功').value).toBe('5');
     expect(reopened.input('失败').value).toBe('8');
-    expect(f.host.textContent).toContain('已保存');
+    expect(useToast.getState().durations).toEqual({ successSeconds: 5, failureSeconds: 8 });
+    expect(useToast.getState().toasts).toHaveLength(0);
   });
   it.each(['', '0', '-2', '1.5', '86401'])('非法输入 %s 不可提交', async (value) => {
     const f = fixture();

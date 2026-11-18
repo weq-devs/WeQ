@@ -1031,6 +1031,7 @@ describe('设置归位后的实际页面', () => {
         '推荐回复',
         '意图感知',
         '互动画像',
+        'WeQ 助手',
       ]);
       expect(f.host.querySelector('.weq-settings-scope')?.textContent).toBe('当前账号');
       expect(f.body().querySelector('.weq-set-head-title .weq-settings-scope')).not.toBeNull();

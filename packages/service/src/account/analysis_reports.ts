@@ -73,7 +73,7 @@ export class AnalysisReportsService extends EventEmitter {
   constructor(
     root: string,
     private readonly runStage: AnalysisStageRunner,
-    workerPath: string | URL = new URL('./analysis_reports_worker.mjs', import.meta.url),
+    workerPath: string | URL,
   ) {
     super();
     this.worker = new Worker(workerPath, {

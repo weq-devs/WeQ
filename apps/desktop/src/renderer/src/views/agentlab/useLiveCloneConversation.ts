@@ -33,6 +33,7 @@ export function useLiveCloneConversation<
   const [typing, setTyping] = useState(false);
   const [changes, setChanges] = useState(new Map<string, T & LiveCloneDelivery>());
   const confirmed = useRef(new Map<string, boolean>());
+  const reported = useRef(new Set<string>());
   const refresh = (reset = false) => {
     if (kind === 'persona') {
       if (reset) utils.account.getAgentLabConversation.setData({ personaId: id }, []);
@@ -51,6 +52,7 @@ export function useLiveCloneConversation<
     }
     if (event.kind === 'cleared') {
       setChanges(new Map());
+      reported.current.clear();
       refresh(true);
       return;
     }
@@ -66,6 +68,8 @@ export function useLiveCloneConversation<
     if (!message?.id) return;
     if (confirmed.current.has(message.id)) confirmed.current.set(message.id, true);
     setChanges((previous) => new Map(previous).set(message.id!, message));
+    if (reported.current.has(message.id)) return;
+    reported.current.add(message.id);
     if (kind === 'persona') void utils.account.listAgentLabPersonas.invalidate();
     else void utils.account.listAgentLabGroups.invalidate();
   };
@@ -73,6 +77,7 @@ export function useLiveCloneConversation<
   live.current = { record, refresh };
 
   useEffect(() => {
+    reported.current.clear();
     if (!active || !binding) return;
     const subscription = client.account.onCloneConversation.subscribe(
       { ...binding, kind, id },

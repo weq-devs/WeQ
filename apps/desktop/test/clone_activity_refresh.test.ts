@@ -2,14 +2,21 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
+import type { CloneConversationEvent } from '@weq/service';
 import { CloneChatPanel } from '../src/renderer/src/views/agentlab/CloneChatPanel';
 import { GroupChatPanel } from '../src/renderer/src/views/agentlab/GroupChatPanel';
 import { restoreComposer } from '../src/renderer/src/im-template/template/composer.shared';
 
 const fixture = vi.hoisted(() => ({
+  binding: { expectedAccountUin: '10000', expectedAccountConfigId: 'test' },
   invalidate: vi.fn(),
   mutate: vi.fn(),
-  onEvent: undefined as ((event: unknown) => void) | undefined,
+  subscribe: vi.fn(),
+  onEvent: undefined as ((event: CloneConversationEvent) => void) | undefined,
+}));
+vi.mock('../src/renderer/src/lib/clientPreferences', async (original) => ({
+  ...(await original<typeof import('../src/renderer/src/lib/clientPreferences')>()),
+  accountBinding: () => fixture.binding,
 }));
 vi.mock('../src/renderer/src/lib/dialogUtils', () => ({
   useAppDialog: () => ({ error: vi.fn(), confirm: vi.fn() }),
@@ -34,11 +41,14 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             isSuccess: true,
           });
         if (key === 'useMutation') return () => ({ mutateAsync: fixture.mutate, isLoading: false });
-        if (key === 'subscribe')
-          return (_input: unknown, handlers: { onData: (event: unknown) => void }) => {
+        if (key === 'mutate' && path.at(-1) === 'submitCloneMessage') return fixture.mutate;
+        if (key === 'subscribe' && path.at(-1) === 'onCloneConversation')
+          return (input: unknown, handlers: { onData: typeof fixture.onEvent }) => {
+            fixture.subscribe(input);
             fixture.onEvent = handlers.onData;
             return { unsubscribe: vi.fn() };
           };
+        if (key === 'subscribe') return () => ({ unsubscribe: vi.fn() });
         return proxy([...path, String(key)]);
       },
     });
@@ -106,12 +116,16 @@ function mount(kind: 'persona' | 'group') {
   };
 }
 
-it.each([
-  { kind: 'persona' as const, silent: true },
-  { kind: 'persona' as const, silent: false },
-  { kind: 'group' as const, silent: false },
-])('$kind 发送落库后刷新主列表的活动时间与预览（沉默 $silent）', async ({ kind, silent }) => {
-  fixture.mutate.mockResolvedValue({ sessionId: 's', silent, text: '合成回复', replyDelayMs: 0 });
+it.each(['persona', 'group'] as const)('%s 发送落库后立即刷新列表，不等克隆回复', async (kind) => {
+  fixture.mutate.mockImplementation(async ({ requestId, text }) => {
+    const message = { id: requestId, text, ts: 1 };
+    return kind === 'persona'
+      ? { kind: 'persona-message', message: { ...message, role: 'user' } }
+      : {
+          kind: 'group-message',
+          message: { ...message, groupId: 'g', senderId: 'self', senderKind: 'user' },
+        };
+  });
   const f = mount(kind);
   try {
     await f.send();
@@ -125,9 +139,8 @@ it.each([
 
 it('群聊逐条消息刷新主列表，不等整轮结束；忽略其他群和重复事件', () => {
   const f = mount('group');
-  const event = {
-    kind: 'message',
-    groupId: 'g',
+  const event: CloneConversationEvent = {
+    kind: 'group-message',
     message: {
       id: 'm',
       groupId: 'g',
@@ -138,14 +151,15 @@ it('群聊逐条消息刷新主列表，不等整轮结束；忽略其他群和�
     },
   };
   try {
-    act(() => fixture.onEvent?.({ ...event, groupId: 'other' }));
+    expect(fixture.subscribe).toHaveBeenCalledWith({ ...fixture.binding, kind: 'group', id: 'g' });
+    act(() => fixture.onEvent?.({ ...event, message: { ...event.message, groupId: 'other' } }));
     expect(fixture.invalidate).not.toHaveBeenCalled();
     act(() => fixture.onEvent?.(event));
     expect(fixture.invalidate).toHaveBeenCalledWith('listAgentLabGroups');
     fixture.invalidate.mockClear();
     act(() => fixture.onEvent?.(event));
     expect(fixture.invalidate).not.toHaveBeenCalled();
-    act(() => fixture.onEvent?.({ kind: 'done', groupId: 'g' }));
+    act(() => fixture.onEvent?.({ kind: 'settled' }));
     expect(fixture.invalidate).toHaveBeenCalledWith('listAgentLabGroups');
   } finally {
     f.close();

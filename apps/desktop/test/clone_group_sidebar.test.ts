@@ -11,6 +11,14 @@ import {
 } from '../src/renderer/src/views/agentlab/cloneChatAdapter';
 
 vi.mock('../src/renderer/src/trpc/client', () => import('./browser/clone-conversation.stub'));
+const binding = vi.hoisted(() => ({
+  expectedAccountUin: '10000',
+  expectedAccountConfigId: 'test',
+}));
+vi.mock('../src/renderer/src/lib/clientPreferences', async (original) => ({
+  ...(await original<typeof import('../src/renderer/src/lib/clientPreferences')>()),
+  accountBinding: () => binding,
+}));
 vi.mock('../src/renderer/src/hooks/useMobileWebViewport', async (original) => ({
   ...(await original<object>()),
   useMobileWebLayout: () => true,

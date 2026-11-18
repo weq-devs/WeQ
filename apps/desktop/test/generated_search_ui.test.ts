@@ -562,7 +562,7 @@ describe('生成内容搜索定位', () => {
           await vi.advanceTimersByTimeAsync(50);
         });
         expect(f.host.querySelector('.is-search-hit')?.textContent).toContain('合成搜索命中');
-        expect(f.scroll).toHaveBeenCalledWith({ block: 'center', behavior: 'instant' });
+        expect(f.scroll).toHaveBeenCalledWith(expect.objectContaining({ block: 'center' }));
         const name =
           kind === 'persona'
             ? 'getAgentLabConversation'

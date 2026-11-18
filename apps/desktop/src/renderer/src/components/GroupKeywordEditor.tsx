@@ -116,8 +116,6 @@ export function GroupKeywordEditor({
     return map;
   }, [scopedMembers]);
 
-  // 状态外抛给载体（灯箱页脚 / 会话设置页头）。
-
   // 读当前账号的全部规则（保留其它群的），取本群那份作为草稿。
   useEffect(() => {
     let cancelled = false;
@@ -217,7 +215,6 @@ export function GroupKeywordEditor({
 
   function applyEntries(next: KeywordEntry[]) {
     dirtyRef.current = true;
-    setSavedAt(0);
     entriesRef.current = next;
     setEntries(next);
   }

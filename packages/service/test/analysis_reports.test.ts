@@ -8,6 +8,7 @@ import { AnalysisReportsService, type SavedAnalysisRequest } from '../src/accoun
 const { DatabaseSync } = createRequire(import.meta.url)(
   'node:sqlite',
 ) as typeof import('node:sqlite');
+const worker = new URL('../src/account/analysis_reports_worker.mjs', import.meta.url);
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -24,7 +25,7 @@ const request: SavedAnalysisRequest = {
 async function fixture(run: ConstructorParameters<typeof AnalysisReportsService>[1]) {
   const root = await mkdtemp(join(tmpdir(), 'weq-analysis-'));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
-  const service = new AnalysisReportsService(root, run);
+  const service = new AnalysisReportsService(root, run, worker);
   cleanups.push(() => service.dispose());
   return { root, service };
 }
@@ -37,7 +38,7 @@ it('持久保存真实结果及阅读位置，重开不重新计算', async () =
   await service.position(request.id, 420);
   await service.dispose();
   cleanups.pop();
-  const reopened = new AnalysisReportsService(root, run);
+  const reopened = new AnalysisReportsService(root, run, worker);
   cleanups.push(() => reopened.dispose());
   expect(await reopened.get(request.id)).toMatchObject({
     status: 'completed',
@@ -115,6 +116,7 @@ it('刷新失败保留上次成功结果，切号退出使未完成任务待继�
       );
       signal.throwIfAborted();
     },
+    worker,
   );
   await unfinished.create(request);
   await unfinished.resume(request.id);
@@ -122,7 +124,7 @@ it('刷新失败保留上次成功结果，切号退出使未完成任务待继�
     expect((await unfinished.get(request.id)).logs.length).toBeGreaterThan(0),
   );
   await unfinished.dispose();
-  const reopened = new AnalysisReportsService(join(root, 'unfinished'), async () => null);
+  const reopened = new AnalysisReportsService(join(root, 'unfinished'), async () => null, worker);
   cleanups.push(() => reopened.dispose());
   expect((await reopened.get(request.id)).status).toBe('paused');
   await reopened.remove(request.id);
@@ -143,7 +145,7 @@ it('旧报告从成功版本恢复真实范围，修正过期 period，不把新
   } finally {
     db.close();
   }
-  const reopened = new AnalysisReportsService(root, async () => null);
+  const reopened = new AnalysisReportsService(root, async () => null, worker);
   cleanups.push(() => reopened.dispose());
   for (const report of [await reopened.get(request.id), ...(await reopened.list())]) {
     expect(report.request.period).toBe('2026-11-01 至 2026-11-01 · 北京时间');

@@ -60,13 +60,12 @@ async function mount() {
   document.body.append(host);
   const root = createRoot(host);
   const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const onSaveState = vi.fn();
   await act(async () =>
     root.render(
       h(
         QueryClientProvider,
         { client: cache },
-        h(GroupKeywordEditor, { groupId: '22222', members: [], onSaveState }),
+        h(GroupKeywordEditor, { groupId: '22222', members: [] }),
       ),
     ),
   );
@@ -82,7 +81,7 @@ async function mount() {
     cache.clear();
     host.remove();
   });
-  return { host, unmount, onSaveState };
+  return { host, unmount };
 }
 function type(input: HTMLInputElement, value: string) {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
@@ -116,20 +115,18 @@ it('未展开成员范围时不加载全群，搜索只读取目标群及其数�
 it('保存失败保留草稿，显示失败并能重试同一内容', async () => {
   vi.useFakeTimers();
   state.save.mockRejectedValueOnce(new Error('合成写入失败'));
-  const { host, onSaveState } = await mount();
+  const { host } = await mount();
   await act(async () =>
     host.querySelector<HTMLButtonElement>('.group-keyword-item-remove')!.click(),
   );
   await act(async () => vi.advanceTimersByTimeAsync(450));
-  expect(host.textContent).toContain('保存失败');
-  expect(onSaveState).toHaveBeenLastCalledWith(
-    expect.objectContaining({ saving: false, error: expect.stringContaining('合成写入失败') }),
-  );
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('合成写入失败');
   await act(async () =>
     host.querySelector<HTMLButtonElement>('[aria-label="重试关键词保存或读取"]')!.click(),
   );
   expect(state.save).toHaveBeenCalledTimes(2);
   expect(state.save.mock.calls[0][0]).toEqual(state.save.mock.calls[1][0]);
+  expect(state.save.mock.calls[1][0]).toMatchObject({ rules: {}, groupId: '22222' });
   expect(host.textContent).not.toContain('合成写入失败');
 });
 it('关闭前纳入未回车关键词并立即保存', async () => {

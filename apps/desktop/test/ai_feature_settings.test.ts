@@ -431,7 +431,9 @@ it('保存失败就地保留内容，关闭重开后可以重试', async () => {
     fallbackDialog().querySelector<HTMLButtonElement>('[aria-label="重试保存"]')!.click(),
   );
   expect(state.save).toHaveBeenCalledTimes(2);
-  expect(fallbackDialog().textContent).toContain('已保存');
+  expect(state.save.mock.calls[1]).toEqual(state.save.mock.calls[0]);
+  expect(fallbackDialog().querySelector('[aria-label="重试保存"]')).toBeNull();
+  expect(fallbackDialog().querySelector('input')!.value).toBe('待重试内容');
 });
 
 it('回退对话框保留增删、去空白与重复校验，开关不清空内容', async () => {

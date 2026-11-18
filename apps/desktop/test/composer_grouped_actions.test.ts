@@ -19,7 +19,22 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           ? () => ({ data: undefined, isLoading: false })
           : key === 'useMutation'
             ? () => ({ mutate: vi.fn() })
-            : proxy(),
+            : key === 'overview'
+              ? {
+                  useQuery: () => ({
+                    data: {
+                      faces: [
+                        {
+                          key: 'synthetic',
+                          label: '合成表情',
+                          unicode: false,
+                          items: [{ id: '14', desc: '合成微笑', unicode: false, glyph: '' }],
+                        },
+                      ],
+                    },
+                  }),
+                }
+              : proxy(),
     });
   return { trpc: proxy(), client: proxy() };
 });
@@ -152,18 +167,20 @@ it.each([false, true])('私聊互动表情保留发送，不再提供窗口抖�
   clickTitle(toolbar, '表情');
   expect(document.querySelector('[role="menuitem"]')).toBeNull();
   expect(host.querySelector('[aria-label="表情面板"]')).not.toBeNull();
-  clickTitle(host, '弹射表情');
-  expect(host.querySelector('[aria-label="弹射表情"]')).not.toBeNull();
-  expect(host.querySelector('.emoji-panel .bounce-panel')).not.toBeNull();
+  act(() =>
+    host
+      .querySelector('button[title="合成微笑"]')!
+      .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
+  );
+  expect(host.querySelector('.emoji-panel [aria-label="弹射表情"]')).not.toBeNull();
+  expect(send).not.toHaveBeenCalled();
   clickTitle(host, '互动表情');
   expect(host.querySelector('[aria-label="互动表情"]')).not.toBeNull();
   expect(host.querySelector('[title="窗口抖动"]')).toBeNull();
   const panel = host.querySelector('[aria-label="互动表情"]')!;
-  const submit = [...panel.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
-    button.textContent?.includes('戳一下'),
-  );
-  expect(submit).toBeDefined();
-  await act(async () => submit!.click());
+  const submit = panel.querySelector<HTMLButtonElement>('button[title="发送戳一戳"]')!;
+  expect(submit.disabled).toBe(false);
+  await act(async () => submit.click());
   expect(send).toHaveBeenCalledOnce();
   expect(host.querySelector('[aria-label="表情面板"]')).toBeNull();
   expect(host.querySelector('.composer-editor')?.textContent).toBe('未发送的文字');

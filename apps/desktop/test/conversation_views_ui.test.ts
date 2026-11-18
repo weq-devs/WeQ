@@ -51,7 +51,12 @@ const clone = virtualConversationRow({
   ownerId: 'p1',
   name: '合成克隆',
 });
-const assistant = assistantConversationRow({ id: 's1', title: '合成助手对话', updatedAt: 12345 });
+const assistant = assistantConversationRow({
+  id: 's1',
+  title: '合成助手对话',
+  updatedAt: 12345,
+  directoryRead: { key: 'assistant:s1', position: '12345' },
+});
 const cloneGroup = virtualConversationRow({
   id: 'virtual:group:g1',
   kind: 'group',
@@ -333,15 +338,18 @@ it('菜单直接切换保留视图菜单，助手视图的加号直接新建会�
   expect(createAssistant).toHaveBeenCalledOnce();
   expect(host.querySelector('[aria-label="添加会话菜单"]')).toBeNull();
 });
-it('助手视图只展示导出和永久删除，未选对象时保留禁用及原因', () => {
+it('助手视图支持导出、标为已读和永久删除，未选对象时禁用', () => {
   act(() => root.render(h(Fixture, { initialView: 'assistant' })));
   click('[aria-label="多选会话"]');
   const toolbar = host.querySelector('[aria-label="会话多选操作"]')!;
-  expect(toolbar.querySelectorAll('button')).toHaveLength(2);
+  const read = toolbar.querySelector<HTMLButtonElement>('[aria-label="标为已读"]')!;
+  expect(read.disabled).toBe(true);
+  expect(toolbar.querySelector('[aria-label="导出聊天记录"]')).not.toBeNull();
   const del = toolbar.querySelector<HTMLButtonElement>('[aria-label="永久删除所选 AI 会话"]')!;
   expect(del.disabled).toBe(true);
   expect(del.title).toBe('请先选择会话');
   click('[aria-label="全选当前结果"]');
+  expect(read.disabled).toBe(false);
   expect(del.disabled).toBe(false);
   act(() => del.click());
   expect(remove).toHaveBeenCalledWith([assistant]);

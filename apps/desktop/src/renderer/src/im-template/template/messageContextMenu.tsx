@@ -167,7 +167,7 @@ export function MessageContextMenu(props: Props) {
       const capacity = quickReactionCapacity(strip?.getBoundingClientRect().width ?? 0);
       const focused = [
         ...(strip?.querySelectorAll('button[role="menuitemcheckbox"]') ?? []),
-      ].indexOf(document.activeElement as HTMLButtonElement);
+      ].indexOf(el.ownerDocument.activeElement as HTMLButtonElement);
       if (focused >= capacity && focused >= 0)
         strip
           ?.querySelector<HTMLButtonElement>('[aria-label="更多表情"]')

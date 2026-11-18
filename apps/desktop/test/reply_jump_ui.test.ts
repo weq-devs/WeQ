@@ -186,7 +186,7 @@ it('省流量引用图片可点击加载，携带原消息时间与主动加载�
   useDataSaver.setState({ enabled: true });
   const f = mount();
   failQuotedImage(f.host);
-  const load = f.host.querySelector<HTMLButtonElement>('.qq-media-deferred')!;
+  const load = f.host.querySelector<HTMLButtonElement>('button[aria-label="加载图片"]')!;
   expect(load).not.toBeNull();
   expect(load.disabled).toBe(false);
   act(() => load.click());

@@ -95,9 +95,14 @@ export function GroupChatPanel({
   } = useLiveCloneConversation<AgentLabGroupMessage>(
     'group',
     groupId,
-    conversation.data,
+    searchTarget && conversation.isFetching && !conversation.isFetchedAfterMount
+      ? undefined
+      : conversation.data,
     !legacy,
-    (event) => (event.kind === 'group-message' ? event.message : undefined),
+    (event) =>
+      event.kind === 'group-message' && event.message.groupId === groupId
+        ? event.message
+        : undefined,
   );
   useDirectoryReadPosition(
     `clone-group:${groupId}`,
