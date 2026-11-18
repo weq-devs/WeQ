@@ -105,58 +105,27 @@ html[data-theme='dark'] .unread-dock-button.weq-important-dock[data-important-ki
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-.weq-history-record + .weq-history-record {
-  border-top: 1px solid var(--weq-border-subtle);
-}
-.weq-history-record-line {
+.weq-history-record {
   display: flex;
   align-items: center;
-  padding-right: 6px;
 }
-.weq-history-record-line > .icon-button {
+.weq-history-record > .icon-button {
   flex: none;
   width: 32px;
   min-width: 32px;
   height: 32px;
+  margin-right: 6px;
 }
-.weq-history-record-line .weq-history-summary {
+.weq-history-record .weq-history-summary {
   flex: 1 1 auto;
-  height: 44px;
+}
+div.weq-history-summary {
+  cursor: default;
 }
 .weq-history-record-icon {
   display: flex;
   flex: none;
   color: var(--weq-fg-secondary);
-}
-.weq-history-record-text {
-  min-width: 0;
-  flex: 1;
-  display: grid;
-  gap: 2px;
-}
-.weq-history-record-meta {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 4px;
-  min-width: 0;
-  font-size: 11px;
-  white-space: nowrap;
-}
-.weq-history-record-meta > strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.weq-history-record-meta > time {
-  flex: none;
-  color: var(--weq-fg-secondary);
-  font-variant-numeric: tabular-nums;
-}
-.weq-history-record-body {
-  padding: 18px 12px 8px;
-}
-.weq-history-record-body[hidden] {
-  display: none;
 }
 .weq-important-filters button[data-important-kind],
 html[data-theme='dark'] .weq-important-filters button[data-important-kind] {
@@ -199,7 +168,7 @@ html[data-theme='dark'] .weq-important-filters button[data-important-kind][aria-
   cursor: pointer;
 }
 .weq-important-row:hover,
-.weq-history-summary:hover {
+button.weq-history-summary:hover {
   background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
 }
 .weq-important-row[aria-current='true'] {
@@ -285,7 +254,7 @@ html[data-theme='dark'] .weq-important-filters button[data-important-kind][aria-
   right: 12px;
 }
 html[data-theme='dark'] .weq-important-row:hover,
-html[data-theme='dark'] .weq-history-summary:hover {
+html[data-theme='dark'] button.weq-history-summary:hover {
   background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
 }
 html[data-theme='dark'] .weq-important-row[aria-current='true'] {

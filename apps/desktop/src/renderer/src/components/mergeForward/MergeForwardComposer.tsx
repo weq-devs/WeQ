@@ -604,6 +604,7 @@ function PreviewRow({
       className="weq-forward-row weq-mf-row"
       data-bubble={msgDec.bubbleId || undefined}
       data-font={msgDec.fontId || undefined}
+      data-weq-system-font={msgDec.systemFont || undefined}
       data-fontfx={fontFxAttr}
       data-widget={widget?.animated ? widget.itemId : undefined}
       data-record-widget={node.decoration?.widgetId || undefined}

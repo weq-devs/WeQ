@@ -5,15 +5,11 @@ import { MessageHistorySurface } from '../MessageHistorySurface';
 import { MessageHistoryRow } from './MessageHistoryRow';
 import { NumericText } from '../NumericText';
 import { SegmentedControl } from '../SegmentedControl';
-import { ConvContext, ForwardKindContext } from '../../state/messageContext';
-import { MessageBubble } from '../../im-template/template/messageBubble';
+import { deletionIdentity } from '../../lib/messageDeletion';
 import { grayTipOf } from '../../im-template/template/messageRow.shared';
 import { resolveMessageSender } from '../../im-template/template/conversationDisplay';
 import { displayUserName } from '../../im-template/template/user';
-import type { MessageRenderer } from '../../im-template/template/messageRenderers';
 import type { Conversation, Message, User } from '../../im-template/template/types';
-
-const noop = (): void => {};
 
 /** `''` as the "no filter" sentinel for the two `<select>`s. */
 const ALL = '';
@@ -29,8 +25,6 @@ function formatMessageTime(iso: string | undefined): string {
 /** A deleted message plus the labels/keys the header + filters need. */
 type DeletedRow = {
   message: Message;
-  mine: boolean;
-  sender: User;
   kind: DeletedKind;
   restorable: boolean;
   /** Stable key for the original sender (drives the 删除的谁的消息 filter). */
@@ -50,20 +44,21 @@ export function DeletedMessagesModal({
   conversation,
   user,
   messages,
-  renderers,
+  hiddenIds,
   loading,
   hasMore = false,
   onLoadMore,
   error,
   onRetry,
   onRestore,
+  onLocate,
   onClose,
 }: {
   conversation: Conversation;
   user: User;
   /** Deleted messages, newest-first→ASC, already built via messageToTemplate. */
   messages: Message[];
-  renderers?: MessageRenderer[];
+  hiddenIds: ReadonlySet<string>;
   loading: boolean;
   hasMore?: boolean;
   onLoadMore?: () => void;
@@ -71,12 +66,9 @@ export function DeletedMessagesModal({
   onRetry: () => void;
   /** Restore one message; resolves once the DB row is un-hidden. */
   onRestore: (msgId: string) => Promise<void>;
+  onLocate: (seq: string, messageId: string) => void;
   onClose: () => void;
 }): ReactElement {
-  const isGroup = conversation.type === 'group';
-  const convKey = isGroup ? conversation.group.identityValue : '';
-  const showSenderNames = conversation.type !== 'direct';
-
   // Optimistically drop a row the instant its restore resolves, so the panel
   // feels live even before the parent refetches.
   const [restoredIds, setRestoredIds] = useState<Set<string>>(new Set());
@@ -87,12 +79,12 @@ export function DeletedMessagesModal({
   const [senderFilter, setSenderFilter] = useState<string>(ALL);
   const [query, setQuery] = useState('');
 
-  // 灰条（撤回 / 戳一戳 / 群提示…）是系统通知，不是「被删掉的消息」：在这份列表里
-  // 没有恢复的意义，套气泡画出来也难看，直接排除。
+  // 灰条是系统通知，不纳入删除索引。
   const visible = useMemo(
     () => messages.filter((m) => !restoredIds.has(m.id) && grayTipOf(m) === null),
     [messages, restoredIds],
   );
+  const hiddenKeys = useMemo(() => new Set([...hiddenIds].map(deletionIdentity)), [hiddenIds]);
 
   // One pass turns each message into a display row (labels + filter keys).
   const rows = useMemo<DeletedRow[]>(
@@ -100,11 +92,9 @@ export function DeletedMessagesModal({
       visible.map((message) => {
         const mine = message.senderId === user.id;
         const sender = resolveMessageSender(message, conversation, user);
-        const kind = (message as { deletedKind?: DeletedKind }).deletedKind ?? 'weq';
+        const kind = message.deletedKind ?? 'weq';
         return {
           message,
-          mine,
-          sender,
           kind,
           restorable: kind !== 'qq',
           senderKey: message.senderId,
@@ -259,54 +249,39 @@ export function DeletedMessagesModal({
           ) : null}
         </p>
       ) : filtered.length ? (
-        <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
-          <ConvContext.Provider value={convKey}>
-            <ul aria-label="已删除消息列表">
-              {filtered.map((row) => (
-                <MessageHistoryRow
-                  key={row.message.id}
-                  icon={<Trash2 size={14} />}
-                  label={`${row.restorable ? 'WeQ 删除' : 'QQ 删除'} · ${row.senderLabel}`}
-                  time={row.when}
-                  summary={row.message.body}
-                  action={
-                    row.restorable ? (
-                      <button
-                        type="button"
-                        className="icon-button"
-                        title="恢复这条消息"
-                        aria-label="恢复这条消息"
-                        aria-busy={restoringId === row.message.id}
-                        disabled={restoringId !== null}
-                        onClick={() => void restore(row.message)}
-                      >
-                        <RotateCcw size={14} aria-hidden />
-                      </button>
-                    ) : undefined
-                  }
-                >
-                  <MessageBubble
-                    message={row.message}
-                    conversation={conversation}
-                    sender={row.sender}
-                    mine={row.mine}
-                    senderName={displayUserName(row.sender)}
-                    senderAvatarUrl={row.sender.avatarUrl}
-                    senderSeed={row.sender.identityValue}
-                    senderKind={row.sender.kind}
-                    showSenderName={showSenderNames}
-                    active={false}
-                    renderers={renderers}
-                    deletedKind={row.kind}
-                    hideDeletedBadge
-                    onContextMenu={noop}
-                    onLongPress={noop}
-                  />
-                </MessageHistoryRow>
-              ))}
-            </ul>
-          </ConvContext.Provider>
-        </ForwardKindContext.Provider>
+        <ul aria-label="已删除消息列表">
+          {filtered.map((row) => (
+            <MessageHistoryRow
+              key={row.message.id}
+              icon={<Trash2 size={14} />}
+              label={row.senderLabel}
+              detail={`${row.restorable ? 'WeQ 删除' : 'QQ 删除'} · ${row.senderLabel}`}
+              time={row.when}
+              message={row.message}
+              onLocate={onLocate}
+              unavailableReason={
+                hiddenKeys.has(deletionIdentity(row.message.id))
+                  ? '消息已隐藏，恢复后可在聊天中查看'
+                  : undefined
+              }
+              action={
+                row.restorable ? (
+                  <button
+                    type="button"
+                    className="icon-button"
+                    title="恢复这条消息"
+                    aria-label="恢复这条消息"
+                    aria-busy={restoringId === row.message.id}
+                    disabled={restoringId !== null}
+                    onClick={() => void restore(row.message)}
+                  >
+                    <RotateCcw size={14} aria-hidden />
+                  </button>
+                ) : undefined
+              }
+            />
+          ))}
+        </ul>
       ) : null}
     </MessageHistorySurface>
   );

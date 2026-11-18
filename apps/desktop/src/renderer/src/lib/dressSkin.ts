@@ -814,8 +814,8 @@ export function fontRules(font: FontSkinCss, scope: DressScope, animated = true)
 /**
  * 装扮文字使用当前布局的默认正文尺寸；不缩放整个内容盒，避免改变引用及媒体尺寸。
  * ETDrawable 在 padding.top 放置文字位图，不能再均分最小高度多出的垂直空间。
- * normal 保留多行间距；正文首行去掉浏览器在 em 上方增加的半份行间留白。
- * 这是手机截图叠图验证的近似，不等同于已恢复手机原生基线。
+ * normal 保留多行间距；位图字体的首行去掉浏览器在 em 上方增加的半份行间留白。
+ * 系统文字路径不做这项近似，否则普通 TextView 字体也会被上移。
  * 保留真实字形、颜色、缺字回退与 DOM 选择，不靠合成粗斜体改变字体笔画。
  */
 export function fontTextRules(sel: string, family: string): string {
@@ -826,7 +826,7 @@ export function fontTextRules(sel: string, family: string): string {
   line-height: normal;
   font-synthesis: none;
 }
-${appendToSelectors(sel, ' > .qq-message-body:has(> .qq-text-run:first-child)')} {
+${appendToSelectors(sel, ':not([data-weq-system-font] *) > .qq-message-body:has(> .qq-text-run:first-child)')} {
   margin-block-start: calc((1em - 1lh) / 2);
 }`;
 }

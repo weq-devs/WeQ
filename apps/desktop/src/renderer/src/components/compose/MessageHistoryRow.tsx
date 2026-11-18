@@ -1,71 +1,63 @@
-import { useId, useState, type ReactNode } from 'react';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import type { ReactNode } from 'react';
+import type { Message } from '../../im-template/template/types';
+import { usePrivacyStore } from '../../state/privacy';
 
 export function MessageHistoryRow({
   icon,
   label,
+  detail,
   time,
-  summary,
+  message,
   onLocate,
+  unavailableReason,
   action,
-  children,
 }: {
   icon: ReactNode;
   label: string;
+  detail: string;
   time: string;
-  summary: string;
-  onLocate?: () => void;
+  message: Message;
+  onLocate?: (seq: string, messageId: string) => void;
+  unavailableReason?: string;
   action?: ReactNode;
-  children: ReactNode;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const previewId = useId();
-  const toggle = () => setExpanded((value) => !value);
-  const PreviewIcon = expanded ? ChevronUp : ChevronDown;
-  const previewLabel = expanded ? '收起原消息' : '展开原消息';
+  const privacy = usePrivacyStore((state) => state.effective);
+  const { msgSeq } = message;
+  const locate =
+    onLocate &&
+    !unavailableReason &&
+    msgSeq &&
+    /^[1-9]\d*$/.test(msgSeq) &&
+    (message.sourceFormat !== 'protocol' || message.ntSeqVerified)
+      ? () => onLocate(msgSeq, message.id)
+      : undefined;
+  const hint = locate ? '定位到原消息' : (unavailableReason ?? '没有可定位的消息位置');
+  const summary = message.body.replace(/\s+/g, ' ').trim() || '消息';
+  const Row = locate ? 'button' : 'div';
   return (
     <li className="weq-history-record">
-      <div className="weq-history-record-line">
-        <button
-          className="weq-history-summary"
-          type="button"
-          title={onLocate ? '定位到原消息' : previewLabel}
-          aria-expanded={onLocate ? undefined : expanded}
-          aria-controls={onLocate ? undefined : previewId}
-          onClick={onLocate ?? toggle}
-        >
-          <span className="weq-history-record-icon" aria-hidden>
-            {icon}
-          </span>
-          <span className="weq-history-record-text">
-            <span className="weq-history-record-meta">
-              <strong data-privacy-sensitive>{label}</strong>
-              {time ? <time>{time}</time> : null}
-            </span>
-            <span className="weq-important-preview" data-privacy-sensitive>
-              {summary.replace(/\s+/g, ' ').trim() || '消息'}
-            </span>
-          </span>
-          {onLocate ? null : <PreviewIcon size={14} aria-hidden />}
-        </button>
-        {onLocate ? (
-          <button
-            className="icon-button"
-            type="button"
-            title={previewLabel}
-            aria-label={previewLabel}
-            aria-expanded={expanded}
-            aria-controls={previewId}
-            onClick={toggle}
-          >
-            <PreviewIcon size={14} aria-hidden />
-          </button>
-        ) : null}
-        {action}
-      </div>
-      <div id={previewId} className="weq-history-record-body" hidden={!expanded}>
-        {expanded ? children : null}
-      </div>
+      <Row
+        className="weq-history-summary"
+        type={locate ? 'button' : undefined}
+        title={[!privacy && detail, time, hint].filter(Boolean).join(' · ')}
+        aria-label={
+          locate
+            ? [!privacy && detail, time, !privacy && summary, hint].filter(Boolean).join('，')
+            : undefined
+        }
+        onClick={locate}
+      >
+        <span className="weq-history-record-icon" aria-hidden>
+          {icon}
+        </span>
+        <strong className="weq-important-sender" data-privacy-sensitive>
+          {label}
+        </strong>
+        <span className="weq-important-preview" data-privacy-sensitive>
+          {summary}
+        </span>
+      </Row>
+      {action}
     </li>
   );
 }

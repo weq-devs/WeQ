@@ -1,6 +1,7 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { DeletedMessagesModal } from '../src/renderer/src/components/compose/DeletedMessagesModal';
 import { RecalledMessagesModal } from '../src/renderer/src/components/compose/RecalledMessagesModal';
 import type { Conversation, Message, User } from '../src/renderer/src/im-template/template/types';
 
@@ -52,15 +53,25 @@ const messages: Message[] = [
     msgSeq: '1',
   },
 ];
-function mount(embedded: boolean, error?: string) {
+function render(node: React.ReactNode) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const retry = vi.fn(),
-    jump = vi.fn();
-  act(() =>
-    root.render(
+  act(() => root.render(node));
+  return {
+    host,
+    dispose: () => {
+      act(() => root.unmount());
+      host.remove();
+    },
+  };
+}
+function mount(embedded: boolean, error?: string) {
+  const retry = vi.fn();
+  const jump = vi.fn();
+  return {
+    ...render(
       h(RecalledMessagesModal, {
         conversation,
         user,
@@ -73,15 +84,8 @@ function mount(embedded: boolean, error?: string) {
         onJumpToMessage: jump,
       }),
     ),
-  );
-  return {
-    host,
     retry,
     jump,
-    dispose: () => {
-      act(() => root.unmount());
-      host.remove();
-    },
   };
 }
 describe('撤回气泡与筛选的共用呈现', () => {
@@ -114,6 +118,51 @@ describe('撤回气泡与筛选的共用呈现', () => {
       expect(panel.textContent).not.toContain('没有被撤回的消息');
       act(() => panel.querySelector<HTMLButtonElement>('[role="alert"] button')!.click());
       expect(f.retry).toHaveBeenCalledOnce();
+    } finally {
+      f.dispose();
+    }
+  });
+  it('会话内的撤回摘要只定位，按完整身份区分同序号的两条消息', () => {
+    const f = mount(false);
+    try {
+      const buttons = [...f.host.querySelectorAll<HTMLButtonElement>('ul li button')];
+      expect(buttons).toHaveLength(2);
+      expect(f.host.querySelector('[data-real-bubble-input]')).toBeNull();
+      for (const button of buttons) act(() => button.click());
+      expect(f.jump.mock.calls).toEqual(messages.map((message) => [message.msgSeq, message.id]));
+      expect(f.host.querySelector('[data-real-bubble-input]')).toBeNull();
+    } finally {
+      f.dispose();
+    }
+  });
+  it('删除索引只定位可见且有可靠序号的消息，恢复不会触发定位', async () => {
+    const jump = vi.fn();
+    const restore = vi.fn().mockResolvedValue(undefined);
+    const hidden = messages[0]!;
+    const visible = { ...messages[1]!, deletedKind: 'qq' as const };
+    const f = render(
+      h(DeletedMessagesModal, {
+        conversation,
+        user,
+        messages: [hidden, visible, { ...visible, id: 'unverified', sourceFormat: 'protocol' }],
+        hiddenIds: new Set(['roaming:1:9007199254740993']),
+        loading: false,
+        error: null,
+        onRetry: vi.fn(),
+        onClose: vi.fn(),
+        onLocate: jump,
+        onRestore: restore,
+      }),
+    );
+    try {
+      const buttons = [...f.host.querySelectorAll<HTMLButtonElement>('ul li button')];
+      expect(buttons).toHaveLength(2);
+      const locate = buttons.find((button) => button.textContent?.includes(visible.body))!;
+      const recover = buttons.find((button) => button !== locate)!;
+      act(() => locate.click());
+      await act(async () => recover.click());
+      expect(jump.mock.calls).toEqual([[visible.msgSeq, visible.id]]);
+      expect(restore.mock.calls).toEqual([[hidden.id]]);
     } finally {
       f.dispose();
     }

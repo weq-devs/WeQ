@@ -499,6 +499,7 @@ function MessageBubbleBody({
       }
       data-bubble={msgBubbleId || undefined}
       data-font={msgFontId || undefined}
+      data-weq-system-font={msgDec.systemFont || undefined}
       data-record-bubble={decoration?.bubbleId || undefined}
       data-record-font={decoration?.fontId || undefined}
       data-record-widget={recordWidget || undefined}

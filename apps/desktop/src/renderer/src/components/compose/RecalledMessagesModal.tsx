@@ -323,28 +323,19 @@ export function RecalledMessagesModal({
             ) : null}
           </p>
         ) : filtered.length ? (
-          <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
-            <ConvContext.Provider value={convKey}>
-              <ul aria-label="已撤回消息列表">
-                {filtered.map((row) => (
-                  <MessageHistoryRow
-                    key={row.message.id}
-                    icon={<RotateCcw size={14} />}
-                    label={row.recallLine}
-                    time={row.when}
-                    summary={row.message.body}
-                    onLocate={
-                      onJumpToMessage && /^[1-9]\d*$/.test(row.message.msgSeq ?? '')
-                        ? () => handleClickMessage(row.message)
-                        : undefined
-                    }
-                  >
-                    {renderBubble(row)}
-                  </MessageHistoryRow>
-                ))}
-              </ul>
-            </ConvContext.Provider>
-          </ForwardKindContext.Provider>
+          <ul aria-label="已撤回消息列表">
+            {filtered.map((row) => (
+              <MessageHistoryRow
+                key={row.message.id}
+                icon={<RotateCcw size={14} />}
+                label={row.senderLabel}
+                detail={row.recallLine}
+                time={row.when}
+                message={row.message}
+                onLocate={onJumpToMessage}
+              />
+            ))}
+          </ul>
         ) : null}
       </MessageHistorySurface>
     );

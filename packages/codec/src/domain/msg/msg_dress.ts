@@ -27,7 +27,7 @@ const dressWireCodec = new ProtoMsg(MsgDressWire);
  * 字体两个槽位的**原始 wire 值**（{@link fontId1Raw} / {@link fontId2Raw}）。原因：
  * 40801 的字段与消息元素（PushMsgBody）里的装扮是**恒等映射**（真机实测
  * `41531 = 116182` 与 `elem generalFlags.font.fontId2 = 116182` 完全相等），转发
- * 已有消息时必须原样回写，绝不能「解码出 itemId 再自己编码」——那会把 bit 16 丢掉
+ * 已有消息时必须原样回写，绝不能「解码出 itemId 再自己编码」——那会把绘制类型丢掉
  * （见 {@link fontId2Raw} 的说明）。
  */
 export interface MsgDecoration {
@@ -35,7 +35,7 @@ export interface MsgDecoration {
   bubbleId: number;
   /**
    * 解码后的聊天字体 itemId（41525 优先，否则 41531 低 16 位字节序交换）。
-   * 仅用于显示 / 资源解析，**不要拿它反推 wire 值**（那会丢 bit 16）。
+   * 仅用于显示 / 资源解析，**不要拿它反推 wire 值**（那会丢失绘制类型）。
    * 0 = no custom font.
    */
   fontId: number;
@@ -50,9 +50,8 @@ export interface MsgDecoration {
    * 41531 的**原始 wire 值**（0 = 未设置）→ elem `generalFlags.font.fontId2`(tag 15)，
    * 原样写、**不做字节交换**。
    *
-   * 低 16 位是字节交换过的 itemId，bit 16 是标志位（真机每条 40801 都置位；
-   * `65536` = 只有标志位、其实没有字体）。{@link fontId} 把标志位掩掉（显示需要），
-   * 这里保留原值，转发时标志位才不会丢。
+   * 低 16 位是字节交换过的 itemId，Android 用第 16–19 位读绘制类型（已见 1、2）；
+   * `65536` 只有类型，没有字体。{@link fontId} 只返回 itemId，转发必须保留原值。
    */
   fontId2Raw: number;
 }

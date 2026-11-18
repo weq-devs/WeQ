@@ -385,6 +385,8 @@ export type Message = {
     bubbleId: number;
     fontId: number;
     widgetId: number;
+    fontId1Raw?: number;
+    fontId2Raw?: number;
     cachedBubble?: import('@weq/service').MessageBubbleSkin;
   };
   optimistic?: 'queued' | 'sending' | 'sent' | 'failed';

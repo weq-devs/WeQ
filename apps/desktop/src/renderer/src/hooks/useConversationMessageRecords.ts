@@ -25,6 +25,7 @@ export function useConversationMessageRecords<Row, Cursor>(
   loadMedia?: (
     conversation: Conversation,
     rows: Row[],
+    origin: Origin,
   ) => Promise<((rows: Row[]) => Row[]) | undefined>,
 ) {
   const locked = useAppLock((state) => state.locked);
@@ -102,7 +103,7 @@ export function useConversationMessageRecords<Row, Cursor>(
       };
       setRequest(current.current);
       if (!loaded.length || !loadMedia) return;
-      void loadMedia(next.conversation, loaded)
+      void loadMedia(next.conversation, loaded, next.origin)
         .then((patch) => {
           const live = active();
           if (!patch || !live) return;

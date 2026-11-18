@@ -1686,7 +1686,12 @@ function MainWorkspace(): ReactElement {
     [readMessageRecords],
   );
   const readRecordReplyMedia = useCallback(
-    async (conversation: Conversation, rows: MessageWire[]) => {
+    async (
+      conversation: Conversation,
+      rows: MessageWire[],
+      origin: 'conversation' | 'settings',
+    ) => {
+      if (origin !== 'settings') return;
       const binding = messageBindingRef.current;
       const pending = new Map(rows.filter(needsReplyMedia).map((row) => [row.msgId, row]));
       if (!binding || !pending.size) return;
@@ -1709,7 +1714,6 @@ function MainWorkspace(): ReactElement {
     messageScope,
     messageScopeRef,
     readDeletedMessages,
-    readRecordReplyMedia,
   );
   const { conversation: deletedConv, rows: deletedWires, loading: deletedLoading } = deletions;
   const { conversation: recalledConv, rows: recalledWires, loading: recalledLoading } = recalls;
@@ -8500,13 +8504,18 @@ function MainWorkspace(): ReactElement {
       conversation={deletedConv}
       user={user}
       messages={deletedTemplateMessages}
-      renderers={messageRenderers}
+      hiddenIds={hiddenDeletedIds}
       loading={deletedLoading}
       hasMore={deletions.hasMore}
       onLoadMore={deletions.loadMore}
       error={deletions.error}
       onRetry={() => void deletions.retry()}
       onRestore={(msgId) => handleRestoreMessage(msgId, deletedConv)}
+      onLocate={(seq, messageId) => {
+        const target = convFetchKey(deletedConv);
+        if (mobileLayout) closeConversationRecords();
+        jumpToConvSeq(target.kind, target.conv, seq, true, undefined, messageId);
+      }}
       onClose={closeConversationRecords}
     />
   ) : recalls.origin === 'conversation' && recalledConv?.id === selectedUid ? (
