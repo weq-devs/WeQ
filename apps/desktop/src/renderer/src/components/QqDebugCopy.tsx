@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, Copy, LoaderCircle, Play, RefreshCw, Settings, Trash2 } from 'lucide-react';
 import { client, trpc } from '../trpc/client';
 import { useDialog } from './Dialog.shared';
+import { NumericText } from './NumericText';
 import { useTabActive } from './RetainedTabs.shared';
 import { QqDebugCopyPermissions } from './QqDebugCopyPermissions';
 import type { QqDebugCopyAction, QqDebugCopyPhase } from '../../../shared/qq_debug_copy';
@@ -135,9 +136,7 @@ export function QqDebugCopy({
           <div>
             <dt>原安装</dt>
             <dd>
-              <span className="weq-number weq-number-inherit">
-                {data.sourceVersion ?? '未检测到'}
-              </span>
+              <NumericText>{data.sourceVersion ?? '未检测到'}</NumericText>
             </dd>
           </div>
           <div>

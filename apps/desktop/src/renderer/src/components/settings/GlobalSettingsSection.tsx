@@ -1,4 +1,5 @@
 import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
+import { NumericText } from '../NumericText';
 /**
  * 设置 → 全局设置.
  *
@@ -194,9 +195,9 @@ export function GlobalSettingsSection({
             <span>{item.label}</span>
           </span>
         )}
-        <span className="weq-set-cache-size weq-number">
+        <span className="weq-set-cache-size">
           {item.incomplete ? '至少 ' : ''}
-          {formatBytes(item.bytes)}
+          <NumericText>{formatBytes(item.bytes)}</NumericText>
         </span>
       </div>
       <div className="weq-storage-detail">
@@ -602,9 +603,9 @@ export function GlobalSettingsSection({
                     <summary>
                       <ChevronRight size={14} className="weq-storage-chevron" aria-hidden />
                       <span className="weq-storage-detail">{group.label}</span>
-                      <span className="weq-set-cache-size weq-number">
+                      <span className="weq-set-cache-size">
                         {group.incomplete ? '至少 ' : ''}
-                        {formatBytes(group.bytes)}
+                        <NumericText>{formatBytes(group.bytes)}</NumericText>
                       </span>
                     </summary>
                     <div className="weq-storage-entries">

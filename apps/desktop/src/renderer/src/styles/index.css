@@ -566,8 +566,7 @@ html body.weq-tool-window {
     letter-spacing: 0;
   }
 
-  .weq-number,
-  .weq-set-input:is([type='number'], [inputmode='numeric'], [inputmode='decimal']) {
+  .weq-number:not(:where(input)) {
     font-family: var(--weq-font-number);
     font-weight: 500;
     letter-spacing: 0;
@@ -5985,6 +5984,10 @@ html[data-theme='dark'] .weq-set-mono {
   color: inherit;
   background: #ffffff;
   outline: none;
+}
+:where(input, select).weq-set-input {
+  min-height: 30px;
+  line-height: normal;
 }
 .weq-set-input:focus {
   border-color: var(--weq-accent-effective);

@@ -10,6 +10,7 @@
  */
 
 import { formatBytes } from '../../lib/format';
+import { NumericText } from '../../components/NumericText';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { FolderOpen, Layers } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
@@ -56,7 +57,7 @@ export function StatsPanel({
         <div className="weq-stats-head-info">
           <span className="weq-stats-title-label">QQ 版本</span>
           <span className="weq-stats-version">
-            <span className="weq-number weq-number-inherit">{install.version ?? '未知'}</span>
+            <NumericText>{install.version ?? '未知'}</NumericText>
           </span>
           {install.hasUserData ? (
             // The path itself is the control: click it anytime to re-pick the

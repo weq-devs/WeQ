@@ -87,9 +87,17 @@ export function NativeExpiredDialog({
             已打开过的账号与数据不受影响。
           </p>
           {built || expiredAt ? (
-            <p className="weq-native-expired-times weq-number">
-              {built ? <span>构建于 {built}</span> : null}
-              {expiredAt ? <span>有效期至 {expiredAt}（已过期）</span> : null}
+            <p className="weq-native-expired-times">
+              {built ? (
+                <span>
+                  <NumericText>{`构建于 ${built}`}</NumericText>
+                </span>
+              ) : null}
+              {expiredAt ? (
+                <span>
+                  <NumericText>{`有效期至 ${expiredAt}（已过期）`}</NumericText>
+                </span>
+              ) : null}
             </p>
           ) : null}
 
@@ -100,10 +108,8 @@ export function NativeExpiredDialog({
                 <span className="weq-set-row-label">
                   {phase === 'available' ? '有可用更新' : '软件更新'}
                 </span>
-                <span className="weq-set-row-desc weq-number">
-                  当前 v{current || '—'}
-                  {isDev ? '（开发版）' : ''}
-                  {phase === 'available' && latest ? ` → v${latest}` : ''}
+                <span className="weq-set-row-desc">
+                  <NumericText>{`当前 v${current || '—'}${isDev ? '（开发版）' : ''}${phase === 'available' && latest ? ` → v${latest}` : ''}`}</NumericText>
                 </span>
               </div>
               <div className="weq-set-row-ctrl">
@@ -206,13 +212,13 @@ export function NativeExpiredDialog({
           </div>
 
           {isDev ? (
-            <p className="weq-set-note weq-number">
+            <p className="weq-set-note">
               <Terminal size={12} strokeWidth={1.9} aria-hidden /> 开发构建不能自更新：请在本仓库跑{' '}
               <code>pnpm native:fetch</code> 取一份新构建后重启。
             </p>
           ) : null}
           {isManaged ? (
-            <p className="weq-set-note weq-number">
+            <p className="weq-set-note">
               <Terminal size={12} strokeWidth={1.9} aria-hidden /> 当前版本由系统包管理器安装：
               请在终端运行 <code>paru -Syu</code> 更新后重新打开 WeQ。
             </p>

@@ -214,7 +214,7 @@ export function MsgDressEditor({
                 {KIND_META[kind].label}
               </span>
               <input
-                className="weq-mf-input mono weq-mf-dress-input"
+                className="weq-mf-input weq-mf-dress-input"
                 inputMode="numeric"
                 placeholder="id"
                 value={value > 0 ? String(value) : ''}

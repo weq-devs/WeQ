@@ -6,7 +6,7 @@
 
 /* 已有读数沿用各自字号、字重和布局，只共享 weq-number 的数字排版。 */
 :is(
-  .weq-number,
+  .weq-number:not(:where(input)),
   .weq-time-label,
   .weq-msglist-time,
   .weq-gift-wall-time,
@@ -53,8 +53,6 @@
   .composer-single-duration,
   .weq-call-recording-time,
   .weq-totp-countdown-num,
-  .weq-task-progress-metric > strong,
-  .weq-task-progress-times > span,
   .weq-exp-detail-stage-pct,
   .weq-rp-progress-pct,
   .weq-rp-row-size,
@@ -102,9 +100,6 @@
   .ai-voice-selected,
   .bounce-preview-count,
   .bounce-range,
-  .bounce-input,
-  .redpacket-input,
-  .redpacket-count,
   .redpacket-summary,
   .redpacket-preview-meta,
   .weq-editor-tab-index,
@@ -117,7 +112,7 @@
   .weq-analysis-range,
   .weq-analysis-choice-time,
   .weq-saved-analysis-status,
-  .weq-avatar-history-grid dl,
+  .weq-avatar-history-grid time,
   .weq-cache-grid-rownum,
   .weq-cache-cell.is-int,
   .weq-cache-cell.is-real,
@@ -131,7 +126,6 @@
   .weq-ra-share-val,
   .weq-ra-mlabel,
   .weq-ra-tr,
-  .weq-call-drawer-meta dd,
   .weq-call-status,
   .weq-call-details dd,
   .composer-send[data-muted] strong,
@@ -160,9 +154,7 @@
   .weq-group-sign-records .weq-group-sign-rank,
   .weq-acct-uin,
   .weq-acct-row-uin,
-  .weq-stats-version,
   .weq-set-rkey-exp,
-  .weq-set-cache-size,
   .weq-emoji-bounce-count,
   .weq-perhome-stat strong,
   .weq-msglist-count,
@@ -196,8 +188,6 @@
   .weq-intent-popover-row.is-metric > :last-child,
   .weq-int-history time,
   .weq-long-task-state small,
-  .weq-task-progress-metric,
-  .weq-task-progress-times,
   .weq-mail-folders button > small,
   .weq-mail-list-heading > span,
   .weq-mail-pagination span,
@@ -206,7 +196,6 @@
   .weq-profile-like-total strong,
   .weq-profile-like-preset,
   .weq-qqshow-gallery-count,
-  .weq-qqshow-gallery-hint,
   .weq-qqshow-gallery-meta strong,
   .weq-qzn-related-tabs button > span,
   .weq-qzn-page-count,
@@ -214,8 +203,6 @@
   .weq-redpack-wall-meta small,
   html .weq-reminder-count,
   .weq-remote-code,
-  .weq-int-round-meta,
-  .weq-roaming-range-summary,
   .weq-roaming-job-ratio,
   .weq-roaming-stats dd,
   .weq-roaming-receipt-target small,
@@ -231,9 +218,7 @@
   .weq-perf-chart > svg text,
   .weq-perf-chart-summary > strong,
   .weq-perf-chart-tooltip > time,
-  .weq-perf-chart-tooltip > strong,
-  input:is([type='number'], [inputmode='numeric'], [inputmode='decimal']),
-  .weq-mf-input.mono[inputmode='numeric']
+  .weq-perf-chart-tooltip > strong
 ):not(:where(.weq-report-root *)) {
   font-family: var(--weq-font-number);
   font-size-adjust: cap-height var(--weq-number-cap-height);
@@ -241,7 +226,12 @@
   letter-spacing: 0;
 }
 
+/* 可编辑数值与同组表单共用字体，等宽数字不改变文字占位的字形。 */
+input:where([type='number'], [inputmode='numeric'], [inputmode='decimal']) {
+  font-variant-numeric: tabular-nums;
+}
+
 /* 混排文本中的数值继承所在位置的强调字重。 */
-.weq-number.weq-number-inherit {
+.weq-number.weq-number-inherit:not(:where(input)) {
   font-weight: inherit;
 }

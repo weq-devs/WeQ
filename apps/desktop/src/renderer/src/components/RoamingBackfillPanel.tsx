@@ -579,9 +579,13 @@ export function RoamingBackfillPanel({
                   </div>
                   <div className="weq-roaming-range-summary">
                     <CalendarRange size={14} aria-hidden />
-                    <span>{start || '不限起始'}</span>
+                    <span>
+                      <NumericText>{start || '不限起始'}</NumericText>
+                    </span>
                     <ChevronRight size={13} className="weq-roaming-range-arrow" aria-hidden />
-                    <span>{end || '不限结束'}</span>
+                    <span>
+                      <NumericText>{end || '不限结束'}</NumericText>
+                    </span>
                     {start || end ? (
                       <button
                         type="button"

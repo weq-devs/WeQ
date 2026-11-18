@@ -73,12 +73,13 @@ export function DefaultsOptions({
           <section aria-label="自定义目录">
             <h4>自定义目录</h4>
             {info.paths.map((item) => (
-              <label className="weq-defaults-row" key={item.id}>
-                <span>
-                  {item.label}
-                  <small>{item.value}</small>
+              <label className="weq-set-row weq-defaults-row" key={item.id}>
+                <span className="weq-set-row-main">
+                  <span className="weq-set-row-label">{item.label}</span>
+                  <small className="weq-set-row-desc">{item.value}</small>
                 </span>
                 <select
+                  className="weq-set-input"
                   aria-label={item.label}
                   value={choice.resetPaths?.includes(item.id) ? 'reset' : 'keep'}
                   onChange={(event) =>

@@ -126,10 +126,8 @@ export function UpdateCard(): ReactElement {
               {label}
             </span>
           ) : null}
-          <span className="weq-set-row-desc weq-number">
-            当前 v{current || '—'}
-            {isDev ? '（开发版）' : ''}
-            {hasNew && latest ? ` → v${latest}` : ''}
+          <span className="weq-set-row-desc">
+            <NumericText>{`当前 v${current || '—'}${isDev ? '（开发版）' : ''}${hasNew && latest ? ` → v${latest}` : ''}`}</NumericText>
           </span>
         </div>
         <div className="weq-set-row-ctrl">

@@ -87,9 +87,9 @@ export function SignerStatusCard(): ReactElement {
     >
       <dl className="weq-signer-kv">
         <dt>QQ 版本</dt>
-        <dd className="weq-number">{data?.version ?? '未知'}</dd>
+        <dd>{data?.version ? <span className="weq-number">{data.version}</span> : '未知'}</dd>
         <dt>文件</dt>
-        <dd className="weq-number weq-signer-path" title={data?.wrapperPath ?? ''}>
+        <dd className="weq-signer-path" title={data?.wrapperPath ?? ''}>
           {data?.wrapperPath ?? '未找到 wrapper.node'}
         </dd>
         <dt>SHA-256</dt>

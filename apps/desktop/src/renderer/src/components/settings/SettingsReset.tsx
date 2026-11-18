@@ -249,10 +249,12 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
                 {dialog.items
                   .filter((item) => item.directory && differs(item))
                   .map((item) => (
-                    <label key={item.id} className="weq-defaults-row">
-                      <span>
-                        {item.label}
-                        <small>{formatResetValue(item.current, item.id)}</small>
+                    <div key={item.id} className="weq-set-row weq-defaults-row">
+                      <span className="weq-set-row-main">
+                        <span className="weq-set-row-label">{item.label}</span>
+                        <small className="weq-set-row-desc">
+                          {formatResetValue(item.current, item.id)}
+                        </small>
                       </span>
                       <SegmentedControl<'keep' | 'reset'>
                         label={item.label}
@@ -270,7 +272,7 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
                           { value: 'reset', label: '恢复默认' },
                         ]}
                       />
-                    </label>
+                    </div>
                   ))}
               </div>
               {changed.some((item) => item.stopsService) ? (

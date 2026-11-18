@@ -1709,7 +1709,7 @@ function ReplyEditor({
         <label className="weq-mf-field">
           <span>被引用消息序号</span>
           <input
-            className="weq-mf-input mono"
+            className="weq-mf-input"
             inputMode="numeric"
             placeholder="如 12345"
             value={seg.origMsgSeq || ''}
@@ -1721,7 +1721,7 @@ function ReplyEditor({
         <label className="weq-mf-field">
           <span>被引用者 QQ</span>
           <input
-            className="weq-mf-input mono"
+            className="weq-mf-input"
             inputMode="numeric"
             placeholder="可留空"
             value={seg.origSenderUin ?? ''}
@@ -1936,7 +1936,7 @@ function AtPicker({
             </div>
             <div className="weq-mf-manual-row">
               <input
-                className="weq-mf-input mono"
+                className="weq-mf-input"
                 placeholder="QQ 号（可选）"
                 inputMode="numeric"
                 value={manualUin}

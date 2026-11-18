@@ -75,9 +75,9 @@ export function TaskProgressDetails({
           {elapsed ? (
             <span>
               耗时{' '}
-              <span className="weq-number weq-number-inherit">
+              <NumericText>
                 {formatDuration(Math.max(0, Math.floor((elapsed - startedAt) / 1000)))}
-              </span>
+              </NumericText>
             </span>
           ) : null}
         </div>

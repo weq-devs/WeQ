@@ -65,6 +65,9 @@ try {
         const result = await page.evaluate(() => {
           const family = getComputedStyle(document.querySelector('[data-reference]')).fontFamily;
           const bodyFamily = getComputedStyle(document.querySelector('[data-body]')).fontFamily;
+          const field = document.querySelector('[data-numeric-input]');
+          const fieldStyle = getComputedStyle(field);
+          const placeholderStyle = getComputedStyle(field, '::placeholder');
           const readouts = [
             ...document.querySelectorAll(
               '[data-readout], [data-time] time, [data-duration] span, .weq-number:not(.weq-report-root *)',
@@ -92,6 +95,10 @@ try {
           return {
             family,
             bodyFamily,
+            inputFamily: fieldStyle.fontFamily,
+            inputNumeric: fieldStyle.fontVariantNumeric,
+            placeholderFamily: placeholderStyle.fontFamily,
+            placeholderAdjust: placeholderStyle.fontSizeAdjust,
             readouts,
             widths,
             labels: [...document.querySelectorAll('[data-label]')].map(
@@ -129,6 +136,10 @@ try {
         }
         assert.ok(result.labels.every((family) => family === result.bodyFamily));
         assert.notEqual(result.family, result.bodyFamily);
+        assert.equal(result.inputFamily, result.bodyFamily);
+        assert.equal(result.inputNumeric, 'tabular-nums');
+        assert.equal(result.placeholderFamily, result.bodyFamily);
+        assert.equal(result.placeholderAdjust, 'none');
         assert.match(result.codeFamily, /mono/i);
         assert.ok(result.reportFamilies.every((family) => family.includes('Georgia')));
         assert.ok(Math.max(...result.widths) - Math.min(...result.widths) < 0.1);

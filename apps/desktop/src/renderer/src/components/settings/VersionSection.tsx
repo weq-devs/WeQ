@@ -14,6 +14,7 @@ import * as timeFormat from '@weq/time';
 
 import { useState, type ReactElement } from 'react';
 import { Boxes, Info, RefreshCw } from 'lucide-react';
+import { NumericText } from '../NumericText';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { Card, SectionHeader } from './controls';
@@ -68,8 +69,8 @@ export function VersionSection(): ReactElement {
           <img src={logoUrl} alt="" width={52} height={52} className="weq-set-hero-logo" />
           <div className="weq-set-hero-info">
             <span className="weq-set-hero-name">WeQ</span>
-            <span className="weq-set-hero-sub weq-number">
-              版本 {v?.app ?? (version.isLoading ? '…' : '未知')}
+            <span className="weq-set-hero-sub">
+              版本 <NumericText>{v?.app ?? (version.isLoading ? '…' : '未知')}</NumericText>
             </span>
             {v ? (
               <span className="weq-set-hero-sig">
@@ -110,19 +111,21 @@ export function VersionSection(): ReactElement {
         <div className="weq-set-hero">
           <Boxes size={28} strokeWidth={1.6} aria-hidden style={{ flexShrink: 0 }} />
           <div className="weq-set-hero-info">
-            <span className="weq-set-hero-name weq-number">nt_helper.node</span>
-            <span className="weq-set-hero-sub weq-number">
-              {native.isLoading
-                ? '读取中…'
-                : n?.isDev
-                  ? '开发构建，无有效期限制'
-                  : buildText
-                    ? `构建于 ${buildText}`
-                    : '构建时间未知'}
+            <span className="weq-set-hero-name">nt_helper.node</span>
+            <span className="weq-set-hero-sub">
+              <NumericText>
+                {native.isLoading
+                  ? '读取中…'
+                  : n?.isDev
+                    ? '开发构建，无有效期限制'
+                    : buildText
+                      ? `构建于 ${buildText}`
+                      : '构建时间未知'}
+              </NumericText>
             </span>
             {!n?.isDev && expireText ? (
-              <span className={`weq-set-hero-sig weq-number${expired ? ' weq-set-note-warn' : ''}`}>
-                有效期至 {expireText}（{remaining}）
+              <span className={`weq-set-hero-sig${expired ? ' weq-set-note-warn' : ''}`}>
+                <NumericText>{`有效期至 ${expireText}（${remaining ?? ''}）`}</NumericText>
               </span>
             ) : null}
           </div>

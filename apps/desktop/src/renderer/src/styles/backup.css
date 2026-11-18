@@ -182,37 +182,16 @@ html[data-theme='dark'] .weq-backup-review {
 }
 .weq-defaults-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 112px;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
   margin: 10px 0;
-  font-size: 13px;
 }
-.weq-defaults-row span {
-  min-width: 0;
+.weq-defaults-row .weq-set-row-main {
   overflow-wrap: anywhere;
 }
-.weq-defaults-row small {
-  display: block;
-  color: var(--weq-fg-secondary);
-  font-size: 12px;
-}
-.weq-defaults-row select {
-  width: 100%;
-  padding: 6px;
-  border: 1px solid var(--weq-border-strong);
-  border-radius: 6px;
-  background: var(--background);
-  color: var(--weq-fg-primary);
-  font-size: 12px;
-}
-.weq-defaults-row select:focus-visible {
-  outline: 2px solid var(--weq-accent-effective);
-  outline-offset: 2px;
-}
-html[data-theme='dark'] .weq-defaults-row select {
-  background: var(--background);
-  color: var(--weq-fg-primary);
+.weq-defaults-row .weq-set-input {
+  width: 112px;
 }
 
 .weq-backup-gate .weq-set-btn {
