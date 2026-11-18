@@ -216,12 +216,9 @@ export function ConversationMessageActions({
         ]
       : []),
     ...(onSearch ? [{ label: '搜索', icon: <Search size={18} />, action: onSearch }] : []),
-    {
-      label: '消息',
-      icon: <MessageSquareText size={18} />,
-      children: messages,
-      disabled: !messages.length,
-    },
+    ...(messages.length
+      ? [{ label: '消息', icon: <MessageSquareText size={18} />, children: messages }]
+      : []),
     { label: '工具', icon: <Wrench size={18} />, children: tools, disabled: !tools.length },
     ...(onSettings
       ? [{ label: settingsLabel, icon: <Settings2 size={18} />, action: onSettings }]
@@ -229,6 +226,8 @@ export function ConversationMessageActions({
   ];
   // 没有宿主能力的虚拟对象不单独显示空工具栏。
   if (!onSearch && !onSettings && !messages.length && !tools.length && !onBug) return null;
+  const menuActions =
+    menu && (compact ? actions : actions.find((item) => item.label === menu.label)?.children);
   const open = (button: HTMLButtonElement, label: string) => {
     const rect = button.getBoundingClientRect();
     const header = compact ? button.closest('.chat-header')?.getBoundingClientRect() : null;
@@ -309,16 +308,14 @@ export function ConversationMessageActions({
           </button>
         ))
       )}
-      {menu ? (
+      {menu && menuActions ? (
         <ConversationActionsMenu
           key={menu.label}
           label={menu.label}
           dropdown
           x={menu.x}
           y={menu.y}
-          actions={
-            compact ? actions : (actions.find((item) => item.label === menu.label)?.children ?? [])
-          }
+          actions={menuActions}
           onClose={close}
         />
       ) : null}
