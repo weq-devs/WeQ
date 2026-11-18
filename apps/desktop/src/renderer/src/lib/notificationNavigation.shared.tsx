@@ -85,7 +85,7 @@ export function taskNotificationSource(id: string, prefix = 'export') {
 
 export function messageNotificationSource(
   conversation: { id: string; type: string },
-  message: Pick<Message, 'id' | 'msgId' | 'msgSeq' | 'sourceFormat' | 'ntSeqVerified'>,
+  message: Pick<Message, 'id' | 'msgSeq' | 'sourceFormat' | 'ntSeqVerified'>,
   binding = accountBinding(),
 ) {
   return notificationSource(
@@ -93,7 +93,7 @@ export function messageNotificationSource(
       kind: 'conversation',
       conversationKind: conversation.type === 'group' ? 'group' : 'c2c',
       conv: conversation.id,
-      msgId: message.msgId ?? message.id,
+      msgId: message.id,
       seq:
         message.sourceFormat === 'protocol' && !message.ntSeqVerified ? undefined : message.msgSeq,
     },

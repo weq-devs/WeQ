@@ -109,7 +109,7 @@ async function showNotification(services: AccountServices, hit: GroupKeywordHit)
   });
   notification.on('click', () => {
     if (getAppContext().services !== services) return;
-    openConversationAt(hit.groupCode, hit.msgSeq);
+    openConversationAt(hit);
   });
   notification.show();
 }
@@ -118,14 +118,18 @@ async function showNotification(services: AccountServices, hit: GroupKeywordHit)
  * 点击通知：聚焦主窗口并把「打开该群、跳到该 seq」交给渲染层。跳转请求通过
  * `bootstrap.consumePendingGroupJump`（渲染层轮询/订阅）派发 —— 主进程不做导航。
  */
-function openConversationAt(groupCode: string, msgSeq: bigint): void {
+function openConversationAt(hit: GroupKeywordHit): void {
   const win = getMainWindow();
   if (win && !win.isDestroyed()) {
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
   }
-  pushGroupKeywordJump({ groupCode, msgSeq: msgSeq.toString() });
+  pushGroupKeywordJump({
+    groupCode: hit.groupCode,
+    msgSeq: hit.msgSeq.toString(),
+    msgId: hit.msgId.toString(),
+  });
 }
 
 async function groupNameOf(services: AccountServices, groupCode: string): Promise<string> {

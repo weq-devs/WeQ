@@ -106,7 +106,11 @@ it('撤回监听只读查询复用账号连接，历史不通知且大整数游�
   await poll();
   await poll();
   expect(f.notify).toHaveBeenCalledOnce();
-  expect(f.notify.mock.calls[0]![0]).toMatchObject({ kind: 'group', origSeq: '2' });
+  expect(f.notify.mock.calls[0]![0]).toMatchObject({
+    kind: 'group',
+    msgId: String(old + 1n),
+    origSeq: '2',
+  });
   expect(f.close).not.toHaveBeenCalled();
 });
 

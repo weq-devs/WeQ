@@ -167,7 +167,9 @@ it.each([false, true])('群通知保留群名并显示最后一条消息的发�
     );
     expect(web ? f.browserNotify : f.notify).toHaveBeenLastCalledWith(
       expect.objectContaining(
-        web ? { target: { seq: '20', kind: 'group', conv: '10003' } } : { seq: '20' },
+        web
+          ? { target: { seq: '20', msgId: '20', kind: 'group', conv: '10003' } }
+          : { seq: '20', anchorId: '20', messageId: '21' },
       ),
     );
     await act(async () => f.receive?.(batch('22')));
@@ -243,12 +245,14 @@ it('系统仅提醒 @我而横幅提醒普通消息时，各渠道定位自己�
       f.receive?.({ ...mention, messages: [...ordinary.messages, ...mention.messages] }),
     );
     expect(f.notify).toHaveBeenLastCalledWith(
-      expect.objectContaining({ conv: '10003', seq: '61' }),
+      expect.objectContaining({ conv: '10003', seq: '61', anchorId: '61' }),
     );
     act(() => useToast.getState().toasts.at(-1)!.action!.run());
     expect(opened).toHaveBeenCalledWith(
       expect.objectContaining({
-        detail: expect.objectContaining({ target: { kind: 'group', conv: '10003', seq: '60' } }),
+        detail: expect.objectContaining({
+          target: { kind: 'group', conv: '10003', seq: '60', msgId: '60' },
+        }),
       }),
     );
   } finally {

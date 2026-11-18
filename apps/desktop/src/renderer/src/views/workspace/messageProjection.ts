@@ -450,6 +450,17 @@ export function isRenderableMessage(message: MessageWire): boolean {
   return false;
 }
 
+export function findTimelineMessageById(
+  messages: readonly MessageWire[],
+  id: string,
+  seq?: string,
+): MessageWire | undefined {
+  return (
+    messages.find((row) => timelineRowKey(row) === id) ??
+    messages.find((row) => row.msgId === id && (!seq || row.msgSeq === seq))
+  );
+}
+
 /**
  * 按会话内 seq 找「离 targetSeq 最近的」那一条真实消息。
  *

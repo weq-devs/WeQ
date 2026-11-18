@@ -35,7 +35,8 @@ const conversation: Conversation = {
 };
 const messages: Message[] = [
   {
-    id: 'one',
+    id: 'roaming:protocol:1:9007199254740993',
+    msgId: '9007199254740993',
     conversationId: peer.id,
     senderId: peer.id,
     body: '合成内容甲',
@@ -48,7 +49,7 @@ const messages: Message[] = [
     senderId: user.id,
     body: '合成内容乙',
     createdAt: '2026-10-25',
-    msgSeq: '2',
+    msgSeq: '1',
   },
 ];
 function mount(embedded: boolean, error?: string) {
@@ -84,7 +85,7 @@ function mount(embedded: boolean, error?: string) {
   };
 }
 describe('撤回气泡与筛选的共用呈现', () => {
-  it('设置来源不再创建第二个容器，仍向原气泡传递消息并支持筛选与准确序号跳转', () => {
+  it('设置来源不再创建第二个容器，筛选后按完整消息身份区分同序号记录', () => {
     const f = mount(true);
     try {
       expect(document.querySelector('[role="dialog"]')).toBeNull();
@@ -99,7 +100,7 @@ describe('撤回气泡与筛选的共用呈现', () => {
       });
       expect(f.host.querySelectorAll('[data-real-bubble-input]')).toHaveLength(1);
       act(() => f.host.querySelector<HTMLElement>('.weq-msglist-item')!.click());
-      expect(f.jump).toHaveBeenCalledWith('1');
+      expect(f.jump).toHaveBeenCalledWith('1', messages[0]!.id);
     } finally {
       f.dispose();
     }

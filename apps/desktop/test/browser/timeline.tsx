@@ -120,6 +120,7 @@ function Fixture() {
     Array.from({ length: delayedEntry ? 0 : entryCount }, (_, i) => message(i + 1001)),
   );
   const [loading, setLoading] = useState(delayedEntry);
+  const [jumpRequest, setJumpRequest] = useState<{ messageId: string; revision: number }>();
   useEffect(() => {
     if (!delayedEntry) return;
     const timer = setTimeout(() => {
@@ -159,6 +160,7 @@ function Fixture() {
     setCount: (count: number) =>
       setMessages(Array.from({ length: count }, (_, i) => message(i + 1001))),
     jump: (id: string) => revealTimelineMessage(scroll(), id, true),
+    requestJump: (messageId: string) => setJumpRequest({ messageId, revision: Date.now() }),
     capture: () => captureReadingPosition(scroll()),
     restore: (position: Parameters<typeof restoreReadingPosition>[1]) =>
       restoreReadingPosition(scroll(), position),
@@ -254,6 +256,7 @@ function Fixture() {
       user,
       conversation: { ...conversation, id: conversationId },
       messages,
+      jumpRequest,
       messageRenderers: [qqMessageRenderer],
       atLatest,
       loading,

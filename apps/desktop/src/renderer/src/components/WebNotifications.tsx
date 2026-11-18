@@ -57,6 +57,7 @@ export function WebNotifications() {
                         conversationKind: notice.target.kind,
                         conv: notice.target.conv,
                         seq: notice.target.seq,
+                        msgId: notice.target.msgId,
                       },
                       '定位消息',
                     )

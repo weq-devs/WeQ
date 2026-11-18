@@ -88,8 +88,7 @@ export function RecalledMessagesModal({
   renderers?: MessageRenderer[];
   loading: boolean;
   onClose: () => void;
-  /** 跳转到指定 seq 的消息（参考精华消息的实现）*/
-  onJumpToMessage?: (seq: number | string) => void;
+  onJumpToMessage?: (seq: string, messageId: string) => void;
   /** 设置工具已有唯一模态容器，只复用内容，不再叠加第二个窗口。 */
   embedded?: boolean;
   error?: string | null;
@@ -181,10 +180,8 @@ export function RecalledMessagesModal({
       return;
     }
 
-    // 从 message 中提取 msgSeq (group) 或 msgIndex (c2c)
-    const msgSeq = (message as { msgSeq?: string | number }).msgSeq;
-
-    if (msgSeq == null || msgSeq === '') {
+    const { msgSeq } = message;
+    if (!msgSeq || !/^[1-9]\d*$/.test(msgSeq)) {
       pushToast({
         tone: 'info',
         durationKind: 'success',
@@ -194,8 +191,7 @@ export function RecalledMessagesModal({
       return;
     }
 
-    onClose();
-    onJumpToMessage(msgSeq);
+    onJumpToMessage(msgSeq, message.id);
   };
 
   const content = (

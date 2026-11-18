@@ -6,7 +6,7 @@ export interface WebNotice {
   kind: 'recall' | 'keyword' | 'mail' | 'message';
   title: string;
   body: string;
-  target?: { kind: 'c2c' | 'group'; conv: string; seq: string };
+  target?: { kind: 'c2c' | 'group'; conv: string; seq: string; msgId?: string };
   mail?: { folderId: number; id: string };
 }
 export const webNotices = new EventEmitter();

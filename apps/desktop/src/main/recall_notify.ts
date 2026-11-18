@@ -97,7 +97,7 @@ function openConversationAt(event: RecallNotifyEvent): void {
     win.focus();
   }
   const kind = event.kind === 'group' ? 'group' : 'c2c';
-  pushConversationJump({ kind, conv: event.conv, seq: event.origSeq });
+  pushConversationJump({ kind, conv: event.conv, seq: event.origSeq, msgId: event.msgId });
 }
 
 /** 会话显示名 + 发送者 / 撤回者昵称（best-effort，全部失败也有兜底）。 */

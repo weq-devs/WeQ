@@ -92,6 +92,7 @@ export function normalizeGroupKeywordRules(raw: unknown): GroupKeywordRules {
 export interface GroupKeywordHit {
   /** 群号。 */
   groupCode: string;
+  msgId: bigint;
   /** 消息在群内的 seq（点击卡片跳转目标）。 */
   msgSeq: bigint;
   /** 发送者 uid。 */
@@ -201,6 +202,7 @@ export class GroupKeywordService {
     try {
       await this.opts.onHit({
         groupCode,
+        msgId: msg.msgId,
         msgSeq: msg.msgSeq,
         senderUid: msg.senderUid,
         senderUin: msg.senderUin,

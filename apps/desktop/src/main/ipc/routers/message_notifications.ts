@@ -37,6 +37,7 @@ export function createMessageNotificationsRouter(
       .input(
         binding.extend({
           messageId: z.string().min(1).max(128),
+          anchorId: z.string().min(1).max(128).optional(),
           kind: z.enum(['c2c', 'group']),
           conv: z.string().min(1),
           seq: z.string().regex(/^[1-9]\d*$/),
@@ -93,7 +94,7 @@ export function createMessageNotificationsRouter(
           kind: 'message',
           title: hide ? 'WeQ' : input.title,
           body: hide ? '收到新消息' : input.body,
-          target: { kind: input.kind, conv: input.conv, seq: input.seq },
+          target: { kind: input.kind, conv: input.conv, seq: input.seq, msgId: input.anchorId },
         };
         const supported =
           getHost().showMessageNotification?.(notice, () => pushMessageNoticeClick(notice)) ??

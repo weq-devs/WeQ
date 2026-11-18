@@ -22,18 +22,23 @@ it.each([
   ['protocol', false, undefined],
   ['protocol', true, '17'],
 ] as const)(
-  '消息来源 %s／已核验=%s 只使用可信 NT 序号，保留原始消息身份',
+  '消息来源 %s／已核验=%s 只使用可信 NT 序号，保留完整时间线身份',
   (sourceFormat, ntSeqVerified, seq) => {
     const source = messageNotificationSource(
       { type: 'direct', id: 'peer' },
-      { id: 'render-id', msgId: 'original-id', msgSeq: '17', sourceFormat, ntSeqVerified },
+      {
+        id: `roaming:${sourceFormat}:17:9007199254740993`,
+        msgSeq: '17',
+        sourceFormat,
+        ntSeqVerified,
+      },
       null,
     );
     expect(source.target).toEqual({
       kind: 'conversation',
       conversationKind: 'c2c',
       conv: 'peer',
-      msgId: 'original-id',
+      msgId: `roaming:${sourceFormat}:17:9007199254740993`,
       seq,
     });
   },

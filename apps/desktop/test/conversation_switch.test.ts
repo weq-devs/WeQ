@@ -102,7 +102,12 @@ const f = vi.hoisted(() => ({
   >,
   notificationReads: { group: 0, conversation: 0 },
   groupJumps: [] as Array<{ groupCode: string; msgSeq: string }>,
-  conversationJumps: [] as Array<{ kind: 'c2c' | 'group'; conv: string; seq?: string }>,
+  conversationJumps: [] as Array<{
+    kind: 'c2c' | 'group';
+    conv: string;
+    seq?: string;
+    msgId?: string;
+  }>,
   conversationJumpReply: undefined as
     | (() => Promise<{ kind: 'c2c' | 'group'; conv: string } | null>)
     | undefined,
@@ -2000,9 +2005,32 @@ it('跳转订阅不随重绘重建，通知仍能连续切换会话，旧工作�
     f.groupJumps.push({ groupCode: '10002', msgSeq: '42' });
     await act(async () => group.notify());
     expect(JSON.parse(host.querySelector('output')!.textContent!).id).toBe('10002');
-    f.conversationJumps.push({ kind: 'c2c', conv: 'u_peer' });
+    const neighbor: TestMessage = {
+      msgId: '9007199254740993',
+      msgSeq: '70',
+      sendTime: '1794200000',
+      senderUid: 'u_peer',
+      senderUin: '20001',
+      elements: [{ type: 'text', data: { textContent: '同序号的其他消息' } }],
+    };
+    const recalled = {
+      ...neighbor,
+      msgId: '9007199254740994',
+      recall: { revokeUid: 'u_peer', sameSender: true, recallTs: 1794200010 },
+    };
+    f.beforeRows = [recalled, neighbor];
+    f.conversationJumps.push({
+      kind: 'c2c',
+      conv: 'u_peer',
+      seq: recalled.msgSeq,
+      msgId: recalled.msgId,
+    });
     await act(async () => conversation.notify());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 200)));
     expect(JSON.parse(host.querySelector('output')!.textContent!).id).toBe('u_peer');
+    expect(host.querySelector('.weq-reply-target-flash')?.getAttribute('data-message-id')).toBe(
+      recalled.msgId,
+    );
     expect(f.notificationSubscriptions.group).toHaveLength(groups);
     expect(f.notificationSubscriptions.conversation).toHaveLength(conversations);
     let resolve!: (jump: { kind: 'group'; conv: string }) => void;

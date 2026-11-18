@@ -364,11 +364,12 @@ export function ChatRecordsModal({
             kind={selected.source === 'group' ? 'group' : 'c2c'}
             conv={selected.targetUid}
             onClose={() => setCalendarOpen(false)}
-            onJump={(seq) => {
+            onJump={(seq, msgId) => {
               onJumpMessage({
                 source: selected.source,
                 targetUid: selected.targetUid,
                 msgSeq: seq,
+                msgId,
               });
               onClose();
             }}

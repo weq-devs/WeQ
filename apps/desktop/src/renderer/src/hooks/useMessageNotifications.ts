@@ -227,7 +227,6 @@ export function useMessageNotifications(options: {
           kind: 'message',
           title,
           body,
-          target: { kind: item.message.kind, conv: item.message.conv, seq: item.anchor.msgSeq },
         };
         const currentPolicyState = useNotificationPolicy.getState();
         const currentPolicy = currentPolicyState.ready
@@ -240,12 +239,14 @@ export function useMessageNotifications(options: {
           for (const [reason, candidate] of item.anchors) {
             if (currentPolicy[reason][channel]) anchor = firstNoticeMessage(anchor, candidate);
           }
+          anchor ??= item.anchor;
           return {
             ...notice,
             target: {
               kind: item.message.kind,
               conv: item.message.conv,
-              seq: (anchor ?? item.anchor).msgSeq,
+              seq: anchor.msgSeq,
+              msgId: anchor.msgId,
             },
           };
         };
@@ -279,6 +280,7 @@ export function useMessageNotifications(options: {
             .mutate({
               ...scope,
               messageId: item.message.msgId,
+              anchorId: systemNotice.target.msgId,
               kind: item.message.kind,
               conv: item.message.conv,
               seq: systemNotice.target.seq,

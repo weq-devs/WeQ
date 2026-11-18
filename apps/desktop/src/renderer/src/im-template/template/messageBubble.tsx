@@ -126,15 +126,15 @@ export function MessageBubble(props: Parameters<typeof MessageBubbleBody>[0]) {
   const configId = inherited?.binding?.expectedAccountConfigId;
   const conv = props.conversation.id;
   const kind = props.conversation.type === 'group' ? 'group' : 'c2c';
-  const { id, msgId, msgSeq, sourceFormat, ntSeqVerified } = props.message;
+  const { id, msgSeq, sourceFormat, ntSeqVerified } = props.message;
   const source = useMemo(
     () =>
       messageNotificationSource(
         { id: conv, type: kind },
-        { id, msgId, msgSeq, sourceFormat, ntSeqVerified },
+        { id, msgSeq, sourceFormat, ntSeqVerified },
         uin && configId ? { expectedAccountUin: uin, expectedAccountConfigId: configId } : null,
       ),
-    [uin, configId, kind, conv, id, msgId, msgSeq, sourceFormat, ntSeqVerified],
+    [uin, configId, kind, conv, id, msgSeq, sourceFormat, ntSeqVerified],
   );
   return (
     <NotificationSourceProvider source={source}>

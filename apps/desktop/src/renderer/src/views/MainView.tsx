@@ -23,6 +23,7 @@ import {
   messageBody,
   isRenderableMessage,
   nearestBySeq,
+  findTimelineMessageById,
   extractGrayTipUids,
 } from './workspace/messageProjection';
 import {
@@ -5304,9 +5305,9 @@ function MainWorkspace(): ReactElement {
     `${messageScope}:${shell.view}:${selectedUid ?? ''}`,
   );
   const scrollToMsgId = useCallback(
-    (msgId: string): boolean => {
+    (msgId: string, flash = true): boolean => {
       const scroll = nativeMessageScrollRef.current;
-      return scroll ? revealTimelineMessage(scroll, msgId, true) : false;
+      return scroll ? revealTimelineMessage(scroll, msgId, flash) : false;
     },
     [nativeMessageScrollRef],
   );
@@ -5407,11 +5408,9 @@ function MainWorkspace(): ReactElement {
           const findTarget = () =>
             mode === 'firstUnread'
               ? firstUnreadMessage(merged, targetSeq)
-              : merged.find((m) =>
-                  exactId
-                    ? timelineRowKey(m) === exactId || m.msgId === exactId
-                    : m.msgSeq === targetSeq,
-                );
+              : exactId
+                ? findTimelineMessageById(merged, exactId, targetSeq)
+                : merged.find((m) => m.msgSeq === targetSeq);
           let target = findTarget();
 
           const autoContext = () =>
@@ -5493,12 +5492,12 @@ function MainWorkspace(): ReactElement {
           }
           if (anchor) {
             await new Promise<void>((resolve) => window.setTimeout(resolve, 160));
-            if (
-              isCurrent() &&
-              scope === messageScopeRef.current &&
-              selectionRef.current?.id === conv
-            )
-              scrollToMsgId(timelineRowKey(anchor));
+            if (!current()) return false;
+            const positioned = scrollToMsgId(timelineRowKey(anchor), Boolean(target));
+            if (target && !positioned && exactId) {
+              pushToast({ tone: 'info', title: '目标消息未在当前时间线显示' });
+              return false;
+            }
           }
           return Boolean(target);
         },
@@ -5547,14 +5546,12 @@ function MainWorkspace(): ReactElement {
       cancelMessageLocate();
       setMissingJumpSeq(null);
       if (jumpTarget.msgId) {
-        const exact = loadedRef.current.find(
-          (message) =>
-            message.msgId === jumpTarget.msgId || timelineRowKey(message) === jumpTarget.msgId,
+        const exact = findTimelineMessageById(
+          loadedRef.current,
+          jumpTarget.msgId,
+          jumpTarget.seq == null ? undefined : String(jumpTarget.seq),
         );
-        if (exact) {
-          scrollToMsgId(timelineRowKey(exact));
-          return;
-        }
+        if (exact && scrollToMsgId(timelineRowKey(exact))) return;
       }
       const notFound = (): void => {
         pushToast({
@@ -5597,7 +5594,7 @@ function MainWorkspace(): ReactElement {
       }
       const targetSeq = String(rawSeq);
 
-      const here = loadedRef.current.find((m) => m.msgSeq === targetSeq);
+      const here = !jumpTarget.msgId && loadedRef.current.find((m) => m.msgSeq === targetSeq);
       if (here) {
         scrollToMsgId(timelineRowKey(here));
         return;
@@ -5626,6 +5623,7 @@ function MainWorkspace(): ReactElement {
             }
           }
           if (
+            jumpTarget.msgId ||
             preferenceValue('autoFetchMissingMessages') ||
             preferenceValue('autoFetchMissingContext')
           ) {
@@ -5645,7 +5643,7 @@ function MainWorkspace(): ReactElement {
           notFound();
           setMissingJumpSeq(targetSeq);
           const anchor = nearestBySeq(current, targetSeq);
-          if (anchor) scrollToMsgId(timelineRowKey(anchor));
+          if (anchor) scrollToMsgId(timelineRowKey(anchor), false);
           return;
         }
       }
@@ -5713,6 +5711,15 @@ function MainWorkspace(): ReactElement {
       }
       locateConversationInView(conv, preferredView);
       setArkFeedState(null);
+      if (messageId && messagesTabActive && selectionRef.current?.id === conv) {
+        const exact = findTimelineMessageById(loadedRef.current, messageId, seq);
+        if (scrollToMsgId(exact ? timelineRowKey(exact) : messageId)) {
+          cancelMessageLocate();
+          setMissingJumpSeq(null);
+          shell.selectConversation(conv);
+          return;
+        }
+      }
       if (!seq) {
         if (toastOnMissingSeq) {
           pushToast({
@@ -5726,7 +5733,7 @@ function MainWorkspace(): ReactElement {
         shell.selectConversation(conv);
         return;
       }
-      if (selectionRef.current?.id === conv) {
+      if (messagesTabActive && selectionRef.current?.id === conv) {
         // Already open — jump straight away.
         shell.selectConversation(conv);
         void centerWindowOnSeq(conv, kind, seq, record, messageId);
@@ -6028,14 +6035,14 @@ function MainWorkspace(): ReactElement {
     const drain = () => {
       void (async () => {
         for (;;) {
-          let jump: { groupCode: string; msgSeq: string } | null = null;
+          let jump: { groupCode: string; msgSeq: string; msgId?: string } | null = null;
           try {
             jump = await client.bootstrap.consumeGroupKeywordJump.query();
           } catch {
             return;
           }
           if (cancelled || !jump) return;
-          jumpToConvSeq('group', jump.groupCode, jump.msgSeq);
+          jumpToConvSeq('group', jump.groupCode, jump.msgSeq, false, undefined, jump.msgId);
         }
       })();
     };
@@ -6073,7 +6080,14 @@ function MainWorkspace(): ReactElement {
           });
         openMailView();
       } else if (notice.target)
-        jumpToConvSeq(notice.target.kind, notice.target.conv, notice.target.seq);
+        jumpToConvSeq(
+          notice.target.kind,
+          notice.target.conv,
+          notice.target.seq,
+          false,
+          undefined,
+          notice.target.msgId,
+        );
     };
     window.addEventListener(WEB_NOTICE_OPEN, open);
     return () => window.removeEventListener(WEB_NOTICE_OPEN, open);
@@ -6086,14 +6100,15 @@ function MainWorkspace(): ReactElement {
     const drain = () => {
       void (async () => {
         for (;;) {
-          let jump: { kind: 'c2c' | 'group'; conv: string; seq?: string } | null = null;
+          let jump: { kind: 'c2c' | 'group'; conv: string; seq?: string; msgId?: string } | null =
+            null;
           try {
             jump = await client.bootstrap.consumeConversationJump.query();
           } catch {
             return;
           }
           if (cancelled || !jump) return;
-          jumpToConvSeq(jump.kind, jump.conv, jump.seq || undefined);
+          jumpToConvSeq(jump.kind, jump.conv, jump.seq || undefined, false, undefined, jump.msgId);
         }
       })();
     };
@@ -6123,6 +6138,13 @@ function MainWorkspace(): ReactElement {
     messageCount: templateMessages.length,
     centerWindowOnSeq,
   });
+  // 目标已是选中的会话，但从联系人等页面返回时不会重新触发会话首屏读取。
+  useEffect(() => {
+    const jump = pendingSearchJumpRef.current;
+    if (!messagesTabActive || !jump || jump.conv !== selectedUid) return;
+    pendingSearchJumpRef.current = null;
+    void centerWindowOnSeq(jump.conv, jump.kind, jump.seq, jump.record, jump.messageId);
+  }, [messagesTabActive, selectedUid, pendingSearchJumpRef, centerWindowOnSeq]);
 
   useSearchDismissal(searchQuery, searchFocused, setSearchDismissed, setSearchFocused);
 
@@ -7992,9 +8014,11 @@ function MainWorkspace(): ReactElement {
     );
     // 同 id 理论上不会横跨群/私聊，但类型对得上才更稳（群号纯数字、uid 是 u_ 前缀）。
     const wantGroup = kind === 'group';
-    const target =
-      conversations.find((c) => c.id === conv && (c.type === 'group') === wantGroup) ??
-      conversations.find((c) => c.id === conv);
+    const target = [
+      conversations.find((c) => c.id === conv),
+      hiddenConversationsById.get(conv),
+      deletedConversationsById.get(conv),
+    ].find((c) => c && c.type === (wantGroup ? 'group' : 'direct'));
     if (!target) {
       pushToast({
         tone: 'info',
@@ -8408,11 +8432,11 @@ function MainWorkspace(): ReactElement {
       error={recalls.error}
       onRetry={() => void recalls.retry()}
       onClose={() => recalls.close()}
-      onJumpToMessage={(seq) => {
+      onJumpToMessage={(seq, messageId) => {
         const target = convFetchKey(recalledConv);
         recalls.close();
         if (recalls.origin === 'settings') setSettingsOpen(false);
-        jumpToConvSeq(target.kind, target.conv, String(seq), true);
+        jumpToConvSeq(target.kind, target.conv, seq, true, undefined, messageId);
       }}
     />
   ) : null;
@@ -8522,17 +8546,6 @@ function MainWorkspace(): ReactElement {
           }));
           useWorkspaceMenu.getState().focusTask(target.id);
         } else if (target.kind === 'conversation') {
-          if (target.msgId && messagesTabActive && selectionRef.current?.id === target.conv) {
-            const row = loadedRef.current.find(
-              (message) =>
-                message.msgId === target.msgId || timelineRowKey(message) === target.msgId,
-            );
-            if (scrollToMsgId(row ? timelineRowKey(row) : target.msgId)) {
-              cancelMessageLocate();
-              setMissingJumpSeq(null);
-              return;
-            }
-          }
           jumpToConvSeq(
             target.conversationKind === 'group' ? 'group' : 'c2c',
             target.conv,

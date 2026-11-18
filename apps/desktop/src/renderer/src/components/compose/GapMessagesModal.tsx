@@ -305,7 +305,7 @@ export function GapMessagesModal({
                             ? (event) =>
                                 locateMenu.openMenu(event, {
                                   seq: message.msgSeq,
-                                  msgId: message.msgId,
+                                  msgId: message.id,
                                 })
                             : undefined
                         }

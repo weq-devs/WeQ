@@ -92,6 +92,7 @@ export interface RecallNotifyEvent {
   kind: 'c2c' | 'group' | 'dataline';
   /** Conversation key: peer uid (c2c/dataline) or group code (group). */
   conv: string;
+  msgId: string;
   senderUid: string;
   revokeUid: string;
   origSeq: string;
@@ -517,6 +518,7 @@ export class AntiRecallService {
             this.opts.onRecall?.({
               kind: row.kind,
               conv: row.conv,
+              msgId: row.msgid,
               senderUid: row.senderUid,
               revokeUid: row.revokeUid,
               origSeq: row.origSeq,

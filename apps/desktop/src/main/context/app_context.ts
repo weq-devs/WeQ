@@ -384,7 +384,7 @@ function notifyRecall(session: AccountSession, event: RecallNotifyEvent): void {
     body: '有一条消息被撤回。',
     ...(event.kind === 'dataline'
       ? {}
-      : { target: { kind: event.kind, conv: event.conv, seq: event.origSeq } }),
+      : { target: { kind: event.kind, conv: event.conv, seq: event.origSeq, msgId: event.msgId } }),
   });
   recallNotifier?.(event);
 }
@@ -607,7 +607,12 @@ function mountGroupKeyword(session: AccountSession, rules: GroupKeywordRules): v
           kind: 'keyword',
           title: '群关键词提醒',
           body: '收到命中群提醒词的消息。',
-          target: { kind: 'group', conv: hit.groupCode, seq: String(hit.msgSeq) },
+          target: {
+            kind: 'group',
+            conv: hit.groupCode,
+            seq: String(hit.msgSeq),
+            msgId: String(hit.msgId),
+          },
         });
         return groupKeywordNotifier?.(hit);
       },

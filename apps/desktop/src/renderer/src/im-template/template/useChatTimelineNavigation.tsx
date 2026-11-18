@@ -1,5 +1,5 @@
 import { useVirtualTimeline } from '../../hooks/useVirtualTimeline';
-import { timelineViewport } from '../../lib/timelineViewport';
+import { revealTimelineMessage, timelineViewport } from '../../lib/timelineViewport';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReplyJumpTarget } from '../../components/QqMessageContent';
 import { restoreReadingPosition } from '../../lib/conversationReadingPosition';
@@ -458,22 +458,23 @@ export function useChatTimelineNavigation({
   );
 
   useEffect(() => {
-    if (!jumpRequest || loading || loadError) {
+    if (!tabActive || !jumpRequest || loading || loadError) {
       setJumpMissing(false);
       if (!jumpRequest) locatedJump.current = undefined;
       return;
     }
     if (locatedJump.current === jumpRequest) return;
     const frame = requestAnimationFrame(() => {
-      const target = [
-        ...(messageScrollRef.current?.querySelectorAll<HTMLElement>('[data-message-id]') ?? []),
-      ].find((node) => node.dataset.messageId === jumpRequest.messageId);
-      setJumpMissing(!target);
-      if (target) locatedJump.current = jumpRequest;
-      target?.scrollIntoView({ block: 'center', behavior: 'instant' });
+      const scroll = messageScrollRef.current;
+      const found = Boolean(scroll && revealTimelineMessage(scroll, jumpRequest.messageId, true));
+      setJumpMissing(!found);
+      if (!found) return;
+      atBottomRef.current = false;
+      readGestureUntil.current = 0;
+      locatedJump.current = jumpRequest;
     });
     return () => cancelAnimationFrame(frame);
-  }, [jumpRequest, loading, loadError, messages]);
+  }, [jumpRequest, loading, loadError, tabActive, visibleMessages]);
 
   function scrollMessagesToBottom() {
     const scroll = messageScrollRef.current;
