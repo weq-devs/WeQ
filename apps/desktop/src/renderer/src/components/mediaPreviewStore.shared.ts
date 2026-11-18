@@ -3,7 +3,6 @@ import type { MediaPreviewOptions } from './mediaPreviewTypes';
 
 type OpenMediaPreviewOptions = Omit<MediaPreviewOptions, 'onClose'> & { onClose?: () => void };
 type Session = MediaPreviewOptions & { id: number };
-let sequence = 0;
 export type PreviewComponent = typeof import('./MediaPreview').MediaPreview;
 export let loadedPreview: PreviewComponent | undefined;
 let pendingPreview: Promise<PreviewComponent> | undefined;
@@ -19,9 +18,18 @@ export function loadPreview() {
     });
   return pendingPreview;
 }
-export const usePreviews = create<{ sessions: Map<Document, Session> }>(() => ({
-  sessions: new Map(),
-}));
+
+const createPreviewSessions = () => ({
+  sequence: 0,
+  store: create<{ sessions: Map<Document, Session> }>(() => ({ sessions: new Map() })),
+});
+
+// 等待手动重载时，新旧入口模块可能共存，必须与预览宿主共用会话状态。
+const hotData = import.meta.hot?.data;
+const previewSessions: ReturnType<typeof createPreviewSessions> =
+  hotData?.mediaPreviewSessions ?? createPreviewSessions();
+if (hotData) hotData.mediaPreviewSessions = previewSessions;
+export const usePreviews = previewSessions.store;
 
 export function closeMediaPreview(owner: Document, id?: number) {
   const sessions = new Map(usePreviews.getState().sessions);
@@ -50,7 +58,7 @@ export function openMediaPreview(options: OpenMediaPreviewOptions) {
   )
     return previewHandle(owner, existing.id);
   closeMediaPreview(owner);
-  const id = ++sequence;
+  const id = ++previewSessions.sequence;
   const sessions = new Map(usePreviews.getState().sessions);
   sessions.set(owner, {
     ...options,
