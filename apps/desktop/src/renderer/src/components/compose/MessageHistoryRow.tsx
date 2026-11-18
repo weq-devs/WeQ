@@ -3,7 +3,6 @@ import type { Message } from '../../im-template/template/types';
 import { usePrivacyStore } from '../../state/privacy';
 
 export function MessageHistoryRow({
-  icon,
   label,
   detail,
   time,
@@ -12,7 +11,6 @@ export function MessageHistoryRow({
   unavailableReason,
   action,
 }: {
-  icon: ReactNode;
   label: string;
   detail: string;
   time: string;
@@ -47,9 +45,6 @@ export function MessageHistoryRow({
         }
         onClick={locate}
       >
-        <span className="weq-history-record-icon" aria-hidden>
-          {icon}
-        </span>
         <strong className="weq-important-sender" data-privacy-sensitive>
           {label}
         </strong>

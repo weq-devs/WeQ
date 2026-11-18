@@ -327,7 +327,6 @@ export function RecalledMessagesModal({
             {filtered.map((row) => (
               <MessageHistoryRow
                 key={row.message.id}
-                icon={<RotateCcw size={14} />}
                 label={row.senderLabel}
                 detail={row.recallLine}
                 time={row.when}

@@ -1,6 +1,6 @@
 import * as timeFormat from '@weq/time';
 import { useMemo, useState, type ReactElement } from 'react';
-import { RefreshCw, RotateCcw, Search, Trash2 } from 'lucide-react';
+import { RefreshCw, RotateCcw, Search } from 'lucide-react';
 import { MessageHistorySurface } from '../MessageHistorySurface';
 import { MessageHistoryRow } from './MessageHistoryRow';
 import { NumericText } from '../NumericText';
@@ -253,7 +253,6 @@ export function DeletedMessagesModal({
           {filtered.map((row) => (
             <MessageHistoryRow
               key={row.message.id}
-              icon={<Trash2 size={14} />}
               label={row.senderLabel}
               detail={`${row.restorable ? 'WeQ 删除' : 'QQ 删除'} · ${row.senderLabel}`}
               time={row.when}

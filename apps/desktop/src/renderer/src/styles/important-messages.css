@@ -122,11 +122,6 @@ html[data-theme='dark'] .unread-dock-button.weq-important-dock[data-important-ki
 div.weq-history-summary {
   cursor: default;
 }
-.weq-history-record-icon {
-  display: flex;
-  flex: none;
-  color: var(--weq-fg-secondary);
-}
 .weq-important-filters button[data-important-kind],
 html[data-theme='dark'] .weq-important-filters button[data-important-kind] {
   color: var(--weq-important-ink);
