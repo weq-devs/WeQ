@@ -63,8 +63,6 @@ export function useChatTimelineNavigation({
 
   const [unreadJump, setUnreadJump] = useState<UnreadJumpState | null>(null);
 
-  // 列表与跳转坞按序号共享查看进度，乱序定位不跳过其它提醒。
-  const [visitedStops, setVisitedStops] = useState<Set<string>>(() => new Set());
   const [locatedSeq, setLocatedSeq] = useState<string | null>(null);
   const navigationKey = useMemo(
     () => ({ conversationId: conversation?.id, dock: unreadDock }),
@@ -72,6 +70,16 @@ export function useChatTimelineNavigation({
   );
   const navigationScope = useRef(navigationKey);
   navigationScope.current = navigationKey;
+  // 列表、跳转坞与视口共用本次快照的查看进度；滚出屏幕不会恢复完成的提醒。
+  const [visited, setVisited] = useState<{ scope: typeof navigationKey; seqs: Set<string> }>();
+  const visitedStops = visited?.scope === navigationKey ? visited.seqs : undefined;
+  const visitStop = useCallback((scope: typeof navigationKey, seq: string) => {
+    if (navigationScope.current !== scope) return;
+    setVisited((current) => {
+      const seqs = current?.scope === scope ? current.seqs : undefined;
+      return seqs?.has(seq) ? current : { scope, seqs: new Set([...(seqs ?? []), seq]) };
+    });
+  }, []);
   const locateTask = useRef<object | null>(null);
   const [dockJumping, setDockJumping] = useState(false);
   const dockTask = useRef<object | null>(null);
@@ -122,14 +130,13 @@ export function useChatTimelineNavigation({
         if (navigationScope.current !== started || locateTask.current !== task) return;
         const seq = target.seq == null ? null : String(target.seq);
         setLocatedSeq(seq);
-        if (seq && started.dock?.stops.some((stop) => stop.seq === seq))
-          setVisitedStops((old) => new Set([...old, seq]));
+        if (seq && started.dock?.stops.some((stop) => stop.seq === seq)) visitStop(started, seq);
       };
       const result = parentJumpToSeq(target);
       if (result) return result.then(complete);
       complete();
     },
-    [parentJumpToSeq],
+    [parentJumpToSeq, visitStop],
   );
 
   const lastReadSignal = useRef({ key: '', at: 0 });
@@ -176,7 +183,6 @@ export function useChatTimelineNavigation({
 
   // 换会话（或上层重下了新的一份快照）时，跳转坞从第一个跳转点重新开始。
   useEffect(() => {
-    setVisitedStops(new Set());
     setLocatedSeq(null);
     dockTask.current = null;
     setDockJumping(false);
@@ -715,15 +721,18 @@ export function useChatTimelineNavigation({
   // 打开会话时上层已经把未读/高亮读进内存并清了库，这里只负责按顺序引导：
   // 每点一下跳一个目标（高亮按 seq 从大到小，最后是「新的 N 条未读消息」），
   // 跳完自动消失。
-  const nextDockIndex = unreadDock?.stops.findIndex((stop) => !visitedStops.has(stop.seq)) ?? -1;
+  const nextDockIndex = unreadDock?.stops.findIndex((stop) => !visitedStops?.has(stop.seq)) ?? -1;
   const dockIndex = nextDockIndex < 0 ? (unreadDock?.stops.length ?? 0) : nextDockIndex;
   const dockStop = unreadDock?.stops[dockIndex] ?? null;
-  const dockRemaining = unreadDock?.stops.filter((stop) => !visitedStops.has(stop.seq)).length ?? 0;
+  const dockRemaining =
+    unreadDock?.stops.filter((stop) => !visitedStops?.has(stop.seq)).length ?? 0;
   const dockImportantRemaining =
-    unreadDock?.stops.filter((stop) => stop.kind !== 'unread' && !visitedStops.has(stop.seq))
+    unreadDock?.stops.filter((stop) => stop.kind !== 'unread' && !visitedStops?.has(stop.seq))
       .length ?? 0;
 
-  const unreadSeq = dockStop?.kind === 'unread' ? dockStop.seq : undefined;
+  const unreadSeq = unreadDock?.stops.find(
+    (stop) => stop.kind === 'unread' && !visitedStops?.has(stop.seq),
+  )?.seq;
   const unreadTargetId = useMemo(() => {
     if (!unreadSeq) return undefined;
     const exact = messages.find((message) => message.msgSeq === unreadSeq);
@@ -735,29 +744,48 @@ export function useChatTimelineNavigation({
     );
     return covered ? firstUnreadMessage(messages, unreadSeq)?.id : undefined;
   }, [messages, unreadSeq]);
-  const [unreadTargetVisible, setUnreadTargetVisible] = useState(false);
   const renderedTimelineItems = timeline.enabled ? timeline.items : null;
   useLayoutEffect(() => {
     const scroll = messageScrollRef.current;
-    const target =
-      tabActive && scroll && unreadTargetId ? messageElement(scroll, unreadTargetId) : undefined;
-    if (!scroll || !target) {
-      setUnreadTargetVisible(false);
-      return;
-    }
+    if (!tabActive || loading || loadingNewer || !scroll || !unreadTargetId || !unreadSeq) return;
+    const target = messageElement(scroll, unreadTargetId);
+    if (!target) return;
     // 首次检查在绘制前完成；之后只观察目标，虚拟列表预挂载不等于可见。
     const bounds = scroll.getBoundingClientRect();
     const rect = target.getBoundingClientRect();
-    setUnreadTargetVisible(rect.height > 0 && rect.bottom > bounds.top && rect.top < bounds.bottom);
+    if (
+      bounds.height > 0 &&
+      rect.height > 0 &&
+      rect.bottom > bounds.top &&
+      rect.top < bounds.bottom
+    ) {
+      visitStop(navigationKey, unreadSeq);
+      return;
+    }
     if (typeof IntersectionObserver === 'undefined') return;
     const observer = new IntersectionObserver(
-      ([entry]) => setUnreadTargetVisible(Boolean(entry && entry.intersectionRatio > 0)),
+      ([entry]) => {
+        if (entry && entry.intersectionRatio > 0) visitStop(navigationKey, unreadSeq);
+      },
       { root: scroll, threshold: Number.EPSILON },
     );
     observer.observe(target);
-    return () => observer.disconnect();
-  }, [navigationKey, renderedTimelineItems, tabActive, unreadTargetId, visibleMessages]);
-  const dockVisible = Boolean(dockStop && (!unreadSeq || !unreadTargetVisible));
+    return () => {
+      observer.disconnect();
+      observer.takeRecords();
+    };
+  }, [
+    loading,
+    loadingNewer,
+    navigationKey,
+    renderedTimelineItems,
+    tabActive,
+    unreadSeq,
+    unreadTargetId,
+    visibleMessages,
+    visitStop,
+  ]);
+  const dockVisible = Boolean(dockStop);
 
   async function jumpDockStop(): Promise<boolean> {
     if (!dockStop || !unreadDock || dockTask.current) return false;

@@ -4,6 +4,7 @@ import tailwind from '@tailwindcss/vite';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import assert from 'node:assert/strict';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
@@ -52,27 +53,50 @@ try {
       : route.abort(),
   );
   const results = [];
+  const waitForViewport = (seq, visible) =>
+    page.waitForFunction(
+      ({ seq, visible }) => {
+        const scroll = document.querySelector('.message-scroll');
+        if (!scroll) return false;
+        const row = scroll.querySelector(`[data-message-id="row-${seq}"]`);
+        const bounds = scroll.getBoundingClientRect();
+        const rect = row?.getBoundingClientRect();
+        return Boolean(rect && rect.top < bounds.bottom && rect.bottom > bounds.top) === visible;
+      },
+      { seq, visible },
+    );
+  const assertDismissed = async (dock) => {
+    // 等滚动和视口观察回调交付，避免在提示重新出现前就完成断言。
+    await page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+    );
+    assert.equal(await dock.count(), 0, '已看过的未读提醒不应因翻阅历史而重现');
+  };
   for (const count of [25, 50]) {
     const seq = 1008;
-    await page.goto(
-      `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html?entry&count=${count}&unread-from=${seq}`,
-    );
+    const newest = 1000 + count;
+    const base = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html?entry&count=${count}`;
+    await page.goto(`${base}&unread-from=${seq}`);
     const dock = page.getByText(`新的 ${1001 + count - seq} 条未读消息`, { exact: true });
     await dock.waitFor();
     await page.evaluate((id) => window.timelineTest.jump(id), `row-${seq}`);
-    await page.waitForFunction((id) => {
-      const scroll = document.querySelector('.message-scroll');
-      const row = scroll?.querySelector(`[data-message-id="${id}"]`);
-      if (!row) return false;
-      const [bounds, rect] = [scroll.getBoundingClientRect(), row.getBoundingClientRect()];
-      return rect.top < bounds.bottom && rect.bottom > bounds.top;
-    }, `row-${seq}`);
+    await waitForViewport(seq, true);
     await dock.waitFor({ state: 'hidden' });
     await page.evaluate(() => {
       const scroll = document.querySelector('.message-scroll');
       scroll.scrollTop = scroll.scrollHeight;
     });
-    await dock.waitFor();
+    await waitForViewport(newest, true);
+    await waitForViewport(seq, false);
+    await assertDismissed(dock);
+
+    await page.goto(`${base}&unread-from=${newest}`);
+    const entryDock = page.getByText('新的 1 条未读消息', { exact: true });
+    await waitForViewport(newest, true);
+    await entryDock.waitFor({ state: 'hidden' });
+    await page.evaluate((id) => window.timelineTest.jump(id), `row-${seq}`);
+    await waitForViewport(newest, false);
+    await assertDismissed(entryDock);
   }
   if (output) await mkdir(output, { recursive: true });
   const snapshot = () =>
