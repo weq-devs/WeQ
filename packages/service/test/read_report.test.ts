@@ -146,11 +146,11 @@ describe('已读上报服务', () => {
     expect(f.nt.sendPacket).toHaveBeenCalledTimes(1);
   });
 
-  it('本地结果先返回，上报应答后记录状态；同水位已读无写入也能补报且只上报一次', async () => {
+  it('同水位无本地写入也能补报，先返回待上报、确认后不再重复', async () => {
     const f = setup();
     f.markRead.mockResolvedValue(false);
     expect(await f.service.markReadAndReport(2, '100', '50')).toMatchObject({
-      changed: true,
+      changed: false,
       report: { state: 'pending' },
     });
     await settled(f.service);

@@ -72,7 +72,11 @@ it('清除前开始、清除后才读完的小表请求不会重新写回旧阅�
     }),
     markRead: vi.fn(),
   };
-  const service = new UnreadInfoService({ unreadInfo: database } as unknown as AccountSession);
+  const service = new UnreadInfoService(
+    { unreadInfo: database } as unknown as AccountSession,
+    undefined,
+    { statePath: '', readOnly: true },
+  );
   cleanups.push(() => service.dispose());
   const reading = service.markLocalRead(1, 'u_peer', '100');
   await service.clearLocalReadRecords();

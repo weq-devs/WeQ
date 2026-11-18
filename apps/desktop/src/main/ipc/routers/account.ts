@@ -3905,7 +3905,11 @@ export const accountRouter = router({
         input.expectedAccountUin,
         input.expectedAccountConfigId,
       ).unreadInfo.setReadState(input.targets, input.unread);
-      return { undoToken: result.undoToken, rows: result.rows.map(unreadInfoToWire) };
+      return {
+        undoToken: result.undoToken,
+        failed: result.failed,
+        rows: result.rows.map(unreadInfoToWire),
+      };
     }),
 
   undoConversationReadState: procedure
@@ -3914,7 +3918,11 @@ export const accountRouter = router({
       const result = await requireExpectedAccount(
         input.expectedAccountUin,
       ).unreadInfo.undoReadState(input.undoToken);
-      return { restored: result.restored, rows: result.rows.map(unreadInfoToWire) };
+      return {
+        restored: result.restored,
+        pending: result.pending,
+        rows: result.rows.map(unreadInfoToWire),
+      };
     }),
 
   /** Get unread message count for a conversation. */
@@ -3941,7 +3949,7 @@ export const accountRouter = router({
   /**
    * 把一个会话标记为已读（抬高 msg_unread_info_table 的已读 seq，并清掉
    * 提醒高亮组）。会话打开时调用，让红点消失、也避免下次进入重复弹跳转。
-   * 同时持久化 WeQ 本地阅读位置；离线目录只更新本地位置。
+   * 静态只读目录只更新 WeQ 本地阅读位置。
    */
   markConversationRead: procedure
     .input(

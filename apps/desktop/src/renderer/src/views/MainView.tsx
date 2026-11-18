@@ -3136,8 +3136,6 @@ function MainWorkspace(): ReactElement {
         : [],
     ),
   );
-  const unreadContactsRef = useRef(recentContactsData);
-  unreadContactsRef.current = recentContactsData;
   initialMessagesPendingRef.current =
     messagesLoading || trackedConversationId !== shell.activeConversationId;
   const requestUnreadRefreshRef = useRef<(() => void) | null>(null);
@@ -4880,26 +4878,6 @@ function MainWorkspace(): ReactElement {
               expectedAccountUin: openedUin ?? undefined,
               expectedAccountConfigId: binding?.expectedAccountConfigId,
             };
-            // 仅清除已捕获水位内的红点，后来到达的新水位留待精确查询。
-            const newest = unreadContactsRef.current.find(
-              (contact) => contact.targetUid === conv.id,
-            )?.msgSeq;
-            if (
-              request.latestSeq !== undefined &&
-              newest !== undefined &&
-              BigInt(newest) <= BigInt(request.latestSeq)
-            ) {
-              setUnreadByConv((current) => ({ ...current, [conv.id]: 0 }));
-              setHighlightsByConv((current) => {
-                const next = { ...current };
-                const remaining = next[conv.id]?.filter(
-                  (hit) => BigInt(hit.msgSeq) > BigInt(request.latestSeq!),
-                );
-                if (remaining?.length) next[conv.id] = remaining;
-                else delete next[conv.id];
-                return next;
-              });
-            }
             const changed = await retryConversationRead(
               () => client.account.markConversationRead.mutate(request),
               isCurrent,
@@ -5000,11 +4978,12 @@ function MainWorkspace(): ReactElement {
       readUndoRef.current = undo;
       setReadUndo(undo);
       pushToast({
-        tone: 'success',
+        tone: result.failed ? 'warning' : 'success',
         title: (
           <span>
-            已将 <span className="weq-number weq-number-inherit">{ids.length}</span> 个会话标为
-            {unread ? '未读' : '已读'}{' '}
+            已将 <span className="weq-number weq-number-inherit">{ids.length - result.failed}</span>{' '}
+            个会话标为{unread ? '未读' : '已读'}
+            {result.failed ? `，${result.failed} 个保存失败` : ''}{' '}
             <button
               type="button"
               className="weq-toast-action"
@@ -5060,11 +5039,13 @@ function MainWorkspace(): ReactElement {
       readUndoRef.current = null;
       setReadUndo(null);
       pushToast({
-        tone: 'info',
-        durationKind: result.restored ? 'success' : 'failure',
-        title: result.restored
-          ? `已撤销 ${result.restored} 个会话的标记`
-          : '会话已再次阅读，未覆盖最新状态',
+        tone: result.pending ? 'warning' : 'info',
+        durationKind: result.restored && !result.pending ? 'success' : 'failure',
+        title: result.pending
+          ? `已撤销 ${result.restored} 个会话的标记，${result.pending} 个正在重试`
+          : result.restored
+            ? `已撤销 ${result.restored} 个会话的标记`
+            : '会话状态已变化，未覆盖最新状态',
       });
     } catch (error) {
       if (useViewState.getState().openedUin === openedUin)

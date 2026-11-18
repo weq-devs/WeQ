@@ -22,15 +22,27 @@ const snapshot = (extra: Partial<UnreadInfoSnapshot> = {}): UnreadInfoSnapshot =
   msgSeq: 100,
   ...extra,
 });
-function fixture(statePath?: string) {
+function fixture(statePath?: string, readOnly = false) {
   let rows = [snapshot(), snapshot({ uid: '70002', peer: '2_70002', latestSeq: '900' })];
   const all = vi.fn(async () => rows.map((row) => ({ ...row })));
-  const markRead = vi.fn(async () => true);
+  const markRead = vi.fn(async (chatType: number, uid: string, sequence: string) => {
+    rows = rows.map((row) =>
+      row.chatType === chatType && row.uid === uid
+        ? { ...row, msgSeq: Math.max(row.msgSeq ?? 0, Number(sequence)) }
+        : row,
+    );
+    return true;
+  });
   const sendPacket = vi.fn(async () => Buffer.alloc(0));
   const session = {
     selfUid: 'u_self',
     msgDbPath: '/synthetic/read-watermark.db',
-    unreadInfo: { getAllUnreadInfos: all, markRead },
+    unreadInfo: {
+      getAllUnreadInfos: all,
+      getUnreadInfos: async (targets: { chatType: number; uid: string }[]) =>
+        rows.filter((row) => targets.some((t) => t.chatType === row.chatType && t.uid === row.uid)),
+      markRead,
+    },
   } as unknown as AccountSession;
   const service = new UnreadInfoService(
     session,
@@ -39,7 +51,7 @@ function fixture(statePath?: string) {
       enabled: () => true,
       resolvePid: () => 9,
     },
-    statePath ? { statePath } : undefined,
+    statePath || readOnly ? { statePath: statePath ?? '', readOnly } : undefined,
   );
   services.push(service);
   return {
@@ -129,16 +141,17 @@ it.each([{ uid: 'other' }, { chatType: 1 }, { latestSeq: null }])(
   },
 );
 
-it('正常相同水位仍可补写 QQ，旧水位不降低本地阅读位置', async () => {
-  const f = fixture();
+it('只读快照的旧水位不降低本地阅读位置', async () => {
+  const f = fixture(undefined, true);
   await f.query();
   expect(await f.service.markLocalRead(2, target.uid, '108')).toBe(true);
-  expect(await f.service.markRead(2, target.uid, '108')).toBe(true);
+  expect(await f.service.markRead(2, target.uid, '108')).toBe(false);
   expect(await f.service.markLocalRead(2, target.uid, '105')).toBe(false);
   expect((await f.query())[0]).toMatchObject({ readSeq: '108', unreadCount: 2 });
+  expect(f.markRead).not.toHaveBeenCalled();
 });
 
-it('启动和拒绝新越界请求都不纠正或重写既有异常记录', async () => {
+it('可写 QQ 会话忽略旧本地记录，成功写库后不更新本地文件', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'weq-read-watermark-'));
   directories.push(directory);
   const path = join(directory, 'unread.json');
@@ -147,9 +160,14 @@ it('启动和拒绝新越界请求都不纠正或重写既有异常记录', asyn
   });
   writeFileSync(path, original);
   const f = fixture(path);
-  expect((await f.query())[0]?.readSeq).toBe('900');
+  expect((await f.query())[0]?.readSeq).toBe('100');
   expect(await f.service.markRead(2, target.uid, '950')).toBe(false);
+  expect(f.markRead).not.toHaveBeenCalled();
+  expect(await f.service.markRead(2, target.uid, '108')).toBe(true);
+  expect((await f.query())[0]).toMatchObject({ readSeq: '108', unreadCount: 2 });
+  f.update([snapshot({ msgSeq: 105 })]);
+  f.service.invalidate();
+  expect((await f.query())[0]).toMatchObject({ readSeq: '105', unreadCount: 5 });
   await f.service.dispose();
   expect(readFileSync(path, 'utf8')).toBe(original);
-  expect(f.markRead).not.toHaveBeenCalled();
 });

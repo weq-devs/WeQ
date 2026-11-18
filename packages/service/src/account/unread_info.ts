@@ -1,4 +1,5 @@
 import type { AccountSession } from '@weq/account';
+import { classifyChatType } from '@weq/codec';
 import { recordMessageWork, withDatabasePriority } from '@weq/db';
 import type { NtHelperBinding } from '@weq/native';
 import { ReportRead, type ReadReportParams } from '@weq/protocol';
@@ -45,10 +46,11 @@ interface PendingReport {
 }
 
 interface ManualReadEntry extends UnreadInfoTarget {
-  change: ManualReadChange;
-  snapshot: UnreadInfoSnapshot;
+  change?: ManualReadChange;
+  readSeq: string;
+  throughSeq: string;
   database?: UnreadReadChange;
-  version?: number;
+  version: number;
 }
 
 export class UnreadInfoService {
@@ -65,17 +67,7 @@ export class UnreadInfoService {
   private refreshTimer?: ReturnType<typeof setInterval>;
   private changeTimer?: ReturnType<typeof setTimeout>;
   private retryTimer?: ReturnType<typeof setTimeout>;
-  private readonly writes = new Map<
-    string,
-    {
-      target: UnreadInfoTarget;
-      readSeq: string;
-      throughSeq: string;
-      unread: boolean;
-      version: number;
-      undo?: ManualReadEntry;
-    }
-  >();
+  private readonly writes = new Map<string, () => Promise<void>>();
   private readonly writeTasks = new Map<string, Promise<unknown>>();
   private readonly targetVersions = new Map<string, number>();
   private generation = 0;
@@ -96,12 +88,19 @@ export class UnreadInfoService {
     private readonly localOptions?: { statePath: string; readOnly?: boolean },
     private readonly countSource?: UnreadCountSource,
   ) {
-    this.local = new LocalUnreadStore(localOptions?.statePath, session.selfUid);
+    this.local = new LocalUnreadStore(localOptions?.statePath, session.selfUid, (chatType) =>
+      this.usesLocalReadState(chatType),
+    );
     this.important = new ImportantMessageStore(
       localOptions?.statePath ? `${localOptions.statePath}.important.json` : undefined,
     );
     if (typeof session.unreadInfo.getAllUnreadInfos === 'function')
       void this.refreshSnapshots().catch(() => {});
+  }
+
+  private usesLocalReadState(chatType: number): boolean {
+    // 数据线使用独立计数，QQ 已读位置写入不更新这些字段。
+    return this.localOptions?.readOnly === true || classifyChatType(chatType) === 'dataline';
   }
 
   onCountsChanged(listener: (targets: UnreadInfoTarget[]) => void): () => void {
@@ -359,6 +358,45 @@ export class UnreadInfoService {
     return targets.map((target) => this.snapshots.get(this.key(target)) ?? this.missing(target));
   }
 
+  private async refreshWrittenTargets(targets: (UnreadInfoTarget & { version: number })[]) {
+    if (!targets.length || this.disposed) return;
+    // 丢弃写入前已发出的全量读取，只回读本次写入的会话。
+    this.manualRevision++;
+    this.invalidate();
+    const before = new Map(
+      targets.map((target) => {
+        const peer = this.key(target);
+        return [peer, { version: target.version, snapshot: this.snapshots.get(peer) }];
+      }),
+    );
+    try {
+      const rows = await withDatabasePriority(
+        'interactive',
+        () => this.session.unreadInfo.getUnreadInfos(targets),
+        this.reads.signal,
+      );
+      if (this.disposed) return;
+      const changed = rows.filter((row) => {
+        const previous = before.get(row.peer);
+        return (
+          !row.readError &&
+          previous &&
+          previous.version === this.targetVersions.get(row.peer) &&
+          previous.snapshot === this.snapshots.get(row.peer)
+        );
+      });
+      for (const row of changed) {
+        this.important.observe(row);
+        this.snapshots.set(row.peer, row);
+      }
+      this.project(changed);
+      this.publish(changed);
+    } catch {
+      // 已确认的写入不重复执行；共享刷新会补上回读失败的结果。
+      this.invalidate();
+    }
+  }
+
   private bumpTarget(target: UnreadInfoTarget): number {
     const key = this.key(target),
       version = (this.targetVersions.get(key) ?? 0) + 1;
@@ -387,16 +425,10 @@ export class UnreadInfoService {
     }
   }
 
-  private queueWrite(
-    target: UnreadInfoTarget,
-    readSeq: string,
-    throughSeq: string,
-    unread: boolean,
-    version = this.targetVersions.get(this.key(target)) ?? 0,
-  ): void {
+  private queueWrite(target: UnreadInfoTarget, version: number, run: () => Promise<void>): void {
     if (this.localOptions?.readOnly || this.disposed) return;
     if (version !== this.targetVersions.get(this.key(target))) return;
-    this.writes.set(this.key(target), { target, readSeq, throughSeq, unread, version });
+    this.writes.set(this.key(target), run);
     if (this.retryTimer) return;
     this.retryTimer = setTimeout(() => {
       this.retryTimer = undefined;
@@ -408,30 +440,8 @@ export class UnreadInfoService {
     for (const [key, entry] of this.writes) {
       if (this.disposed) return;
       try {
-        if (entry.undo) {
-          const row = entry.undo;
-          const restored = await this.writeTarget(row, entry.version, () =>
-            this.session.unreadInfo.undoReadState(row.database!),
-          );
-          if (restored) {
-            this.local.restoreManualRead(row.chatType, row.uid, row.change);
-            this.manualRevision++;
-            this.project([row]);
-            await this.local.flush();
-            this.publish([row]);
-          }
-        } else
-          await this.writeTarget(entry.target, entry.version, () =>
-            this.session.unreadInfo.setReadState(
-              entry.target.chatType,
-              entry.target.uid,
-              entry.readSeq,
-              entry.throughSeq,
-              entry.unread,
-            ),
-          );
+        await entry();
         if (this.writes.get(key) === entry) this.writes.delete(key);
-        this.invalidate();
       } catch {
         /* 下一轮合并重试，只保存每会话最新操作。 */
       }
@@ -446,42 +456,24 @@ export class UnreadInfoService {
   }
 
   async markLocalRead(chatType: number, uid: string, latestSeq?: string): Promise<boolean> {
+    if (!this.usesLocalReadState(chatType)) return false;
     const resetRevision = this.localResetRevision;
     latestSeq = await this.readSequence(chatType, uid, latestSeq);
     if (latestSeq === undefined || resetRevision !== this.localResetRevision) return false;
-    return (await this.saveLocalRead(chatType, uid, latestSeq, resetRevision)).changed;
+    if (chatType === 2) await this.important.flush();
+    if (this.disposed || resetRevision !== this.localResetRevision) return false;
+    return this.saveLocalRead({ chatType, uid }, latestSeq);
   }
 
-  private async saveLocalRead(
-    chatType: number,
-    uid: string,
-    latestSeq?: string,
-    resetRevision = this.localResetRevision,
-  ) {
-    const snapshot =
-      latestSeq === undefined || chatType === 2
-        ? (await this.getUnreadInfos([{ chatType, uid }]))[0]
-        : undefined;
-    const sequence = latestSeq ?? snapshot?.latestSeq;
-    const target = { chatType, uid };
-    const unchanged = () => ({
-      changed: false,
-      version: this.targetVersions.get(this.key(target)) ?? 0,
-    });
-    if (this.disposed || sequence == null || snapshot?.readError) return unchanged();
-    // 清除未读状态前先落盘提醒，写入失败时保留 QQ 原始提醒供重试。
-    if (chatType === 2) await this.important.flush();
-    if (this.disposed || resetRevision !== this.localResetRevision) return unchanged();
-    const changed = this.local.markRead(chatType, uid, sequence);
-    let version = this.targetVersions.get(this.key(target)) ?? 0;
+  private async saveLocalRead(target: UnreadInfoTarget, sequence: string): Promise<boolean> {
+    const changed = this.local.markRead(target.chatType, target.uid, sequence);
     if (changed) {
       this.manualRevision++;
-      version = this.bumpTarget(target);
-      this.project([{ chatType, uid }]);
-      this.publish([{ chatType, uid }]);
+      this.project([target]);
+      this.publish([target]);
       await this.local.flush();
     }
-    return { changed, version };
+    return changed;
   }
 
   async setReadState(targets: UnreadInfoTarget[], unread: boolean) {
@@ -494,114 +486,118 @@ export class UnreadInfoService {
     if (resetRevision !== this.localResetRevision) throw new Error('已读记录已清除，请重新操作');
     this.manualRevision++;
     this.cancelReports();
-    const changes: ManualReadEntry[] = snapshots.map((snapshot) => ({
-      chatType: snapshot.chatType,
-      uid: snapshot.uid,
-      change: this.local.setManualRead(this.local.resolve(snapshot), unread),
-      snapshot,
-      version: this.bumpTarget(snapshot),
-    }));
-    this.project(unique);
-    this.publish(unique);
+    const changes: ManualReadEntry[] = snapshots.map((raw) => {
+      const snapshot = this.local.resolve(raw);
+      const throughSeq = snapshot.latestSeq ?? snapshot.readSeq ?? '0';
+      return {
+        chatType: snapshot.chatType,
+        uid: snapshot.uid,
+        change: this.usesLocalReadState(snapshot.chatType)
+          ? this.local.setManualRead(snapshot, unread)
+          : undefined,
+        readSeq: unread ? (snapshot.readSeq ?? '0') : throughSeq,
+        throughSeq,
+        version: this.bumpTarget(snapshot),
+      };
+    });
+    const local = changes.filter((row) => row.change);
+    this.project(local);
+    this.publish(local);
     await this.local.flush();
     for (const row of changes) {
       if (this.disposed || this.localOptions?.readOnly || resetRevision !== this.localResetRevision)
         continue;
-      try {
-        row.database = await this.writeTarget(row, row.version!, () =>
+      const write = () =>
+        this.writeTarget(row, row.version, () =>
           this.session.unreadInfo.setReadState(
             row.chatType,
             row.uid,
-            row.change.applied.readSeq ?? '0',
-            row.change.applied.latestSeq,
+            row.readSeq,
+            row.throughSeq,
             unread,
           ),
         );
+      try {
+        row.database = await write();
       } catch {
-        this.queueWrite(
-          row,
-          row.change.applied.readSeq ?? '0',
-          row.change.applied.latestSeq,
-          unread,
-          row.version,
-        );
+        if (row.change)
+          this.queueWrite(row, row.version, async () => {
+            row.database = await write();
+            if (row.database) await this.refreshWrittenTargets([row]);
+          });
       }
     }
-    if (resetRevision !== this.localResetRevision) throw new Error('已读记录已清除，请重新操作');
+    await this.refreshWrittenTargets(changes.filter((row) => row.database));
+    if (this.disposed || resetRevision !== this.localResetRevision)
+      throw new Error('会话阅读状态已切换，请重新操作');
+    const applied = changes.filter((row) => row.change || row.database);
+    if (!applied.length) throw new Error('QQ 数据库未能保存标记，请稍后重试');
     if (this.readHistory.size >= 20) this.readHistory.delete(this.readHistory.keys().next().value!);
     const undoToken = randomUUID();
-    this.readHistory.set(undoToken, changes);
-    if (!unread) this.scheduleManualReports(changes);
-    this.invalidate();
-    return { undoToken, rows: snapshots.map((snapshot) => this.local.resolve(snapshot)) };
+    this.readHistory.set(undoToken, applied);
+    if (!unread) this.scheduleManualReports(applied);
+    return { undoToken, failed: changes.length - applied.length, rows: this.resultRows(unique) };
+  }
+
+  private resultRows(targets: UnreadInfoTarget[]): ResolvedUnreadInfo[] {
+    return targets.map((target) => this.results.get(this.key(target)) ?? this.missing(target));
+  }
+
+  private isCurrentManualChange(row: ManualReadEntry): boolean {
+    return row.change
+      ? this.local.hasManualRead(row.chatType, row.uid, row.change)
+      : this.targetVersions.get(this.key(row)) === row.version;
+  }
+
+  private restoreLocalRead(row: ManualReadEntry) {
+    if (!row.change || !this.local.restoreManualRead(row.chatType, row.uid, row.change)) return;
+    this.manualRevision++;
+    this.project([row]);
+    this.publish([row]);
   }
 
   async undoReadState(undoToken: string) {
     const resetRevision = this.localResetRevision;
     const changes = this.readHistory.get(undoToken);
     if (!changes || this.disposed) throw new Error('撤销记录已失效');
-    const snapshots = await this.readSnapshots(changes);
+    await this.readSnapshots(changes);
     if (resetRevision !== this.localResetRevision) throw new Error('撤销记录已失效');
     this.manualRevision++;
     this.cancelReports();
     const restored: ManualReadEntry[] = [];
+    const written: (UnreadInfoTarget & { version: number })[] = [];
+    let pending = 0;
     for (const row of changes) {
-      if (!this.local.hasManualRead(row.chatType, row.uid, row.change)) continue;
+      if (!this.isCurrentManualChange(row)) continue;
       const version = this.bumpTarget(row);
-      if (row.database) {
+      const database = row.database;
+      if (database) {
+        const undo = () =>
+          this.writeTarget(row, version, () => this.session.unreadInfo.undoReadState(database));
         try {
-          if (
-            !(await this.writeTarget(row, version, () =>
-              this.session.unreadInfo.undoReadState(row.database!),
-            ))
-          )
-            continue;
+          if (!(await undo())) continue;
+          written.push({ chatType: row.chatType, uid: row.uid, version });
         } catch {
-          this.queueWrite(
-            row,
-            row.snapshot.msgSeq?.toString() ?? '0',
-            row.change.applied.latestSeq,
-            row.snapshot.markUnread ?? false,
-            version,
-          );
-          const pending = this.writes.get(this.key(row));
-          if (pending?.version === version) pending.undo = row;
+          this.queueWrite(row, version, async () => {
+            if (!(await undo()) || this.targetVersions.get(this.key(row)) !== version) return;
+            this.restoreLocalRead(row);
+            await this.local.flush();
+            await this.refreshWrittenTargets([{ ...row, version }]);
+          });
+          pending++;
           continue;
         }
       }
       if (resetRevision !== this.localResetRevision) throw new Error('撤销记录已失效');
-      if (this.local.restoreManualRead(row.chatType, row.uid, row.change)) restored.push(row);
+      if (this.targetVersions.get(this.key(row)) !== version) continue;
+      this.restoreLocalRead(row);
+      restored.push(row);
     }
     await this.local.flush();
+    await this.refreshWrittenTargets(written);
     this.readHistory.delete(undoToken);
     this.scheduleManualReports(restored, true);
-    // 固定本次撤销的原始阅读字段；后来到达的最新位置仍来自当前小表。
-    const byPeer = new Map(restored.map((row) => [this.key(row), row]));
-    const rows = snapshots.map((snapshot) => {
-      const prior = byPeer.get(snapshot.peer);
-      if (!prior) return this.local.resolve(snapshot);
-      const merged = {
-        ...snapshot,
-        msgSeq: prior.snapshot.msgSeq,
-        localReadSeq: prior.snapshot.localReadSeq,
-        markUnread: prior.snapshot.markUnread,
-        highlights: [
-          ...new Map(
-            [...(prior.snapshot.highlights ?? []), ...(snapshot.highlights ?? [])].map((hit) => [
-              hit.rawKind,
-              hit,
-            ]),
-          ).values(),
-        ],
-      };
-      this.snapshots.set(snapshot.peer, merged);
-      const result = this.local.resolve(merged);
-      this.results.set(snapshot.peer, result);
-      return result;
-    });
-    this.publish(restored);
-    this.invalidate();
-    return { restored: restored.length, rows };
+    return { restored: restored.length, pending, rows: this.resultRows(changes) };
   }
 
   private reportEnabled(manual: boolean): boolean {
@@ -614,17 +610,9 @@ export class UnreadInfoService {
     void (async () => {
       for (const row of changes) {
         if (this.disposed || this.generation !== generation || !this.reportEnabled(true)) return;
-        if (!undo && !this.local.hasManualRead(row.chatType, row.uid, row.change)) continue;
-        const sequence = undo
-          ? row.database
-            ? row.database.beforeReadSeq
-            : row.snapshot.msgSeq?.toString()
-          : row.change.applied.latestSeq;
-        if (
-          sequence === undefined ||
-          (undo && BigInt(sequence) <= BigInt(row.change.applied.readSeq ?? '0'))
-        )
-          continue;
+        if (!undo && !this.isCurrentManualChange(row)) continue;
+        const sequence = undo ? row.database?.beforeReadSeq : row.throughSeq;
+        if (sequence === undefined || (undo && BigInt(sequence) <= BigInt(row.readSeq))) continue;
         await this.markReadAndReport(row.chatType, row.uid, sequence, {
           manual: true,
           write: false,
@@ -645,22 +633,27 @@ export class UnreadInfoService {
     const sequence = await this.readSequence(chatType, uid, latestSeq);
     if (sequence === undefined || resetRevision !== this.localResetRevision) return false;
     const target = { chatType, uid };
-    const { changed: local, version } = await this.saveLocalRead(
-      chatType,
-      uid,
-      sequence,
-      resetRevision,
-    );
-    if (this.disposed || this.localOptions?.readOnly || resetRevision !== this.localResetRevision)
-      return local;
+    // 清除未读状态前先落盘提醒，写入失败时保留 QQ 原始提醒供重试。
+    if (chatType === 2) await this.important.flush();
+    if (this.disposed || resetRevision !== this.localResetRevision) return false;
+    const version = this.bumpTarget(target);
+    const local = this.usesLocalReadState(chatType) && (await this.saveLocalRead(target, sequence));
+    if (this.localOptions?.readOnly) return local;
+    const written = { ...target, version };
     try {
       const changed = await this.writeTarget(target, version, () =>
         this.session.unreadInfo.markRead(chatType, uid, sequence),
       );
-      this.invalidate();
-      return changed || local;
+      if (changed) await this.refreshWrittenTargets([written]);
+      else if (changed === false) this.invalidate();
+      return changed === true || local;
     } catch {
-      this.queueWrite(target, sequence, sequence, false, version);
+      this.queueWrite(target, version, async () => {
+        const changed = await this.writeTarget(target, version, () =>
+          this.session.unreadInfo.setReadState(chatType, uid, sequence, sequence, false),
+        );
+        if (changed) await this.refreshWrittenTargets([written]);
+      });
       return local;
     }
   }

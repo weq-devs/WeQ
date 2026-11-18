@@ -46,11 +46,13 @@ export class LocalUnreadStore {
   constructor(
     private readonly path?: string,
     private readonly selfUid?: string,
+    loadPosition: (chatType: number) => boolean = () => true,
   ) {
     const raw = path ? readJsonFile(path) : null;
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
     for (const [key, value] of Object.entries(raw)) {
-      if (!/^\d+_.+/.test(key) || !value || typeof value !== 'object') continue;
+      const peer = /^(\d+)_.+/.exec(key);
+      if (!peer || !loadPosition(Number(peer[1])) || !value || typeof value !== 'object') continue;
       const old = value as {
         sourceVersion?: number;
         localReadSeq?: string;

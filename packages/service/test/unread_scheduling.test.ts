@@ -25,6 +25,11 @@ function fixture(readOnly = false) {
     signals.push(databaseRequestSignal());
     return rows.map((r) => ({ ...r }));
   });
+  const targeted = vi.fn(async (targets: { chatType: number; uid: string }[]) =>
+    rows
+      .filter((row) => targets.some((t) => t.chatType === row.chatType && t.uid === row.uid))
+      .map((row) => ({ ...row })),
+  );
   const setReadState = vi.fn(
     async (
       chatType: number,
@@ -33,7 +38,7 @@ function fixture(readOnly = false) {
       _through: string,
       unread: boolean,
     ): Promise<UnreadReadChange> => {
-      original = rows[0]!;
+      original = rows.find((row) => row.uid === uid && row.chatType === chatType)!;
       rows = rows.map((r) =>
         r.uid !== uid
           ? r
@@ -49,8 +54,12 @@ function fixture(readOnly = false) {
       };
     },
   );
-  const undoReadState = vi.fn(async () => {
-    rows = [{ ...rows[0]!, msgSeq: original.msgSeq, markUnread: original.markUnread }];
+  const undoReadState = vi.fn(async ({ chatType, uid }: UnreadReadChange) => {
+    rows = rows.map((row) =>
+      row.chatType === chatType && row.uid === uid
+        ? { ...row, msgSeq: original.msgSeq, markUnread: original.markUnread }
+        : row,
+    );
     return true;
   });
   const markRead = vi.fn(async (_chatType: number, _uid: string, sequence: string) => {
@@ -63,7 +72,7 @@ function fixture(readOnly = false) {
     msgDbPath: '/synthetic/small-unread.db',
     unreadInfo: {
       getAllUnreadInfos: all,
-      getUnreadInfos: vi.fn(),
+      getUnreadInfos: targeted,
       setReadState,
       undoReadState,
       markRead,
@@ -250,31 +259,32 @@ it('手动已读、未读和撤销均只操作字段，不降低阅读水位制�
   expect(f.setReadState).toHaveBeenLastCalledWith(2, '70001', '90', '100', true);
   expect(unread.rows[0]?.unreadCount).toBe(10);
 });
-it('写库失败仍即时保存阅读结果，自动重试失败操作且新操作取代旧重试', async () => {
+it('可写批量标记只显示实际保存的结果，撤销不包含失败会话', async () => {
   vi.useFakeTimers();
   const f = fixture();
   await f.query();
   f.setReadState.mockRejectedValueOnce(new Error('busy'));
-  const result = await f.service.setReadState([target], false);
-  expect(result.rows[0]?.unreadCount).toBe(0);
-  await vi.advanceTimersByTimeAsync(1000);
-  expect(f.setReadState).toHaveBeenCalledTimes(2);
-  f.setReadState.mockRejectedValueOnce(new Error('busy'));
-  await f.service.setReadState([target], true);
-  await f.service.markRead(2, '70001', '100');
+  const other = row({ uid: '70002', peer: '2_70002' });
+  f.update([other, row()]);
+  const result = await f.service.setReadState([other, target], false);
+  expect(result.failed).toBe(1);
+  expect(result.rows.map((row) => row.unreadCount)).toEqual([10, 0]);
   await vi.advanceTimersByTimeAsync(5000);
-  expect(f.setReadState).toHaveBeenCalledTimes(3);
+  expect(f.setReadState).toHaveBeenCalledTimes(2);
+  expect((await f.service.undoReadState(result.undoToken)).restored).toBe(1);
+  expect(f.undoReadState).toHaveBeenCalledWith(expect.objectContaining(target));
 });
-it('自动阅读失败保留本地结果，并按固定位置重试，不追随新消息', async () => {
+it('自动阅读写库失败不清角标，按原位置重试成功后才更新', async () => {
   vi.useFakeTimers();
   const f = fixture();
   await f.query();
   f.markRead.mockRejectedValueOnce(new Error('busy'));
-  expect(await f.service.markRead(2, '70001', '100')).toBe(true);
+  expect(await f.service.markRead(2, '70001', '100')).toBe(false);
   f.update([row({ latestSeq: '102' })]);
-  expect((await f.query())[0]?.unreadCount).toBe(2);
+  expect((await f.query())[0]?.unreadCount).toBe(12);
   await vi.advanceTimersByTimeAsync(1000);
   expect(f.setReadState).toHaveBeenLastCalledWith(2, '70001', '100', '100', false);
+  expect((await f.query())[0]?.unreadCount).toBe(2);
 });
 it('1300 会话一次加载，查询接口不逐会话统计', async () => {
   const f = fixture();
@@ -316,7 +326,7 @@ it('同会话旧写入执行中收到新操作时串行写入，不让迟到已�
   expect(f.setReadState).toHaveBeenCalledOnce();
   release();
   await Promise.all([old, next]);
-  expect(f.setReadState).toHaveBeenLastCalledWith(2, '70001', '100', '100', true);
+  expect(f.setReadState).toHaveBeenLastCalledWith(2, '70001', '90', '100', true);
   expect((await f.query())[0]?.unreadCount).toBe(1);
 });
 
@@ -325,7 +335,10 @@ it('撤销写库暂时失败自动重试原撤销，不用普通已读写入冒�
   const f = fixture();
   const change = await f.service.setReadState([target], false);
   f.undoReadState.mockRejectedValueOnce(new Error('busy'));
-  expect((await f.service.undoReadState(change.undoToken)).restored).toBe(0);
+  expect(await f.service.undoReadState(change.undoToken)).toMatchObject({
+    restored: 0,
+    pending: 1,
+  });
   await vi.advanceTimersByTimeAsync(1000);
   expect(f.undoReadState).toHaveBeenCalledTimes(2);
   expect((await f.query())[0]?.unreadCount).toBe(10);
