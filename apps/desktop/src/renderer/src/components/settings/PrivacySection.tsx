@@ -3,7 +3,7 @@ import { usePrivacyStore } from '../../state/privacy';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { AppLockSection } from './AppLockSection';
 import { IS_WEB } from '../../lib/target.shared';
-import { WebNotificationsSection } from './WebNotificationsSection';
+import { NotificationSettingsLink } from './NotificationSettingsLink';
 
 export function PrivacySection() {
   const enabled = usePrivacyStore((state) => state.enabled);
@@ -42,7 +42,9 @@ export function PrivacySection() {
       <AppLockSection heading={false} />
       {IS_WEB && (
         <div className="weq-set">
-          <WebNotificationsSection />
+          <NotificationSettingsLink settingId="web-notifications">
+            网页通知设置
+          </NotificationSettingsLink>
         </div>
       )}
     </>

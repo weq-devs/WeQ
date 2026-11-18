@@ -7,6 +7,7 @@ import type { Message } from '../../im-template/template/types';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
 import { cloneChatUser, cloneChatConversation, cloneChatInput } from './cloneChatAdapter';
 import { useSharedAssistantDraft } from '../../hooks/useSharedAssistantDraft';
+import { useDirectoryReadPosition } from '../../hooks/useDirectoryReadPosition';
 import { readAssistantDraft, rememberAssistantDraft } from '../../lib/assistantWorkspace';
 import { assistantResultVersion } from '../../lib/workspaceReadState';
 import type { AssistantActivity } from '../../lib/workspaceIndicators';
@@ -21,6 +22,7 @@ import {
 } from '../../lib/aiImageDraft';
 import { AssistantReplyContent, type AssistantReplyActions } from './AssistantReplyContent';
 import { useStableCallback } from '../../hooks/useStableCallback';
+import { useToastApi } from '../../components/Toast.shared';
 import { timeDate } from '@weq/time';
 import { AssistantSettingsPanel, AssistantQuickTools } from './AssistantSettingsPanel';
 import {
@@ -133,6 +135,16 @@ export function AssistantPanel({
   const [turns, setTurns] = useState<AssistantTurn[]>(
     () => conversation.data?.map(persistedAssistantTurn) ?? [],
   );
+  useDirectoryReadPosition(
+    currentId ? `assistant:${currentId}` : '',
+    String(
+      turns.reduce(
+        (max, turn) => (turn.role !== 'assistant' || turn.running ? max : Math.max(max, turn.ts)),
+        0,
+      ),
+    ),
+    !headless,
+  );
   const queue = trpc.account.assistantQueue.useQuery(
     { ...binding!, sessionId: currentId ?? '' },
     {
@@ -174,6 +186,20 @@ export function AssistantPanel({
       ? 'finished'
       : 'idle';
   const version = activity === 'finished' ? assistantResultVersion(turns) : undefined;
+  const notificationToast = useToastApi();
+  const previousActivity = useRef({ scope: '', activity });
+  useEffect(() => {
+    const scope = `${draftAccount}:${currentId}`;
+    if (
+      previousActivity.current.scope === scope &&
+      previousActivity.current.activity === 'running' &&
+      activity === 'finished' &&
+      !error
+    ) {
+      notificationToast.push({ event: 'assistantReply', title: '收到助手的新回复' });
+    }
+    previousActivity.current = { scope, activity };
+  }, [draftAccount, currentId, activity, error, notificationToast]);
   useEffect(() => {
     onActivityChange?.(activity, version);
   }, [activity, version, onActivityChange]);

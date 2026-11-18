@@ -18,6 +18,7 @@ import { trpc, client } from '../../trpc/client';
 import { AiImageComposer, AiImageGallery } from '../../components/AiImageComposer';
 import { parseAiImageDraft, changeAiImageDraftText } from '../../lib/aiImageDraft';
 import { useSharedAssistantDraft } from '../../hooks/useSharedAssistantDraft';
+import { useDirectoryReadPosition } from '../../hooks/useDirectoryReadPosition';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { ConversationSettingsFrame } from '../../components/ConversationSettingsFrame';
 import { QqAvatar } from '../../components/QqAvatar';
@@ -92,6 +93,12 @@ export function GroupChatPanel({
   const removeMember = trpc.account.removeAgentLabGroupMember.useMutation();
 
   const [history, setHistory] = useState<AgentLabGroupMessage[]>([]);
+  useDirectoryReadPosition(
+    `clone-group:${groupId}`,
+    String(
+      history.reduce((max, turn) => (turn.senderKind !== 'user' ? Math.max(max, turn.ts) : max), 0),
+    ),
+  );
   const [input, setInput] = useState('');
   const [imageUploading, setImageUploading] = useState(false);
   const [busy, setBusy] = useState(false);

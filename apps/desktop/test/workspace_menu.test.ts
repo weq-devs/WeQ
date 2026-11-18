@@ -315,6 +315,8 @@ describe('统一竖向工作菜单', () => {
       expect(trigger().querySelector('.is-finished')?.textContent).toBe('1');
       expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
       act(() => useWorkspaceMenu.getState().setAssistant('running'));
+      expect(trigger().querySelector('.is-running')).toBeNull();
+      act(() => useWorkspaceMenu.getState().setTasks(1, 0, 0));
       expect(trigger().querySelector('.is-running')).not.toBeNull();
       expect(trigger().querySelector('.is-running')?.textContent).toBe('1');
       expect(head()?.querySelector('.is-running') ?? null).toBeNull();
@@ -330,7 +332,8 @@ describe('统一竖向工作菜单', () => {
         );
       }
       act(() => useWorkspaceMenu.getState().setAssistant('finished'));
-      // 助手未读与版本更新都汇总到菜单按钮，菜单头操作不带状态点。
+      act(() => useWorkspaceMenu.getState().setTasks(0, 0, 1));
+      // 任务结果与版本更新汇总，助手会话未读不混入任务计数。
       expect(trigger().querySelector('.is-finished')?.textContent).toBe('2');
       expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
       fixture.exports = [
@@ -350,11 +353,11 @@ describe('统一竖向工作菜单', () => {
       ];
       render();
       expect(trigger().querySelector('.is-finished')).not.toBeNull();
-      // 已完成任务 2 + 助手未读 1 + 版本更新 1。
-      expect(trigger().querySelector('.is-finished')?.textContent).toBe('5');
+      // 三项任务结果与版本更新；助手会话未读不混入。
+      expect(trigger().querySelector('.is-finished')?.textContent).toBe('4');
       act(() => useWorkspaceMenu.getState().readTasks());
       expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
-      expect(trigger().querySelector('.is-finished')?.textContent).toBe('2');
+      expect(trigger().querySelector('.is-finished')?.textContent).toBe('1');
       fixture.exports = [];
       render();
       expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();

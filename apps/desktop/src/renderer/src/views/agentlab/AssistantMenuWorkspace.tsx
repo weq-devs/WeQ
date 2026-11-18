@@ -164,8 +164,8 @@ export function AssistantMenuWorkspace({
   async function deleteSession(sessionId: string) {
     if (
       !(await dialog.confirm('删除会话', '确认删除这段对话？删除后无法恢复。', {
-        okLabel: '删除',
         danger: 'solid',
+        okLabel: '删除',
         tone: 'warning',
       }))
     )

@@ -2,7 +2,6 @@
 
 import { useRef, useState, type ReactElement, type ReactNode } from 'react';
 import {
-  BellOff,
   ChevronDown,
   ChevronRight,
   MessageCircle,
@@ -16,6 +15,7 @@ import { useToast } from './Toast.shared';
 import { client } from '../trpc/client';
 import { isRemoteClient } from '../lib/remoteClient';
 import { useSurfaceEscapeDismissal } from '../lib/surfaceEscape';
+import { NotificationMethodSelect } from './settings/NotificationMethodSelect';
 
 /** 与主进程 `AccountForcedClosedEvent` 对齐的渲染层视图。 */
 export interface DatabaseDamagedEvent {
@@ -87,26 +87,6 @@ export function DatabaseDamagedDialog({
   if (!event) return null;
 
   const isCheckError = event.kind === 'check-error';
-
-  /** 「不再提醒」：写入全局配置后关闭弹窗（✕ 只关闭本次，不写入）。 */
-  const suppressReminder = async (): Promise<void> => {
-    try {
-      await client.bootstrap.setSuppressDbDamageReminder.mutate({ suppressed: true });
-      pushToast({
-        tone: 'info',
-        title: '已不再提醒数据库损坏弹窗',
-        detail:
-          '之后数据库异常时不会再自动弹出该提醒（设置 → 数据库容错 → 损坏提醒 里可以再打开）。',
-      });
-    } catch (e) {
-      pushToast({
-        tone: 'error',
-        title: '设置失败',
-        detail: e instanceof Error ? e.message : String(e),
-      });
-    }
-    onClose();
-  };
 
   const reportFeedback = async (target: 'github' | 'qqgroup'): Promise<void> => {
     setMenuOpen(false);
@@ -270,10 +250,10 @@ export function DatabaseDamagedDialog({
             <Settings2 size={13} strokeWidth={2} aria-hidden />
             打开设置
           </button>
-          <button type="button" className="weq-action-soft" onClick={() => void suppressReminder()}>
-            <BellOff size={13} strokeWidth={2} aria-hidden />
-            不再提醒
-          </button>
+          <div className="weq-db-damaged-notification">
+            <span>异常提醒</span>
+            <NotificationMethodSelect event="databaseDamage" />
+          </div>
           {!isCheckError && (
             <button
               type="button"

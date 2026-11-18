@@ -52,6 +52,13 @@ const content = (elements?: unknown[]) =>
     ),
   );
 
+import { useDirectoryReadPosition } from '../hooks/useDirectoryReadPosition';
+import {
+  messageReadPosition,
+  newerReadPosition,
+  validReadPosition,
+} from '@weq/service/client-preferences';
+
 export function ReadonlyConversationPane({
   target,
   conversation,
@@ -89,6 +96,17 @@ export function ReadonlyConversationPane({
     loading: false,
   });
   const [rows, setRows] = useState<Wire[]>(() => cache.read<Wire[]>(`readonly:${key}`) ?? []);
+  useDirectoryReadPosition(
+    target.kind === 'guild'
+      ? `guild:${target.nodeId}`
+      : target.kind === 'service'
+        ? `service:${target.appId}`
+        : `official:${target.peerUid}`,
+    rows.reduce((max, row) => {
+      const position = messageReadPosition(row);
+      return validReadPosition(position) && newerReadPosition(position, max) ? position : max;
+    }, '0'),
+  );
   const [hasPage, setHasPage] = useState(() => cache.read<Wire[]>(`readonly:${key}`) !== undefined);
   const [loading, setLoading] = useState(() => cache.read<Wire[]>(`readonly:${key}`) === undefined);
   const [loadKind, setLoadKind] = useState<'page' | 'older' | 'newer' | 'locate'>('page');

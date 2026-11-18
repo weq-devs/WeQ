@@ -1,0 +1,54 @@
+.weq-notification-scope-editor,
+.weq-notification-scope-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.weq-notification-scope-body {
+  flex: 1;
+  gap: 12px;
+  padding: 16px;
+  overflow: hidden;
+}
+
+.weq-notification-scope-body > .weq-segmented {
+  flex: none;
+  align-self: flex-start;
+}
+
+.weq-notification-scope-body > .weq-exp-picker {
+  overflow: hidden;
+}
+
+.weq-notification-scope-body .weq-exp-search {
+  margin: 0 0 8px;
+}
+
+.weq-notification-scope-body .weq-exp-tools {
+  margin: 0 0 8px;
+}
+
+.weq-notification-scope-body .weq-exp-list {
+  padding: 0;
+  overflow: hidden;
+}
+
+.weq-notification-scope-body [data-weq-windowed-list] {
+  max-height: 100%;
+}
+
+.weq-notification-scope-body > [role='alert'] {
+  flex: none;
+  margin: 0;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 650px) {
+  .weq-notification-scope-body {
+    padding: 12px;
+  }
+}

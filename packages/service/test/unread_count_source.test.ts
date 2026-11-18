@@ -43,6 +43,17 @@ it('内存定位、计数差异或失效均不阻塞或替换数据库角标，�
   await service.dispose();
   expect(clear).toHaveBeenCalledOnce();
 });
+it('已删除目录复用现有最新水位计算未读，不改写共享快照或扫描消息历史', async () => {
+  const row = { chatType: 2, uid: '70001', peer: '2_70001', msgSeq: 90, latestSeq: null };
+  const read = vi.fn(async () => [row]);
+  const service = new UnreadInfoService({
+    unreadInfo: { getAllUnreadInfos: read },
+  } as unknown as AccountSession);
+  expect(await service.directoryUnreadCount(2, row.uid, '100')).toBe(10);
+  expect((await service.getUnreadInfos([row]))[0]?.unreadCount).toBe(0);
+  expect(read).toHaveBeenCalledOnce();
+  await service.dispose();
+});
 describe('原生诊断适配器', () => {
   afterEach(() => vi.unstubAllGlobals());
   it('旧原生产物不启用读取链路', () => {

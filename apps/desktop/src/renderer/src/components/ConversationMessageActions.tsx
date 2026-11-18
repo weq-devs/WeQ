@@ -29,7 +29,7 @@ import { useRequestContentExport } from '../state/contentSelection.shared';
 import { useTabActive } from './RetainedTabs.shared';
 import { trpc } from '../trpc/client';
 import { ConversationActionsMenu, type ConversationMenuAction } from './ConversationActionsMenu';
-import { useRemoteShellAvailable } from './RemoteShellMenus';
+import { useRemoteShellAvailable } from './RemoteShellMenus.shared';
 import '../styles/conversation-actions.css';
 import { FEATURE_ICONS } from '../lib/featureIcons.shared';
 

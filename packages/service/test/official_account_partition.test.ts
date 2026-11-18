@@ -18,6 +18,7 @@ const message: C2cMsg = {
 
 function fixture(uidMap: UidMap) {
   const latest = vi.fn().mockResolvedValue([message]);
+  const history = vi.fn().mockResolvedValue([message]);
   const calendar = vi.fn().mockResolvedValue([message]);
   const profile = vi.fn().mockResolvedValue({ nick: '本地公众号', uin: 10002n });
   const session = {
@@ -28,10 +29,10 @@ function fixture(uidMap: UidMap) {
         { chatType: 103, targetUid: peerUid, targetDisplayName: '目录名称', targetUin: 10001n },
       ]),
     },
-    c2cMsgs: { listLatest: latest, calendarMessage: calendar },
+    c2cMsgs: { listLatest: latest, listHistory: history, calendarMessage: calendar },
     profileInfo: { getProfile: profile },
   } as unknown as AccountSession;
-  return { service: new OfficialAccountService(session), latest, calendar, profile };
+  return { service: new OfficialAccountService(session), latest, history, calendar, profile };
 }
 
 it.each([0n, 42n, 9007199254740993n])(
@@ -46,9 +47,13 @@ it.each([0n, 42n, 9007199254740993n])(
         avatarUrl: null,
         sendTime: 30n,
         prompt: '[ARK 卡片]\n合成公众号摘要',
+        latestReadPosition: '20:30:10',
       },
     ]);
-    expect(f.latest).toHaveBeenLastCalledWith({ sortNo }, 1);
+    expect(f.history).toHaveBeenLastCalledWith(
+      { sortNo },
+      expect.objectContaining({ limit: 1, descending: true, includeSeqless: true }),
+    );
     expect(f.profile).toHaveBeenCalledOnce();
     const feed = await f.service.listArkFeed(peerUid, 5);
     expect(f.latest).toHaveBeenLastCalledWith({ sortNo }, 5);
@@ -66,10 +71,9 @@ it('账号打开后新出现的公众号按现有映射补查，后续请求复�
   await f.service.listArkFeed(peerUid);
   expect(lookup).toHaveBeenCalledOnce();
   expect(lookup).toHaveBeenCalledWith(peerUid);
-  expect(f.latest.mock.calls.map(([partition]) => partition)).toEqual([
-    { sortNo: 99n },
-    { sortNo: 99n },
-  ]);
+  expect([...f.history.mock.calls, ...f.latest.mock.calls].map(([partition]) => partition)).toEqual(
+    [{ sortNo: 99n }, { sortNo: 99n }],
+  );
 });
 
 it.each(['missing', 'failed'])('公众号映射 %s 时保留 UID 回退与目录资料兜底', async (kind) => {
@@ -80,7 +84,10 @@ it.each(['missing', 'failed'])('公众号映射 %s 时保留 UID 回退与目录
   const f = fixture(UidMap.from([], lookup));
   f.profile.mockRejectedValue(new Error('合成资料缺失'));
   const summaries = await f.service.listAccounts();
-  expect(f.latest).toHaveBeenLastCalledWith({ uid: peerUid }, 1);
+  expect(f.history).toHaveBeenLastCalledWith(
+    { uid: peerUid },
+    expect.objectContaining({ limit: 1, descending: true, includeSeqless: true }),
+  );
   expect(summaries[0]).toMatchObject({
     displayName: '目录名称',
     targetUin: '10001',

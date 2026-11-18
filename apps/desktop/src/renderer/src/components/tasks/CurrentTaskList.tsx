@@ -343,8 +343,8 @@ export function CurrentTaskList({
               </button>
             ) : null}
             <button
-              type="button"
               data-danger="outline"
+              type="button"
               className="weq-set-btn weq-set-btn-soft"
               disabled={task.status === 'running'}
               onClick={() => dismissCloneTask(task.personaId)}
@@ -965,12 +965,12 @@ export function CurrentTaskList({
         </div>
         <div className="weq-current-tasks-actions">
           <button
+            data-danger="outline"
             type="button"
             className="weq-set-btn weq-set-btn-soft"
             title="清理已结束任务"
             aria-label="清理已结束任务"
             disabled={clearing || loading || !cleanupBinding || !finished.length}
-            data-danger="outline"
             onClick={() => void clearFinished()}
           >
             <Trash2 size={14} />
@@ -981,6 +981,11 @@ export function CurrentTaskList({
       {exportError ? (
         <p role="alert" className="weq-current-tasks-notice">
           导出任务读取失败：{exportError}
+        </p>
+      ) : null}
+      {missingFocusedTask ? (
+        <p role="status" className="weq-current-tasks-notice">
+          正在查找通知对应的任务；若记录已清理，可在下方查看其余任务。
         </p>
       ) : null}
       {roaming.error ? (
@@ -996,11 +1001,6 @@ export function CurrentTaskList({
       {background.query.error ? (
         <p role="alert" className="weq-current-tasks-notice">
           后台任务读取失败：{background.query.error.message}
-        </p>
-      ) : null}
-      {missingFocusedTask ? (
-        <p role="status" className="weq-current-tasks-notice">
-          正在查找通知对应的任务；若记录已清理，可在下方查看其余任务。
         </p>
       ) : null}
       {!items.length && !hasError ? (

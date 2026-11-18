@@ -7,6 +7,10 @@ import { countVisibleUnreadConversations } from '../src/renderer/src/im-template
 import { readFileSync } from 'node:fs';
 import { WorkspacePage, WorkspacePages } from '../src/renderer/src/components/WorkspacePages';
 
+vi.mock('../src/renderer/src/hooks/useDevelopmentDressTools', () => ({
+  useDevelopmentDressTools: () => true,
+}));
+
 it('从设置进入维护工具后仍指定设置高亮，不沿用其它页面状态', () => {
   const source = readFileSync('src/renderer/src/views/MainView.tsx', 'utf8');
   expect(source.includes('settingsOpen || maintenanceTool')).toBe(true);

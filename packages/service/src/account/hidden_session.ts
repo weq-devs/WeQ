@@ -34,6 +34,7 @@ export interface HiddenSessionSummary {
   resolvable: boolean;
   /** Real last-message time (unix seconds), resolved from the msg table. 0 if none found. */
   sendTime: bigint;
+  latestSeq?: string;
   senderUid: string;
   /** Latest message's first element, for a list preview. Not QQ's `displayText`-carrying PreviewElement, but the same `kind` taxonomy. */
   preview: Element | null;
@@ -86,11 +87,12 @@ export class HiddenSessionService {
 }
 
 function summarizeLatest(
-  latest: { sendTime: bigint; senderUid: string; elements: Element[] } | undefined,
-): Pick<HiddenSessionSummary, 'sendTime' | 'senderUid' | 'preview'> {
+  latest: { sendTime: bigint; msgSeq?: bigint; senderUid: string; elements: Element[] } | undefined,
+): Pick<HiddenSessionSummary, 'sendTime' | 'senderUid' | 'preview' | 'latestSeq'> {
   if (!latest) return { sendTime: 0n, senderUid: '', preview: null };
   return {
     sendTime: latest.sendTime,
+    latestSeq: latest.msgSeq?.toString(),
     senderUid: latest.senderUid,
     preview: latest.elements[0] ?? null,
   };

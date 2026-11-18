@@ -39,6 +39,22 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 describe('跨端偏好与功能状态', () => {
+  it('阅读水位单调递增，迟到写入及初始化不能覆盖较新阅读位置，重开后保留', () => {
+    const state = store();
+    state.records('reads', { 'guild:1': '9007199254740993', 'assistant:one': '10' });
+    state.records('reads', { 'guild:1': '9007199254740992', 'assistant:one': '12' });
+    state.records('reads', { 'assistant:one': '20' }, true);
+    expect(new ClientStateStore(state.path).snapshot().records.reads).toEqual({
+      'guild:1': '9007199254740993',
+      'assistant:one': '12',
+    });
+    expect(() => state.records('reads', { 'guild:1': '-1' })).toThrow('阅读位置');
+    expect(() => state.records('reads', { 'guild:1': null })).toThrow('阅读位置');
+    state.records('reads', { 'guild:two': '0:10:-5' });
+    state.records('reads', { 'guild:two': '0:10:-4' });
+    state.records('reads', { 'guild:two': '0:9:100' });
+    expect(state.snapshot().records.reads?.['guild:two']).toBe('0:10:-4');
+  });
   it('连续保存只保留当前正文，通知失败不破坏已成功提交的版本', () => {
     const state = store();
     state.subscribe(() => {

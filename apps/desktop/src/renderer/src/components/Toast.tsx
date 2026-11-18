@@ -19,18 +19,12 @@ import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
  *     the expandable detail
  */
 
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactElement,
-  type ReactNode,
-} from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactElement } from 'react';
 import { useNotificationPolicy } from '../lib/notificationPolicy';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { taskNotificationPresented } from '../lib/taskNotificationPresentation';
 import { openNotificationSource } from '../lib/notificationNavigation.shared';
+import type { NotificationSource } from '../lib/notificationNavigation';
 import { version } from '../../../../package.json';
 import { IS_WEB } from '../lib/target.shared';
 import '../styles/toast-action.css';
@@ -38,18 +32,21 @@ import '../styles/toast-layout.css';
 import {
   AlertTriangle,
   ArrowUpRight,
-  Play,
-  RefreshCw,
   Check,
   ChevronDown,
   CircleAlert,
   CircleCheck,
   CircleX,
   Copy,
+  ListTodo,
   Loader2,
+  MessagesSquare,
+  Play,
+  RefreshCw,
+  Settings2,
   X,
 } from 'lucide-react';
-import { type ToastTone, type Toast, useToast } from './Toast.shared';
+import { type ToastTone, type ToastAction, type Toast, useToast, textOf } from './Toast.shared';
 
 const TONE_CONFIG: Record<ToastTone, { icon: ReactElement }> = {
   info: { icon: <CircleAlert size={20} strokeWidth={2} aria-hidden /> },
@@ -57,22 +54,6 @@ const TONE_CONFIG: Record<ToastTone, { icon: ReactElement }> = {
   error: { icon: <CircleX size={20} strokeWidth={2} aria-hidden /> },
   success: { icon: <CircleCheck size={20} strokeWidth={2} aria-hidden /> },
 };
-
-/** 尽量把 ReactNode 还原成纯文本，用于复制（拿不到字符串时返回空串）。 */
-function textOf(node: ReactNode): string {
-  if (node == null || typeof node === 'boolean') return '';
-  if (typeof node === 'string' || typeof node === 'number') return String(node);
-  if (Array.isArray(node)) return node.map(textOf).join('');
-  if (typeof node === 'object' && 'props' in node) {
-    const element = node as ReactElement<{ children?: ReactNode }>;
-    if (element.type === 'br') return '\n';
-    const text = textOf(element.props.children);
-    return typeof element.type === 'string' && /^(p|div|pre|li)$/.test(element.type)
-      ? `${text}\n`
-      : text;
-  }
-  return '';
-}
 
 async function copyText(text: string): Promise<boolean> {
   try {
@@ -99,11 +80,47 @@ async function copyText(text: string): Promise<boolean> {
 /** 退场动画时长，与横幅淡出及 .weq-toast-slot 占位收拢的 transition 保持一致。 */
 const LEAVE_MS = 400;
 
+const ACTION_ICONS = {
+  reload: RefreshCw,
+  open: ArrowUpRight,
+  play: Play,
+  task: ListTodo,
+  conversation: MessagesSquare,
+  settings: Settings2,
+};
+
+function sourceActionIcon(source?: NotificationSource | null): NonNullable<ToastAction['icon']> {
+  if (source?.target.kind === 'task') return 'task';
+  if (source?.target.kind === 'conversation') return 'conversation';
+  if (source?.target.kind === 'app' && source.target.target.kind === 'setting') return 'settings';
+  return 'open';
+}
+
+// 目标是结构化导航参数；本地闭包只能按函数身份比较，不能序列化后误合并。
+function sameActionValue(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
+  if (Array.isArray(left) !== Array.isArray(right)) return false;
+  const a = left as Record<string, unknown>;
+  const b = right as Record<string, unknown>;
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  return [...keys].every((key) => sameActionValue(a[key], b[key]));
+}
+
 function ToastRow({ toast }: { toast: Toast }): ReactElement {
+  const enabled = useNotificationPolicy((state) => state.events[toast.event ?? 'success'].banner);
+  const presented = useWorkspaceMenu((state) =>
+    taskNotificationPresented(toast.event, toast.source, state.taskPanelScope, toast.taskId),
+  );
+  const visible = enabled && !presented;
   const dismiss = useToast((s) => s.dismiss);
   const remove = useToast((s) => s.remove);
   const update = useToast((s) => s.update);
   const leaving = useToast((s) => s.leaving.includes(toast.id));
+  useEffect(() => {
+    if (!visible && !toast.loading && toast.dismissible !== false && toast.durationKind !== 'long')
+      remove(toast.id);
+  }, [visible, toast.loading, toast.dismissible, toast.durationKind, toast.id, remove]);
 
   const [shown, setShown] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -111,17 +128,7 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
   const [timeLeft, setTimeLeft] = useState(toast.ttl);
   const [copied, setCopied] = useState(false);
   const timeLeftRef = useRef(toast.ttl);
-  const enabled = useNotificationPolicy((state) => state.events[toast.event ?? 'success'].banner);
-  const presented = useWorkspaceMenu((state) =>
-    taskNotificationPresented(toast.event, toast.source, state.taskPanelScope, toast.taskId),
-  );
-  const visible = enabled && !presented;
   const copiedTimerRef = useRef<number | undefined>(undefined);
-
-  useEffect(() => {
-    if (!visible && !toast.loading && toast.dismissible !== false && toast.durationKind !== 'long')
-      remove(toast.id);
-  }, [visible, toast.loading, toast.dismissible, toast.durationKind, toast.id, remove]);
 
   // 进场动画：挂载后下一帧加上 show
   useEffect(() => {
@@ -197,15 +204,27 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
       setExpanded(true);
     }
   };
-
+  const sameSource = Boolean(
+    toast.source &&
+      toast.action?.source &&
+      sameActionValue(toast.source.binding, toast.action.source.binding) &&
+      sameActionValue(toast.source.target, toast.action.source.target),
+  );
   const action = toast.source
     ? {
         label: toast.source.label,
+        source: toast.source,
         run: () => runAction(() => openNotificationSource(toast.source!)),
+        icon: sameSource
+          ? (toast.action?.icon ?? sourceActionIcon(toast.source))
+          : sourceActionIcon(toast.source),
       }
     : toast.action
       ? { ...toast.action, run: () => runAction(toast.action!.run) }
       : undefined;
+  const extraAction = toast.source && !sameSource ? toast.action : undefined;
+  const ActionIcon = ACTION_ICONS[action?.icon ?? sourceActionIcon(action?.source)];
+  const ExtraActionIcon = ACTION_ICONS[extraAction?.icon ?? sourceActionIcon(extraAction?.source)];
 
   return (
     <div className={`weq-toast-slot${leaving ? ' is-leaving' : ''}`}>
@@ -256,26 +275,18 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
                 title={action.label}
                 onClick={action.run}
               >
-                {!toast.source && toast.action?.icon === 'reload' ? (
-                  <RefreshCw size={16} aria-hidden />
-                ) : (
-                  <ArrowUpRight size={16} aria-hidden />
-                )}
+                <ActionIcon size={16} aria-hidden />
               </button>
             ) : null}
-            {toast.source && toast.action && toast.action.label !== toast.source.label ? (
+            {extraAction ? (
               <button
                 type="button"
                 className="weq-toast-action"
-                title={toast.action.label}
-                aria-label={toast.action.label}
-                onClick={() => void runAction(toast.action!.run)}
+                title={extraAction.label}
+                aria-label={extraAction.label}
+                onClick={() => void runAction(extraAction.run)}
               >
-                {toast.action.icon === 'play' ? (
-                  <Play size={16} aria-hidden />
-                ) : (
-                  <ArrowUpRight size={16} aria-hidden />
-                )}
+                <ExtraActionIcon size={16} aria-hidden />
               </button>
             ) : null}
             {hasBody ? (

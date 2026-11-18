@@ -11,6 +11,35 @@ afterEach(() => {
   closeAllFixtureDbs();
   if (root) rmSync(root, { recursive: true, force: true });
 });
+it('未读计数仅取指定分区、水位之后的入站消息，支持服务号 appId 和 64 位序号', async () => {
+  root = mkdtempSync(join(tmpdir(), 'weq-feed-unread-'));
+  const dbPath = join(root, 'msg.db');
+  const sql = fixtureDb(dbPath);
+  sql.exec(`CREATE TABLE service_assistant_msg_table ("40001" INTEGER, "40035" INTEGER, "40003" INTEGER, "40013" INTEGER, "40050" INTEGER);
+    INSERT INTO service_assistant_msg_table VALUES (1,42,9007199254740992,0,100),(2,42,9007199254740993,0,101),(3,42,9007199254740993,0,101),(4,42,9007199254740994,2,102),(5,43,9007199254740995,0,103),(-5,44,NULL,0,10),(-4,44,0,0,10)`);
+  const db = new C2cMsgDb(createSqliteStub(), { dbPath, table: 'service_assistant_msg_table' });
+  expect(
+    await db.countIncomingAfter(
+      { appId: 42n },
+      { msgSeq: 9007199254740992n, sendTime: 100n, msgId: 1n },
+    ),
+  ).toBe(2);
+  expect(
+    await db.countIncomingAfter(
+      { appId: 42n },
+      { msgSeq: 9007199254740993n, sendTime: 101n, msgId: 2n },
+    ),
+  ).toBe(1);
+  expect(
+    await db.countIncomingAfter(
+      { appId: 42n },
+      { msgSeq: 9007199254740993n, sendTime: 101n, msgId: 3n },
+    ),
+  ).toBe(0);
+  expect(
+    await db.countIncomingAfter({ appId: 44n }, { msgSeq: 0n, sendTime: 10n, msgId: -5n }),
+  ).toBe(1);
+});
 it('实际分页 SQL 的 sortNo 路径使用现有复合索引，UID 回退分段扫描且保留完整结果', async () => {
   root = mkdtempSync(join(tmpdir(), 'weq-partition-plan-'));
   const dbPath = join(root, 'msg.db'),

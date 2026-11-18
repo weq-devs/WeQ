@@ -18,6 +18,7 @@ import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { Card, SectionHeader } from './controls';
 import { UpdateCard } from './UpdateCard';
+import { EntryBadgeRows } from './UnreadBadgeSettings';
 import { DesktopOnly } from '../../lib/target';
 import logoUrl from '@resources/brand/logo.png';
 
@@ -144,6 +145,9 @@ export function VersionSection(): ReactElement {
       <DesktopOnly>
         <UpdateCard />
       </DesktopOnly>
+      <Card title="更新标记">
+        <EntryBadgeRows kind="updates" />
+      </Card>
     </div>
   );
 }

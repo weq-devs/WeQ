@@ -6,6 +6,7 @@ import { mkdtemp, mkdir, readFile, writeFile, rm, chmod, symlink } from 'node:fs
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import {
   AUTHORIZATION_INTERFACE,
   AUTHORIZATION_PROTOCOL,
@@ -20,6 +21,10 @@ import {
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const platform = `${process.platform}-${process.arch}`;
+const desktopRequire = createRequire(new URL('../apps/desktop/package.json', import.meta.url));
+const builderRequire = createRequire(desktopRequire.resolve('electron-builder'));
+const libraryRequire = createRequire(builderRequire.resolve('app-builder-lib'));
+const { load } = libraryRequire('js-yaml');
 async function fixture(t) {
   const directory = await mkdtemp(join(tmpdir(), 'weq-authorization-release-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -163,13 +168,21 @@ test('打包位置覆盖五平台，缺件、链接及无执行权限在运行�
 
 test('桌面五个平台强制助手，Web 不取助手，打包前后均有门禁', async () => {
   const workflow = await readFile(join(root, '.github/workflows/release.yml'), 'utf8');
+  const { jobs } = load(workflow);
+  for (const name of ['windows', 'linux-x64', 'linux-arm64', 'macos-x64', 'macos-arm64']) {
+    assert.ok(jobs[name], `缺少正式打包任务 ${name}`);
+    assert.equal(
+      jobs[name].steps.filter((step) =>
+        step.run?.includes('fetch-native.mjs --require-fresh --require-authorization --verify'),
+      ).length,
+      1,
+      name,
+    );
+  }
   assert.equal(
-    (workflow.match(/fetch-native\.mjs --require-fresh --require-authorization --verify/g) ?? [])
-      .length,
-    5,
-  );
-  assert.equal(
-    (workflow.match(/fetch-native\.mjs --require-fresh --no-authorization --verify/g) ?? []).length,
+    jobs.web.steps.filter((step) =>
+      step.run?.includes('fetch-native.mjs --require-fresh --no-authorization --verify'),
+    ).length,
     1,
   );
   assert.match(workflow, /WEQ_REQUIRE_AUTHORIZATION_HELPER: '1'/);

@@ -1,4 +1,6 @@
 import type { WebNotice } from '../../../main/web/notices';
+import { messageNotificationDedupe } from '../../../shared/notification_dedupe';
+const claimMessage = messageNotificationDedupe();
 
 export const WEB_NOTICE_OPEN = 'weq:web-notice-open';
 
@@ -10,6 +12,12 @@ export function browserNoticeChannel() {
       if (typeof Notification === 'undefined' || Notification.permission !== 'granted')
         return false;
       try {
+        if (
+          (notice.kind === 'message' || notice.kind === 'keyword') &&
+          notice.target?.kind === 'group' &&
+          !claimMessage(notice.configId, notice.target.kind, notice.target.conv, notice.target.seq)
+        )
+          return true;
         const item = new Notification(notice.title, {
           body: notice.body,
           tag: `weq:${notice.kind}:${notice.target?.conv ?? ''}`,
@@ -28,6 +36,16 @@ export function browserNoticeChannel() {
         }
         return true;
       } catch {
+        if (
+          (notice.kind === 'message' || notice.kind === 'keyword') &&
+          notice.target?.kind === 'group'
+        )
+          claimMessage.release(
+            notice.configId,
+            notice.target.kind,
+            notice.target.conv,
+            notice.target.seq,
+          );
         return false;
       }
     },

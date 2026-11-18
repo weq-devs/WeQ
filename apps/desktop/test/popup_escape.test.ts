@@ -20,6 +20,15 @@ const state = vi.hoisted(() => ({
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: { account: { annualReport: { shareQzone: { mutate: state.share } } } },
   trpc: {
+    useUtils: () => ({}),
+    bootstrap: {
+      getSettings: {
+        useQuery: () => ({
+          data: { notificationEvents: { databaseDamage: { banner: true, system: false } } },
+        }),
+      },
+      setNotificationEvents: { useMutation: () => ({}) },
+    },
     account: {
       dbExplorer: {
         listDatabases: {

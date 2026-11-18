@@ -21,6 +21,7 @@ export interface VirtualConversation {
   previewMine?: boolean;
   /** 克隆群成员的 QQ 号：用来拼九宫格合成头像。 */
   memberUins?: string[];
+  unreadCount?: number;
 }
 export const ConversationDirectoryContext = createContext<{
   virtual: VirtualConversation[];
@@ -44,7 +45,6 @@ export const ConversationDirectoryContext = createContext<{
   preferences?: ConversationPreferences;
   /** 主会话列表始终排除这些群，完整目录搜索也不能绕过归属。 */
   groupAssistantIds?: ReadonlySet<string>;
-  showGroupAssistantMessageCount?: boolean;
   showContactUnreadCount?: boolean;
   locate?: { id: string; revision: number } | null;
   onVirtual: (item: VirtualConversation) => void;
@@ -72,6 +72,7 @@ export const ContactDirectoryContext = createContext<{
 } | null>(null);
 
 export interface GuildConversationSession {
+  unreadCount?: number;
   nodeId: string;
   lastTime: string;
   lastSeq: string;
@@ -100,7 +101,7 @@ export function guildConversationRow(session: GuildConversationSession): Convers
     members: [],
     updatedAt,
     preference: { pinned: false, muted: false, blocked: false },
-    unreadCount: 0,
+    unreadCount: session.unreadCount ?? 0,
     lastMessage: {
       id: `${id}:${session.lastSeq}`,
       senderId: null,
@@ -143,7 +144,7 @@ export function virtualConversationRow(item: VirtualConversation): Conversation 
     members: [],
     updatedAt,
     preference: { pinned: false, muted: false, blocked: false },
-    unreadCount: 0,
+    unreadCount: item.unreadCount ?? 0,
     // 让列表行直接显示最近一句；没有记录时才留空。
     lastMessage: item.preview
       ? {

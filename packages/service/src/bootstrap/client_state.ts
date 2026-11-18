@@ -6,6 +6,8 @@ import { normalizeSearchPreferences } from '../account/search_policy';
 import { getLogger } from '../common/logger';
 import {
   isRecord,
+  validReadPosition,
+  newerReadPosition,
   validatePreferencePatch,
   type ClientStateSnapshot,
   type ClientStateChange,
@@ -53,7 +55,8 @@ export function validateClientState(value: unknown): asserts value is State {
     throw new Error('草稿容量记录无效');
   if (
     Object.keys(value.records).some(
-      (key) => !['pins', 'tasks', 'assistant', 'todos', 'order'].includes(key),
+      (key) =>
+        !['pins', 'tasks', 'assistant', 'todos', 'order', 'notifications', 'reads'].includes(key),
     )
   )
     throw new Error('跨端状态分区无效');
@@ -239,7 +242,9 @@ export class ClientStateStore {
   }
   records(namespace: StateNamespace, patch: Record<string, unknown>, seed = false) {
     if (
-      !['pins', 'tasks', 'assistant', 'todos', 'order'].includes(namespace) ||
+      !['pins', 'tasks', 'assistant', 'todos', 'order', 'notifications', 'reads'].includes(
+        namespace,
+      ) ||
       !isRecord(patch) ||
       Buffer.byteLength(JSON.stringify(patch)) > 2 * 1024 * 1024
     )
@@ -251,6 +256,23 @@ export class ClientStateStore {
         throw new Error('无效的状态标识');
       if (namespace === 'pins' && value !== null && typeof value !== 'boolean')
         throw new Error('无效的置顶状态');
+      if (namespace === 'reads') {
+        if (!validReadPosition(value)) throw new Error('无效的阅读位置');
+        const previous = rows[key];
+        if (typeof previous === 'string' && !newerReadPosition(value, previous)) continue;
+      }
+      if (
+        namespace === 'notifications' &&
+        value !== null &&
+        (!['mentionMe', 'mentionAll', 'replyMe', 'redPacket'].includes(key) ||
+          !isRecord(value) ||
+          !['all', 'selected'].includes(String(value.mode)) ||
+          !Array.isArray(value.targets) ||
+          value.targets.some(
+            (target) => typeof target !== 'string' || !/^(c2c|group|dataline):.+/.test(target),
+          ))
+      )
+        throw new Error('无效的通知会话范围');
       if (['tasks', 'assistant'].includes(namespace) && value !== null && typeof value !== 'string')
         throw new Error('无效的结果版本');
       if (

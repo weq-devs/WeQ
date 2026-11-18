@@ -2,6 +2,7 @@
 import { NumericText } from '../../components/NumericText';
 import { TimeLabel } from '../../components/TimeLabel';
 import { ReminderCount } from '../../components/ReminderBadge';
+import { useUnreadMarkers } from '../../lib/unreadMarkers';
 import { occupationText } from '@weq/protocol/profile-values';
 import {
   BellOff,
@@ -253,6 +254,7 @@ export function ConversationList({
   loadingMore?: boolean;
 }) {
   const directory = useContext(ConversationDirectoryContext);
+  const markers = useUnreadMarkers();
   const directoryRef = useRef<HTMLDivElement>(null);
   const mobile = useMobileWebLayout();
   useMobileBack(
@@ -751,10 +753,14 @@ export function ConversationList({
             const hasDraft = !active && Boolean(drafts[conversation.id]?.trim());
             const preview = conversationLastMessage(conversation, user);
             // 提醒高亮：来自 48902 的权威标记（特别关心 / @我 …）。
-            const highlightKinds = new Set((conversation.highlights ?? []).map((h) => h.kind));
+            const highlightKinds = new Set(
+              (markers.important ? (conversation.highlights ?? []) : []).map((h) => h.kind),
+            );
             // @我：优先用 48902 权威标记，回退到本地对消息正文的启发式解析。
             const showMentionAlert =
-              unreadCount > 0 && (highlightKinds.has('atMe') || preview.mentionsMe);
+              markers.important &&
+              unreadCount > 0 &&
+              (highlightKinds.has('atMe') || preview.mentionsMe);
             // @全体成员：同属「找你」红色告警类。
             const showAtAll = unreadCount > 0 && highlightKinds.has('atAll');
             // 回复我：同属「找你」红色告警类。
@@ -772,7 +778,7 @@ export function ConversationList({
             const showGroupKeyword = unreadCount > 0 && highlightKinds.has('groupKeyword');
             // 命中的关键词（可能多个）；让「[群提醒词]」能区分是哪个词命中的。
             const groupKeywordWords =
-              unreadCount > 0
+              markers.important && unreadCount > 0
                 ? [
                     ...new Set(
                       (conversation.highlights ?? [])
@@ -969,8 +975,8 @@ export function ConversationList({
                     <TimeLabel value={updatedAt}>{formatConversationTime(updatedAt)}</TimeLabel>
                   </span>
                   {unreadCount &&
-                  (conversation.mergedKind !== 'groupAssistant' ||
-                    directory?.showGroupAssistantMessageCount) ? (
+                  (conversation.type !== 'merged' ||
+                    markers.aggregates[conversation.mergedKind]) ? (
                     <ReminderCount
                       count={unreadCount}
                       tone={muted ? 'muted' : 'notice'}

@@ -30,7 +30,7 @@ describe('隐私与备份迁移后的搜索入口', () => {
     });
     expect(searchAppEntries('受限横幅')[0]?.target).toMatchObject({
       kind: 'setting',
-      section: 'account',
+      section: 'global',
       settingId: 'restricted-mode-banner',
     });
   });

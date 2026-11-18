@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { WifiOff } from 'lucide-react';
 import { useWebConnection } from '../state/webConnection';
 import { useToastApi } from './Toast.shared';
+import { useNotificationPolicy, publishNotificationSystem } from '../lib/notificationPolicy';
 import { notificationSource } from '../lib/notificationNavigation.shared';
 import '../styles/web-connection.css';
 
@@ -20,6 +21,7 @@ function nativeConnectionState(): RemoteConnectionState | undefined {
 }
 
 export function WebConnectionStatus() {
+  const banner = useNotificationPolicy((state) => state.events.connection.banner);
   const notificationToast = useToastApi();
   const status = useWebConnection((state) => state.status);
   const recovery = useWebConnection((state) => state.recovery);
@@ -59,6 +61,7 @@ export function WebConnectionStatus() {
       warned.current = true;
       toast.push({
         key: NOTICE_KEY,
+        event: 'connection',
         tone: 'warning',
         durationKind: 'long',
         ttl: 0,
@@ -71,7 +74,7 @@ export function WebConnectionStatus() {
       });
     } else if (warned.current || nativeRecovery > previousNativeRecovery.current) {
       warned.current = false;
-      toast.push({ key: NOTICE_KEY, tone: 'success', title: '连接已恢复' });
+      toast.push({ key: NOTICE_KEY, event: 'connection', tone: 'success', title: '连接已恢复' });
     }
     previousNativeRecovery.current = nativeRecovery;
   }, [nativeState, nativeRecovery, notificationToast]);
@@ -95,7 +98,12 @@ export function WebConnectionStatus() {
     return () => window.clearTimeout(timer);
   }, [nativeState, status]);
 
-  if (!visible || status === 'connected') return null;
+  useEffect(() => {
+    if (visible && !nativeState && status !== 'connected')
+      publishNotificationSystem('connection', '实时连接已断开，正在重连', '');
+  }, [visible, nativeState, status]);
+
+  if (!banner || !visible || status === 'connected') return null;
   return (
     <div className="weq-web-connection" role="status" aria-live="polite">
       <WifiOff size={18} aria-hidden />

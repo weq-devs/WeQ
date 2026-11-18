@@ -72,7 +72,6 @@ import { MissingMessageSettings } from './settings/MissingMessageSettings';
 import { SlashEmojiSettings } from './settings/SlashEmojiSettings';
 import { QqShowSettings } from './settings/QqShowSettings';
 import { VoiceAutoTranscribeSetting } from './settings/VoiceAutoTranscribeSetting';
-import { ClearReadRecordsSetting } from './settings/ClearReadRecordsSetting';
 import { MessageDisplayOptions } from './settings/MessageDisplayOptions';
 import { Card, Row, SectionHeader, Toggle } from './settings/controls';
 import { SettingsNavigateContext, SettingsScopeContext } from './settings/controls.shared';
@@ -113,6 +112,8 @@ import {
 export type { SectionId } from './settings/navigation';
 import { useThemeStore, type ThemeBackground, type ThemePreference } from '../state/theme';
 import { SharedDisplayToggle } from './settings/SharedDisplayToggle';
+import { useUnreadMarkers } from '../lib/unreadMarkers';
+import { AggregateBadgeRows, BadgeSettingRow } from './settings/UnreadBadgeSettings';
 import { useUpdateStore } from '../state/update';
 import { flushSettingsSaves, hasPendingSettingsSaves } from '../lib/settingsSaveQueue';
 import { ContactCardSettings } from './settings/ContactCardSettings';
@@ -441,6 +442,8 @@ function SettingsContent({
     () => resolveSettingsTarget(searchTarget ?? { section: initialSection ?? 'startup' }),
     [initialSection, searchTarget],
   );
+  const [linkedTarget, setLinkedTarget] = useState<SettingsSearchTarget | null>(null);
+  useEffect(() => setLinkedTarget(null), [initialSection, searchTarget]);
   const [activeId, setActiveId] = usePageState<SettingsPageId>(
     'settings:active',
     () => target.section,
@@ -450,7 +453,9 @@ function SettingsContent({
         SETTINGS_GROUPS.some((group) => group.sections.some((section) => section === value)),
     ),
   );
-  const updateAvailable = useUpdateStore((state) => state.available);
+  const markers = useUnreadMarkers();
+  const updateAvailable = useUpdateStore((state) => state.available) && markers.updates;
+  const packUpdatesAvailable = useUpdateStore((state) => state.packsAvailable) && markers.updates;
   const locked = useAppLock((state) => state.locked);
   const navRef = useRef<HTMLElement | null>(null);
   const [mobileCategoryOpen, setMobileCategoryOpen] = useState(
@@ -651,7 +656,8 @@ function SettingsContent({
                     </span>
                     <span className="weq-settings-nav-label">
                       {s.label}
-                      {updateAvailable && s.sections.includes('version') ? (
+                      {(updateAvailable && s.sections.includes('version')) ||
+                      (packUpdatesAvailable && s.sections.includes('enhancement-packs')) ? (
                         <ReminderDot
                           className="weq-settings-update-mark"
                           aria-label="有新版本可更新"
@@ -678,7 +684,8 @@ function SettingsContent({
                     <SettingsPageIcon page={section.id} />
                   </span>
                   <span className="weq-settings-subnav-label">{section.label}</span>
-                  {updateAvailable && section.id === 'version' ? (
+                  {(updateAvailable && section.id === 'version') ||
+                  (packUpdatesAvailable && section.id === 'enhancement-packs') ? (
                     <ReminderDot className="weq-settings-update-mark" aria-label="有新版本可更新" />
                   ) : null}
                 </button>
@@ -690,14 +697,24 @@ function SettingsContent({
                   <RetainedTabs snapshotKey="settings" activeKey={active.id}>
                     <RetainedSettingsPage
                       pageId={active.id}
-                      target={target}
-                      revision={searchTarget?.revision}
-                      recordId={searchTarget?.recordId}
+                      target={linkedTarget ? resolveSettingsTarget(linkedTarget) : target}
+                      revision={linkedTarget?.revision ?? searchTarget?.revision}
+                      recordId={linkedTarget?.recordId ?? searchTarget?.recordId}
                     >
                       <SettingsNotificationSource section={active.id}>
                         <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
                           <SettingsNavigateContext.Provider
-                            value={(section) => switchSection(section as SettingsPageId)}
+                            value={(section, settingId) => {
+                              const next = resolveSettingsTarget({
+                                section: section as SectionId,
+                                settingId,
+                              });
+                              requestNavigation(() => {
+                                setLinkedTarget({ ...next, revision: Date.now() });
+                                setActiveId(next.section);
+                                setMobileCategoryOpen(true);
+                              });
+                            }}
                           >
                             {active.id === 'chat-interaction' ? (
                               <>
@@ -713,6 +730,21 @@ function SettingsContent({
                                   />
                                 </SettingsScopeContext.Provider>
                               </>
+                            ) : active.id === 'global' ? (
+                              <GlobalSettingsSection
+                                notificationTarget={linkedTarget ?? searchTarget}
+                                recallNotifications={
+                                  <AntiRecallDialog
+                                    embedded
+                                    section="notifications"
+                                    onClose={() => {}}
+                                    onOpenRecalls={onOpenRecalls}
+                                    isCurrentSource={isCurrentSource}
+                                    notificationConversation={searchTarget?.conversation}
+                                    notificationRevision={searchTarget?.revision}
+                                  />
+                                }
+                              />
                             ) : (
                               active.render(onOpenMaintenance)
                             )}
@@ -825,17 +857,12 @@ function AppearanceSection({
   });
   const setRenderTextMarkdown = trpc.bootstrap.setRenderTextMarkdown.useMutation();
   const setLinkPreview = trpc.bootstrap.setLinkPreview.useMutation();
-  const setShowMessageUnreadBadge = trpc.bootstrap.setShowMessageUnreadBadge.useMutation();
-  const setShowContactUnreadCount = trpc.bootstrap.setShowContactUnreadCount.useMutation();
   const setReadFromFirstUnread = trpc.bootstrap.setReadFromFirstUnread.useMutation();
   const setAutoFollowLatestMessages = trpc.bootstrap.setAutoFollowLatestMessages.useMutation();
   const setJumpToLatestAfterSend = trpc.bootstrap.setJumpToLatestAfterSend.useMutation();
   const setShowScrollToBottomButton = trpc.bootstrap.setShowScrollToBottomButton.useMutation();
   const setSendWithQqFont = trpc.bootstrap.setSendWithQqFont.useMutation();
-  const setShowGroupAssistantMessageCount =
-    trpc.bootstrap.setShowGroupAssistantMessageCount.useMutation();
   const utils = trpc.useUtils();
-  const [badgeError, setBadgeError] = useState<string | null>(null);
   const [readingError, setReadingError] = useState<string | null>(null);
   const [textMarkdown, setTextMarkdown] = useState(true);
   const [linkCard, setLinkCard] = useState(true);
@@ -950,6 +977,40 @@ function AppearanceSection({
         <>
           {category === 'reading' && (
             <Card
+              title="会话预览"
+              icon={<MessagesSquare size={15} />}
+              resetId="conversation-preview"
+            >
+              <BadgeSettingRow
+                name="showImportantMessageMarkers"
+                settingId="important-message-markers"
+                label="重要消息标记"
+                fallback={true}
+              />
+            </Card>
+          )}
+          {category === 'reading' && (
+            <Card title="列表排序" icon={<MessagesSquare size={15} />} resetId="conversation-order">
+              <Row
+                settingId="keep-conversation-position-on-hover"
+                desc="鼠标位于会话列表内时，新消息仍正常更新，但不调整会话顺序；移出并关闭菜单后恢复排序。"
+                control={
+                  <SharedDisplayToggle
+                    name="keepConversationPositionOnHover"
+                    label="鼠标停留时保持会话位置"
+                    fallback={false}
+                  />
+                }
+              />
+            </Card>
+          )}
+          {category === 'reading' && (
+            <Card title="常规视图未读角标" icon={<Bell size={15} />} resetId="conversation-markers">
+              <AggregateBadgeRows />
+            </Card>
+          )}
+          {category === 'reading' && (
+            <Card
               title="全部会话视图"
               icon={<MessagesSquare size={15} />}
               resetId="conversation-scope"
@@ -974,86 +1035,6 @@ function AppearanceSection({
                   />
                 }
               />
-            </Card>
-          )}
-          {category === 'reading' && (
-            <Card title="列表排序" icon={<MessagesSquare size={15} />} resetId="conversation-order">
-              <Row
-                settingId="keep-conversation-position-on-hover"
-                desc="鼠标位于会话列表内时，新消息仍正常更新，但不调整会话顺序；移出并关闭菜单后恢复排序。"
-                control={
-                  <SharedDisplayToggle
-                    name="keepConversationPositionOnHover"
-                    label="鼠标停留时保持会话位置"
-                    fallback={false}
-                  />
-                }
-              />
-            </Card>
-          )}
-          {category === 'reading' && (
-            <Card title="未读标记" icon={<Bell size={15} strokeWidth={1.8} />} resetId="unread">
-              <Row
-                settingId="message-unread-badge"
-                label="在消息图标上显示红点"
-                control={
-                  <Toggle
-                    checked={settings.data?.showMessageUnreadBadge ?? true}
-                    disabled={!settings.data || setShowMessageUnreadBadge.isLoading}
-                    onChange={(enabled) => {
-                      setBadgeError(null);
-                      setShowMessageUnreadBadge.mutate(
-                        { enabled },
-                        {
-                          onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
-                          onError: (error) => setBadgeError(error.message),
-                        },
-                      );
-                    }}
-                    label="在消息图标上显示红点"
-                  />
-                }
-              />
-              {badgeError ? <p role="alert">{badgeError}</p> : null}
-              {[
-                {
-                  key: 'showContactUnreadCount' as const,
-                  settingId: 'contact-unread-count',
-                  label: '在联系人界面显示未读消息数',
-                  mutation: setShowContactUnreadCount,
-                },
-                {
-                  key: 'showGroupAssistantMessageCount' as const,
-                  settingId: 'group-assistant-count',
-                  label: '群助手显示总消息数',
-                  mutation: setShowGroupAssistantMessageCount,
-                },
-              ].map(({ key, settingId, label, mutation }) => (
-                <Row
-                  key={key}
-                  settingId={settingId}
-                  label={label}
-                  control={
-                    <Toggle
-                      checked={settings.data?.[key] ?? false}
-                      disabled={!settings.data || mutation.isLoading}
-                      onChange={(enabled) => {
-                        setReadingError(null);
-                        mutation.mutate(
-                          { enabled },
-                          {
-                            onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
-                            onError: (error) => setReadingError(error.message),
-                          },
-                        );
-                      }}
-                      label={label}
-                    />
-                  }
-                />
-              ))}
-              <AccountBasicsSection page="read" heading={false} />
-              <ClearReadRecordsSetting />
             </Card>
           )}
           {(category === 'display' || category === 'sending') && (

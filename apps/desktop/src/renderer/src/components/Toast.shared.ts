@@ -37,19 +37,20 @@ import '../styles/toast-layout.css';
 
 export type ToastTone = 'info' | 'warning' | 'error' | 'success';
 export type ToastDurationKind = 'success' | 'failure' | 'long';
-
 export interface ToastAction {
   label: string;
   run: () => void;
-  icon?: 'play' | 'open' | 'reload';
+  icon?: 'play' | 'open' | 'task' | 'conversation' | 'settings' | 'reload';
+  /** 导航动作的明确目标，用于与来源入口去重；普通回调不按文案合并。 */
+  source?: NotificationSource;
 }
 
 export interface Toast {
   id: number;
-  /** 同一状态或操作的稳定标识，用于替换旧横幅及恢复后清理。 */
   event: NotificationEvent;
   /** 任务身份独立于导航来源，专用进度可继续提供会话等快捷入口。 */
   taskId?: string;
+  /** 同一状态或操作的稳定标识，用于替换旧横幅及恢复后清理。 */
   key?: string;
   tone: ToastTone;
   occurredAt: number;
@@ -96,9 +97,9 @@ interface ToastStore {
   seq: number;
   /** 推一条 toast；相同 key 原地替换，返回 id 供 `update` 推进状态。 */
   push(input: {
-    key?: string;
     event?: NotificationEvent;
     taskId?: string;
+    key?: string;
     tone?: ToastTone;
     durationKind?: ToastDurationKind;
     loading?: boolean;
@@ -169,9 +170,9 @@ const toastStore = create<ToastStore>((set, get) => ({
   leaving: [],
   seq: 0,
   push({
-    key,
     event,
     taskId,
+    key,
     tone = 'info',
     durationKind,
     loading,
@@ -192,7 +193,6 @@ const toastStore = create<ToastStore>((set, get) => ({
     const kind = durationKind ?? defaultDurationKind(tone, ttl);
     const toast: Toast = {
       id,
-      key,
       taskId: taskId ?? (source?.target.kind === 'task' ? source.target.id : undefined),
       event:
         event ??
@@ -205,6 +205,7 @@ const toastStore = create<ToastStore>((set, get) => ({
             : kind === 'failure'
               ? 'failure'
               : 'success'),
+      key,
       tone,
       occurredAt: Date.now(),
       durationKind: kind,
@@ -318,6 +319,7 @@ const toastStore = create<ToastStore>((set, get) => ({
   },
 }));
 
+/** 来源绑定在发起操作的渲染闭包中，迟到结果不读取后来切换到的页面。 */
 export function sourceToastPush(source: NotificationSource): ToastStore['push'] {
   return (input) =>
     toastStore.getState().push({
@@ -361,6 +363,7 @@ export const useToast = Object.assign(function useToast<T = ToastStore>(
   return useStore(store, selector);
 }, toastStore);
 
+/** 仅发通知的回调不订阅横幅列表，避免进度更新反复渲染业务页面。 */
 export function useToastApi(
   origin?: NotificationSource | null,
 ): Pick<ToastStore, 'push' | 'update' | 'dismiss' | 'resolve' | 'remove' | 'setDurations'> {

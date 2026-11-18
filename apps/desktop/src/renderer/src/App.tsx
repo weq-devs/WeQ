@@ -269,7 +269,7 @@ export default function App(): ReactElement {
             <NotificationClickBridge />
             <RendererRecoveryNotice ready={view === 'bootstrap' && homeStage !== 'booting'} />
             {IS_WEB && <WebConnectionStatus />}
-            {IS_WEB && view === 'main' && <WebNotifications />}
+            {view === 'main' && <WebNotifications />}
             <HoverTooltip />
             <DbRepairWindowHost />
             <CaptureWindowHost />

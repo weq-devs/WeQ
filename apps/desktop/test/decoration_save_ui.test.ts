@@ -26,6 +26,10 @@ const state = vi.hoisted(() => ({
     > => ({ mode: 'task', taskId: 'fixture' }),
   ),
   toast: vi.fn(),
+  accepted: vi.fn(),
+}));
+vi.mock('../src/renderer/src/lib/taskNotifications', () => ({
+  notifyTaskCreated: state.accepted,
 }));
 vi.mock('../src/renderer/src/hooks/useDevelopmentDressTools', () => ({
   useDevelopmentDressTools: () => state.developmentTools,
@@ -86,6 +90,7 @@ beforeEach(() => {
   state.current = true;
   state.prepare.mockClear();
   state.toast.mockClear();
+  state.accepted.mockClear();
   state.mutate.mockReset().mockResolvedValue({ mode: 'task', taskId: 'fixture' });
 });
 
@@ -139,7 +144,8 @@ it('桌面偏好传给后端，由真实产物决定原生选择器格式', asyn
     browserDownload: false,
   });
   expect(state.prepare).not.toHaveBeenCalled();
-  expect(state.toast.mock.calls[0]![0].tone).toBe('info');
+  expect(state.accepted).toHaveBeenCalledWith('fixture', '正在保存装扮');
+  expect(state.toast).not.toHaveBeenCalled();
 });
 it('只保留一个保存按钮，不覆盖默认偏好；取消不冒称成功', async () => {
   const host = await mount();

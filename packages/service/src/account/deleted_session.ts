@@ -24,6 +24,7 @@ export interface DeletedSessionSummary {
   resolvable: boolean;
   /** Real last-message time (unix seconds), resolved from the msg table. 0 if none found. */
   sendTime: bigint;
+  latestSeq?: string;
   senderUid: string;
   /** Latest message's first element, for a list preview. */
   preview: Element | null;
@@ -78,11 +79,12 @@ export class DeletedSessionService {
 }
 
 function summarizeLatest(
-  latest: { sendTime: bigint; senderUid: string; elements: Element[] } | undefined,
-): Pick<DeletedSessionSummary, 'sendTime' | 'senderUid' | 'preview'> {
+  latest: { sendTime: bigint; msgSeq?: bigint; senderUid: string; elements: Element[] } | undefined,
+): Pick<DeletedSessionSummary, 'sendTime' | 'senderUid' | 'preview' | 'latestSeq'> {
   if (!latest) return { sendTime: 0n, senderUid: '', preview: null };
   return {
     sendTime: latest.sendTime,
+    latestSeq: latest.msgSeq?.toString(),
     senderUid: latest.senderUid,
     preview: latest.elements[0] ?? null,
   };

@@ -10,6 +10,7 @@ import '../../styles/rail-navigation.css';
 import { useWorkspaceActiveTitle } from '../../components/WorkspacePages.shared';
 import { preloadWorkspace } from '../../components/lazyWorkspaces.shared';
 import { ReminderCount, ReminderDot } from '../../components/ReminderBadge';
+import { useUnreadMarkers } from '../../lib/unreadMarkers';
 import { useDevelopmentDressTools } from '../../hooks/useDevelopmentDressTools';
 import { APP_NAVIGATION, activateNavigation, navigationEntries } from '../../lib/appNavigation';
 
@@ -65,9 +66,10 @@ export function AppRail({
       : activeTitle === APP_NAVIGATION.settings.label
         ? 'settings'
         : undefined;
-  const developmentDressTools = useDevelopmentDressTools();
   const activeView = activePage ?? activeRailItem ?? view;
-  const updateAvailable = useUpdateStore((s) => s.available);
+  const markers = useUnreadMarkers();
+  const developmentDressTools = useDevelopmentDressTools();
+  const updateAvailable = useUpdateStore((s) => s.available || s.packsAvailable) && markers.updates;
   const settingsButton = (mobile = false) => (
     <button
       className={cn(

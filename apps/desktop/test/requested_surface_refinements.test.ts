@@ -200,7 +200,7 @@ describe('邮箱与会话入口界面细节', () => {
     const conversation = { ...base, id: '10001', group: { ...base.group, id: '10001' } };
     const f = mount(h(ConversationMessageActions, { conversation, onRoaming: vi.fn() }));
     try {
-      const button = f.host.querySelector<HTMLButtonElement>('[aria-label="消息管理"]')!;
+      const button = f.host.querySelector<HTMLButtonElement>('[aria-label="工具"]')!;
       expect(button.textContent).toBe('');
       expect(button.title).toContain(status === 'paused' ? '已暂停' : '暂停收尾中');
       expect(button.querySelector('.weq-roaming-paused-indicator svg')).not.toBeNull();

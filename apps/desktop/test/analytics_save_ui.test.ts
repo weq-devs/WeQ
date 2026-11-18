@@ -81,13 +81,7 @@ it('报告内图片按钮保留原报告身份，位置策略交公共任务处�
       data: { total: 3 },
     }),
   );
-  expect(state.toast).toHaveBeenCalledWith(
-    expect.objectContaining({
-      tone: 'info',
-      title: '长图导出任务已创建',
-      source: expect.objectContaining({ target: { kind: 'task', id: 'export:image-task' } }),
-    }),
-  );
+  expect(state.toast).not.toHaveBeenCalled();
 });
 it('取消图片保存不弹失败提示', async () => {
   state.send.mockResolvedValueOnce({ saved: false, canceled: true });

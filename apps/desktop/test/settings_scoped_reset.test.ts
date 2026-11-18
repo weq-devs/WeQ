@@ -167,7 +167,6 @@ describe('分级恢复默认', () => {
       { enabled: DEFAULT_APP_SETTINGS.ocr.prefilterEnabled },
     ]);
   });
-
   it('窗口外观和关闭行为随各自页面恢复，不再互相影响', async () => {
     state.settings.windowsStyleControls = true;
     state.settings.windowCloseBehavior = 'quit';
@@ -266,32 +265,22 @@ describe('分级恢复默认', () => {
       ]),
     );
   });
-  it('已读上报随未读提醒卡片恢复，不影响阅读定位配置', async () => {
+  it('会话列表恢复默认不改写已移除的已读上报设置', async () => {
     state.settings.reportReadEnabled = false;
     state.settings.manualReadReportEnabled = false;
-    const preview = await caller().preview({ page: 'chat-messages', card: 'unread' });
-    expect(preview.items).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: 'unread:reportReadEnabled', current: false }),
-        expect.objectContaining({ id: 'unread:manualReadReportEnabled', current: false }),
-      ]),
-    );
-    expect(preview.items.every((item) => item.id.startsWith('unread:'))).toBe(true);
-    await caller().restore({ page: 'chat-messages', card: 'unread', source: null });
-    expect(state.calls).toContainEqual([
-      'setReportReadEnabled',
-      { enabled: DEFAULT_APP_SETTINGS.reportReadEnabled },
-    ]);
-    expect(state.calls).toContainEqual([
-      'setManualReadReportEnabled',
-      { enabled: DEFAULT_APP_SETTINGS.manualReadReportEnabled },
-    ]);
+    const preview = await caller().preview({ page: 'chat-messages' });
+    expect(preview.items.some((item) => item.id.startsWith('unread:'))).toBe(false);
+    await caller().restore({ page: 'chat-messages', source: null });
+    expect(state.calls.some(([method]) => method === 'setReportReadEnabled')).toBe(false);
+    expect(state.calls.some(([method]) => method === 'setManualReadReportEnabled')).toBe(false);
+    expect(state.settings.reportReadEnabled).toBe(false);
+    expect(state.settings.manualReadReportEnabled).toBe(false);
     expect(state.calls.some(([method]) => method === 'setReadFromFirstUnread')).toBe(false);
   });
   it('稳定卡片 ID 唯一，跨页面卡片与任意配置键拒绝', async () => {
-    expect(resetCards({ page: 'global' }).map(([, id]) => id)).toContain('message-notifications');
+    expect(resetCards({ page: 'global' }).map(([, id]) => id)).toContain('notification-events');
     expect(resetCards({ page: 'chat-messages' }).map(([, id]) => id)).not.toContain(
-      'message-notifications',
+      'notification-events',
     );
     expect(new Set(SETTINGS_RESET_CARDS.map(([, id]) => id)).size).toBe(
       SETTINGS_RESET_CARDS.length,
@@ -302,6 +291,37 @@ describe('分级恢复默认', () => {
       caller().restore({ page: 'qzone', source: null, directories: ['mcp:token'] }),
     ).rejects.toThrow('不属于当前范围');
     expect(state.calls).toEqual([]);
+  });
+  it('通知与红点迁移后，旧功能页恢复不再修改通知偏好', async () => {
+    const global = await caller().preview({ page: 'global' });
+    expect(global.items.map((item) => item.id)).toEqual(
+      expect.arrayContaining([
+        'notification-badges:showMessageUnreadBadge',
+        'notification-badges:showContactUnreadCount',
+        'notification-events:notificationEvents',
+        'notification-badges:unread',
+      ]),
+    );
+    expect(global.items.some((item) => item.id.startsWith('damage-reminder:'))).toBe(false);
+    for (const page of [
+      'mail',
+      'account',
+      'database-management',
+      'chat-messages',
+      'chat-interaction',
+      'privacy',
+    ] as const) {
+      const old = await caller().preview({ page });
+      expect(
+        old.items.some((item) =>
+          /^(notification-events|notification-badges|damage-reminder|recall-notifications|web-notifications):/.test(
+            item.id,
+          ),
+        ),
+      ).toBe(false);
+    }
+    const badges = await caller().preview({ page: 'global', card: 'notification-badges' });
+    expect(badges.items.some((item) => item.id.includes('reportRead'))).toBe(false);
   });
   it('只读预览不写入，卡片恢复不影响同页其他配置或连接凭据', async () => {
     state.settings.qzonePagination = { windowSeconds: 30, maxPages: 12 };

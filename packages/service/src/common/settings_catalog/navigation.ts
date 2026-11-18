@@ -1,6 +1,8 @@
 // 这里只包含公开的目录与别名，不读取设置值、账号信息或凭据。
 import { AI_SETTING_ITEMS } from './ai';
 import { CONTACT_CARD_FIELDS, CONTACT_GROUP_FIELDS } from '../contact_card';
+import { NOTIFICATION_EVENTS, NOTIFICATION_LABELS } from '../notification_settings';
+import { AGGREGATE_BADGE_SETTINGS, ENTRY_BADGE_SETTINGS } from '../client_preferences';
 export const SETTINGS_PAGE_LABELS = {
   'contact-card': '联系人名片',
   appearance: '外观与布局',
@@ -197,7 +199,39 @@ interface ItemRedirect {
 }
 
 export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
-  { id: 'web-notifications', section: 'privacy', label: '网页通知', from: ['privacy'] },
+  { id: 'notification-events', section: 'global', label: '事件通知', from: ['global'] },
+  ...NOTIFICATION_EVENTS.filter(
+    (event) => !['directMessage', 'mail', 'recall', 'runtime', 'databaseDamage'].includes(event),
+  ).map(
+    (event): ItemRedirect => ({
+      id: `notification-${event}`,
+      section: 'global',
+      label: NOTIFICATION_LABELS[event],
+      from: ['global'],
+    }),
+  ),
+  ...(
+    [
+      ...ENTRY_BADGE_SETTINGS.map(([, id, label]) => [id, label] as const),
+      ...AGGREGATE_BADGE_SETTINGS.filter(([, key]) => key !== 'showGroupAssistantMessageCount').map(
+        ([, , id, label]) => [id, label] as const,
+      ),
+    ] as const
+  ).map(
+    ([id, label]): ItemRedirect => ({
+      id,
+      section: 'global',
+      label,
+      from: ['global', 'mail', 'chat-messages', 'agentlab', 'version'],
+    }),
+  ),
+  {
+    id: 'important-message-markers',
+    section: 'chat-messages',
+    label: '重要消息标记',
+    aliases: ['@我', '@全体成员', '回复我', '特别关心', '群提醒词', '新文件', '红包', '群公告'],
+    from: ['chat-messages'],
+  },
   ...(
     [
       ['toast-success', 'global', '成功通知停留时长'],
@@ -511,17 +545,17 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   {
     id: 'mail-unread-badge',
-    section: 'mail',
-    label: '在邮箱图标上显示红点',
-    aliases: ['显示未读邮件数'],
-    from: ['mail'],
+    section: 'global',
+    label: '邮箱导航未读角标',
+    aliases: ['显示未读邮件数', '在邮箱图标上显示红点', '邮箱红点'],
+    from: ['mail', 'global'],
   },
   {
     id: 'mail-banner',
-    section: 'mail',
-    label: '收到新邮件时横幅提醒',
-    aliases: ['新邮件提醒'],
-    from: ['mail'],
+    section: 'global',
+    label: '新邮件',
+    aliases: ['新邮件提醒', '收到新邮件时横幅提醒', '邮件通知设置'],
+    from: ['mail', 'global'],
   },
   {
     id: 'startup-page',
@@ -603,7 +637,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   ...(
     [
-      ['message-system-notifications', '新消息系统通知', '消息弹窗提醒'],
+      ['message-system-notifications', '普通私聊消息', '新消息系统通知', '消息弹窗提醒'],
       ['application-unread-badge', '应用图标未读角标', 'Dock 任务栏 Badge'],
     ] as const
   ).map(
@@ -617,9 +651,9 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   ),
   ...(
     [
-      ['message-unread-badge', '在消息图标上显示红点', '显示消息汇总红点'],
-      ['contact-unread-count', '在联系人界面显示未读消息数'],
-      ['group-assistant-count', '群助手显示总消息数'],
+      ['message-unread-badge', '消息导航未读角标', '消息图标红点', '显示消息汇总红点'],
+      ['contact-unread-count', '好友与群聊', '联系人列表未读消息数', '在联系人界面显示未读消息数'],
+      ['group-assistant-count', '群助手', '群助手未读汇总角标', '群助手显示总消息数'],
       ['all-conversations-include-hidden', '包含已隐藏会话', '全部会话隐藏范围'],
       ['all-conversations-include-deleted', '包含已删除会话', '全部会话删除范围'],
       ['read-first-unread', '从第一条新消息开始阅读'],
@@ -668,8 +702,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       id,
       label,
       aliases,
-      section: chatMessagePageFor(id),
-      from: ['message-display', 'chat-messages', 'chat-interaction'],
+      section:
+        id === 'message-unread-badge' ||
+        id === 'contact-unread-count' ||
+        id === 'group-assistant-count'
+          ? 'global'
+          : chatMessagePageFor(id),
+      from: ['message-display', 'chat-messages', 'chat-interaction', 'global'],
     }),
   ),
   {
@@ -677,13 +716,6 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     section: 'resource-loading',
     label: 'QQ 秀缓存有效期',
     from: ['message-display', 'chat-messages', 'resource-loading'],
-  },
-  {
-    id: 'clear-local-read-records',
-    section: 'chat-messages',
-    label: '清除 WeQ 已读记录',
-    aliases: ['未读异常', '清除阅读位置', '重置已读记录'],
-    from: ['chat-messages'],
   },
   {
     id: 'intent-model-resources',
@@ -727,18 +759,11 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     from: ['global', 'chat-messages', 'chat-interaction'],
   },
   {
-    id: 'read-sync',
-    section: 'chat-messages',
-    label: '向 QQ 服务器上报已读位置',
-    aliases: ['同步已读状态到 QQ', '同步已读到 QQ', '手动标记时上报已读位置', '手动标记已读'],
-    from: ['account', 'chat-messages'],
-  },
-  {
     id: 'restricted-mode-banner',
-    section: 'account',
-    label: '在线能力受限时通知',
-    aliases: ['在线能力受限时横幅提醒'],
-    from: ['account'],
+    section: 'global',
+    label: '功能受限或运行异常',
+    aliases: ['在线能力受限时通知', '在线能力受限时横幅提醒'],
+    from: ['account', 'global'],
   },
   {
     id: 'anti-recall',
@@ -770,10 +795,31 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   {
     id: 'damage-reminder',
-    section: 'database-management',
-    label: '损坏提醒',
-    aliases: ['数据库异常时弹窗提醒'],
-    from: ['database', 'database-repair', 'database-management'],
+    section: 'global',
+    label: '数据库异常提醒',
+    aliases: ['数据库异常时弹窗提醒', '损坏提醒', 'notification-databaseDamage'],
+    from: ['database', 'database-repair', 'database-management', 'global'],
+  },
+  {
+    id: 'notification-badges',
+    section: 'global',
+    label: '未读角标',
+    aliases: ['红点与未读标记'],
+    from: ['global', 'chat-messages'],
+  },
+  {
+    id: 'recall-notifications',
+    section: 'global',
+    label: '撤回提醒',
+    aliases: ['撤回时通知我', '通知会话', '撤回提醒设置'],
+    from: ['anti-recall', 'chat-interaction', 'global'],
+  },
+  {
+    id: 'web-notifications',
+    section: 'global',
+    label: '浏览器通知授权',
+    aliases: ['网页通知', '撤回、群关键词与邮件提醒'],
+    from: ['privacy', 'global'],
   },
   {
     id: 'database-repair',

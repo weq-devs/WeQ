@@ -11,6 +11,7 @@ export function handleMailNotification(uin: string, notice: MailNotice): void {
     !mail ||
     String(context.account?.context.uin) !== uin ||
     !mail.status().notifications ||
+    context.bootstrap?.userConfig.getSettings().notificationEvents?.mail.system === false ||
     !Notification.isSupported()
   )
     return;

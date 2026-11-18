@@ -51,9 +51,7 @@ import { SYSTEM_MAIL_FOLDERS } from '@weq/service/mail-wire';
 import { useDialog } from '../../components/Dialog.shared';
 import { CheckPill } from '../../components/settings/controls';
 import { useToastApi } from '../../components/Toast.shared';
-import { notificationSource } from '../../lib/notificationNavigation.shared';
 import { notifyTaskCreated } from '../../lib/taskNotifications';
-import { usePrivacyStore } from '../../state/privacy';
 import type { MailApi } from './api';
 import { MailBody } from './MailBody';
 import { MailComposer } from './MailComposer';
@@ -323,18 +321,6 @@ export function MailPage({
     }
     if (event.type === 'status' && event.status) setStatus(event.status);
     if (event.type !== 'status') setRevision((current) => current + 1);
-    if (event.type === 'new-mail' && event.notice)
-      notificationToast.push({
-        tone: 'info',
-        title: '收到新邮件',
-        source: notificationSource(
-          { kind: 'mail', folderId: event.notice.folderId, mailId: event.notice.id },
-          '打开这封邮件',
-        ),
-        detail: usePrivacyStore.getState().effective
-          ? undefined
-          : `${event.notice.sender}${event.notice.subject ? `：${event.notice.subject}` : ''}`,
-      });
   });
   useEffect(() => {
     let alive = true;

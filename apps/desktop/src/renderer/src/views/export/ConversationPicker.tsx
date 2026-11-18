@@ -23,6 +23,8 @@ import { PickerListSkeleton } from './ExportSkeleton';
 import type { PickItem } from './types';
 import { WindowedList } from '../../components/WindowedList';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
+import '../../styles/export.css';
+import '../../styles/unified-export.css';
 
 export function ConversationPicker({
   items,
@@ -35,6 +37,7 @@ export function ConversationPicker({
   scopeLabel = '消息范围',
   scopeUnit = '条消息',
   searchPlaceholder = '搜索会话名称或号码',
+  initialQuery = '',
 }: {
   items: PickItem[];
   loading: boolean;
@@ -46,8 +49,9 @@ export function ConversationPicker({
   scopeLabel?: string;
   scopeUnit?: string;
   searchPlaceholder?: string;
+  initialQuery?: string;
 }): ReactElement {
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

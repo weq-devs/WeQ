@@ -67,7 +67,7 @@ it('普通未读优先于置顶免打扰，全部已读时没有定位目标', (
   ).toBeNull();
 });
 
-it('群助手仅在显示汇总数且有未读时参与免打扰定位，并遵循置顶顺序', () => {
+it('群助手有未读就参与定位，不再依赖角标显示偏好', () => {
   const base = createTemplateDemoData().conversations[0]!;
   const assistant = {
     ...base,
@@ -82,8 +82,7 @@ it('群助手仅在显示汇总数且有未读时参与免打扰定位，并遵�
     preference: { pinned: true, muted: true, blocked: false },
   };
   const muted = { ...base, id: 'muted', unreadCount: 2, preference: { muted: true } };
-  expect(firstUnreadConversation([assistant, muted], {})?.id).toBe('muted');
-  expect(firstUnreadConversation([assistant], {})).toBeNull();
-  expect(firstUnreadConversation([assistant, muted], {}, true)?.id).toBe(assistant.id);
-  expect(firstUnreadConversation([{ ...assistant, unreadCount: 0 }], {}, true)).toBeNull();
+  expect(firstUnreadConversation([assistant, muted], {})?.id).toBe(assistant.id);
+  expect(firstUnreadConversation([assistant], {})?.id).toBe(assistant.id);
+  expect(firstUnreadConversation([{ ...assistant, unreadCount: 0 }], {})).toBeNull();
 });

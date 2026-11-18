@@ -74,10 +74,12 @@ import {
 } from '@weq/service/mail-wire';
 
 export function sharedMailPreferences() {
-  const value = requireBootstrap().userConfig.getSharedPreference('mail');
+  const owner = requireBootstrap().userConfig;
+  const value = owner.getSharedPreference('mail');
+  const channels = owner.getSettings().notificationEvents.mail;
   return {
     showUnread: value.mailShowUnread ?? true,
-    notifications: value.mailNotifications ?? false,
+    notifications: channels.banner || channels.system,
     pollIntervalMinutes: mailPollIntervalMinutes(
       value.mailPollIntervalMinutes ?? DEFAULT_MAIL_POLL_INTERVAL_MINUTES,
     ),
@@ -230,6 +232,12 @@ export const sharedSettingsRouter = router({
       )
       .mutation(({ input }) => {
         const owner = requireBootstrap().userConfig;
+        if (input.notifications !== undefined)
+          owner.setSettings({
+            notificationEvents: {
+              mail: { banner: input.notifications, system: input.notifications },
+            },
+          });
         owner.patchSharedPreference('mail', {
           ...(input.showUnread === undefined ? {} : { mailShowUnread: input.showUnread }),
           ...(input.notifications === undefined ? {} : { mailNotifications: input.notifications }),

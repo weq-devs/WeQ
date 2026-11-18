@@ -23,6 +23,16 @@ function DesktopRemoteRequests() {
     const request = status.data?.pending[0];
     if (!request || current || active.current) return;
     active.current = request.id;
+    notificationToast.push({
+      event: 'request',
+      key: `remote-request:${request.id}`,
+      title: '有手机请求连接 WeQ',
+      source: notificationSource(
+        { kind: 'app', target: { kind: 'setting', section: 'remote' } },
+        '查看连接请求',
+        null,
+      ),
+    });
     void (async () => {
       const approve = await useDialog
         .getState()
@@ -44,6 +54,7 @@ function DesktopRemoteRequests() {
           ),
         });
       } finally {
+        notificationToast.resolve(`remote-request:${request.id}`);
         await status.refetch();
         active.current = null;
       }

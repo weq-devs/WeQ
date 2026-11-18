@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConversationSettingsDialog } from '../src/renderer/src/components/ConversationSettingsDialog';
 import { ContactWorkspaceNavigationContext } from '../src/renderer/src/lib/profileNavigation';
+import { normalizeNotificationEvents } from '@weq/service/notification-settings';
 
 const intent = vi.hoisted(() => ({
   data: {
@@ -45,6 +46,12 @@ vi.mock('../src/renderer/src/components/QQConversationControls', () => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    bootstrap: {
+      getSettings: {
+        useQuery: () => ({ data: { notificationEvents: normalizeNotificationEvents(undefined) } }),
+      },
+      setNotificationEvents: { useMutation: () => ({ mutateAsync: vi.fn() }) },
+    },
     useUtils: () => ({
       account: {
         intentSense: { getStatus: { setData: vi.fn() } },

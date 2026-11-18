@@ -23,7 +23,10 @@ it.each([false, true])('总开关 %s 一次提交两个旧字段，不创建第�
 it('受限横幅只保存被动提醒偏好，不改权限或上报状态', async () => {
   await bootstrapRouter.createCaller({}).setRestrictedModeBannerEnabled({ enabled: false });
   expect(f.write).toHaveBeenCalledOnce();
-  expect(f.write).toHaveBeenCalledWith({ restrictedModeBannerEnabled: false });
+  expect(f.write).toHaveBeenCalledWith({
+    restrictedModeBannerEnabled: false,
+    notificationEvents: { runtime: { banner: false } },
+  });
   expect(f.cancel).not.toHaveBeenCalled();
 });
 it('写入失败不操作运行中的上报队列；授权失败和额外字段不写入', async () => {
