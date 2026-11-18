@@ -1880,23 +1880,25 @@ html[data-theme='dark'] .ai-voice-chip {
 }
 
 .bounce-config {
+  display: grid;
+  gap: 8px;
   padding: 8px 12px 10px;
   border-bottom: 1px solid var(--weq-border-subtle);
 }
 
-/* ── 预览（左） + 数量（右） ─────────────────────────────────────────────── */
+/* 预览和快捷数量共享上排，数量编辑下排铺满。 */
 
 .bounce-stage {
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr);
   gap: 10px;
-  align-items: stretch;
+  align-items: center;
 }
 
 .bounce-preview {
   display: grid;
   position: relative;
-  min-height: 52px;
+  height: 44px;
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
   border-radius: 8px;
@@ -1904,8 +1906,8 @@ html[data-theme='dark'] .ai-voice-chip {
 }
 
 .bounce-preview-face {
-  width: 38px;
-  height: 38px;
+  width: 34px;
+  height: 34px;
   object-fit: contain;
   user-select: none;
   -webkit-user-drag: none;
@@ -1946,24 +1948,16 @@ html[data-theme='dark'] .ai-voice-chip {
   }
 }
 
-.bounce-controls {
-  display: grid;
-  min-width: 0;
-  gap: 3px;
-}
-
 .bounce-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   color: var(--weq-fg-secondary, #666666);
   font-size: 12px;
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .bounce-count-row {
   display: grid;
-  grid-template-columns: 26px minmax(0, 112px) 26px max-content;
+  grid-template-columns: max-content 26px minmax(0, 1fr) 26px max-content;
   align-items: center;
   gap: 5px;
 }
@@ -2026,7 +2020,6 @@ html[data-theme='dark'] .ai-voice-chip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(max-content, 2fr);
   gap: 4px;
-  margin-top: 3px;
 }
 
 .bounce-preset {
@@ -2257,14 +2250,17 @@ html[data-theme='dark'] .bounce-step {
 }
 
 .poke-controls {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   min-width: 0;
+  align-items: center;
   gap: 6px;
 }
 
 .poke-choice-row {
   display: flex;
   min-width: 0;
+  max-width: 100%;
   align-items: center;
   gap: 8px;
 }
@@ -2391,7 +2387,7 @@ html[data-theme='dark'] .bounce-step {
   flex: 0 0 auto;
   align-items: center;
   gap: 5px;
-  justify-self: end;
+  margin-inline-start: auto;
   padding: 6px 12px;
   border: 0;
   border-radius: 8px;

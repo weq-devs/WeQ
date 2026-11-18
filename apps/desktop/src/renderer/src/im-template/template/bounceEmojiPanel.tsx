@@ -163,83 +163,82 @@ export function BounceEmojiPanel({
             ) : null}
           </div>
 
-          <div className={cn('bounce-controls')}>
-            <span className={cn('bounce-label')}>弹射个数</span>
-            <div className={cn('bounce-count-row')}>
+          <div className="bounce-presets">
+            {COUNT_PRESETS.map((value) => (
               <button
+                key={value}
                 type="button"
-                className={cn('bounce-step')}
-                title="减一个"
-                aria-label="减一个"
-                disabled={(parsed.count ?? 1) <= 1}
-                onClick={() => step(-1)}
-              >
-                −
-              </button>
-              <input
-                className={cn('bounce-input', touched && parsed.error && 'is-invalid')}
-                value={countText}
-                inputMode="numeric"
-                autoComplete="off"
-                spellCheck={false}
-                aria-label="弹射个数"
-                onChange={(event) => commit(event.target.value)}
-                onBlur={() => setTouched(true)}
-                onKeyDown={(event) => {
-                  if (
-                    event.key === 'Enter' &&
-                    !event.nativeEvent.isComposing &&
-                    event.nativeEvent.keyCode !== 229
-                  ) {
-                    event.preventDefault();
-                    submit();
-                  }
+                className={cn('bounce-preset', parsed.count === value && 'is-active')}
+                aria-pressed={parsed.count === value}
+                onClick={() => {
+                  setCountText(String(value));
+                  setTouched(true);
                 }}
-              />
-              <button
-                type="button"
-                className={cn('bounce-step')}
-                title="加一个"
-                aria-label="加一个"
-                disabled={(parsed.count ?? 0) >= BOUNCE_COUNT_MAX}
-                onClick={() => step(1)}
               >
-                +
+                {countLabel.format(value)}
               </button>
-              <button
-                type="button"
-                className={cn('bounce-btn', 'primary')}
-                title={disabled ? disabledHint : (parsed.error ?? '发送弹射表情')}
-                disabled={!canSend}
-                onClick={submit}
-              >
-                <SendHorizontal size={13} strokeWidth={2.2} />
-                发射
-              </button>
-            </div>
-            <div className="bounce-presets">
-              {COUNT_PRESETS.map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={cn('bounce-preset', parsed.count === value && 'is-active')}
-                  aria-pressed={parsed.count === value}
-                  onClick={() => {
-                    setCountText(String(value));
-                    setTouched(true);
-                  }}
-                >
-                  {countLabel.format(value)}
-                </button>
-              ))}
-            </div>
-            {touched && parsed.error ? (
-              <span className="bounce-error" role="status">
-                {parsed.error}
-              </span>
-            ) : null}
+            ))}
           </div>
         </div>
+
+        <div className={cn('bounce-count-row')}>
+          <span className={cn('bounce-label')}>弹射个数</span>
+          <button
+            type="button"
+            className={cn('bounce-step')}
+            title="减一个"
+            aria-label="减一个"
+            disabled={(parsed.count ?? 1) <= 1}
+            onClick={() => step(-1)}
+          >
+            −
+          </button>
+          <input
+            className={cn('bounce-input', touched && parsed.error && 'is-invalid')}
+            value={countText}
+            inputMode="numeric"
+            autoComplete="off"
+            spellCheck={false}
+            aria-label="弹射个数"
+            onChange={(event) => commit(event.target.value)}
+            onBlur={() => setTouched(true)}
+            onKeyDown={(event) => {
+              if (
+                event.key === 'Enter' &&
+                !event.nativeEvent.isComposing &&
+                event.nativeEvent.keyCode !== 229
+              ) {
+                event.preventDefault();
+                submit();
+              }
+            }}
+          />
+          <button
+            type="button"
+            className={cn('bounce-step')}
+            title="加一个"
+            aria-label="加一个"
+            disabled={(parsed.count ?? 0) >= BOUNCE_COUNT_MAX}
+            onClick={() => step(1)}
+          >
+            +
+          </button>
+          <button
+            type="button"
+            className={cn('bounce-btn', 'primary')}
+            title={disabled ? disabledHint : (parsed.error ?? '发送弹射表情')}
+            disabled={!canSend}
+            onClick={submit}
+          >
+            <SendHorizontal size={13} strokeWidth={2.2} />
+            发射
+          </button>
+        </div>
+        {touched && parsed.error ? (
+          <span className="bounce-error" role="status">
+            {parsed.error}
+          </span>
+        ) : null}
       </div>
 
       <div className={cn('bounce-picker')}>
