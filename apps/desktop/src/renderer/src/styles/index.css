@@ -10150,31 +10150,6 @@ html[data-theme='dark'] .weq-decoration-card-preview {
 .weq-forward-bubble {
   align-self: flex-start;
   max-width: 100%;
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  font-size: 14px;
-  color: #1f2937;
-  line-height: 1.55;
-  word-break: break-word;
-  overflow-wrap: anywhere;
-}
-
-/* Inside a forward bubble the message-content wrapper drops its own padding
-   — the bubble itself owns it now. */
-.weq-forward-bubble .message-content {
-  padding: 0;
-  background: transparent;
-}
-
-/* 转发子消息带气泡装扮时，剥掉外层默认白底/边框/圆角/内边距，让注入的 nine-patch
-   气泡（msgDecorationStyle 里 data-bubble 选中的 .message-content）直接接管。 */
-.weq-forward-row[data-bubble] .weq-forward-bubble {
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  padding: 0;
 }
 
 /* 转发头像挂件：叠加层是绝对定位，需要祖先可见 + 可定位；挂件略大于 32px 头像。 */
@@ -10193,14 +10168,6 @@ html[data-theme='dark'] .weq-decoration-card-preview {
 .weq-forward-avatar .weq-avatar-pendant-img {
   width: 48px;
   height: 48px;
-}
-
-/* A nested multiMsg preview lives inside .weq-forward-bubble; flatten the
-   double-bordered look by removing the outer bubble chrome. */
-.weq-forward-bubble:has(.weq-forward-preview) {
-  padding: 0;
-  border: 0;
-  background: transparent;
 }
 
 /* ---- 合并转发深色模式 ---- inline multiMsg preview bubble + the floating
@@ -10277,12 +10244,6 @@ html[data-theme='dark'] .weq-forward-avatar {
 html[data-theme='dark'] .weq-forward-row-name:where(:not(.message-name)) {
   color: var(--weq-fg-primary);
 }
-html[data-theme='dark'] .weq-forward-bubble {
-  background: var(--weq-bg-surface);
-  border-color: rgba(255, 255, 255, 0.1);
-  color: var(--weq-fg-primary);
-}
-
 .weq-agentlab-provider-list,
 .weq-agentlab-personas {
   display: grid;
@@ -20666,7 +20627,7 @@ html[data-theme='dark'] .essence-unknown {
   border-top: 1px solid var(--weq-border-subtle);
 }
 
-/* 原消息气泡行：整条消息按真实气泡渲染（不区分发送者左右），hover 仍可点击跳转。 */
+/* 原消息气泡行保留会话中的发送方向，hover 仍可点击跳转。 */
 .weq-chatrecords-msg.is-bubble {
   display: block;
   padding: 6px 10px;

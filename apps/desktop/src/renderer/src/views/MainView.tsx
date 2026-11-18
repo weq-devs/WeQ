@@ -153,6 +153,7 @@ import {
 import { useDialog } from '../components/Dialog.shared';
 import { generatedConversationDeletion } from '../lib/generatedConversationDeletion';
 import { ForwardWindowHost } from '../components/ForwardWindow';
+import { closeForwardWindows } from '../state/forwardWindow';
 import { Undo2 } from 'lucide-react';
 import { useReadStateUndo } from '../hooks/useReadStateUndo';
 import { useAccountNoticeUnread } from '../hooks/useAccountNoticeUnread';
@@ -4799,6 +4800,9 @@ function MainWorkspace(): ReactElement {
     },
     [selectedUid, messageGroupMembers, senderMemberPages, missingMembers, mapGroupMemberForGroup],
   );
+  const resolveRecordsMembers = useStableCallback((groupCode: string, uids: string[]) => {
+    resolveMembers(groupCode, uids, new Set(memberMapForGroup(groupCode).keys()), () => true);
+  });
 
   const deletedTemplateMessages = useMemo(() => {
     if (!deletedConv) return [];
@@ -5700,6 +5704,7 @@ function MainWorkspace(): ReactElement {
       if (!sel) {
         return;
       }
+      closeForwardWindows();
       cancelMessageLocate();
       setMissingJumpSeq(null);
       if (jumpTarget.msgId) {
@@ -5849,6 +5854,9 @@ function MainWorkspace(): ReactElement {
     ): void => {
       setSearchDismissed(true);
       if (!conv) return;
+      closeForwardWindows();
+      setChatRecordsTarget(null);
+      setGroupSidebarPopover(null);
       setMobileConversationList(false);
       const feed = [
         ...(conversationViewsRef.current?.official ?? []),
@@ -9075,6 +9083,9 @@ function MainWorkspace(): ReactElement {
                   key={searchAccountKey}
                   navigation={searchReturn}
                   renderers={messageRenderers}
+                  user={user}
+                  groupMembers={memberMapForGroup}
+                  resolveGroupMembers={resolveRecordsMembers}
                   onJumpMessage={({ source, targetUid, msgSeq, msgId }) =>
                     jumpToConvSeq(
                       source === 'group' ? 'group' : 'c2c',
@@ -10163,6 +10174,9 @@ function MainWorkspace(): ReactElement {
               initialKeyword={chatRecordsTarget.keyword}
               fixed={chatRecordsTarget.fixed}
               renderers={messageRenderers}
+              user={user}
+              groupMembers={memberMapForGroup}
+              resolveGroupMembers={resolveRecordsMembers}
               onClose={() => setChatRecordsTarget(null)}
               onJumpMessage={({ source, targetUid, msgSeq, msgId }) =>
                 jumpToConvSeq(

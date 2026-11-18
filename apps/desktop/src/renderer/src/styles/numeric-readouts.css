@@ -1,6 +1,7 @@
 :root {
   --weq-font-number:
     'Segoe UI Variable Display', 'SF Pro Display', 'DIN Alternate', 'Bahnschrift', var(--font-sans);
+  --weq-number-cap-height: 0.75;
 }
 
 /* 已有读数沿用各自字号、字重和布局，只共享 weq-number 的数字排版。 */
@@ -235,6 +236,7 @@
   .weq-mf-input.mono[inputmode='numeric']
 ):not(:where(.weq-report-root *)) {
   font-family: var(--weq-font-number);
+  font-size-adjust: cap-height var(--weq-number-cap-height);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
 }

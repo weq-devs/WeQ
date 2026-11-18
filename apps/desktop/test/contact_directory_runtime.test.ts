@@ -148,6 +148,39 @@ async function setup(online = true) {
 const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
 // 每个用例都会新建指标缓存与历史存储 worker，CI 分片并行时首次读取可能超过默认 1s。
 const waitFor = (assertion: () => unknown) => vi.waitFor(assertion, { timeout: 4_000 });
+it('群来源统计只读已缓存线索，区分未知来源、缺项与离群', async () => {
+  const { runtime, services, buddies } = await setup(false);
+  buddies.push({ uid: 'u_other', uin: 12346n });
+  await runtime.cache.record('friend:12345', { source: '通过群聊', sourceGroup: '10001' });
+  await expect(runtime.groupFriendSources('10001')).resolves.toEqual({
+    friendUids: ['u_friend', 'u_other'],
+    addedUids: ['u_friend'],
+    pendingUids: ['u_other'],
+    unknown: 0,
+    rosterComplete: true,
+  });
+  await runtime.cache.record('friend:12346', { source: '通过群聊', sourceGroup: '' });
+  await expect(runtime.groupFriendSources('10001')).resolves.toMatchObject({
+    addedUids: ['u_friend'],
+    pendingUids: [],
+    unknown: 1,
+  });
+  await runtime.cache.project('friend:12345', { addedAt: 123 }, Date.now() + 1000);
+  await expect(runtime.groupFriendSources('10001')).resolves.toMatchObject({
+    addedUids: [],
+    pendingUids: ['u_friend'],
+    unknown: 1,
+  });
+  services.groupInfo.listExportMembers.mockResolvedValue([{ uid: 'u_friend' }]);
+  services.groupInfo.listGroupDirectory.mockResolvedValue([{ groupCode: '10001', memberCount: 1 }]);
+  await expect(runtime.groupFriendSources('10001')).resolves.toMatchObject({
+    friendUids: ['u_friend'],
+    unknown: 0,
+    rosterComplete: true,
+  });
+  expect(services.accountWrite.friendClue).not.toHaveBeenCalled();
+});
+
 it('新增好友字段复用现有范围，来源单独刷新不会被添加时间缺省误判失败', async () => {
   const { runtime, services } = await setup();
   await runtime.rebuild(false, ['energy', 'schools', 'source']);

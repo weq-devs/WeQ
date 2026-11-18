@@ -202,21 +202,23 @@ export function GroupCardContent({
       <ContactSection title="成员">
         <ContactRow
           label="群容量"
-          value={group.maxMemberCount ? `${group.maxMemberCount} 人` : null}
+          value={
+            group.maxMemberCount ? <NumericText>{`${group.maxMemberCount} 人`}</NumericText> : null
+          }
         />
         <ContactRow label="群成员数">
           <button
             type="button"
             className="weq-contact-value"
             aria-label="查看群成员列表"
-            title="查看群成员列表"
+            title="群成员列表"
             onClick={(event) =>
               onOpenMembers
                 ? onOpenMembers()
                 : setList({ kind: 'members', anchor: event.currentTarget })
             }
           >
-            <span className="weq-number weq-number-inherit">{count || '查看'}</span>
+            {count ? <NumericText>{count}</NumericText> : '群成员'}
           </button>
         </ContactRow>
         {!generated ? (
@@ -225,10 +227,10 @@ export function GroupCardContent({
               type="button"
               className="weq-contact-value"
               aria-label="查看群内好友列表"
-              title="查看群内好友列表"
+              title="群内好友列表"
               onClick={(event) => setList({ kind: 'friends', anchor: event.currentTarget })}
             >
-              {friendCount === null ? '查看' : <NumericText>{`${friendCount} 人`}</NumericText>}
+              {friendCount === null ? '群内好友' : <NumericText>{`${friendCount} 人`}</NumericText>}
             </button>
           </ContactRow>
         ) : null}

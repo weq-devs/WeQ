@@ -514,7 +514,7 @@ function MessageBubbleBody({
       data-fontfx={fontFxAttr}
       data-widget={lineWidget?.animated ? lineWidget.itemId : undefined}
     >
-      {selectionMode ? <MessageSelectionMark selected={selected} /> : null}
+      {selectionMode ? <MessageSelectionMark selected={selected ?? false} /> : null}
       {!mine ? (
         onAvatarClick ? (
           <button

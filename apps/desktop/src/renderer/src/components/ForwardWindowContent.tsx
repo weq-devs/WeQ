@@ -27,7 +27,7 @@ import { GrayTipLine } from '../im-template/template/messageRow';
 import { grayTipOf } from '../im-template/template/messageRow.shared';
 import { MessageTimeDivider } from '../im-template/template/messageTime';
 import { useMsgDecoration } from '../hooks/useMsgDecoration';
-import { useActiveWidget } from '../hooks/useActiveWidget.shared';
+import { useActiveFontFx, useActiveWidget } from '../hooks/useActiveWidget.shared';
 import { localDressApplies } from '../lib/dressSkin';
 import { useBubbleFontFx } from '../hooks/useBubbleFontFx';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
@@ -408,17 +408,28 @@ const ForwardRow = memo(function ForwardRow({
   const bubbleRef = useRef<HTMLDivElement | null>(null);
   const decorationEnabled = useContext(MsgDecorationEnabledContext);
   // 转发行都是「对方」样式，替代无装扮仍依据原始 ID 判断。
-  const { widget: activeWidget, scope: activeScope } = useActiveWidget();
-  const localWidget = localDressApplies(activeScope, false, Boolean(record.decoration?.widgetId))
+  const { widget: activeWidget, scope: activeScope, bubbleActive, fontActive } = useActiveWidget();
+  const decoration = record.decoration;
+  const activeFontFx = useActiveFontFx();
+  const localBubble =
+    bubbleActive && localDressApplies(activeScope, false, Boolean(decoration?.bubbleId));
+  const localFont =
+    fontActive && localDressApplies(activeScope, false, Boolean(decoration?.fontId));
+  const localWidget = localDressApplies(activeScope, false, Boolean(decoration?.widgetId))
     ? activeWidget
     : null;
   const msgDec = useMsgDecoration(
-    localWidget && record.decoration ? { ...record.decoration, widgetId: 0 } : record.decoration,
+    decoration
+      ? {
+          ...decoration,
+          bubbleId: localBubble ? 0 : decoration.bubbleId,
+          fontId: localFont ? 0 : decoration.fontId,
+          widgetId: localWidget ? 0 : decoration.widgetId,
+        }
+      : undefined,
     rowRef,
   );
-  // 炫彩只跟逐条消息字体走:生效字体的 font-family 规则只选中 .message-line（见
-  // lib/dressSkin 的 fontRules），转发行根本没换上那款字，只有光效没字会很怪。
-  const fontFxAttr = useBubbleFontFx(msgDec.fontFx, rowRef);
+  const fontFxAttr = useBubbleFontFx(localFont ? activeFontFx : msgDec.fontFx, rowRef);
   const avatar =
     senderAvatarFromUin(record.senderUin) || record.senderInfo?.avatar?.avatarUrl || null;
   const displayName = forwardSenderName(record);
@@ -467,13 +478,15 @@ const ForwardRow = memo(function ForwardRow({
   return (
     <div
       ref={rowRef}
-      className="weq-forward-row"
+      className="weq-forward-row message-line theirs"
       data-bubble={msgDec.bubbleId || undefined}
       data-font={msgDec.fontId || undefined}
       data-weq-system-font={msgDec.systemFont || undefined}
       data-fontfx={fontFxAttr}
       data-widget={widget?.animated ? widget.itemId : undefined}
-      data-record-widget={record.decoration?.widgetId || undefined}
+      data-record-bubble={decoration?.bubbleId || undefined}
+      data-record-font={decoration?.fontId || undefined}
+      data-record-widget={decoration?.widgetId || undefined}
     >
       <header className="weq-forward-author">
         <ProfileAvatar className="weq-forward-avatar-link" target={profileTarget}>

@@ -136,6 +136,7 @@ export type SearchCategoryStates = Partial<
 export interface ConversationRecordHit {
   msgId: string;
   msgSeq: string;
+  clientSeq?: string;
   senderUid: string;
   /** Sender QQ number ('' when unresolvable) — for the real sender avatar. */
   senderUin: string;

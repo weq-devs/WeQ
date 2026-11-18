@@ -83,9 +83,27 @@ export const CloneMemberProfileCard = lazyPanel<
     default: m.CloneMemberProfileCard,
   })),
 );
-export const GroupTodos = lazyPanel<
-  ComponentProps<typeof import('./qq-actions/GroupActions').GroupTodos>
->(() => import('./qq-actions/GroupActions').then((m) => ({ default: m.GroupTodos })));
+const GroupTodosContent = lazy(() =>
+  import('./qq-actions/GroupActions').then((m) => ({ default: m.GroupTodos })),
+);
+export function GroupTodos(props: ComponentProps<typeof GroupTodosContent>) {
+  return (
+    <Suspense
+      fallback={
+        <section className="weq-group-summary weq-group-todos" aria-label="群待办" aria-busy="true">
+          <button type="button" disabled>
+            <strong>待办</strong>
+            <span className="weq-todo-summary" role="status">
+              读取中…
+            </span>
+          </button>
+        </section>
+      }
+    >
+      <GroupTodosContent {...props} />
+    </Suspense>
+  );
+}
 export const MediaPreview = lazyPanel<ComponentProps<typeof import('./MediaPreview').MediaPreview>>(
   () => import('./MediaPreview').then((m) => ({ default: m.MediaPreview })),
 );

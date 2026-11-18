@@ -95,6 +95,7 @@ export class ContactDirectoryRuntime {
   private checking = false;
   private checkAgain = false;
   private roster = new Map<string, string>();
+  private rosterReady = false;
   private memberships = new Map<string, Set<string>>();
   private groupCodes = new Set<string>();
   private groupBaselineReady = false;
@@ -217,7 +218,10 @@ export class ContactDirectoryRuntime {
     // 初始仅记录名册，不扫描群成员或发起在线请求。
     void withDatabaseSignal(this.lifetime.signal, () => services.profile.listBuddies())
       .then((rows) => {
-        if (this.isCurrent()) this.roster = new Map(rows.map((row) => [row.uid, String(row.uin)]));
+        if (this.isCurrent() && !this.rosterReady) {
+          this.roster = new Map(rows.map((row) => [row.uid, String(row.uin)]));
+          this.rosterReady = true;
+        }
       })
       .catch(() => {});
     this.requestCheck('group');
@@ -573,6 +577,58 @@ export class ContactDirectoryRuntime {
         },
       };
     });
+  }
+
+  async groupFriendSources(code: string) {
+    this.assertCurrent();
+    const [buddies, groups, members] = await Promise.all([
+      this.friends(),
+      this.services.groupInfo.listGroupDirectory(),
+      this.services.groupInfo.listExportMembers(BigInt(code)),
+    ]);
+    this.assertCurrent();
+    const memberUids = new Set(members.map(({ uid }) => uid).filter(validContactUid));
+    const expected = groups.find((group) => group.groupCode === code)?.memberCount;
+    const rosterComplete = Boolean(expected && expected === memberUids.size);
+    const friends = [
+      ...new Map(
+        buddies.filter(({ uid }) => memberUids.has(uid)).map((row) => [row.uid, row]),
+      ).values(),
+    ];
+    const addedUids: string[] = [];
+    const pendingUids: string[] = [];
+    let unknown = 0;
+    const oldest = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const clues = await Promise.all(friends.map(({ uin }) => this.cache.row(`friend:${uin}`)));
+    this.assertCurrent();
+    for (const [index, { uid }] of friends.entries()) {
+      const { addedAt, source, sourceGroup } = clues[index]!;
+      if (
+        typeof source?.value !== 'string' ||
+        typeof sourceGroup?.value !== 'string' ||
+        source.state === 'failed' ||
+        sourceGroup.state === 'failed' ||
+        (source.updatedAt ?? 0) < oldest ||
+        (sourceGroup.updatedAt ?? 0) < (source.updatedAt ?? 0) ||
+        (addedAt?.updatedAt ?? 0) > (source.updatedAt ?? 0)
+      ) {
+        pendingUids.push(uid);
+      } else if (sourceGroup.value === code) {
+        addedUids.push(uid);
+      } else if (
+        !sourceGroup.value &&
+        (!source.value.trim() || /未知|群聊|群名片|群成员/.test(source.value))
+      ) {
+        unknown++;
+      }
+    }
+    return {
+      friendUids: friends.map(({ uid }) => uid),
+      rosterComplete,
+      addedUids,
+      pendingUids,
+      unknown,
+    };
   }
 
   private async groupFriends(code: string) {
@@ -974,7 +1030,20 @@ export class ContactDirectoryRuntime {
         (uid) => this.roster.get(uid) !== next.get(uid),
       );
       const addedFriends = rosterChanged.filter((uid) => next.has(uid) && !this.roster.has(uid));
+      const changedFriendKeys = this.rosterReady
+        ? rosterChanged.flatMap((uid) =>
+            [this.roster.get(uid), next.get(uid)].flatMap((uin) => (uin ? [`friend:${uin}`] : [])),
+          )
+        : [];
       this.roster = next;
+      this.rosterReady = true;
+      if (changedFriendKeys.length) {
+        await this.cache.removeMetrics(
+          [...new Set(changedFriendKeys)],
+          ['addedAt', 'direction', 'source', 'sourceGroup'],
+        );
+        this.assertCurrent();
+      }
       if (kinds.has('profile')) {
         const cachedLikeUids = (await this.cache.keysForMetric('likeCount'))
           .filter((key) => key.startsWith('friend:u_'))

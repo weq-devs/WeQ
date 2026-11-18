@@ -280,7 +280,7 @@ export function enrichReplyElements(
   elements: unknown[],
   conversation: Conversation,
   user: User,
-  memberMap?: Map<string, GroupMember>,
+  memberMap?: ReadonlyMap<string, GroupMember>,
   replySources: MessageWire[] | ReplyPreviewIndex = [],
 ): unknown[] {
   if (!Array.isArray(elements) || elements.length === 0) return elements;
@@ -317,7 +317,7 @@ export function resolveOrigSenderNick(
   data: Record<string, unknown>,
   conversation: Conversation,
   user: User,
-  memberMap?: Map<string, GroupMember>,
+  memberMap?: ReadonlyMap<string, GroupMember>,
 ): string | null {
   const uid = typeof data.origSenderUid === 'string' ? data.origSenderUid : '';
   const uinRaw = data.origSenderUin;

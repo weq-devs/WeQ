@@ -37,7 +37,11 @@ import { GroupProfileMetrics } from '../../components/GroupProfileMetrics';
 import { VirtualConversationBadge } from '../../components/VirtualConversationAvatar';
 import { useTabActive } from '../../components/RetainedTabs.shared';
 import { RankingModal } from '../../components/relationGraph/RankingModal';
-import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
+import {
+  ConversationActionsMenu,
+  type ConversationMenuAction,
+} from '../../components/ConversationActionsMenu';
+import { GroupMemberActionsMenu } from '../../components/groupProfile/GroupMemberActionsMenu';
 import '../../styles/conversation-actions.css';
 import '../../styles/group-sidebar-sections.css';
 
@@ -206,7 +210,11 @@ export function GroupInfoPanel({
 }) {
   const active = useTabActive();
   const [rankingGroup, setRankingGroup] = useState<string | null>(null);
-  const [memberMenu, setMemberMenu] = useState<{ x: number; y: number } | null>(null);
+  const [memberMenu, setMemberMenu] = useState<{
+    x: number;
+    y: number;
+    anchor: HTMLElement;
+  } | null>(null);
   useEffect(() => {
     setRankingGroup(null);
     setMemberMenu(null);
@@ -325,7 +333,11 @@ export function GroupInfoPanel({
                   undefined
                 }
               >
-                {value}
+                {label === '群容量' || label === '创建时间' ? (
+                  <NumericText>{value}</NumericText>
+                ) : (
+                  value
+                )}
               </strong>
             </button>
           ))
@@ -476,7 +488,9 @@ export function GroupInfoPanel({
               onClick={(event) => {
                 const rect = event.currentTarget.getBoundingClientRect();
                 setMemberMenu((current) =>
-                  current ? null : { x: rect.right, y: rect.bottom + 4 },
+                  current
+                    ? null
+                    : { x: rect.right, y: rect.bottom + 4, anchor: event.currentTarget },
                 );
               }}
             >
@@ -564,6 +578,20 @@ export function GroupInfoPanel({
     </section>
   );
 
+  const memberActions: ConversationMenuAction[] = [];
+  if (onOpenLeftMembers)
+    memberActions.push({
+      label: '已退群的成员',
+      icon: <UserMinus size={15} />,
+      action: onOpenLeftMembers,
+    });
+  if (!conversation.generated)
+    memberActions.push({
+      label: '群成员等级排行',
+      icon: <Award size={15} />,
+      action: () => setRankingGroup(conversation.id),
+    });
+
   return (
     <aside
       hidden={hidden}
@@ -581,33 +609,24 @@ export function GroupInfoPanel({
       }}
     >
       {memberMenu && active && !hidden ? (
-        <ConversationActionsMenu
-          x={memberMenu.x}
-          y={memberMenu.y}
-          dropdown
-          label="成员操作"
-          onClose={() => setMemberMenu(null)}
-          actions={[
-            ...(onOpenLeftMembers
-              ? [
-                  {
-                    label: '查看已退群的成员',
-                    icon: <UserMinus size={15} />,
-                    action: onOpenLeftMembers,
-                  },
-                ]
-              : []),
-            ...(!conversation.generated
-              ? [
-                  {
-                    label: '群成员等级排行',
-                    icon: <Award size={15} />,
-                    action: () => setRankingGroup(conversation.id),
-                  },
-                ]
-              : []),
-          ]}
-        />
+        conversation.generated ? (
+          <ConversationActionsMenu
+            {...memberMenu}
+            dropdown
+            label="成员操作"
+            onClose={() => setMemberMenu(null)}
+            actions={memberActions}
+          />
+        ) : (
+          <GroupMemberActionsMenu
+            key={conversation.id}
+            conversation={conversation}
+            menu={memberMenu}
+            actions={memberActions}
+            onClose={() => setMemberMenu(null)}
+            onOpenMember={onOpenMember}
+          />
+        )
       ) : null}
       {rankingGroup === conversation.id && active && !hidden ? (
         <RankingModal

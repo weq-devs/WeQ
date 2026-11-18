@@ -16,6 +16,7 @@ import { visibleViewport } from '../lib/visibleViewport';
 
 export type ConversationMenuAction = {
   label: string;
+  detail?: ReactNode;
   icon: ReactNode;
   action?: (anchor: HTMLButtonElement) => void;
   children?: ConversationMenuAction[];
@@ -83,7 +84,7 @@ export function ConversationActionsMenu({
     const rect = menu.getBoundingClientRect();
     menu.style.left = `${Math.max(viewport.left + 8, Math.min(dropdown ? x - rect.width : x, viewport.left + viewport.width - rect.width - 8))}px`;
     menu.style.top = `${Math.max(viewport.top + 8, Math.min(top, edge - rect.height))}px`;
-  }, [x, y, window, dropdown, expanded]);
+  }, [x, y, window, dropdown, expanded, actions]);
   useLayoutEffect(() => {
     const menu = ref.current;
     (
@@ -132,7 +133,10 @@ export function ConversationActionsMenu({
         }}
       >
         {item.icon}
-        <span>{item.label}</span>
+        <span>
+          {item.label}
+          {item.detail != null ? <> · {item.detail}</> : null}
+        </span>
         {item.children ? <ChevronDown size={14} className="weq-menu-expand" aria-hidden /> : null}
       </button>
       {item.children && expanded === item.label ? (

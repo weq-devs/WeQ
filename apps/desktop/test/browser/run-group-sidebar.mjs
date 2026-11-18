@@ -158,7 +158,20 @@ try {
   assert.ok(!initialCalls.includes('account.listGroupFiles'), 'sidebar preloaded files');
   assert.ok(!initialCalls.includes('account.qqActions.groupReadTools'), 'sidebar preloaded sign');
   await page.getByRole('button', { name: '更多成员操作', exact: true }).click();
-  await page.getByRole('menuitem', { name: /已退群/ }).waitFor();
+  await page.getByRole('menuitem', { name: /群内好友 · 2/ }).waitFor();
+  const collect = page.getByRole('menuitem', { name: /在本群添加的好友 · 1\+（点击统计）/ });
+  await collect.waitFor();
+  assert.ok(
+    !(await page.evaluate(() => window.groupAuditCalls)).includes('account.qqWrite.friendClue'),
+  );
+  await collect.click();
+  await page.getByRole('menuitem', { name: '在本群添加的好友 · 1+', exact: true }).waitFor();
+  assert.equal(
+    (await page.evaluate(() => window.groupAuditCalls)).filter(
+      (path) => path === 'account.qqWrite.friendClue',
+    ).length,
+    1,
+  );
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('menu').count(), 0, 'member menu did not close on Escape');
   await page.getByRole('textbox', { name: '搜索群成员' }).fill('10003');

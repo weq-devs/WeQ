@@ -216,6 +216,10 @@ export function openForwardWindow(opts: OpenForwardOptions): void {
   useForwardStore.getState().open(opts);
 }
 
+export function closeForwardWindows(): void {
+  if (useForwardStore.getState().windows.length) useForwardStore.setState({ windows: [] });
+}
+
 export const ForwardParentContext = createContext<number | undefined>(undefined);
 
 function clamp(v: number, lo: number, hi: number): number {

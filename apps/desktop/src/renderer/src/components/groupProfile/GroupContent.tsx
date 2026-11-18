@@ -186,7 +186,7 @@ export function GroupFacts({
       <ContactRow
         label="群内好友"
         icon={<Users size={13} />}
-        value={friendCount === null ? null : `${friendCount} 人`}
+        value={friendCount === null ? null : <NumericText>{`${friendCount} 人`}</NumericText>}
       />
     </div>
   );
