@@ -179,7 +179,7 @@ html[data-theme='dark'] .weq-important-filters button[data-important-kind][aria-
 }
 .weq-important-drawer.weq-overlay-layer[tabindex] > .weq-important-messages {
   width: min(420px, 100%);
-  height: min(75dvh, 640px);
+  height: 50dvh;
   max-height: calc(100dvh - 24px);
   margin-top: auto;
   border: 1px solid var(--weq-border-subtle);

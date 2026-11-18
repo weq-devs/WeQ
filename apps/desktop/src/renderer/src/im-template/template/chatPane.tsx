@@ -6043,7 +6043,7 @@ export function ChatPane({
         actions={
           <>
             {!compactHeader ? headerAffinity : null}
-            {conversation.type === 'group' && !restrictedSource ? (
+            {!compactHeader && conversation.type === 'group' && !restrictedSource ? (
               <ImportantMessagesButton
                 open={importantMessagesActive}
                 onClick={() => {
@@ -6053,7 +6053,8 @@ export function ChatPane({
                 }}
               />
             ) : null}
-            {onSearchChatRecords &&
+            {!compactHeader &&
+            onSearchChatRecords &&
             (conversation.type === 'group' || conversation.type === 'direct') ? (
               <button
                 className={cn(
@@ -6080,6 +6081,28 @@ export function ChatPane({
                 additionalActions={
                   compactHeader
                     ? [
+                        ...(conversation.type === 'group' && !restrictedSource
+                          ? [
+                              {
+                                label: '重要消息',
+                                icon: <ListFilter size={16} />,
+                                action: () => {
+                                  setImportantMessagesVisited(conversation.id);
+                                  setImportantMessagesOpen(true);
+                                  setMobileGroupInfoOpen(false);
+                                },
+                              },
+                            ]
+                          : []),
+                        ...(onSearchChatRecords
+                          ? [
+                              {
+                                label: '搜索聊天记录',
+                                icon: <Search size={16} />,
+                                action: () => onSearchChatRecords(conversation),
+                              },
+                            ]
+                          : []),
                         ...(conversation.type === 'group' && !sidecarOpen
                           ? [
                               {
@@ -6624,7 +6647,7 @@ export function ChatPane({
               </span>
             ) : null}
           </button>
-          {conversation.type === 'group' && !restrictedSource ? (
+          {!compactHeader && conversation.type === 'group' && !restrictedSource ? (
             <button
               type="button"
               title="展开重要消息列表"
