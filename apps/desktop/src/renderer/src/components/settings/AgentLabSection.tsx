@@ -1233,11 +1233,15 @@ export function AgentLabSection(): ReactElement {
                       <details className="weq-set-details weq-provider-model-details">
                         <summary aria-label={`模型 ${index + 1} 能力与参数`}>
                           <ChevronDown size={13} aria-hidden />
-                          能力与参数
-                          <span className="weq-set-row-desc">
-                            {CAPABILITIES.filter(({ value }) => model.capabilities.includes(value))
-                              .map(({ label }) => label)
-                              .join(' / ') || '未选择能力'}
+                          <span>
+                            能力与参数
+                            <span className="weq-provider-model-capability-summary">
+                              {CAPABILITIES.filter(({ value }) =>
+                                model.capabilities.includes(value),
+                              )
+                                .map(({ label }) => label)
+                                .join(' / ') || '未选择能力'}
+                            </span>
                           </span>
                           {detectingModel === index ? (
                             <Loader2 size={12} className="weq-spin" aria-label="正在读取模型信息" />

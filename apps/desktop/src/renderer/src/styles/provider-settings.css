@@ -147,6 +147,11 @@ html[data-theme] .weq-provider-window > .weq-provider-modal {
   flex-wrap: wrap;
 }
 
+.weq-provider-model-capability-summary {
+  margin-inline-start: 5px;
+  color: var(--weq-fg-secondary);
+}
+
 .weq-provider-model-controls {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr) max-content;
