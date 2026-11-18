@@ -11,9 +11,8 @@ import {
 import '../../styles/assistant-settings.css';
 import { CloneUpdateButton } from './CloneUpdateButton';
 import '../../styles/persona-settings.css';
-import type { AgentLabGenerationConfig, AgentLabModelSelection } from '@weq/agentlab';
+import type { AgentLabModelSelection } from '@weq/agentlab';
 import { ApiModelSelect } from '../../components/settings/ApiModelSelect';
-import { CloneGenerationPanel } from '../../components/settings/CloneGenerationPanel';
 import { TabActivity } from '../../components/RetainedTabs';
 import { useTabActive } from '../../components/RetainedTabs.shared';
 import { DraftCloseContext, useDraftClose, useDraftProtection } from '../../lib/draftClose';
@@ -40,7 +39,6 @@ import {
   Info,
   Image as ImageIcon,
   Settings2,
-  Cpu,
 } from 'lucide-react';
 import { ConversationSettingsFrame } from '../../components/ConversationSettingsFrame';
 import { Toggle } from '../../components/settings/controls';
@@ -129,10 +127,9 @@ function MemoryTab({ personaId }: { personaId: string }): ReactElement {
   );
 }
 
-type Tab = 'model' | 'profile' | 'reply' | 'voice' | 'memory' | 'export' | 'management';
+type Tab = 'profile' | 'reply' | 'voice' | 'memory' | 'export' | 'management';
 
 const TABS: Array<{ id: Tab; label: string; icon: ReactElement }> = [
-  { id: 'model', label: '模型设置', icon: <Cpu size={16} /> },
   { id: 'profile', label: '人格与画像', icon: <UserRound size={15} /> },
   { id: 'reply', label: '回复设置', icon: <Gauge size={15} /> },
   { id: 'voice', label: '语音', icon: <Mic size={15} /> },
@@ -770,6 +767,7 @@ export function PersonaSettingsModal(props: ComponentProps<typeof PersonaSetting
 function PersonaSettingsBody({
   persona,
   profileContent,
+  replyContent,
   fromGroup = false,
   anchor,
   onClose,
@@ -789,10 +787,10 @@ function PersonaSettingsBody({
     voiceProfile?: { ratio: number; refClips?: unknown[] };
     willing?: WillingCfg;
     typo?: TypoCfg;
-    models?: { chat?: AgentLabModelSelection; vision?: AgentLabModelSelection };
-    generation?: AgentLabGenerationConfig;
+    models?: { vision?: AgentLabModelSelection };
   };
   profileContent?: ReactNode;
+  replyContent: ReactNode;
   fromGroup?: boolean;
   anchor?: HTMLElement;
   onClose: () => void;
@@ -801,8 +799,8 @@ function PersonaSettingsBody({
   deleting?: boolean;
 }): ReactElement {
   const update = trpc.account.updateAgentLabPersona.useMutation();
-  const [tab, setTab] = useState<Tab>('model');
-  const [visited, setVisited] = useState<Tab[]>(['model']);
+  const [tab, setTab] = useState<Tab>('profile');
+  const [visited, setVisited] = useState<Tab[]>(['profile']);
   const form = useCloneSettingsDraft(async (patch) => {
     const result = await update.mutateAsync({ personaId: persona.id, ...patch });
     if (!result) throw new Error('克隆体已不存在');
@@ -855,9 +853,7 @@ function PersonaSettingsBody({
               {visited.map((page) => (
                 <TabActivity key={page} active={tab === page}>
                   <div hidden={tab !== page} inert={tab !== page}>
-                    {page === 'model' ? (
-                      <CloneGenerationPanel persona={persona} />
-                    ) : page === 'profile' ? (
+                    {page === 'profile' ? (
                       <div className="weq-persona-form">
                         <p className="weq-persona-note">
                           训练范围：
@@ -871,7 +867,11 @@ function PersonaSettingsBody({
                         {profileContent}
                       </div>
                     ) : page === 'reply' ? (
-                      <WillingTab persona={persona} />
+                      <div className="weq-persona-form">
+                        {replyContent}
+                        <div className="weq-persona-divider" />
+                        <WillingTab persona={persona} />
+                      </div>
                     ) : page === 'voice' ? (
                       <VoiceTab persona={persona} />
                     ) : page === 'memory' ? (
