@@ -1,5 +1,6 @@
-import * as timeFormat from '@weq/time';
+import { unixDate } from '@weq/time';
 import {
+  Fragment,
   useCallback,
   useContext,
   useEffect,
@@ -25,6 +26,8 @@ import {
 import { MsgDecorationEnabledContext } from '../state/messageAppearance';
 import { GrayTipLine } from '../im-template/template/messageRow';
 import { grayTipOf } from '../im-template/template/messageRow.shared';
+import { MessageTimeDivider } from '../im-template/template/messageTime';
+import { shouldShowMessageTime } from '../im-template/template/messageTime.shared';
 import { useMsgDecoration } from '../hooks/useMsgDecoration';
 import { useActiveWidget } from '../hooks/useActiveWidget.shared';
 import { localDressApplies } from '../lib/dressSkin';
@@ -34,6 +37,7 @@ import type { ResolvedWidget } from '@weq/service';
 import { ProfileAvatar } from './ProfileAvatar';
 import { visibleViewport } from '../lib/visibleViewport';
 import { ChatMediaGallery } from './ChatMediaGallery';
+import { MessageProvenance, SystemMessageContent } from './MessageProvenance';
 
 import {
   useForwardStore,
@@ -51,10 +55,6 @@ import '../styles/forward-records.css';
 function senderAvatarFromUin(uin: string | undefined): string | null {
   if (!uin || uin === '0') return null;
   return `https://thirdqq.qlogo.cn/g?b=sdk&s=0&nk=${uin}`;
-}
-
-function formatForwardTime(seconds: string | undefined): string {
-  return Number(seconds) > 0 ? timeFormat.formatUnixTime(seconds) : '';
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -223,6 +223,7 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
     () =>
       (win.records ?? []).map((record) => ({
         ...record,
+        msgSeq: record.msgSeq === undefined ? undefined : String(record.msgSeq),
         sendTime: record.sendTime ?? '0',
       })),
     [win.records],
@@ -336,16 +337,21 @@ function ForwardScroll({ win }: { win: ForwardWindowState }): ReactElement {
     );
   }
 
+  let previousTime: number | undefined;
   return (
     <div ref={scrollRef} className="weq-forward-body">
-      {records.map((record, index) => (
-        <ForwardRow
+      {records.map((record, index) => {
+        const sendTimeMs = unixDate(record.sendTime)?.getTime() ?? 0;
+        const showTime = sendTimeMs > 0 && shouldShowMessageTime(previousTime, sendTimeMs);
+        if (sendTimeMs > 0) previousTime = sendTimeMs;
+        return (
           // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-          key={`${record.msgId || 'rec'}:${index}`}
-          record={record}
-          kind={win.kind}
-        />
-      ))}
+          <Fragment key={`${record.msgId || 'rec'}:${index}`}>
+            {showTime ? <MessageTimeDivider value={sendTimeMs} /> : null}
+            <ForwardRow record={record} kind={win.kind} sendTimeMs={sendTimeMs} />
+          </Fragment>
+        );
+      })}
     </div>
   );
 }
@@ -372,9 +378,11 @@ function PendantLayer({ widget }: { widget: ResolvedWidget }): ReactElement | nu
 function ForwardRow({
   record,
   kind,
+  sendTimeMs,
 }: {
   record: ForwardRecordWire;
   kind: 'c2c' | 'group';
+  sendTimeMs: number;
 }): ReactElement {
   const rowRef = useRef<HTMLDivElement | null>(null);
   const decorationEnabled = useContext(MsgDecorationEnabledContext);
@@ -393,8 +401,10 @@ function ForwardRow({
   const avatar =
     senderAvatarFromUin(record.senderUin) || record.senderInfo?.avatar?.avatarUrl || null;
   const displayName = record.sendNick || record.senderUin || record.senderUid || 'Unknown';
-  const time = formatForwardTime(record.sendTime);
-  const sendTimeMs = (Number(record.sendTime) || 0) * 1000;
+  const metadata = {
+    msgSeq: record.msgSeq === undefined ? undefined : String(record.msgSeq),
+    createdAt: sendTimeMs > 0 ? new Date(sendTimeMs).toISOString() : undefined,
+  };
   const widget = decorationEnabled.widget ? (localWidget ?? msgDec.widget) : null;
   const profileTarget = {
     identity: record.senderUid || record.senderUin || '',
@@ -421,12 +431,14 @@ function ForwardRow({
     };
     return (
       <div className="weq-forward-graytip" data-message-id={record.msgId}>
-        <GrayTipLine
-          gt={gray}
-          conversation={forwardGrayTipConversation(kind)}
-          message={{ id: record.msgId, sender: graySender } as never}
-          user={graySender as never}
-        />
+        <SystemMessageContent message={metadata}>
+          <GrayTipLine
+            gt={gray}
+            conversation={forwardGrayTipConversation(kind)}
+            message={{ id: record.msgId, sender: graySender } as never}
+            user={graySender as never}
+          />
+        </SystemMessageContent>
       </div>
     );
   }
@@ -453,9 +465,9 @@ function ForwardRow({
             {widget ? <PendantLayer widget={widget} /> : null}
           </div>
         </ProfileAvatar>
-        <div className="weq-forward-row-meta">
+        <div className="weq-message-heading">
           <span className="message-name weq-forward-row-name">{displayName}</span>
-          {time ? <time className="weq-forward-row-time">{time}</time> : null}
+          <MessageProvenance message={metadata} />
         </div>
       </header>
       <div className="weq-forward-row-main">

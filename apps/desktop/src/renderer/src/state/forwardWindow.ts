@@ -7,12 +7,12 @@ import { seedMessageBubbles, messageBubble } from '../lib/messageBubbles';
 export interface ForwardRecordWire {
   cachedBubbles?: MessageBubbleSkin[];
   msgId: string;
-  msgSeq?: string;
+  msgSeq?: string | number;
   msgType?: number;
   isSender?: boolean;
   senderUid?: string;
   senderUin?: string;
-  sendTime?: string;
+  sendTime?: string | number;
   sendNick?: string;
   senderInfo?: {
     avatar?: {

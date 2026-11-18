@@ -1,14 +1,15 @@
-import type { Message } from './types';
-
 const messageTimeDividerIntervalMs = 5 * 60 * 1000;
 
-export function shouldShowMessageTime(previous: Message | undefined, current: Message) {
-  if (!previous) {
+export function shouldShowMessageTime(
+  previous: string | number | undefined,
+  current: string | number,
+) {
+  if (previous === undefined) {
     return true;
   }
 
-  const previousTime = new Date(previous.createdAt).getTime();
-  const currentTime = new Date(current.createdAt).getTime();
+  const previousTime = typeof previous === 'number' ? previous : Date.parse(previous);
+  const currentTime = typeof current === 'number' ? current : Date.parse(current);
   if (!Number.isFinite(previousTime) || !Number.isFinite(currentTime)) {
     return false;
   }

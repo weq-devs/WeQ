@@ -10146,11 +10146,6 @@ html[data-theme='dark'] .weq-decoration-card-preview {
   max-width: 220px;
 }
 
-.weq-forward-row-time {
-  font-size: 11px;
-  color: #94a3b8;
-}
-
 .weq-forward-bubble {
   align-self: flex-start;
   max-width: 100%;
@@ -10280,9 +10275,6 @@ html[data-theme='dark'] .weq-forward-avatar {
 }
 html[data-theme='dark'] .weq-forward-row-name:where(:not(.message-name)) {
   color: var(--weq-fg-primary);
-}
-html[data-theme='dark'] .weq-forward-row-time {
-  color: var(--weq-fg-muted);
 }
 html[data-theme='dark'] .weq-forward-bubble {
   background: var(--weq-bg-surface);

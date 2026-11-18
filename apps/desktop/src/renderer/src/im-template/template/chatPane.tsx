@@ -6344,7 +6344,7 @@ export function ChatPane({
                 const sender = resolveMessageSender(message, conversation, user);
                 out.push(
                   <Fragment key={message.id}>
-                    {shouldShowMessageTime(previous, message) ? (
+                    {shouldShowMessageTime(previous?.createdAt, message.createdAt) ? (
                       <MessageTimeDivider
                         value={message.createdAt}
                         precision={
