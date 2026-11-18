@@ -47,7 +47,7 @@ import {
   writeFileSync,
   rmSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import type { TrpcNative } from '@weq/protocol';
 import { getBubbleResources, getFontResource, getPendantResources } from '@weq/protocol';
@@ -168,6 +168,8 @@ export interface BubbleSidecar {
 
 const MAX_CACHED_BUBBLE_ARCHIVE_BYTES = 16 * 1024 * 1024;
 const MAX_BUBBLE_CONFIG_BYTES = 256 * 1024;
+// Android 9.3.85 普通 bubbleframe 由 PngsFileDecoder 供帧，不采用配置的 time。
+const BUBBLE_FRAME_TIME_MS = 100;
 
 /** 挂件元数据 sidecar。 */
 export interface PendantSidecar {
@@ -236,7 +238,7 @@ export class DressSharedCache {
         linkColor: meta.linkColor,
         localFile: join(this.bubblesDir, `${itemId}.png`),
         animationFrameCount: meta.animationFrameCount,
-        animationFrameTimeMs: meta.animationFrameTimeMs,
+        animationFrameTimeMs: meta.animationFrameCount ? BUBBLE_FRAME_TIME_MS : undefined,
         animationRepeat: meta.animationRepeat,
       };
       // 只缓存静态九宫格，不把动画帧或整个装扮目录塞进消息页。
@@ -354,7 +356,7 @@ export class DressSharedCache {
         linkColor: sidecar.linkColor,
         localFile,
         animationFrameCount: sidecar.animationFrameCount,
-        animationFrameTimeMs: sidecar.animationFrameTimeMs,
+        animationFrameTimeMs: sidecar.animationFrameCount ? BUBBLE_FRAME_TIME_MS : undefined,
         animationRepeat: sidecar.animationRepeat,
       };
     } catch (e) {
@@ -539,16 +541,19 @@ export class DressSharedCache {
   private extractBubbleFrames(
     itemId: number,
     archive: Buffer,
-    anim: { zipName: string; frameTimeMs: number; repeat: number },
+    anim: { zipName: string; repeat: number },
   ): { frameCount: number; frameTimeMs: number; repeat: number } | undefined {
     try {
-      const prefix = anim.zipName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const frameRe = new RegExp(`^${prefix}/.*\\.9\\.png$`, 'i');
-      const frames = extractAllFromZip(archive, (n) => frameRe.test(n)).sort((a, b) => {
-        const na = Number(a.name.match(/(\d+)/)?.[1] ?? 0);
-        const nb = Number(b.name.match(/(\d+)/)?.[1] ?? 0);
-        return na - nb;
-      });
+      const frameIndex = (name: string) => Number(posix.basename(name).split('.', 1)[0]);
+      const frames = extractAllFromZip(
+        archive,
+        (name) =>
+          posix.dirname(name) === anim.zipName &&
+          name.endsWith('.png') &&
+          /^[+-]?\d+\./.test(posix.basename(name)) &&
+          frameIndex(name) >= -0x80000000 &&
+          frameIndex(name) <= 0x7fffffff,
+      ).sort((a, b) => frameIndex(a.name) - frameIndex(b.name));
       if (frames.length === 0) return undefined;
 
       frames.forEach((frame, i) => {
@@ -560,7 +565,7 @@ export class DressSharedCache {
         itemId,
         frameCount: frames.length,
       });
-      return { frameCount: frames.length, frameTimeMs: anim.frameTimeMs, repeat: anim.repeat };
+      return { frameCount: frames.length, frameTimeMs: BUBBLE_FRAME_TIME_MS, repeat: anim.repeat };
     } catch (e) {
       this.logger.warn('bubble frame animation extract failed', {
         event: 'dress-bubble-frames-failed',
@@ -1261,20 +1266,12 @@ function parseBubbleConfig(text: string | null) {
     if (!json || typeof json !== 'object' || Array.isArray(json)) return undefined;
     const config = json as {
       bubbleframe_animation?: { animation_set?: unknown };
-      animation_sets?: Record<
-        string,
-        { zip_name?: unknown; time?: unknown; repeat?: unknown; count?: unknown }
-      >;
+      animation_sets?: Record<string, { zip_name?: unknown; repeat?: unknown }>;
     };
     const setKey = config.bubbleframe_animation?.animation_set;
     const set = typeof setKey === 'string' ? config.animation_sets?.[setKey] : undefined;
     const zipName = typeof set?.zip_name === 'string' ? set.zip_name : undefined;
-    const frameTimeMs = Number(set?.time ?? 0);
-    const hasFrames = Number(set?.count ?? 0) > 0;
-    const animation =
-      zipName && hasFrames && frameTimeMs > 0
-        ? { zipName, frameTimeMs, repeat: Number(set?.repeat ?? 0) }
-        : undefined;
+    const animation = zipName ? { zipName, repeat: Number(set?.repeat ?? 0) } : undefined;
 
     return { ...bubbleConfigMetadata(json), animation };
   } catch {

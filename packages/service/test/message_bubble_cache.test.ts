@@ -38,9 +38,10 @@ it('账号准备时读取本地气泡，消息热路径只读内存且不依赖�
   }
 });
 
-it('独立配置不可用时只下载一次动画包，同时读取配置和帧', async () => {
+it('独立配置不可用时只下载一次动画包，按文件编号和解码器时长播放', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'weq-install-bubbles-'));
   const png = ninePatch(128, 112, [64, 72], [52, 60]);
+  const second = ninePatch(128, 112, [66, 72], [52, 60]);
   const staticZip = buildZip([{ name: 'aio_user_bg_nor.9.png', data: png }]);
   const otherZip = buildZip([
     {
@@ -50,12 +51,14 @@ it('独立配置不可用时只下载一次动画包，同时读取配置和帧'
           zoom_point: ['68', '56'],
           bubbleframe_animation: { animation_set: 'main' },
           animation_sets: {
-            main: { zip_name: 'bubbleframe', count: '1', time: '100', repeat: '3' },
+            main: { zip_name: 'bubbleframe8', count: '0', time: '900', repeat: '3' },
           },
         }),
       ),
     },
-    { name: 'bubbleframe/0001.9.png', data: png },
+    { name: 'bubbleframe8/0010.9.png', data: second },
+    { name: 'bubbleframe8/002.png', data: png },
+    { name: 'bubbleframe8/preview/001.9.png', data: second },
   ]);
   const fetch = vi.fn(
     async (url: string) =>
@@ -72,11 +75,13 @@ it('独立配置不可用时只下载一次动画包，同时读取配置和帧'
     const cache = new DressSharedCache({} as TrpcNative, native, dir, () => 0);
     expect(await cache.installBubble(2001)).toMatchObject({
       slice: { left: 68, right: 59, top: 56, bottom: 55 },
-      animationFrameCount: 1,
+      animationFrameCount: 2,
+      animationFrameTimeMs: 100,
       animationRepeat: 3,
     });
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(readFileSync(join(dir, 'bubbles/2001-frame-1.png'))).toEqual(png);
+    expect(readFileSync(join(dir, 'bubbles/2001-frame-2.png'))).toEqual(second);
   } finally {
     vi.unstubAllGlobals();
     rmSync(dir, { recursive: true, force: true });
@@ -99,7 +104,7 @@ it('旧动画包的独立配置优先，不在时用 ZIP 内配置纠正已缓�
           textColor: '#516196',
           geometryVersion: 1,
           animationFrameCount: 16,
-          animationFrameTimeMs: 100,
+          animationFrameTimeMs: 900,
           animationRepeat: 3,
         }),
       );
@@ -128,6 +133,7 @@ it('旧动画包的独立配置优先，不在时用 ZIP 内配置纠正已缓�
       slice: { left: 68, right: 59, top: 56, bottom: 55 },
       linkColor: 'rgb(17 34 51)',
       animationFrameCount: 16,
+      animationFrameTimeMs: 100,
       animationRepeat: 3,
     });
     expect(cache.messageBubble(2002)).toMatchObject({
