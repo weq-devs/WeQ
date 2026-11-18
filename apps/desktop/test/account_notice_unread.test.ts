@@ -6,6 +6,10 @@ import { useAccountNoticeUnread } from '../src/renderer/src/hooks/useAccountNoti
 import { mergeNoticeSeen, type NoticeSeenState } from '../src/shared/notice_seen';
 
 const rpc = vi.hoisted(() => ({ query: vi.fn(), mutate: vi.fn(), subscribe: vi.fn() }));
+const pushNotification = vi.hoisted(() => vi.fn());
+vi.mock('../src/renderer/src/components/Toast.shared', () => ({
+  useToast: { getState: () => ({ push: pushNotification }) },
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     account: {
@@ -24,6 +28,7 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
   window.localStorage.clear();
+  pushNotification.mockClear();
   state = null;
   rpc.query.mockReset().mockImplementation(async () => state);
   rpc.mutate.mockReset().mockImplementation(async ({ state: next }) => {
@@ -59,6 +64,37 @@ function fixture(kind: 'friend' | 'group') {
   return { host, ids, render };
 }
 describe('各端通知已读同步接线', () => {
+  it('不通知回填历史、已读或已打开的群通知，只通知新增未读记录', async () => {
+    const root = createRoot(document.createElement('div'));
+    cleanups.push(() => act(() => root.unmount()));
+    const notice = (time: number, uid = 'u_a') => `group-notify:123:${uid}:${time}`;
+    const onOpen = vi.fn();
+    function Probe({ ids, open }: { ids: string[]; open: boolean }) {
+      useAccountNoticeUnread('10001:source-a', 'group', ids, open, true, {
+        title: '收到新的群通知',
+        onOpen,
+      });
+      return null;
+    }
+    const render = (ids: string[], open = false) =>
+      act(async () => root.render(h(Probe, { ids, open })));
+    state = { seen: [notice(100)], readThrough: 100 };
+    await render([notice(200), notice(100)]);
+    await render([notice(200), notice(150), notice(100)]);
+    await act(async () => receive({ seen: [notice(300)], readThrough: 300 }));
+    await render([notice(300), notice(200)]);
+    expect(pushNotification).not.toHaveBeenCalled();
+
+    const newNotice = notice(300, 'u_b');
+    await render([newNotice, newNotice, notice(300)]);
+    expect(pushNotification).toHaveBeenCalledTimes(1);
+    expect(pushNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'contact', detail: '1 条新通知' }),
+    );
+    await render([notice(400), newNotice], true);
+    await render([notice(400), newNotice]);
+    expect(pushNotification).toHaveBeenCalledTimes(1);
+  });
   it.each(['friend', 'group'] as const)(
     '另一端已读覆盖本端旧缓存，之后的新通知仍提示：%s',
     async (kind) => {

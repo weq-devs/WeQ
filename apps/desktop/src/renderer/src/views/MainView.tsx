@@ -148,7 +148,6 @@ import { useMessageLocateFeedback } from '../hooks/useMessageLocateFeedback';
 import { onOpenSettingsRequest } from '../lib/callSettingsBridge';
 import { useUnreadMarkers } from '../lib/unreadMarkers';
 import { TabActivity } from '../components/RetainedTabs';
-import { useNewNoticeNotification } from '../hooks/useNewNoticeNotification';
 import {
   OPEN_NOTIFICATION_SETTINGS,
   type NotificationSettingsRequest,
@@ -160,7 +159,6 @@ import { closeForwardWindows } from '../state/forwardWindow';
 import { Undo2 } from 'lucide-react';
 import { useReadStateUndo } from '../hooks/useReadStateUndo';
 import { useAccountNoticeUnread } from '../hooks/useAccountNoticeUnread';
-import { groupNoticeId } from '../lib/contactNotice';
 import {
   ContactWorkspaceNavigationContext,
   ProfileNavigationContext,
@@ -2481,7 +2479,6 @@ function MainWorkspace(): ReactElement {
     contactDirectoryConversations,
     profileContacts,
     contactRequests,
-    groupNoticeRecords,
     groupRequests,
   } = useWorkspaceDirectory({
     user,
@@ -2657,33 +2654,25 @@ function MainWorkspace(): ReactElement {
     categoryById,
     botUids,
   ]);
+  const friendNoticeIds = useMemo(() => contactRequests.map((r) => r.id), [contactRequests]);
+  const groupNoticeIds = useMemo(() => groupRequests.map((r) => r.id), [groupRequests]);
+  const openFriendNotice = useStableCallback(() => shell.openContactNotice('friend'));
+  const openGroupNotice = useStableCallback(() => shell.openContactNotice('group'));
   const friendNoticeCount = useAccountNoticeUnread(
     noticeAccountKey,
     'friend',
-    contactRequests.map((r) => r.id),
+    friendNoticeIds,
     shell.contactNotice === 'friend',
     buddyRequests.isSuccess,
-  );
-  useNewNoticeNotification(
-    `${noticeAccountKey}:friend`,
-    contactRequests.map((request) => request.id),
-    Boolean(noticeAccountKey) && buddyRequests.isSuccess,
-    '收到新的好友通知',
-    () => shell.openContactNotice('friend'),
-  );
-  useNewNoticeNotification(
-    `${noticeAccountKey}:group`,
-    groupNoticeRecords.map(groupNoticeId),
-    Boolean(noticeAccountKey) && groupNotifies.isSuccess,
-    '收到新的群通知',
-    () => shell.openContactNotice('group'),
+    { title: '收到新的好友通知', onOpen: openFriendNotice },
   );
   const groupNoticeCount = useAccountNoticeUnread(
     noticeAccountKey,
     'group',
-    groupNoticeRecords.map(groupNoticeId),
+    groupNoticeIds,
     shell.contactNotice === 'group',
     groupNotifies.isSuccess,
+    { title: '收到新的群通知', onOpen: openGroupNotice },
   );
   const mailOpenRef = useRef(shell.switchView);
   mailOpenRef.current = shell.switchView;

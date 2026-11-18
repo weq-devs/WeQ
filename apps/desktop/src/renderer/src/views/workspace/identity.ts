@@ -59,12 +59,6 @@ export function secondsToIsoTime(seconds: number | string | undefined): string |
   return new Date(value * 1000).toISOString();
 }
 
-export function millisecondsToIsoTime(ms: number | string | undefined): string | null {
-  const value = Number(ms);
-  if (!Number.isFinite(value) || value <= 0) return null;
-  return new Date(value).toISOString();
-}
-
 export function chatTypeKind(chatType: string | number): 'direct' | 'group' | null {
   const kind = classifyChatType(chatType);
   // 数据线（我的手机/我的电脑）按单聊解析，头像用设备图标兜底（isDataline()）。
@@ -280,10 +274,12 @@ export function groupNotifyToGroupRequest(
   profileByUid: Map<string, UserProfileWire>,
   groupsById: Map<string, Conversation>,
 ): GroupJoinRequest | null {
-  const groupConversation = groupsById.get(notify.groupUin);
-  if (groupConversation?.type !== 'group') return null;
+  const { groupUin } = notify;
+  if (!/^[1-9]\d*$/.test(groupUin)) return null;
+  const conversation = groupsById.get(groupUin);
+  const group = conversation?.type === 'group' ? conversation.group : null;
 
-  const createdAt = millisecondsToIsoTime(notify.msgTime) ?? new Date(0).toISOString();
+  const createdAt = secondsToIsoTime(notify.msgTime) ?? new Date(0).toISOString();
   const user = groupNotifyUserToContact(
     notify.operatedUid,
     notify.operatedUin,
@@ -313,14 +309,14 @@ export function groupNotifyToGroupRequest(
     createdAt,
     respondedAt: notify.opTime > 0 ? secondsToIsoTime(notify.opTime) : null,
     group: {
-      id: groupConversation.group.id,
-      conversationId: groupConversation.id,
-      identityLabel: groupConversation.group.identityLabel,
-      identityValue: groupConversation.group.identityValue,
-      name: notify.groupName || groupConversation.group.name,
-      avatarUrl: groupConversation.group.avatarUrl,
-      announcement: groupConversation.group.announcement,
-      memberCount: groupConversation.group.memberCount,
+      id: group?.id ?? groupUin,
+      conversationId: groupUin,
+      identityLabel: group?.identityLabel ?? '群号',
+      identityValue: group?.identityValue ?? groupUin,
+      name: notify.groupName || group?.name || groupUin,
+      avatarUrl: group?.avatarUrl ?? groupAvatarSrc(groupUin),
+      announcement: group?.announcement ?? null,
+      memberCount: group?.memberCount ?? 0,
     },
     user,
     operator,

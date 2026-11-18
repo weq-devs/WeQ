@@ -1,32 +1,48 @@
 import { useEffect, useRef } from 'react';
+import { noticeTimestamp, NOTICE_SEEN_LIMIT } from '../../../shared/notice_seen';
 import { useToast } from '../components/Toast.shared';
 import { notificationSource } from '../lib/notificationNavigation.shared';
 
-/** 首次成功读取只建立基线；切号、已读回填和资料补全不重复通知。 */
+export type NewNoticeNotification = { title: string; onOpen: () => void };
+
+/** 首次读取建立基线，刷新时不把早于已见记录的历史回填当成新通知。 */
 export function useNewNoticeNotification(
   scope: string,
   ids: string[],
-  ready: boolean,
-  title: string,
-  onOpen: () => void,
+  unreadIds: string[] | null,
+  notification?: NewNoticeNotification,
 ) {
-  const seen = useRef<{ scope: string; ids: Set<string> } | null>(null);
+  const seen = useRef<{ scope: string; time: number; ids: Set<string> } | null>(null);
+  const title = notification?.title;
+  const onOpen = notification?.onOpen;
   useEffect(() => {
-    if (!scope || !ready) return;
-    if (seen.current?.scope !== scope) {
-      seen.current = { scope, ids: new Set(ids) };
-      return;
+    if (!unreadIds || !title || !onOpen) return;
+    const previous = seen.current?.scope === scope ? seen.current : null;
+    let count = 0;
+    if (previous) {
+      for (const id of unreadIds) {
+        const time = noticeTimestamp(id);
+        if (time !== null && time >= previous.time && !previous.ids.has(id)) count++;
+      }
     }
-    const added = ids.filter((id) => !seen.current!.ids.has(id));
-    for (const id of ids) seen.current.ids.add(id);
-    while (seen.current.ids.size > 4096)
-      seen.current.ids.delete(seen.current.ids.values().next().value!);
-    if (added.length)
+    const next = previous ?? { scope, time: 0, ids: new Set<string>() };
+    for (const id of ids) {
+      const time = noticeTimestamp(id);
+      if (time === null || time < next.time) continue;
+      if (time > next.time) {
+        next.time = time;
+        next.ids.clear();
+      }
+      next.ids.add(id);
+    }
+    while (next.ids.size > NOTICE_SEEN_LIMIT) next.ids.delete(next.ids.values().next().value!);
+    seen.current = next;
+    if (count)
       useToast.getState().push({
         event: 'contact',
         title,
-        detail: `${added.length} 条新通知`,
+        detail: `${count} 条新通知`,
         source: notificationSource({ kind: 'local', open: onOpen }, '查看通知'),
       });
-  }, [scope, ids, ready, title, onOpen]);
+  }, [scope, ids, unreadIds, title, onOpen]);
 }

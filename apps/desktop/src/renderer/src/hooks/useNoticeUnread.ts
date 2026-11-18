@@ -104,15 +104,17 @@ export function useNoticeUnread(
     };
   }, [key, snapshot]);
   const { seen, readThrough, initialized } = snapshot;
-  const unread =
-    accountKey && ready && initialized
-      ? [...new Set(ids)].filter((id) => {
-          const time = noticeTimestamp(id);
-          return !seen.has(id) && (time === null || time >= readThrough);
-        }).length
-      : 0;
+  const unread = useMemo(() => {
+    void revision;
+    if (!accountKey || !ready) return null;
+    if (!initialized) return [];
+    return [...new Set(ids)].filter((id) => {
+      const time = noticeTimestamp(id);
+      return !seen.has(id) && (time === null || time >= readThrough);
+    });
+  }, [accountKey, ready, initialized, ids, seen, readThrough, revision]);
   useEffect(() => {
-    if (!accountKey || !ready || (initialized && (!open || !unread))) return;
+    if (!unread || (initialized && (!open || !unread.length))) return;
     // 首次成功读取只建立历史基线；空列表也要保存，后续新增才能正常提醒。
     // 合并其他窗口的已读；优先保留较新的标识，时间水位覆盖被淘汰的较早历史。
     const stored = readSeen(key);
@@ -138,7 +140,7 @@ export function useNoticeUnread(
       // 存储不可用时仍在当前会话清除红点。
     }
     setRevision((value) => value + 1);
-  }, [accountKey, ready, open, unread, key, ids, seen, readThrough, initialized, snapshot]);
+  }, [open, unread, key, ids, seen, readThrough, initialized, snapshot]);
   useEffect(() => {
     if (!sync || !ready || !accountKey || !snapshot.initialized) return;
     const state = mergeNoticeSeen(readSeen(key), {
@@ -154,5 +156,5 @@ export function useNoticeUnread(
     const remote = sync.state && mergeNoticeSeen(null, sync.state);
     if (JSON.stringify(state) !== JSON.stringify(remote)) sync.publish(state);
   }, [sync, ready, accountKey, key, revision, snapshot]);
-  return open ? 0 : unread;
+  return open && unread ? [] : unread;
 }

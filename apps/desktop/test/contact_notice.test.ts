@@ -9,6 +9,7 @@ import {
   type NoticeOperation,
 } from '../src/renderer/src/lib/contactNotice';
 import { NOTICE_SEEN_LIMIT, useNoticeUnread } from '../src/renderer/src/hooks/useNoticeUnread';
+import { groupNotifyToGroupRequest } from '../src/renderer/src/views/workspace/identity';
 import type {
   ContactRequest,
   GroupJoinRequest,
@@ -73,6 +74,33 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe('通知卡片操作匹配', () => {
+  it('没有对应会话的群通知仍可显示，使用通知自带的群名和秒级时间', () => {
+    const record = {
+      msgTime: 1794326407,
+      status: 11,
+      verifyStatus: 3,
+      groupUin: '123',
+      groupName: '测试群',
+      operatedUid: 'u_peer',
+      operatedUin: '',
+      operatedNick: '',
+      operatorUid: '',
+      operatorUin: '',
+      operatorNick: '',
+      opTime: 0,
+      remark: '',
+      systemRemark: '',
+      sourceTable: 'group_notify_list' as const,
+    };
+    expect(groupNotifyToGroupRequest(record, new Map(), new Map())).toMatchObject({
+      id: groupNoticeId(record),
+      createdAt: '2026-11-10T16:00:07.000Z',
+      group: { id: '123', name: '测试群' },
+    });
+    expect(
+      groupNotifyToGroupRequest({ ...record, groupUin: '0' }, new Map(), new Map()),
+    ).toBeNull();
+  });
   it('退群、处理结果和发出的好友申请不绑定操作', () => {
     const notices = [
       { ...group, action: '退出了群聊' },
@@ -117,7 +145,7 @@ describe('通知红点', () => {
     const ids = [100, 200, 300].map((time) => `${prefix}:${time}`);
     window.localStorage.setItem(key, JSON.stringify([ids[0]]));
     function Probe() {
-      return h('span', null, useNoticeUnread('windows', kind, ids, false, true));
+      return h('span', null, useNoticeUnread('windows', kind, ids, false, true)?.length ?? 0);
     }
     act(() => root.render(h(Probe)));
     expect(host.textContent).toBe('2');
@@ -140,7 +168,11 @@ describe('通知红点', () => {
     cleanups.push(() => act(() => root.unmount()));
     window.localStorage.setItem('weq:notice-seen:shared:friend', JSON.stringify(['old']));
     function Probe({ open }: { open: boolean }) {
-      return h('span', null, useNoticeUnread('shared', 'friend', ['old', 'new'], open, true));
+      return h(
+        'span',
+        null,
+        useNoticeUnread('shared', 'friend', ['old', 'new'], open, true)?.length ?? 0,
+      );
     }
     act(() => root.render(h('div', null, h(Probe, { open: false }), h(Probe, { open: false }))));
     expect(host.textContent).toBe('11');
@@ -153,7 +185,7 @@ describe('通知红点', () => {
     const root = createRoot(host);
     cleanups.push(() => act(() => root.unmount()));
     function Probe({ ids }: { ids: string[] }) {
-      return h('span', null, useNoticeUnread('bounded', 'friend', ids, false, true));
+      return h('span', null, useNoticeUnread('bounded', 'friend', ids, false, true)?.length ?? 0);
     }
     const newest = NOTICE_SEEN_LIMIT + 10;
     const ids = Array.from(
@@ -187,7 +219,11 @@ describe('通知红点', () => {
         JSON.stringify([id(200), id(300)]),
       );
       function Probe({ times, open }: { times: number[]; open: boolean }) {
-        return h('span', null, useNoticeUnread('upgrade', kind, times.map(id), open, true));
+        return h(
+          'span',
+          null,
+          useNoticeUnread('upgrade', kind, times.map(id), open, true)?.length ?? 0,
+        );
       }
       const render = (times: number[], open = false) =>
         act(() => root.render(h(Probe, { times, open })));
@@ -214,7 +250,7 @@ describe('通知红点', () => {
         false,
         true,
       );
-      return h('span', { 'data-groups-ready': groupsReady }, unread);
+      return h('span', { 'data-groups-ready': groupsReady }, unread?.length ?? 0);
     }
     const render = (records: (typeof record)[], groupsReady: boolean) =>
       act(() => root.render(h(Probe, { records, groupsReady })));
@@ -232,7 +268,7 @@ describe('通知红点', () => {
       const root = createRoot(host);
       cleanups.push(() => act(() => root.unmount()));
       function Probe({ ids, ready }: { ids: string[]; ready: boolean }) {
-        return h('span', null, useNoticeUnread('baseline', kind, ids, false, ready));
+        return h('span', null, useNoticeUnread('baseline', kind, ids, false, ready)?.length ?? 0);
       }
       const render = (ids: string[], ready = true) =>
         act(() => root.render(h(Probe, { ids, ready })));
@@ -254,7 +290,7 @@ describe('通知红点', () => {
     const root = createRoot(host);
     cleanups.push(() => act(() => root.unmount()));
     function Probe({ ids }: { ids: string[] }) {
-      return h('span', null, useNoticeUnread('empty', 'friend', ids, false, true));
+      return h('span', null, useNoticeUnread('empty', 'friend', ids, false, true)?.length ?? 0);
     }
     act(() => root.render(h(Probe, { ids: [] })));
     act(() => root.render(null));
@@ -268,7 +304,11 @@ describe('通知红点', () => {
       const root = createRoot(host);
       cleanups.push(() => act(() => root.unmount()));
       function Probe({ source, ids, open }: { source: string; ids: string[]; open: boolean }) {
-        return h('span', null, useNoticeUnread(`10001:${source}`, kind, ids, open, true));
+        return h(
+          'span',
+          null,
+          useNoticeUnread(`10001:${source}`, kind, ids, open, true)?.length ?? 0,
+        );
       }
       const render = (source: string, ids: string[], open = false) =>
         act(() => root.render(h(Probe, { source, ids, open })));
@@ -302,7 +342,7 @@ describe('通知红点', () => {
       open: boolean;
       ready?: boolean;
     }) {
-      return h('span', null, useNoticeUnread(account, kind, ids, open, ready));
+      return h('span', null, useNoticeUnread(account, kind, ids, open, ready)?.length ?? 0);
     }
     const render = (
       account = 'a',
