@@ -5684,7 +5684,7 @@ function MainWorkspace(): ReactElement {
       }
       if (selectionRef.current?.id === conv) {
         // Already open — jump straight away.
-        shell.switchView('messages');
+        shell.selectConversation(conv);
         void centerWindowOnSeq(conv, kind, seq, record, messageId);
         return;
       }

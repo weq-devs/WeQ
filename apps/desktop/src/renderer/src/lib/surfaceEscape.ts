@@ -8,6 +8,10 @@ const SURFACES =
   '[aria-modal="true"], [role="dialog"], [role="menu"], [role="listbox"], .weq-dialog-layer, .weq-overlay-layer, .weq-window-layer, .weq-forward-window, [data-weq-surface], .weq-lightbox-layer, .weq-redbag-detail-layer, .weq-redbag-qr-layer';
 const SHELLS = '.weq-dialog-layer, .weq-overlay-layer, .weq-window-layer';
 
+export function containingSurface(element: HTMLElement): HTMLElement | null {
+  return element.closest<HTMLElement>(`${ESCAPE_SURFACE}, ${SURFACES}`);
+}
+
 export function surfaceRoot(element: HTMLElement, includeEscapeSurfaces = true): HTMLElement {
   return (
     element.closest<HTMLElement>(includeEscapeSurfaces ? `${ESCAPE_SURFACE}, ${SHELLS}` : SHELLS) ??
