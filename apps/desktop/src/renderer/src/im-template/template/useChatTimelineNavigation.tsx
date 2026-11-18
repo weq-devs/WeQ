@@ -725,7 +725,10 @@ export function useChatTimelineNavigation({
     dockTask.current = task;
     setDockJumping(true);
     try {
-      await jumpToSeq({ seq: dockStop.seq });
+      await jumpToSeq({
+        seq: dockStop.seq,
+        ...(dockStop.kind === 'unread' ? { mode: 'firstUnread' as const } : {}),
+      });
       return dockTask.current === task;
     } catch (err) {
       console.error('[unread-dock] jump failed', err);

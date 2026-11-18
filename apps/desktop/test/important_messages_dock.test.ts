@@ -144,9 +144,13 @@ it('列表与队列共享定位进度，乱序选择只完成自身，重定位�
     expect(state.locatedSeq).toBe('102');
     await act(async () => state.jumpDockStop());
     expect(state.locatedSeq).toBe('103');
+    expect(jump).toHaveBeenLastCalledWith({ seq: '103' });
     expect(state.dockStop?.seq).toBe('101');
     expect(state.dockRemaining).toBe(1);
     expect(state.dockImportantRemaining).toBe(0);
+    await act(async () => state.jumpDockStop());
+    expect(jump).toHaveBeenLastCalledWith({ seq: '101', mode: 'firstUnread' });
+    expect(state.dockRemaining).toBe(0);
   } finally {
     act(() => root.unmount());
     host.remove();

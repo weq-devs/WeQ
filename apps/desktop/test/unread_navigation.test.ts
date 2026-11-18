@@ -1,7 +1,21 @@
 // @vitest-environment node
 import { expect, it } from 'vitest';
-import { firstUnreadConversation } from '../src/renderer/src/lib/unreadNavigation';
+import {
+  firstUnreadConversation,
+  firstUnreadMessage,
+} from '../src/renderer/src/lib/unreadNavigation';
 import { createTemplateDemoData } from './support/templateDemoData';
+
+it('首条未读序号缺失时选择区间内最早的消息，不落到已读消息或依赖输入顺序', () => {
+  const read = { msgSeq: '9007199254740992' };
+  const first = { msgSeq: '9007199254740994' };
+  const later = { msgSeq: '9007199254740995' };
+  const rows = [later, read, { msgSeq: '' }, first];
+  expect(firstUnreadMessage(rows, '9007199254740993')).toBe(first);
+  expect(firstUnreadMessage(rows, first.msgSeq)).toBe(first);
+  expect(firstUnreadMessage([read], '9007199254740993')).toBeUndefined();
+  expect(firstUnreadMessage([], '9007199254740993')).toBeUndefined();
+});
 
 it('定位遵循列表的置顶顺序，普通未读优先；不改变会话或未读数', () => {
   const base = createTemplateDemoData().conversations[0]!;

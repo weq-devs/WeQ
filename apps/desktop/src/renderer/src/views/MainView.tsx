@@ -11,6 +11,7 @@ import {
   readUnreadInfos,
 } from './workspace/useConversationWindowRead';
 import { PAGE_SIZE, GROUP_MEMBER_PAGE_SIZE } from './workspace/paging';
+import { firstUnreadMessage } from '../lib/unreadNavigation';
 import {
   toMessageWire,
   optimisticToTemplate,
@@ -5276,7 +5277,7 @@ function MainWorkspace(): ReactElement {
   // that seq. Landing there makes the neighbouring rows' seq gap render the
   // clickable 「此处有 N 条消息缺失 · 点击拉取」 divider, and Toast explains the
   // miss — i.e. the user can pull the missing messages instead of being dumped
-  // back at the latest page. Returns true only when the exact row was found.
+  // back at the latest page. 普通未读跳转只要求找到区间内第一条真实消息。
   // `conv`/`kind` are passed explicitly so it works right after a conversation
   // switch (before selectionRef settles).
   const centerWindowOnSeq = useCallback(
@@ -5286,6 +5287,7 @@ function MainWorkspace(): ReactElement {
       targetSeq: string,
       exactRecord?: ChatMsgWire,
       messageId?: string,
+      mode?: ReplyJumpTarget['mode'],
     ): Promise<boolean> =>
       runMessageLocate(
         async (isCurrent) => {
@@ -5327,8 +5329,13 @@ function MainWorkspace(): ReactElement {
             pushToast({
               tone: 'info',
               durationKind: 'failure',
-              title: '未找到该消息',
-              detail: '该消息可能已被撤回或删除。',
+              title: mode === 'firstUnread' ? '未读消息加载失败' : '未找到该消息',
+              detail:
+                mode === 'firstUnread'
+                  ? err instanceof Error
+                    ? err.message
+                    : String(err)
+                  : '该消息可能已被撤回或删除。',
             });
             return false;
           }
@@ -5353,9 +5360,15 @@ function MainWorkspace(): ReactElement {
           if (exactRecord && !merged.some((message) => message.msgId === exactRecord.msgId))
             merged.unshift(toMessageWire(exactRecord));
           const exactId = messageId ?? exactRecord?.msgId;
-          let target = merged.find((m) =>
-            exactId ? timelineRowKey(m) === exactId || m.msgId === exactId : m.msgSeq === targetSeq,
-          );
+          const findTarget = () =>
+            mode === 'firstUnread'
+              ? firstUnreadMessage(merged, targetSeq)
+              : merged.find((m) =>
+                  exactId
+                    ? timelineRowKey(m) === exactId || m.msgId === exactId
+                    : m.msgSeq === targetSeq,
+                );
+          let target = findTarget();
 
           const autoContext = () =>
             preferenceValue('autoFetchMissingMessages') ||
@@ -5384,11 +5397,7 @@ function MainWorkspace(): ReactElement {
                   .filter((row) => kind === 'group' || row.ntSeqVerified === true)
                   .map((row) => ({ ...toMessageWire(row), source: 'roaming' as const })),
               );
-              target = merged.find((row) =>
-                exactId
-                  ? timelineRowKey(row) === exactId || row.msgId === exactId
-                  : row.msgSeq === targetSeq,
-              );
+              target = findTarget();
             } catch (error) {
               if (!current()) return false;
               pushToast({
@@ -5399,6 +5408,15 @@ function MainWorkspace(): ReactElement {
             }
           }
           if (!current()) return false;
+          if (!target && mode === 'firstUnread') {
+            pushToast({
+              tone: 'info',
+              durationKind: 'failure',
+              title: '未找到可定位的未读消息',
+              detail: '本地未读区间暂无可用消息，可稍后重试或拉取缺失消息。',
+            });
+            return false;
+          }
           if (target) setMissingJumpSeq(null);
 
           const atLatest = after.length < PAGE_SIZE && (!exactRecord || BigInt(targetSeq) > 0n);
@@ -5556,11 +5574,25 @@ function MainWorkspace(): ReactElement {
           return;
         }
         if (targetNum >= BigInt(minSeq) && targetNum <= BigInt(maxSeq)) {
+          if (jumpTarget.mode === 'firstUnread') {
+            const first = firstUnreadMessage(current, targetSeq);
+            if (first) {
+              scrollToMsgId(timelineRowKey(first));
+              return;
+            }
+          }
           if (
             preferenceValue('autoFetchMissingMessages') ||
             preferenceValue('autoFetchMissingContext')
           ) {
-            await centerWindowOnSeq(sel.id, kind, targetSeq, undefined, jumpTarget.msgId);
+            await centerWindowOnSeq(
+              sel.id,
+              kind,
+              targetSeq,
+              undefined,
+              jumpTarget.msgId,
+              jumpTarget.mode,
+            );
             return;
           }
           // 在已加载范围内却没有这一行 ⇒ 一条被撤回/删除/从未同步的「空消息」。
@@ -5574,7 +5606,14 @@ function MainWorkspace(): ReactElement {
         }
       }
 
-      await centerWindowOnSeq(sel.id, kind, targetSeq, undefined, jumpTarget.msgId);
+      await centerWindowOnSeq(
+        sel.id,
+        kind,
+        targetSeq,
+        undefined,
+        jumpTarget.msgId,
+        jumpTarget.mode,
+      );
     },
     [centerWindowOnSeq, scrollToMsgId, pushToast, cancelMessageLocate, selectionRef, loadedRef],
   );

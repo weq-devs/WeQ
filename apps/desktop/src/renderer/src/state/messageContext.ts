@@ -9,6 +9,8 @@ import { createContext } from 'react';
  * (e.g. tests).
  */
 export interface ReplyJumpTarget {
+  /** 普通未读跳转按区间定位，不要求已读水位后的推算序号真实存在。 */
+  mode?: 'firstUnread';
   /** 已知原消息时优先精确匹配，兼容序号为空或同序号的漫游记录。 */
   msgId?: string;
   /** origMsgSeq (tag 47402) — the 40003 anchor for GROUP messages. */
