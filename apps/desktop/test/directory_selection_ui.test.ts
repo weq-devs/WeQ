@@ -514,9 +514,9 @@ it.each(['friends', 'groups'] as const)(
           .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
       );
       expect(menu('多选')).toBeUndefined();
-      expect(menu('标为已读')).toBeDefined();
-      act(() => menu('标为未读')!.click());
-      expect(mark).toHaveBeenLastCalledWith(rows, true);
+      expect(menu('标为未读')).toBeUndefined();
+      act(() => menu('标为已读')!.click());
+      expect(mark).toHaveBeenLastCalledWith(rows, false);
       act(() => button('取消全选当前结果').click());
       expect(host.querySelectorAll('.is-multiselected')).toHaveLength(0);
       act(() => button('全选当前结果').click());

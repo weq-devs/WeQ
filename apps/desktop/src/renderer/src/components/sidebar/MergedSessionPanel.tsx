@@ -2,18 +2,7 @@ import { TimeLabel } from '../TimeLabel';
 import { ReminderCount } from '../ReminderBadge';
 import { formatConversationTime, formatConversationTimestamp } from '../../lib/conversationTime';
 import { conversationActivityTime } from '@weq/service/conversation-order';
-import {
-  X,
-  EyeOff,
-  Trash2,
-  Pin,
-  PinOff,
-  Download,
-  CloudDownload,
-  BarChart3,
-  MailOpen,
-  Mail,
-} from 'lucide-react';
+import { X, EyeOff, Trash2, Pin, PinOff, Download, CloudDownload, BarChart3 } from 'lucide-react';
 import { useMemo, useEffect, useRef, useState, useContext } from 'react';
 import { classifyChatType } from '@weq/codec';
 import { Avatar } from '../../im-template/template/primitives';
@@ -871,16 +860,7 @@ export function MergedSessionPanel({
           }
           onClose={() => setActionMenu(null)}
           actions={[
-            ...(directory?.onReadState
-              ? [
-                  ...[false, true].map((unread) => ({
-                    label: unread ? '标为未读' : '标为已读',
-                    icon: unread ? <Mail size={16} /> : <MailOpen size={16} />,
-                    disabled: directory.readStateBusy || actionMenu.ids.length > 4096,
-                    action: () => batch.runReadState(actionMenu.ids, unread),
-                  })),
-                ]
-              : []),
+            ...batch.readStateMenuActions(actionMenu.ids),
             ...(onGroupAssistantPin
               ? [
                   {

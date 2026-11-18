@@ -93,6 +93,7 @@ describe('会话底部多选栏', () => {
       kind: 'persona' as const,
       ownerId: 'fixture',
       name: '虚拟会话',
+      unreadCount: 2,
     };
     const f = mount(
       h(
@@ -135,7 +136,7 @@ describe('会话底部多选栏', () => {
           new MouseEvent('contextmenu', { bubbles: true, clientX: 20, clientY: 20 }),
         ),
       );
-      expect(menuButton('标为已读')).toBeDefined();
+      expect(menuButton('标为已读')).toBeUndefined();
       expect(menuButton('多选')).toBeUndefined();
       act(() => menuButton('标为未读').click());
       expect(mark).toHaveBeenLastCalledWith([groups[0]], true);
@@ -173,7 +174,7 @@ describe('会话底部多选栏', () => {
           new MouseEvent('contextmenu', { bubbles: true, clientX: 20, clientY: 20 }),
         ),
       );
-      expect(menuButton('标为已读')).toBeDefined();
+      expect(menuButton('标为已读')).toBeUndefined();
       expect(menuButton('标为未读').disabled).toBe(false);
     } finally {
       f.close();
@@ -186,7 +187,7 @@ describe('会话底部多选栏', () => {
     { counts: [0, 0], unread: true },
     { counts: [0, 3], unread: false },
     { counts: [2, 0], unread: false },
-  ])('右键菜单始终提供已读与未读：$counts', ({ counts, unread }) => {
+  ])('右键菜单按选区未读状态提供一个操作：$counts', ({ counts, unread }) => {
     const base = createTemplateDemoData().conversations.find((row) => row.type === 'group')!;
     const groups = counts.map((unreadCount, index) => ({
       ...base,
@@ -236,14 +237,14 @@ describe('会话底部多选栏', () => {
       const actions = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].filter(
         (node) => node.textContent === '标为已读' || node.textContent === '标为未读',
       );
-      expect(actions).toHaveLength(2);
+      expect(actions).toHaveLength(1);
       expect(
         [...document.querySelectorAll('[role="menuitem"]')].some(
           (node) => node.textContent === '撤销标记',
         ),
       ).toBe(false);
-      expect(actions.map((node) => node.textContent)).toEqual(['标为已读', '标为未读']);
-      act(() => actions[unread ? 1 : 0]!.click());
+      expect(actions[0]!.textContent).toBe(unread ? '标为未读' : '标为已读');
+      act(() => actions[0]!.click());
       expect(mark).toHaveBeenCalledWith(groups, unread);
     } finally {
       f.close();

@@ -9,7 +9,6 @@ import {
   Bot,
   PenLine,
   Pin,
-  MailOpen,
   Mail,
   EyeOff,
   List,
@@ -1046,22 +1045,8 @@ export function ConversationList({
                     },
                   ]
                 : []),
-              ...(directory?.onReadState &&
-              !aggregateMenu &&
-              conversationViewActions(view).includes('read') &&
-              (actionMenu.ids.length > 1 ||
-                conversationSupportsAction(actionMenu.conversation, 'read'))
-                ? [
-                    ...[false, true].map((unread) => ({
-                      label: unread ? '标为未读' : '标为已读',
-                      icon: unread ? <Mail size={16} /> : <MailOpen size={16} />,
-                      disabled:
-                        directory.readStateBusy ||
-                        actionMenu.ids.length > 4096 ||
-                        !batch.supportsAny(actionMenu.ids, 'read'),
-                      action: () => batch.runReadState(actionMenu.ids, unread),
-                    })),
-                  ]
+              ...(!aggregateMenu && conversationViewActions(view).includes('read')
+                ? batch.readStateMenuActions(actionMenu.ids)
                 : []),
               ...(directory?.onPin &&
               (!aggregateMenu || actionMenu.conversation.mergedKind === 'groupAssistant') &&
@@ -1443,14 +1428,7 @@ export function GroupList({
           y={actionMenu.y}
           onClose={() => setActionMenu(null)}
           actions={[
-            ...(conversationDirectory?.onReadState
-              ? [false, true].map((unread) => ({
-                  label: unread ? '标为未读' : '标为已读',
-                  icon: unread ? <Mail size={16} /> : <MailOpen size={16} />,
-                  disabled: conversationDirectory.readStateBusy || actionMenu.ids.length > 4096,
-                  action: () => batch.runReadState(actionMenu.ids, unread),
-                }))
-              : []),
+            ...batch.readStateMenuActions(actionMenu.ids),
             ...(actionMenu.ids.length === 1 && conversationDirectory?.onAnalyze
               ? [
                   {
@@ -2327,14 +2305,7 @@ const ContactListContent = memo(function ContactListContent({
               : undefined
           }
           actions={[
-            ...(conversationDirectory?.onReadState
-              ? [false, true].map((unread) => ({
-                  label: unread ? '标为未读' : '标为已读',
-                  icon: unread ? <Mail size={16} /> : <MailOpen size={16} />,
-                  disabled: conversationDirectory.readStateBusy || actionMenu.ids.length > 4096,
-                  action: () => batch.runReadState(actionMenu.ids, unread),
-                }))
-              : []),
+            ...batch.readStateMenuActions(actionMenu.ids),
             ...(actionMenu.ids.length === 1 &&
             conversationDirectory?.onAnalyze &&
             conversationAnalysisTarget(
