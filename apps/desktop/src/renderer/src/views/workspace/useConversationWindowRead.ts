@@ -1,7 +1,7 @@
 import { PAGE_SIZE, GROUP_INITIAL_PAGE_SIZE } from './paging';
 import { toMessageWire } from './messageProjection';
 import type { MessageWire, ChatMsgWire } from './types';
-import { useCallback, useEffect, useLayoutEffect } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useReducer } from 'react';
 import { IS_WEB } from '../../lib/target.shared';
 import { unreadRequestBatches, type UnreadRequest } from '../../lib/unreadRequests';
 import { timelineViewport } from '../../lib/timelineViewport';
@@ -18,7 +18,10 @@ import {
   conversationWindowKey,
   restorableConversationWindow,
 } from '../../lib/conversationWindowCache';
-import { isConversationPagingVisible } from '../../lib/conversationPaging';
+import {
+  isConversationPagingVisible,
+  scheduleConversationPagingCheck,
+} from '../../lib/conversationPaging';
 import { loadConversationEntry } from '../../lib/conversationEntry';
 import { mergeRefreshedWindow } from '../../lib/conversationRefresh';
 import {
@@ -42,7 +45,6 @@ type EntryInput = SelectionInput & {
   messagesTabActive: boolean;
   loadingInitialMessages: boolean;
   readFromFirstUnread: boolean;
-  messageCount: number;
   centerWindowOnSeq: (
     conv: string,
     kind: 'group' | 'c2c',
@@ -286,7 +288,6 @@ export function useConversationWindowEntry(
     messagesTabActive,
     loadingInitialMessages,
     readFromFirstUnread,
-    messageCount,
     centerWindowOnSeq,
   }: EntryInput,
 ) {
@@ -325,6 +326,8 @@ export function useConversationWindowEntry(
     pendingScrollRestoreRef,
     pendingSearchJumpRef,
   } = state;
+  // 校准与历史页提交后，即使可见消息条数不变，也须重新检查滚动边缘。
+  const [pagingCommit, commitPaging] = useReducer((revision: number) => revision + 1, 0);
   // 命中缓存先恢复窗口，随后按水位增量读取；有变更或较久未校准时才重读已有范围。
   const entryChatType =
     selectedConversation?.type === 'direct'
@@ -354,6 +357,14 @@ export function useConversationWindowEntry(
     const active = () =>
       !cancelled && messageScopeRef.current === scope && selectionRef.current === selection;
     const valid = () => active() && windowRef.current === expectedWindow;
+    const finishEntry = () => {
+      if (entryScrollIntentRef.current?.selection === selection)
+        entryScrollIntentRef.current = null;
+      entryLoadingRef.current = false;
+      setMessagesLoading(false);
+      setLoadingNewerMessages(false);
+      commitPaging();
+    };
     const jump = pendingSearchJumpRef.current;
     if (jump && jump.conv === conv) {
       pendingSearchJumpRef.current = null;
@@ -386,10 +397,7 @@ export function useConversationWindowEntry(
         setHasOlder(cached.hasOlder);
         setHasNewer(cached.hasNewer);
         setAnchoredToLatest(cached.anchored);
-        entryScrollIntentRef.current = null;
-        entryLoadingRef.current = false;
-        setMessagesLoading(false);
-        setLoadingNewerMessages(false);
+        finishEntry();
       }
       return () => {
         cancelled = true;
@@ -442,11 +450,7 @@ export function useConversationWindowEntry(
             return readSeq;
           },
           settled: () => {
-            if (entryScrollIntentRef.current?.selection === selection)
-              entryScrollIntentRef.current = null;
-            entryLoadingRef.current = false;
-            setMessagesLoading(false);
-            setLoadingNewerMessages(false);
+            finishEntry();
             if (!valid() || dbRevisionRef.current !== revision) void refreshWindow();
           },
           cursor: (rows) =>
@@ -696,6 +700,7 @@ export function useConversationWindowEntry(
             return merged.length ? [...merged, ...cur] : cur;
           });
           if (older.length < PAGE_SIZE) setHasOlder(false);
+          commitPaging();
         })
         .catch((err) => {
           if (messageScopeRef.current !== scope || selectionRef.current !== selection) return;
@@ -810,11 +815,13 @@ export function useConversationWindowEntry(
 
   useLayoutEffect(() => {
     if (!messagesTabActive) return undefined;
-    const restore = pendingScrollRestoreRef.current;
-    if (!restore || restore.conversationId !== selectedConversation?.id) return undefined;
-
     const scroll = nativeMessageScrollRef.current;
     if (!scroll) return undefined;
+    const restore = pendingScrollRestoreRef.current;
+    if (!restore || restore.conversationId !== selectedConversation?.id) {
+      scheduleConversationPagingCheck(scroll);
+      return undefined;
+    }
 
     // 只跟随锚点上方的变化，底部追加和图片展开不能计入向上翻页补偿。
     restoreReadingPosition(scroll, restore.position);
@@ -825,13 +832,14 @@ export function useConversationWindowEntry(
       if (isConversationPagingVisible(scroll) && Math.abs(scroll.scrollTop - appliedTop) <= 1)
         restoreReadingPosition(scroll, restore.position);
       pendingScrollRestoreRef.current = null;
+      scheduleConversationPagingCheck(scroll);
     });
 
     return () => window.cancelAnimationFrame(frame);
   }, [
     messagesTabActive,
     selectedConversation?.id,
-    messageCount,
+    pagingCommit,
     pendingScrollRestoreRef,
     nativeMessageScrollRef,
   ]);

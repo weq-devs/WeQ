@@ -16,6 +16,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Storage } from 'happy-dom';
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { MainView } from '../src/renderer/src/views/MainView';
+import { GROUP_INITIAL_PAGE_SIZE, PAGE_SIZE } from '../src/renderer/src/views/workspace/paging';
 import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
 import { useViewState } from '../src/renderer/src/state/view';
 import type { ChatMainContent } from '../src/renderer/src/im-template/template/chatMainContent';
@@ -118,6 +119,7 @@ const f = vi.hoisted(() => ({
   jump: undefined as ((target: ReplyJumpTarget) => void | Promise<void>) | undefined,
   automaticGap: false,
   beforeRows: [] as TestMessage[],
+  beforeReply: undefined as ((beforeSeq: string) => TestMessage[]) | undefined,
   afterReply: undefined as (() => Promise<TestMessage[]>) | undefined,
   previewMessages: [] as ComponentProps<typeof GapMessagesModal>['messages'],
   previewMore: undefined as (() => void) | undefined,
@@ -218,7 +220,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           return () => ({ mutate: vi.fn(), mutateAsync: refetch, isLoading: false });
         if (key === 'useSubscription') return () => {};
         if (key === 'query' || key === 'mutate' || key === 'invalidate')
-          return async (input?: UnreadInput) => {
+          return async (input?: UnreadInput & { beforeSeq?: string }) => {
             if (path.at(-1) === 'peerQqShow') return null;
             if (
               [
@@ -247,7 +249,8 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               return { changed: true, report: { state: 'disabled' } };
             }
             if (path.at(-1) === 'memberDetails') return f.memberDetails;
-            if (path.at(-1) === 'listBefore') return f.beforeRows;
+            if (path.at(-1) === 'listBefore')
+              return f.beforeReply?.(input?.beforeSeq ?? '') ?? f.beforeRows;
             if (path.at(-1) === 'listAfter') return f.afterReply?.() ?? [];
             if (path.at(-1) === 'fetchGapMessages') {
               f.gapRequests.push(input);
@@ -474,6 +477,7 @@ afterEach(() => {
   f.jump = undefined;
   f.automaticGap = false;
   f.beforeRows = [];
+  f.beforeReply = undefined;
   f.afterReply = undefined;
   f.previewMessages = [];
   f.previewMore = undefined;
@@ -742,6 +746,88 @@ it.each(['10001', 'u_peer'])(
     }
   },
 );
+
+it.each(['首屏校准完成', '历史整页无可显示内容'])('%s后停在顶部会自动续读', async (scenario) => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  useViewState.getState().setOpenedUin('90001');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const row = (seq: number, renderable = true): TestMessage => ({
+    msgId: `paging-${seq}`,
+    msgSeq: String(seq),
+    sendTime: String(1794200000 + seq),
+    senderUid: 'u_peer',
+    senderUin: '20001',
+    elements: renderable ? [{ type: 'text', text: `消息 ${seq}` }] : [],
+  });
+  const firstSeq = PAGE_SIZE + 10;
+  const entryPending = scenario === '首屏校准完成';
+  const finalSeq = entryPending ? firstSeq - 1 : firstSeq - PAGE_SIZE - 1;
+  const before = vi.fn((cursor: string) => {
+    if (!entryPending && cursor === String(firstSeq))
+      return Array.from({ length: PAGE_SIZE }, (_, index) => row(firstSeq - 1 - index, false));
+    return [row(finalSeq)];
+  });
+  f.beforeReply = before;
+  const flushFrames = () => act(async () => vi.advanceTimersByTimeAsync(64));
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    await act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+        .find((button) => button.textContent === '10001')!
+        .click(),
+    );
+    const read = f.reads.at(-1)!;
+    await act(async () =>
+      read.show({
+        complete: !entryPending,
+        rows: Array.from({ length: GROUP_INITIAL_PAGE_SIZE }, (_, index) =>
+          row(firstSeq + GROUP_INITIAL_PAGE_SIZE - 1 - index),
+        ),
+      }),
+    );
+    expect(f.messages).toHaveLength(GROUP_INITIAL_PAGE_SIZE);
+    const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
+    Object.defineProperties(scroll, {
+      clientHeight: { value: 300 },
+      clientWidth: { value: 600 },
+      scrollHeight: { value: 1200 },
+    });
+    const rect = new DOMRect(0, 0, 600, 300);
+    vi.spyOn(scroll, 'getClientRects').mockReturnValue(Object.assign([rect], { item: () => rect }));
+    act(() => {
+      scroll.scrollTop = 0;
+      scroll.dispatchEvent(new Event('scroll'));
+    });
+    await flushFrames();
+    if (entryPending) {
+      expect(before).not.toHaveBeenCalled();
+      await act(async () => read.show({ complete: true, rows: [], reuseLocal: true }));
+    } else {
+      expect(before.mock.calls).toEqual([[String(firstSeq)]]);
+      expect(f.messages).toHaveLength(GROUP_INITIAL_PAGE_SIZE);
+    }
+    await flushFrames();
+    expect(before.mock.calls.flat()).toEqual(
+      entryPending ? [String(firstSeq)] : [String(firstSeq), String(firstSeq - PAGE_SIZE)],
+    );
+    expect(f.messages.map((message) => message.msgSeq)).toContain(String(finalSeq));
+  } finally {
+    await act(async () => root.unmount());
+    client.clear();
+    host.remove();
+  }
+});
 
 it.each([
   { summarySeq: '900', mismatch: 'none' },

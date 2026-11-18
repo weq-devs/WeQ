@@ -6372,7 +6372,6 @@ function MainWorkspace(): ReactElement {
     messagesTabActive,
     loadingInitialMessages,
     readFromFirstUnread: displaySettings.data?.readFromFirstUnread ?? false,
-    messageCount: templateMessages.length,
     centerWindowOnSeq,
   });
   // 目标已是选中的会话，但从联系人等页面返回时不会重新触发会话首屏读取。
