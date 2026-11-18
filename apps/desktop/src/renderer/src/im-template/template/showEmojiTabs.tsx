@@ -102,9 +102,6 @@ export function CustomEmojiTab({
 
   return (
     <div className="show-emoji-tab show-emoji-custom">
-      <header className="emoji-section-head">
-        <h3>自定义表情</h3>
-      </header>
       {picker.element}
       <button
         type="button"

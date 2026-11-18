@@ -42,22 +42,9 @@
   align-items: center;
   flex-shrink: 0;
   gap: 4px;
-  min-height: 36px;
   min-width: 0;
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--weq-border-subtle);
+  margin-inline-start: auto;
   color: var(--weq-fg-primary);
-}
-
-.weq-favorite-bundle-controls strong {
-  margin-right: auto;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.emoji-panel[data-favorite-toolbar='true'] {
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr) 46px;
 }
 
 html[data-theme='dark'] .weq-epk-format select {

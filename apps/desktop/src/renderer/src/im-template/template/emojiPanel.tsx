@@ -13,7 +13,7 @@
  */
 
 import { EmptyState } from '../../components/EmptyState';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTabActive } from '../../components/RetainedTabs.shared';
 import { FavoriteBundleControls } from '../../components/qq-actions/FavoriteBundleControls';
@@ -156,6 +156,7 @@ export function EmojiPanel({
         .filter((g) => g.items.length)
     : systemGroups;
   const displayRecent = recent.filter((item) => !item.unicode && (!large || item.sticker));
+  const bouncing = Boolean(bounceFace && onSendBounce);
   const selectFace = large ? (onSelectSuper ?? onSelect) : onSelect;
   const openBounce =
     !large && canBounce
@@ -175,19 +176,46 @@ export function EmojiPanel({
     }));
 
   return (
-    <div
-      className={cn('emoji-panel')}
-      ref={panelRef}
-      aria-label="表情面板"
-      data-favorite-toolbar={tab === 'fav' || undefined}
-    >
-      {tab === 'fav' && (
-        <FavoriteBundleControls
-          onChanged={async () => {
-            await overview.refetch();
-          }}
-        />
-      )}
+    <div className={cn('emoji-panel')} ref={panelRef} aria-label="表情面板">
+      <header className="emoji-panel-header">
+        <h3>
+          {bouncing
+            ? '弹射表情'
+            : tab === 'fav'
+              ? '收藏表情'
+              : TABS.find((item) => item.id === tab)?.label}
+        </h3>
+        {!bouncing && tab === 'face' && openBounce ? (
+          <span className="emoji-heading-note">弹射：右键 / 长按</span>
+        ) : null}
+        {tab === 'fav' ? (
+          <FavoriteBundleControls
+            onChanged={async () => {
+              await overview.refetch();
+            }}
+          />
+        ) : tab === 'market' && !marketPackId ? (
+          <button
+            type="button"
+            className="emoji-add-btn"
+            title="搜索更多表情"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => setSearchOpen(true)}
+          >
+            <Plus size={15} /> 添加
+          </button>
+        ) : bouncing || tab === 'poke' ? (
+          <button
+            type="button"
+            className="emoji-panel-header-close"
+            title="返回表情"
+            aria-label="返回表情"
+            onClick={() => (bouncing ? setBounceFace(null) : setTab('face'))}
+          >
+            <X size={15} />
+          </button>
+        ) : null}
+      </header>
       <div className="emoji-panel-body" ref={bodyRef}>
         {bounceFace && onSendBounce ? (
           <BounceEmojiPanel
@@ -195,7 +223,6 @@ export function EmojiPanel({
             disabled={disabled}
             disabledHint={disabledHint}
             onSend={onSendBounce}
-            onClose={() => setBounceFace(null)}
           />
         ) : tab === 'poke' ? (
           <PokeEmojiPanel
@@ -204,14 +231,9 @@ export function EmojiPanel({
             onSend={onSendPoke}
             randomFaces={randomFaces}
             onSendRandom={onSendRandom}
-            onClose={() => setTab('face')}
           />
         ) : tab === 'face' || tab === 'super' ? (
           <div className={cn('emoji-section')}>
-            <header className="emoji-section-head">
-              <h3>{large ? '超级表情' : '表情'}</h3>
-              {openBounce ? <span className="emoji-heading-note">弹射：右键 / 长按</span> : null}
-            </header>
             {displayGroups.length === 0 ? (
               <div className="emoji-state">
                 {overview.isLoading ? '加载中…' : large ? '没有超级表情' : '没有系统表情'}
@@ -248,12 +270,7 @@ export function EmojiPanel({
             onSelect={onSelect}
           />
         ) : tab === 'market' ? (
-          <MarketTab
-            packId={marketPackId}
-            onOpenPack={setMarketPackId}
-            onSelect={onSelect}
-            onOpenSearch={() => setSearchOpen(true)}
-          />
+          <MarketTab packId={marketPackId} onOpenPack={setMarketPackId} onSelect={onSelect} />
         ) : tab === 'fav' ? (
           <FavoritePickerTab
             loading={overview.isLoading}
@@ -393,11 +410,11 @@ function FaceCell({
   const [broken, setBroken] = useState(false);
   const press = useRef<{ timer: number; x: number; y: number } | null>(null);
   const triggered = useRef(false);
-  function cancelPress() {
+  const cancelPress = useCallback(() => {
     if (press.current) window.clearTimeout(press.current.timer);
     press.current = null;
-  }
-  useEffect(() => cancelPress, []);
+  }, []);
+  useEffect(() => cancelPress, [cancelPress]);
   const { item } = cell;
   const src = cell.previewSrc ?? item.src;
   return (
@@ -523,12 +540,10 @@ function MarketTab({
   packId,
   onOpenPack,
   onSelect,
-  onOpenSearch,
 }: {
   packId: string | null;
   onOpenPack: (id: string | null) => void;
   onSelect: (item: EmojiItem) => void;
-  onOpenSearch: () => void;
 }) {
   const packages = trpc.account.emojiPanel.marketPackages.useQuery();
 
@@ -539,18 +554,6 @@ function MarketTab({
   const list = packages.data ?? [];
   return (
     <div className={cn('emoji-section')}>
-      <div className={cn('emoji-section-head')}>
-        <h3>我添加的商城表情包</h3>
-        <button
-          type="button"
-          className={cn('emoji-add-btn')}
-          title="搜索更多表情"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={onOpenSearch}
-        >
-          <Plus size={15} /> 添加
-        </button>
-      </div>
       {packages.isLoading ? (
         <div className={cn('emoji-state')}>加载中…</div>
       ) : list.length === 0 ? (

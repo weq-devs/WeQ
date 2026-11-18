@@ -12,7 +12,7 @@
   );
   min-height: 260px;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) 46px;
+  grid-template-rows: auto minmax(0, 1fr) 46px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
   border-radius: 12px;
@@ -22,6 +22,43 @@
 
 .emoji-panel:has(> .emoji-panel-body > .poke-panel) {
   --emoji-panel-height: 360px;
+}
+
+.emoji-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.emoji-panel-header h3 {
+  margin: 0;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.emoji-panel-header-close {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-inline-start: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+
+.emoji-panel-header-close:hover {
+  background: var(--muted);
+  color: var(--weq-fg-primary);
 }
 
 .emoji-panel-body {

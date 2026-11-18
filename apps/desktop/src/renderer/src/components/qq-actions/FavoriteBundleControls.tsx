@@ -16,7 +16,6 @@ function FavoriteBundleControlsBody({ onChanged }: { onChanged: () => Promise<vo
   };
   return (
     <div className="weq-favorite-bundle-controls" role="toolbar" aria-label="收藏表情导入导出">
-      <strong>收藏表情</strong>
       <FavoriteBundleImport
         binding={action.binding}
         available={action.available && !action.pending && !action.busy}

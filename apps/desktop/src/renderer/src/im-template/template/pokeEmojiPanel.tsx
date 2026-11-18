@@ -12,7 +12,7 @@
  *     复用聊天里的 `FaceEmoji` 渲染 `<faceId>_<innerId>.json` 结果片段；
  *   - 一排编号按钮：戳一戳是 `0..3` 的连击档，随机表情是 `1..n` 的结果编号，
  *     共用同一套 `.poke-combo` / `.poke-combo-btn` 控件；
- *   - 标题栏共用一个发送按钮，按当前选中的表情决定发什么。
+ *   - 预览旁共用一个发送按钮，按当前选中的表情决定发什么。
  *
  * ⚠️ 元素用的是草稿 token 形状（`{ kind:'pokeEmoji', pokeId, combo }` /
  * `{ kind:'face', superSticker:{ resultId } }`），由 `composerSend` 翻成
@@ -21,7 +21,7 @@
 
 import { useState } from 'react';
 import type { RefObject } from 'react';
-import { Hand, SendHorizontal, X } from 'lucide-react';
+import { SendHorizontal } from 'lucide-react';
 import { FaceEmoji } from '../../components/FaceEmoji';
 import { emojiUrl, resourceUrl } from '../../lib/resourceUrl';
 import { POKE_COMBO_MAX, POKE_FACE_IDS, POKE_FACE_SUBTYPE } from '../../lib/pokeFace';
@@ -62,7 +62,6 @@ export function PokeEmojiPanel({
   onSend,
   randomFaces = [],
   onSendRandom,
-  onClose,
 }: {
   panelRef?: RefObject<HTMLDivElement | null>;
   /** QQ 未在线 / 完全离线等：面板照常挑，只是发不出去。 */
@@ -72,7 +71,6 @@ export function PokeEmojiPanel({
   /** 可指定结果的随机表情（来自本地资源）；缺省时不渲染这一段。 */
   randomFaces?: RandomFaceOption[];
   onSendRandom?: (draft: RandomFaceDraft) => void;
-  onClose: () => void;
 }) {
   const [mode, setMode] = useState<Mode>('poke');
   const [pokeId, setPokeId] = useState<number>(POKE_FACE_IDS[0]);
@@ -129,32 +127,6 @@ export function PokeEmojiPanel({
       role="dialog"
       aria-label="互动表情"
     >
-      <header className={cn('poke-head')}>
-        <span className={cn('poke-head-title')}>
-          <Hand size={14} strokeWidth={2.1} />
-          互动表情
-        </span>
-        <button
-          type="button"
-          className={cn('poke-btn', 'primary')}
-          title={disabled ? disabledHint : random ? '发送随机表情' : '发送戳一戳'}
-          disabled={random ? !canSendRandom : !canSend}
-          onClick={submit}
-        >
-          <SendHorizontal size={13} strokeWidth={2.2} />
-          发送
-        </button>
-        <button
-          type="button"
-          className={cn('poke-close')}
-          title="关闭"
-          aria-label="关闭"
-          onClick={onClose}
-        >
-          <X size={15} strokeWidth={2.4} />
-        </button>
-      </header>
-
       <div className={cn('poke-body')}>
         <div className={cn('poke-stage')}>
           <div className={cn('poke-preview')}>
@@ -167,55 +139,67 @@ export function PokeEmojiPanel({
           </div>
 
           <div className={cn('poke-controls')}>
-            <span className={cn('poke-label')}>{random ? '随机结果' : '连击'}</span>
-            {/* 同一排编号按钮：戳一戳 = 连击档（0..3，图随档变大）；随机表情 = 结果编号。 */}
-            <div
-              className={cn('poke-combo')}
-              role="radiogroup"
-              aria-label={random ? '随机结果' : '连击次数'}
-            >
-              {random
-                ? selectedRandom.innerIds.map((id) => {
-                    const active = id === randomInner;
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        className={cn('poke-combo-btn', 'is-number', active && 'is-active')}
-                        role="radio"
-                        aria-checked={active}
-                        aria-label={`结果 ${id}`}
-                        title={`结果 ${id}`}
-                        onClick={() => setRandomInner(id)}
-                      >
-                        {id}
-                      </button>
-                    );
-                  })
-                : COMBO_STEPS.map((step) => {
-                    const active = step === combo;
-                    const thumb = comboThumbSize(step);
-                    return (
-                      <button
-                        key={step}
-                        type="button"
-                        className={cn('poke-combo-btn', active && 'is-active')}
-                        role="radio"
-                        aria-checked={active}
-                        aria-label={`连击 ${step}`}
-                        title={`连击 ${step}`}
-                        onClick={() => setCombo(step)}
-                      >
-                        <img
-                          src={pokeSrc}
-                          alt=""
-                          style={{ width: thumb, height: thumb }}
-                          draggable={false}
-                        />
-                      </button>
-                    );
-                  })}
+            <div className="poke-choice-row">
+              <span className={cn('poke-label')}>{random ? '随机结果' : '连击'}</span>
+              {/* 同一排编号按钮：戳一戳 = 连击档（0..3，图随档变大）；随机表情 = 结果编号。 */}
+              <div
+                className={cn('poke-combo')}
+                role="radiogroup"
+                aria-label={random ? '随机结果' : '连击次数'}
+              >
+                {random
+                  ? selectedRandom.innerIds.map((id) => {
+                      const active = id === randomInner;
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          className={cn('poke-combo-btn', 'is-number', active && 'is-active')}
+                          role="radio"
+                          aria-checked={active}
+                          aria-label={`结果 ${id}`}
+                          title={`结果 ${id}`}
+                          onClick={() => setRandomInner(id)}
+                        >
+                          {id}
+                        </button>
+                      );
+                    })
+                  : COMBO_STEPS.map((step) => {
+                      const active = step === combo;
+                      const thumb = comboThumbSize(step);
+                      return (
+                        <button
+                          key={step}
+                          type="button"
+                          className={cn('poke-combo-btn', active && 'is-active')}
+                          role="radio"
+                          aria-checked={active}
+                          aria-label={`连击 ${step}`}
+                          title={`连击 ${step}`}
+                          onClick={() => setCombo(step)}
+                        >
+                          <img
+                            src={pokeSrc}
+                            alt=""
+                            style={{ width: thumb, height: thumb }}
+                            draggable={false}
+                          />
+                        </button>
+                      );
+                    })}
+              </div>
             </div>
+            <button
+              type="button"
+              className={cn('poke-btn', 'primary')}
+              title={disabled ? disabledHint : random ? '发送随机表情' : '发送戳一戳'}
+              disabled={random ? !canSendRandom : !canSend}
+              onClick={submit}
+            >
+              <SendHorizontal size={13} strokeWidth={2.2} />
+              发送
+            </button>
           </div>
         </div>
 

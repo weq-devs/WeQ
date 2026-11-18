@@ -57,7 +57,7 @@ const samples = [
   ['weq-ark-feed-header', 'bottom', '订阅内容'],
   ['weq-mf-nested-bar', 'bottom', '嵌套聊天记录'],
   ['group-keyword-editor-panel', 'top', '提醒词编辑'],
-  ['poke-head', 'bottom', '互动表情操作栏'],
+  ['emoji-panel-header', 'bottom', '表情面板标题栏'],
   ['ai-voice-head', 'bottom', '语音面板'],
   ['reaction-picker-head', 'bottom', '回应面板'],
   ['sidebar-header', 'bottom', '侧栏标题'],

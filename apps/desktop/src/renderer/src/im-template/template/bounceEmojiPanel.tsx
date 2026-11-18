@@ -24,7 +24,7 @@
 import { EmptyState } from '../../components/EmptyState';
 import { useEffect, useMemo, useState } from 'react';
 import type { RefObject } from 'react';
-import { Rocket, SendHorizontal, Smile, X } from 'lucide-react';
+import { SendHorizontal, Smile } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { formatBounceCount } from '../../lib/bounceCount';
 import { cn } from './classNames';
@@ -62,7 +62,6 @@ export function BounceEmojiPanel({
   disabled,
   disabledHint,
   onSend,
-  onClose,
 }: {
   panelRef?: RefObject<HTMLDivElement | null>;
   initialFace?: { id: string; name: string };
@@ -70,7 +69,6 @@ export function BounceEmojiPanel({
   disabled: boolean;
   disabledHint: string;
   onSend: (draft: BounceEmojiDraft) => void;
-  onClose: () => void;
 }) {
   const overview = trpc.account.emojiPanel.overview.useQuery(undefined, { staleTime: 30_000 });
   const [pick, setPick] = useState<{ id: string; desc: string } | null>(
@@ -139,23 +137,6 @@ export function BounceEmojiPanel({
       role="dialog"
       aria-label="弹射表情"
     >
-      <header className={cn('bounce-head')}>
-        <span className={cn('bounce-head-title')}>
-          <Rocket size={14} strokeWidth={2.1} />
-          弹射表情
-        </span>
-        <span className={cn('bounce-head-tag')}>单独发送</span>
-        <button
-          type="button"
-          className={cn('bounce-close')}
-          title="关闭"
-          aria-label="关闭"
-          onClick={onClose}
-        >
-          <X size={15} strokeWidth={2.4} />
-        </button>
-      </header>
-
       <div className="bounce-config">
         <div className={cn('bounce-stage')}>
           <div className={cn('bounce-preview')}>
@@ -236,29 +217,29 @@ export function BounceEmojiPanel({
                 发射
               </button>
             </div>
+            <div className="bounce-presets">
+              {COUNT_PRESETS.map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={cn('bounce-preset', parsed.count === value && 'is-active')}
+                  aria-pressed={parsed.count === value}
+                  onClick={() => {
+                    setCountText(String(value));
+                    setTouched(true);
+                  }}
+                >
+                  {countLabel.format(value)}
+                </button>
+              ))}
+            </div>
+            {touched && parsed.error ? (
+              <span className="bounce-error" role="status">
+                {parsed.error}
+              </span>
+            ) : null}
           </div>
         </div>
-        <div className="bounce-presets">
-          {COUNT_PRESETS.map((value) => (
-            <button
-              key={value}
-              type="button"
-              className={cn('bounce-preset', parsed.count === value && 'is-active')}
-              aria-pressed={parsed.count === value}
-              onClick={() => {
-                setCountText(String(value));
-                setTouched(true);
-              }}
-            >
-              {countLabel.format(value)}
-            </button>
-          ))}
-        </div>
-        {touched && parsed.error ? (
-          <span className="bounce-error" role="status">
-            {parsed.error}
-          </span>
-        ) : null}
       </div>
 
       <div className={cn('bounce-picker')}>

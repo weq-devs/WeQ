@@ -1863,7 +1863,7 @@ html[data-theme='dark'] .ai-voice-chip {
   height: 100%;
   width: min(452px, calc(100% - 28px));
   max-height: min(496px, calc(100dvh - 190px));
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
   border-radius: 12px;
@@ -1879,68 +1879,7 @@ html[data-theme='dark'] .ai-voice-chip {
   }
 }
 
-.bounce-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 10px 9px 12px;
-  border-bottom: 1px solid var(--weq-border-subtle);
-}
-
-.bounce-head-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--weq-fg-primary, #111111);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.bounce-head-title svg {
-  color: var(--weq-accent-effective, #0099ff);
-}
-
-/* 「单独发送」这个约束写在标题旁边，一眼能看到。 */
-.bounce-head-tag {
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 12%, transparent);
-  color: color-mix(
-    in srgb,
-    var(--weq-accent-effective, #0099ff) 88%,
-    var(--weq-fg-primary, #111111)
-  );
-  font-size: 10.5px;
-  font-weight: 500;
-  line-height: 1.6;
-  white-space: nowrap;
-}
-
-.bounce-close {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  margin-left: auto;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--weq-fg-muted, #858585);
-  cursor: pointer;
-  transition:
-    background 130ms ease,
-    color 130ms ease;
-}
-
-.bounce-close:hover {
-  background: color-mix(in srgb, var(--media-danger, #f0483e) 12%, transparent);
-  color: var(--media-danger, #f0483e);
-}
-
 .bounce-config {
-  display: grid;
-  gap: 8px;
   padding: 8px 12px 10px;
   border-bottom: 1px solid var(--weq-border-subtle);
 }
@@ -1951,13 +1890,13 @@ html[data-theme='dark'] .ai-voice-chip {
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr);
   gap: 10px;
-  align-items: center;
+  align-items: stretch;
 }
 
 .bounce-preview {
   display: grid;
   position: relative;
-  height: 52px;
+  min-height: 52px;
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
   border-radius: 8px;
@@ -2086,12 +2025,13 @@ html[data-theme='dark'] .ai-voice-chip {
 .bounce-presets {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(max-content, 2fr);
-  gap: 6px;
+  gap: 4px;
+  margin-top: 3px;
 }
 
 .bounce-preset {
   min-height: 27px;
-  padding: 2px 6px;
+  padding: 2px 2px;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 78%, transparent);
   border-radius: 999px;
   background: transparent;
@@ -2271,7 +2211,7 @@ html[data-theme='dark'] .bounce-step {
   height: 100%;
   min-width: 0;
   --poke-option-edge: 34px;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
 }
 
 @keyframes poke-in {
@@ -2279,48 +2219,6 @@ html[data-theme='dark'] .bounce-step {
     opacity: 0;
     transform: translateY(6px);
   }
-}
-
-.poke-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px var(--poke-inline-inset);
-  border-bottom: 1px solid var(--weq-border-subtle);
-}
-
-.poke-head-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--weq-fg-primary, #111111);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.poke-head-title svg {
-  color: var(--weq-accent-effective, #0099ff);
-}
-
-.poke-close {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--weq-fg-muted, #858585);
-  cursor: pointer;
-  transition:
-    background 130ms ease,
-    color 130ms ease;
-}
-
-.poke-close:hover {
-  background: color-mix(in srgb, var(--media-danger, #f0483e) 12%, transparent);
-  color: var(--media-danger, #f0483e);
 }
 
 .poke-body {
@@ -2359,10 +2257,15 @@ html[data-theme='dark'] .bounce-step {
 }
 
 .poke-controls {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.poke-choice-row {
   display: flex;
   min-width: 0;
   align-items: center;
-  justify-content: center;
   gap: 8px;
 }
 
@@ -2488,7 +2391,7 @@ html[data-theme='dark'] .bounce-step {
   flex: 0 0 auto;
   align-items: center;
   gap: 5px;
-  margin-left: auto;
+  justify-self: end;
   padding: 6px 12px;
   border: 0;
   border-radius: 8px;
@@ -2533,7 +2436,7 @@ html[data-theme='dark'] .poke-combo-btn:not(:where(.is-active, :hover)) {
   gap: 8px;
 }
 
-:where(html[data-weq-layout='single']) .poke-controls {
+:where(html[data-weq-layout='single']) .poke-choice-row {
   gap: 6px;
 }
 
