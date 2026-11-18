@@ -634,6 +634,7 @@ function GroupPickerModal({ groups, mode, value, onClose, onConfirm }) {
             </button>
             <button
               className="weq-grouppick-btn is-primary"
+              data-weq-dialog-confirm
               type="button"
               onClick={() => onConfirm(Array.from(draft))}
             >

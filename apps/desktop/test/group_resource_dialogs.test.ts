@@ -10,7 +10,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it('系统子窗中的确认框及 Esc 留在该窗口，不出现在主窗口', async () => {
+it.each(['Enter', 'Escape'])('系统子窗中的确认框及 %s 留在该窗口，不出现在主窗口', async (key) => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const popup = new HappyWindow();
   const host = document.createElement('div');
@@ -25,10 +25,12 @@ it('系统子窗中的确认框及 Esc 留在该窗口，不出现在主窗口',
     });
     expect(document.querySelector('.weq-message-modal')).toBeNull();
     expect(popup.document.querySelector('.weq-message-modal')).not.toBeNull();
+    act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key, cancelable: true })));
+    expect(popup.document.querySelector('.weq-message-modal')).not.toBeNull();
     act(() => {
-      popup.document.dispatchEvent(new popup.KeyboardEvent('keydown', { key: 'Escape' }));
+      popup.document.dispatchEvent(new popup.KeyboardEvent('keydown', { key, cancelable: true }));
     });
-    await expect(result!).resolves.toBe(false);
+    await expect(result!).resolves.toBe(key === 'Enter');
     expect(popup.document.querySelector('.weq-message-modal')).toBeNull();
   } finally {
     act(() => root.unmount());

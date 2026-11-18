@@ -122,10 +122,10 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   const generation = useRef(0);
   const alive = useRef(true);
   const input = useRef<HTMLInputElement>(null);
-  const cancelButton = useRef<HTMLButtonElement>(null);
+  const confirmButton = useRef<HTMLButtonElement>(null);
   const defaultsFailed = useRef(false);
   useEffect(() => {
-    if (confirm && !busy) cancelButton.current?.focus();
+    if (confirm && !busy && !confirmButton.current?.disabled) confirmButton.current?.focus();
   }, [confirm, busy]);
   const toast = useToast((s) => s.push);
   const refresh = useCallback(
@@ -816,7 +816,6 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
               <button
                 type="button"
                 className="weq-action-soft"
-                ref={cancelButton}
                 disabled={Boolean(busy)}
                 onClick={closeConfirmation}
               >
@@ -825,6 +824,8 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
               <button
                 type="button"
                 className="weq-action-primary"
+                data-weq-dialog-confirm
+                ref={confirmButton}
                 data-danger={confirm === 'defaults' || confirm === 'apply' ? 'solid' : undefined}
                 disabled={Boolean(busy) || (confirm === 'defaults' && !defaultsInfo)}
                 onClick={() =>

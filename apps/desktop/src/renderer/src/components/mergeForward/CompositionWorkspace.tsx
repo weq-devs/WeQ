@@ -33,6 +33,7 @@ import { MergeForwardComposer } from './MergeForwardComposer';
 import { MergeForwardTargets } from './MergeForwardTargets';
 import { SequentialForwardDialog } from '../SequentialForwardDialog';
 import { Modal } from '../Dialog';
+import { useDialog } from '../Dialog.shared';
 import { useToast } from '../Toast.shared';
 import { NotificationSourceProvider } from '../../lib/notificationNavigation';
 import { notificationSource } from '../../lib/notificationNavigation.shared';
@@ -804,6 +805,16 @@ function CompositionWorkspaceBody({
                             disabledReason="正在处理当前操作，请稍后"
                             onClick={() =>
                               void perform(async () => {
+                                if (
+                                  !(await useDialog
+                                    .getState()
+                                    .confirm(
+                                      kind === 'history' ? '删除合成记录' : '删除素材',
+                                      `将删除「${entry.title || draftTitle(entry.nodes)}」，此操作无法撤销。`,
+                                      { okLabel: '删除', danger: 'solid', ownerDocument },
+                                    ))
+                                )
+                                  return;
                                 if (kind === 'history') {
                                   if (dirtyRef.current)
                                     await persist(structuredClone(working), binding);

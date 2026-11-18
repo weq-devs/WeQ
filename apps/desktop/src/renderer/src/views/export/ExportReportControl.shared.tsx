@@ -75,6 +75,7 @@ export function useExportReportDialog() {
             <button
               type="button"
               className="weq-export-report-button is-primary"
+              data-weq-dialog-confirm
               onClick={() => finish(checked)}
             >
               <Download size={15} />

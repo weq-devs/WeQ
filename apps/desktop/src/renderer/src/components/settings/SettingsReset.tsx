@@ -59,12 +59,13 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
   const [error, setError] = useState('');
   const [directories, setDirectories] = useState<string[]>([]);
   const [results, setResults] = useState<SettingsResetResult[]>([]);
-  const cancelButton = useRef<HTMLButtonElement>(null);
+  const confirmButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    const button = cancelButton.current;
+    const button = confirmButton.current;
     if (
       !busy &&
       button &&
+      !button.disabled &&
       button.ownerDocument.activeElement === button.closest('.weq-dialog-layer')
     )
       button.focus();
@@ -331,7 +332,6 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
             </div>
             <div className="weq-modal-actions weq-dialog-foot">
               <button
-                ref={cancelButton}
                 type="button"
                 className="weq-set-btn weq-set-btn-soft"
                 disabled={busy}
@@ -353,6 +353,8 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
                 type="button"
                 className="weq-set-btn"
                 data-danger="outline"
+                data-weq-dialog-confirm
+                ref={confirmButton}
                 disabled={
                   busy ||
                   (!changed.length && !results.some((item) => !item.ok)) ||

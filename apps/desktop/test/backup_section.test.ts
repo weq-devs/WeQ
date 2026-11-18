@@ -183,11 +183,15 @@ it('配置备份页保留全局恢复入口，先读取范围、取消不提交�
   expect(ui.button('确认恢复默认').dataset.danger).toBe('solid');
   expect(modal.textContent).toContain('所有账号');
   expect(modal.textContent).toContain('默认保留');
-  expect(document.activeElement).toBe(ui.button('取消'));
+  expect(document.activeElement).toBe(ui.button('确认恢复默认'));
   await ui.click('取消');
   expect(f.api.defaults).not.toHaveBeenCalled();
   await ui.click('恢复全局默认设置');
-  await ui.click('确认恢复默认');
+  await act(async () =>
+    document.activeElement!.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    ),
+  );
   expect(f.api.defaults).toHaveBeenCalledWith(expect.any(String), {});
   expect(reset.restore).not.toHaveBeenCalled();
 });
@@ -398,14 +402,14 @@ it('读取恢复范围失败可重试，未读取成功时不能确认恢复', a
   await ui.click('取消');
   expect(reset.restore).not.toHaveBeenCalled();
 });
-it('恢复默认使用居中模态确认，焦点落在取消，取消不提交恢复', async () => {
+it('恢复默认使用居中模态确认，默认聚焦确认，取消仍不提交恢复', async () => {
   const ui = await mountReset();
   await ui.click('恢复本页默认设置');
   const confirmation = document.querySelector('[role="dialog"][aria-modal="true"]');
   expect(confirmation).not.toBeNull();
   expect(ui.host.contains(confirmation)).toBe(false);
   expect(confirmation?.textContent).toContain('默认设置？');
-  expect(document.activeElement).toBe(ui.button('取消'));
+  expect(document.activeElement).toBe(ui.button('确认恢复默认'));
   await ui.click('取消');
   expect(document.querySelector('[role="dialog"]')).toBeNull();
   expect(reset.restore).not.toHaveBeenCalled();

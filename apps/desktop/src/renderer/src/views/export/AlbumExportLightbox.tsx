@@ -194,6 +194,7 @@ export function AlbumExportLightbox({
           <button
             type="button"
             className="weq-exp-btn is-primary"
+            data-weq-dialog-confirm
             disabled={
               submitting || loadingAlbums || Boolean(albumError) || selectedAlbums.length === 0
             }

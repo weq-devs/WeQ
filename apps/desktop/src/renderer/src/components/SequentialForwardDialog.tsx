@@ -330,6 +330,7 @@ export function SequentialForwardDialog({
           <button
             type="button"
             className="weq-action-primary"
+            data-weq-dialog-confirm
             data-forward-confirm-ignore={reviewOpen || undefined}
             disabled={
               started || Boolean(invalid) || picked.length === 0 || prepared.sendable.length === 0

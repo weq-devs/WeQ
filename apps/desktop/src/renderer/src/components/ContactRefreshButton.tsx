@@ -150,6 +150,7 @@ export function ContactCacheRefreshDialog({
           <button
             type="button"
             className="weq-action-primary"
+            data-weq-dialog-confirm
             aria-busy={rebuild.isLoading}
             disabled={rebuild.isLoading || (range !== 'none' && config.data?.uin !== uin)}
             onClick={() => void start()}

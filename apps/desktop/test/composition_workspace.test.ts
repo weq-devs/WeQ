@@ -1,4 +1,4 @@
-import { act, createElement, useState } from 'react';
+import { act, createElement, Fragment, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Window as HappyWindow, Storage } from 'happy-dom';
@@ -26,7 +26,8 @@ import {
   type MfDraft,
 } from '../src/renderer/src/components/mergeForward/model';
 import { RenderDocumentContext, USER_ACTIVITY_EVENT } from '../src/renderer/src/lib/renderDocument';
-import { Modal } from '../src/renderer/src/components/Dialog';
+import { DialogHost, Modal } from '../src/renderer/src/components/Dialog';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import { MsgDressEditor } from '../src/renderer/src/components/mergeForward/MsgDressEditor';
 import { useMultiSelection } from '../src/renderer/src/hooks/useMultiSelection';
 import {
@@ -165,6 +166,7 @@ beforeEach(() => {
   vi.stubGlobal('localStorage', new Storage());
 });
 afterEach(() => {
+  useDialog.getState().close();
   vi.restoreAllMocks();
   vi.useRealTimers();
   useAppLock.getState().unlock();
@@ -208,6 +210,64 @@ function button(host: ParentNode, name: string) {
 }
 
 describe('合成工作窗口', () => {
+  it.each(['history', 'material'] as const)(
+    '删除 %s 先确认，取消保留，Enter 确认才删除',
+    async (kind) => {
+      fixture[kind] = [structuredClone(initial)];
+      const f = mount(
+        createElement(
+          Fragment,
+          null,
+          createElement(DialogHost),
+          createElement(CompositionWorkspace, {
+            popup: null,
+            fallback: true,
+            onClose: vi.fn(),
+            onPopOut: vi.fn(),
+            self,
+            targets: [],
+            sendAvailable: false,
+            onForward: vi.fn(),
+            onSend: vi.fn(),
+            onOpenTarget: vi.fn(),
+          }),
+        ),
+      );
+      const label = kind === 'history' ? '删除合成记录' : '删除素材';
+      try {
+        if (kind === 'material')
+          act(() =>
+            [...f.host.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+              .find((tab) => tab.textContent === '素材库')!
+              .click(),
+          );
+        await act(async () => button(f.host, label).click());
+        expect(useDialog.getState().current?.title).toBe(label);
+        expect(document.querySelector('.weq-message-modal')?.textContent).toContain(initial.title);
+        expect(fixture.writes).toEqual([]);
+        await act(async () => useDialog.getState().close());
+        expect(fixture[kind]).toHaveLength(1);
+        expect(fixture.writes).toEqual([]);
+        await act(async () => button(f.host, label).click());
+        await act(async () =>
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', cancelable: true })),
+        );
+        expect(fixture[kind]).toHaveLength(0);
+        expect(fixture.writes).toEqual([
+          {
+            name: kind === 'history' ? 'workspaceRemove' : 'archiveRemove',
+            input: expect.objectContaining({
+              id: initial.id,
+              expectedAccountConfigId: fixture.configId,
+            }),
+          },
+        ]);
+      } finally {
+        f.close();
+      }
+    },
+  );
+
   it('空合成和离线状态的全部按钮有提示，禁用按钮有明确原因', () => {
     const f = mount(
       createElement(CompositionWorkspace, {

@@ -7934,7 +7934,7 @@ export function ConfirmDialog({
           <button type="button" onClick={onCancel}>
             取消
           </button>
-          <button type="button" onClick={onConfirm}>
+          <button type="button" data-weq-dialog-confirm onClick={onConfirm}>
             确定
           </button>
         </div>

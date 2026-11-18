@@ -495,6 +495,7 @@ export function GroupFileExportLightbox({
           <button
             type="button"
             className="weq-exp-btn is-primary"
+            data-weq-dialog-confirm
             disabled={
               submitting || selecting || loading || Boolean(error) || selectedFiles.length === 0
             }
