@@ -1,5 +1,4 @@
 import '../styles/group-message-badge.css';
-import { NumericText } from './NumericText';
 
 export interface GroupBadgeMember {
   role?: string;
@@ -40,7 +39,7 @@ export function GroupMessageBadge({
       title={text}
       data-privacy-title={(showTitle && Boolean(customTitle)) || undefined}
     >
-      {level ? <NumericText>{level}</NumericText> : null}
+      {level ? <span className="weq-number weq-number-inherit">{level}</span> : null}
       {title && title !== level ? (
         <>
           {level ? ' · ' : null}
