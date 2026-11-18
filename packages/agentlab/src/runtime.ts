@@ -475,13 +475,11 @@ export class AgentRuntime {
         }
       : null;
     const voiceEnabled = this.isVoiceReady(persona);
-    let prepared = await this.images?.prepare({
+    const prepared = await this.images?.prepare({
       feature: 'cloneChat',
       personaId: persona.id,
       text: opts.input,
       images: opts.images,
-      endpoint: chatEndpoint,
-      direct: true,
       signal,
     });
     const history: AgentLabChatTurn[] = [];
@@ -508,21 +506,6 @@ export class AgentRuntime {
       pairs,
       history,
       input: prepared?.text ?? opts.input,
-      inputContent: prepared?.content,
-      fallbackImageInput: prepared?.outcomes.some((outcome) => outcome.status === 'direct')
-        ? async () => {
-            prepared = await this.images!.prepare({
-              feature: 'cloneChat',
-              text: opts.input,
-              images: prepared?.images ?? opts.images,
-              signal,
-              forceOcr: true,
-            });
-            for (const outcome of prepared.outcomes)
-              outcome.notes.unshift('视觉请求失败，本次已回退 OCR。');
-            return prepared.text;
-          }
-        : undefined,
       memories: opts.memories ?? this.memories.get(opts.dataKey ?? persona.id),
       notes: this.notes.get(opts.dataKey ?? persona.id),
       voiceEnabled,

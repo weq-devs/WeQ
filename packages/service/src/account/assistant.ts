@@ -41,6 +41,7 @@ import {
   isApiCancellation,
   apiErrorMessage,
   pickMessageText,
+  imageOutcomeAnnotation,
   type AgentLabEndpoint,
   type AgentLabModelSelection,
   normalizeModelSelection,
@@ -326,6 +327,24 @@ const WRITE_REPORT_SPEC: AssistantToolSpec = {
   },
 };
 
+const ANALYZE_ATTACHED_IMAGE_SPEC: AssistantToolSpec = {
+  type: 'function',
+  function: {
+    name: 'analyze_attached_image',
+    description:
+      '查看用户附件原图中现有图片解读没有覆盖的细节。复用已有描述，只有确实缺少细节或用户要求重新分析时才调用。',
+    parameters: {
+      type: 'object',
+      properties: {
+        imageId: { type: 'string', description: '上下文中 [图片 …] 标明的附件 ID' },
+        question: { type: 'string', maxLength: 4000, description: '需要查看的具体细节' },
+        refresh: { type: 'boolean', description: '仅在用户明确要求重新分析同一附件时为 true' },
+      },
+      required: ['imageId'],
+    },
+  },
+};
+
 /**
  * update_investigation_plan / update_work_notes：调查过程的结构化记忆工具。
  *
@@ -487,10 +506,28 @@ interface ApiMessage {
   images?: AiImageRef[];
   imageOutcomes?: AiImageOutcome[];
   imageReport?: string;
+  imageTurnId?: string;
   role: string;
   content?: unknown;
   tool_calls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }>;
   tool_call_id?: string;
+}
+
+interface AssistantAttachment {
+  image: AiImageRef;
+  message: ApiMessage;
+  ids: string[];
+}
+
+function assistantImageContent(text: string, outcomes: AiImageOutcome[], ids: string[]): string {
+  return [
+    text,
+    ...outcomes.map((outcome, index) =>
+      imageOutcomeAnnotation({ ...outcome, id: ids[index] ?? outcome.id }),
+    ),
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 /** OpenAI 兼容流式响应的一片（`data: {...}`）；只声明我们会读的字段。 */
@@ -536,7 +573,6 @@ export class AssistantService {
   }
   /** 按实际模型记住不支持 reasoning_effort 的端点，不影响切换后的其他模型。 */
   private readonly reasoningUnsupported = new Set<string>();
-  private readonly nonReplayErrors = new WeakSet<object>();
   private readonly permissionRuns = new Set<AbortController>();
   private readonly sessionRuns = new Map<
     string,
@@ -1163,7 +1199,13 @@ export class AssistantService {
       basePrompt,
       messages: [
         { role: 'system', content: basePrompt },
-        ...prior.map((t) => ({ role: t.role, content: t.text, images: t.images })),
+        ...prior.map((t) => ({
+          role: t.role,
+          content: t.text,
+          images: t.images,
+          imageOutcomes: t.imageOutcomes,
+          imageTurnId: t.images?.length ? t.id : undefined,
+        })),
         { role: 'user', content: text, images },
       ],
       workspace: { notes: [] },
@@ -1521,6 +1563,13 @@ export class AssistantService {
       );
       const maxRounds =
         this.config.maxRounds === undefined ? TOOL_LOOP_LIMIT : this.config.maxRounds;
+      const preparedImages = new WeakMap<ApiMessage, string>();
+      const attachmentIds = new WeakMap<ApiMessage, string[]>();
+      const imageToolResults = new Map<
+        string,
+        ReturnType<AssistantService['analyzeAttachedImage']>
+      >();
+      let nextImageId = 0;
       for (let loop = 0; maxRounds === null || loop < maxRounds; loop += 1) {
         throwIfAborted(ac.signal);
         this.consumeSupplements(sessionId, state);
@@ -1538,91 +1587,82 @@ export class AssistantService {
             },
           );
         }
-        const prepareMessages = async (forceOcr = false): Promise<ApiMessage[]> => {
-          const result: ApiMessage[] = [];
-          for (const message of sourceMessages) {
-            const {
-              images: refs,
-              imageOutcomes: _outcomes,
-              imageReport: _report,
-              ...plain
-            } = message;
-            if (!refs?.length || !this.tools?.images) {
-              result.push(plain);
-              continue;
-            }
-            const prepared = await this.tools.images.prepare({
-              feature: 'assistant',
-              text: String(message.content ?? ''),
-              images: refs,
-              endpoint,
-              direct: !forceOcr,
-              signal: ac.signal,
-              forceOcr,
-            });
-            if (forceOcr)
-              for (const outcome of prepared.outcomes)
-                outcome.notes.unshift('视觉请求失败，本次已回退 OCR。');
-            message.imageOutcomes = prepared.outcomes;
-            if ('taskId' in state && typeof state.taskId === 'string')
-              this.conversations.patchImageOutcomes(
-                this.bucketId(sessionId),
-                state.taskId,
-                String(message.content ?? ''),
-                refs,
-                prepared.outcomes,
-              );
-            result.push({ ...plain, content: prepared.content });
-            const notes = prepared.outcomes.flatMap((outcome) => outcome.notes);
-            const report = notes.join('\n');
-            if (report && message.imageReport !== report)
-              record({ kind: 'thinking', text: report });
-            message.imageReport = report;
+        const roundMessages: ApiMessage[] = [];
+        const attachments = new Map<string, AssistantAttachment>();
+        for (const message of sourceMessages) {
+          const {
+            images: refs,
+            imageOutcomes: outcomes,
+            imageReport: _report,
+            imageTurnId: _turnId,
+            ...plain
+          } = message;
+          if (!refs?.length || !this.tools?.images) {
+            roundMessages.push(plain);
+            continue;
           }
-          return result;
-        };
-        let roundMessages = await prepareMessages();
+          const text = String(message.content ?? '');
+          let ids = attachmentIds.get(message);
+          if (!ids) {
+            ids = refs.map(() => `attachment-${++nextImageId}`);
+            attachmentIds.set(message, ids);
+          }
+          let content = preparedImages.get(message);
+          if (content === undefined) {
+            if (
+              outcomes?.length === refs.length &&
+              outcomes.every(
+                (outcome, index) =>
+                  outcome.id === refs[index]?.id &&
+                  (outcome.status === 'read' || outcome.status === 'skipped'),
+              )
+            ) {
+              content = assistantImageContent(text, outcomes, ids);
+            } else {
+              const prepared = await this.tools.images.prepare({
+                feature: 'assistant',
+                text,
+                images: refs,
+                signal: ac.signal,
+              });
+              content = assistantImageContent(text, prepared.outcomes, ids);
+              this.rememberImageOutcomes(sessionId, state.taskId, message, prepared.outcomes);
+              const report = prepared.outcomes.flatMap((outcome) => outcome.notes).join('\n');
+              if (report && message.imageReport !== report)
+                record({ kind: 'thinking', text: report });
+              message.imageReport = report;
+            }
+            preparedImages.set(message, content);
+          }
+          for (const [index, image] of refs.entries())
+            attachments.set(ids[index]!, { image, message, ids });
+          roundMessages.push({ ...plain, content });
+        }
         // 最后一轮强制关闭工具，逼模型给出文字结论，避免"用尽轮数"硬中断。
         const allowTools = specs.length > 0 && (maxRounds === null || loop < maxRounds - 1);
-        let emitted = false;
+        const roundSpecs = attachments.size ? [...specs, ANALYZE_ATTACHED_IMAGE_SPEC] : specs;
         const mailbox = this.mailboxes.get(sessionId);
         const requestController = new AbortController();
         if (mailbox) mailbox.request = requestController;
         const requestSignal = AbortSignal.any([ac.signal, requestController.signal]);
-        const stream = () =>
-          this.callApiStream(
+        let response: Awaited<ReturnType<AssistantService['callApiStream']>>;
+        try {
+          response = await this.callApiStream(
             endpoint,
             roundMessages,
-            allowTools ? specs : [],
+            allowTools ? roundSpecs : [],
             (step) => {
-              if (requestSignal.aborted) return;
-              if (step.kind === 'text_delta' || step.kind === 'reasoning_delta') emitted = true;
-              emit(step);
+              if (!requestSignal.aborted) emit(step);
             },
             requestSignal,
           );
-        let response: Awaited<ReturnType<typeof stream>>;
-        try {
-          response = await stream();
         } catch (error) {
           ac.signal.throwIfAborted();
           if (requestController.signal.aborted && this.consumeSupplements(sessionId, state)) {
             loop--;
             continue;
           }
-          const direct = roundMessages.some(
-            (message) =>
-              Array.isArray(message.content) &&
-              message.content.some((part: { type?: string }) => part.type === 'image_url'),
-          );
-          if (
-            emitted ||
-            !direct ||
-            (error !== null && typeof error === 'object' && this.nonReplayErrors.has(error))
-          )
-            throw error;
-          roundMessages = await prepareMessages(true);
-          response = await stream();
+          throw error;
         }
         if (mailbox) mailbox.request = undefined;
         const content = prefix + response.content;
@@ -1712,7 +1752,17 @@ export class AssistantService {
               if (!this.tools) throw new Error(`未知工具：${call.function.name}`);
               // 单工具超时不能证明未执行；标明未知终态并停止本轮，不自动重复副作用。
               result = await withTimeout(
-                this.tools.run(call.function.name, args, { permissionMode, signal: ac.signal }),
+                call.function.name === ANALYZE_ATTACHED_IMAGE_SPEC.function.name
+                  ? this.analyzeAttachedImage(
+                      sessionId,
+                      state,
+                      attachments,
+                      preparedImages,
+                      imageToolResults,
+                      args,
+                      ac.signal,
+                    )
+                  : this.tools.run(call.function.name, args, { permissionMode, signal: ac.signal }),
                 this.config.toolTimeoutMs === undefined
                   ? TOOL_TIMEOUT_MS
                   : this.config.toolTimeoutMs,
@@ -1797,6 +1847,82 @@ export class AssistantService {
       clearTimeout(runTimer);
       signal?.removeEventListener('abort', onExternalAbort);
     }
+  }
+
+  private async analyzeAttachedImage(
+    sessionId: string,
+    state: AssistantRunState,
+    attachments: ReadonlyMap<string, AssistantAttachment>,
+    preparedImages: WeakMap<ApiMessage, string>,
+    results: Map<string, Promise<{ text: string; image: AiImageOutcome }>>,
+    args: Record<string, unknown>,
+    signal: AbortSignal,
+  ): Promise<{ text: string; image: AiImageOutcome }> {
+    const attachment = typeof args.imageId === 'string' ? attachments.get(args.imageId) : undefined;
+    if (!attachment || !this.tools?.images) throw new Error('当前会话上下文没有这张附件图片');
+    const { image, message, ids } = attachment;
+    const question = typeof args.question === 'string' ? args.question.trim().slice(0, 4000) : '';
+    const refresh = args.refresh === true;
+    const key = JSON.stringify([args.imageId, question, refresh]);
+    const existing = results.get(key);
+    if (existing) return existing;
+    const port = this.tools.images;
+    const read = async () => {
+      const prepared = await port.prepare({
+        feature: 'assistant',
+        text: '',
+        images: [image],
+        question,
+        refresh,
+        signal,
+      });
+      const outcome = prepared.outcomes[0];
+      if (!outcome || outcome.status === 'failed')
+        throw new Error(outcome?.notes.join('；') || '未能重新读取图片');
+      return {
+        text: imageOutcomeAnnotation({ ...outcome, id: String(args.imageId) }),
+        image: outcome,
+      };
+    };
+    const result = read();
+    results.set(key, result);
+    const { image: outcome } = await result;
+    const index = ids.indexOf(String(args.imageId));
+    const previous = message.imageOutcomes?.[index];
+    if (
+      refresh &&
+      !question &&
+      previous &&
+      (previous.status !== 'read' || previous.mode === outcome.mode)
+    ) {
+      const outcomes = message.imageOutcomes!.map((item, offset) =>
+        offset === index ? outcome : item,
+      );
+      const text = String(message.content ?? '');
+      preparedImages.set(message, assistantImageContent(text, outcomes, ids));
+      this.rememberImageOutcomes(sessionId, state.taskId, message, outcomes);
+    }
+    return result;
+  }
+
+  private rememberImageOutcomes(
+    sessionId: string,
+    taskId: string | undefined,
+    message: ApiMessage,
+    outcomes: AiImageOutcome[],
+  ): void {
+    message.imageOutcomes = outcomes;
+    const bucket = this.bucketId(sessionId);
+    if (message.imageTurnId)
+      this.conversations.patchTurnImageOutcomes(bucket, message.imageTurnId, outcomes);
+    else if (taskId && message.images)
+      this.conversations.patchImageOutcomes(
+        bucket,
+        taskId,
+        String(message.content ?? ''),
+        message.images,
+        outcomes,
+      );
   }
 
   /** 每轮发送前的消息组装：把动态注入段（摘要 + 调查计划/工作笔记）拼进 system。 */
@@ -2371,12 +2497,6 @@ export class AssistantService {
           await reader.cancel().catch(() => {});
           return true;
         }
-        if (
-          (content || reasoning || toolSlots.size > 0) &&
-          error !== null &&
-          typeof error === 'object'
-        )
-          this.nonReplayErrors.add(error);
         throw error;
       } finally {
         reader.releaseLock();

@@ -360,6 +360,17 @@ describe('ocr_image_text + 结果缓存', () => {
     const second = await ocr({ kind: 'group', conv: '123', msgId: '456' });
     expect(second).toMatchObject({ ok: true, cached: true, source: 'local', text: '本地结果' });
     expect(mocks.runLocalOcr).toHaveBeenCalledTimes(1);
+
+    const refreshed = await ocr({ kind: 'group', conv: '123', msgId: '456', refresh: true });
+    expect(refreshed).toMatchObject({ ok: true, source: 'local', text: '本地结果' });
+    expect(refreshed.cached).toBeUndefined();
+    expect(mocks.runLocalOcr).toHaveBeenCalledTimes(2);
+    expect(mocks.runLocalOcr).toHaveBeenLastCalledWith(
+      expect.any(String),
+      mocks.localModel,
+      undefined,
+      true,
+    );
   });
 
   it('engine 明确要某一腿时不拿另一条腿的缓存顶替', async () => {

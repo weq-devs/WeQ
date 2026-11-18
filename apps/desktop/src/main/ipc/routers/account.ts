@@ -1116,11 +1116,11 @@ export interface ChatOcrLightboxResult {
  * （见 `main/ocr/local.ts`）；结果整成与在线版同构的 blocks，前端不用区分来源。
  */
 async function recognizeOcrLocally(
-  input: { src?: string },
+  input: { src?: string; refresh?: boolean },
   model: LocalOcrModel,
 ): Promise<ChatOcrLightboxResult & { source: 'local'; modelId: string }> {
   if (!input.src) throw new Error('本地识别需要图片地址，这张图取不到本体。');
-  const result = await runLocalOcr(input.src, model);
+  const result = await runLocalOcr(input.src, model, undefined, input.refresh);
   return {
     status: 'succ',
     srcLang: 'local',
@@ -6577,16 +6577,16 @@ export const accountRouter = router({
         fileSize: z.number().int().nonnegative().optional(),
         /** 灯箱正在显示的图片地址（本地模型那条腿取图用）。 */
         src: z.string().optional(),
+        refresh: z.boolean().optional(),
       }),
     )
     .mutation(async ({ input }): Promise<ChatOcrLightboxResult> => {
       const services = requireServices();
       const local = resolveLocalOcrModel();
       const online = canOcrOnline(services);
-      // 缓存命中就一步都不用跑：灯箱连点、导出刚跑过、甚至过期图（服务端取不到、
-      // 本机也没本体）都能立刻出结果。键是图片 md5，和导出 / MCP 完全同一套。
+      // 第一次识别可直接复用导出或 MCP 的结果；「重新识别」明确跳过旧结果。
       const cacheKey = input.md5 ? ocrResultCache().keyFor(input.md5) : null;
-      if (cacheKey) {
+      if (cacheKey && !input.refresh) {
         const hit = await ocrResultCache()
           .getText(cacheKey)
           .catch(() => null);

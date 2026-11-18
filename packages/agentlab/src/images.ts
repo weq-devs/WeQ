@@ -2,6 +2,7 @@ import type { AgentLabEndpoint } from './types';
 import { requestApiJson } from './api_usage';
 import { pickMessageText } from './http';
 import { requestChatCompletionStream } from './extract_stream';
+import { ImageRecognitionRequests } from './image_requests';
 
 export const AI_IMAGE_DEFAULTS = {
   assistant: 'vision',
@@ -65,6 +66,7 @@ export interface AiImagePort {
     direct?: boolean;
     signal?: AbortSignal;
     forceOcr?: boolean;
+    refresh?: boolean;
     question?: string;
     onProgress?(progress: AiImageProgress): void;
     onOutput?: AgentLabEndpoint['onOutput'];
@@ -132,19 +134,30 @@ export interface AiImageProcessorDeps {
   ocr(
     image: AiImageRef,
     signal?: AbortSignal,
+    refresh?: boolean,
   ): Promise<{ text: string; skipped?: boolean; notes?: string[] }>;
   cached?(key: string): Promise<string | null>;
   cache?(key: string, text: string): Promise<void>;
   revision?(feature?: AiImageFeature): string;
 }
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+export function imageOutcomeAnnotation(outcome: AiImageOutcome): string {
+  if (outcome.status === 'failed')
+    return `[图片 ${outcome.id} · 未能读取：${outcome.notes.at(-1) ?? '图片不可用'}]`;
+  if (outcome.mode === 'placeholder') return '[图片]';
+  if (outcome.mode === 'vision') return `[图片 ${outcome.id} · 视觉解读]\n${outcome.text}`;
+  return `[图片 ${outcome.id} · ${outcome.status === 'skipped' ? '筛图未检测到文字' : 'OCR'}]\n${outcome.text || '未识别到文字；不代表图片没有其他内容。'}`;
+}
+
 export class AiImageProcessor implements AiImagePort {
   private active = 0;
   private readonly waiting: (() => void)[] = [];
   private readonly descriptions = new Map<string, string>();
-  private readonly inFlight = new Map<string, Promise<string>>();
-  private readonly signalKeys = new WeakMap<AbortSignal, number>();
-  private nextSignal = 0;
+  private readonly requests = new ImageRecognitionRequests<
+    string,
+    Parameters<NonNullable<AgentLabEndpoint['onOutput']>>[0]
+  >();
   constructor(private readonly deps: AiImageProcessorDeps) {}
   revision(feature?: AiImageFeature) {
     return this.deps.revision?.(feature) ?? '';
@@ -186,7 +199,7 @@ export class AiImageProcessor implements AiImagePort {
       const outcome: AiImageOutcome = { id: image.id, mode, status: 'skipped', notes: [] };
       outcomes.push(outcome);
       const report = (stage: AiImageProgress['stage'], text: string) =>
-        input.onProgress?.({ imageId: image.id, stage, text });
+        !input.signal?.aborted && input.onProgress?.({ imageId: image.id, stage, text });
       const complete = () =>
         input.onProgress?.({
           imageId: image.id,
@@ -222,7 +235,7 @@ export class AiImageProcessor implements AiImagePort {
             endpoint.model === input.endpoint.model &&
             endpoint.baseUrl.replace(/\/+$/, '') === input.endpoint.baseUrl.replace(/\/+$/, '') &&
             endpoint.apiKey === input.endpoint.apiKey;
-          if (same && input.direct) {
+          if (same && input.direct && !input.refresh && !input.question?.trim()) {
             parts.push(
               { type: 'text', text: `[图片 ${image.id}]` },
               { type: 'image_url', image_url: { url: loaded.dataUrl } },
@@ -232,57 +245,56 @@ export class AiImageProcessor implements AiImagePort {
             continue;
           }
           // 通用描述不含用户问题，问题相关答案不得污染内容缓存。
+          const question = input.question?.trim();
           const key = JSON.stringify([
             loaded.key,
             endpoint.modelIdentity ?? endpoint.model,
             endpoint.baseUrl,
+            ...(question ? [question] : []),
           ]);
           report('cache', '正在检查图片解读缓存');
-          let description = input.question
-            ? null
-            : (this.descriptions.get(key) ?? (await this.deps.cached?.(key).catch(() => null)));
-          if (!description) {
-            let signalKey = 0;
-            if (input.signal) {
-              signalKey = this.signalKeys.get(input.signal) ?? ++this.nextSignal;
-              this.signalKeys.set(input.signal, signalKey);
-            }
-            const requestKey = JSON.stringify([key, signalKey, input.question]);
-            let pending = this.inFlight.get(requestKey);
-            report(
-              'vision',
-              `${pending ? '正在等待同图分析' : '正在请求视觉模型'} ${endpoint.model} 返回`,
-            );
-            if (!pending) {
-              pending = visionImageCompletion(
+          if (!input.refresh && this.requests.has(key)) report('vision', '正在等待同图分析');
+          const output = input.onOutput ?? endpoint.onOutput;
+          const description = await this.requests.run(
+            key,
+            async (signal, emit, current) => {
+              if (!input.refresh) {
+                const cached =
+                  this.descriptions.get(key) ?? (await this.deps.cached?.(key).catch(() => null));
+                signal.throwIfAborted();
+                if (cached) {
+                  report('cache', '已命中图片解读缓存，无需请求视觉模型');
+                  return cached;
+                }
+              }
+              report('vision', `正在请求视觉模型 ${endpoint.model} 返回`);
+              const text = await visionImageCompletion(
                 {
                   ...endpoint,
-                  signal: input.signal,
+                  signal,
                   feature: `${input.feature}-image`,
-                  onOutput: input.onOutput ?? endpoint.onOutput,
+                  onOutput: output && emit,
                 },
-                input.question ||
+                question ||
                   '描述这张图片的可见内容、布局及图中文字；保留图表数据和截图中的关键信息。',
                 [loaded.dataUrl],
               );
-              this.inFlight.set(requestKey, pending);
-            }
-            try {
-              description = await pending;
-            } finally {
-              if (this.inFlight.get(requestKey) === pending) this.inFlight.delete(requestKey);
-            }
-            input.signal?.throwIfAborted();
-            if (!input.question) {
-              if (this.descriptions.size >= 256)
-                this.descriptions.delete(this.descriptions.keys().next().value!);
-              this.descriptions.set(key, description);
-              await this.deps.cache?.(key, description).catch(() => undefined);
-            }
-          } else report('cache', '已命中图片解读缓存，无需请求视觉模型');
+              signal.throwIfAborted();
+              if (current()) {
+                this.descriptions.delete(key);
+                if (this.descriptions.size >= 256)
+                  this.descriptions.delete(this.descriptions.keys().next().value!);
+                this.descriptions.set(key, text);
+                await this.deps.cache?.(key, text).catch(() => undefined);
+              }
+              return text;
+            },
+            { signal: input.signal, refresh: input.refresh, output },
+          );
+          input.signal?.throwIfAborted();
           outcome.status = 'read';
           outcome.text = description;
-          annotations.push(`[图片 ${image.id} · 视觉解读]\n${description}`);
+          annotations.push(imageOutcomeAnnotation(outcome));
           complete();
           continue;
         } catch (error) {
@@ -297,21 +309,19 @@ export class AiImageProcessor implements AiImagePort {
       }
       try {
         report('ocr', '正在进行 OCR 文字识别（含取图、缓存检查与筛图）');
-        const result = await this.deps.ocr(image, input.signal);
+        const result = await this.deps.ocr(image, input.signal, input.refresh);
         input.signal?.throwIfAborted();
         outcome.mode = 'ocr';
         outcome.status = result.skipped ? 'skipped' : 'read';
         outcome.text = result.text;
         outcome.notes.push(...(result.notes ?? []));
-        annotations.push(
-          `[图片 ${image.id} · ${result.skipped ? '筛图未检测到文字' : 'OCR'}]\n${result.text || '未识别到文字；不代表图片没有其他内容。'}`,
-        );
+        annotations.push(imageOutcomeAnnotation(outcome));
       } catch (error) {
         input.signal?.throwIfAborted();
         if (error instanceof Error && error.name === 'AbortError') throw error;
         outcome.status = 'failed';
         outcome.notes.push(errorText(error));
-        annotations.push(`[图片 ${image.id} · 未能读取：${errorText(error)}]`);
+        annotations.push(imageOutcomeAnnotation(outcome));
       }
       complete();
     }

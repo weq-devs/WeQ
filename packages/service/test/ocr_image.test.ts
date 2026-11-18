@@ -90,6 +90,44 @@ const session = {} as unknown as AccountSession;
 const params = { fileToken: TOKEN, width: 1305, height: 2321 };
 
 describe('ChatImageOcrService', () => {
+  it('同内容共用在途请求，明确重识别和不同坐标尺寸仍实际请求', async () => {
+    const nt = fakeNative({ rkeyType: 10 });
+    const service = new ChatImageOcrService(nt, session, () => PID);
+    const input = { ...params, peerType: 'c2c' as const, md5: 'a'.repeat(32) };
+    const a = service.recognize(input);
+    const b = service.recognize({ ...input, fileToken: 'another-reference' });
+    const refresh = service.recognize({ ...input, refresh: true });
+    const otherFrame = service.recognize({ ...input, width: 400 });
+    await expect(Promise.all([a, b, refresh, otherFrame])).resolves.toHaveLength(4);
+    const requests = nt.calls.filter((call) => call.command === 0xe07);
+    expect(requests).toHaveLength(3);
+    expect(requests.map((call) => decode(OcrImage.reqSchema, call.body).image?.width)).toEqual([
+      params.width,
+      params.width,
+      400,
+    ]);
+  });
+
+  it('共用的图片地址失效时，另一条消息仍使用自己的可用地址', async () => {
+    const nt = fakeNative({
+      rkeyType: 10,
+      ocrStatuses: [OCR_DOWNLOAD_ERROR, OCR_DOWNLOAD_ERROR, 'succ'],
+    });
+    const service = new ChatImageOcrService(nt, session, () => PID);
+    const input = { ...params, peerType: 'c2c' as const, md5: 'a'.repeat(32) };
+    const [expired, available] = await Promise.allSettled([
+      service.recognize(input),
+      service.recognize({ ...input, fileToken: 'available-reference' }),
+    ]);
+    expect(expired.status).toBe('rejected');
+    expect(available.status).toBe('fulfilled');
+    const requests = nt.calls.filter((call) => call.command === 0xe07);
+    expect(requests).toHaveLength(3);
+    expect(decode(OcrImage.reqSchema, requests[2]!.body).image?.url).toContain(
+      'fileid=available-reference',
+    );
+  });
+
   it('私聊：要 type 10 的 rkey，直链用 appid 1406', async () => {
     const nt = fakeNative({ rkeyType: 10 });
     const service = new ChatImageOcrService(nt, session, () => PID);

@@ -230,7 +230,7 @@ export function createBotImages(
         key: createHash('sha256').update(bytes).digest('hex'),
       };
     },
-    ocr: async (image, signal) => {
+    ocr: async (image, signal, refresh) => {
       const path = await resolveFile(image, signal);
       const key = createHash('sha256')
         .update(await readFile(path))
@@ -242,11 +242,11 @@ export function createBotImages(
         ocrModels.find((model) => model.id === config.images?.ocrModelId) ??
         ocrModels.find((model) => model.recommended) ??
         ocrModels[0];
-      const cached = await ocrCache.getText(key, 'local');
+      const cached = refresh ? null : await ocrCache.getText(key, 'local');
       if (cached && cached.modelId === selectedOcr?.id)
         return { text: cached.text, notes: ['复用本地识别缓存。'] };
       const notes: string[] = [];
-      if (config.images?.prefilterEnabled !== false) {
+      if (!refresh && config.images?.prefilterEnabled !== false) {
         try {
           const filterModels = models
             .listByKind('filter')

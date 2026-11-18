@@ -58,6 +58,28 @@ it('媒体协议仍走现有完整取图服务并把取消信号传入', async (
   expect(fixture.media.mock.calls[0]?.[0].signal).toBeInstanceOf(AbortSignal);
   expect(fixture.engine).toHaveBeenCalledOnce();
 });
+it('本地 OCR 按实际图片字节和模型合并，不混用其他画面或模型', async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  fixture.engine.mockImplementation(async () => {
+    await gate;
+    return { ok: true, blocks: [], imageWidth: 1, imageHeight: 1, elapsedMs: 1 };
+  });
+  fixture.media.mockResolvedValueOnce(new Response(new Uint8Array([1])));
+  const a = runLocalOcr('data:image/png;base64,AQ==', model);
+  const b = runLocalOcr('weq-media://pic?token=synthetic', model);
+  const differentFrame = runLocalOcr('data:image/png;base64,Ag==', model);
+  const differentModel = runLocalOcr('data:image/png;base64,AQ==', { ...model, modelId: 'other' });
+  try {
+    await vi.waitFor(() => expect(fixture.engine).toHaveBeenCalledTimes(3));
+  } finally {
+    release();
+    await Promise.all([a, b, differentFrame, differentModel]);
+  }
+  expect(fixture.engine).toHaveBeenCalledTimes(3);
+});
 it('响应头已返回但正文挂起时到期限取消', async () => {
   vi.useFakeTimers();
   const cancel = vi.fn();

@@ -156,6 +156,25 @@ export class ConversationStore {
         turn.images?.length === images.length &&
         images.every((image, offset) => turn.images?.[offset]?.id === image.id),
     );
+    this.saveImageOutcomes(agentId, turns, index, outcomes);
+  }
+
+  patchTurnImageOutcomes(agentId: string, turnId: string, outcomes: AiImageOutcome[]): void {
+    const turns = this.get(agentId);
+    this.saveImageOutcomes(
+      agentId,
+      turns,
+      turns.findIndex((turn) => turn.id === turnId),
+      outcomes,
+    );
+  }
+
+  private saveImageOutcomes(
+    agentId: string,
+    turns: ConversationTurn[],
+    index: number,
+    outcomes: AiImageOutcome[],
+  ): void {
     const current = turns[index];
     if (!current || JSON.stringify(current.imageOutcomes) === JSON.stringify(outcomes)) return;
     this.store.data[agentId] = turns.map((turn, offset) =>

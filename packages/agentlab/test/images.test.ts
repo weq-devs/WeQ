@@ -226,7 +226,7 @@ describe('共用 AI 图片处理', () => {
     expect(f.deps.ocr).not.toHaveBeenCalled();
     expect((await f.processor.prepare({ ...input, forceOcr: true })).text).toContain('OCR 文字');
   });
-  it('问题相关回答不读取或写入通用描述缓存', async () => {
+  it('同图同问题复用，不覆盖通用描述，显式刷新失败保留旧结果', async () => {
     const fetch = vi.fn(
       async (_input: unknown, _options?: RequestInit) =>
         new Response(JSON.stringify({ choices: [{ message: { content: '图中数字为 7' } }] }), {
@@ -235,17 +235,33 @@ describe('共用 AI 图片处理', () => {
     );
     vi.stubGlobal('fetch', fetch);
     const f = fixture();
-    await f.processor.prepare({
-      feature: 'assistant',
+    const input = {
+      feature: 'assistant' as const,
       text: '',
       question: '数字是什么',
       images: [image],
-    });
-    expect(f.deps.cached).not.toHaveBeenCalled();
-    expect(f.deps.cache).not.toHaveBeenCalled();
+    };
+    await f.processor.prepare(input);
+    await f.processor.prepare({ ...input, images: [{ ...image, id: 'another-message' }] });
+    expect(fetch).toHaveBeenCalledOnce();
     expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)).messages[1].content[0].text).toBe(
       '数字是什么',
     );
+    await f.processor.prepare({ ...input, question: undefined });
+    expect(f.deps.cached.mock.calls[0]).not.toEqual(f.deps.cached.mock.calls[1]);
+    fetch.mockResolvedValueOnce(new Response('unavailable', { status: 500 }));
+    f.deps.ocr.mockRejectedValueOnce(new Error('OCR 不可用'));
+    expect((await f.processor.prepare({ ...input, refresh: true })).outcomes[0]?.status).toBe(
+      'failed',
+    );
+    expect((await f.processor.prepare(input)).outcomes[0]?.text).toBe('图中数字为 7');
+    expect(fetch).toHaveBeenCalledTimes(3);
+    fetch.mockResolvedValueOnce(
+      Response.json({ choices: [{ message: { content: '图中数字为 8' } }] }),
+    );
+    await f.processor.prepare({ ...input, refresh: true });
+    expect((await f.processor.prepare(input)).outcomes[0]?.text).toBe('图中数字为 8');
+    expect(fetch).toHaveBeenCalledTimes(4);
   });
   it('取消视觉请求不触发 OCR', async () => {
     const f = fixture();
@@ -287,19 +303,61 @@ describe('共用 AI 图片处理', () => {
     expect(original.path).toBe('/fixture/image.png');
     expect(result.images?.[0]?.path).toBe('/new/cached.png');
   });
-  it('并发的同图通用解读合并请求，后续命中缓存不再调用模型', async () => {
-    const fetch = vi.fn(
-      async () =>
-        new Response(JSON.stringify({ choices: [{ message: { content: '通用图片描述' } }] })),
-    );
+  it('不同任务合并同图请求，只有最后一个等待者退出才取消请求', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      await gate;
+      init?.signal?.throwIfAborted();
+      return Response.json({ choices: [{ message: { content: '通用图片描述' } }] });
+    });
     vi.stubGlobal('fetch', fetch);
     const f = fixture();
-    await Promise.all([
-      f.processor.prepare({ feature: 'assistant', text: '', images: [image] }),
-      f.processor.prepare({ feature: 'profile', text: '', images: [image] }),
-    ]);
+    const first = new AbortController();
+    const second = new AbortController();
+    const a = f.processor.prepare({
+      feature: 'assistant',
+      text: '',
+      images: [image],
+      signal: first.signal,
+    });
+    const b = f.processor.prepare({
+      feature: 'profile',
+      text: '',
+      images: [image],
+      signal: second.signal,
+    });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    first.abort();
+    await expect(a).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fetch.mock.calls[0]?.[1]?.signal?.aborted).toBe(false);
+    release();
+    expect((await b).outcomes[0]?.text).toBe('通用图片描述');
     await f.processor.prepare({ feature: 'cloneTraining', text: '', images: [image] });
     expect(fetch).toHaveBeenCalledOnce();
     expect(f.deps.ocr).not.toHaveBeenCalled();
+
+    const last = new AbortController();
+    fetch.mockImplementationOnce(
+      async (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), {
+            once: true,
+          });
+        }),
+    );
+    const c = f.processor.prepare({
+      feature: 'assistant',
+      text: '',
+      images: [image],
+      refresh: true,
+      signal: last.signal,
+    });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    last.abort();
+    await expect(c).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fetch.mock.calls[1]?.[1]?.signal?.aborted).toBe(true);
   });
 });

@@ -22,6 +22,7 @@
  */
 
 import type { AccountSession } from '@weq/account';
+import { ImageRecognitionRequests } from '@weq/agentlab';
 import type { NtHelperBinding } from '@weq/native';
 import { OcrImage, type OcrBlock } from '@weq/protocol';
 import {
@@ -48,6 +49,8 @@ export interface ChatImageOcrParams {
   md5?: string;
   /** 图片字节数（可选）。 */
   fileSize?: number;
+  /** 显式重新识别，不等待开始更早的自动识别。 */
+  refresh?: boolean;
 }
 
 export interface ChatImageOcrResult {
@@ -64,6 +67,8 @@ export interface ChatImageOcrResult {
   /** 本次任务的会话 id。 */
   sessionId: string;
 }
+
+type OcrAttempt = ChatImageOcrResult | { downloadFailure: string; origin: string };
 
 /** 服务端**取不到图**时的错误码串（0xe07_0 回包的 `2`）。 */
 export const OCR_DOWNLOAD_ERROR = 'FailedOperation.DownLoadError';
@@ -83,6 +88,8 @@ function describeOcrFailure(result: { retCode: number; status: string; message: 
 }
 
 export class ChatImageOcrService {
+  private readonly requests = new ImageRecognitionRequests<OcrAttempt>();
+
   constructor(
     private readonly nt: ChatImageOcrNt,
     _session: AccountSession,
@@ -99,6 +106,7 @@ export class ChatImageOcrService {
   async recognize(
     params: ChatImageOcrParams,
     rkey?: DownloadRkey | null,
+    signal?: AbortSignal,
   ): Promise<ChatImageOcrResult> {
     const { peerType, fileToken, width, height } = params;
     if (!fileToken) throw new Error('这张图没有 fileToken，拿不到服务端地址。');
@@ -107,24 +115,54 @@ export class ChatImageOcrService {
     const pid = this.resolvePid();
     if (!pid) throw new Error('QQ 未在线，无法识别文字。');
 
+    const md5 = params.md5?.trim().toLowerCase();
+    const origin = JSON.stringify([peerType, fileToken]);
+    const identity = md5 && /^[a-f0-9]{32}$/.test(md5) ? md5 : origin;
+    const run = (key: string) =>
+      this.requests.run(
+        JSON.stringify([pid, width, height, key]),
+        (requestSignal) => this.recognizeImage(params, pid, rkey, requestSignal, origin),
+        { refresh: params.refresh, signal },
+      );
+    let result = await run(identity);
+    // 同内容的另一条消息可能有仍可访问的 CDN 地址，不能继承过期地址的失败。
+    if ('downloadFailure' in result && result.origin !== origin) result = await run(origin);
+    if ('downloadFailure' in result) throw new Error(result.downloadFailure);
+    return result;
+  }
+
+  private async recognizeImage(
+    params: ChatImageOcrParams,
+    pid: number,
+    rkey: DownloadRkey | null | undefined,
+    signal: AbortSignal,
+    origin: string,
+  ): Promise<OcrAttempt> {
+    const { peerType, fileToken, width, height } = params;
+
     let credential = rkey ?? (await this.fetchRkey(peerType));
 
-    const request = () =>
-      OcrImage.invoke(this.nt, pid, {
+    const request = () => {
+      signal.throwIfAborted();
+      return OcrImage.invoke(this.nt, pid, {
         url: composeMediaDownloadUrl(fileToken, credential),
         fileMd5: params.md5,
         fileSize: params.fileSize,
         width,
         height,
       });
+    };
     let result = await request();
     // 下载失败并不等于过期；刷新凭据后再试一次，不让单张图片无限重试。
     if (result.status === OCR_DOWNLOAD_ERROR) {
+      signal.throwIfAborted();
       credential = await this.fetchRkey(peerType);
       result = await request();
     }
 
     if (result.retCode !== 0 || (result.status && result.status !== 'succ')) {
+      if (result.status === OCR_DOWNLOAD_ERROR)
+        return { downloadFailure: describeOcrFailure(result), origin };
       throw new Error(describeOcrFailure(result));
     }
     return {

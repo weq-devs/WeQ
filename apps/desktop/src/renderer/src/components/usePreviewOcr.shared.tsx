@@ -57,6 +57,7 @@ export function usePreviewOcr(src: string, context: PreviewOcrContext | null | u
       !expired,
   );
   const available = Boolean(context && (online || state?.ocrLocalModelId || cache.data?.hit));
+  const canRun = result ? Boolean(context && (online || state?.ocrLocalModelId)) : available;
   const hint = online
     ? '识别图片里的文字（在线）'
     : state?.ocrLocalModelId
@@ -65,11 +66,11 @@ export function usePreviewOcr(src: string, context: PreviewOcrContext | null | u
         ? '读取本机缓存的识别结果'
         : state?.ocrLocalBlocker || '需要在线 QQ 或可用的本地识别模型';
   async function run() {
-    if (!context || busy) return;
+    if (!context || busy || !canRun) return;
     const request = ++generation.current;
     setBusy(true);
     try {
-      const value = await mutation.mutateAsync({ ...context, src });
+      const value = await mutation.mutateAsync({ ...context, src, refresh: result !== null });
       if (request !== generation.current) return;
       setResult({
         blocks: value.blocks,
@@ -133,8 +134,8 @@ export function usePreviewOcr(src: string, context: PreviewOcrContext | null | u
           <button
             className="weq-lightbox-action"
             type="button"
-            title={hint}
-            disabled={!ready || !available || busy}
+            title={result && !canRun ? '重新识别需要在线 QQ 或可用的本地识别模型' : hint}
+            disabled={!ready || !canRun || busy}
             onClick={() => void run()}
           >
             {busy ? <Loader2 className="weq-spin" size={15} /> : <ScanText size={15} />}

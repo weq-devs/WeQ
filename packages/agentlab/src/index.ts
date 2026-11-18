@@ -143,4 +143,5 @@ export { requestChatCompletionStream } from './extract_stream';
 export { CLONE_GENERATION, CLONE_GENERATION_KEYS, normalizeCloneGeneration } from './generation';
 export type { AgentLabGenerationConfig, CloneGenerationKey } from './generation';
 export * from './images';
+export { ImageRecognitionRequests } from './image_requests';
 export { imageDescriptionCache } from './image_cache';
