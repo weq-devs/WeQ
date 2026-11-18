@@ -6,7 +6,10 @@ import { AssistantService, type AssistantTaskEvent } from '../src/account/assist
 import { ConversationStore } from '../src/account/agentlab_conversation';
 import { TokenUsageStore } from '../src/account/agentlab_usage';
 import { AssistantQueue } from '../src/account/assistant_queue';
-import { ASSISTANT_PARAMETER_DEFAULTS } from '../src/account/assistant_config';
+import {
+  ASSISTANT_PARAMETER_DEFAULTS,
+  resolveAssistantContextBudget,
+} from '../src/account/assistant_config';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -618,4 +621,13 @@ it('参数验证拒绝无效组合，明确区分不限制与模型默认', () =
     maxOutputTokens: null,
   });
   expect(f.service.getConfig()).toMatchObject({ maxRounds: null, maxOutputTokens: null });
+});
+
+it('助手优先沿用模型窗口，识别旧默认值并保留低于当前窗口的自定义预算', () => {
+  const fallback = ASSISTANT_PARAMETER_DEFAULTS.contextTokens;
+  expect(resolveAssistantContextBudget(fallback, 128_000)).toBe(128_000);
+  expect(resolveAssistantContextBudget(fallback, 8_192)).toBe(8_192);
+  expect(resolveAssistantContextBudget(undefined, undefined)).toBe(fallback);
+  expect(resolveAssistantContextBudget(16_384, 128_000)).toBe(16_384);
+  expect(resolveAssistantContextBudget(16_384, 8_192)).toBe(8_192);
 });

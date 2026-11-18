@@ -16,6 +16,18 @@ export const ASSISTANT_PARAMETER_DEFAULTS = {
 
 export type AssistantParameters = typeof ASSISTANT_PARAMETER_DEFAULTS;
 
+export function resolveAssistantContextBudget(
+  savedBudget: number | undefined,
+  modelWindow: number | undefined,
+): number {
+  const fallback = ASSISTANT_PARAMETER_DEFAULTS.contextTokens;
+  const budget = savedBudget ?? fallback;
+  // 旧版会将默认预算写入配置；仅不同于该默认值的预算继续作为手动覆盖。
+  return budget === fallback
+    ? (modelWindow ?? fallback)
+    : Math.min(budget, modelWindow ?? Infinity);
+}
+
 export function validateAssistantParameters(value: Partial<AssistantParameters>): void {
   for (const [key, number] of Object.entries(value)) {
     if (!(key in ASSISTANT_PARAMETER_DEFAULTS) || key === 'sendMode') continue;

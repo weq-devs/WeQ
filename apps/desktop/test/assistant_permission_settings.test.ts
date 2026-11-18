@@ -32,8 +32,24 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
     // 设置面板里的模型选择与图片偏好会读取服务商、默认模型和共享设置。
     bootstrap: {
-      listAgentLabProviders: { useQuery: () => ({ data: [] }) },
-      getAgentLabDefaultModel: { useQuery: () => ({ data: undefined }) },
+      listAgentLabProviders: {
+        useQuery: () => ({
+          data: [
+            {
+              id: 'fixture',
+              name: '合成服务商',
+              models: [
+                { id: 'chat', capabilities: ['chat'], reasoningEfforts: ['medium', 'high'] },
+              ],
+            },
+          ],
+        }),
+      },
+      getAgentLabDefaultModel: {
+        useQuery: () => ({
+          data: { ref: { providerId: 'fixture', model: 'chat' }, available: true },
+        }),
+      },
       getSettings: { useQuery: () => ({ data: { aiImages: {} } }) },
       setAiImagePreference: {
         useMutation: () => ({ mutateAsync: async () => ({}), isLoading: false }),
@@ -66,10 +82,10 @@ it('requires the real warning confirmation before persisting unrestricted permis
   try {
     act(() => root.render(h(Fragment, {}, h(WeqAssistantSettingsSection), h(DialogHost))));
     expect(
-      [...document.querySelectorAll('[aria-label="默认思考强度"] option')].map(
-        (option) => option.textContent,
+      [...document.querySelectorAll<HTMLOptionElement>('[aria-label="默认思考强度"] option')].map(
+        (option) => option.value,
       ),
-    ).toEqual(['不指定', 'low', 'medium', 'high']);
+    ).toEqual(['off', 'medium', 'high']);
     const mode = document.querySelector<HTMLElement>('[aria-label="运行模式"]')!;
     expect(mode.querySelector('[aria-checked="true"]')?.textContent).toBe('沙箱模式');
     capture('sandbox-settings');

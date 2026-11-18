@@ -36,7 +36,11 @@ export interface BotLlmProvider {
   apiKey: string;
   /** 模型请求总期限（毫秒），缺省使用运行时默认。 */
   timeoutMs?: number;
-  modelProperties?: Array<{ id: string; requestProperties: ModelRequestProperties }>;
+  modelProperties?: Array<{
+    id: string;
+    requestProperties?: ModelRequestProperties;
+    reasoningEfforts?: string[];
+  }>;
 }
 
 /** 功能开关（扩展预留：随能力增长往这里加，默认关）。 */
@@ -121,14 +125,15 @@ export function buildEndpointResolver(providers: BotLlmProvider[]): EndpointReso
       throw new Error(
         `未配置 LLM provider: ${ref.providerId}（persona 引用了它但 config.llmProviders 里没有）`,
       );
+    const properties = p.modelProperties?.find((model) => model.id === ref.model);
     return {
       baseUrl: p.baseUrl,
       apiKey: p.apiKey,
       model: ref.model,
       modelIdentity: modelEndpointIdentity(ref, p.baseUrl),
       timeoutMs: p.timeoutMs,
-      requestProperties: p.modelProperties?.find((model) => model.id === ref.model)
-        ?.requestProperties,
+      requestProperties: properties?.requestProperties,
+      reasoningEfforts: properties?.reasoningEfforts,
     };
   };
 }

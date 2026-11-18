@@ -4,7 +4,12 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { AccountSession } from '@weq/account';
 import type { C2cMsg } from '@weq/db';
-import { AgentLabStore, GROUP_SUPPLEMENT_THRESHOLD, type AiImagePort } from '@weq/agentlab';
+import {
+  AgentLabStore,
+  GROUP_SUPPLEMENT_THRESHOLD,
+  runPersonaChat,
+  type AiImagePort,
+} from '@weq/agentlab';
 import { AgentLabService, type AgentLabBuildProgress } from '../src/account/agentlab';
 import { makeBackupPersona } from './fixtures/backup_persona';
 import { buildWeqBackup, readWeqBackup } from '../src/bootstrap/backup_bundle';
@@ -312,6 +317,42 @@ it('沿用已保存的训练范围，并保留训练期间新保存的配置', a
   expect(result.customPrompt).toBe('最新提示');
   expect(result.generation?.historyMessages).toBe(12);
   expect(result.training).toEqual({ mode: 'group', autoName: false, limit: 1000 });
+});
+
+it('克隆回复默认不覆盖生成参数，只发送所选模型声明的思考档位', async () => {
+  const f = fixture();
+  const fetch = vi.fn(
+    async (_url: unknown, _init: RequestInit) =>
+      new Response(JSON.stringify({ choices: [{ message: { content: '合成回复' } }] })),
+  );
+  vi.stubGlobal('fetch', fetch);
+  const endpoint = { baseUrl: 'https://synthetic.invalid', apiKey: '', model: 'synthetic-model' };
+  const generate = async (reasoningEfforts?: string[]) => {
+    await runPersonaChat({ ...endpoint, reasoningEfforts }, null, {
+      persona: f.store.getPersona(f.persona.id)!.persona,
+      pairs: [],
+      history: [{ role: 'user', text: '合成历史' }],
+      input: '合成问题',
+    });
+    return JSON.parse(String(fetch.mock.lastCall?.[1].body));
+  };
+  const defaults = await generate(['high']);
+  for (const key of ['temperature', 'max_tokens', 'reasoning_effort'])
+    expect(defaults).not.toHaveProperty(key);
+
+  f.service.updatePersona(f.persona.id, {
+    generation: { reasoningEffort: 'high', historyMessages: 0, temperature: 0.4 },
+  });
+  const supported = await generate(['high']);
+  expect(supported).toMatchObject({ reasoning_effort: 'high', temperature: 0.4 });
+  expect(supported.messages.map((message: { role: string }) => message.role)).toEqual([
+    'system',
+    'user',
+  ]);
+  expect(await generate(['low'])).not.toHaveProperty('reasoning_effort');
+  expect(await generate()).not.toHaveProperty('reasoning_effort');
+  f.service.updatePersona(f.persona.id, { generation: { reasoningEffort: 'off' } });
+  expect(await generate(['high'])).not.toHaveProperty('reasoning_effort');
 });
 
 it.each([

@@ -152,14 +152,7 @@ try {
           throw new Error(JSON.stringify({ kind, width, theme, layout }));
         if (kind === 'assistant') {
           await openAssistantSettings();
-          for (const label of [
-            '模型与生成',
-            '任务执行',
-            '上下文管理',
-            '提示与工具',
-            '图片处理',
-            '运行中发送',
-          ]) {
+          for (const label of ['模型设置', '提示与工具', '运行中发送']) {
             await page.locator('.weq-cvs-nav-item').filter({ hasText: label }).click();
             const fit = await page.locator('.weq-cvs-dialog').evaluate((node) => {
               const rect = node.getBoundingClientRect();

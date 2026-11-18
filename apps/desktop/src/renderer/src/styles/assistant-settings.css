@@ -1,17 +1,6 @@
 .weq-assistant-settings .weq-set-text-field {
   padding-block: 6px;
 }
-.weq-assistant-number {
-  justify-content: flex-end;
-}
-.weq-assistant-number input {
-  width: 88px;
-  min-height: 38px;
-  text-align: end;
-}
-.weq-assistant-number [role='alert'] {
-  flex-basis: 100%;
-}
 .weq-assistant-settings [role='alert'] {
   overflow-wrap: anywhere;
 }

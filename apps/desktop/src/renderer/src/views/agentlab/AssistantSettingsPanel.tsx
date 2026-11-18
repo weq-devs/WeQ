@@ -7,23 +7,17 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import {
-  Brain,
-  Cpu,
-  Image,
-  ListOrdered,
-  Settings2,
-  SlidersHorizontal,
-  RefreshCw,
-} from 'lucide-react';
+import { Cpu, ListOrdered, SlidersHorizontal, RefreshCw } from 'lucide-react';
 import type { AssistantConfig } from '@weq/service';
 import {
   ASSISTANT_PARAMETER_DEFAULTS,
   validateAssistantParameters,
 } from '@weq/service/assistant-config';
 import { trpc } from '../../trpc/client';
-import { ApiModelSelect } from '../../components/settings/ApiModelSelect';
-import { AiImagePreferenceSetting } from '../../components/settings/AiImageSettings';
+import {
+  ConversationModelSettings,
+  LegacyModelOverrides,
+} from '../../components/settings/ConversationModelSettings';
 import { Card, Row, SectionHeader } from '../../components/settings/controls';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { SegmentedControl } from '../../components/SegmentedControl';
@@ -32,7 +26,6 @@ import { useSettingsSaveBanner } from '../../hooks/useSettingsSaveBanner';
 import { useDraftProtection } from '../../lib/draftClose';
 import { settingsSaves } from '../../lib/settingsSaveQueue';
 import { SettingsResetContext } from '../../components/settings/resetContext';
-import { AssistantEffortSelect } from './AssistantGenerationControls';
 import { ConversationSettingsFrame } from '../../components/ConversationSettingsFrame';
 import '../../styles/assistant-settings.css';
 import { ASSISTANT_SEND_MODES } from './AssistantSettingsPanel.shared';
@@ -132,106 +125,6 @@ function useAssistantParameters() {
     reload: () => query.refetch(),
   };
 }
-function NumberSetting({
-  name,
-  label,
-  value,
-  nullable = false,
-  scale = 1,
-}: {
-  name: keyof typeof ASSISTANT_PARAMETER_DEFAULTS;
-  label: string;
-  value: number | null;
-  nullable?: boolean;
-  scale?: number;
-}) {
-  const [draft, setDraft] = useState(value === null ? '' : String(value / scale));
-  const [automatic, setAutomatic] = useState(value === null);
-  const prior = useRef(value);
-  const lastValue = useRef(
-    value ??
-      (ASSISTANT_PARAMETER_DEFAULTS[name] as number | null) ??
-      (name === 'temperature' ? 0.3 : name === 'maxOutputTokens' ? 4096 : 1),
-  );
-  useEffect(() => {
-    if (typeof value === 'number') lastValue.current = value;
-  }, [value]);
-  useEffect(() => {
-    const old = prior.current;
-    setDraft((current) =>
-      current === (old === null ? '' : String(old / scale))
-        ? value === null
-          ? ''
-          : String(value / scale)
-        : current,
-    );
-    setAutomatic((current) => (current === (old === null) ? value === null : current));
-    prior.current = value;
-  }, [value, scale]);
-  const next = automatic ? null : Number(draft) * scale;
-  let error = '';
-  try {
-    if (!automatic && !draft.trim()) throw new Error('请输入数值');
-    validateAssistantParameters({ [name]: next });
-  } catch (reason) {
-    error = reason instanceof Error ? reason.message : String(reason);
-  }
-  const form = useAssistantField(name, { draft, automatic }, { [name]: next }, !error);
-  useEffect(() => {
-    if (typeof next === 'number' && !error) lastValue.current = next;
-  }, [next, error]);
-  const immediate = () => setTimeout(() => void form?.flush(), 0);
-  return (
-    <Row
-      settingId={`weq-assistant-${name}`}
-      label={label}
-      desc={
-        name === 'contextTokens'
-          ? '用于估算何时压缩历史；不会超过 API 配置中已知的模型上下文窗口。'
-          : undefined
-      }
-      control={
-        <div className="weq-set-btn-group weq-assistant-number">
-          {nullable ? (
-            <SegmentedControl
-              label={`${label}模式`}
-              value={automatic ? 'auto' : 'custom'}
-              options={[
-                {
-                  value: 'auto',
-                  label:
-                    name === 'temperature' || name === 'maxOutputTokens' ? '跟随模型' : '不限制',
-                },
-                { value: 'custom', label: '自定义' },
-              ]}
-              onChange={(mode) => {
-                setAutomatic(mode === 'auto');
-                if (mode === 'custom') setDraft(String(lastValue.current / scale));
-                immediate();
-              }}
-            />
-          ) : null}
-          {!automatic ? (
-            <input
-              className="weq-set-input weq-number"
-              type="number"
-              step="any"
-              aria-label={label}
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              onBlur={() => void form?.flush()}
-            />
-          ) : null}
-          {error ? (
-            <span className="weq-set-row-status" role="alert">
-              {error}
-            </span>
-          ) : null}
-        </div>
-      }
-    />
-  );
-}
 function TextSetting({
   label,
   value,
@@ -280,14 +173,23 @@ function TextSetting({
 }
 
 const GLOBAL_GROUPS = [
-  { id: 'model', label: '模型与生成', icon: <Cpu size={16} /> },
-  { id: 'execution', label: '任务执行', icon: <Settings2 size={16} /> },
-  { id: 'context', label: '上下文管理', icon: <Brain size={16} /> },
+  { id: 'model', label: '模型设置', icon: <Cpu size={16} /> },
   { id: 'tools', label: '提示与工具', icon: <SlidersHorizontal size={16} /> },
-  { id: 'images', label: '图片处理', icon: <Image size={16} /> },
   { id: 'sending', label: '运行中发送', icon: <ListOrdered size={16} /> },
 ] as const;
 type GlobalGroup = (typeof GLOBAL_GROUPS)[number]['id'];
+
+const LEGACY_PARAMETERS = [
+  ['temperature', '温度'],
+  ['maxOutputTokens', '输出上限'],
+  ['maxRounds', '任务轮数'],
+  ['toolTimeoutMs', '工具时限'],
+  ['taskTimeoutMs', '任务时限'],
+  ['contextTokens', '上下文预算'],
+  ['compressionTrigger', '压缩触发比例'],
+  ['compressionTarget', '压缩目标比例'],
+  ['summaryTokens', '摘要上限'],
+] as const;
 
 type AssistantSettingsProps = {
   conversation?: {
@@ -365,54 +267,25 @@ function AssistantSettingsFields({
       resetSaves?.delete(entry);
     };
   }, [resetSaves]);
-  const config = { ...ASSISTANT_PARAMETER_DEFAULTS, ...data };
-  const fields: Array<{
-    name: keyof typeof ASSISTANT_PARAMETER_DEFAULTS;
-    label: string;
-    section: GlobalGroup;
-    nullable?: boolean;
-    scale?: number;
-  }> = [
-    { name: 'temperature', label: '温度', section: 'model', nullable: true },
-    { name: 'maxOutputTokens', label: '单次输出 Token 上限', section: 'model', nullable: true },
-    { name: 'maxRounds', label: '任务最大轮数', section: 'execution', nullable: true },
-    {
-      name: 'toolTimeoutMs',
-      label: '单工具超时（秒）',
-      section: 'execution',
-      nullable: true,
-      scale: 1000,
-    },
-    {
-      name: 'taskTimeoutMs',
-      label: '任务总时限（秒）',
-      section: 'execution',
-      nullable: true,
-      scale: 1000,
-    },
-    { name: 'historyMessages', label: '带入历史消息条数', section: 'context' },
-    { name: 'contextTokens', label: '上下文预算（Token）', section: 'context' },
-    { name: 'compressionTrigger', label: '压缩触发比例（%）', section: 'context', scale: 0.01 },
-    { name: 'compressionTarget', label: '压缩目标比例（%）', section: 'context', scale: 0.01 },
-    { name: 'summaryTokens', label: '摘要 Token 上限', section: 'context' },
-  ];
-  const numbers = (section: GlobalGroup) =>
-    fields
-      .filter((field) => field.section === section)
-      .map((field) => (
-        <NumberSetting key={field.name} {...field} value={config[field.name] as number | null} />
-      ));
+  const overrides = LEGACY_PARAMETERS.filter(
+    ([key]) => data?.[key] !== undefined && data[key] !== ASSISTANT_PARAMETER_DEFAULTS[key],
+  );
   const group = (id: GlobalGroup, children: ReactNode) => {
+    if (conversation)
+      return (
+        <div hidden={section !== id} inert={section !== id}>
+          {children}
+        </div>
+      );
     const current = GLOBAL_GROUPS.find((item) => item.id === id)!;
     return (
-      <div hidden={Boolean(conversation && section !== id)}>
-        <Card
-          title={conversation ? undefined : current.label}
-          icon={conversation ? undefined : current.icon}
-        >
-          {children}
-        </Card>
-      </div>
+      <Card
+        settingId={id === 'model' ? 'weq-assistant-model-settings' : undefined}
+        title={current.label}
+        icon={current.icon}
+      >
+        {children}
+      </Card>
     );
   };
   const closeConversation = async () => {
@@ -454,41 +327,33 @@ function AssistantSettingsFields({
         <>
           {group(
             'model',
-            <>
-              <Row
-                settingId="weq-assistant-default-model"
-                label="默认聊天模型"
-                desc="在会话未单独选择模型时使用。"
-                control={
-                  <ApiModelSelect
-                    label="默认聊天模型"
-                    value={data?.model ?? { useDefault: true }}
-                    disabled={saving}
-                    onChange={(model) => {
-                      if (model) void save({ model }).catch(() => {});
-                    }}
-                  />
+            <ConversationModelSettings
+              feature="assistant"
+              model={data.model ?? { useDefault: true }}
+              effort={data.reasoningEffort ?? 'off'}
+              disabled={saving}
+              onModelChange={(model) => void save({ model }).catch(() => {})}
+              onEffortChange={(reasoningEffort) => void save({ reasoningEffort }).catch(() => {})}
+              history={{
+                value: data.historyMessages ?? ASSISTANT_PARAMETER_DEFAULTS.historyMessages,
+                standard: ASSISTANT_PARAMETER_DEFAULTS.historyMessages,
+                extended: 48,
+                onChange: (historyMessages) => void save({ historyMessages }).catch(() => {}),
+              }}
+            >
+              <LegacyModelOverrides
+                disabled={saving}
+                fields={overrides.map(([, label]) => label)}
+                onReset={() =>
+                  void save(
+                    Object.fromEntries(
+                      overrides.map(([key]) => [key, ASSISTANT_PARAMETER_DEFAULTS[key]]),
+                    ),
+                  ).catch(() => {})
                 }
               />
-              <Row
-                settingId="weq-assistant-default-effort"
-                label="默认思考强度"
-                desc="在会话未单独选择思考强度时使用。"
-                control={
-                  <AssistantEffortSelect
-                    label="默认思考强度"
-                    model={data.model}
-                    value={data?.reasoningEffort ?? 'off'}
-                    onChange={(reasoningEffort) => void save({ reasoningEffort }).catch(() => {})}
-                    disabled={!data || saving}
-                  />
-                }
-              />
-              {numbers('model')}
-            </>,
+            </ConversationModelSettings>,
           )}
-          {group('execution', numbers('execution'))}
-          {group('context', numbers('context'))}
           {group(
             'tools',
             <>
@@ -528,7 +393,6 @@ function AssistantSettingsFields({
               />
             </>,
           )}
-          {group('images', <AiImagePreferenceSetting feature="assistant" />)}
           {group(
             'sending',
             <Row

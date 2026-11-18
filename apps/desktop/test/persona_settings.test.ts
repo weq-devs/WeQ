@@ -72,9 +72,18 @@ vi.mock('../src/renderer/src/views/agentlab/CloneChatPanel', () => ({
     onOpenSettings,
   }: {
     modelLabel: string;
-    onOpenSettings: () => void;
+    onOpenSettings: (anchor: HTMLElement) => void;
   }) =>
-    h('div', null, h('small', null, modelLabel), h('button', { onClick: onOpenSettings }, '设置')),
+    h(
+      'div',
+      null,
+      h('small', null, modelLabel),
+      h(
+        'button',
+        { onClick: (event: { currentTarget: HTMLElement }) => onOpenSettings(event.currentTarget) },
+        '设置',
+      ),
+    ),
 }));
 vi.mock('../src/renderer/src/components/settings/CloneGenerationPanel', () => ({
   CloneGenerationPanel: () => h('div', null, '模型与生成参数'),
@@ -133,13 +142,14 @@ it('实际克隆会话在样本数后显示画像时间，设置包含更新、�
       ].find((item) => item.textContent === label)!;
     expect(button('删除克隆体')).toBeUndefined();
     act(() => button('设置').click());
-    expect(button('更新画像')).toBeDefined();
     expect(button('删除克隆体')).toBeUndefined();
-    act(() => button('回复设置').click());
+    expect(button('模型设置').getAttribute('aria-current')).toBe('true');
     expect(document.querySelector('.weq-conversation-settings-pane')?.textContent).toContain(
       '模型与生成参数',
     );
     expect(document.querySelector('.weq-cvs-nav')?.textContent).toContain('克隆体设置');
+    act(() => button('人格与画像').click());
+    expect(button('更新画像')).toBeDefined();
     act(() => button('克隆体管理').click());
     expect(button('删除克隆体')).toBeDefined();
     f.confirm.mockResolvedValueOnce(false);

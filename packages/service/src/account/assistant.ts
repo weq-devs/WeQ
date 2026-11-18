@@ -22,6 +22,7 @@ import { randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   ASSISTANT_PARAMETER_DEFAULTS,
+  resolveAssistantContextBudget,
   validateAssistantParameters,
   type AssistantParameters,
 } from './assistant_config';
@@ -478,8 +479,6 @@ const RUN_TIMEOUT_MS = 600_000;
 // 摘要随每轮注入 + 落一条 compaction step 供前端展示。只折叠「本轮提问之前的历史」，
 // 本轮内的工具过程永远保留（避免破坏 tool_calls/tool 配对）。
 
-/** 默认上下文窗口估算（模型窗口通常 32k~128k，取保守值避免压坏普通模型）。 */
-const CONTEXT_WINDOW_DEFAULT = 32_768;
 /** 消息 token 估算（中文约 1.5~2 字符/token，英文约 4；取 1.8 折中 + 每条消息开销）。 */
 const CHARS_PER_TOKEN = 1.8;
 const MESSAGE_OVERHEAD_TOKENS = 6;
@@ -2011,9 +2010,9 @@ export class AssistantService {
   ): Promise<void> {
     const messages = state.messages;
     const totalTokens = estimateMessagesTokens(messages);
-    const contextTokens = Math.min(
-      this.config.contextTokens ?? CONTEXT_WINDOW_DEFAULT,
-      endpoint.requestProperties?.contextWindowTokens ?? Infinity,
+    const contextTokens = resolveAssistantContextBudget(
+      this.config.contextTokens,
+      endpoint.requestProperties?.contextWindowTokens,
     );
     const triggerTokens = Math.floor(
       contextTokens * (this.config.compressionTrigger ?? COMPRESS_TRIGGER_RATIO),

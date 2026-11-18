@@ -15,7 +15,13 @@ const featureLabels: Record<AiImageFeature, string> = {
   profile: '互动画像',
 };
 
-export function AiImagePreferenceSetting({ feature }: { feature: AiImageFeature }) {
+export function AiImagePreferenceSetting({
+  feature,
+  desc,
+}: {
+  feature: AiImageFeature;
+  desc?: string;
+}) {
   const active = useTabActive();
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
     enabled: active,
@@ -40,6 +46,7 @@ export function AiImagePreferenceSetting({ feature }: { feature: AiImageFeature 
       <Row
         settingId={`ai-images-${feature}`}
         label="图片处理偏好"
+        desc={desc}
         control={
           <SegmentedControl<AiImageMode>
             label={`${featureLabels[feature]} 图片处理偏好`}

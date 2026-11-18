@@ -271,7 +271,7 @@ try {
       await page.locator('.weq-conversation-settings-pane .weq-cvs-nav').waitFor();
       await page
         .locator('.weq-cvs-nav-item')
-        .filter({ hasText: kind === 'group' ? '群聊管理' : '回复设置' })
+        .filter({ hasText: kind === 'group' ? '群聊管理' : '模型设置' })
         .click();
       const settingsFit = await page
         .locator('.weq-window-surface.weq-conversation-settings-pane')
@@ -324,7 +324,7 @@ try {
         await page.getByRole('button', { name: '移除', exact: true }).click();
         await page.getByTitle('设置克隆体 合成好友', { exact: true }).click();
         await page.getByText('以下修改影响此克隆体的所有私聊和群聊，不仅限于当前群。').waitFor();
-        await page.locator('.weq-cvs-nav-item').filter({ hasText: '回复设置' }).click();
+        await page.locator('.weq-cvs-nav-item').filter({ hasText: '模型设置' }).click();
         if (output)
           await page.screenshot({
             path: resolve(output, `${kind}-${theme}-${width}-member-settings.png`),
@@ -336,6 +336,7 @@ try {
           .waitFor();
       } else {
         for (const section of [
+          '模型设置',
           '人格与画像',
           '回复设置',
           '语音',

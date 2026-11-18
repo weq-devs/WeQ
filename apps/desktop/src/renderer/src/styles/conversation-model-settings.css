@@ -1,0 +1,53 @@
+.weq-conversation-model-settings {
+  display: grid;
+  container-type: inline-size;
+  min-width: 0;
+}
+
+html[data-theme] .weq-conversation-model-settings > .weq-set-row {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 12px;
+  min-height: 44px;
+  padding-block: 9px;
+}
+
+.weq-conversation-model-settings > .weq-set-row + .weq-set-row {
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+html[data-theme] .weq-conversation-model-settings > .weq-set-row > .weq-set-row-main {
+  flex: 1 1 0;
+}
+
+.weq-conversation-model-settings > .weq-set-row > .weq-set-row-ctrl:has(.weq-set-input) {
+  width: min(14rem, 50cqi);
+  min-width: 0;
+}
+
+.weq-conversation-model-settings .weq-set-row-ctrl > select {
+  width: 100%;
+  min-width: 0;
+}
+
+.weq-conversation-model-settings [role='alert'] {
+  overflow-wrap: anywhere;
+}
+
+@container (max-width: 260px) {
+  html[data-theme]
+    .weq-conversation-model-settings
+    > .weq-set-row:has(.weq-set-input, .weq-segmented) {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .weq-conversation-model-settings > .weq-set-row > .weq-set-row-ctrl {
+    margin-inline-start: 0;
+  }
+
+  .weq-conversation-model-settings > .weq-set-row > .weq-set-row-ctrl:has(.weq-set-input) {
+    width: 100%;
+  }
+}

@@ -10,6 +10,25 @@ const turns = [
   { id: 'm2', role: 'user', text: '已经完成了，晚点一起讨论。', ts: ts + 1000 },
 ];
 const data: Record<string, unknown> = {
+  getSettings: { aiImages: { cloneChat: 'vision' } },
+  getAgentLabDefaultModel: {
+    ref: { providerId: 'fixture', model: 'fixture-model' },
+    available: true,
+  },
+  listAgentLabProviders: [
+    {
+      id: 'fixture',
+      name: '合成服务商',
+      models: [
+        {
+          id: 'fixture-model',
+          label: '合成模型',
+          capabilities: ['chat'],
+          reasoningEfforts: ['low', 'high'],
+        },
+      ],
+    },
+  ],
   overview: {
     faces: [
       {

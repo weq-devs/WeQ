@@ -792,14 +792,15 @@ export async function runPersonaChat(
   }
   messages.push({ role: 'user', content: req.inputContent ?? req.input });
 
+  const effort = generation.reasoningEffort;
   const request = () =>
     postJson<{
       choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
       usage?: OpenAiUsage;
     }>({ ...chat, timeoutMs: chat.timeoutMs ?? 120_000 }, '/chat/completions', {
       model: chat.model,
-      // 意愿越高越放得开（temperature 略高），越敷衍越稳一点。
-      temperature: generation.temperature ?? 0.7 + willing.score * 0.2,
+      ...(effort && chat.reasoningEfforts?.includes(effort) ? { reasoning_effort: effort } : {}),
+      ...(generation.temperature === null ? {} : { temperature: generation.temperature }),
       ...(generation.maxOutputTokens > 0 ? { max_tokens: generation.maxOutputTokens } : {}),
       messages,
     });

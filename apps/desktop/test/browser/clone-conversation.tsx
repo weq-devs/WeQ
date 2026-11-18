@@ -8,7 +8,6 @@ import { ConversationDirectoryContext } from '../../src/renderer/src/lib/convers
 import { DialogHost } from '../../src/renderer/src/components/Dialog';
 import { contrastRatio } from '../../src/shared/theme_colors';
 import { PersonaSettingsModal } from '../../src/renderer/src/views/agentlab/PersonaSettingsModal';
-import { CloneGenerationPanel } from '../../src/renderer/src/components/settings/CloneGenerationPanel';
 import { OverlayAnchorProvider } from '../../src/renderer/src/lib/overlayAnchor';
 import { cloneRequests } from './clone-conversation.stub';
 import {
@@ -94,7 +93,6 @@ function Fixture() {
           <PersonaSettingsModal
             persona={persona}
             fromGroup={group}
-            replyContent={<CloneGenerationPanel persona={persona} onSaved={noop} />}
             onClose={() => setSettings(false)}
             onSaved={noop}
           />

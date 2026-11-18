@@ -15,7 +15,7 @@ import { feedConversationRow } from '../src/renderer/src/lib/conversationDirecto
 vi.mock('../src/renderer/src/trpc/client', () => import('./browser/unified-conversation.stub'));
 afterEach(() => vi.unstubAllGlobals());
 
-it('助手实际控制器直接渲染共用页、编辑器和六组自动保存设置', async () => {
+it('助手控制器复用会话页，默认模型设置及会话覆盖独立保存', async () => {
   vi.stubGlobal('localStorage', new Storage());
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
@@ -68,28 +68,21 @@ it('助手实际控制器直接渲染共用页、编辑器和六组自动保存�
     await act(async () =>
       host.querySelector<HTMLButtonElement>('[aria-label="助手设置"]')!.click(),
     );
-    expect(document.querySelectorAll('.weq-cvs-nav-item')).toHaveLength(6);
-    await act(async () =>
-      [...document.querySelectorAll<HTMLButtonElement>('.weq-cvs-nav-item')]
-        .find((item) => item.textContent?.includes('任务执行'))!
-        .click(),
+    expect(document.querySelector('.weq-cvs-nav-item[aria-current="true"]')?.textContent).toBe(
+      '模型设置',
     );
-    const limit = document.querySelector<HTMLInputElement>('[aria-label="任务最大轮数"]')!;
-    expect(limit.value).toBe('24');
-    await act(async () =>
-      document
-        .querySelector<HTMLButtonElement>('[aria-label="任务最大轮数模式"] [role="radio"]')!
-        .click(),
-    );
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+    const history = document.querySelector<HTMLSelectElement>('[aria-label="对话上下文"]')!;
+    await act(async () => {
+      history.value = '0';
+      history.dispatchEvent(new Event('change', { bubbles: true }));
+    });
     expect(
       requests.some(
         (call) =>
           call.name === 'setAssistantConfig' &&
-          (call.input as { maxRounds?: number | null }).maxRounds === null,
+          (call.input as { historyMessages?: number }).historyMessages === 0,
       ),
     ).toBe(true);
-    expect(document.querySelector('[aria-label="任务最大轮数"]')).toBeNull();
     await act(async () => document.querySelector<HTMLButtonElement>('.weq-cvs-close')!.click());
     const editor = host.querySelector<HTMLDivElement>('.composer-editor')!;
     await act(async () => {

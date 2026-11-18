@@ -23,7 +23,6 @@ import {
 } from './agentlab/NewCloneModal';
 import { getCloneTasks, startCloneTask } from './agentlab/cloneTaskStore';
 import { PersonaSettingsModal } from './agentlab/PersonaSettingsModal';
-import { CloneGenerationPanel } from '../components/settings/CloneGenerationPanel';
 import { personaUpdatedAt } from './agentlab/personaUpdatedAt';
 import { AssistantPanel } from './agentlab/AssistantPanel';
 import { buildFaceMap } from './agentlab/ChatBubble.shared';
@@ -869,16 +868,6 @@ export function AgentLabView({
           fromGroup={!!memberSettingsId}
           onDelete={() => void onDeletePersona()}
           deleting={deletePersona.isLoading}
-          replyContent={
-            <CloneGenerationPanel
-              key={settingsPersona.id}
-              persona={settingsPersona}
-              onSaved={() => {
-                void utils.account.listAgentLabPersonas.invalidate();
-                void utils.account.getAgentLabPersonaDetail.invalidate();
-              }}
-            />
-          }
           profileContent={
             <>
               <Row label="训练视觉模型">

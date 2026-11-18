@@ -1,70 +1,19 @@
 import { useCallback, useRef, useState } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import type { AssistantConfig, AssistantSessionGeneration } from '@weq/service';
-import {
-  isDefaultModelSelection,
-  modelSelectionKey,
-  type AgentLabModelSelection,
-} from '@weq/agentlab/model-selection';
+import { isDefaultModelSelection, modelSelectionKey } from '@weq/agentlab/model-selection';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
+import { useConversationModels } from '../../components/settings/useConversationModels';
 import { providerDisplayLabels } from '../../lib/providerDisplayLabels';
-import { trpc } from '../../trpc/client';
 
 const OFF = 'off';
-const DEFAULT_EFFORTS = ['low', 'medium', 'high'];
-
-function useAssistantModels() {
-  const providers = trpc.bootstrap.listAgentLabProviders.useQuery();
-  const defaults = trpc.bootstrap.getAgentLabDefaultModel.useQuery();
-  const findModel = (model: AgentLabModelSelection | null | undefined) => {
-    const ref = !model || isDefaultModelSelection(model) ? defaults.data?.ref : model;
-    return (
-      ref &&
-      providers.data
-        ?.find((provider) => provider.id === ref.providerId)
-        ?.models.find((item) => item.id === ref.model)
-    );
-  };
-  return { providers, findModel };
-}
 
 function effortLabel(effort: string) {
   return effort === OFF ? '不指定' : effort;
 }
 
 function effortValues(declared: string[] | undefined, selected: string) {
-  return [...new Set([OFF, ...(declared ?? DEFAULT_EFFORTS), ...(selected ? [selected] : [])])];
-}
-
-export function AssistantEffortSelect({
-  model,
-  value,
-  label,
-  onChange,
-  disabled,
-}: {
-  model?: AgentLabModelSelection;
-  value: string;
-  label: string;
-  onChange: (value: string) => void;
-  disabled: boolean;
-}) {
-  const { findModel } = useAssistantModels();
-  return (
-    <select
-      className="weq-set-input"
-      aria-label={label}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      disabled={disabled}
-    >
-      {effortValues(findModel(model)?.reasoningEfforts, value).map((effort) => (
-        <option value={effort} key={effort}>
-          {effortLabel(effort)}
-        </option>
-      ))}
-    </select>
-  );
+  return [...new Set([OFF, ...(declared ?? []), ...(selected ? [selected] : [])])];
 }
 
 function InlineChoice({
@@ -151,7 +100,7 @@ export function AssistantGenerationControls({
   disabled: boolean;
   onChange: (patch: AssistantSessionGeneration) => void;
 }) {
-  const { findModel, providers } = useAssistantModels();
+  const { findModel, providers } = useConversationModels();
   const defaultModel = findModel(defaults?.model);
   const defaultLabel = defaultModel?.label || defaultModel?.id;
   const model = selection.model ?? defaults?.model;

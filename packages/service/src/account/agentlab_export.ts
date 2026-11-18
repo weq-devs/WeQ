@@ -29,7 +29,11 @@ export interface BotExportLlmProvider {
   baseUrl: string;
   apiKey: string;
   timeoutMs?: number;
-  modelProperties?: Array<{ id: string; requestProperties: ModelRequestProperties }>;
+  modelProperties?: Array<{
+    id: string;
+    requestProperties?: ModelRequestProperties;
+    reasoningEfforts?: string[];
+  }>;
 }
 
 export interface BotExportInput {

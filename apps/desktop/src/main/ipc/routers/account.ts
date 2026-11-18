@@ -2519,10 +2519,20 @@ export const accountRouter = router({
       for (const [id, modelIds] of llmModels) {
         const p = cfg.getProvider(id);
         if (!p) throw new Error(`缺少 LLM provider 配置：${id}（请先在设置里配置该厂商）`);
+        const modelProperties = [...modelIds].flatMap((model) => {
+          const { requestProperties, reasoningEfforts } = resolveProviderEndpoint(p, {
+            providerId: id,
+            model,
+          });
+          return requestProperties || reasoningEfforts
+            ? [{ id: model, requestProperties, reasoningEfforts }]
+            : [];
+        });
         llmProviders.push({
           id: p.id,
           baseUrl: p.baseUrl,
           apiKey: p.apiKey,
+          ...(modelProperties.length ? { modelProperties } : {}),
           ...(p.timeoutMs === undefined ? {} : { timeoutMs: p.timeoutMs }),
         });
       }
@@ -2544,15 +2554,10 @@ export const accountRouter = router({
         )
           throw new Error('账号或数据源已切换，请重新导出机器人。');
       };
-        const modelProperties = [...modelIds].flatMap((model) => {
-          const { requestProperties } = resolveProviderEndpoint(p, { providerId: id, model });
-          return requestProperties ? [{ id: model, requestProperties }] : [];
-        });
       const safeName =
         (persona.name || 'clone').replace(/[^\w一-龥-]+/g, '_').slice(0, 40) || 'clone';
       const buildInput = structuredClone({
         botRuntimeMjs: botMjs,
-          ...(modelProperties.length ? { modelProperties } : {}),
         persona: { ...persona, models },
         pairs: record.pairs,
         agentlabRoot: svc.assetRoot,
@@ -2942,6 +2947,7 @@ export const accountRouter = router({
             expressionItems: cloneQuantity('expressionItems'),
             maxOutputTokens: cloneQuantity('maxOutputTokens'),
             temperature: z.number().min(0).max(2).nullable().optional(),
+            reasoningEffort: z.string().trim().min(1).max(64).optional(),
           })
           .optional(),
         name: z.string().optional(),
