@@ -8,6 +8,7 @@ import type {
   AgentLabModelSelection,
   AgentLabEndpoint,
   EndpointResolver,
+  ModelRequestProperties,
   TtsProviderConfig,
 } from '@weq/agentlab';
 import { isDefaultModelSelection, modelEndpointIdentity } from '@weq/agentlab';
@@ -33,8 +34,9 @@ export interface BotLlmProvider {
   id: string;
   baseUrl: string;
   apiKey: string;
-  /** 非流式模型请求总期限，毫秒；缺省 180 秒。 */
+  /** 模型请求总期限（毫秒），缺省使用运行时默认。 */
   timeoutMs?: number;
+  modelProperties?: Array<{ id: string; requestProperties: ModelRequestProperties }>;
 }
 
 /** 功能开关（扩展预留：随能力增长往这里加，默认关）。 */
@@ -125,6 +127,8 @@ export function buildEndpointResolver(providers: BotLlmProvider[]): EndpointReso
       model: ref.model,
       modelIdentity: modelEndpointIdentity(ref, p.baseUrl),
       timeoutMs: p.timeoutMs,
+      requestProperties: p.modelProperties?.find((model) => model.id === ref.model)
+        ?.requestProperties,
     };
   };
 }

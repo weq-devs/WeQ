@@ -5,11 +5,13 @@ import type {
   CapabilityProbeResult,
   AgentLabProviderModel,
   ModelMetadata,
+  ModelRequestProperties,
   ReasoningProbeResult,
 } from '@weq/agentlab';
-import { modelReasoningEfforts } from '@weq/agentlab/model-metadata';
+import { modelReasoningEfforts, readModelRequestProperties } from '@weq/agentlab/model-metadata';
 import {
   CheckCheck,
+  ChevronDown,
   DownloadCloud,
   FlaskConical,
   Image,
@@ -49,6 +51,10 @@ const CAPABILITIES: { value: Capability; label: string; Icon: LucideIcon }[] = [
   { value: 'vision', label: '视觉', Icon: Image },
   { value: 'embedding', label: '向量', Icon: Layers },
 ];
+const TOKEN_FIELDS = [
+  ['contextWindowTokens', '上下文窗口（Token）'],
+  ['maxOutputTokens', '最大输出（Token）'],
+] as const;
 
 type ModelForm = {
   rowKey: string;
@@ -61,6 +67,7 @@ type ModelForm = {
   capabilities: Capability[];
   probe?: CapabilityProbeResult[];
   reasoningProbe?: ReasoningProbeResult;
+  requestTokenDrafts?: Partial<Record<(typeof TOKEN_FIELDS)[number][0], string>>;
 };
 type ProviderForm = {
   id: string;
@@ -68,6 +75,7 @@ type ProviderForm = {
   vendor: string;
   baseUrl: string;
   apiKey: string;
+  timeoutSeconds: string;
   models: ModelForm[];
 };
 
@@ -100,6 +108,7 @@ function emptyForm(): ProviderForm {
     vendor: DEFAULT_VENDOR,
     baseUrl: '',
     apiKey: '',
+    timeoutSeconds: '',
     models: [],
   };
 }
@@ -107,6 +116,117 @@ function emptyForm(): ProviderForm {
 /** 模板标签去掉括号说明后的显示名：硅基流动 SiliconFlow（推荐）→ 硅基流动 SiliconFlow。 */
 function templateDisplayName(label: string | undefined): string {
   return label?.replace(/（.*?）/g, '').trim() ?? '';
+}
+
+function requestOverrides(model: ModelForm): ModelRequestProperties | undefined {
+  const overrides = { ...model.overrides?.request };
+  for (const [key, label] of TOKEN_FIELDS) {
+    const draft = model.requestTokenDrafts?.[key];
+    if (draft === undefined) continue;
+    if (!draft.trim()) {
+      delete overrides[key];
+      continue;
+    }
+    const value = Number(draft);
+    if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`「${label}」必须为正整数`);
+    overrides[key] = value;
+  }
+  const entries = Object.entries(overrides).filter(([, value]) => value !== undefined);
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+function ModelRequestFields({
+  model,
+  update,
+}: {
+  model: ModelForm;
+  update: (patch: Partial<ModelForm>) => void;
+}) {
+  const declared = readModelRequestProperties(model.metadata);
+  const request = model.overrides?.request;
+  const patchRequest = (value: ModelRequestProperties) =>
+    update({ overrides: { ...model.overrides, request: { ...request, ...value } } });
+  return (
+    <div className="weq-provider-model-properties">
+      {TOKEN_FIELDS.map(([key, label]) => (
+        <Row
+          key={key}
+          label={label}
+          desc={key === 'maxOutputTokens' ? '仅约束显式设置的输出上限。' : undefined}
+          control={
+            <input
+              className="weq-set-input weq-number"
+              type="number"
+              min={1}
+              step={1}
+              aria-label={label}
+              value={model.requestTokenDrafts?.[key] ?? request?.[key] ?? ''}
+              placeholder={declared[key] === undefined ? '未声明' : `自动（${declared[key]}）`}
+              onChange={(event) =>
+                update({
+                  requestTokenDrafts: { ...model.requestTokenDrafts, [key]: event.target.value },
+                })
+              }
+            />
+          }
+        />
+      ))}
+      <Row
+        label="温度参数"
+        control={
+          <select
+            className="weq-set-input"
+            aria-label="温度参数"
+            value={
+              request?.temperatureSupported === undefined
+                ? ''
+                : String(request.temperatureSupported)
+            }
+            onChange={(event) =>
+              patchRequest({
+                temperatureSupported:
+                  event.target.value === '' ? undefined : event.target.value === 'true',
+              })
+            }
+          >
+            <option value="">
+              自动
+              {declared.temperatureSupported === false
+                ? '（不发送）'
+                : declared.temperatureSupported === true
+                  ? '（支持）'
+                  : ''}
+            </option>
+            <option value="true">支持</option>
+            <option value="false">不发送</option>
+          </select>
+        }
+      />
+      <Row
+        label="输出上限参数"
+        control={
+          <select
+            className="weq-set-input"
+            aria-label="输出上限参数"
+            value={request?.outputTokenParameter ?? ''}
+            onChange={(event) => {
+              const value = event.target.value;
+              patchRequest({
+                outputTokenParameter:
+                  value === 'max_tokens' || value === 'max_completion_tokens' ? value : undefined,
+              });
+            }}
+          >
+            <option value="">
+              {declared.outputTokenParameter ? `自动（${declared.outputTokenParameter}）` : '自动'}
+            </option>
+            <option value="max_tokens">max_tokens</option>
+            <option value="max_completion_tokens">max_completion_tokens</option>
+          </select>
+        }
+      />
+    </div>
+  );
 }
 
 export function AgentLabSection(): ReactElement {
@@ -176,6 +296,7 @@ export function AgentLabSection(): ReactElement {
       vendor: string;
       baseUrl: string;
       apiKey: string;
+      timeoutMs?: number;
       models: AgentLabProviderModel[];
     }) => {
       const entry = catalogRef.current?.find((c) => c.vendor === item.vendor);
@@ -194,6 +315,7 @@ export function AgentLabSection(): ReactElement {
         vendor: item.vendor,
         baseUrl: item.baseUrl,
         apiKey: item.apiKey,
+        timeoutSeconds: item.timeoutMs === undefined ? '' : String(item.timeoutMs / 1000),
         models: item.models.map((m) => ({
           rowKey: crypto.randomUUID(),
           id: m.id,
@@ -544,15 +666,18 @@ export function AgentLabSection(): ReactElement {
             ),
           )
           .map((model) => {
-            const metadata: ModelMetadata = models?.find((item) => item.id === model.id.trim())
-              ?.metadata ?? {
-              capabilities: { chat: 'unknown', embedding: 'unknown', vision: 'unknown' },
-              reasoning: { controls: [] },
-              raw: {},
-              source: 'models',
-              fetchedAt: Date.now(),
-              error,
-            };
+            const fetched = models?.find((item) => item.id === model.id.trim())?.metadata;
+            const metadata: ModelMetadata =
+              (error || fetched?.error) && model.metadata
+                ? { ...model.metadata, error: error ?? fetched?.error }
+                : (fetched ?? {
+                    capabilities: { chat: 'unknown', embedding: 'unknown', vision: 'unknown' },
+                    reasoning: { controls: [] },
+                    raw: {},
+                    source: 'models',
+                    fetchedAt: Date.now(),
+                    error,
+                  });
             merge(model, metadata);
             const capabilities = CAPABILITIES.filter(
               ({ value }) => metadata.capabilities[value] === 'unknown',
@@ -590,6 +715,10 @@ export function AgentLabSection(): ReactElement {
           );
           if (!live) continue;
           setDetectingKey(live.rowKey);
+          const properties = {
+            ...readModelRequestProperties(entry.metadata),
+            ...live.overrides?.request,
+          };
           const result = await client.bootstrap.detectAgentLabModelCapabilities.mutate({
             providerId: snapshot.id,
             providerName: snapshot.name.trim() || 'API',
@@ -598,6 +727,7 @@ export function AgentLabSection(): ReactElement {
             model: entry.model.id.trim(),
             capabilities: entry.capabilities,
             reasoning: entry.reasoning,
+            ...(Object.keys(properties).length ? { requestProperties: properties } : {}),
           });
           const metadata = {
             ...entry.metadata,
@@ -618,43 +748,51 @@ export function AgentLabSection(): ReactElement {
   async function onSave(): Promise<void> {
     // 新建草稿有独立 ID；同名／同模板不覆盖，编辑和重复保存仍沿用原引用。
     const id = form.id;
-    const models = form.models
-      .map((m) => ({
-        id: m.id.trim(),
-        label: m.label.trim() || undefined,
-        capabilities: CAPABILITIES.filter(({ value }) => m.capabilities.includes(value)).map(
-          ({ value }) => value,
-        ),
-        metadata: m.metadata,
-        overrides: m.overrides,
-        reasoningEfforts: m.reasoningEfforts,
-        ...(m.reasoningEffortsText === undefined
-          ? {}
-          : {
-              reasoningEfforts: m.reasoningEffortsText.trim()
-                ? [
-                    ...new Set(
-                      m.reasoningEffortsText
-                        .split(',')
-                        .map((item) => item.trim())
-                        .filter(Boolean),
-                    ),
-                  ]
-                : [],
-            }),
-      }))
-      .filter((m) => m.id);
-    if (models.length === 0) {
-      dialog.error('保存失败', '至少配置一个模型（可点「导入模板推荐」）。');
-      return;
-    }
     try {
+      const seconds = form.timeoutSeconds.trim();
+      const timeoutMs = seconds ? Math.round(Number(seconds) * 1000) : null;
+      if (
+        timeoutMs !== null &&
+        (!/^\d+(?:\.\d{1,3})?$/.test(seconds) || timeoutMs < 1 || timeoutMs > 2_147_483_647)
+      )
+        throw new Error('请求时限必须在 0.001 到 2147483.647 秒之间，最多三位小数');
+      const models = form.models
+        .filter((model) => model.id.trim())
+        .map((m) => ({
+          id: m.id.trim(),
+          label: m.label.trim() || undefined,
+          capabilities: CAPABILITIES.filter(({ value }) => m.capabilities.includes(value)).map(
+            ({ value }) => value,
+          ),
+          metadata: m.metadata,
+          overrides:
+            m.overrides || m.requestTokenDrafts
+              ? { ...m.overrides, request: requestOverrides(m) }
+              : undefined,
+          reasoningEfforts: m.reasoningEfforts,
+          ...(m.reasoningEffortsText === undefined
+            ? {}
+            : {
+                reasoningEfforts: m.reasoningEffortsText.trim()
+                  ? [
+                      ...new Set(
+                        m.reasoningEffortsText
+                          .split(',')
+                          .map((item) => item.trim())
+                          .filter(Boolean),
+                      ),
+                    ]
+                  : [],
+              }),
+        }));
+      if (models.length === 0) throw new Error('至少配置一个模型（可点「导入模板推荐」）。');
       await saveProvider.mutateAsync({
         id,
         name: form.name.trim() || id,
         vendor: form.vendor,
         baseUrl: form.baseUrl.trim(),
         apiKey: form.apiKey.trim(),
+        timeoutMs,
         models,
       });
       guard.reset(form);
@@ -671,7 +809,7 @@ export function AgentLabSection(): ReactElement {
     }
   }
 
-  /** 测试连通性：用表单里第一个带「聊天」能力的模型探活，把详细错误（状态码/响应体）展示出来。 */
+  /** 优先测试聊天；没有聊天模型的服务商也能按实际用途测试。 */
   function onTest(): void {
     if (!form.baseUrl.trim()) {
       notificationToast.push({
@@ -682,31 +820,45 @@ export function AgentLabSection(): ReactElement {
       });
       return;
     }
-    const chatModel = form.models
-      .find((m) => m.capabilities.includes('chat') && m.id.trim())
-      ?.id.trim();
-    if (!chatModel) {
+    const model =
+      form.models.find((m) => m.capabilities.includes('chat') && m.id.trim()) ??
+      form.models.find((m) => m.capabilities.length && m.id.trim());
+    const capability = CAPABILITIES.find(({ value }) => model?.capabilities.includes(value));
+    if (!model || !capability) {
       notificationToast.push({
         tone: 'warning',
         title: '无法测试',
-        detail: '请先添加并填写一个带「聊天」能力的模型。',
+        detail: '请先填写模型 ID，并选择至少一种能力。',
         durationKind: 'success',
       });
+      return;
+    }
+    const modelId = model.id.trim();
+    let requestProperties: ModelRequestProperties;
+    try {
+      requestProperties = {
+        ...readModelRequestProperties(model.metadata),
+        ...requestOverrides(model),
+      };
+    } catch (error) {
+      dialog.error('无法测试', error instanceof Error ? error.message : String(error));
       return;
     }
     const input = {
       baseUrl: form.baseUrl.trim(),
       apiKey: form.apiKey.trim(),
-      model: chatModel,
+      model: modelId,
+      ...(capability.value !== 'chat' ? { capability: capability.value } : {}),
+      ...(Object.keys(requestProperties).length ? { requestProperties } : {}),
       providerId: form.id,
       providerName: form.name.trim() || 'API',
     };
-    const label = `${form.name.trim() || 'API'} · ${form.id.slice(-8)} · ${chatModel}`;
+    const label = `${form.name.trim() || 'API'} · ${form.id.slice(-8)} · ${modelId}`;
     void runConnectionTest(testKey, label, async () => {
       const res = await client.bootstrap.testAgentLabProvider.mutate(input);
       if (!res.ok) throw new Error(res.error ?? '未知错误');
       return {
-        detail: `模型「${chatModel}」可正常调用${res.reply ? `，回了：${res.reply}` : '。'}`,
+        detail: `模型「${modelId}」可正常调用${res.reply ? `，回了：${res.reply}` : '。'}`,
       };
     });
   }
@@ -896,7 +1048,7 @@ export function AgentLabSection(): ReactElement {
               />
               <Row
                 label="API Key"
-                desc={vendorEntry?.apiKeyHint}
+                desc={vendorEntry?.apiKeyHint ?? '服务商不要求认证时可留空。'}
                 control={
                   <input
                     className="weq-set-input"
@@ -905,6 +1057,22 @@ export function AgentLabSection(): ReactElement {
                     value={form.apiKey}
                     onChange={(e) => update('apiKey', e.target.value)}
                     placeholder="sk-..."
+                  />
+                }
+              />
+              <Row
+                label="请求时限（秒）"
+                desc="留空按功能决定；填写后限制该服务商单次请求，也包含流式正文。"
+                control={
+                  <input
+                    className="weq-set-input weq-number"
+                    type="number"
+                    min={0.001}
+                    step={0.001}
+                    aria-label="请求时限（秒）"
+                    value={form.timeoutSeconds}
+                    placeholder="按功能"
+                    onChange={(event) => update('timeoutSeconds', event.target.value)}
                   />
                 }
               />
@@ -1052,46 +1220,6 @@ export function AgentLabSection(): ReactElement {
                         }}
                         placeholder="模型 id，如 deepseek-ai/DeepSeek-V3"
                       />
-                      <input
-                        className="weq-set-input weq-provider-model-reasoning"
-                        aria-label={`模型 ${index + 1} 思考档位`}
-                        placeholder={
-                          model.metadata?.reasoning.supported === false
-                            ? '不支持思考'
-                            : model.metadata?.reasoning.controls.length
-                              ? model.metadata.reasoning.controls
-                                  .map((control) =>
-                                    control.kind === 'toggle'
-                                      ? `开关：${control.values?.join(', ') ?? '支持'}`
-                                      : control.kind === 'budget'
-                                        ? `预算：${control.min ?? '?'}–${control.max ?? '?'}`
-                                        : control.kind === 'adaptive'
-                                          ? '自适应思考'
-                                          : '思考档位（逗号分隔）',
-                                  )
-                                  .join('；')
-                              : '思考档位（未知）'
-                        }
-                        title={
-                          model.metadata
-                            ? `${model.metadata.reasoning.controls.map((control) => `${control.kind}：${control.values?.join(', ') ?? ''}${control.default === undefined ? '' : `；默认 ${control.default}`}`).join('\n') || '思考控制未知'}\n手动填写命名档位，以逗号分隔；留空不声明档位。`
-                            : '思考控制未知；可手动填写命名档位，以逗号分隔'
-                        }
-                        value={
-                          model.reasoningEffortsText ??
-                          (model.overrides?.reasoning
-                            ? model.reasoningEfforts?.join(', ')
-                            : (model.metadata?.reasoning.controls
-                                .find((control) => control.kind === 'effort')
-                                ?.values?.join(', ') ?? model.reasoningEfforts?.join(', '))) ??
-                          ''
-                        }
-                        onChange={(event) =>
-                          updateModel(index, {
-                            reasoningEffortsText: event.target.value,
-                          })
-                        }
-                      />
                       <button
                         data-danger="outline"
                         type="button"
@@ -1102,71 +1230,131 @@ export function AgentLabSection(): ReactElement {
                       >
                         <X size={14} />
                       </button>
-                      <button
-                        type="button"
-                        className="weq-set-iconbtn weq-provider-model-detect"
-                        onPointerDown={(event) => event.preventDefault()}
-                        onClick={() =>
-                          inspectModels(formRef.current, [model.rowKey], undefined, true)
-                        }
-                        disabled={
-                          detectingModel !== null || !model.id.trim() || !form.baseUrl.trim()
-                        }
-                        aria-label={`检测模型 ${index + 1} 能力与思考`}
-                        aria-busy={detectingModel === index}
-                        title={[
-                          detectingModel === index
-                            ? '检测中'
-                            : '读取模型元数据并探测缺失的能力与思考信息',
-                          ...CAPABILITIES.map(
-                            ({ value, label }) =>
-                              `${label}：${model.metadata?.capabilities[value] === 'supported' ? '服务商声明支持或已验证' : model.metadata?.capabilities[value] === 'unsupported' ? '不支持' : '未知'}`,
-                          ),
-                          ...CAPABILITIES.flatMap(({ value }) =>
-                            (model.probe ?? []).filter((result) => result.capability === value),
-                          ).map(
-                            (result) =>
-                              `${CAPABILITIES.find((item) => item.value === result.capability)?.label}：${result.status === 'supported' ? '已验证' : result.status === 'unsupported' ? '不支持' : '未确定'}；${result.detail}`,
-                          ),
-                          model.reasoningProbe?.detail,
-                          model.metadata?.error,
-                        ]
-                          .filter(Boolean)
-                          .join('\n')}
-                      >
-                        {detectingModel === index ? (
-                          <Loader2 size={12} className="weq-spin" />
-                        ) : (
-                          <FlaskConical size={12} />
-                        )}
-                      </button>
-                      <div
-                        className="weq-search-scope weq-provider-model-capabilities"
-                        role="group"
-                        aria-label={`模型 ${index + 1} 能力`}
-                      >
-                        {CAPABILITIES.map(({ value, label, Icon }) => (
-                          <button
-                            key={value}
-                            type="button"
-                            aria-pressed={model.capabilities.includes(value)}
-                            onClick={() =>
-                              updateModel(
-                                index,
-                                {
-                                  capabilities: model.capabilities.includes(value)
-                                    ? model.capabilities.filter((item) => item !== value)
-                                    : [...model.capabilities, value],
-                                },
-                                value,
-                              )
+                      <details className="weq-set-details weq-provider-model-details">
+                        <summary aria-label={`模型 ${index + 1} 能力与参数`}>
+                          <ChevronDown size={13} aria-hidden />
+                          能力与参数
+                          <span className="weq-set-row-desc">
+                            {CAPABILITIES.filter(({ value }) => model.capabilities.includes(value))
+                              .map(({ label }) => label)
+                              .join(' / ') || '未选择能力'}
+                          </span>
+                          {detectingModel === index ? (
+                            <Loader2 size={12} className="weq-spin" aria-label="正在读取模型信息" />
+                          ) : null}
+                        </summary>
+                        <div className="weq-provider-model-controls">
+                          <input
+                            className="weq-set-input weq-provider-model-reasoning"
+                            aria-label={`模型 ${index + 1} 思考档位`}
+                            placeholder={
+                              model.metadata?.reasoning.supported === false
+                                ? '不支持思考'
+                                : model.metadata?.reasoning.controls.length
+                                  ? model.metadata.reasoning.controls
+                                      .map((control) =>
+                                        control.kind === 'toggle'
+                                          ? `开关：${control.values?.join(', ') ?? '支持'}`
+                                          : control.kind === 'budget'
+                                            ? `预算：${control.min ?? '?'}–${control.max ?? '?'}`
+                                            : control.kind === 'adaptive'
+                                              ? '自适应思考'
+                                              : '思考档位（逗号分隔）',
+                                      )
+                                      .join('；')
+                                  : '思考档位（未知）'
                             }
+                            title={
+                              model.metadata
+                                ? `${model.metadata.reasoning.controls.map((control) => `${control.kind}：${control.values?.join(', ') ?? ''}${control.default === undefined ? '' : `；默认 ${control.default}`}`).join('\n') || '思考控制未知'}\n手动填写命名档位，以逗号分隔；留空不声明档位。`
+                                : '思考控制未知；可手动填写命名档位，以逗号分隔'
+                            }
+                            value={
+                              model.reasoningEffortsText ??
+                              (model.overrides?.reasoning
+                                ? model.reasoningEfforts?.join(', ')
+                                : (model.metadata?.reasoning.controls
+                                    .find((control) => control.kind === 'effort')
+                                    ?.values?.join(', ') ?? model.reasoningEfforts?.join(', '))) ??
+                              ''
+                            }
+                            onChange={(event) =>
+                              updateModel(index, {
+                                reasoningEffortsText: event.target.value,
+                              })
+                            }
+                          />
+                          <button
+                            type="button"
+                            className="weq-set-iconbtn weq-provider-model-detect"
+                            onPointerDown={(event) => event.preventDefault()}
+                            onClick={() =>
+                              inspectModels(formRef.current, [model.rowKey], undefined, true)
+                            }
+                            disabled={
+                              detectingModel !== null || !model.id.trim() || !form.baseUrl.trim()
+                            }
+                            aria-label={`检测模型 ${index + 1} 能力与思考`}
+                            aria-busy={detectingModel === index}
+                            title={[
+                              detectingModel === index
+                                ? '检测中'
+                                : '读取模型元数据并探测缺失的能力与思考信息',
+                              ...CAPABILITIES.map(
+                                ({ value, label }) =>
+                                  `${label}：${model.metadata?.capabilities[value] === 'supported' ? '服务商声明支持或已验证' : model.metadata?.capabilities[value] === 'unsupported' ? '不支持' : '未知'}`,
+                              ),
+                              ...CAPABILITIES.flatMap(({ value }) =>
+                                (model.probe ?? []).filter((result) => result.capability === value),
+                              ).map(
+                                (result) =>
+                                  `${CAPABILITIES.find((item) => item.value === result.capability)?.label}：${result.status === 'supported' ? '已验证' : result.status === 'unsupported' ? '不支持' : '未确定'}；${result.detail}`,
+                              ),
+                              model.reasoningProbe?.detail,
+                              model.metadata?.error,
+                            ]
+                              .filter(Boolean)
+                              .join('\n')}
                           >
-                            <Icon size={14} aria-hidden />
-                            {label}
+                            {detectingModel === index ? (
+                              <Loader2 size={12} className="weq-spin" />
+                            ) : (
+                              <FlaskConical size={12} />
+                            )}
                           </button>
-                        ))}
-                      </div>
+                          <div
+                            className="weq-search-scope weq-provider-model-capabilities"
+                            role="group"
+                            aria-label={`模型 ${index + 1} 能力`}
+                          >
+                            {CAPABILITIES.map(({ value, label, Icon }) => (
+                              <button
+                                key={value}
+                                type="button"
+                                aria-pressed={model.capabilities.includes(value)}
+                                onClick={() =>
+                                  updateModel(
+                                    index,
+                                    {
+                                      capabilities: model.capabilities.includes(value)
+                                        ? model.capabilities.filter((item) => item !== value)
+                                        : [...model.capabilities, value],
+                                    },
+                                    value,
+                                  )
+                                }
+                              >
+                                <Icon size={14} aria-hidden />
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <ModelRequestFields
+                          model={model}
+                          update={(patch) => updateModel(index, patch)}
+                        />
+                      </details>
                     </div>
                   ))
                 )}

@@ -202,6 +202,7 @@ const INTENT_GROUPS = {
   'suggestion-content': ['suggestionContextMessages', 'suggestionCount', 'suggestionTargetChars'],
   'suggestion-generation': ['suggestionTemperature'],
   'suggestion-cache': [
+    'suggestionApiTimeoutSeconds',
     'suggestionCacheSeconds',
     'suggestionExpiryMinutes',
     'suggestionHistoryLimit',

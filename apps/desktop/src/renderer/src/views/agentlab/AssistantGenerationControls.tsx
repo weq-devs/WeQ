@@ -157,8 +157,7 @@ export function AssistantGenerationControls({
   const model = selection.model ?? defaults?.model;
   const declared = findModel(model)?.reasoningEfforts;
   const requestedEffort = defaults?.reasoningEffort ?? OFF;
-  const inheritedEffort =
-    selection.model && declared && !declared.includes(requestedEffort) ? OFF : requestedEffort;
+  const inheritedEffort = declared && !declared.includes(requestedEffort) ? OFF : requestedEffort;
   const effort = selection.reasoningEffort ?? '';
   const chosenKey = modelSelectionKey(selection.model);
   const labels = providerDisplayLabels(providers.data ?? []);

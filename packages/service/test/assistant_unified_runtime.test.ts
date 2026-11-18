@@ -208,7 +208,8 @@ it('当前任务使用参数快照，队列中的下一项独立任务读取新�
   release!();
   await vi.waitFor(() => expect(bodies).toHaveLength(2));
   await vi.waitFor(() => expect(f.service.getQueue(f.sessionId).running).toBe(false));
-  expect(bodies[0]?.temperature).toBe(ASSISTANT_PARAMETER_DEFAULTS.temperature);
+  expect(bodies[0]?.temperature ?? null).toBe(ASSISTANT_PARAMETER_DEFAULTS.temperature);
+  expect(bodies[0]).not.toHaveProperty('temperature');
   expect(bodies[1]).toMatchObject({ temperature: 1.4, reasoning_effort: 'high', max_tokens: 1234 });
 });
 it('会话模型和思考强度随记录持久化，继承与不指定分别生效', async () => {

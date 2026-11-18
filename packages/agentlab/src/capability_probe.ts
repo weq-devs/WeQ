@@ -47,7 +47,7 @@ export async function detectModelCapabilities(
     const probe = {
       ...endpoint,
       kind: capability,
-      feature: 'capability-test',
+      feature: endpoint.feature ?? 'capability-test',
       timeoutMs: endpoint.timeoutMs ?? 30_000,
     };
     try {

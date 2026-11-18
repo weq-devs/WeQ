@@ -44,7 +44,12 @@ const SECTIONS: Record<keyof typeof TITLES, { title: string; keys: readonly Inte
       { title: '生成参数', keys: ['suggestionTemperature'] },
       {
         title: '缓存与历史',
-        keys: ['suggestionCacheSeconds', 'suggestionExpiryMinutes', 'suggestionHistoryLimit'],
+        keys: [
+          'suggestionApiTimeoutSeconds',
+          'suggestionCacheSeconds',
+          'suggestionExpiryMinutes',
+          'suggestionHistoryLimit',
+        ],
       },
     ],
     profile: [

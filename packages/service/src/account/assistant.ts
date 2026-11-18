@@ -36,6 +36,7 @@ import { basename, extname, join, resolve, sep } from 'node:path';
 import {
   fetchApi,
   requestApiJson,
+  withApiDeadline,
   ApiHttpError,
   isUnsupportedTemperature,
   isApiCancellation,
@@ -675,9 +676,9 @@ export class AssistantService {
       reasoningEffort: selection?.reasoningEffort ?? config.reasoningEffort,
     });
   }
-  private inheritsEffortForOverride(sessionId: string): boolean {
+  private usesInheritedEffort(sessionId: string): boolean {
     const selection = this.sessions.find((item) => item.id === sessionId)?.generation;
-    return Boolean(selection?.model && !selection.reasoningEffort);
+    return !selection?.reasoningEffort;
   }
   private resolveTaskEndpoint(): AgentLabEndpoint {
     const task = this.taskEndpoint.getStore();
@@ -1185,7 +1186,7 @@ export class AssistantService {
         this.chatRun(sessionId, text, onStep, runSignal, images),
       );
     return this.taskConfig.run(config, () =>
-      this.taskEndpoint.run({ inheritedEffort: this.inheritsEffortForOverride(sessionId) }, () =>
+      this.taskEndpoint.run({ inheritedEffort: this.usesInheritedEffort(sessionId) }, () =>
         this.tools?.withConfig ? this.tools.withConfig(config, run) : run(),
       ),
     );
@@ -1379,7 +1380,7 @@ export class AssistantService {
         this.resumeRun(sessionId, onStep, runSignal),
       );
     return this.taskConfig.run(config, () =>
-      this.taskEndpoint.run({ inheritedEffort: this.inheritsEffortForOverride(sessionId) }, () =>
+      this.taskEndpoint.run({ inheritedEffort: this.usesInheritedEffort(sessionId) }, () =>
         this.tools?.withConfig ? this.tools.withConfig(config, run) : run(),
       ),
     );
@@ -2010,7 +2011,10 @@ export class AssistantService {
   ): Promise<void> {
     const messages = state.messages;
     const totalTokens = estimateMessagesTokens(messages);
-    const contextTokens = this.config.contextTokens ?? CONTEXT_WINDOW_DEFAULT;
+    const contextTokens = Math.min(
+      this.config.contextTokens ?? CONTEXT_WINDOW_DEFAULT,
+      endpoint.requestProperties?.contextWindowTokens ?? Infinity,
+    );
     const triggerTokens = Math.floor(
       contextTokens * (this.config.compressionTrigger ?? COMPRESS_TRIGGER_RATIO),
     );
@@ -2329,20 +2333,29 @@ export class AssistantService {
       ? Math.min(options.maxTokens ?? this.config.maxOutputTokens, this.config.maxOutputTokens)
       : options.maxTokens;
     try {
-      return await requestApiJson(endpoint, '/chat/completions', {
-        method: 'POST',
-        signal: options.signal,
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
-        body: JSON.stringify({
-          model: endpoint.model,
-          ...(this.config.temperature === null
-            ? {}
-            : { temperature: this.config.temperature ?? 0.3 }),
-          messages,
-          ...(maxTokens ? { max_tokens: maxTokens } : {}),
-          ...(specs.length ? { tools: specs, tool_choice: 'auto' } : {}),
-        }),
-      });
+      return await requestApiJson(
+        {
+          ...endpoint,
+          timeoutMs:
+            endpoint.timeoutMs ?? (endpoint.feature === 'assistant-title' ? 30_000 : 90_000),
+        },
+        '/chat/completions',
+        {
+          method: 'POST',
+          signal: options.signal,
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${endpoint.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: endpoint.model,
+            ...(this.config.temperature == null ? {} : { temperature: this.config.temperature }),
+            messages,
+            ...(maxTokens ? { max_tokens: maxTokens } : {}),
+            ...(specs.length ? { tools: specs, tool_choice: 'auto' } : {}),
+          }),
+        },
+      );
     } catch (error) {
       if (error instanceof ApiHttpError)
         throw new Error(httpErrorMessage(error.status, error.detail));
@@ -2360,12 +2373,27 @@ export class AssistantService {
    * - tool_calls：流式下每片是 `delta.tool_calls[]`，需按 `index` 分槽把 name/arguments 碎片拼全。
    * - 温度：明确拒绝时只去参重试一次；SSE 必须尚无正文、推理或工具片段，避免重复生成。
    */
-  private async callApiStream(
+  private callApiStream(
     endpoint: AgentLabEndpoint,
     messages: ApiMessage[],
     specs: AssistantToolSpec[],
     emit: (step: AssistantStep) => void,
     signal?: AbortSignal,
+  ): ReturnType<AssistantService['callApiStreamWithinDeadline']> {
+    return withApiDeadline(
+      { ...endpoint, timeoutMs: endpoint.timeoutMs ?? 180_000 },
+      { signal },
+      (request) =>
+        this.callApiStreamWithinDeadline(endpoint, messages, specs, emit, request.signal),
+    );
+  }
+
+  private async callApiStreamWithinDeadline(
+    endpoint: AgentLabEndpoint,
+    messages: ApiMessage[],
+    specs: AssistantToolSpec[],
+    emit: (step: AssistantStep) => void,
+    signal: AbortSignal,
   ): Promise<{ content: string; reasoning: string; toolCalls: ApiMessage['tool_calls'] }> {
     let effort = this.config.reasoningEffort;
     if (
@@ -2387,9 +2415,9 @@ export class AssistantService {
     const buildBody = (reasoning: boolean): string =>
       JSON.stringify({
         model: endpoint.model,
-        ...(temperatureOmitted || this.config.temperature === null
+        ...(temperatureOmitted || this.config.temperature == null
           ? {}
-          : { temperature: this.config.temperature ?? 0.3 }),
+          : { temperature: this.config.temperature }),
         ...(this.config.maxOutputTokens ? { max_tokens: this.config.maxOutputTokens } : {}),
         stream: true,
         stream_options: { include_usage: true },
@@ -2458,6 +2486,7 @@ export class AssistantService {
       } catch (error) {
         // 用户取消（AbortError）原样放行，交给上层 aborted 分支；其余多为网络层失败（fetch 抛 TypeError）。
         accounting?.finish(isApiCancellation(error, signal) ? 'cancelled' : 'failed');
+        signal.throwIfAborted();
         if (error instanceof Error && error.name === 'AbortError') throw error;
         throw new Error(
           `网络连接失败：无法连接到模型服务（${hostOf(endpoint.baseUrl)}），请检查网络或服务地址是否正确。`,
@@ -2541,6 +2570,7 @@ export class AssistantService {
           }
         }
         // 流结束后残留的最后一个事件（provider 未补尾部空行时）。
+        signal.throwIfAborted();
         if (buffer.trim()) consumeEvent(buffer);
         accounting?.finish('success');
       } catch (error) {
@@ -2551,6 +2581,7 @@ export class AssistantService {
           !content &&
           !reasoning &&
           toolSlots.size === 0 &&
+          !signal.aborted &&
           !isApiCancellation(error, signal)
         ) {
           await reader.cancel().catch(() => {});

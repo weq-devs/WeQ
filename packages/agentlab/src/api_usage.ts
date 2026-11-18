@@ -6,6 +6,7 @@ import {
   readParameterRejection,
   withoutTemperature,
 } from './temperature_fallback';
+import { record } from './model_metadata';
 
 export const DEFAULT_API_TIMEOUT_MS = 3_600_000;
 
@@ -105,6 +106,43 @@ export function beginApiUsage(endpoint: AgentLabEndpoint, stream = false) {
   };
 }
 
+function applyModelProperties(endpoint: AgentLabEndpoint, path: string, init: RequestInit) {
+  if (path !== '/chat/completions' || typeof init.body !== 'string') return init;
+  const properties = endpoint.requestProperties;
+  const tokenParameter =
+    properties?.outputTokenParameter ??
+    (/^https:\/\/api\.openai\.com(?:\/|$)/i.test(endpoint.baseUrl)
+      ? 'max_completion_tokens'
+      : undefined);
+  if (!properties?.maxOutputTokens && properties?.temperatureSupported !== false && !tokenParameter)
+    return init;
+  let body: Record<string, unknown>;
+  try {
+    body = record(JSON.parse(init.body));
+  } catch {
+    return init;
+  }
+  let changed = false;
+  if (properties?.temperatureSupported === false && Object.hasOwn(body, 'temperature')) {
+    delete body.temperature;
+    changed = true;
+  }
+  const current = Object.hasOwn(body, 'max_completion_tokens')
+    ? 'max_completion_tokens'
+    : 'max_tokens';
+  const requested = body[current];
+  if (typeof requested === 'number' && requested > 0) {
+    const key = tokenParameter ?? current;
+    const limit = Math.min(requested, properties?.maxOutputTokens ?? requested);
+    if (key !== current || limit !== requested) {
+      delete body[current];
+      body[key] = limit;
+      changed = true;
+    }
+  }
+  return changed ? { ...init, body: JSON.stringify(body) } : init;
+}
+
 export async function fetchApi(
   endpoint: AgentLabEndpoint,
   path: string,
@@ -115,6 +153,14 @@ export async function fetchApi(
   usage: ReturnType<typeof beginApiUsage>;
   temperatureOmitted: boolean;
 }> {
+  init = applyModelProperties(endpoint, path, init);
+  if (!endpoint.apiKey) {
+    const headers = new Headers(init.headers);
+    if (headers.get('authorization')?.trim() === 'Bearer') {
+      headers.delete('authorization');
+      init = { ...init, headers };
+    }
+  }
   init.signal?.throwIfAborted();
   const usage = beginApiUsage(endpoint, stream);
   try {
@@ -132,7 +178,12 @@ export async function fetchApi(
         return { ...retry, temperatureOmitted: true };
       }
     }
-    return { response, usage, temperatureOmitted: false };
+    return {
+      response,
+      usage,
+      temperatureOmitted:
+        path === '/chat/completions' && endpoint.requestProperties?.temperatureSupported === false,
+    };
   } catch (error) {
     usage.finish(isApiCancellation(error, init.signal) ? 'cancelled' : 'failed');
     throw error;

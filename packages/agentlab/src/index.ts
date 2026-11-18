@@ -131,6 +131,7 @@ export type * from './types';
 export {
   beginApiUsage,
   fetchApi,
+  withApiDeadline,
   requestApiJson,
   parseApiUsage,
   isApiCancellation,

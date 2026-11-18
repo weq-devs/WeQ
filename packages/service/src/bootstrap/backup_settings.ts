@@ -511,6 +511,123 @@ function providerTimes(row: Record<string, unknown>, path: string) {
   number(row.updatedAt, `${path}.updatedAt`);
 }
 
+function modelCapabilities(value: unknown, path: string): void {
+  if (!Array.isArray(value) || value.some((cap) => !['chat', 'embedding', 'vision'].includes(cap)))
+    fail(path);
+}
+
+function validateProviderModel(model: Record<string, unknown>, path: string): void {
+  fields(
+    model,
+    path,
+    ['id', 'capabilities'],
+    ['label', 'reasoningEfforts', 'metadata', 'overrides'],
+  );
+  strings(model, path, [], ['label']);
+  modelCapabilities(model.capabilities, `${path}.capabilities`);
+  if (model.reasoningEfforts !== undefined) {
+    if (!Array.isArray(model.reasoningEfforts) || model.reasoningEfforts.length > 32)
+      fail(`${path}.reasoningEfforts`);
+    for (const item of model.reasoningEfforts) {
+      string(item, `${path}.reasoningEfforts`, true);
+      if (item.length > 64) fail(`${path}.reasoningEfforts`);
+    }
+  }
+  if (model.overrides !== undefined) {
+    const where = `${path}.overrides`;
+    const row = fields(model.overrides, where, [], ['capabilities', 'reasoning', 'request']);
+    if (row.capabilities !== undefined)
+      modelCapabilities(row.capabilities, `${where}.capabilities`);
+    if (row.reasoning !== undefined && typeof row.reasoning !== 'boolean')
+      fail(`${where}.reasoning`);
+    if (row.request !== undefined) {
+      const request = fields(
+        row.request,
+        `${where}.request`,
+        [],
+        ['contextWindowTokens', 'maxOutputTokens', 'temperatureSupported', 'outputTokenParameter'],
+      );
+      for (const key of ['contextWindowTokens', 'maxOutputTokens']) {
+        if (request[key] !== undefined) number(request[key], `${where}.request.${key}`, 1);
+      }
+      if (
+        request.temperatureSupported !== undefined &&
+        typeof request.temperatureSupported !== 'boolean'
+      )
+        fail(`${where}.request.temperatureSupported`);
+      if (
+        request.outputTokenParameter !== undefined &&
+        request.outputTokenParameter !== 'max_tokens' &&
+        request.outputTokenParameter !== 'max_completion_tokens'
+      )
+        fail(`${where}.request.outputTokenParameter`);
+    }
+  }
+  if (model.metadata !== undefined) {
+    const where = `${path}.metadata`;
+    const metadata = fields(
+      model.metadata,
+      where,
+      ['capabilities', 'reasoning', 'raw', 'source', 'fetchedAt'],
+      ['error'],
+    );
+    strings(metadata, where, ['source'], ['error']);
+    number(metadata.fetchedAt, `${where}.fetchedAt`);
+    record(metadata.raw, `${where}.raw`);
+    const caps = fields(metadata.capabilities, `${where}.capabilities`, [
+      'chat',
+      'vision',
+      'embedding',
+    ]);
+    if (
+      Object.values(caps).some(
+        (status) => status !== 'supported' && status !== 'unsupported' && status !== 'unknown',
+      )
+    )
+      fail(`${where}.capabilities`);
+    const reasoning = fields(
+      metadata.reasoning,
+      `${where}.reasoning`,
+      ['controls'],
+      ['supported', 'mandatory'],
+    );
+    for (const key of ['supported', 'mandatory']) {
+      if (reasoning[key] !== undefined && typeof reasoning[key] !== 'boolean')
+        fail(`${where}.reasoning.${key}`);
+    }
+    const controls = `${where}.reasoning.controls`;
+    if (!Array.isArray(reasoning.controls)) fail(controls);
+    const primitive = (value: unknown) =>
+      typeof value === 'string' ||
+      typeof value === 'boolean' ||
+      (typeof value === 'number' && Number.isFinite(value));
+    for (const value of reasoning.controls) {
+      const control = fields(
+        value,
+        controls,
+        ['source', 'kind'],
+        ['values', 'default', 'min', 'max'],
+      );
+      string(control.source, controls);
+      if (
+        typeof control.kind !== 'string' ||
+        !['effort', 'toggle', 'budget', 'adaptive'].includes(control.kind)
+      )
+        fail(controls);
+      if (
+        control.values != null &&
+        (!Array.isArray(control.values) || !control.values.every(primitive))
+      )
+        fail(controls);
+      if (control.default != null && !primitive(control.default)) fail(controls);
+      for (const key of ['min', 'max']) {
+        if (control[key] !== undefined)
+          number(control[key], `${controls}.${key}`, -Infinity, Infinity, false);
+      }
+    }
+  }
+}
+
 export function validateWeqApiSettings(
   value: unknown,
 ): asserts value is Partial<WeqApiBackupSettings> {
@@ -548,29 +665,16 @@ export function validateWeqApiSettings(
       string(ref.model, `${path}.model`, true);
     }
     list(agent.providers, 'api.agentLab.providers', (row, path) => {
-      fields(row, path, [
-        'id',
-        'name',
-        'vendor',
-        'baseUrl',
-        'apiKey',
-        'models',
-        'createdAt',
-        'updatedAt',
-      ]);
+      fields(
+        row,
+        path,
+        ['id', 'name', 'vendor', 'baseUrl', 'apiKey', 'models', 'createdAt', 'updatedAt'],
+        ['timeoutMs'],
+      );
       strings(row, path, ['name', 'vendor', 'baseUrl', 'apiKey']);
       providerTimes(row, path);
-      list(row.models, `${path}.models`, (model, where) => {
-        fields(model, where, ['id', 'capabilities'], ['label']);
-        strings(model, where, [], ['label']);
-        if (
-          !Array.isArray(model.capabilities) ||
-          model.capabilities.some(
-            (capability) => !['chat', 'embedding', 'vision'].includes(capability),
-          )
-        )
-          fail(`${where}.capabilities`);
-      });
+      if (row.timeoutMs !== undefined) number(row.timeoutMs, `${path}.timeoutMs`, 1, 2_147_483_647);
+      list(row.models, `${path}.models`, validateProviderModel);
     });
   }
   if (api.ttsProviders !== undefined)

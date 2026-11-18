@@ -1,7 +1,7 @@
 export type AssistantSendMode = 'interrupt' | 'boundary' | 'queue';
 
 export const ASSISTANT_PARAMETER_DEFAULTS = {
-  temperature: 0.3 as number | null,
+  temperature: null as number | null,
   maxOutputTokens: null as number | null,
   maxRounds: 24 as number | null,
   toolTimeoutMs: 60_000 as number | null,

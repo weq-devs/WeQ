@@ -31,6 +31,7 @@ function fixture(resolve?: (ref: AgentLabModelSelection) => AgentLabEndpoint) {
   service.setConfig({
     model: { providerId: 'fixture', model: 'fixture' },
     reasoningEffort: 'medium',
+    temperature: 0.3,
   });
   // 直接执行真实请求实现，依赖只替换网络，不复制其 SSE 或重试逻辑。
   const api = service as unknown as {
@@ -47,6 +48,28 @@ function fixture(resolve?: (ref: AgentLabModelSelection) => AgentLabEndpoint) {
 }
 const usageEvent =
   'data: {"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}\n\n';
+
+it('助手的服务商时限覆盖流式正文，超时记失败且不重发', async () => {
+  const f = fixture();
+  const fetch = vi.fn(
+    async (_url: unknown, init?: RequestInit) =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            init?.signal?.addEventListener('abort', () => controller.error(init.signal?.reason), {
+              once: true,
+            });
+          },
+        }),
+      ),
+  );
+  vi.stubGlobal('fetch', fetch);
+  await expect(
+    f.api.callApiStream({ ...f.endpoint, timeoutMs: 25 }, [], [], () => {}),
+  ).rejects.toMatchObject({ name: 'TimeoutError' });
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(f.usage.getStats()).toMatchObject({ totalCalls: 1, failedCalls: 1 });
+});
 
 it('输出参数的400错误不被误判为思考参数不兼容，也不污染后续请求', async () => {
   const f = fixture();

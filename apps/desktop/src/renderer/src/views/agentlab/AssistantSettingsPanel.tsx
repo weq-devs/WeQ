@@ -143,7 +143,7 @@ function NumberSetting({
   const lastValue = useRef(
     value ??
       (ASSISTANT_PARAMETER_DEFAULTS[name] as number | null) ??
-      (name === 'maxOutputTokens' ? 4096 : 1),
+      (name === 'temperature' ? 0.3 : name === 'maxOutputTokens' ? 4096 : 1),
   );
   useEffect(() => {
     if (typeof value === 'number') lastValue.current = value;
@@ -184,6 +184,11 @@ function NumberSetting({
               label={`${label}模式`}
               value={automatic ? 'auto' : 'custom'}
               options={[
+      desc={
+        name === 'contextTokens'
+          ? '用于估算何时压缩历史；不会超过 API 配置中已知的模型上下文窗口。'
+          : undefined
+      }
                 {
                   value: 'auto',
                   label:

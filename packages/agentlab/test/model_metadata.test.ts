@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { fetchProviderModels, parseModelList } from '../src/models';
 import { normalizeProviderConfig } from '../src/provider';
+import { readModelRequestProperties } from '../src/model_metadata';
 
 const floway = {
   id: 'deepseek-v4.1-flash',
@@ -54,6 +55,41 @@ it('基础目录不再按名称猜测；缺失、null 与 false 各自保留', (
   expect(models[2]!.metadata).toMatchObject({
     capabilities: { vision: 'unsupported' },
     reasoning: { supported: false, controls: [] },
+  });
+});
+
+it('模型属性区分实际加载窗口、声明上限与未知兼容参数', () => {
+  const [studio, unknown, router] = [
+    ...parseModelList([
+      {
+        key: 'local',
+        max_context_length: 131072,
+        loaded_instances: [
+          { id: 'other', config: { context_length: 16384 } },
+          { id: 'local', config: { context_length: 4096 } },
+        ],
+      },
+      { id: 'gpt-new', context_length: '8192', supported_parameters: ['tools'] },
+    ]),
+    ...parseModelList(
+      [
+        {
+          id: 'router',
+          context_length: 8192,
+          top_provider: { max_completion_tokens: 2048 },
+          supported_parameters: ['max_tokens'],
+        },
+      ],
+      'https://openrouter.ai/api/v1/models',
+    ),
+  ];
+  expect(readModelRequestProperties(studio!.metadata)).toEqual({ contextWindowTokens: 4096 });
+  expect(readModelRequestProperties(unknown!.metadata)).toEqual({});
+  expect(readModelRequestProperties(router!.metadata)).toEqual({
+    contextWindowTokens: 8192,
+    maxOutputTokens: 2048,
+    temperatureSupported: false,
+    outputTokenParameter: 'max_tokens',
   });
 });
 

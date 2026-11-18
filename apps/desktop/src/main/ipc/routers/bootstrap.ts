@@ -163,6 +163,13 @@ export interface PickRootResult {
   error?: string;
 }
 
+const modelRequestPropertiesSchema = z.object({
+  contextWindowTokens: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).optional(),
+  maxOutputTokens: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).optional(),
+  temperatureSupported: z.boolean().optional(),
+  outputTokenParameter: z.enum(['max_tokens', 'max_completion_tokens']).optional(),
+});
+
 const algoSchema = z.object({
   pageHmacAlgorithm: z.string(),
   kdfHmacAlgorithm: z.string(),
@@ -2322,8 +2329,8 @@ export const bootstrapRouter = router({
         name: z.string().min(1),
         vendor: z.string().min(1),
         baseUrl: z.string().min(1),
-        apiKey: z.string().min(1),
-        timeoutMs: z.number().int().min(1).max(2_147_483_647).optional(),
+        apiKey: z.string(),
+        timeoutMs: z.number().int().min(1).max(2_147_483_647).nullish(),
         models: z
           .array(
             z.object({
@@ -2345,6 +2352,7 @@ export const bootstrapRouter = router({
                     vision: z.enum(['supported', 'unsupported', 'unknown']),
                   }),
                   reasoning: z.object({
+                  request: modelRequestPropertiesSchema.optional(),
                     supported: z.boolean().optional(),
                     mandatory: z.boolean().optional(),
                     controls: z.array(
@@ -2385,7 +2393,7 @@ export const bootstrapRouter = router({
       return requireBootstrap().agentLabConfig.deleteProvider(input.id);
     }),
 
-  /** 「测试连通性」：用表单里的 base_url + api_key + 某个 chat 模型探活，返回详细错误（含状态码/响应体）。 */
+  /** 「测试连通性」：使用表单当前的服务地址、认证、模型和用途。 */
   testAgentLabProvider: procedure
     .input(
       z.object({
@@ -2404,6 +2412,8 @@ export const bootstrapRouter = router({
     .input(
       z.object({
         baseUrl: z.string().min(1),
+        capability: z.enum(['chat', 'embedding', 'vision']).optional(),
+        requestProperties: modelRequestPropertiesSchema.optional(),
         apiKey: z.string().default(''),
         model: z.string().min(1),
         providerId: z.string().min(1).optional(),
@@ -2420,6 +2430,7 @@ export const bootstrapRouter = router({
   getTtsCatalog: procedure.query(() => {
     return requireBootstrap().tts.listCatalog();
   }),
+        requestProperties: modelRequestPropertiesSchema.optional(),
 
   /** 已保存的 TTS 服务商列表。 */
   listTtsProviders: procedure.query(() => {

@@ -97,6 +97,7 @@ export async function visionImageCompletion(
     ...endpoint,
     kind: 'vision',
     feature: endpoint.feature ?? 'image-analysis',
+    timeoutMs: endpoint.timeoutMs ?? (endpoint.onOutput ? undefined : 90_000),
   };
   const request: RequestInit = {
     method: 'POST',

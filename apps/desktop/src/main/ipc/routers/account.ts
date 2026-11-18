@@ -35,7 +35,11 @@ import {
   BROWSER_FILE_CHUNK_BYTES,
   BROWSER_FILE_MAX_BYTES,
 } from '../../../shared/browser_file_upload';
-import { assertEmbeddingModelIdentity, AGENTLAB_PERSONA_ID_PATTERN } from '@weq/agentlab';
+import {
+  assertEmbeddingModelIdentity,
+  AGENTLAB_PERSONA_ID_PATTERN,
+  resolveEndpoint as resolveProviderEndpoint,
+} from '@weq/agentlab';
 import { agentLabModelSelectionSchema } from '../../../shared/agentlab_model_selection';
 import { SEARCH_SOURCES } from '@weq/service/search-policy';
 import {
@@ -2472,7 +2476,7 @@ export const accountRouter = router({
 
       // 抽 persona 用到的 LLM providers（chat/embedding/vision，去重）。
       // 导出弹窗显式指定的图像模型也并进来（即使克隆时没用 vision，也能让 bot 具备解析新表情的能力）。
-      const llmIds = new Set<string>();
+      const llmModels = new Map<string, Set<string>>();
       for (const m of [
         models.chat,
         models.embedding,
@@ -2481,10 +2485,13 @@ export const accountRouter = router({
         visionModel,
         requireBootstrap().userConfig.getSettings().agentLab.defaultVisionModel,
       ]) {
-        if (m?.providerId) llmIds.add(m.providerId);
+        if (!m?.providerId) continue;
+        const ids = llmModels.get(m.providerId) ?? new Set<string>();
+        ids.add(m.model);
+        llmModels.set(m.providerId, ids);
       }
       const llmProviders: import('@weq/service').BotExportInput['llmProviders'] = [];
-      for (const id of llmIds) {
+      for (const [id, modelIds] of llmModels) {
         const p = cfg.getProvider(id);
         if (!p) throw new Error(`缺少 LLM provider 配置：${id}（请先在设置里配置该厂商）`);
         llmProviders.push({
@@ -2512,10 +2519,15 @@ export const accountRouter = router({
         )
           throw new Error('账号或数据源已切换，请重新导出机器人。');
       };
+        const modelProperties = [...modelIds].flatMap((model) => {
+          const { requestProperties } = resolveProviderEndpoint(p, { providerId: id, model });
+          return requestProperties ? [{ id: model, requestProperties }] : [];
+        });
       const safeName =
         (persona.name || 'clone').replace(/[^\w一-龥-]+/g, '_').slice(0, 40) || 'clone';
       const buildInput = structuredClone({
         botRuntimeMjs: botMjs,
+          ...(modelProperties.length ? { modelProperties } : {}),
         persona: { ...persona, models },
         pairs: record.pairs,
         agentlabRoot: svc.assetRoot,

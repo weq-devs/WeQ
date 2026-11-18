@@ -505,12 +505,11 @@ export async function testChatEndpoint(
   try {
     const data = await postJson<{
       choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
-    }>(
-      endpoint,
-      '/chat/completions',
-      // 推理模型需要更多 token 预算才能产出 content；64 足够短路"你好"又不浪费。
-      { model: endpoint.model, messages: [{ role: 'user', content: '你好' }], max_tokens: 64 },
-    );
+    }>(endpoint, '/chat/completions', {
+      model: endpoint.model,
+      messages: [{ role: 'user', content: '你好' }],
+      max_tokens: 256,
+    });
     const reply = pickMessageText(data.choices?.[0]?.message);
     if (!reply)
       return { ok: false, error: '接口可达，但返回内容为空（模型可能不支持 chat/completions）。' };
@@ -747,7 +746,10 @@ export async function runPersonaChat(
         memoryPool.some((m) => Array.isArray(m.embedding) && m.embedding.length > 0));
     if (needVec) {
       try {
-        const [qe] = await embedTexts(embedding, req.input);
+        const [qe] = await embedTexts(
+          { ...embedding, timeoutMs: embedding.timeoutMs ?? 30_000 },
+          req.input,
+        );
         queryEmbedding = qe ?? null;
       } catch {
         /* 向量失败就回退关键词 */
@@ -794,7 +796,7 @@ export async function runPersonaChat(
     postJson<{
       choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
       usage?: OpenAiUsage;
-    }>(chat, '/chat/completions', {
+    }>({ ...chat, timeoutMs: chat.timeoutMs ?? 120_000 }, '/chat/completions', {
       model: chat.model,
       // 意愿越高越放得开（temperature 略高），越敷衍越稳一点。
       temperature: generation.temperature ?? 0.7 + willing.score * 0.2,

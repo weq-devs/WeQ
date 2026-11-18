@@ -135,6 +135,13 @@ export const INTENT_TUNING = {
     min: 5,
     max: 120,
   },
+  suggestionApiTimeoutSeconds: {
+    group: 'suggestions',
+    label: '推荐 API 请求超时（秒）',
+    default: 20,
+    min: 5,
+    max: 120,
+  },
   apiCooldownSeconds: {
     group: 'advanced',
     label: 'API 失败冷却（秒）',
@@ -202,6 +209,9 @@ export const INTENT_TUNING_HELP: Partial<Record<IntentTuningKey, string>> = {
   suggestionContextMessages: '不含当前消息；0 表示只依据当前消息。',
   backfillMessages: '检查最近消息并补齐缺少的分析，已有有效缓存不会重复处理。',
   apiBatchMessages: '单次请求实际分析的目标数，与补齐范围、每条上文数量独立。',
+  apiTimeoutSeconds: '意图分析的单次时限；与服务商时限取较短值。',
+  suggestionApiTimeoutSeconds: '只限制推荐生成；与服务商时限取较短值。',
+  profileApiTimeoutSeconds: '画像推断的单次时限；与服务商时限取较短值。',
   apiCooldownSeconds: '失败后的等待时长；0 表示不额外冷却，不代表自动重发。',
   cacheEntries: '仅限制生成的分析缓存，不改动原始消息。',
   suggestionCacheSeconds: '同一消息复用候选的时长；0 表示不复用。',

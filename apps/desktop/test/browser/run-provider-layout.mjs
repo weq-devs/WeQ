@@ -45,10 +45,11 @@ try {
     new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
   );
   let cases = 0;
-  for (const width of [1280, 640, 390, 320]) {
+  const quick = process.argv.includes('--quick');
+  for (const width of quick ? [1280, 320] : [1280, 640, 390, 320]) {
     await page.setViewportSize({ width, height: width === 640 ? 540 : 900 });
-    for (const theme of ['light', 'dark']) {
-      for (const style of ['qqnt', 'classic', 'minimal', 'retro']) {
+    for (const theme of quick ? [width > 640 ? 'light' : 'dark'] : ['light', 'dark']) {
+      for (const style of quick ? ['qqnt'] : ['qqnt', 'classic', 'minimal', 'retro']) {
         await page.goto(
           `http://127.0.0.1:${server.httpServer.address().port}/test/browser/ai-model-settings.html`,
         );
@@ -104,43 +105,43 @@ try {
         await page.screenshot({ path: resolve(output, `list-${width}-${theme}-${style}.png`) });
         await provider.click();
         const model = page.getByLabel('模型 1 ID', { exact: true });
-        await model.fill('Qwen3.6-35B-A3B-4bit-with-a-long-model-identifier');
+        const summary = page.getByLabel('模型 1 能力与参数', { exact: true });
         const remove = page.getByRole('button', { name: '删除模型 1', exact: true });
         const detect = page.getByRole('button', { name: '检测模型 1 能力与思考', exact: true });
         const reasoning = page.getByLabel('模型 1 思考档位', { exact: true });
+        assert.equal(await reasoning.isVisible(), false, '模型属性默认折叠');
+        await summary.press('Enter');
+        await reasoning.waitFor();
+        const outputLimit = page.getByLabel('最大输出（Token）', { exact: true });
+        await outputLimit.fill('4096');
+        await summary.click();
+        assert.equal(await outputLimit.isVisible(), false);
+        await summary.click();
+        assert.equal(await outputLimit.inputValue(), '4096');
         const idBox = await model.boundingBox();
         const removeBox = await remove.boundingBox();
         const detectBox = await detect.boundingBox();
         const reasoningBox = await reasoning.boundingBox();
         const capabilities = page.getByRole('group', { name: '模型 1 能力', exact: true });
         const capabilitiesBox = await capabilities.boundingBox();
+        await outputLimit.scrollIntoViewIfNeeded();
         await page.screenshot({ path: resolve(output, `${width}-${theme}-${style}.png`) });
         assert.ok(removeBox.width <= 36, '删除模型应保持图标按钮宽度');
         assert.ok(
-          Math.abs(
-            removeBox.y +
-              removeBox.height / 2 -
-              (idBox.y + capabilitiesBox.y + capabilitiesBox.height) / 2,
-          ) < 3,
-          '删除按钮应跨两行垂直居中',
+          Math.abs(removeBox.y + removeBox.height / 2 - idBox.y - idBox.height / 2) < 3,
+          '删除按钮与模型 ID 同行居中',
         );
         assert.ok(detectBox.width <= 30, '检测只显示图标');
         assert.ok(reasoningBox.y > idBox.y, '思考档位位于第二行');
         assert.equal((await detect.textContent()).trim(), '');
         assert.ok(Math.abs(detectBox.y - reasoningBox.y) < 4, '检测与思考档位同行');
-        assert.ok(Math.abs(detectBox.y - capabilitiesBox.y) < 4, '检测与能力选项同行');
         assert.ok(detectBox.x + detectBox.width <= reasoningBox.x, '检测图标在最左侧');
+        assert.ok(idBox.x + idBox.width <= removeBox.x, '删除按钮不遮挡模型 ID');
         assert.ok(
-          reasoningBox.x + reasoningBox.width <= capabilitiesBox.x,
-          '思考框位于检测与能力之间',
-        );
-        assert.ok(
-          idBox.width >= capabilitiesBox.x + capabilitiesBox.width - idBox.x - 2,
-          '第一行模型 ID 占满内容宽度',
-        );
-        assert.ok(
-          capabilitiesBox.x + capabilitiesBox.width <= removeBox.x,
-          '删除按钮独立占据最右列',
+          (Math.abs(detectBox.y - capabilitiesBox.y) < 4 &&
+            reasoningBox.x + reasoningBox.width <= capabilitiesBox.x) ||
+            capabilitiesBox.y >= reasoningBox.y + reasoningBox.height,
+          '能力选项不遮挡思考框，窄屏可换行',
         );
         assert.equal(await capabilities.getByRole('checkbox').count(), 0);
         assert.equal(await capabilities.getByRole('button').count(), 3);

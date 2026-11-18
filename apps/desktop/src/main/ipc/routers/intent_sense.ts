@@ -116,6 +116,7 @@ export const configPatch = z.object({
   cacheEntries: tuning('cacheEntries'),
   apiTimeoutSeconds: tuning('apiTimeoutSeconds'),
   apiCooldownSeconds: tuning('apiCooldownSeconds'),
+  suggestionApiTimeoutSeconds: tuning('suggestionApiTimeoutSeconds'),
   suggestionCacheSeconds: tuning('suggestionCacheSeconds'),
   suggestionExpiryMinutes: tuning('suggestionExpiryMinutes'),
   profileMessages: tuning('profileMessages'),

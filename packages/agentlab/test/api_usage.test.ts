@@ -69,6 +69,29 @@ it('成功但无 usage 的实际请求仍记录一次未知用量', async () => 
   expect(f.updates.at(-1)).toMatchObject({ status: 'success', totalTokens: null });
 });
 
+it('模型属性只改变兼容聊天请求的显式参数，不影响向量请求，也不强加输出上限', async () => {
+  const { endpoint } = fixture();
+  const calls = vi.fn(async (_url: unknown, _init?: RequestInit) => new Response('{}'));
+  vi.stubGlobal('fetch', calls);
+  const target: AgentLabEndpoint = {
+    ...endpoint,
+    apiKey: '',
+    requestProperties: {
+      outputTokenParameter: 'max_completion_tokens',
+      maxOutputTokens: 512,
+      temperatureSupported: false,
+    },
+  };
+  const body = { messages: [], temperature: 0.4, max_tokens: 1024 };
+  const init = { headers: { authorization: 'Bearer ' }, body: JSON.stringify(body) };
+  await requestApiJson(target, '/chat/completions', init);
+  await requestApiJson(target, '/chat/completions', { body: '{"messages":[]}' });
+  await requestApiJson(target, '/embeddings', init);
+  const requests = calls.mock.calls.map(([, request]) => JSON.parse(String(request?.body)));
+  expect(requests).toEqual([{ messages: [], max_completion_tokens: 512 }, { messages: [] }, body]);
+  expect(new Headers(calls.mock.calls[0]?.[1]?.headers).has('authorization')).toBe(false);
+});
+
 it('请求开始时固定服务商身份与名称，不保存地址或认证信息', () => {
   const f = fixture();
   const endpoint = { ...f.endpoint, providerId: 'provider-a', providerName: '配置 A' };

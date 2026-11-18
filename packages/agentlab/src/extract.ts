@@ -579,7 +579,7 @@ export async function decideGroupReply(
   ].filter(Boolean);
   try {
     const raw = await generateJson(
-      endpoint,
+      { ...endpoint, timeoutMs: endpoint.timeoutMs ?? 30_000 },
       ctxLines.join('\n') +
         '\n\n下面是群里最近的对话。判断「最新一条」该不该由你接话：' +
         '只有当它像是在对你说、点到你、或你确实很想插一句时才回；' +

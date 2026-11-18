@@ -2127,7 +2127,7 @@ export class IntentSenseService {
             }),
             signal: AbortSignal.any([
               controller.signal,
-              AbortSignal.timeout(this.config.apiTimeoutSeconds * 1000),
+              AbortSignal.timeout(this.config.suggestionApiTimeoutSeconds * 1000),
             ]),
           },
         );

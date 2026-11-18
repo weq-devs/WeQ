@@ -1,4 +1,9 @@
-import type { AgentLabProviderModel, ModelMetadata, ModelReasoningControl } from './types';
+import type {
+  AgentLabProviderModel,
+  ModelMetadata,
+  ModelReasoningControl,
+  ModelRequestProperties,
+} from './types';
 
 export function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -26,6 +31,54 @@ function strings(value: unknown): string[] | undefined {
   return Array.isArray(value) && value.every((item) => typeof item === 'string')
     ? value
     : undefined;
+}
+
+function positiveInt(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
+/** 自动值取目录声明；目录没披露的值保持未知，不按模型名称猜测。 */
+export function readModelRequestProperties(
+  metadata: ModelMetadata | undefined,
+): ModelRequestProperties {
+  const raw = record(metadata?.raw);
+  const modelInfo = record(raw.model_info);
+  const arch = modelInfo['general.architecture'];
+  const instances = Array.isArray(raw.loaded_instances) ? raw.loaded_instances : [];
+  const instance = instances.find((item) => record(item).id === (raw.id ?? raw.key));
+  const contextWindowTokens =
+    positiveInt(at(instance, 'config.context_length')) ??
+    positiveInt(raw.context_length) ??
+    positiveInt(raw.max_context_length) ??
+    (typeof arch === 'string' ? positiveInt(modelInfo[`${arch}.context_length`]) : undefined);
+  const maxOutputTokens =
+    positiveInt(raw.max_output_tokens) ??
+    positiveInt(raw.max_completion_tokens) ??
+    positiveInt(at(raw, 'per_request_limits.completion_tokens')) ??
+    positiveInt(at(raw, 'top_provider.max_completion_tokens'));
+  const supported = strings(raw.supported_parameters);
+  const isOpenRouter = /^https:\/\/openrouter\.ai\/api\/v1\/models(?:[/?#]|$)/i.test(
+    metadata?.source ?? '',
+  );
+  const temperatureSupported =
+    typeof raw.supports_temperature === 'boolean'
+      ? raw.supports_temperature
+      : supported?.includes('temperature')
+        ? true
+        : isOpenRouter && supported
+          ? false
+          : undefined;
+  const outputTokenParameter = supported?.includes('max_completion_tokens')
+    ? 'max_completion_tokens'
+    : supported?.includes('max_tokens')
+      ? 'max_tokens'
+      : undefined;
+  return {
+    ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
+    ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+    ...(temperatureSupported === undefined ? {} : { temperatureSupported }),
+    ...(outputTokenParameter === undefined ? {} : { outputTokenParameter }),
+  };
 }
 
 /** 仅解析声明字段；缺失、null 与明确 false 分开，不按模型名称补全。 */

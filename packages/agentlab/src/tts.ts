@@ -192,7 +192,7 @@ export const TTS_VENDOR_CATALOG: TtsVendorCatalogEntry[] = [
     apiKeyHint: 'Access Key（X-Api-Access-Key）',
     baseUrl: 'https://openspeech.bytedance.com/api/v3/tts/unidirectional',
     capabilities: { fixedVoice: true, clone: false },
-    fields: ['apiKey', 'appId', 'resourceId', 'model', 'voice', 'format', 'speed'],
+    fields: ['apiKey', 'appId', 'resourceId', 'voice', 'format', 'speed'],
     presetVoices: [{ id: 'zh_female_shuangkuaisisi_moon_bigtts', label: '爽快思思' }],
   },
   {
@@ -209,6 +209,16 @@ export const TTS_VENDOR_CATALOG: TtsVendorCatalogEntry[] = [
 
 export function getTtsCatalogEntry(vendor: TtsVendor): TtsVendorCatalogEntry | undefined {
   return TTS_VENDOR_CATALOG.find((e) => e.vendor === vendor);
+}
+
+function ttsModel(cfg: TtsProviderConfig, clone = false): string | undefined {
+  const entry = getTtsCatalogEntry(cfg.vendor);
+  if (cfg.vendor === 'doubao') return cfg.resourceId || 'seed-tts-2.0';
+  if (clone)
+    return entry?.fields.includes('cloneModel')
+      ? cfg.cloneModel?.trim() || entry.cloneModel
+      : undefined;
+  return entry?.fields.includes('model') ? cfg.model?.trim() || entry.defaultModel : undefined;
 }
 
 export function getTtsCapabilities(vendor: TtsVendor): TtsCapabilities {
@@ -344,7 +354,7 @@ const openAiCompatible: Backend = async (cfg, text, opts) => {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.apiKey}` },
       body: JSON.stringify({
-        model: cfg.model || 'FunAudioLLM/CosyVoice2-0.5B',
+        model: ttsModel(cfg),
         input: text,
         voice: opts.voice ?? cfg.voice ?? '',
         response_format: format,
@@ -376,7 +386,7 @@ const gsv2p: Backend = async (cfg, text, opts) => {
             authorization: `Bearer ${cfg.apiKey}`,
           },
           body: JSON.stringify({
-            model: cfg.model || 'tts-v4',
+            model: ttsModel(cfg),
             input: text,
             voice: opts.voice ?? cfg.voice ?? '原神-中文-派蒙_ZH',
             response_format: format,
@@ -424,7 +434,7 @@ const minimax: Backend = async (cfg, text, opts) => {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.apiKey}` },
       body: JSON.stringify({
-        model: cfg.model || 'speech-2.6-hd',
+        model: ttsModel(cfg),
         text,
         stream: false,
         voice_setting: voiceSetting,
@@ -451,13 +461,10 @@ const minimax: Backend = async (cfg, text, opts) => {
 };
 
 /** 小米 MiMo 默认模型：固定音色 / 语音复刻各一个（model 留空时按模式自动选）。 */
-const MIMO_MODEL_PRESET = 'mimo-v2.5-tts';
-const MIMO_MODEL_CLONE = 'mimo-v2.5-tts-voiceclone';
-
 /**
  * 小米 MiMo：OpenAI chat 风格，choices[0].message.audio.data 为 base64。
- * - 固定音色（无参考音频）：用 MIMO_MODEL_PRESET + audio.voice。
- * - 语音复刻（带 opts.refClip）：用 MIMO_MODEL_CLONE，把 TA 的参考音频按 OpenAI chat 的
+ * - 固定音色（无参考音频）：用固定音色模型 + audio.voice。
+ * - 语音复刻（带 opts.refClip）：用复刻模型，把 TA 的参考音频按 OpenAI chat 的
  *   input_audio 形式附在 user 消息里（音色由参考音频决定，voice 可空）。
  * model 显式填了就以填的为准。
  */
@@ -466,9 +473,7 @@ const mimo: Backend = async (cfg, text, opts) => {
   const content = opts.emotion ? `<style>${opts.emotion}</style>${text}` : text;
   const clone = !!opts.refClip;
   // preset 与复刻是不同模型，各自独立配置（留空各用默认）。
-  const model = clone
-    ? cfg.cloneModel?.trim() || MIMO_MODEL_CLONE
-    : cfg.model?.trim() || MIMO_MODEL_PRESET;
+  const model = ttsModel(cfg, clone);
 
   // 复刻协议（照 MaiBot maibot-mimotts-voice）：参考音频**作为 audio.voice 的 DataURL**传，
   // 不放进 messages 的 input_audio；messages 只给 user(风格/'') + assistant(待合成文本)。
@@ -523,7 +528,7 @@ const doubao: Backend = async (cfg, text, opts) => {
         'content-type': 'application/json',
         'X-Api-App-Id': cfg.appId ?? '',
         'X-Api-Access-Key': cfg.apiKey,
-        'X-Api-Resource-Id': cfg.resourceId ?? 'seed-tts-2.0',
+        'X-Api-Resource-Id': ttsModel(cfg)!,
         'X-Api-Request-Id': cryptoRandomId(),
       },
       body: JSON.stringify({ req_params: reqParams }),
@@ -765,7 +770,7 @@ export class TtsService {
         providerId: cfg.id,
         providerName: cfg.name,
         apiKey: '',
-        model: (opts.refClip ? cfg.cloneModel : cfg.model) || `tts:${cfg.vendor}`,
+        model: ttsModel(cfg, Boolean(opts.refClip)) ?? `tts:${cfg.vendor}`,
         kind: 'speech',
         feature: opts.usageFeature ?? 'tts-synthesis',
         onUsage: opts.onUsage ?? this.onUsage,
