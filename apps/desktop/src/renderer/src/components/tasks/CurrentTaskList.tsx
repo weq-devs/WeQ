@@ -65,6 +65,14 @@ import { EmptyState } from '../EmptyState';
 import { TaskProgressDetails } from './TaskProgressDetails';
 import { FlashTaskLog } from './FlashTaskLog';
 import { TaskProgressBar } from './TaskProgressBar';
+import {
+  exportTaskDisplay,
+  roamingTaskDisplay,
+  taskDisplayTitle,
+  taskDate,
+} from '@weq/service/task-display';
+import { backgroundTaskDisplay } from '../../../../shared/background_task';
+import { TaskName } from './TaskName';
 
 export interface ExportTaskActions {
   pause: (task: UiTask) => unknown;
@@ -144,6 +152,7 @@ export function CurrentTaskList({
   }, [autoSelectId]);
 
   const items: LongTaskItem[] = exports.map((task): LongTaskItem => {
+    const display = exportTaskDisplay(task);
     const saving = task.save?.status === 'saving';
     const saveLabel = taskSaveActionLabel(task);
     const saveFailed =
@@ -237,8 +246,10 @@ export function CurrentTaskList({
     }
     return {
       id: `export:${task.id}`,
-      name: task.name,
-      kind: taskTypeLabel(task),
+      name: taskDisplayTitle(display),
+      display,
+      createdAt: task.createdAt,
+      kind: task.resource ? (display.category ?? '') : taskTypeLabel(task),
       status: saving ? 'running' : saveFailed ? 'failed' : task.status,
       statusLabel: task.databaseRecovery
         ? '等待处理'
@@ -258,20 +269,32 @@ export function CurrentTaskList({
                       : '待保存'
                 : undefined,
       progress: saving || saveFailed ? undefined : taskPct(task),
-      note: task.error || task.save?.error,
+      note:
+        [
+          display.context,
+          !task.resource && !task.isMarketPack && !task.isEmojiPack
+            ? (task.formats ?? [task.format]).join(' / ').toUpperCase()
+            : undefined,
+        ]
+          .filter(Boolean)
+          .join(' · ') || undefined,
       icon: taskIcon(task),
       detail: renderExport(task),
       quickActions: actions.length ? <TaskQuickActions actions={actions} /> : null,
     };
   });
   for (const task of clones.filter((item) => item.accountId === accountId)) {
+    const display = {
+      action: task.operation === 'update' ? '更新好友克隆' : '创建好友克隆',
+      subject: task.name,
+    };
     items.push({
       id: `clone:${task.personaId}`,
-      name: task.name,
+      name: taskDisplayTitle(display),
+      display,
       kind: '好友克隆',
       status: task.status === 'done' ? 'completed' : task.status === 'error' ? 'failed' : 'running',
       progress: task.percent,
-      note: task.status === 'error' ? task.error : task.phase,
       icon: <Users size={16} />,
       quickActions:
         task.status !== 'running' ? (
@@ -300,6 +323,7 @@ export function CurrentTaskList({
         <div>
           <TaskProgressDetails
             name={task.name}
+            display={display}
             status={
               task.status === 'done' ? 'completed' : task.status === 'error' ? 'failed' : 'running'
             }
@@ -334,6 +358,7 @@ export function CurrentTaskList({
     });
   }
   for (const job of roaming.data?.jobs ?? []) {
+    const display = roamingTaskDisplay(job.targets);
     const actions: TaskQuickAction[] = [];
     const refresh = () => utils.account.roamingBackfill.list.invalidate();
     const busy = Boolean(roaming.data?.activeId || roaming.data?.scanning);
@@ -418,8 +443,15 @@ export function CurrentTaskList({
             : job.status;
     items.push({
       id: `roaming:${job.id}`,
-      name: job.targets.map((target) => target.name).join('、') || '漫游消息补全',
-      kind: '漫游拉取',
+      name: taskDisplayTitle(display),
+      display,
+      createdAt: job.createdAt,
+      kind:
+        job.targets.length === 1
+          ? job.targets[0]!.kind === 'group'
+            ? '群聊'
+            : '私聊'
+          : '多个会话',
       status,
       statusLabel:
         job.status === 'partial'
@@ -436,23 +468,34 @@ export function CurrentTaskList({
         job.plannedSeqs > 0
           ? ((job.plannedSeqs - job.remainingSeqs) / job.plannedSeqs) * 100
           : undefined,
-      note: `${job.targets.length} 个会话 · 仍未确认 ${job.remainingSeqs} seq`,
+      note: job.options.range
+        ? `${job.options.range.start ? taskDate(job.options.range.start * 1000) : '不限起始'} 至 ${job.options.range.end ? taskDate(job.options.range.end * 1000) : '不限结束'}`
+        : undefined,
       icon: <CloudDownload size={16} />,
-      detail: <RoamingBackfillPanel surface="tasks" taskId={job.id} />,
+      detail: (
+        <div>
+          <h3 className="weq-task-detail-name">
+            <TaskName display={display} />
+          </h3>
+          <RoamingBackfillPanel surface="tasks" taskId={job.id} />
+        </div>
+      ),
       quickActions: <TaskQuickActions actions={actions} />,
     });
   }
   if (roaming.data?.scanning) {
     items.push({
       id: 'roaming:scanning',
-      name: '正在检查缺失消息',
+      name: '拉取漫游消息',
       kind: '漫游拉取',
       status: 'running',
+      statusLabel: '检查缺失消息',
       icon: <CloudDownload size={16} />,
       detail: (
         <TaskProgressDetails
-          name="正在检查缺失消息"
+          name="拉取漫游消息"
           status="running"
+          statusLabel="检查缺失消息"
           note="正在检查所选范围内的本地记录与候选缺口。"
         />
       ),
@@ -461,6 +504,11 @@ export function CurrentTaskList({
   for (const task of flash.data ?? []) {
     const running = task.status === 'resolving' || task.status === 'downloading';
     const single = (task.files?.length ?? 1) === 1;
+    const display = {
+      action: '下载闪传文件',
+      subject: single ? task.name : `${task.files!.length} 个文件`,
+      fileName: single,
+    };
     const retryFlash = async () => {
       if (!cleanupBinding) return;
       const retried = await client.account.flashRetryDownloadTask.mutate({
@@ -547,7 +595,9 @@ export function CurrentTaskList({
     }
     items.push({
       id: `flash:${task.id}`,
-      name: task.name,
+      name: taskDisplayTitle(display),
+      display,
+      createdAt: task.createdAt,
       kind: '闪传下载',
       status:
         task.status === 'done'
@@ -562,13 +612,15 @@ export function CurrentTaskList({
           : task.fileSize > 0
             ? (task.downloadedBytes / task.fileSize) * 100
             : undefined,
-      note: `${task.files?.length ?? 1} 个文件 · ${formatSize(task.downloadedBytes)} / ${formatSize(task.fileSize)}`,
+      note: single ? task.filesetName : `${task.filesetName} · ${formatSize(task.fileSize)}`,
+      metrics: `${formatSize(task.downloadedBytes)} / ${formatSize(task.fileSize)}`,
       icon: <Download size={16} />,
       quickActions: <TaskQuickActions actions={actions} />,
       detail: (
         <div>
           <TaskProgressDetails
             name={task.name}
+            display={display}
             status={
               task.status === 'done'
                 ? 'completed'
@@ -719,6 +771,7 @@ export function CurrentTaskList({
   }
   for (const entry of background.tasks) {
     const task = entry.task;
+    const display = backgroundTaskDisplay(task);
     const Icon = BACKGROUND_TASK_ICONS[task.kind];
     const actions: TaskQuickAction[] = task.actions.map((action) => ({
       id: action.id,
@@ -756,12 +809,19 @@ export function CurrentTaskList({
       });
     items.push({
       id: backgroundTaskId(entry),
-      name: task.name,
-      kind: BACKGROUND_TASK_LABELS[task.kind],
+      name: taskDisplayTitle(display),
+      display,
+      createdAt: task.startedAt,
+      kind:
+        display.category ??
+        (task.kind === 'model' && task.destination === 'enhancement-packs'
+          ? '增强包'
+          : BACKGROUND_TASK_LABELS[task.kind]),
       status: task.status,
       statusLabel: task.statusLabel,
       progress: task.progress,
-      note: task.note,
+      note: display.context,
+      metrics: task.kind === 'contacts' && task.status !== 'failed' ? task.note : undefined,
       icon: <Icon size={16} />,
       quickActions: actions.length ? <TaskQuickActions actions={actions} /> : null,
       detail: (

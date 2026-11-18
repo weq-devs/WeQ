@@ -73,6 +73,7 @@ export const updateRouter = router({
         {
           kind: 'update',
           name: `WeQ 更新包${getUpdateState()?.latest ? ` · ${getUpdateState()!.latest}` : ''}`,
+          display: { action: '下载 WeQ 更新', subject: getUpdateState()?.latest ?? undefined },
         },
         async (id) => {
           const progress = (p: UpdateProgress) =>

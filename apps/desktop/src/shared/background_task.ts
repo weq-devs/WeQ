@@ -1,3 +1,5 @@
+import type { TaskDisplay } from '@weq/service/task-display';
+
 export type BackgroundTaskKind =
   | 'analysis'
   | 'calendar'
@@ -22,6 +24,7 @@ export interface BackgroundTask {
   id: string;
   kind: BackgroundTaskKind;
   name: string;
+  display?: TaskDisplay;
   scope?: BackgroundTaskScope;
   /** 页面临时任务的归属标识；不设置时保留正常后台历史。 */
   ownerId?: string;
@@ -50,6 +53,30 @@ export function backgroundTaskVisible(task: BackgroundTask, scope: BackgroundTas
     (task.scope.uin === scope?.uin &&
       (!task.scope.configId || task.scope.configId === scope.configId))
   );
+}
+
+export function backgroundTaskDisplay(
+  task: Pick<BackgroundTask, 'kind' | 'name' | 'destination' | 'display'>,
+): TaskDisplay {
+  if (task.display) return task.display;
+  const action = {
+    analysis: '生成分析',
+    calendar: '统计会话日历',
+    contacts: '更新联系人信息',
+    model: task.destination === 'enhancement-packs' ? '准备增强包' : '下载模型',
+    update: '下载 WeQ 更新',
+    database: '数据库维护',
+    backup: '备份与恢复',
+    'favorite-import': '导入收藏表情',
+    forward: '逐条转发消息',
+    'album-upload': '上传群相册视频',
+    resource: '资源任务',
+  }[task.kind];
+  return {
+    action,
+    subject: task.name === action ? undefined : task.name,
+    fileName: task.kind === 'album-upload',
+  };
 }
 
 export interface BackgroundTaskLogLine {
@@ -100,7 +127,8 @@ export class BackgroundTaskRegistry {
   };
 
   start(
-    input: Pick<BackgroundTask, 'name' | 'kind' | 'scope' | 'destination' | 'ownerId'> & TaskPatch,
+    input: Pick<BackgroundTask, 'name' | 'kind' | 'scope' | 'destination' | 'ownerId' | 'display'> &
+      TaskPatch,
   ) {
     const now = Date.now();
     const task: BackgroundTask = {

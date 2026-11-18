@@ -163,16 +163,35 @@ html[data-theme='dark'] .weq-current-tasks .weq-set-btn-soft:hover:not(:disabled
 }
 
 .weq-long-task-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  line-height: 1.5;
   font-size: 13px;
   font-weight: 600;
   overflow-wrap: anywhere;
 }
 
 .weq-long-task-meta {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
   font-size: 11px;
   line-height: 1.5;
   color: var(--weq-fg-secondary);
   overflow-wrap: anywhere;
+}
+
+.weq-long-task-metrics {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--weq-fg-secondary);
 }
 
 .weq-long-task-state {
@@ -191,6 +210,65 @@ html[data-theme='dark'] .weq-current-tasks .weq-set-btn-soft:hover:not(:disabled
   align-items: center;
   justify-content: flex-end;
   gap: 4px;
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
+}
+
+.weq-task-file-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.weq-task-file-subject {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: baseline;
+}
+
+.weq-task-file-stem {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.weq-task-file-extension {
+  flex: none;
+}
+
+.weq-task-original-name {
+  margin: 6px 0;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-task-original-name summary {
+  cursor: pointer;
+}
+
+.weq-task-original-name p {
+  max-height: 180px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.weq-task-detail-name {
+  margin: 0 0 12px;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.weq-task-progress-details > header > strong,
+.weq-long-task-detail .weq-exp-detail-title > strong,
+.weq-export-tool.is-tasks .weq-exp-sched-card-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 
 .weq-long-task-state svg {

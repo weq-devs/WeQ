@@ -754,6 +754,7 @@ export function createQQActionsRouter(
         const id = backgroundTasks.start({
           kind: 'favorite-import',
           name: '收藏表情导入',
+          display: { action: '导入收藏表情', subject: `${i.keys.length} 张` },
           scope: { uin: i.expectedAccountUin, configId: i.expectedAccountConfigId },
         });
         try {

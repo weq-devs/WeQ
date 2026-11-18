@@ -13,6 +13,7 @@ import { client, trpc } from '../../trpc/client';
 import { localBackgroundTasks } from '../../state/backgroundTasks';
 import { removeBackgroundTask, type BackgroundTaskEntry } from '../../hooks/useBackgroundTasks';
 import type { BackgroundTaskScope } from '../../../../shared/background_task';
+import { backgroundTaskDisplay } from '../../../../shared/background_task';
 import { IS_WEB } from '../../lib/target.shared';
 import { useDialog } from '../Dialog.shared';
 import type { TaskLogLine } from '../TaskLogConsole';
@@ -144,6 +145,7 @@ function TaskDetails({
       ) : (
         <TaskProgressDetails
           name={task.name}
+          display={backgroundTaskDisplay(task)}
           status={task.status}
           statusLabel={task.statusLabel}
           progress={task.progress}

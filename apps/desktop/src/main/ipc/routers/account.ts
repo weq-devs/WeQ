@@ -2473,6 +2473,7 @@ export const accountRouter = router({
       const taskId = await services.exportManager.startResourceExport({
         kind: 'persona-bot',
         name: `${safeName}-bot`,
+        display: { action: '导出克隆机器人', subject: safeName },
         savePolicy: policy,
         includeIntegrityReport: input.includeIntegrityReport,
         run: async ({ directory, signal }) => {
@@ -7334,6 +7335,12 @@ export const accountRouter = router({
       return services.exportManager.startResourceExport({
         name,
         kind: 'database',
+        display: {
+          action: '导出明文数据库',
+          subject: single ? items[0]!.name : `${items.length} 个库`,
+          context: input.mode === 'safe' ? '安全保存' : '快速解密',
+          fileName: single,
+        },
         includeIntegrityReport: input.includeIntegrityReport,
         savePolicy: input.savePolicy,
         ...(single ? { output: { kind: 'file' as const, name, extension: 'db' } } : {}),
@@ -7839,6 +7846,12 @@ export const accountRouter = router({
       return services.exportManager.startResourceExport({
         kind: 'qzone-albums',
         name: selected.name,
+        display: {
+          action: '保存相册媒体',
+          subject: resolved ? resolved.fileName : `${selected.items.length} 项`,
+          context: 'QQ 空间相册',
+          fileName: Boolean(resolved),
+        },
         includeIntegrityReport: selected.includeIntegrityReport,
         savePolicy: policy,
         ...(output.kind === 'file' ? { output } : {}),
@@ -7895,6 +7908,24 @@ export const accountRouter = router({
       return services.exportManager.startResourceExport({
         kind: selected.every((item) => item.provider === 'qzone') ? 'qzone-albums' : 'group-albums',
         name: frozen.name,
+        display: {
+          action: selected.every((item) => item.provider === 'qzone')
+            ? '导出 QQ 空间相册'
+            : selected.every((item) => item.provider === 'group')
+              ? '导出群相册'
+              : '导出相册',
+          subject: `${selected.length} 个相册`,
+          context: [
+            ...new Set(
+              selected.map((item) => (item.provider === 'qzone' ? 'QQ 空间相册' : '群相册')),
+            ),
+          ].join('、'),
+          category:
+            selected.some((item) => item.provider === 'qzone') &&
+            selected.some((item) => item.provider === 'group')
+              ? '混合来源相册'
+              : undefined,
+        },
         savePolicy: policy,
         includeIntegrityReport: frozen.includeIntegrityReport,
         run: async (context) => {
@@ -8005,6 +8036,14 @@ export const accountRouter = router({
       return services.exportManager.startResourceExport({
         kind: 'qzone-albums',
         name: selected.name,
+        display: {
+          action: '导出 QQ 空间相册',
+          subject:
+            selected.albums.length === 1
+              ? selected.albums[0]!.title
+              : `${selected.albums.length} 个相册`,
+          context: selected.name,
+        },
         includeIntegrityReport: selected.includeIntegrityReport,
         savePolicy: policy,
         run: async (context) => {
@@ -8061,6 +8100,14 @@ export const accountRouter = router({
           },
         },
         name: selected.name,
+        display: {
+          action: '导出群相册',
+          subject:
+            selected.albums.length === 1
+              ? selected.albums[0]!.title
+              : `${selected.albums.length} 个相册`,
+          context: selected.name,
+        },
         includeIntegrityReport: selected.includeIntegrityReport,
         savePolicy: selected.savePolicy,
         run: async (context) => {
@@ -8637,6 +8684,7 @@ export const accountRouter = router({
         savePolicy: exportSavePolicyInput.optional(),
         includeIntegrityReport: z.boolean().optional(),
         scope: z.enum(['friends', 'group', 'groups']),
+        groupName: z.string().max(512).optional(),
         expectedAccountUin: z.string().min(1).optional(),
         expectedAccountConfigId: z.string().min(1).optional(),
         groupIds: z
@@ -8677,6 +8725,7 @@ export const accountRouter = router({
       ).exportManager.startTask({
         contacts: {
           scope: input.scope,
+          groupName: input.scope === 'group' ? input.groupName : undefined,
           ...(input.categoryIds ? { categoryIds: input.categoryIds } : {}),
           ...(input.uids ? { uids: input.uids } : {}),
           ...(input.groupIds ? { groupIds: input.groupIds } : {}),

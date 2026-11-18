@@ -984,6 +984,8 @@ function ExportToolBody({
       id: t.id,
       kind: t.kind,
       name: t.name,
+      display: t.display,
+      createdAt: t.createdAt,
       format: t.format,
       formats: (t as { formats?: string[] }).formats,
       status: t.status,
@@ -1384,6 +1386,7 @@ function ExportToolBody({
             scope: 'group',
             groupCode: g.id,
             name: `${g.name}_群成员`,
+            groupName: g.name,
             format: cfmts[0] === 'vcard' ? 'csv' : (cfmts[0] ?? 'csv'),
             formats: cfmts.map((f) => (f === 'vcard' ? 'csv' : f)) as typeof cfmts,
             exportAvatar: options.exportAvatar,
@@ -1777,7 +1780,7 @@ function ExportToolBody({
       if (!savePolicy) return;
       await client.account.createSchedule.mutate({
         ...binding,
-        name: `定时 · ${targets[0]!.name}${targets.length > 1 ? ` 等 ${targets.length} 个` : ''}`,
+        name: `定时导出聊天记录 · ${targets.length === 1 ? targets[0]!.name : `${targets.length} 个会话`}`,
         // 主格式 = 第一份；多选的全部格式存进 formats，触发时媒体只带一份。
         format: (result.formats[0] ?? format) as Exclude<ExportFormat, 'vcard'>,
         formats: result.formats as Exclude<ExportFormat, 'vcard'>[],

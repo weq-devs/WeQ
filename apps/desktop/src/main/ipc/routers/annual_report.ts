@@ -175,6 +175,11 @@ async function startReportSave(
   return services.exportManager.startResourceExport({
     kind: 'annual-report',
     name,
+    display: {
+      action: '导出年度报告',
+      subject: `${input.year} 年`,
+      context: extension.toUpperCase(),
+    },
     output,
     savePolicy: policy,
     run: async ({ directory, signal }) => {

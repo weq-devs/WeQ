@@ -614,6 +614,7 @@ export class ExportScheduler extends EventEmitter {
           kind: c.kind,
           conv: c.id,
           name: c.name,
+          scheduleName: t.name,
           format: formats[0] ?? t.format,
           formats,
           total: c.total,

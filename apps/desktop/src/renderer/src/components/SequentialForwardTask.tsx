@@ -57,7 +57,12 @@ export function startSequentialForward({
     let label = '正在转发';
     let finished = false;
     const startedAt = Date.now();
-    const taskId = localBackgroundTasks.start({ kind: 'forward', name: target.name, scope });
+    const taskId = localBackgroundTasks.start({
+      kind: 'forward',
+      name: target.name,
+      scope,
+      display: { action: '逐条转发消息', subject: target.name },
+    });
     const taskSource = taskNotificationSource(taskId, 'background:window');
     const conversationSource = notificationSource(
       { kind: 'local', open: () => onOpenTarget(target) },

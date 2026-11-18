@@ -113,7 +113,11 @@ export function startTransferPolicy() {
     transferActivity.on('state', (state: TransferActivity) => {
       let id = ids.get(state.id);
       if (!id) {
-        id = backgroundTasks.start({ kind: 'resource', name: state.name });
+        id = backgroundTasks.start({
+          kind: 'resource',
+          name: state.name,
+          display: { action: '下载资源', subject: state.name },
+        });
         ids.set(state.id, id);
       }
       if (state.done || state.error) {

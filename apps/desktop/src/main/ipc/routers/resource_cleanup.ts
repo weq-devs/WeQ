@@ -56,6 +56,7 @@ export const resourceCleanupRouter = router({
         {
           kind: 'resource',
           name: '清理本地资源',
+          display: { action: '清理本地资源' },
           scope: {
             uin: services.accountConfig.getRecord()!.uin,
             configId: services.accountConfig.getRecord()?.configId,

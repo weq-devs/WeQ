@@ -5,12 +5,12 @@ import { TaskList, type UiTask } from '../src/renderer/src/views/export/TaskList
 
 afterEach(() => vi.unstubAllGlobals());
 it.each([
-  ['market-image', '商城单张表情保存'],
-  ['mail-attachment', '邮件附件保存'],
-  ['decoration', '装扮资源保存'],
-  ['qzone-albums', '空间相册导出'],
-  ['annual-report', '年度报告导出'],
-  ['media', '媒体文件保存'],
+  ['market-image', '商城单张表情'],
+  ['mail-attachment', '邮件附件'],
+  ['decoration', '装扮素材'],
+  ['qzone-albums', 'QQ 空间相册'],
+  ['annual-report', '年度报告'],
+  ['media', '媒体文件'],
 ] as const)('独立资源 %s 展示真实任务类型', (kind, label) => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
@@ -94,7 +94,7 @@ it('资源任务不伪装为 JSON 消息导出，部分下载失败仍展示缺�
         }),
       ),
     );
-    expect(host.textContent).toContain('群文件导出');
+    expect(host.textContent).toContain('导出群文件');
     expect(host.textContent).toContain('已完成 · 资源缺失');
     expect(host.textContent).toContain('个文件');
     expect(host.textContent).not.toContain('JSON');

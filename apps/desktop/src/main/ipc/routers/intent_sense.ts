@@ -396,6 +396,10 @@ export const intentSenseModelProcedures = {
       const taskId = backgroundTasks.start({
         kind: 'model',
         name: `本地意图模型 · ${input.modelId ?? 'auto'}`,
+        display: {
+          action: '下载意图模型',
+          subject: input.modelId === 'auto' ? undefined : input.modelId,
+        },
       });
       const notify = (p: IntentSenseModelProgress): void => {
         backgroundTasks.update(taskId, {

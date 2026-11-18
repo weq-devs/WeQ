@@ -146,6 +146,17 @@ export function createAnalysisReportsRouter(
                 kind: 'analysis',
                 reportId: id,
                 name: `${report.request.name} · 分析`,
+                display: {
+                  action: {
+                    buddy: '生成好友分析',
+                    group: '生成群聊分析',
+                    member: '生成群成员分析',
+                  }[report.request.kind],
+                  subject: report.request.name,
+                  context: [report.request.groupName, report.request.period]
+                    .filter(Boolean)
+                    .join(' · '),
+                },
                 scope: { uin: input.expectedAccountUin, configId: input.expectedAccountConfigId },
                 status: report.status,
                 startedAt: report.logs[0]?.ts ?? report.updatedAt,

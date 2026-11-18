@@ -383,6 +383,20 @@ export const mediaSaveRouter = router({
       kind: 'media',
       sourceKey: savedMediaSourceKey(selected.source),
       name: output.name,
+      display: {
+        action:
+          selected.source.kind === 'group-file'
+            ? '保存群文件'
+            : /^(png|jpe?g|gif|webp|bmp|svg|apng|avif|heic)$/i.test(output.extension)
+              ? '保存图片'
+              : /^(mp4|mov|webm|mkv|avi)$/i.test(output.extension)
+                ? '保存视频'
+                : /^(wav|mp3|ogg|m4a|flac|silk|amr|aac)$/i.test(output.extension)
+                  ? '保存语音'
+                  : '保存文件',
+        subject: plan.fileName,
+        fileName: true,
+      },
       output,
       savePolicy: policy,
       run: async ({ directory, signal, progress }) => {

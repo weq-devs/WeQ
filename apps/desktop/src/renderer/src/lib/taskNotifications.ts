@@ -20,7 +20,7 @@ export function notifyTaskCreated(id: string, title: string) {
   toast.push({
     key,
     event: 'progress',
-    title,
+    title: task?.notificationName ?? (title.length > 100 ? '资源保存任务' : title),
     loading: true,
     durationKind: 'long',
     // 首次任务快照尚未就绪时有界等待，实际进度到达后由共用通知接管。
