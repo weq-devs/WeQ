@@ -30,7 +30,7 @@
  *     挤压,浏览器按比例压缩,气泡就变形了。
  *
  * 素材是移动端 2x 的,网页按 {@link BUBBLE_SCALE} 缩。slice 是源图坐标所以不缩,只缩
- * border-image-width / padding / min-size。
+ * border-image-width / min-size；正文 padding 使用独立的手机布局规则。
  *
  * ## 右键高亮
  *
@@ -75,7 +75,7 @@
  * 「逐条消息字体」两套规则不互相抢 `@keyframes`）。
  *
  * 与文字色的关系：炫彩是**画在气泡底图之上、文字之下**的一层，所以它盖得住气泡底色，
- * 又不会糊住字。节奏不跟 QQ 的时间轴（见 {@link FONT_FX_FRAME_MS}）。
+ * 又不会糊住字。完整时间轴待原生对照，缺失帧延迟时使用手机包装层的 50ms 下限。
  */
 
 import type { DressScope, FontFx, ResolvedWidget } from '@weq/service';
@@ -95,6 +95,7 @@ export interface BubbleSkinCss {
   slice: { left: number; top: number; right: number; bottom: number };
   imageSize: { w: number; h: number };
   textColor: string;
+  linkColor?: string;
   /**
    * local-only 模型下九宫格恒为本地 PNG(路径在主进程,渲染走
    * `weq-media://dressbubble?id=`,这里只需要知道有值)。
@@ -149,26 +150,11 @@ function scopeFilter(scope: DressScope, kind: 'bubble' | 'font' | 'widget'): str
   return scope === 'fallback' ? `:not([data-record-${kind}])` : '';
 }
 
-/** 素材是 2x,网页按半尺寸贴才是正常观感。 */
+/** Android BubbleBackGroundDrawable 按 density / 2 绘制；映射到 CSS 为半尺寸。 */
 const BUBBLE_SCALE = 0.5;
-
-/**
- * 内边距 ÷ 切片厚度 —— 纵横共用这一枚比例。
- *
- * 取自官方 `.9.png` 的 npTc chunk(唯一能拿到权威 padding 的来源,immersive 分发的 PNG
- * 把 npTc 剥掉了):实测 2078642 是 padding T32/B32 对 slice T55/B55,即 ≈0.58,取 0.6。
- *
- * **横向过去用的是 1.0(`max(左切片, 右切片)`),那是错的**,已经改回这个比例。
- * 对缓存里 201 款气泡逐款量过(见下):凡 npTc 带权威 padding 的款,`padding ÷ slice`
- * 的中位数横竖都在 **0.58~0.64**,1.0 会让文字被推到边条装饰之外 —— 同一批素材里
- * 切片深的款(如 149:slice 73/47、本体可见区只到 20..107)因此空出一大截。
- *
- * 为什么盯着"每款的权威 padding"比"统一 40/32"更稳:201 款里 192 款是 40/40/32/32,
- * 但剩下 9 款的权威值全是 0(2014 那批老素材没填),按统一值算会给它们凭空造出 20px
- * 内边距;而 0.6×slice 对那 9 款的中位数恰好也落在 20px 附近,是唯一能同时覆盖
- * 「有权威值」「没权威值」「切片极深/极浅」三种情况的公式。
- */
-const PAD_RATIO = 0.6;
+// Android 9.3.85 padding.j 的非 token 装扮分支：水平 10+12dp，竖直 8+9dp。
+// 采用初始普通文本留白，不把 token/纯表情等未完整移植的分支混入装扮。
+const BUBBLE_TEXT_PADDING = { horizontal: 22, vertical: 17 };
 
 const STYLE_ID = 'weq-dress-skin';
 
@@ -263,16 +249,15 @@ ${appendToSelectors(sel, ' > .qq-message-body')} {
 }
 
 /**
- * 炫彩帧的帧时长（ms）—— **160ms/帧（≈6fps，1/4 倍速）**。
- *
- * 我们的视觉标准，不是 QQ 的时间轴：`eimg` 旁边那几张编排表（`scen`/`smap`/`fpid`）
- * 参考太少、收益不成正比，所以不逆向。
- *
- * 曾经拍 40ms（25fps），实际观感是「闪一下就没看清」——素材本身是画得很细的场景/光效，
- * 一帧只给 40ms 等于白画。160ms 是实测能看清每一帧、又不至于拖沓的档位（约 1/4 倍速）；
- * 总时长随帧数（15 帧≈2.4s、30 帧≈4.8s），同一款字体几段动画长短不同是正常的。
+ * ETDecoration 将描述符的首帧延迟限制为至少 50ms。缺少原生时间轴时先用该下限，
+ * 不再人为放慢四倍；这是待原生输出对照的估计，不声称每款官方延迟都等于 50ms。
  */
-const FONT_FX_FRAME_MS = 160;
+function fontFxFrameTime(fx: FontFx): number {
+  const delay = fx.frameTimeMs;
+  return typeof delay === 'number' && Number.isFinite(delay) && delay > 0
+    ? Math.max(50, delay)
+    : 50;
+}
 
 /** 一款字体的炫彩素材（渲染侧需要的最小集：谁 + 产出它的转换链版本 + 帧几何）。 */
 export interface FontFxSkin {
@@ -382,7 +367,7 @@ export function fontFxRules(skin: FontFxSkin, sels: FontFxSelectors): string {
     });
     // 末帧显式归零：帧序列本身就是渐隐的，不给一个 100% 会停在第一帧上。
     stops.push(`  100% { background-image: none; }`);
-    const duration = variant.frames.length * FONT_FX_FRAME_MS;
+    const duration = variant.frames.length * fontFxFrameTime(fx);
     rules.push([`@keyframes ${name} {`, ...stops, `}`].join('\n'));
 
     for (const layer of layers) {
@@ -477,8 +462,8 @@ export function bubbleRestrictsTextColor(textColor: string): boolean {
   return !textColor.trim().startsWith('var(');
 }
 
-/** 文字色受限的气泡里，链接 / @提及不标蓝，一律继承气泡文字色、用下划线区分。 */
-export function bubbleLinkMentionRules(sel: string): string {
+/** 有官方 link_color 时单独应用于链接，@ 仍保持正文色及下划线。 */
+export function bubbleLinkMentionRules(sel: string, linkColor?: string): string {
   // sel 可能是逗号分隔的多选择器（msgDecorationStyle 的 data-bubble 路径同时选
   // .message-line 和 .weq-forward-row）。后缀必须展开到每一项——CSS 的 `a, b c` 只会给
   // 最后一项加后缀，直接拼接会让前面那项变成选中整个 .message-content，整条消息都被下划线。
@@ -495,6 +480,7 @@ export function bubbleLinkMentionRules(sel: string): string {
     `  text-decoration: underline;`,
     `  text-underline-offset: 2px;`,
     `}`,
+    linkColor ? `${link},\n${hover} { color: ${linkColor}; }` : '',
   ].join('\n');
 }
 
@@ -512,7 +498,7 @@ interface BubbleMetrics {
   minHeight: string;
 }
 
-function bubbleMetrics(skin: BubbleSkinCss): BubbleMetrics {
+export function bubbleMetrics(skin: BubbleSkinCss): BubbleMetrics {
   const { left, top, right, bottom } = skin.slice;
 
   // 贴图向内绘制的厚度。slice 是源图像素,乘 scale 得到 CSS 像素。
@@ -534,25 +520,14 @@ function bubbleMetrics(skin: BubbleSkinCss): BubbleMetrics {
         )
       : null;
 
-  // 纵向 padding:基础按 0.6 比例,不对称时用差值补偿。
-  // top 小(装饰少) → 需要增大 topPad 把文字往下推离顶部
-  // bottom 小 → 需要增大 bottomPad 把文字往上推离底部
-  const avgSlice = (top + bottom) / 2;
-  const topDiff = avgSlice - top; // top 小时为正,需要补偿
-  const bottomDiff = avgSlice - bottom;
-  const topPad = px(wTop * PAD_RATIO + topDiff * BUBBLE_SCALE * 0.5);
-  const bottomPad = px(wBottom * PAD_RATIO + bottomDiff * BUBBLE_SCALE * 0.5);
-
   return {
     frameAnim,
     imageUrl: bubbleImageUrl(skin),
     slice,
     width,
-    // 横向与纵向同一个比例（理由见 {@link PAD_RATIO}）：以前用 max(wLeft, wRight)
-    // 把文字推到边条之外，切片深的款会空出一大截。
-    rightPad: px(Math.max(wLeft, wRight) * PAD_RATIO),
-    topPad,
-    bottomPad,
+    rightPad: px(BUBBLE_TEXT_PADDING.horizontal),
+    topPad: px(BUBBLE_TEXT_PADDING.vertical),
+    bottomPad: px(BUBBLE_TEXT_PADDING.vertical),
     minWidth: px((left + right) * BUBBLE_SCALE),
     minHeight: px((top + bottom) * BUBBLE_SCALE),
   };
@@ -587,8 +562,7 @@ function baseBubbleRule(skin: BubbleSkinCss, m: BubbleMetrics, sel: string): str
     `  border-image-width: ${m.width};`,
     `  border-image-repeat: stretch;`,
     `  border-radius: 0;`,
-    // 纵向 padding:让文字对齐拉伸源。top < bottom 时拉伸源偏上,减少上 padding;
-    // top > bottom 时拉伸源偏下,增加上 padding。公式源自九宫格恒等式(bubble_skin.ts 模块头)。
+    // 正文留白与图像切片独立，预览、本地覆盖和逐消息装扮共用同一计算。
     `  padding: ${m.topPad} ${m.rightPad} ${m.bottomPad};`,
     `  min-width: ${m.minWidth};`,
     `  min-height: ${m.minHeight};`,
@@ -738,8 +712,8 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope, animated = true): s
   );
 
   // 文字色受限的气泡：链接 / @提及不再标蓝（会和气泡文字色冲突），改为继承气泡色 + 下划线。
-  if (bubbleRestrictsTextColor(skin.textColor)) {
-    rules.push(bubbleLinkMentionRules(sel));
+  if (bubbleRestrictsTextColor(skin.textColor) || skin.linkColor) {
+    rules.push(bubbleLinkMentionRules(sel, skin.linkColor));
   }
 
   return rules.filter(Boolean).join('\n');
@@ -822,9 +796,10 @@ export function fontRules(font: FontSkinCss, scope: DressScope, animated = true)
     // fallback 必须留着 —— QQ 的装扮字体多是子集化的,缺字要能回退到正文字体。
     // 这里**不能**用 `inherit`:CSS 不允许 inherit 出现在逗号列表里,整条声明会被
     // 浏览器整体丢弃(字体因此永远不生效,且控制台不报错)。要写成真实的字体族名。
-    `${bubbleLineSelector(scope, 'font')} ${BUBBLE_CONTENT} {`,
-    `  font-family: "${fontFamilyFor(font.itemId)}", var(--im-font-body, Inter), ui-sans-serif, system-ui, sans-serif;`,
-    `}`,
+    fontTextRules(
+      `${bubbleLineSelector(scope, 'font')} ${BUBBLE_CONTENT}`,
+      fontFamilyFor(font.itemId),
+    ),
     // 炫彩帧:属性挂在**行**上(渲染侧量完气泡尺寸才挂)。帧图层按我方/对方挑不同的
     // 伪元素(见 fontFxRules),所以这里要分开传两套行选择器 —— scope=mine 时对方
     // 行根本没换上这款字,不用给。
@@ -839,6 +814,18 @@ export function fontRules(font: FontSkinCss, scope: DressScope, animated = true)
   ]
     .filter(Boolean)
     .join('\n');
+}
+
+/**
+ * 手机普通正文使用字体度量而非固定行距倍数。normal 是浏览器侧的近似映射，
+ * 保留真实字形/缺字回退与 DOM 选择；不靠合成粗体或斜体改变彩色字体笔画。
+ */
+export function fontTextRules(sel: string, family: string): string {
+  return `${sel} {
+  font-family: "${family}", var(--im-font-body, Inter), ui-sans-serif, system-ui, sans-serif;
+  line-height: normal;
+  font-synthesis: none;
+}`;
 }
 
 /**

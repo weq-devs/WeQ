@@ -60,7 +60,15 @@ import {
   isRenderableSfnt,
   pngSize,
 } from '../common/zip';
-import { buildLocalBubbleSkin, type BubbleSkin, type MessageBubbleSkin } from './bubble_skin';
+import {
+  BUBBLE_GEOMETRY_VERSION,
+  argbToCss,
+  bubbleConfigMetadata,
+  buildLocalBubbleSkin,
+  readBubbleGeometry,
+  type BubbleSkin,
+  type MessageBubbleSkin,
+} from './bubble_skin';
 import { downloadUrlToFile } from './media_url';
 import { scopedNetworkAllowed } from '../common/network_scope';
 import { getDressIndexStore, type DressIndexKind, type DressIndexStore } from './dress_index';
@@ -90,6 +98,8 @@ export interface FontFxVariant {
 /** 一款字体的炫彩帧素材。 */
 export interface FontFx {
   variants: FontFxVariant[];
+  /** 官方描述符帧延迟；旧图片提取缓存没有该值，由渲染侧采用待原生对照的基准。 */
+  frameTimeMs?: number;
 }
 
 /** `fonts/<id>.json` —— 字体派生物的 sidecar。 */
@@ -146,6 +156,9 @@ export interface BubbleSidecar {
   slice: { top: number; right: number; bottom: number; left: number };
   imageSize: { w: number; h: number };
   textColor: string;
+  linkColor?: string;
+  zoomPoint?: [number, number];
+  geometryVersion?: number;
   animationFrameCount?: number;
   animationFrameTimeMs?: number;
   animationRepeat?: number;
@@ -196,19 +209,28 @@ export class DressSharedCache {
   private async cacheMessageBubble(itemId: number): Promise<void> {
     try {
       const path = join(this.bubblesDir, `${itemId}.png`);
-      const [json, info] = await Promise.all([
+      const [json, info, config] = await Promise.all([
         readFile(join(this.bubblesDir, `${itemId}.json`), 'utf8'),
         stat(path),
+        readFile(join(this.bubblesDir, `${itemId}-config.json`), 'utf8').catch(() => null),
       ]);
       if (!info.isFile()) return;
-      const png = info.size <= 512 * 1024 ? await readFile(path) : null;
-      const meta = JSON.parse(json) as BubbleSidecar;
-      if (!meta.slice || !meta.imageSize || !meta.textColor || (png && !pngSize(png))) return;
+      const png = await readFile(path);
+      let meta = JSON.parse(json) as BubbleSidecar;
+      if (!meta.slice || !meta.imageSize || !meta.textColor || !pngSize(png)) return;
+      if (meta.geometryVersion !== BUBBLE_GEOMETRY_VERSION) {
+        const zoomPoint = cachedBubbleMetadata(config).zoomPoint ?? meta.zoomPoint;
+        const geometry = readBubbleGeometry(png, zoomPoint);
+        if (!geometry) return;
+        meta = { ...meta, ...geometry, zoomPoint, geometryVersion: BUBBLE_GEOMETRY_VERSION };
+      }
+      const linkColor = cachedBubbleMetadata(config).linkColor;
       const skin: MessageBubbleSkin = {
         itemId,
         slice: meta.slice,
         imageSize: meta.imageSize,
         textColor: meta.textColor,
+        linkColor: linkColor ? argbToCss(linkColor) : meta.linkColor,
         localFile: join(this.bubblesDir, `${itemId}.png`),
         animationFrameCount: meta.animationFrameCount,
         animationFrameTimeMs: meta.animationFrameTimeMs,
@@ -216,7 +238,8 @@ export class DressSharedCache {
       };
       // 只缓存静态九宫格，不把动画帧或整个装扮目录塞进消息页。
       const previousBytes = this.messageBubbles.get(itemId)?.baseImage?.length ?? 0;
-      const baseImage = png ? `data:image/png;base64,${png.toString('base64')}` : undefined;
+      const baseImage =
+        info.size <= 512 * 1024 ? `data:image/png;base64,${png.toString('base64')}` : undefined;
       this.messageBubbleBytes -= previousBytes;
       if (baseImage && this.messageBubbleBytes + baseImage.length <= 32 * 1024 * 1024) {
         skin.baseImage = baseImage;
@@ -302,18 +325,37 @@ export class DressSharedCache {
    * 它当未装处理走下载链重下（见 {@link installBubble}）。
    */
   private loadBubbleSkin(itemId: number): BubbleSkin | null {
+    const prepared = this.messageBubbles.get(itemId);
+    if (prepared && existsSync(prepared.localFile)) return prepared;
     const sidecarPath = join(this.bubblesDir, `${itemId}.json`);
     const localFile = join(this.bubblesDir, `${itemId}.png`);
     if (!existsSync(sidecarPath) || !existsSync(localFile)) return null;
 
     try {
-      const sidecar = JSON.parse(readFileSync(sidecarPath, 'utf-8')) as BubbleSidecar;
+      let sidecar = JSON.parse(readFileSync(sidecarPath, 'utf-8')) as BubbleSidecar;
       if (!sidecar.slice || !sidecar.imageSize || !sidecar.textColor) return null;
+      if (sidecar.geometryVersion !== BUBBLE_GEOMETRY_VERSION) {
+        const configPath = join(this.bubblesDir, `${itemId}-config.json`);
+        const config = cachedBubbleMetadata(
+          existsSync(configPath) ? readFileSync(configPath, 'utf8') : null,
+        );
+        const zoomPoint = config.zoomPoint ?? sidecar.zoomPoint;
+        const geometry = readBubbleGeometry(readFileSync(localFile), zoomPoint);
+        if (!geometry) return null;
+        sidecar = {
+          ...sidecar,
+          ...geometry,
+          zoomPoint,
+          linkColor: config.linkColor ? argbToCss(config.linkColor) : sidecar.linkColor,
+          geometryVersion: BUBBLE_GEOMETRY_VERSION,
+        };
+      }
       return {
         itemId,
         slice: sidecar.slice,
         imageSize: sidecar.imageSize,
         textColor: sidecar.textColor,
+        linkColor: sidecar.linkColor,
         localFile,
         animationFrameCount: sidecar.animationFrameCount,
         animationFrameTimeMs: sidecar.animationFrameTimeMs,
@@ -394,15 +436,25 @@ export class DressSharedCache {
     writeFileSync(pngPath, png);
 
     // 帧动画 / 配色都来自 zip 侧的 config.json；拿不到就当纯静态款。
-    const config = await fetchBubbleConfig(urls.configUrl);
+    const config = await fetchBubbleConfig(
+      urls.configUrl,
+      join(this.bubblesDir, `${itemId}-config.json`),
+    );
     const animation =
       config?.animation && urls.otherZipUrl
         ? await this.extractBubbleFrames(itemId, urls.otherZipUrl, config.animation)
         : undefined;
 
-    const skin = buildLocalBubbleSkin({ itemId, pngPath, color: config?.color, animation });
+    const skin = buildLocalBubbleSkin({
+      itemId,
+      pngPath,
+      color: config?.color,
+      linkColor: config?.linkColor,
+      zoomPoint: config?.zoomPoint,
+      animation,
+    });
     if (!skin) {
-      // 九宫格不合法（缺 npTc / 恒等式不成立）——清掉刚落的 png,避免占着缓存。
+      // 不支持或破损的几何不进入渲染缓存。
       rmSync(pngPath, { force: true });
       return null;
     }
@@ -412,6 +464,9 @@ export class DressSharedCache {
       slice: skin.slice,
       imageSize: skin.imageSize,
       textColor: skin.textColor,
+      linkColor: skin.linkColor,
+      zoomPoint: config?.zoomPoint,
+      geometryVersion: BUBBLE_GEOMETRY_VERSION,
       ...(skin.animationFrameCount
         ? {
             animationFrameCount: skin.animationFrameCount,
@@ -1160,15 +1215,22 @@ export function readFontFx(assetsDir: string): FontFx | null {
 /** 下 config.json，拿顶层 color 与 animation_sets.bubbleframe_anim。 */
 async function fetchBubbleConfig(
   url: string | undefined,
+  cachePath: string,
 ): Promise<
-  | { color?: string; animation?: { zipName: string; frameTimeMs: number; repeat: number } }
+  | {
+      color?: string;
+      linkColor?: string;
+      zoomPoint?: [number, number];
+      animation?: { zipName: string; frameTimeMs: number; repeat: number };
+    }
   | undefined
 > {
   if (!url) return undefined;
   try {
     const res = await networkFetch(url);
     if (!res.ok) return undefined;
-    const json = (await res.json()) as {
+    const text = await res.text();
+    const json = JSON.parse(text) as {
       color?: unknown;
       bubbleframe_animation?: { animation_set?: unknown };
       animation_sets?: Record<
@@ -1176,7 +1238,14 @@ async function fetchBubbleConfig(
         { zip_name?: unknown; time?: unknown; repeat?: unknown; count?: unknown }
       >;
     };
-    const color = typeof json.color === 'string' ? json.color : undefined;
+    try {
+      writeFileSync(cachePath, text);
+    } catch (error) {
+      getLogger().warn('could not cache bubble config', {
+        event: 'dress-bubble-config-cache',
+        ...logErrorContext(error),
+      });
+    }
 
     const setKey = json.bubbleframe_animation?.animation_set;
     const set = typeof setKey === 'string' ? json.animation_sets?.[setKey] : undefined;
@@ -1188,9 +1257,17 @@ async function fetchBubbleConfig(
         ? { zipName, frameTimeMs, repeat: Number(set?.repeat ?? 0) }
         : undefined;
 
-    return { color, animation };
+    return { ...bubbleConfigMetadata(json), animation };
   } catch {
     return undefined;
+  }
+}
+
+function cachedBubbleMetadata(json: string | null) {
+  try {
+    return bubbleConfigMetadata(json ? JSON.parse(json) : null);
+  } catch {
+    return {};
   }
 }
 
