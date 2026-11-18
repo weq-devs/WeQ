@@ -36,8 +36,8 @@ const id = randomUUID();
 let lock;
 let barrier = false;
 
-function withDb(run) {
-  const db = new DatabaseSync(dbPath);
+function withDb(run, path = dbPath, options = {}) {
+  const db = new DatabaseSync(path, options);
   try {
     db.exec('PRAGMA busy_timeout=0');
     return run(db);
@@ -61,10 +61,11 @@ try {
   };
   nt.setDatabaseMaintenanceWriteBarrier(id, [dbPath], true);
   barrier = true;
-  lock = new DatabaseMaintenanceLock({
+  const lockOptions = {
     workerPath: join(workers, 'dbMaintenanceLockWorker.mjs'),
     nativeRoot,
-  });
+  };
+  lock = new DatabaseMaintenanceLock(lockOptions);
   const locked = await lock.begin(id, [target], AbortSignal.timeout(20_000));
   assert.equal(locked[0]?.error, undefined);
   const scan = await runDatabaseMaintenanceWorker(
@@ -82,7 +83,29 @@ try {
   });
   await lock.end();
   withDb((db) => db.exec('INSERT INTO probe VALUES(2)'));
-  console.log('PASS 配套 native 与维护进程：加锁、扫描、保护产物、解锁');
+
+  const walPath = join(root, 'cold-wal.db');
+  withDb((db) => {
+    db.exec('PRAGMA journal_mode=WAL; CREATE TABLE probe(n); INSERT INTO probe VALUES(1);');
+  }, walPath);
+  lock = new DatabaseMaintenanceLock(lockOptions);
+  const wal = await lock.begin(
+    randomUUID(),
+    [{ ...target, dbName: 'cold-wal.db', dbPath: walPath }],
+    AbortSignal.timeout(20_000),
+  );
+  assert.equal(wal.length, 1);
+  assert.equal(wal[0]?.error, undefined);
+  withDb((db) => assert.equal(db.prepare('SELECT n FROM probe').get().n, 1), walPath, {
+    readOnly: true,
+  });
+  withDb(
+    (db) => assert.throws(() => db.exec('INSERT INTO probe VALUES(2)'), /database is locked/i),
+    walPath,
+  );
+  await lock.end();
+  withDb((db) => db.exec('INSERT INTO probe VALUES(2)'), walPath);
+  console.log('PASS 配套 native 与维护进程：加锁、扫描、保护产物、冷启动 WAL 只读、解锁');
 } finally {
   await lock?.terminate();
   if (barrier) nt.setDatabaseMaintenanceWriteBarrier(id, [dbPath], false);
