@@ -17,6 +17,7 @@ import {
   timelineViewport,
 } from '../../src/renderer/src/lib/timelineViewport';
 import type { Message } from '../../src/renderer/src/im-template/template/types';
+import { buildUnreadDock } from '../../src/renderer/src/im-template/template/unreadDock';
 import type { MessageBubbleSkin } from '@weq/service';
 import { useMobileWebViewport } from '../../src/renderer/src/hooks/useMobileWebViewport';
 import { TIMELINE_VIRTUAL_THRESHOLD } from '../../src/renderer/src/hooks/useVirtualTimeline';
@@ -28,6 +29,16 @@ const demo = createTemplateDemoData();
 const params = new URLSearchParams(location.search);
 const entryCount = Number(params.get('count') ?? 3000);
 const delayedEntry = params.has('delayed');
+const unreadFrom = Number(params.get('unread-from'));
+const unreadDock =
+  unreadFrom > 1000
+    ? buildUnreadDock({
+        readSeq: unreadFrom - 1,
+        unread: 1001 + entryCount - unreadFrom,
+        highlights: [],
+        loadedSeqs: Array.from({ length: entryCount }, (_, index) => String(1001 + index)),
+      })
+    : undefined;
 const cachedBubble: MessageBubbleSkin | undefined = params.has('cached-bubbles')
   ? (() => {
       const canvas = document.createElement('canvas');
@@ -256,6 +267,7 @@ function Fixture() {
       user,
       conversation: { ...conversation, id: conversationId },
       messages,
+      unreadDock,
       jumpRequest,
       messageRenderers: [qqMessageRenderer],
       atLatest,

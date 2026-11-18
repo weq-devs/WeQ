@@ -1,7 +1,7 @@
 import type { Conversation, ConversationPreferences } from '../im-template/template/types';
 
 /** 在未读区间内选最早的真实消息，不回退到已读水位之前。 */
-export function firstUnreadMessage<T extends { msgSeq: string }>(
+export function firstUnreadMessage<T extends { msgSeq?: string }>(
   messages: readonly T[],
   firstUnreadSeq: string,
 ): T | undefined {
@@ -9,7 +9,7 @@ export function firstUnreadMessage<T extends { msgSeq: string }>(
   let first: T | undefined;
   let firstSeq: bigint | undefined;
   for (const message of messages) {
-    if (!/^\d+$/.test(message.msgSeq)) continue;
+    if (!message.msgSeq || !/^\d+$/.test(message.msgSeq)) continue;
     const seq = BigInt(message.msgSeq);
     if (seq >= start && (firstSeq === undefined || seq < firstSeq)) {
       first = message;

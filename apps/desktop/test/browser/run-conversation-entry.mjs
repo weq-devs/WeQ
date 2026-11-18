@@ -8,6 +8,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
 const output = process.env.WEQ_ENTRY_ARTIFACTS;
+const unreadOnly = process.argv.includes('--unread');
 const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
 const cacheRoot = resolve(root, 'node_modules/.cache');
 await mkdir(cacheRoot, { recursive: true });
@@ -51,6 +52,28 @@ try {
       : route.abort(),
   );
   const results = [];
+  for (const count of [25, 50]) {
+    const seq = 1008;
+    await page.goto(
+      `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html?entry&count=${count}&unread-from=${seq}`,
+    );
+    const dock = page.getByText(`新的 ${1001 + count - seq} 条未读消息`, { exact: true });
+    await dock.waitFor();
+    await page.evaluate((id) => window.timelineTest.jump(id), `row-${seq}`);
+    await page.waitForFunction((id) => {
+      const scroll = document.querySelector('.message-scroll');
+      const row = scroll?.querySelector(`[data-message-id="${id}"]`);
+      if (!row) return false;
+      const [bounds, rect] = [scroll.getBoundingClientRect(), row.getBoundingClientRect()];
+      return rect.top < bounds.bottom && rect.bottom > bounds.top;
+    }, `row-${seq}`);
+    await dock.waitFor({ state: 'hidden' });
+    await page.evaluate(() => {
+      const scroll = document.querySelector('.message-scroll');
+      scroll.scrollTop = scroll.scrollHeight;
+    });
+    await dock.waitFor();
+  }
   if (output) await mkdir(output, { recursive: true });
   const snapshot = () =>
     page.evaluate(() => {
@@ -67,7 +90,7 @@ try {
         ),
       };
     });
-  for (const count of [25, 50, 300]) {
+  for (const count of unreadOnly ? [] : [25, 50, 300]) {
     for (const [width, theme, delayed, follow] of [
       [1280, 'light', false, true],
       [1280, 'dark', true, false],
@@ -149,7 +172,7 @@ try {
       });
     }
   }
-  console.log(JSON.stringify({ results, errors }, null, 2));
+  console.log(JSON.stringify({ unreadViewports: [25, 50], results, errors }, null, 2));
   if (output)
     await writeFile(
       resolve(output, 'entry-report.json'),

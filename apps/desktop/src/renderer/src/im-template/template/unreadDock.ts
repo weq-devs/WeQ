@@ -3,12 +3,9 @@
  * 在会话右上角逐个引导用户跳转的那串「跳转点」。
  *
  * 规则（与产品约定一致）：
- *   1. 第一条未读已经落在首屏里（`read + 1 ≥ 首屏最小 seq`）⇒ 未读全看得见，
- *      整串跳转不显示。
- *   2. 否则把所有高亮（**不分类别**）混在一起按 seq 从大到小排，右上角**始终只显示
+ *   1. 重要消息沿用已加载页的去重规则，按 seq 从大到小排，右上角**始终只显示
  *      一个**（最新的那条）；点掉它再显示下一个，依次类推。
- *   3. 高亮跳完还有普通未读时，最后补一个「新的 N 条未读消息」，跳到最早那条未读
- *      （已读水位 + 1）。
+ *   2. 普通未读跳到最早那条未读（已读水位 + 1），是否显示由聊天视口决定。
  *
  * 本模块是纯函数（不依赖 React / service），便于单测与在模板层复用。
  */
@@ -98,39 +95,35 @@ function bySeqDesc(a: UnreadDockStop, b: UnreadDockStop): number {
 }
 
 /**
- * 构造跳转点序列。返回 null 表示「首屏已经能看全，不需要引导」。
+ * 构造打开会话时的候选跳转点。
  *
  * @param highlights  48902 解出的高亮（可能为 undefined）
  * @param readSeq     已读到的 seq（41002）；第一条未读 = readSeq + 1
  * @param unread      打开会话时的未读总数（recent_contact 40003 − 41002）
- * @param visibleSeqs 首屏已加载出来的消息 seq 集合 —— 用于判断未读是否都在首屏内
+ * @param loadedSeqs 首批已加载的消息 seq，仅用于过滤重要消息跳转
  */
 export function buildUnreadDock(input: {
   highlights: ConversationHighlight[] | null | undefined;
   readSeq?: string | number | null;
   unread: number;
-  visibleSeqs: Iterable<string>;
+  loadedSeqs: Iterable<string>;
 }): UnreadDock | null {
   const unread = Math.max(0, Math.floor(input.unread));
   const read = toBig(input.readSeq);
   const hasRead = read > 0n;
 
-  const visible = input.visibleSeqs instanceof Set ? input.visibleSeqs : new Set(input.visibleSeqs);
-  const visibleNumbers = Array.from(visible)
-    .map((seq) => toBig(seq))
-    .filter((n) => n > 0n);
-  const minVisible = visibleNumbers.length
-    ? visibleNumbers.reduce((a, b) => (a < b ? a : b))
-    : null;
+  const firstUnread = read + 1n;
+  const loaded = new Set(input.loadedSeqs);
+  const unreadInLoadedPage =
+    hasRead &&
+    [...loaded].some((seq) => {
+      const n = toBig(seq);
+      return n > 0n && n <= firstUnread;
+    });
 
-  // 规则 1：已知已读水位、且第一条未读（read + 1）已落在首屏里 ⇒ 未读全看得见，
-  //         整串跳转都不显示（产品要求「读到的 seq 在第一页里就不跳」）。
-  if (hasRead && minVisible !== null && read + 1n >= minVisible) return null;
-
-  // 规则 2：所有高亮混在一起，按 seq 从大到小排（最新的先跳）—— 不按类别分组。
-  //         同一 seq 命中多个类别时只保留一个跳转点（跳一次就够）。
+  // 同一 seq 命中多个类别时只保留一个跳转点（跳一次就够）。
   const bySeq = new Map<string, UnreadDockStop>();
-  for (const highlight of input.highlights ?? []) {
+  for (const highlight of unreadInLoadedPage ? [] : (input.highlights ?? [])) {
     const seq = highlight.msgSeq;
     if (!seq) continue;
     // 同一 seq 命中多个类别时保留先到的那个（跳一次就够）。若其中有群提醒词，
@@ -140,17 +133,12 @@ export function buildUnreadDock(input: {
     else if (highlight.kind === 'groupKeyword' && highlight.text) existing.text = highlight.text;
   }
   const stops: UnreadDockStop[] = Array.from(bySeq.values())
-    // 已读水位以内的命中（读过了）、以及已落在首屏里的命中（点了等于没动）都不引导。
-    .filter((stop) => (!hasRead || toBig(stop.seq) > read) && !visible.has(stop.seq))
+    .filter((stop) => (!hasRead || toBig(stop.seq) > read) && !loaded.has(stop.seq))
     .sort(bySeqDesc);
 
-  // 规则 3：高亮跳完还有普通未读时，补一个「新的 N 条未读消息」，跳到最早那条未读。
-  if (hasRead && unread > 0) {
-    const firstUnread = (read + 1n).toString();
-    if (!visible.has(firstUnread) && !stops.some((stop) => stop.seq === firstUnread)) {
-      stops.push({ kind: 'unread', seq: firstUnread });
-    }
-  }
+  const firstUnreadSeq = firstUnread.toString();
+  if (hasRead && unread > 0 && !stops.some((stop) => stop.seq === firstUnreadSeq))
+    stops.push({ kind: 'unread', seq: firstUnreadSeq });
 
   if (stops.length === 0) return null;
   return { stops, unread };

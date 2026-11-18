@@ -1,5 +1,10 @@
 import { useVirtualTimeline } from '../../hooks/useVirtualTimeline';
-import { revealTimelineMessage, timelineViewport } from '../../lib/timelineViewport';
+import {
+  messageElement,
+  revealTimelineMessage,
+  timelineViewport,
+} from '../../lib/timelineViewport';
+import { firstUnreadMessage } from '../../lib/unreadNavigation';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReplyJumpTarget } from '../../components/QqMessageContent';
 import { restoreReadingPosition } from '../../lib/conversationReadingPosition';
@@ -718,7 +723,41 @@ export function useChatTimelineNavigation({
     unreadDock?.stops.filter((stop) => stop.kind !== 'unread' && !visitedStops.has(stop.seq))
       .length ?? 0;
 
-  const dockVisible = Boolean(dockStop);
+  const unreadSeq = dockStop?.kind === 'unread' ? dockStop.seq : undefined;
+  const unreadTargetId = useMemo(() => {
+    if (!unreadSeq) return undefined;
+    const exact = messages.find((message) => message.msgSeq === unreadSeq);
+    if (exact) return exact.id;
+    const start = BigInt(unreadSeq);
+    // 缺号时沿用跳转的后继目标，但不能把尚未加载的更早未读当作缺号。
+    const covered = messages.some(
+      ({ msgSeq }) => msgSeq && /^[1-9]\d*$/.test(msgSeq) && BigInt(msgSeq) < start,
+    );
+    return covered ? firstUnreadMessage(messages, unreadSeq)?.id : undefined;
+  }, [messages, unreadSeq]);
+  const [unreadTargetVisible, setUnreadTargetVisible] = useState(false);
+  const renderedTimelineItems = timeline.enabled ? timeline.items : null;
+  useLayoutEffect(() => {
+    const scroll = messageScrollRef.current;
+    const target =
+      tabActive && scroll && unreadTargetId ? messageElement(scroll, unreadTargetId) : undefined;
+    if (!scroll || !target) {
+      setUnreadTargetVisible(false);
+      return;
+    }
+    // 首次检查在绘制前完成；之后只观察目标，虚拟列表预挂载不等于可见。
+    const bounds = scroll.getBoundingClientRect();
+    const rect = target.getBoundingClientRect();
+    setUnreadTargetVisible(rect.height > 0 && rect.bottom > bounds.top && rect.top < bounds.bottom);
+    if (typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setUnreadTargetVisible(Boolean(entry && entry.intersectionRatio > 0)),
+      { root: scroll, threshold: Number.EPSILON },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [navigationKey, renderedTimelineItems, tabActive, unreadTargetId, visibleMessages]);
+  const dockVisible = Boolean(dockStop && (!unreadSeq || !unreadTargetVisible));
 
   async function jumpDockStop(): Promise<boolean> {
     if (!dockStop || !unreadDock || dockTask.current) return false;
