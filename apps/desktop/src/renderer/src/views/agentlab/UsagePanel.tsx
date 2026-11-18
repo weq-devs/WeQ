@@ -133,9 +133,7 @@ export function HourLine({
                 onMouseLeave={() => setActiveIndex((curr) => (curr === i ? null : curr))}
                 onFocus={() => setActiveIndex(i)}
                 onBlur={() => setActiveIndex(null)}
-              >
-                <title>{`${data[i]!.hour} · ${fmt(data[i]!.tokens)} 已知 token · ${data[i]!.calls} 次请求`}</title>
-              </circle>
+              />
             ))}
           </svg>
           {activePoint && activeDatum ? (

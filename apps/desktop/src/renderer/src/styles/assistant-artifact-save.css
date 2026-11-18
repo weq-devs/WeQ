@@ -60,6 +60,7 @@ html[data-theme='dark'] .weq-artifact-save-card .weq-set-btn:hover:not(:disabled
   justify-content: center;
   flex: none;
   width: 28px;
+  min-height: 28px;
   height: 28px;
   padding: 0;
   border: 1px solid var(--weq-border-strong);

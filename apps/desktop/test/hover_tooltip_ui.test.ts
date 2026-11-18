@@ -44,7 +44,7 @@ it.each(['pointer', 'escape'])(
       });
       expect(document.activeElement).toBe(avatar);
       expect(document.querySelector('[role="tooltip"]')).toBeNull();
-      expect(avatar.title).toBe('查看资料');
+      expect(avatar.title).toBe('');
       expect(avatar.hasAttribute('aria-describedby')).toBe(false);
 
       await act(async () => {
@@ -105,7 +105,7 @@ it('临时截图覆盖也隐藏已打开的敏感悬浮提示，释放后按永�
 });
 
 it.each(['Shift', 'Control', 'Alt', 'Meta', 'AltGraph'])(
-  '单按 %s 不取消等待或关闭提示，组合键仍关闭并恢复标题',
+  '单按 %s 不取消提示，组合键关闭后也不重新启用原生提示',
   async (key) => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.useFakeTimers();
@@ -130,7 +130,7 @@ it.each(['Shift', 'Control', 'Alt', 'Meta', 'AltGraph'])(
       expect(button.getAttribute('aria-describedby')).toContain('weq-hover-tooltip');
       press('c', { ctrlKey: true });
       expect(document.querySelector('[role="tooltip"]')).toBeNull();
-      expect(button.title).toBe('保存备注');
+      expect(button.title).toBe('');
       expect(button.hasAttribute('aria-describedby')).toBe(false);
     } finally {
       act(() => root.unmount());
@@ -139,6 +139,42 @@ it.each(['Shift', 'Control', 'Alt', 'Meta', 'AltGraph'])(
     }
   },
 );
+
+it('新增及动态更新的按钮始终只用应用提示，移除标题后不会残留旧提示', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.useFakeTimers();
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const button = document.createElement('button');
+  const bubble = () => document.querySelector('[role="tooltip"]');
+  try {
+    act(() => root.render(createElement(HoverTooltip)));
+    await act(async () => {
+      button.title = '保存文件';
+      document.body.append(button);
+    });
+    expect(button.title).toBe('');
+    expect(button.getAttribute('aria-label')).toBe('保存文件');
+    await act(async () => {
+      button.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+      vi.advanceTimersByTime(300);
+    });
+    expect(bubble()?.textContent).toBe('保存文件');
+    await act(async () => {
+      button.title = '正在保存';
+    });
+    expect(button.title).toBe('');
+    expect(bubble()?.textContent).toBe('正在保存');
+    await act(async () => button.removeAttribute('title'));
+    expect(bubble()).toBeNull();
+    expect(button.hasAttribute('aria-label')).toBe(false);
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+    button.remove();
+  }
+});
 
 it('受限 QQ 控件显示操作限制，不改写可用操作与其它禁用控件的提示', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

@@ -44,9 +44,11 @@ const pointer = (type: string, extra: Partial<PointerEventInit> = {}) =>
     ),
   );
 
-it('菜单悬停无需推进时间即可显示，禁用按钮也能显示原因，其他界面仍等待 250ms', () => {
-  button.disabled = true;
-  button.title = '正在导出';
+it('菜单悬停无需推进时间即可显示，禁用按钮也能显示原因，其他界面仍等待 250ms', async () => {
+  await act(async () => {
+    button.disabled = true;
+    button.title = '正在导出';
+  });
   pointer('pointerover', { pointerType: 'mouse' });
   expect(document.querySelector('[role="tooltip"]')?.textContent).toBe('正在导出');
   pointer('pointerout', { pointerType: 'mouse' });

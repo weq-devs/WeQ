@@ -63,7 +63,6 @@ function MonitorWindow({ tab, request }: { tab: MonitorTab; request: MonitorWind
           {tab === 'performance' ? <PerformanceMonitor /> : <LogViewer />}
         </Suspense>
       </div>
-      <HoverTooltip />
     </div>
   );
   const body = (
@@ -81,6 +80,7 @@ function MonitorWindow({ tab, request }: { tab: MonitorTab; request: MonitorWind
     return createPortal(
       <RenderDocumentContext.Provider value={tool.popup.document}>
         {body}
+        <HoverTooltip />
       </RenderDocumentContext.Provider>,
       tool.popup.document.body,
     );

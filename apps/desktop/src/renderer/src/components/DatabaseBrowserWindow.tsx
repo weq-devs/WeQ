@@ -62,7 +62,6 @@ function BrowserWindow({ request }: { request: BrowserRequest }) {
             </NotificationSourceProvider>
           </Suspense>
         </PageShell>
-        <HoverTooltip />
       </div>
       {locked && (
         <div className="weq-database-browser-locked" role="status">
@@ -76,6 +75,7 @@ function BrowserWindow({ request }: { request: BrowserRequest }) {
     return createPortal(
       <RenderDocumentContext.Provider value={tool.popup.document}>
         {body}
+        <HoverTooltip />
       </RenderDocumentContext.Provider>,
       tool.popup.document.body,
     );

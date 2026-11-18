@@ -66,6 +66,7 @@
 .weq-qq-action-bar .weq-set-iconbtn {
   flex-shrink: 0;
   width: 30px;
+  min-height: 30px;
   height: 30px;
 }
 .weq-set-iconbtn.has-label {

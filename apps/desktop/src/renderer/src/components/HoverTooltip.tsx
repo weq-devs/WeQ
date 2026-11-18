@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import '../styles/hover-tooltip.css';
 import { useRenderDocument } from '../lib/renderDocument';
@@ -10,6 +10,9 @@ import { usePrivacyStore } from '../state/privacy';
 // Half Chromium's 500 ms default; native title timing itself is not configurable.
 const HOVER_DELAY_MS = 250;
 const TOOLTIP_ID = 'weq-hover-tooltip';
+const NATIVE_HINT = '[title]:not([title=""], iframe)';
+const HINT_OWNER =
+  '[title]:not(iframe), [data-qq-action] :disabled[aria-label], [data-qq-action] button:disabled';
 type Tooltip = { text: string; x: number; y: number };
 
 /** Delegate existing title hints, including portal dialogs, through one timed host. */
@@ -27,21 +30,21 @@ export function HoverTooltip() {
     element.style.top = `${Math.max(8, below ? tooltip.y : tooltip.y - bounds.height - 28)}px`;
   }, [tooltip, window]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const body = document.body;
+    type ManagedTitle = { text: string; label?: string };
+    const titles = new WeakMap<Element, ManagedTitle>();
     let owner: Element | null = null;
     let text = '';
-    let originalTitle = '';
     let point = { x: 0, y: 0 };
     let timer: ReturnType<typeof setTimeout> | undefined;
     let visible = false;
     let keyboardNavigation = false;
-    let suppliedLabel: string | null = null;
     let touchTimer: ReturnType<typeof setTimeout> | undefined;
     let touchStart: { x: number; y: number } | null = null;
     let consumedTouch = false;
-    let observer: MutationObserver;
-    const hint = (element: Element, original?: string) => {
-      const title = original ?? element.getAttribute('title') ?? '';
+    const hint = (element: Element) => {
+      const title = element.getAttribute('title') || titles.get(element)?.text || '';
       if (usePrivacyStore.getState().effective) {
         const sensitive = (node: Element) =>
           window.getComputedStyle(node).getPropertyValue('--weq-privacy-sensitive').trim() === '1';
@@ -80,62 +83,74 @@ export function HoverTooltip() {
       touchStart = null;
       if (timer !== undefined) clearTimeout(timer);
       timer = undefined;
-      observer.disconnect();
-      if (owner) {
-        // Only restore a title still suppressed by this host, not a later React update.
-        if (owner.getAttribute('title') === '') owner.setAttribute('title', originalTitle);
-        removeDescription(owner);
-        if (suppliedLabel !== null && owner.getAttribute('aria-label') === suppliedLabel)
-          owner.removeAttribute('aria-label');
-      }
+      if (owner) removeDescription(owner);
       owner = null;
-      suppliedLabel = null;
       visible = false;
       setTooltip(null);
     };
-    const supplyAccessibleName = (): void => {
-      if (!owner) return;
-      if (suppliedLabel !== null && owner.getAttribute('aria-label') === suppliedLabel) {
-        owner.setAttribute('aria-label', text);
-        suppliedLabel = text;
-      } else if (
-        !owner.hasAttribute('aria-label') &&
-        !owner.hasAttribute('aria-labelledby') &&
-        !owner.textContent?.trim() &&
-        owner.matches('button, a, [role="button"]')
+    const releaseTitle = (element: Element): void => {
+      const label = titles.get(element)?.label;
+      if (label !== undefined && element.getAttribute('aria-label') === label)
+        element.removeAttribute('aria-label');
+      titles.delete(element);
+    };
+    const captureTitle = (element: Element): void => {
+      const value = element.getAttribute('title');
+      releaseTitle(element);
+      if (!value?.trim()) return;
+      const entry: ManagedTitle = { text: value };
+      if (
+        element.matches('button, a, [role="button"]') &&
+        !element.hasAttribute('aria-label') &&
+        !element.hasAttribute('aria-labelledby') &&
+        !element.textContent?.trim() &&
+        !element.querySelector('img[alt]:not([alt=""]), [aria-label], svg > title')
       ) {
-        owner.setAttribute('aria-label', text);
-        suppliedLabel = text;
+        entry.label = usePrivacyStore.getState().effective ? hint(element) : value;
+        element.setAttribute('aria-label', entry.label);
       }
+      titles.set(element, entry);
+      // 空值既阻断原生提示继承，也让 React 清空 title 时产生可观察的变更。
+      element.setAttribute('title', '');
     };
     const observe = (): void => {
-      if (!owner) return;
-      observer.observe(owner, { attributes: true, attributeFilter: ['title'] });
-      // No tree scans: a removed hovered element only needs a connection check.
-      observer.observe(document.body, { childList: true, subtree: true });
+      observer.observe(body, {
+        attributes: true,
+        attributeFilter: ['title'],
+        childList: true,
+        subtree: true,
+      });
     };
-    observer = new window.MutationObserver((records) => {
-      if (!owner) return;
-      if (!owner.isConnected) {
-        clear();
-        return;
+    const observer = new window.MutationObserver((records) => {
+      const changed = new Set<Element>();
+      for (const record of records) {
+        if (record.type === 'attributes') {
+          const element = record.target as Element;
+          if (element.matches(NATIVE_HINT) || titles.has(element)) changed.add(element);
+          continue;
+        }
+        for (const node of record.addedNodes) {
+          if (!(node instanceof window.Element) || !node.isConnected) continue;
+          if (node.matches(NATIVE_HINT)) changed.add(node);
+          if (node.firstElementChild)
+            for (const element of node.querySelectorAll(NATIVE_HINT)) changed.add(element);
+        }
       }
-      if (!records.some((record) => record.type === 'attributes' && record.target === owner))
-        return;
-      const next = owner.getAttribute('title');
-      if (!next?.trim()) {
-        text = next ?? '';
-        clear();
-        return;
+      if (changed.size) {
+        observer.disconnect();
+        for (const element of changed) captureTitle(element);
+        observe();
       }
-      originalTitle = next;
-      text = hint(owner);
-      observer.disconnect();
-      owner.setAttribute('title', '');
-      supplyAccessibleName();
-      observe();
-      if (visible) setTooltip({ text, ...point });
+      if (owner && !owner.isConnected) clear();
+      else if (owner && changed.has(owner)) {
+        text = hint(owner);
+        if (!text.trim()) clear();
+        else if (visible) setTooltip({ text, ...point });
+      }
     });
+    // 在指针进入之前接管提示，避免浏览器先排入原生提示；不在 hover 结束时恢复。
+    for (const element of body.querySelectorAll(NATIVE_HINT)) captureTitle(element);
+    observe();
     const findOwner = (target: EventTarget | null): Element | null => {
       const element =
         target instanceof window.Element
@@ -143,11 +158,7 @@ export function HoverTooltip() {
           : target instanceof window.Node
             ? target.parentElement
             : null;
-      return (
-        element?.closest(
-          '[title], [data-qq-action] :disabled[aria-label], [data-qq-action] button:disabled',
-        ) ?? null
-      );
+      return element?.closest(HINT_OWNER) ?? null;
     };
     const enter = (next: Element | null, x: number, y: number): void => {
       if (next && next === owner) return;
@@ -155,12 +166,8 @@ export function HoverTooltip() {
       const title = next ? hint(next) : null;
       if (!next || !title?.trim()) return;
       owner = next;
-      originalTitle = next.getAttribute('title') ?? '';
       text = title;
       point = { x, y };
-      supplyAccessibleName();
-      owner.setAttribute('title', '');
-      observe();
       const show = () => {
         timer = undefined;
         if (!owner?.isConnected) {
@@ -269,9 +276,16 @@ export function HoverTooltip() {
       }
     };
     const unsubscribePrivacy = usePrivacyStore.subscribe((state, previous) => {
-      if (state.effective === previous.effective || !owner) return;
-      text = hint(owner, originalTitle);
-      supplyAccessibleName();
+      if (state.effective === previous.effective) return;
+      for (const element of body.querySelectorAll('[title=""][aria-label]')) {
+        const entry = titles.get(element);
+        if (entry?.label === undefined || element.getAttribute('aria-label') !== entry.label)
+          continue;
+        entry.label = state.effective ? hint(element) : entry.text;
+        element.setAttribute('aria-label', entry.label);
+      }
+      if (!owner) return;
+      text = hint(owner);
       if (visible) setTooltip({ text, ...point });
     });
     document.addEventListener('pointerover', over, true);
@@ -291,8 +305,15 @@ export function HoverTooltip() {
     window.addEventListener('resize', clear);
     return () => {
       unsubscribePrivacy();
+      observer.disconnect();
       clear();
       touchEnd();
+      for (const element of body.querySelectorAll('[title=""]')) {
+        const entry = titles.get(element);
+        if (!entry) continue;
+        element.setAttribute('title', entry.text);
+        releaseTitle(element);
+      }
       document.removeEventListener('pointerover', over, true);
       document.removeEventListener('pointerout', out, true);
       document.removeEventListener('pointerleave', leave);

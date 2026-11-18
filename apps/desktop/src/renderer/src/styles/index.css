@@ -1482,6 +1482,7 @@ html[data-theme='dark'] .weq-mface-detail-nav {
   .weq-dialog-x {
     display: inline-flex;
     width: 1.7rem;
+    min-height: 1.7rem;
     height: 1.7rem;
     align-items: center;
     justify-content: center;
@@ -5943,6 +5944,7 @@ html[data-theme='dark'] .weq-set-mono {
   display: grid;
   place-items: center;
   width: 28px;
+  min-height: 28px;
   height: 28px;
   border: 0;
   border-radius: 6px;

@@ -106,6 +106,7 @@ export function OverlapChord({
   }, [model]);
 
   const byCode = useMemo(() => new Map(arcs.map((arc) => [arc.group.code, arc])), [arcs]);
+  const tipGroup = tip ? byCode.get(tip.code)?.group : undefined;
 
   /**
    * 真正的「和弦」：每对群的连线在两端各占一段子弧（宽度按共同人数分配），
@@ -296,6 +297,7 @@ export function OverlapChord({
                   <path
                     className={`weq-ov-chord-arc${picked === arc.group.code ? ' is-picked' : ''}`}
                     d={arcPath(cx, cy, rOuter, rInner * 0.82, arc.a0, arc.a1)}
+                    aria-label={`${arc.group.name}，成员 ${arc.group.memberCount} 人，交集总量 ${arc.group.overlapSum}`}
                     onMouseEnter={(event) => {
                       setHovered(arc.group.code);
                       const rect = wrapRef.current?.getBoundingClientRect();
@@ -338,9 +340,7 @@ export function OverlapChord({
                       if (!best) return;
                       openPair({ a: best.a, b: best.b, weight: best.weight, ratio: best.ratio });
                     }}
-                  >
-                    <title>{`${arc.group.name}\n成员 ${arc.group.memberCount} 人 · 交集总量 ${arc.group.overlapSum}`}</title>
-                  </path>
+                  />
                   {showAvatars && arc.group.avatarUrl && span > 0.03 ? (
                     <image
                       href={arc.group.avatarUrl}
@@ -478,18 +478,18 @@ export function OverlapChord({
         </aside>
       ) : null}
 
-      {tip ? (
+      {tip && tipGroup ? (
         <div className="weq-ov-chord-tip" style={{ left: tip.x, top: tip.y }}>
-          <strong>{model.groups.find((group) => group.code === tip.code)?.name}</strong>
+          <strong>{tipGroup.name}</strong>
+          {tipGroup.memberCount > 0 && tipGroup.memberCount !== tipGroup.poolSize && (
+            <span>
+              群成员 <span className="weq-number weq-number-inherit">{tipGroup.memberCount}</span>{' '}
+              人
+            </span>
+          )}
           <span>
-            <span className="weq-number weq-number-inherit">
-              {model.groups.find((group) => group.code === tip.code)?.poolSize ?? 0}
-            </span>{' '}
-            位群友 ·{' '}
-            <span className="weq-number weq-number-inherit">
-              {model.groups.find((group) => group.code === tip.code)?.overlapSum ?? 0}
-            </span>{' '}
-            次交集
+            <span className="weq-number weq-number-inherit">{tipGroup.poolSize}</span> 位群友 ·{' '}
+            <span className="weq-number weq-number-inherit">{tipGroup.overlapSum}</span> 次交集
           </span>
         </div>
       ) : null}

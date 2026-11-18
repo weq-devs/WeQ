@@ -24,6 +24,7 @@
 .weq-file-row-tools > .weq-set-iconbtn {
   flex: 0 0 30px;
   width: 30px;
+  min-height: 30px;
   height: 30px;
 }
 .weq-file-selection-toolbar {
