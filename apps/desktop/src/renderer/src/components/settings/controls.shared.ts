@@ -13,7 +13,7 @@ import '../../styles/settings-controls.css';
 export const SettingsScopeContext = createContext<SettingsScope | null>(null);
 
 /**
- * 卡片 head 右侧的保存状态位。`AutoSave` 有槽位时把「正在保存／已保存／失败」
+ * 卡片 head 右侧的状态位。`AutoSave` 有槽位时把校验和保存错误
  * 放进卡片标题行，避免它挤在行描述的位置上被当成人话说明。
  */
 export const SaveStatusSlotContext = createContext<{ take: () => HTMLElement | null } | null>(null);

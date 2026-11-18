@@ -7,7 +7,7 @@ import {
   type ComponentProps,
   type ReactNode,
 } from 'react';
-import { Loader2, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import {
   PROFILE_DISPLAY_FIELDS,
   type ProfileDisplayField,
@@ -15,6 +15,7 @@ import {
 } from '@weq/protocol/profile-display';
 import { trpc } from '../trpc/client';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
+import { useSettingsSaveBanner } from '../hooks/useSettingsSaveBanner';
 import { SegmentedControl } from './SegmentedControl';
 import { SelfProfileField } from './SelfProfileField';
 import '../styles/profile-display-settings.css';
@@ -170,14 +171,15 @@ export function ProfileDisplayControl({
   onChange: (value: number) => void;
 }) {
   const context = useContext(Context);
+  const state = context?.fields[field];
+  useSettingsSaveBanner(Boolean(state?.pending));
   if (!context) return null;
   const definition = PROFILE_DISPLAY_FIELDS[field];
-  const state = context.fields[field];
   const setting = state?.setting;
   const status =
     state?.error ??
     (state?.pending
-      ? '保存中'
+      ? ''
       : !context.available
         ? '当前不可修改'
         : context.error
@@ -211,7 +213,6 @@ export function ProfileDisplayControl({
         role="status"
         data-error={Boolean(state?.error) || undefined}
       >
-        {state?.pending ? <Loader2 size={12} className="animate-spin" /> : null}
         {status}
         {(state?.error || context.error || setting?.status !== 'known') && (
           <button

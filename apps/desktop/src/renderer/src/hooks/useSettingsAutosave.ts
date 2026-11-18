@@ -99,6 +99,5 @@ export function useSettingsAutosave<P extends object>(save: (patch: P) => Promis
     dirty,
     valid,
     error,
-    status: error ? '保存失败' : saving ? '保存中…' : dirty ? '未保存' : '已保存',
   };
 }

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { PersonaSettingsModal } from '../src/renderer/src/views/agentlab/PersonaSettingsModal';
 import { CloneGenerationPanel } from '../src/renderer/src/components/settings/CloneGenerationPanel';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { CLONE_GENERATION_KEYS, CLONE_GENERATION } from '@weq/agentlab/generation';
 
 const f = vi.hoisted(() => ({
@@ -63,6 +64,7 @@ beforeEach(() => {
   f.update.mockResolvedValue({ id: 'p' });
 });
 afterEach(() => {
+  useToast.setState({ toasts: [], leaving: [] });
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -191,7 +193,9 @@ it('无效参数阻止关闭；失败保留跨页草稿，重试成功后只发�
     expect(t.pane().querySelector('textarea')!.value).toBe('重试提示');
     await act(async () => t.button('重试保存').click());
     expect(f.update).toHaveBeenLastCalledWith({ personaId: 'p', customPrompt: '重试提示' });
-    expect(t.pane().textContent).toContain('已保存');
+    expect(t.button('重试保存')).toBeUndefined();
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    expect(useToast.getState().toasts).toHaveLength(0);
     act(() => t.button('克隆体管理').click());
     await act(async () => t.button('删除克隆体').click());
     expect(t.remove).toHaveBeenCalledOnce();
@@ -212,12 +216,17 @@ it('保存期间允许继续编辑，关闭等候回执；对象不存在时不�
         }),
     );
     await act(async () => t.pane().querySelector<HTMLButtonElement>('.weq-cvs-close')!.click());
-    expect(t.pane().textContent).toContain('保存中');
+    expect(t.pane().textContent).not.toContain('保存中');
+    expect(useToast.getState().toasts).toHaveLength(0);
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    const [banner] = useToast.getState().toasts;
+    expect(banner).toMatchObject({ loading: true, event: 'progress' });
     expect(t.pane().querySelector('fieldset')!.disabled).toBe(false);
     t.change(t.pane().querySelector('textarea')!, '在途的新修改');
     expect(t.close).not.toHaveBeenCalled();
     expect(f.confirm).not.toHaveBeenCalled();
     await act(async () => finish(null));
+    expect(useToast.getState().leaving).toContain(banner!.id);
     expect(t.saved).not.toHaveBeenCalled();
     expect(f.success).not.toHaveBeenCalled();
     expect(t.pane().textContent).toContain('克隆体已不存在');

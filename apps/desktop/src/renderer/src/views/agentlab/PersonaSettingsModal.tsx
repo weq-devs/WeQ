@@ -11,8 +11,9 @@ import {
 import '../../styles/assistant-settings.css';
 import { CloneUpdateButton } from './CloneUpdateButton';
 import '../../styles/persona-settings.css';
-import type { AgentLabModelSelection } from '@weq/agentlab';
+import type { AgentLabGenerationConfig, AgentLabModelSelection } from '@weq/agentlab';
 import { ApiModelSelect } from '../../components/settings/ApiModelSelect';
+import { CloneGenerationPanel } from '../../components/settings/CloneGenerationPanel';
 import { TabActivity } from '../../components/RetainedTabs';
 import { useTabActive } from '../../components/RetainedTabs.shared';
 import { DraftCloseContext, useDraftClose, useDraftProtection } from '../../lib/draftClose';
@@ -39,6 +40,7 @@ import {
   Info,
   Image as ImageIcon,
   Settings2,
+  Cpu,
 } from 'lucide-react';
 import { ConversationSettingsFrame } from '../../components/ConversationSettingsFrame';
 import { Toggle } from '../../components/settings/controls';
@@ -52,6 +54,7 @@ import { useAppDialog } from '../../lib/dialogUtils';
 import { openExternalLink } from '../../lib/openExternalLink';
 import { isRemoteClient } from '../../lib/remoteClient';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
+import { useSettingsSaveBanner } from '../../hooks/useSettingsSaveBanner';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
 import { useExportReportDialog } from '../export/ExportReportControl.shared';
 
@@ -126,9 +129,10 @@ function MemoryTab({ personaId }: { personaId: string }): ReactElement {
   );
 }
 
-type Tab = 'profile' | 'reply' | 'voice' | 'memory' | 'export' | 'management';
+type Tab = 'model' | 'profile' | 'reply' | 'voice' | 'memory' | 'export' | 'management';
 
 const TABS: Array<{ id: Tab; label: string; icon: ReactElement }> = [
+  { id: 'model', label: '模型设置', icon: <Cpu size={16} /> },
   { id: 'profile', label: '人格与画像', icon: <UserRound size={15} /> },
   { id: 'reply', label: '回复设置', icon: <Gauge size={15} /> },
   { id: 'voice', label: '语音', icon: <Mic size={15} /> },
@@ -766,7 +770,6 @@ export function PersonaSettingsModal(props: ComponentProps<typeof PersonaSetting
 function PersonaSettingsBody({
   persona,
   profileContent,
-  replyContent,
   fromGroup = false,
   anchor,
   onClose,
@@ -786,10 +789,10 @@ function PersonaSettingsBody({
     voiceProfile?: { ratio: number; refClips?: unknown[] };
     willing?: WillingCfg;
     typo?: TypoCfg;
-    models?: { vision?: AgentLabModelSelection };
+    models?: { chat?: AgentLabModelSelection; vision?: AgentLabModelSelection };
+    generation?: AgentLabGenerationConfig;
   };
   profileContent?: ReactNode;
-  replyContent: ReactNode;
   fromGroup?: boolean;
   anchor?: HTMLElement;
   onClose: () => void;
@@ -798,13 +801,14 @@ function PersonaSettingsBody({
   deleting?: boolean;
 }): ReactElement {
   const update = trpc.account.updateAgentLabPersona.useMutation();
-  const [tab, setTab] = useState<Tab>('profile');
-  const [visited, setVisited] = useState<Tab[]>(['profile']);
+  const [tab, setTab] = useState<Tab>('model');
+  const [visited, setVisited] = useState<Tab[]>(['model']);
   const form = useCloneSettingsDraft(async (patch) => {
     const result = await update.mutateAsync({ personaId: persona.id, ...patch });
     if (!result) throw new Error('克隆体已不存在');
     onSaved();
   });
+  useSettingsSaveBanner(form.saving);
   const guard = useDraftClose(onClose, null, update.isLoading || deleting);
 
   return (
@@ -851,7 +855,9 @@ function PersonaSettingsBody({
               {visited.map((page) => (
                 <TabActivity key={page} active={tab === page}>
                   <div hidden={tab !== page} inert={tab !== page}>
-                    {page === 'profile' ? (
+                    {page === 'model' ? (
+                      <CloneGenerationPanel persona={persona} />
+                    ) : page === 'profile' ? (
                       <div className="weq-persona-form">
                         <p className="weq-persona-note">
                           训练范围：
@@ -865,11 +871,7 @@ function PersonaSettingsBody({
                         {profileContent}
                       </div>
                     ) : page === 'reply' ? (
-                      <div className="weq-persona-form">
-                        {replyContent}
-                        <div className="weq-persona-divider" />
-                        <WillingTab persona={persona} />
-                      </div>
+                      <WillingTab persona={persona} />
                     ) : page === 'voice' ? (
                       <VoiceTab persona={persona} />
                     ) : page === 'memory' ? (
@@ -900,12 +902,12 @@ function PersonaSettingsBody({
               ))}
             </fieldset>
           </div>
-          {!form.valid || form.saving || form.error ? (
+          {!form.valid || form.error ? (
             <footer className="weq-persona-savebar">
-              <span role="status">{form.valid ? form.status : '请检查配置值'}</span>
+              {!form.valid ? <span role="status">请检查配置值</span> : null}
               {form.error ? (
                 <>
-                  <span role="alert">{form.error}</span>
+                  <span role="alert">保存失败：{form.error}</span>
                   <button
                     type="button"
                     className="weq-set-btn weq-set-btn-primary"

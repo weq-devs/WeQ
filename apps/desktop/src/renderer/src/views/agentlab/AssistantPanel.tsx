@@ -35,6 +35,7 @@ import {
 } from '../../lib/aiImageDraft';
 import { AssistantReplyContent, type AssistantReplyActions } from './AssistantReplyContent';
 import { useStableCallback } from '../../hooks/useStableCallback';
+import { useSettingsSaveBanner } from '../../hooks/useSettingsSaveBanner';
 import { timeDate } from '@weq/time';
 import { AssistantGenerationControls } from './AssistantGenerationControls';
 import { WeqAssistantSettingsSection } from './AssistantSettingsPanel';
@@ -151,6 +152,7 @@ export function AssistantPanel({
     refetchOnMount: 'always',
   });
   const updateGeneration = trpc.account.setAssistantSessionGeneration.useMutation();
+  useSettingsSaveBanner(updateGeneration.isLoading);
   const sessionSettingsError = generationError || sessionGeneration.error?.message;
   const changeGeneration = useStableCallback((generation: AssistantSessionGeneration) => {
     if (sending || generationWrite.current) return;
@@ -622,9 +624,7 @@ export function AssistantPanel({
                       ? '账号未就绪'
                       : !config.data
                         ? '参数读取中'
-                        : updateGeneration.isLoading
-                          ? '正在保存会话设置'
-                          : undefined
+                        : undefined
             }
             onBack={onBackToDirectory ?? onBack}
             hasExternalAttachments={parseAiImageDraft(input).images.length > 0}

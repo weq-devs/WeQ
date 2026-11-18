@@ -59,7 +59,6 @@ export function ConversationSettingsDialog({
     kind === 'dataline' ? 'antirecall' : (initialSection ?? 'qq'),
   );
   /** 关键词编辑器的保存状态 —— 由内嵌的 editor 外抛（灯箱那套同一份实现）。 */
-  const [keywordSave, setKeywordSave] = useState({ saving: false, savedAt: 0, error: '' });
   const [checkingProtection, setCheckingProtection] = useState(false);
   const verification = useRef(0);
   const mounted = useRef(true);
@@ -180,10 +179,6 @@ export function ConversationSettingsDialog({
                 ? '命中即提醒；每个词可单独限定发言人'
                 : '保留对方撤回的消息'
       }
-      sectionStatus={
-        section === 'keyword' &&
-        (keywordSave.saving ? '保存中…' : keywordSave.error ? '保存失败' : undefined)
-      }
       sections={[
         ...(kind !== 'dataline'
           ? [{ id: 'qq' as const, label: '会话偏好', icon: <Settings2 size={16} /> }]
@@ -251,7 +246,7 @@ export function ConversationSettingsDialog({
         </div>
       ) : groupKeywords && section === 'keyword' ? (
         <div className="weq-cvs-body-scroll">
-          <GroupKeywordEditor groupId={conv} members={members} onSaveState={setKeywordSave} />
+          <GroupKeywordEditor groupId={conv} members={members} />
         </div>
       ) : (
         <div className="weq-cvs-body-scroll">

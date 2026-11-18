@@ -151,7 +151,7 @@ export function Card({
   const statusSlotTaken = useRef(false);
   const statusSlotApi = useMemo(
     () => ({
-      // 一张卡只把一个状态文字放进 head，其余仍在行内显示，避免重复「已保存」。
+      // 一张卡只把一个字段的反馈放进 head，其余仍在行内显示。
       take: () => {
         if (!statusSlot || statusSlotTaken.current) return null;
         statusSlotTaken.current = true;

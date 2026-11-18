@@ -28,6 +28,7 @@ import { Card, Row, SectionHeader } from '../../components/settings/controls';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { useSettingsAutosave, type SettingsSection } from '../../hooks/useSettingsAutosave';
+import { useSettingsSaveBanner } from '../../hooks/useSettingsSaveBanner';
 import { useDraftProtection } from '../../lib/draftClose';
 import { settingsSaves } from '../../lib/settingsSaveQueue';
 import { SettingsResetContext } from '../../components/settings/resetContext';
@@ -319,6 +320,7 @@ function AssistantSettingsFields({
     validateAssistantParameters({ ...ASSISTANT_PARAMETER_DEFAULTS, ...data, ...patch });
     await save(patch);
   });
+  useSettingsSaveBanner(saving || form.saving);
   const protection = useDraftProtection(form.dirty || (data && error) ? true : null, false);
   if (!form.dirty && !(data && error)) protection.reset(null);
   const saveState = useRef({ form, saving, error, settle, suspend, release, onReset });
@@ -424,11 +426,9 @@ function AssistantSettingsFields({
   };
   const contents = (
     <>
-      {saving || form.saving || error || form.error || !data ? (
+      {error || form.error || !data ? (
         <div role="status">
-          {saving || form.saving ? (
-            '保存中…'
-          ) : error || form.error ? (
+          {error || form.error ? (
             <span role="alert">
               {data ? '保存失败' : '读取失败'}：{error || form.error}{' '}
               <button

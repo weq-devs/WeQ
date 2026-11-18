@@ -13,7 +13,6 @@ export function ConversationSettingsFrame<T extends string>({
   onClose,
   anchor,
   sectionDescription,
-  sectionStatus,
   children,
 }: {
   title: string;
@@ -24,7 +23,6 @@ export function ConversationSettingsFrame<T extends string>({
   onClose: () => void;
   anchor?: HTMLElement;
   sectionDescription?: ReactNode;
-  sectionStatus?: ReactNode;
   children: ReactNode;
 }) {
   const activeSection = sections.find((section) => section.id === value);
@@ -77,11 +75,6 @@ export function ConversationSettingsFrame<T extends string>({
               <strong>{activeSection.label}</strong>
               {sectionDescription ? (
                 <span className="weq-cvs-body-desc">{sectionDescription}</span>
-              ) : null}
-              {sectionStatus ? (
-                <span className="weq-cvs-body-state" role="status">
-                  {sectionStatus}
-                </span>
               ) : null}
             </header>
           ) : null}

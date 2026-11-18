@@ -238,7 +238,7 @@ html[data-theme='dark'] body .weq-set-chk:not(.is-on):not(:disabled) {
   overflow-wrap: anywhere;
 }
 
-/* 卡片 head 的状态位：保存中/已保存/失败重试固定在这里，不再占用行描述位置。 */
+/* 卡片 head 的状态位：校验和失败重试不占用行描述位置。 */
 .weq-set-card-status {
   display: inline-flex;
   align-items: center;
