@@ -820,7 +820,8 @@ export function fontRules(font: FontSkinCss, scope: DressScope, animated = true)
  * Android 9.3.85 正文基准资源 0x7f071625 为 17sp；内部仍以 17px 作默认近似，
  * 再连同气泡整体缩放回普通消息的 13.5px 视觉字号，不让装扮文字单独变大。
  * ETDrawable 在 padding.top 放置文字位图，不能再均分最小高度多出的垂直空间。
- * normal 仅是浏览器行度量近似，手机的字体 Drawable 会跳过普通 setLineSpacing 分支。
+ * normal 保留多行间距；正文首行去掉浏览器在 em 上方增加的半份行间留白。
+ * 这是手机截图叠图验证的近似，不等同于已恢复手机原生基线。
  * 保留真实字形、颜色、缺字回退与 DOM 选择，不靠合成粗斜体改变字体笔画。
  */
 export function fontTextRules(sel: string, family: string): string {
@@ -832,6 +833,9 @@ export function fontTextRules(sel: string, family: string): string {
   align-content: var(--weq-dress-content-alignment);
   line-height: normal;
   font-synthesis: none;
+}
+${appendToSelectors(sel, ' > .qq-message-body:has(> .qq-text-run:first-child)')} {
+  margin-block-start: calc((1em - 1lh) / 2);
 }`;
 }
 
