@@ -238,9 +238,9 @@ export function appendToSelectors(sel: string, suffix: string): string {
     .join(',\n');
 }
 
-/** 最小尺寸多出的空间均分到正文两侧，不改变正文内部的行对齐。 */
+/** 气泡默认居中；字体可按手机的顶部 padding 锚点覆盖，不依赖规则加载顺序。 */
 export function bubbleContentAlignmentCss(sel: string): string {
-  return `${sel} { align-content: center; }
+  return `${sel} { align-content: var(--weq-dress-content-alignment, center); }
 ${appendToSelectors(sel, ' > .qq-message-body')} {
   width: fit-content;
   max-width: 100%;
@@ -817,8 +817,9 @@ export function fontRules(font: FontSkinCss, scope: DressScope, animated = true)
 }
 
 /**
- * Android 9.3.85 正文基准资源 0x7f071625 为 17sp，装扮不能继续继承桌面正文的
- * 13.5px。以 17 CSS px 映射默认字号；手机自定义字号/皮肤覆盖仍待单独接入。
+ * Android 9.3.85 正文基准资源 0x7f071625 为 17sp；内部仍以 17px 作默认近似，
+ * 再连同气泡整体缩放回普通消息的 13.5px 视觉字号，不让装扮文字单独变大。
+ * ETDrawable 在 padding.top 放置文字位图，不能再均分最小高度多出的垂直空间。
  * normal 仅是浏览器行度量近似，手机的字体 Drawable 会跳过普通 setLineSpacing 分支。
  * 保留真实字形、颜色、缺字回退与 DOM 选择，不靠合成粗斜体改变字体笔画。
  */
@@ -826,6 +827,9 @@ export function fontTextRules(sel: string, family: string): string {
   return `${sel} {
   font-family: "${family}", var(--im-font-body, Inter), ui-sans-serif, system-ui, sans-serif;
   font-size: 17px;
+  zoom: ${13.5 / 17};
+  --weq-dress-content-alignment: start;
+  align-content: var(--weq-dress-content-alignment);
   line-height: normal;
   font-synthesis: none;
 }`;
