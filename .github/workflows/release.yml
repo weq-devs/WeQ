@@ -13,8 +13,12 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
+      package_candidate:
+        description: 对所选分支运行完整 CI 和 Windows 安装包预检，不发布或上传 Release
+        type: boolean
+        default: false
       source_ref:
-        description: 只诊断 Windows 打包准备，不创建或上传 Release
+        description: 仅用于 Windows 打包准备诊断，不用于候选预检
         required: true
         default: v2.7.1
 
@@ -31,7 +35,7 @@ env:
 
 jobs:
   windows-preparation-probe:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && !inputs.package_candidate
     runs-on: windows-latest
     timeout-minutes: 20
     strategy:
@@ -125,6 +129,7 @@ jobs:
 
   checks:
     needs: [gate]
+    if: ${{ !cancelled() && (needs.gate.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.package_candidate)) }}
     uses: ./.github/workflows/ci.yml
 
   prepare:
@@ -154,7 +159,8 @@ jobs:
     permissions:
       contents: write # 创建 / 上传 Release
     runs-on: windows-latest
-    needs: [prepare]
+    needs: [prepare, checks]
+    if: ${{ !cancelled() && needs.checks.result == 'success' && (needs.prepare.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.package_candidate)) }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -179,7 +185,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # nt_helper.node 与装扮资源 *.dat 不入库：打包前从 weq-devs/nt_helper_release
-      # 取最新的一份（脚本默认只取本 runner 的平台，再带上三个 .dat —— 它们同源，
+      # 取明确锚定的一份（脚本默认只取本 runner 的平台，再带上三个 .dat —— 它们同源，
       # 不能混版本）。--require-fresh 卡住 30 天有效期，--verify 当场 require 一次
       # 跑 getInitStatus()，二进制有问题在这里就炸，而不是出厂后才发现。
       - name: Fetch nt_helper native artifacts
@@ -191,6 +197,7 @@ jobs:
       # 把 tag 里的版本号（v1.2.3 -> 1.2.3）写进 package.json，
       # 让 electron-builder 命名产物、app.getVersion() 也能读到。
       - name: Sync version from tag
+        if: github.event_name == 'push'
         run: node scripts/set-version.mjs ${{ github.ref_name }}
 
       # 把 clone-export 机器人引擎打包到 resources/bot-runtime/bot.mjs，
@@ -232,6 +239,7 @@ jobs:
           Get-Content apps/desktop/electron-builder.yml -Raw | Write-Host
 
       - name: Package + publish release
+        if: github.event_name == 'push'
         run: pnpm --filter @weq/desktop exec electron-builder --win --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -239,10 +247,28 @@ jobs:
           # 保留它好让下一次失败（asar / filter / publish）自解释。
           DEBUG: electron-builder
 
+      - name: Package only (no Release)
+        if: github.event_name == 'workflow_dispatch'
+        run: pnpm --filter @weq/desktop exec electron-builder --win --publish never
+
+      - name: Verify packaged database maintenance
+        shell: pwsh
+        run: |
+          $version = (Get-Content apps/desktop/package.json -Raw | ConvertFrom-Json).version
+          $app = "apps/desktop/release/$version/win-unpacked"
+          node scripts/verify-native-maintenance.mjs "$app/resources/out/main" "$app/native"
+
       - name: Verify enhancement engines
         run: node scripts/verify-enhancement-engines.mjs
 
+      - name: Verify release metadata signer
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          WEQ_RELEASE_SIGNING_KEY: ${{ secrets.WEQ_RELEASE_SIGNING_KEY }}
+        run: node scripts/publish-release-feed.mjs --check-key
+
       - name: Upload enhancement engines
+        if: github.event_name == 'push'
         run: node scripts/upload-enhancement-engines.mjs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -278,6 +304,7 @@ jobs:
   # 而 native binding 都是构建机架构的，两者一旦不一致就会打出坏包
   # （见 electron-builder.yml 里 linux 一节的说明）。
   linux-x64:
+    if: github.event_name == 'push'
     permissions:
       contents: write
     needs: [windows]
@@ -360,6 +387,7 @@ jobs:
           test ! -e "$APP_DIR/resources/app.asar.unpacked/node_modules/sherpa-onnx-linux-x64"
           test -f "$APP_DIR/resources/enhancements/manifest.json"
           test ! -e "$APP_DIR/resources/resources/daemon"
+          node scripts/verify-native-maintenance.mjs "$APP_DIR/resources/out/main" "$APP_DIR/native"
 
       - name: Verify enhancement engines
         run: node scripts/verify-enhancement-engines.mjs
@@ -389,6 +417,7 @@ jobs:
   # 均为 ELF aarch64），但整体是否可用未验证。用原生 arm64 runner
   # （公开仓库免费）构建，让 sherpa-onnx / resvg 装到正确的 arm64 版本。
   linux-arm64:
+    if: github.event_name == 'push'
     permissions:
       contents: write
     needs: [windows]
@@ -466,6 +495,7 @@ jobs:
           test ! -e "$APP_DIR/resources/app.asar.unpacked/node_modules/sherpa-onnx-linux-arm64"
           test -f "$APP_DIR/resources/enhancements/manifest.json"
           test ! -e "$APP_DIR/resources/resources/daemon"
+          node scripts/verify-native-maintenance.mjs "$APP_DIR/resources/out/main" "$APP_DIR/native"
 
       - name: Verify enhancement engines
         run: node scripts/verify-enhancement-engines.mjs
@@ -497,6 +527,7 @@ jobs:
   # 两个 macOS 架构共用固定自签发布身份；缺料中止，不退回 ad-hoc。
   # 不是 Apple 公证，首次仍需在「隐私与安全性」中对可信来源手动放行。
   macos-x64:
+    if: github.event_name == 'push'
     permissions:
       contents: write
     needs: [windows]
@@ -574,6 +605,12 @@ jobs:
       - name: Verify signed ZIP (x64)
         run: node scripts/verify-macos-signing.mjs "apps/desktop/release/${GITHUB_REF_NAME#v}/weQ-${GITHUB_REF_NAME#v}-mac-x64.zip"
 
+      - name: Verify packaged database maintenance
+        run: |
+          resources=$(find "apps/desktop/release/${GITHUB_REF_NAME#v}" -path '*/weQ.app/Contents/Resources' -type d -print -quit)
+          test -n "$resources"
+          node scripts/verify-native-maintenance.mjs "$resources/out/main" "$resources/native"
+
       - name: Cleanup signing keychain
         if: always()
         run: node scripts/prepare-macos-signing.mjs --cleanup
@@ -618,6 +655,7 @@ jobs:
   # 原生 arm64 runner（macos-15，macOS 15 arm64）构建，让 sherpa-onnx / resvg
   # 装到正确的 arm64 版本；native/darwin/arm64 预编译二进制随 extraFiles 进包。
   macos-arm64:
+    if: github.event_name == 'push'
     permissions:
       contents: write
     needs: [windows]
@@ -699,6 +737,12 @@ jobs:
 
       - name: Verify signed ZIP (arm64)
         run: node scripts/verify-macos-signing.mjs "apps/desktop/release/${GITHUB_REF_NAME#v}/weQ-${GITHUB_REF_NAME#v}-mac-arm64.zip"
+
+      - name: Verify packaged database maintenance
+        run: |
+          resources=$(find "apps/desktop/release/${GITHUB_REF_NAME#v}" -path '*/weQ.app/Contents/Resources' -type d -print -quit)
+          test -n "$resources"
+          node scripts/verify-native-maintenance.mjs "$resources/out/main" "$resources/native"
 
       - name: Cleanup signing keychain
         if: always()
@@ -784,6 +828,7 @@ jobs:
   #
   # 保留 windows 之后的构建顺序；这里只上传到 prepare 建好的草稿。
   web:
+    if: github.event_name == 'push'
     permissions:
       contents: write
     needs: [windows]

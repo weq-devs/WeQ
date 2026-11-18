@@ -63,6 +63,7 @@ resources/ninebird-runtime/
 /.weq-dev/
 /tmp
 /.codex-local/
+/.artifacts/
 /apps/desktop/.artifacts/
 /apps/desktop/tmp/
 # `pnpm dev` ??? Electron userData ?????????apps/desktop/package.json ??? --user-data-dir??????
