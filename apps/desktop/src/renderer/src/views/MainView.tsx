@@ -7860,7 +7860,8 @@ function MainWorkspace(): ReactElement {
       const session = await client.account.createAssistantSession.mutate();
       if (messageScopeRef.current !== source) return;
       void utils.account.listAssistantSessions.invalidate();
-      changeConversationView('assistant', conversationView === 'regular');
+      if (conversationView !== 'assistant')
+        changeConversationView('assistant', conversationView === 'regular');
       openAssistantConversation(session.id);
     } catch (error) {
       pushToast({

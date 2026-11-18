@@ -189,14 +189,17 @@ try {
       assert.ok(badgeWidth <= 40, `未读角标宽度异常：${badgeWidth}`);
       if (output) await page.screenshot({ path: resolve(output, `${width}-${theme}-views.png`) });
       await page.getByRole('menuitemradio', { name: 'WeQ 助手会话', exact: true }).click();
-      await page.getByRole('button', { name: '会话视图', exact: true }).waitFor();
+      await page.getByRole('button', { name: '新建 WeQ 助手会话', exact: true }).click();
+      await page.waitForFunction(() =>
+        window.conversationViewsQa.events.includes('assistant-create'),
+      );
+      assert.equal(await page.getByRole('menu').count(), 0);
+      await page.getByRole('button', { name: '会话视图', exact: true }).click();
+      await page.getByRole('menuitemradio', { name: '克隆会话', exact: true }).click();
       await page.getByRole('button', { name: '添加会话', exact: true }).click();
       assert.deepEqual(await page.getByRole('menuitem').allTextContents(), [
         '新建好友克隆',
         '新建克隆体群聊',
-        'QQ 号搜索',
-        '群号搜索',
-        '新建 WeQ 助手会话',
       ]);
       await page.keyboard.press('Escape');
       for (const [view, id, label] of [

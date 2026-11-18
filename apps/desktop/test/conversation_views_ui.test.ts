@@ -257,7 +257,7 @@ it('移动端直接从视图菜单进入分类不新增返回常规层级', () =
   expect(host.querySelector('[data-conversation-id="12345"]')).not.toBeNull();
   expect(mobileBack()).toBe(false);
 });
-it('菜单直接切换保留视图菜单，所有视图的新建菜单固定五项', () => {
+it('菜单直接切换保留视图菜单，助手视图的加号直接新建会话', () => {
   act(() => root.render(h(Fixture)));
   click('[aria-label="会话视图"]');
   expect(host.querySelectorAll('[role="menuitemradio"]')).toHaveLength(10);
@@ -267,16 +267,9 @@ it('菜单直接切换保留视图菜单，所有视图的新建菜单固定五�
   act(() => target.click());
   expect(host.querySelector('[aria-label="返回常规视图"]')).toBeNull();
   expect(host.querySelector('[data-conversation-id="assistant:s1"]')).not.toBeNull();
-  click('[aria-label="添加会话"]');
-  expect([...host.querySelectorAll('[role="menuitem"]')].map((node) => node.textContent)).toEqual([
-    '新建好友克隆',
-    '新建克隆体群聊',
-    'QQ 号搜索',
-    '群号搜索',
-    '新建 WeQ 助手会话',
-  ]);
-  act(() => [...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].at(-1)!.click());
+  click('[aria-label="新建 WeQ 助手会话"]');
   expect(createAssistant).toHaveBeenCalledOnce();
+  expect(host.querySelector('[aria-label="添加会话菜单"]')).toBeNull();
 });
 it('助手视图只展示导出和永久删除，未选对象时保留禁用及原因', () => {
   act(() => root.render(h(Fixture, { initialView: 'assistant' })));

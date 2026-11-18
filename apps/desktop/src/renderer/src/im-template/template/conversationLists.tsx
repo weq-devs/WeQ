@@ -272,6 +272,8 @@ export function ConversationList({
   } | null>(null);
   const [localView, setLocalView] = useState<ConversationView>('regular');
   const view = directory?.view ?? localView;
+  const createAssistantDirectly = view === 'assistant';
+  const createLabel = createAssistantDirectly ? '新建 WeQ 助手会话' : '添加会话';
   const ViewIcon = VIEW_ICONS[view];
   const setView = directory?.onViewChange ?? setLocalView;
   const [queries, setQueries] = useState<Partial<Record<ConversationView, string>>>({});
@@ -312,6 +314,7 @@ export function ConversationList({
   }, []);
   useEffect(() => setActionMenu(null), [account, view, keyword]);
   useEffect(() => {
+    setCreateOpen(false);
     setSelectedIds(new Set());
     setSelectionMode(false);
     setSelectingAll(false);
@@ -555,11 +558,13 @@ export function ConversationList({
             <button
               ref={createTriggerRef}
               type="button"
-              title={searching ? '退出搜索会话' : '添加会话'}
-              aria-label={searching ? '退出搜索会话' : '添加会话'}
-              aria-haspopup={searching ? undefined : 'menu'}
-              aria-expanded={searching ? undefined : createOpen}
-              disabled={!searching && !directory}
+              title={searching ? '退出搜索会话' : createLabel}
+              aria-label={searching ? '退出搜索会话' : createLabel}
+              aria-haspopup={searching || createAssistantDirectly ? undefined : 'menu'}
+              aria-expanded={searching || createAssistantDirectly ? undefined : createOpen}
+              disabled={
+                !searching && (createAssistantDirectly ? !directory?.onCreateAssistant : !directory)
+              }
               onClick={() => {
                 if (searching) {
                   setCreateOpen(false);
@@ -567,10 +572,11 @@ export function ConversationList({
                   return;
                 }
                 setScopeOpen(false);
-                setCreateOpen(!createOpen);
+                if (createAssistantDirectly) directory?.onCreateAssistant?.();
+                else setCreateOpen(!createOpen);
               }}
               onKeyDown={(event) => {
-                if (searching || event.key !== 'ArrowDown') return;
+                if (searching || createAssistantDirectly || event.key !== 'ArrowDown') return;
                 event.preventDefault();
                 setScopeOpen(false);
                 setCreateOpen(true);
@@ -578,7 +584,7 @@ export function ConversationList({
             >
               <Plus size={16} className="weq-directory-add-icon" />
             </button>
-            {createOpen && !searching ? (
+            {createOpen && !searching && !createAssistantDirectly ? (
               <div role="menu" className="weq-directory-scope-menu" aria-label="添加会话菜单">
                 <button
                   type="button"
@@ -613,40 +619,44 @@ export function ConversationList({
                   <Users size={16} />
                   新建克隆体群聊
                 </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setCreateOpen(false);
-                    setLookupOpen('user');
-                  }}
-                >
-                  <UserRound size={16} />
-                  QQ 号搜索
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setCreateOpen(false);
-                    setLookupOpen('group');
-                  }}
-                >
-                  <Users size={16} />
-                  群号搜索
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setCreateOpen(false);
-                    directory?.onCreateAssistant?.();
-                  }}
-                  disabled={!directory?.onCreateAssistant}
-                >
-                  <Sparkles size={16} />
-                  新建 WeQ 助手会话
-                </button>
+                {view !== 'clone' && (
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setCreateOpen(false);
+                        setLookupOpen('user');
+                      }}
+                    >
+                      <UserRound size={16} />
+                      QQ 号搜索
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setCreateOpen(false);
+                        setLookupOpen('group');
+                      }}
+                    >
+                      <Users size={16} />
+                      群号搜索
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setCreateOpen(false);
+                        directory?.onCreateAssistant?.();
+                      }}
+                      disabled={!directory?.onCreateAssistant}
+                    >
+                      <Sparkles size={16} />
+                      新建 WeQ 助手会话
+                    </button>
+                  </>
+                )}
               </div>
             ) : null}
           </div>
