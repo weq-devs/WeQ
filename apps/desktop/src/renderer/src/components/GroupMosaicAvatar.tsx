@@ -8,10 +8,11 @@
  * 5/7/8 人时末行按人数自然留白，与 QQ 群头像一致。
  */
 
-import { useState, type ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import { Users } from 'lucide-react';
 import { qqAvatarUrl } from './QqAvatar.shared';
 import { useAvatarUrl } from '../hooks/useAvatarUrl';
+import { useAvatarImage } from '../hooks/useAvatarImage';
 import { useRenderDocument, resourceForRenderDocument } from '../lib/renderDocument';
 import '../styles/group-mosaic-avatar.css';
 import { mosaicLayout } from './GroupMosaicAvatar.shared';
@@ -19,11 +20,11 @@ import { mosaicLayout } from './GroupMosaicAvatar.shared';
 function MosaicImg({ uin }: { uin: string }): ReactElement {
   const ownerDocument = useRenderDocument();
   const raw = useAvatarUrl(qqAvatarUrl(uin));
-  const [failed, setFailed] = useState(false);
   // 导出 / 合成记录等独立 document 里，本地桥是相对路径，得按主文档 base 补全。
   const src = raw ? resourceForRenderDocument(raw, ownerDocument) : null;
-  if (!src || failed) return <span className="weq-group-mosaic-fallback" aria-hidden />;
-  return <img src={src} alt="" loading="lazy" onError={() => setFailed(true)} />;
+  const image = useAvatarImage(src);
+  if (!src || image.failed) return <span className="weq-group-mosaic-fallback" aria-hidden />;
+  return <img ref={image.ref} src={image.src} alt="" loading="lazy" onError={image.onError} />;
 }
 
 export function GroupMosaicAvatar({

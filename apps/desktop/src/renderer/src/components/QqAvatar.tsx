@@ -3,9 +3,10 @@
  * URL from a uin when no explicit URL is given.
  */
 
-import { useLayoutEffect, useRef, useState, type ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import { UserRound } from 'lucide-react';
 import { useAvatarUrl } from '../hooks/useAvatarUrl';
+import { useAvatarImage } from '../hooks/useAvatarImage';
 import { useRenderDocument, resourceForRenderDocument } from '../lib/renderDocument';
 import { qqAvatarUrl } from './QqAvatar.shared';
 
@@ -27,21 +28,8 @@ export function QqAvatar({
     size <= 64 ? 'small' : 'big',
   );
   const resolved = raw ? resourceForRenderDocument(raw, ownerDocument) : raw;
-  const [failed, setFailed] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-  const imgRef = useRef<HTMLImageElement | null>(null);
-
-  // Reset the failure/loading flags when the source changes (account switch).
-  useLayoutEffect(() => {
-    setFailed(false);
-    setLoaded(false);
-    // 图片已缓存（或 data: 立即完成）时直接显示，避免 shimmer 闪现。
-    if (imgRef.current?.complete && imgRef.current.naturalWidth > 0) {
-      setLoaded(true);
-    }
-  }, [resolved]);
-
-  if (!resolved || failed) {
+  const image = useAvatarImage(resolved);
+  if (!resolved || image.failed) {
     return (
       <span
         className={`weq-avatar-fallback ${className}`}
@@ -55,15 +43,15 @@ export function QqAvatar({
 
   return (
     <img
-      ref={imgRef}
-      src={resolved}
+      ref={image.ref}
+      src={image.src}
       alt=""
       width={size}
       height={size}
-      className={`weq-avatar-img ${className}${loaded ? '' : ' is-pending'}`}
+      className={`weq-avatar-img ${className}${image.loaded ? '' : ' is-pending'}`}
       style={{ width: size, height: size }}
-      onLoad={() => setLoaded(true)}
-      onError={() => setFailed(true)}
+      onLoad={image.onLoad}
+      onError={image.onError}
     />
   );
 }
