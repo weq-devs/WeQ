@@ -84,6 +84,15 @@ describe('QQ 小表直接投影', () => {
     store.markRead(2, '70001', '105');
     expect(store.resolve(row)).toMatchObject({ readSeq: '105', unreadCount: 4 });
   });
+  it('已确认的最新灰条只扣自己的序号，不推进阅读、清标记或重复扣除', () => {
+    const store = new LocalUnreadStore(undefined, 'u_self');
+    const gray = snapshot({ latestSeqNonMessage: true });
+    expect(store.resolve(gray)).toMatchObject({ readSeq: '90', unreadCount: 19 });
+    expect(store.resolve({ ...gray, decreasedSeqs: ['110'] }).unreadCount).toBe(19);
+    expect(store.resolve({ ...gray, msgSeq: 109 }).unreadCount).toBe(0);
+    expect(store.resolve({ ...gray, msgSeq: 109, markUnread: true }).unreadCount).toBe(1);
+    expect(store.resolve(snapshot({ msgSeq: 109, latestSenderUid: 'u_peer' })).unreadCount).toBe(1);
+  });
   it('手动未读只维持最小标记，新消息和 QQ 阅读继续改变数量', () => {
     const store = new LocalUnreadStore();
     const row = snapshot({ msgSeq: 110 });

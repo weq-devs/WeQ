@@ -6,18 +6,21 @@
  *   48902  unreadBuf (BLOB — protobuf with field 41002: msgSeq)
  */
 
-import type { DatabaseAlgorithms, NtHelperBinding } from '@weq/native';
+import type { DatabaseAlgorithms, NtHelperBinding, SqlRow } from '@weq/native';
 import { QqDb } from '../qq_db';
-import { ProtoMsg } from '@weq/codec';
+import { ElementType, GrayTipSubType, ProtoMsg } from '@weq/codec';
 import {
   appendNode,
   buildEditTree,
   encodeEditTree,
   newNode,
   removeNode,
+  sanitizeBytes,
   updateNode,
 } from '@weq/codec/raw';
 import type { PbNode, PbValue } from '@weq/codec/raw';
+import { RecentContactBody } from '@weq/codec/proto/msg/40051';
+import { MsgType } from '@weq/codec/proto/msg/40900';
 import { UnreadInfo } from '@weq/codec/proto/msg/48902';
 import { databaseRequestSignal } from '../query_schedule';
 
@@ -98,10 +101,44 @@ export interface UnreadInfoTarget {
 
 export interface UnreadInfoSnapshot extends UnreadInfoResult {
   latestSeq: string | null;
-  /** 最近会话小表 40020，与 latestSeq 同一行的发送者。 */
+  /** 正文发送者；灰条覆盖预览时不能直接使用小表 40020。 */
   latestSenderUid?: string;
+  /** 最新序号已确认只有撤回／拍一拍，不是新的正文。 */
+  latestSeqNonMessage?: true;
 
   readError?: true;
+}
+
+const GRAY_TIP = MsgType.GRAY_TIP;
+const RECENT_UNREAD_COLUMNS = `r."40003", r."40020", CASE WHEN r."40011"=${GRAY_TIP} THEN r."40051" END, r."40001", r."40027"`;
+const previewProto = new ProtoMsg(RecentContactBody);
+
+interface GrayTipUnreadTarget {
+  snapshot: UnreadInfoSnapshot;
+  partition: bigint;
+  seq: bigint;
+  msgId: bigint | null;
+  recall: boolean;
+}
+
+function unreadGrayTip(blob: Uint8Array): 'recall' | 'poke' | undefined {
+  try {
+    const [wire] = previewProto.decode(sanitizeBytes(blob, RecentContactBody)).preview ?? [];
+    if (wire?.elementType !== ElementType.GRAY_TIP) return;
+    if (wire.subType === GrayTipSubType.REVOKE) return 'recall';
+    if (
+      (wire.subType === GrayTipSubType.JSON || wire.subType === GrayTipSubType.XML_MSG) &&
+      wire.detailedId === 1061
+    )
+      return 'poke';
+  } catch {
+    // 预览异常不使整个未读快照失效。
+  }
+}
+
+function positiveInt(value: unknown): bigint | null {
+  if (value == null || !/^\d{1,20}$/.test(String(value))) return null;
+  return BigInt(String(value)) || null;
 }
 
 export interface UnreadReadChange extends UnreadInfoTarget {
@@ -135,6 +172,7 @@ export interface UnreadHighlightInput {
 export class UnreadInfoDb {
   private readonly qq: QqDb;
   private readonly proto = new ProtoMsg(UnreadInfo);
+  private readonly seqIndexes = new Map<string, Promise<boolean>>();
 
   constructor(nt: NtHelperBinding, opts: UnreadInfoDbOptions) {
     this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
@@ -163,7 +201,7 @@ export class UnreadInfoDb {
     };
   }
 
-  /** 读取 QQ 已维护的阅读位置、减项及标志，不访问消息历史。 */
+  /** 读取 QQ 已维护的阅读位置、减项及标志；灰条歧义只查最新序号。 */
   async getUnreadInfos(targets: UnreadInfoTarget[]): Promise<UnreadInfoSnapshot[]> {
     const unique = [...new Map(targets.map((t) => [`${t.chatType}_${t.uid}`, t])).values()];
     const result: UnreadInfoSnapshot[] = [];
@@ -172,35 +210,35 @@ export class UnreadInfoDb {
       const batch = unique.slice(offset, offset + 256);
       const rows = await this.qq.query(
         `WITH targets(chatType, uid, peer) AS (VALUES ${batch.map(() => '(?, ?, ?)').join(',')})
-         SELECT t.chatType, t.uid, t.peer, u."48902", r."40003", r."40020"
+         SELECT t.chatType, t.uid, t.peer, u."48902", ${RECENT_UNREAD_COLUMNS}
          FROM targets t
          LEFT JOIN msg_unread_info_table u ON u."48901" = t.peer
          LEFT JOIN recent_contact_v3_table r ON r."40021" = t.uid AND CAST(r."40010" AS INTEGER) = t.chatType`,
         batch.flatMap((t) => [t.chatType, t.uid, `${t.chatType}_${t.uid}`]),
       );
-      result.push(...this.decodeSnapshots(rows));
+      result.push(...(await this.decodeAndResolveSnapshots(rows)));
     }
     return result;
   }
 
-  /** 账号共享快照只读两张小表，包含没有最近会话行的未读记录。 */
+  /** 账号共享快照由两张小表驱动，包含没有最近会话行的未读记录。 */
   async getAllUnreadInfos(): Promise<UnreadInfoSnapshot[]> {
     const rows = await this.qq.query(
-      `SELECT r."40010", r."40021", CAST(r."40010" AS TEXT) || '_' || r."40021", NULL, r."40003", r."40020"
+      `SELECT r."40010", r."40021", CAST(r."40010" AS TEXT) || '_' || r."40021", NULL, ${RECENT_UNREAD_COLUMNS}
        FROM recent_contact_v3_table r
        WHERE CAST(r."40010" AS INTEGER) IN (1,2,8,134)
        UNION ALL
-       SELECT NULL,NULL,u."48901",u."48902",NULL,NULL FROM msg_unread_info_table u`,
+       SELECT NULL,NULL,u."48901",u."48902",NULL,NULL,NULL,NULL,NULL FROM msg_unread_info_table u`,
     );
     // 同一 SQL 快照分别返回小表行，再线性合并；避免缺行检测逐个重扫最近会话表。
-    const merged = new Map<string, unknown[]>();
+    const merged = new Map<string, SqlRow>();
     for (const row of rows) {
       const peer = String(row[2]);
       const recent = merged.get(peer);
-      if (recent && row[0] === null) recent[3] = row[3];
+      if (recent && row[0] === null) recent[3] = row[3] ?? null;
       else merged.set(peer, [...row]);
     }
-    return this.decodeSnapshots([...merged.values()]).filter((row) =>
+    return (await this.decodeAndResolveSnapshots([...merged.values()])).filter((row) =>
       [1, 2, 8, 134].includes(row.chatType),
     );
   }
@@ -227,8 +265,9 @@ export class UnreadInfoDb {
     };
   }
 
-  private decodeSnapshots(rows: unknown[][]): UnreadInfoSnapshot[] {
-    return rows.map((row) => {
+  private async decodeAndResolveSnapshots(rows: SqlRow[]): Promise<UnreadInfoSnapshot[]> {
+    const targets = new Map<number, GrayTipUnreadTarget[]>();
+    const snapshots = rows.map((row) => {
       const peer = String(row[2]);
       const split = peer.indexOf('_');
       const identity = {
@@ -241,15 +280,90 @@ export class UnreadInfoDb {
       try {
         const decoded = row[3] instanceof Uint8Array ? this.proto.decode(row[3]) : {};
         const highlights = extractHighlights(decoded.info?.ext);
-        return {
+        const snapshot: UnreadInfoSnapshot = {
           ...identity,
           ...this.readFields(decoded),
           highlights: highlights.length ? highlights : undefined,
         };
+        this.collectGrayTipTarget(row, snapshot, targets);
+        return snapshot;
       } catch {
         return { ...identity, readError: true as const };
       }
     });
+    for (const [chatType, batch] of targets) await this.resolveGrayTipTargets(chatType, batch);
+    return snapshots;
+  }
+
+  private collectGrayTipTarget(
+    row: SqlRow,
+    snapshot: UnreadInfoSnapshot,
+    targets: Map<number, GrayTipUnreadTarget[]>,
+  ): void {
+    const { chatType, uid, latestSeq, localReadSeq, msgSeq, decreasedSeqs } = snapshot;
+    if (!(row[6] instanceof Uint8Array) || (chatType !== 1 && chatType !== 2)) return;
+    const seq = positiveInt(latestSeq);
+    const serverRead = BigInt(msgSeq ?? 0);
+    const localRead = BigInt(localReadSeq ?? '0');
+    if (!seq || (!serverRead && !localRead) || seq <= serverRead || seq <= localRead) return;
+    if (latestSeq !== null && decreasedSeqs?.includes(latestSeq)) return;
+    const tip = unreadGrayTip(row[6]);
+    if (!tip) return;
+
+    // 小表此时只给灰条的发送者，不能拿它替代同序号正文的发送者。
+    delete snapshot.latestSenderUid;
+    const partition = positiveInt(chatType === 1 ? row[8] : uid);
+    if (!partition) return;
+    const batch = targets.get(chatType) ?? [];
+    batch.push({ snapshot, partition, seq, msgId: positiveInt(row[7]), recall: tip === 'recall' });
+    targets.set(chatType, batch);
+  }
+
+  private async resolveGrayTipTargets(chatType: number, targets: GrayTipUnreadTarget[]) {
+    const table = chatType === 1 ? 'c2c_msg_table' : 'group_msg_table';
+    let indexed = this.seqIndexes.get(table);
+    if (!indexed) {
+      indexed = this.qq.hasIndexPrefix(table, ['40027', '40003']).catch(() => {
+        this.seqIndexes.delete(table);
+        return false;
+      });
+      this.seqIndexes.set(table, indexed);
+    }
+    if (!(await indexed)) return;
+
+    // 撤回可能改正文而不改原消息类型；只排除预览明确指向的原消息。
+    const content = `m."40003" IS NOT NULL AND m."40011" IS NOT ${GRAY_TIP}
+      AND NOT (t.recall=1 AND t.msgId IS NOT NULL AND m."40001" IS t.msgId)`;
+    for (let offset = 0; offset < targets.length; offset += 128) {
+      databaseRequestSignal()?.throwIfAborted();
+      const batch = targets.slice(offset, offset + 128);
+      try {
+        const rows = await this.qq.query(
+          `WITH targets(idx, partition, seq, msgId, recall) AS (VALUES ${batch.map(() => '(?,?,?,?,?)').join(',')})
+           SELECT t.idx, MAX(m."40001"=t.msgId AND (t.recall=1 OR m."40011"=${GRAY_TIP})),
+             MIN(CASE WHEN ${content} THEN COALESCE(m."40020", '') END),
+             MAX(CASE WHEN ${content} THEN COALESCE(m."40020", '') END)
+           FROM targets t LEFT JOIN ${table} m ON m."40027"=t.partition AND m."40003"=t.seq
+           GROUP BY t.idx`,
+          batch.flatMap(({ partition, seq, msgId, recall }, idx) => [
+            BigInt(idx),
+            partition,
+            seq,
+            msgId,
+            recall ? 1n : 0n,
+          ]),
+        );
+        for (const [idx, matched, firstSender, lastSender] of rows) {
+          const snapshot = batch[Number(idx)]?.snapshot;
+          if (!snapshot) continue;
+          if (firstSender === null && Number(matched) === 1) snapshot.latestSeqNonMessage = true;
+          if (typeof firstSender === 'string' && firstSender && firstSender === lastSender)
+            snapshot.latestSenderUid = firstSender;
+        }
+      } catch {
+        // 单点校验失败时不猜发送者，也不隐藏小表算出的未读。
+      }
+    }
   }
 
   /**

@@ -19,7 +19,8 @@ function fixture() {
     nt = createSqliteStub(),
     sql = fixtureDb(path);
   sql.exec(`CREATE TABLE msg_unread_info_table("48901" TEXT PRIMARY KEY,"48902" BLOB);
-    CREATE TABLE recent_contact_v3_table("40021" TEXT,"40003" INTEGER,"40010" INTEGER,"40020" TEXT);
+    CREATE TABLE recent_contact_v3_table("40021" TEXT,"40003" INTEGER,"40010" INTEGER,"40020" TEXT,
+      "40011" INTEGER,"40051" BLOB,"40001" INTEGER,"40027" INTEGER);
     CREATE INDEX recent_uid ON recent_contact_v3_table("40021");`);
   const query = vi.spyOn(nt, 'executeSql');
   const db = new UnreadInfoDb(nt, { dbPath: path });

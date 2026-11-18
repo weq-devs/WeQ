@@ -45,7 +45,8 @@ function setup(peer: string, blobHex: string, latestSeq: number): void {
   const sql = fixtureDb(dbPath);
   sql.exec(`CREATE TABLE msg_unread_info_table ("48901" TEXT PRIMARY KEY, "48902" BLOB)`);
   sql.exec(
-    `CREATE TABLE recent_contact_v3_table ("40021" TEXT, "40003" INTEGER, "40010" INTEGER DEFAULT 2, "40027" INTEGER, "40020" TEXT)`,
+    `CREATE TABLE recent_contact_v3_table ("40021" TEXT, "40003" INTEGER, "40010" INTEGER DEFAULT 2, "40027" INTEGER, "40020" TEXT,
+      "40011" INTEGER, "40051" BLOB, "40001" INTEGER)`,
   );
   sql.prepare(`INSERT INTO msg_unread_info_table VALUES (?, ?)`).run(peer, blobOf(blobHex));
   sql

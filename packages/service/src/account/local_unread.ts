@@ -211,6 +211,8 @@ export class LocalUnreadStore {
         for (const seq of outgoing) decreased.add(seq);
       } else this.pendingOutgoing.delete(snapshot.peer);
     }
+    if (snapshot.latestSeqNonMessage && snapshot.latestSeq !== null)
+      decreased.add(snapshot.latestSeq);
     const deductions = [...decreased].filter(
       (seq) => BigInt(seq) > floor && latest !== null && BigInt(seq) <= latest,
     ).length;
