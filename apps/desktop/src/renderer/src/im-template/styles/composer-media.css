@@ -1860,9 +1860,10 @@ html[data-theme='dark'] .ai-voice-chip {
   left: 12px;
   z-index: 30;
   display: grid;
+  height: 100%;
   width: min(452px, calc(100% - 28px));
   max-height: min(496px, calc(100dvh - 190px));
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
   border-radius: 12px;
@@ -1937,43 +1938,35 @@ html[data-theme='dark'] .ai-voice-chip {
   color: var(--media-danger, #f0483e);
 }
 
-.bounce-body {
+.bounce-config {
   display: grid;
-  gap: 10px;
-  min-height: 0;
-  padding: 11px 12px;
-  overflow: auto;
-  scrollbar-width: thin;
+  gap: 8px;
+  padding: 8px 12px 10px;
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 /* ── 预览（左） + 数量（右） ─────────────────────────────────────────────── */
 
 .bounce-stage {
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
-  gap: 12px;
-  align-items: stretch;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
 }
 
 .bounce-preview {
   display: grid;
   position: relative;
-  min-height: 96px;
+  height: 52px;
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
-  border-radius: 12px;
-  background:
-    radial-gradient(
-      circle at 50% 34%,
-      color-mix(in srgb, var(--weq-accent-effective, #0099ff) 9%, transparent),
-      transparent 68%
-    ),
-    color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
 }
 
 .bounce-preview-face {
-  width: 72px;
-  height: 72px;
+  width: 38px;
+  height: 38px;
   object-fit: contain;
   user-select: none;
   -webkit-user-drag: none;
@@ -1985,15 +1978,13 @@ html[data-theme='dark'] .ai-voice-chip {
   color: var(--weq-fg-muted, #9a9aa2);
 }
 
-/* ×N —— 与聊天窗口里 `QqEmojiBounce` 同一套字形（黄字蓝边）与「闪变」。
-   预览里的表情是居中的 72px 图、舞台 96px，四边正好各留 12px，所以 12px 就是
-   表情的右下角（小屏 52px / 76px 同理）。 */
+/* ×N 沿用聊天中的角标，缩放到面板预览的大小。 */
 .bounce-preview-count {
   position: absolute;
-  right: 12px;
-  bottom: 12px;
+  right: 3px;
+  bottom: 4px;
   color: #ffd21e;
-  font-size: 16px;
+  font-size: 10px;
   font-weight: 800;
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -2018,8 +2009,8 @@ html[data-theme='dark'] .ai-voice-chip {
 
 .bounce-controls {
   display: grid;
-  align-content: start;
-  gap: 6px;
+  min-width: 0;
+  gap: 3px;
 }
 
 .bounce-label {
@@ -2031,19 +2022,11 @@ html[data-theme='dark'] .ai-voice-chip {
   font-weight: 500;
 }
 
-.bounce-range {
-  margin-left: auto;
-  color: var(--weq-fg-muted, #858585);
-  font-size: 10.5px;
-  font-style: normal;
-  font-variant-numeric: tabular-nums;
-}
-
 .bounce-count-row {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) 30px;
+  grid-template-columns: 26px minmax(0, 112px) 26px max-content;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
 }
 
 .bounce-step {
@@ -2076,9 +2059,10 @@ html[data-theme='dark'] .ai-voice-chip {
 }
 
 .bounce-input {
+  min-width: 0;
   width: 100%;
   height: 30px;
-  padding: 0 9px;
+  padding: 0 4px;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
   border-radius: 8px;
   background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
@@ -2100,20 +2084,23 @@ html[data-theme='dark'] .ai-voice-chip {
 }
 
 .bounce-presets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(max-content, 2fr);
+  gap: 6px;
 }
 
 .bounce-preset {
-  padding: 3px 9px;
+  min-height: 27px;
+  padding: 2px 6px;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 78%, transparent);
   border-radius: 999px;
   background: transparent;
   color: var(--weq-fg-secondary, #666666);
   font-family: inherit;
   font-size: 11.5px;
-  line-height: 1.5;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   cursor: pointer;
   transition:
     border-color 130ms ease,
@@ -2133,88 +2120,21 @@ html[data-theme='dark'] .ai-voice-chip {
   font-weight: 600;
 }
 
-.bounce-summary,
 .bounce-error {
-  overflow: hidden;
   font-size: 11.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.bounce-summary {
-  color: var(--weq-fg-muted, #858585);
-}
-
-.bounce-error {
   color: var(--media-danger, #f0483e);
-}
-
-/* ── 搜索 ────────────────────────────────────────────────────────────────── */
-
-.bounce-search {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 10px;
-  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
-}
-
-.bounce-search:focus-within {
-  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 52%, transparent);
-}
-
-.bounce-search > svg {
-  flex: 0 0 auto;
-  color: var(--weq-fg-muted, #858585);
-}
-
-.bounce-search input {
-  width: 100%;
-  padding: 6px 0;
-  border: 0;
-  background: transparent;
-  color: var(--weq-fg-primary, #111111);
-  font-family: inherit;
-  font-size: 12.5px;
-}
-
-.bounce-search input:focus {
-  outline: none;
-}
-
-.bounce-search input::placeholder {
-  color: var(--weq-fg-muted, #858585);
-}
-
-.bounce-search-clear {
-  display: grid;
-  flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 18%, transparent);
-  color: var(--weq-fg-secondary, #666666);
-  cursor: pointer;
-}
-
-.bounce-search-clear:hover {
-  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 30%, transparent);
 }
 
 /* ── 表情网格 ────────────────────────────────────────────────────────────── */
 
 .bounce-picker {
   display: grid;
+  align-content: start;
   gap: 9px;
-  min-height: 108px;
-  max-height: 208px;
-  padding-right: 2px;
+  min-height: 0;
+  padding: 8px 12px;
   overflow: auto;
+  overscroll-behavior: contain;
   scrollbar-width: thin;
 }
 
@@ -2233,13 +2153,12 @@ html[data-theme='dark'] .ai-voice-chip {
 
 .bounce-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, 34px);
+  grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
   gap: 3px 4px;
 }
 
 .bounce-cell {
   display: grid;
-  width: 34px;
   height: 34px;
   place-items: center;
   padding: 0;
@@ -2283,40 +2202,14 @@ html[data-theme='dark'] .ai-voice-chip {
   text-align: center;
 }
 
-/* ── 底部 ────────────────────────────────────────────────────────────────── */
-
-.bounce-foot {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 12px;
-  border-top: 1px solid var(--weq-border-subtle);
-}
-
-.bounce-hint {
-  display: inline-flex;
-  flex: 1 1 auto;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--weq-fg-muted, #858585);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.bounce-hint svg {
-  flex: 0 0 auto;
-  color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 82%, transparent);
-}
-
 .bounce-btn {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
   gap: 5px;
-  padding: 6px 12px;
+  height: 30px;
+  justify-content: center;
+  padding: 0 10px;
   border: 0;
   border-radius: 8px;
   font-family: inherit;
@@ -2354,8 +2247,7 @@ html[data-theme='dark'] .bounce-panel {
 
 html[data-theme='dark'] .bounce-preview,
 html[data-theme='dark'] .bounce-input,
-html[data-theme='dark'] .bounce-step,
-html[data-theme='dark'] .bounce-search {
+html[data-theme='dark'] .bounce-step {
   background: color-mix(in srgb, var(--weq-fg-muted, #858585) 9%, transparent);
 }
 
@@ -2367,31 +2259,9 @@ html[data-theme='dark'] .bounce-search {
   max-height: min(452px, calc(100dvh - 150px));
 }
 
-:where(html[data-weq-layout='single']) .bounce-stage {
-  grid-template-columns: 76px minmax(0, 1fr);
-  gap: 9px;
-}
-
-:where(html[data-weq-layout='single']) .bounce-preview {
-  min-height: 76px;
-}
-
-:where(html[data-weq-layout='single']) .bounce-preview-face {
-  width: 52px;
-  height: 52px;
-}
-
-:where(html[data-weq-layout='single']) .bounce-preview-count {
-  font-size: 12px;
-}
-
-:where(html[data-weq-layout='single']) .bounce-picker {
-  max-height: 168px;
-}
-
 /* ── 戳一戳互动表情（pokeEmoji）────────────────────────────────────────────
  *
- * 在表情面板的可用高度里固定标题和发送栏，只让中间区域在空间不足时滚动。
+ * 标题、发送和预览常驻；空间不足时只滚动图标网格。
  */
 
 .poke-panel {
@@ -2400,7 +2270,8 @@ html[data-theme='dark'] .bounce-search {
   display: grid;
   height: 100%;
   min-width: 0;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  --poke-option-edge: 34px;
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 @keyframes poke-in {
@@ -2435,7 +2306,6 @@ html[data-theme='dark'] .bounce-search {
   display: grid;
   width: 24px;
   height: 24px;
-  margin-left: auto;
   place-items: center;
   padding: 0;
   border: 0;
@@ -2455,12 +2325,11 @@ html[data-theme='dark'] .bounce-search {
 
 .poke-body {
   display: grid;
-  grid-template-rows: auto minmax(min-content, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 6px;
   min-height: 0;
   padding: 6px var(--poke-inline-inset);
-  overflow: auto;
-  scrollbar-width: thin;
+  overflow: hidden;
 }
 
 /* ── 预览（左） + 连击（右） ─────────────────────────────────────────────── */
@@ -2509,7 +2378,7 @@ html[data-theme='dark'] .bounce-search {
 .poke-combo {
   display: flex;
   min-width: 0;
-  gap: 5px;
+  gap: 4px;
   overflow-x: auto;
   padding: 2px;
   scrollbar-width: thin;
@@ -2517,8 +2386,8 @@ html[data-theme='dark'] .bounce-search {
 
 .poke-combo-btn {
   display: grid;
-  flex: 0 0 26px;
-  height: 26px;
+  flex: 0 0 var(--poke-option-edge);
+  height: var(--poke-option-edge);
   place-items: center;
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
@@ -2533,7 +2402,7 @@ html[data-theme='dark'] .bounce-search {
 .poke-combo-btn img {
   display: block;
   max-width: 100%;
-  max-height: 20px;
+  max-height: 24px;
   object-fit: contain;
   pointer-events: none;
   user-select: none;
@@ -2573,7 +2442,11 @@ html[data-theme='dark'] .bounce-search {
 .poke-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  grid-auto-rows: minmax(34px, 1fr);
+  grid-auto-rows: minmax(40px, 1fr);
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
   gap: 4px;
 }
 
@@ -2593,8 +2466,8 @@ html[data-theme='dark'] .bounce-search {
 
 .poke-cell img {
   display: block;
-  width: min(32px, 100%);
-  height: 32px;
+  width: min(34px, 100%);
+  height: 34px;
   object-fit: contain;
   pointer-events: none;
   user-select: none;
@@ -2610,21 +2483,12 @@ html[data-theme='dark'] .bounce-search {
   background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 14%, transparent);
 }
 
-/* ── 底部 ────────────────────────────────────────────────────────────────── */
-
-.poke-foot {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 8px var(--poke-inline-inset);
-  border-top: 1px solid var(--weq-border-subtle);
-}
-
 .poke-btn {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
   gap: 5px;
+  margin-left: auto;
   padding: 6px 12px;
   border: 0;
   border-radius: 8px;
@@ -2661,7 +2525,20 @@ html[data-theme='dark'] .poke-combo-btn:not(:where(.is-active, :hover)) {
 }
 
 :where(html[data-weq-layout='single']) .poke-panel {
-  --poke-preview-edge: 80px;
+  --poke-preview-edge: 76px;
+  --poke-option-edge: 30px;
+}
+
+:where(html[data-weq-layout='single']) .poke-stage {
+  gap: 8px;
+}
+
+:where(html[data-weq-layout='single']) .poke-controls {
+  gap: 6px;
+}
+
+:where(html[data-weq-layout='single']) .poke-combo {
+  gap: 3px;
 }
 
 /* ════════════════════════════════════════════════════════════════════════

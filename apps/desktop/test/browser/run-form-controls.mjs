@@ -52,7 +52,6 @@ const containers = [
   'ark-search',
   'emoji-lb-search',
   'link-card-input',
-  'bounce-search',
   'redpacket-input-wrap',
   'redpacket-stepper',
   'weq-keyfield-input',

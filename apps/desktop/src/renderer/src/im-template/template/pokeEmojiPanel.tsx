@@ -12,7 +12,7 @@
  *     复用聊天里的 `FaceEmoji` 渲染 `<faceId>_<innerId>.json` 结果片段；
  *   - 一排编号按钮：戳一戳是 `0..3` 的连击档，随机表情是 `1..n` 的结果编号，
  *     共用同一套 `.poke-combo` / `.poke-combo-btn` 控件；
- *   - 底部只有一枚发送按钮，按当前选中是「戳一戳」还是「随机表情」决定发什么。
+ *   - 标题栏共用一个发送按钮，按当前选中的表情决定发什么。
  *
  * ⚠️ 元素用的是草稿 token 形状（`{ kind:'pokeEmoji', pokeId, combo }` /
  * `{ kind:'face', superSticker:{ resultId } }`），由 `composerSend` 翻成
@@ -136,6 +136,16 @@ export function PokeEmojiPanel({
         </span>
         <button
           type="button"
+          className={cn('poke-btn', 'primary')}
+          title={disabled ? disabledHint : random ? '发送随机表情' : '发送戳一戳'}
+          disabled={random ? !canSendRandom : !canSend}
+          onClick={submit}
+        >
+          <SendHorizontal size={13} strokeWidth={2.2} />
+          发送
+        </button>
+        <button
+          type="button"
           className={cn('poke-close')}
           title="关闭"
           aria-label="关闭"
@@ -252,19 +262,6 @@ export function PokeEmojiPanel({
             })}
         </div>
       </div>
-
-      <footer className={cn('poke-foot')}>
-        <button
-          type="button"
-          className={cn('poke-btn', 'primary')}
-          title={disabled ? disabledHint : random ? '发送随机表情' : '发送戳一戳'}
-          disabled={random ? !canSendRandom : !canSend}
-          onClick={submit}
-        >
-          <SendHorizontal size={13} strokeWidth={2.2} />
-          发送
-        </button>
-      </footer>
     </div>
   );
 }

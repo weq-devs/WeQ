@@ -33,7 +33,6 @@
   scrollbar-width: thin;
 }
 
-/* 弹射配置随表情内容一起滚动；互动面板自行保留固定的标题和发送栏。 */
 .emoji-panel .emoji-panel-body > .bounce-panel {
   position: static;
   width: 100%;
@@ -44,18 +43,10 @@
   background: transparent;
   box-shadow: none;
   animation: none;
-  overflow: visible;
 }
 
 .emoji-panel-body:has(> :is(.bounce-panel, .poke-panel)) {
   padding: 0;
-}
-
-.emoji-panel .emoji-panel-body .bounce-body {
-  overflow: visible;
-}
-
-.emoji-panel-body:has(> .poke-panel) {
   overflow: hidden;
 }
 
