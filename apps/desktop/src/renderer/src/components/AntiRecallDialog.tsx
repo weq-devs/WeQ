@@ -625,7 +625,7 @@ export function AntiRecallDialog({
                       : 'QQ 下次启动会加载最新拦截规则。'
                   }
                   control={
-                    <span>
+                    <span className="weq-set-row-status">
                       {!hasAccount ? (
                         '未打开账号'
                       ) : isStaticPcOnly ? (

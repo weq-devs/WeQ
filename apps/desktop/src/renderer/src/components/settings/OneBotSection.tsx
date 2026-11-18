@@ -233,7 +233,7 @@ export function OneBotSection(): ReactElement {
         <Row
           label="运行状态"
           control={
-            <span>
+            <span className="weq-set-row-status">
               {data?.running ? (
                 <NumericText>{`${data.servers.filter((server) => server.running).length} 个服务器运行中 · ${data.clients} 个连接`}</NumericText>
               ) : data?.enabled ? (

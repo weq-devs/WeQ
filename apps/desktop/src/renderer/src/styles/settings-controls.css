@@ -60,6 +60,20 @@ html[data-theme] .weq-settings-dialog .weq-settings-appearance-head span {
   max-width: 100%;
 }
 
+.weq-set-row-ctrl:has(.weq-set-row-status) {
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.weq-set-row-status {
+  display: block;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+  text-align: end;
+  overflow-wrap: anywhere;
+}
+
 .weq-set-toggle:focus-visible {
   border-radius: var(--weq-skin-toggle-radius, 999px);
   outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));

@@ -33,7 +33,7 @@ export function WebNotificationsSection() {
       <Row
         label="当前浏览器"
         control={
-          <span>
+          <span className="weq-set-row-status">
             {!available
               ? '不支持系统通知'
               : enabled && Notification.permission === 'granted'

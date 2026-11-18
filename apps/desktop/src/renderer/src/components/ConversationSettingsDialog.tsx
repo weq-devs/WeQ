@@ -286,7 +286,7 @@ export function ConversationSettingsDialog({
               <Row
                 label="实际生效状态"
                 control={
-                  <span role="status">
+                  <span className="weq-set-row-status" role="status">
                     {intentStatus.error
                       ? '读取失败，重新打开此窗格可重试。'
                       : !intentData
@@ -387,7 +387,7 @@ export function ConversationSettingsDialog({
               <Row
                 label="实际保护状态"
                 control={
-                  <span role="status">
+                  <span className="weq-set-row-status" role="status">
                     {checkingProtection || status.isFetching
                       ? '正在核实安装状态…'
                       : status.error || !actualStatus

@@ -178,7 +178,9 @@ export function RemotePanel({
                 {addresses.length ? (
                   addresses.map((address) => <code key={address}>{new URL(address).hostname}</code>)
                 ) : (
-                  <span>{data?.enabled ? '暂无可用地址' : '服务未开启'}</span>
+                  <span className="weq-set-row-status">
+                    {data?.enabled ? '暂无可用地址' : '服务未开启'}
+                  </span>
                 )}
               </div>
             }
