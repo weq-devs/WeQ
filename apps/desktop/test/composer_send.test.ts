@@ -34,7 +34,10 @@ import {
   buildOptimisticRender,
   type LocalMediaRef,
 } from '../src/renderer/src/im-template/template/composerSend';
-import { elementsToComposerText } from '../src/renderer/src/im-template/template/draftElements';
+import {
+  composerTextToElements,
+  elementsToComposerText,
+} from '../src/renderer/src/im-template/template/draftElements';
 import { buildSendElems, type SendElement } from '@weq/protocol';
 
 it('设备文件计划保留 File 句柄，不要求整个文件预读成字节', () => {
@@ -821,6 +824,67 @@ describe('输入区发送交接', () => {
       }
     },
   );
+
+  it('普通自撤灰条只在有原稿时提供重新编辑，并按原顺序恢复图文，不发送', async () => {
+    const f = mount();
+    try {
+      const { user, conversation } = f.props;
+      const draftElements = [
+        { type: 'text', data: { textContent: '原稿开头' } },
+        { type: 'pic', data: { fileName: 'fixture.png', filePath: '/fixture.png' } },
+        { type: 'text', data: { textContent: '原稿结尾' } },
+      ];
+      function tip(id: string, sender: string, revoker: string, draft = draftElements) {
+        return {
+          id,
+          conversationId: conversation.id,
+          senderId: '',
+          body: '撤回提示不是原文',
+          createdAt: '2026-10-18T12:00:00Z',
+          qqElements: [
+            {
+              type: 'grayTipRevoke',
+              data: {
+                recallSenderUid: sender,
+                recallRevokeUid: revoker,
+                recallDraftElements: draft,
+              },
+            },
+          ],
+        };
+      }
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => new Response(new Uint8Array([1, 2, 3]))),
+      );
+      type(f.editor(), '现有草稿');
+      f.render({
+        messages: [
+          tip('mine', user.id, user.id),
+          tip('empty', user.id, user.id, []),
+          tip('admin-removed', user.id, 'u_admin'),
+          tip('peer', 'u_peer', 'u_peer'),
+        ],
+      });
+      const buttons = [...f.host.querySelectorAll('button')].filter(
+        (button) => button.textContent === '重新编辑',
+      );
+      expect(buttons).toHaveLength(1);
+      const confirm = vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValueOnce(false);
+      await act(async () => buttons[0]!.click());
+      expect(serializeComposer(f.editor())).toBe('现有草稿');
+      confirm.mockResolvedValueOnce(true);
+      await act(async () => buttons[0]!.click());
+      expect(composerTextToElements(serializeComposer(f.editor()))).toMatchObject([
+        { kind: 'text', textContent: '原稿开头' },
+        { kind: 'pic', fileName: 'fixture.png' },
+        { kind: 'text', textContent: '原稿结尾' },
+      ]);
+      expect(f.onSend).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
 
   it('已有非空草稿时确认替换，取消保留；确认期间切会话不会覆盖新草稿', async () => {
     const f = mount();

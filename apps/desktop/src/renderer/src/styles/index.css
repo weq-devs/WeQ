@@ -19267,7 +19267,7 @@ html[data-theme='dark'] .message-line.is-deleted .message-bubble {
 /* ─────────────────────────────────────────────────────────────────────────
    Anti-recall 撤回 tag (im-template/messageBubble)
    Unlike delete, an intercepted recall leaves the message content intact — so
-   there's NO veil. We only show a small, quiet caption below the bubble naming
+   there's no veil. The content is dimmed separately from its caption naming
    who recalled it (self vs admin). Flat accent caption (not a pill): small
    radius, non-bold, theme accent instead of amber. */
 .weq-msg-recall-tag {

@@ -47,11 +47,13 @@ export function GrayTipLine({
   conversation,
   message,
   user,
+  onReedit,
 }: {
   gt: GrayTipMatch;
   conversation?: Conversation;
   message?: Message;
   user?: User;
+  onReedit?: (message: Message) => Promise<boolean>;
 }): ReactElement | null {
   switch (gt.kind) {
     case 'grayTipPoke':
@@ -70,6 +72,7 @@ export function GrayTipLine({
           conversation={conversation as never}
           message={message as never}
           user={user}
+          onReedit={onReedit}
         />
       );
     case 'grayTipGroup':
@@ -240,7 +243,13 @@ export const MessageRow = memo(function MessageRow({
           </span>
         ) : null}
         <SystemMessageContent message={message}>
-          <GrayTipLine gt={gt} conversation={conversation} message={message} user={user} />
+          <GrayTipLine
+            gt={gt}
+            conversation={conversation}
+            message={message}
+            user={user}
+            onReedit={selectionMode ? undefined : onReedit}
+          />
         </SystemMessageContent>
       </div>
     );

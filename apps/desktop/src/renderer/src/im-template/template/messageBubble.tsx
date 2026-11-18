@@ -305,9 +305,7 @@ function MessageBubbleBody({
   const isQqDeleted = resolvedKind === 'qq';
 
   // Recall marker — the anti-recall trigger caught a QQ recall of this message;
-  // its content is intact, so we DON'T veil it (unlike delete). We just show a
-  // small "撤回" tag below the bubble naming who recalled it. `sameSender` = the
-  // author recalled their own message; otherwise an admin recalled someone else's.
+  // 原文保持可读、可交互，轻微淡化气泡内容，由独立标签说明是谁撤回。
   // 未同步入库的发送消息：发送中仅显示旁侧圈圈，正常回执后隐藏，失败才显示下方提示。
   const optimistic = message.optimistic;
   const optimisticRejected = message.optimisticRejected;
@@ -476,6 +474,7 @@ function MessageBubbleBody({
       className={cn(
         'message-line',
         mine ? 'mine' : 'theirs',
+        recall && 'is-recalled',
         isDeleted && 'is-deleted',
         isQqDeleted && 'is-qq-deleted',
         selectionMode && 'selection-mode',

@@ -3,11 +3,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AccountSession } from '@weq/account';
+import { ProtoField, ProtoMsg, ScalarType, decodeElement } from '@weq/codec';
+import { ElementWire } from '@weq/codec/proto/msg/element';
 import { closeAllFixtureDbs, createSqliteStub } from '@weq/testkit';
 import { GapHistoryService, type GapFetchedMessage } from '../src/account/gap_history';
 import { RoamMsgCacheDb } from '../src/account/roam_msg_cache';
 import { mergeRoamingTimeline } from '../src/common/roaming_timeline';
 import { AntiRecallService } from '../src/account/anti_recall';
+import { toRenderElements } from '../src/account/msg_view';
 import type { Platform } from '@weq/platform';
 
 const roots: string[] = [];
@@ -160,4 +163,43 @@ describe('WeQ 自撤缓存保护', () => {
     expect(open(true, 'all').protects('group', '777')).toBe(true);
     expect(open(false, 'all').protects('c2c', 'u_peer')).toBe(false);
   });
+});
+
+it('QQ 自撤灰条的 47710 从 wire 恢复图文和提及，遇到未知元素不提供残缺原稿', () => {
+  const original = {
+    id: ProtoField(45001, ScalarType.UINT64),
+    type: ProtoField(45002, ScalarType.UINT32),
+    text: ProtoField(45101, ScalarType.STRING, { optional: true }),
+    target: ProtoField(45105, ScalarType.STRING, { optional: true }),
+    image: ProtoField(45402, ScalarType.STRING, { optional: true }),
+  };
+  const tip = new ProtoMsg({
+    type: ProtoField(45002, ScalarType.UINT32),
+    subType: ProtoField(45003, ScalarType.UINT32),
+    original: ProtoField(47710, () => original, { repeat: true }),
+  });
+  const wire = new ProtoMsg(ElementWire);
+  const originalElements = [
+    { id: 1n, type: 1, text: '第一段' },
+    { id: 2n, type: 2, image: 'image.png' },
+    { id: 3n, type: 1, text: '@成员', target: 'u_peer' },
+  ];
+  function project(elements: typeof originalElements) {
+    return toRenderElements([
+      decodeElement(wire.decode(tip.encode({ type: 8, subType: 1, original: elements }))),
+    ])[0];
+  }
+  expect(project(originalElements)).toMatchObject({
+    type: 'grayTipRevoke',
+    data: {
+      recallDraftElements: [
+        { type: 'text', data: { textContent: '第一段' } },
+        { type: 'pic', data: { fileName: 'image.png', elementId: undefined } },
+        { type: 'at', data: { textContent: '@成员', atTargetUid: 'u_peer' } },
+      ],
+    },
+  });
+  expect(project([...originalElements, { id: 4n, type: 999 }])?.data).not.toHaveProperty(
+    'recallDraftElements',
+  );
 });

@@ -295,6 +295,12 @@ export interface RenderGrayTipRevokeElement {
     recallDisplayText: string;
     recallRevokeNick: string;
     recallElements?: GrayTipRevokeElement['recallElements'];
+    recallDraftElements?: (
+      | RenderTextElement
+      | RenderAtElement
+      | RenderPicElement
+      | RenderFaceElement
+    )[];
   };
 }
 
@@ -879,7 +885,35 @@ function mapReply(el: ReplyElement): RenderReplyElement {
   };
 }
 
+function recallDraftElements(elements: GrayTipRevokeElement['recallElements']) {
+  if (!elements?.length) return undefined;
+  const draft: NonNullable<RenderGrayTipRevokeElement['data']['recallDraftElements']> = [];
+  for (const raw of elements) {
+    if (!raw || typeof raw !== 'object') return undefined;
+    // 元素 ID 属于旧消息，不随重新编辑带进新草稿。
+    const element = decodeElement({ ...raw, elementId: undefined } as never);
+    if (element.kind === 'text' && element.textContent) draft.push(mapText(element));
+    else if (element.kind === 'at' && element.atTargetUid && element.textContent)
+      draft.push(mapAt(element));
+    else if (element.kind === 'face' && Number.isInteger(element.faceId))
+      draft.push(mapFace(element));
+    else if (
+      element.kind === 'pic' &&
+      (element.filePath ||
+        element.fileName ||
+        element.fileToken ||
+        element.originalUrl ||
+        element.md5 ||
+        element.md5Bytes?.length)
+    )
+      draft.push(mapPic(element));
+    else return undefined; // 不能跳过无法恢复的元素，避免回填一份缺内容的草稿。
+  }
+  return draft;
+}
+
 function mapGrayTipRevoke(el: GrayTipRevokeElement): RenderGrayTipRevokeElement {
+  const draft = recallDraftElements(el.recallElements);
   return {
     type: 'grayTipRevoke',
     data: {
@@ -889,6 +923,7 @@ function mapGrayTipRevoke(el: GrayTipRevokeElement): RenderGrayTipRevokeElement 
       recallDisplayText: el.recallDisplayText,
       recallRevokeNick: el.recallRevokeNick,
       recallElements: el.recallElements,
+      ...(draft ? { recallDraftElements: draft } : {}),
       elementId: el.elementId,
       isSender: el.isSender,
       subType: el.subType,

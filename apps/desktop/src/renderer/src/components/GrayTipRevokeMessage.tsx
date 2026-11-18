@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import type { Conversation, Message, User } from '../im-template/template/types';
 import { SELF_LABEL, isSelfIdentity, selfIdentityValues } from '../lib/selfIdentity';
 import { displayUserName } from '../im-template/template/user';
 import { GrayTipPerson } from './GrayTipPerson';
+import '../styles/gray-tip-message.css';
 
 interface GrayTipRevokeMessageProps {
   element: {
@@ -12,6 +14,7 @@ interface GrayTipRevokeMessageProps {
       recallSenderNick?: string;
       recallRevokeNick?: string;
       recallDisplayText?: string;
+      recallDraftElements?: Message['qqElements'];
     };
   };
   /** Present in real chat (chatPane) so we can resolve uids → nicks. Absent in
@@ -19,6 +22,7 @@ interface GrayTipRevokeMessageProps {
   conversation?: Conversation;
   message?: Message;
   user?: User;
+  onReedit?: (message: Message) => Promise<boolean>;
 }
 
 export function GrayTipRevokeMessage({
@@ -26,13 +30,16 @@ export function GrayTipRevokeMessage({
   conversation,
   message,
   user,
+  onReedit,
 }: GrayTipRevokeMessageProps) {
+  const [reediting, setReediting] = useState(false);
   const {
     recallSenderUid,
     recallRevokeUid,
     recallSenderNick,
     recallRevokeNick,
     recallDisplayText,
+    recallDraftElements,
   } = element.data || {};
 
   const self = new Set(selfIdentityValues(user));
@@ -75,6 +82,39 @@ export function GrayTipRevokeMessage({
           />
           <span className="px-1">撤回了一条消息</span>
           {recallDisplayText && <span className="weq-graytip-muted">{recallDisplayText}</span>}
+          {sender.identity === 'self' &&
+          revoker.identity === 'self' &&
+          recallDraftElements?.length &&
+          message &&
+          user &&
+          onReedit ? (
+            <button
+              type="button"
+              className="weq-graytip-accent weq-graytip-message-link weq-graytip-reedit"
+              disabled={reediting}
+              aria-busy={reediting}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') event.stopPropagation();
+              }}
+              onClick={async (event) => {
+                event.stopPropagation();
+                setReediting(true);
+                try {
+                  await onReedit({
+                    ...message,
+                    senderId: user.id,
+                    body: '',
+                    qqElements: recallDraftElements,
+                    composerDraft: undefined,
+                  });
+                } finally {
+                  setReediting(false);
+                }
+              }}
+            >
+              重新编辑
+            </button>
+          ) : null}
         </>
       ) : (
         <>

@@ -862,6 +862,10 @@ html[data-theme='dark'] .weq-qqshow-avatar img {
   padding: 4px 4px 2px;
 }
 
+.message-line.is-recalled .message-bubble .message-content {
+  opacity: 0.8;
+}
+
 .message-content.has-code {
   display: block;
   overflow: hidden;

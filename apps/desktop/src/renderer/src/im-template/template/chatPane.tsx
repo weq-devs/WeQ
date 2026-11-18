@@ -6330,7 +6330,7 @@ export function ChatPane({
                       onContextMenu={rowContext}
                       onLongPress={rowLongPress}
                       onAction={rowAction}
-                      onReedit={rowReedit}
+                      onReedit={!readOnly && composerVisible ? rowReedit : undefined}
                       onDismissUnsent={rowDismiss}
                       onStartOutgoing={
                         !sendAvailable || currentPreference.blocked ? undefined : rowStart
