@@ -79,7 +79,6 @@ html[data-component-style][data-theme]:not([data-component-style='classic']) bod
     .weq-action-primary,
     .weq-action-soft,
     .weq-danger-button,
-    [data-danger],
     .weq-icon-button,
     .primary-button,
     .composer-send,
@@ -105,6 +104,18 @@ html[data-component-style][data-theme]:not([data-component-style='classic']) bod
   ):not(:where(html[data-component-style='qqnt'] button)) {
   border-radius: var(--weq-control-radius, var(--weq-skin-radius));
   box-shadow: var(--weq-control-shadow, var(--weq-skin-shadow));
+}
+
+/* 普通、危险和禁用状态共用几何；配色规则仍单独区分状态。 */
+html[data-component-style][data-theme]:not([data-component-style='classic']) body
+  :is(
+    .weq-action-soft,
+    .secondary-button,
+    .mode-button:not(.active),
+    .weq-set-btn:not(.weq-set-btn-primary)
+  ):not(:where(html[data-component-style='qqnt'] button)) {
+  border-style: solid;
+  border-width: var(--weq-control-border-width, var(--weq-skin-border-width));
 }
 
 html[data-component-style][data-theme]:not([data-component-style='classic'])
@@ -134,8 +145,7 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
     .mode-button:not(.active),
     .weq-set-btn:not(.weq-set-btn-primary):not(.weq-set-btn-danger):not(.weq-set-btn-del)
   ):not(:disabled):not([data-danger]):not(:where(html[data-component-style='qqnt'] button)) {
-  border: solid var(--weq-skin-border);
-  border-width: var(--weq-control-border-width, var(--weq-skin-border-width));
+  border-color: var(--weq-skin-border);
   background: var(--weq-skin-surface);
   color: var(--weq-fg-primary);
 }
@@ -175,11 +185,19 @@ html[data-component-style][data-theme]:not(
     [data-component-style='qqnt']
   )
   body
+  :is(.weq-action-primary, .primary-button, .composer-send, .weq-set-btn-primary) {
+  border-style: solid;
+  border-width: var(--weq-skin-primary-border-width);
+}
+
+html[data-component-style][data-theme]:not(
+    [data-component-style='classic'],
+    [data-component-style='qqnt']
+  )
+  body
   :is(.weq-action-primary, .primary-button, .composer-send, .weq-set-btn-primary):not(
     :disabled
   ):not([data-danger]) {
-  border-style: solid;
-  border-width: var(--weq-skin-primary-border-width);
   border-color: var(--weq-skin-primary-border);
   background: var(--weq-skin-primary-bg);
   color: var(--weq-skin-primary-fg);

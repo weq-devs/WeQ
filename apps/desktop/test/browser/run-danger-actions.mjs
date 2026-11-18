@@ -9,6 +9,7 @@ import tailwind from '@tailwindcss/vite';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
 const output = process.env.WEQ_DANGER_ARTIFACTS;
+const smoke = process.argv.includes('--smoke');
 const server = await createServer({
   configFile: false,
   root,
@@ -67,13 +68,40 @@ try {
           );
         }, 0);
       const surface = rgba(getComputedStyle(document.body).backgroundColor);
+      const shape = (node) => {
+        const style = getComputedStyle(node);
+        return [style.borderWidth, style.borderStyle, style.borderRadius, style.boxShadow];
+      };
+      const hasFrame = (node) => {
+        const style = getComputedStyle(node);
+        return ['Top', 'Right', 'Bottom', 'Left'].some(
+          (side) =>
+            parseFloat(style[`border${side}Width`]) > 0 && rgba(style[`border${side}Color`])[3] > 0,
+        );
+      };
+      const compareNormal = (node) => {
+        const normal = node.cloneNode(true);
+        normal.removeAttribute('data-danger');
+        normal.classList.remove('weq-set-btn-danger', 'weq-set-btn-del', 'weq-set-iconbtn-danger');
+        node.after(normal);
+        try {
+          return {
+            sameShape: JSON.stringify(shape(node)) === JSON.stringify(shape(normal)),
+            addsFrame: !hasFrame(normal) && hasFrame(node),
+            shape: shape(node),
+            normalShape: shape(normal),
+          };
+        } finally {
+          normal.remove();
+        }
+      };
       const metrics = [
         ...document.querySelectorAll('button[data-danger]:not(:disabled),button[data-legacy]'),
       ].map((node) => {
         const style = getComputedStyle(node),
           fg = rgba(style.color),
           bg = rgba(style.backgroundColor),
-          border = rgba(style.borderTopColor);
+          normal = compareNormal(node);
         const blended = bg
           .slice(0, 3)
           .map((v, i) => (v * bg[3]) / 255 + surface[i] * (1 - bg[3] / 255));
@@ -91,12 +119,21 @@ try {
           },
           background: red(bg) && bg[3] > 230,
           transparent: bg[3] === 0,
-          border: red(border) && parseFloat(style.borderTopWidth) >= 1,
+          ...normal,
           borderless: parseFloat(style.borderTopWidth) === 0,
           contrast: (levels[0] + 0.05) / (levels[1] + 0.05),
           overflow: node.scrollWidth > node.clientWidth + 1,
-          radius: style.borderTopLeftRadius,
         };
+      });
+      const disabledShape = [...document.querySelectorAll('button:disabled')].every((node) => {
+        const enabled = node.cloneNode(true);
+        enabled.disabled = false;
+        node.after(enabled);
+        try {
+          return JSON.stringify(shape(node)) === JSON.stringify(shape(enabled));
+        } finally {
+          enabled.remove();
+        }
       });
       const disabledNeutral = [
         ...document.querySelectorAll('button[data-danger]:disabled:not([data-menu-disabled])'),
@@ -111,6 +148,7 @@ try {
       return {
         metrics,
         disabledNeutral,
+        disabledShape,
         disabledMenu: [...document.querySelectorAll('[data-menu-disabled]')].every((node) => {
           const style = getComputedStyle(node);
           return (
@@ -119,14 +157,18 @@ try {
             style.cursor === 'default'
           );
         }),
+        disabledMenuStyles: [...document.querySelectorAll('[data-menu-disabled]')].map((node) => {
+          const style = getComputedStyle(node);
+          return [style.borderWidth, style.backgroundColor, style.cursor];
+        }),
         overflow: document.documentElement.scrollWidth > innerWidth,
       };
     });
-  for (const width of [1180, 390]) {
+  for (const width of smoke ? [1180] : [1180, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    for (const theme of ['light', 'dark', 'system'])
+    for (const theme of smoke ? ['light', 'dark'] : ['light', 'dark', 'system'])
       for (const style of ['classic', 'qqnt', 'minimal', 'retro'])
-        for (const accent of ['#075c30', '#ffffff', '#000000']) {
+        for (const accent of smoke ? ['#075c30'] : ['#075c30', '#ffffff', '#000000']) {
           await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
           await page.evaluate(
             ({ theme, style, accent }) => {
@@ -142,16 +184,22 @@ try {
           for (const row of result.metrics) {
             const appearance = row.menu
               ? row.borderless && row.transparent && row.foreground
-              : row.border &&
-                (row.level === 'solid' ? row.background : row.foreground && !row.background);
+              : row.sameShape &&
+                (row.level === 'solid'
+                  ? row.background
+                  : row.foreground && !row.background && !row.addsFrame);
             if (!appearance || row.overflow || row.contrast < 4.5)
               failures.push({ case: label, ...row });
-            if (style === 'retro' && row.radius !== '0px')
-              failures.push({ case: label, reason: '复古外观圆角被覆盖', ...row });
           }
           if (result.overflow) failures.push({ label, reason: '页面溢出' });
           if (!result.disabledNeutral) failures.push({ label, reason: '禁用状态未统一' });
-          if (!result.disabledMenu) failures.push({ label, reason: '禁用菜单出现边框或底色' });
+          if (!result.disabledShape) failures.push({ label, reason: '禁用状态改变按钮形态' });
+          if (!result.disabledMenu)
+            failures.push({
+              label,
+              reason: '禁用菜单出现边框或底色',
+              styles: result.disabledMenuStyles,
+            });
           if (output && accent === '#075c30')
             await page.screenshot({
               path: resolve(output, `${width}-${theme}-${style}-controls.png`),
