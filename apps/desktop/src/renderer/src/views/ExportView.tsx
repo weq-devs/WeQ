@@ -1476,16 +1476,16 @@ function ExportToolBody({
     const formats = opts.formats && opts.formats.length > 0 ? opts.formats : [format];
     if (!targets.length || targets.some((target) => target.messageIds?.length === 0)) return;
     const precise = targets.some((target) => target.messageIds !== undefined);
+    const messageCompletion = targets.some((target) => target.messageIds === undefined);
     const effectiveOptions: ExportOptions = precise
       ? {
           ...options,
-          completeMessages: false,
           range: { preset: 'all', start: null, end: null },
         }
       : options;
     // 前置检查（补全消息 / 媒体补全确认 / 语音模型）与任务创建都走共用逻辑，
     // 聊天页顶栏的快捷导出灯箱用的是同一套。
-    const ok = await preflightChatExport(dialog, effectiveOptions);
+    const ok = await preflightChatExport(dialog, effectiveOptions, { messageCompletion });
     if (!ok) return;
     if (
       !(await preflightExportEstimate(
@@ -1510,7 +1510,7 @@ function ExportToolBody({
         targetCount: targets.length,
         exportAvatar: effectiveOptions.exportAvatar,
         dress: effectiveOptions.dress,
-        media: buildChatExportMedia(effectiveOptions),
+        media: buildChatExportMedia(effectiveOptions, { messageCompletion }),
       });
       if (!savePolicy) return;
       await startChatExportTasks(targets, effectiveOptions, formats, format, {
@@ -2804,6 +2804,11 @@ function ExportToolBody({
       {lightbox ? (
         <ExportLightbox
           allowContinuation={!initialSelection?.owner.forwardTarget}
+          localMessagesOnly={
+            lightbox === 'full' &&
+            convSelection.size > 0 &&
+            [...convSelection].every((id) => messageSelections[id] !== undefined)
+          }
           onAuthorizationChange={onAuthorizationChange}
           embedded
           hidden={editingList}

@@ -210,6 +210,7 @@ export function ExportLightbox({
   hidden = false,
   onEditList,
   scopeSummary,
+  localMessagesOnly = false,
   variant,
   headline,
   summary,
@@ -232,6 +233,7 @@ export function ExportLightbox({
   hidden?: boolean;
   onEditList?: () => void;
   scopeSummary?: string;
+  localMessagesOnly?: boolean;
   variant: LightboxVariant;
   headline: string;
   summary: string;
@@ -294,11 +296,17 @@ export function ExportLightbox({
   const [qqOnline, setQqOnline] = useState<boolean | null>(null);
   const [attachEnabled, setAttachEnabled] = useState<boolean | null>(null);
   const [voiceModelReady, setVoiceModelReady] = useState<boolean | null>(null);
+  const noMessageBackfill = variant === 'guild' || localMessagesOnly;
+  const authorizationOptions =
+    noMessageBackfill && opts.completeMessages ? { ...opts, completeMessages: false } : opts;
   /** 在线功能在确认导出时授权；选择开关本身不启动抓包。 */
-  const authorization = useExportAuthorization(opts, ['full', 'guild'].includes(variant));
+  const authorization = useExportAuthorization(
+    authorizationOptions,
+    ['full', 'guild'].includes(variant),
+  );
   const authorizationAction = useRef<() => void>(() => {});
   authorizationAction.current = () => {
-    void authorization.prepare(opts).then((value) => {
+    void authorization.prepare(authorizationOptions).then((value) => {
       if (value) setOpts(value);
     });
   };
@@ -345,11 +353,10 @@ export function ExportLightbox({
   const isQzone = variant === 'qzone';
   const wantQzonePosts = qzoneContent ? qzoneContent !== 'albums' : opts.qzonePosts !== false;
   const wantQzoneAlbums = qzoneContent ? qzoneContent !== 'posts' : Boolean(opts.qzoneAlbums);
-  const isGuild = variant === 'guild';
   const isScheduled = variant === 'scheduled';
   const isContacts = variant === 'contacts';
   const isMessageFlow = !isAlbum && !isQzone && !isContacts;
-  const contentPolicy = normalizeExportContent(opts.content, opts, isGuild);
+  const contentPolicy = normalizeExportContent(opts.content, opts, noMessageBackfill);
   const validationId = useId();
 
   /** 该变体可选的格式。 */
@@ -912,7 +919,7 @@ export function ExportLightbox({
                     ) : (
                       <ExportContentSelector
                         value={contentPolicy}
-                        guild={isGuild}
+                        localMessagesOnly={noMessageBackfill}
                         disabled={submitting || confirming || requestingFormat}
                         onChange={(content) => {
                           void changeContent(content);

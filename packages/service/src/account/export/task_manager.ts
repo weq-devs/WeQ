@@ -935,7 +935,7 @@ export class ExportTaskManager extends EventEmitter {
           task.marketpack ||
           task.completeAvatar ||
           media?.completeMedia ||
-          media?.completeMessages ||
+          (media?.completeMessages && task.filter?.messageIds === undefined) ||
           media?.completeDress ||
           media?.onlineTranscribe)) ||
         (network
@@ -1361,12 +1361,13 @@ export class ExportTaskManager extends EventEmitter {
       throw new Error('聊天记录导出必须锁定一条承载消息，请重新选择卡片。');
     if (opts.filter?.forwardTarget && opts.baselineDirectory)
       throw new Error('聊天记录卡片单独导出，不能合入会话归档。');
+    const localMessagesOnly =
+      opts.filter?.messageIds !== undefined ||
+      Boolean(opts.guild) ||
+      opts.kind === 'official' ||
+      opts.kind === 'service';
     if (opts.content && !opts.qzone && !opts.contacts && !opts.collection && !opts.generated) {
-      const content = normalizeExportContent(
-        opts.content,
-        {},
-        Boolean(opts.guild) || opts.kind === 'official' || opts.kind === 'service',
-      );
+      const content = normalizeExportContent(opts.content, {}, localMessagesOnly);
       if (!hasExportContent(content)) throw new Error('请至少选择一项导出内容。');
       const flags = exportContentFlags(content);
       opts = {
@@ -1390,7 +1391,7 @@ export class ExportTaskManager extends EventEmitter {
         },
       };
     }
-    if ((opts.kind === 'official' || opts.kind === 'service') && opts.media?.completeMessages) {
+    if (localMessagesOnly && opts.media?.completeMessages) {
       opts = { ...opts, media: { ...opts.media, completeMessages: false } };
     }
     const resourceOnly = opts.formats?.length === 0;
@@ -2385,6 +2386,14 @@ export class ExportTaskManager extends EventEmitter {
     const task = this.tasks.get(id);
     if (!task || task.status === 'cancelled') return;
 
+    // 旧版精确导出任务可能已保存会话补全选项及其阶段；续作时不再执行。
+    if (task.filter?.messageIds !== undefined) {
+      if (task.media?.completeMessages) task.media.completeMessages = false;
+      if (task.content?.messages === 'cloud') task.content.messages = 'local';
+      task.stages = task.stages.filter((stage) => stage.key !== 'backfill');
+      if (task.skippedStages?.includes('backfill'))
+        task.skippedStages = task.skippedStages.filter((key) => key !== 'backfill');
+    }
     task.status = 'running';
     task.partialReady = false;
     // 旧任务没有收尾阶段；续作时也必须重新校验本轮生成的文件。
@@ -6225,6 +6234,7 @@ export class ExportTaskManager extends EventEmitter {
 
   private canRetrySkippedStage(task: ExportTask, stage: TaskStage): boolean {
     if (stage.status !== 'skipped') return false;
+    if (stage.key === 'backfill' && task.filter?.messageIds !== undefined) return false;
     if (task.skippedStages?.includes(stage.key)) return Boolean(task.skippedStageOptions);
     if (stage.key === 'record') return task.media?.mediaKinds?.voice !== false;
     if (stage.key === 'ocrfilter') return Boolean(task.media?.ocrPrefilter);

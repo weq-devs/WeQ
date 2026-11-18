@@ -102,7 +102,7 @@ export function exportContentFromLegacy(value: LegacyExportContent): ExportConte
 export function normalizeExportContent(
   value: ExportContentInput | undefined,
   legacy: LegacyExportContent = {},
-  guild = false,
+  localMessagesOnly = false,
 ): ExportContentPolicy {
   const result = { ...exportContentFromLegacy(legacy), ...value };
   result.profiles =
@@ -112,7 +112,7 @@ export function normalizeExportContent(
       throw new Error('导出内容档位无效。');
   if (result.qqFaces === 'cloud') result.qqFaces = 'local';
   if (result.profiles === 'cloud') result.profiles = 'local';
-  if (guild && result.messages === 'cloud') result.messages = 'local';
+  if (localMessagesOnly && result.messages === 'cloud') result.messages = 'local';
   const details: Partial<ExportContentDetails> = {};
   for (const item of EXPORT_CONTENT_DETAILS) {
     const tier = value?.details?.[item.key] ?? (result[item.parent] === 'none' ? 'none' : 'local');
@@ -212,7 +212,7 @@ export function withoutStructuredContent(value: ExportContentPolicy): ExportCont
 }
 export function selectAllExportContent(
   tier: ExportContentTier,
-  guild = false,
+  localMessagesOnly = false,
 ): ExportContentPolicy {
   return normalizeExportContent(
     Object.fromEntries(EXPORT_CONTENT_KEYS.map((key) => [key, tier])) as Record<
@@ -220,19 +220,19 @@ export function selectAllExportContent(
       ExportContentTier
     >,
     {},
-    guild,
+    localMessagesOnly,
   );
 }
 export function selectExportContentGroup(
   value: ExportContentPolicy,
   key: ExportContentKey,
   tier: ExportContentTier,
-  guild = false,
+  localMessagesOnly = false,
 ): ExportContentPolicy {
   const details = { ...value.details };
   for (const item of EXPORT_CONTENT_DETAILS)
     if (item.parent === key) details[item.key] = tier === 'none' ? 'none' : 'local';
-  return normalizeExportContent({ ...value, [key]: tier, details }, {}, guild);
+  return normalizeExportContent({ ...value, [key]: tier, details }, {}, localMessagesOnly);
 }
 
 export function selectExportContentDetails(
@@ -255,11 +255,11 @@ export function exportContentDetailsTier(value: ExportContentPolicy): 'none' | '
 }
 export function exportContentAllTier(
   value: ExportContentPolicy,
-  guild = false,
+  localMessagesOnly = false,
 ): ExportContentTier | null {
   return (
     (['none', 'local', 'cloud'] as const).find((tier) => {
-      const expected = selectAllExportContent(tier, guild);
+      const expected = selectAllExportContent(tier, localMessagesOnly);
       return EXPORT_CONTENT_KEYS.every((key) => value[key] === expected[key]);
     }) ?? null
   );
