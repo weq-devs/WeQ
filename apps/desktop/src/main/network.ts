@@ -18,13 +18,15 @@ function chromiumHeaders(source: Record<string, string | string[] | undefined>):
   return headers;
 }
 
-function chromiumRead(url: string, method: string, headers: Headers, signal: AbortSignal) {
+function chromiumRead(url: string, source: Request, headers: Headers) {
   return new Promise<Response>((resolve, reject) => {
+    const { method, referrerPolicy, signal } = source;
     signal.throwIfAborted();
     const request = net.request({
       url,
       method,
       headers: Object.fromEntries(headers),
+      referrerPolicy: referrerPolicy || undefined,
       redirect: 'manual',
       credentials: 'omit',
       bypassCustomProtocolHandlers: true,
@@ -129,7 +131,7 @@ export const electronNetworkFetch: NetworkFetch = async (input, init) => {
   let url = request.url;
   const headers = new Headers(request.headers);
   for (let redirects = 0; redirects <= 20; redirects++) {
-    const response = await chromiumRead(url, request.method, headers, request.signal);
+    const response = await chromiumRead(url, request, headers);
     Object.defineProperties(response, {
       url: { value: url },
       redirected: { value: redirects > 0 },
@@ -149,6 +151,7 @@ export const electronNetworkFetch: NetworkFetch = async (input, init) => {
       headers.delete('authorization');
       headers.delete('cookie');
       headers.delete('proxy-authorization');
+      if (request.referrerPolicy === 'no-referrer-when-downgrade') headers.delete('referer');
     }
     url = next.toString();
   }

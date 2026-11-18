@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { createServer, request as httpRequest } from 'node:http';
 import { connect } from 'node:net';
 import { app, session } from 'electron';
+import { withNetworkTransport } from '@weq/network';
+import { webRequestJson } from '../../../../packages/service/src/account/web/http';
 import { electronNetworkFetch } from '../../src/main/network';
 
 const origin = createServer(async (request, response) => {
@@ -19,6 +21,7 @@ const origin = createServer(async (request, response) => {
       cookie: request.headers.cookie,
       authorization: request.headers.authorization,
       range: request.headers.range,
+      referer: request.headers.referer,
       body: Buffer.concat(chunks).toString('hex'),
     }),
   );
@@ -69,29 +72,42 @@ async function main() {
       proxyBypassRules: '<-loopback>',
     });
     const root = `http://127.0.0.1:${originPort}`;
+    const referer = 'http://source.invalid/space/profile';
     console.log('Checking Chromium GET transport');
-    const response = await electronNetworkFetch(`${root}/redirect`, {
-      signal: AbortSignal.timeout(10000),
-      headers: { Cookie: 'fixture=1', Range: 'bytes=2-', Authorization: 'Bearer fixture' },
-    });
-    assert.equal(response.url, `${root}/final`);
-    assert.deepEqual(await response.json(), {
+    const read = await withNetworkTransport(
+      async (input, init) => {
+        const response = await electronNetworkFetch(input, init);
+        assert.equal(response.url, `${root}/final`);
+        return response;
+      },
+      () =>
+        webRequestJson(`${root}/redirect`, {
+          timeoutMs: 10000,
+          cookie: 'fixture=1',
+          headers: { Range: 'bytes=2-', Authorization: 'Bearer fixture', Referer: referer },
+        }),
+    );
+    assert.deepEqual(read, {
       url: '/final',
       cookie: 'fixture=1',
       range: 'bytes=2-',
       authorization: 'Bearer fixture',
+      referer,
       body: '',
     });
     console.log('Checking Chromium POST transport');
-    const written = await electronNetworkFetch(`${root}/write`, {
-      signal: AbortSignal.timeout(10000),
-      method: 'POST',
-      headers: { Cookie: 'fixture=1', 'Content-Length': '3' },
-      body: new Uint8Array([0, 1, 255]),
-    });
-    assert.deepEqual(await written.json(), { url: '/write', cookie: 'fixture=1', body: '0001ff' });
+    const written = await withNetworkTransport(electronNetworkFetch, () =>
+      webRequestJson(`${root}/write`, {
+        timeoutMs: 10000,
+        method: 'POST',
+        cookie: 'fixture=1',
+        headers: { 'Content-Length': '3', Referer: referer },
+        body: new Uint8Array([0, 1, 255]),
+      }),
+    );
+    assert.deepEqual(written, { url: '/write', cookie: 'fixture=1', referer, body: '0001ff' });
     assert.ok(requests > 0);
-    console.log('Chromium 代理、Cookie、Authorization、Range、重定向最终地址及二进制请求通过');
+    console.log('Chromium 代理、Cookie、Referer、重定向及二进制请求通过');
   } catch (error) {
     console.error(error);
     app.exit(1);
