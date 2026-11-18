@@ -171,7 +171,7 @@ export const MEDIA_PRIVILEGED_SCHEME = {
 } as const;
 
 function notFound(reason: string): Response {
-  return new Response(reason, { status: 404 });
+  return new Response(reason, { status: 404, headers: { 'Cache-Control': 'no-store' } });
 }
 
 /**

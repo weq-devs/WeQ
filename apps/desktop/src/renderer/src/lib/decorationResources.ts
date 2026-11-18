@@ -1,11 +1,18 @@
-import { decorationImageCache, DECORATION_DECODE_LIMITS } from './decodedImageCache';
+import {
+  decorationImageCache,
+  DECORATION_DECODE_LIMITS,
+  DecodeCapacityError,
+} from './decodedImageCache';
 import { fontFaces, type FontLease } from './fontFaces';
+import { DecorationFrameFetchError } from './frameImageSize';
+import { InvalidDecorationFrameError } from '../../../shared/decoration_image';
 
 export function validDecorationFrames(count: number | undefined): count is number {
   return Number.isSafeInteger(count) && count! > 0 && count! <= DECORATION_DECODE_LIMITS.maxImages;
 }
 
 export function prepareDecorationFrames(urls: string[], signal: AbortSignal) {
+  let retryable = false;
   const loading = new AbortController();
   const abort = () => loading.abort();
   signal.addEventListener('abort', abort, { once: true });
@@ -20,7 +27,7 @@ export function prepareDecorationFrames(urls: string[], signal: AbortSignal) {
     !urls.length
       ? Promise.resolve()
       : urls.length > DECORATION_DECODE_LIMITS.maxImages
-        ? Promise.reject(new Error('装扮帧数超限'))
+        ? Promise.reject(new DecodeCapacityError('装扮帧数超限'))
         : Promise.all(urls.map((url) => decorationImageCache.require(url, loading.signal)))
   )
     .then(async () => {
@@ -30,11 +37,22 @@ export function prepareDecorationFrames(urls: string[], signal: AbortSignal) {
       }
       return !signal.aborted;
     })
-    .catch(() => {
+    .catch((error: unknown) => {
+      retryable =
+        !signal.aborted &&
+        !(error instanceof DecodeCapacityError) &&
+        !(error instanceof InvalidDecorationFrameError) &&
+        (!(error instanceof DecorationFrameFetchError) || error.retryable);
       release();
       return false;
     });
-  return { ready, release };
+  return {
+    ready,
+    release,
+    get retryable() {
+      return retryable;
+    },
+  };
 }
 
 /** 隐藏文档不预热/播放；静态规则和字体不动，避免恢复时改变消息几何。 */
@@ -46,7 +64,14 @@ export function manageDecorationAnimation(urls: string[], activate: () => () => 
   let deactivate: (() => void) | null = null;
   let disposed = false;
   let ready = Promise.resolve(true);
+  const retryDelays = [1000, 3000];
+  let retries = 0;
+  let failed = false;
+  let retryable = false;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
   const stop = () => {
+    if (retryTimer !== null) clearTimeout(retryTimer);
+    retryTimer = null;
     controller?.abort();
     controller = null;
     deactivate?.();
@@ -58,23 +83,47 @@ export function manageDecorationAnimation(urls: string[], activate: () => () => 
     if (disposed) return;
     if (document.visibilityState === 'hidden' || motion?.matches) {
       stop();
+      retries = 0;
+      failed = retryable = false;
       ready = Promise.resolve(true);
       return;
     }
-    if (controller) return;
+    if (controller || failed) return;
     const current = new AbortController();
     controller = current;
-    frames = prepareDecorationFrames(urls, current.signal);
-    ready = frames.ready.then((ok) => {
+    const loading = prepareDecorationFrames(urls, current.signal);
+    frames = loading;
+    ready = loading.ready.then((ok) => {
       if (disposed) return false;
-      if (current.signal.aborted) return true;
-      if (!ok) return false;
+      if (current.signal.aborted || controller !== current) return true;
+      if (!ok) {
+        controller = null;
+        frames = null;
+        loading.release();
+        failed = true;
+        retryable = loading.retryable;
+        if (retryable && retries < retryDelays.length && navigator.onLine !== false)
+          retryTimer = setTimeout(retry, retryDelays[retries]);
+        return false;
+      }
+      retries = 0;
+      failed = retryable = false;
       deactivate = activate();
       return true;
     });
   };
+  const retry = () => {
+    if (disposed || !failed || !retryable || retries >= retryDelays.length) return;
+    if (retryTimer !== null) clearTimeout(retryTimer);
+    retryTimer = null;
+    if (navigator.onLine === false) return;
+    retries++;
+    failed = false;
+    update();
+  };
   document.addEventListener('visibilitychange', update);
   motion?.addEventListener('change', update);
+  window.addEventListener('online', retry);
   update();
   return {
     get ready() {
@@ -85,6 +134,7 @@ export function manageDecorationAnimation(urls: string[], activate: () => () => 
       disposed = true;
       document.removeEventListener('visibilitychange', update);
       motion?.removeEventListener('change', update);
+      window.removeEventListener('online', retry);
       stop();
     },
   };
