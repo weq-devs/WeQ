@@ -281,8 +281,8 @@ export const RUNTIME_SETTING_FIELDS: readonly SettingField[] = [
   field('data-saver', 'preferences', 'data-saver', '省流量模式与行为', 'runtime'),
   field('rkey', 'enabled', 'external-rkey', '外部 RKEY 启用目标', 'runtime'),
   field('mcp', 'enabled', 'mcp-enabled', 'MCP 服务', 'runtime', { stopsService: true }),
-  field('onebot', 'enabled', 'onebot-enabled', 'OneBot 服务', 'runtime', { stopsService: true }),
-  field('onebot-servers', 'servers', 'onebot-servers', '网络服务器启用状态', 'runtime', {
+  // OneBot 配置按账号存，重置的是当前账号那一份（见 settings_reset）。
+  field('onebot', 'config', 'onebot-config', 'OneBot 网络配置', 'runtime', {
     stopsService: true,
   }),
   field('sse-targets', 'enabled', 'sse-targets', 'SSE 推送', 'runtime', { stopsService: true }),

@@ -269,21 +269,18 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   bind('mcp:enabled', current.mcp.enabled, defaults.mcp.enabled, () =>
     b.setMcpEnabled({ enabled: defaults.mcp.enabled }),
   );
-  bind('onebot:enabled', current.oneBot.enabled, defaults.oneBot.enabled, () =>
-    b.setOneBotEnabled({ enabled: defaults.oneBot.enabled }),
-  );
-  for (const [type, servers] of [
-    ['ws', current.oneBot.webSocketServers],
-    ['http', current.oneBot.httpServers],
-  ] as const) {
-    for (const server of servers)
-      bind(
-        'onebot-servers:servers',
-        server.enabled,
-        false,
-        () => b.setOneBotServerEnabled({ type, id: server.id, enabled: false }),
-        { id: `onebot-servers:${type}:${server.id}`, label: `${server.name} 启用状态` },
-      );
+  // OneBot 配置现在是**按账号**的（`oneBotByUin`），全局「恢复默认」不该清掉
+  // 某个账号的网络配置 —— 那是用户给那个号配的端口与令牌，跟着账号走才合理。
+  // 只把「当前账号」的这一份重置成空网络列表。
+  const currentUin = context.account?.context.uin;
+  if (currentUin && current.oneBotByUin[currentUin]) {
+    const empty = { networks: { wsServers: [], wsClients: [], httpServers: [], httpClients: [] } };
+    bind(
+      'onebot:config',
+      JSON.stringify(current.oneBotByUin[currentUin]),
+      JSON.stringify(empty),
+      () => b.saveOneBotConfig({ config: empty }),
+    );
   }
   bind('sse-targets:enabled', current.ssePush.enabledServerId, null, () =>
     b.setSsePushEnabled({ serverId: null }),

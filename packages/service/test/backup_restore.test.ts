@@ -166,12 +166,25 @@ it.each(['skip', 'overwrite'] as const)('OneBot API 配置冷启动恢复遵循 
     conflict,
   });
   expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
-  expect(read(join(f.root, 'config.json'))).toMatchObject({
-    settings: {
-      oneBot: conflict === 'skip' ? f.initial.settings.oneBot : incoming,
-      mcp: f.initial.settings.mcp,
-    },
-  });
+  // 备份里是**旧格式**的全局 `api.oneBot`；落盘时保留原键，等下次读取配置时
+  // 由 `normalizeOneBotByUin` 迁成 `oneBotByUin.legacy`（新格式、四类网络）。
+  // 这里只断言「旧备份没有被吞掉」，迁移本身在 onebot_config.test.ts 里覆盖。
+  const written = read(join(f.root, 'config.json')) as {
+    settings: { oneBot?: unknown; oneBotByUin?: unknown };
+  };
+  if (conflict === 'skip') {
+    expect(written.settings.oneBotByUin).toEqual(f.initial.settings.oneBotByUin);
+  } else {
+    expect(written.settings.oneBot).toMatchObject({
+      webSocketServers: [
+        expect.objectContaining({
+          name: '导入 WS',
+          port: 48767,
+          token: 'synthetic-imported-onebot',
+        }),
+      ],
+    });
+  }
 });
 
 function account(id: string, name: string) {

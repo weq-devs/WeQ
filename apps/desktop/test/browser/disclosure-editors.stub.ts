@@ -24,11 +24,28 @@ const data: Record<string, unknown> = {
     ssePush: { servers, enabledServerId: null, debounceMs: 2000, massThreshold: 50 },
   },
   'bootstrap.getOneBotStatus': {
-    enabled: false,
-    running: false,
-    clients: 0,
+    uin: '10001',
     accountOpen: true,
-    servers,
+    enabled: true,
+    config: {
+      networks: {
+        // 浏览器测试只需要一张能编辑的卡片；其余三类留空，页面照样要渲染出
+        // 四个分区（这是「四类网络都在」的回归点）。
+        wsServers: Array.from({ length: 10 }, (_, index) => ({
+          name: `合成服务器 ${index + 1}`,
+          port: 10800 + index,
+          enabled: true,
+          messageFormat: 'array',
+          reportSelfMessage: true,
+          accessToken: 'synthetic-token',
+        })),
+        wsClients: [],
+        httpServers: [],
+        httpClients: [],
+      },
+    },
+    listeners: [],
+    daemonCheck: null,
   },
   'account.getAccountConfig': { uin: '10001', configId: 'fixture' },
   'account.getGroupAlbumAccessState': {

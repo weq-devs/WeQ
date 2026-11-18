@@ -136,7 +136,7 @@ describe('分级恢复默认', () => {
           cards.has(field.card) &&
           field.scope === '全局' &&
           !field.desktopOnly &&
-          field.id !== 'onebot-servers:servers',
+          field.id !== 'onebot:config',
       ))
         expect(
           preview.items.some((item) => item.id === field.id),

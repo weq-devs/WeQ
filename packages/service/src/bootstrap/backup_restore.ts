@@ -684,9 +684,13 @@ function configPlan(
       settings.mcp = base.mcp;
       skipped.push('api:mcp');
     }
-    if (value.oneBot !== undefined && base.oneBot !== undefined && choice.conflict === 'skip') {
-      settings.oneBot = base.oneBot;
-      skipped.push('api:oneBot');
+    if (
+      value.oneBotByUin !== undefined &&
+      base.oneBotByUin !== undefined &&
+      choice.conflict === 'skip'
+    ) {
+      settings.oneBotByUin = base.oneBotByUin;
+      skipped.push('api:oneBotByUin');
     }
   }
   if (shared) {

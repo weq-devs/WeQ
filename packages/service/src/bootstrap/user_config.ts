@@ -28,6 +28,13 @@ import {
 import { mkdir, rm } from 'node:fs/promises';
 import { clearDressSharedFiles } from './storage_cleanup';
 import { join, basename } from 'node:path';
+import type {
+  ControlHttpClient,
+  ControlHttpServer,
+  ControlOneBotConfig,
+  ControlWsClient,
+  ControlWsServer,
+} from '@weqbot/control';
 import type { Platform } from '@weq/platform';
 import {
   DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES,
@@ -469,119 +476,165 @@ function normalizeSsePushServers(value: unknown): SsePushServerConfig[] {
   return value.filter(isSsePushServerConfig);
 }
 
-function normalizeOneBotPort(value: unknown): number | null {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1024 && value <= 65535
-    ? value
-    : null;
-}
-
-function normalizeOneBotWebSocketServers(value: unknown): OneBotWebSocketServerConfig[] {
-  if (!Array.isArray(value)) return [];
-  const ids = new Set<string>();
-  return value.flatMap((entry) => {
-    if (!entry || typeof entry !== 'object') return [];
-    const item = entry as Partial<OneBotWebSocketServerConfig>;
-    const port = normalizeOneBotPort(item.port);
-    if (
-      typeof item.id !== 'string' ||
-      !item.id ||
-      ids.has(item.id) ||
-      typeof item.name !== 'string' ||
-      typeof item.enabled !== 'boolean' ||
-      port === null ||
-      typeof item.token !== 'string'
-    )
-      return [];
-    ids.add(item.id);
-    return [
-      {
-        id: item.id,
-        name: item.name,
-        enabled: item.enabled,
-        port,
-        token: item.token,
-      },
-    ];
-  });
-}
-
-function normalizeOneBotHttpServers(value: unknown): OneBotHttpServerConfig[] {
-  if (!Array.isArray(value)) return [];
-  const ids = new Set<string>();
-  return value.flatMap((entry) => {
-    if (!entry || typeof entry !== 'object') return [];
-    const item = entry as Partial<OneBotHttpServerConfig>;
-    const port = normalizeOneBotPort(item.port);
-    if (
-      typeof item.id !== 'string' ||
-      !item.id ||
-      ids.has(item.id) ||
-      typeof item.name !== 'string' ||
-      typeof item.enabled !== 'boolean' ||
-      port === null ||
-      typeof item.token !== 'string' ||
-      typeof item.enableCors !== 'boolean'
-    )
-      return [];
-    ids.add(item.id);
-    return [
-      {
-        id: item.id,
-        name: item.name,
-        enabled: item.enabled,
-        port,
-        token: item.token,
-        enableCors: item.enableCors,
-      },
-    ];
-  });
-}
-
+/**
+ * 校验并兼容旧格式。
+ *
+ * 三种输入都要认：
+ *   1. 新格式（与 weqbot kernel 同形）
+ *   2. 旧旧格式：单条 `port` / `token` + `enabled`
+ *   3. 旧格式：`webSocketServers` / `httpServers` 两组、且每条带 `id` / `enableCors`
+ *
+ * 迁移只在读取时做，写回后就是新格式。
+ */
 function normalizeOneBotConfig(
-  value: DeepPartial<OneBotConfig> | undefined,
+  value: DeepPartial<OneBotConfig> | LegacyOneBotConfig | undefined,
   fallback: OneBotConfig,
 ): OneBotConfig {
-  const raw = value as
-    | (DeepPartial<OneBotConfig> & {
-        port?: unknown;
-        token?: unknown;
-      })
-    | undefined;
-  const hasServerLists = Array.isArray(raw?.webSocketServers) || Array.isArray(raw?.httpServers);
-  const hasLegacyFields =
-    raw !== undefined && (Object.hasOwn(raw, 'port') || Object.hasOwn(raw, 'token'));
-  if (hasServerLists && !hasLegacyFields) {
+  if (!value || typeof value !== 'object') return fallback;
+  const raw = value as Record<string, unknown>;
+
+  if (isNetworksShaped(raw)) {
     return {
-      enabled: typeof raw?.enabled === 'boolean' ? raw.enabled : fallback.enabled,
-      webSocketServers: Array.isArray(raw?.webSocketServers)
-        ? normalizeOneBotWebSocketServers(raw.webSocketServers)
-        : fallback.webSocketServers,
-      httpServers: Array.isArray(raw?.httpServers)
-        ? normalizeOneBotHttpServers(raw.httpServers)
-        : fallback.httpServers,
+      networks: {
+        wsServers: normalizeNetworkList(raw.networks.wsServers, 'wsServers'),
+        wsClients: normalizeNetworkList(raw.networks.wsClients, 'wsClients'),
+        httpServers: normalizeNetworkList(raw.networks.httpServers, 'httpServers'),
+        httpClients: normalizeNetworkList(raw.networks.httpClients, 'httpClients'),
+      },
+      ...(raw.qzone === false ? { qzone: false } : {}),
+      ...(typeof raw.qzoneDomain === 'string' ? { qzoneDomain: raw.qzoneDomain } : {}),
     };
   }
 
-  const legacy = fallback.webSocketServers[0] ?? {
-    id: 'ws-default',
-    name: 'WebSocket 服务器',
-    enabled: false,
-    port: DEFAULT_SERVICE_PORTS['onebot-ws'],
-    token: '',
+  // 旧格式：全部迁进 `networks`，不丢用户已经配好的端口 / 令牌。
+  // 旧条目用的是 `token` / `id` / `enableCors`，不是新 DTO 的 `accessToken`。
+  type LegacyServer = {
+    id?: string;
+    name?: string;
+    enabled?: boolean;
+    port?: number;
+    token?: string;
+    enableCors?: boolean;
   };
-  const port = normalizeOneBotPort(raw?.port) ?? legacy.port;
+  const legacyWs = Array.isArray(raw.webSocketServers)
+    ? (raw.webSocketServers as LegacyServer[])
+    : [];
+  const legacyHttp = Array.isArray(raw.httpServers) ? (raw.httpServers as LegacyServer[]) : [];
+  const legacySingle = typeof raw.port === 'number' || typeof raw.token === 'string';
+
+  const wsServers: ControlWsServer[] = legacySingle
+    ? [
+        {
+          name: typeof raw.name === 'string' ? raw.name : 'WebSocket 服务器',
+          enabled: raw.enabled !== false,
+          port: typeof raw.port === 'number' ? raw.port : DEFAULT_SERVICE_PORTS['onebot-ws'],
+          accessToken: typeof raw.token === 'string' ? raw.token : undefined,
+          messageFormat: 'array',
+          reportSelfMessage: true,
+        },
+      ]
+    : legacyWs.map((item) => ({
+        name: typeof item.name === 'string' ? item.name : 'WebSocket 服务器',
+        enabled: item.enabled !== false,
+        port: typeof item.port === 'number' ? item.port : DEFAULT_SERVICE_PORTS['onebot-ws'],
+        ...(typeof item.token === 'string' && item.token ? { accessToken: item.token } : {}),
+        messageFormat: 'array',
+        reportSelfMessage: true,
+      }));
+
+  const httpServers: ControlHttpServer[] = legacyHttp.map((item) => ({
+    name: typeof item.name === 'string' ? item.name : 'HTTP 服务器',
+    enabled: item.enabled !== false,
+    port: typeof item.port === 'number' ? item.port : DEFAULT_SERVICE_PORTS['onebot-http'],
+    ...(typeof item.token === 'string' && item.token ? { accessToken: item.token } : {}),
+    messageFormat: 'array',
+    reportSelfMessage: true,
+  }));
+
   return {
-    enabled: typeof raw?.enabled === 'boolean' ? raw.enabled : fallback.enabled,
-    webSocketServers: [
-      {
-        ...legacy,
-        enabled: typeof raw?.enabled === 'boolean' ? raw.enabled : legacy.enabled,
-        port,
-        token: typeof raw?.token === 'string' ? raw.token : legacy.token,
-      },
-    ],
-    httpServers: fallback.httpServers,
+    networks: { wsServers, wsClients: [], httpServers, httpClients: [] },
   };
+}
+
+interface LegacyOneBotConfig {
+  enabled?: boolean;
+  port?: number;
+  token?: string;
+  name?: string;
+  webSocketServers?: unknown[];
+  httpServers?: unknown[];
+}
+
+function isNetworksShaped(
+  raw: Record<string, unknown>,
+): raw is Record<string, unknown> & { networks: Record<string, unknown> } {
+  const networks = raw.networks;
+  if (!networks || typeof networks !== 'object' || Array.isArray(networks)) return false;
+  return ['wsServers', 'wsClients', 'httpServers', 'httpClients'].every((key) =>
+    Array.isArray((networks as Record<string, unknown>)[key]),
+  );
+}
+
+function normalizeNetworkList<T>(value: unknown, label: string): T[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  return value.flatMap((entry, index) => {
+    if (!entry || typeof entry !== 'object') return [];
+    const item = entry as Record<string, unknown>;
+    if (typeof item.name !== 'string' || !item.name.trim()) return [];
+    // 同名会导致页面上两张卡片无法区分，也拿不到运行状态 —— 直接丢弃重复项。
+    if (seen.has(item.name)) return [];
+    seen.add(item.name);
+    if (label === 'wsServers' || label === 'httpServers') {
+      if (typeof item.port !== 'number' || !Number.isSafeInteger(item.port)) return [];
+    } else if (typeof item.url !== 'string' || !item.url.trim()) {
+      return [];
+    }
+    void index;
+    return [item as T];
+  });
+}
+
+/**
+ * 按账号的 OneBot 配置。
+ *
+ * 兼容两代旧格式：
+ *   - `oneBot`（全局一份，2026-11-19 之前的唯一形态）→ 迁到 `"legacy"` 键下，
+ *     由调用方在打开账号时提升到该账号。
+ *   - 每个值自己的格式迁移走 {@link normalizeOneBotConfig}。
+ */
+function normalizeOneBotByUin(
+  value: unknown,
+  legacyGlobal: DeepPartial<OneBotConfig> | LegacyOneBotConfig | undefined,
+  fallback: Record<string, OneBotConfig>,
+): Record<string, OneBotConfig> {
+  const out: Record<string, OneBotConfig> = {};
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    for (const [uin, config] of Object.entries(value as Record<string, unknown>)) {
+      if (!/^\d{5,20}$/.test(uin)) continue;
+      out[uin] = normalizeOneBotConfig(
+        config as DeepPartial<OneBotConfig> | LegacyOneBotConfig,
+        EMPTY_ONEBOT_CONFIG,
+      );
+    }
+  }
+  // 旧版全局配置：没有按账号的条目时保留下来，避免升级后配置凭空消失。
+  if (legacyGlobal !== undefined && Object.keys(out).length === 0) {
+    const migrated = normalizeOneBotConfig(legacyGlobal, EMPTY_ONEBOT_CONFIG);
+    if (hasOneBotNetworks(migrated)) out.legacy = migrated;
+  }
+  return Object.keys(out).length > 0 ? out : fallback;
+}
+
+const EMPTY_ONEBOT_CONFIG: OneBotConfig = {
+  networks: { wsServers: [], wsClients: [], httpServers: [], httpClients: [] },
+};
+
+function hasOneBotNetworks(config: OneBotConfig): boolean {
+  const { wsServers, wsClients, httpServers, httpClients } = config.networks;
+  return (
+    wsServers.length > 0 || wsClients.length > 0 || httpServers.length > 0 || httpClients.length > 0
+  );
 }
 
 export interface VoiceTranscribeConfig {
@@ -651,38 +704,26 @@ export interface McpServerConfig {
   token: string;
 }
 
-/** 一条 OneBot v11 正向 WebSocket 服务器配置。 */
-export interface OneBotWebSocketServerConfig {
-  /** 稳定 id，用于列表增删与运行状态对应。 */
-  id: string;
-  name: string;
-  enabled: boolean;
-  port: number;
-  token: string;
-}
+/** 一条 OneBot v11 正向 WebSocket 服务器配置（与 `@weqbot/onebot` 同形）。 */
+export type OneBotWebSocketServerConfig = ControlWsServer;
+
+/** 一条 OneBot v11 反向 WebSocket 客户端配置。 */
+export type OneBotWebSocketClientConfig = ControlWsClient;
 
 /** 一条 OneBot v11 HTTP API 服务器配置。 */
-export interface OneBotHttpServerConfig {
-  id: string;
-  name: string;
-  enabled: boolean;
-  port: number;
-  token: string;
-  /** 浏览器端调用时允许跨域；仅影响 HTTP 服务器。 */
-  enableCors: boolean;
-}
+export type OneBotHttpServerConfig = ControlHttpServer;
+
+/** 一条 OneBot v11 HTTP 上报配置。 */
+export type OneBotHttpClientConfig = ControlHttpClient;
 
 /**
- * 当前在线账号的 OneBot v11 服务配置。
+ * 一个账号的 OneBot v11 配置。
  *
- * `enabled` 是 OneBot 总线总开关；具体监听器由两组数组内的 `enabled`
- * 独立控制。旧版单 WS 配置在读取时会迁移到 `webSocketServers[0]`。
+ * 形状与 `@weqbot/onebot` 的 `OneBotConfig` 完全一致 —— WeQ 只负责编辑与保存，
+ * 真正的执行在 weqbot daemon 里（见 `bot_runtime`）。所以这里不再有自己的
+ * 字段名，直接复用 kernel 的 DTO，避免两侧映射漂移。
  */
-export interface OneBotConfig {
-  enabled: boolean;
-  webSocketServers: OneBotWebSocketServerConfig[];
-  httpServers: OneBotHttpServerConfig[];
-}
+export type OneBotConfig = ControlOneBotConfig;
 
 /**
  * WeQ 助手 config. When enabled (and an account is open) we fabricate a built-in
@@ -784,7 +825,13 @@ export interface AppSettings {
   /** 本地图片文字识别（OCR）的模型选择。 */
   ocr: OcrModelsConfig;
   mcp: McpServerConfig;
-  oneBot: OneBotConfig;
+  /**
+   * 按账号存的 OneBot 配置。
+   *
+   * 网络配置天然属于账号（端口、令牌、要连的客户端都跟着这个号走），用一份全局
+   * 配置在切号时会把 A 号的端口套到 B 号上。键是 uin。
+   */
+  oneBotByUin: Record<string, OneBotConfig>;
   weqAssistant: WeqAssistantConfig;
   agentLab: AgentLabSettings;
   aiImages: AiImagePreferences;
@@ -1173,19 +1220,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   // 8765 在 Windows 上常被百度输入法等占用，默认改用不常冲突的高端口；
   // 即便仍冲突，启动时也会自动向上探测可用端口（见 mcp/server.ts）。
   mcp: { enabled: false, port: DEFAULT_SERVICE_PORTS.mcp, token: '' },
-  oneBot: {
-    enabled: false,
-    webSocketServers: [
-      {
-        id: 'ws-default',
-        name: 'WebSocket 服务器',
-        enabled: false,
-        port: DEFAULT_SERVICE_PORTS['onebot-ws'],
-        token: '',
-      },
-    ],
-    httpServers: [],
-  },
+  oneBotByUin: {},
   // 20000+ 不常用端口；若被占用，宿主内的助手资源服务自动向上探测。
   weqAssistant: { enabled: false, port: DEFAULT_SERVICE_PORTS['weq-assistant'] },
   agentLab: {
@@ -2063,7 +2098,11 @@ export class UserConfigService {
         port: s?.mcp?.port ?? d.mcp.port,
         token: s?.mcp?.token ?? d.mcp.token,
       },
-      oneBot: normalizeOneBotConfig(s?.oneBot, d.oneBot),
+      oneBotByUin: normalizeOneBotByUin(
+        s?.oneBotByUin,
+        (s as { oneBot?: unknown } | undefined)?.oneBot as never,
+        d.oneBotByUin,
+      ),
       weqAssistant: {
         enabled: s?.weqAssistant?.enabled ?? d.weqAssistant.enabled,
         port: s?.weqAssistant?.port ?? d.weqAssistant.port,
@@ -2268,7 +2307,11 @@ export class UserConfigService {
         port: patch.mcp?.port ?? current.mcp.port,
         token: patch.mcp?.token ?? current.mcp.token,
       },
-      oneBot: normalizeOneBotConfig({ ...current.oneBot, ...patch.oneBot }, current.oneBot),
+      oneBotByUin: normalizeOneBotByUin(
+        patch.oneBotByUin ?? current.oneBotByUin,
+        undefined,
+        current.oneBotByUin,
+      ),
       weqAssistant: {
         enabled: patch.weqAssistant?.enabled ?? current.weqAssistant.enabled,
         port: patch.weqAssistant?.port ?? current.weqAssistant.port,

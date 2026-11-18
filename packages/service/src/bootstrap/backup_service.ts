@@ -279,7 +279,7 @@ export class WeqBackupService {
         api.mcp.enabled ||
         Boolean(api.mcp.token) ||
         api.mcp.port !== DEFAULT_APP_SETTINGS.mcp.port ||
-        JSON.stringify(api.oneBot) !== JSON.stringify(DEFAULT_APP_SETTINGS.oneBot) ||
+        JSON.stringify(api.oneBotByUin) !== JSON.stringify(DEFAULT_APP_SETTINGS.oneBotByUin) ||
         api.externalRkey.servers.length > 0 ||
         api.ssePush.servers.length > 0,
       paths: weqDefaultsPaths(this.config.read()),

@@ -83,6 +83,7 @@
     "@weq/network": "workspace:*",
     "@weq/platform": "workspace:*",
     "@weqbot/protocol": "workspace:*",
+    "@weqbot/control": "workspace:*",
     "@weq/time": "workspace:*",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",

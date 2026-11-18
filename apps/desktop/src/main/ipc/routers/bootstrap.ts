@@ -44,8 +44,9 @@ import {
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
+import type { ControlOneBotListener, ControlOneBotConfig as OneBotConfig } from '@weqbot/control';
+import { botRuntime } from '../../bot_runtime';
 import { isMcpRunning } from '../../mcp/server';
-import { applyOneBot, oneBotStatus } from '../../onebot/runtime';
 import { assistantResourceServer } from '../../weq_assistant/server';
 import {
   installMcpAgents as installMcpAgentConfigs,
@@ -281,6 +282,77 @@ function storageRoots(): StorageRoot[] {
 }
 
 const storageRestartCandidates = new Map<string, string>();
+
+export /**
+ * 校验页面提交的 OneBot 配置。
+ *
+ * 只做**结构**校验（与 kernel 的 DTO 对齐），不做业务判断：端口是否被占用是
+ * daemon 的事，那一步的失败要如实回给页面（`ONEBOT_LISTEN_FAILED` + 具体网络），
+ * 而不是在这里提前猜。
+ *
+ * `accessToken: '***'` 表示「没改」，按 `name` 接回已存的令牌 —— 页面拿到的是
+ * 打码值，直接写回会把它变成字面量。
+ */
+function validateWeqOneBotConfig(value: unknown, uin: string): OneBotConfig {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('OneBot 配置必须是对象');
+  }
+  const record = value as Record<string, unknown>;
+  const networks = record.networks as Record<string, unknown> | undefined;
+  if (!networks || typeof networks !== 'object' || Array.isArray(networks)) {
+    throw new Error('OneBot 配置缺少 networks');
+  }
+  const previous = requireBootstrap().userConfig.getSettings().oneBotByUin[uin];
+  const normalize = (key: 'wsServers' | 'wsClients' | 'httpServers' | 'httpClients'): unknown[] => {
+    const list = networks[key];
+    if (list === undefined) return [];
+    if (!Array.isArray(list)) throw new Error(`networks.${key} 必须是数组`);
+    const seen = new Set<string>();
+    return list.map((item, index) => {
+      if (!item || typeof item !== 'object') {
+        throw new Error(`networks.${key}[${index}] 必须是对象`);
+      }
+      const row = { ...(item as Record<string, unknown>) };
+      if (typeof row.name !== 'string' || !row.name.trim()) {
+        throw new Error(`networks.${key}[${index}] 缺少 name`);
+      }
+      if (seen.has(row.name)) {
+        throw new Error(`networks.${key} 里有两个同名条目：${row.name}`);
+      }
+      seen.add(row.name);
+      if (row.accessToken === '***') {
+        const before = (
+          previous?.networks[key] as Array<Record<string, unknown>> | undefined
+        )?.find((candidate) => candidate.name === row.name);
+        if (typeof before?.accessToken === 'string') row.accessToken = before.accessToken;
+        else delete row.accessToken;
+      }
+      if (row.messageFormat !== 'array' && row.messageFormat !== 'string') {
+        row.messageFormat = 'array';
+      }
+      if (typeof row.reportSelfMessage !== 'boolean') row.reportSelfMessage = true;
+      if (key === 'wsServers' || key === 'httpServers') {
+        if (!Number.isSafeInteger(row.port)) {
+          throw new Error(`networks.${key}[${index}].port 必须是整数`);
+        }
+      } else if (typeof row.url !== 'string' || !row.url.trim()) {
+        throw new Error(`networks.${key}[${index}] 缺少 url`);
+      }
+      return row;
+    });
+  };
+
+  return {
+    networks: {
+      wsServers: normalize('wsServers'),
+      wsClients: normalize('wsClients'),
+      httpServers: normalize('httpServers'),
+      httpClients: normalize('httpClients'),
+    } as OneBotConfig['networks'],
+    ...(record.qzone === false ? { qzone: false } : {}),
+    ...(typeof record.qzoneDomain === 'string' ? { qzoneDomain: record.qzoneDomain } : {}),
+  };
+}
 
 export const bootstrapRouter = router({
   ...backupProcedures,
@@ -1529,228 +1601,69 @@ export const bootstrapRouter = router({
       return boot.linkPreview.cacheCover(input.url);
     }),
 
-  getOneBotStatus: procedure.query(() => {
-    const config = requireBootstrap().userConfig.getSettings().oneBot;
+  /**
+   * 当前账号的 OneBot 配置 + 运行时状态。
+   *
+   * 配置存在 WeQ 的 settings 里（`oneBotByUin[uin]`），**执行**在 weqbot daemon：
+   * 这里把两边合成一份给页面 —— `config` 是权威配置，`listeners` 是 daemon 里
+   * 真实的监听状态（端口可能因启动失败而缺席）。
+   */
+  getOneBotStatus: procedure.query(async () => {
     const ctx = getAppContext();
-    const live = oneBotStatus();
-    const liveById = new Map(live.servers.map((server) => [`${server.type}:${server.id}`, server]));
-    const servers = [
-      ...config.webSocketServers.map((server) => ({
-        ...server,
-        type: 'ws' as const,
-        enableCors: undefined,
-      })),
-      ...config.httpServers.map((server) => ({
-        ...server,
-        type: 'http' as const,
-      })),
-    ].map((server) => {
-      const running = liveById.get(`${server.type}:${server.id}`);
-      const port = running?.port ?? server.port;
-      return {
-        ...server,
-        port,
-        requestedPort: running?.requestedPort ?? server.port,
-        running: running?.running ?? false,
-        clients: running?.clients ?? 0,
-        error: running?.error,
-        url: server.type === 'ws' ? `ws://127.0.0.1:${port}` : `http://127.0.0.1:${port}`,
-      };
-    });
-    const defaultWs = servers.find((server) => server.type === 'ws' && server.enabled);
+    const uin = ctx.account?.context.uin ?? null;
+    const config = uin ? requireBootstrap().userConfig.getSettings().oneBotByUin[uin] : undefined;
+    const accountOpen = Boolean(ctx.account && !ctx.accountIsStatic);
+
+    let listeners: ControlOneBotListener[] = [];
+    let daemonCheck: string | null = null;
+    if (uin && accountOpen) {
+      try {
+        listeners = (await botRuntime.getOneBot(uin)).listeners;
+      } catch (cause) {
+        // daemon 起不来不是页面的致命错误：配置仍然可编辑，只是看不到实时状态。
+        daemonCheck = cause instanceof Error ? cause.message : String(cause);
+      }
+    }
+
     return {
-      enabled: config.enabled,
-      ...live,
-      servers,
-      accountOpen: Boolean(ctx.account && !ctx.accountIsStatic),
-      url: defaultWs?.url ?? '',
+      uin,
+      accountOpen,
+      enabled: Boolean(config),
+      config: config ?? null,
+      listeners,
+      daemonCheck,
     };
   }),
-  setOneBotEnabled: procedure
-    .input(z.object({ enabled: z.boolean() }))
+
+  /**
+   * 保存某个账号的 OneBot 配置并立即生效。
+   *
+   * `config: null` = 删掉这个账号的 OneBot 设置（daemon 侧会把网络全停）。
+   */
+  saveOneBotConfig: procedure
+    .input(z.object({ config: z.unknown().nullable() }))
     .mutation(async ({ input }) => {
       const userConfig = requireBootstrap().userConfig;
-      if (input.enabled) {
-        const config = userConfig.getSettings().oneBot;
-        userConfig.setSettings({
-          oneBot: {
-            enabled: true,
-            webSocketServers: config.webSocketServers.map((server) =>
-              server.token ? server : { ...server, token: randomBytes(32).toString('hex') },
-            ),
-            httpServers: config.httpServers.map((server) =>
-              server.token ? server : { ...server, token: randomBytes(32).toString('hex') },
-            ),
-          },
-        });
-      } else {
-        userConfig.setSettings({ oneBot: { enabled: false } });
+      const ctx = getAppContext();
+      const uin = ctx.account?.context.uin;
+      if (!uin) throw new Error('没有打开的账号，无法保存 OneBot 配置');
+
+      const validated = validateWeqOneBotConfig(input.config, uin);
+
+      // 先落盘再下发：下发失败时页面能明确说「配置已保存，但 daemon 起不来」，
+      // 而不是「保存失败」，让用户以为白改了。
+      userConfig.setSettings({ oneBotByUin: { [uin]: validated } });
+
+      if (ctx.account && !ctx.accountIsStatic) {
+        try {
+          const state = await botRuntime.setOneBot(uin, validated);
+          return { config: validated, listeners: state.listeners, daemonCheck: null };
+        } catch (cause) {
+          const message = cause instanceof Error ? cause.message : String(cause);
+          return { config: validated, listeners: [], daemonCheck: message };
+        }
       }
-      const config = userConfig.getSettings().oneBot;
-      await applyOneBot(getAppContext(), config);
-      return config;
-    }),
-  saveOneBotServer: procedure
-    .input(
-      z.object({
-        id: z.string().optional(),
-        type: z.enum(['ws', 'http']),
-        name: z.string().max(80),
-        enabled: z.boolean(),
-        port: z.number().int().min(1024).max(65535),
-        token: z.string().max(512),
-        enableCors: z.boolean().optional(),
-      }),
-    )
-    .mutation(async ({ input }) => {
-      const userConfig = requireBootstrap().userConfig;
-      const config = userConfig.getSettings().oneBot;
-      const list = input.type === 'ws' ? config.webSocketServers : config.httpServers;
-      const existing = input.id ? list.find((server) => server.id === input.id) : undefined;
-      if (input.id && !existing) throw new Error('OneBot 服务器不存在');
-      const token = input.token.trim() || existing?.token || randomBytes(32).toString('hex');
-      const name =
-        input.name.trim() ||
-        `${input.type === 'ws' ? 'WebSocket' : 'HTTP'} 服务器 ${list.length + 1}`;
-      if (input.type === 'ws') {
-        const next = existing
-          ? config.webSocketServers.map((server) =>
-              server.id === existing.id
-                ? { ...server, name, enabled: input.enabled, port: input.port, token }
-                : server,
-            )
-          : [
-              ...config.webSocketServers,
-              {
-                id: randomBytes(12).toString('hex'),
-                name,
-                enabled: input.enabled,
-                port: input.port,
-                token,
-              },
-            ];
-        userConfig.setSettings({ oneBot: { webSocketServers: next } });
-      } else {
-        const next = existing
-          ? config.httpServers.map((server) =>
-              server.id === existing.id
-                ? {
-                    ...server,
-                    name,
-                    enabled: input.enabled,
-                    port: input.port,
-                    token,
-                    enableCors: input.enableCors ?? server.enableCors,
-                  }
-                : server,
-            )
-          : [
-              ...config.httpServers,
-              {
-                id: randomBytes(12).toString('hex'),
-                name,
-                enabled: input.enabled,
-                port: input.port,
-                token,
-                enableCors: input.enableCors ?? true,
-              },
-            ];
-        userConfig.setSettings({ oneBot: { httpServers: next } });
-      }
-      const next = userConfig.getSettings().oneBot;
-      await applyOneBot(getAppContext(), next);
-      return next;
-    }),
-  deleteOneBotServer: procedure
-    .input(z.object({ id: z.string(), type: z.enum(['ws', 'http']) }))
-    .mutation(async ({ input }) => {
-      const userConfig = requireBootstrap().userConfig;
-      const config = userConfig.getSettings().oneBot;
-      if (input.type === 'ws')
-        userConfig.setSettings({
-          oneBot: {
-            webSocketServers: config.webSocketServers.filter((server) => server.id !== input.id),
-          },
-        });
-      else
-        userConfig.setSettings({
-          oneBot: { httpServers: config.httpServers.filter((server) => server.id !== input.id) },
-        });
-      const next = userConfig.getSettings().oneBot;
-      await applyOneBot(getAppContext(), next);
-      return next;
-    }),
-  setOneBotServerEnabled: procedure
-    .input(z.object({ id: z.string(), type: z.enum(['ws', 'http']), enabled: z.boolean() }))
-    .mutation(async ({ input }) => {
-      const userConfig = requireBootstrap().userConfig;
-      const config = userConfig.getSettings().oneBot;
-      if (input.type === 'ws')
-        userConfig.setSettings({
-          oneBot: {
-            webSocketServers: config.webSocketServers.map((server) =>
-              server.id === input.id
-                ? {
-                    ...server,
-                    enabled: input.enabled,
-                    token:
-                      input.enabled && !server.token
-                        ? randomBytes(32).toString('hex')
-                        : server.token,
-                  }
-                : server,
-            ),
-          },
-        });
-      else
-        userConfig.setSettings({
-          oneBot: {
-            httpServers: config.httpServers.map((server) =>
-              server.id === input.id
-                ? {
-                    ...server,
-                    enabled: input.enabled,
-                    token:
-                      input.enabled && !server.token
-                        ? randomBytes(32).toString('hex')
-                        : server.token,
-                  }
-                : server,
-            ),
-          },
-        });
-      const next = userConfig.getSettings().oneBot;
-      await applyOneBot(getAppContext(), next);
-      return next;
-    }),
-  regenerateOneBotServerToken: procedure
-    .input(z.object({ id: z.string(), type: z.enum(['ws', 'http']) }))
-    .mutation(async ({ input }) => {
-      const userConfig = requireBootstrap().userConfig;
-      const config = userConfig.getSettings().oneBot;
-      if (input.type === 'ws')
-        userConfig.setSettings({
-          oneBot: {
-            webSocketServers: config.webSocketServers.map((server) =>
-              server.id === input.id
-                ? { ...server, token: randomBytes(32).toString('hex') }
-                : server,
-            ),
-          },
-        });
-      else
-        userConfig.setSettings({
-          oneBot: {
-            httpServers: config.httpServers.map((server) =>
-              server.id === input.id
-                ? { ...server, token: randomBytes(32).toString('hex') }
-                : server,
-            ),
-          },
-        });
-      const next = userConfig.getSettings().oneBot;
-      await applyOneBot(getAppContext(), next);
-      return next;
+      return { config: validated, listeners: [], daemonCheck: null };
     }),
 
   // ---- MCP server (account-bound) ----

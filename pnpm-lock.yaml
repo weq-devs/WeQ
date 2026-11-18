@@ -692,6 +692,9 @@ importers:
       '@weq/time':
         specifier: workspace:*
         version: link:../time
+      '@weqbot/control':
+        specifier: workspace:*
+        version: link:../../vendor/weqbot/packages/control
       '@weqbot/protocol':
         specifier: workspace:*
         version: link:../../vendor/weqbot/packages/protocol
