@@ -350,11 +350,21 @@ it('视频预览具有模态语义、失败提示、重试及焦点归还', asyn
   expect(document.activeElement).toBe(trigger);
 });
 
-it('聊天视频从封面开始播放或失败重试后聚焦原生播放器', () => {
-  act(() => root.render(h(QqVideo, { data: {}, sendTimeMs: 1 })));
+it('聊天视频播放失败时保留放大预览，原地重试仍聚焦播放器', async () => {
+  act(() =>
+    root.render(h(Fragment, null, h(QqVideo, { data: {}, sendTimeMs: 1 }), h(MediaPreviewHost))),
+  );
+  const expand = button('放大预览视频');
   act(() => button('播放视频').click());
   expect(document.activeElement).toBe(host.querySelector('video'));
   send(host.querySelector('video')!, 'error');
+  expect(button('放大预览视频')).toBe(expand);
+  await act(async () => {
+    expand.click();
+    await vi.dynamicImportSettled();
+  });
+  expect(document.querySelector('[role="dialog"] video')).not.toBeNull();
+  act(() => button('关闭预览').click());
   act(() => button('重试加载视频').click());
   expect(document.activeElement).toBe(host.querySelector('video'));
 });

@@ -2,6 +2,25 @@
   font: inherit;
   text-align: inherit;
 }
+.qq-media-image-preview-wrap {
+  position: relative;
+  display: inline-grid;
+  max-width: 100%;
+}
+.qq-media-image-preview-wrap > button {
+  grid-area: 1 / 1;
+}
+.qq-media-image-preview-wrap > .qq-media-retry {
+  position: relative;
+  place-self: end;
+  margin: 4px;
+}
+button.qq-media-wrap {
+  cursor: zoom-in;
+}
+button.qq-media-wrap > :is(img, .qq-media-missing) {
+  pointer-events: none;
+}
 :is(.qq-media-wrap, .qq-mface-wrap, .qq-media-video).qq-media-action {
   padding: 0;
   border: 0;

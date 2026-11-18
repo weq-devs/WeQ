@@ -137,7 +137,7 @@ function QqMediaMissing({
   kind?: string;
 }) {
   return (
-    <div
+    <span
       className="qq-media-missing"
       style={style}
       role={onRetry ? 'group' : 'img'}
@@ -157,7 +157,7 @@ function QqMediaMissing({
           <RefreshCw size={16} aria-hidden />
         </button>
       ) : null}
-    </div>
+    </span>
   );
 }
 
@@ -281,30 +281,6 @@ export function QqImage({
     setBroken(false);
   }, [localPath, localPreviewUrl, originalProxySrc, cdnSrc, limited, proxySrc]);
 
-  if (broken) {
-    if (limited && !requested)
-      return (
-        <button
-          type="button"
-          className="qq-media-missing qq-media-deferred"
-          style={style}
-          disabled={!interactive}
-          onClick={retry}
-          onKeyDown={mediaKeyDown}
-          aria-label="加载图片"
-        >
-          点击加载图片
-        </button>
-      );
-    return (
-      <QqMediaMissing
-        label={isAnimatedEmoji ? '该表情' : '该图片'}
-        style={style}
-        onRetry={interactive ? retry : undefined}
-        kind={isAnimatedEmoji ? '表情' : '图片'}
-      />
-    );
-  }
   const openable = interactive;
   /** 服务端副本的到期时刻（ms），元素没带 TTL 时为 undefined。 */
   const ttlSeconds = num(data, 'fileTTL');
@@ -361,70 +337,88 @@ export function QqImage({
     );
   }
   const ImageControl = openable ? 'button' : 'span';
+  const previewSrc = broken || source === proxySrc ? originalProxySrc : source;
+  const kindLabel = isAnimatedEmoji ? '表情' : '图片';
+  const retryLabel = limited && !requested ? `加载${kindLabel}` : `重试加载${kindLabel}`;
   return (
-    // 外层包一层 relative 容器：ShimmerImage 的扫光占位（absolute inset 0）只
-    // 覆盖图片本身，不会铺满整条消息气泡；点击仍开灯箱。
-    <ImageControl
-      ref={(element) => {
-        actionRef.current = element;
-      }}
-      type={openable ? 'button' : undefined}
-      onKeyDown={openable ? mediaKeyDown : undefined}
-      aria-label={
-        openable ? `查看${isAnimatedEmoji ? '表情' : '图片'}${name ? `：${name}` : ''}` : undefined
-      }
-      className={cn('qq-media-wrap qq-media-action', isAnimatedEmoji && 'qq-media-wrap-emoji')}
-      data-favorite-emoji-source={originalProxySrc}
-      onClick={
-        openable
-          ? (event) => {
-              if (
-                galleryOpen?.(previewKey, event.currentTarget.ownerDocument, {
-                  src: source === proxySrc ? originalProxySrc : source,
-                  ocr: ocrContext,
-                  fallbackSources: [originalProxySrc, proxySrc],
-                })
-              )
-                return;
-              openMediaPreview({
-                items: [
-                  {
-                    key: source === proxySrc ? originalProxySrc : source,
-                    kind: 'image',
-                    src: source === proxySrc ? originalProxySrc : source,
-                    title: name || (isAnimatedEmoji ? '[表情]' : '[图片]'),
-                    ocr: ocrContext,
-                    fallbackSources: [
-                      ...candidates
-                        .slice(srcIndex + 1)
-                        .map((candidate) =>
-                          candidate === proxySrc ? originalProxySrc : candidate,
-                        ),
-                      proxySrc,
-                    ],
-                  },
-                ],
-                ownerDocument: event.currentTarget.ownerDocument,
-              });
-            }
-          : undefined
-      }
-    >
-      <ShimmerImage
-        suspendOffscreen
-        className={isAnimatedEmoji ? 'qq-media-mface' : 'qq-media-image'}
-        style={style}
-        src={src}
-        alt={isAnimatedEmoji ? '[动画表情]' : name || '[图片]'}
-        draggable={false}
-        loading="lazy"
-        decoding="async"
-        onError={() => {
-          if (srcIndex < candidates.length - 1) setSrcIndex((index) => index + 1);
-          else setBroken(true);
+    <span className="qq-media-image-preview-wrap">
+      {/* 缩略图换源或失败时保留同一个点击目标，避免按下后按钮被卸载。 */}
+      <ImageControl
+        ref={(element) => {
+          actionRef.current = element;
         }}
-      />
-    </ImageControl>
+        type={openable ? 'button' : undefined}
+        onKeyDown={openable ? mediaKeyDown : undefined}
+        aria-label={openable ? `查看${kindLabel}${name ? `：${name}` : ''}` : undefined}
+        className={cn('qq-media-wrap qq-media-action', isAnimatedEmoji && 'qq-media-wrap-emoji')}
+        data-favorite-emoji-source={originalProxySrc}
+        onClick={
+          openable
+            ? (event) => {
+                if (
+                  galleryOpen?.(previewKey, event.currentTarget.ownerDocument, {
+                    src: previewSrc,
+                    ocr: ocrContext,
+                    fallbackSources: [originalProxySrc, proxySrc],
+                  })
+                )
+                  return;
+                openMediaPreview({
+                  items: [
+                    {
+                      key: previewSrc,
+                      kind: 'image',
+                      src: previewSrc,
+                      title: name || (isAnimatedEmoji ? '[表情]' : '[图片]'),
+                      ocr: ocrContext,
+                      fallbackSources: [
+                        ...candidates
+                          .slice(srcIndex + 1)
+                          .map((candidate) =>
+                            candidate === proxySrc ? originalProxySrc : candidate,
+                          ),
+                        proxySrc,
+                      ],
+                    },
+                  ],
+                  ownerDocument: event.currentTarget.ownerDocument,
+                });
+              }
+            : undefined
+        }
+      >
+        {broken ? (
+          <QqMediaMissing label={`该${kindLabel}`} style={style} />
+        ) : (
+          <ShimmerImage
+            suspendOffscreen
+            className={isAnimatedEmoji ? 'qq-media-mface' : 'qq-media-image'}
+            style={style}
+            src={src}
+            alt={isAnimatedEmoji ? '[动画表情]' : name || '[图片]'}
+            draggable={false}
+            loading="lazy"
+            decoding="async"
+            onError={() => {
+              if (srcIndex < candidates.length - 1) setSrcIndex((index) => index + 1);
+              else setBroken(true);
+            }}
+          />
+        )}
+      </ImageControl>
+      {broken && openable ? (
+        <button
+          type="button"
+          className="qq-media-retry"
+          aria-label={retryLabel}
+          title={retryLabel}
+          onKeyDown={mediaKeyDown}
+          onClick={retry}
+        >
+          <RefreshCw size={16} aria-hidden />
+        </button>
+      ) : null}
+    </span>
   );
 }
 
@@ -511,26 +505,24 @@ export function QqVideo({
 
   // Original couldn't be located locally or downloaded → missing placeholder.
   // bubble mode: show templateName as label so the user knows what it was.
-  if (videoBroken) {
-    return (
-      <QqMediaMissing
-        label={bubble && templateName ? templateName : '该视频'}
-        style={style}
-        kind="视频"
-        onRetry={
-          interactive
-            ? () => {
-                focusPlayer.current = true;
-                setAttempt((value) => value + 1);
-                setVideoBroken(false);
-                setPlaying(true);
-                setLoading(true);
-              }
-            : undefined
-        }
-      />
-    );
-  }
+  const missingVideo = videoBroken ? (
+    <QqMediaMissing
+      label={bubble && templateName ? templateName : '该视频'}
+      style={style}
+      kind="视频"
+      onRetry={
+        interactive
+          ? () => {
+              focusPlayer.current = true;
+              setAttempt((value) => value + 1);
+              setVideoBroken(false);
+              setPlaying(true);
+              setLoading(true);
+            }
+          : undefined
+      }
+    />
+  ) : null;
 
   const videoSrc = mediaRetryUrl(
     resourceForRenderDocument(
@@ -553,6 +545,7 @@ export function QqVideo({
 
   // bubble mode: auto-play muted loop, no controls, fill the circle container.
   if (bubble) {
+    if (missingVideo) return missingVideo;
     return (
       <div className="qq-media-video" style={style} onKeyDown={mediaKeyDown}>
         <video
@@ -590,6 +583,15 @@ export function QqVideo({
       <Maximize size={17} />
     </button>
   ) : null;
+
+  if (missingVideo) {
+    return (
+      <div className="weq-video-preview-wrap">
+        {missingVideo}
+        {expandButton}
+      </div>
+    );
+  }
 
   // Click → play inline. The media protocol locates the original on disk or
   // completes it via OIDB (msgId + conv let the host resolve the download URL);

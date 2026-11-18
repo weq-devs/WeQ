@@ -99,6 +99,29 @@ it('原图尚未就绪时回退到气泡缩略图', async () => {
   expect(preview().src).toBe(interactiveMediaUrl(thumbnail));
 });
 
+it('缩略图在点击过程中失败，保留原按钮和独立的原图预览', async () => {
+  await mount({
+    fileName: 'image.png',
+    fileToken: 'slow-thumbnail',
+    imgWidth: 200,
+    imgHeight: 100,
+  });
+  const trigger = host.querySelector<HTMLButtonElement>('[aria-label="查看图片：image.png"]')!;
+  trigger.focus();
+  act(() => host.querySelector('img')!.dispatchEvent(new Event('error')));
+  act(() => host.querySelector('img')!.dispatchEvent(new Event('error')));
+  expect(trigger.isConnected).toBe(true);
+  expect(document.activeElement).toBe(trigger);
+  await act(async () => {
+    trigger.click();
+    await vi.dynamicImportSettled();
+  });
+  const source = new URL(preview().src);
+  expect(source.searchParams.get('token')).toBe('slow-thumbnail');
+  expect(source.searchParams.get('intent')).toBe('interactive');
+  expect(source.searchParams.has('v')).toBe(false);
+});
+
 it('发送完成或切换会话释放附件时，已打开的预览保留 Blob 到关闭', async () => {
   const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
   await mount({ fileName: 'image.png', localPreviewUrl: 'blob:pending-image' });

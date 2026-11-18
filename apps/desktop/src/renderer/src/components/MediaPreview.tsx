@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { ChevronLeft, ChevronRight, Copy, RefreshCw } from 'lucide-react';
 import { interactiveMediaUrl } from '../lib/resourceUrl';
+import { scheduleBackgroundLoad } from '../lib/backgroundLoad';
 import { MediaPreviewShell } from './MediaPreviewShell';
 import { MediaLoadStatus, MediaZoomControls, type MediaLoadState } from './MediaPreviewControls';
 import { mediaZoomKeyDown } from './MediaPreviewControls.shared';
@@ -100,7 +101,9 @@ export function MediaPreview(options: MediaPreviewOptions) {
       const request = pageRequest.current;
       pageLoading.current.set(direction, request);
       if (navigate) setPending(direction);
-      setPageErrors((previous) => previous.filter((entry) => entry !== direction));
+      setPageErrors((previous) =>
+        previous.includes(direction) ? previous.filter((entry) => entry !== direction) : previous,
+      );
       try {
         const page = await options.loadPage(direction);
         if (!live.current || request !== pageRequest.current) return;
@@ -132,12 +135,32 @@ export function MediaPreview(options: MediaPreviewOptions) {
     [items, options.loadPage],
   );
   useEffect(() => {
-    if (!options.prefetchAdjacent || currentIndex < 0) return;
-    // 提前准备邻项，空批次沿游标继续；未知或已到头的方向不冒充可点击媒体。
-    if (currentIndex <= 1 && older && !pageErrors.includes('older')) void readPage('older', false);
-    if (currentIndex >= items.length - 2 && newer && !pageErrors.includes('newer'))
-      void readPage('newer', false);
-  }, [options.prefetchAdjacent, currentIndex, items.length, older, newer, pageErrors, readPage]);
+    if (!active || !options.prefetchAdjacent || currentIndex < 0) return;
+    const before = currentIndex <= 1 && older && !pageErrors.includes('older');
+    const after = currentIndex >= items.length - 2 && newer && !pageErrors.includes('newer');
+    if (!before && !after) return;
+    // 先显示当前媒体，再在空闲时查邻项；空页沿游标续查也要让出交互时间。
+    const prefetch = () => {
+      if (before) void readPage('older', false);
+      if (after) void readPage('newer', false);
+    };
+    const view = ownerDocument.defaultView;
+    if (view && view !== window) {
+      const timer = view.setTimeout(prefetch, 150);
+      return () => view.clearTimeout(timer);
+    }
+    return scheduleBackgroundLoad(prefetch, 150);
+  }, [
+    active,
+    ownerDocument,
+    options.prefetchAdjacent,
+    currentIndex,
+    items.length,
+    older,
+    newer,
+    pageErrors,
+    readPage,
+  ]);
   async function move(direction: 'older' | 'newer') {
     if (pending) return;
     setPageNotice('');
