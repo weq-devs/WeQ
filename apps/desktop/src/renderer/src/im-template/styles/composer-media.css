@@ -2135,7 +2135,7 @@ html[data-theme='dark'] .ai-voice-chip {
   text-align: center;
 }
 
-.bounce-btn {
+:is(.bounce-btn, .poke-btn) {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
@@ -2154,19 +2154,19 @@ html[data-theme='dark'] .ai-voice-chip {
     transform 130ms ease;
 }
 
-.bounce-btn.primary {
+:is(.bounce-btn, .poke-btn).primary {
   background: var(--weq-accent-solid, #0099ff);
   color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-weight: 500;
   box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-solid, #0099ff) 32%, transparent);
 }
 
-.bounce-btn.primary:hover:not(:disabled) {
+:is(.bounce-btn, .poke-btn).primary:hover:not(:disabled) {
   filter: brightness(1.06);
   transform: translateY(-1px);
 }
 
-.bounce-btn.primary:disabled {
+:is(.bounce-btn, .poke-btn).primary:disabled {
   cursor: not-allowed;
   opacity: 0.46;
   box-shadow: none;
@@ -2383,39 +2383,7 @@ html[data-theme='dark'] .bounce-step {
 }
 
 .poke-btn {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 5px;
   margin-inline-start: auto;
-  padding: 6px 12px;
-  border: 0;
-  border-radius: 8px;
-  font-family: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
-  transition:
-    background 130ms ease,
-    color 130ms ease,
-    transform 130ms ease;
-}
-
-.poke-btn.primary {
-  background: var(--weq-accent-solid, #0099ff);
-  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
-  font-weight: 500;
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-solid, #0099ff) 32%, transparent);
-}
-
-.poke-btn.primary:hover:not(:disabled) {
-  filter: brightness(1.06);
-  transform: translateY(-1px);
-}
-
-.poke-btn.primary:disabled {
-  cursor: not-allowed;
-  opacity: 0.46;
-  box-shadow: none;
 }
 
 /* 深色下略微抬亮按钮底色，保留选中态的主题色。 */

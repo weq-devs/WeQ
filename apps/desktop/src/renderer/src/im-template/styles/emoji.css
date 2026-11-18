@@ -1,5 +1,4 @@
 .emoji-panel {
-  --emoji-panel-height: 344px;
   position: absolute;
   bottom: calc(100% - 1px);
   left: 12px;
@@ -7,7 +6,7 @@
   display: grid;
   width: min(420px, calc(100% - 28px));
   height: min(
-    var(--emoji-panel-height),
+    360px,
     calc(100dvh - var(--chat-header-height, 74px) - var(--composer-height, 190px) - 28px)
   );
   min-height: 260px;
@@ -18,10 +17,6 @@
   border-radius: 12px;
   background: var(--popover, #ffffff);
   box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16);
-}
-
-.emoji-panel:has(> .emoji-panel-body > .poke-panel) {
-  --emoji-panel-height: 360px;
 }
 
 .emoji-panel-header {
@@ -42,23 +37,10 @@
   line-height: 1.2;
 }
 
-.emoji-panel-header-close {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
+.emoji-header-actions {
+  display: flex;
+  align-items: center;
   margin-inline-start: auto;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--weq-fg-secondary);
-  cursor: pointer;
-}
-
-.emoji-panel-header-close:hover {
-  background: var(--muted);
-  color: var(--weq-fg-primary);
 }
 
 .emoji-panel-body {
@@ -66,6 +48,7 @@
   min-height: 0;
   padding: 14px 14px 12px;
   overflow: auto;
+  scrollbar-gutter: stable both-edges;
   scrollbar-color: color-mix(in srgb, var(--weq-fg-muted, #858585) 34%, transparent) transparent;
   scrollbar-width: thin;
 }
@@ -85,6 +68,7 @@
 .emoji-panel-body:has(> :is(.bounce-panel, .poke-panel)) {
   padding: 0;
   overflow: hidden;
+  scrollbar-gutter: auto;
 }
 
 .emoji-panel-body::-webkit-scrollbar {
@@ -154,11 +138,16 @@
   gap: 3px 4px;
 }
 
-.emoji-standard-grid {
+.emoji-standard-grid,
+.emoji-char-grid {
   grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
 }
-.emoji-standard-grid .emoji-cell {
+.emoji-standard-grid .emoji-cell,
+.emoji-char-grid .emoji-cell {
   width: 100%;
+}
+
+.emoji-standard-grid .emoji-cell {
   touch-action: pan-y;
   -webkit-touch-callout: none;
 }
@@ -167,8 +156,7 @@
 .kaomoji-grid button,
 .emoji-tabs button,
 .emoji-pack-card,
-.emoji-back-btn,
-.emoji-add-btn {
+.emoji-back-btn {
   border: 0;
   background: transparent;
   cursor: pointer;
@@ -211,16 +199,6 @@
   display: grid;
   place-items: center;
   color: var(--weq-fg-muted, #9a9aa2);
-}
-
-.emoji-char-grid {
-  grid-template-columns: repeat(auto-fill, 40px);
-  gap: 4px;
-}
-
-.emoji-char-grid .emoji-cell {
-  width: 40px;
-  height: 40px;
 }
 
 .emoji-char-grid .emoji-glyph {
@@ -311,24 +289,48 @@
   color: var(--weq-accent-effective, #12a8ff);
 }
 
-.emoji-add-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  flex: 0 0 auto;
-  margin-left: auto;
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: var(--weq-accent-solid, #12a8ff);
-  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
-  font-size: 12px;
-  font-weight: 500;
+.custom-emoji-tab {
+  display: flex;
+  min-width: 0;
+  min-height: 100%;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.emoji-add-btn:hover {
-  filter: brightness(1.06);
+.custom-emoji-upload {
+  display: grid;
+  flex: 1;
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 110px;
+  padding: 12px;
+  border: 1px dashed var(--weq-border-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
 }
 
+.custom-emoji-upload:hover:not(:disabled) {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
+}
+
+.custom-emoji-upload:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.custom-emoji-hint {
+  margin: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}
 .emoji-count {
   flex: 0 0 auto;
   margin-left: auto;
@@ -518,17 +520,22 @@ html[data-theme='dark'] .emoji-lb {
 
 .emoji-tabs button {
   display: grid;
-  width: 34px;
+  min-width: 32px;
   height: 34px;
-  flex: 0 0 auto;
+  flex: 1 0 0;
   place-items: center;
-  border-radius: 9px;
+  border-radius: 8px;
   color: var(--weq-fg-secondary, #666666);
 }
 
-.emoji-tabs button:hover {
+.emoji-tabs button:hover:not(:disabled) {
   background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 10%, transparent);
   color: var(--weq-accent-effective, #12a8ff);
+}
+
+.emoji-tabs button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .emoji-tabs button.active {

@@ -18,6 +18,7 @@ import { createPortal } from 'react-dom';
 import { useTabActive } from '../../components/RetainedTabs.shared';
 import { FavoriteBundleControls } from '../../components/qq-actions/FavoriteBundleControls';
 import { FavoritePickerTab } from '../../components/qq-actions/FavoritePickerTab';
+import { ActionIcon } from '../../components/qq-actions/shared';
 import {
   ArrowLeft,
   Heart,
@@ -27,7 +28,6 @@ import {
   Plus,
   Search,
   Smile,
-  Sparkles,
   Store,
   Type,
   X,
@@ -40,19 +40,10 @@ import { useOverlayLayer } from '../../lib/overlayStack';
 import { cn } from './classNames';
 import { BounceEmojiPanel, type BounceEmojiDraft } from './bounceEmojiPanel';
 import { PokeEmojiPanel, type PokeEmojiDraft, type RandomFaceDraft } from './pokeEmojiPanel';
-import { CustomEmojiTab, ShowEmojiTab } from './showEmojiTabs';
+import { CustomEmojiTab } from './customEmojiTab';
 import { marketFaceItem, systemFaceItem, unicodeFaceItem, type EmojiItem } from './emojiPacks';
 
-type TabId =
-  | 'face'
-  | 'super'
-  | 'unicode'
-  | 'market'
-  | 'fav'
-  | 'kaomoji'
-  | 'poke'
-  | 'custom'
-  | 'qqshow';
+type TabId = 'face' | 'super' | 'unicode' | 'market' | 'fav' | 'kaomoji' | 'poke' | 'custom';
 
 const TABS: Array<{ id: TabId; label: string; icon: typeof Smile }> = [
   { id: 'face', label: '表情', icon: Smile },
@@ -60,7 +51,6 @@ const TABS: Array<{ id: TabId; label: string; icon: typeof Smile }> = [
   { id: 'fav', label: '收藏', icon: Heart },
   { id: 'market', label: '商城表情', icon: Store },
   { id: 'poke', label: '互动表情', icon: Hand },
-  { id: 'qqshow', label: 'QQ 秀表情', icon: Sparkles },
   { id: 'custom', label: '自定义表情', icon: ImagePlus },
   { id: 'unicode', label: '字符表情', icon: Type },
   { id: 'kaomoji', label: '颜文字', icon: MessageSquareQuote },
@@ -103,8 +93,6 @@ export function EmojiPanel({
   onSendPoke,
   randomFaces,
   onSendRandom,
-  sendTarget,
-  onSentCustomEmoji,
   onInsertCustomEmoji,
   textOnly = false,
 }: {
@@ -119,16 +107,6 @@ export function EmojiPanel({
   onSendPoke?: (draft: PokeEmojiDraft) => void;
   randomFaces?: React.ComponentProps<typeof PokeEmojiPanel>['randomFaces'];
   onSendRandom?: (draft: RandomFaceDraft) => void;
-  /**
-   * 「QQ 秀表情」点选后直接发送，需要当前目标。
-   */
-  sendTarget?: {
-    peerType: 'c2c' | 'group';
-    targetId: string;
-    tempGroupCode?: string;
-  };
-  /** 发送成功后回调（宿主用来关面板 / 清理状态）。 */
-  onSentCustomEmoji?: () => void;
   onInsertCustomEmoji?: (file: File) => void;
   /** 纯文本会话不展示必须携带 QQ 媒体元素的表情来源。 */
   textOnly?: boolean;
@@ -195,25 +173,20 @@ export function EmojiPanel({
             }}
           />
         ) : tab === 'market' && !marketPackId ? (
-          <button
-            type="button"
-            className="emoji-add-btn"
-            title="搜索更多表情"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => setSearchOpen(true)}
-          >
-            <Plus size={15} /> 添加
-          </button>
+          <div className="emoji-header-actions">
+            <ActionIcon label="搜索更多表情" text="添加" onClick={() => setSearchOpen(true)}>
+              <Plus size={16} />
+            </ActionIcon>
+          </div>
         ) : bouncing || tab === 'poke' ? (
-          <button
-            type="button"
-            className="emoji-panel-header-close"
-            title="返回表情"
-            aria-label="返回表情"
-            onClick={() => (bouncing ? setBounceFace(null) : setTab('face'))}
-          >
-            <X size={15} />
-          </button>
+          <div className="emoji-header-actions">
+            <ActionIcon
+              label="返回表情"
+              onClick={() => (bouncing ? setBounceFace(null) : setTab('face'))}
+            >
+              <X size={16} />
+            </ActionIcon>
+          </div>
         ) : null}
       </header>
       <div className="emoji-panel-body" ref={bodyRef}>
@@ -286,17 +259,6 @@ export function EmojiPanel({
             disabledHint={disabledHint}
             onInsert={onInsertCustomEmoji}
           />
-        ) : tab === 'qqshow' ? (
-          <ShowEmojiTab
-            ctx={{
-              peerType: sendTarget?.peerType ?? 'c2c',
-              targetId: sendTarget?.targetId ?? '',
-              ...(sendTarget?.tempGroupCode ? { tempGroupCode: sendTarget.tempGroupCode } : {}),
-              disabled: Boolean(disabled) || !sendTarget,
-              disabledHint: sendTarget ? (disabledHint ?? '') : '请先选择一个会话',
-            }}
-            onSent={() => onSentCustomEmoji?.()}
-          />
         ) : (
           <KaomojiGrid onSelect={onSelect} />
         )}
@@ -308,9 +270,7 @@ export function EmojiPanel({
             ? Boolean(onSendPoke)
             : id === 'custom'
               ? Boolean(onInsertCustomEmoji)
-              : id === 'qqshow'
-                ? Boolean(sendTarget)
-                : true,
+              : true,
         ).map(({ id, label, icon: Icon }) => (
           <button
             key={id}

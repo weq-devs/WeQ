@@ -910,20 +910,7 @@ export function ChatPane({
   // 桌面沿用收纳偏好；手机输入区常驻，但进入会话不自动聚焦。
   const [composerCollapsed, setComposerCollapsed] = useState(loadComposerCollapsed);
   const [emojiOpen, setEmojiOpen] = useState(false);
-  /**
-   * 「自定义表情」/「QQ 秀表情」两栏的发送目标。
-   *
-   * 这两栏点选即发（不像其它表情插进输入框），所以要把当前会话的 peerType /
-   * targetId 传下去。群临时会话（`generated` 之外）这里不涉及 —— 面板只挂在
-   * 正常会话的输入框上。
-   */
-  const emojiSendTarget = conversation
-    ? conversation.type === 'group'
-      ? { peerType: 'group' as const, targetId: conversation.group.identityValue }
-      : conversation.type === 'direct'
-        ? { peerType: 'c2c' as const, targetId: conversation.otherUser.identityValue }
-        : null
-    : null;
+  const canInsertCustomEmoji = conversation?.type === 'group' || conversation?.type === 'direct';
   const [composerMenu, setComposerMenu] = useState<{
     kind: 'file';
     x: number;
@@ -1032,11 +1019,6 @@ export function ChatPane({
     staleTime: 5 * 60_000,
   });
   const pushToast = useToast((state) => state.push);
-  /** 发完一条自定义 / QQ 秀表情后收起面板，与其它「单独发」的交互一致。 */
-  const closeEmojiPanelAfterSend = useCallback(() => {
-    setEmojiOpen(false);
-    pushToast({ tone: 'success', title: '表情已发送' });
-  }, [pushToast]);
   // 语音 / TTS 能力由「设置 → 语音配置」决定：没配转录模型就没有转文字，没配 TTS
   // 服务商时文字转语音显示未配置状态。
   const mediaSettings = trpc.bootstrap.getSettings.useQuery(undefined, {
@@ -7209,10 +7191,8 @@ export function ChatPane({
               onSelect={insertEmoji}
               onSelectSuper={stageSuperEmoji}
               {...specialEmojiProps}
-              {...(emojiSendTarget ? { sendTarget: emojiSendTarget } : {})}
-              onSentCustomEmoji={closeEmojiPanelAfterSend}
               onInsertCustomEmoji={
-                emojiSendTarget ? (file) => void addFiles([file], 'emoji') : undefined
+                canInsertCustomEmoji ? (file) => void addFiles([file], 'emoji') : undefined
               }
               textOnly={restrictedSource}
             />
@@ -7614,10 +7594,8 @@ export function ChatPane({
                 onSelect={insertEmoji}
                 onSelectSuper={stageSuperEmoji}
                 {...specialEmojiProps}
-                {...(emojiSendTarget ? { sendTarget: emojiSendTarget } : {})}
-                onSentCustomEmoji={closeEmojiPanelAfterSend}
                 onInsertCustomEmoji={
-                  emojiSendTarget ? (file) => void addFiles([file], 'emoji') : undefined
+                  canInsertCustomEmoji ? (file) => void addFiles([file], 'emoji') : undefined
                 }
                 textOnly={restrictedSource}
               />
