@@ -24,6 +24,7 @@ vi.mock('../src/renderer/src/components/lazyWorkspaces', async () => ({
   ...(await import('../src/renderer/src/views/ExportView')),
   ...(await import('../src/renderer/src/views/ExportViewer')),
   ...(await import('../src/renderer/src/views/analysis/AnalysisTool')),
+  ...(await import('../src/renderer/src/views/analysis/AnalysisReportsTool')),
   ...(await import('../src/renderer/src/components/RoamingBackfillPanel')),
   preloadWorkspace: vi.fn(),
 }));
@@ -31,6 +32,7 @@ vi.mock('../src/renderer/src/components/lazyWorkspaces.shared', async () => ({
   ...(await import('../src/renderer/src/views/ExportView')),
   ...(await import('../src/renderer/src/views/ExportViewer')),
   ...(await import('../src/renderer/src/views/analysis/AnalysisTool')),
+  ...(await import('../src/renderer/src/views/analysis/AnalysisReportsTool')),
   ...(await import('../src/renderer/src/components/RoamingBackfillPanel')),
   preloadWorkspace: vi.fn(),
 }));
@@ -261,7 +263,7 @@ describe('工作菜单与内容工具范围', () => {
       openTool('导出');
       expect(document.querySelector('[data-fixed-scope="false"]')).not.toBeNull();
       act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭工具"]')!.click());
-      openTool('分析与报告');
+      openTool('分析');
       expect(document.querySelector('[aria-label="报告类型"]')).toBeNull();
       expect(document.querySelector('[aria-label="搜索分析对象"]')).toBeNull();
       expect(document.querySelector('[aria-label="分析时间范围"]')).not.toBeNull();
@@ -300,13 +302,13 @@ describe('工作菜单与内容工具范围', () => {
           }),
         ),
       );
-      openTool('分析与报告');
+      openTool('分析');
       expect(document.querySelector('[aria-label="报告类型"]')).toBeNull();
       expect(document.querySelector('[aria-label="搜索分析对象"]')).toBeNull();
       expect(document.querySelector('[aria-label="分析时间范围"]')).not.toBeNull();
       act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭工具"]')!.click());
       act(() => root.render(workspaceTools({ workspace: { view: 'settings' } })));
-      openTool('分析与报告');
+      openTool('分析');
       expect(document.querySelector('[aria-label="报告类型"]')).not.toBeNull();
       expect(document.querySelector('[aria-label="搜索分析对象"]')).not.toBeNull();
     } finally {
@@ -555,16 +557,21 @@ describe('工作菜单与内容工具范围', () => {
         ...menu.querySelectorAll<HTMLButtonElement>('[aria-label="内容工具"] button'),
       ];
       expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
-        '分析与报告',
+        '分析',
+        '分析报告',
         '导出',
         '导出查看器',
         '合成聊天记录',
       ]);
-      openTool('分析与报告');
+      openTool('分析');
       expect(analysis).not.toHaveBeenCalled();
-      expect(document.querySelector('#weq-tools-title')?.textContent).toBe('分析与报告');
+      expect(document.querySelector('#weq-tools-title')?.textContent).toBe('分析');
       expect(document.querySelector('[aria-label="报告类型"]')).not.toBeNull();
       expect(activeMenu()).toBeUndefined();
+      act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭工具"]')!.click());
+      openTool('分析报告');
+      expect(document.querySelector('[aria-label="搜索分析报告"]')).not.toBeNull();
+      expect(document.querySelector('[aria-label="报告类型"]')).toBeNull();
       act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭工具"]')!.click());
       openTool('合成聊天记录');
       expect(composition).toHaveBeenCalledOnce();

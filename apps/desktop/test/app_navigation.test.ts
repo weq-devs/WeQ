@@ -97,6 +97,7 @@ describe('共用功能导航', () => {
       'tasks',
       'assistant',
       'analysis',
+      'analysis-reports',
       'export',
       'viewer',
       'backfill',

@@ -1,8 +1,13 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createRequire } from 'node:module';
 import { afterEach, expect, it, vi } from 'vitest';
 import { AnalysisReportsService, type SavedAnalysisRequest } from '../src/account/analysis_reports';
+
+const { DatabaseSync } = createRequire(import.meta.url)(
+  'node:sqlite',
+) as typeof import('node:sqlite');
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -51,6 +56,7 @@ it('持久保存真实结果及阅读位置，重开不重新计算', async () =
   });
   expect((await reopened.version(request.id, 1))?.request.scope.startTime).toBeUndefined();
   expect((await reopened.version(request.id, 2))?.request.scope.startTime).toBe(10);
+  expect((await reopened.list())[0]?.request.period).toBe('1970-01-01 至 1970-01-01 · 北京时间');
 });
 it('失败保留已完成阶段，继续只重算未完成部分', async () => {
   let fail = true;
@@ -94,9 +100,13 @@ it('刷新失败保留上次成功结果，切号退出使未完成任务待继�
   await service.resume(request.id);
   await vi.waitFor(async () => expect((await service.get(request.id)).status).toBe('completed'));
   fail = true;
-  await service.resume(request.id, true);
+  await service.revise(request.id, { startTime: 1793462400, endTime: 1793548799 });
   await vi.waitFor(async () => expect((await service.get(request.id)).status).toBe('failed'));
   expect((await service.get(request.id)).results.report).toEqual({ count: 7 });
+  const summary = (await service.list())[0]!;
+  expect(summary.request.period).toBe('2026-11-01 至 2026-11-01 · 北京时间');
+  expect(summary.resultRequest?.scope).toEqual(request.scope);
+  expect(summary.resultRequest?.period).toBe('全部本地历史');
   const unfinished = new AnalysisReportsService(
     join(root, 'unfinished'),
     async (_request, _stage, signal) => {
@@ -117,4 +127,27 @@ it('刷新失败保留上次成功结果，切号退出使未完成任务待继�
   expect((await reopened.get(request.id)).status).toBe('paused');
   await reopened.remove(request.id);
   expect(await reopened.list()).toEqual([]);
+});
+it('旧报告从成功版本恢复真实范围，修正过期 period，不把新范围标给旧成果', async () => {
+  const { root, service } = await fixture(async () => ({ count: 7 }));
+  await service.create(request);
+  await service.resume(request.id);
+  await vi.waitFor(async () => expect((await service.get(request.id)).status).toBe('completed'));
+  await service.dispose();
+  cleanups.pop();
+  const db = new DatabaseSync(join(root, 'reports.sqlite'));
+  try {
+    db.prepare(
+      "UPDATE reports SET meta=json_remove(json_set(meta,'$.status','failed','$.request.scope.startTime',1793462400,'$.request.scope.endTime',1793548799,'$.request.period','错误旧范围'),'$.resultRequest') WHERE id=?",
+    ).run(request.id);
+  } finally {
+    db.close();
+  }
+  const reopened = new AnalysisReportsService(root, async () => null);
+  cleanups.push(() => reopened.dispose());
+  for (const report of [await reopened.get(request.id), ...(await reopened.list())]) {
+    expect(report.request.period).toBe('2026-11-01 至 2026-11-01 · 北京时间');
+    expect(report.resultRequest?.scope).toEqual(request.scope);
+    expect(report.resultRequest?.period).toBe('全部本地历史');
+  }
 });

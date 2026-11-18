@@ -7,7 +7,6 @@ import { useTabActive } from '../../components/RetainedTabs.shared';
 import { WindowedList } from '../../components/WindowedList';
 import { QqAvatar } from '../../components/QqAvatar';
 import { useViewState } from '../../state/view';
-import { AnalysisHistory } from './AnalysisHistory';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { createMediaId } from '../../im-template/template/composerMedia';
 import { MessageCalendar } from '../../components/MessageCalendar';
@@ -501,7 +500,6 @@ function AnalysisToolForm({
           </span>
         </header>
       ) : null}
-      <AnalysisHistory enabled={active} />
       <fieldset disabled={busy} className="weq-analysis-fields">
         <aside className="weq-analysis-config">
           {messageIds !== undefined ? (

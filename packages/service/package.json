@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./analysis-report": "./src/common/analysis_report.ts",
     "./task-display": "./src/common/task_display.ts",
     "./notification-settings": "./src/common/notification_settings.ts",
     "./qq-permissions": "./src/common/qq_permissions.ts",

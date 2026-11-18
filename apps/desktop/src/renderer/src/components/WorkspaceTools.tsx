@@ -14,7 +14,13 @@ import { ShieldAlert, X, Maximize2, Minimize2 } from 'lucide-react';
 import type { ExportAuthorizationIndicatorState } from '../views/export/authorization';
 import { Modal } from './Dialog';
 import { RetainedTabs } from './RetainedTabs';
-import { ExportTool, ExportViewer, AnalysisTool, RoamingBackfillPanel } from './lazyWorkspaces';
+import {
+  ExportTool,
+  ExportViewer,
+  AnalysisTool,
+  AnalysisReportsTool,
+  RoamingBackfillPanel,
+} from './lazyWorkspaces';
 import { preloadWorkspace } from './lazyWorkspaces.shared';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { summarizeWorkspaceTasks } from '../lib/workspaceIndicators';
@@ -52,7 +58,7 @@ import {
   type WorkspaceContext,
 } from '../lib/toolTargets';
 
-type Tool = 'export' | 'viewer' | 'backfill' | 'analysis';
+type Tool = 'export' | 'viewer' | 'backfill' | 'analysis' | 'analysis-reports';
 
 export function WorkspaceTools({
   accountScope,
@@ -383,6 +389,7 @@ export function WorkspaceTools({
           target.kind === 'tool' &&
           (target.tool === 'export' ||
             target.tool === 'analysis' ||
+            target.tool === 'analysis-reports' ||
             target.tool === 'viewer' ||
             target.tool === 'backfill')
         )
@@ -473,26 +480,20 @@ export function WorkspaceTools({
         {!expanded ? (
           <>
             <nav className="weq-workspace-actions" aria-label="内容工具">
-              {[...items]
-                .sort(
-                  (a, b) =>
-                    ['analysis', 'export', 'viewer', 'composition'].indexOf(a.id) -
-                    ['analysis', 'export', 'viewer', 'composition'].indexOf(b.id),
-                )
-                .map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    title={item.id === 'export' ? entry.label : item.label}
-                    aria-label={item.label}
-                    onPointerEnter={() => preloadWorkspace(item.id)}
-                    onFocus={() => preloadWorkspace(item.id)}
-                    onClick={item.action}
-                  >
-                    {item.icon}
-                    <span>{item.label}</span>
-                  </button>
-                ))}
+              {items.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  title={item.id === 'export' ? entry.label : item.label}
+                  aria-label={item.label}
+                  onPointerEnter={() => preloadWorkspace(item.id)}
+                  onFocus={() => preloadWorkspace(item.id)}
+                  onClick={item.action}
+                >
+                  {item.icon}
+                  <span>{item.label}</span>
+                </button>
+              ))}
             </nav>
             {footerControls}
           </>
@@ -576,6 +577,8 @@ export function WorkspaceTools({
                 messageIds={analysisMessageIds}
                 onGenerate={(report) => leave(() => onOpenAnalysis(report))}
               />
+            ) : tool === 'analysis-reports' ? (
+              <AnalysisReportsTool onOpenReport={(report) => leave(() => onOpenAnalysis(report))} />
             ) : null
           ) : null}
         </RetainedTabs>

@@ -33,6 +33,11 @@ export const ExportViewer = lazyPanel<
 export const AnalysisTool = lazyPanel<
   ComponentProps<typeof import('../views/analysis/AnalysisTool').AnalysisTool>
 >(() => import('../views/analysis/AnalysisTool').then((m) => ({ default: m.AnalysisTool })));
+export const AnalysisReportsTool = lazyPanel<
+  ComponentProps<typeof import('../views/analysis/AnalysisReportsTool').AnalysisReportsTool>
+>(() =>
+  import('../views/analysis/AnalysisReportsTool').then((m) => ({ default: m.AnalysisReportsTool })),
+);
 export const RoamingBackfillPanel = lazyPanel<
   ComponentProps<typeof import('./RoamingBackfillPanel').RoamingBackfillPanel>
 >(() => import('./RoamingBackfillPanel').then((m) => ({ default: m.RoamingBackfillPanel })));

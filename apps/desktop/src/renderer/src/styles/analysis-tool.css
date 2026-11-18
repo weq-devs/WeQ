@@ -1,4 +1,4 @@
-/* 分析与报告工具：左侧配置卡 + 右侧对象列表，尺寸与导出面板保持同一档。 */
+/* 分析工具：左侧配置卡 + 右侧对象列表，尺寸与导出面板保持同一档。 */
 .weq-analysis-tool {
   display: flex;
   flex-direction: column;
@@ -499,38 +499,8 @@ html[data-theme='dark'] .weq-saved-analysis-version {
   background: var(--weq-bg-surface);
   color: var(--weq-fg-primary);
 }
-.weq-analysis-history {
-  flex-shrink: 0;
-}
-.weq-analysis-history h3 {
-  margin: 12px 16px 6px;
-  font-size: 13px;
-  font-weight: 550;
-  color: var(--weq-fg-secondary);
-}
-.weq-analysis-history-list {
-  overscroll-behavior: contain;
-}
-.weq-analysis-history-row {
-  display: flex;
-  align-items: center;
-  height: 100%;
-  border-bottom: 1px solid var(--weq-border-subtle);
-}
-.weq-analysis-history-row .weq-analysis-choice {
-  flex: 1;
-  min-width: 0;
-  border-bottom: 0;
-}
-.weq-analysis-history-row .weq-set-iconbtn {
-  flex: none;
-  margin-right: 12px;
-  min-width: 36px;
-  min-height: 36px;
-}
 @media (pointer: coarse) {
-  .weq-saved-analysis-status .weq-set-iconbtn,
-  .weq-analysis-history-row .weq-set-iconbtn {
+  .weq-saved-analysis-status .weq-set-iconbtn {
     min-width: 44px;
     min-height: 44px;
   }

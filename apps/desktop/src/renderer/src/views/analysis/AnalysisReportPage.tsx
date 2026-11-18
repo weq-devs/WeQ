@@ -36,10 +36,13 @@ export function AnalysisReportPage({
           </span>
           <span className="weq-analysis-result-title">
             <strong>{analysisTitle(request)}</strong>
-            <small>
-              {request.period}
-              {request.kind === 'annual' ? ' · 年度报告' : ''}
-            </small>
+            {request.kind === 'annual' ? (
+              <small>{request.period} · 年度报告</small>
+            ) : request.kind === 'member' ? (
+              <small>
+                {request.groupName}（{request.groupCode}）
+              </small>
+            ) : null}
           </span>
           <button
             type="button"

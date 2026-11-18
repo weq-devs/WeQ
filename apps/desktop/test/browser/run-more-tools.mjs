@@ -49,7 +49,7 @@ try {
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/more-tools.html`,
   );
   await page.waitForSelector('.weq-mobile-more');
-  const names = ['任务', '分析与报告', '导出', '导出查看器', '合成聊天记录'];
+  const names = ['任务', '分析', '分析报告', '导出', '导出查看器', '合成聊天记录'];
   const swipeBack = async (selector) => {
     await page.evaluate(async (selector) => {
       const target = document.querySelector(selector);
@@ -166,11 +166,8 @@ try {
   await page.locator('[data-mobile-tab="messages"]').click();
   await page.getByRole('region', { name: '任务', exact: true }).waitFor({ state: 'detached' });
   await page.locator('[data-mobile-tab="more"]').click();
-  await page
-    .locator('.weq-mobile-more')
-    .getByRole('button', { name: '分析与报告', exact: true })
-    .click();
-  await page.getByRole('region', { name: '分析与报告', exact: true }).waitFor();
+  await page.locator('.weq-mobile-more').getByRole('button', { name: '分析', exact: true }).click();
+  await page.getByRole('region', { name: '分析', exact: true }).waitFor();
   await page.evaluate(() => window.weqMobileNavigation.back());
   await page.waitForSelector('.weq-mobile-more');
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -193,7 +190,7 @@ try {
   assert.equal(await page.locator('.weq-workspace-page').count(), 0);
   assert.deepEqual(errors, []);
   console.log(
-    'PASS: 个性装扮顶底栏与返回、更多移除频道与助手、三个次级页面与五个工具、真实邮箱写信分层侧滑、320/390 深浅色、顶底栏边界、同标签返回、跨标签关闭及系统返回',
+    'PASS: 个性装扮顶底栏与返回、更多移除频道与助手、三个次级页面与六个工具、真实邮箱写信分层侧滑、320/390 深浅色、顶底栏边界、同标签返回、跨标签关闭及系统返回',
   );
 } finally {
   await browser?.close();

@@ -6,7 +6,7 @@ import type { ContentReference } from '../../src/shared/content_selection';
 import { ReferenceExportTool } from '../../src/renderer/src/views/export/ReferenceExportTool';
 import { MessageNotificationRows } from '../../src/renderer/src/components/settings/MessageNotificationRows';
 import { MediaView, AlbumGridView } from '../../src/renderer/src/components/QzoneAlbumDialog';
-import { AnalysisHistory } from '../../src/renderer/src/views/analysis/AnalysisHistory';
+import { AnalysisReportsTool } from '../../src/renderer/src/views/analysis/AnalysisReportsTool';
 import { SavedAnalysisBody } from '../../src/renderer/src/views/analysis/SavedAnalysisBody';
 import { savedReport } from './requirements.stub';
 import { useThemeStore } from '../../src/renderer/src/state/theme';
@@ -127,7 +127,9 @@ function Work() {
       </section>
       <h2 style={{ fontSize: 18 }}>分析报告</h2>
       <SavedAnalysisBody request={savedReport.request} onClose={() => undefined} />
-      <AnalysisHistory enabled />
+      <section style={{ height: 500 }}>
+        <AnalysisReportsTool onOpenReport={() => undefined} />
+      </section>
     </main>
   );
 }
