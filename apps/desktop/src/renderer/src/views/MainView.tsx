@@ -123,6 +123,9 @@ import {
 import { useViewState } from '../state/view';
 import { resolveDraftSave } from '../lib/draftPersistence';
 import {
+  currentAccountScope,
+  patchAccountRecords,
+  useAccountRecords,
   useClientPreferences,
   preferenceValue,
   accountBinding as sharedAccountBinding,
@@ -397,6 +400,7 @@ import {
 import {
   CONVERSATION_VIEWS,
   aggregateView,
+  aggregatePinPreferences,
   conversationViewRows,
   conversationViewForTarget,
   conversationRowName,
@@ -6321,11 +6325,22 @@ function MainWorkspace(): ReactElement {
     const pushToast = sourceToastPush(
       conversationNotificationSource(conversations.find((row) => row.id === conversationId)),
     );
-    if (
-      key === 'pinned' &&
-      !conversationId.startsWith('virtual:') &&
-      !conversationId.startsWith('merged:')
-    ) {
+    if (key === 'pinned' && conversationId.startsWith('merged:')) {
+      if (!messageScope || currentAccountScope() !== messageScope) {
+        pushToast({ tone: 'error', title: '账号状态未就绪，请稍后重试置顶' });
+        return;
+      }
+      void patchAccountRecords('pins', { [conversationId]: value }).catch((error) => {
+        if (messageScopeRef.current !== messageScope) return;
+        pushToast({
+          tone: 'error',
+          title: '聚合入口置顶状态保存失败',
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      });
+      return;
+    }
+    if (key === 'pinned' && !conversationId.startsWith('virtual:')) {
       const conversation =
         conversations.find((row) => row.id === conversationId) ??
         hiddenConversationsById.get(conversationId) ??
@@ -7936,6 +7951,11 @@ function MainWorkspace(): ReactElement {
         }))
       : rows;
   }, [conversationViews, conversationView, allConversationOptions, groupAssistantPins]);
+  const accountPins = useAccountRecords('pins', messageScope);
+  const regularViewPreferences = useMemo(
+    () => aggregatePinPreferences(conversationViews.regular, conversationPrefs, accountPins),
+    [conversationViews.regular, conversationPrefs, accountPins],
+  );
   const currentViewPreferences = useMemo(
     () =>
       conversationView === 'groupAssistant'
@@ -7944,8 +7964,16 @@ function MainWorkspace(): ReactElement {
             conversationPrefs,
             groupAssistantPins,
           )
-        : conversationPrefs,
-    [conversationView, conversationPrefs, conversationViews.groupAssistant, groupAssistantPins],
+        : conversationView === 'regular'
+          ? regularViewPreferences
+          : conversationPrefs,
+    [
+      conversationView,
+      conversationPrefs,
+      conversationViews.groupAssistant,
+      groupAssistantPins,
+      regularViewPreferences,
+    ],
   );
   const currentViewPaged =
     conversationView === 'regular' ||
@@ -8990,7 +9018,10 @@ function MainWorkspace(): ReactElement {
             contactBadgeCount={unreadMarkers.requests ? friendNoticeCount + groupNoticeCount : 0}
             onMessageBadgeClick={() =>
               settingsNavigation.navigate(() => {
-                const target = firstUnreadConversation(sidebarConversations, conversationPrefs);
+                const target = firstUnreadConversation(
+                  sidebarConversations,
+                  regularViewPreferences,
+                );
                 if (!target) return;
                 setSurfaceNavigation((value) => value + 1);
                 setSettingsOpen(false);

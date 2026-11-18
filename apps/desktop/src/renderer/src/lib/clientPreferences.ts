@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useSyncExternalStore } from 'react';
 import {
   legacyPreferenceKeys,
   displayPreferenceKeys,
@@ -324,8 +325,20 @@ export function effectiveDisplaySettings<T extends object>(settings: T): T {
 export function accountBinding() {
   return binding;
 }
+const emptyAccountRecords: Readonly<Record<string, unknown>> = Object.freeze({});
 export function sharedAccountRecords(namespace: StateNamespace) {
-  return account.records[namespace] ?? {};
+  return account.records[namespace] ?? emptyAccountRecords;
+}
+function subscribeAccountRecords(listener: () => void) {
+  window.addEventListener(ACCOUNT_STATE_CHANGED, listener);
+  return () => window.removeEventListener(ACCOUNT_STATE_CHANGED, listener);
+}
+export function useAccountRecords(namespace: StateNamespace, scope: string) {
+  return useSyncExternalStore(subscribeAccountRecords, () =>
+    scope && scope === currentAccountScope()
+      ? sharedAccountRecords(namespace)
+      : emptyAccountRecords,
+  );
 }
 export function bindAccountState(next: Binding | null) {
   binding = next;

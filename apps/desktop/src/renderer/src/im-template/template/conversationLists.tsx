@@ -835,9 +835,7 @@ export function ConversationList({
             );
             const pinned = isPinned(conversation, preferences);
             const virtualRow = directory?.virtual.find((item) => item.id === conversation.id);
-            const canOpenContextMenu =
-              conversation.type !== 'merged' ||
-              (conversation.mergedKind === 'groupAssistant' && Boolean(directory?.onPin));
+            const canOpenContextMenu = conversation.type !== 'merged' || Boolean(directory?.onPin);
 
             return (
               <button
@@ -1083,12 +1081,11 @@ export function ConversationList({
                 ? batch.readStateMenuActions(actionMenu.ids)
                 : []),
               ...(directory?.onPin &&
-              (!aggregateMenu || actionMenu.conversation.mergedKind === 'groupAssistant') &&
               (aggregateMenu ||
                 conversationSupportsAction(actionMenu.conversation, 'read') ||
                 (actionMenu.conversation.generated &&
                   actionMenu.conversation.generated.kind !== 'assistant')) &&
-              (actionMenu.ids.length === 1 || actionMenu.conversation.type === 'merged')
+              actionMenu.ids.length === 1
                 ? [
                     {
                       label: isPinned(actionMenu.conversation, preferences) ? '取消置顶' : '置顶',

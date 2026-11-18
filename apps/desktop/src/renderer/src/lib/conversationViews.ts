@@ -1,7 +1,12 @@
-import type { Conversation, MergedKind } from '../im-template/template/types';
+import type {
+  Conversation,
+  ConversationPreferences,
+  MergedKind,
+} from '../im-template/template/types';
 import { conversationListSearchText } from './conversationListSearchText';
 import { conversationRoamingTarget } from './conversationActions';
 import { displayGroupName, displayUserName } from '../im-template/template/user';
+import { defaultConversationPreference } from '../im-template/template/preferences';
 
 export const CONVERSATION_VIEWS = [
   'regular',
@@ -30,6 +35,27 @@ export const CONVERSATION_VIEW_LABELS: Record<ConversationView, string> = {
 };
 export const aggregateView = (kind: MergedKind): ConversationView =>
   kind === 'guildDirect' ? 'guild' : kind;
+
+export function aggregatePinPreferences(
+  rows: readonly Conversation[],
+  preferences: ConversationPreferences,
+  pins: Readonly<Record<string, unknown>>,
+): ConversationPreferences {
+  let result = preferences;
+  for (const row of rows) {
+    if (row.type !== 'merged') continue;
+    const pinned = pins[row.id];
+    if (typeof pinned !== 'boolean') continue;
+    if (result === preferences) result = { ...preferences };
+    result[row.id] = {
+      ...defaultConversationPreference,
+      ...row.preference,
+      ...preferences[row.id],
+      pinned,
+    };
+  }
+  return result;
+}
 
 export interface ConversationViewDirectory {
   regular: readonly Conversation[];

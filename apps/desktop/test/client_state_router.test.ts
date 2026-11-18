@@ -141,14 +141,20 @@ it('同号不同配置隔离，旧账号绑定不能写入新配置', async () =
   const client = clientStateRouter.createCaller({});
   const old = { expectedAccountUin: context.uin, expectedAccountConfigId: context.configId };
   await client.accountPatch({ ...old, namespace: 'pins', values: { '123': true } });
+  await client.accountPatch({ ...old, namespace: 'pins', values: { 'merged:hidden': false } });
   context.configId = '10001_11223344';
   await expect(client.accountSnapshot(old)).rejects.toThrow('已切换');
   await expect(
-    client.accountPatch({ ...old, namespace: 'pins', values: { '123': false } }),
+    client.accountPatch({ ...old, namespace: 'pins', values: { 'merged:hidden': true } }),
   ).rejects.toThrow('已切换');
   expect(
     (await client.accountSnapshot({ ...old, expectedAccountConfigId: context.configId })).records,
   ).toEqual({ order: {} });
+  context.configId = old.expectedAccountConfigId;
+  expect((await client.accountSnapshot(old)).records.pins).toEqual({
+    '123': true,
+    'merged:hidden': false,
+  });
 });
 it('复用真实分段接收后转存素材，临时接收目录丢弃后持久副本仍可读取', async () => {
   const services = getAppContext().services!;

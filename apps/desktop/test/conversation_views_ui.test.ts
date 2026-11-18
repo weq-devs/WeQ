@@ -13,13 +13,19 @@ import {
   generatedAggregateRow,
 } from '../src/renderer/src/lib/conversationDirectoryRows';
 import {
+  aggregatePinPreferences,
   conversationViewRows,
   type ConversationView,
   type ConversationViewDirectory,
 } from '../src/renderer/src/lib/conversationViews';
 import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
 import { useCurrentContentSelection } from '../src/renderer/src/state/contentSelection.shared';
-import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
+import {
+  acceptAccountState,
+  acceptPreferences,
+  bindAccountState,
+  useAccountRecords,
+} from '../src/renderer/src/lib/clientPreferences';
 import { createTemplateDemoData } from './support/templateDemoData';
 import {
   mobileBack,
@@ -107,10 +113,12 @@ function Fixture({
   initialView = 'regular',
   active = true,
   entries = directory,
+  pinScope = '',
 }: {
   initialView?: ConversationView;
   active?: boolean;
   entries?: ConversationViewDirectory;
+  pinScope?: string;
 }) {
   const [view, setView] = useState(initialView);
   const [back, setBack] = useState(false);
@@ -118,6 +126,11 @@ function Fixture({
   const rows = useMemo(
     () => conversationViewRows(entries, view, { includeHidden: false, includeDeleted: false }),
     [entries, view],
+  );
+  const accountPins = useAccountRecords('pins', pinScope);
+  const preferences = useMemo(
+    () => aggregatePinPreferences(entries.regular, {}, accountPins),
+    [entries.regular, accountPins],
   );
   const value = useMemo(
     () => ({
@@ -156,7 +169,7 @@ function Fixture({
         active,
         conversations: rows,
         activeConversationId: null,
-        preferences: {},
+        preferences,
         drafts: {},
         onSelect: setChat,
       }),
@@ -211,6 +224,52 @@ it('聚合入口不进入全选或反选，点击只切列表且保留右侧聊�
   click('[aria-label="返回常规视图"]');
   expect(host.querySelector('[data-conversation-id="merged:group-assistant"]')).not.toBeNull();
   expect(host.querySelector('[aria-label="会话视图"]')).not.toBeNull();
+});
+it('可取消已隐藏会话入口的默认置顶，回读后按普通会话排序', () => {
+  const entry: Conversation = {
+    ...helper,
+    id: 'merged:hidden',
+    mergedKind: 'hidden',
+    title: '已隐藏会话',
+    updatedAt: new Date(0).toISOString(),
+    preference: { pinned: true, muted: false, blocked: false },
+  };
+  const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
+  const pinScope = JSON.stringify([binding.expectedAccountUin, binding.expectedAccountConfigId]);
+  bindAccountState(binding);
+  try {
+    act(() =>
+      root.render(h(Fixture, { entries: { ...directory, regular: [ordinary, entry] }, pinScope })),
+    );
+    const firstId = () =>
+      host.querySelector<HTMLElement>('[data-conversation-id]')?.dataset.conversationId;
+    const choose = (label: string) => {
+      act(() =>
+        host
+          .querySelector(`[data-conversation-id="${entry.id}"]`)!
+          .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
+      );
+      const item = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+        (node) => node.textContent === label,
+      );
+      expect(item).toBeDefined();
+      act(() => item!.click());
+    };
+    expect(firstId()).toBe(entry.id);
+    choose('取消置顶');
+    expect(pin).toHaveBeenLastCalledWith(entry, false);
+    act(() =>
+      acceptAccountState(
+        { revision: 1, values: {}, records: { pins: { [entry.id]: false } } },
+        binding,
+      ),
+    );
+    expect(firstId()).toBe(ordinary.id);
+    choose('置顶');
+    expect(pin).toHaveBeenLastCalledWith(entry, true);
+  } finally {
+    act(() => bindAccountState(null));
+  }
 });
 it.each(['groupAssistant', 'clone', 'assistant'] as const)(
   '移动端从常规进入 %s 后可逐层返回，切换标签时不保留后台返回入口',
