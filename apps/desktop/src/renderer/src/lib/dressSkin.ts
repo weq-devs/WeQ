@@ -201,28 +201,23 @@ function px(value: number): string {
   return `${Math.round(value * 100) / 100}px`;
 }
 
-/**
- * 动效叠加层的 `@keyframes` + `animation` 简写。与 msgDecorationStyle.ts 的同名逻辑
- * 镜像(那边按 data-bubble 注入、这边按「当前生效装扮」注入,两条渲染路径本就是分开的,
- * 见文件头)。`steps(1)` 让每帧撑满自己的时间段,而不是按不可插值属性的默认「过半才切」
- * 语义把每帧显示时长砍半。
- */
-function frameAnimationCss(
+/** 共用 PNG 帧时间轴；按 Android 的回绕上限结束，正常解码时停在末帧。 */
+export function bubbleFrameAnimationCss(
   itemId: number,
   frameCount: number,
   frameTimeMs: number,
   repeat: number,
 ): { keyframes: string; animation: string } {
   const name = `weq-bubbleframe-${itemId}`;
-  const step = 100 / frameCount;
-  const stops = Array.from({ length: frameCount }, (_, i) => {
-    const pct = Math.round(Math.min(i * step, 100) * 100) / 100;
-    return `  ${pct}% { border-image-source: url("${dressBubbleFrameUrl(itemId, i + 1)}"); }`;
-  });
+  const stop = (percent: number, frame: number) =>
+    `  ${percent}% { border-image-source: url("${dressBubbleFrameUrl(itemId, frame)}"); }`;
+  const stops = Array.from({ length: frameCount }, (_, i) => stop((i * 100) / frameCount, i + 1));
+  stops.push(stop(100, frameCount));
   const keyframes = [`@keyframes ${name} {`, ...stops, `}`].join('\n');
   const duration = frameCount * frameTimeMs;
-  const iterations = repeat > 0 ? repeat : 'infinite';
-  return { keyframes, animation: `${name} ${duration}ms steps(1) ${iterations}` };
+  // repeat 是额外轮数；-1（未设上限）与 INT_MAX 的特殊分支分别映射。
+  const iterations = repeat > 0 ? Math.min(repeat + 1, 0x7fffffff) : 'infinite';
+  return { keyframes, animation: `${name} ${duration}ms steps(1) ${iterations} forwards` };
 }
 
 /**
@@ -512,7 +507,7 @@ export function bubbleMetrics(skin: BubbleSkinCss): BubbleMetrics {
 
   const frameAnim =
     validDecorationFrames(skin.animationFrameCount) && skin.animationFrameTimeMs
-      ? frameAnimationCss(
+      ? bubbleFrameAnimationCss(
           skin.itemId,
           skin.animationFrameCount,
           skin.animationFrameTimeMs,

@@ -15,6 +15,7 @@ import {
 } from './resourceUrl';
 import {
   bubbleContentAlignmentCss,
+  bubbleFrameAnimationCss,
   bubbleLinkMentionRules,
   bubbleRestrictsTextColor,
   fontFxRules,
@@ -118,36 +119,6 @@ function fxClipTarget(lineSel: string, pseudo: '::before' | '::after'): string {
 }
 
 /**
- * Build the `@keyframes` block + `animation` shorthand for a bubbleframe
- * sequence (each frame its own nine-patch PNG — see BubbleSkin.animationFrameCount).
- *
- * `steps(1)` on the shorthand makes each keyframe's `border-image-source` hold
- * for its whole segment instead of the default discrete-property "flip at the
- * midpoint" behavior — otherwise every frame would only show for half its
- * intended duration, offset from the next.
- *
- * The keyframes drive the **animation overlay layer** (`::after`), never the
- * static bubble base — see {@link layerRule}.
- */
-function frameAnimationCss(
-  itemId: number,
-  frameCount: number,
-  frameTimeMs: number,
-  repeat: number,
-): { keyframes: string; animation: string } {
-  const name = `weq-bubbleframe-${itemId}`;
-  const step = 100 / frameCount;
-  const stops = Array.from({ length: frameCount }, (_, i) => {
-    const pct = Math.round(Math.min(i * step, 100) * 100) / 100;
-    return `  ${pct}% { border-image-source: url("${dressBubbleFrameUrl(itemId, i + 1)}"); }`;
-  });
-  const keyframes = [`@keyframes ${name} {`, ...stops, `}`].join('\n');
-  const duration = frameCount * frameTimeMs;
-  const iterations = repeat > 0 ? repeat : 'infinite';
-  return { keyframes, animation: `${name} ${duration}ms steps(1) ${iterations}` };
-}
-
-/**
  * One nine-patch layer as a pseudo-element rule (mirror of dressSkin.ts's
  * `ninePatchLayer`): the static bubble base on `::before`, the bubbleframe
  * animation on `::after`.
@@ -210,7 +181,7 @@ export function injectBubbleCss(skin: MessageBubbleSkin, staticOnly = false) {
     const hasFrameAnim = validDecorationFrames(frameCount) && frameTimeMs;
     const frameAnim =
       !staticOnly && hasFrameAnim
-        ? frameAnimationCss(skin.itemId, frameCount, frameTimeMs, skin.animationRepeat ?? 0)
+        ? bubbleFrameAnimationCss(skin.itemId, frameCount, frameTimeMs, skin.animationRepeat ?? 0)
         : null;
 
     // local-only:气泡永远是本地九宫格(zip 链下载),没有 CDN 直链分支。
