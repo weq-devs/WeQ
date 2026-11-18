@@ -97,8 +97,8 @@ describe('单条消息 Markdown 显示切换', () => {
         '合成粗体',
       );
       const button = () =>
-        [...host.querySelectorAll<HTMLButtonElement>('.message-context-menu button')].find((item) =>
-          item.textContent?.includes('显示'),
+        [...document.querySelectorAll<HTMLButtonElement>('.message-context-menu button')].find(
+          (item) => item.textContent?.includes('显示'),
         )!;
       expect(button().textContent).toBe('显示原文');
       await act(async () => button().click());

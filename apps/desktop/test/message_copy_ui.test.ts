@@ -102,9 +102,9 @@ async function copyMenu(host: HTMLElement, target: Element) {
       new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
     ),
   );
-  const copy = [...host.querySelectorAll<HTMLButtonElement>('.message-context-menu button')].find(
-    (button) => button.textContent?.trim() === '复制',
-  );
+  const copy = [
+    ...document.querySelectorAll<HTMLButtonElement>('.message-context-menu button'),
+  ].find((button) => button.textContent?.trim() === '复制');
   expect(copy).toBeDefined();
   await act(async () => copy!.click());
 }

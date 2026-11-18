@@ -12,7 +12,6 @@ import {
 import {
   BarChart3,
   BrainCircuit,
-  Check,
   ClipboardCopy,
   Copy,
   Download,
@@ -59,13 +58,13 @@ import {
 } from '../lib/forwardRecordActions';
 import { ConversationActionsMenu } from './ConversationActionsMenu';
 import { MessageSelectionBar } from './MessageSelectionBar';
+import { MessageSelectionMark } from './MessageSelectionMark';
 import { MessageMediaRevealAction } from './MessageMediaRevealAction';
 import { useMediaSave } from './MediaSaveControls.shared';
 import { MessageFavoriteEmojiAction } from './qq-actions/MessageFavoriteEmojiAction';
 import { MessageDecorationCard } from './MessageDecorationCard';
 import { MessageMenuButton } from './MessageMenuButton';
 import { useToast } from './Toast.shared';
-import { OverlayLayer } from './OverlayLayer';
 import { ForwardSelectionAnalysis } from './ForwardSelectionAnalysis';
 import {
   IntentSenseContext,
@@ -467,7 +466,7 @@ export function ForwardRecordList({
       <div
         ref={bodyRef}
         tabIndex={-1}
-        className={`weq-forward-body weq-forward-selectable${mode ? ' selection-mode' : ''}`}
+        className={`weq-forward-body weq-forward-selectable${marquee.dragging ? ' is-marquee-selecting' : ''}`}
         {...marquee.handlers}
         onScrollCapture={() => {
           marquee.handlers.onScrollCapture();
@@ -490,8 +489,7 @@ export function ForwardRecordList({
             {entry.showTime ? <MessageTimeDivider value={entry.sendTimeMs} /> : null}
             <div
               data-message-id={entry.id}
-              data-selected={visibleIds.has(entry.id) || undefined}
-              className="weq-forward-item"
+              className={`weq-forward-item weq-message-selectable${mode ? ' selection-mode' : ''}${visibleIds.has(entry.id) ? ' is-selected' : ''}`}
               tabIndex={0}
               role="group"
               onContextMenu={(event: MouseEvent<HTMLDivElement>) => {
@@ -552,11 +550,7 @@ export function ForwardRecordList({
                 }
               }}
             >
-              {mode || marquee.dragging ? (
-                <span className="weq-forward-select-mark" aria-hidden>
-                  {visibleIds.has(entry.id) ? <Check size={12} /> : null}
-                </span>
-              ) : null}
+              {mode ? <MessageSelectionMark selected={visibleIds.has(entry.id)} /> : null}
               {mode ? (
                 <span className="sr-only">{ids.has(entry.id) ? '已选中' : '未选中'}</span>
               ) : null}
@@ -664,99 +658,92 @@ export function ForwardRecordList({
         />
       )}
       {menu && (
-        <OverlayLayer
-          className="weq-forward-menu-layer"
-          presentation="popover"
+        <MessageContextMenu
+          state={menu.state}
           onClose={closeMenu}
-          dismissOnOutside={false}
-        >
-          <MessageContextMenu
-            state={menu.state}
-            onClose={closeMenu}
-            onCopy={() => copyOne(menu)}
-            onMultiSelect={() => {
-              closeMenu();
-              startSelection();
-              menu.state.originElement?.focus({ preventScroll: true });
-              anchor.current = menu.entry.id;
-              setIds(new Set([menu.entry.id]));
-            }}
-            onForward={(message) => {
-              closeMenu();
-              actions.forward([message]);
-            }}
-            forwardBlockedReason={actions.sendAvailable ? null : 'QQ 在线能力暂不可用'}
-            onAddToComposition={
-              actions.binding
-                ? (message) => {
-                    closeMenu();
-                    actions.addMaterial([message]);
-                  }
-                : undefined
-            }
-            onExport={
-              canExport && menu.state.forwardTarget
-                ? () => {
-                    exportRows({ entry: menu.entry, card: menu.state.forwardTarget! });
-                    closeMenu();
-                  }
-                : undefined
-            }
-            onViewDecoration={(message) => {
-              closeMenu();
-              setDecoration(message.decoration);
-            }}
-            onSaveMedia={
-              save
-                ? () => {
-                    closeMenu();
-                    void mediaSave.run(save);
-                  }
-                : undefined
-            }
-            downloadDisabled={mediaSave.disabled}
-            forwardVoice={{
-              carrierId: win.rootMsgId,
-              kind: win.kind,
-              conv: win.conv,
-              resId: win.resId,
-            }}
-            favoriteEmojiAction={
-              menu.state.favoriteEmojiUrl ? (
-                <MessageFavoriteEmojiAction
-                  url={menu.state.favoriteEmojiUrl}
-                  mediaLabel={media?.label}
-                  onClose={closeMenu}
-                />
-              ) : null
-            }
-            revealAction={
-              !IS_WEB && media && actions.binding ? (
-                <MessageMediaRevealAction
-                  key={JSON.stringify(media)}
-                  target={media}
-                  binding={actions.binding}
-                  onClose={closeMenu}
-                />
-              ) : null
-            }
-            intentAction={
-              intentEnabled && forwardIntentText(menu.entry) ? (
-                <MessageMenuButton
-                  type="button"
-                  disabled={!!runningIntent}
-                  onClick={() => {
-                    closeMenu();
-                    void analyze([menu.entry]);
-                  }}
-                >
-                  <BrainCircuit size={17} />
-                  <span>意图感知</span>
-                </MessageMenuButton>
-              ) : null
-            }
-          />
-        </OverlayLayer>
+          onCopy={() => copyOne(menu)}
+          onMultiSelect={() => {
+            closeMenu();
+            startSelection();
+            menu.state.originElement?.focus({ preventScroll: true });
+            anchor.current = menu.entry.id;
+            setIds(new Set([menu.entry.id]));
+          }}
+          onForward={(message) => {
+            closeMenu();
+            actions.forward([message]);
+          }}
+          forwardBlockedReason={actions.sendAvailable ? null : 'QQ 在线能力暂不可用'}
+          onAddToComposition={
+            actions.binding
+              ? (message) => {
+                  closeMenu();
+                  actions.addMaterial([message]);
+                }
+              : undefined
+          }
+          onExport={
+            canExport && menu.state.forwardTarget
+              ? () => {
+                  exportRows({ entry: menu.entry, card: menu.state.forwardTarget! });
+                  closeMenu();
+                }
+              : undefined
+          }
+          onViewDecoration={(message) => {
+            closeMenu();
+            setDecoration(message.decoration);
+          }}
+          onSaveMedia={
+            save
+              ? () => {
+                  closeMenu();
+                  void mediaSave.run(save);
+                }
+              : undefined
+          }
+          downloadDisabled={mediaSave.disabled}
+          forwardVoice={{
+            carrierId: win.rootMsgId,
+            kind: win.kind,
+            conv: win.conv,
+            resId: win.resId,
+          }}
+          favoriteEmojiAction={
+            menu.state.favoriteEmojiUrl ? (
+              <MessageFavoriteEmojiAction
+                url={menu.state.favoriteEmojiUrl}
+                mediaLabel={media?.label}
+                onClose={closeMenu}
+              />
+            ) : null
+          }
+          revealAction={
+            !IS_WEB && media && actions.binding ? (
+              <MessageMediaRevealAction
+                key={JSON.stringify(media)}
+                target={media}
+                binding={actions.binding}
+                onClose={closeMenu}
+              />
+            ) : null
+          }
+          intentAction={
+            intentEnabled && forwardIntentText(menu.entry) ? (
+              <MessageMenuButton
+                type="button"
+                disabled={!!runningIntent}
+                onClick={() => {
+                  closeMenu();
+                  void analyze([menu.entry]);
+                }}
+              >
+                <BrainCircuit size={17} />
+                <span>意图感知</span>
+              </MessageMenuButton>
+            ) : null
+          }
+        />
       )}
       {mediaSave.prompt}
       {decoration && (

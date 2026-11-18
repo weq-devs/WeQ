@@ -4,7 +4,6 @@ import { preferenceValue, useClientPreferences } from '../../lib/clientPreferenc
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import {
   Bot,
-  Check,
   Clock,
   LoaderCircle,
   Monitor,
@@ -14,6 +13,7 @@ import {
   TriangleAlert,
   X,
 } from 'lucide-react';
+import { MessageSelectionMark } from '../../components/MessageSelectionMark';
 import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import {
   defaultMessageRenderers,
@@ -481,6 +481,7 @@ function MessageBubbleBody({
     <div
       className={cn(
         'message-line',
+        'weq-message-selectable',
         mine ? 'mine' : 'theirs',
         recall && 'is-recalled',
         isDeleted && 'is-deleted',
@@ -513,11 +514,7 @@ function MessageBubbleBody({
       data-fontfx={fontFxAttr}
       data-widget={lineWidget?.animated ? lineWidget.itemId : undefined}
     >
-      {selectionMode ? (
-        <span className={cn('message-select-mark')} aria-hidden>
-          {selected ? <Check size={13} strokeWidth={3.2} /> : null}
-        </span>
-      ) : null}
+      {selectionMode ? <MessageSelectionMark selected={selected} /> : null}
       {!mine ? (
         onAvatarClick ? (
           <button

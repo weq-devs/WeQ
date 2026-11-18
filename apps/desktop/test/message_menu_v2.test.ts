@@ -53,7 +53,7 @@ async function render(props: Partial<ComponentProps<typeof MessageContextMenu>> 
 const slot = (name: string) =>
   createElement('button', { type: 'button', title: name }, createElement('span', null, name));
 const labels = (selector: string) =>
-  [...host.querySelectorAll<HTMLButtonElement>(`${selector} button`)].map(
+  [...document.querySelectorAll<HTMLButtonElement>(`${selector} button`)].map(
     (button) => button.getAttribute('aria-label') || button.textContent,
   );
 
@@ -114,9 +114,9 @@ it('文字直接显示切换，撤回只显示当前消息操作且禁用原因�
     onExport: vi.fn(),
   });
   expect(labels('.message-menu-group')).toContain('显示原文');
-  expect(host.querySelector('[data-submenu-panel]')).toBeNull();
+  expect(document.querySelector('[data-submenu-panel]')).toBeNull();
   expect(labels('.message-menu-group')).not.toContain('添加到表情');
-  const button = host.querySelector<HTMLButtonElement>('[aria-label="撤回"]')!;
+  const button = document.querySelector<HTMLButtonElement>('[aria-label="撤回"]')!;
   expect(button.getAttribute('aria-disabled')).toBe('true');
   expect(button.title).toBe('正在处理');
 });
@@ -140,7 +140,7 @@ it('缺失动作与异步返回空内容不留占位按钮', async () => {
     '修改本地记录',
     '本地删除',
   ]) {
-    expect(host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)).toBeNull();
+    expect(document.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)).toBeNull();
   }
 });
 
@@ -148,10 +148,10 @@ it('文件保存为直达动作，Esc 直接关闭菜单', async () => {
   const save = vi.fn();
   const close = vi.fn();
   await render({ onSaveMedia: save, onClose: close });
-  act(() => host.querySelector<HTMLButtonElement>('[aria-label="另存为"]')!.click());
+  act(() => document.querySelector<HTMLButtonElement>('[aria-label="另存为"]')!.click());
   expect(save).toHaveBeenCalledOnce();
   act(() =>
-    host
+    document
       .querySelector('.message-menu-primary')!
       .dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' })),
   );
@@ -249,12 +249,12 @@ it('快捷回应显示选中态，再次点击发出取消，更多仍可进入'
     onReact: more,
     onSetReaction: set,
   });
-  const selected = host.querySelector<HTMLButtonElement>('[aria-pressed="true"]')!;
-  expect(host.querySelectorAll('.message-reaction-strip button[aria-pressed]')).toHaveLength(5);
-  expect(host.querySelectorAll('.message-reaction-strip button')).toHaveLength(6);
+  const selected = document.querySelector<HTMLButtonElement>('[aria-pressed="true"]')!;
+  expect(document.querySelectorAll('.message-reaction-strip button[aria-pressed]')).toHaveLength(5);
+  expect(document.querySelectorAll('.message-reaction-strip button')).toHaveLength(6);
   act(() => selected.click());
   expect(set.mock.calls[0]?.slice(1)).toEqual(['76', false]);
-  act(() => host.querySelector<HTMLButtonElement>('[aria-label="更多表情"]')!.click());
+  act(() => document.querySelector<HTMLButtonElement>('[aria-label="更多表情"]')!.click());
   expect(more).toHaveBeenCalledOnce();
 });
 
@@ -292,8 +292,8 @@ it('操作结果保留在菜单内，但不占用图标网格', async () => {
   await render({
     essenceAction: createElement(QQWriteResult, { result: { text: '合成失败原因', error: true } }),
   });
-  expect(host.querySelector('.message-menu-feedback [role="alert"]')?.textContent).toBe(
+  expect(document.querySelector('.message-menu-feedback [role="alert"]')?.textContent).toBe(
     '合成失败原因',
   );
-  expect(host.querySelector('.message-action-row [role="alert"]')).toBeNull();
+  expect(document.querySelector('.message-action-row [role="alert"]')).toBeNull();
 });

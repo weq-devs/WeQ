@@ -262,7 +262,7 @@ describe('输入区发送交接', () => {
               new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
             ),
         );
-        act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="引用"]')!.click());
+        act(() => document.querySelector<HTMLButtonElement>('[aria-label="引用"]')!.click());
         expect(serializeComposer(f.editor())).toBe(body);
         act(() => {
           if (trigger === 'click')
@@ -616,7 +616,7 @@ describe('输入区发送交接', () => {
           ),
       );
       const button = [
-        ...f.host.querySelectorAll<HTMLButtonElement>('.message-context-menu button'),
+        ...document.querySelectorAll<HTMLButtonElement>('.message-context-menu button'),
       ].find((button) => button.textContent === '移除失败消息');
       expect(button).toBeDefined();
       await act(async () => button!.click());
@@ -691,9 +691,11 @@ describe('输入区发送交接', () => {
             ),
         );
         expect(
-          f.host.querySelector('.message-context-menu button[aria-label="移除失败消息"]'),
+          document.querySelector('.message-context-menu button[aria-label="移除失败消息"]'),
         ).toBeNull();
-        expect(f.host.querySelector('.message-context-menu button[aria-label="删除"]')).toBeNull();
+        expect(
+          document.querySelector('.message-context-menu button[aria-label="删除"]'),
+        ).toBeNull();
         expect(remove).not.toHaveBeenCalled();
         expect(f.onSend).not.toHaveBeenCalled();
       } finally {
@@ -729,7 +731,7 @@ describe('输入区发送交接', () => {
           ),
       );
       act(() =>
-        [...f.host.querySelectorAll<HTMLButtonElement>('.message-context-menu button')]
+        [...document.querySelectorAll<HTMLButtonElement>('.message-context-menu button')]
           .find((button) => button.textContent === '多选')!
           .click(),
       );

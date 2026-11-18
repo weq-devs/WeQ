@@ -141,12 +141,12 @@ it.each([
         ),
     );
     const menuButton = () =>
-      [...host.querySelectorAll<HTMLButtonElement>('.message-context-menu button')].find(
+      [...document.querySelectorAll<HTMLButtonElement>('.message-context-menu button')].find(
         (button) => button.textContent === '意图感知',
       );
     expect(menuButton()?.disabled).toBe(false);
     expect(fixture.analyze).not.toHaveBeenCalled();
-    expect(Boolean(host.querySelector('.message-reaction-strip'))).toBe(type === 'group');
+    expect(Boolean(document.querySelector('.message-reaction-strip'))).toBe(type === 'group');
     await act(async () => menuButton()!.click());
     expect(fixture.analyze).toHaveBeenCalledWith({
       kind: type === 'group' ? 'group' : 'c2c',
@@ -280,7 +280,7 @@ it.each([
           ),
       );
       const menuButton = (label: string) =>
-        [...host.querySelectorAll<HTMLButtonElement>('.message-context-menu button')].find(
+        [...document.querySelectorAll<HTMLButtonElement>('.message-context-menu button')].find(
           (button) => button.textContent === label,
         )!;
       if (results.length === 1) await act(async () => menuButton('意图感知').click());
@@ -372,7 +372,7 @@ it.each(['group', 'direct'] as const)(
         ),
       );
       const menuButton = [
-        ...host.querySelectorAll<HTMLButtonElement>('.message-context-menu button'),
+        ...document.querySelectorAll<HTMLButtonElement>('.message-context-menu button'),
       ].find((button) => button.textContent === '意图感知')!;
       expect(menuButton).toBeDefined();
       let finish!: (value: null) => void;
@@ -398,7 +398,7 @@ it.each(['group', 'direct'] as const)(
         ),
       );
       const multi = [
-        ...host.querySelectorAll<HTMLButtonElement>('.message-context-menu button'),
+        ...document.querySelectorAll<HTMLButtonElement>('.message-context-menu button'),
       ].find((button) => button.textContent === '多选')!;
       await act(async () => multi.click());
       let fail!: (error: Error) => void;

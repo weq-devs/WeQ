@@ -38,9 +38,10 @@ it('不适用动作不占位；暂时禁用的动作仍可聚焦且不能执行'
       }),
     ),
   );
-  expect(host.querySelector('[aria-label="设为群待办"]')).toBeNull();
-  expect(host.querySelector('[aria-label="导出"]')).toBeNull();
-  const button = host.querySelector<HTMLButtonElement>('[aria-label="+1"]')!;
+  const menu = document.querySelector('.message-context-menu')!;
+  expect(menu.querySelector('[aria-label="设为群待办"]')).toBeNull();
+  expect(menu.querySelector('[aria-label="导出"]')).toBeNull();
+  const button = menu.querySelector<HTMLButtonElement>('[aria-label="+1"]')!;
   expect(button.disabled).toBe(false);
   expect(button.getAttribute('aria-disabled')).toBe('true');
   button.focus();
@@ -90,7 +91,7 @@ it('另存为与在文件夹中显示同时存在，未适用的装扮入口不�
       }),
     ),
   );
-  expect(host.textContent).toContain('在文件夹中显示');
-  expect(host.querySelector('.message-save-action button')).not.toBeNull();
-  expect(host.querySelector('[aria-label="查看装扮"]')).toBeNull();
+  expect(document.querySelector('.message-context-menu')?.textContent).toContain('在文件夹中显示');
+  expect(document.querySelector('.message-save-action button')).not.toBeNull();
+  expect(document.querySelector('.message-context-menu [aria-label="查看装扮"]')).toBeNull();
 });

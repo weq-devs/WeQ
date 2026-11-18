@@ -29,16 +29,6 @@
 html[data-theme='dark'] .weq-message-sending {
   color: var(--weq-fg-secondary);
 }
-.selection-mode:is(.message-line, .weq-graytip-band) {
-  user-select: none;
-}
-.weq-graytip-band.selection-mode {
-  cursor: pointer;
-}
-.weq-graytip-band.is-selected {
-  outline: 1px dashed var(--weq-accent-effective);
-  outline-offset: 2px;
-}
 .selection-bar-info {
   flex-shrink: 0;
 }

@@ -699,13 +699,13 @@ describe('新增消息交互', () => {
             ),
         );
       openMenu();
-      act(() => button(fixture.host, '添加到素材库').click());
+      act(() => button(document, '添加到素材库').click());
       expect(composition).toHaveBeenCalledWith([message]);
       openMenu();
-      act(() => button(fixture.host, '转发').click());
+      act(() => button(document, '转发').click());
       expect(forward).toHaveBeenCalledWith([message], conversation);
       openMenu();
-      act(() => button(fixture.host, '多选').click());
+      act(() => button(document, '多选').click());
       const actions = [
         ...fixture.host.querySelectorAll<HTMLButtonElement>('.selection-bar-actions button'),
       ];

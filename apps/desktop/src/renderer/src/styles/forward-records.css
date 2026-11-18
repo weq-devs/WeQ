@@ -43,7 +43,7 @@
 .weq-forward-selectable {
   position: relative;
   min-height: 0;
-  padding-inline-start: 24px;
+  scrollbar-gutter: stable;
 }
 
 .weq-forward-item {
@@ -53,82 +53,24 @@
   border-radius: 6px;
 }
 
-.weq-forward-item[data-selected] {
-  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
-}
-
 .weq-forward-item:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: -2px;
 }
 
-.weq-forward-selectable.selection-mode .weq-forward-item,
-.weq-forward-selectable:has(.weq-message-marquee) .weq-forward-item {
-  cursor: pointer;
+.weq-forward-item.selection-mode :is(.weq-forward-row-name, .message-content) {
   user-select: none;
 }
 
-.weq-forward-selectable.selection-mode
-  .weq-forward-item
-  :is(.weq-forward-row-name, .message-content) {
-  user-select: none;
-}
-
-.weq-forward-select-mark {
-  position: absolute;
-  display: grid;
-  place-items: center;
-  top: 50%;
-  inset-inline-start: -19px;
-  translate: 0 -50%;
-  width: 16px;
-  height: 16px;
-  color: var(--weq-fg-secondary);
-  border: 1px solid currentColor;
-  border-radius: 4px;
-  pointer-events: none;
-}
-
-.weq-forward-item[data-selected] > .weq-forward-select-mark {
-  border-color: var(--weq-accent-solid);
-  background: var(--weq-accent-solid);
-  color: var(--weq-accent-solid-foreground);
+.weq-forward-item.selection-mode:has(> .weq-forward-graytip) {
+  padding-inline-end: var(--weq-message-selection-lane);
 }
 
 .weq-forward-window > .selection-bar {
   flex: none;
   padding: 6px 10px;
-  gap: 8px;
   border-top: 1px solid var(--weq-border-subtle);
   background: var(--weq-bg-surface);
-}
-
-.weq-forward-window .selection-bar-info {
-  flex: none;
-  white-space: nowrap;
-}
-
-.weq-forward-window .selection-bar-actions {
-  min-width: 0;
-  gap: 4px;
-  overflow-x: auto;
-  scrollbar-width: thin;
-  padding: 2px;
-}
-
-.weq-forward-window .selection-action {
-  flex: 0 0 36px;
-  justify-content: center;
-  padding: 0;
-  border-radius: 6px;
-}
-
-.weq-overlay-layer.weq-forward-menu-layer {
-  pointer-events: none;
-}
-
-.weq-forward-menu-layer .message-context-menu {
-  pointer-events: auto;
 }
 
 .weq-forward-analysis {
@@ -189,9 +131,6 @@
 }
 
 @media (max-width: 480px) {
-  .weq-forward-window .selection-bar-label {
-    display: none;
-  }
   .weq-forward-analysis .ga-bar-col:not(:nth-child(3n + 1)) .ga-bar-hour-label {
     visibility: hidden;
   }

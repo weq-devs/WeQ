@@ -26,7 +26,7 @@ it('转发入口按真实内容过滤，临时不可用保留禁用原因', asyn
         }),
       ),
     );
-    return host.querySelector<HTMLButtonElement>('[aria-label="转发"]');
+    return document.querySelector<HTMLButtonElement>('.message-context-menu [aria-label="转发"]');
   };
   try {
     for (const type of ['wallet', 'call', 'grayTipPoke', 'onlineFile', 'inlineKeyboard', 'unknown'])

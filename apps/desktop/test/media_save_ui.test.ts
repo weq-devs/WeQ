@@ -501,7 +501,7 @@ it('独立 Web 窗口的同源绝对媒体地址还原成已有挂载路径', as
 it('图片右键只保留一个另存为动作并保留消息身份', async () => {
   const message = createTemplateDemoData().messages[0]!,
     download = vi.fn();
-  const view = await mount(
+  await mount(
     h(MessageContextMenu, {
       state: { message, x: 10, y: 10, downloadUrl: 'weq-media://pic?name=photo.jpg' },
       onCopy: vi.fn(),
@@ -509,7 +509,7 @@ it('图片右键只保留一个另存为动作并保留消息身份', async () =
     }),
   );
   const action = (name: string) =>
-    [...view.host.querySelectorAll<HTMLButtonElement>('button')].find(
+    [...document.querySelectorAll<HTMLButtonElement>('.message-context-menu button')].find(
       (button) => button.textContent === name,
     )!;
   act(() => action('另存为').click());

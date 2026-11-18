@@ -7,6 +7,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import {
   BookmarkPlus,
   Copy,
@@ -29,6 +30,8 @@ import { cn } from './classNames';
 import { canRepeatMessage, forwardUnsupportedReason } from '../../lib/messageRepeat';
 import { messageMediaTarget } from '../../lib/messageMediaTarget';
 import { useSurfaceOutside } from '../../lib/surfaceOutside';
+import { OverlayLayerContext, useOverlayLayerScope } from '../../lib/overlayStack';
+import { useRenderDocument } from '../../lib/renderDocument';
 import { useTabActive } from '../../components/RetainedTabs.shared';
 import { IS_WEB } from '../../lib/target.shared';
 import { VoiceTranscribeMenuAction } from '../../components/VoiceTranscribeMenuAction';
@@ -106,6 +109,10 @@ interface MenuAction {
 
 export function MessageContextMenu(props: Props) {
   const { state, onClose, onCopy, reactions = DEFAULT_REACTIONS } = props;
+  const document = useRenderDocument();
+  const window = document.defaultView ?? globalThis.window;
+  const tabActive = useTabActive();
+  const { layer, scope } = useOverlayLayerScope(tabActive);
   const message = state.message;
   const originElement = state.originElement;
   const menuRef = useRef<HTMLDivElement>(null);
@@ -114,7 +121,7 @@ export function MessageContextMenu(props: Props) {
   const [feedbackHost, setFeedbackHost] = useState<HTMLDivElement | null>(null);
   const [reactionCapacity, setReactionCapacity] = useState(0);
   const showReactions = (props.showReactions ?? true) && Boolean(props.onReact);
-  useSurfaceOutside(menuRef, onClose, useTabActive());
+  useSurfaceOutside(menuRef, onClose, tabActive, { secondaryPress: true });
 
   const buttons = useCallback(
     () =>
@@ -125,6 +132,7 @@ export function MessageContextMenu(props: Props) {
   );
 
   useEffect(() => {
+    if (!tabActive) return;
     restoreFocus.current = true;
     const menu = menuRef.current;
     const first =
@@ -148,11 +156,11 @@ export function MessageContextMenu(props: Props) {
           originElement.focus({ preventScroll: true });
       });
     };
-  }, [message.id, originElement, buttons]);
+  }, [message.id, originElement, buttons, document, tabActive]);
 
   useLayoutEffect(() => {
     const el = menuRef.current;
-    if (!el) return;
+    if (!tabActive || !el) return;
     const place = () => {
       const rect = el.getBoundingClientRect();
       const strip = el.querySelector<HTMLElement>('.message-reaction-strip');
@@ -177,7 +185,7 @@ export function MessageContextMenu(props: Props) {
       observer.disconnect();
       window.removeEventListener('resize', place);
     };
-  }, [state.x, state.y, state.variant, showReactions]);
+  }, [state.x, state.y, state.variant, showReactions, window, tabActive]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === 'Escape' || event.key === 'Tab') {
@@ -280,11 +288,12 @@ export function MessageContextMenu(props: Props) {
     decoration && (decoration.fontId || decoration.bubbleId || decoration.widgetId),
   );
 
-  return (
+  const content = (
     <MessageMenuContext.Provider value={true}>
       <MessageMenuFeedbackContext.Provider value={feedbackHost}>
         <div
           ref={menuRef}
+          hidden={!tabActive}
           role="menu"
           aria-label="消息操作"
           data-hover-delay="0"
@@ -293,7 +302,7 @@ export function MessageContextMenu(props: Props) {
             'message-menu-v2',
             state.variant === 'mobile' && 'message-menu-touch',
           )}
-          style={{ left: state.x, top: state.y }}
+          style={{ left: state.x, top: state.y, zIndex: layer }}
           onKeyDown={handleKeyDown}
           onFocusCapture={(event) => {
             if (event.target instanceof HTMLButtonElement)
@@ -474,5 +483,10 @@ export function MessageContextMenu(props: Props) {
         </div>
       </MessageMenuFeedbackContext.Provider>
     </MessageMenuContext.Provider>
+  );
+  return (
+    <OverlayLayerContext.Provider value={scope}>
+      {createPortal(content, document.body)}
+    </OverlayLayerContext.Provider>
   );
 }

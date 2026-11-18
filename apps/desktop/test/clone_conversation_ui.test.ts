@@ -93,8 +93,10 @@ it('克隆直接使用普通 ChatPane 的编辑器、时间线、菜单与多选
           new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
         ),
     );
-    const buttons = [...f.host.querySelectorAll<HTMLButtonElement>('.message-context-menu button')];
-    expect(f.host.querySelector('.message-reaction-strip')).toBeNull();
+    const buttons = [
+      ...document.querySelectorAll<HTMLButtonElement>('.message-context-menu button'),
+    ];
+    expect(document.querySelector('.message-reaction-strip')).toBeNull();
     for (const label of ['转发', '引用', '撤回', '本地删除']) {
       expect(buttons.some((node) => node.getAttribute('aria-label') === label)).toBe(false);
     }

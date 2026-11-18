@@ -70,7 +70,7 @@ function mount(overrides: Partial<Message> = {}, sendAvailable = true) {
   return {
     conversation,
     button: () =>
-      Array.from(host.querySelectorAll<HTMLButtonElement>('.message-context-menu button')).find(
+      Array.from(document.querySelectorAll<HTMLButtonElement>('.message-context-menu button')).find(
         (button) => button.textContent === '撤回',
       ),
     close: () => {

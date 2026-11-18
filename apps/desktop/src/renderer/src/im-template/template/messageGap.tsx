@@ -3,7 +3,7 @@ import { NumericText } from '../../components/NumericText';
 import { cn } from './classNames';
 import { useState } from 'react';
 import type { HTMLAttributes } from 'react';
-import { Check } from 'lucide-react';
+import { MessageSelectionMark } from '../../components/MessageSelectionMark';
 import '../../styles/message-gap-selection.css';
 import { useVisibleMessageGap } from '../../hooks/useVisibleMessageGap';
 
@@ -48,17 +48,14 @@ export function MessageGapDivider({
       data-message-id={id}
       className={cn(
         'weq-graytip-band',
+        'weq-message-selectable',
         selectionMode && 'weq-selectable-gap',
         selectionMode && 'selection-mode',
         selected && 'is-selected',
       )}
       aria-selected={selectionMode ? selected : undefined}
     >
-      {selectionMode ? (
-        <span className="weq-gap-selection-check" aria-hidden="true">
-          {selected ? <Check size={12} /> : null}
-        </span>
-      ) : null}
+      {selectionMode ? <MessageSelectionMark selected={selected} /> : null}
       <button
         type="button"
         className={cn('weq-graytip-band-hint', 'weq-gap-band-button')}

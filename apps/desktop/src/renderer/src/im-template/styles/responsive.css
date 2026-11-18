@@ -827,7 +827,7 @@
 
 :where(html[data-weq-layout='single']) .message-scroll {
   gap: 14px;
-  padding: 16px 10px 12px;
+  padding: 16px 14px 12px 10px;
   overflow-x: hidden;
   background: #f1f2f4;
 }
