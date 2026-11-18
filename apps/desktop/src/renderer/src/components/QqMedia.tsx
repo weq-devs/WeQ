@@ -305,8 +305,7 @@ export function QqImage({
       />
     );
   }
-  // Animated emojis open nothing; real photos open the full-size lightbox.
-  const openable = !isAnimatedEmoji && interactive;
+  const openable = interactive;
   /** 服务端副本的到期时刻（ms），元素没带 TTL 时为 undefined。 */
   const ttlSeconds = num(data, 'fileTTL');
   const uploadedSeconds = num(data, 'uploadTimestamp');
@@ -316,7 +315,7 @@ export function QqImage({
   // 按钮。会话场景按 ConvContext 的约定判断（群号非空 = 群聊，空 = 私聊），和视频 /
   // 文件那几条 OIDB 链路同一口径。
   const ocrContext =
-    openable && token && w && h
+    openable && !isAnimatedEmoji && token && w && h
       ? {
           peerType: conv ? ('group' as const) : ('c2c' as const),
           fileToken: token,
@@ -371,7 +370,9 @@ export function QqImage({
       }}
       type={openable ? 'button' : undefined}
       onKeyDown={openable ? mediaKeyDown : undefined}
-      aria-label={openable ? `查看图片${name ? `：${name}` : ''}` : undefined}
+      aria-label={
+        openable ? `查看${isAnimatedEmoji ? '表情' : '图片'}${name ? `：${name}` : ''}` : undefined
+      }
       className={cn('qq-media-wrap qq-media-action', isAnimatedEmoji && 'qq-media-wrap-emoji')}
       data-favorite-emoji-source={originalProxySrc}
       onClick={
@@ -391,7 +392,7 @@ export function QqImage({
                     key: source === proxySrc ? originalProxySrc : source,
                     kind: 'image',
                     src: source === proxySrc ? originalProxySrc : source,
-                    title: name || '[图片]',
+                    title: name || (isAnimatedEmoji ? '[表情]' : '[图片]'),
                     ocr: ocrContext,
                     fallbackSources: [
                       ...candidates

@@ -65,7 +65,7 @@ const key = (name: string) =>
     ),
   );
 
-it('可操作图片、闪照、语音、视频及商城表情使用原生按钮，动画表情不伪装成按钮', () => {
+it('可操作图片、图片表情、闪照、语音、视频及商城表情使用原生按钮', () => {
   act(() =>
     root.render(
       h(
@@ -82,6 +82,7 @@ it('可操作图片、闪照、语音、视频及商城表情使用原生按钮�
   );
   for (const selector of [
     '.qq-media-wrap:not(.qq-media-wrap-emoji)',
+    '.qq-media-wrap-emoji',
     '.qq-flash-cover',
     '.qq-media-voice',
     '.qq-media-video',
@@ -92,7 +93,6 @@ it('可操作图片、闪照、语音、视频及商城表情使用原生按钮�
     expect(control.getAttribute('aria-label')).toBeTruthy();
     expect(control.querySelector('button')).toBeNull();
   }
-  expect(host.querySelector('.qq-media-wrap-emoji')!.tagName).toBe('SPAN');
 });
 
 it('图片候选全部失败才显示终态，重试从原始候选重新进入同一媒体链并忽略迟到事件', async () => {
@@ -163,6 +163,7 @@ it('引用定位缩略图不再叠加媒体按钮或失败重试入口', () => {
         Fragment,
         null,
         h(QqImage, { data: {}, sendTimeMs: 1, interactive: false }),
+        h(QqImage, { data: { subType: 1 }, sendTimeMs: 1, interactive: false }),
         h(QqVideo, { data: {}, sendTimeMs: 1, interactive: false }),
         h(QqMarketFace, {
           data: { emojiPackId: 1, marketEmoticonIdHex: 'abc' },
