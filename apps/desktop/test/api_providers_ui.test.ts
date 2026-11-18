@@ -476,6 +476,36 @@ describe('多 API provider 配置', () => {
       reasoningEfforts: ['low', 'high'],
     });
   });
+
+  it('Token 简写失焦后转为整数，保存时也校验并转换尚未失焦的输入', async () => {
+    const f = mount();
+    act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
+    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="模型 1 能力与参数"]')!.click());
+    const contextField = '[aria-label="上下文窗口（Token）"]';
+    const outputField = '[aria-label="最大输出（Token）"]';
+    const context = f.host.querySelector<HTMLInputElement>(contextField)!;
+    for (const [draft, normalized] of [
+      ['1m', '1000000'],
+      ['1M', '1000000'],
+      ['0.1 m', '100000'],
+      ['1.001k', '1001'],
+    ]) {
+      f.set(contextField, draft);
+      act(() => context.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
+      expect(context.value).toBe(normalized);
+    }
+    f.set(contextField, '1.05m');
+    f.set(outputField, '0.0001k');
+    await act(async () => f.button('保存服务商').click());
+    expect(state.save).not.toHaveBeenCalled();
+    f.set(outputField, '4.096 k');
+    await act(async () => f.button('保存服务商').click());
+    expect(state.save.mock.calls[0]![0].models[0].overrides.request).toEqual({
+      contextWindowTokens: 1_050_000,
+      maxOutputTokens: 4_096,
+    });
+  });
+
   it.each([false, true])('%s 未修改或改回原值时关闭不确认，也不留下页面草稿', async (tts) => {
     const f = mount(tts);
     act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());

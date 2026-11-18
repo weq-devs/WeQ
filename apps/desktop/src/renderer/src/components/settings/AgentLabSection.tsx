@@ -55,6 +55,11 @@ const TOKEN_FIELDS = [
   ['contextWindowTokens', '上下文窗口（Token）'],
   ['maxOutputTokens', '最大输出（Token）'],
 ] as const;
+type TokenField = (typeof TOKEN_FIELDS)[number][0];
+const compactTokenCount = new Intl.NumberFormat('en', {
+  notation: 'compact',
+  maximumFractionDigits: 2,
+});
 
 type ModelForm = {
   rowKey: string;
@@ -67,7 +72,7 @@ type ModelForm = {
   capabilities: Capability[];
   probe?: CapabilityProbeResult[];
   reasoningProbe?: ReasoningProbeResult;
-  requestTokenDrafts?: Partial<Record<(typeof TOKEN_FIELDS)[number][0], string>>;
+  requestTokenDrafts?: Partial<Record<TokenField, string>>;
 };
 type ProviderForm = {
   id: string;
@@ -118,6 +123,20 @@ function templateDisplayName(label: string | undefined): string {
   return label?.replace(/（.*?）/g, '').trim() ?? '';
 }
 
+function parseTokenCount(input: string): number | undefined {
+  const match = /^(\d*)(?:\.(\d+))?(?:\s*([km])|e([+-]?\d+))?$/i.exec(input.trim());
+  if (!match) return undefined;
+  const [, whole, fraction = '', unit, exponent] = match;
+  const scale = unit ? (unit.toLowerCase() === 'm' ? 6 : 3) : Number(exponent ?? 0);
+  // 用十进制移位校验整数，避免 1.001k 等输入因浮点乘法产生偏差。
+  const rawDigits = `${whole}${fraction}`;
+  const digits = rawDigits.replace(/0+$/, '');
+  const power = scale - fraction.length + rawDigits.length - digits.length;
+  if (!digits || power < 0) return undefined;
+  const tokens = Number(`${digits}e${power}`);
+  return Number.isSafeInteger(tokens) ? tokens : undefined;
+}
+
 function requestOverrides(model: ModelForm): ModelRequestProperties | undefined {
   const overrides = { ...model.overrides?.request };
   for (const [key, label] of TOKEN_FIELDS) {
@@ -127,8 +146,8 @@ function requestOverrides(model: ModelForm): ModelRequestProperties | undefined 
       delete overrides[key];
       continue;
     }
-    const value = Number(draft);
-    if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`「${label}」必须为正整数`);
+    const value = parseTokenCount(draft);
+    if (value === undefined) throw new Error(`「${label}」请输入正整数 Token 数，可用 k 或 M 简写`);
     overrides[key] = value;
   }
   const entries = Object.entries(overrides).filter(([, value]) => value !== undefined);
@@ -142,15 +161,17 @@ function ModelContextWindowSummary({ model }: { model: ModelForm }) {
     draft === undefined
       ? (model.overrides?.request?.contextWindowTokens ?? declared)
       : draft.trim()
-        ? Number(draft)
+        ? parseTokenCount(draft)
         : declared;
   if (tokens === undefined || !Number.isSafeInteger(tokens) || tokens <= 0) return null;
   return (
     <>
       {' '}
       <span aria-hidden="true">{'|\u00a0'}</span>
-      <span className="sr-only">上下文窗口 </span>
-      <NumericText>{`${tokens.toLocaleString('zh-CN')} Token`}</NumericText>
+      <span className="sr-only">{`上下文窗口 ${tokens.toLocaleString('zh-CN')} Token`}</span>
+      <span aria-hidden="true">
+        <NumericText>{compactTokenCount.format(tokens).replace(/K$/, 'k')}</NumericText>
+      </span>
     </>
   );
 }
@@ -166,6 +187,8 @@ function ModelRequestFields({
   const request = model.overrides?.request;
   const patchRequest = (value: ModelRequestProperties) =>
     update({ overrides: { ...model.overrides, request: { ...request, ...value } } });
+  const updateTokenDraft = (key: TokenField, value: string) =>
+    update({ requestTokenDrafts: { ...model.requestTokenDrafts, [key]: value } });
   return (
     <div className="weq-provider-model-properties">
       {TOKEN_FIELDS.map(([key, label]) => (
@@ -175,17 +198,26 @@ function ModelRequestFields({
           control={
             <input
               className="weq-set-input weq-number"
-              type="number"
-              min={1}
-              step={1}
+              type="text"
+              autoComplete="off"
+              spellCheck={false}
               aria-label={label}
               value={model.requestTokenDrafts?.[key] ?? request?.[key] ?? ''}
               placeholder={declared[key] === undefined ? '未声明' : `自动（${declared[key]}）`}
-              onChange={(event) =>
-                update({
-                  requestTokenDrafts: { ...model.requestTokenDrafts, [key]: event.target.value },
-                })
-              }
+              onChange={(event) => updateTokenDraft(key, event.target.value)}
+              onBlur={(event) => {
+                const input = event.currentTarget.value;
+                const tokens = parseTokenCount(input);
+                if (tokens !== undefined && String(tokens) !== input) {
+                  updateTokenDraft(key, String(tokens));
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  event.currentTarget.blur();
+                }
+              }}
             />
           }
         />
