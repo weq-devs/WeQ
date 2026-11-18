@@ -9,13 +9,11 @@ import {
 } from 'react';
 import {
   Brain,
-  ChevronRight,
   Cpu,
   Image,
   ListOrdered,
   Settings2,
   SlidersHorizontal,
-  RotateCcw,
   RefreshCw,
 } from 'lucide-react';
 import type { AssistantConfig } from '@weq/service';
@@ -32,9 +30,9 @@ import { SegmentedControl } from '../../components/SegmentedControl';
 import { useSettingsAutosave, type SettingsSection } from '../../hooks/useSettingsAutosave';
 import { useDraftProtection } from '../../lib/draftClose';
 import { settingsSaves } from '../../lib/settingsSaveQueue';
+import { SettingsResetContext } from '../../components/settings/resetContext';
 import { AssistantEffortSelect } from './AssistantGenerationControls';
 import { ConversationSettingsFrame } from '../../components/ConversationSettingsFrame';
-import { requestOpenSettings } from '../../lib/callSettingsBridge';
 import '../../styles/assistant-settings.css';
 import { ASSISTANT_SEND_MODES } from './AssistantSettingsPanel.shared';
 
@@ -71,6 +69,7 @@ function useAssistantParameters() {
   };
   const queue = useRef<Promise<void>>(Promise.resolve());
   const failed = useRef<AssistantConfig | null>(null);
+  const paused = useRef(false);
   const performSave = async (input: AssistantConfig) => {
     let patch = input;
     setError('');
@@ -106,6 +105,7 @@ function useAssistantParameters() {
     }
   };
   const save = (patch: AssistantConfig) => {
+    if (paused.current) return Promise.resolve();
     pending.current = { ...pending.current, ...patch };
     setOptimistic(pending.current);
     const operation = queue.current
@@ -120,6 +120,13 @@ function useAssistantParameters() {
     error: error || query.error?.message,
     save,
     settle: () => queue.current,
+    suspend: async () => {
+      paused.current = true;
+      await queue.current.catch(() => {});
+    },
+    release: () => {
+      paused.current = false;
+    },
     retry: () => (failed.current ? save(failed.current) : Promise.resolve()),
     reload: () => query.refetch(),
   };
@@ -177,18 +184,18 @@ function NumberSetting({
     <Row
       settingId={`weq-assistant-${name}`}
       label={label}
-      control={
-        <div className="weq-conversation-tools">
-          {nullable ? (
-            <SegmentedControl
-              label={`${label}模式`}
-              value={automatic ? 'auto' : 'custom'}
-              options={[
       desc={
         name === 'contextTokens'
           ? '用于估算何时压缩历史；不会超过 API 配置中已知的模型上下文窗口。'
           : undefined
       }
+      control={
+        <div className="weq-set-btn-group weq-assistant-number">
+          {nullable ? (
+            <SegmentedControl
+              label={`${label}模式`}
+              value={automatic ? 'auto' : 'custom'}
+              options={[
                 {
                   value: 'auto',
                   label:
@@ -214,22 +221,11 @@ function NumberSetting({
               onBlur={() => void form?.flush()}
             />
           ) : null}
-          <button
-            data-danger="outline"
-            type="button"
-            className="weq-set-iconbtn"
-            title={`恢复${label}默认值`}
-            aria-label={`恢复${label}默认值`}
-            onClick={() => {
-              const fallback = ASSISTANT_PARAMETER_DEFAULTS[name] as number | null;
-              setAutomatic(fallback === null);
-              setDraft(fallback === null ? '' : String(fallback / scale));
-              immediate();
-            }}
-          >
-            <RotateCcw size={14} />
-          </button>
-          {error ? <span role="alert">{error}</span> : null}
+          {error ? (
+            <span className="weq-set-row-status" role="alert">
+              {error}
+            </span>
+          ) : null}
         </div>
       }
     />
@@ -262,24 +258,12 @@ function TextSetting({
     prior.current = value;
   }, [value]);
   return (
-    <div className="weq-agentlab-field" data-setting-id={`weq-assistant-${name}`}>
-      <div className="weq-setting-field-head">
-        <label htmlFor={id}>{label}</label>
-        <button
-          data-danger="outline"
-          type="button"
-          className="weq-set-iconbtn"
-          title={`恢复${label}默认值`}
-          aria-label={`恢复${label}默认值`}
-          onClick={() => {
-            setDraft('');
-            setTimeout(() => void form?.flush(), 0);
-          }}
-        >
-          <RotateCcw size={14} />
-        </button>
-      </div>
+    <div className="weq-set-text-field" data-setting-id={`weq-assistant-${name}`}>
+      <label className="weq-set-row-label" htmlFor={id}>
+        {label}
+      </label>
       <textarea
+        className="weq-set-input"
         id={id}
         aria-invalid={Boolean(error)}
         rows={5}
@@ -304,26 +288,44 @@ const GLOBAL_GROUPS = [
 ] as const;
 type GlobalGroup = (typeof GLOBAL_GROUPS)[number]['id'];
 
-export function WeqAssistantSettingsSection({
-  conversation,
-}: {
+type AssistantSettingsProps = {
   conversation?: {
     title: string;
     anchor?: HTMLElement;
     onClose: () => void;
   };
-}) {
+};
+
+export function WeqAssistantSettingsSection(props: AssistantSettingsProps) {
+  const [resetRevision, setResetRevision] = useState(0);
+  return (
+    <AssistantSettingsFields
+      key={resetRevision}
+      {...props}
+      onReset={() => setResetRevision((previous) => previous + 1)}
+    />
+  );
+}
+
+function AssistantSettingsFields({
+  conversation,
+  onReset,
+}: AssistantSettingsProps & { onReset: () => void }) {
   const [section, setSection] = useState<GlobalGroup>('model');
-  const { data, save, saving, error, settle, retry, reload } = useAssistantParameters();
+  const { data, save, saving, error, settle, suspend, release, retry, reload } =
+    useAssistantParameters();
+  const reset = useContext(SettingsResetContext);
   const form = useSettingsAutosave<AssistantConfig>(async (patch) => {
     validateAssistantParameters({ ...ASSISTANT_PARAMETER_DEFAULTS, ...data, ...patch });
     await save(patch);
   });
   const protection = useDraftProtection(form.dirty || (data && error) ? true : null, false);
   if (!form.dirty && !(data && error)) protection.reset(null);
-  const saveState = useRef({ form, saving, error, settle });
-  saveState.current = { form, saving, error, settle };
+  const saveState = useRef({ form, saving, error, settle, suspend, release, onReset });
+  saveState.current = { form, saving, error, settle, suspend, release, onReset };
+  const resetSaves = conversation ? null : reset?.saves('assistant-config');
   useEffect(() => {
+    let restored = false;
     const entry = {
       get pending() {
         const { form, saving } = saveState.current;
@@ -340,12 +342,27 @@ export function WeqAssistantSettingsSection({
           ))
         );
       },
+      suspend: async () => {
+        const { form, suspend } = saveState.current;
+        await Promise.all([form.suspend(), suspend()]);
+      },
+      reset: () => {
+        restored = true;
+        saveState.current.onReset();
+      },
+      release: () => {
+        if (restored) return;
+        saveState.current.release();
+        saveState.current.form.release();
+      },
     };
     settingsSaves.add(entry);
+    resetSaves?.add(entry);
     return () => {
       settingsSaves.delete(entry);
+      resetSaves?.delete(entry);
     };
-  }, []);
+  }, [resetSaves]);
   const config = { ...ASSISTANT_PARAMETER_DEFAULTS, ...data };
   const fields: Array<{
     name: keyof typeof ASSISTANT_PARAMETER_DEFAULTS;
@@ -396,7 +413,7 @@ export function WeqAssistantSettingsSection({
       </div>
     );
   };
-  const closeConversation = async (afterClose?: () => void) => {
+  const closeConversation = async () => {
     if (!conversation || !(await form.flush())) return;
     try {
       await settle();
@@ -404,7 +421,6 @@ export function WeqAssistantSettingsSection({
       return;
     }
     conversation.onClose();
-    afterClose?.();
   };
   const contents = (
     <>
@@ -479,27 +495,25 @@ export function WeqAssistantSettingsSection({
               <Row
                 settingId="weq-assistant-permission"
                 label="运行模式"
+                desc={
+                  data.permissionMode === 'unrestricted'
+                    ? '以当前系统用户权限执行操作。'
+                    : '在沙箱中执行任务。'
+                }
                 control={
-                  <div>
-                    <SegmentedControl
-                      label="运行模式"
-                      value={data?.permissionMode ?? 'sandbox'}
-                      onChange={(permissionMode) =>
-                        void save({
-                          permissionMode,
-                        }).catch(() => {})
-                      }
-                      options={[
-                        { value: 'sandbox', label: '沙箱模式' },
-                        { value: 'unrestricted', label: '任意权限' },
-                      ]}
-                    />
-                    <small>
-                      {data?.permissionMode === 'unrestricted'
-                        ? '以当前系统用户权限执行操作。'
-                        : '在沙箱中执行任务。'}
-                    </small>
-                  </div>
+                  <SegmentedControl
+                    label="运行模式"
+                    value={data?.permissionMode ?? 'sandbox'}
+                    onChange={(permissionMode) =>
+                      void save({
+                        permissionMode,
+                      }).catch(() => {})
+                    }
+                    options={[
+                      { value: 'sandbox', label: '沙箱模式' },
+                      { value: 'unrestricted', label: '任意权限' },
+                    ]}
+                  />
                 }
               />
               <TextSetting
@@ -520,26 +534,24 @@ export function WeqAssistantSettingsSection({
             <Row
               settingId="weq-assistant-send-mode"
               label="运行中默认发送方式"
+              desc={
+                data.sendMode === 'queue'
+                  ? '当前任务完成后，按顺序启动独立任务。'
+                  : data.sendMode === 'boundary'
+                    ? '当前模型调用与工具批次结束后补入当前任务。'
+                    : '中断当前模型请求，工具收尾后带补充继续。'
+              }
               control={
-                <div>
-                  <SegmentedControl
-                    label="运行中默认发送方式"
-                    value={data?.sendMode ?? 'interrupt'}
-                    onChange={(sendMode) =>
-                      void save({
-                        sendMode,
-                      }).catch(() => {})
-                    }
-                    options={ASSISTANT_SEND_MODES}
-                  />
-                  <small>
-                    {data?.sendMode === 'queue'
-                      ? '当前任务完成后，按顺序启动独立任务。'
-                      : data?.sendMode === 'boundary'
-                        ? '当前模型调用与工具批次结束后补入当前任务。'
-                        : '中断当前模型请求，工具收尾后带补充继续。'}
-                  </small>
-                </div>
+                <SegmentedControl
+                  label="运行中默认发送方式"
+                  value={data?.sendMode ?? 'interrupt'}
+                  onChange={(sendMode) =>
+                    void save({
+                      sendMode,
+                    }).catch(() => {})
+                  }
+                  options={ASSISTANT_SEND_MODES}
+                />
               }
             />,
           )}
@@ -563,20 +575,11 @@ export function WeqAssistantSettingsSection({
             if (form.dirty && !form.error) void form.flush();
           }}
         >
-          <div className="weq-cvs-body-scroll weq-assistant-settings">
-            {contents}
-            <button
-              type="button"
-              className="weq-set-btn weq-set-btn-soft weq-assistant-open-settings"
-              onClick={() => void closeConversation(() => requestOpenSettings('weqAssistant'))}
-            >
-              在设置中打开 <ChevronRight size={14} aria-hidden />
-            </button>
-          </div>
+          <div className="weq-set weq-cvs-body-scroll weq-assistant-settings">{contents}</div>
         </ConversationSettingsFrame>
       ) : (
         <div className="weq-set weq-assistant-settings">
-          <SectionHeader page="weq-assistant" title="WeQ 助手" pageReset={false} />
+          <SectionHeader page="weq-assistant" title="WeQ 助手" />
           {contents}
         </div>
       )}

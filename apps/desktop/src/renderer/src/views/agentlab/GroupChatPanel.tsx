@@ -257,7 +257,10 @@ export function GroupChatPanel({
     );
     if (!ok) return;
     await clear.mutateAsync({ groupId });
-    await utils.account.getAgentLabGroupConversation.invalidate({ groupId });
+    await Promise.all([
+      utils.account.getAgentLabGroupConversation.invalidate({ groupId }),
+      utils.account.listAgentLabGroups.invalidate(),
+    ]);
     setHistory([]);
     seenIds.current.clear();
   }

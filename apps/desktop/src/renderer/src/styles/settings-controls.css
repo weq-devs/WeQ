@@ -74,6 +74,21 @@ html[data-theme] .weq-settings-dialog .weq-settings-appearance-head span {
   overflow-wrap: anywhere;
 }
 
+.weq-set-text-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.weq-set-text-field textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  resize: vertical;
+  line-height: 1.55;
+  color: var(--weq-fg-primary);
+}
+
 .weq-set-toggle:focus-visible {
   border-radius: var(--weq-skin-toggle-radius, 999px);
   outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
@@ -141,6 +156,10 @@ html[data-theme] .weq-settings-dialog .weq-settings-appearance-head span {
   gap: 8px;
   min-width: 0;
   max-width: 100%;
+}
+
+.weq-set :is(.weq-set-btn-group, .weq-set-actions, .weq-set-card-action) > .weq-set-btn {
+  align-self: center;
 }
 
 .weq-set .weq-set-card-head {

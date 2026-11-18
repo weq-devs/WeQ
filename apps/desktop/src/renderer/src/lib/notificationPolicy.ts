@@ -31,6 +31,7 @@ export function publishNotificationSystem(
   title: string,
   body: string,
   onClick?: () => unknown,
+  dedupeKey?: string,
 ): void {
   if (!notificationEnabled(event, 'system')) return;
   if (preferenceValue('privacyMode')) {
@@ -40,7 +41,7 @@ export function publishNotificationSystem(
   void (async () => {
     if (IS_WEB) {
       if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
-      const notice = new Notification(title, { body });
+      const notice = new Notification(title, { body, tag: dedupeKey });
       if (onClick)
         notice.onclick = async () => {
           window.focus();
@@ -60,6 +61,7 @@ export function publishNotificationSystem(
           title: title.slice(0, 512),
           body: body.slice(0, 2048),
           clickId,
+          dedupeKey,
         });
         if (!shown && clickId) forgetNotificationClick(clickId);
       } catch (error) {

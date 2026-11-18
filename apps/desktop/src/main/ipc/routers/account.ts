@@ -151,6 +151,13 @@ import {
 } from '../../mcp/assistant_bus';
 import { assistantSettingsProcedures } from './shared_settings';
 import { groupChatBus, type GroupChatStreamEvent } from '../../mcp/agentlab_group_bus';
+import { generatedReplyBus, publishGeneratedReply } from '../../mcp/generated_reply_bus';
+import {
+  generatedDraftSummary,
+  generatedMessageSummary,
+  latestGeneratedActivity,
+  type GeneratedReply,
+} from '../../../shared/generated_reply';
 import {
   clientKeyExpiryMs,
   captureGeneratedContent,
@@ -2224,6 +2231,7 @@ export const accountRouter = router({
     const histories = new Map(
       personas.map((persona) => [persona.id, services.agentLab.getConversation(persona.id)]),
     );
+    const drafts = readState.draftTexts(personas.map(({ id }) => `virtual:clone:persona:${id}`));
     const reads = directoryReadPositions(
       readState,
       'persona',
@@ -2246,7 +2254,8 @@ export const accountRouter = router({
       sourceUin: uinByUid.get(persona.sourceId) ?? '',
       // 会话列表要显示「最近一句」并把虚拟会话按时间插回列表：
       // persona.updatedAt 只在编辑画像时变，聊天本身另有会话时间与末条消息。
-      ...latestGeneratedActivity(services.agentLab, 'persona', persona.id),
+      ...latestGeneratedActivity(histories.get(persona.id)!),
+      draftPreview: generatedDraftSummary(drafts.get(`virtual:clone:persona:${persona.id}`)),
       unreadCount: histories
         .get(persona.id)!
         .filter(
@@ -2349,13 +2358,29 @@ export const accountRouter = router({
     )
     .mutation(async ({ input }) => {
       if (!input.text.trim() && !input.images?.length) throw new Error('请输入消息或选择图片');
-      return requireServices().agentLab.chat({
+      const services = requireServices();
+      const configId = services.accountConfig.getRecord()?.configId;
+      const result = await services.agentLab.chat({
         personaId: input.personaId,
         text: input.text,
         history: input.history,
         sessionId: input.sessionId,
         images: input.images,
       });
+      if (!result.silent && getAppContext().services === services) {
+        const reply = services.agentLab.getConversation(input.personaId).at(-1);
+        if (reply?.role === 'assistant') {
+          publishGeneratedReply(configId, {
+            kind: 'persona',
+            conversationId: input.personaId,
+            id: reply.id ?? randomUUID(),
+            title: services.agentLab.getPersonaRecord(input.personaId)?.persona.name ?? '克隆会话',
+            preview: generatedMessageSummary(reply),
+            messageId: reply.id,
+          });
+        }
+      }
+      return result;
     }),
 
   /** 克隆体会话（好友克隆多会话）列表，最近活跃倒序。 */
@@ -2676,6 +2701,7 @@ export const accountRouter = router({
     const histories = new Map(
       groups.map((group) => [group.id, services.agentLab.getGroupMessages(group.id)]),
     );
+    const drafts = readState.draftTexts(groups.map(({ id }) => `virtual:clone:group:${id}`));
     const reads = directoryReadPositions(
       readState,
       'clone-group',
@@ -2704,7 +2730,13 @@ export const accountRouter = router({
         .filter(Boolean);
       return {
         ...group,
-        ...latestGeneratedActivity(services.agentLab, 'group', group.id),
+        ...latestGeneratedActivity(
+          histories.get(group.id)!,
+          (senderId) =>
+            personasById.get(senderId)?.name ??
+            members?.find((member) => member.memberId === senderId)?.displayName,
+        ),
+        draftPreview: generatedDraftSummary(drafts.get(`virtual:clone:group:${group.id}`)),
         memberUins,
         unreadCount: histories
           .get(group.id)!
@@ -2790,9 +2822,12 @@ export const accountRouter = router({
     )
     .mutation(({ input }) => {
       if (!input.text.trim() && !input.images?.length) throw new Error('请输入消息或选择图片');
-      const svc = requireServices().agentLab;
+      const services = requireServices();
+      const svc = services.agentLab;
+      const configId = services.accountConfig.getRecord()?.configId;
       const groupRunId = randomUUID();
       const groupId = input.groupId;
+      let reply: import('@weq/agentlab').AgentLabGroupMessage | undefined;
       void svc
         .sendGroupMessage(
           {
@@ -2802,13 +2837,15 @@ export const accountRouter = router({
             mentions: input.mentions,
             sessionId: input.sessionId,
           },
-          (message) =>
+          (message) => {
+            if (message.senderKind !== 'user') reply = message;
             groupChatBus.emit('event', {
               groupRunId,
               groupId,
               kind: 'message',
               message,
-            } satisfies GroupChatStreamEvent),
+            } satisfies GroupChatStreamEvent);
+          },
         )
         .then(() =>
           groupChatBus.emit('event', {
@@ -2824,7 +2861,22 @@ export const accountRouter = router({
             kind: 'error',
             message: err instanceof Error ? err.message : String(err),
           } satisfies GroupChatStreamEvent),
-        );
+        )
+        .finally(() => {
+          if (!reply || getAppContext().services !== services) return;
+          const detail = svc.getGroupDetail(groupId);
+          if (!detail) return;
+          const sender = detail.members.find((member) => member.memberId === reply?.senderId);
+          const preview = generatedMessageSummary(reply);
+          publishGeneratedReply(configId, {
+            kind: 'group',
+            conversationId: groupId,
+            id: groupRunId,
+            title: detail.group.name,
+            preview: sender && preview ? `${sender.displayName}：${preview}` : preview,
+            messageId: reply.id,
+          });
+        });
       return { groupRunId };
     }),
 
@@ -2835,6 +2887,44 @@ export const accountRouter = router({
       groupChatBus.on('event', handler);
       return () => {
         groupChatBus.off('event', handler);
+      };
+    });
+  }),
+
+  /** 只推实时回复，不用历史未读或界面的运行状态猜测是否完成。 */
+  onGeneratedReply: procedure.input(generatedAccountInput).subscription(({ input }) => {
+    const services = requireExpectedAccount(
+      input.expectedAccountUin,
+      input.expectedAccountConfigId,
+    );
+    return observable<GeneratedReply>((emit) => {
+      const active = (configId?: string) =>
+        configId === input.expectedAccountConfigId && getAppContext().services === services;
+      const clone = (configId: string, reply: GeneratedReply) => {
+        if (active(configId)) emit.next(reply);
+      };
+      const assistant = (event: AssistantStreamEvent) => {
+        if (!active(event.accountConfigId) || !event.sessionId || event.step.kind !== 'final')
+          return;
+        const session = services.assistant
+          .listSessions()
+          .find((item) => item.id === event.sessionId);
+        if (!session) return;
+        const turn = services.assistant.getConversation(session.id).at(-1);
+        emit.next({
+          kind: 'assistant',
+          conversationId: session.id,
+          id: event.runId,
+          title: session.title,
+          preview: generatedMessageSummary({ text: event.step.text, steps: turn?.steps }),
+          messageId: event.messageId ?? (turn?.role === 'assistant' ? turn.id : undefined),
+        });
+      };
+      generatedReplyBus.on('reply', clone);
+      assistantBus.on('step', assistant);
+      return () => {
+        generatedReplyBus.off('reply', clone);
+        assistantBus.off('step', assistant);
       };
     });
   }),
@@ -2953,11 +3043,13 @@ export const accountRouter = router({
   listAssistantSessions: procedure.query(() => {
     const assistant = requireServices().assistant;
     const sessions = assistant.listSessions();
+    const state = currentDraftState();
+    const drafts = state.draftTexts(sessions.map(({ id }) => `assistant:${id}`));
     const histories = new Map(
       sessions.map((session) => [session.id, assistant.getConversation(session.id)]),
     );
     const reads = directoryReadPositions(
-      currentDraftState(),
+      state,
       'assistant',
       Object.fromEntries(
         [...histories].map(([id, turns]) => [
@@ -2975,6 +3067,8 @@ export const accountRouter = router({
     );
     return sessions.map((session) => ({
       ...session,
+      ...latestGeneratedActivity(histories.get(session.id)!),
+      draftPreview: generatedDraftSummary(drafts.get(`assistant:${session.id}`)),
       unreadCount: histories
         .get(session.id)!
         .filter(
@@ -3177,7 +3271,9 @@ export const accountRouter = router({
     )
     .mutation(({ input }) => {
       if (!input.text.trim() && !input.images?.length) throw new Error('请输入消息或选择图片');
-      const assistant = requireServices().assistant;
+      const services = requireServices();
+      const assistant = services.assistant;
+      const accountConfigId = services.accountConfig.getRecord()?.configId;
       const state = currentDraftState();
       const runId = randomUUID();
       // 每轮任务挂一个 AbortController，供 abortAssistantRun 按 runId 掐断（用户点「停止」）。
@@ -3189,6 +3285,7 @@ export const accountRouter = router({
           input.text,
           (step) =>
             assistantBus.emit('step', {
+              accountConfigId,
               runId,
               sessionId: input.sessionId,
               step,
@@ -3232,7 +3329,9 @@ export const accountRouter = router({
   resumeAssistantRun: procedure
     .input(z.object({ sessionId: z.string().min(1) }))
     .mutation(({ input }) => {
-      const assistant = requireServices().assistant;
+      const services = requireServices();
+      const assistant = services.assistant;
+      const accountConfigId = services.accountConfig.getRecord()?.configId;
       const runId = randomUUID();
       const ac = new AbortController();
       activeAssistantRuns.set(runId, ac);
@@ -3241,6 +3340,7 @@ export const accountRouter = router({
           input.sessionId,
           (step) =>
             assistantBus.emit('step', {
+              accountConfigId,
               runId,
               sessionId: input.sessionId,
               step,
@@ -9901,39 +10001,5 @@ function directoryReadPositions(
   return reads as Record<string, string>;
 }
 
-function latestGeneratedActivity(
-  agentLab: import('@weq/service').AgentLabService,
-  kind: 'persona' | 'group',
-  ownerId: string,
-): { lastMessageTime: number; preview: string; previewMine: boolean } {
-  const sessions =
-    kind === 'persona'
-      ? agentLab.listPersonaSessions(ownerId)
-      : agentLab.listGroupSessions(ownerId);
-  const latest = sessions[0];
-  if (!latest) return { lastMessageTime: 0, preview: '', previewMine: false };
-  // 会话时间是毫秒（Date.now()），列表要的是秒；忘了除会让空会话跑到列表最前面。
-  const sessionTime = Math.round(latest.updatedAt / 1000);
-  const rows =
-    kind === 'persona'
-      ? agentLab.getPersonaSessionConversation(ownerId, latest.id)
-      : agentLab.getGroupSessionConversation(ownerId, latest.id);
-  const last = rows.at(-1);
-  // 还没有消息时（刚建的空会话）用会话的创建/更新时间，别落到 0。
-  if (!last) return { lastMessageTime: sessionTime, preview: '', previewMine: false };
-  const text =
-    ('text' in last ? last.text : ((last as { text?: string }).text ?? '')) ||
-    ('images' in last && Array.isArray(last.images) && last.images.length ? '[图片]' : '');
-  const mine = 'role' in last ? last.role === 'user' : last.senderKind === 'user';
-  return {
-    lastMessageTime: Math.round(last.ts / 1000),
-    preview: text
-      .replace(/\[\[(sticker|voice):[^\]]+\]\]/g, (_, tag) =>
-        tag === 'voice' ? '[语音]' : '[表情]',
-      )
-      .slice(0, 80),
-    previewMine: mine,
-  };
-}
 import { CLONE_GENERATION, type CloneGenerationKey } from '@weq/agentlab';
 import { retainAiImage } from '../../ai_images';

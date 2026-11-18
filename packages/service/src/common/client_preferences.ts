@@ -246,4 +246,5 @@ export interface ClientStateSnapshot {
 export interface ClientStateChange {
   revision: number;
   section: 'preferences' | StateNamespace | 'drafts';
+  draftKey?: string;
 }

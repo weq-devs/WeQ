@@ -170,6 +170,8 @@ type ConversationBase = {
   id: string;
   /** 本地生成会话的实际存储身份；QQ 专属能力不得使用此身份发包。 */
   generated?: GeneratedContentIdentity;
+  /** 生成会话的已保存草稿摘要；正文仍单独读取。 */
+  draftPreview?: string;
   /** 目录来源与 QQ 归档状态用于视图和能力判定，不改变实际消息身份。 */
   directoryKind?: 'qq' | 'official' | 'service' | 'guild' | 'persona' | 'cloneGroup' | 'assistant';
   deleted?: boolean;

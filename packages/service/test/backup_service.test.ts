@@ -20,6 +20,7 @@ import {
 } from '../src/bootstrap/backup_restore';
 import { weqAccountSettingPath } from '../src/bootstrap/backup_accounts';
 import { DEFAULT_INTENT_SENSE_CONFIG } from '../src/account/intent_sense';
+import { ASSISTANT_PARAMETER_DEFAULTS } from '../src/account/assistant_config';
 import { snapshotWeqApiSettings } from '../src/bootstrap/backup_settings';
 
 const roots: string[] = [];
@@ -211,6 +212,13 @@ it('不同文件与已关闭预览的迟到确认不能使用别人的新源包'
 
 it('恢复默认暂存后经事务应用，保留 API、账号与本机锁密钥，界面偏好有单独回执', () => {
   const f = fixture();
+  f.config.patchSharedPreference('assistant', {
+    customPrompt: '合成助手提示词',
+    mcpServers: 'synthetic=https://example.invalid',
+    model: { providerId: 'synthetic', model: 'other' },
+    maxRounds: null,
+  });
+  f.config.setSettings({ aiImages: { assistant: 'ocr' } });
   const before = f.config.getSettings();
   const upload = f.service.beginUpload('abandoned.zip', 1);
   const result = f.service.stageDefaults();
@@ -223,6 +231,13 @@ it('恢复默认暂存后经事务应用，保留 API、账号与本机锁密钥
   const reopened = new UserConfigService(f.platform);
   expect(reopened.getSettings().renderTextMarkdown).toBe(DEFAULT_APP_SETTINGS.renderTextMarkdown);
   expect(reopened.getSettings().agentLab).toEqual(before.agentLab);
+  expect(reopened.getSharedPreference('assistant')).toMatchObject({
+    model: { useDefault: true },
+    customPrompt: '',
+    mcpServers: '',
+    maxRounds: ASSISTANT_PARAMETER_DEFAULTS.maxRounds,
+  });
+  expect(reopened.getSettings().aiImages.assistant).toBe(DEFAULT_APP_SETTINGS.aiImages.assistant);
   expect(reopened.getSettings().mcp).toEqual(before.mcp);
   expect(reopened.listAccountConfigs()[0]?.dbKey).toBe('synthetic-db-key');
   expect(reopened.getTotpSecret()).toBe('synthetic-totp-secret');

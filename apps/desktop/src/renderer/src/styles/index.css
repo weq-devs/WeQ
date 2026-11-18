@@ -5980,6 +5980,7 @@ html[data-theme='dark'] .weq-set-mono {
   border: 1px solid var(--weq-border-strong);
   border-radius: 7px;
   padding: 5px 9px;
+  font-family: inherit;
   font-size: 13px;
   color: inherit;
   background: #ffffff;

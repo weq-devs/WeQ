@@ -90,3 +90,30 @@ it('无效输入不提交且阻止关闭，失败保留草稿，显式重试补�
     f.close();
   }
 });
+
+it('恢复设置前等在途保存结束，暂停期间不提交后续草稿', async () => {
+  let finish!: () => void;
+  const f = fixture(
+    vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    ),
+  );
+  try {
+    f.edit('first');
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    f.edit('second');
+    const suspended = f.form.suspend();
+    await act(async () => {
+      finish();
+      await suspended;
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(await f.form.flush()).toBe(false);
+    expect(f.save.mock.calls).toEqual([[{ text: 'first' }]]);
+  } finally {
+    f.close();
+  }
+});

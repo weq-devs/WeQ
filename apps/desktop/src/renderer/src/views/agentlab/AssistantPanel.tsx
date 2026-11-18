@@ -35,7 +35,6 @@ import {
 } from '../../lib/aiImageDraft';
 import { AssistantReplyContent, type AssistantReplyActions } from './AssistantReplyContent';
 import { useStableCallback } from '../../hooks/useStableCallback';
-import { useToastApi } from '../../components/Toast.shared';
 import { timeDate } from '@weq/time';
 import { AssistantGenerationControls } from './AssistantGenerationControls';
 import { WeqAssistantSettingsSection } from './AssistantSettingsPanel';
@@ -233,20 +232,6 @@ export function AssistantPanel({
       ? 'finished'
       : 'idle';
   const version = activity === 'finished' ? assistantResultVersion(turns) : undefined;
-  const notificationToast = useToastApi();
-  const previousActivity = useRef({ scope: '', activity });
-  useEffect(() => {
-    const scope = `${draftAccount}:${currentId}`;
-    if (
-      previousActivity.current.scope === scope &&
-      previousActivity.current.activity === 'running' &&
-      activity === 'finished' &&
-      !error
-    ) {
-      notificationToast.push({ event: 'assistantReply', title: '收到助手的新回复' });
-    }
-    previousActivity.current = { scope, activity };
-  }, [draftAccount, currentId, activity, error, notificationToast]);
   useEffect(() => {
     onActivityChange?.(activity, version);
   }, [activity, version, onActivityChange]);

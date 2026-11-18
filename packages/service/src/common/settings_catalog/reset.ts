@@ -38,6 +38,8 @@ export const SETTINGS_RESET_CARDS = [
   ['qzone', 'qzone-public-refresh', '空友爱看'],
   ['mail', 'mail', '邮箱提醒'],
   ['agentlab', 'api-default', 'LLM'],
+  ['weq-assistant', 'assistant-config', '助手生成与执行'],
+  ['weq-assistant', 'assistant-images', '图片处理'],
   ['intent-sense', 'intent-basic', '功能与模型'],
   ['intent-sense', 'intent-display', '显示方式'],
   ['intent-sense', 'intent-trigger', '触发方式'],

@@ -200,7 +200,12 @@ export class ClientStateStore {
   announceDrafts() {
     for (const listener of this.listeners) listener({ revision: Date.now(), section: 'drafts' });
   }
-  private commit(state: State, section: ClientStateChange['section'], retired: string[] = []) {
+  private commit(
+    state: State,
+    section: ClientStateChange['section'],
+    retired: string[] = [],
+    draftKey?: string,
+  ) {
     retired.push(...this.externalize(state));
     state.revision++;
     if (!state.epoch || state.epoch === 'empty') state.epoch = randomUUID();
@@ -211,7 +216,7 @@ export class ClientStateStore {
     for (const path of retired) this.removeDraftFile(path);
     for (const listener of this.listeners) {
       try {
-        listener({ revision: state.revision, section });
+        listener({ revision: state.revision, section, ...(draftKey ? { draftKey } : {}) });
       } catch (error) {
         getLogger().child({ scope: 'client-state' }).warn('状态已提交，订阅通知失败', { error });
       }
@@ -314,6 +319,21 @@ export class ClientStateStore {
   draft(key: string): SharedDraft {
     return this.readDraft(this.read(), key);
   }
+  draftTexts(keys: readonly string[]): Map<string, string> {
+    const drafts = new Map<string, string>();
+    if (!keys.length) return drafts;
+    const state = this.read();
+    for (const key of keys) {
+      if (!Object.hasOwn(state.drafts, key)) continue;
+      try {
+        const { value } = this.readDraft(state, key);
+        if (typeof value === 'string' && value.trim()) drafts.set(key, value);
+      } catch {
+        // 单条坏草稿不阻止目录展示其余会话和已保存消息；打开草稿时仍走正式读取路径。
+      }
+    }
+    return drafts;
+  }
   observeDraft(key: string, value: unknown, writing = false): SharedDraft {
     const current = this.draft(key);
     if (!writing && this.draftWrites.has(key)) return current;
@@ -379,7 +399,7 @@ export class ClientStateStore {
     const path = this.draftPath(key, next.version);
     try {
       writeFileAtomicSync(path, data);
-      this.commit(state, 'drafts', retired);
+      this.commit(state, 'drafts', retired, key);
     } catch (error) {
       this.removeDraftFile(path);
       throw error;

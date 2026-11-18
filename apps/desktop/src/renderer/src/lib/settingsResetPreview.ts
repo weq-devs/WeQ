@@ -42,6 +42,13 @@ const labels: Record<string, string> = {
   classic: '经典',
   minimal: '简约',
   retro: '复古',
+  ocr: 'OCR',
+  vision: '视觉模型',
+  sandbox: '沙箱模式',
+  unrestricted: '任意权限',
+  interrupt: '立即补充',
+  boundary: '下一步补充',
+  queue: '排队发送',
 };
 const selections = new Set([
   'typing:selection',
@@ -117,6 +124,44 @@ export interface ResetPreviewLine {
   text: string;
 }
 export function describeSettingsReset(item: SettingsResetItem): ResetPreviewLine[] {
+  if (item.id === 'assistant-config:config') {
+    const current = item.current as Record<string, unknown>;
+    const defaults = item.defaultValue as Record<string, unknown>;
+    const fields = {
+      model: '默认聊天模型',
+      reasoningEffort: '默认思考强度',
+      temperature: '温度',
+      maxOutputTokens: '单次输出 Token 上限',
+      maxRounds: '任务最大轮数',
+      toolTimeoutMs: '单工具超时',
+      taskTimeoutMs: '任务总时限',
+      historyMessages: '带入历史消息条数',
+      contextTokens: '上下文预算',
+      compressionTrigger: '压缩触发比例',
+      compressionTarget: '压缩目标比例',
+      summaryTokens: '摘要 Token 上限',
+      permissionMode: '运行模式',
+      customPrompt: '额外提示词',
+      mcpServers: '外部 MCP 服务器',
+      sendMode: '运行中默认发送方式',
+    };
+    const format = (key: string, value: unknown) => {
+      if (key === 'customPrompt' || key === 'mcpServers') return value ? '已配置' : '未设置';
+      if (value === null)
+        return key === 'temperature' || key === 'maxOutputTokens' ? '跟随模型' : '不限制';
+      if (typeof value === 'number' && key.endsWith('Ms')) return `${value / 1000} 秒`;
+      if (typeof value === 'number' && key.startsWith('compression'))
+        return `${Math.round(value * 10000) / 100}%`;
+      return formatResetValue(value);
+    };
+    const lines = Object.entries(fields)
+      .filter(([key]) => JSON.stringify(current[key]) !== JSON.stringify(defaults[key]))
+      .map(([key, label]) => ({
+        label,
+        text: `${format(key, current[key])} → ${format(key, defaults[key])}`,
+      }));
+    return lines.length ? lines : [{ label: '已是默认', text: '助手生成与执行设置均为默认值' }];
+  }
   if (item.id === 'data-saver:preferences') {
     const current = item.current as Record<string, unknown>;
     const next = item.defaultValue as Record<string, unknown>;

@@ -292,6 +292,8 @@ export const RUNTIME_SETTING_FIELDS: readonly SettingField[] = [
   field('api-default', 'model', 'llm-default-model', '默认聊天模型', 'runtime'),
   field('api-default', 'vision-model', 'llm-default-vision-model', '默认视觉模型', 'runtime'),
   field('api-default', 'embedding-model', 'llm-default-embedding-model', '默认向量模型', 'runtime'),
+  field('assistant-config', 'config', 'weq-assistant-default-model', '助手生成与执行', 'runtime'),
+  field('assistant-images', 'mode', 'ai-images-assistant', '图片处理偏好', 'runtime'),
   field('voice-online', 'concurrency', 'voice-online-concurrency', '转录并发', 'runtime'),
   field('ocr-online', 'concurrency', 'ocr-online-concurrency', '识别并发', 'runtime'),
   field('ocr-online', 'prefilter', 'ocr-prefilter-enabled', 'OCR 前先筛图', 'runtime'),

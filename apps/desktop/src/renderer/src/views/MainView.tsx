@@ -248,6 +248,7 @@ import { useRecentContactTargets } from '../hooks/useRecentContactTargets';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useCloneTaskRefresh } from '../hooks/useCloneTaskRefresh';
+import { useGeneratedReplyNotifications } from '../hooks/useGeneratedReplyNotifications';
 import {
   GROUP_MEMBER_PREVIEW_REFRESH_MS,
   useGroupMemberResolver,
@@ -7769,6 +7770,7 @@ function MainWorkspace(): ReactElement {
         uin: item.sourceUin,
         unreadCount: item.unreadCount,
         updatedAt: item.updatedAt,
+        draftPreview: item.draftPreview,
         ...(item.lastMessageTime ? { lastMessageTime: item.lastMessageTime } : {}),
         ...(item.preview ? { preview: item.preview, previewMine: item.previewMine } : {}),
       })),
@@ -7780,6 +7782,8 @@ function MainWorkspace(): ReactElement {
         updatedAt: item.updatedAt,
         ...(item.lastMessageTime ? { lastMessageTime: item.lastMessageTime } : {}),
         ...(item.preview ? { preview: item.preview, previewMine: item.previewMine } : {}),
+        previewSender: item.previewSender,
+        draftPreview: item.draftPreview,
         // 九宫格头像用成员源好友的 QQ 号。
         memberUins: item.memberUins,
         unreadCount: item.unreadCount,
@@ -7792,6 +7796,20 @@ function MainWorkspace(): ReactElement {
     id: string;
     revision: number;
   } | null>(null);
+  const activeCloneId = cloneSearchTarget
+    ? `virtual:${cloneSearchTarget.kind}:${cloneSearchTarget.ownerId}`
+    : virtualOpen && `virtual:${virtualOpen.kind}:${virtualOpen.id}`;
+  useGeneratedReplyNotifications(
+    noticeAccountKey ? (openedUin ?? '') : '',
+    noticeAccountKey ? (noticeConfig.data?.configId ?? '') : '',
+    !settingsOpen && (!mobileLayout || !mobileConversationList)
+      ? shell.view === 'messages' && specialChat === 'assistant' && assistantSessionId
+        ? `assistant:${assistantSessionId}`
+        : shell.view === 'agentlab'
+          ? (activeCloneId ?? undefined)
+          : undefined
+      : undefined,
+  );
   const conversationViews = useMemo<ConversationViewDirectory>(() => {
     const clone = virtualRows.map(virtualConversationRow);
     const assistant = (directoryAssistant.data ?? []).map(assistantConversationRow);
@@ -8774,6 +8792,42 @@ function MainWorkspace(): ReactElement {
         } else if (target.kind === 'assistant') {
           changeConversationView('assistant');
           shell.switchView('messages');
+        } else if (target.kind === 'generated-reply') {
+          const { conversationKind: kind, conversationId: id, messageId } = target;
+          const rowId = kind === 'assistant' ? `assistant:${id}` : `virtual:${kind}:${id}`;
+          const view = kind === 'assistant' ? 'assistant' : 'clone';
+          const row = conversationViewsRef.current?.[view].find((item) => item.id === rowId);
+          const title = row
+            ? conversationRowName(row)
+            : kind === 'assistant'
+              ? 'WeQ 助手'
+              : '克隆会话';
+          const hit: GeneratedSearchHit | undefined = messageId
+            ? {
+                category: kind === 'assistant' ? 'assistantMessage' : 'cloneMessage',
+                kind,
+                ownerId: kind === 'assistant' ? 'assistant' : id,
+                sessionId: kind === 'assistant' ? id : null,
+                messageId,
+                title,
+                sessionTitle: title,
+                content: '',
+                ts: 0,
+              }
+            : undefined;
+          if (kind === 'assistant') {
+            changeConversationView('assistant');
+            openAssistantConversation(id, hit);
+          } else {
+            flushAllDirtyDrafts();
+            locateConversationInView(rowId, 'clone');
+            setMobileConversationList(false);
+            setSpecialChat(null);
+            setArkFeedState(null);
+            setCloneSearchTarget(hit ?? null);
+            setVirtualOpen({ kind, id, revision: Date.now() });
+            shell.switchView('agentlab');
+          }
         } else if (target.kind === 'group') {
           const group = contactDirectoryConversations.find(
             (conversation) => conversation.type === 'group' && conversation.id === target.id,

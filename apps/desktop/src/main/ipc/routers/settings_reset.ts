@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import { DEFAULT_APP_SETTINGS, DEFAULT_INTENT_SENSE_CONFIG } from '@weq/service';
+import {
+  DEFAULT_APP_SETTINGS,
+  DEFAULT_INTENT_SENSE_CONFIG,
+  mergeAssistantConfig,
+} from '@weq/service';
 import {
   DEFAULT_MAIL_POLL_INTERVAL_MINUTES,
   mailPollIntervalMinutes,
@@ -222,6 +226,26 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     current.agentLab.defaultEmbeddingModel,
     defaults.agentLab.defaultEmbeddingModel,
     () => b.setDefaultEmbeddingModel({ ref: defaults.agentLab.defaultEmbeddingModel }),
+  );
+  if (selected.has('assistant-config')) {
+    const assistant = shared.assistant;
+    const defaultConfig = mergeAssistantConfig({}, {});
+    const currentConfig = mergeAssistantConfig(await assistant.getConfig(), {});
+    // 恢复预览只说明文本已配置，不回传可能含密钥的 MCP 配置。
+    const previewConfig = ({ customPrompt, mcpServers, ...value }: typeof defaultConfig) => ({
+      ...value,
+      customPrompt: Boolean(customPrompt),
+      mcpServers: Boolean(mcpServers),
+    });
+    bind(
+      'assistant-config:config',
+      previewConfig(currentConfig),
+      previewConfig(defaultConfig),
+      () => assistant.setConfig(defaultConfig),
+    );
+  }
+  bind('assistant-images:mode', current.aiImages.assistant, defaults.aiImages.assistant, () =>
+    b.setAiImagePreference({ feature: 'assistant', mode: defaults.aiImages.assistant }),
   );
   for (const kind of ['voice', 'ocr'] as const) {
     const concurrency =

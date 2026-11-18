@@ -19,6 +19,7 @@ import {
 } from '../src/renderer/src/lib/conversationViews';
 import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
 import { useCurrentContentSelection } from '../src/renderer/src/state/contentSelection.shared';
+import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
 import { createTemplateDemoData } from './support/templateDemoData';
 import {
   mobileBack,
@@ -285,6 +286,57 @@ it('助手视图只展示导出和永久删除，未选对象时保留禁用及�
   expect(del.disabled).toBe(false);
   act(() => del.click());
   expect(remove).toHaveBeenCalledWith([assistant]);
+});
+it('助手摘要和克隆草稿服从会话预览开关，图片草稿与未读仍各自表达', () => {
+  const generated = [
+    assistantConversationRow({
+      id: 'preview',
+      title: '预览助手',
+      updatedAt: 35000,
+      preview: '报告已完成',
+      unreadCount: 1,
+    }),
+    virtualConversationRow({
+      id: 'virtual:persona:draft',
+      kind: 'persona',
+      ownerId: 'draft',
+      name: '预览克隆',
+      preview: '上一条消息',
+      draftPreview: '[图片] 草稿',
+      unreadCount: 2,
+    }),
+  ];
+  const entries = { ...directory, assistant: [generated[0]!], clone: [generated[1]!] };
+  const render = (show: boolean, revision: number) =>
+    act(() => {
+      acceptPreferences(
+        {
+          epoch: 'fixture-preview',
+          revision,
+          values: { showConversationPreview: show },
+          records: {},
+        },
+        false,
+      );
+      root.render(h(Fixture, { initialView: 'all', entries }));
+    });
+  try {
+    const unreadBadges = () =>
+      generated.map(
+        (row) => host.querySelector(`[data-conversation-id="${row.id}"] .row-unread`)?.textContent,
+      );
+    render(true, 1);
+    expect(host.textContent).toContain('报告已完成');
+    expect(host.textContent).toContain('[图片] 草稿');
+    expect(host.textContent).not.toContain('上一条消息');
+    expect(unreadBadges()).toEqual(['1', '2']);
+    render(false, 2);
+    expect(host.textContent).not.toContain('报告已完成');
+    expect(host.textContent).not.toContain('[图片] 草稿');
+    expect(unreadBadges()).toEqual(['1', '2']);
+  } finally {
+    render(true, 3);
+  }
 });
 it.each([
   ['clone', clone, cloneGroup],

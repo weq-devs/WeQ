@@ -125,12 +125,15 @@ export function assistantConversationRow(item: {
   title: string;
   updatedAt: number;
   running?: boolean;
+  preview?: string;
+  draftPreview?: string;
   unreadCount?: number;
 }): Conversation {
   return {
     id: `assistant:${item.id}`,
     directoryKind: 'assistant',
     generated: { kind: 'assistant', ownerId: 'assistant', sessionId: item.id },
+    draftPreview: item.draftPreview,
     type: 'direct',
     otherUser: {
       id: `assistant:${item.id}`,
@@ -148,7 +151,7 @@ export function assistantConversationRow(item: {
     lastMessage: {
       id: `assistant:${item.id}:preview`,
       senderId: null,
-      body: item.running ? '正在回答…' : null,
+      body: item.running ? '正在回答…' : item.preview || null,
       createdAt: new Date(item.updatedAt).toISOString(),
     },
   };
@@ -162,6 +165,10 @@ export function generatedAggregateRow(
       !previous || Date.parse(row.updatedAt) > Date.parse(previous.updatedAt) ? row : previous,
     null,
   );
+  const latestPreview = rows.reduce<Conversation | null>((previous, row) => {
+    if (!row.lastMessage?.body) return previous;
+    return !previous || Date.parse(row.updatedAt) > Date.parse(previous.updatedAt) ? row : previous;
+  }, null);
   return {
     id: `merged:${kind}`,
     type: 'merged',
@@ -174,13 +181,14 @@ export function generatedAggregateRow(
     updatedAt: latest?.updatedAt ?? '',
     preference: { pinned: false, muted: false, blocked: false },
     unreadCount: rows.reduce((count, row) => count + (row.unreadCount ?? 0), 0),
-    lastMessage: latest
-      ? {
-          id: `merged:${kind}:preview`,
-          senderId: null,
-          body: latest.type === 'direct' ? latest.otherUser.displayName : '',
-          createdAt: latest.updatedAt,
-        }
-      : null,
+    lastMessage:
+      latestPreview?.type === 'direct'
+        ? {
+            id: `merged:${kind}:preview`,
+            senderId: null,
+            body: `${latestPreview.otherUser.displayName} · ${latestPreview.lastMessage?.body}`,
+            createdAt: latestPreview.updatedAt,
+          }
+        : null,
   };
 }

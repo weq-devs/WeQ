@@ -1,28 +1,17 @@
-.weq-setting-field-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+.weq-assistant-settings .weq-set-text-field {
+  padding-block: 6px;
 }
-.weq-assistant-settings .weq-agentlab-field textarea {
-  padding: 10px 12px;
-  min-height: 100px;
-  resize: vertical;
-  border-radius: var(--weq-skin-input-radius, 6px);
+.weq-assistant-number {
+  justify-content: flex-end;
 }
-.weq-assistant-settings .weq-agentlab-field {
-  min-width: 0;
-  margin-block: 12px;
+.weq-assistant-number input {
+  width: 88px;
+  min-height: 38px;
+  text-align: end;
 }
-.weq-assistant-settings small {
-  display: block;
-  color: var(--weq-fg-secondary);
-  line-height: 1.6;
-  margin-top: 6px;
+.weq-assistant-number [role='alert'] {
+  flex-basis: 100%;
 }
 .weq-assistant-settings [role='alert'] {
   overflow-wrap: anywhere;
-}
-.weq-assistant-open-settings {
-  align-self: flex-start;
 }

@@ -16,6 +16,29 @@ import {
   generatedAggregateRow,
 } from '../src/renderer/src/lib/conversationDirectoryRows';
 import { virtualConversationRow } from '../src/renderer/src/lib/conversationDirectory';
+import { generatedDraftSummary, latestGeneratedActivity } from '../src/shared/generated_reply';
+
+it('生成会话沿用实际消息时间，跳过空占位，汇总摘要不被更新的空会话覆盖', () => {
+  const summary = latestGeneratedActivity([
+    { role: 'assistant', text: '已生成\n报告', ts: 12000 },
+    { role: 'assistant', text: '', ts: 13500, status: 'running' },
+  ]);
+  expect(summary).toMatchObject({ preview: '已生成 报告', lastMessageTime: 13 });
+  const row = assistantConversationRow({ id: 'hit', title: '会议', updatedAt: 13500, ...summary });
+  const empty = assistantConversationRow({ id: 'new', title: '新会话', updatedAt: 16000 });
+  expect(generatedAggregateRow('assistant', [row, empty]).lastMessage?.body).toBe(
+    '会议 · 已生成 报告',
+  );
+  const group = latestGeneratedActivity(
+    [{ senderKind: 'persona', senderId: 'clone-a', text: '[[voice:asset]]', ts: 22000 }],
+    () => '成员甲',
+  );
+  expect(
+    virtualConversationRow({ id: 'group', kind: 'group', ownerId: 'g', name: '合成群', ...group })
+      .lastMessage?.body,
+  ).toBe('成员甲：[语音]');
+  expect(generatedDraftSummary('[[ai-image:encoded]]\n草稿')).toBe('[图片] 草稿');
+});
 import {
   conversationAnalysisTarget,
   conversationRoamingTarget,

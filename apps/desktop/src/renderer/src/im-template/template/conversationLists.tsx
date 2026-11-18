@@ -772,7 +772,8 @@ export function ConversationList({
             const active = conversation.id === activeConversationId;
             const updatedAt = conversation.updatedAt;
             const unreadCount = conversation.unreadCount ?? 0;
-            const hasDraft = showPreview && !active && Boolean(drafts[conversation.id]?.trim());
+            const draft = drafts[conversation.id] ?? conversation.draftPreview;
+            const hasDraft = showPreview && !active && Boolean(draft?.trim());
             const lastMessage = conversation.lastMessage;
             const preview = showPreview && !hasDraft ? conversationPreviewNodes(conversation) : [];
             // 提醒高亮：来自 48902 的权威标记（特别关心 / @我 …）。
@@ -951,7 +952,7 @@ export function ConversationList({
                         <span className={cn('row-draft')}>
                           <PenLine size={15} />
                           <span className={cn('row-draft-text')}>
-                            {formatDraftPreview(drafts[conversation.id])}
+                            {conversation.generated ? draft : formatDraftPreview(draft)}
                           </span>
                         </span>
                       ) : (

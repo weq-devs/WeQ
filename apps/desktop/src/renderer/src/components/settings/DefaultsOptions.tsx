@@ -25,7 +25,8 @@ export function DefaultsOptions({
     <div className="weq-defaults-options">
       <p>{DEFAULTS_DESCRIPTION}</p>
       <p>
-        默认保留 API 配置与凭据、WeQ 服务配置和自定义目录；不删除账号配置、聊天记录或克隆体数据。
+        恢复 WeQ 助手的通用设置，保留会话和会话级模型选择。默认保留 API 配置与凭据、WeQ
+        服务配置和自定义目录；不删除账号配置、聊天记录或克隆体数据。
       </p>
       <fieldset disabled={disabled}>
         <div className="weq-defaults-toggles">

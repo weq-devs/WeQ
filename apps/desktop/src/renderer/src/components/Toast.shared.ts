@@ -113,6 +113,7 @@ interface ToastStore {
     dismissible?: boolean;
     action?: Toast['action'];
     source?: NotificationSource | null;
+    system?: false;
   }): number;
   /**
    * 原地更新一条 toast（不重播进场、不改变堆叠顺序）。
@@ -183,6 +184,7 @@ const toastStore = create<ToastStore>((set, get) => ({
     dismissible,
     action,
     source,
+    system,
   }) {
     const state = get();
     const existing = key === undefined ? undefined : state.toasts.find((item) => item.key === key);
@@ -219,6 +221,7 @@ const toastStore = create<ToastStore>((set, get) => ({
       source,
     };
     if (
+      system !== false &&
       !taskNotificationPresented(toast.event, source, undefined, toast.taskId) &&
       (!existing ||
         existing.event !== toast.event ||

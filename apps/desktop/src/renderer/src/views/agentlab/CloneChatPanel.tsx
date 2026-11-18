@@ -14,8 +14,6 @@ import { parseAiImageDraft, changeAiImageDraftText } from '../../lib/aiImageDraf
 import { useSharedAssistantDraft } from '../../hooks/useSharedAssistantDraft';
 import type { AiImageRef, AiImageOutcome } from '@weq/agentlab';
 import { useAppDialog } from '../../lib/dialogUtils';
-import { useToastApi } from '../../components/Toast.shared';
-import { accountBinding } from '../../lib/clientPreferences';
 import { AgentMessageContent, type FaceContext } from './ChatBubble';
 import { inputFaceContext } from './ChatBubble.shared';
 import {
@@ -84,7 +82,6 @@ export function CloneChatPanel({
   onOpenSettings: (anchor?: HTMLElement) => void;
 }): ReactElement {
   const dialog = useAppDialog();
-  const notificationToast = useToastApi();
   const userFaces = useMemo(() => (faces ? inputFaceContext(faces.descToId) : undefined), [faces]);
   const utils = trpc.useUtils();
   const chat = trpc.account.chatWithAgentLabPersona.useMutation();
@@ -197,7 +194,6 @@ export function CloneChatPanel({
     setAnimating(true);
     setInput('');
     const nextHistory = [...history, { role: 'user' as const, text, images, ts: Date.now() }];
-    const notificationAccount = JSON.stringify(accountBinding());
     setHistory(nextHistory);
     try {
       const result = await chat.mutateAsync({
@@ -234,8 +230,6 @@ export function CloneChatPanel({
         }
       }
       // 让持久化对话缓存跟上（后端已逐条落库）；否则切走再切回会从陈旧缓存 reseed 丢消息。
-      if (notificationAccount === JSON.stringify(accountBinding()))
-        notificationToast.push({ event: 'assistantReply', title: '收到克隆体的新回复' });
       seeded.current = true;
       void utils.account.getAgentLabConversation.invalidate({ personaId });
     } catch (error) {

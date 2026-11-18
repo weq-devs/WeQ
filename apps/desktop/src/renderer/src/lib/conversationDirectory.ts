@@ -19,6 +19,8 @@ export interface VirtualConversation {
   lastMessageTime?: number;
   /** 最近一条消息是不是自己发的（决定预览要不要加昵称前缀）。 */
   previewMine?: boolean;
+  previewSender?: string;
+  draftPreview?: string;
   /** 克隆群成员的 QQ 号：用来拼九宫格合成头像。 */
   memberUins?: string[];
   unreadCount?: number;
@@ -129,6 +131,7 @@ export function virtualConversationRow(item: VirtualConversation): Conversation 
     id: item.id,
     directoryKind: item.kind === 'persona' ? 'persona' : 'cloneGroup',
     generated: { kind: item.kind, ownerId: item.ownerId, sessionId: null },
+    draftPreview: item.draftPreview,
     type: 'direct',
     otherUser: {
       id: item.id,
@@ -150,8 +153,8 @@ export function virtualConversationRow(item: VirtualConversation): Conversation 
       ? {
           id: `${item.id}:preview`,
           senderId: item.previewMine ? null : item.ownerId,
-          senderDisplayName: item.previewMine ? '我' : item.name,
-          body: item.preview,
+          senderDisplayName: item.previewSender ?? (item.previewMine ? '我' : item.name),
+          body: item.previewSender ? `${item.previewSender}：${item.preview}` : item.preview,
           kind: 'text',
           createdAt: updatedAt || undefined,
         }

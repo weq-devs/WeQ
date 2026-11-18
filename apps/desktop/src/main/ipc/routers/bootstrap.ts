@@ -302,6 +302,8 @@ function storageRoots(): StorageRoot[] {
 
 const storageRestartCandidates = new Map<string, string>();
 
+const configuredNotificationKeys = new Set<string>();
+
 export const bootstrapRouter = router({
   ...backupProcedures,
   ...intentSenseModelProcedures,
@@ -1019,16 +1021,24 @@ export const bootstrapRouter = router({
         title: z.string().max(512),
         body: z.string().max(2048),
         clickId: z.string().uuid().optional(),
+        dedupeKey: z.string().max(512).optional(),
       }),
     )
     .mutation(({ input }) => {
       if (!requireBootstrap().userConfig.getSettings().notificationEvents[input.event].system)
         return false;
-      return (
+      const key = input.dedupeKey && `${input.event}:${input.dedupeKey}`;
+      if (key && configuredNotificationKeys.has(key)) return false;
+      const shown =
         getHost().showMessageNotification?.({ title: input.title, body: input.body }, () => {
           if (input.clickId) pushNotificationClick(input.clickId);
-        }) ?? false
-      );
+        }) ?? false;
+      if (shown && key) {
+        configuredNotificationKeys.add(key);
+        if (configuredNotificationKeys.size > 5000)
+          configuredNotificationKeys.delete(configuredNotificationKeys.values().next().value!);
+      }
+      return shown;
     }),
 
   consumeNotificationClick: procedure.mutation(() => consumeNotificationClick()),

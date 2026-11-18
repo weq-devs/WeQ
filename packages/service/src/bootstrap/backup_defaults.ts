@@ -1,5 +1,6 @@
 import { DEFAULT_APP_SETTINGS, type UserConfig } from './user_config';
 import { normalizeDressConfig } from '../account/dress_config';
+import { mergeAssistantConfig } from '../account/assistant';
 import {
   globalSettingsDefaults,
   WEQ_DEFAULTS_PATHS,
@@ -33,6 +34,7 @@ export function weqDefaultsPaths(config: UserConfig) {
 export function weqDefaultsConfig(current: UserConfig, choice: WeqDefaultsChoice): UserConfig {
   const settings = globalSettingsDefaults(current.settings, DEFAULT_APP_SETTINGS, choice);
   const previous = current.settings;
+  settings.sharedPreferences.assistant = mergeAssistantConfig({}, {});
   settings.sharedPreferences.dress = normalizeDressConfig({
     ...previous?.sharedPreferences?.dress,
     localAppearanceVersion: 1,
@@ -46,8 +48,6 @@ export function weqDefaultsConfig(current: UserConfig, choice: WeqDefaultsChoice
     backgroundOpacity: 1,
   });
   if (!choice.clearApi) {
-    if (previous?.sharedPreferences?.assistant)
-      settings.sharedPreferences.assistant = structuredClone(previous.sharedPreferences.assistant);
     settings.voiceTranscribe.ttsProviders = structuredClone(
       previous?.voiceTranscribe?.ttsProviders ?? [],
     ) as typeof settings.voiceTranscribe.ttsProviders;

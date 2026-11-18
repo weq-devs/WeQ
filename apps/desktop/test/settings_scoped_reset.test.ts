@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_APP_SETTINGS, DEFAULT_INTENT_SENSE_CONFIG } from '@weq/service';
+import {
+  DEFAULT_APP_SETTINGS,
+  DEFAULT_INTENT_SENSE_CONFIG,
+  mergeAssistantConfig,
+} from '@weq/service';
 import type { AppSettings } from '@weq/service';
 import { SETTINGS_RESET_CARDS, resetCards } from '../src/shared/settings_reset';
 import { settingsResetRouter } from '../src/main/ipc/routers/settings_reset';
@@ -80,6 +84,10 @@ vi.mock('../src/main/ipc/routers/bootstrap', () => ({
               state.settings.qzonePagination = input as AppSettings['qzonePagination'];
             if (name === 'setCallRecording') Object.assign(state.settings.callRecording, input);
             if (name === 'setSsePushTuning') Object.assign(state.settings.ssePush, input);
+            if (name === 'setAiImagePreference') {
+              const { feature, mode } = input as { feature: 'assistant'; mode: 'vision' };
+              state.settings.aiImages[feature] = mode;
+            }
             return { enabled: false };
           },
         },
@@ -110,6 +118,26 @@ beforeEach(() => {
 });
 const caller = () => settingsResetRouter.createCaller({});
 describe('分级恢复默认', () => {
+  it('助手页面成组恢复联动参数与图片偏好，预览不返回原始提示词和 MCP 配置', async () => {
+    const defaults = mergeAssistantConfig({}, {});
+    state.settings.sharedPreferences.assistant = {
+      contextTokens: 5000,
+      summaryTokens: 3500,
+      customPrompt: 'synthetic-prompt',
+      mcpServers: 'synthetic= https://example.invalid/synthetic-mcp-secret',
+      model: { providerId: 'synthetic', model: 'synthetic-model' },
+    };
+    state.settings.aiImages.assistant = 'ocr';
+    const input = { page: 'weq-assistant' } as const;
+    const preview = await caller().preview(input);
+    expect(JSON.stringify(preview)).not.toMatch(/synthetic-prompt|synthetic-mcp-secret/);
+    expect(await caller().restore({ ...input, source: preview.source })).toEqual([
+      { id: 'assistant-config:config', ok: true },
+      { id: 'assistant-images:mode', ok: true },
+    ]);
+    expect(state.settings.sharedPreferences.assistant).toEqual(defaults);
+    expect(state.settings.aiImages.assistant).toBe(DEFAULT_APP_SETTINGS.aiImages.assistant);
+  });
   it('QQ 在线能力卡片恢复右上角标记，不改变独立通知偏好', async () => {
     state.settings.restrictedModeIndicatorEnabled = false;
     state.settings.restrictedModeBannerEnabled = false;

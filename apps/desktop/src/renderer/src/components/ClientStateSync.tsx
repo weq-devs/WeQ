@@ -112,6 +112,10 @@ export function ClientStateSync() {
           void utils.mergeForward.workspaceDrafts.invalidate();
           void utils.mergeForward.archiveList.invalidate();
           void utils.account.listAssistantSessions.invalidate();
+          if (event.draftKey?.startsWith('virtual:clone:persona:'))
+            void utils.account.listAgentLabPersonas.invalidate();
+          if (event.draftKey?.startsWith('virtual:clone:group:'))
+            void utils.account.listAgentLabGroups.invalidate();
         } else refresh();
       },
     });
