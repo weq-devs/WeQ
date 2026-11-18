@@ -817,12 +817,15 @@ export function fontRules(font: FontSkinCss, scope: DressScope, animated = true)
 }
 
 /**
- * 手机普通正文使用字体度量而非固定行距倍数。normal 是浏览器侧的近似映射，
- * 保留真实字形/缺字回退与 DOM 选择；不靠合成粗体或斜体改变彩色字体笔画。
+ * Android 9.3.85 正文基准资源 0x7f071625 为 17sp，装扮不能继续继承桌面正文的
+ * 13.5px。以 17 CSS px 映射默认字号；手机自定义字号/皮肤覆盖仍待单独接入。
+ * normal 仅是浏览器行度量近似，手机的字体 Drawable 会跳过普通 setLineSpacing 分支。
+ * 保留真实字形、颜色、缺字回退与 DOM 选择，不靠合成粗斜体改变字体笔画。
  */
 export function fontTextRules(sel: string, family: string): string {
   return `${sel} {
   font-family: "${family}", var(--im-font-body, Inter), ui-sans-serif, system-ui, sans-serif;
+  font-size: 17px;
   line-height: normal;
   font-synthesis: none;
 }`;
