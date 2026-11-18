@@ -3,7 +3,6 @@
   min-width: 320px;
   height: 100vh;
   overflow: hidden;
-  background: var(--background);
 }
 
 html[data-native-window-controls] .weq-composition-window-control {
@@ -16,7 +15,7 @@ html[data-native-window-controls] .weq-composition-window-control {
   height: 100vh;
   min-width: 0;
   color: var(--weq-fg-primary);
-  background: var(--weq-chat-bg, var(--weq-bg-surface));
+  background: var(--background);
   font-size: 13px;
 }
 .weq-composition-workspace.is-fallback {

@@ -468,6 +468,11 @@ html[data-theme='dark'] .chat-empty {
   }
 }
 
+/* 独立工具窗使用主题基础底色，不铺主工作区的界面背景。 */
+html body.weq-tool-window {
+  background: var(--background);
+}
+
 @layer components {
   .weq-template-main-wrap {
     position: relative;
@@ -19751,7 +19756,6 @@ html[data-theme='dark'] .weq-merged-popover-close:hover {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--main-bg, #ffffff);
 }
 
 .weq-ark-feed-header {
@@ -19760,11 +19764,7 @@ html[data-theme='dark'] .weq-merged-popover-close:hover {
   gap: 12px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--weq-border-subtle);
-  background: var(--main-bg, #ffffff);
-}
-
-html[data-theme='dark'] .weq-ark-feed-header {
-  background: #1a1a1f;
+  background: var(--weq-page-bar, var(--weq-bar-surface));
 }
 
 .weq-ark-feed-back {

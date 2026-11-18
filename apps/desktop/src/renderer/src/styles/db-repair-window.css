@@ -3,7 +3,6 @@
   min-width: 0;
   height: 100dvh;
   overflow: hidden;
-  background: var(--background);
   color: var(--weq-fg-primary);
 }
 
@@ -32,10 +31,5 @@
 
 .weq-db-repair-window-error {
   padding: 20px;
-  color: var(--weq-fg-primary);
-}
-
-html[data-theme='dark'] .weq-db-repair-window-body {
-  background: var(--background);
   color: var(--weq-fg-primary);
 }

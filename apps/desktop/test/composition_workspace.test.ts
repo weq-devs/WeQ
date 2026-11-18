@@ -1115,10 +1115,13 @@ describe('合成工作窗口', () => {
     }
   });
 
-  it('独立窗口同步样式但不复制脚本，菜单与键盘多选留在子文档', () => {
+  it('独立窗口同步样式但不复制脚本，菜单与键盘多选留在子文档', async () => {
     const popup = new HappyWindow();
-    const cleanup = mirrorCompositionStyles(document, popup.document as unknown as Document);
     const contextDocument = popup.document as unknown as Document;
+    const sourceRoot = document.documentElement;
+    const previousStyle = sourceRoot.getAttribute('data-component-style');
+    sourceRoot.setAttribute('data-component-style', 'qqnt');
+    const cleanup = mirrorCompositionStyles(document, contextDocument);
     const f = mount(
       createElement(
         RenderDocumentContext.Provider,
@@ -1132,9 +1135,16 @@ describe('合成工作窗口', () => {
       );
       expect(document.querySelector('[role="dialog"]')).toBeNull();
       expect(contextDocument.querySelector('script')).toBeNull();
+      expect(contextDocument.documentElement.dataset.componentStyle).toBe('qqnt');
+      sourceRoot.setAttribute('data-component-style', 'classic');
+      await vi.waitFor(() => {
+        expect(contextDocument.documentElement.dataset.componentStyle).toBe('classic');
+      });
     } finally {
       f.close();
       cleanup();
+      if (previousStyle === null) sourceRoot.removeAttribute('data-component-style');
+      else sourceRoot.setAttribute('data-component-style', previousStyle);
       popup.close();
     }
     function Group() {

@@ -71,6 +71,7 @@ export function mirrorCompositionStyles(
       'class',
       'data-theme',
       'data-background',
+      'data-component-style',
       'data-privacy',
       'style',
       'lang',
@@ -79,7 +80,7 @@ export function mirrorCompositionStyles(
       if (value === null) target.documentElement.removeAttribute(name);
       else target.documentElement.setAttribute(name, value);
     }
-    target.body.classList.add(bodyClass);
+    target.body.classList.add('weq-tool-window', bodyClass);
   };
   sync();
   const observer = new MutationObserver(sync);
