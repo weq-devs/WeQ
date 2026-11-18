@@ -763,7 +763,10 @@
 }
 
 :where(html[data-weq-layout='single']) .chat-pane:has(.composer > .emoji-panel .poke-panel) {
-  --mobile-composer-panel-height: 364px;
+  --mobile-composer-panel-height: min(
+    452px,
+    calc(var(--weq-mobile-viewport-height, 100dvh) - 112px)
+  );
 }
 
 :where(html[data-weq-layout='single']) .chat-pane:has(.composer > .emoji-panel) .composer {
@@ -1251,6 +1254,10 @@ html:where([data-weq-layout='single'])[data-theme='dark']
   border-radius: 0;
   background: #f8f8f9;
   box-shadow: none;
+}
+
+:where(html[data-weq-layout='single']) .mobile-composer-expanded .emoji-panel:has(.poke-panel) {
+  height: 348px;
 }
 
 /* 弹射面板在移动端展开态里同样贴底铺满（跟表情面板一个处理）。 */

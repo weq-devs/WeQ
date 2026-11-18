@@ -53,9 +53,6 @@ function comboThumbSize(step: number): number {
   return 11 + step * 3;
 }
 
-/** 面板预览的目标边长。 */
-const PREVIEW_SIZE = 64;
-
 type Mode = 'poke' | 'random';
 
 export function PokeEmojiPanel({
@@ -154,7 +151,7 @@ export function PokeEmojiPanel({
             <FaceEmoji
               key={random ? selectedRandom.faceId : `poke-${pokeId}`}
               element={previewElement}
-              size={random ? PREVIEW_SIZE : 46 + combo * 6}
+              size={`calc(var(--poke-preview-edge) - ${random ? 12 : 28 - combo * 5}px)`}
               className={cn('poke-preview-face')}
             />
           </div>

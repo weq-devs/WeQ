@@ -1,4 +1,5 @@
 .emoji-panel {
+  --emoji-panel-height: 344px;
   position: absolute;
   bottom: calc(100% - 1px);
   left: 12px;
@@ -6,7 +7,7 @@
   display: grid;
   width: min(420px, calc(100% - 28px));
   height: min(
-    344px,
+    var(--emoji-panel-height),
     calc(100dvh - var(--chat-header-height, 74px) - var(--composer-height, 190px) - 28px)
   );
   min-height: 260px;
@@ -17,6 +18,10 @@
   border-radius: 12px;
   background: var(--popover, #ffffff);
   box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16);
+}
+
+.emoji-panel:has(> .emoji-panel-body > .poke-panel) {
+  --emoji-panel-height: 360px;
 }
 
 .emoji-panel-body {
