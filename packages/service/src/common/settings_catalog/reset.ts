@@ -17,7 +17,7 @@ export const SETTINGS_RESET_CARDS = [
   ['privacy', 'app-lock', '应用锁'],
   ['global', 'web-notifications', '浏览器通知授权'],
   ['chat-messages', 'conversation-preview', '会话预览'],
-  ['chat-messages', 'conversation-order', '列表排序'],
+  ['chat-messages', 'conversation-order', '列表行为'],
   ['chat-messages', 'conversation-markers', '常规视图未读角标'],
   ['chat-messages', 'conversation-scope', '全部会话视图'],
   ['message-display', 'reading', '阅读与定位'],

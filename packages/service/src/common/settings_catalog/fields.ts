@@ -118,6 +118,12 @@ export const CLIENT_SETTING_FIELDS = (
       'keep-conversation-position-on-hover',
       '鼠标停留时保持会话位置',
     ],
+    [
+      'conversation-order',
+      'closeConversationOutsideView',
+      'close-conversation-outside-view',
+      '切换视图时关闭不在新视图中的会话',
+    ],
     ['message-content', 'showGroupMemberName', 'group-message-name', '显示群消息发送者名称'],
     ['message-content', 'showGroupMemberLevel', 'group-message-level', '显示群成员等级'],
     ['message-content', 'showGroupMemberTitle', 'group-message-title', '显示群成员头衔与身份'],

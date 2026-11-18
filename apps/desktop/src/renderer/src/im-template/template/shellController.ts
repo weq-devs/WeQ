@@ -602,6 +602,8 @@ export function useChatShellController({
       profileReturn.current = null;
       if (conversationId) {
         history.pushConversationDetail(conversationId);
+      } else {
+        history.replaceShell();
       }
       setView('messages');
       setActiveConversationId(conversationId);

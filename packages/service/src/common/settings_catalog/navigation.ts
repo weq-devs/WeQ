@@ -695,6 +695,12 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['auto-fetch-missing-context', '定位到缺失消息时自动拉取上下文'],
       ['missing-message-context-count', '自动拉取上下文条数'],
       ['keep-conversation-position-on-hover', '鼠标停留时保持会话位置', '会话排序', '悬停排序'],
+      [
+        'close-conversation-outside-view',
+        '切换视图时关闭不在新视图中的会话',
+        '切换会话视图',
+        '保留当前会话',
+      ],
       ['auto-follow-latest-messages', '自动跟随最新消息'],
       ['jump-latest-after-send', '发送消息后定位到最新消息'],
       ['scroll-to-bottom-button', '向下滚动时显示定位到底部按钮', '快速到底部'],

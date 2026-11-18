@@ -1006,7 +1006,7 @@ function AppearanceSection({
             </Card>
           )}
           {category === 'reading' && (
-            <Card title="列表排序" icon={<MessagesSquare size={15} />} resetId="conversation-order">
+            <Card title="列表行为" icon={<MessagesSquare size={15} />} resetId="conversation-order">
               <Row
                 settingId="keep-conversation-position-on-hover"
                 desc="鼠标位于会话列表内时，新消息仍正常更新，但不调整会话顺序；移出并关闭菜单后恢复排序。"
@@ -1014,6 +1014,16 @@ function AppearanceSection({
                   <SharedDisplayToggle
                     name="keepConversationPositionOnHover"
                     label="鼠标停留时保持会话位置"
+                    fallback={false}
+                  />
+                }
+              />
+              <Row
+                settingId="close-conversation-outside-view"
+                control={
+                  <SharedDisplayToggle
+                    name="closeConversationOutsideView"
+                    label="切换视图时关闭不在新视图中的会话"
                     fallback={false}
                   />
                 }

@@ -62,6 +62,7 @@ export const preferenceDefaults = {
   slashEmojiEnabled: true,
   slashEmojiAutoReplace: false,
   keepConversationPositionOnHover: false,
+  closeConversationOutsideView: false,
   autoFetchMissingMessages: false,
   autoFetchMissingContext: false,
   missingMessageContextCount: 30,

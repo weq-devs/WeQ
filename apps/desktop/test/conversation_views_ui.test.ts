@@ -486,6 +486,35 @@ it.each([false, true])(
     expect(read).not.toHaveBeenCalledWith(helper.id);
   },
 );
+it('关闭当前聊天后不自动选中其他聊天，移动端返回也不会恢复已关闭的聊天', () => {
+  vi.spyOn(window, 'matchMedia').mockImplementation(
+    (media) => Object.assign(new EventTarget(), { matches: true, media }) as MediaQueryList,
+  );
+  function Shell() {
+    const shell = useChatShellController({
+      conversations: [ordinary, group],
+      contacts: [],
+      conversationPrefs: {},
+      initialActiveConversationId: ordinary.id,
+      initialView: 'messages',
+      sidebarWidthStorageKey: 'fixture-sidebar',
+      history: noopChatShellHistoryAdapter,
+    });
+    return h(
+      'div',
+      null,
+      h('button', { onClick: () => shell.openConversation(group.id) }, '打开聊天'),
+      h('button', { onClick: () => shell.openConversation(null) }, '关闭聊天'),
+      h('output', null, shell.activeConversationId ?? '未选中'),
+    );
+  }
+  act(() => root.render(h(Shell)));
+  click('button:first-child');
+  expect(host.querySelector('output')!.textContent).toBe(group.id);
+  click('button:nth-child(2)');
+  expect(host.querySelector('output')!.textContent).toBe('未选中');
+  expect(mobileBack()).toBe(false);
+});
 it('全部会话混选拉取漫游和导出名单都须列明不支持对象，确认后再执行', () => {
   act(() => root.render(h(Fixture, { initialView: 'all' })));
   click('[aria-label="多选会话"]');

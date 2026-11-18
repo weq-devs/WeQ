@@ -399,11 +399,13 @@ import {
 } from '../lib/conversationDirectory';
 import {
   CONVERSATION_VIEWS,
+  activeConversationBelongsToView,
   aggregateView,
   aggregatePinPreferences,
   conversationViewRows,
   conversationViewForTarget,
   conversationRowName,
+  type ActiveDirectoryConversation,
   type ConversationView,
   type ConversationViewDirectory,
 } from '../lib/conversationViews';
@@ -1229,6 +1231,32 @@ function MainWorkspace(): ReactElement {
       setConversationView(view);
     },
     [conversationView, setConversationView],
+  );
+  const switchConversationView = useStableCallback(
+    (view: ConversationView, fromAggregate: boolean = false) => {
+      if (
+        view !== conversationView &&
+        preferenceValue('closeConversationOutsideView') &&
+        activeDirectoryConversation &&
+        !activeConversationBelongsToView(
+          conversationViews,
+          view,
+          allConversationOptions,
+          activeDirectoryConversation,
+        )
+      ) {
+        flushAllDirtyDrafts();
+        if (shell.view === 'agentlab') {
+          setVirtualOpen(null);
+          setCloneSearchTarget(null);
+        }
+        setSpecialChat(null);
+        setArkFeedState(null);
+        setMobileConversationList(true);
+        shell.openConversation(null);
+      }
+      changeConversationView(view, fromAggregate);
+    },
   );
   const conversationViewsRef = useRef<ConversationViewDirectory | null>(null);
   const [specialChat, setSpecialChat] = useState<'assistant' | 'guild' | null>(null);
@@ -3190,7 +3218,7 @@ function MainWorkspace(): ReactElement {
           .flat()
           .find((item) => item.id === conversationId);
         if (row?.type === 'merged') {
-          changeConversationView(aggregateView(row.mergedKind), true);
+          switchConversationView(aggregateView(row.mergedKind), true);
           return;
         }
         setMobileConversationList(false);
@@ -3230,7 +3258,7 @@ function MainWorkspace(): ReactElement {
         setSurfaceNavigation((value) => value + 1);
         shell.selectConversation(conversationId);
       }),
-    [shell, syncDraftsFromPending, settingsNavigation, changeConversationView],
+    [shell, syncDraftsFromPending, settingsNavigation, switchConversationView],
   );
 
   useEffect(() => {
@@ -7819,9 +7847,23 @@ function MainWorkspace(): ReactElement {
     id: string;
     revision: number;
   } | null>(null);
-  const activeCloneId = cloneSearchTarget
-    ? `virtual:${cloneSearchTarget.kind}:${cloneSearchTarget.ownerId}`
-    : virtualOpen && `virtual:${virtualOpen.kind}:${virtualOpen.id}`;
+  const activeCloneId =
+    cloneSearchTarget && cloneSearchTarget.kind !== 'assistant'
+      ? `virtual:${cloneSearchTarget.kind}:${cloneSearchTarget.ownerId}`
+      : virtualOpen && `virtual:${virtualOpen.kind}:${virtualOpen.id}`;
+  const activeDirectoryConversation = ((): ActiveDirectoryConversation | null => {
+    if (shell.view === 'agentlab')
+      return activeCloneId ? { id: activeCloneId, category: 'clone' } : null;
+    if (shell.view !== 'messages') return null;
+    if (specialChat === 'assistant')
+      return assistantSessionId
+        ? { id: `assistant:${assistantSessionId}`, category: 'assistant' }
+        : null;
+    if (specialChat === 'guild')
+      return activeGuildNodeId ? { id: `guild:${activeGuildNodeId}`, category: 'guild' } : null;
+    if (arkFeedState) return { id: arkFeedState.conversationId, category: arkFeedState.kind };
+    return shell.activeConversationId ? { id: shell.activeConversationId } : null;
+  })();
   useGeneratedReplyNotifications(
     noticeAccountKey ? (openedUin ?? '') : '',
     noticeAccountKey ? (noticeConfig.data?.configId ?? '') : '',
@@ -9285,23 +9327,7 @@ function MainWorkspace(): ReactElement {
                               : conversations
                         }
                         activeConversationId={
-                          shell.view === 'messages' &&
-                          specialChat === 'assistant' &&
-                          assistantSessionId
-                            ? `assistant:${assistantSessionId}`
-                            : shell.view === 'messages' &&
-                                specialChat === 'guild' &&
-                                activeGuildNodeId
-                              ? `guild:${activeGuildNodeId}`
-                              : shell.view === 'messages' && arkFeedState
-                                ? arkFeedState.conversationId
-                                : shell.view === 'agentlab' &&
-                                    cloneSearchTarget &&
-                                    cloneSearchTarget.kind !== 'assistant'
-                                  ? `virtual:${cloneSearchTarget.kind}:${cloneSearchTarget.ownerId}`
-                                  : shell.view === 'agentlab' && virtualOpen
-                                    ? `virtual:${virtualOpen.kind}:${virtualOpen.id}`
-                                    : shell.activeConversationId
+                          activeDirectoryConversation?.id ?? shell.activeConversationId
                         }
                         selectedGroupConversationId={shell.selectedGroupConversationId}
                         selectedContactId={shell.selectedContactId}
@@ -10474,8 +10500,8 @@ function MainWorkspace(): ReactElement {
                             views: conversationViews,
                             rows: currentViewRows,
                             returnToRegular,
-                            onViewChange: changeConversationView,
-                            onReturnToRegular: () => changeConversationView('regular'),
+                            onViewChange: switchConversationView,
+                            onReturnToRegular: () => switchConversationView('regular'),
                             onAssistant: (id) => openAssistantConversation(id),
                             onCreateAssistant: () => void createAssistantConversation(),
                             onDelete: deleteAiConversations,

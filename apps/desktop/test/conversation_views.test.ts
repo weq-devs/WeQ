@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Conversation } from '../src/renderer/src/im-template/template/types';
 import {
+  activeConversationBelongsToView,
   conversationViewRows,
   conversationViewForTarget,
   conversationSupportsAction,
@@ -147,6 +148,15 @@ describe('会话视图的平铺集合', () => {
       conversationViewRows(directory, 'regular', options).some((row) => row.id === clone.id),
     ).toBe(false);
   });
+  it('已打开的聊天按实际归属保留，聚合入口不代表当前聊天在常规视图', () => {
+    expect(activeConversationBelongsToView(directory, 'regular', options, group)).toBe(false);
+    expect(activeConversationBelongsToView(directory, 'groupAssistant', options, group)).toBe(true);
+    expect(activeConversationBelongsToView(directory, 'all', options, group)).toBe(true);
+    const newSession = { id: 'assistant:new', category: 'assistant' } as const;
+    expect(activeConversationBelongsToView(directory, 'assistant', options, newSession)).toBe(true);
+    expect(activeConversationBelongsToView(directory, 'all', options, newSession)).toBe(true);
+    expect(activeConversationBelongsToView(directory, 'clone', options, newSession)).toBe(false);
+  });
   it.each([
     [false, false],
     [true, false],
@@ -171,6 +181,15 @@ describe('会话视图的平铺集合', () => {
     expect(conversationViewRows(polluted, 'all', options).map((row) => row.id)).not.toContain(
       deleted.id,
     );
+    for (const [row, range] of [
+      [hidden, 'includeHidden'],
+      [deleted, 'includeDeleted'],
+    ] as const) {
+      expect(activeConversationBelongsToView(polluted, 'all', options, row)).toBe(false);
+      expect(
+        activeConversationBelongsToView(polluted, 'all', { ...options, [range]: true }, row),
+      ).toBe(true);
+    }
   });
 });
 describe('会话操作能力', () => {
@@ -227,13 +246,15 @@ it('未加载最近会话页也能从真实隐藏记录重建群聊和私聊，�
   expect(peer.type === 'direct' && peer.otherUser.displayName).toBe('本地备注');
   expect(peer.type === 'direct' && peer.otherUser.identityValue).toBe('10002');
 });
-it('全部会话两个范围开关是独立的应用共享布尔偏好，默认都关闭', () => {
+it('会话视图的范围与关闭行为是独立的应用共享偏好，默认都关闭', () => {
   expect(preferenceDefaults.allConversationsIncludeHidden).toBe(false);
   expect(preferenceDefaults.allConversationsIncludeDeleted).toBe(false);
+  expect(preferenceDefaults.closeConversationOutsideView).toBe(false);
   expect(() =>
     validatePreferencePatch({
       allConversationsIncludeHidden: true,
       allConversationsIncludeDeleted: false,
+      closeConversationOutsideView: true,
     }),
   ).not.toThrow();
   expect(() => validatePreferencePatch({ allConversationsIncludeHidden: 'true' })).toThrow();

@@ -72,6 +72,10 @@ export interface AllConversationOptions {
   includeHidden: boolean;
   includeDeleted: boolean;
 }
+export interface ActiveDirectoryConversation {
+  id: string;
+  category?: 'official' | 'service' | 'guild' | 'clone' | 'assistant';
+}
 
 export function conversationViewForTarget(
   directory: ConversationViewDirectory | null,
@@ -91,6 +95,27 @@ export function conversationViewForTarget(
       ] as const
     ).find((kind) => directory?.[kind].some((row) => row.id === id)) ?? 'regular'
   );
+}
+
+function excludedAllConversationIds(
+  directory: ConversationViewDirectory,
+  options: AllConversationOptions,
+): Set<string> {
+  return new Set([
+    ...(!options.includeHidden ? directory.hidden.map((row) => row.id) : []),
+    ...(!options.includeDeleted ? directory.deleted.map((row) => row.id) : []),
+  ]);
+}
+
+export function activeConversationBelongsToView(
+  directory: ConversationViewDirectory,
+  view: ConversationView,
+  options: AllConversationOptions,
+  { id, category }: ActiveDirectoryConversation,
+): boolean {
+  if (view === 'all') return !excludedAllConversationIds(directory, options).has(id);
+  // 新打开的专类会话可能先显示，列表尚未刷新到对应行。
+  return category === view || directory[view].some((row) => row.id === id && row.type !== 'merged');
 }
 
 /** 搜索和日历共用同一平铺集合，聚合入口始终只是导航。 */
@@ -114,14 +139,11 @@ export function conversationViewRows(
           ...(options.includeDeleted ? directory.deleted : []),
         ]
       : directory[view];
-  const excluded = new Set([
-    ...(!options.includeHidden && view === 'all' ? directory.hidden.map((row) => row.id) : []),
-    ...(!options.includeDeleted && view === 'all' ? directory.deleted.map((row) => row.id) : []),
-  ]);
+  const excluded = view === 'all' ? excludedAllConversationIds(directory, options) : null;
   const needle = query.trim().toLocaleLowerCase();
   const unique = new Map<string, Conversation>();
   for (const row of rows) {
-    if (excluded.has(row.id)) continue;
+    if (excluded?.has(row.id)) continue;
     if (needle && !conversationListSearchText(row).includes(needle)) continue;
     unique.set(row.id, row);
   }
