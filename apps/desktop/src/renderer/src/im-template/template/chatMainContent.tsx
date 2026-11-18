@@ -51,6 +51,7 @@ export function ChatMainContent({
   onReadCurrentConversation,
   conversationPrefs,
   drafts,
+  draftScope,
   query = '',
   onBackContact,
   onBackGroup,
@@ -158,6 +159,7 @@ export function ChatMainContent({
   | 'onSendBubbleVideo'
   | 'onSendRedPacket'
   | 'onMessageAction'
+  | 'draftScope'
   | 'onDraftChange'
   | 'onDraftClear'
   | 'onEditRaw'
@@ -325,6 +327,7 @@ export function ChatMainContent({
       onReadCurrentConversation={onReadCurrentConversation}
       preference={activeConversation ? conversationPrefs[activeConversation.id] : undefined}
       draft={activeConversation ? (drafts[activeConversation.id] ?? '') : ''}
+      draftScope={draftScope}
       onLoadMoreGroupMembers={onLoadMoreGroupMembers}
       groupMembersLoading={groupMembersLoading}
       groupMembersError={groupMembersError}

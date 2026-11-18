@@ -588,6 +588,7 @@ export type ChatPaneProps = {
   defaultSignupGroupCode?: string;
   onMessageAction?: (message: Message, action: MessageAction) => Promise<void>;
   draft: string;
+  draftScope?: string;
   onDraftChange: (conversationId: string, value: string) => void;
   onDraftClear: (conversationId: string) => void;
   onBack: () => void;
@@ -743,6 +744,7 @@ export function ChatPane({
   defaultSignupGroupCode,
   onMessageAction,
   draft,
+  draftScope,
   onDraftChange,
   onDraftClear,
   onBack,
@@ -1986,9 +1988,8 @@ export function ChatPane({
   draftRef.current = draft;
   const bodyRef = useRef(body);
   bodyRef.current = body;
-  const setComposerBodyRef = useRef(setComposerBody);
-  setComposerBodyRef.current = setComposerBody;
   const draftConversationId = conversation?.id;
+  const draftMediaScope = draftScope ?? user.identityValue;
 
   useEffect(() => {
     setEmojiOpen(false);
@@ -2007,7 +2008,7 @@ export function ChatPane({
 
   useEffect(() => {
     const editor = composerEditorRef.current;
-    const identity = JSON.stringify([user.id, conversation?.id]);
+    const identity = JSON.stringify([draftMediaScope, user.id, conversation?.id]);
     if (identity === draftIdentity.current && composerEdited.current) return;
     draftIdentity.current = identity;
     composerEdited.current = false;
@@ -2019,7 +2020,7 @@ export function ChatPane({
       restoreComposer(editor, currentDraft);
       scheduleMobileComposerMeasureRef.current(editor);
     }
-  }, [conversation?.id, user.id, draft]);
+  }, [conversation?.id, draftMediaScope, user.id, draft]);
 
   useLayoutEffect(() => {
     // 切换会话/标签时收起键盘；仅切换窗口布局不打断当前输入。
@@ -2569,7 +2570,13 @@ export function ChatPane({
     }
     setRestoringDraftMedia(true);
     let active = true;
-    void restoreComposerImages(user.identityValue, draftConversationId, source)
+    void restoreComposerImages(
+      draftMediaScope,
+      draftConversationId,
+      source,
+      undefined,
+      user.identityValue,
+    )
       .then((result) => {
         if (!active || sequence !== draftMediaRestore.current) {
           for (const image of result.images) releaseAttachment(image);
@@ -2586,11 +2593,13 @@ export function ChatPane({
           ...retained,
         ];
         inlineImageScope.current = {
-          account: user.identityValue,
+          account: draftMediaScope,
           conversation: draftConversationId,
         };
         const next = result.rewrite(bodyRef.current);
-        setComposerBodyRef.current(next);
+        // 只刷新本次页面的预览地址，不把恢复动作当成新输入或重新上传。
+        bodyRef.current = next;
+        setBody(next);
         for (const editor of [composerEditorRef.current, expandedComposerEditorRef.current])
           if (editor) restoreComposer(editor, next);
         setRestoringDraftMedia(false);
@@ -2608,7 +2617,14 @@ export function ChatPane({
     return () => {
       active = false;
     };
-  }, [draftConversationId, user.identityValue, draft, draftMediaFingerprint, pushToast]);
+  }, [
+    draftConversationId,
+    draftMediaScope,
+    user.identityValue,
+    draft,
+    draftMediaFingerprint,
+    pushToast,
+  ]);
 
   useLayoutEffect(
     () => () => {
@@ -3784,7 +3800,7 @@ export function ChatPane({
       })();
       if (clearsBody)
         void removeUnusedComposerImages(
-          user.identityValue,
+          draftMediaScope,
           request.conversationId,
           sentImages.flatMap((image) => (image.draftAssetId ? [image.draftAssetId] : [])),
         ).catch(() => {});
@@ -4325,7 +4341,7 @@ export function ChatPane({
           )
             throw new Error(`最多只能插 ${MAX_COMPOSER_ATTACHMENTS} 张图片`);
           preserved = await preserveReeditImages(
-            user.identityValue,
+            draftMediaScope,
             conversationId,
             prepared.body,
             prepared.locals,
@@ -4379,7 +4395,7 @@ export function ChatPane({
           }
           insertComposerNode(editor, fragment, range);
           inlineImagesRef.current.push(...preserved.images);
-          inlineImageScope.current = { account: user.identityValue, conversation: conversationId };
+          inlineImageScope.current = { account: draftMediaScope, conversation: conversationId };
           reeditLocalsRef.current.push(...prepared.locals);
           reeditObjectUrlsRef.current.push(
             ...prepared.objectUrls.filter(
@@ -4400,7 +4416,7 @@ export function ChatPane({
           if (!inserted) {
             for (const url of prepared?.objectUrls ?? []) releaseObjectUrl(url);
             void removeComposerImages(
-              user.identityValue,
+              draftMediaScope,
               conversationId,
               preserved?.images.flatMap((image) =>
                 image.draftAssetId ? [image.draftAssetId] : [],
@@ -4439,11 +4455,11 @@ export function ChatPane({
       void createAttachments(missing.map((image) => image.file))
         .then(async (created) => {
           try {
-            await preserveComposerImages(user.identityValue, conversationId, created);
+            await preserveComposerImages(draftMediaScope, conversationId, created);
           } catch (error) {
             for (const image of created) releaseAttachment(image);
             void removeComposerImages(
-              user.identityValue,
+              draftMediaScope,
               conversationId,
               created.flatMap((image) => (image.draftAssetId ? [image.draftAssetId] : [])),
             ).catch(() => {});
@@ -4456,7 +4472,7 @@ export function ChatPane({
           ) {
             for (const image of created) releaseAttachment(image);
             void removeComposerImages(
-              user.identityValue,
+              draftMediaScope,
               conversationId,
               created.flatMap((image) => (image.draftAssetId ? [image.draftAssetId] : [])),
             ).catch(() => {});
@@ -4465,7 +4481,7 @@ export function ChatPane({
           let next = 0;
           const images = retained.map((image) => image ?? created[next++]!);
           inlineImagesRef.current.push(...created);
-          inlineImageScope.current = { account: user.identityValue, conversation: conversationId };
+          inlineImageScope.current = { account: draftMediaScope, conversation: conversationId };
           if (
             range &&
             editor.contains(range.startContainer) &&
@@ -4642,11 +4658,11 @@ export function ChatPane({
     const images = created.filter((item) => item.kind === 'image');
     const media = created.filter((item) => item.kind !== 'image');
     try {
-      await preserveComposerImages(user.identityValue, sourceConversation ?? '', images);
+      await preserveComposerImages(draftMediaScope, sourceConversation ?? '', images);
     } catch {
       for (const image of created) releaseAttachment(image);
       void removeComposerImages(
-        user.identityValue,
+        draftMediaScope,
         sourceConversation ?? '',
         created.flatMap((image) => (image.draftAssetId ? [image.draftAssetId] : [])),
       ).catch(() => {});
@@ -4663,7 +4679,7 @@ export function ChatPane({
     ) {
       for (const image of created) releaseAttachment(image);
       void removeComposerImages(
-        user.identityValue,
+        draftMediaScope,
         sourceConversation ?? '',
         created.flatMap((image) => (image.draftAssetId ? [image.draftAssetId] : [])),
       ).catch(() => {});
@@ -4683,7 +4699,7 @@ export function ChatPane({
     updateMediaAttachments([...mediaAttachmentRef.current, ...media]);
     inlineImagesRef.current = [...inlineImagesRef.current, ...images];
     inlineImageScope.current = {
-      account: user.identityValue,
+      account: draftMediaScope,
       conversation: sourceConversation ?? '',
     };
     for (const item of images) {
@@ -5157,7 +5173,7 @@ export function ChatPane({
     try {
       prepared = await prepareReeditDraft(message, messageElements(message), controller.signal);
       preserved = await preserveReeditImages(
-        user.identityValue,
+        draftMediaScope,
         sourceConversation,
         prepared.body,
         prepared.locals,
@@ -5176,7 +5192,7 @@ export function ChatPane({
     }
     if (controller.signal.aborted || !unchanged()) {
       void removeComposerImages(
-        user.identityValue,
+        draftMediaScope,
         sourceConversation,
         preserved?.images.flatMap((image) => (image.draftAssetId ? [image.draftAssetId] : [])) ??
           [],
@@ -5191,7 +5207,7 @@ export function ChatPane({
     }
     releaseInlineImages();
     inlineImagesRef.current = preserved?.images ?? [];
-    inlineImageScope.current = { account: user.identityValue, conversation: sourceConversation };
+    inlineImageScope.current = { account: draftMediaScope, conversation: sourceConversation };
     clearMediaAttachments();
     setPendingSuperEmoji(null);
     setPendingQuote(null);

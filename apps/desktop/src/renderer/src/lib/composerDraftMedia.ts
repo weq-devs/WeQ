@@ -58,6 +58,20 @@ const mediaStore: ComposerMediaStore = {
 };
 const assetKey = (account: string, conversation: string, id: string) =>
   JSON.stringify([account, conversation, id]);
+
+async function readAsset(
+  store: ComposerMediaStore,
+  scope: string,
+  conversation: string,
+  id: string,
+  legacyAccount?: string,
+) {
+  const file = await store.get(assetKey(scope, conversation, id));
+  if (file || !legacyAccount || legacyAccount === scope) return file;
+  // 旧正文中的随机素材 ID 仍可能指向按 QQ 号保存的文件；只按该引用回读，不扫描旧库。
+  return store.get(assetKey(legacyAccount, conversation, id));
+}
+
 const tokens = (body: string) => body.match(/\[\[chat:elem:[^\]]+\]\]/g) ?? [];
 function asset(token: string): Record<string, unknown> | null {
   const value: unknown = tokenToElement(token);
@@ -84,6 +98,7 @@ export async function shareComposerImages(
   body: string,
   stage: (file: File) => Promise<string>,
   store = mediaStore,
+  legacyAccount?: string,
 ): Promise<string> {
   const replacements = new Map<string, string>();
   const paths = new Map<string, string>();
@@ -93,7 +108,7 @@ export async function shareComposerImages(
     const id = value.localDraftAssetId as string;
     let path = paths.get(id);
     if (!path) {
-      const file = await store.get(assetKey(account, conversation, id));
+      const file = await readAsset(store, account, conversation, id, legacyAccount);
       if (!file) throw new Error('草稿图片素材缺失，原稿仍已保留');
       if (file.size > MAX_SHARED_DRAFT_IMAGE_BYTES)
         throw new Error('共享草稿图片需在 32 MiB 以内，原素材仍保留在此设备');
@@ -101,7 +116,15 @@ export async function shareComposerImages(
       paths.set(id, path);
     }
     const { localDraftAssetId: _, localPreviewUrl: _url, ...shared } = value;
-    replacements.set(token, elementToToken({ ...shared, localPath: path }));
+    replacements.set(
+      token,
+      elementToToken({
+        ...shared,
+        imgWidth: shared.width ?? shared.imgWidth,
+        imgHeight: shared.height ?? shared.imgHeight,
+        localPath: path,
+      }),
+    );
   }
   return body.replace(/\[\[chat:elem:[^\]]+\]\]/g, (token) => replacements.get(token) ?? token);
 }
@@ -120,7 +143,7 @@ export async function preserveComposerImages(
   }
 }
 
-/** 重新编辑的本地 Blob 也需落盘；只读取当前页面拥有的 blob URL，不请求远程地址。 */
+/** 重新编辑时保住已读取的图片，只在没有字节时读取当前页面的 blob URL。 */
 export async function preserveReeditImages(
   account: string,
   conversation: string,
@@ -134,27 +157,21 @@ export async function preserveReeditImages(
   try {
     for (const token of tokens(body)) {
       const value: unknown = tokenToElement(token);
-      if (
-        !value ||
-        typeof value !== 'object' ||
-        !('kind' in value) ||
-        value.kind !== 'pic' ||
-        !('localPreviewUrl' in value) ||
-        typeof value.localPreviewUrl !== 'string' ||
-        !value.localPreviewUrl.startsWith('blob:')
-      )
-        continue;
-      if (signal.aborted) throw new DOMException('已取消草稿恢复', 'AbortError');
+      if (!value || typeof value !== 'object') continue;
       const data = value as Record<string, unknown>;
-      const local = locals.find(
-        (item) => item.key === value.localPreviewUrl || item.previewUrl === value.localPreviewUrl,
-      );
-      const blob = local?.bytes
-        ? new Blob([new Uint8Array(local.bytes)])
-        : await fetch(value.localPreviewUrl, { signal }).then((response) => {
-            if (!response.ok) throw new Error('草稿图片读取失败');
-            return response.blob();
-          });
+      if (data.kind !== 'pic' || typeof data.localPreviewUrl !== 'string') continue;
+      const url = data.localPreviewUrl;
+      const local = locals.find((item) => item.key === url || item.previewUrl === url);
+      if (!local?.bytes && !local?.file && !url.startsWith('blob:')) continue;
+      signal.throwIfAborted();
+      const blob =
+        local?.file ??
+        (local?.bytes
+          ? new Blob([new Uint8Array(local.bytes)])
+          : await fetch(url, { signal }).then((response) => {
+              if (!response.ok) throw new Error('草稿图片读取失败');
+              return response.blob();
+            }));
       const file = new File([blob], String(data.fileName || local?.name || 'draft.png'), {
         type: blob.type || String(data.mimeType || 'image/png'),
       });
@@ -165,9 +182,10 @@ export async function preserveReeditImages(
         name: file.name,
         size: file.size,
         mime: file.type,
-        url: value.localPreviewUrl,
-        width: Number(data.width) || 0,
-        height: Number(data.height) || 0,
+        url,
+        width: Number(data.width ?? data.imgWidth) || 0,
+        height: Number(data.height ?? data.imgHeight) || 0,
+        ...(data.subType === 1 ? { subType: 1 } : {}),
       };
       await preserveComposerImages(account, conversation, [image], store);
       images.push(image);
@@ -220,6 +238,7 @@ export async function restoreComposerImages(
   conversation: string,
   body: string,
   store = mediaStore,
+  legacyAccount?: string,
 ) {
   const images: ComposerAttachment[] = [];
   const replacements = new Map<string, string>();
@@ -230,7 +249,7 @@ export async function restoreComposerImages(
       const id = value.localDraftAssetId as string;
       let image = images.find((item) => item.id === id);
       if (!image) {
-        const file = await store.get(assetKey(account, conversation, id));
+        const file = await readAsset(store, account, conversation, id, legacyAccount);
         if (!file) throw new Error('草稿图片素材缺失，原稿仍已保留');
         image = {
           id,
@@ -241,8 +260,8 @@ export async function restoreComposerImages(
           size: file.size,
           mime: file.type,
           url: URL.createObjectURL(file),
-          width: Number(value.width) || 0,
-          height: Number(value.height) || 0,
+          width: Number(value.width ?? value.imgWidth) || 0,
+          height: Number(value.height ?? value.imgHeight) || 0,
           ...(value.subType === 1 ? { subType: 1 } : {}),
         };
         images.push(image);

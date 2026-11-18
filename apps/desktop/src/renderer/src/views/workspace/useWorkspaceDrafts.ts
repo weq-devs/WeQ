@@ -16,7 +16,11 @@ import {
 } from '../../lib/notificationNavigation.shared';
 import { localDraftToWrite, setLocalDraft } from '@weq/service/draft-edit';
 import { composerDraftRecovery } from '../../lib/composerDraftRecovery';
-import { composerAssetIds, shareComposerImages } from '../../lib/composerDraftMedia';
+import {
+  composerAssetIds,
+  removeUnusedComposerImages,
+  shareComposerImages,
+} from '../../lib/composerDraftMedia';
 import type { Conversation, ConversationDrafts } from '../../im-template/template/types';
 import {
   composerTextToElements,
@@ -42,6 +46,8 @@ export function useWorkspaceDrafts(input: DraftInput) {
   messageScopeRef.current = messageScope;
   const messageBindingRef = useRef(binding);
   messageBindingRef.current = binding;
+  const activeConversationRef = useRef(activeConversationId);
+  activeConversationRef.current = activeConversationId;
   const source = useMemo(() => ({}), [messageScope]);
   const sourceRef = useRef<object | null>(source);
   sourceRef.current = source;
@@ -200,7 +206,7 @@ export function useWorkspaceDrafts(input: DraftInput) {
       let savedText = text;
       try {
         const sharedBody = await shareComposerImages(
-          openedUin ?? '',
+          messageScope,
           conversationId,
           text,
           async (file) => {
@@ -218,6 +224,8 @@ export function useWorkspaceDrafts(input: DraftInput) {
                 .catch(() => {});
             }
           },
+          undefined,
+          openedUin ?? undefined,
         );
         if (!isCurrent()) return;
         savedText = sharedBody;
@@ -266,11 +274,17 @@ export function useWorkspaceDrafts(input: DraftInput) {
       dirtyDraftsRef.current.delete(conversationId);
       forgetClientRetry(`chat:${messageScope}:${conversationId}`);
       pendingDraftsRef.current[conversationId] = savedText;
-      if (savedText !== text) composerDraftRecovery.write(messageScope, conversationId, savedText);
       try {
+        if (savedText !== text)
+          composerDraftRecovery.write(messageScope, conversationId, savedText);
         // QQ wire 草稿不保留本机素材标识；带图片的恢复快照需保留到用户清空/发送。
         if (!composerAssetIds(savedText).size)
           composerDraftRecovery.confirm(messageScope, conversationId, savedText);
+        if (savedText !== text && activeConversationRef.current !== conversationId) {
+          const ids = composerAssetIds(text);
+          if (ids.size)
+            void removeUnusedComposerImages(messageScope, conversationId, ids).catch(() => {});
+        }
       } catch {
         /* 保留快照，不能因清理失败丢稿。 */
       }

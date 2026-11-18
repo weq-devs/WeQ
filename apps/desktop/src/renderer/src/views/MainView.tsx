@@ -9579,6 +9579,7 @@ function MainWorkspace(): ReactElement {
                         <div className="weq-readonly-chat">
                           <ChatMainContent
                             key={messageScope}
+                            draftScope={messageScope || undefined}
                             onLoadOlder={requestOlderMessages}
                             onLoadNewer={requestNewerMessages}
                             hasOlder={hasOlder}
