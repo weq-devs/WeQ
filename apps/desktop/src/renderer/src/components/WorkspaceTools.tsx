@@ -211,6 +211,7 @@ export function WorkspaceTools({
     tasks.data !== undefined &&
     roamingTasks.data !== undefined &&
     flashTasks.data !== undefined &&
+    (!background.scope?.uin || Boolean(background.scope.configId)) &&
     background.query.data !== undefined;
   const { running, items: taskItems } = summarizeWorkspaceTasks({
     exports: tasks.data,

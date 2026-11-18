@@ -37,7 +37,7 @@ export function useBackgroundTasks(enabled: boolean) {
   const configId = config.data?.uin === uin ? config.data.configId : undefined;
   const scope = useMemo(() => (uin ? { uin, configId } : null), [uin, configId]);
   const host = trpc.backgroundTasks.list.useQuery(scope, {
-    enabled,
+    enabled: enabled && (!uin || Boolean(configId)),
     refetchInterval: enabled ? 1000 : false,
     keepPreviousData: false,
   });
