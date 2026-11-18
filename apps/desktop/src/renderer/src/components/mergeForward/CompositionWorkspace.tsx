@@ -680,7 +680,8 @@ function CompositionWorkspaceBody({
                       >
                         <CompositionButton
                           type="button"
-                          className="weq-composition-entry-title"
+                          className="weq-composition-entry-open"
+                          aria-label={entry.title || draftTitle(entry.nodes)}
                           aria-current={
                             kind === 'history' && entry.id === draft.id ? 'true' : undefined
                           }
@@ -693,22 +694,26 @@ function CompositionWorkspaceBody({
                               void perform(async () => insert(entry, kind));
                           }}
                         >
-                          {entry.title || draftTitle(entry.nodes)}
+                          <span className="weq-composition-entry-title">
+                            {entry.title || draftTitle(entry.nodes)}
+                          </span>
+                          <span className="weq-composition-entry-meta">
+                            {
+                              <span className="weq-number weq-number-inherit">
+                                {entry.nodes.length}
+                              </span>
+                            }{' '}
+                            条 ·{' '}
+                            {
+                              <span className="weq-number weq-number-inherit">
+                                {eventTimeFormatter.format(new Date(entry.updatedAt * 1000))}
+                              </span>
+                            }
+                          </span>
+                          <span className="weq-composition-entry-preview" data-privacy-sensitive>
+                            {compositionText(entry)}
+                          </span>
                         </CompositionButton>
-                        <span>
-                          {
-                            <span className="weq-number weq-number-inherit">
-                              {entry.nodes.length}
-                            </span>
-                          }{' '}
-                          条 ·{' '}
-                          {
-                            <span className="weq-number weq-number-inherit">
-                              {eventTimeFormatter.format(new Date(entry.updatedAt * 1000))}
-                            </span>
-                          }
-                        </span>
-                        <p data-privacy-sensitive>{compositionText(entry)}</p>
                         <div className="weq-composition-entry-actions">
                           <CompositionButton
                             type="button"
