@@ -76,6 +76,16 @@ export const GroupProfileDialog = lazyPanel<
 export const MemberProfileCard = lazyPanel<
   ComponentProps<typeof import('./MemberProfileCard').MemberProfileCard>
 >(() => import('./MemberProfileCard').then((m) => ({ default: m.MemberProfileCard })));
+export const ConversationIdentityCard = lazyPanel<
+  ComponentProps<typeof import('./ConversationIdentityCard').ConversationIdentityCard>
+>(() =>
+  import('./ConversationIdentityCard').then((m) => ({ default: m.ConversationIdentityCard })),
+);
+export const SpecialConversationPreview = lazyPanel<
+  ComponentProps<typeof import('./SpecialConversationPreview').SpecialConversationPreview>
+>(() =>
+  import('./SpecialConversationPreview').then((m) => ({ default: m.SpecialConversationPreview })),
+);
 export const CloneMemberProfileCard = lazyPanel<
   ComponentProps<typeof import('../views/agentlab/CloneMemberProfileCard').CloneMemberProfileCard>
 >(() =>

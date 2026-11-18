@@ -46,6 +46,7 @@ import type { MessageRenderer } from '../../im-template/template/messageRenderer
 import type { Conversation, Message, User } from '../../im-template/template/types';
 import type { ReplyJumpTarget } from '../../state/messageContext';
 import { useMessageLocateMenu } from '../../hooks/useMessageLocateMenu';
+import { readonlyConversationKind } from '../../lib/conversationActions';
 
 const noop = (): void => {};
 
@@ -70,6 +71,7 @@ export function GapMessagesModal({
   backLabel = '返回资料',
   messageNotice,
   onLocateMessage,
+  showSenderProfiles = true,
 }: {
   conversation: Conversation;
   user: User;
@@ -99,6 +101,7 @@ export function GapMessagesModal({
   /** 只读预览中逐条展示的附注，例如跳过发送的原因。 */
   messageNotice?: (message: Message) => string | undefined;
   onLocateMessage?: (target: ReplyJumpTarget) => void | Promise<void>;
+  showSenderProfiles?: boolean;
 }): ReactElement {
   const locateMenu = useMessageLocateMenu(onLocateMessage, `${user.id}:${conversation.id}`);
   const openChat = useContext(ChatNavigationContext);
@@ -110,7 +113,12 @@ export function GapMessagesModal({
     setMemberCard({ member, anchor });
   }, []);
   const isGroup = conversation.type === 'group';
-  const convKey = isGroup ? conversation.group.identityValue : '';
+  const convKey =
+    isGroup && !conversation.generated
+      ? conversation.group.identityValue
+      : conversation.type === 'direct' && readonlyConversationKind(conversation) === 'official'
+        ? conversation.otherUser.id
+        : '';
   const showSenderNames = conversation.type !== 'direct';
   const subtitle = isGroup ? conversation.group?.name : conversation.otherUser?.displayName;
 
@@ -299,7 +307,7 @@ export function GapMessagesModal({
                         sender={sender}
                         showSenderName={showSenderNames}
                         renderers={renderers}
-                        onAvatarClick={preview ? openMember : undefined}
+                        onAvatarClick={preview && showSenderProfiles ? openMember : undefined}
                         onContextMenu={
                           onLocateMessage
                             ? (event) =>

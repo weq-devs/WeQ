@@ -5,6 +5,8 @@ import type { ConversationScope } from '@weq/service/search-policy';
 import { previewNodes, previewNodesToText } from './conversationPreview';
 import type { ConversationView, ConversationViewDirectory } from './conversationViews';
 
+export type ConcreteConversation = Exclude<Conversation, { type: 'merged' }>;
+
 export interface VirtualConversation {
   id: string;
   kind: 'persona' | 'group';
@@ -55,6 +57,8 @@ export const ConversationDirectoryContext = createContext<{
   /** 新建克隆体群聊：直接打开多选克隆体的建群弹窗。 */
   onCreateGroup?: () => void;
   onAnalyze?: (conversation: Conversation) => void;
+  onOpenProfile?: (conversation: ConcreteConversation, anchor: HTMLElement) => void;
+  onPreview?: (conversation: ConcreteConversation) => void;
   onPin?: (conversation: Conversation, pinned: boolean) => void;
   onEditRemark?: (conversation: Conversation) => void;
   loadingError?: string;

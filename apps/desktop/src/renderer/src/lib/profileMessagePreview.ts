@@ -1,4 +1,5 @@
 import { client } from '../trpc/client';
+import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 
 export type ProfilePreviewCursor = { time: number; rowId: string };
 
@@ -9,10 +10,12 @@ export async function readProfilePreviewPage(input: {
   sender?: string;
   cursor?: ProfilePreviewCursor;
   beforeSeq?: string;
+  binding?: QQWriteBinding;
 }) {
-  const { kind, conv, sender, cursor, beforeSeq } = input;
+  const { kind, conv, sender, cursor, beforeSeq, binding } = input;
   if (sender) {
     const page = await client.account.browseConversation.query({
+      ...binding,
       kind,
       conv,
       filter: { sender },
@@ -26,7 +29,7 @@ export async function readProfilePreviewPage(input: {
     };
   }
   const rows = beforeSeq
-    ? await client.account.listBefore.query({ kind, conv, beforeSeq, limit: 50 })
-    : await client.account.listLatest.query({ kind, conv, limit: 50 });
+    ? await client.account.listBefore.query({ ...binding, kind, conv, beforeSeq, limit: 50 })
+    : await client.account.listLatest.query({ ...binding, kind, conv, limit: 50 });
   return { rows: [...rows].reverse(), hasMore: rows.length === 50, cursor: undefined };
 }

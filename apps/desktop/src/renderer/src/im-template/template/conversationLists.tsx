@@ -10,6 +10,7 @@ import {
   PenLine,
   Pin,
   Mail,
+  Eye,
   EyeOff,
   List,
   MessageSquare,
@@ -358,6 +359,13 @@ export function ConversationList({
     [actionMenu],
   );
   const aggregateMenu = actionMenu?.conversation.type === 'merged';
+  const singleMenuConversation =
+    actionMenu?.ids.length === 1 && actionMenu.conversation.type !== 'merged'
+      ? actionMenu.conversation
+      : null;
+  const menuVirtualRow = singleMenuConversation?.generated
+    ? directory?.virtual.find((item) => item.id === singleMenuConversation.id)
+    : undefined;
   const selectConversation = (id: string, event: React.MouseEvent) => {
     if (!filtered.ids.includes(id)) return;
     const row = filtered.rows.find((item) => item.id === id);
@@ -1060,10 +1068,23 @@ export function ConversationList({
             <ConversationMenuTarget
               name={conversationTitle(actionMenu.conversation)}
               avatarUrl={conversationAvatarUrl(actionMenu.conversation)}
+              avatar={
+                menuVirtualRow ? (
+                  <VirtualConversationAvatar item={menuVirtualRow} size={32} />
+                ) : undefined
+              }
               identity={conversationSeed(actionMenu.conversation)}
               kind={actionMenu.conversation.type}
               generated={actionMenu.conversation.generated}
               count={actionMenu.ids.length}
+              onOpenProfile={
+                singleMenuConversation && directory?.onOpenProfile
+                  ? (anchor: HTMLElement) => {
+                      directory.onOpenProfile(singleMenuConversation, anchor);
+                      setActionMenu(null);
+                    }
+                  : undefined
+              }
               containedCount={
                 actionMenu.conversation.type === 'merged' &&
                 actionMenu.conversation.mergedKind === 'groupAssistant'
@@ -1077,6 +1098,15 @@ export function ConversationList({
           onClose={() => setActionMenu(null)}
           actions={(() => {
             return [
+              ...(singleMenuConversation && directory?.onPreview
+                ? [
+                    {
+                      label: '预览会话',
+                      icon: <Eye size={16} aria-hidden />,
+                      action: () => directory.onPreview(singleMenuConversation),
+                    },
+                  ]
+                : []),
               ...(!aggregateMenu && conversationViewActions(view).includes('read')
                 ? batch.readStateMenuActions(actionMenu.ids)
                 : []),

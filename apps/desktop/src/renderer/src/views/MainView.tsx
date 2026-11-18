@@ -319,6 +319,8 @@ import {
   GroupMemberTitleDialog,
   ConversationOverviewCalendar,
   MemberProfileCard,
+  ConversationIdentityCard,
+  SpecialConversationPreview,
   GroupProfileDialog,
   GroupTodos,
 } from '../components/lazyMainPanels';
@@ -381,7 +383,11 @@ import type { AnalysisReportRequest, AnalysisToolRequest } from './analysis/mode
 import { restoredAnalysisRequest } from './analysis/model';
 import { useMessageNotifications } from '../hooks/useMessageNotifications';
 import type { RoamingTarget } from '@weq/service';
-import { conversationAnalysisTarget, conversationRoamingTarget } from '../lib/conversationActions';
+import {
+  conversationAnalysisTarget,
+  conversationRoamingTarget,
+  readonlyConversationKind,
+} from '../lib/conversationActions';
 import { fetchMissingContext } from '../lib/missingMessageFetch';
 import { preferenceDefaults } from '@weq/service/client-preferences';
 import { createMediaId } from '../im-template/template/composerMedia';
@@ -396,7 +402,9 @@ import {
   ContactDirectoryContext,
   guildConversationRow,
   virtualConversationRow,
+  type ConcreteConversation,
 } from '../lib/conversationDirectory';
+import type { OverlayAnchor } from '../lib/overlayAnchor.shared';
 import {
   CONVERSATION_VIEWS,
   activeConversationBelongsToView,
@@ -542,6 +550,27 @@ const workspaceLoading = <PanelLoading />;
 const messageRenderers: MessageRenderer[] = composeMessageRenderers({
   prepend: [qqMessageRenderer],
 });
+
+function calendarTargetForConversation(row: ConcreteConversation): OverviewCalendarTarget {
+  const generated = row.generated;
+  const kind =
+    generated?.kind === 'group'
+      ? 'cloneGroup'
+      : (generated?.kind ??
+        readonlyConversationKind(row) ??
+        (row.type === 'group' ? 'group' : isDatalineUid(row.id) ? 'dataline' : 'c2c'));
+  return {
+    kind,
+    conv:
+      generated?.kind === 'assistant'
+        ? (generated.sessionId ?? row.id.replace(/^assistant:/, ''))
+        : (generated?.ownerId ?? row.id.replace(/^(guild|service):/, '')),
+    name: conversationRowName(row),
+    avatar: row.type === 'group' ? row.group.avatarUrl : (row.otherUser.avatarUrl ?? null),
+    ancestors: [],
+    searchText: conversationListSearchText(row),
+  };
+}
 
 function isMobileShell(): boolean {
   return isSingleColumnLayout();
@@ -1539,9 +1568,40 @@ function MainWorkspace(): ReactElement {
   const [numberGroupCard, setNumberGroupCard] = useState<{
     accountUin: string | null;
     conversation: Extract<Conversation, { type: 'group' }>;
-    anchor: HTMLElement;
+    anchor: HTMLElement | OverlayAnchor;
     detailsKnown?: boolean;
   } | null>(null);
+  const [conversationIdentity, setConversationIdentity] = useState<{
+    conversation: Extract<Conversation, { type: 'direct' }>;
+    anchor: OverlayAnchor;
+  } | null>(null);
+
+  function openConversationProfile(conversation: ConcreteConversation, anchor: HTMLElement) {
+    // 菜单点击后卸载；保留点击当时的位置，让名片仍在该处打开。
+    const rect = anchor.getBoundingClientRect();
+    setMemberCard(null);
+    setNumberGroupCard(null);
+    setConversationIdentity(null);
+    if (conversation.type === 'group') {
+      setNumberGroupCard({
+        accountUin: openedUin,
+        conversation,
+        anchor: { element: anchor, rect },
+      });
+    } else if (
+      conversation.generated ||
+      readonlyConversationKind(conversation) ||
+      isDatalineUid(conversation.id)
+    ) {
+      setConversationIdentity({ conversation, anchor: { element: anchor, rect } });
+    } else {
+      setMemberCard({
+        member: conversation.otherUser,
+        anchor: { x: rect.right, y: rect.top },
+        groupContext: null,
+      });
+    }
+  }
 
   const [editorState, setEditorState] = useState<{
     msgId: string;
@@ -8239,36 +8299,7 @@ function MainWorkspace(): ReactElement {
     if (!overviewCalendar) return [];
     const targets: OverviewCalendarTarget[] = [];
     for (const row of currentViewRows) {
-      if (row.type === 'merged') continue;
-      const generated = row.generated;
-      const kind =
-        generated?.kind === 'assistant'
-          ? 'assistant'
-          : generated?.kind === 'persona'
-            ? 'persona'
-            : generated?.kind === 'group'
-              ? 'cloneGroup'
-              : row.directoryKind === 'official' ||
-                  row.directoryKind === 'service' ||
-                  row.directoryKind === 'guild'
-                ? row.directoryKind
-                : row.type === 'group'
-                  ? 'group'
-                  : isDatalineUid(row.id)
-                    ? 'dataline'
-                    : 'c2c';
-      targets.push({
-        kind,
-        conv:
-          generated?.kind === 'assistant'
-            ? generated.sessionId!
-            : (generated?.ownerId ??
-              (kind === 'guild' ? row.id.slice(6) : kind === 'service' ? row.id.slice(8) : row.id)),
-        name: conversationRowName(row),
-        avatar: row.type === 'group' ? row.group.avatarUrl : (row.otherUser.avatarUrl ?? null),
-        ancestors: [],
-        searchText: conversationListSearchText(row),
-      });
+      if (row.type !== 'merged') targets.push(calendarTargetForConversation(row));
     }
     return targets;
   }, [overviewCalendar, currentViewRows]);
@@ -8360,9 +8391,11 @@ function MainWorkspace(): ReactElement {
     setConversationLocate({ id, revision: Date.now() });
   };
 
+  type PreviewSource = 'member' | 'latest' | 'contact' | 'group-profile' | 'speech' | 'menu';
+  const [specialPreview, setSpecialPreview] = useState<ConcreteConversation | null>(null);
   const [privatePreview, setPrivatePreview] = useState<{
     account: string;
-    source: 'member' | 'latest' | 'contact' | 'group-profile' | 'speech';
+    source: PreviewSource;
     contactScope: string | null;
     conversation: Conversation;
     sender?: string;
@@ -8374,6 +8407,19 @@ function MainWorkspace(): ReactElement {
     hasMore: boolean;
   } | null>(null);
   const previewRequest = useRef(0);
+  const closePrivatePreview = () => {
+    previewRequest.current++;
+    setPrivatePreview(null);
+  };
+  function previewMenuConversation(conversation: ConcreteConversation) {
+    if (conversation.generated || readonlyConversationKind(conversation)) {
+      closePrivatePreview();
+      setSpecialPreview(conversation);
+    } else {
+      setSpecialPreview(null);
+      void previewConversation(conversation, 'menu');
+    }
+  }
   const contactPreviewScope = JSON.stringify([
     shell.view,
     shell.contactTab,
@@ -8420,13 +8466,19 @@ function MainWorkspace(): ReactElement {
   }
   async function previewConversation(
     conversation: Conversation,
-    source: 'member' | 'latest' | 'contact' | 'group-profile' | 'speech',
+    source: PreviewSource,
     sender?: string,
   ) {
     const account = user.identityValue;
+    const binding = messageBindingRef.current ?? undefined;
+    const scope = messageScope;
     const contactScope =
       source === 'contact' || source === 'group-profile' ? contactPreviewScope : null;
     const request = ++previewRequest.current;
+    const isCurrent = () =>
+      request === previewRequest.current &&
+      messageScopeRef.current === scope &&
+      useViewState.getState().openedUin === account;
     setPrivatePreview({
       account,
       source,
@@ -8447,6 +8499,7 @@ function MainWorkspace(): ReactElement {
       ) {
         const profile = await client.account.getProfileByUin.query({
           uin: conversation.otherUser.identityValue,
+          ...binding,
         });
         if (profile?.uid)
           conversation = {
@@ -8456,22 +8509,21 @@ function MainWorkspace(): ReactElement {
           };
       }
       if (!conversation.id) throw new Error('缺少会话身份');
-      if (conversation.type === 'direct') {
+      if (conversation.type === 'direct' && source !== 'menu') {
         const peer = conversation.otherUser;
         const local =
           profileByUid.get(peer.uid || peer.id) ??
-          (await client.account.getProfile.query({ uid: peer.uid || peer.id }));
+          (await client.account.getProfile.query({ uid: peer.uid || peer.id, ...binding }));
         conversation = { ...conversation, otherUser: localProfileUser(peer, local ?? undefined) };
       }
-      if (request !== previewRequest.current || useViewState.getState().openedUin !== account)
-        return;
+      if (!isCurrent()) return;
       const page = await readProfilePreviewPage({
+        binding,
         kind: conversation.type === 'group' ? 'group' : 'c2c',
         conv: conversation.id,
         sender,
       });
-      if (request !== previewRequest.current || useViewState.getState().openedUin !== account)
-        return;
+      if (!isCurrent()) return;
       setPrivatePreview({
         account,
         source,
@@ -8486,7 +8538,7 @@ function MainWorkspace(): ReactElement {
         hasMore: page.hasMore,
       });
     } catch (error) {
-      if (request === previewRequest.current)
+      if (isCurrent())
         setPrivatePreview((current) =>
           current
             ? {
@@ -8508,6 +8560,7 @@ function MainWorkspace(): ReactElement {
     setPrivatePreview({ ...snapshot, loadingMore: true, error: null });
     try {
       const page = await readProfilePreviewPage({
+        binding: messageBindingRef.current ?? undefined,
         kind: snapshot.conversation.type === 'group' ? 'group' : 'c2c',
         conv: snapshot.conversation.id,
         beforeSeq: first?.msgSeq,
@@ -8516,6 +8569,7 @@ function MainWorkspace(): ReactElement {
       });
       if (
         request !== previewRequest.current ||
+        messageScopeRef.current !== messageScope ||
         useViewState.getState().openedUin !== snapshot.account
       )
         return;
@@ -8527,7 +8581,7 @@ function MainWorkspace(): ReactElement {
         hasMore: page.hasMore,
       });
     } catch (error) {
-      if (request === previewRequest.current)
+      if (request === previewRequest.current && messageScopeRef.current === messageScope)
         setPrivatePreview({
           ...snapshot,
           loadingMore: false,
@@ -8629,19 +8683,25 @@ function MainWorkspace(): ReactElement {
     botUids,
     profileByUid,
   ]);
+  const floatingPreview =
+    privatePreview?.source === 'latest' ||
+    privatePreview?.source === 'speech' ||
+    privatePreview?.source === 'menu';
   const conversationPreviewContent =
     privatePreview &&
     resolvedPreviewConversation &&
     privatePreview.account === user.identityValue ? (
       <GapMessagesModal
         preview
-        embedded={privatePreview.source !== 'latest' && privatePreview.source !== 'speech'}
+        embedded={!floatingPreview}
         title={
           privatePreview.sender
             ? '本群发言'
             : privatePreview.source === 'latest'
               ? '预览新消息'
-              : undefined
+              : privatePreview.source === 'menu'
+                ? '预览会话'
+                : undefined
         }
         conversation={resolvedPreviewConversation}
         user={user}
@@ -8661,10 +8721,7 @@ function MainWorkspace(): ReactElement {
             privatePreview.sender,
           )
         }
-        onClose={() => {
-          previewRequest.current++;
-          setPrivatePreview(null);
-        }}
+        onClose={closePrivatePreview}
         onLocateMessage={(target) => {
           const conversation = resolvedPreviewConversation;
           if (
@@ -8676,8 +8733,7 @@ function MainWorkspace(): ReactElement {
               ...current,
               [conversation.id]: { conversation, appearedAt: Date.now() },
             }));
-          previewRequest.current++;
-          setPrivatePreview(null);
+          closePrivatePreview();
           setMemberCard(null);
           setNumberGroupCard(null);
           jumpToConvSeq(
@@ -10065,6 +10121,14 @@ function MainWorkspace(): ReactElement {
               onClose={() => setNumberGroupCard(null)}
             />
           ) : null}
+          {conversationIdentity ? (
+            <ConversationIdentityCard
+              conversation={conversationIdentity.conversation}
+              virtual={virtualRows.find((row) => row.id === conversationIdentity.conversation.id)}
+              anchor={conversationIdentity.anchor}
+              onClose={() => setConversationIdentity(null)}
+            />
+          ) : null}
           {memberCard ? (
             <MemberProfileCard
               member={memberCard.member}
@@ -10152,9 +10216,26 @@ function MainWorkspace(): ReactElement {
               )
             }
           />
-          {privatePreview?.source === 'latest' || privatePreview?.source === 'speech'
-            ? conversationPreviewContent
-            : null}
+          {floatingPreview ? conversationPreviewContent : null}
+          {specialPreview && messageBindingRef.current ? (
+            <SpecialConversationPreview
+              key={specialPreview.id}
+              conversation={specialPreview}
+              binding={messageBindingRef.current}
+              user={user}
+              virtual={virtualRows}
+              renderers={messageRenderers}
+              onClose={() => setSpecialPreview(null)}
+              onLocateMessage={(message) => {
+                setSpecialPreview(null);
+                locateCalendarMessage(calendarTargetForConversation(specialPreview), {
+                  id: message.msgId || message.id,
+                  seq: String(message.msgSeq ?? ''),
+                  time: (Date.parse(message.createdAt) || 0) / 1000,
+                });
+              }}
+            />
+          ) : null}
           {unplacedRoaming ? (
             <GapMessagesModal
               conversation={unplacedRoaming.conversation}
@@ -10518,6 +10599,8 @@ function MainWorkspace(): ReactElement {
                             virtual: virtualRows,
                             locate: conversationLocate,
                             onAnalyze: handleAnalyzeConversation,
+                            onOpenProfile: openConversationProfile,
+                            onPreview: previewMenuConversation,
                             onPin: (conversation, pinned) => {
                               if (
                                 conversationView === 'groupAssistant' &&

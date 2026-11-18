@@ -1,6 +1,6 @@
 import { useMemo, useContext } from 'react';
 import { ReadonlyConversationPane } from './ReadonlyConversationPane';
-import type { Conversation, User } from '../im-template/template/types';
+import type { DirectConversation, User } from '../im-template/template/types';
 import { ConversationDirectoryContext } from '../lib/conversationDirectory';
 
 export function OfficialConversationPane({
@@ -28,27 +28,29 @@ export function OfficialConversationPane({
         : { kind: 'official' as const, peerUid: id },
     [service, id],
   );
-  const known = directory?.rows?.find((row) => row.id === conversationId);
-  const conversation = useMemo<Conversation>(
+  const known = directory?.rows?.find((row) => row.type === 'direct' && row.id === conversationId);
+  const conversation = useMemo<DirectConversation>(
     () =>
-      known ?? {
-        id: conversationId,
-        type: 'direct',
-        directoryKind: service ? 'service' : 'official',
-        chatType: service ? 118 : 103,
-        otherUser: {
-          id,
-          displayName: title,
-          username: id,
-          identityLabel: service ? 'AppID' : 'UID',
-          identityValue: id,
-          avatarUrl: null,
-        },
-        group: null,
-        members: [],
-        updatedAt: '',
-        lastMessage: null,
-      },
+      known?.type === 'direct'
+        ? known
+        : {
+            id: conversationId,
+            type: 'direct',
+            directoryKind: service ? 'service' : 'official',
+            chatType: service ? 118 : 103,
+            otherUser: {
+              id,
+              displayName: title,
+              username: id,
+              identityLabel: service ? 'AppID' : 'UID',
+              identityValue: id,
+              avatarUrl: null,
+            },
+            group: null,
+            members: [],
+            updatedAt: '',
+            lastMessage: null,
+          },
     [known, conversationId, service, id, title],
   );
   return (

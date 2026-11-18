@@ -3,55 +3,27 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Search, RefreshCw, SearchX } from 'lucide-react';
 import { client } from '../trpc/client';
 import { ChatPane } from '../im-template/template/chatPane';
-import type { Conversation, Message, User } from '../im-template/template/types';
+import type { DirectConversation, User } from '../im-template/template/types';
 import type { MessageRenderer } from '../im-template/template/messageRenderers';
 import { qqMessageRenderer } from './QqMessageContent.shared';
 import { ConvContext } from '../state/messageContext';
 import { Modal } from './Dialog';
-import { plainContentText } from '@weq/service/message-plain-text';
 import { usePageDataCache } from './PageSnapshots.shared';
 import { accountBinding } from '../lib/clientPreferences';
-import { unixDate } from '@weq/time';
-import type { MessageBubbleSkin } from '@weq/service';
-import { seedMessageBubbles, messageBubble } from '../lib/messageBubbles';
+import {
+  readReadonlyOlderPage,
+  readonlyConversationMessages,
+  readonlyMessageText,
+  type ReadonlyTarget,
+  type ReadonlyCursor as Cursor,
+  type ReadonlyWire as Wire,
+} from '../lib/readonlyConversation';
 
-export type ReadonlyTarget =
-  | { kind: 'official'; peerUid: string }
-  | { kind: 'service'; appId: string }
-  | { kind: 'guild'; nodeId: string };
-interface Cursor {
-  msgSeq: string;
-  sendTime: string;
-  msgId: string;
-}
-interface Wire {
-  cachedBubbles?: MessageBubbleSkin[];
-  msgId: string;
-  msgSeq: string;
-  sendTime: string;
-  sendType?: string;
-  senderUid?: string;
-  senderUin?: string;
-  elements?: unknown[];
-  decoration?: { bubbleId: number; fontId: number; widgetId: number };
-}
 const renderersDefault = [qqMessageRenderer];
 const emptyDraft = () => {};
 const noSend = async () => {
   throw new Error('此来源暂不支持发送消息');
 };
-const content = (elements?: unknown[]) =>
-  plainContentText(
-    elements?.filter((element): element is { type: string } =>
-      Boolean(
-        element &&
-          typeof element === 'object' &&
-          'type' in element &&
-          typeof element.type === 'string',
-      ),
-    ),
-  );
-
 import { useDirectoryReadPosition } from '../hooks/useDirectoryReadPosition';
 import {
   messageReadPosition,
@@ -72,7 +44,7 @@ export function ReadonlyConversationPane({
   onEditMessage,
 }: {
   target: ReadonlyTarget;
-  conversation: Conversation;
+  conversation: DirectConversation;
   user: User;
   renderers?: MessageRenderer[];
   anchorId?: string;
@@ -139,7 +111,16 @@ export function ReadonlyConversationPane({
         let items: Wire[];
         let more: boolean;
         let cursor: Cursor | null;
-        if (target.kind === 'guild') {
+        if (!anchor && !newer) {
+          const page = await readReadonlyOlderPage(
+            target,
+            bindingRef.current,
+            older ? latest.current.cursor : undefined,
+          );
+          items = page.items;
+          more = page.hasMore;
+          cursor = page.nextCursor;
+        } else if (target.kind === 'guild') {
           if (anchor) {
             const result = await client.account.guildDirectAround.query({
               nodeId: target.nodeId,
@@ -149,26 +130,13 @@ export function ReadonlyConversationPane({
             if (!result.found)
               throw new Error('无法读取指定消息：搜索命中的消息已删除或本地不可用。');
             items = result.items.slice().reverse();
-          } else
-            items =
-              newer && latest.current.newerCursor
-                ? await client.account.guildDirectAfter.query({
-                    nodeId: target.nodeId,
-                    cursor: latest.current.newerCursor,
-                    limit: 50,
-                  })
-                : older && latest.current.cursor
-                  ? await client.account.guildDirectBefore.query({
-                      nodeId: target.nodeId,
-                      beforeSeq: latest.current.cursor.msgSeq,
-                      beforeMsgId: latest.current.cursor.msgId,
-                      limit: 50,
-                    })
-                  : await client.account.guildDirectLatest.query({
-                      nodeId: target.nodeId,
-                      stablePaging: true,
-                      limit: 50,
-                    });
+          } else if (latest.current.newerCursor) {
+            items = await client.account.guildDirectAfter.query({
+              nodeId: target.nodeId,
+              cursor: latest.current.newerCursor,
+              limit: 50,
+            });
+          } else return false;
           more = items.length >= 50 || Boolean(anchor);
           const last = items.at(-1);
           cursor = last
@@ -179,11 +147,7 @@ export function ReadonlyConversationPane({
             ...bindingRef.current,
             target,
             direction: newer ? 'newer' : 'older',
-            cursor: newer
-              ? (latest.current.newerCursor ?? undefined)
-              : older
-                ? (latest.current.cursor ?? undefined)
-                : undefined,
+            cursor: newer ? (latest.current.newerCursor ?? undefined) : undefined,
             anchorId: anchor,
             limit: 50,
           });
@@ -247,31 +211,10 @@ export function ReadonlyConversationPane({
       latest.current.loading = false;
     };
   }, [key, anchorId, anchorRevision, cache, fetchPage]);
-  const messages = useMemo<Message[]>(() => {
-    for (const row of rows) seedMessageBubbles(row.cachedBubbles);
-    return rows.map((row) => {
-      const mine =
-        target.kind === 'guild'
-          ? row.sendType !== '0'
-          : Boolean(row.senderUid && (row.senderUid === user.uid || row.senderUid === user.id)) ||
-            Boolean(row.senderUin && row.senderUin === user.identityValue);
-      const peer = conversation.type === 'direct' ? conversation.otherUser : user;
-      return {
-        id: row.msgId,
-        msgId: row.msgId,
-        msgSeq: row.msgSeq,
-        conversationId: conversation.id,
-        body: content(row.elements),
-        senderId: mine ? user.id : peer.id,
-        sender: mine ? user : peer,
-        createdAt: Number(row.sendTime) > 0 ? (unixDate(row.sendTime)?.toISOString() ?? '') : '',
-        qqElements: row.elements as Message['qqElements'],
-        decoration: row.decoration
-          ? { ...row.decoration, cachedBubble: messageBubble(row.decoration.bubbleId) }
-          : undefined,
-      };
-    });
-  }, [rows, target.kind, conversation, user]);
+  const messages = useMemo(
+    () => readonlyConversationMessages(rows, target.kind, conversation, user),
+    [rows, target.kind, conversation, user],
+  );
   const find = async (append = false) => {
     const term = append ? searchTerm.current : keyword.trim();
     if (!term) return;
@@ -353,7 +296,7 @@ export function ReadonlyConversationPane({
             {[
               {
                 label: '名称',
-                value: conversation.type === 'direct' ? conversation.otherUser.displayName : '',
+                value: conversation.otherUser.displayName,
               },
               ...sourceDetails,
             ].map((field) => (
@@ -408,7 +351,7 @@ export function ReadonlyConversationPane({
                 void fetchPage(false, hit.msgId);
               }}
             >
-              {content(hit.elements) || '[消息]'}
+              {readonlyMessageText(hit.elements) || '[消息]'}
             </button>
           ))}
           {searchMore ? (

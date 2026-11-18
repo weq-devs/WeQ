@@ -2788,9 +2788,17 @@ export const accountRouter = router({
     }),
 
   getAgentLabGroupConversation: procedure
-    .input(z.object({ groupId: z.string().min(1), sessionId: z.string().optional() }))
+    .input(
+      exportAccountBindingInput.extend({
+        groupId: z.string().min(1),
+        sessionId: z.string().optional(),
+      }),
+    )
     .query(({ input }) => {
-      return requireServices().agentLab.getGroupMessages(input.groupId, undefined, input.sessionId);
+      return requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).agentLab.getGroupMessages(input.groupId, undefined, input.sessionId);
     }),
 
   clearAgentLabGroupConversation: procedure
@@ -3008,9 +3016,12 @@ export const accountRouter = router({
 
   /** 与某克隆体的持久化对话历史。 */
   getAgentLabConversation: procedure
-    .input(z.object({ personaId: agentLabPersonaId }))
+    .input(exportAccountBindingInput.extend({ personaId: agentLabPersonaId }))
     .query(({ input }) => {
-      return requireServices().agentLab.getConversation(input.personaId);
+      return requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).agentLab.getConversation(input.personaId);
     }),
 
   clearAgentLabConversation: procedure
@@ -4619,19 +4630,21 @@ export const accountRouter = router({
   /** 频道私聊最新 N 条消息（seq 大到小）。nodeId = 会话 40027。 */
   guildDirectLatest: procedure
     .input(
-      z.object({
+      exportAccountBindingInput.extend({
         nodeId: z.string().min(1),
         stablePaging: z.boolean().optional(),
         limit: z.number().int().min(1).max(200).default(50),
       }),
     )
-    .query(async ({ input }) => {
-      const guild = requireServices().guildDirect;
-      const msgs = await (input.stablePaging
-        ? guild.getStableLatest(input.nodeId, input.limit)
-        : guild.getLatest(input.nodeId, input.limit));
-      return withMessageBubbles(msgs.map(guildDirectMsgToWire), requireServices().dressInstall);
-    }),
+    .query(({ input }) =>
+      readMessageScope(input, async () => {
+        const { guildDirect: guild, dressInstall } = requireServices();
+        const msgs = await (input.stablePaging
+          ? guild.getStableLatest(input.nodeId, input.limit)
+          : guild.getLatest(input.nodeId, input.limit));
+        return withMessageBubbles(msgs.map(guildDirectMsgToWire), dressInstall);
+      }),
+    ),
 
   guildDirectAround: procedure
     .input(
@@ -4656,7 +4669,7 @@ export const accountRouter = router({
   /** 比 beforeSeq 更旧的一页频道私聊消息（向上滚动），返回仍为 seq 大到小。 */
   guildDirectBefore: procedure
     .input(
-      z.object({
+      exportAccountBindingInput.extend({
         nodeId: z.string().min(1),
         beforeSeq: z.string().min(1),
         beforeMsgId: z
@@ -4666,13 +4679,15 @@ export const accountRouter = router({
         limit: z.number().int().min(1).max(200).default(50),
       }),
     )
-    .query(async ({ input }) => {
-      const guild = requireServices().guildDirect;
-      const msgs = await (input.beforeMsgId !== undefined
-        ? guild.getBeforeMessage(input.nodeId, input.beforeMsgId, input.limit)
-        : guild.getBefore(input.nodeId, BigInt(input.beforeSeq), input.limit));
-      return withMessageBubbles(msgs.map(guildDirectMsgToWire), requireServices().dressInstall);
-    }),
+    .query(({ input }) =>
+      readMessageScope(input, async () => {
+        const { guildDirect: guild, dressInstall } = requireServices();
+        const msgs = await (input.beforeMsgId !== undefined
+          ? guild.getBeforeMessage(input.nodeId, input.beforeMsgId, input.limit)
+          : guild.getBefore(input.nodeId, BigInt(input.beforeSeq), input.limit));
+        return withMessageBubbles(msgs.map(guildDirectMsgToWire), dressInstall);
+      }),
+    ),
 
   guildDirectAfter: procedure
     .input(
