@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   AtSign,
   Bell,
@@ -108,14 +108,18 @@ function ImportantMessageSurface({
   open,
   onClose,
   children,
+  filters,
   navigationAnchor,
 }: {
   open: boolean;
   onClose: () => void;
   children: React.ReactNode;
+  filters?: React.ReactNode;
   navigationAnchor?: HTMLElement | null;
 }) {
   const mobile = useMobileWebLayout();
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filtersId = useId();
   const ref = useRef<HTMLElement>(null);
   useSurfaceEscapeDismissal(ref, onClose, open && !mobile);
   useEffect(() => {
@@ -133,16 +137,36 @@ function ImportantMessageSurface({
     >
       <header>
         <strong>重要消息</strong>
-        <button
-          type="button"
-          className="icon-button"
-          title="关闭重要消息"
-          aria-label="关闭重要消息"
-          onClick={onClose}
-        >
-          <X size={16} />
-        </button>
+        <div className="weq-important-header-actions">
+          {filters ? (
+            <button
+              type="button"
+              className="icon-button"
+              title={filtersOpen ? '收起筛选' : '展开筛选'}
+              aria-label="筛选重要消息"
+              aria-expanded={filtersOpen}
+              aria-controls={filtersId}
+              onClick={() => setFiltersOpen((value) => !value)}
+            >
+              <ListFilter size={16} />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="icon-button"
+            title="关闭重要消息"
+            aria-label="关闭重要消息"
+            onClick={onClose}
+          >
+            <X size={16} />
+          </button>
+        </div>
       </header>
+      {filters ? (
+        <div id={filtersId} className="weq-important-filter-panel" hidden={!filtersOpen}>
+          {filters}
+        </div>
+      ) : null}
       {children}
     </aside>
   );
@@ -153,6 +177,7 @@ function ImportantMessageSurface({
       title="重要消息"
       className="weq-important-drawer"
       onClose={onClose}
+      dismissOnOutside={false}
       anchor={navigationAnchor}
     >
       {content}
@@ -327,44 +352,52 @@ export function ImportantMessagesList({
   }
   const locateMenu = useMessageLocateMenu(locate, `${source}:${open}`);
   return (
-    <ImportantMessageSurface open={open} onClose={onClose} navigationAnchor={navigationAnchor}>
-      <div
-        className="weq-search-scope weq-important-filters"
-        role="group"
-        aria-label="重要消息类型"
-        {...selection.rootProps}
-      >
-        <button
-          type="button"
-          aria-label="全部类型"
-          aria-pressed={
-            kinds.size === IMPORTANT_MESSAGE_KINDS.length ? true : kinds.size ? 'mixed' : false
-          }
-          onClick={() =>
-            changeKinds(
-              new Set(kinds.size === IMPORTANT_MESSAGE_KINDS.length ? [] : IMPORTANT_MESSAGE_KINDS),
-            )
-          }
+    <ImportantMessageSurface
+      open={open}
+      onClose={onClose}
+      navigationAnchor={navigationAnchor}
+      filters={
+        <div
+          className="weq-search-scope weq-important-filters"
+          role="group"
+          aria-label="重要消息类型"
+          {...selection.rootProps}
         >
-          <Layers size={14} />
-          {kinds.size === IMPORTANT_MESSAGE_KINDS.length ? '清空' : '全部'}
-        </button>
-        {IMPORTANT_MESSAGE_KINDS.map((kind) => {
-          const Icon = icons[kind];
-          return (
-            <button
-              key={kind}
-              data-important-kind={kind}
-              type="button"
-              aria-pressed={kinds.has(kind)}
-              {...selection.itemProps(kind)}
-            >
-              <Icon size={14} />
-              {highlightLabel(kind)}
-            </button>
-          );
-        })}
-      </div>
+          <button
+            type="button"
+            aria-label="全部类型"
+            aria-pressed={
+              kinds.size === IMPORTANT_MESSAGE_KINDS.length ? true : kinds.size ? 'mixed' : false
+            }
+            onClick={() =>
+              changeKinds(
+                new Set(
+                  kinds.size === IMPORTANT_MESSAGE_KINDS.length ? [] : IMPORTANT_MESSAGE_KINDS,
+                ),
+              )
+            }
+          >
+            <Layers size={14} />
+            {kinds.size === IMPORTANT_MESSAGE_KINDS.length ? '清空' : '全部'}
+          </button>
+          {IMPORTANT_MESSAGE_KINDS.map((kind) => {
+            const Icon = icons[kind];
+            return (
+              <button
+                key={kind}
+                data-important-kind={kind}
+                type="button"
+                aria-pressed={kinds.has(kind)}
+                {...selection.itemProps(kind)}
+              >
+                <Icon size={14} />
+                {highlightLabel(kind)}
+              </button>
+            );
+          })}
+        </div>
+      }
+    >
       {error ? (
         <p role="alert">
           {error}

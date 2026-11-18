@@ -6623,9 +6623,7 @@ export function ChatPane({
             title={`下一条：${dockStopLabel(dockStop, unreadDock.unread)}`}
             disabled={dockJumping}
             onClick={() => {
-              void jumpDockStop().then((located) => {
-                if (located && isSingleColumnLayout()) setImportantMessagesOpen(false);
-              });
+              void jumpDockStop();
             }}
           >
             {dockStop.kind === 'unread' ? (
