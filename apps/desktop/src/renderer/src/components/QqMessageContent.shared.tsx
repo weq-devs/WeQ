@@ -1,5 +1,7 @@
 import type { MessageRenderer } from '../im-template/template';
 import { textMarkdownKey } from '../state/textMarkdown';
+import { conversationExportSelection } from '../lib/conversationActions';
+import { isArkMultiMsg } from './ForwardWindow.shared';
 import { QqMessageContent } from './QqMessageContent';
 
 export type RenderElement = {
@@ -58,6 +60,11 @@ export const qqMessageRenderer: MessageRenderer = {
     const elements = m.qqElements ?? [];
     const sendTimeMs = m.createdAt ? Date.parse(m.createdAt) : 0;
     const msgId = m.msgId ?? '';
+    const owner = elements.some(
+      (el) => el.type === 'multiMsg' || (el.type === 'ark' && isArkMultiMsg(el.data?.arkData)),
+    )
+      ? conversationExportSelection(conversation)?.owner
+      : undefined;
     return (
       <QqMessageContent
         elements={elements}
@@ -68,6 +75,11 @@ export const qqMessageRenderer: MessageRenderer = {
         isSender={mine}
         conversation={conversation}
         textMarkdownDisplayKey={textMarkdownKey(message)}
+        forwardSource={
+          owner?.kind === 'messages' && !owner.conversationTarget
+            ? { owner, carrierId: message.id }
+            : undefined
+        }
       />
     );
   },

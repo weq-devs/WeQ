@@ -1,10 +1,9 @@
-import { unixDate } from '@weq/time';
 import {
   Fragment,
+  memo,
   useCallback,
   useContext,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -21,13 +20,12 @@ import {
   ConvContext,
   ForwardCarrierContext,
   ForwardKindContext,
-  ForwardSubRecordsContext,
+  type ForwardCarrier,
 } from '../state/messageContext';
 import { MsgDecorationEnabledContext } from '../state/messageAppearance';
 import { GrayTipLine } from '../im-template/template/messageRow';
 import { grayTipOf } from '../im-template/template/messageRow.shared';
 import { MessageTimeDivider } from '../im-template/template/messageTime';
-import { shouldShowMessageTime } from '../im-template/template/messageTime.shared';
 import { useMsgDecoration } from '../hooks/useMsgDecoration';
 import { useActiveWidget } from '../hooks/useActiveWidget.shared';
 import { localDressApplies } from '../lib/dressSkin';
@@ -38,6 +36,15 @@ import { ProfileAvatar } from './ProfileAvatar';
 import { visibleViewport } from '../lib/visibleViewport';
 import { ChatMediaGallery } from './ChatMediaGallery';
 import { MessageProvenance, SystemMessageContent } from './MessageProvenance';
+import { ForwardRecordList, type ForwardActions } from './ForwardRecordList';
+import {
+  forwardEntries,
+  forwardRecordTarget,
+  forwardSenderName,
+  type ForwardEntry,
+} from '../lib/forwardRecordActions';
+import { textMarkdownKey } from '../state/textMarkdown';
+import { MessageIntentSense } from './intentSense/MessageIntentSense';
 
 import {
   useForwardStore,
@@ -112,13 +119,20 @@ function forwardGrayTipConversation(kind: 'c2c' | 'group'): never {
 
 // ---- single window -------------------------------------------------------
 
-function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement {
+function ForwardWindowFrame({
+  win,
+  actions,
+}: {
+  win: ForwardWindowState;
+  actions?: ForwardActions;
+}): ReactElement {
   const close = useForwardStore((s) => s.close);
   const bringToFront = useForwardStore((s) => s.bringToFront);
   const move = useForwardStore((s) => s.move);
   const setRecords = useForwardStore((s) => s.setRecords);
   const setError = useForwardStore((s) => s.setError);
   const surface = useRef<HTMLElement>(null);
+  const dismissBody = useRef<(() => boolean) | null>(null);
   const [viewport, setViewport] = useState(() => visibleViewport());
   useEffect(() => {
     const update = () => setViewport(visibleViewport());
@@ -131,14 +145,25 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
       window.visualViewport?.removeEventListener('scroll', update);
     };
   }, []);
-  useSurfaceEscape(surface, () => close(win.id), true, false);
+  useSurfaceEscape(
+    surface,
+    () => {
+      if (!dismissBody.current?.()) close(win.id);
+    },
+    true,
+    false,
+  );
 
   // Initial fetch — only when no payload was injected up-front.
   useEffect(() => {
     if (win.records !== null) return;
     let cancelled = false;
     client.account.getForwardMessages
-      .query({ kind: win.kind, msgId: win.msgId, ...(win.resId ? { resId: win.resId } : {}) })
+      .query({
+        kind: win.kind,
+        msgId: win.parentId ? 'forward-child' : win.msgId || 'forward-card',
+        ...(win.resId ? { resId: win.resId } : {}),
+      })
       .then((records) => {
         if (cancelled) return;
         setRecords(win.id, records as ForwardRecordWire[]);
@@ -153,7 +178,7 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
     };
     // We intentionally depend only on the identity — the rest of the state is
     // mutated by the very setters we call from here.
-  }, [win.id, win.kind, win.msgId, win.resId, win.records, setRecords, setError]);
+  }, [win.id, win.kind, win.msgId, win.resId, win.records, win.parentId, setRecords, setError]);
 
   // Drag — only the header is a handle. Capture the pointer on the header so a
   // fast drag past the window edge keeps tracking instead of stalling on the
@@ -216,17 +241,22 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
   // 转发窗口不在聊天区的消息 provider 内——
   // 这里补上，否则窗口里的视频/文件下载既不知道群号也不知道自己是转发内容。
   const carrier = useMemo(
-    (): { msgId: string; kind: 'c2c' | 'group' } => ({ msgId: win.rootMsgId, kind: win.kind }),
-    [win.rootMsgId, win.kind],
+    (): ForwardCarrier => ({ msgId: win.rootMsgId, kind: win.kind, resId: win.resId }),
+    [win.rootMsgId, win.kind, win.resId],
+  );
+  const entries = useMemo(
+    () => forwardEntries({ id: win.id, records: win.records }),
+    [win.id, win.records],
   );
   const galleryMessages = useMemo(
     () =>
-      (win.records ?? []).map((record) => ({
+      entries.map(({ id, record }) => ({
         ...record,
+        key: id,
         msgSeq: record.msgSeq === undefined ? undefined : String(record.msgSeq),
         sendTime: record.sendTime ?? '0',
       })),
-    [win.records],
+    [entries],
   );
 
   return (
@@ -263,17 +293,20 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
         <ForwardKindContext.Provider value={win.kind}>
           <ConvContext.Provider value={win.conv}>
             <ForwardCarrierContext.Provider value={carrier}>
-              <ForwardSubRecordsProvider records={win.records ?? []}>
-                <ChatMediaGallery
-                  scopeKey={String(win.id)}
-                  conv={win.conv}
-                  kind={win.kind}
-                  carrier={carrier}
-                  messages={galleryMessages}
-                >
-                  <ForwardScroll win={win} />
-                </ChatMediaGallery>
-              </ForwardSubRecordsProvider>
+              <ChatMediaGallery
+                scopeKey={String(win.id)}
+                conv={win.conv}
+                kind={win.kind}
+                carrier={carrier}
+                messages={galleryMessages}
+              >
+                <ForwardScroll
+                  win={win}
+                  entries={entries}
+                  actions={actions}
+                  dismissRef={dismissBody}
+                />
+              </ChatMediaGallery>
             </ForwardCarrierContext.Provider>
           </ConvContext.Provider>
         </ForwardKindContext.Provider>
@@ -282,38 +315,17 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
   );
 }
 
-/**
- * 把当前这一层每条记录内联的 `subMsgs` 挂成 msgId → 子记录表，供嵌套转发的预览卡
- * 直接取用（点进去时不必再查一次库）。
- */
-function ForwardSubRecordsProvider({
-  records,
-  children,
+function ForwardScroll({
+  win,
+  entries,
+  actions,
+  dismissRef,
 }: {
-  records: ForwardRecordWire[];
-  children: ReactElement;
+  win: ForwardWindowState;
+  entries: ForwardEntry[];
+  actions?: ForwardActions;
+  dismissRef: { current: (() => boolean) | null };
 }): ReactElement {
-  const table = useMemo(() => {
-    const map = new Map<string, unknown[]>();
-    for (const record of records) {
-      if (record.subMsgs && record.subMsgs.length > 0) map.set(record.msgId, record.subMsgs);
-    }
-    return map;
-  }, [records]);
-  return (
-    <ForwardSubRecordsContext.Provider value={table}>{children}</ForwardSubRecordsContext.Provider>
-  );
-}
-
-function ForwardScroll({ win }: { win: ForwardWindowState }): ReactElement {
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-
-  useLayoutEffect(() => {
-    // Always start at the top of the chain — keeps the chronological reading
-    // order obvious (oldest forward at the top, newest at the bottom).
-    if (scrollRef.current) scrollRef.current.scrollTop = 0;
-  }, [win.records]);
-
   if (win.loading) {
     return (
       <div className="weq-forward-body weq-forward-status">
@@ -328,8 +340,7 @@ function ForwardScroll({ win }: { win: ForwardWindowState }): ReactElement {
       </div>
     );
   }
-  const records = win.records ?? [];
-  if (records.length === 0) {
+  if (entries.length === 0) {
     return (
       <div className="weq-forward-body weq-forward-status">
         <span>没有更多消息</span>
@@ -337,21 +348,27 @@ function ForwardScroll({ win }: { win: ForwardWindowState }): ReactElement {
     );
   }
 
-  let previousTime: number | undefined;
+  const renderRow = (entry: ForwardEntry) => (
+    <ForwardRow entry={entry} kind={win.kind} windowId={win.id} interactive={Boolean(actions)} />
+  );
+  if (actions)
+    return (
+      <ForwardRecordList
+        win={win}
+        entries={entries}
+        actions={actions}
+        renderRow={renderRow}
+        dismissRef={dismissRef}
+      />
+    );
   return (
-    <div ref={scrollRef} className="weq-forward-body">
-      {records.map((record, index) => {
-        const sendTimeMs = unixDate(record.sendTime)?.getTime() ?? 0;
-        const showTime = sendTimeMs > 0 && shouldShowMessageTime(previousTime, sendTimeMs);
-        if (sendTimeMs > 0) previousTime = sendTimeMs;
-        return (
-          // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-          <Fragment key={`${record.msgId || 'rec'}:${index}`}>
-            {showTime ? <MessageTimeDivider value={sendTimeMs} /> : null}
-            <ForwardRow record={record} kind={win.kind} sendTimeMs={sendTimeMs} />
-          </Fragment>
-        );
-      })}
+    <div className="weq-forward-body">
+      {entries.map((entry) => (
+        <Fragment key={entry.id}>
+          {entry.showTime ? <MessageTimeDivider value={entry.sendTimeMs} /> : null}
+          {renderRow(entry)}
+        </Fragment>
+      ))}
     </div>
   );
 }
@@ -375,16 +392,20 @@ function PendantLayer({ widget }: { widget: ResolvedWidget }): ReactElement | nu
   );
 }
 
-function ForwardRow({
-  record,
+const ForwardRow = memo(function ForwardRow({
+  entry,
   kind,
-  sendTimeMs,
+  windowId,
+  interactive,
 }: {
-  record: ForwardRecordWire;
+  entry: ForwardEntry;
   kind: 'c2c' | 'group';
-  sendTimeMs: number;
+  windowId: number;
+  interactive: boolean;
 }): ReactElement {
+  const { record, sendTimeMs } = entry;
   const rowRef = useRef<HTMLDivElement | null>(null);
+  const bubbleRef = useRef<HTMLDivElement | null>(null);
   const decorationEnabled = useContext(MsgDecorationEnabledContext);
   // 转发行都是「对方」样式，替代无装扮仍依据原始 ID 判断。
   const { widget: activeWidget, scope: activeScope } = useActiveWidget();
@@ -400,7 +421,7 @@ function ForwardRow({
   const fontFxAttr = useBubbleFontFx(msgDec.fontFx, rowRef);
   const avatar =
     senderAvatarFromUin(record.senderUin) || record.senderInfo?.avatar?.avatarUrl || null;
-  const displayName = record.sendNick || record.senderUin || record.senderUid || 'Unknown';
+  const displayName = forwardSenderName(record);
   const metadata = {
     msgSeq: record.msgSeq === undefined ? undefined : String(record.msgSeq),
     createdAt: sendTimeMs > 0 ? new Date(sendTimeMs).toISOString() : undefined,
@@ -430,7 +451,7 @@ function ForwardRow({
       kind: 'human' as const,
     };
     return (
-      <div className="weq-forward-graytip" data-message-id={record.msgId}>
+      <div className="weq-forward-graytip">
         <SystemMessageContent message={metadata}>
           <GrayTipLine
             gt={gray}
@@ -466,45 +487,40 @@ function ForwardRow({
           </div>
         </ProfileAvatar>
         <div className="weq-message-heading">
-          <span className="message-name weq-forward-row-name">{displayName}</span>
+          <span className="message-name weq-forward-row-name" data-marquee-text>
+            {displayName}
+          </span>
           <MessageProvenance message={metadata} />
         </div>
       </header>
       <div className="weq-forward-row-main">
-        <ForwardBubble record={record} kind={kind} sendTimeMs={sendTimeMs} />
+        <div ref={bubbleRef} className="weq-forward-bubble qq-bubble-shell" data-marquee-text>
+          <QqMessageContent
+            elements={record.elements}
+            sendTimeMs={sendTimeMs}
+            msgId={record.msgId || ''}
+            galleryKey={entry.id}
+            textMarkdownDisplayKey={textMarkdownKey({
+              conversationId: `forward:${windowId}`,
+              id: entry.id,
+            })}
+            forwardRecord={{ target: forwardRecordTarget(entry), children: record.subMsgs }}
+          />
+        </div>
+        {interactive ? (
+          <MessageIntentSense msgId={entry.id} bubbleRef={bubbleRef} analyzable={false} />
+        ) : null}
       </div>
     </div>
   );
-}
+});
 
-/**
- * One forwarded message's content. Uses the same QqMessageContent component the
- * main timeline uses, so text / face / image / sticker / file / reply quote / 红包 /
- * 通话 / 在线文件 / 位置共享 / 长消息 / 机器人按钮 / 灰条 all draw identically —
- * including nested forwards, which now resolve their inline sub-records through
- * {@link ForwardSubRecordsContext} instead of a hand-rolled branch here.
- */
-function ForwardBubble({
-  record,
-  kind,
-  sendTimeMs,
+export function ForwardWindowContent({
+  windows,
+  actions,
 }: {
-  record: ForwardRecordWire;
-  kind: 'c2c' | 'group';
-  sendTimeMs: number;
-}): ReactElement {
-  void kind;
-  return (
-    <div className="weq-forward-bubble qq-bubble-shell">
-      <QqMessageContent
-        elements={record.elements as Array<{ type?: string; data?: Record<string, unknown> }>}
-        sendTimeMs={sendTimeMs}
-        msgId={record.msgId}
-      />
-    </div>
-  );
-}
-
-export function ForwardWindowContent({ windows }: { windows: ForwardWindowState[] }): ReactNode {
-  return windows.map((win) => <ForwardWindowFrame key={win.id} win={win} />);
+  windows: ForwardWindowState[];
+  actions?: ForwardActions;
+}): ReactNode {
+  return windows.map((win) => <ForwardWindowFrame key={win.id} win={win} actions={actions} />);
 }

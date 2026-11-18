@@ -155,8 +155,6 @@ import {
   buildGroupWpaDeepLink,
   resolveGroupShareAuthKey,
   toRenderElements,
-  PRIVATE_PTT_RKEY_TYPE,
-  GROUP_PTT_RKEY_TYPE,
   COMPOSE_IMAGE_EXTENSIONS,
   getHost,
   assertDestinationCapacity,
@@ -8859,7 +8857,30 @@ export const accountRouter = router({
           .object({
             messageIds: exactMessageIdsInput,
             forwardTarget: z
-              .object({ elementIndex: z.number().int().min(0), resId: z.string().max(4096) })
+              .object({
+                elementIndex: z.number().int().nonnegative(),
+                resId: z.string().max(4096),
+                path: z
+                  .array(
+                    z.object({
+                      elementIndex: z.number().int().nonnegative(),
+                      resId: z.string().max(4096),
+                      record: z.object({
+                        index: z.number().int().nonnegative(),
+                        msgId: z.string().max(64),
+                      }),
+                    }),
+                  )
+                  .max(16)
+                  .optional(),
+                records: z
+                  .array(
+                    z.object({ index: z.number().int().nonnegative(), msgId: z.string().max(64) }),
+                  )
+                  .min(1)
+                  .max(10000)
+                  .optional(),
+              })
               .optional(),
             sender: z.string().max(128).optional(),
             keyword: z.string().max(512).optional(),
@@ -9681,6 +9702,14 @@ export const accountRouter = router({
         name: z.string(),
         token: z.string().default(''),
         msgId: z.string().default(''),
+        forward: z
+          .object({
+            carrierId: z.string(),
+            kind: z.enum(['c2c', 'group']),
+            conv: z.string(),
+            resId: z.string().max(4096).optional(),
+          })
+          .optional(),
         expectedAccountUin: z.string().optional(),
         expectedAccountConfigId: z.string().optional(),
       }),
@@ -9703,14 +9732,23 @@ export const accountRouter = router({
 
       // Locate the silk on disk; fall back to an rkey-backed CDN download (same
       // path the ptt media protocol uses).
-      const { source } = await services.fileSearch.findFile(input.t, input.name, 'ptt');
-      let silk = source;
-      if (!silk && input.token) {
-        silk = await services.mediaDownload.download(input.token, {
-          ext: '.silk',
-          rkeyTypes: [PRIVATE_PTT_RKEY_TYPE, GROUP_PTT_RKEY_TYPE],
-        });
-      }
+      const { resolveVoiceSilk } = await import('../../media_protocol');
+      const checkSource = () => {
+        if (ctx.services !== services) throw new Error('账号已切换，已停止语音转写。');
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+      };
+      const silk = await resolveVoiceSilk(
+        services,
+        {
+          ...input,
+          msgId: input.forward?.carrierId ?? input.msgId,
+          conv: input.forward?.conv ?? '',
+          ...(input.forward
+            ? { fwdMsgId: input.msgId, fwdKind: input.forward.kind, fwdResId: input.forward.resId }
+            : {}),
+        },
+        checkSource,
+      );
       if (!silk) return { success: false, error: '未找到语音文件' };
 
       const { decodeSilkToWav16kBuffer } = await import('../../voice');
@@ -9728,9 +9766,9 @@ export const accountRouter = router({
       );
       if (!result.success) return { success: false, error: result.error ?? '识别失败' };
       const text = result.text ?? '';
-      if (input.msgId) {
-        if (ctx.services !== services)
-          return { success: false, error: '账号已切换，已停止保存转写' };
+      if (ctx.services !== services) return { success: false, error: '账号已切换，已停止保存转写' };
+      checkSource();
+      if (input.msgId && !input.forward) {
         // Best-effort: a failed back-write must not lose the text we just got.
         // Only the TEXT goes back to the DB — `pttTranscript` (45923) is the
         // field QQ itself reads, so it must stay a plain string. Emotion and

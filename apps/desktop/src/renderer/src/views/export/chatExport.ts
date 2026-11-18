@@ -4,6 +4,7 @@
  * 漂移。
  */
 
+import type { ForwardExportTarget } from '@weq/service';
 import type { AppDialogApi } from '../../lib/dialogUtils';
 import { client } from '../../trpc/client';
 import {
@@ -25,7 +26,7 @@ export interface ChatExportTarget {
   kind?: 'group' | 'c2c';
   total?: number;
   messageIds?: string[];
-  forwardTarget?: { elementIndex: number; resId: string };
+  forwardTarget?: ForwardExportTarget;
 }
 
 /** 灯箱选项 → `account.startExport` 的 media 入参（媒体子选项只在导出媒体时生效）。 */
@@ -150,7 +151,7 @@ export async function startChatExportTasks(
   const frozenTargets = targets.map((target) => ({
     ...target,
     ...(target.messageIds ? { messageIds: [...target.messageIds] } : {}),
-    ...(target.forwardTarget ? { forwardTarget: { ...target.forwardTarget } } : {}),
+    ...(target.forwardTarget ? { forwardTarget: structuredClone(target.forwardTarget) } : {}),
   }));
   const frozenOptions = structuredClone(options);
   const frozenFormats = [...formats];

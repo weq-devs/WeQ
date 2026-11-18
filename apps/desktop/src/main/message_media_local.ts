@@ -9,13 +9,15 @@ import type {
   MessageMediaLocationKind,
 } from '../shared/message_media';
 import type { MediaSaveSource } from '../shared/media_save';
+import { findMediaElement } from './media_protocol';
 
 export function savedChatFileKey(source: Extract<MediaSaveSource, { kind: 'chat-file' }>): string {
   return JSON.stringify([
     'chat-file',
-    source.msgId,
+    source.fwdResId && !/^\d+$/.test(source.msgId) ? '0' : source.msgId,
     source.fwdMsgId ?? '',
     source.fwdKind ?? '',
+    ...(source.fwdResId ? [source.fwdResId] : []),
     source.conv ?? '',
     source.token ?? '',
     source.name ?? '',
@@ -35,6 +37,34 @@ export function savedMediaSourceKey(source: MediaSaveSource): string | undefined
 async function firstFile(paths: (string | null | undefined)[]): Promise<string | null> {
   for (const path of paths) if (path && (await stat(path).catch(() => null))?.isFile()) return path;
   return null;
+}
+
+export async function resolveForwardChatFile(
+  services: AccountServices,
+  source: Extract<MediaSaveSource, { kind: 'chat-file' }>,
+) {
+  if (getAppContext().services !== services) return null;
+  const found = await findMediaElement(
+    source.msgId,
+    'file',
+    source.token ?? '',
+    source.fwdMsgId,
+    source.fwdKind,
+    source.fwdResId,
+  );
+  const file = found?.element;
+  if (
+    !file?.filePath ||
+    (source.name && source.name !== file.fileName) ||
+    getAppContext().services !== services
+  )
+    return null;
+  const path = await services.fileResource.resolveLocalFile(
+    file.filePath.replace(/^::NTOSFull::/, ''),
+  );
+  return path && (await firstFile([path]))
+    ? { path, name: file.fileName || source.name || '文件' }
+    : null;
 }
 
 interface LocalMediaLocation extends MessageMediaLocation {
@@ -108,7 +138,7 @@ export async function messageMediaLocations(
     if (path) add('cache', path);
     return locations;
   }
-  if (target.kind === 'file' && /^\d+$/.test(target.msgId)) {
+  if (target.kind === 'file' && !target.fwdKind && /^\d+$/.test(target.msgId)) {
     const info = await services.fileAssistant
       .getFileInfoByMsgId(BigInt(target.msgId))
       .catch(() => null);
@@ -123,6 +153,13 @@ export async function messageMediaLocations(
         add(cached ? 'cache' : 'local', path);
       }
     }
+  }
+  if (target.kind === 'file' && target.fwdKind) {
+    const file = await resolveForwardChatFile(services, { ...target, kind: 'chat-file' });
+    if (file) add('local', file.path);
+    const cached = await taskCache();
+    if (cached) add('cache', cached);
+    return locations;
   }
   const found = await services.fileSearch.findFile(
     target.t,

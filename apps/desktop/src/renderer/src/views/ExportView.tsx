@@ -1452,23 +1452,27 @@ function ExportToolBody({
     const binding = saveBinding;
     const targets = convItems
       .filter((it) => convSelection.has(it.id))
-      .map((item) => ({
-        ...item,
-        ...(initialSelection?.owner.kind === 'messages' &&
-        initialSelection.owner.forwardTarget &&
-        initialSelection.scope.type === 'items' &&
-        messageSelections[item.id]?.length === 1 &&
-        messageSelections[item.id]?.[0] === initialSelection.scope.ids[0] &&
-        initialConversationIds(initialSelection)[0] === item.id
-          ? { forwardTarget: { ...initialSelection.owner.forwardTarget } }
-          : {}),
-        ...(messageSelections[item.id] !== undefined
-          ? {
-              messageIds: [...messageSelections[item.id]!],
-              total: messageSelections[item.id]!.length,
-            }
-          : {}),
-      }));
+      .map((item) => {
+        const forwardTarget =
+          initialSelection?.owner.kind === 'messages' &&
+          initialSelection.owner.forwardTarget &&
+          initialSelection.scope.type === 'items' &&
+          messageSelections[item.id]?.length === 1 &&
+          messageSelections[item.id]?.[0] === initialSelection.scope.ids[0] &&
+          initialConversationIds(initialSelection)[0] === item.id
+            ? structuredClone(initialSelection.owner.forwardTarget)
+            : undefined;
+        return {
+          ...item,
+          ...(forwardTarget ? { forwardTarget } : {}),
+          ...(messageSelections[item.id] !== undefined
+            ? {
+                messageIds: [...messageSelections[item.id]!],
+                total: forwardTarget?.records?.length ?? messageSelections[item.id]!.length,
+              }
+            : {}),
+        };
+      });
     const formats = opts.formats && opts.formats.length > 0 ? opts.formats : [format];
     if (!targets.length || targets.some((target) => target.messageIds?.length === 0)) return;
     const precise = targets.some((target) => target.messageIds !== undefined);

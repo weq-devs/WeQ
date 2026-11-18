@@ -435,6 +435,7 @@ export function QqImage({
 export interface ForwardRef {
   fwdMsgId: string;
   fwdKind: 'c2c' | 'group';
+  fwdResId?: string;
 }
 
 export function QqVideo({
@@ -543,6 +544,7 @@ export function QqVideo({
               msgId,
               conv,
               ...(fwd ? { fwdMsgId: fwd.fwdMsgId, fwdKind: fwd.fwdKind } : {}),
+              ...(fwd?.fwdResId ? { fwdResId: fwd.fwdResId } : {}),
             }),
       ownerDocument,
     ),
@@ -742,7 +744,15 @@ export function QqFile({
   const source: MediaSaveSource =
     remote && localPath && !msgId
       ? { kind: 'url', url: localFileUrl(localPath), name }
-      : { kind: 'chat-file', msgId, name, token, conv, ...fwd };
+      : {
+          kind: 'chat-file',
+          msgId: fwd && !/^\d+$/.test(msgId) ? '0' : msgId,
+          name,
+          token,
+          conv,
+          ...fwd,
+          ...(fwd && !/^\d+$/.test(fwd.fwdMsgId) ? { fwdMsgId: undefined } : {}),
+        };
   const [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null);
   const saving = busy || mediaSave.busy;
@@ -762,9 +772,8 @@ export function QqFile({
     setBusy(true);
     void (async () => {
       try {
-        const localId = fwd ? fwd.fwdMsgId : msgId;
-        if (IS_ELECTRON && localId && (await revealFile(localId))) return;
-        if (!msgId && !localPath) {
+        if (IS_ELECTRON && !fwd && msgId && (await revealFile(msgId))) return;
+        if (!msgId && !localPath && !fwd?.fwdResId) {
           if (IS_ELECTRON) revealMedia(sendTimeMs, name, 'file');
           else setError('文件定位信息不足');
           return;
@@ -912,6 +921,7 @@ export function QqVoice({
           msgId: mediaMsgId || msgId,
           conv,
           ...(fwd ? { fwdMsgId: fwd.fwdMsgId, fwdKind: fwd.fwdKind } : {}),
+          ...(fwd?.fwdResId ? { fwdResId: fwd.fwdResId } : {}),
         }));
   // Duration comes from the element (wire tag 45906), NOT the waveform: AI 声聊
   // clips carry a fixed 30-byte synthetic strip, so waveform.length/10 is wrong
@@ -940,7 +950,15 @@ export function QqVoice({
     return () => observer.disconnect();
   }, [active, name, sendTimeMs]);
   const transcribe = useVoiceTranscription(
-    { t: sendTimeMs, name, token, msgId },
+    {
+      t: sendTimeMs,
+      name,
+      token,
+      msgId,
+      ...(fwd
+        ? { forward: { carrierId: mediaMsgId, kind: fwd.fwdKind, conv, resId: fwd.fwdResId } }
+        : {}),
+    },
     active && visible && !storedTranscript && !localPreviewUrl && !localPath,
   );
   const canTranscribe = transcribe.available && !localPreviewUrl && !localPath;

@@ -1625,9 +1625,9 @@ function findMediaInCache(
     (rec) => rec.msgId != null && BigInt(rec.msgId) === subMsgId,
   );
   if (byId) {
-    const hit =
-      (token ? byId.find((e) => (e as { fileToken?: string }).fileToken === token) : undefined) ??
-      byId[0];
+    const hit = token
+      ? byId.find((e) => (e as { fileToken?: string }).fileToken === token)
+      : byId[0];
     if (hit) return hit;
   }
   if (!token) return null;
@@ -1650,7 +1650,8 @@ function walkCache(
       for (const wire of rec.elements) {
         try {
           const el = decodeElement(wire as never);
-          if (el.kind === mediaKind) out.push(el);
+          if (el.kind === mediaKind || (mediaKind === 'video' && el.kind === 'bubbleVideo'))
+            out.push(el);
         } catch {
           /* skip an element the codec can't parse — others may still match */
         }

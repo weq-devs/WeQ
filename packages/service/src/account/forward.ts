@@ -21,6 +21,7 @@ import type { NtHelperBinding } from '@weq/native';
 import { decodeMessage, encode, fetchForwardRaw, PUSH_MSG_BODY } from '@weq/protocol';
 import { renderDecodedElements } from './gap_history';
 import type { RenderElement } from './msg_view';
+import { mediaElementFromRenderElement, type MediaElement } from './media_url';
 
 /** One forwarded record pulled from QQ servers, in the renderer's wire shape. */
 export interface FetchedForwardRecord {
@@ -36,6 +37,8 @@ export interface FetchedForwardRecord {
 }
 
 export class ForwardMsgService {
+  private readonly fetchedMedia = new Map<string, Map<string, MediaElement>>();
+
   constructor(
     private readonly session: AccountSession,
     private readonly nt: Pick<NtHelperBinding, 'sendPacket'>,
@@ -75,7 +78,33 @@ export class ForwardMsgService {
     }
     const records = res.messages.map(toFetchedForwardRecord);
     await this.resolveSenders(records);
+    const media = new Map<string, MediaElement>();
+    for (const row of records) {
+      for (const element of row.elements) {
+        if (element.type !== 'file' && element.type !== 'video' && element.type !== 'ptt') continue;
+        const token = element.data.fileToken;
+        if (token)
+          media.set(
+            JSON.stringify([row.msgId, element.type, token]),
+            mediaElementFromRenderElement(element),
+          );
+      }
+    }
+    this.fetchedMedia.delete(resId);
+    this.fetchedMedia.set(resId, media);
+    if (this.fetchedMedia.size > 8)
+      this.fetchedMedia.delete(this.fetchedMedia.keys().next().value!);
     return records;
+  }
+
+  /** 读取刚打开的在线转发中的媒体引用，不拿子消息 ID 去查普通会话。 */
+  getFetchedMedia(
+    resId: string,
+    msgId: string,
+    kind: string,
+    token: string,
+  ): MediaElement | undefined {
+    return this.fetchedMedia.get(resId)?.get(JSON.stringify([msgId, kind, token]));
   }
 
   /** 转发快照常常没有昵称；本地资料优先，缺项仍保留快照，不为显示名称联网。 */

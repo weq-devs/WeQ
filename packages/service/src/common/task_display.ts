@@ -192,11 +192,13 @@ export function exportTaskDisplay(task: DisplaySource): TaskDisplay {
       : task.name,
     context:
       [
-        task.filter?.forwardTarget
-          ? '聊天记录卡片内容'
-          : task.filter?.messageIds
-            ? `指定 ${task.filter.messageIds.length} 条消息`
-            : generated?.sessionTitle,
+        task.filter?.forwardTarget?.records
+          ? `聊天记录内所选 ${task.filter.forwardTarget.records.length} 条消息`
+          : task.filter?.forwardTarget
+            ? '聊天记录卡片内容'
+            : task.filter?.messageIds
+              ? `指定 ${task.filter.messageIds.length} 条消息`
+              : generated?.sessionTitle,
         task.scheduleName ? `定时执行 · ${task.scheduleName}` : undefined,
         task.range && (task.range.start !== null || task.range.end !== null)
           ? `${task.range.start !== null ? taskDate(task.range.start * 1000) : '不限起始'} 至 ${task.range.end !== null ? taskDate(task.range.end * 1000) : '不限结束'}`

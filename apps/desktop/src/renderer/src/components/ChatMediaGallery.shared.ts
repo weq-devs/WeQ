@@ -29,7 +29,7 @@ export function galleryMedia(
   messages: GalleryMessage[],
   conv = '',
   kind: 'c2c' | 'group' = 'c2c',
-  carrier?: { msgId: string; kind: 'c2c' | 'group' },
+  carrier?: import('../state/messageContext').ForwardCarrier,
 ): PreviewMedia[] {
   return messages.flatMap((message) => {
     const identity =
@@ -61,7 +61,8 @@ export function galleryMedia(
           : {
               msgId: carrier?.msgId ?? message.msgId,
               conv,
-              ...(carrier ? { fwdMsgId: message.msgId, fwdKind: carrier.kind } : {}),
+              ...(carrier ? { fwdMsgId: message.msgId || '', fwdKind: carrier.kind } : {}),
+              ...(carrier?.resId ? { fwdResId: carrier.resId } : {}),
             }),
       };
       const proxy = mediaUrl(image ? 'pic' : 'video', params);

@@ -50,21 +50,8 @@ export const ConvContext = createContext<string>('');
 export interface ForwardCarrier {
   msgId: string;
   kind: 'c2c' | 'group';
+  resId?: string;
 }
 export const ForwardCarrierContext = createContext<ForwardCarrier | null>(null);
-
-/**
- * 嵌套合并转发的**内联子记录**表（msgId → 该 multiMsg 的 subMsgs）。
- *
- * 40900 缓存里嵌套那一层是现成的（一条 multiMsg 记录的 `subMsgs` 就是它内部那串
- * 子消息），所以再点进去时**不必重新查库**。转发窗口把当前这一层所有子记录的
- * `subMsgs` 挂进这个表，{@link QqMessageContent} 的 multiMsg 分支就能直接把
- * 内联记录交给预览卡片，省掉一次 IPC 往返。
- *
- * 未提供（主时间线、合成转发预览）时退回按 msgId / resId 现查 —— 行为与以前一致。
- * `unknown[]` 是 `ForwardRecordWire[]`：这里不 import 那个类型，避免与
- * ForwardWindow 形成类型环路，取值点自己收窄。
- */
-export const ForwardSubRecordsContext = createContext<Map<string, unknown[]> | null>(null);
 
 export { replyJumpContext as ReplyJumpContext };

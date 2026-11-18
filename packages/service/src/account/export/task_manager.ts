@@ -1726,7 +1726,7 @@ export class ExportTaskManager extends EventEmitter {
               ...opts.filter,
               ...(opts.filter.messageIds ? { messageIds: [...opts.filter.messageIds] } : {}),
               ...(opts.filter.forwardTarget
-                ? { forwardTarget: { ...opts.filter.forwardTarget } }
+                ? { forwardTarget: structuredClone(opts.filter.forwardTarget) }
                 : {}),
             },
           }

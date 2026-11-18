@@ -255,6 +255,9 @@ it('WeQ 下载后的文件可按消息定位，重建任务管理器仍有效，
   ]);
 });
 it('转发文件沿用携带消息／子消息与未知场景换链，不误用外层消息', async () => {
+  const unrelated = join(root, 'report.txt');
+  writeFileSync(unrelated, 'same-id file from a different conversation');
+  state.local = { fileName: 'report.txt', localPath: unrelated };
   const element = { kind: 'file', fileToken: 'token-a', fileName: 'report.txt' };
   state.find.mockResolvedValue({ element, conv: null });
   state.response = () => new Response('forward-file');
@@ -266,6 +269,7 @@ it('转发文件沿用携带消息／子消息与未知场景换链，不误用�
         msgId: '41',
         fwdMsgId: '42',
         fwdKind: 'group',
+        fwdResId: 'sample-record',
         token: 'token-a',
         conv: '123',
         name: 'report.txt',
@@ -273,8 +277,8 @@ it('转发文件沿用携带消息／子消息与未知场景换链，不误用�
       savePolicy: { mode: 'before', directory: root },
     }),
   );
-  expect(state.fileInfo).toHaveBeenCalledWith(42n);
-  expect(state.find).toHaveBeenCalledWith('41', 'file', 'token-a', '42', 'group');
+  expect(state.fileInfo).not.toHaveBeenCalled();
+  expect(state.find).toHaveBeenCalledWith('41', 'file', 'token-a', '42', 'group', 'sample-record');
   expect(state.unknownUrl).toHaveBeenCalledWith(123, element, 'report.txt');
   expect(state.fileUrl).not.toHaveBeenCalled();
   expect(readFileSync(task.filePath!, 'utf8')).toBe('forward-file');

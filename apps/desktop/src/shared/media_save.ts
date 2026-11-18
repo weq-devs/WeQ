@@ -8,5 +8,6 @@ export type MediaSaveSource =
       conv?: string;
       fwdMsgId?: string;
       fwdKind?: 'c2c' | 'group';
+      fwdResId?: string;
     }
   | { kind: 'group-file'; groupCode: string; fileId: string; fileName: string; busId?: number };

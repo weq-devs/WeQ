@@ -1,6 +1,7 @@
 import { createContext, type CSSProperties } from 'react';
 import { create } from 'zustand';
-import type { MessageBubbleSkin } from '@weq/service';
+import type { ForwardExportTarget, MessageBubbleSkin } from '@weq/service';
+import type { ContentOwner } from '../../../shared/content_selection';
 import { seedMessageBubbles, messageBubble } from '../lib/messageBubbles';
 
 /** One cached message inside a forward chain, as it arrives on the wire. */
@@ -52,6 +53,7 @@ export interface ForwardWindowState {
    * 40900 already nests every level. Media downloads resolve through it.
    */
   rootMsgId: string;
+  exportSource?: { owner: ContentOwner; carrierId: string; card: ForwardExportTarget };
   /** Inline records (for nested opens we already have the payload). */
   records: ForwardRecordWire[] | null;
   /**
@@ -70,21 +72,24 @@ export interface ForwardWindowState {
   error: string | null;
 }
 
+type OpenForwardOptions = {
+  parentId?: number;
+  anchor?: DOMRect;
+  title: string;
+  kind: 'c2c' | 'group';
+  conv: string;
+  msgId: string;
+  rootMsgId?: string;
+  exportSource?: ForwardWindowState['exportSource'];
+  records?: ForwardRecordWire[];
+  resId?: string;
+};
+
 interface ForwardStore {
   windows: ForwardWindowState[];
   seq: number;
   zTop: number;
-  open(opts: {
-    parentId?: number;
-    anchor?: DOMRect;
-    title: string;
-    kind: 'c2c' | 'group';
-    conv: string;
-    msgId: string;
-    rootMsgId?: string;
-    records?: ForwardRecordWire[];
-    resId?: string;
-  }): void;
+  open(opts: OpenForwardOptions): void;
   close(id: number): void;
   bringToFront(id: number): void;
   move(id: number, x: number, y: number): void;
@@ -146,6 +151,7 @@ export const useForwardStore = create<ForwardStore>((set, get) => ({
           conv: opts.conv,
           msgId: opts.msgId,
           rootMsgId: opts.rootMsgId || opts.msgId,
+          exportSource: opts.exportSource,
           records: opts.records ?? null,
           resId: opts.resId,
           x,
@@ -206,17 +212,7 @@ export const useForwardStore = create<ForwardStore>((set, get) => ({
 }));
 
 /** Imperatively open a forward window. */
-export function openForwardWindow(opts: {
-  parentId?: number;
-  anchor?: DOMRect;
-  title: string;
-  kind: 'c2c' | 'group';
-  conv: string;
-  msgId: string;
-  rootMsgId?: string;
-  records?: ForwardRecordWire[];
-  resId?: string;
-}): void {
+export function openForwardWindow(opts: OpenForwardOptions): void {
   useForwardStore.getState().open(opts);
 }
 

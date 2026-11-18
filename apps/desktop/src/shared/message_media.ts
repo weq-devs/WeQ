@@ -6,6 +6,9 @@ export type MessageMediaTarget = {
   md5: string;
   msgId: string;
   conv: string;
+  fwdMsgId?: string;
+  fwdKind?: 'c2c' | 'group';
+  fwdResId?: string;
   pack: string;
   hash: string;
   url?: string;

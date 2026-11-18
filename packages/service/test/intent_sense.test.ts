@@ -80,6 +80,44 @@ function makeLocalPort(analyze: IntentLocalEnginePort['analyze']): IntentLocalEn
 }
 
 describe('IntentSenseService', () => {
+  it('分析转发正文和包内上文，不回读会话也不写入会话缓存', async () => {
+    const analyze = vi.fn(
+      async () =>
+        ({
+          intent: 'chat',
+          emotion: 'neutral',
+          intensity: 20,
+          sentiment: 0,
+          confidence: 0.8,
+        }) as const,
+    );
+    const svc = new IntentSenseService(
+      makeSession([textMsg(1n, 'u_peer', '真实会话正文', 100)]),
+      dir,
+      { localEngine: makeLocalPort(analyze) },
+    );
+    await svc.setConfig({
+      enabled: true,
+      engine: 'local',
+      analysisMode: 'manual',
+      analysisContextMessages: 2,
+    });
+    const emitted = vi.fn();
+    svc.onAnalyzed(emitted);
+    const result = await svc.analyzeForwardMessage('1', [
+      { sender: '甲', sendTime: 100, text: '包内上文' },
+      { sender: '乙', sendTime: 101, text: '包内目标' },
+    ]);
+    expect(result?.msgId).toBe('1');
+    expect(analyze).toHaveBeenCalledWith(
+      '包内目标',
+      expect.objectContaining({
+        context: [expect.objectContaining({ text: '包内上文', mine: false })],
+      }),
+    );
+    expect(svc.listMessageAnalyses('c2c', 'u_peer')).toEqual([]);
+    expect(emitted).not.toHaveBeenCalled();
+  });
   let dir: string;
 
   beforeEach(() => {

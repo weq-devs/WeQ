@@ -26,7 +26,7 @@ import {
   prepareExportDestination,
 } from './export_save';
 import type { MediaSaveSource } from '../../../shared/media_save';
-import { savedMediaSourceKey } from '../../message_media_local';
+import { resolveForwardChatFile, savedMediaSourceKey } from '../../message_media_local';
 
 const messageId = z.string().regex(/^\d{1,20}$/);
 const sourceInput = z.discriminatedUnion('kind', [
@@ -39,6 +39,7 @@ const sourceInput = z.discriminatedUnion('kind', [
     conv: z.string().optional(),
     fwdMsgId: messageId.optional(),
     fwdKind: z.enum(['c2c', 'group']).optional(),
+    fwdResId: z.string().max(4096).optional(),
   }),
   z.object({
     kind: z.literal('group-file'),
@@ -170,8 +171,10 @@ async function localChatFile(
   services: AccountServices,
   source: Extract<MediaSaveSource, { kind: 'chat-file' }>,
 ) {
+  if (source.fwdKind || source.fwdResId || source.fwdMsgId)
+    return resolveForwardChatFile(services, source);
   const file = await services.fileAssistant
-    .getFileInfoByMsgId(BigInt(source.fwdMsgId || source.msgId))
+    .getFileInfoByMsgId(BigInt(source.msgId))
     .catch(() => null);
   if (!file || (source.name && source.name !== file.fileName)) return null;
   const path = file.localPath.startsWith('::NTOSFull::')
@@ -211,6 +214,7 @@ async function planSource(services: AccountServices, source: MediaSaveSource, ch
     source.token ?? '',
     source.fwdMsgId,
     source.fwdKind,
+    source.fwdResId,
   );
   check();
   if (
@@ -235,6 +239,7 @@ async function planSource(services: AccountServices, source: MediaSaveSource, ch
         source.token ?? '',
         source.fwdMsgId,
         source.fwdKind,
+        source.fwdResId,
       );
       check();
       signal.throwIfAborted();

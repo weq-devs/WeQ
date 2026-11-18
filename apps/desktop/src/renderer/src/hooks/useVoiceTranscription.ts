@@ -8,6 +8,7 @@ export interface VoiceTranscriptionInput {
   name: string;
   token: string;
   msgId: string;
+  forward?: { carrierId: string; kind: 'c2c' | 'group'; conv: string; resId?: string };
 }
 type VoiceTranscriptionResult = Awaited<ReturnType<typeof client.account.transcribeVoice.mutate>>;
 

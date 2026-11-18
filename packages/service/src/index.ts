@@ -19,6 +19,11 @@
 
 // ---- bootstrap ----
 export { AnalysisReportsService } from './account/analysis_reports';
+export type {
+  ForwardCardTarget,
+  ForwardExportTarget,
+  ForwardRecordTarget,
+} from './account/message_filter';
 export { installContentSearchCapture } from './account/content_search_capture';
 export { writeCompositionBundle } from './account/export/composition_export';
 export { fileDigest } from './account/export/archive_resource';

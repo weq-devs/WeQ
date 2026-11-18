@@ -600,7 +600,20 @@ export async function exportArchiveConversation(
         conversation.id,
         exported.msgId,
         ...(exported.forwardSource
-          ? [exported.forwardSource.resId, exported.forwardSource.recordIndex]
+          ? [
+              exported.forwardSource.resId,
+              ...(exported.forwardSource.path?.length
+                ? [
+                    exported.forwardSource.path.map(({ elementIndex, resId, record }) => [
+                      record.index,
+                      record.msgId,
+                      elementIndex,
+                      resId,
+                    ]),
+                  ]
+                : []),
+              exported.forwardSource.recordIndex,
+            ]
           : []),
       ];
       const resources: JsonObject[] = [],

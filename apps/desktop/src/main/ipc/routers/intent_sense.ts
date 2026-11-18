@@ -61,6 +61,26 @@ export function isIntentModelDownloading(): boolean {
 }
 
 const kindSchema = z.enum(['c2c', 'group']);
+const forwardImageUrl = z
+  .string()
+  .max(4096)
+  .transform((raw) => {
+    if (!raw) return '';
+    try {
+      const url = new URL(raw, 'https://multimedia.nt.qq.com.cn');
+      return url.protocol === 'https:' &&
+        !url.username &&
+        !url.password &&
+        !url.port &&
+        ['multimedia.nt.qq.com.cn', 'gchat.qpic.cn', 'c2cpicdw.qpic.cn', 'offpic.qq.com'].includes(
+          url.hostname,
+        )
+        ? url.href
+        : '';
+    } catch {
+      return '';
+    }
+  });
 const suggestionRequestSchema = z.object({
   kind: kindSchema,
   conv: z.string().min(1),
@@ -277,6 +297,61 @@ export const intentSenseFeatureProcedures = {
         manual: input.manual,
       }),
     ),
+
+  analyzeForwardMessage: procedure
+    .input(
+      z.object({
+        expectedAccountUin: z.string().min(1),
+        expectedAccountConfigId: z.string().min(1),
+        msgId: z.string().min(1).max(128),
+        kind: kindSchema,
+        conv: z.string().max(64),
+        rows: z
+          .array(
+            z.object({
+              sender: z.string().max(512),
+              sendTime: z.number().int().nonnegative(),
+              text: z.string().max(32768),
+              images: z
+                .array(
+                  z.discriminatedUnion('kind', [
+                    z.object({
+                      kind: z.literal('pic'),
+                      fileName: z.string().max(512),
+                      fileToken: z.string().max(4096),
+                      imgWidth: z.number().nonnegative(),
+                      imgHeight: z.number().nonnegative(),
+                      md5: z.string().max(64),
+                      originalUrl: forwardImageUrl,
+                      subType: z.number(),
+                    }),
+                    z.object({
+                      kind: z.literal('mface'),
+                      emojiPackId: z.string().max(32),
+                      marketEmoticonIdHex: z.string().max(128),
+                    }),
+                  ]),
+                )
+                .max(20)
+                .optional(),
+            }),
+          )
+          .min(1)
+          .max(MAX_INTENT_CONTEXT_MESSAGES + 1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      assertAccountBinding(input);
+      const services = requireServices();
+      const result = await services.intentSense.analyzeForwardMessage(
+        input.msgId,
+        input.rows,
+        input,
+      );
+      assertAccountBinding(input);
+      if (services !== requireServices()) throw new Error('账号已切换，请重新分析。');
+      return result;
+    }),
 
   /** 对方互动画像；无可分析对方消息时为 null。仅私聊有语义。 */
   getProfile: procedure

@@ -349,6 +349,7 @@ import { useCompositionWindow } from '../hooks/useCompositionWindow';
 import { useGroupResourceWindows } from '../hooks/useGroupResourceWindows.shared';
 import {
   cleanNtPath,
+  codecElementToSeg,
   codecElementsToSegs,
   createEmptyDraft,
   coerceDraft,
@@ -2849,7 +2850,10 @@ function MainWorkspace(): ReactElement {
    * 上传；拿不到（或离线）时退化为渲染元素派生的分段（媒体落成文本标签）。
    */
   const buildMergeForwardDraft = useCallback(
-    async (messages: Message[]): Promise<MfDraft> => {
+    async (
+      messages: Message[],
+      downloadImages?: NonNullable<typeof pinSession.binding>,
+    ): Promise<MfDraft> => {
       const now = Math.floor(Date.now() / 1000);
       const nodes: MfNode[] = [];
       for (const message of messages) {
@@ -2861,14 +2865,59 @@ function MainWorkspace(): ReactElement {
         };
         const msgId = (message as { msgId?: string }).msgId ?? message.id;
         const parsed = Date.parse(message.createdAt);
-        const sendTimeMs = Number.isFinite(parsed) ? parsed : now * 1000;
+        const sendTimeMs = Number.isFinite(parsed)
+          ? parsed
+          : message.forwardSnapshot
+            ? 0
+            : now * 1000;
         let segs: MfSeg[] = [];
         // 渲染视图元素与原始元素是**同一条 40800 列按顺序解出来的**，按下标一一对应。
         // 交给导入函数后，「本机没有缓存文件的图片 / 视频 / 文件 / 语音」也能导成能画出
         // 真卡片的 opaque 段，而不是一段 `[文件: x]` 文本。
         const renderElements = ((message as { qqElements?: MfElement[] }).qqElements ??
           []) as MfElement[];
-        if (msgId) {
+        if (message.forwardSnapshot) {
+          const snapshot = renderElements.map((element) => ({
+            ...element.data,
+            kind: element.type,
+            ...(element.type === 'mface'
+              ? { marketEmoticonId: element.data?.marketEmoticonIdHex }
+              : {}),
+          }));
+          await hydrateMergeForwardMedia(snapshot, sendTimeMs);
+          if (downloadImages) {
+            // 没有本地路径或完整指纹的图片，继续走普通逐条转发的取图链路。
+            for (const [index, raw] of snapshot.entries()) {
+              const element = renderElements[index];
+              if (!element || raw.kind !== 'pic' || codecElementToSeg(raw, element)?.t !== 'opaque')
+                continue;
+              try {
+                const bytes = (await repeatImageSources([element], sendTimeMs)).get(element);
+                if (!bytes) continue;
+                const fileName =
+                  typeof element.data?.fileName === 'string' && element.data.fileName
+                    ? element.data.fileName
+                    : 'image';
+                const staged = await stageAccountFile(
+                  new File([new Uint8Array(bytes)], fileName),
+                  downloadImages,
+                );
+                Object.assign(raw, {
+                  localPath: staged.path,
+                  filePath: staged.path,
+                  fileSize: staged.size,
+                });
+              } catch {
+                // 预览保留原内容，发送前按可能降级的条数询问。
+              }
+            }
+          }
+          segs = snapshot.flatMap((raw, index) => {
+            const element = renderElements[index];
+            const seg = codecElementToSeg(raw, element);
+            return seg ? [seg] : [];
+          });
+        } else if (msgId) {
           try {
             const raw = await client.account.getRawElements.query({ msgId });
             if (raw?.elements?.length) {
@@ -2887,7 +2936,7 @@ function MainWorkspace(): ReactElement {
         const node = createNode(senderInfo, segs, Math.floor(sendTimeMs / 1000));
         const decoration = (message as { decoration?: MfNode['decoration'] }).decoration;
         if (decoration) node.decoration = decoration;
-        if (msgId) node.sourceMsgId = msgId;
+        if (msgId && !message.forwardSnapshot) node.sourceMsgId = msgId;
         nodes.push(node);
       }
       return { ...createEmptyDraft(), id: mfId('draft'), nodes };
@@ -2898,12 +2947,17 @@ function MainWorkspace(): ReactElement {
   const handleAddToComposition = useCallback(
     (messages: Message[]) => {
       if (!messages.length) return;
+      const scope = messageScopeRef.current;
       void (async () => {
         const config = await client.account.getAccountConfig.query();
-        if (config?.uin !== user.identityValue || !config.configId)
+        if (
+          config?.uin !== user.identityValue ||
+          !config.configId ||
+          messageScopeRef.current !== scope
+        )
           throw new Error('账号已切换，请重新选择消息');
         const draft = await buildMergeForwardDraft(messages);
-        if (useViewState.getState().openedUin !== user.identityValue) return;
+        if (messageScopeRef.current !== scope) return;
         if (draft.nodes.length !== messages.length)
           throw new Error('部分消息无法导入，原选择已保留');
         await client.mergeForward.archiveAppend.mutate({
@@ -2928,7 +2982,47 @@ function MainWorkspace(): ReactElement {
         });
       });
     },
-    [buildMergeForwardDraft, user.identityValue, pushToast, utils],
+    [buildMergeForwardDraft, user.identityValue, pushToast, utils, messageScopeRef],
+  );
+
+  const handleSnapshotMerge = useCallback(
+    async (messages: Message[], kind: 'c2c' | 'group') => {
+      const scope = messageScopeRef.current;
+      const binding = pinSession.binding;
+      if (!binding) throw new Error('账号尚未就绪，请重新打开聊天记录。');
+      const draft = await buildMergeForwardDraft(messages, binding);
+      if (scope !== messageScopeRef.current) return;
+      const omitted = messages.length - draft.nodes.length;
+      const limited = draft.nodes.filter((node) =>
+        node.segs.some((seg) => seg.t === 'opaque'),
+      ).length;
+      if (!draft.nodes.length) throw new Error('所选消息没有可合并转发的内容');
+      if (omitted || limited) {
+        const confirmed = await useDialog
+          .getState()
+          .confirm(
+            '继续准备合并转发？',
+            [
+              omitted ? `${omitted} 条没有可转发内容。` : '',
+              limited ? `${limited} 条含无法原样发送的内容，发送时将转成文字或跳过。` : '',
+            ]
+              .filter(Boolean)
+              .join('\n'),
+            { okLabel: '继续' },
+          );
+        if (!confirmed || scope !== messageScopeRef.current) return;
+      }
+      setMergeForwardDraft({
+        draft: kind === 'group' ? { ...draft, title: draftTitle(draft.nodes, 'group') } : draft,
+        senderMode: 'conversation',
+        members: [
+          ...new Map(
+            draft.nodes.map(({ sender }) => [sender.uid || sender.uin || sender.name, sender]),
+          ).values(),
+        ],
+      });
+    },
+    [buildMergeForwardDraft, messageScopeRef, pinSession.binding],
   );
 
   const handleMergeForward = useCallback(
@@ -6323,9 +6417,27 @@ function MainWorkspace(): ReactElement {
   const repeatContext = useRef<string | null>(selectedConversation?.id ?? null);
   const [forwardBatch, setForwardBatch] = useState<{
     account: string;
+    configId?: string;
     messages: Message[];
     conversation?: Conversation;
   } | null>(null);
+  const openSequentialForward = (messages: Message[], conversation?: Conversation) => {
+    const prepared = partitionForwardMessages(messages);
+    if (!prepared.sendable.length) {
+      pushToast({
+        tone: 'warning',
+        title: '没有可转发的消息',
+        detail: prepared.ignored[0]?.reason,
+      });
+      return;
+    }
+    setForwardBatch({
+      account: user.identityValue,
+      configId,
+      messages: structuredClone(messages),
+      conversation,
+    });
+  };
   const openForwardTarget = (target: MfTarget) => {
     if (useViewState.getState().openedUin !== user.identityValue) {
       pushToast({
@@ -9486,22 +9598,9 @@ function MainWorkspace(): ReactElement {
                             onAddMessage={handleAddMessage}
                             onMergeForward={handleMergeForward}
                             onAddToComposition={handleAddToComposition}
-                            onForwardMessages={(messages) => {
-                              const prepared = partitionForwardMessages(messages);
-                              if (!prepared.sendable.length) {
-                                pushToast({
-                                  tone: 'warning',
-                                  title: '没有可转发的消息',
-                                  detail: prepared.ignored[0]?.reason,
-                                });
-                                return;
-                              }
-                              setForwardBatch({
-                                account: user.identityValue,
-                                messages: structuredClone(messages),
-                                conversation: selectedConversation ?? undefined,
-                              });
-                            }}
+                            onForwardMessages={(messages) =>
+                              openSequentialForward(messages, selectedConversation ?? undefined)
+                            }
                             onViewDeleted={handleViewDeleted}
                             onViewRecalled={handleViewRecalled}
                             messageRecords={conversationRecords}
@@ -9961,14 +10060,18 @@ function MainWorkspace(): ReactElement {
               onClose={() => setUnplacedRoaming(null)}
             />
           ) : null}
-          {forwardBatch && forwardBatch.account === user.identityValue ? (
+          {forwardBatch &&
+          forwardBatch.account === user.identityValue &&
+          forwardBatch.configId === configId ? (
             <SequentialForwardDialog
               messages={forwardBatch.messages}
               conversation={forwardBatch.conversation}
               user={user}
               renderers={messageRenderers}
               targets={mergeForwardTargets}
-              onSend={forwardMessage}
+              onSend={(message, target, signal) =>
+                forwardMessage(message, target, signal, forwardBatch.account, forwardBatch.configId)
+              }
               onOpenTarget={openForwardTarget}
               onClose={() => setForwardBatch(null)}
             />
@@ -10476,7 +10579,16 @@ function MainWorkspace(): ReactElement {
                           </FriendDirectoryControls>
                         </ConversationDirectoryContext.Provider>
                       </QzoneCardNavigationContext.Provider>
-                      <ForwardWindowHost />
+                      <ForwardWindowHost
+                        key={messageScope}
+                        actions={{
+                          binding: pinSession.binding,
+                          sendAvailable,
+                          forward: openSequentialForward,
+                          merge: handleSnapshotMerge,
+                          addMaterial: handleAddToComposition,
+                        }}
+                      />
                     </ChatNavigationContext.Provider>
                   </QzoneProfileContext.Provider>
                 </QzoneNavigationContext.Provider>

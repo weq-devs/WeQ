@@ -42,7 +42,12 @@ export interface ExportTimeRange {
 /** One message, normalized for export. */
 export interface ExportedMessage {
   /** 卡片内部记录的来源；不继承承载消息的会话序号、作者与装扮。 */
-  forwardSource?: { carrierMsgId: string; resId: string; recordIndex: number };
+  forwardSource?: {
+    carrierMsgId: string;
+    resId: string;
+    recordIndex: number;
+    path?: import('../message_filter').ForwardExportTarget['path'];
+  };
   senderName?: string;
   /** Message id (40001), as a string. */
   msgId: string;

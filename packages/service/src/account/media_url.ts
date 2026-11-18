@@ -38,6 +38,7 @@ export interface MediaElement {
   kind: string;
   fileToken: string;
   fileName?: string;
+  filePath?: string;
   fileSize?: number;
   /** Lowercase hex md5 (preferred over md5Bytes when present). */
   md5?: string;
@@ -91,6 +92,7 @@ export function mediaElementFromRenderElement(el: { type: string; data?: unknown
     kind: el.type,
     fileToken: s('fileToken'),
     fileName: s('fileName'),
+    filePath: s('filePath'),
     fileSize: n('fileSize'),
     imgWidth: n('imgWidth'),
     imgHeight: n('imgHeight'),

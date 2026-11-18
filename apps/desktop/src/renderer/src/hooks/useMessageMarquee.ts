@@ -289,7 +289,7 @@ export function useMessageMarquee({
           !selectionMode &&
           !modified &&
           event.target.closest(
-            'button, a, .message-bubble, .message-avatar-wrap, .weq-system-message-content',
+            'button, a, .message-bubble, .message-avatar-wrap, .weq-system-message-content, [data-marquee-text]',
           )
         )
           return;

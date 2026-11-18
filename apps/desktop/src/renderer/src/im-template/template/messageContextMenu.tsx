@@ -39,7 +39,7 @@ import {
   quickReactionCapacity,
   type ReactionItem,
 } from '../../lib/reactionItems';
-import type { ForwardExportTarget } from '../../lib/messageForwardTarget';
+import type { ForwardCardTarget } from '@weq/service';
 import '../../styles/message-context-menu.css';
 
 export type MessageContextMenuState = {
@@ -50,7 +50,7 @@ export type MessageContextMenuState = {
   imageUrl?: string;
   favoriteEmojiUrl?: string;
   mediaTarget?: MessageMediaTarget;
-  forwardTarget?: ForwardExportTarget;
+  forwardTarget?: ForwardCardTarget;
   clipboard?: { text: string; html: string };
   variant?: 'desktop' | 'mobile';
   anchorOffsetX?: number;
@@ -91,6 +91,7 @@ type Props = {
   intentAction?: ReactNode;
   favoriteEmojiAction?: ReactNode;
   revealAction?: ReactNode;
+  forwardVoice?: import('../../hooks/useVoiceTranscription').VoiceTranscriptionInput['forward'];
 };
 
 interface MenuAction {
@@ -390,7 +391,12 @@ export function MessageContextMenu(props: Props) {
             <div className="message-menu-group" role="group" aria-label="内容处理与保存">
               <div className="message-menu-slot">
                 {media?.kind === 'ptt' ? (
-                  <VoiceTranscribeMenuAction message={message} target={media} onClose={onClose} />
+                  <VoiceTranscribeMenuAction
+                    message={message}
+                    target={media}
+                    onClose={onClose}
+                    forward={props.forwardVoice}
+                  />
                 ) : !media && !state.forwardTarget ? (
                   <TextMarkdownMenuAction message={message} onClose={onClose} />
                 ) : null}
