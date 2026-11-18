@@ -16,6 +16,7 @@ import {
   type PreferencePatch,
 } from '@weq/service/client-preferences';
 import { getAppContext, requireBootstrap, requirePlatform } from '../../context/app_context';
+import { assistantBus, type AssistantStreamEvent } from '../../mcp/assistant_bus';
 import { procedure, router } from '../trpc';
 import { pickedBrowserFiles } from '../../browser_files';
 import { dataSaverSession, updateTransferPolicy } from '@weq/service/transfer-policy';
@@ -264,6 +265,7 @@ export const clientStateRouter = router({
     }),
   accountChanged: procedure.input(clientAccountBinding).subscription(({ input }) => {
     const state = boundClientState(input);
+    const services = getAppContext().services;
     return observable<ClientStateChange>((emit) => {
       const publish = (event: ClientStateChange) => {
         try {
@@ -276,9 +278,19 @@ export const clientStateRouter = router({
       const stopSettings = onSettingsChanged(() =>
         publish({ revision: Date.now(), section: 'order' }),
       );
+      const onAssistantStep = ({ accountConfigId, step }: AssistantStreamEvent) => {
+        if (
+          accountConfigId === input.expectedAccountConfigId &&
+          (step.kind === 'session_title' || (step.kind === 'turn' && step.turn.role === 'user')) &&
+          getAppContext().services === services
+        )
+          publish({ revision: Date.now(), section: 'assistantSessions' });
+      };
+      assistantBus.on('step', onAssistantStep);
       return () => {
         stop();
         stopSettings();
+        assistantBus.off('step', onAssistantStep);
       };
     });
   }),

@@ -30,6 +30,20 @@ it('生成会话沿用实际消息时间，跳过空占位，汇总摘要不被�
   expect(generatedAggregateRow('assistant', [row, empty]).lastMessage?.body).toBe(
     '会议 · 已生成 报告',
   );
+  const active = assistantConversationRow({
+    id: 'active',
+    title: '会议纪要',
+    updatedAt: 18000,
+    running: true,
+    ...latestGeneratedActivity([
+      { role: 'user', text: '会议纪要\n请按发言人分组', ts: 18000 },
+      { role: 'assistant', text: '', ts: 18001, status: 'running' },
+    ]),
+  });
+  expect(active.lastMessage?.body).toBe('会议纪要 请按发言人分组');
+  expect(generatedAggregateRow('assistant', [row, active]).lastMessage?.body).toBe(
+    '会议纪要 · 会议纪要 请按发言人分组',
+  );
   const group = latestGeneratedActivity(
     [{ senderKind: 'persona', senderId: 'clone-a', text: '[[voice:asset]]', ts: 22000 }],
     () => '成员甲',

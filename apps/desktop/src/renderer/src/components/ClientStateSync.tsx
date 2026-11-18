@@ -98,6 +98,10 @@ export function ClientStateSync() {
     const sub = client.clientState.accountChanged.subscribe(binding, {
       onStarted: refresh,
       onData: (event) => {
+        if (event.section === 'assistantSessions') {
+          if (active) void utils.account.listAssistantSessions.invalidate();
+          return;
+        }
         if (event.section === 'reads') {
           void utils.account.listAssistantSessions.invalidate();
           void utils.account.listAgentLabPersonas.invalidate();

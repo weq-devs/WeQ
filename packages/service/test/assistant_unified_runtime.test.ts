@@ -546,7 +546,7 @@ it('外部取消会暂停队列，重开后可继续当前任务，不重发已�
   ).toEqual(['第一项', '第二项']);
   expect(calls).toBe(3);
 });
-it('默认模型在任务内解析一次，标题生成也沿用启动模型，下一项才采用新默认', async () => {
+it('首条消息立即命名，慢标题不阻塞完成和下一项，标题沿用任务模型', async () => {
   let model = 'first-model';
   const f = fixture(undefined, () => ({
     baseUrl: 'https://fixture.invalid',
@@ -554,18 +554,19 @@ it('默认模型在任务内解析一次，标题生成也沿用启动模型，�
     model,
   }));
   f.service.setConfig({ model: { useDefault: true } });
-  f.service.renameSession(f.sessionId, f.initialTitle);
+  f.service.renameSession(f.sessionId, '');
   let first: ReturnType<typeof heldResponse> | undefined;
+  let resolveTitle!: (value: Response) => void;
+  const pendingTitle = new Promise<Response>((resolve) => {
+    resolveTitle = resolve;
+  });
   const models: string[] = [];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (_url: unknown, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as { model: string; stream?: boolean };
       models.push(body.model);
-      if (!body.stream)
-        return new Response(
-          JSON.stringify({ choices: [{ message: { content: '合成自动标题' } }] }),
-        );
+      if (!body.stream) return pendingTitle;
       if (models.length === 1) {
         first = heldResponse(init);
         return first.response;
@@ -573,13 +574,37 @@ it('默认模型在任务内解析一次，标题生成也沿用启动模型，�
       return response('下一项');
     }),
   );
-  f.submit('a', '第一项');
-  await vi.waitFor(() => expect(first).toBeDefined());
-  model = 'second-model';
-  f.submit('b', '第二项', 'queue');
-  first!.finish('第一项完成');
-  await vi.waitFor(() => expect(f.service.getQueue(f.sessionId).running).toBe(false));
-  expect(models).toEqual(['first-model', 'first-model', 'second-model']);
+  try {
+    f.submit('a', '第一项\n更多细节');
+    await vi.waitFor(() => expect(first).toBeDefined());
+    expect(f.service.listSessions()[0]).toMatchObject({ title: '第一项', running: true });
+    expect(f.create().listSessions()[0]?.title).toBe('第一项');
+
+    model = 'second-model';
+    f.submit('b', '第二项', 'queue');
+    first!.finish('第一项完成');
+    await vi.waitFor(() => expect(f.service.getQueue(f.sessionId).running).toBe(false));
+    expect(
+      f.events.filter((event) => event.step.kind === 'final').map((event) => event.step),
+    ).toEqual([
+      { kind: 'final', text: '第一项完成' },
+      { kind: 'final', text: '下一项' },
+    ]);
+    expect(models).toEqual(['first-model', 'first-model', 'second-model']);
+    const before = f.service.listSessions()[0]!;
+    expect(before.title).toBe('第一项');
+
+    resolveTitle(Response.json({ choices: [{ message: { content: '合成自动标题' } }] }));
+    await vi.waitFor(() => expect(f.events.at(-1)?.step.kind).toBe('session_title'));
+    expect(f.service.listSessions()[0]).toMatchObject({
+      title: '合成自动标题',
+      updatedAt: before.updatedAt,
+      running: false,
+    });
+  } finally {
+    f.service.cancelPendingTitles();
+    resolveTitle(Response.json({}));
+  }
 });
 it('取消的队列消息保留幂等回执，重试不会把它重新加入队列', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'weq-assistant-cancel-'));

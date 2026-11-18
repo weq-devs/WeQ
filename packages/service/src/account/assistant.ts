@@ -46,6 +46,7 @@ import {
 } from '@weq/agentlab';
 import type { TokenUsageStore } from './agentlab_usage';
 import type { ConversationStore, ConversationTurn } from './agentlab_conversation';
+import { sessionTitleFromText } from './agentlab_session';
 import { JsonStore } from '../common/json_store';
 import type { PreferencePersistence } from '../common/shared_preferences';
 import { assistantCapabilityGuidance } from './assistant_capabilities';
@@ -162,11 +163,13 @@ export function mergeAssistantConfig(
 
 /**
  * 与 WeQ 助手的一次「会话」。一个会话 = 一段独立的对话历史（独立上下文、独立持久化桶）。
- * 标题在首轮对话后由模型自动总结生成（见 {@link AssistantService.generateTitle}）。
+ * 首条消息提供临时标题，自动总结完成后再替换。
  */
 export interface AssistantSession {
   id: string;
   title: string;
+  /** 临时标题可由模型替换；显式命名后即使与占位标题同名也不替换。 */
+  titlePending?: boolean;
   createdAt: number;
   updatedAt: number;
   generation?: AssistantSessionGeneration;
@@ -272,6 +275,7 @@ export type AssistantStep =
   | { kind: 'remove_turn'; id: string }
   | { kind: 'turn'; turn: ConversationTurn }
   | { kind: 'queue' }
+  | { kind: 'session_title' }
   | AssistantProcessStep;
 
 export type AssistantProcessStep =
@@ -295,6 +299,7 @@ const transientAssistantSteps = new Set<AssistantStep['kind']>([
   'queue',
   'reset',
   'remove_turn',
+  'session_title',
 ]);
 function isPersistedAssistantStep(step: AssistantStep): step is AssistantProcessStep {
   return !transientAssistantSteps.has(step.kind);
@@ -461,7 +466,7 @@ interface AssistantRunSnapshot extends AssistantRunState {
  */
 export const ASSISTANT_AGENT_ID = 'assistant';
 
-/** 新建会话的占位标题；首轮对话后会被模型总结的标题替换。 */
+/** 还没有发出第一条消息的会话标题。 */
 const DEFAULT_SESSION_TITLE = '新对话';
 
 /** 单轮任务最多调用工具的轮数。任务型 agent 要敢多试，故给得宽一些。 */
@@ -581,6 +586,7 @@ export class AssistantService {
     { controller: AbortController; done: Promise<unknown> }
   >();
   private readonly deletingSessions = new Set<string>();
+  private readonly pendingTitles = new Map<string, AbortController>();
 
   constructor(
     private readonly rootDir: string,
@@ -692,7 +698,7 @@ export class AssistantService {
       .sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
-  /** 新建一个空会话并返回（标题待首轮对话后自动总结）。 */
+  /** 新建一个空会话并返回。 */
   createSession(generation: AssistantSessionGeneration = {}): AssistantSession {
     const now = Date.now();
     const selection = mergeSessionGeneration(undefined, generation);
@@ -734,7 +740,10 @@ export class AssistantService {
   /** 仅停止所选会话，待全部写入收尾后再永久移除元数据、历史和断点。 */
   async deleteSessions(sessionIds: readonly string[]): Promise<void> {
     const selected = new Set(sessionIds);
-    for (const id of selected) this.deletingSessions.add(id);
+    for (const id of selected) {
+      this.deletingSessions.add(id);
+      this.cancelPendingTitle(id);
+    }
     try {
       const runs = [...selected]
         .map((id) => this.sessionRuns.get(id))
@@ -783,13 +792,17 @@ export class AssistantService {
   renameSession(sessionId: string, title: string): void {
     const session = this.sessions.find((s) => s.id === sessionId);
     if (!session) return;
-    session.title = title.trim().slice(0, 40) || DEFAULT_SESSION_TITLE;
+    this.cancelPendingTitle(sessionId);
+    const trimmed = title.trim().slice(0, 40);
+    session.title = trimmed || DEFAULT_SESSION_TITLE;
+    session.titlePending = trimmed ? false : undefined;
     session.updatedAt = Date.now();
     this.persistSessions();
   }
 
   /** 清空某会话的对话内容（保留会话本身，标题复位待重新总结），并作废未完成的断点任务。 */
   async clearConversation(sessionId: string): Promise<void> {
+    this.cancelPendingTitle(sessionId);
     const active = this.sessionRuns.get(sessionId);
     active?.controller.abort();
     await this.queue.clear(sessionId);
@@ -799,6 +812,7 @@ export class AssistantService {
     const session = this.sessions.find((s) => s.id === sessionId);
     if (session) {
       session.title = DEFAULT_SESSION_TITLE;
+      session.titlePending = undefined;
       session.updatedAt = Date.now();
       this.persistSessions();
     }
@@ -1024,6 +1038,7 @@ export class AssistantService {
     this.conversations.upsert(this.bucketId(item.sessionId), turn);
     const session = this.sessions.find((row) => row.id === item.sessionId);
     if (session) {
+      this.setProvisionalTitle(session, turn.text, !!turn.images?.length);
       session.updatedAt = turn.ts;
       this.persistSessions();
     }
@@ -1213,6 +1228,11 @@ export class AssistantService {
       ),
     ];
 
+    if (!mailbox && this.setProvisionalTitle(session, text, !!images?.length)) {
+      this.persistSessions();
+      emit({ kind: 'session_title' });
+    }
+
     // 新问题取代旧任务：丢弃该会话任何未完成的 run 快照（resume 只针对「同一任务」）。
     this.clearRun(sessionId);
     const prior = this.conversations
@@ -1276,19 +1296,10 @@ export class AssistantService {
             ...(toolsUsed.length ? { toolsUsed } : {}),
           },
         ]);
-      // 标题：仍是占位标题（即本会话首轮）时，让模型简单总结对话内容生成标题。
-      // 放在 emit(final) 之前完成，前端收到 final 后刷新会话列表即可拿到新标题（无竞态）。
-      if (session.title === DEFAULT_SESSION_TITLE) {
-        try {
-          const title = await this.generateTitle(text, reply, signal);
-          if (title) session.title = title;
-        } catch {
-          /* 标题总结失败不影响对话本身 */
-        }
-      }
       session.updatedAt = now;
       this.persistSessions();
       emit({ kind: 'final', text: reply });
+      this.startSessionTitle(session, text, reply, signal, onStep);
       return { text: reply, steps };
     } catch (error) {
       // 用户取消：把已流出的半截正文当作本轮答复持久化（保持 user/assistant 成对、不留悬空 user），
@@ -1443,6 +1454,7 @@ export class AssistantService {
       session.updatedAt = now;
       this.persistSessions();
       emit({ kind: 'final', text: reply });
+      this.startSessionTitle(session, snapshot.question, reply, signal, onStep);
       return { text: reply, steps };
     } catch (error) {
       const aborted = signal?.aborted || (error instanceof Error && error.name === 'AbortError');
@@ -1487,10 +1499,58 @@ export class AssistantService {
     };
   }
 
-  /**
-   * 让模型用一句短语概括对话主题，作为会话标题。轻量调用（无工具），
-   * 失败/为空时返回 ''（上层保留占位标题）。
-   */
+  private setProvisionalTitle(session: AssistantSession, text: string, hasImages: boolean) {
+    if (session.titlePending !== undefined || session.title !== DEFAULT_SESSION_TITLE) return false;
+    const source = text.trim() || (hasImages ? '图片提问' : '');
+    if (!source) return false;
+    session.title = sessionTitleFromText(source);
+    session.titlePending = true;
+    return true;
+  }
+
+  private cancelPendingTitle(sessionId: string) {
+    this.pendingTitles.get(sessionId)?.abort();
+    this.pendingTitles.delete(sessionId);
+  }
+
+  cancelPendingTitles(): void {
+    for (const id of this.pendingTitles.keys()) this.cancelPendingTitle(id);
+  }
+
+  private startSessionTitle(
+    session: AssistantSession,
+    text: string,
+    reply: string,
+    signal?: AbortSignal,
+    onStep?: (step: AssistantStep) => void,
+  ): void {
+    const { id } = session;
+    if (
+      !(session.titlePending ?? session.title === DEFAULT_SESSION_TITLE) ||
+      signal?.aborted ||
+      this.deletingSessions.has(id) ||
+      this.pendingTitles.has(id)
+    )
+      return;
+    const controller = new AbortController();
+    this.pendingTitles.set(id, controller);
+    void this.generateTitle(text, reply, controller.signal)
+      .then((title) => {
+        if (!title || controller.signal.aborted) return;
+        session.title = title;
+        session.titlePending = false;
+        this.persistSessions();
+        onStep?.({ kind: 'session_title' });
+      })
+      .catch(() => {
+        /* 标题失败时保留临时标题，不影响回答。 */
+      })
+      .finally(() => {
+        if (this.pendingTitles.get(id) === controller) this.pendingTitles.delete(id);
+      });
+  }
+
+  /** 让模型用一句短语概括对话主题，作为会话标题。 */
   private async generateTitle(
     userText: string,
     reply: string,
@@ -2559,7 +2619,7 @@ function slug(text: string): string {
 
 /**
  * 清洗模型生成的标题：去掉首尾空白、换行、包裹的引号/书名号与结尾标点，截断到 20 字。
- * 结果为空时返回 ''（上层保留占位标题）。
+ * 结果为空时返回 ''（上层保留临时标题）。
  */
 function cleanTitle(raw: string): string {
   let t = raw.trim().replace(/\s+/g, ' ');

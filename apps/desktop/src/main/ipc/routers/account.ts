@@ -3096,7 +3096,7 @@ export const accountRouter = router({
     }));
   }),
 
-  /** 新建一个空会话，返回会话元数据（标题首轮对话后自动总结）。 */
+  /** 新建一个空会话，返回会话元数据。 */
   createAssistantSession: procedure
     .input(
       exportAccountBindingInput
@@ -3473,7 +3473,9 @@ export const accountRouter = router({
   /** 助手任务的过程流（thinking / tool_call / tool_result / artifact / final / error）。 */
   onAssistantEvent: procedure.subscription(() => {
     return observable<AssistantStreamEvent>((emit) => {
-      const handler = (e: AssistantStreamEvent): void => emit.next(e);
+      const handler = (e: AssistantStreamEvent): void => {
+        if (e.step.kind !== 'session_title') emit.next(e);
+      };
       assistantBus.on('step', handler);
       return () => {
         assistantBus.off('step', handler);

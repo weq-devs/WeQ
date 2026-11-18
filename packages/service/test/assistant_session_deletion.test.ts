@@ -38,11 +38,35 @@ function fixture() {
       record: unknown,
       signal?: AbortSignal,
     ): Promise<string>;
-    generateTitle(): Promise<string>;
+    generateTitle(text: string, reply: string, signal: AbortSignal): Promise<string>;
   };
   vi.spyOn(internal, 'generateTitle').mockResolvedValue('合成标题');
   return { root, service, internal };
 }
+
+it.each(['rename', 'clear', 'delete'] as const)(
+  '迟到的自动标题不覆盖 %s 后的会话',
+  async (action) => {
+    const { service, internal } = fixture();
+    const session = service.createSession();
+    const emptyTitle = session.title;
+    const pending = deferred<string>();
+    vi.spyOn(internal, 'runLoop').mockResolvedValue('回答');
+    const generate = vi.mocked(internal.generateTitle).mockReturnValue(pending.promise);
+    await service.chat(session.id, '初始问题');
+    expect(service.listSessions()[0]?.title).toBe('初始问题');
+
+    if (action === 'rename') service.renameSession(session.id, '手动标题');
+    else if (action === 'clear') await service.clearConversation(session.id);
+    else await service.deleteSession(session.id);
+    expect(generate.mock.calls[0]?.[2].aborted).toBe(true);
+    pending.resolve('迟到标题');
+    await pending.promise;
+    expect(service.listSessions()[0]?.title).toBe(
+      action === 'rename' ? '手动标题' : action === 'clear' ? emptyTitle : undefined,
+    );
+  },
+);
 
 describe('助手永久删除', () => {
   it('停止所选运行并等待其写完，未选中的生成继续且删除后不会重生历史', async () => {

@@ -1515,6 +1515,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       cancelAnnualReportWarmup();
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
+      this.services?.assistant.cancelPendingTitles();
       this.scheduler?.stop();
       this.scheduler = null;
       logger.info('opening account session', {
@@ -2496,6 +2497,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       cancelAnnualReportWarmup();
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
+      this.services?.assistant.cancelPendingTitles();
       logger.info('opening static account session', {
         event: 'open-static-account-start',
         accountUin: selfPreview.uin,
@@ -3321,6 +3323,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       clearFullMode(this);
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
+      this.services?.assistant.cancelPendingTitles();
       logger.info('clearing account session', {
         event: 'clear-account',
         accountUin: this.account?.context.uin ?? null,

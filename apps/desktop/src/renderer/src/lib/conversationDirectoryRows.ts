@@ -151,7 +151,7 @@ export function assistantConversationRow(item: {
     lastMessage: {
       id: `assistant:${item.id}:preview`,
       senderId: null,
-      body: item.running ? '正在回答…' : item.preview || null,
+      body: item.preview || (item.running ? '正在回答…' : null),
       createdAt: new Date(item.updatedAt).toISOString(),
     },
   };
