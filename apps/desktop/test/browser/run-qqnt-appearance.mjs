@@ -99,19 +99,19 @@ if (serve) {
                 pixel(style(selector).backgroundColor),
               );
             const mine = '.message-line.mine .message-content';
+            const header = document.querySelector('.chat-header').getBoundingClientRect();
+            const directory = document
+              .querySelector('.sidebar .weq-directory-toolbar')
+              .getBoundingClientRect();
             return {
               noOverflow: document.documentElement.scrollWidth <= innerWidth,
               bubbleGeometry: style(mine).borderRadius === '12px',
               bubbleContrast: contrast(mine) >= 4.5,
               noBlur: style('.chat-header').backdropFilter === 'none',
-              headerHeight:
-                document.querySelector('.chat-header').getBoundingClientRect().height ===
-                (innerWidth <= 760 &&
-                document.querySelector(
-                  '.chat-header-roaming-action, .weq-conversation-message-actions',
-                )
-                  ? 84
-                  : 52),
+              headerAlignment:
+                document.documentElement.dataset.weqLayout === 'single'
+                  ? header.height === 56
+                  : header.bottom === directory.bottom,
               messageFits: [...document.querySelectorAll('.message-content')].every((node) => {
                 const box = node.getBoundingClientRect();
                 return (

@@ -263,7 +263,7 @@ html[data-component-style='qqnt'][data-theme] .chat-pane:has(> .weq-chat-backdro
 }
 
 html[data-component-style='qqnt'][data-theme] body .chat-pane {
-  --chat-header-height: 52px;
+  --chat-header-height: var(--weq-pane-toolbar-height, 52px);
 }
 
 html[data-component-style='qqnt'][data-theme] body .chat-title strong {

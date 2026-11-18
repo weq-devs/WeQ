@@ -15,6 +15,24 @@
 .sidebar-header-contacts .weq-directory-toolbar {
   justify-content: space-between;
 }
+.sidebar :is(.weq-conversation-directory, .contact-tools) > .weq-directory-toolbar {
+  height: var(--weq-pane-toolbar-height, 42px);
+  padding-block: 0;
+
+  & > button,
+  & :is(.weq-directory-mode, .weq-directory-scope) > button {
+    align-self: center;
+    flex: 0 1 34px;
+    width: 34px;
+    min-width: 0;
+    height: 34px;
+  }
+
+  & :where(button:not([role^='menuitem']) > svg, .weq-directory-mode > svg) {
+    width: 18px;
+    height: 18px;
+  }
+}
 .weq-directory-toolbar button {
   display: flex;
   align-items: center;
@@ -108,7 +126,7 @@
 .weq-directory-scope-menu {
   position: absolute;
   z-index: 100;
-  top: 40px;
+  top: calc(100% - 1px);
   left: 8px;
   right: 8px;
   padding: 4px;
@@ -282,6 +300,9 @@ html[data-theme='dark'] .weq-directory-toolbar,
 html[data-theme='dark'] .weq-directory-scope-menu {
   background: var(--weq-bg-surface);
   border-color: var(--weq-border-strong);
+}
+:where(html:not([data-weq-layout='single']))[data-theme] .sidebar .weq-directory-toolbar {
+  border-bottom-color: var(--weq-border-subtle);
 }
 .weq-conversation-action-confirm {
   max-width: calc(100vw - 32px);

@@ -9,7 +9,7 @@
 .chat-pane {
   width: 100%;
   min-width: 0;
-  --chat-header-height: 40px;
+  --chat-header-height: var(--weq-pane-toolbar-height, 40px);
   --group-info-panel-width: clamp(220px, 17vw, 248px);
   display: grid;
   grid-template-rows: var(--chat-header-height) minmax(0, 1fr) var(--composer-height, 190px);
