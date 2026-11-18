@@ -238,6 +238,9 @@ importers:
       '@weq/time':
         specifier: workspace:*
         version: link:../../packages/time
+      '@weqbot/control':
+        specifier: workspace:*
+        version: link:../../vendor/weqbot/packages/control
       '@weqbot/protocol':
         specifier: workspace:*
         version: link:../../vendor/weqbot/packages/protocol
@@ -785,6 +788,15 @@ importers:
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
+
+  vendor/weqbot/packages/control:
+    dependencies:
+      '@weqbot/common':
+        specifier: workspace:*
+        version: link:../common
+      '@weqbot/wire':
+        specifier: workspace:*
+        version: link:../wire
 
   vendor/weqbot/packages/protocol:
     dependencies:

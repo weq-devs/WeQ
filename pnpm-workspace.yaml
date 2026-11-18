@@ -4,11 +4,14 @@ packages:
   # 文档站是独立 submodule，使用自己的 workspace 配置与锁文件。
   # 根目录通过 docs:* 命令转调，不参与应用依赖安装与启动检查。
   - '!docs'
-  # WeqBot 作为 submodule 引入：只纳入 WeQ 需要的三个包（协议 + 它的两个依赖），
+  # WeqBot 作为 submodule 引入：纳入 WeQ 需要的纯 TS 包（协议 + 依赖 + 控制通道），
   # 不纳入 @weqbot/node —— 那个包会加载 .node，绝不能进 desktop 的依赖图。
   - vendor/weqbot/packages/common
   - vendor/weqbot/packages/wire
   - vendor/weqbot/packages/protocol
+  # 控制通道：宿主用它驱动 kernel（attach / onebot.get / onebot.set）。
+  # 只依赖 common + wire，纯 TS，不会把 .node 带进 desktop。
+  - vendor/weqbot/packages/control
 
 # pnpm 12.1 起，workspace 任务依赖环从"静默乱序执行"变成硬错误
 # （ERR_PNPM_TASK_CYCLE）。native <-> testkit 是刻意保留的环，
