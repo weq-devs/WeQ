@@ -25,6 +25,7 @@ export const LOGIN_PAGE = `<!doctype html>
     --accent: #0099ff;
     --fg: #142235;
     --fg-muted: #5b7d99;
+    --field-placeholder: color-mix(in srgb, var(--fg-muted) 88%, var(--fg));
     --card: rgba(255, 255, 255, 0.72);
     --card-border: rgba(0, 153, 255, 0.16);
     --field: rgba(255, 255, 255, 0.78);
@@ -37,6 +38,7 @@ export const LOGIN_PAGE = `<!doctype html>
     :root {
       --fg: #e8eef5;
       --fg-muted: #8ba6bd;
+      --field-placeholder: var(--fg-muted);
       --card: rgba(23, 29, 37, 0.72);
       --card-border: rgba(0, 153, 255, 0.2);
       --field: rgba(13, 17, 23, 0.68);
@@ -203,7 +205,6 @@ export const LOGIN_PAGE = `<!doctype html>
     padding: 11px 13px;
     font-size: 15px;
     font-family: inherit;
-    letter-spacing: 0.08em;
     color: var(--fg);
     background: var(--field);
     border: 1px solid var(--field-border);
@@ -211,8 +212,8 @@ export const LOGIN_PAGE = `<!doctype html>
     transition: border-color 160ms ease, box-shadow 220ms ease;
   }
   input::placeholder {
-    letter-spacing: normal;
-    color: color-mix(in srgb, var(--fg-muted) 62%, transparent);
+    color: var(--field-placeholder);
+    opacity: 1;
   }
   input:focus {
     outline: none;

@@ -54,6 +54,7 @@ const CSS = `
   --fg-primary: #17202e;
   --fg-secondary: #48566b;
   --fg-muted: #8a94a6;
+  --field-placeholder: color-mix(in srgb, var(--fg-muted) 71%, var(--fg-primary));
   --border-subtle: color-mix(in srgb, var(--accent) 15%, #e4e9f0);
   --border-strong: color-mix(in srgb, var(--accent) 26%, #d3dae4);
   --shadow: 0 1px 2px rgba(20, 30, 50, 0.04), 0 10px 30px rgba(20, 30, 50, 0.07);
@@ -79,6 +80,7 @@ html[data-theme='dark'] {
   --fg-primary: #eef2f7;
   --fg-secondary: #b7c0cd;
   --fg-muted: #7c8798;
+  --field-placeholder: color-mix(in srgb, var(--fg-muted) 92%, var(--fg-primary));
   --border-subtle: color-mix(in srgb, var(--accent) 16%, rgba(255, 255, 255, 0.08));
   --border-strong: color-mix(in srgb, var(--accent) 26%, rgba(255, 255, 255, 0.14));
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 14px 40px rgba(0, 0, 0, 0.4);
@@ -315,10 +317,14 @@ svg { display: block; }
   background: var(--bg-elevated); color: var(--fg-primary); outline: none; transition: border-color .15s, box-shadow .15s;
 }
 .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
-.input::placeholder { color: var(--fg-muted); }
-select.input { appearance: none; -webkit-appearance: none; cursor: pointer;
+.field input::placeholder, .input::placeholder {
+  color: var(--field-placeholder); opacity: 1;
+}
+select.input { appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit; padding-inline-end: 30px;
   background-image: linear-gradient(45deg, transparent 50%, var(--fg-muted) 50%), linear-gradient(135deg, var(--fg-muted) 50%, transparent 50%);
   background-position: calc(100% - 18px) 55%, calc(100% - 13px) 55%; background-size: 5px 5px; background-repeat: no-repeat; }
+select.input:has(> option[data-placeholder]:checked) { color: var(--field-placeholder); }
+select.input > option:not([data-placeholder]) { color: var(--fg-primary); }
 .input-mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 12.5px; }
 .form-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 640px) { .form-2col { grid-template-columns: 1fr; } }
@@ -800,7 +806,7 @@ const JS = `
     var imageConfig = c.images || { mode: 'vision', prefilterEnabled: true };
     html += '<div class="section-h">图片处理</div><div class="card">' +
       '<div class="form-row"><label>图片处理偏好</label><select class="input" id="cfg-image-mode"><option value="ocr"' + (imageConfig.mode === 'ocr' ? ' selected' : '') + '>OCR</option><option value="vision"' + (imageConfig.mode !== 'ocr' ? ' selected' : '') + '>视觉模型</option></select></div>' +
-      '<div class="form-row"><label>视觉服务商</label><select class="input" id="cfg-image-provider"><option value="">未选择</option>' + c.llmProviders.map(function(p) { return '<option value="' + esc(p.id) + '"' + (imageConfig.visionModel && imageConfig.visionModel.providerId === p.id ? ' selected' : '') + '>' + esc(p.id) + '</option>'; }).join('') + '</select></div>' +
+      '<div class="form-row"><label>视觉服务商</label><select class="input" id="cfg-image-provider"><option value="" data-placeholder>未选择</option>' + c.llmProviders.map(function(p) { return '<option value="' + esc(p.id) + '"' + (imageConfig.visionModel && imageConfig.visionModel.providerId === p.id ? ' selected' : '') + '>' + esc(p.id) + '</option>'; }).join('') + '</select></div>' +
       '<div class="form-row"><label>视觉模型</label><input class="input" id="cfg-image-model" value="' + esc(imageConfig.visionModel ? imageConfig.visionModel.model : '') + '" /></div>' +
       swRow('cfg-image-prefilter', 'OCR 前先筛图', '手动文字识别除外；筛图不可用时继续 OCR', imageConfig.prefilterEnabled !== false) +
       '<div id="image-model-resources"></div></div>';

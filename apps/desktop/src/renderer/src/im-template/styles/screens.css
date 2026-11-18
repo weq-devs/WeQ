@@ -235,10 +235,6 @@ html[data-theme='dark'] .composer-editor {
   color: #eef0f3;
 }
 
-html[data-theme='dark'] .search-box input::placeholder {
-  color: #777c85;
-}
-
 html[data-theme='dark'] .row-preview-line,
 html[data-theme='dark'] .contact-row .row-main span,
 html[data-theme='dark'] .row-meta,
@@ -833,8 +829,7 @@ html[data-theme='dark'] .tools-detail-row strong {
 html[data-theme='dark'] .mobile-group-copy span,
 html[data-theme='dark'] .mobile-member-name,
 html[data-theme='dark'] .mobile-detail-row-value,
-html[data-theme='dark'] .mobile-settings-search,
-html[data-theme='dark'] .mobile-settings-search-input::placeholder {
+html[data-theme='dark'] .mobile-settings-search {
   color: #9ea2aa;
 }
 

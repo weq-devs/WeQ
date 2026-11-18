@@ -204,7 +204,7 @@ function StatusForm({
             value={base ?? ''}
             onChange={(event) => updateDraft({ base: Number(event.target.value) })}
           >
-            <option value="" disabled>
+            <option value="" data-placeholder disabled>
               选择在线状态
             </option>
             {base !== null && !initial.statusOptions.some((option) => option.value === base) ? (

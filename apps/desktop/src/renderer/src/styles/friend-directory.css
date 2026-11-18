@@ -66,9 +66,6 @@
   line-height: 1.5;
   caret-color: var(--weq-accent-effective);
 }
-.weq-friend-directory-editor :is(input, textarea)::placeholder {
-  color: var(--weq-fg-secondary);
-}
 .weq-friend-directory-editor :is(input, select, textarea):disabled {
   opacity: 0.55;
   cursor: not-allowed;

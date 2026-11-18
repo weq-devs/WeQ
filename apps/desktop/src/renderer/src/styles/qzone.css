@@ -474,9 +474,6 @@
   padding: 12px;
   margin: 14px 0;
 }
-.weq-qzn-composer textarea::placeholder {
-  color: var(--muted-foreground);
-}
 .weq-qzn-composer select {
   background: var(--weq-bg-elevated);
   color: var(--weq-fg-primary);

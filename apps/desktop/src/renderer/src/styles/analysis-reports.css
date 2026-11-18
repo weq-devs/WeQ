@@ -34,9 +34,6 @@
   font: inherit;
   font-size: 13px;
 }
-.weq-analysis-reports-search input::placeholder {
-  color: var(--weq-fg-secondary);
-}
 .weq-analysis-reports-toolbar select {
   min-width: 0;
   max-width: 100%;

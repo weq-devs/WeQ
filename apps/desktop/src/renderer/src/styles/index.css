@@ -686,10 +686,6 @@ html body.weq-tool-window {
     outline: none;
   }
 
-  .weq-input::placeholder {
-    color: #52677b;
-  }
-
   .weq-input:focus {
     border-color: rgba(0, 153, 255, 0.62);
   }
@@ -1704,9 +1700,6 @@ html[data-theme='dark'] .weq-mface-detail-nav {
       border-color 140ms ease,
       box-shadow 140ms ease;
   }
-  .weq-password-input::placeholder {
-    color: var(--weq-fg-muted);
-  }
   .weq-password-input:focus {
     border-color: var(--weq-accent-effective);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
@@ -2644,9 +2637,6 @@ html[data-theme='dark'] .weq-mface-detail-nav {
     border-color: color-mix(in srgb, var(--weq-accent-effective) 60%, transparent);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
   }
-  .weq-static-input::placeholder {
-    color: #7589a0;
-  }
   .weq-static-input.is-error {
     border-color: rgba(220, 70, 70, 0.55);
     background: rgba(220, 70, 70, 0.04);
@@ -3007,11 +2997,6 @@ html[data-theme='dark'] .weq-mface-detail-nav {
     font-size: 12px !important;
     letter-spacing: 0.06em;
     outline: none;
-  }
-  .weq-keyfield-text::placeholder {
-    color: #7589a0;
-    letter-spacing: 0;
-    font-family: var(--font-sans);
   }
   .weq-keyfield-text.weq-mask {
     -webkit-text-security: disc;
@@ -3485,9 +3470,6 @@ html[data-theme='dark'] .weq-dialog-error .weq-dialog-icon {
 }
 html[data-theme='dark'] .weq-dialog-warning .weq-dialog-icon {
   color: #f5c269;
-}
-html[data-theme='dark'] .weq-keyfield-text::placeholder {
-  color: var(--weq-fg-muted);
 }
 html[data-theme='dark'] .weq-bignum-v.is-accent {
   color: var(--weq-accent-effective);
@@ -10360,10 +10342,6 @@ html[data-theme='dark'] .weq-forward-row-name:where(:not(.message-name)) {
   padding: 0 12px;
 }
 
-.weq-agentlab-field input::placeholder {
-  color: var(--weq-fg-muted);
-}
-
 /* 选中输入框：边框统一走主题色（聊天 composer / 各配置面板 / 克隆体设置）。 */
 .weq-agentlab-field select:focus,
 .weq-agentlab-field input:focus,
@@ -16212,9 +16190,6 @@ html[data-theme='dark'] .weq-wtools-odev-pid {
   border-color: var(--weq-accent-effective);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
 }
-.weq-wtools-rv-textarea::placeholder {
-  color: #9aa7b4;
-}
 .weq-wtools-rv-actions {
   display: flex;
   align-items: center;
@@ -16476,9 +16451,6 @@ html[data-theme='dark'] .weq-wtools-rv-textarea {
   background: #10141a;
   border-color: rgba(255, 255, 255, 0.1);
   color: #e6edf3;
-}
-html[data-theme='dark'] .weq-wtools-rv-textarea::placeholder {
-  color: #56606c;
 }
 html[data-theme='dark'] .weq-wtools-rv-hint {
   color: #56606c;
@@ -16923,10 +16895,6 @@ html[data-theme='dark'] .weq-cap {
   outline: none;
   border-color: var(--weq-accent-effective);
 }
-.weq-cap-search::placeholder {
-  color: var(--weq-fg-muted);
-}
-
 .weq-cap-scroll {
   flex: 1;
   min-height: 0;
@@ -18926,10 +18894,6 @@ html[data-theme='dark'] .weq-rp-lb {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-
-.weq-asst-select-value.is-placeholder {
-  color: var(--weq-fg-muted);
 }
 
 .weq-asst-select-caret {
@@ -21430,10 +21394,6 @@ html[data-theme='dark'] .weq-help-log-debug-warn {
 
 .weq-help-bug-title:focus {
   border-color: var(--weq-accent-effective);
-}
-
-.weq-help-bug-title::placeholder {
-  color: #a3aeb9;
 }
 
 .weq-help-bug-checks {

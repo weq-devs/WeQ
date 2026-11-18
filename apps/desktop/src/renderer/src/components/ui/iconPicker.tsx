@@ -154,7 +154,9 @@ export function IconPicker({
         }}
       >
         {triggerIcon ? <span className="weq-picker-trigger-icon">{triggerIcon}</span> : null}
-        <span className="weq-picker-trigger-label">{selected ? selected.label : placeholder}</span>
+        <span className="weq-picker-trigger-label" data-placeholder={!selected || undefined}>
+          {selected ? selected.label : placeholder}
+        </span>
         <ChevronDown
           size={14}
           className={`weq-picker-chevron${open ? ' is-open' : ''}`}

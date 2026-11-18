@@ -114,10 +114,6 @@ html[data-theme='dark'] .weq-gift-dialog {
   outline: none;
 }
 
-.weq-gift-search input::placeholder {
-  color: var(--weq-fg-muted);
-}
-
 .weq-gift-search-clear {
   display: grid;
   width: 18px;

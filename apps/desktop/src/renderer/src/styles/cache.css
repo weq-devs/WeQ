@@ -650,10 +650,6 @@
   outline: none;
 }
 
-.weq-cache-search-input::placeholder {
-  color: #b0b8c4;
-}
-
 .weq-cache-search-clear {
   display: inline-grid;
   place-items: center;
@@ -1001,10 +997,6 @@
   font-size: 12.5px;
   line-height: 1.6;
   outline: none;
-}
-
-.weq-cache-sql-input::placeholder {
-  color: #a4adba;
 }
 
 .weq-cache-sql-bar {
@@ -2701,10 +2693,6 @@ html[data-theme='dark'] .weq-cache-search {
 
 html[data-theme='dark'] .weq-cache-search-input {
   color: #edf2f7;
-}
-
-html[data-theme='dark'] .weq-cache-search-input::placeholder {
-  color: #6c7889;
 }
 
 html[data-theme='dark'] .weq-cache-search-clear:hover {

@@ -943,10 +943,6 @@ html[data-theme='dark'] .voice-panel-tabs button.active {
   outline: none;
 }
 
-.voice-tts-voice input::placeholder {
-  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 74%, transparent);
-}
-
 .voice-tts-count {
   flex: 0 0 auto;
   color: var(--weq-fg-muted, #858585);
@@ -1092,11 +1088,6 @@ html[data-theme='dark'] .voice-panel-tabs button.active {
 
 .link-card-input input:focus {
   outline: none;
-}
-
-.link-card-input input::placeholder,
-.link-card-field textarea::placeholder {
-  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 74%, transparent);
 }
 
 .link-card-count {
@@ -1611,10 +1602,6 @@ html[data-theme='dark'] .link-card-preview-card {
 .ai-voice-textarea:focus {
   border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 52%, transparent);
   outline: none;
-}
-
-.ai-voice-textarea::placeholder {
-  color: var(--weq-fg-muted, #858585);
 }
 
 .ai-voice-voices {
@@ -2618,10 +2605,6 @@ html[data-theme='dark'] .poke-combo-btn:not(:where(.is-active, :hover)) {
   font-family: inherit;
   font-size: 15px;
   font-variant-numeric: tabular-nums;
-}
-
-.redpacket-input::placeholder {
-  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 70%, transparent);
 }
 
 /* 金额只留一个「¥」前缀（后缀再来一个「元」就啰嗦了）。 */

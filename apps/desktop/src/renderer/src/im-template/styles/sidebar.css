@@ -123,10 +123,6 @@
   font-size: 13.5px;
 }
 
-.search-box input::placeholder {
-  color: var(--weq-fg-muted, #9d9d9d);
-}
-
 .sidebar-add {
   display: grid;
   width: 42px;

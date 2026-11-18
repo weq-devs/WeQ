@@ -689,6 +689,7 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system
 .head-top strong{font-size:16px}.head-top small{color:var(--sub);margin-left:10px}
 .search{position:relative;margin-top:9px;display:flex;align-items:center;gap:9px}
 .search input{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 11px;color:var(--text);font:inherit;font-size:13px;outline:none}
+.search input::placeholder{color:color-mix(in srgb,var(--sub) 65%,var(--text));opacity:1}
 .search input:focus{border-color:var(--accent)}
 #qinfo{color:var(--sub);font-size:12px;white-space:nowrap}
 .results{position:absolute;left:0;right:0;top:calc(100% + 6px);max-height:54vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 26px rgba(0,0,0,.2);z-index:6}

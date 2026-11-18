@@ -353,9 +353,6 @@ html[data-theme] .weq-workspace-page :is(.weq-wtools-rv-empty, .weq-wtools-odev-
   border-color: var(--weq-border-subtle);
   color: var(--weq-fg-secondary);
 }
-html[data-theme] .weq-workspace-page .weq-wtools-rv-textarea::placeholder {
-  color: var(--weq-fg-muted);
-}
 html[data-theme] .weq-workspace-page .weq-wtools-rv-seg {
   background: var(--weq-page-hover);
   border-radius: 6px;

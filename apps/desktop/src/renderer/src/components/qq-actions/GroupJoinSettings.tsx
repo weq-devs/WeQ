@@ -60,7 +60,9 @@ export function GroupJoinSettings({ groupId }: { groupId: number }) {
               setDraft({ mode: joinMode(Number(event.target.value)), question, answer: '' })
             }
           >
-            <option value="">尚未读取加群方式</option>
+            <option value="" data-placeholder>
+              尚未读取加群方式
+            </option>
             <option value={1}>允许任何人</option>
             <option value={2}>需要审核</option>
             <option value={3}>不允许加入</option>

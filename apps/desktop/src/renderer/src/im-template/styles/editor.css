@@ -314,13 +314,6 @@ html[data-theme='dark'] .weq-editor-dialog {
   cursor: default;
 }
 
-.weq-input-empty::placeholder {
-  color: var(--weq-ed-muted);
-  font-style: italic;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-}
-
 /* ── Nested arrays / objects ──────────────────────────────────────────── */
 
 .weq-array-editor {

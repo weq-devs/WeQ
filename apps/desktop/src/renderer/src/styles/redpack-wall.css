@@ -50,10 +50,6 @@
   outline: none;
 }
 
-.weq-redpack-wall-search input::placeholder {
-  color: var(--weq-fg-muted);
-}
-
 .weq-redpack-wall-clear {
   display: grid;
   width: 18px;

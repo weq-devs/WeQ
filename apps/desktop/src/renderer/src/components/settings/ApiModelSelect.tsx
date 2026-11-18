@@ -105,7 +105,7 @@ export function ApiModelSelect({
         }
       >
         {!allowDefault || allowEmpty ? (
-          <option value="" disabled={required}>
+          <option value="" data-placeholder={!allowEmpty || undefined} disabled={required}>
             {emptyLabel}
           </option>
         ) : null}

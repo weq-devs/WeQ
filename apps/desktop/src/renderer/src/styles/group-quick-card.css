@@ -70,10 +70,6 @@
   font-size: 13px;
 }
 
-.weq-group-member-list-search::placeholder {
-  color: var(--weq-fg-secondary);
-}
-
 .weq-group-member-list-rows {
   min-height: 0;
   margin: 0;

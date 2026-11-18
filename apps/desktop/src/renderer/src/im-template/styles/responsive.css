@@ -603,10 +603,6 @@
   width: 100%;
 }
 
-:where(html[data-weq-layout='single']) .search-box input::placeholder {
-  color: var(--weq-fg-muted);
-}
-
 :where(html[data-weq-layout='single']) .sidebar-body {
   padding-bottom: calc(var(--mobile-tabbar-height) + env(safe-area-inset-bottom, 0px));
   background: var(--weq-bg-surface);
@@ -1745,12 +1741,6 @@ html:where([data-weq-layout='single'])[data-theme='dark'] .search-box input,
 html:where([data-weq-layout='single'])[data-theme='dark'] .mobile-settings-search-input,
 html:where([data-weq-layout='single'])[data-theme='dark'] .composer-editor {
   color: #eef0f3;
-}
-
-html:where([data-weq-layout='single'])[data-theme='dark'] .search-box input::placeholder,
-html:where([data-weq-layout='single'])[data-theme='dark']
-  .mobile-settings-search-input::placeholder {
-  color: #8d929b;
 }
 
 html:where([data-weq-layout='single'])[data-theme='dark'] .mobile-sidebar-actions .sidebar-add,

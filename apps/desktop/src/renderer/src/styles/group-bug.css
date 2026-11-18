@@ -140,10 +140,6 @@ html[data-theme='dark'] .weq-group-bug {
   border-color: var(--weq-accent-effective);
 }
 
-.weq-group-bug-title::placeholder {
-  color: var(--weq-fg-muted);
-}
-
 .weq-group-bug-editor {
   overflow: hidden;
   border: 1px solid var(--border);
@@ -194,10 +190,6 @@ html[data-theme='dark'] .weq-group-bug {
   font-size: 13px;
   line-height: 1.65;
   font-family: inherit;
-}
-
-.weq-group-bug-textarea::placeholder {
-  color: var(--weq-fg-muted);
 }
 
 .weq-group-bug-preview {

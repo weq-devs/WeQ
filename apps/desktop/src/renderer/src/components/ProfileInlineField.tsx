@@ -100,7 +100,7 @@ export function ProfileInlineField({
             onChange={(event) => setDraft(event.target.value)}
           >
             {!options.some((option) => option.value === draft) ? (
-              <option value={draft} disabled>
+              <option value={draft} data-placeholder disabled>
                 选择分组
               </option>
             ) : null}

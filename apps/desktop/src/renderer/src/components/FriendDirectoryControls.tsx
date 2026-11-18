@@ -211,7 +211,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
                   disabled={busy}
                   onChange={(event) => setMergeInto(event.target.value)}
                 >
-                  <option value="" disabled>
+                  <option value="" data-placeholder disabled>
                     选择分组
                   </option>
                   {[...(categories ?? [])]
@@ -239,7 +239,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
                       disabled={busy}
                       onChange={(event) => setMergeInto(event.target.value)}
                     >
-                      <option value="" disabled>
+                      <option value="" data-placeholder disabled>
                         选择分组
                       </option>
                       {(categories ?? [])

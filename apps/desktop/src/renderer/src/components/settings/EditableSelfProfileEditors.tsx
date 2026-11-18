@@ -79,7 +79,7 @@ export function RegionEditor({
                 setPath(next);
               }}
             >
-              <option value="__unset" disabled>
+              <option value="__unset" data-placeholder disabled>
                 {['国家', '省', '市', '区县'][index]}
               </option>
               {nodes.map((node) => (

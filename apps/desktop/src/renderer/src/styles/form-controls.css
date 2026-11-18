@@ -3,7 +3,7 @@ html[data-theme] {
   --weq-field-bg: var(--weq-bg-surface);
   --weq-field-fg: var(--weq-fg-primary);
   --weq-field-border: var(--weq-border-strong);
-  --weq-field-placeholder: var(--weq-fg-secondary);
+  --weq-field-placeholder: var(--weq-fg-muted);
   --weq-field-readonly-bg: var(--weq-bg-elevated);
   --weq-field-disabled-bg: var(--muted);
   --weq-field-disabled-fg: var(--weq-fg-secondary);
@@ -13,6 +13,16 @@ html[data-theme='dark'] {
   --weq-field-bg: var(--weq-bg-surface);
   --weq-field-readonly-bg: var(--weq-bg-app);
   --weq-field-disabled-bg: var(--muted);
+}
+
+html[data-theme='light']:not([data-component-style='qqnt']) {
+  --weq-field-placeholder: color-mix(in oklab, var(--weq-fg-muted) 95%, var(--weq-fg-primary));
+}
+
+:where(input, textarea)::placeholder {
+  color: var(--weq-field-placeholder, var(--weq-fg-muted));
+  opacity: 1;
+  -webkit-text-fill-color: currentColor;
 }
 
 /* 保留各处尺寸及皮肤形态，只统一输入框的状态颜色和可见描边。 */
@@ -75,12 +85,6 @@ html:root[data-theme][data-component-style] body
   caret-color: var(--weq-accent-ink, var(--weq-accent-effective));
   -webkit-text-fill-color: currentColor;
 
-  &::placeholder {
-    color: var(--weq-field-placeholder);
-    opacity: 1;
-    -webkit-text-fill-color: currentColor;
-  }
-
   &[readonly] {
     background: var(--weq-field-readonly-bg);
     cursor: default;
@@ -91,7 +95,7 @@ html:root[data-theme][data-component-style] body
   }
 
   &:disabled {
-    background: var(--weq-field-disabled-bg);
+    background-color: var(--weq-field-disabled-bg);
     color: var(--weq-field-disabled-fg);
     border-color: var(--weq-border-subtle);
     opacity: 1;
@@ -100,6 +104,58 @@ html:root[data-theme][data-component-style] body
 
   &:not(:disabled):where(:not(.is-error, [aria-invalid='true'])):focus {
     border-color: var(--weq-accent-ink, var(--weq-accent-effective));
+  }
+}
+
+/* 原生下拉的额外文字内缩随平台而变。只接管外观，菜单与键盘仍由浏览器处理。 */
+@media (forced-colors: none) {
+  html:root[data-theme][data-component-style]
+    body
+    select:is(
+      .weq-set-input,
+      .weq-set-select,
+      .form-field select,
+      .weq-set-row-ctrl select,
+      .weq-record-filters select,
+      .weq-msglist-select,
+      .weq-agentlab-field select,
+      .weq-qzn select,
+      .weq-qzn-composer select,
+      .weq-qq-action-form select,
+      .weq-qq-write-input,
+      .weq-self-field-inputs select,
+      .weq-member-inline-field select,
+      .weq-udp-select,
+      .voice-tts-voice select
+    ):not([hidden], [multiple], [size]:not([size='1'])):is(:enabled, :disabled) {
+    appearance: none;
+    padding-inline-end: 24px;
+    text-overflow: ellipsis;
+    background-image:
+      linear-gradient(45deg, transparent 40%, var(--weq-fg-secondary) 42% 58%, transparent 60%),
+      linear-gradient(-45deg, transparent 40%, var(--weq-fg-secondary) 42% 58%, transparent 60%);
+    background-position:
+      right 12px center,
+      right 7px center;
+    background-repeat: no-repeat;
+    background-size: 5px 5px;
+
+    &:dir(rtl) {
+      background-position:
+        left 7px center,
+        left 12px center;
+    }
+  }
+}
+
+/* 只淡化明确的空态；空字符串也可以是「自动」「全部」等有效选项。 */
+html:root[data-theme][data-component-style] body
+  select:enabled:not([hidden]):has(> option[data-placeholder]:checked) {
+  color: var(--weq-field-placeholder);
+  -webkit-text-fill-color: currentColor;
+
+  :is(option:not([data-placeholder]), optgroup) {
+    color: var(--weq-field-fg);
   }
 }
 
@@ -127,7 +183,7 @@ html:root[data-theme][data-component-style] body
     .weq-onebot-token-input
   ):has(input:not([type='hidden']), textarea, select):not([hidden]) {
   background: var(--weq-field-bg);
-  color: var(--weq-field-placeholder);
+  color: var(--weq-fg-secondary);
   border-color: var(--weq-field-border);
   border-style: solid;
   border-width: var(--weq-skin-input-border-width, 1px);
@@ -157,12 +213,6 @@ html:root[data-theme][data-component-style] body
     caret-color: var(--weq-accent-ink, var(--weq-accent-effective));
     -webkit-text-fill-color: currentColor;
 
-    &::placeholder {
-      color: var(--weq-field-placeholder);
-      opacity: 1;
-      -webkit-text-fill-color: currentColor;
-    }
-
     &:disabled {
       color: var(--weq-field-disabled-fg);
       opacity: 1;
@@ -189,7 +239,8 @@ html:root[data-theme][data-component-style] body .weq-asst-select:disabled {
   cursor: not-allowed;
 }
 
-html:root[data-theme][data-component-style] body .weq-asst-select-value.is-placeholder {
+html[data-theme] .weq-asst-select-value.is-placeholder,
+html[data-theme] .weq-picker-trigger:enabled .weq-picker-trigger-label[data-placeholder] {
   color: var(--weq-field-placeholder);
 }
 
