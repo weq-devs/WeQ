@@ -1,11 +1,9 @@
-:where(html[data-weq-layout='single']) .composer:has(> .bounce-panel),
-:where(html[data-weq-layout='single']) .composer:has(> .poke-panel) {
+:where(html[data-weq-layout='single']) .composer:has(> .bounce-panel) {
   overflow: visible;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bounce-panel,
-  .poke-panel {
+  .bounce-panel {
     animation: none;
   }
 }

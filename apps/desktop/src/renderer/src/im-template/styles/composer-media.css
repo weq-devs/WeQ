@@ -2391,29 +2391,14 @@ html[data-theme='dark'] .bounce-search {
 
 /* ── 戳一戳互动表情（pokeEmoji）────────────────────────────────────────────
  *
- * 形态与弹射表情 / 链接卡片一致：从输入框上沿弹出来的浮层，不挤占正文那一行。
- * 三块：预览 + 连击（左右并排） / 表情网格；底部是「单独发送」。
- * 连击只有 0..3，所以控制件是**四枚按档位逐渐变大的按钮**（不是输入框 / 滑块）——
- * 点一下预览区立刻跟着变大，所见即所发。
- *
- * 颜色全部走主题 token，主题色与深浅模式自动跟随。
+ * 在表情面板的可用高度里固定标题和发送栏，只让中间区域在空间不足时滚动。
  */
 
 .poke-panel {
-  position: absolute;
-  bottom: calc(100% - 1px);
-  left: 12px;
-  z-index: 30;
   display: grid;
-  width: min(420px, calc(100% - 28px));
-  max-height: min(496px, calc(100dvh - 190px));
+  height: 100%;
+  min-width: 0;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
-  border-radius: 12px;
-  background: var(--popover, #ffffff);
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16);
-  animation: poke-in 150ms ease-out;
 }
 
 @keyframes poke-in {
@@ -2427,7 +2412,7 @@ html[data-theme='dark'] .bounce-search {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 9px 10px 9px 12px;
+  padding: 4px 12px;
   border-bottom: 1px solid var(--weq-border-subtle);
 }
 
@@ -2442,22 +2427,6 @@ html[data-theme='dark'] .bounce-search {
 
 .poke-head-title svg {
   color: var(--weq-accent-effective, #0099ff);
-}
-
-/* 「单独发送」这个约束写在标题旁边，一眼能看到。 */
-.poke-head-tag {
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 12%, transparent);
-  color: color-mix(
-    in srgb,
-    var(--weq-accent-effective, #0099ff) 88%,
-    var(--weq-fg-primary, #111111)
-  );
-  font-size: 10.5px;
-  font-weight: 500;
-  line-height: 1.6;
-  white-space: nowrap;
 }
 
 .poke-close {
@@ -2484,9 +2453,10 @@ html[data-theme='dark'] .bounce-search {
 
 .poke-body {
   display: grid;
-  gap: 10px;
+  grid-template-rows: auto minmax(min-content, 1fr);
+  gap: 4px;
   min-height: 0;
-  padding: 11px 12px;
+  padding: 6px 12px;
   overflow: auto;
   scrollbar-width: thin;
 }
@@ -2495,25 +2465,18 @@ html[data-theme='dark'] .bounce-search {
 
 .poke-stage {
   display: grid;
-  grid-template-columns: 176px minmax(0, 1fr);
-  gap: 12px;
-  align-items: stretch;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
 }
 
 .poke-preview {
   display: grid;
-  min-height: 176px;
+  height: 44px;
   place-items: center;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
-  border-radius: 12px;
-  background:
-    radial-gradient(
-      circle at 50% 36%,
-      color-mix(in srgb, var(--weq-accent-effective, #0099ff) 9%, transparent),
-      transparent 68%
-    ),
-    color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
+  border-radius: 8px;
 }
 
 .poke-preview-face {
@@ -2525,8 +2488,9 @@ html[data-theme='dark'] .bounce-search {
 }
 
 .poke-controls {
-  display: grid;
-  align-content: center;
+  display: flex;
+  min-width: 0;
+  align-items: center;
   gap: 8px;
 }
 
@@ -2534,37 +2498,42 @@ html[data-theme='dark'] .bounce-search {
   color: var(--weq-fg-secondary, #666666);
   font-size: 12px;
   font-weight: 500;
+  flex: 0 0 4em;
+  text-align: center;
+  white-space: nowrap;
 }
 
 /* 连击 0..3：四枚按钮，图按档位逐渐变大。 */
 .poke-combo {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-}
-
-/* 随机表情的结果编号（1..n）：同一排按钮，但换成一排数字，个数不定。 */
-.poke-combo.is-random {
-  grid-template-columns: repeat(auto-fit, minmax(38px, 1fr));
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 2px;
+  scrollbar-width: thin;
 }
 
 .poke-combo-btn {
   display: grid;
-  height: 58px;
+  flex: 1 0 24px;
+  min-width: 0;
+  height: 32px;
   place-items: center;
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
-  border-radius: 10px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
   cursor: pointer;
   transition:
     border-color 130ms ease,
-    background 130ms ease,
-    transform 130ms ease;
+    background 130ms ease;
 }
 
 .poke-combo-btn img {
   display: block;
+  max-width: 100%;
+  max-height: 24px;
   object-fit: contain;
   pointer-events: none;
   user-select: none;
@@ -2574,7 +2543,6 @@ html[data-theme='dark'] .bounce-search {
 .poke-combo-btn:hover {
   border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 46%, transparent);
   background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 9%, transparent);
-  transform: translateY(-1px);
 }
 
 .poke-combo-btn.is-active {
@@ -2584,12 +2552,11 @@ html[data-theme='dark'] .bounce-search {
     color-mix(in srgb, var(--weq-accent-effective, #0099ff) 34%, transparent);
 }
 
-/* 结果编号按钮：文字（不是图），矮一点。 */
+/* 两种选项等高，切换表情时保持控制行的高度。 */
 .poke-combo-btn.is-number {
-  height: 44px;
   color: var(--weq-fg-primary, #111111);
   font-family: inherit;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
 }
 
@@ -2604,31 +2571,31 @@ html[data-theme='dark'] .bounce-search {
 /* ── 表情网格 ────────────────────────────────────────────────────────────── */
 
 .poke-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, 48px);
-  gap: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .poke-cell {
   display: grid;
-  width: 48px;
-  height: 48px;
+  flex: 1 0 max(32px, calc((100% - 28px) / 8));
+  min-width: 0;
+  min-height: 34px;
   place-items: center;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 8px;
   background: transparent;
   cursor: pointer;
   transition:
     background 120ms ease,
-    border-color 120ms ease,
-    transform 120ms ease;
+    border-color 120ms ease;
 }
 
 .poke-cell img {
   display: block;
-  max-width: 40px;
-  max-height: 40px;
+  width: 28px;
+  height: 28px;
   object-fit: contain;
   pointer-events: none;
   user-select: none;
@@ -2637,85 +2604,9 @@ html[data-theme='dark'] .bounce-search {
 
 .poke-cell:hover {
   background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 9%, transparent);
-  transform: translateY(-1px);
 }
 
 .poke-cell.is-active {
-  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 66%, transparent);
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 14%, transparent);
-}
-
-/* ── 随机表情（带结果的内置表情，骰子 / 包剪锤 / 活动表情）──────────────────
- *
- * 列在 6 个戳脸下方：上面一排是可指定结果的表情，选中后展开结果编号
- * （innerId 1..n）+ 一枚「发送」。列表与结果都来自本地资源，不硬编码。
- */
-
-.poke-random {
-  display: grid;
-  gap: 8px;
-  padding-top: 10px;
-  border-top: 1px solid var(--weq-border-subtle);
-}
-
-.poke-random-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.poke-random-tip {
-  color: var(--weq-fg-muted, #858585);
-  font-size: 10.5px;
-}
-
-.poke-random-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(62px, 1fr));
-  gap: 6px;
-}
-
-.poke-random-cell {
-  display: grid;
-  grid-template-rows: 40px auto;
-  gap: 2px;
-  place-items: center;
-  padding: 5px 4px;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  background: transparent;
-  cursor: pointer;
-  transition:
-    background 120ms ease,
-    border-color 120ms ease,
-    transform 120ms ease;
-}
-
-.poke-random-cell img {
-  display: block;
-  max-width: 40px;
-  max-height: 40px;
-  object-fit: contain;
-  pointer-events: none;
-  user-select: none;
-  -webkit-user-drag: none;
-}
-
-.poke-random-name {
-  max-width: 100%;
-  overflow: hidden;
-  color: var(--weq-fg-secondary, #666666);
-  font-size: 10.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.poke-random-cell:hover {
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 9%, transparent);
-  transform: translateY(-1px);
-}
-
-.poke-random-cell.is-active {
   border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 66%, transparent);
   background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 14%, transparent);
 }
@@ -2725,27 +2616,9 @@ html[data-theme='dark'] .bounce-search {
 .poke-foot {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 9px 12px;
+  justify-content: flex-end;
+  padding: 5px 12px;
   border-top: 1px solid var(--weq-border-subtle);
-}
-
-.poke-hint {
-  display: inline-flex;
-  flex: 1 1 auto;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--weq-fg-muted, #858585);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.poke-hint svg {
-  flex: 0 0 auto;
-  color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 82%, transparent);
 }
 
 .poke-btn {
@@ -2783,32 +2656,9 @@ html[data-theme='dark'] .bounce-search {
   box-shadow: none;
 }
 
-/* ── 深色：阴影加一档，输入底压暗 ────────────────────────────────────────── */
-
-html[data-theme='dark'] .poke-panel {
-  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
-}
-
-html[data-theme='dark'] .poke-preview,
-html[data-theme='dark'] .poke-combo-btn {
+/* 深色下略微抬亮按钮底色，保留选中态的主题色。 */
+html[data-theme='dark'] .poke-combo-btn:not(:where(.is-active, :hover)) {
   background: color-mix(in srgb, var(--weq-fg-muted, #858585) 9%, transparent);
-}
-
-/* ── 小屏：面板收窄，预览缩一点 ──────────────────────────────────────────── */
-
-:where(html[data-weq-layout='single']) .poke-panel {
-  left: 8px;
-  width: calc(100% - 16px);
-  max-height: min(452px, calc(100dvh - 150px));
-}
-
-:where(html[data-weq-layout='single']) .poke-stage {
-  grid-template-columns: 128px minmax(0, 1fr);
-  gap: 9px;
-}
-
-:where(html[data-weq-layout='single']) .poke-preview {
-  min-height: 128px;
 }
 
 /* ════════════════════════════════════════════════════════════════════════

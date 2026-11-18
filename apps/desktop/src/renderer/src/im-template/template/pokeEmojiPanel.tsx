@@ -21,7 +21,7 @@
 
 import { useState } from 'react';
 import type { RefObject } from 'react';
-import { Hand, SendHorizontal, Sparkles, X } from 'lucide-react';
+import { Hand, SendHorizontal, X } from 'lucide-react';
 import { FaceEmoji } from '../../components/FaceEmoji';
 import { emojiUrl, resourceUrl } from '../../lib/resourceUrl';
 import { POKE_COMBO_MAX, POKE_FACE_IDS, POKE_FACE_SUBTYPE } from '../../lib/pokeFace';
@@ -50,11 +50,11 @@ const COMBO_STEPS = Array.from({ length: POKE_COMBO_MAX + 1 }, (_, index) => ind
 
 /** 连击按钮里那枚小图的目标高度：越大的档位图越大。 */
 function comboThumbSize(step: number): number {
-  return 18 + step * 6;
+  return 12 + step * 4;
 }
 
 /** 面板预览的目标边长。 */
-const RANDOM_PREVIEW_SIZE = 52;
+const PREVIEW_SIZE = 40;
 
 type Mode = 'poke' | 'random';
 
@@ -90,7 +90,7 @@ export function PokeEmojiPanel({
   // 预览台：连击走戳一戳图（尺寸随档位），随机表情直接复用 FaceEmoji 播结果片段。
   const previewElement = random
     ? { faceId: selectedRandom.faceId, innerId: randomInner, faceText: selectedRandom.desc }
-    : { faceId: pokeId, subType: POKE_FACE_SUBTYPE, interactiveFaceCombo: combo };
+    : { faceId: pokeId, subType: POKE_FACE_SUBTYPE };
 
   const canSend = !disabled && !random;
   const canSendRandom = !disabled && random && randomInner !== '';
@@ -137,7 +137,6 @@ export function PokeEmojiPanel({
           <Hand size={14} strokeWidth={2.1} />
           互动表情
         </span>
-        <span className={cn('poke-head-tag')}>{random ? '随机表情' : '单独发送'}</span>
         <button
           type="button"
           className={cn('poke-close')}
@@ -152,21 +151,21 @@ export function PokeEmojiPanel({
       <div className={cn('poke-body')}>
         <div className={cn('poke-stage')}>
           <div className={cn('poke-preview')}>
-            {/* 预览就是这条消息在聊天窗口里的样子（连击越高越大 / 随机表情播结果片段）。 */}
             <FaceEmoji
+              key={random ? selectedRandom.faceId : `poke-${pokeId}`}
               element={previewElement}
-              size={RANDOM_PREVIEW_SIZE}
+              size={random ? PREVIEW_SIZE : 24 + combo * 5}
               className={cn('poke-preview-face')}
             />
           </div>
 
           <div className={cn('poke-controls')}>
-            <span className={cn('poke-label')}>{random ? '结果' : '连击'}</span>
+            <span className={cn('poke-label')}>{random ? '随机结果' : '连击'}</span>
             {/* 同一排编号按钮：戳一戳 = 连击档（0..3，图随档变大）；随机表情 = 结果编号。 */}
             <div
-              className={cn('poke-combo', random && 'is-random')}
+              className={cn('poke-combo')}
               role="radiogroup"
-              aria-label={random ? '选择结果' : '连击次数'}
+              aria-label={random ? '随机结果' : '连击次数'}
             >
               {random
                 ? selectedRandom.innerIds.map((id) => {
@@ -231,54 +230,33 @@ export function PokeEmojiPanel({
               </button>
             );
           })}
+          {onSendRandom &&
+            randomFaces.map((face) => {
+              const active = random && face.faceId === randomFaceId;
+              const label = face.desc.replace(/^\//, '') || `表情${face.faceId}`;
+              return (
+                <button
+                  key={`random-${face.faceId}`}
+                  type="button"
+                  className={cn('poke-cell', active && 'is-active')}
+                  role="radio"
+                  aria-checked={active}
+                  aria-label={label}
+                  title={label}
+                  onClick={() => selectRandomFace(face)}
+                >
+                  <img
+                    src={emojiUrl(String(face.faceId), 'apng', `${face.faceId}.png`)}
+                    alt=""
+                    draggable={false}
+                  />
+                </button>
+              );
+            })}
         </div>
-
-        {/* 随机表情：本地资源里带结果片段的表情，选中即切换预览台与编号按钮。 */}
-        {randomFaces.length > 0 && onSendRandom ? (
-          <div className={cn('poke-random')}>
-            <div className={cn('poke-random-head')}>
-              <span className={cn('poke-label')}>随机表情</span>
-            </div>
-            <div className={cn('poke-random-grid')} role="radiogroup" aria-label="选择随机表情">
-              {randomFaces.map((face) => {
-                const active = random && face.faceId === randomFaceId;
-                return (
-                  <button
-                    key={face.faceId}
-                    type="button"
-                    className={cn('poke-random-cell', active && 'is-active')}
-                    role="radio"
-                    aria-checked={active}
-                    title={face.desc || `表情${face.faceId}`}
-                    onClick={() => selectRandomFace(face)}
-                  >
-                    <img
-                      src={emojiUrl(String(face.faceId), 'apng', `${face.faceId}.png`)}
-                      alt=""
-                      draggable={false}
-                    />
-                    <span className={cn('poke-random-name')}>
-                      {(face.desc || String(face.faceId)).replace(/^\//, '')}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ) : null}
       </div>
 
       <footer className={cn('poke-foot')}>
-        <span className={cn('poke-hint')}>
-          {disabled ? (
-            disabledHint
-          ) : (
-            <>
-              <Sparkles size={11} strokeWidth={2.2} />
-              {random ? `结果 ${randomInner}，单独发送` : '单独发送，不带输入框里的文字'}
-            </>
-          )}
-        </span>
         <button
           type="button"
           className={cn('poke-btn', 'primary')}
@@ -287,7 +265,7 @@ export function PokeEmojiPanel({
           onClick={submit}
         >
           <SendHorizontal size={13} strokeWidth={2.2} />
-          {random ? '发送' : '戳一下'}
+          发送
         </button>
       </footer>
     </div>

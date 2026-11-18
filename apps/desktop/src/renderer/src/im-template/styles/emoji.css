@@ -28,8 +28,8 @@
   scrollbar-width: thin;
 }
 
-/* 特殊表情复用原有内容，布局和滚动统一交给表情面板。 */
-.emoji-panel .emoji-panel-body > :is(.bounce-panel, .poke-panel) {
+/* 弹射配置随表情内容一起滚动；互动面板自行保留固定的标题和发送栏。 */
+.emoji-panel .emoji-panel-body > .bounce-panel {
   position: static;
   width: 100%;
   min-width: 0;
@@ -46,75 +46,12 @@
   padding: 0;
 }
 
-.emoji-panel .emoji-panel-body :is(.bounce-body, .poke-body) {
+.emoji-panel .emoji-panel-body .bounce-body {
   overflow: visible;
 }
 
-.emoji-panel .poke-combo-btn {
-  min-width: 0;
-  height: 30px;
+.emoji-panel-body:has(> .poke-panel) {
   overflow: hidden;
-}
-
-.emoji-panel .poke-combo-btn img {
-  max-width: 100%;
-  max-height: 24px;
-  object-fit: contain;
-}
-
-.emoji-panel .poke-head,
-.emoji-panel .poke-foot {
-  padding: 5px 12px;
-}
-.emoji-panel .poke-body {
-  gap: 5px;
-  padding: 5px 12px;
-}
-.emoji-panel .poke-stage {
-  grid-template-columns: 58px minmax(0, 1fr);
-  gap: 10px;
-}
-.emoji-panel .poke-preview {
-  min-height: 58px;
-  height: 58px;
-  border-radius: 8px;
-  background: transparent;
-}
-.emoji-panel .poke-controls {
-  gap: 3px;
-}
-.emoji-panel .poke-combo,
-.emoji-panel .poke-combo.is-random {
-  grid-template-columns: repeat(auto-fit, minmax(26px, 1fr));
-}
-.emoji-panel .poke-grid {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 4px;
-}
-.emoji-panel .poke-cell {
-  width: 100%;
-  height: 34px;
-}
-.emoji-panel .poke-cell img {
-  max-width: 28px;
-  max-height: 28px;
-}
-.emoji-panel .poke-random {
-  gap: 3px;
-  padding-top: 4px;
-}
-.emoji-panel .poke-random-grid {
-  grid-template-columns: repeat(auto-fill, minmax(46px, 1fr));
-  gap: 4px;
-}
-.emoji-panel .poke-random-cell {
-  grid-template-rows: 26px auto;
-  padding: 2px;
-  min-width: 0;
-}
-.emoji-panel .poke-random-cell img {
-  max-width: 26px;
-  max-height: 26px;
 }
 
 .emoji-panel-body::-webkit-scrollbar {
