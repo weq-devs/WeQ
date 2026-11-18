@@ -51,6 +51,28 @@ function hideBrokenImg(event: { currentTarget: HTMLImageElement }) {
   event.currentTarget.style.display = 'none';
 }
 
+function QqShowAvatar({ src }: { src: string }) {
+  const [ready, setReady] = useState(false);
+  return (
+    <img
+      className={cn('weq-qqshow-avatar')}
+      src={src}
+      alt=""
+      hidden={!ready}
+      draggable={false}
+      onLoad={async ({ currentTarget: image }) => {
+        // URL 已返回不代表图片可绘制。解码失败时继续显示原头像。
+        try {
+          await image.decode();
+          if (image.isConnected) setReady(true);
+        } catch {
+          // QQ 秀保持隐藏。
+        }
+      }}
+    />
+  );
+}
+
 /**
  * 头像挂件叠加层。`widget.animated` 时渲染一个空 `<span>`，真正的画面由
  * `data-widget` 属性选中后注入的 CSS `@keyframes`（见 msgDecorationStyle.ts 的
@@ -73,48 +95,27 @@ function PendantOverlay({
   widget: { animated: boolean; url?: string } | null;
   fallbackUrl?: string | null;
 }) {
-  // QQ 秀替换头像时不显示头像和挂件；图片裂了自动回退到普通头像。
   const qqShowEnabled = useContext(ChatQqShowEnabledContext);
   const avatarRef = useRef<HTMLSpanElement>(null);
   const qqShowInfo = useChatQqShow(uin, qqShowEnabled, avatarRef);
-  const qqShow = qqShowInfo?.url ?? '';
-  const [qqShowBroken, setQqShowBroken] = useState(false);
-  useEffect(() => setQqShowBroken(false), [qqShow, qqShowInfo?.expiresAt]);
-  if (qqShow && !qqShowBroken) {
-    return (
-      <span ref={avatarRef} className={cn('weq-qqshow-avatar')} title={name}>
-        <img
-          src={qqShowUrl(qqShow, qqShowInfo?.expiresAt)}
-          alt=""
-          draggable={false}
-          onError={() => setQqShowBroken(true)}
-        />
-      </span>
-    );
-  }
+  const qqShowSrc = qqShowInfo?.url ? qqShowUrl(qqShowInfo.url, qqShowInfo.expiresAt) : '';
   const staticUrl = widget ? (widget.animated ? undefined : widget.url) : fallbackUrl;
-  if (!widget?.animated && !staticUrl) {
-    return (
-      <span ref={avatarRef} style={{ display: 'inline-flex', flexShrink: 0 }}>
-        <Avatar name={name} avatarUrl={avatarUrl} seed={seed} resolution="small" />
-      </span>
-    );
-  }
   return (
-    <span ref={avatarRef} className={cn('weq-avatar-pendant')}>
+    <span ref={avatarRef} className={cn('weq-avatar-pendant')} title={qqShowSrc ? name : undefined}>
       <Avatar name={name} avatarUrl={avatarUrl} seed={seed} resolution="small" />
       {widget?.animated ? (
         <span className={cn('weq-avatar-pendant-img')} aria-hidden />
-      ) : (
+      ) : staticUrl ? (
         <img
           className={cn('weq-avatar-pendant-img')}
-          src={staticUrl ?? undefined}
+          src={staticUrl}
           alt=""
           aria-hidden
           draggable={false}
           onError={hideBrokenImg}
         />
-      )}
+      ) : null}
+      {qqShowSrc ? <QqShowAvatar key={qqShowSrc} src={qqShowSrc} /> : null}
     </span>
   );
 }
