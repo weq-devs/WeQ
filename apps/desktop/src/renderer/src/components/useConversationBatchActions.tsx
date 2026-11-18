@@ -104,11 +104,11 @@ export function useConversationBatchActions(conversations: Conversation[]) {
       setPending({
         label:
           action === 'export'
-            ? '导出'
+            ? '导出聊天记录'
             : action === 'delete'
               ? '永久删除'
               : action === 'roster'
-                ? '导出群名单'
+                ? '导出群成员名单'
                 : action === 'roaming'
                   ? '拉取漫游消息'
                   : action === 'unread'

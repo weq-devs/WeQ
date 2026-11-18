@@ -9,7 +9,7 @@ declare global {
   }
 }
 
-function useRemoteShellAvailable() {
+export function useRemoteShellAvailable() {
   const [available, setAvailable] = useState(() => Boolean(window.weqRemoteShell));
   useEffect(() => {
     const ready = () => setAvailable(Boolean(window.weqRemoteShell));

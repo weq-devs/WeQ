@@ -370,6 +370,6 @@ it('全部会话混选拉取漫游和导出名单都须列明不支持对象，�
   );
   expect(roaming).toHaveBeenCalledOnce();
   expect(roaming.mock.calls[0]![0]).toHaveLength(2);
-  click('[aria-label="导出名单"]');
-  expect(document.querySelector('[role="dialog"]')!.textContent).toContain('不支持导出群名单');
+  click('[aria-label="导出群成员名单"]');
+  expect(document.querySelector('[role="dialog"]')!.textContent).toContain('不支持导出群成员名单');
 });

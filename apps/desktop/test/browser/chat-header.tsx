@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { CloudSun } from 'lucide-react';
 import { createRoot } from 'react-dom/client';
 import { ChatPane } from '../../src/renderer/src/im-template/template/chatPane';
@@ -32,7 +32,7 @@ function Fixture() {
             ...source.group,
             id: PROJECT_GROUP_IDS[0]!,
             name: '用于验证标题截断的合成群聊名称与更多工具',
-            luckyChar: { id: 10001, litCount: 3 },
+            luckyChar: undefined,
           },
         }
       : source.type === 'direct'
@@ -75,7 +75,10 @@ function Fixture() {
     );
   }
   return (
-    <div className="app-shell-root weq-web-shell" style={{ height: '100dvh' }}>
+    <div
+      className="app-shell-root weq-web-shell"
+      style={{ height: '100dvh', '--weq-window-safe-top': '0px' } as CSSProperties}
+    >
       {home ? (
         <MobileWebNavigation
           user={{ ...demo.user, displayName: '用于验证标题截断的合成联系人名称' }}

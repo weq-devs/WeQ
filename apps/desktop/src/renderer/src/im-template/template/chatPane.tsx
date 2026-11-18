@@ -18,7 +18,6 @@ import {
   conversationSourceLabel,
 } from '../../lib/conversationActions';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
-import { ConversationSettingsButton } from '../../components/ConversationSettingsButton';
 import { GroupCallComingSoon } from '../../components/GroupCallComingSoon';
 import {
   GiftMallPanel,
@@ -84,7 +83,6 @@ import {
   CirclePlus,
   Download,
   Eye,
-  Search,
   Trash2,
   RotateCcw,
   ListPlus,
@@ -92,7 +90,6 @@ import {
   FileText,
   FolderOpen,
   UsersRound,
-  Bug,
   Image as ImageIcon,
   Link2,
   MapPin,
@@ -103,7 +100,6 @@ import {
   Radio,
   Video,
   Gift,
-  Settings2,
   Zap,
   Flame,
   Share2,
@@ -141,10 +137,7 @@ import {
   useState,
 } from 'react';
 import { ReplyJumpContext } from '../../state/messageContext';
-import {
-  ImportantMessagesButton,
-  ImportantMessagesPanel,
-} from '../../components/ImportantMessages';
+import { ImportantMessagesPanel } from '../../components/ImportantMessages';
 import { ChatMediaGallery } from '../../components/ChatMediaGallery';
 import { openMediaPreview } from '../../components/mediaPreviewStore.shared';
 import { releaseObjectUrl } from '../../lib/objectUrl';
@@ -6043,33 +6036,6 @@ export function ChatPane({
         actions={
           <>
             {!compactHeader ? headerAffinity : null}
-            {!compactHeader && conversation.type === 'group' && !restrictedSource ? (
-              <ImportantMessagesButton
-                open={importantMessagesActive}
-                onClick={() => {
-                  setImportantMessagesVisited(conversation.id);
-                  setImportantMessagesOpen((value) => !value);
-                  setMobileGroupInfoOpen(false);
-                }}
-              />
-            ) : null}
-            {!compactHeader &&
-            onSearchChatRecords &&
-            (conversation.type === 'group' || conversation.type === 'direct') ? (
-              <button
-                className={cn(
-                  'icon-button',
-                  'group-header-info-action',
-                  'chat-header-search-action',
-                )}
-                type="button"
-                title="搜索聊天记录"
-                aria-label="搜索聊天记录"
-                onClick={() => onSearchChatRecords(conversation)}
-              >
-                <Search size={18} />
-              </button>
-            ) : null}
             {conversation.type === 'group' || conversation.type === 'direct' ? (
               <ConversationMessageActions
                 conversation={conversation}
@@ -6078,109 +6044,45 @@ export function ChatPane({
                 onDeleted={onViewDeleted}
                 onRecalled={onViewRecalled}
                 compact={compactHeader}
-                additionalActions={
-                  compactHeader
-                    ? [
-                        ...(conversation.type === 'group' && !restrictedSource
-                          ? [
-                              {
-                                label: '重要消息',
-                                icon: <ListFilter size={16} />,
-                                action: () => {
-                                  setImportantMessagesVisited(conversation.id);
-                                  setImportantMessagesOpen(true);
-                                  setMobileGroupInfoOpen(false);
-                                },
-                              },
-                            ]
-                          : []),
-                        ...(onSearchChatRecords
-                          ? [
-                              {
-                                label: '搜索聊天记录',
-                                icon: <Search size={16} />,
-                                action: () => onSearchChatRecords(conversation),
-                              },
-                            ]
-                          : []),
-                        ...(conversation.type === 'group' && !sidecarOpen
-                          ? [
-                              {
-                                label: '群聊侧栏',
-                                icon: <UsersRound size={16} />,
-                                action: () => setMobileGroupInfoOpen((previous) => !previous),
-                              },
-                            ]
-                          : []),
-                        ...(!restrictedSource &&
-                        conversation.type === 'group' &&
-                        onOpenGroupBug &&
-                        PROJECT_GROUP_IDS.includes(conversation.id)
-                          ? [
-                              {
-                                label: '反馈 Bug',
-                                icon: <Bug size={16} />,
-                                action: () => onOpenGroupBug(conversation),
-                                disabled: !groupBugOnline,
-                                reason: groupBugOnline ? undefined : '在线能力受限，无法反馈 Bug',
-                              },
-                            ]
-                          : []),
-                        ...(onOpenConversationSettings
-                          ? [
-                              {
-                                label: settingsLabel,
-                                icon: <Settings2 size={16} />,
-                                action: () => onOpenConversationSettings(conversation),
-                                separatorBefore: true,
-                              },
-                            ]
-                          : []),
-                      ]
-                    : []
+                onSearch={onSearchChatRecords ? () => onSearchChatRecords(conversation) : undefined}
+                onImportant={
+                  conversation.type === 'group' && !restrictedSource
+                    ? () => {
+                        setImportantMessagesVisited(conversation.id);
+                        setImportantMessagesOpen(true);
+                        setMobileGroupInfoOpen(false);
+                      }
+                    : undefined
                 }
-              />
-            ) : null}
-            {!compactHeader && conversation.type === 'group' ? (
-              <>
-                {!sidecarOpen ? (
-                  <button
-                    className="icon-button group-header-info-action weq-mobile-group-info-trigger"
-                    type="button"
-                    ref={groupInfoTriggerRef}
-                    title="群聊侧栏"
-                    aria-label="群聊侧栏"
-                    aria-expanded={mobileGroupInfoOpen}
-                    onClick={() => setMobileGroupInfoOpen((previous) => !previous)}
-                  >
-                    <UsersRound size={18} />
-                  </button>
-                ) : null}
-                {!restrictedSource &&
-                onOpenGroupBug &&
-                PROJECT_GROUP_IDS.includes(conversation.id) ? (
-                  <button
-                    className={cn(
-                      'icon-button',
-                      'group-header-info-action',
-                      'group-header-bug-action',
-                    )}
-                    type="button"
-                    title={groupBugOnline ? '反馈 Bug' : '在线能力受限，无法反馈 Bug'}
-                    disabled={!groupBugOnline}
-                    onClick={() => onOpenGroupBug(conversation)}
-                  >
-                    <Bug size={18} />
-                  </button>
-                ) : null}
-              </>
-            ) : null}
-            {!compactHeader &&
-            onOpenConversationSettings &&
-            (conversation.type === 'group' || conversation.type === 'direct') ? (
-              <ConversationSettingsButton
-                label={settingsLabel}
-                onClick={(anchor) => onOpenConversationSettings?.(conversation, anchor)}
+                onGroupInfo={
+                  conversation.type === 'group' && !sidecarOpen
+                    ? (anchor) => {
+                        groupInfoTriggerRef.current = anchor;
+                        setImportantMessagesOpen(false);
+                        if (compactHeader) setMobileGroupInfoOpen((previous) => !previous);
+                        else if (importantMessagesActive) {
+                          setGroupInfoCollapsed(false);
+                          saveGroupInfoCollapsed(false);
+                        } else toggleGroupInfoCollapsed();
+                      }
+                    : undefined
+                }
+                onSettings={
+                  onOpenConversationSettings
+                    ? (anchor) =>
+                        onOpenConversationSettings(conversation, compactHeader ? undefined : anchor)
+                    : undefined
+                }
+                settingsLabel={settingsLabel}
+                onBug={
+                  !restrictedSource &&
+                  conversation.type === 'group' &&
+                  onOpenGroupBug &&
+                  PROJECT_GROUP_IDS.includes(conversation.id)
+                    ? () => onOpenGroupBug(conversation)
+                    : undefined
+                }
+                bugOnline={groupBugOnline}
               />
             ) : null}
             {headerActions}

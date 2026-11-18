@@ -43,8 +43,8 @@ export function ConversationSelectionToolbar({
       {actions.includes('export') && (
         <button
           type="button"
-          title={exportReason ?? '导出所选会话'}
-          aria-label="导出所选会话"
+          title={exportReason ?? '导出聊天记录'}
+          aria-label="导出聊天记录"
           disabled={Boolean(exportReason)}
           onClick={onExport}
         >
@@ -54,8 +54,8 @@ export function ConversationSelectionToolbar({
       {actions.includes('roster') && (
         <button
           type="button"
-          title={rosterReason ?? '导出名单'}
-          aria-label="导出名单"
+          title={rosterReason ?? '导出群成员名单'}
+          aria-label="导出群成员名单"
           disabled={Boolean(rosterReason)}
           onClick={onRoster}
         >
