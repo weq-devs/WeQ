@@ -280,7 +280,7 @@ import {
   AnnualReportView,
 } from '../components/lazyWorkspaces';
 import { useSettingsMaintenance } from '../hooks/useSettingsMaintenance';
-import { useRecalledMessages } from '../hooks/useRecalledMessages';
+import { useConversationMessageRecords } from '../hooks/useConversationMessageRecords';
 import {
   QzoneAlbumDialog,
   GroupAlbumDialog,
@@ -1586,10 +1586,6 @@ function MainWorkspace(): ReactElement {
   useEffect(() => {
     consumedGeneratedMessages.current.clear();
   }, [messageScope]);
-  // "删除列表" panel: which conversation is open + its fetched deleted rows.
-  const [deletedConv, setDeletedConv] = useState<Conversation | null>(null);
-  const [deletedWires, setDeletedWires] = useState<MessageWire[]>([]);
-  const [deletedLoading, setDeletedLoading] = useState(false);
   const gapFetchCursors = useRef(new Map<string, number>());
   const gapFetchQueue = useRef(Promise.resolve());
   const automaticGapAttempts = useRef(new Set<string>());
@@ -1659,8 +1655,29 @@ function MainWorkspace(): ReactElement {
     },
     [convFetchKey],
   );
-  const recalls = useRecalledMessages(messageScope, messageScopeRef, readRecalledMessages);
+  const readDeletedMessages = useCallback(
+    async (conversation: Conversation) => {
+      const rows = await client.account.deletedMessages.query(convFetchKey(conversation));
+      return rows.map(toMessageWire);
+    },
+    [convFetchKey],
+  );
+  const recalls = useConversationMessageRecords(
+    messageScope,
+    messageScopeRef,
+    readRecalledMessages,
+  );
+  const deletions = useConversationMessageRecords(
+    messageScope,
+    messageScopeRef,
+    readDeletedMessages,
+  );
+  const { conversation: deletedConv, rows: deletedWires, loading: deletedLoading } = deletions;
   const { conversation: recalledConv, rows: recalledWires, loading: recalledLoading } = recalls;
+  const closeConversationRecords = useCallback(() => {
+    recalls.close('conversation');
+    deletions.close();
+  }, [recalls.close, deletions.close]);
   const closeSettingsRecalls = useCallback(() => recalls.close('settings'), [recalls.close]);
   useEffect(() => {
     if (!settingsOpen) closeSettingsRecalls();
@@ -1884,37 +1901,20 @@ function MainWorkspace(): ReactElement {
     setAddMessageConv(conversation);
   }, []);
 
-  const loadDeletedMessages = useCallback(
-    async (c: Conversation): Promise<void> => {
-      const { kind, conv } = convFetchKey(c);
-      setDeletedLoading(true);
-      try {
-        const rows = await client.account.deletedMessages.query({ kind, conv });
-        setDeletedWires(rows.map(toMessageWire));
-      } catch (e) {
-        console.error('[MainView] Failed to load deleted messages:', e);
-        setDeletedWires([]);
-      } finally {
-        setDeletedLoading(false);
-      }
-    },
-    [convFetchKey],
-  );
-
   const handleViewDeleted = useCallback(
     (conversation: Conversation) => {
-      setDeletedWires([]);
-      setDeletedConv(conversation);
-      void loadDeletedMessages(conversation);
+      recalls.close('conversation');
+      void deletions.open(conversation);
     },
-    [loadDeletedMessages],
+    [recalls.close, deletions.open],
   );
 
   const handleViewRecalled = useCallback(
     (conversation: Conversation) => {
+      deletions.close();
       void recalls.open(conversation);
     },
-    [recalls.open],
+    [deletions.close, recalls.open],
   );
 
   const handleOpenGapMessages = useCallback(
@@ -2089,14 +2089,12 @@ function MainWorkspace(): ReactElement {
           );
         });
       }
-      if (deletedConv) {
-        await loadDeletedMessages(deletedConv);
-      }
+      const conversationId = conversation?.id ?? selectionRef.current?.id;
+      if (conversationId) void deletions.refresh(conversationId);
       void refreshWindow();
     },
     [
-      deletedConv,
-      loadDeletedMessages,
+      deletions.refresh,
       refreshWindow,
       convFetchKey,
       messageScopeRef,
@@ -2566,6 +2564,11 @@ function MainWorkspace(): ReactElement {
   const selectedUidRef = useRef(selectedUid);
   selectedUidRef.current = selectedUid;
   const messagesTabActive = shell.view === 'messages' && !arkFeedState && !specialChat;
+  useEffect(() => {
+    if (!messagesTabActive || (deletedConv && deletedConv.id !== selectedUid)) deletions.close();
+    if (!messagesTabActive || (recalledConv && recalledConv.id !== selectedUid))
+      recalls.close('conversation');
+  }, [messagesTabActive, selectedUid, deletedConv, recalledConv, deletions.close, recalls.close]);
   useEffect(() => {
     setGroupSidebarPopover((current) =>
       current &&
@@ -8434,11 +8437,27 @@ function MainWorkspace(): ReactElement {
       onClose={() => recalls.close()}
       onJumpToMessage={(seq, messageId) => {
         const target = convFetchKey(recalledConv);
-        recalls.close();
+        if (recalls.origin === 'settings' || mobileLayout) recalls.close();
         if (recalls.origin === 'settings') setSettingsOpen(false);
         jumpToConvSeq(target.kind, target.conv, seq, true, undefined, messageId);
       }}
     />
+  ) : null;
+  const conversationRecords = !messagesTabActive ? null : deletedConv?.id === selectedUid ? (
+    <DeletedMessagesModal
+      key={deletedConv.id}
+      conversation={deletedConv}
+      user={user}
+      messages={deletedTemplateMessages}
+      renderers={messageRenderers}
+      loading={deletedLoading}
+      error={deletions.error}
+      onRetry={() => void deletions.retry()}
+      onRestore={(msgId) => handleRestoreMessage(msgId, deletedConv)}
+      onClose={closeConversationRecords}
+    />
+  ) : recalls.origin === 'conversation' && recalledConv?.id === selectedUid ? (
+    recalledView
   ) : null;
 
   const openAppSearchEntryNow = (entry: AppSearchEntry) => {
@@ -9415,6 +9434,8 @@ function MainWorkspace(): ReactElement {
                             }}
                             onViewDeleted={handleViewDeleted}
                             onViewRecalled={handleViewRecalled}
+                            messageRecords={conversationRecords}
+                            onCloseMessageRecords={closeConversationRecords}
                             onOpenGapMessages={handleOpenGapMessages}
                             onLoadSelectionMessages={loadSelectionMessages}
                             onSearchChatRecords={handleSearchChatRecords}
@@ -9843,21 +9864,6 @@ function MainWorkspace(): ReactElement {
               )
             }
           />
-          {deletedConv ? (
-            <DeletedMessagesModal
-              conversation={deletedConv}
-              user={user}
-              messages={deletedTemplateMessages}
-              renderers={messageRenderers}
-              loading={deletedLoading}
-              onRestore={(msgId) => handleRestoreMessage(msgId, deletedConv)}
-              onClose={() => {
-                setDeletedConv(null);
-                setDeletedWires([]);
-              }}
-            />
-          ) : null}
-          {recalls.origin !== 'settings' ? recalledView : null}
           {privatePreview?.source === 'latest' || privatePreview?.source === 'speech'
             ? conversationPreviewContent
             : null}

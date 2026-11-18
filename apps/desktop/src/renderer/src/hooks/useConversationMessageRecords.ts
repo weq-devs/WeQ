@@ -3,7 +3,7 @@ import type { Conversation } from '../im-template/template/types';
 import { useAppLock } from '../state/lock';
 
 type Origin = 'conversation' | 'settings';
-interface RecallRequest<Row> {
+interface RecordRequest<Row> {
   source: string;
   conversation: Conversation;
   origin: Origin;
@@ -12,8 +12,8 @@ interface RecallRequest<Row> {
   error: string | null;
 }
 
-/** 共用撤回读取链路；宿主来源、关闭/重开及锁屏均使旧请求失效，不声称取消底层 I/O。 */
-export function useRecalledMessages<Row>(
+/** 来源切换、关闭/重开及锁屏均使旧请求失效，不声称取消底层 I/O。 */
+export function useConversationMessageRecords<Row>(
   source: string,
   liveSource: Readonly<RefObject<string>>,
   load: (conversation: Conversation) => Promise<Row[]>,
@@ -24,9 +24,9 @@ export function useRecalledMessages<Row>(
   if (bindingRef.current.source !== source || bindingRef.current.locked !== locked)
     bindingRef.current = { source, locked };
   const binding = bindingRef.current;
-  const current = useRef<RecallRequest<Row> | null>(null);
+  const current = useRef<RecordRequest<Row> | null>(null);
   const emptyRows = useRef<Row[]>([]);
-  const [request, setRequest] = useState<RecallRequest<Row> | null>(null);
+  const [request, setRequest] = useState<RecordRequest<Row> | null>(null);
   if (request && (request.source !== source || locked)) {
     current.current = null;
     setRequest(null);
@@ -51,18 +51,22 @@ export function useRecalledMessages<Row>(
   );
 
   const open = useCallback(
-    async (conversation: Conversation, origin: Origin = 'conversation') => {
+    async (
+      conversation: Conversation,
+      origin: Origin = 'conversation',
+      retainedRows: Row[] = [],
+    ) => {
       const isCurrentSource = () =>
         mounted.current &&
         bindingRef.current === binding &&
         liveSource.current === source &&
         !useAppLock.getState().locked;
       if (!isCurrentSource()) return;
-      const next: RecallRequest<Row> = {
+      const next: RecordRequest<Row> = {
         source,
         conversation,
         origin,
-        rows: [],
+        rows: retainedRows,
         loading: true,
         error: null,
       };
@@ -93,6 +97,14 @@ export function useRecalledMessages<Row>(
     const previous = current.current;
     if (previous) return open(previous.conversation, previous.origin);
   }, [open]);
+  const refresh = useCallback(
+    (conversationId: string) => {
+      const previous = current.current;
+      if (previous?.conversation.id === conversationId)
+        return open(previous.conversation, previous.origin, previous.rows);
+    },
+    [open],
+  );
   const visible =
     !locked && request?.source === source && liveSource.current === source ? request : null;
   return {
@@ -104,5 +116,6 @@ export function useRecalledMessages<Row>(
     open,
     close,
     retry,
+    refresh,
   };
 }

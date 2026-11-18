@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   AtSign,
   Bell,
@@ -10,14 +10,13 @@ import {
   Megaphone,
   Reply,
   Users,
-  X,
   RefreshCw,
 } from 'lucide-react';
 import { eventTimeFormatter } from '@weq/time';
 import { FEATURE_ICONS } from '../lib/featureIcons.shared';
 import { client, trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
-import { OverlayLayer } from './OverlayLayer';
+import { MessageHistorySurface } from './MessageHistorySurface';
 import {
   highlightLabel,
   IMPORTANT_MESSAGE_KINDS,
@@ -27,9 +26,7 @@ import type { ReplyJumpTarget } from '../state/messageContext';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import { useMessageLocateMenu } from '../hooks/useMessageLocateMenu';
 import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
-import { useSurfaceEscapeDismissal } from '../lib/surfaceEscape';
 import '../styles/search-scope.css';
-import '../styles/important-messages.css';
 
 type Page = Awaited<ReturnType<typeof client.account.listImportantGroupMessages.query>>;
 const icons = {
@@ -86,7 +83,9 @@ export function ImportantMessagesPanel({ groupCode, open, onClose, ...props }: P
       binding={{ expectedAccountUin: uin, expectedAccountConfigId: source.configId }}
     />
   ) : (
-    <ImportantMessageSurface
+    <MessageHistorySurface
+      id="weq-important-messages"
+      title="重要消息"
       open={open}
       onClose={onClose}
       navigationAnchor={props.navigationAnchor}
@@ -100,90 +99,7 @@ export function ImportantMessagesPanel({ groupCode, open, onClose, ...props }: P
           重试
         </button>
       ) : null}
-    </ImportantMessageSurface>
-  );
-}
-
-function ImportantMessageSurface({
-  open,
-  onClose,
-  children,
-  filters,
-  navigationAnchor,
-}: {
-  open: boolean;
-  onClose: () => void;
-  children: React.ReactNode;
-  filters?: React.ReactNode;
-  navigationAnchor?: HTMLElement | null;
-}) {
-  const mobile = useMobileWebLayout();
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const filtersId = useId();
-  const ref = useRef<HTMLElement>(null);
-  useSurfaceEscapeDismissal(ref, onClose, open && !mobile);
-  useEffect(() => {
-    if (open && !mobile) ref.current?.focus({ preventScroll: true });
-  }, [open, mobile]);
-  const content = (
-    <aside
-      ref={ref}
-      tabIndex={-1}
-      data-weq-escape-surface={open && !mobile ? '' : undefined}
-      id="weq-important-messages"
-      className="weq-important-messages"
-      aria-label="重要消息"
-      hidden={!mobile && !open}
-    >
-      <header>
-        <strong>重要消息</strong>
-        <div className="weq-important-header-actions">
-          {filters ? (
-            <button
-              type="button"
-              className="icon-button"
-              title={filtersOpen ? '收起筛选' : '展开筛选'}
-              aria-label="筛选重要消息"
-              aria-expanded={filtersOpen}
-              aria-controls={filtersId}
-              onClick={() => setFiltersOpen((value) => !value)}
-            >
-              <ListFilter size={16} />
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="icon-button"
-            title="关闭重要消息"
-            aria-label="关闭重要消息"
-            onClick={onClose}
-          >
-            <X size={16} />
-          </button>
-        </div>
-      </header>
-      {filters ? (
-        <div id={filtersId} className="weq-important-filter-panel" hidden={!filtersOpen}>
-          {filters}
-        </div>
-      ) : null}
-      {children}
-    </aside>
-  );
-  return mobile ? (
-    <OverlayLayer
-      open={open}
-      presentation="panel"
-      title="重要消息"
-      className="weq-important-drawer"
-      onClose={onClose}
-      dismissOnOutside={false}
-      anchor={navigationAnchor}
-    >
-      {content}
-    </OverlayLayer>
-  ) : (
-    content
+    </MessageHistorySurface>
   );
 }
 
@@ -352,7 +268,9 @@ export function ImportantMessagesList({
   }
   const locateMenu = useMessageLocateMenu(locate, `${source}:${open}`);
   return (
-    <ImportantMessageSurface
+    <MessageHistorySurface
+      id="weq-important-messages"
+      title="重要消息"
       open={open}
       onClose={onClose}
       navigationAnchor={navigationAnchor}
@@ -378,7 +296,7 @@ export function ImportantMessagesList({
             }
           >
             <Layers size={14} />
-            {kinds.size === IMPORTANT_MESSAGE_KINDS.length ? '清空' : '全部'}
+            {kinds.size === IMPORTANT_MESSAGE_KINDS.length ? '清空' : '清除筛选'}
           </button>
           {IMPORTANT_MESSAGE_KINDS.map((kind) => {
             const Icon = icons[kind];
@@ -418,6 +336,7 @@ export function ImportantMessagesList({
       {page.nextBefore ? (
         <button
           type="button"
+      filtered={kinds.size !== IMPORTANT_MESSAGE_KINDS.length}
           className="weq-important-more"
           disabled={pending}
           onClick={() => {
@@ -522,6 +441,6 @@ export function ImportantMessagesList({
         <p role="status">{kinds.size ? '暂无已记录的重要消息' : '未选择消息类型'}</p>
       ) : null}
       {locateMenu.menu}
-    </ImportantMessageSurface>
+    </MessageHistorySurface>
   );
 }

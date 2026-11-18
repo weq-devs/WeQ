@@ -142,7 +142,8 @@ html[data-weq-mobile-client='true'][data-weq-layout='wide'] .composer-editor {
 }
 
 @media (max-width: 1100px) {
-  html[data-weq-mobile-client='true'][data-weq-layout='wide'] .chat-pane.with-group-info {
+  html[data-weq-mobile-client='true'][data-weq-layout='wide']
+    .chat-pane.with-group-info:not(.with-message-history) {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -195,7 +196,7 @@ html[data-weq-mobile-client='true'][data-weq-layout='wide'] .composer-editor {
   }
 
   html[data-weq-mobile-client='true'][data-weq-layout='wide']
-    .chat-pane.with-group-info
+    .chat-pane.with-group-info:not(.with-message-history)
     :is(.unread-dock-button, .unread-jump-button) {
     right: 12px;
   }

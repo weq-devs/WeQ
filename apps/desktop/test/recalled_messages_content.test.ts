@@ -105,13 +105,14 @@ describe('撤回气泡与筛选的共用呈现', () => {
       f.dispose();
     }
   });
-  it('非设置来源仍为原独立浮窗，读取失败显示重试而不是空记录', () => {
+  it('会话侧栏读取失败时显示重试而不是空记录', () => {
     const f = mount(false, '合成读取失败');
     try {
-      expect(document.querySelector('[role="dialog"]')).not.toBeNull();
-      expect(document.querySelector('[role="alert"]')?.textContent).toContain('合成读取失败');
-      expect(document.body.textContent).not.toContain('没有被撤回的消息');
-      act(() => document.querySelector<HTMLButtonElement>('[role="alert"] button')!.click());
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      const panel = f.host.querySelector('aside[aria-label="已撤回消息"]')!;
+      expect(panel.querySelector('[role="alert"]')?.textContent).toContain('合成读取失败');
+      expect(panel.textContent).not.toContain('没有被撤回的消息');
+      act(() => panel.querySelector<HTMLButtonElement>('[role="alert"] button')!.click());
       expect(f.retry).toHaveBeenCalledOnce();
     } finally {
       f.dispose();

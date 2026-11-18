@@ -105,6 +105,8 @@ export function ChatMainContent({
   onForwardMessages,
   onViewDeleted,
   onViewRecalled,
+  messageRecords,
+  onCloseMessageRecords,
   onOpenGapMessages,
   onLoadSelectionMessages,
   onSearchChatRecords,
@@ -181,6 +183,8 @@ export function ChatMainContent({
   | 'onAddMessage'
   | 'onViewDeleted'
   | 'onViewRecalled'
+  | 'messageRecords'
+  | 'onCloseMessageRecords'
   | 'onOpenGapMessages'
   | 'onLoadSelectionMessages'
   | 'onSearchChatRecords'
@@ -372,6 +376,8 @@ export function ChatMainContent({
       onForwardMessages={onForwardMessages}
       onViewDeleted={onViewDeleted}
       onViewRecalled={onViewRecalled}
+      messageRecords={messageRecords}
+      onCloseMessageRecords={onCloseMessageRecords}
       onOpenGapMessages={onOpenGapMessages}
       onLoadSelectionMessages={onLoadSelectionMessages}
       onSearchChatRecords={onSearchChatRecords}

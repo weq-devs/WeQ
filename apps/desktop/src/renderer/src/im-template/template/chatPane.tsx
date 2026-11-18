@@ -658,6 +658,8 @@ export type ChatPaneProps = {
   onAddMessage?: (conversation: Conversation) => void;
   onViewDeleted?: (conversation: Conversation) => void;
   onViewRecalled?: (conversation: Conversation) => void;
+  messageRecords?: React.ReactNode;
+  onCloseMessageRecords?: () => void;
   /** 顶栏「搜索聊天记录」按钮：在当前会话内搜索并跳转。 */
   onSearchChatRecords?: (conversation: Conversation) => void;
   onOpenRoamingBackfill?: (conversation: Conversation) => void;
@@ -766,6 +768,8 @@ export function ChatPane({
   onAddMessage,
   onViewDeleted,
   onViewRecalled,
+  messageRecords,
+  onCloseMessageRecords,
   onOpenGapMessages,
   onLoadSelectionMessages,
   onSearchChatRecords,
@@ -858,14 +862,18 @@ export function ChatPane({
   const importantDockRef = useRef<HTMLDivElement>(null);
   const [importantMessagesVisited, setImportantMessagesVisited] = useState<string | null>(null);
   const importantMessagesActive =
-    importantMessagesOpen && importantMessagesVisited === conversation?.id;
+    tabActive && importantMessagesOpen && importantMessagesVisited === conversation?.id;
+  const messageHistoryActive = tabActive && (importantMessagesActive || Boolean(messageRecords));
   useEffect(() => {
     setImportantMessagesOpen(false);
     setImportantMessagesVisited(null);
   }, [conversation?.id]);
   useEffect(() => {
-    if (!tabActive) setImportantMessagesOpen(false);
-  }, [tabActive]);
+    if (!tabActive) {
+      setImportantMessagesOpen(false);
+      onCloseMessageRecords?.();
+    }
+  }, [tabActive, onCloseMessageRecords]);
   const groupInfoTriggerRef = useRef<HTMLButtonElement>(null);
   useEffect(() => setMobileGroupInfoOpen(false), [conversation?.id, tabActive]);
   useEffect(() => {
@@ -5897,14 +5905,14 @@ export function ChatPane({
       {...multi.rootProps}
       className={cn(
         'chat-pane',
-        importantMessagesActive && 'with-important-messages',
+        messageHistoryActive && 'with-message-history',
         !composerVisible && !selectionMode && 'without-composer',
         hasComposerExtensions && !selectionMode && 'has-composer-extensions',
         compactHeader && 'has-compact-header',
         conversation.type === 'group' ? 'with-group-info' : '',
         conversation.type === 'group' &&
           (groupInfoCollapsed || sidecarOpen) &&
-          !importantMessagesActive
+          !messageHistoryActive
           ? 'group-info-collapsed'
           : '',
         mobileGroupInfoOpen && 'is-mobile-group-info-open',
@@ -6041,13 +6049,30 @@ export function ChatPane({
                 conversation={conversation}
                 onRoaming={onOpenRoamingBackfill}
                 onAdd={onAddMessage}
-                onDeleted={onViewDeleted}
-                onRecalled={onViewRecalled}
+                onDeleted={
+                  onViewDeleted
+                    ? (target) => {
+                        setImportantMessagesOpen(false);
+                        setMobileGroupInfoOpen(false);
+                        onViewDeleted(target);
+                      }
+                    : undefined
+                }
+                onRecalled={
+                  onViewRecalled
+                    ? (target) => {
+                        setImportantMessagesOpen(false);
+                        setMobileGroupInfoOpen(false);
+                        onViewRecalled(target);
+                      }
+                    : undefined
+                }
                 compact={compactHeader}
                 onSearch={onSearchChatRecords ? () => onSearchChatRecords(conversation) : undefined}
                 onImportant={
                   conversation.type === 'group' && !restrictedSource
                     ? () => {
+                        onCloseMessageRecords?.();
                         setImportantMessagesVisited(conversation.id);
                         setImportantMessagesOpen(true);
                         setMobileGroupInfoOpen(false);
@@ -6059,8 +6084,9 @@ export function ChatPane({
                     ? (anchor) => {
                         groupInfoTriggerRef.current = anchor;
                         setImportantMessagesOpen(false);
+                        onCloseMessageRecords?.();
                         if (compactHeader) setMobileGroupInfoOpen((previous) => !previous);
-                        else if (importantMessagesActive) {
+                        else if (messageHistoryActive) {
                           setGroupInfoCollapsed(false);
                           saveGroupInfoCollapsed(false);
                         } else toggleGroupInfoCollapsed();
@@ -6555,6 +6581,7 @@ export function ChatPane({
               aria-expanded={importantMessagesActive}
               aria-controls="weq-important-messages"
               onClick={() => {
+                onCloseMessageRecords?.();
                 setImportantMessagesVisited(conversation.id);
                 setImportantMessagesOpen(true);
                 setMobileGroupInfoOpen(false);
@@ -6568,7 +6595,7 @@ export function ChatPane({
 
       {conversation.type === 'group' ? (
         <>
-          {!sidecarOpen && !importantMessagesActive ? (
+          {!sidecarOpen && !messageHistoryActive ? (
             <button
               className={cn('group-info-toggle')}
               type="button"
@@ -6593,7 +6620,7 @@ export function ChatPane({
               }}
             />
           ) : null}
-          {(!groupInfoCollapsed || mobileGroupInfoOpen) && !importantMessagesActive ? (
+          {(!groupInfoCollapsed || mobileGroupInfoOpen) && !messageHistoryActive ? (
             <GroupInfoPanel
               hidden={sidecarOpen}
               conversation={conversation}
@@ -6650,6 +6677,8 @@ export function ChatPane({
           navigationAnchor={importantDockRef.current}
         />
       ) : null}
+
+      {tabActive && !importantMessagesActive ? messageRecords : null}
 
       {/* 收纳输入区的把手 —— 与群资料栏同一个交互：贴在两个区域的交界线上，
           平时隐形，压上去（或键盘聚焦）才浮出来；收起来以后整条输入区从布局里

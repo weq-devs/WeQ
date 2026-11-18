@@ -1,33 +1,11 @@
-import { NumericText } from '../NumericText';
 import * as timeFormat from '@weq/time';
-/**
- * DeletedMessagesModal — the "删除列表": browse the messages WeQ deleted in one
- * conversation and bring any of them back.
- *
- * WeQ's delete mirrors QQ's own recall (40011/40012 → (1,1) in place), so the
- * deleted messages ALSO stay visible in the chat under a translucent overlay —
- * this panel is the centralized management view of the same set.
- *
- * 版式与「撤回列表」(RecalledMessagesModal) 统一：顶部工具栏 + 每条消息一张卡片，
- * 卡片之间以一条细分割线隔开。卡片头 = 删除来源 + 谁的的消息 + 发送时间 + 恢复，
- * 卡片体 = 原消息气泡（同聊天区的 MessageBubble + renderers）。
- *
- * 三处与聊天区不同：
- *   - 灰条系统通知（撤回 / 戳一戳 / 群提示…）被排除 —— 它们不是被删掉的消息；
- *   - 气泡右下角的「已删除 / QQ删除」徽标被抑制（hideDeletedBadge）—— 卡片头已经
- *     说明了状态，那枚徽标只是重复信息；
- *   - 每行多一个「恢复」按钮（删除来源为 QQ 的消息不可恢复，不显示）。
- *
- * 消息对象由调用方 (MainView) 经同一条 `messageToTemplate` 管线构建，所以
- * 发送者 / 头像 / 引用与聊天区一致。
- */
-
 import { useMemo, useState, type ReactElement } from 'react';
-import { LoadingIndicator } from '../LoadingIndicator';
-import { RotateCcw, Search, Trash2, X } from 'lucide-react';
-import { Modal } from '../Dialog';
+import { RefreshCw, RotateCcw, Search, Trash2 } from 'lucide-react';
+import { MessageHistorySurface } from '../MessageHistorySurface';
+import { MessageHistoryRow } from './MessageHistoryRow';
+import { NumericText } from '../NumericText';
+import { SegmentedControl } from '../SegmentedControl';
 import { ConvContext, ForwardKindContext } from '../../state/messageContext';
-import { cn } from '../../im-template/template/classNames';
 import { MessageBubble } from '../../im-template/template/messageBubble';
 import { grayTipOf } from '../../im-template/template/messageRow.shared';
 import { resolveMessageSender } from '../../im-template/template/conversationDisplay';
@@ -74,6 +52,8 @@ export function DeletedMessagesModal({
   messages,
   renderers,
   loading,
+  error,
+  onRetry,
   onRestore,
   onClose,
 }: {
@@ -83,6 +63,8 @@ export function DeletedMessagesModal({
   messages: Message[];
   renderers?: MessageRenderer[];
   loading: boolean;
+  error: string | null;
+  onRetry: () => void;
   /** Restore one message; resolves once the DB row is un-hidden. */
   onRestore: (msgId: string) => Promise<void>;
   onClose: () => void;
@@ -90,12 +72,12 @@ export function DeletedMessagesModal({
   const isGroup = conversation.type === 'group';
   const convKey = isGroup ? conversation.group.identityValue : '';
   const showSenderNames = conversation.type !== 'direct';
-  const subtitle = isGroup ? conversation.group?.name : conversation.otherUser?.displayName;
 
   // Optimistically drop a row the instant its restore resolves, so the panel
   // feels live even before the parent refetches.
   const [restoredIds, setRestoredIds] = useState<Set<string>>(new Set());
   const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [restoreError, setRestoreError] = useState('');
 
   const [kindFilter, setKindFilter] = useState<string>(ALL);
   const [senderFilter, setSenderFilter] = useState<string>(ALL);
@@ -157,179 +139,157 @@ export function DeletedMessagesModal({
   async function restore(message: Message): Promise<void> {
     if (restoringId) return;
     setRestoringId(message.id);
+    setRestoreError('');
     try {
       await onRestore(message.id);
       setRestoredIds((prev) => new Set(prev).add(message.id));
-    } catch {
-      /* leave the row in place on failure; parent surfaces the error */
+    } catch (reason) {
+      setRestoreError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       setRestoringId(null);
     }
   }
 
+  const filters = (
+    <div className="weq-msglist-toolbar">
+      <label className="weq-msglist-field">
+        <span className="weq-msglist-field-label">删除来源</span>
+        <SegmentedControl
+          label="删除来源"
+          value={kindFilter}
+          onChange={setKindFilter}
+          options={[
+            { value: ALL, label: '全部' },
+            { value: 'weq', label: 'WeQ 删除', title: 'WeQ 删除可恢复' },
+            { value: 'qq', label: 'QQ 删除', title: 'QQ 删除不可恢复' },
+          ]}
+        />
+      </label>
+
+      <label className="weq-msglist-field">
+        <span className="weq-msglist-field-label">删除的谁的消息</span>
+        <select
+          className="weq-msglist-select"
+          value={senderFilter}
+          onChange={(event) => setSenderFilter(event.target.value)}
+          title="只看某个人的消息被删除的记录"
+        >
+          <option value={ALL}>全部</option>
+          {senderOptions.map(([key, label]) => (
+            <option key={key} value={key}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <div className="weq-msglist-search">
+        <Search size={14} />
+        <input
+          className="weq-msglist-search-input"
+          type="search"
+          aria-label="搜索消息内容"
+          value={query}
+          placeholder="搜索消息内容…"
+          onChange={(event) => setQuery(event.target.value)}
+        />
+      </div>
+
+      {filtering ? (
+        <button type="button" className="weq-msglist-reset" onClick={resetFilters}>
+          清除筛选
+        </button>
+      ) : null}
+
+      <span className="weq-msglist-count">
+        {filtering ? (
+          <NumericText>{`${filtered.length} / ${rows.length} 条`}</NumericText>
+        ) : (
+          <NumericText>{`共 ${rows.length} 条`}</NumericText>
+        )}
+      </span>
+    </div>
+  );
+
   return (
-    <Modal presentation="floating" onClose={onClose} width={560} labelledBy="weq-deleted-title">
-      <div className="weq-deleted">
-        <header className="weq-compose-head" data-window-drag-handle>
-          <div className="weq-compose-titlewrap">
-            <strong id="weq-deleted-title" className="weq-compose-title">
-              删除列表
-            </strong>
-            <span className="weq-compose-sub">{subtitle}</span>
-          </div>
-          <button type="button" className="weq-compose-x" onClick={onClose} title="关闭">
-            <X size={17} />
+    <MessageHistorySurface
+      id="weq-deleted-messages"
+      title="已删除消息"
+      onClose={onClose}
+      filters={filters}
+      filtered={filtering}
+    >
+      {restoreError ? <p role="alert">恢复失败：{restoreError}</p> : null}
+      {error ? (
+        <p role="alert">
+          {error}
+          <button className="weq-set-btn weq-retry-button" type="button" onClick={onRetry}>
+            <RefreshCw size={14} aria-hidden />
+            重试读取
           </button>
-        </header>
-
-        {/* 筛选 + 搜索：删除来源 / 被删除者两个下拉，外加消息正文搜索。 */}
-        <div className="weq-msglist-toolbar">
-          <label className="weq-msglist-field">
-            <span className="weq-msglist-field-label">删除来源</span>
-            <SegmentedControl
-              label="删除来源"
-              value={kindFilter}
-              onChange={setKindFilter}
-              options={[
-                { value: ALL, label: '全部' },
-                { value: 'weq', label: 'WeQ 删除', title: 'WeQ 删除可恢复' },
-                { value: 'qq', label: 'QQ 删除', title: 'QQ 删除不可恢复' },
-              ]}
-            />
-          </label>
-
-          <label className="weq-msglist-field">
-            <span className="weq-msglist-field-label">删除的谁的消息</span>
-            <select
-              className="weq-msglist-select"
-              value={senderFilter}
-              onChange={(event) => setSenderFilter(event.target.value)}
-              title="只看某个人的消息被删除的记录"
-            >
-              <option value={ALL}>全部</option>
-              {senderOptions.map(([key, label]) => (
-                <option key={key} value={key}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <div className="weq-msglist-search">
-            <Search size={14} />
-            <input
-              className="weq-msglist-search-input"
-              type="search"
-              value={query}
-              placeholder="搜索消息内容…"
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
-
+        </p>
+      ) : null}
+      {loading && !rows.length ? (
+        <p role="status">正在读取已删除消息…</p>
+      ) : !filtered.length && !error ? (
+        <p role="status">
+          {filtering ? '没有符合条件的消息' : '没有已删除的消息'}
           {filtering ? (
             <button type="button" className="weq-msglist-reset" onClick={resetFilters}>
-              重置
+              清除筛选
             </button>
           ) : null}
-
-          <span className="weq-msglist-count">
-            {filtering ? (
-              <NumericText>{`${filtered.length} / ${rows.length} 条`}</NumericText>
-            ) : (
-              <NumericText>{`共 ${rows.length} 条`}</NumericText>
-            )}
-          </span>
-        </div>
-
+        </p>
+      ) : filtered.length ? (
         <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
           <ConvContext.Provider value={convKey}>
-            <div className={cn('message-scroll', 'weq-deleted-scroll')}>
-              {loading ? (
-                <div className="weq-deleted-empty" role="status">
-                  <LoadingIndicator />
-                </div>
-              ) : rows.length === 0 ? (
-                <div className="weq-deleted-empty">
-                  <Trash2 size={26} />
-                  <span>没有已删除的消息</span>
-                  <small>
-                    在聊天里右键消息「删除」后，消息会以半透明样式留在原位，也会出现在这里，可随时恢复。对方撤回
-                    / 在其他设备删除的消息也会出现在这里（标记为「QQ删除」，无法恢复）。
-                  </small>
-                </div>
-              ) : filtered.length === 0 ? (
-                <div className="weq-deleted-empty">
-                  <Search size={26} />
-                  <span>没有符合条件的消息</span>
-                  <button type="button" className="weq-msglist-reset" onClick={resetFilters}>
-                    清除筛选
-                  </button>
-                </div>
-              ) : (
-                <div className="weq-msglist-list">
-                  {filtered.map((row) => (
-                    <article
-                      key={row.message.id}
-                      className={cn('weq-msglist-item', row.mine && 'is-mine')}
-                    >
-                      <div className="weq-msglist-meta">
-                        <span
-                          className={cn('weq-msglist-kind', row.kind === 'qq' && 'is-qq')}
-                          title={
-                            row.restorable ? 'WeQ 删除，可随时恢复' : 'QQ 本体删除/撤回，无法恢复'
-                          }
-                        >
-                          {row.restorable ? 'WeQ删除' : 'QQ删除'}
-                        </span>
-                        <span className="weq-msglist-line">{row.senderLabel} 的消息</span>
-                        {row.when ? (
-                          <time className="weq-msglist-time" title="消息发送时间">
-                            {row.when}
-                          </time>
-                        ) : null}
-                        {row.restorable ? (
-                          <button
-                            type="button"
-                            className="weq-msglist-restore"
-                            title="恢复这条消息"
-                            disabled={restoringId === row.message.id}
-                            onClick={() => void restore(row.message)}
-                          >
-                            <RotateCcw size={13} />
-                            <span>{restoringId === row.message.id ? '恢复中…' : '恢复'}</span>
-                          </button>
-                        ) : null}
-                      </div>
-                      <div className="weq-deleted-bubble">
-                        <MessageBubble
-                          message={row.message}
-                          conversation={conversation}
-                          sender={row.sender}
-                          mine={row.mine}
-                          senderName={displayUserName(row.sender)}
-                          senderAvatarUrl={row.sender.avatarUrl}
-                          senderSeed={row.sender.identityValue}
-                          senderKind={row.sender.kind}
-                          showSenderName={showSenderNames}
-                          active={false}
-                          renderers={renderers}
-                          deletedKind={row.kind}
-                          // 卡片头的「WeQ删除 / QQ删除」徽标已把这层含义讲清楚，
-                          // 气泡右下角那枚小标签是重复信息，去掉。
-                          hideDeletedBadge
-                          onContextMenu={noop}
-                          onLongPress={noop}
-                        />
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </div>
+            <ul aria-label="已删除消息列表">
+              {filtered.map((row) => (
+                <MessageHistoryRow
+                  key={row.message.id}
+                  icon={<Trash2 size={14} />}
+                  label={`${row.restorable ? 'WeQ 删除' : 'QQ 删除'} · ${row.senderLabel}`}
+                  time={row.when}
+                  summary={row.message.body}
+                  action={
+                    row.restorable ? (
+                      <button
+                        type="button"
+                        className="icon-button"
+                        title="恢复这条消息"
+                        aria-label="恢复这条消息"
+                        aria-busy={restoringId === row.message.id}
+                        disabled={restoringId !== null}
+                        onClick={() => void restore(row.message)}
+                      >
+                        <RotateCcw size={14} aria-hidden />
+                      </button>
+                    ) : undefined
+                  }
+                >
+                  <MessageBubble
+                    message={row.message}
+                    conversation={conversation}
+                    sender={row.sender}
+                    mine={row.mine}
+                    senderName={displayUserName(row.sender)}
+                    senderAvatarUrl={row.sender.avatarUrl}
+                    senderSeed={row.sender.identityValue}
+                    senderKind={row.sender.kind}
+                    showSenderName={showSenderNames}
+                    active={false}
+                    renderers={renderers}
+                    deletedKind={row.kind}
+                    hideDeletedBadge
+                    onContextMenu={noop}
+                    onLongPress={noop}
+                  />
+                </MessageHistoryRow>
+              ))}
+            </ul>
           </ConvContext.Provider>
         </ForwardKindContext.Provider>
-      </div>
-    </Modal>
+      ) : null}
+    </MessageHistorySurface>
   );
 }
-import { SegmentedControl } from '../SegmentedControl';

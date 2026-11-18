@@ -2,7 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Conversation } from '../src/renderer/src/im-template/template/types';
-import { useRecalledMessages } from '../src/renderer/src/hooks/useRecalledMessages';
+import { useConversationMessageRecords } from '../src/renderer/src/hooks/useConversationMessageRecords';
 import { useAppLock } from '../src/renderer/src/state/lock';
 
 const conversation = { id: 'u_fixture', type: 'direct' } as Conversation;
@@ -27,9 +27,9 @@ function fixture() {
   const root = createRoot(host);
   const source = { current: 'same-qq:source-a' };
   const load = vi.fn<(conv: Conversation) => Promise<string[]>>();
-  let api!: ReturnType<typeof useRecalledMessages<string>>;
+  let api!: ReturnType<typeof useConversationMessageRecords<string>>;
   function View({ scope }: { scope: string }) {
-    api = useRecalledMessages(scope, source, load);
+    api = useConversationMessageRecords(scope, source, load);
     return h('div', null, api.rows.join(','));
   }
   const render = () => act(() => root.render(h(View, { scope: source.current })));
