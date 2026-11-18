@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 const calls: string[] = [];
 const preferences = { epoch: 'fixture', revision: 0, values: {}, records: {} };
 let groupName = '原来的群名称';
+let clueRead = false;
 Object.assign(window, { groupCardCalls: calls });
 const row = (n: number) => ({
   uid: `u_member${n}`,
@@ -24,6 +25,18 @@ async function reply(path: string, input) {
     return structuredClone(preferences);
   }
   if (path === 'account.getAccountConfig') return { uin: '99999', configId: 'fixture' };
+  if (path === 'account.contactMetrics.groupFriendSources')
+    return {
+      friendUids: ['u_member108', 'u_member109'],
+      addedUids: ['u_member108'],
+      pendingUids: clueRead ? [] : ['u_member109'],
+      rosterComplete: true,
+      unknown: clueRead ? 1 : 0,
+    };
+  if (path === 'account.qqWrite.friendClue') {
+    clueRead = true;
+    return { uid: input.uid, source: '通过群聊', sourceGroupCode: null };
+  }
   if (path === 'bootstrap.getSettings') return {};
   if (path === 'account.getGroupAlbumAccessState')
     return {

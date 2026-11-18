@@ -82,9 +82,9 @@ try {
   );
   assert.deepEqual(
     (await page.locator('.weq-group-quick-card .weq-profile-data-label').allTextContents()).slice(
-      -3,
+      -4,
     ),
-    ['群容量', '群成员数', '群内好友数'],
+    ['群容量', '群成员数', '群内好友数', '在本群添加的好友数'],
   );
   const cardActions = page.locator('.weq-group-quick-card .weq-profile-card-actions');
   assert.equal(await cardActions.locator('button.weq-contact-secondary').count(), 2);

@@ -15,6 +15,7 @@ import { GroupCardMemberList } from './GroupCardMemberList';
 import { groupJoinedDate } from '../../lib/groupProfileRows';
 import { ContactFieldHistoryButton } from '../contactProfile/ContactFieldHistory';
 import { useTabActive } from '../RetainedTabs.shared';
+import { useGroupFriendSources } from '../../hooks/useGroupFriendSources';
 import { GroupProfileAvatarEditor } from './GroupProfileAvatarEditor';
 import '../../styles/group-quick-card.css';
 
@@ -199,7 +200,7 @@ export function GroupCardContent({
           ) : null}
         </ContactSection>
       ) : null}
-      <ContactSection title="成员">
+      <ContactSection title="成员" anchor="members">
         <ContactRow
           label="群容量"
           value={
@@ -209,7 +210,7 @@ export function GroupCardContent({
         <ContactRow label="群成员数">
           <button
             type="button"
-            className="weq-contact-value"
+            className="weq-profile-data-action"
             aria-label="查看群成员列表"
             title="群成员列表"
             onClick={(event) =>
@@ -225,7 +226,7 @@ export function GroupCardContent({
           <ContactRow label="群内好友数">
             <button
               type="button"
-              className="weq-contact-value"
+              className="weq-profile-data-action"
               aria-label="查看群内好友列表"
               title="群内好友列表"
               onClick={(event) => setList({ kind: 'friends', anchor: event.currentTarget })}
@@ -233,6 +234,13 @@ export function GroupCardContent({
               {friendCount === null ? '群内好友' : <NumericText>{`${friendCount} 人`}</NumericText>}
             </button>
           </ContactRow>
+        ) : null}
+        {!generated ? (
+          <GroupCardAddedFriends
+            conversation={conversation}
+            ownerUid={ownerUid}
+            onOpenMember={onOpenMember}
+          />
         ) : null}
       </ContactSection>
       {list ? (
@@ -247,6 +255,47 @@ export function GroupCardContent({
         />
       ) : null}
     </div>
+  );
+}
+
+function GroupCardAddedFriends({
+  conversation,
+  ownerUid,
+  onOpenMember,
+}: Pick<Parameters<typeof GroupCardContent>[0], 'conversation' | 'ownerUid' | 'onOpenMember'>) {
+  const sources = useGroupFriendSources(conversation.id);
+  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  const { scope } = sources;
+  useEffect(() => setAnchor(null), [scope]);
+  const value = sources.settled ? `${sources.text} 人` : sources.text;
+  return (
+    <ContactRow label="在本群添加的好友数">
+      <button
+        type="button"
+        className="weq-profile-data-action"
+        disabled={sources.disabled}
+        aria-label={`在本群添加的好友数：${value}`}
+        title={sources.reason ?? (sources.settled ? '在本群添加的好友列表' : undefined)}
+        onClick={(event) => {
+          const button = event.currentTarget;
+          sources.activate(() => setAnchor(button));
+        }}
+      >
+        <NumericText>{value}</NumericText>
+      </button>
+      {anchor && sources.data ? (
+        <GroupCardMemberList
+          key={scope}
+          conversation={conversation}
+          ownerUid={ownerUid}
+          kind="addedFriends"
+          includedUids={new Set(sources.data.addedUids)}
+          anchor={anchor}
+          onClose={() => setAnchor(null)}
+          onOpenMember={onOpenMember}
+        />
+      ) : null}
+    </ContactRow>
   );
 }
 

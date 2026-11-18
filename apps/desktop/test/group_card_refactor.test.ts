@@ -25,6 +25,9 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
   useQQWriteSession: () => ({ available: false, binding: null, busy: false, result: null }),
 }));
 vi.mock('../src/renderer/src/hooks/useGroupProfile', () => ({ useGroupProfile: mock.profile }));
+vi.mock('../src/renderer/src/hooks/useGroupFriendSources', () => ({
+  useGroupFriendSources: () => ({ scope: '', text: '读取中…', disabled: true }),
+}));
 vi.mock('../src/renderer/src/components/groupProfile/GroupWorkspace', () => ({
   GroupWorkspace: () => h('div', null, '完整资料页'),
 }));
@@ -132,7 +135,7 @@ it('名片首屏保留本地身份，公告／入群问题／扩展指标不进�
   expect(
     host.querySelector('.weq-profile-identity-remark .weq-profile-data-value')?.textContent,
   ).toBe('我的备注');
-  // 好友数走共用数据行（label 96px + 值列），真实零值保留。
+  // 好友数走共用数据行，真实零值保留。
   const friendRow = [...host.querySelectorAll('.weq-profile-data-row')].find(
     (row) => row.querySelector('.weq-profile-data-label')?.textContent === '群内好友数',
   )!;
@@ -150,7 +153,7 @@ it('名片首屏保留本地身份，公告／入群问题／扩展指标不进�
   const labels = [...host.querySelectorAll('.weq-profile-data-label')].map(
     (node) => node.textContent,
   );
-  expect(labels.slice(-3)).toEqual(['群容量', '群成员数', '群内好友数']);
+  expect(labels.slice(-4)).toEqual(['群容量', '群成员数', '群内好友数', '在本群添加的好友数']);
   act(() => (host.querySelector('[aria-label="查看群成员列表"]') as HTMLButtonElement).click());
   act(() => (host.querySelector('[aria-label="群成员"] button') as HTMLButtonElement).click());
   expect(host.querySelectorAll('[role="dialog"]')).toHaveLength(3);
