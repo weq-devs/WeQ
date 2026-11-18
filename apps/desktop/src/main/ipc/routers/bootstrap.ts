@@ -15,7 +15,11 @@
 import { OperationError, developmentDressToolsEnabled } from '@weq/service';
 
 import { observable } from '@trpc/server/observable';
-import { consumeNotificationClick, notificationClickEvents } from '../../notification_click_bus';
+import {
+  consumeNotificationClick,
+  notificationClickEvents,
+  pushNotificationClick,
+} from '../../notification_click_bus';
 import { reconcileLocalModelResources } from '../../context/local_model_resources';
 import { z } from 'zod';
 import { assertAccountBinding, optionalAccountBinding } from '../account_binding';
@@ -23,6 +27,15 @@ import { normalizeContactCard } from '@weq/service/contact-card';
 import { MAX_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
 import { MAX_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES } from '@weq/service/qzone-public-settings';
 import { isToastDuration } from '@weq/service/toast-settings';
+import {
+  notificationEventPatch,
+  notificationEventUpdateInput,
+} from '../../../shared/notification_method';
+import {
+  NOTIFICATION_EVENTS,
+  normalizeNotificationEvents,
+  type NotificationEvent,
+} from '@weq/service/notification-settings';
 import {
   copyExportSavePolicy,
   resolveExportSaveDirectory,
@@ -858,7 +871,10 @@ export const bootstrapRouter = router({
   setRestrictedModeBannerEnabled: procedure
     .input(z.object({ enabled: z.boolean() }).strict())
     .mutation(({ input }) => {
-      requireBootstrap().userConfig.setSettings({ restrictedModeBannerEnabled: input.enabled });
+      requireBootstrap().userConfig.setSettings({
+        restrictedModeBannerEnabled: input.enabled,
+        notificationEvents: { runtime: { banner: input.enabled } },
+      });
       return true;
     }),
 
@@ -945,6 +961,69 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  resetNotificationEvents: procedure.mutation(() => {
+    const config = requireBootstrap().userConfig;
+    const next = normalizeNotificationEvents(undefined);
+    config.setSettings({
+      notificationEvents: next,
+      restrictedModeBannerEnabled: next.runtime.banner,
+      suppressDbDamageReminder: false,
+    });
+    config.patchSharedPreference('mail', { mailNotifications: true });
+    config.patchSharedPreference('antiRecall', { notifyEnabled: false });
+    const services = getAppContext().services;
+    void services?.mail.setNotifications(true).catch(() => {});
+    services?.antiRecall.setNotify({ enabled: false });
+    return next;
+  }),
+
+  setNotificationEvents: procedure.input(notificationEventUpdateInput).mutation(({ input }) => {
+    const config = requireBootstrap().userConfig;
+    const current = config.getSettings().notificationEvents;
+    const patch = notificationEventPatch(current, input);
+    const next = config.setSettings({ notificationEvents: patch }).notificationEvents;
+    const services = getAppContext().services;
+    if (input.events.includes('mail')) {
+      const enabled = next.mail.banner || next.mail.system;
+      config.patchSharedPreference('mail', { mailNotifications: enabled });
+      void services?.mail.setNotifications(enabled).catch(() => {});
+    }
+    if (input.events.includes('recall')) {
+      const enabled = next.recall.banner || next.recall.system;
+      if (services) services.antiRecall.setNotify({ enabled });
+      else config.patchSharedPreference('antiRecall', { notifyEnabled: enabled });
+    }
+    if (input.events.includes('runtime'))
+      config.setSettings({ restrictedModeBannerEnabled: next.runtime.banner });
+    if (input.events.includes('databaseDamage'))
+      config.setSettings({
+        suppressDbDamageReminder: !next.databaseDamage.banner && !next.databaseDamage.system,
+      });
+    return next;
+  }),
+
+  notifyConfiguredEvent: procedure
+    .input(
+      z.object({
+        event: z.custom<NotificationEvent>(
+          (value) =>
+            typeof value === 'string' && NOTIFICATION_EVENTS.includes(value as NotificationEvent),
+        ),
+        title: z.string().max(512),
+        body: z.string().max(2048),
+        clickId: z.string().uuid().optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      if (!requireBootstrap().userConfig.getSettings().notificationEvents[input.event].system)
+        return false;
+      return (
+        getHost().showMessageNotification?.({ title: input.title, body: input.body }, () => {
+          if (input.clickId) pushNotificationClick(input.clickId);
+        }) ?? false
+      );
+    }),
+
   consumeNotificationClick: procedure.mutation(() => consumeNotificationClick()),
   onNotificationClick: procedure.subscription(() =>
     observable<{ pending: true }>((emit) => {
@@ -1018,11 +1097,19 @@ export const bootstrapRouter = router({
         .qqShowCacheMinutes;
     }),
 
-  /** 数据库损坏弹窗「不再提醒」开关（全局配置，重启后仍生效）。 */
+  /** 兼容旧客户端的「不再提醒」，新客户端使用数据库异常事件的双渠道设置。 */
   setSuppressDbDamageReminder: procedure
     .input(z.object({ suppressed: z.boolean() }))
     .mutation(({ input }) => {
-      requireBootstrap().userConfig.setSettings({ suppressDbDamageReminder: input.suppressed });
+      requireBootstrap().userConfig.setSettings({
+        suppressDbDamageReminder: input.suppressed,
+        notificationEvents: {
+          databaseDamage: {
+            banner: !input.suppressed,
+            ...(input.suppressed ? { system: false } : {}),
+          },
+        },
+      });
       return true;
     }),
 

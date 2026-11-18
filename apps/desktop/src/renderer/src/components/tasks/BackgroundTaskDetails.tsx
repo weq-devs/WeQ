@@ -13,6 +13,7 @@ import { client, trpc } from '../../trpc/client';
 import { localBackgroundTasks } from '../../state/backgroundTasks';
 import { removeBackgroundTask, type BackgroundTaskEntry } from '../../hooks/useBackgroundTasks';
 import type { BackgroundTaskScope } from '../../../../shared/background_task';
+import { backgroundTaskDisplay } from '../../../../shared/background_task';
 import { IS_WEB } from '../../lib/target.shared';
 import { useDialog } from '../Dialog.shared';
 import type { TaskLogLine } from '../TaskLogConsole';
@@ -22,6 +23,7 @@ import { backgroundTaskNavigation } from './backgroundTaskNavigation';
 import { TaskActivityLog } from './TaskActivityLog';
 import { TaskProgressDetails } from './TaskProgressDetails';
 import { DatabaseMaintenanceProgress } from '../DatabaseMaintenanceProgress';
+import { usePageDataCache } from '../PageSnapshots.shared';
 import '../../styles/export.css';
 import '../../styles/conversation-overview-calendar.css';
 import '../../styles/contact-directory-order.css';
@@ -72,6 +74,8 @@ function TaskDetails({
   refresh: () => Promise<unknown>;
 }) {
   const { task } = entry;
+  const cache = usePageDataCache();
+  const cacheKey = JSON.stringify(['background-task', task.id, scope]);
   const maintenance = trpc.dbRepair.maintenance.useQuery(
     { uin: task.scope?.uin ?? '', configId: task.scope?.configId },
     { enabled: task.destination === 'db-checkup' && !!task.scope?.uin, refetchInterval: 2000 },
@@ -82,7 +86,11 @@ function TaskDetails({
     {
       enabled: entry.source === 'host' && task.kind !== 'contacts',
       cacheTime: 0,
+      staleTime: 0,
+      refetchOnMount: 'always',
       keepPreviousData: true,
+      placeholderData: () => cache.read<string[]>(`${cacheKey}:details`),
+      onSuccess: (data) => cache.write(`${cacheKey}:details`, data),
     },
   );
   const details = entry.source === 'host' ? hostDetails.data : task.details;
@@ -91,7 +99,11 @@ function TaskDetails({
     {
       enabled: entry.source === 'host' && task.kind !== 'calendar' && !task.databaseProgress,
       cacheTime: 0,
+      staleTime: 0,
+      refetchOnMount: 'always',
       keepPreviousData: true,
+      placeholderData: () => cache.read<TaskLogLine[]>(`${cacheKey}:logs`),
+      onSuccess: (data) => cache.write(`${cacheKey}:logs`, data),
     },
   );
   const retainedLogs = useRef(taskLogs.data);
@@ -133,6 +145,7 @@ function TaskDetails({
       ) : (
         <TaskProgressDetails
           name={task.name}
+          display={backgroundTaskDisplay(task)}
           status={task.status}
           statusLabel={task.statusLabel}
           progress={task.progress}

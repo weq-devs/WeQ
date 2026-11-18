@@ -141,6 +141,7 @@ export function applyDataSaverStatus(status: DataSaverStatus) {
           : '系统网络状态变化';
     useToast.getState().push({
       key: 'data-saver-mode',
+      event: 'dataSaver',
       tone: 'info',
       title: status.enabled ? '已自动进入省流量模式' : '已自动退出省流量模式',
       detail: reason,

@@ -11,10 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { canExportAnalyticsCard, exportAnalyticsCard } from './analyticsShot';
 import { useToastApi } from './Toast.shared';
-import {
-  taskNotificationSource,
-  savedFileNotificationSource,
-} from '../lib/notificationNavigation.shared';
+import { savedFileNotificationSource } from '../lib/notificationNavigation.shared';
 import type { AnalyticsExportPayload } from '../../../shared/analytics_export';
 import { client } from '../trpc/client';
 import { useViewState } from '../state/view';
@@ -74,13 +71,8 @@ export function useAnalyticsExport(opts: {
         )
           return;
         const toast = notificationToast;
-        if (result.taskId) {
-          toast.push({
-            tone: 'info',
-            title: '长图导出任务已创建',
-            source: taskNotificationSource(result.taskId),
-          });
-        } else if (result.saved) {
+        if (result.taskId) return;
+        if (result.saved) {
           toast.push({
             tone: 'success',
             title: '长图已保存',

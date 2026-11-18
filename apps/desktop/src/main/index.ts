@@ -751,7 +751,7 @@ function createWindow(
               detail:
                 '放弃本次扫描结果并关闭窗口，将停止检查、释放全部目标数据库的维护锁。历史报告继续保留。',
               buttons: ['继续维护', '放弃并关闭'],
-              defaultId: 0,
+              defaultId: 1,
               cancelId: 0,
               noLink: true,
             })
@@ -1021,7 +1021,7 @@ void app.whenReady().then(async () => {
           title: '存在未保存的更改',
           message: '放弃此窗口中未保存的更改？',
           buttons: ['继续编辑', '放弃更改'],
-          defaultId: 0,
+          defaultId: 1,
           cancelId: 0,
           noLink: true,
         }) === 1,
@@ -1078,7 +1078,10 @@ void app.whenReady().then(async () => {
   // dot. Deferred so it never competes with first paint; failures are ignored.
   startAutomaticUpdateChecks();
 
-  app.on('activate', openMainWindow);
+  app.on('activate', (_event, hasVisibleWindows) => {
+    // 已有可见窗口时由 macOS 恢复窗口顺序，不让主窗口盖过工具窗口。
+    if (!hasVisibleWindows) openMainWindow();
+  });
 });
 
 app.on('window-all-closed', () => {
@@ -1099,7 +1102,7 @@ guardDatabaseMaintenanceQuit(app, {
       detail:
         '停止尚未提交的临时重建，不再启动后续数据库；已经修复成功的库保持不变，并保留本轮报告。',
       buttons: ['继续修复', '停止修复并退出'],
-      defaultId: 0,
+      defaultId: 1,
       cancelId: 0,
       noLink: true,
     };

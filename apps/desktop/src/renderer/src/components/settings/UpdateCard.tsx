@@ -65,11 +65,7 @@ export function UpdateCard(): ReactElement {
     phase === 'installing';
   const pct = progress ? Math.round(progress.percent) : 0;
 
-  const label = hasNew
-    ? `发现新版本 v${latest}`
-    : phase === 'uptodate'
-      ? '已是最新版本'
-      : '软件更新';
+  const label = hasNew ? '有可用更新' : phase === 'uptodate' ? '已是最新版本' : null;
 
   return (
     <Card title="软件更新" icon={<Download size={15} strokeWidth={1.8} />}>
@@ -119,15 +115,17 @@ export function UpdateCard(): ReactElement {
       />
       <div className="weq-set-row">
         <div className="weq-set-row-main">
-          <span
-            className="weq-set-row-label"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
-          >
-            {phase === 'uptodate' ? (
-              <CheckCircle2 size={14} strokeWidth={2} aria-hidden style={{ flexShrink: 0 }} />
-            ) : null}
-            {label}
-          </span>
+          {label ? (
+            <span
+              className="weq-set-row-label"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+            >
+              {phase === 'uptodate' ? (
+                <CheckCircle2 size={14} strokeWidth={2} aria-hidden style={{ flexShrink: 0 }} />
+              ) : null}
+              {label}
+            </span>
+          ) : null}
           <span className="weq-set-row-desc weq-number">
             当前 v{current || '—'}
             {isDev ? '（开发版）' : ''}
@@ -157,7 +155,7 @@ export function UpdateCard(): ReactElement {
           ) : phase === 'downloading' ? (
             <button type="button" className="weq-set-btn weq-set-btn-primary" disabled>
               <Loader2 size={14} strokeWidth={2} className="weq-spin" aria-hidden />
-              下载中 <span className="weq-number weq-number-inherit">{pct}</span>%
+              下载中…
             </button>
           ) : phase === 'available' ? (
             <button
@@ -228,7 +226,7 @@ export function UpdateCard(): ReactElement {
           )}
           <span>
             已自动选择加速站 <b>{mirrorName}</b>
-            {phase === 'downloading' ? ' · 正在下载' : '（已测速）'}
+            {phase !== 'downloading' ? '（已测速）' : null}
           </span>
         </div>
       ) : null}

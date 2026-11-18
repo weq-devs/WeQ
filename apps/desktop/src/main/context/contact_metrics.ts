@@ -646,6 +646,15 @@ export class ContactDirectoryRuntime {
             ? '补齐好友/群信息缓存'
             : '更新好友/群信息缓存',
       kind: 'contacts',
+      display: {
+        action:
+          target === 'groupMembers'
+            ? '更新群成员名单'
+            : missingOnly
+              ? '补齐联系人信息'
+              : '更新联系人信息',
+        context: target === 'groupMembers' ? '全部群聊' : '好友资料、群资料',
+      },
       scope: this.scope,
       statusLabel: '本地资料',
       progress: 0,

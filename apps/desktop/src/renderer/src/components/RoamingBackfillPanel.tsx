@@ -748,8 +748,6 @@ export function RoamingBackfillPanel({
                     <dl className="weq-roaming-stats">
                       {(
                         [
-                          ['候选 seq', job.plannedSeqs],
-                          ['已覆盖', covered],
                           ['仍未确认', job.remainingSeqs],
                           ['尚待检查', job.pendingSeqs],
                           ['在线请求', job.requests],

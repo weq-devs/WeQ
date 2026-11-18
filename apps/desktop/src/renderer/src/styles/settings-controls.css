@@ -67,22 +67,16 @@ html[data-theme] .weq-settings-dialog .weq-settings-appearance-head span {
 }
 
 .weq-set-toggle.is-mixed .weq-set-toggle-track {
-  background: color-mix(in srgb, var(--weq-accent-effective) 28%, var(--weq-bg-surface));
+  background-image: linear-gradient(to right, var(--weq-accent-effective) 50%, transparent 50%);
   outline: 1px solid var(--weq-border-strong);
   outline-offset: -1px;
 }
 
 .weq-set-toggle.is-mixed .weq-set-toggle-knob {
-  display: grid;
-  place-items: center;
   transform: translateX(9px);
   background: var(--weq-bg-elevated);
   color: var(--weq-fg-primary);
   box-shadow: var(--weq-shadow-soft);
-}
-
-html[data-theme='dark'] .weq-set-toggle.is-mixed .weq-set-toggle-track {
-  background: color-mix(in srgb, var(--weq-accent-effective) 36%, var(--weq-bg-elevated));
 }
 
 @media (prefers-reduced-motion: reduce) {

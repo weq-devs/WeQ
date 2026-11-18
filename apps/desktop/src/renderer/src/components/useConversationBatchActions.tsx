@@ -104,11 +104,11 @@ export function useConversationBatchActions(conversations: Conversation[]) {
       setPending({
         label:
           action === 'export'
-            ? '导出'
+            ? '导出聊天记录'
             : action === 'delete'
               ? '永久删除'
               : action === 'roster'
-                ? '导出群名单'
+                ? '导出群成员名单'
                 : action === 'roaming'
                   ? '拉取漫游消息'
                   : action === 'unread'
@@ -158,12 +158,17 @@ export function useConversationBatchActions(conversations: Conversation[]) {
           </NumericText>
         </p>
         <div>
-          <button type="button" onClick={() => setPending(null)}>
+          <button
+            type="button"
+            data-weq-dialog-confirm={!pending.supported || undefined}
+            onClick={() => setPending(null)}
+          >
             {pending.supported ? '取消' : '知道了'}
           </button>
           {pending.supported ? (
             <button
               type="button"
+              data-weq-dialog-confirm
               onClick={() => {
                 setPending(null);
                 pending.run();

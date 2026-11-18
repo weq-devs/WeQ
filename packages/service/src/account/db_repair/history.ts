@@ -125,20 +125,21 @@ export class DbRepairHistory {
     const withBackup = this.list().filter(
       (record) => record.backupPath !== null && record.purgedAt === undefined,
     );
+    // 同一次维护的重试记录可以共用备份；保留份数按文件而不是报告数计算。
+    const backupPaths = [...new Set(withBackup.map((record) => record.backupPath!))];
 
     const purged: string[] = [];
-    for (const record of withBackup.slice(keep)) {
-      const backupPath = record.backupPath;
-      if (backupPath) removeDirQuietly(dirname(backupPath));
-      if (backupPath && existsSync(backupPath)) continue;
-      const index = this.store.data.records.findIndex((item) => item.id === record.id);
-      if (index >= 0) {
+    for (const backupPath of backupPaths.slice(keep)) {
+      removeDirQuietly(dirname(backupPath));
+      if (existsSync(backupPath)) continue;
+      for (const record of withBackup.filter((item) => item.backupPath === backupPath)) {
+        const index = this.store.data.records.findIndex((item) => item.id === record.id);
         this.store.data.records[index] = {
-          ...this.store.data.records[index]!,
+          ...record,
           purgedAt: new Date().toISOString(),
         };
+        purged.push(record.id);
       }
-      purged.push(record.id);
     }
     if (purged.length > 0) this.store.save();
     return purged;
@@ -169,7 +170,7 @@ export class DbRepairHistory {
     store.replace({
       ...store.data,
       records: store.data.records.map((item) =>
-        item.id === id ? { ...item, purgedAt: at } : item,
+        item.backupPath === record.backupPath ? { ...item, purgedAt: at } : item,
       ),
     });
     this.store = store;

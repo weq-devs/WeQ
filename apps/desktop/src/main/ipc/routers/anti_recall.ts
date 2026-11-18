@@ -136,6 +136,13 @@ export const antiRecallSettingsProcedures = {
     )
     .mutation(({ input }) => {
       if (input.targets) assertAccountBinding(input);
+      if (input.enabled !== undefined) {
+        const owner = requireBootstrap().userConfig;
+        const policy = owner.setSettings({
+          notificationEvents: { recall: { system: input.enabled } },
+        }).notificationEvents.recall;
+        input.enabled = policy.banner || policy.system;
+      }
       if (getAppContext().services) return requireServices().antiRecall.setNotify(input);
       if (input.targets) throw new Error('请先打开账号再选择通知会话');
       if (input.enabled !== undefined)

@@ -5,21 +5,19 @@ import { expect, it } from 'vitest';
 import type { TrpcNative } from '@weq/protocol';
 import type { NtHelperBinding } from '@weq/native';
 import { DressSharedCache } from '../src/account/dress_shared_cache';
+import { ninePatch } from './support/nine_patch';
 
 it('账号准备时读取本地气泡，消息热路径只读内存且不依赖在线 QQ', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'weq-message-bubbles-'));
-  const png = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a0AAAAABJRU5ErkJggg==',
-    'base64',
-  );
+  const png = ninePatch(128, 112, [76, 77], [49, 50]);
   try {
     mkdirSync(join(dir, 'bubbles'));
     writeFileSync(join(dir, 'bubbles/21991.png'), png);
     writeFileSync(
       join(dir, 'bubbles/21991.json'),
       JSON.stringify({
-        slice: { left: 0, right: 0, top: 0, bottom: 0 },
-        imageSize: { w: 1, h: 1 },
+        slice: { left: 73, right: 47, top: 46, bottom: 58 },
+        imageSize: { w: 128, h: 112 },
         textColor: '#516196',
       }),
     );
@@ -28,6 +26,7 @@ it('账号准备时读取本地气泡，消息热路径只读内存且不依赖�
     await cache.prepareMessageRendering();
     const skin = cache.messageBubble(21991);
     expect(skin?.baseImage).toBe(`data:image/png;base64,${png.toString('base64')}`);
+    expect(skin?.slice).toEqual({ left: 76, right: 51, top: 49, bottom: 62 });
     rmSync(join(dir, 'bubbles'), { recursive: true });
     expect(cache.messageBubble(21991)).toBe(skin);
     expect(cache.messageBubble(21992)).toBeUndefined();

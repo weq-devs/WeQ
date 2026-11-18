@@ -1,5 +1,9 @@
 import { readFrameBytes } from './frameImageSize';
-import { MAX_DECORATION_FRAME_BYTES } from '../../../shared/decoration_image';
+import {
+  MAX_DECORATION_FRAME_BYTES,
+  DECORATION_IMAGE_CACHE_SECONDS,
+  InvalidDecorationFrameError,
+} from '../../../shared/decoration_image';
 
 export const DECORATION_DECODE_LIMITS = {
   maxBytes: MAX_DECORATION_FRAME_BYTES,
@@ -29,6 +33,8 @@ export function createDecodedImageCache(
   if (Object.values(limits).some((value) => !Number.isSafeInteger(value) || value < 1))
     throw new RangeError('预解码缓存限制必须为正整数');
   const retained = new Map<string, { image: FrameImage; bytes: number }>();
+  // 位图离屏立即释放，轻量尺寸在 HTTP 新鲜期内复用，避免返回时再做一次 Range 往返。
+  const dimensions = new Map<string, { bytes: number; expires: number }>();
   const pinned = new Map<string, number>();
   type Job = {
     url: string;
@@ -75,10 +81,13 @@ export function createDecodedImageCache(
       await Promise.race([
         (async () => {
           // 已有固有尺寸时复用；真实新 Image 的尺寸为 0，先读有界 PNG 头。
+          const known = dimensions.get(job.url);
           bytes =
             image.naturalWidth > 0 && image.naturalHeight > 0
               ? image.naturalWidth * image.naturalHeight * 4
-              : await readFrameBytes(job.url, signal);
+              : known && known.expires > Date.now()
+                ? known.bytes
+                : await readFrameBytes(job.url, signal);
           if (signal.aborted || disposed) throw cancelled();
           if (!Number.isSafeInteger(bytes) || bytes <= 0 || bytes > limits.maxBytes)
             throw new DecodeCapacityError('装扮帧超过解码预算');
@@ -96,12 +105,24 @@ export function createDecodedImageCache(
           if (signal.aborted || disposed) throw cancelled();
           const actual = image.naturalWidth * image.naturalHeight * 4;
           if (!Number.isSafeInteger(actual) || actual <= 0 || actual > bytes)
-            throw new Error('装扮帧尺寸与预检不一致');
+            throw new InvalidDecorationFrameError('装扮帧尺寸与预检不一致');
           reservedBytes -= bytes;
           reservedImages--;
           reserved = false;
           retained.set(job.url, { image, bytes });
           retainedBytes += bytes;
+          if (!job.url.startsWith('data:')) {
+            dimensions.delete(job.url);
+            dimensions.set(job.url, {
+              bytes,
+              expires:
+                known?.expires && known.expires > Date.now()
+                  ? known.expires
+                  : Date.now() + DECORATION_IMAGE_CACHE_SECONDS * 1000,
+            });
+            while (dimensions.size > limits.maxPending)
+              dimensions.delete(dimensions.keys().next().value!);
+          }
           kept = true;
         })(),
         new Promise<never>((_resolve, reject) => {
@@ -117,7 +138,10 @@ export function createDecodedImageCache(
         reservedBytes -= bytes;
         reservedImages--;
       }
-      if (!kept) image.removeAttribute('src');
+      if (!kept) {
+        dimensions.delete(job.url);
+        image.removeAttribute('src');
+      }
     }
   };
   const pump = () => {
@@ -268,6 +292,7 @@ export function createDecodedImageCache(
         job.reject(cancelled());
       }
       for (const url of retained.keys()) remove(url);
+      dimensions.clear();
       pinned.clear();
     },
   };

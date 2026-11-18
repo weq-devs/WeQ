@@ -1,6 +1,7 @@
 import { Worker } from 'node:worker_threads';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
+import { analysisPeriod } from '../common/analysis_report';
 
 export interface SavedAnalysisRequest {
   id: string;
@@ -29,6 +30,7 @@ export interface SavedAnalysisReport {
   logs: Array<{ ts: number; text: string }>;
   revision: number;
   resultRevision: number;
+  resultRequest?: SavedAnalysisRequest;
   position: number;
   updatedAt: number;
   error?: string;
@@ -44,6 +46,18 @@ export type AnalysisStageRunner = (
   stage: string,
   signal: AbortSignal,
 ) => Promise<unknown>;
+
+function normalizedReport<
+  T extends { request: SavedAnalysisRequest; resultRequest?: SavedAnalysisRequest },
+>(report: T): T {
+  return {
+    ...report,
+    request: { ...report.request, period: analysisPeriod(report.request) },
+    ...(report.resultRequest
+      ? { resultRequest: { ...report.resultRequest, period: analysisPeriod(report.resultRequest) } }
+      : {}),
+  };
+}
 
 export class AnalysisReportsService extends EventEmitter {
   private worker: Worker;
@@ -99,18 +113,24 @@ export class AnalysisReportsService extends EventEmitter {
     });
   }
   list() {
-    return this.call<AnalysisReportSummary[]>('list');
+    return this.call<AnalysisReportSummary[]>('list').then((reports) =>
+      reports.map(normalizedReport),
+    );
   }
   versions(id: string) {
-    return this.call<Omit<AnalysisResultVersion, 'results'>[]>('versions', { id });
+    return this.call<Omit<AnalysisResultVersion, 'results'>[]>('versions', { id }).then(
+      (versions) => versions.map(normalizedReport),
+    );
   }
   version(id: string, version: number) {
-    return this.call<AnalysisResultVersion | null>('version', { id, version });
+    return this.call<AnalysisResultVersion | null>('version', { id, version }).then((report) =>
+      report ? normalizedReport(report) : null,
+    );
   }
   async get(id: string) {
     const report = await this.call<SavedAnalysisReport | null>('get', { id });
     if (!report) throw new Error('报告已不存在');
-    return report;
+    return normalizedReport(report);
   }
   private async save(report: SavedAnalysisReport) {
     report.updatedAt = Math.max(Date.now(), report.updatedAt + 1);
@@ -137,7 +157,7 @@ export class AnalysisReportsService extends EventEmitter {
       return existing;
     }
     const report: SavedAnalysisReport = {
-      request: structuredClone(request),
+      request: { ...structuredClone(request), period: analysisPeriod(request) },
       status: 'paused',
       results: {},
       pending: {},
@@ -194,6 +214,7 @@ export class AnalysisReportsService extends EventEmitter {
       }
       report.results = report.pending;
       report.resultRevision = report.revision;
+      report.resultRequest = structuredClone(report.request);
       report.pending = {};
       report.status = 'completed';
       report.logs.push({ ts: Date.now(), text: '报告已保存' });
@@ -233,6 +254,7 @@ export class AnalysisReportsService extends EventEmitter {
     if (this.runs.has(id)) await this.cancel(id);
     const report = await this.get(id);
     report.request.scope = { ...report.request.scope, ...range };
+    report.request.period = analysisPeriod(report.request);
     await this.save(report);
     await this.resume(id, true);
   }

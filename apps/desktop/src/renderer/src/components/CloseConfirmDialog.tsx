@@ -105,6 +105,7 @@ export function CloseConfirmDialog(): ReactElement | null {
             <button
               type="button"
               className="weq-close-opt"
+              data-weq-dialog-confirm
               onClick={() => void respond('tray')}
               disabled={setBehavior.isLoading}
             >
@@ -121,6 +122,7 @@ export function CloseConfirmDialog(): ReactElement | null {
           <button
             type="button"
             className="weq-close-opt is-danger"
+            data-weq-dialog-confirm={!canTray || undefined}
             onClick={() => void respond('quit')}
             disabled={setBehavior.isLoading}
           >

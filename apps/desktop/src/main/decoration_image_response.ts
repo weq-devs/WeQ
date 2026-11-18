@@ -1,5 +1,5 @@
 import { open } from 'node:fs/promises';
-import { decorationFrameBytes } from '../shared/decoration_image';
+import { decorationFrameBytes, DECORATION_IMAGE_CACHE_SECONDS } from '../shared/decoration_image';
 import { fileResponse } from './file_response';
 
 /** CSS 首帧同样经过尺寸门禁，不能只保护显式调用 Image.decode 的预热路径。 */
@@ -18,12 +18,27 @@ export async function decorationImageResponse(
       await file.close();
     }
   } catch {
-    return new Response('decoration image not found', { status: 404 });
+    return new Response('decoration image not found', {
+      status: 404,
+      headers: { 'Cache-Control': 'no-store' },
+    });
   }
   try {
     decorationFrameBytes(head.subarray(0, size));
   } catch {
-    return new Response('invalid decoration image', { status: 413 });
+    return new Response('invalid decoration image', {
+      status: 413,
+      headers: { 'Cache-Control': 'no-store' },
+    });
   }
-  return fileResponse(path, request, { revalidate });
+  const response = await fileResponse(path, request, { revalidate: true });
+  response.headers.set(
+    'Cache-Control',
+    response.ok || response.status === 304
+      ? revalidate
+        ? 'private, no-cache'
+        : `private, max-age=${DECORATION_IMAGE_CACHE_SECONDS}`
+      : 'no-store',
+  );
+  return response;
 }

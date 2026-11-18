@@ -7,6 +7,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
+const focused = process.env.WEQ_HEADER_FOCUSED === '1';
 const { webkit } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
 const cacheDir = await mkdtemp(resolve(root, 'node_modules/.cache/chat-header-'));
 const server = await createServer({
@@ -69,7 +70,7 @@ try {
         return { x, y, width, height };
       };
       const title = getComputedStyle(
-        header.querySelector('.weq-mobile-identity > strong, .chat-title > strong'),
+        header.querySelector('.weq-mobile-self-identity strong, .chat-title > strong'),
       );
       return {
         bounds: box(header),
@@ -87,61 +88,74 @@ try {
           .map(box),
       };
     });
-  for (const width of [320, 390, 430, 760]) {
-    await page.setViewportSize({ width, height: 844 });
-    for (const componentStyle of ['classic', 'minimal', 'retro', 'qqnt']) {
-      for (const theme of ['light', 'dark']) {
-        await page.evaluate(
-          ({ componentStyle, theme }) => {
-            document.documentElement.dataset.componentStyle = componentStyle;
-            document.documentElement.dataset.theme = theme;
-            window.chatHeaderQa.home(true);
-          },
-          { componentStyle, theme },
-        );
-        await page.locator('.weq-mobile-header').waitFor();
-        const home = await headerMetrics('.weq-mobile-header');
-        if (output && width === 390 && componentStyle === 'classic')
-          await page.screenshot({ path: resolve(output, `home-${theme}.png`) });
-        await page.evaluate(() => window.chatHeaderQa.home(false));
-        await more().waitFor();
-        const chat = await headerMetrics('.chat-header');
-        if (output && width === 390 && componentStyle === 'classic')
-          await page.screenshot({ path: resolve(output, `chat-${theme}.png`) });
-        assert(
-          JSON.stringify(home) === JSON.stringify(chat),
-          `首页与会话顶栏跳位 ${width}/${componentStyle}/${theme}: ${JSON.stringify({ home, chat })}`,
-        );
-        assert(chat.actions.length === 2, '右侧须保留两个操作');
-        results.push({ width, componentStyle, theme, stableActions: chat.actions });
+  if (!focused) {
+    for (const width of [320, 390, 430, 760]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const componentStyle of focused
+        ? ['classic']
+        : ['classic', 'minimal', 'retro', 'qqnt']) {
+        for (const theme of focused ? ['light'] : ['light', 'dark']) {
+          await page.evaluate(
+            ({ componentStyle, theme }) => {
+              document.documentElement.dataset.componentStyle = componentStyle;
+              document.documentElement.dataset.theme = theme;
+              window.chatHeaderQa.home(true);
+            },
+            { componentStyle, theme },
+          );
+          await page.locator('.weq-mobile-header').waitFor();
+          const home = await headerMetrics('.weq-mobile-header');
+          if (output && !focused && width === 390 && componentStyle === 'classic')
+            await page.screenshot({ path: resolve(output, `home-${theme}.png`) });
+          await page.evaluate(() => window.chatHeaderQa.home(false));
+          await more().waitFor();
+          const chat = await headerMetrics('.chat-header');
+          if (output && !focused && width === 390 && componentStyle === 'classic')
+            await page.screenshot({ path: resolve(output, `chat-${theme}.png`) });
+          assert(
+            JSON.stringify({ bounds: home.bounds, title: home.title }) ===
+              JSON.stringify({ bounds: chat.bounds, title: chat.title }),
+            `首页与会话顶栏跳位 ${width}/${componentStyle}/${theme}: ${JSON.stringify({ home, chat })}`,
+          );
+          assert(chat.actions.length === 1, '竖屏右侧只保留更多入口');
+          results.push({ width, componentStyle, theme, stableActions: chat.actions });
+        }
       }
     }
+    await page.evaluate(() => {
+      document
+        .querySelector('.app-shell-root')
+        .style.setProperty('--weq-mobile-header-height', '115px');
+      window.chatHeaderQa.home(true);
+    });
+    await page.locator('.weq-mobile-header').waitFor();
+    const safeHome = await headerMetrics('.weq-mobile-header');
+    await page.evaluate(() => window.chatHeaderQa.home(false));
+    await more().waitFor();
+    const safeChat = await headerMetrics('.chat-header');
+    assert(
+      JSON.stringify(safeHome.bounds) === JSON.stringify(safeChat.bounds),
+      '增加安全区高度后顶栏高度不一致',
+    );
+    assert(safeChat.bounds.height === 115, 'QQ NT 风格未沿用顶栏高度');
+    await page.evaluate(() => {
+      document.querySelector('.app-shell-root').style.removeProperty('--weq-mobile-header-height');
+      document.documentElement.dataset.componentStyle = 'classic';
+    });
   }
-  await page.evaluate(() => {
-    document
-      .querySelector('.app-shell-root')
-      .style.setProperty('--weq-mobile-header-height', '115px');
-    window.chatHeaderQa.home(true);
-  });
-  await page.locator('.weq-mobile-header').waitFor();
-  const safeHome = await headerMetrics('.weq-mobile-header');
-  await page.evaluate(() => window.chatHeaderQa.home(false));
-  await more().waitFor();
-  const safeChat = await headerMetrics('.chat-header');
-  assert(JSON.stringify(safeHome) === JSON.stringify(safeChat), '增加安全区高度后顶栏不一致');
-  assert(safeChat.bounds.height === 115, 'QQ NT 风格未沿用顶栏高度');
-  await page.evaluate(() => {
-    document.querySelector('.app-shell-root').style.removeProperty('--weq-mobile-header-height');
-    document.documentElement.dataset.componentStyle = 'classic';
-  });
   for (const kind of ['direct', 'group']) {
     await page.evaluate((kind) => window.chatHeaderQa.kind(kind), kind);
-    for (const [width, height] of [
-      [320, 640],
-      [390, 844],
-      [760, 430],
-      [640, 320],
-    ]) {
+    for (const [width, height] of focused
+      ? [
+          [390, 844],
+          [320, 480],
+        ]
+      : [
+          [320, 640],
+          [390, 844],
+          [430, 760],
+          [320, 480],
+        ]) {
       await page.setViewportSize({ width, height });
       for (const theme of ['light', 'dark']) {
         await page.evaluate((theme) => {
@@ -181,8 +195,8 @@ try {
           '标题栏按钮溢出',
         );
         assert(
-          (await page.locator('.chat-actions > button').count()) === 2,
-          '常驻操作应只有搜索和更多',
+          (await page.locator('.chat-header .chat-actions > button').count()) === 1,
+          `竖屏常驻操作应只有更多：${await page.locator('.chat-header').evaluate((header) => header.outerHTML)}`,
         );
         await more().click();
         await menu()
@@ -199,21 +213,51 @@ try {
             throw error;
           });
         const labels = await menu().getByRole('menuitem').allTextContents();
-        for (const label of [
-          '分析',
-          '导出',
-          '拉取漫游消息',
-          '撤回列表',
-          '删除列表',
-          '添加本地消息',
+        const expected = [
+          ...(kind === 'group' ? ['反馈 Bug'] : []),
+          '搜索',
+          '消息',
+          '工具',
           '会话设置',
-        ])
-          assert(labels.includes(label), `缺少入口：${label}`);
-        if (kind === 'group')
-          assert(
-            labels.includes('群资料') && labels.includes('导出名单') && labels.includes('反馈 Bug'),
-            '缺少群入口',
-          );
+        ];
+        assert(JSON.stringify(labels) === JSON.stringify(expected), `一级菜单不一致：${labels}`);
+        await menu().getByRole('menuitem', { name: '消息', exact: true }).click();
+        const messages = await menu()
+          .getByRole('group', { name: '消息', exact: true })
+          .getByRole('menuitem')
+          .allTextContents();
+        assert(
+          JSON.stringify(messages) ===
+            JSON.stringify([
+              ...(kind === 'group' ? ['重要消息'] : []),
+              '已撤回消息',
+              '已删除消息',
+              '添加本地消息',
+            ]),
+          `消息分组不一致：${messages}`,
+        );
+        if (output && focused && kind === 'group' && width === 390 && theme === 'light')
+          await page.screenshot({ path: resolve(output, 'mobile-messages.png') });
+        await menu().getByRole('menuitem', { name: '工具', exact: true }).click();
+        assert(
+          (await menu().getByRole('group', { name: '消息', exact: true }).count()) === 0,
+          '切换后旧分组未收起',
+        );
+        const tools = await menu()
+          .getByRole('group', { name: '工具', exact: true })
+          .getByRole('menuitem')
+          .allTextContents();
+        assert(
+          JSON.stringify(tools) ===
+            JSON.stringify([
+              '拉取漫游消息',
+              '会话分析',
+              '导出聊天记录',
+              ...(kind === 'group' ? ['导出群成员名单', '群聊侧栏'] : []),
+              '连接菜单',
+            ]),
+          `工具分组不一致：${tools}`,
+        );
         const bounds = await menu().boundingBox();
         const trigger = await more().boundingBox();
         assert(
@@ -223,7 +267,7 @@ try {
             bounds.y + bounds.height <= height,
           '下拉菜单超出视口或覆盖标题栏',
         );
-        if (output && width === 390)
+        if (output && !focused && width === 390)
           await page.screenshot({ path: resolve(output, `${kind}-${theme}.png`) });
         await menu().getByRole('menuitem', { name: '会话设置', exact: true }).click();
         assert((await menu().count()) === 0, '选择后菜单未关闭');
@@ -243,9 +287,10 @@ try {
   }
   await page.setViewportSize({ width: 390, height: 844 });
   await more().click();
-  await menu().getByRole('menuitem', { name: '群资料', exact: true }).click();
+  await menu().getByRole('menuitem', { name: '工具', exact: true }).click();
+  await menu().getByRole('menuitem', { name: '群聊侧栏', exact: true }).click();
   await page.locator('.is-mobile-group-info-open > .group-info-panel').waitFor();
-  await page.getByRole('button', { name: '关闭群资料', exact: true }).click();
+  await page.getByRole('button', { name: '关闭群聊侧栏', exact: true }).click();
   await more().click();
   await page.evaluate(() => window.chatHeaderQa.kind('direct'));
   await menu().waitFor({ state: 'detached' });
@@ -256,18 +301,50 @@ try {
     (await page.evaluate(() => document.activeElement?.getAttribute('role'))) === 'menuitem',
     '菜单未获得焦点',
   );
+  await menu().getByRole('menuitem', { name: '消息', exact: true }).focus();
+  await page.keyboard.press('ArrowRight');
+  await menu().getByRole('group', { name: '消息', exact: true }).waitFor();
+  assert(
+    (await page.evaluate(() => document.activeElement?.textContent)) === '已撤回消息',
+    '键盘未进入消息子项',
+  );
+  await page.keyboard.press('ArrowLeft');
+  assert(
+    (await menu().getByRole('group', { name: '消息', exact: true }).count()) === 0,
+    '键盘未收起子项',
+  );
   await page.keyboard.press('End');
   assert(
-    (await page.evaluate(() => document.activeElement?.textContent)) === '连接菜单',
+    (await page.evaluate(() => document.activeElement?.textContent)) === '会话设置',
     '菜单键盘导航失败',
   );
-  await page.setViewportSize({ width: 1180, height: 844 });
-  await page.getByRole('button', { name: '消息管理', exact: true }).waitFor();
+  await page.setViewportSize({ width: 640, height: 320 });
+  await page.getByRole('button', { name: '工具', exact: true }).waitFor();
+  assert(
+    JSON.stringify(
+      await page
+        .locator('.chat-actions > button')
+        .evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label'))),
+    ) === JSON.stringify(['搜索', '消息', '工具', '会话设置']),
+    '横屏没有使用四个入口',
+  );
   assert(
     await page.getByRole('button', { name: '会话设置', exact: true }).isVisible(),
     '桌面设置被移除',
   );
   assert((await more().count()) === 0 && (await menu().count()) === 0, '桌面仍保留手机菜单');
+  await page.setViewportSize({ width: 1180, height: 844 });
+  await page.evaluate(() => window.chatHeaderQa.kind('group'));
+  await page.getByRole('button', { name: '反馈 Bug', exact: true }).waitFor();
+  assert(
+    (await page.locator('.chat-actions > button').first().getAttribute('aria-label')) ===
+      '反馈 Bug',
+    '反馈 Bug 未置于最前',
+  );
+  await page.getByRole('button', { name: '消息', exact: true }).click();
+  await page.getByRole('menu', { name: '消息', exact: true }).waitFor();
+  if (output && focused) await page.screenshot({ path: resolve(output, 'desktop-messages.png') });
+  await page.keyboard.press('Escape');
   await page.evaluate(() => window.chatHeaderQa.alignment(true));
   for (const componentStyle of ['default', 'qqnt']) {
     for (const theme of ['light', 'dark']) {
@@ -288,7 +365,7 @@ try {
         `昵称与状态未居中对齐：${componentStyle}/${theme} 偏差 ${alignment}px`,
       );
       results.push({ componentStyle, theme, centerOffset: alignment });
-      if (output)
+      if (output && !focused)
         await page.locator('.chat-header').screenshot({
           path: resolve(output, `alignment-${componentStyle}-${theme}.png`),
         });

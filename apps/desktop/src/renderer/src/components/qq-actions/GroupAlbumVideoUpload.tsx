@@ -184,6 +184,12 @@ function GroupAlbumVideoUploadBody({
                       taskId = localBackgroundTasks.start({
                         kind: 'album-upload',
                         name: draft.fileName,
+                        display: {
+                          action: '上传群相册视频',
+                          subject: draft.fileName,
+                          context: `群 ${groupId} · 相册 ${albumId}`,
+                          fileName: true,
+                        },
                         scope: {
                           uin: binding.expectedAccountUin,
                           configId: binding.expectedAccountConfigId,

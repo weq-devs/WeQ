@@ -1,7 +1,11 @@
 import type { AppSettings } from '../../bootstrap/user_config';
 import type { IntentSenseConfig } from '../../account/intent_sense';
 import { INTENT_TUNING, type IntentTuningKey } from '../intent_context';
-import type { PreferenceKey } from '../client_preferences';
+import {
+  AGGREGATE_BADGE_SETTINGS,
+  ENTRY_BADGE_SETTINGS,
+  type PreferenceKey,
+} from '../client_preferences';
 import type { SettingsResetCardId } from './reset';
 
 export interface SettingField {
@@ -34,6 +38,7 @@ function field(
 /** 应用设置使用现有 DEFAULT_APP_SETTINGS；这里仅登记字段归属，不复制默认值。 */
 export const APP_SETTING_FIELDS = (
   [
+    ['notification-events', 'notificationEvents', 'notification-events', '事件通知'],
     ['home', 'home', 'home-settings', '主页显示与屏蔽词'],
     ['contact-card', 'contactCard', 'contact-card-order', '名片显示与顺序'],
     ['startup-page', 'startupPage', 'startup-page', '启动时进入'],
@@ -41,15 +46,14 @@ export const APP_SETTING_FIELDS = (
     ['window', 'windowCloseBehavior', 'window-close-behavior', '关闭窗口时'],
     ['window-appearance', 'windowsStyleControls', 'windows-style-controls', '仿 Windows 窗口按钮'],
     ['app-lock', 'autoLockMinutes', 'auto-lock', '自动锁定分钟'],
-    ['unread', 'showMessageUnreadBadge', 'message-unread-badge', '消息红点'],
-    ['unread', 'showContactUnreadCount', 'contact-unread-count', '联系人未读数'],
-    ['unread', 'showGroupAssistantMessageCount', 'group-assistant-count', '群助手计数'],
+    ['notification-badges', 'showMessageUnreadBadge', 'message-unread-badge', '消息导航未读角标'],
+    ['notification-badges', 'showContactUnreadCount', 'contact-unread-count', '好友与群聊'],
+    ['notification-badges', 'showGroupAssistantMessageCount', 'group-assistant-count', '群助手'],
     ['reading', 'readFromFirstUnread', 'read-first-unread', '从首条未读开始'],
+    ['conversation-markers', 'showGroupAssistantMessageCount', 'group-assistant-count', '群助手'],
     ['reading', 'jumpToLatestAfterSend', 'jump-latest-after-send', '发送后跳到最新'],
     ['reading', 'autoFollowLatestMessages', 'auto-follow-latest-messages', '自动跟随新消息'],
     ['reading', 'showScrollToBottomButton', 'scroll-to-bottom-button', '回到底部按钮'],
-    ['unread', 'reportReadEnabled', 'read-sync', '自动阅读上报已读位置'],
-    ['unread', 'manualReadReportEnabled', 'read-sync', '手动标记上报已读位置'],
     ['message-content', 'showMessageSeq', 'message-seq', '消息序号'],
     ['message-content', 'showMessageDate', 'message-date', '消息日期'],
     ['message-content', 'showMessageTime', 'message-time', '消息时间'],
@@ -75,7 +79,6 @@ export const APP_SETTING_FIELDS = (
     ],
     ['realtime', 'realtimeEnabled', 'realtime-enabled', '数据库监听'],
     ['attach', 'autoAttachQq', 'auto-full-mode', '自动启用 QQ 在线能力'],
-    ['attach', 'restrictedModeBannerEnabled', 'restricted-mode-banner', '在线能力受限横幅提醒'],
     [
       'attach',
       'restrictedModeIndicatorEnabled',
@@ -115,12 +118,6 @@ export const CLIENT_SETTING_FIELDS = (
       'keep-conversation-position-on-hover',
       '鼠标停留时保持会话位置',
     ],
-    [
-      'message-notifications',
-      'messageNotifications',
-      'message-system-notifications',
-      '新消息系统通知',
-    ],
     ['message-content', 'showGroupMemberName', 'group-message-name', '显示群消息发送者名称'],
     ['message-content', 'showGroupMemberLevel', 'group-message-level', '显示群成员等级'],
     ['message-content', 'showGroupMemberTitle', 'group-message-title', '显示群成员头衔与身份'],
@@ -128,7 +125,22 @@ export const CLIENT_SETTING_FIELDS = (
     ['quote-replies', 'backspaceRemovesQuote', 'quote-backspace-remove', '按退格键移除引用'],
     ['emoji-shortcuts', 'slashEmojiEnabled', 'slash-emoji-input', '斜杠表情快捷输入'],
     ['emoji-shortcuts', 'slashEmojiAutoReplace', 'slash-emoji-auto-replace', '无需回车即自动替换'],
-    ['message-notifications', 'applicationBadge', 'application-unread-badge', '应用图标未读角标'],
+    ['notification-badges', 'applicationBadge', 'application-unread-badge', '应用图标未读角标'],
+    ...ENTRY_BADGE_SETTINGS.map(
+      ([key, id, label]) => ['notification-badges', key, id, label] as const,
+    ),
+    ...AGGREGATE_BADGE_SETTINGS.filter(([, key]) => key !== 'showGroupAssistantMessageCount').map(
+      ([, key, id, label]) => ['notification-badges', key, id, label] as const,
+    ),
+    ...AGGREGATE_BADGE_SETTINGS.filter(([, key]) => key !== 'showGroupAssistantMessageCount').map(
+      ([, key, id, label]) => ['conversation-markers', key, id, label] as const,
+    ),
+    [
+      'conversation-preview',
+      'showImportantMessageMarkers',
+      'important-message-markers',
+      '重要消息标记',
+    ],
     [
       'reading',
       'autoFetchMissingMessages',
@@ -304,17 +316,21 @@ export const RUNTIME_SETTING_FIELDS: readonly SettingField[] = [
   field('update', 'prerelease', 'update-prerelease', '检查测试版', 'runtime', {
     desktopOnly: true,
   }),
-  field('mail', 'unread', 'mail-unread-badge', '邮箱红点', 'runtime'),
-  field('mail', 'notifications', 'mail-banner', '新邮件提醒', 'runtime'),
+  field('notification-badges', 'unread', 'mail-unread-badge', '邮箱导航未读角标', 'runtime'),
+  field('mail', 'unread', 'mail-unread-badge', '邮箱导航未读角标', 'runtime'),
   field('mail', 'poll-interval', 'mail-poll-interval', '邮箱查询间隔', 'runtime'),
   field('recall-scope', 'scope', 'anti-recall', '防撤回启用范围', 'runtime'),
   field('recall-scope', 'targets', 'anti-recall', '防撤回会话选择', 'runtime', {
     scope: '当前账号',
   }),
-  field('recall-scope', 'notify', 'anti-recall', '撤回通知', 'runtime'),
-  field('recall-scope', 'notify-targets', 'anti-recall', '撤回通知会话选择', 'runtime', {
-    scope: '当前账号',
-  }),
+  field(
+    'recall-notifications',
+    'notify-targets',
+    'recall-notifications',
+    '撤回通知会话选择',
+    'runtime',
+    { scope: '当前账号' },
+  ),
   field('external-chatpic', 'enabled', 'external-chatpic', '外部安卓图片缓存', 'runtime'),
   field('external-chatpic', 'dir', 'external-chatpic', '外部安卓图片目录', 'runtime', {
     directory: true,

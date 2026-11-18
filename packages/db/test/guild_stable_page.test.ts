@@ -30,6 +30,18 @@ function fixture() {
   add.run(6, 0, 999, 0);
   return new GuildDirectMsgDb(createSqliteStub(), { dbPath: path });
 }
+it('频道未读按 nodeId 和阅读水位计算，不计自发消息或其他频道', async () => {
+  const db = fixture();
+  const sql = fixtureDb(join(root, 'guild_msg.db'));
+  sql.exec(
+    'UPDATE guild_msg_table SET "40013"=0; INSERT INTO guild_msg_table("40001","40003","40027","40013") VALUES (7,3,100,2),(8,4,999,0)',
+  );
+  expect(
+    await db.countIncomingAfter(100n, { msgSeq: 1n, sendTime: 2n, msgId: 9007199254740993n }),
+  ).toBe(1);
+  expect(await db.countIncomingAfter(100n, { msgSeq: 1n, sendTime: 2n, msgId: 1n })).toBe(3);
+  expect(await db.countIncomingAfter(100n, { msgSeq: 2n, sendTime: 3n, msgId: 5n })).toBe(0);
+});
 it('真实 SQLite 游标跨同 seq/时间、零/NULL seq、负 ID 和 64 位 ID，不漏不重且不越会话', async () => {
   const db = fixture();
   const ids: string[] = [];

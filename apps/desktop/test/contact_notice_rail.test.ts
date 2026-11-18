@@ -1,3 +1,4 @@
+import './support/development-features.stub';
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';

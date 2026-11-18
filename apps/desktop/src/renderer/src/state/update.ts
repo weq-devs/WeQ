@@ -8,6 +8,8 @@
 import { create } from 'zustand';
 
 interface UpdateState {
+  packsAvailable: boolean;
+  setPacksAvailable: (available: boolean) => void;
   /** 是否存在可更新的新版本。 */
   available: boolean;
   /** 最新版本号（如 1.2.0），未知为 null。 */
@@ -17,6 +19,8 @@ interface UpdateState {
 }
 
 export const useUpdateStore = create<UpdateState>((set) => ({
+  packsAvailable: false,
+  setPacksAvailable: (packsAvailable) => set({ packsAvailable }),
   available: false,
   latest: null,
   setAvailable: (latest) => set({ available: true, latest }),

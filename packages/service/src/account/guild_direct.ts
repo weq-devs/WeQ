@@ -18,6 +18,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { elementsToText } from './export/element_text';
 import { sourceStamp } from './export/resume';
+import { messageReadCursor } from '../common/client_preferences';
 import { searchNameRank } from './search_policy';
 import {
   contentSearchKey,
@@ -93,6 +94,12 @@ function qqAvatarUrlForUin(uin: string): string {
 }
 
 export class GuildDirectService {
+  countUnread(nodeId: string, readSeq: string) {
+    return this.session.guildDirectMsgs.countIncomingAfter(
+      BigInt(nodeId),
+      messageReadCursor(readSeq),
+    );
+  }
   private searchEpoch = 0;
   private searchCache: { key: string; at: number; rows: ContentSearchHit[]; count: number } | null =
     null;

@@ -171,7 +171,7 @@ export const MEDIA_PRIVILEGED_SCHEME = {
 } as const;
 
 function notFound(reason: string): Response {
-  return new Response(reason, { status: 404 });
+  return new Response(reason, { status: 404, headers: { 'Cache-Control': 'no-store' } });
 }
 
 /**
@@ -1051,6 +1051,13 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           const bucket = q.get('bucket') ?? '';
           const file = q.get('file') ?? '';
           const variant = q.get('v') === 'ori' ? 'ori' : 'thumb';
+          if (scope === 'favorite') {
+            const path =
+              bucket === '' && variant === 'ori'
+                ? services.emoji.resolveCachedFavorite(file)
+                : null;
+            return path ? fileResponse(path) : notFound('favorite emoji not found');
+          }
           if (scope !== 'recv' && scope !== 'personal') {
             return notFound('cemoji needs scope=recv|personal');
           }

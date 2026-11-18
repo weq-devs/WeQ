@@ -12,6 +12,21 @@ import type { NewMessagesWire } from '../../../main/ipc/routers/account';
 import type { WebNotice } from '../../../main/web/notices';
 import { ordinaryNoticeEligible } from '../../../shared/message_notifications';
 import { WEB_NOTICE_OPEN, browserNoticeChannel } from '../lib/browserNotifications';
+import { useNotificationPolicy, claimMessageBanner } from '../lib/notificationPolicy';
+import {
+  normalizeNotificationScope,
+  normalizeNotificationEvents,
+  type NotificationEvent,
+} from '@weq/service/notification-settings';
+import { sharedAccountRecords } from '../lib/clientPreferences';
+import { useToast } from '../components/Toast.shared';
+
+function firstNoticeMessage(previous: ChatMsgWire | undefined, next: ChatMsgWire): ChatMsgWire {
+  if (!previous || !/^[1-9]\d*$/.test(previous.msgSeq)) return next;
+  return !/^[1-9]\d*$/.test(next.msgSeq) || BigInt(previous.msgSeq) <= BigInt(next.msgSeq)
+    ? previous
+    : next;
+}
 
 export function useMessageNotifications(options: {
   selfUin: string;
@@ -25,7 +40,23 @@ export function useMessageNotifications(options: {
 }) {
   useClientPreferences((state) => state.tick);
   const locked = useAppLock((state) => state.locked);
-  const enabled = preferenceValue('messageNotifications');
+  const policy = useNotificationPolicy();
+  const notificationEvents = policy.ready
+    ? policy.events
+    : normalizeNotificationEvents(undefined, {
+        messageNotifications: preferenceValue('messageNotifications'),
+      });
+  const enabled = (
+    [
+      'directMessage',
+      'groupMessage',
+      'specialCare',
+      'mentionMe',
+      'mentionAll',
+      'replyMe',
+      'redPacket',
+    ] as const
+  ).some((event) => notificationEvents[event].banner || notificationEvents[event].system);
   const badge = preferenceValue('applicationBadge');
   const privacy = preferenceValue('privacyMode') || locked;
   const binding = accountBinding();
@@ -55,6 +86,7 @@ export function useMessageNotifications(options: {
                   conversation.type === 'group'
                     ? conversation.group.name
                     : conversation.otherUser.displayName,
+                highlights: conversation.highlights,
               },
             ] as const,
           ];
@@ -87,7 +119,15 @@ export function useMessageNotifications(options: {
       });
     const notices = new Map<
       string,
-      { message: ChatMsgWire; anchor: ChatMsgWire; title: string; body: string; count: number }
+      {
+        message: ChatMsgWire;
+        anchor: ChatMsgWire;
+        title: string;
+        body: string;
+        count: number;
+        reasons: NotificationEvent[];
+        anchors: Map<NotificationEvent, ChatMsgWire>;
+      }
     >();
     for (const [key, { message, observedAt }] of pending.current) {
       if (seen.current.has(key)) {
@@ -120,20 +160,40 @@ export function useMessageNotifications(options: {
       if (elements.length > 0 && elements.every((element) => /^grayTip/i.test(element.type ?? '')))
         continue;
       const convKey = `${message.kind}:${message.conv}`;
+      const reasons: NotificationEvent[] = [
+        message.kind === 'group' ? 'groupMessage' : 'directMessage',
+      ];
+      const mapping = {
+        atMe: 'mentionMe',
+        atAll: 'mentionAll',
+        replyMe: 'replyMe',
+        specialCare: 'specialCare',
+        redPacket: 'redPacket',
+      } as const;
+      for (const highlight of policy.highlights ?? []) {
+        if (highlight.msgSeq !== message.msgSeq || !(highlight.kind in mapping)) continue;
+        const event = mapping[highlight.kind as keyof typeof mapping];
+        if (event !== 'specialCare') {
+          const selection = normalizeNotificationScope(
+            sharedAccountRecords('notifications')[event],
+          );
+          if (selection.mode !== 'all' && !selection.targets.includes(convKey)) continue;
+        }
+        reasons.push(event);
+      }
       const previous = notices.get(convKey);
-      const first = previous?.anchor;
-      const anchor =
-        first && /^[1-9]\d*$/.test(first.msgSeq)
-          ? !/^[1-9]\d*$/.test(message.msgSeq) || BigInt(first.msgSeq) <= BigInt(message.msgSeq)
-            ? first
-            : message
-          : message;
+      const anchor = firstNoticeMessage(previous?.anchor, message);
+      const anchors = previous?.anchors ?? new Map<NotificationEvent, ChatMsgWire>();
+      for (const reason of reasons)
+        anchors.set(reason, firstNoticeMessage(anchors.get(reason), message));
       notices.set(convKey, {
         message,
         anchor,
+        anchors,
         title: policy.name || message.conv,
         body: plainContentText(elements).slice(0, 1700) || '[消息]',
         count: (notices.get(convKey)?.count ?? 0) + 1,
+        reasons: [...new Set([...(previous?.reasons ?? []), ...reasons])],
       });
     }
     while (seen.current.size > 5000) seen.current.delete(seen.current.values().next().value!);
@@ -169,8 +229,51 @@ export function useMessageNotifications(options: {
           body,
           target: { kind: item.message.kind, conv: item.message.conv, seq: item.anchor.msgSeq },
         };
+        const currentPolicyState = useNotificationPolicy.getState();
+        const currentPolicy = currentPolicyState.ready
+          ? currentPolicyState.events
+          : normalizeNotificationEvents(undefined, {
+              messageNotifications: preferenceValue('messageNotifications'),
+            });
+        const noticeFor = (channel: 'banner' | 'system') => {
+          let anchor: ChatMsgWire | undefined;
+          for (const [reason, candidate] of item.anchors) {
+            if (currentPolicy[reason][channel]) anchor = firstNoticeMessage(anchor, candidate);
+          }
+          return {
+            ...notice,
+            target: {
+              kind: item.message.kind,
+              conv: item.message.conv,
+              seq: (anchor ?? item.anchor).msgSeq,
+            },
+          };
+        };
+        const bannerNotice = noticeFor('banner');
+        const systemNotice = noticeFor('system');
+        if (
+          item.reasons.some((event) => currentPolicy[event].banner) &&
+          (item.message.kind !== 'group' ||
+            claimMessageBanner(
+              scope.expectedAccountConfigId,
+              item.message.kind,
+              item.message.conv,
+              item.message.msgSeq,
+            ))
+        )
+          useToast.getState().push({
+            event: item.reasons.find((event) => currentPolicy[event].banner),
+            title,
+            detail: body,
+            action: {
+              label: '定位消息',
+              run: () =>
+                window.dispatchEvent(new CustomEvent(WEB_NOTICE_OPEN, { detail: bannerNotice })),
+            },
+          });
+        if (!item.reasons.some((event) => currentPolicy[event].system)) return;
         if (IS_WEB) {
-          channel.current?.show(notice);
+          channel.current?.show(systemNotice);
         } else
           void client.account.messageNotifications.notify
             .mutate({
@@ -178,10 +281,11 @@ export function useMessageNotifications(options: {
               messageId: item.message.msgId,
               kind: item.message.kind,
               conv: item.message.conv,
-              seq: item.anchor.msgSeq,
+              seq: systemNotice.target.seq,
               title,
               body,
               private: latest.current.privacy,
+              reasons: item.reasons,
             })
             .catch((error: unknown) => console.warn('[message-notifications] 通知未提交', error));
       };

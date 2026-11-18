@@ -362,9 +362,9 @@ it('会话混选多个群、好友和虚拟会话时，名单仅带入所选真�
     act(() => host.querySelector<HTMLButtonElement>('[aria-label="多选会话"]')!.click());
     act(() => host.querySelector<HTMLButtonElement>('[aria-label="全选当前结果"]')!.click());
     expect(host.querySelectorAll('.is-multiselected')).toHaveLength(4);
-    act(() => host.querySelector<HTMLButtonElement>('[aria-label="导出名单"]')!.click());
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="导出群成员名单"]')!.click());
     const confirmation = document.querySelector('[role="dialog"]')!;
-    expect(confirmation.textContent).toContain('2 个会话不支持导出群名单');
+    expect(confirmation.textContent).toContain('2 个会话不支持导出群成员名单');
     expect(confirmation.textContent).toContain(friend.otherUser!.displayName);
     expect(confirmation.textContent).toContain('合成虚拟群');
     expect(host.querySelector('output')!.textContent).toBe('');
@@ -489,9 +489,9 @@ it.each(['friends', 'groups'] as const)(
       expect(host.querySelector('.weq-directory-selection-count')?.textContent).toBe('已选 0');
       const bottom = host.querySelector('[aria-label="会话多选操作"]')!;
       expect(bottom.querySelectorAll('button')).toHaveLength(4);
-      expect(bottom.querySelector<HTMLButtonElement>('[aria-label="导出名单"]')!.disabled).toBe(
-        true,
-      );
+      expect(
+        bottom.querySelector<HTMLButtonElement>('[aria-label="导出群成员名单"]')!.disabled,
+      ).toBe(true);
       act(() => button('反选当前结果').click());
       expect(host.querySelectorAll('.is-multiselected')).toHaveLength(2);
       expect(host.querySelector('.weq-directory-selection-count')?.textContent).toBe('已选 2');
@@ -499,7 +499,7 @@ it.each(['friends', 'groups'] as const)(
       expect(mark).toHaveBeenLastCalledWith(rows, false);
       act(() => button('拉取所选会话漫游消息').click());
       expect(roam.mock.calls[0]![0]).toHaveLength(2);
-      const roster = bottom.querySelector<HTMLButtonElement>('[aria-label="导出名单"]')!;
+      const roster = bottom.querySelector<HTMLButtonElement>('[aria-label="导出群成员名单"]')!;
       expect(roster.disabled).toBe(tab === 'friends');
       if (tab === 'groups') {
         act(() => roster.click());

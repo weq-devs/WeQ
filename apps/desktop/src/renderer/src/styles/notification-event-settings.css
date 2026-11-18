@@ -1,0 +1,90 @@
+.weq-notification-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.weq-notification-table col:first-child {
+  width: 56%;
+}
+.weq-notification-table col:not(:first-child) {
+  width: 22%;
+}
+.weq-notification-table th,
+.weq-notification-table td {
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  vertical-align: middle;
+}
+.weq-notification-table thead th {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.weq-set-card .weq-notification-table thead th {
+  top: var(--weq-notification-sticky-offset, 0px);
+}
+.weq-notification-table thead th:first-child {
+  text-align: left;
+}
+.weq-notification-table tbody th {
+  font-size: 13px;
+  font-weight: 400;
+  text-align: left;
+}
+.weq-notification-table td {
+  text-align: center;
+}
+.weq-notification-group th button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  padding: 4px 0;
+  color: var(--weq-fg-primary);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.weq-notification-group th button svg {
+  flex: 0 0 14px;
+}
+.weq-notification-group .is-expanded {
+  transform: rotate(90deg);
+}
+.weq-notification-event th > span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 20px;
+  overflow-wrap: anywhere;
+}
+.weq-notification-event .weq-set-iconbtn {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+}
+.weq-notification-table button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 3px;
+}
+.weq-notification-scope-trigger {
+  display: inline-flex;
+}
+@media (max-width: 480px) {
+  .weq-notification-table col:first-child {
+    width: 52%;
+  }
+  .weq-notification-table col:not(:first-child) {
+    width: 24%;
+  }
+  .weq-notification-event th > span {
+    padding-left: 8px;
+  }
+}
+html[data-theme='dark'] .weq-notification-table {
+  color: var(--weq-fg-primary);
+}

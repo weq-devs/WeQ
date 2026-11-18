@@ -5,8 +5,6 @@ import type { ExportOutputPlan, ExportSavePolicy } from '@weq/service';
 import type { MailSummary } from '@weq/service/mail';
 import type { ContentSelection } from '../../../../shared/content_selection';
 import { client, trpc } from '../../trpc/client';
-import { useToastApi } from '../../components/Toast.shared';
-import { taskNotificationSource } from '../../lib/notificationNavigation.shared';
 import { WindowedList } from '../../components/WindowedList';
 import { formatMailTime } from '../mail/content';
 import '../../styles/mail-export.css';
@@ -30,7 +28,6 @@ export function MailExportPane({
   onStarted: () => void;
   disabled?: boolean;
 }) {
-  const notificationToast = useToastApi();
   const account = trpc.account.getAccountConfig.useQuery();
   const [selectedIds] = useState(() =>
     initialSelection?.owner.kind === 'mail-messages' && initialSelection.scope.type === 'items'
@@ -131,17 +128,12 @@ export function MailExportPane({
         name: `邮件导出-${items.length}封`,
       });
       if (!savePolicy || !isCurrent()) return;
-      const taskId = await client.mail.exportMessages.mutate({
+      await client.mail.exportMessages.mutate({
         ...target,
         savePolicy,
         includeIntegrityReport,
       });
       if (isCurrent()) {
-        notificationToast.push({
-          tone: 'info',
-          title: '邮件导出任务已创建',
-          source: taskNotificationSource(taskId),
-        });
         onStarted();
       }
     } catch (reason) {

@@ -3,6 +3,7 @@ import { RefreshCw } from 'lucide-react';
 import { client, trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
+import { useNotificationPolicy } from '../lib/notificationPolicy';
 import {
   acceptAccountState,
   acceptPreferences,
@@ -15,6 +16,13 @@ import {
 
 /** 应用只保留一份订阅；消息与首屏无需等待同步服务。 */
 export function ClientStateSync() {
+  const notificationSettings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+  });
+  useEffect(() => {
+    if (notificationSettings.data?.notificationEvents)
+      useNotificationPolicy.getState().setEvents(notificationSettings.data.notificationEvents);
+  }, [notificationSettings.data?.notificationEvents]);
   const utils = trpc.useUtils();
   const uin = useViewState((state) => state.openedUin);
   const config = trpc.account.getAccountConfig.useQuery(undefined, { enabled: Boolean(uin) });
@@ -90,6 +98,14 @@ export function ClientStateSync() {
     const sub = client.clientState.accountChanged.subscribe(binding, {
       onStarted: refresh,
       onData: (event) => {
+        if (event.section === 'reads') {
+          void utils.account.listAssistantSessions.invalidate();
+          void utils.account.listAgentLabPersonas.invalidate();
+          void utils.account.listAgentLabGroups.invalidate();
+          void utils.account.listOfficialAccounts.invalidate();
+          void utils.account.listServiceAccounts.invalidate();
+          void utils.account.guildDirectListSessions.invalidate();
+        }
         if (event.section === 'drafts') {
           window.dispatchEvent(new Event('weq-shared-drafts'));
           void utils.account.listDrafts.invalidate();

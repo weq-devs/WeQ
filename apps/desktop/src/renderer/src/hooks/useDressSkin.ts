@@ -59,6 +59,7 @@ function activeSkins(manifest: DressManifest) {
           slice: bubble.slice,
           imageSize: bubble.imageSize,
           textColor: bubble.textColor,
+          linkColor: bubble.linkColor,
           localFile: bubble.localFile,
           baseImage: messageBubble(bubble.itemId)?.baseImage,
           animationFrameCount: bubble.animationFrameCount,

@@ -65,7 +65,7 @@ try {
     const group = await page.getByRole('radiogroup', { name: '体检模式' }).boundingBox();
     const mode = await page.getByRole('radio', { checked: true }).boundingBox();
     const action = await page
-      .getByRole('button', { name: /^(开始扫描|继续扫描|暂停扫描)$/ })
+      .getByRole('button', { name: /^(开始扫描|继续扫描|暂停扫描|重新扫描)$/ })
       .boundingBox();
     assert.ok(Math.abs(mode.height - action.height) <= 1, '模式选中块与操作按钮等高');
     assert.ok(Math.abs(mode.y - action.y) <= 1, '模式选中块与操作按钮垂直对齐');
@@ -129,7 +129,7 @@ try {
   await page.evaluate(() => window.maintenanceQa.theme.getState().setPreference('light'));
   await capture('repair-desktop');
   await page.getByRole('button', { name: '停止修复', exact: true }).click();
-  await page.getByRole('button', { name: '开始扫描', exact: true }).waitFor({ state: 'visible' });
+  await page.getByRole('button', { name: '重新扫描', exact: true }).waitFor({ state: 'visible' });
   assert.equal(await page.evaluate(() => window.maintenanceQa.snapshot().locked), false);
   assert.deepEqual(errors, []);
   console.log(

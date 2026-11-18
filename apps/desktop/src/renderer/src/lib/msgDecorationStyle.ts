@@ -20,15 +20,9 @@ import {
   fontFxRules,
   toFontFxSkin,
   fxClipMaskCss,
+  bubbleMetrics,
+  fontTextRules,
 } from './dressSkin';
-
-const BUBBLE_SCALE = 0.5;
-/** 内边距 ÷ 切片，纵横共用（与 lib/dressSkin.ts 的 PAD_RATIO 同源，理由见那里）。 */
-const PAD_RATIO = 0.6;
-
-function px(v: number): string {
-  return `${Math.round(v * 100) / 100}px`;
-}
 
 /**
  * 展开成完整选择器列表。CSS 的 `a, b c` 只给最后一项加后缀，所以 `LINE_ATTR` 的两份
@@ -203,25 +197,12 @@ function layerRule(
  */
 export function injectBubbleCss(skin: MessageBubbleSkin, staticOnly = false) {
   return acquireDecorationStyle(`bubble:${skin.itemId}${staticOnly ? ':base' : ''}`, (resource) => {
-    const { left, top, right, bottom } = skin.slice;
-    const wTop = top * BUBBLE_SCALE;
-    const wRight = right * BUBBLE_SCALE;
-    const wBottom = bottom * BUBBLE_SCALE;
-    const wLeft = left * BUBBLE_SCALE;
-    const slice = `${top} ${right} ${bottom} ${left} fill`;
-    const width = `${px(wTop)} ${px(wRight)} ${px(wBottom)} ${px(wLeft)}`;
+    const { slice, width, topPad, rightPad, bottomPad, minWidth, minHeight } = bubbleMetrics(skin);
     const sel = bubbleSel(skin.itemId);
     const theirsSel = theirsBubbleSel(skin.itemId);
     // `sel` 是逗号选择器列表,`::after` 不能直接往上拼 —— 那样只会加到最后一项目上,
     // 前面那项会命中真实元素(见 lineContentSel 的历史坑)。用带 suffix 的版本展开。
     const overlaySel = lineContentSel('bubble', skin.itemId, '::after');
-
-    // 纵向 padding:基础按 0.6 比例,不对称时用差值补偿。
-    const avgSlice = (top + bottom) / 2;
-    const topDiff = avgSlice - top;
-    const bottomDiff = avgSlice - bottom;
-    const topPad = wTop * PAD_RATIO + topDiff * BUBBLE_SCALE * 0.6;
-    const bottomPad = wBottom * PAD_RATIO + bottomDiff * BUBBLE_SCALE * 0.6;
 
     // 动效叠加层:帧图中间镂空,只能叠在静态底图之上(见 layerRule 的说明)。
     const frameCount = skin.animationFrameCount ?? 0;
@@ -251,9 +232,9 @@ export function injectBubbleCss(skin: MessageBubbleSkin, staticOnly = false) {
       `  border-image-width: ${width};`,
       `  border-image-repeat: stretch;`,
       `  border-radius: 0;`,
-      `  padding: ${px(topPad)} ${px(Math.max(wLeft, wRight) * PAD_RATIO)} ${px(bottomPad)};`,
-      `  min-width: ${px((left + right) * BUBBLE_SCALE)};`,
-      `  min-height: ${px((top + bottom) * BUBBLE_SCALE)};`,
+      `  padding: ${topPad} ${rightPad} ${bottomPad};`,
+      `  min-width: ${minWidth};`,
+      `  min-height: ${minHeight};`,
       `}`,
       bubbleContentAlignmentCss(sel),
     ];
@@ -327,8 +308,8 @@ export function injectBubbleCss(skin: MessageBubbleSkin, staticOnly = false) {
     );
 
     // 文字色受限的气泡：链接 / @提及不再标蓝（会和气泡文字色冲突），改为继承气泡色 + 下划线。
-    if (bubbleRestrictsTextColor(skin.textColor)) {
-      rules.push(bubbleLinkMentionRules(sel));
+    if (bubbleRestrictsTextColor(skin.textColor) || skin.linkColor) {
+      rules.push(bubbleLinkMentionRules(sel, skin.linkColor));
     }
 
     resource.append(rules.join('\n'));
@@ -375,9 +356,7 @@ export function injectFontCss(fontId: number, font: FontDerived | null, staticOn
 
     const fxSkin = toFontFxSkin(font);
     const rules = [
-      `${fontSel(fontId)} {` +
-        `  font-family: "${family}", var(--im-font-body, Inter), ui-sans-serif, system-ui, sans-serif;` +
-        `}`,
+      fontTextRules(fontSel(fontId), family),
       // 炫彩：规则一直都在，挂不挂属性由渲染侧量完气泡尺寸决定。
     ];
     resource.append(rules.filter(Boolean).join('\n'));

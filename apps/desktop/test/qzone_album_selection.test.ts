@@ -189,9 +189,7 @@ it('共享导出入口按 bundle 输出计划取保存位置，Web 交给服务�
         savePolicy: { mode: 'before', directory: '/srv/qzone-export' },
       }),
     );
-    expect(save.toast).toHaveBeenCalledWith(
-      expect.objectContaining({ title: '相册导出已加入任务列表' }),
-    );
+    expect(save.toast).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalledOnce();
   } finally {
     await act(async () => root.unmount());

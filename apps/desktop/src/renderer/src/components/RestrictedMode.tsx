@@ -440,6 +440,7 @@ export function RestrictedModeHost() {
       const toast = notificationToast;
       const message: Parameters<typeof toast.push>[0] = {
         key: NOTICE_KEY,
+        event: awaitingAuthorization ? 'request' : entering ? 'progress' : 'runtime',
         tone: entering ? 'info' : 'warning',
         title: awaitingAuthorization
           ? '待提权：请完成管理员授权'
@@ -477,6 +478,7 @@ export function RestrictedModeHost() {
           signerWarned.current = true;
           notificationToast.push({
             key: 'signer-degraded',
+            event: 'runtime',
             tone: 'warning',
             title: '签名器已降级：改用完整签名函数',
             source: notificationSource({

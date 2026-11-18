@@ -282,7 +282,11 @@ export async function startDownload(): Promise<void> {
   const owner = transferOwner();
   const gate = new TransferGate();
   updateGate = gate;
-  const taskId = backgroundTasks.start({ kind: 'update', name: '下载 WeQ 更新' });
+  const taskId = backgroundTasks.start({
+    kind: 'update',
+    name: '下载 WeQ 更新',
+    display: { action: '下载 WeQ 更新', subject: getUpdateState()?.latest ?? undefined },
+  });
   let total = 0;
   let received = 0;
   let policyPaused = false;

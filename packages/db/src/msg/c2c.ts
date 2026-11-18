@@ -136,6 +136,25 @@ export class C2cMsgDb {
   private readonly qq: QqDb;
   private readonly table: string;
 
+  async countIncomingAfter(
+    part: C2cPartition,
+    cursor: { msgSeq: bigint; sendTime: bigint; msgId: bigint },
+  ): Promise<number> {
+    const { clause, value } = partitionWhere(part);
+    const floor = cursor.msgSeq > 0n ? 'AND "40003" >= ?' : '';
+    const rows = await this.qq.query(
+      `SELECT COUNT(*) FROM ${this.table} WHERE ${clause} ${floor} AND (COALESCE("40003",0),COALESCE("40050",0),"40001") > (?,?,?) AND "40013" = 0`,
+      [
+        value,
+        ...(cursor.msgSeq > 0n ? [cursor.msgSeq] : []),
+        cursor.msgSeq,
+        cursor.sendTime,
+        cursor.msgId,
+      ],
+    );
+    return Number(rows[0]?.[0] ?? 0);
+  }
+
   constructor(nt: NtHelperBinding, opts: C2cMsgDbOptions) {
     this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
     this.table = opts.table ?? 'c2c_msg_table';

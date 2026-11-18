@@ -480,12 +480,13 @@ export function useChatShellController({
 
   const selectConversation = useCallback(
     (conversationId: string) => {
+      if (view === 'messages' && activeConversationId === conversationId) return;
       profileReturn.current = null;
       history.pushConversationDetail(conversationId);
       setView('messages');
       setActiveConversationId(conversationId);
     },
-    [history, setActiveConversationId, setView],
+    [view, activeConversationId, history, setActiveConversationId, setView],
   );
 
   const selectContact = useCallback(

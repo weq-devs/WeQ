@@ -1,3 +1,4 @@
+import './support/development-features.stub';
 import { act, createElement, StrictMode, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';

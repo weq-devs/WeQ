@@ -96,6 +96,7 @@ export function MessageBatchActionDialog({
         <button
           type="button"
           className="weq-action-primary"
+          data-weq-dialog-confirm
           disabled={!batch.supported.length}
           onClick={() => onContinue(batch.supported)}
         >

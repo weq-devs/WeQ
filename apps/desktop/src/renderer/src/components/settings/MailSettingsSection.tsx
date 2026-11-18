@@ -1,9 +1,10 @@
 import { formatDateTime } from '@weq/time';
 import { TimeLabel } from '../TimeLabel';
-import { useState } from 'react';
 import { BellRing } from 'lucide-react';
 import { trpc } from '../../trpc/client';
-import { Card, Row, SectionHeader, Toggle } from './controls';
+import { Card, Row, SectionHeader } from './controls';
+import { MailNotificationSettings } from './MailNotificationSettings';
+import { NotificationMethodSelect } from './NotificationMethodSelect';
 import { useTabActive } from '../RetainedTabs.shared';
 import {
   DEFAULT_MAIL_POLL_INTERVAL_MINUTES,
@@ -25,8 +26,6 @@ export function MailSettingsSection() {
     staleTime: 0,
     refetchOnMount: 'always',
   });
-  const showUnread = trpc.settings.mail.patch.useMutation();
-  const notifications = trpc.settings.mail.patch.useMutation();
   const pollInterval = trpc.settings.mail.patch.useMutation();
   const savedInterval = preferences.data?.pollIntervalMinutes;
   const [minutes, setMinutes] = useNumericSettingDraft(
@@ -40,30 +39,12 @@ export function MailSettingsSection() {
     Number.isInteger(interval) &&
     interval >= 1 &&
     interval <= MAX_MAIL_POLL_INTERVAL_MINUTES;
-  const [error, setError] = useState('');
-  const busy = showUnread.isLoading || notifications.isLoading;
   const lastSync = lastSyncText(preferences.data?.lastSync);
-
-  async function save(kind: 'unread' | 'notifications', enabled: boolean) {
-    if (busy) return;
-    setError('');
-    try {
-      if (kind === 'unread') await showUnread.mutateAsync({ showUnread: enabled });
-      else
-        await notifications.mutateAsync({
-          notifications: enabled,
-        });
-    } catch (error) {
-      setError(error instanceof Error ? error.message : '邮箱设置保存失败。');
-    } finally {
-      void utils.settings.mail.get.invalidate();
-    }
-  }
 
   return (
     <div className="weq-set">
       <SectionHeader page="mail" title="QQ 邮箱" badge="自动保存" />
-      <Card title="邮箱同步与提醒" icon={<BellRing size={15} strokeWidth={1.8} />} resetId="mail">
+      <Card title="邮箱同步" icon={<BellRing size={15} strokeWidth={1.8} />} resetId="mail">
         <AutoSave
           value={minutes.trim() ? interval : ''}
           saved={savedInterval ?? DEFAULT_MAIL_POLL_INTERVAL_MINUTES}
@@ -114,36 +95,12 @@ export function MailSettingsSection() {
             }
           />
         </AutoSave>
-        <Row
-          settingId="mail-unread-badge"
-          label="在邮箱图标上显示红点"
-          desc="有新邮件时在邮箱图标上显示红点，与下面的横幅提醒互相独立。"
-          control={
-            <Toggle
-              label="在邮箱图标上显示红点"
-              checked={preferences.data?.showUnread ?? true}
-              disabled={!preferences.data || busy}
-              onChange={(enabled) => void save('unread', enabled)}
-            />
-          }
-        />
-        <Row
-          settingId="mail-banner"
-          label="收到新邮件时横幅提醒"
-          desc="关闭后仍在后台按上面的间隔查询并更新未读状态，只是不再弹出横幅。"
-          control={
-            <Toggle
-              label="收到新邮件时横幅提醒"
-              checked={preferences.data?.notifications ?? false}
-              disabled={!preferences.data || busy}
-              onChange={(enabled) => void save('notifications', enabled)}
-            />
-          }
-        />
+        <Row label="新邮件提醒" control={<NotificationMethodSelect event="mail" />} />
+        <MailNotificationSettings kind="unread" />
       </Card>
-      {error || preferences.error ? (
+      {preferences.error ? (
         <p className="weq-set-note" role="alert">
-          {error || preferences.error?.message}
+          {preferences.error.message}
         </p>
       ) : null}
     </div>

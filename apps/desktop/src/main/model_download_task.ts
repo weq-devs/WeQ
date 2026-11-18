@@ -21,7 +21,11 @@ export function trackModelDownload(store: ModelStore, id: string, label: string)
   }
   if (downloads.has(id)) return downloads.get(id)!;
   const work = runBackgroundTask(
-    { kind: 'model', name: `${label} · ${id}` },
+    {
+      kind: 'model',
+      name: `${label} · ${id}`,
+      display: { action: '下载模型', subject: label, context: id },
+    },
     async (taskId) => {
       const progress = (p: ModelDownloadProgress) => {
         if (p.id !== id) return;

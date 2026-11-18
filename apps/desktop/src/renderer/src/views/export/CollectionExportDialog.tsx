@@ -2,8 +2,6 @@ import { NumericText } from '../../components/NumericText';
 import { useState } from 'react';
 import { Download, X } from 'lucide-react';
 import { Modal } from '../../components/Dialog';
-import { useToast } from '../../components/Toast.shared';
-import { taskNotificationSource } from '../../lib/notificationNavigation.shared';
 import { client } from '../../trpc/client';
 import { ExportReportControl } from './ExportReportControl';
 import { StructuredExportControls, type StructuredExportOptions } from './StructuredExportControls';
@@ -26,23 +24,16 @@ export function CollectionExportDialog({
   const [busy, setBusy] = useState(false);
   const [includeIntegrityReport, setIncludeIntegrityReport] = useState(false);
   const [error, setError] = useState('');
-  const toast = useToast((state) => state.push);
   async function start() {
     setBusy(true);
     setError('');
     try {
-      const taskId = await client.account.startCollectionExport.mutate({
+      await client.account.startCollectionExport.mutate({
         ...structuredExportOptions(structured, [format]),
         name: cids ? `收藏_${cids.length}条` : '全部收藏',
         format,
         cids,
         includeIntegrityReport,
-      });
-      toast({
-        tone: 'success',
-        title: '收藏导出任务已开始',
-        source: taskNotificationSource(taskId),
-        detail: '可在导出中心查看进度并保存结果。',
       });
       onClose();
     } catch (e) {

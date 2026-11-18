@@ -58,6 +58,7 @@ const CACHE_LABELS: Readonly<Record<string, string>> = {
   voice: '语音解码缓存',
   linkpreview: '链接预览缓存',
   sysemoji: '系统表情缓存',
+  'favorite-emoji': '收藏表情原图缓存',
   collection: '收藏媒体缓存',
   qqshow: 'QQ 秀资源缓存',
   redpack: '红包封面缓存',

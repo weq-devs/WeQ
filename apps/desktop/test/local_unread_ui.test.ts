@@ -1,5 +1,4 @@
 // @vitest-environment node
-import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import { buildUnreadDock } from '../src/renderer/src/im-template/template/unreadDock';
 import { ChatType, unreadChatType } from '@weq/codec';
@@ -10,13 +9,13 @@ it('设备未读目标不归一成好友，兼容普通与临时私聊', () => {
   expect(unreadChatType(ChatType.KCHATTYPETEMPC2CFROMGROUP)).toBe(ChatType.KCHATTYPEC2C);
 });
 
-it('列表与跳转使用同一服务端结果，不再把缺失水位替换为零', () => {
-  const source = readFileSync('src/renderer/src/views/MainView.tsx', 'utf8');
-  expect(source.includes('const count = row.unreadCount ?? 0')).toBe(true);
-  expect(source.includes('!row.readError && guard.accepts(row.uid, startedAt)')).toBe(true);
-  expect(source.includes('const readSeq = info.readSeq ?? null')).toBe(true);
-  expect(source.includes('const unread = info.unreadCount ?? 0')).toBe(true);
-  expect(source.includes('const unread = latest > read ? Number(latest - read) : 0')).toBe(false);
+it('跳转使用服务端未读数，不以序号差猜测，缺水位不伪造起点', () => {
+  expect(
+    buildUnreadDock({ readSeq: '5000', unread: 2, highlights: [], visibleSeqs: ['5020'] }),
+  ).toEqual({ unread: 2, stops: [{ kind: 'unread', seq: '5001' }] });
+  expect(
+    buildUnreadDock({ readSeq: null, unread: 2, highlights: [], visibleSeqs: ['5020'] }),
+  ).toBeNull();
 });
 
 it('安静基线不生成跳转，实时未读跳到首条，明确提醒在缺少 QQ 水位时仍可跳转', () => {

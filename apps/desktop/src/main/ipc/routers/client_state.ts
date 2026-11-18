@@ -82,7 +82,15 @@ const patch = z.custom<PreferencePatch>((value) => {
     return false;
   }
 });
-const namespace = z.enum(['pins', 'tasks', 'assistant', 'todos', 'order']);
+const namespace = z.enum([
+  'pins',
+  'tasks',
+  'assistant',
+  'todos',
+  'order',
+  'notifications',
+  'reads',
+]);
 export function globalClientState() {
   return { snapshot: preferenceSnapshot, identity: () => store('global').identity() };
 }
@@ -105,6 +113,13 @@ function savePreferences(input: PreferencePatch, receiptId?: string, seeded = fa
   const receipts = config.read().sharedPreferenceRestoreReceipts ?? [];
   if (receiptId && receipts.includes(receiptId)) return preferenceSnapshot();
   const settings = config.getSettings();
+  if (input.messageNotifications !== undefined)
+    config.setSettings({
+      notificationEvents: {
+        directMessage: { system: input.messageNotifications },
+        groupMessage: { system: input.messageNotifications },
+      },
+    });
   const display = Object.fromEntries(
     Object.entries(input).filter(([key]) => key !== 'contactOrder' && key in settings),
   );

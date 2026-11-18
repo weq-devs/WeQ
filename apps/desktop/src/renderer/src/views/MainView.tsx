@@ -11,6 +11,7 @@ import {
   readUnreadInfos,
 } from './workspace/useConversationWindowRead';
 import { PAGE_SIZE, GROUP_MEMBER_PAGE_SIZE } from './workspace/paging';
+import { firstUnreadMessage } from '../lib/unreadNavigation';
 import {
   toMessageWire,
   optimisticToTemplate,
@@ -141,6 +142,13 @@ import {
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { useMessageLocateFeedback } from '../hooks/useMessageLocateFeedback';
 import { onOpenSettingsRequest } from '../lib/callSettingsBridge';
+import { useUnreadMarkers } from '../lib/unreadMarkers';
+import { TabActivity } from '../components/RetainedTabs';
+import { useNewNoticeNotification } from '../hooks/useNewNoticeNotification';
+import {
+  OPEN_NOTIFICATION_SETTINGS,
+  type NotificationSettingsRequest,
+} from '../lib/notificationSettingsNavigation';
 import { useDialog } from '../components/Dialog.shared';
 import { generatedConversationDeletion } from '../lib/generatedConversationDeletion';
 import { ForwardWindowHost } from '../components/ForwardWindow';
@@ -243,8 +251,13 @@ import {
   useGroupMemberResolver,
 } from '../hooks/useGroupMemberResolver';
 import { useGroupMemberSearch } from '../hooks/useGroupMemberSearch';
-import { readFreshGroupMemberPage, activeGroupMembers } from '../lib/groupMemberRefresh';
+import {
+  readFreshGroupMemberPage,
+  activeGroupMembers,
+  createGroupMemberLookup,
+} from '../lib/groupMemberRefresh';
 import { useDressSkin } from '../hooks/useDressSkin';
+import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
 import { RailAccountFooter } from '../components/RailAccountFooter';
 import { WorkspaceMenuButton, WorkspaceSettingsButton } from '../components/WorkspaceMenuButton';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
@@ -1124,6 +1137,7 @@ function MainWorkspace(): ReactElement {
         if ((e.kind === 'available' || e.kind === 'downloaded') && e.latest) {
           setAvailable(e.latest);
           useToast.getState().push({
+            event: 'update',
             key: 'weq-update',
             title: e.kind === 'downloaded' ? '新版本已下载，等待安装' : `发现新版本 ${e.latest}`,
             source: notificationSource({
@@ -1165,6 +1179,7 @@ function MainWorkspace(): ReactElement {
   }, [openedUin]);
   const mergeForwardVersions = useMemo(() => new Map<string, string | null>(), [messageScope]);
   const settingsNavigation = useSettingsNavigation();
+  const unreadMarkers = useUnreadMarkers();
   const [settingsOpen, setSettingsOpen] = usePageState(
     'workspace:settings',
     false,
@@ -1292,6 +1307,20 @@ function MainWorkspace(): ReactElement {
   const [settingsSection, setSettingsSection] = useState<SettingsDialogSectionId | undefined>(
     undefined,
   );
+  useEffect(() => {
+    const open = (event: Event) => {
+      const request = (event as CustomEvent<NotificationSettingsRequest>).detail;
+      settingsNavigation.navigate(() => {
+        if (request.conversation && request.source !== JSON.stringify(sharedAccountBinding()))
+          return;
+        setSettingsSection('global');
+        setSettingsSearchTarget({ section: 'global', ...request, revision: Date.now() });
+        setSettingsOpen(true);
+      });
+    };
+    window.addEventListener(OPEN_NOTIFICATION_SETTINGS, open);
+    return () => window.removeEventListener(OPEN_NOTIFICATION_SETTINGS, open);
+  }, [settingsNavigation, setSettingsOpen]);
   const { tool: maintenanceTool, setTool: setMaintenanceTool } =
     useSettingsMaintenance(messageScope);
   useEffect(() => () => useCaptureWindow.getState().dismiss(messageScope), [messageScope]);
@@ -1350,11 +1379,13 @@ function MainWorkspace(): ReactElement {
   const [guildSearchTarget, setGuildSearchTarget] = useState<
     (Extract<ContentSearchTarget, { kind: 'guildMessage' }> & { revision: string }) | null
   >(null);
-  const [dressUpOpen, setDressUpOpen] = usePageState(
+  const developmentDressTools = useDevelopmentDressTools();
+  const [dressUpRequested, setDressUpOpen] = usePageState(
     'workspace:dress-up',
     false,
     pageValue.boolean,
   );
+  const dressUpOpen = developmentDressTools && dressUpRequested;
   useEffect(() => {
     if (settingsOpen) setDressUpOpen(false);
   }, [settingsOpen, setDressUpOpen]);
@@ -2159,18 +2190,27 @@ function MainWorkspace(): ReactElement {
   // Off-page message senders resolved on demand (groupCode → uid → member),
   // batched + deduped by useGroupMemberResolver. Kept separate from the global
   // profile cache because a group card is a (group × uid) thing, not a profile.
+  const groupMemberLookup = useMemo(() => {
+    const binding = messageScope ? messageBindingRef.current : null;
+    return createGroupMemberLookup<GroupMemberWire>((input) =>
+      client.account.getGroupMembersByUids.query({ ...binding, ...input }),
+    );
+  }, [messageScope, messageBindingRef]);
   const {
     missingMembers,
     resolveMembers,
     updateMembers: updateCachedMembers,
     invalidate: invalidateCachedMembers,
-  } = useGroupMemberResolver<GroupMemberWire>();
+  } = useGroupMemberResolver<GroupMemberWire>(0, groupMemberLookup.load);
   const {
     missingMembers: previewMembers,
     resolveMembers: resolvePreviewMembers,
     updateMembers: updatePreviewMembers,
     invalidate: invalidatePreviewMembers,
-  } = useGroupMemberResolver<GroupMemberWire>(GROUP_MEMBER_PREVIEW_REFRESH_MS);
+  } = useGroupMemberResolver<GroupMemberWire>(
+    GROUP_MEMBER_PREVIEW_REFRESH_MS,
+    groupMemberLookup.load,
+  );
   const [analysisReports, setAnalysisReports] = useState<AnalysisReportRequest[]>([]);
   useEffect(() => {
     const open = (event: Event) => {
@@ -2475,6 +2515,20 @@ function MainWorkspace(): ReactElement {
     shell.contactNotice === 'friend',
     buddyRequests.isSuccess,
   );
+  useNewNoticeNotification(
+    `${noticeAccountKey}:friend`,
+    contactRequests.map((request) => request.id),
+    Boolean(noticeAccountKey) && buddyRequests.isSuccess,
+    '收到新的好友通知',
+    () => shell.openContactNotice('friend'),
+  );
+  useNewNoticeNotification(
+    `${noticeAccountKey}:group`,
+    groupNoticeRecords.map(groupNoticeId),
+    Boolean(noticeAccountKey) && groupNotifies.isSuccess,
+    '收到新的群通知',
+    () => shell.openContactNotice('group'),
+  );
   const groupNoticeCount = useAccountNoticeUnread(
     noticeAccountKey,
     'group',
@@ -2543,8 +2597,7 @@ function MainWorkspace(): ReactElement {
       if (!binding || (!message.senderUid && !/^[1-9]\d*$/.test(message.senderUin)))
         return profileName || '';
       const members = await (message.senderUid
-        ? client.account.getGroupMembersByUids.query({
-            ...binding,
+        ? groupMemberLookup.load({
             groupCode: message.conv,
             uids: [message.senderUid],
           })
@@ -2562,7 +2615,7 @@ function MainWorkspace(): ReactElement {
         profileName || '',
       );
     },
-    [previewGroupNames, previewDisplayNames, profileByUid, messageBindingRef],
+    [previewGroupNames, previewDisplayNames, profileByUid, messageBindingRef, groupMemberLookup],
   );
   useMessageNotifications({
     selfUin: user.identityValue,
@@ -3065,11 +3118,33 @@ function MainWorkspace(): ReactElement {
 
   // Keep one unread reader alive: DB pings request a refresh, rather than
   // cancelling and restarting an all-conversation scan on every change.
+  const unreadDirectoryContacts = useMemo(
+    () => [
+      ...recentContactsData,
+      ...(hiddenSessions.data ?? []).filter((row) => row.resolvable),
+      ...(deletedSessions.data ?? []).filter((row) => row.resolvable),
+    ],
+    [recentContactsData, hiddenSessions.data, deletedSessions.data],
+  );
+  const unreadDirectoryContactsRef = useRef(unreadDirectoryContacts);
+  unreadDirectoryContactsRef.current = unreadDirectoryContacts;
+  const archivedUnreadRef = useRef(new Map<string, number>());
+  archivedUnreadRef.current = new Map(
+    [...(hiddenSessions.data ?? []), ...(deletedSessions.data ?? [])].flatMap((row) =>
+      row.resolvable && row.unreadCount !== undefined
+        ? [[row.targetUid, row.unreadCount] as const]
+        : [],
+    ),
+  );
   const unreadContactsRef = useRef(recentContactsData);
   unreadContactsRef.current = recentContactsData;
   initialMessagesPendingRef.current =
     messagesLoading || trackedConversationId !== shell.activeConversationId;
   const requestUnreadRefreshRef = useRef<(() => void) | null>(null);
+  const refreshArchivedUnread = useStableCallback(() => {
+    void utils.account.listHiddenSessions.invalidate();
+    void utils.account.listDeletedSessions.invalidate();
+  });
   useEffect(() => {
     let disposed = false;
     const binding = messageBindingRef.current;
@@ -3090,7 +3165,7 @@ function MainWorkspace(): ReactElement {
     async function loadUnread(): Promise<boolean> {
       if (!isCurrent() || !binding || !openedUin) return true;
       const startedAt = guard.revision();
-      const targets = unreadContactsRef.current.flatMap((contact) => {
+      const targets = unreadDirectoryContactsRef.current.flatMap((contact) => {
         const chatType = unreadChatType(contact.chatType);
         return chatType === null ? [] : [{ chatType, uid: contact.targetUid }];
       });
@@ -3114,7 +3189,7 @@ function MainWorkspace(): ReactElement {
         const next = { ...current };
         let changed = false;
         for (const row of accepted) {
-          const count = row.unreadCount ?? 0;
+          const count = archivedUnreadRef.current.get(row.uid) ?? row.unreadCount ?? 0;
           if (next[row.uid] !== count) {
             next[row.uid] = count;
             changed = true;
@@ -3159,6 +3234,9 @@ function MainWorkspace(): ReactElement {
       ? client.account.onUnreadChanged.subscribe(binding, {
           onData(targets) {
             if (!isCurrent()) return;
+            if (targets.some((target) => archivedUnreadRef.current.has(target.uid))) {
+              refreshArchivedUnread();
+            }
             const selection = selectionRef.current;
             for (const target of targets) {
               const kind = target.chatType === 2 ? 'group' : 'c2c';
@@ -3209,6 +3287,7 @@ function MainWorkspace(): ReactElement {
     messageBindingRef,
     messageScopeRef,
     selectionRef,
+    refreshArchivedUnread,
   ]);
   useEffect(() => {
     if (!IS_WEB) return;
@@ -3223,11 +3302,11 @@ function MainWorkspace(): ReactElement {
   }, [conversationWindows, refreshRecentHead, refreshRecentTargets, refreshWindow]);
   const unreadDirectoryKey = useMemo(
     () =>
-      recentContactsData
+      unreadDirectoryContacts
         .map((row) => `${row.chatType}:${row.targetUid}`)
         .sort()
         .join('|'),
-    [recentContactsData],
+    [unreadDirectoryContacts],
   );
   useEffect(() => {
     requestUnreadRefreshRef.current?.();
@@ -3525,6 +3604,7 @@ function MainWorkspace(): ReactElement {
       setGroupMemberPages({});
       setGroupMemberHasMore({});
       setGroupMemberError({});
+      groupMemberLookup.invalidate();
       invalidateCachedMembers();
       invalidatePreviewMembers();
       setGroupInfoRevision((revision) => revision + 1);
@@ -3554,6 +3634,7 @@ function MainWorkspace(): ReactElement {
     utils,
     invalidateCachedMembers,
     invalidatePreviewMembers,
+    groupMemberLookup,
     messageBindingRef,
     messageScopeRef,
   ]);
@@ -5259,7 +5340,7 @@ function MainWorkspace(): ReactElement {
   // that seq. Landing there makes the neighbouring rows' seq gap render the
   // clickable 「此处有 N 条消息缺失 · 点击拉取」 divider, and Toast explains the
   // miss — i.e. the user can pull the missing messages instead of being dumped
-  // back at the latest page. Returns true only when the exact row was found.
+  // back at the latest page. 普通未读跳转只要求找到区间内第一条真实消息。
   // `conv`/`kind` are passed explicitly so it works right after a conversation
   // switch (before selectionRef settles).
   const centerWindowOnSeq = useCallback(
@@ -5269,6 +5350,7 @@ function MainWorkspace(): ReactElement {
       targetSeq: string,
       exactRecord?: ChatMsgWire,
       messageId?: string,
+      mode?: ReplyJumpTarget['mode'],
     ): Promise<boolean> =>
       runMessageLocate(
         async (isCurrent) => {
@@ -5310,8 +5392,13 @@ function MainWorkspace(): ReactElement {
             pushToast({
               tone: 'info',
               durationKind: 'failure',
-              title: '未找到该消息',
-              detail: '该消息可能已被撤回或删除。',
+              title: mode === 'firstUnread' ? '未读消息加载失败' : '未找到该消息',
+              detail:
+                mode === 'firstUnread'
+                  ? err instanceof Error
+                    ? err.message
+                    : String(err)
+                  : '该消息可能已被撤回或删除。',
             });
             return false;
           }
@@ -5336,9 +5423,15 @@ function MainWorkspace(): ReactElement {
           if (exactRecord && !merged.some((message) => message.msgId === exactRecord.msgId))
             merged.unshift(toMessageWire(exactRecord));
           const exactId = messageId ?? exactRecord?.msgId;
-          let target = merged.find((m) =>
-            exactId ? timelineRowKey(m) === exactId || m.msgId === exactId : m.msgSeq === targetSeq,
-          );
+          const findTarget = () =>
+            mode === 'firstUnread'
+              ? firstUnreadMessage(merged, targetSeq)
+              : merged.find((m) =>
+                  exactId
+                    ? timelineRowKey(m) === exactId || m.msgId === exactId
+                    : m.msgSeq === targetSeq,
+                );
+          let target = findTarget();
 
           const autoContext = () =>
             preferenceValue('autoFetchMissingMessages') ||
@@ -5367,11 +5460,7 @@ function MainWorkspace(): ReactElement {
                   .filter((row) => kind === 'group' || row.ntSeqVerified === true)
                   .map((row) => ({ ...toMessageWire(row), source: 'roaming' as const })),
               );
-              target = merged.find((row) =>
-                exactId
-                  ? timelineRowKey(row) === exactId || row.msgId === exactId
-                  : row.msgSeq === targetSeq,
-              );
+              target = findTarget();
             } catch (error) {
               if (!current()) return false;
               pushToast({
@@ -5382,6 +5471,15 @@ function MainWorkspace(): ReactElement {
             }
           }
           if (!current()) return false;
+          if (!target && mode === 'firstUnread') {
+            pushToast({
+              tone: 'info',
+              durationKind: 'failure',
+              title: '未找到可定位的未读消息',
+              detail: '本地未读区间暂无可用消息，可稍后重试或拉取缺失消息。',
+            });
+            return false;
+          }
           if (target) setMissingJumpSeq(null);
 
           const atLatest = after.length < PAGE_SIZE && (!exactRecord || BigInt(targetSeq) > 0n);
@@ -5539,11 +5637,25 @@ function MainWorkspace(): ReactElement {
           return;
         }
         if (targetNum >= BigInt(minSeq) && targetNum <= BigInt(maxSeq)) {
+          if (jumpTarget.mode === 'firstUnread') {
+            const first = firstUnreadMessage(current, targetSeq);
+            if (first) {
+              scrollToMsgId(timelineRowKey(first));
+              return;
+            }
+          }
           if (
             preferenceValue('autoFetchMissingMessages') ||
             preferenceValue('autoFetchMissingContext')
           ) {
-            await centerWindowOnSeq(sel.id, kind, targetSeq, undefined, jumpTarget.msgId);
+            await centerWindowOnSeq(
+              sel.id,
+              kind,
+              targetSeq,
+              undefined,
+              jumpTarget.msgId,
+              jumpTarget.mode,
+            );
             return;
           }
           // 在已加载范围内却没有这一行 ⇒ 一条被撤回/删除/从未同步的「空消息」。
@@ -5557,7 +5669,14 @@ function MainWorkspace(): ReactElement {
         }
       }
 
-      await centerWindowOnSeq(sel.id, kind, targetSeq, undefined, jumpTarget.msgId);
+      await centerWindowOnSeq(
+        sel.id,
+        kind,
+        targetSeq,
+        undefined,
+        jumpTarget.msgId,
+        jumpTarget.mode,
+      );
     },
     [centerWindowOnSeq, scrollToMsgId, pushToast, cancelMessageLocate, selectionRef, loadedRef],
   );
@@ -5628,7 +5747,7 @@ function MainWorkspace(): ReactElement {
       }
       if (selectionRef.current?.id === conv) {
         // Already open — jump straight away.
-        shell.switchView('messages');
+        shell.selectConversation(conv);
         void centerWindowOnSeq(conv, kind, seq, record, messageId);
         return;
       }
@@ -7470,6 +7589,7 @@ function MainWorkspace(): ReactElement {
         ownerId: item.id,
         name: item.name,
         uin: item.sourceUin,
+        unreadCount: item.unreadCount,
         updatedAt: item.updatedAt,
         ...(item.lastMessageTime ? { lastMessageTime: item.lastMessageTime } : {}),
         ...(item.preview ? { preview: item.preview, previewMine: item.previewMine } : {}),
@@ -7484,6 +7604,7 @@ function MainWorkspace(): ReactElement {
         ...(item.preview ? { preview: item.preview, previewMine: item.previewMine } : {}),
         // 九宫格头像用成员源好友的 QQ 号。
         memberUins: item.memberUins,
+        unreadCount: item.unreadCount,
       })),
     ],
     [directoryPersonas.data, directoryGroups.data],
@@ -7506,7 +7627,7 @@ function MainWorkspace(): ReactElement {
           ? { ...row, title: row.mergedKind === 'hidden' ? '已隐藏会话' : '已删除会话' }
           : row,
       );
-    return {
+    const directory: ConversationViewDirectory = {
       regular: [
         ...regular,
         generatedAggregateRow('clone', clone),
@@ -7524,6 +7645,7 @@ function MainWorkspace(): ReactElement {
             avatarUrl: item.avatarUrl,
             sendTime: item.sendTime,
             prompt: item.prompt,
+            unreadCount: item.unreadCount,
           },
           'official',
         ),
@@ -7536,21 +7658,51 @@ function MainWorkspace(): ReactElement {
             avatarUrl: item.avatarUrl,
             sendTime: item.sendTime,
             prompt: item.prompt,
+            unreadCount: item.unreadCount,
           },
           'service',
         ),
       ),
       guild: guildConversationRows,
-      hidden: [...temporaryRows.filter((row) => row.hidden), ...hiddenConversationsById.values()],
+      hidden: [
+        ...temporaryRows.filter((row) => row.hidden),
+        ...hiddenConversationsById.values(),
+      ].map((row) => ({
+        ...row,
+        unreadCount:
+          archivedUnreadRef.current.get(row.id) ?? unreadByConv[row.id] ?? row.unreadCount ?? 0,
+      })),
       deleted: [
         ...temporaryRows.filter((row) => row.deleted),
         ...deletedConversationsById.values(),
-      ],
+      ].map((row) => ({
+        ...row,
+        unreadCount:
+          archivedUnreadRef.current.get(row.id) ?? unreadByConv[row.id] ?? row.unreadCount ?? 0,
+      })),
       clone,
       assistant,
     };
+    directory.regular = directory.regular.map((row) => {
+      if (row.type !== 'merged') return row;
+      const members = new Map(
+        directory[row.mergedKind === 'guildDirect' ? 'guild' : row.mergedKind].map((member) => [
+          member.id,
+          member,
+        ]),
+      );
+      return {
+        ...row,
+        unreadCount: [...members.values()].reduce(
+          (count, member) => count + (member.unreadCount ?? 0),
+          0,
+        ),
+      };
+    });
+    return directory;
   }, [
     virtualRows,
+    unreadByConv,
     directoryAssistant.data,
     sidebarConversations,
     conversations,
@@ -8578,14 +8730,10 @@ function MainWorkspace(): ReactElement {
             messageBadgeCount={
               displaySettings.data?.showMessageUnreadBadge === false ? 0 : shell.messageUnreadCount
             }
-            contactBadgeCount={friendNoticeCount + groupNoticeCount}
+            contactBadgeCount={unreadMarkers.requests ? friendNoticeCount + groupNoticeCount : 0}
             onMessageBadgeClick={() =>
               settingsNavigation.navigate(() => {
-                const target = firstUnreadConversation(
-                  sidebarConversations,
-                  conversationPrefs,
-                  displaySettings.data?.showGroupAssistantMessageCount ?? false,
-                );
+                const target = firstUnreadConversation(sidebarConversations, conversationPrefs);
                 if (!target) return;
                 setSurfaceNavigation((value) => value + 1);
                 setSettingsOpen(false);
@@ -8605,8 +8753,8 @@ function MainWorkspace(): ReactElement {
             mailBadgeCount={mailPreferences.data?.showUnread === false ? 0 : mailUnread}
             showTools={false}
             railFooterContent={() => <WorkspaceMenuButton />}
-            friendNoticeCount={friendNoticeCount}
-            groupNoticeCount={groupNoticeCount}
+            friendNoticeCount={unreadMarkers.requests ? friendNoticeCount : 0}
+            groupNoticeCount={unreadMarkers.requests ? groupNoticeCount : 0}
             onViewChange={(view) =>
               settingsNavigation.navigate(() => {
                 if (view === 'guild-direct' || view === 'agentlab') {
@@ -8940,353 +9088,359 @@ function MainWorkspace(): ReactElement {
                   />
                 ) : null}
                 <RetainedTabs snapshotKey="main" activeKey={shell.view}>
-                  {shell.view === 'messages' && specialChat === 'assistant' ? null : shell.view ===
-                      'messages' && specialChat === 'guild' ? (
-                    <GuildDirectDialog
-                      open
-                      embedded
-                      chatOnly
-                      selfUser={user}
-                      renderers={messageRenderers}
-                      searchTarget={guildSearchTarget}
-                      onActiveSessionChange={setActiveGuildNodeId}
-                      onClose={() => {
-                        setMobileConversationList(true);
-                      }}
-                    />
-                  ) : shell.view === 'messages' && arkFeedState ? (
-                    <OfficialConversationPane
-                      user={user}
-                      conversationId={arkFeedState.conversationId}
-                      anchorId={arkFeedState.anchorId}
-                      title={arkFeedState.title}
-                      onBack={() => {
-                        if (mobileLayout) setMobileConversationList(true);
-                        else setArkFeedState(null);
-                      }}
-                      onEditMessage={async (msgId: string) => {
-                        try {
-                          const result = await client.account.getRawElements.query({ msgId });
-                          if (result) {
-                            setEditorState({ msgId, elements: result.elements });
-                          }
-                        } catch (e) {
-                          console.error('[MainView] Failed to fetch raw elements:', e);
-                        }
-                      }}
-                    />
-                  ) : shell.view === 'home' ? (
-                    <ChatHome nickname={user.displayName} avatarUrl={user.avatarUrl} />
-                  ) : shell.view === 'agentlab' ? (
-                    <Suspense fallback={workspaceLoading}>
-                      <AgentLabView
-                        searchTarget={cloneSearchTarget}
-                        openTarget={virtualOpen}
-                        createRequest={cloneCreateRequest}
-                        openGroupRequest={cloneGroupRequest}
+                  <TabActivity active={!mobileLayout || fullBleedView || !mobileConversationList}>
+                    {shell.view === 'messages' &&
+                    specialChat === 'assistant' ? null : shell.view === 'messages' &&
+                      specialChat === 'guild' ? (
+                      <GuildDirectDialog
+                        open
                         embedded
-                        onConversationCreated={(target) => {
-                          setVirtualOpen({ ...target, revision: Date.now() });
-                          setConversationLocate({
-                            id: `virtual:${target.kind}:${target.id}`,
-                            revision: Date.now(),
-                          });
-                          setConversationView('clone');
+                        chatOnly
+                        selfUser={user}
+                        renderers={messageRenderers}
+                        searchTarget={guildSearchTarget}
+                        onActiveSessionChange={setActiveGuildNodeId}
+                        onClose={() => {
+                          setMobileConversationList(true);
                         }}
-                        onBackToDirectory={() => {
-                          if (mobileLayout) {
-                            setMobileConversationList(true);
-                            return;
+                      />
+                    ) : shell.view === 'messages' && arkFeedState ? (
+                      <OfficialConversationPane
+                        user={user}
+                        conversationId={arkFeedState.conversationId}
+                        anchorId={arkFeedState.anchorId}
+                        title={arkFeedState.title}
+                        onBack={() => {
+                          if (mobileLayout) setMobileConversationList(true);
+                          else setArkFeedState(null);
+                        }}
+                        onEditMessage={async (msgId: string) => {
+                          try {
+                            const result = await client.account.getRawElements.query({ msgId });
+                            if (result) {
+                              setEditorState({ msgId, elements: result.elements });
+                            }
+                          } catch (e) {
+                            console.error('[MainView] Failed to fetch raw elements:', e);
                           }
-                          setVirtualOpen(null);
-                          shell.backConversation();
+                        }}
+                      />
+                    ) : shell.view === 'home' ? (
+                      <ChatHome nickname={user.displayName} avatarUrl={user.avatarUrl} />
+                    ) : shell.view === 'agentlab' ? (
+                      <Suspense fallback={workspaceLoading}>
+                        <AgentLabView
+                          searchTarget={cloneSearchTarget}
+                          openTarget={virtualOpen}
+                          createRequest={cloneCreateRequest}
+                          openGroupRequest={cloneGroupRequest}
+                          embedded
+                          onConversationCreated={(target) => {
+                            setVirtualOpen({ ...target, revision: Date.now() });
+                            setConversationLocate({
+                              id: `virtual:${target.kind}:${target.id}`,
+                              revision: Date.now(),
+                            });
+                            setConversationView('clone');
+                          }}
+                          onBackToDirectory={() => {
+                            if (mobileLayout) {
+                              setMobileConversationList(true);
+                              return;
+                            }
+                            setVirtualOpen(null);
+                            shell.backConversation();
+                            shell.switchView('messages');
+                          }}
+                        />
+                      </Suspense>
+                    ) : shell.view === 'collections' ? (
+                      <CollectionDialog
+                        open
+                        embedded
+                        searchTarget={collectionSearchTarget}
+                        onClose={() => shell.switchView('messages')}
+                      />
+                    ) : shell.view === 'qzone' || shell.view === 'mail' ? null : shell.view ===
+                        'channel' || shell.view === 'guild-direct' ? (
+                      <ChannelView
+                        key={messageScope}
+                        initialDirectOpen={shell.view === 'guild-direct'}
+                        onOpenDirect={() => {
+                          setMobileConversationList(true);
+                          changeConversationView('guild');
                           shell.switchView('messages');
                         }}
                       />
-                    </Suspense>
-                  ) : shell.view === 'collections' ? (
-                    <CollectionDialog
-                      open
-                      embedded
-                      searchTarget={collectionSearchTarget}
-                      onClose={() => shell.switchView('messages')}
-                    />
-                  ) : shell.view === 'qzone' || shell.view === 'mail' ? null : shell.view ===
-                      'channel' || shell.view === 'guild-direct' ? (
-                    <ChannelView
-                      key={messageScope}
-                      initialDirectOpen={shell.view === 'guild-direct'}
-                      onOpenDirect={() => {
-                        setMobileConversationList(true);
-                        changeConversationView('guild');
-                        shell.switchView('messages');
-                      }}
-                    />
-                  ) : shell.view === 'contacts' && shell.contactNotice === 'friend' ? (
-                    <ContactNoticeDialog
-                      open
-                      requests={contactRequests}
-                      onClose={shell.backContactNotice}
-                      onOpenProfile={(member, anchor) =>
-                        setMemberCard({ member, anchor, groupContext: null })
-                      }
-                    />
-                  ) : shell.view === 'contacts' && shell.contactNotice === 'group' ? (
-                    <GroupNoticeDialog
-                      open
-                      requests={groupRequests}
-                      onClose={shell.backContactNotice}
-                      onOpenProfile={(member, anchor, group) =>
-                        setMemberCard({ member, anchor, groupContext: group ?? null })
-                      }
-                      onOpenGroupProfile={(group, anchor) => {
-                        const known = contactDirectoryConversations.find(
-                          (item) => item.type === 'group' && item.id === group.code,
-                        );
-                        setMemberCard(null);
-                        setNumberGroupCard({
-                          accountUin: openedUin,
-                          conversation:
-                            known?.type === 'group'
-                              ? known
-                              : sharedGroupConversation({
-                                  code: group.code,
-                                  name: group.name || group.code,
-                                  avatar: avatarFromGroupCode(group.code) ?? '',
-                                }),
-                          detailsKnown: known?.type === 'group',
-                          anchor,
-                        });
-                      }}
-                    />
-                  ) : shell.view === 'annual' ? (
-                    <Suspense fallback={workspaceLoading}>
-                      <AnnualReportView />
-                    </Suspense>
-                  ) : (
-                    <div className="weq-template-main-wrap">
-                      <div className="weq-readonly-chat">
-                        <ChatMainContent
-                          key={messageScope}
-                          onLoadOlder={requestOlderMessages}
-                          onLoadNewer={requestNewerMessages}
-                          hasOlder={hasOlder}
-                          onTimelineElement={captureNativeTimeline}
-                          user={user}
-                          view={shell.view}
-                          contactTab={shell.contactTab}
-                          contactOverviewOpen={shell.contactOverviewOpen}
-                          onBackContactOverview={shell.backContactOverview}
-                          relationGraphSlot={
-                            <Suspense fallback={workspaceLoading}>
-                              <RelationGraphView onOpenMember={handleOpenGraphMember} />
-                            </Suspense>
-                          }
-                          selectedContact={selectedContactForDetail}
-                          onPreviewContactChat={(contact) =>
-                            void previewPrivateChat(contact, 'contact')
-                          }
-                          contactPreviewContent={
-                            privatePreview?.source === 'contact' ? conversationPreviewContent : null
-                          }
-                          contactWorkspaceTab={shell.contactWorkspaceTab}
-                          onContactWorkspaceTabChange={shell.setContactWorkspaceTab}
-                          selectedGroupConversation={selectedGroupConversationForDetail}
-                          groupWorkspaceLocation={groupWorkspaceLocation ?? undefined}
-                          activeConversation={
-                            activeConversation?.type === 'merged' ? undefined : activeConversation
-                          }
-                          messages={templateMessages}
-                          messageRenderers={messageRenderers}
-                          loadingMessages={loadingInitialMessages}
-                          loadingNewer={loadingNewerMessages}
-                          initialReadingPosition={initialReadingPosition}
-                          atLatest={anchoredToLatest}
-                          latestMessageSeq={
-                            recentContactsData.find((contact) => contact.targetUid === selectedUid)
-                              ?.msgSeq
-                          }
-                          onPreviewLatest={(conversation) =>
-                            void previewConversation(conversation, 'latest')
-                          }
-                          onJumpToLatest={async () => {
-                            const selection = selectionRef.current;
-                            const previousWindow = windowRef.current;
-                            const account = user.identityValue;
-                            if (!selection) return false;
-                            try {
-                              const page = await client.account.listLatest.query({
-                                ...messageBindingRef.current,
-                                readWindow: selection.readWindow,
-                                deferReplyMedia: true,
-                                kind: selection.kind === 'group' ? 'group' : 'c2c',
-                                conv: selection.id,
-                                limit: PAGE_SIZE,
-                              });
-                              if (
-                                selectionRef.current !== selection ||
-                                windowRef.current !== previousWindow ||
-                                useViewState.getState().openedUin !== account
-                              )
+                    ) : shell.view === 'contacts' && shell.contactNotice === 'friend' ? (
+                      <ContactNoticeDialog
+                        open
+                        requests={contactRequests}
+                        onClose={shell.backContactNotice}
+                        onOpenProfile={(member, anchor) =>
+                          setMemberCard({ member, anchor, groupContext: null })
+                        }
+                      />
+                    ) : shell.view === 'contacts' && shell.contactNotice === 'group' ? (
+                      <GroupNoticeDialog
+                        open
+                        requests={groupRequests}
+                        onClose={shell.backContactNotice}
+                        onOpenProfile={(member, anchor, group) =>
+                          setMemberCard({ member, anchor, groupContext: group ?? null })
+                        }
+                        onOpenGroupProfile={(group, anchor) => {
+                          const known = contactDirectoryConversations.find(
+                            (item) => item.type === 'group' && item.id === group.code,
+                          );
+                          setMemberCard(null);
+                          setNumberGroupCard({
+                            accountUin: openedUin,
+                            conversation:
+                              known?.type === 'group'
+                                ? known
+                                : sharedGroupConversation({
+                                    code: group.code,
+                                    name: group.name || group.code,
+                                    avatar: avatarFromGroupCode(group.code) ?? '',
+                                  }),
+                            detailsKnown: known?.type === 'group',
+                            anchor,
+                          });
+                        }}
+                      />
+                    ) : shell.view === 'annual' ? (
+                      <Suspense fallback={workspaceLoading}>
+                        <AnnualReportView />
+                      </Suspense>
+                    ) : (
+                      <div className="weq-template-main-wrap">
+                        <div className="weq-readonly-chat">
+                          <ChatMainContent
+                            key={messageScope}
+                            onLoadOlder={requestOlderMessages}
+                            onLoadNewer={requestNewerMessages}
+                            hasOlder={hasOlder}
+                            onTimelineElement={captureNativeTimeline}
+                            user={user}
+                            view={shell.view}
+                            contactTab={shell.contactTab}
+                            contactOverviewOpen={shell.contactOverviewOpen}
+                            onBackContactOverview={shell.backContactOverview}
+                            relationGraphSlot={
+                              <Suspense fallback={workspaceLoading}>
+                                <RelationGraphView onOpenMember={handleOpenGraphMember} />
+                              </Suspense>
+                            }
+                            selectedContact={selectedContactForDetail}
+                            onPreviewContactChat={(contact) =>
+                              void previewPrivateChat(contact, 'contact')
+                            }
+                            contactPreviewContent={
+                              privatePreview?.source === 'contact'
+                                ? conversationPreviewContent
+                                : null
+                            }
+                            contactWorkspaceTab={shell.contactWorkspaceTab}
+                            onContactWorkspaceTabChange={shell.setContactWorkspaceTab}
+                            selectedGroupConversation={selectedGroupConversationForDetail}
+                            groupWorkspaceLocation={groupWorkspaceLocation ?? undefined}
+                            activeConversation={
+                              activeConversation?.type === 'merged' ? undefined : activeConversation
+                            }
+                            messages={templateMessages}
+                            messageRenderers={messageRenderers}
+                            loadingMessages={loadingInitialMessages}
+                            loadingNewer={loadingNewerMessages}
+                            initialReadingPosition={initialReadingPosition}
+                            atLatest={anchoredToLatest}
+                            latestMessageSeq={
+                              recentContactsData.find(
+                                (contact) => contact.targetUid === selectedUid,
+                              )?.msgSeq
+                            }
+                            onPreviewLatest={(conversation) =>
+                              void previewConversation(conversation, 'latest')
+                            }
+                            onJumpToLatest={async () => {
+                              const selection = selectionRef.current;
+                              const previousWindow = windowRef.current;
+                              const account = user.identityValue;
+                              if (!selection) return false;
+                              try {
+                                const page = await client.account.listLatest.query({
+                                  ...messageBindingRef.current,
+                                  readWindow: selection.readWindow,
+                                  deferReplyMedia: true,
+                                  kind: selection.kind === 'group' ? 'group' : 'c2c',
+                                  conv: selection.id,
+                                  limit: PAGE_SIZE,
+                                });
+                                if (
+                                  selectionRef.current !== selection ||
+                                  windowRef.current !== previousWindow ||
+                                  useViewState.getState().openedUin !== account
+                                )
+                                  return false;
+                                const rows = page.map(toMessageWire).reverse();
+                                pendingScrollRestoreRef.current = null;
+                                cachedScrollRef.current = null;
+                                windowRef.current = {
+                                  minSeq: rows[0]?.msgSeq ?? null,
+                                  anchored: true,
+                                };
+                                setLoaded(rows);
+                                setAnchoredToLatest(true);
+                                setHasNewer(false);
+                                setHasOlder(page.length >= PAGE_SIZE);
+                                return true;
+                              } catch (error) {
+                                pushToast({
+                                  tone: 'error',
+                                  message: '无法定位到最新消息',
+                                  source: conversationNotificationSource(selectedConversation),
+                                  detail: error instanceof Error ? error.message : String(error),
+                                });
                                 return false;
-                              const rows = page.map(toMessageWire).reverse();
-                              pendingScrollRestoreRef.current = null;
-                              cachedScrollRef.current = null;
-                              windowRef.current = {
-                                minSeq: rows[0]?.msgSeq ?? null,
-                                anchored: true,
-                              };
-                              setLoaded(rows);
-                              setAnchoredToLatest(true);
-                              setHasNewer(false);
-                              setHasOlder(page.length >= PAGE_SIZE);
-                              return true;
-                            } catch (error) {
-                              pushToast({
-                                tone: 'error',
-                                message: '无法定位到最新消息',
-                                source: conversationNotificationSource(selectedConversation),
-                                detail: error instanceof Error ? error.message : String(error),
+                              }
+                            }}
+                            onReadCurrentConversation={(conv) => {
+                              if (unreadSnapshotPendingRef.current !== conv.id)
+                                void markVisibleConversationRead(conv);
+                            }}
+                            conversationPrefs={conversationPrefs}
+                            drafts={drafts}
+                            query={shell.query}
+                            onBackContact={shell.backContact}
+                            onBackGroup={shell.backGroup}
+                            onLoadMoreGroupMembers={requestMoreGroupMembers}
+                            groupMembersLoading={selectedGroupMembersLoading}
+                            groupMembersError={selectedGroupMembersError}
+                            groupMemberSearch={memberSearch}
+                            onGroupMemberSearchChange={setMemberSearchKeyword}
+                            onLoadMoreGroupMemberSearch={groupMemberSearch.loadMore}
+                            profileLoading={groupDetail.isLoading}
+                            sendAvailable={sendAvailable}
+                            onSend={sendComposerMessage}
+                            onStartOutgoingMessage={(message) => {
+                              if (
+                                message.conversationId === selectedConversation?.id &&
+                                sendAvailable
+                              )
+                                outgoingQueue.current.start(message.id);
+                            }}
+                            onRepeatMessage={repeatMessage}
+                            onResolveMentions={resolveMentions}
+                            onSearchMentionMembers={async (query, conversation) => {
+                              const result = await client.account.searchGroupMembers.query({
+                                groupCode: conversation.id,
+                                keyword: query,
+                                limit: 200,
+                                offset: 0,
                               });
-                              return false;
+                              return result.members.map(mapGroupMemberWire);
+                            }}
+                            onStartCall={startVoiceCall}
+                            onSendArk={sendArkCard}
+                            arkLocation={arkLocation}
+                            arkContacts={arkContacts}
+                            defaultSignupGroupCode={
+                              selectedConversation?.type === 'group'
+                                ? selectedConversation.group.identityValue
+                                : undefined
                             }
-                          }}
-                          onReadCurrentConversation={(conv) => {
-                            if (unreadSnapshotPendingRef.current !== conv.id)
-                              void markVisibleConversationRead(conv);
-                          }}
-                          conversationPrefs={conversationPrefs}
-                          drafts={drafts}
-                          query={shell.query}
-                          onBackContact={shell.backContact}
-                          onBackGroup={shell.backGroup}
-                          onLoadMoreGroupMembers={requestMoreGroupMembers}
-                          groupMembersLoading={selectedGroupMembersLoading}
-                          groupMembersError={selectedGroupMembersError}
-                          groupMemberSearch={memberSearch}
-                          onGroupMemberSearchChange={setMemberSearchKeyword}
-                          onLoadMoreGroupMemberSearch={groupMemberSearch.loadMore}
-                          profileLoading={groupDetail.isLoading}
-                          sendAvailable={sendAvailable}
-                          onSend={sendComposerMessage}
-                          onStartOutgoingMessage={(message) => {
-                            if (
-                              message.conversationId === selectedConversation?.id &&
-                              sendAvailable
-                            )
-                              outgoingQueue.current.start(message.id);
-                          }}
-                          onRepeatMessage={repeatMessage}
-                          onResolveMentions={resolveMentions}
-                          onSearchMentionMembers={async (query, conversation) => {
-                            const result = await client.account.searchGroupMembers.query({
-                              groupCode: conversation.id,
-                              keyword: query,
-                              limit: 200,
-                              offset: 0,
-                            });
-                            return result.members.map(mapGroupMemberWire);
-                          }}
-                          onStartCall={startVoiceCall}
-                          onSendArk={sendArkCard}
-                          arkLocation={arkLocation}
-                          arkContacts={arkContacts}
-                          defaultSignupGroupCode={
-                            selectedConversation?.type === 'group'
-                              ? selectedConversation.group.identityValue
-                              : undefined
-                          }
-                          onSendFlash={sendFlashTransfer}
-                          onSendFlashPhoto={sendFlashPhoto}
-                          onSendBubbleVideo={sendBubbleVideo}
-                          onSendRedPacket={sendRedPacket}
-                          onDraftChange={updateDraft}
-                          onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
-                          onBackConversation={shell.backConversation}
-                          onEditRaw={handleEditRaw}
-                          onDeleteMessage={handleDeleteMessage}
-                          onDismissUnsentMessage={dismissUnsentOutgoing}
-                          onOpenGroupAlbums={handleOpenGroupAlbums}
-                          onOpenGroupFiles={handleOpenGroupFiles}
-                          onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
-                          groupSidebarFeature={activeGroupSidebarPopover?.kind}
-                          groupTodos={
-                            selectedConversation?.type === 'group' ? (
-                              <GroupTodos
-                                key={`${noticeAccountKey}:${selectedConversation.id}`}
-                                groupId={Number(selectedConversation.group.identityValue)}
-                                groupName={selectedConversation.group.name}
-                                onJumpToMessage={(sequence) =>
-                                  jumpToConvSeq('group', selectedConversation.id, sequence)
-                                }
-                                popoverOpen={activeGroupSidebarPopover?.kind === 'todos'}
-                                onPopoverOpenChange={(open, anchor) => {
-                                  if (open && anchor)
-                                    toggleGroupSidebarPopover(
-                                      'todos',
-                                      selectedConversation,
-                                      anchor,
-                                    );
-                                  else
-                                    setGroupSidebarPopover((current) =>
-                                      current?.kind === 'todos' ? null : current,
-                                    );
-                                }}
-                                embedded
-                              />
-                            ) : undefined
-                          }
-                          onOpenGroupSign={handleOpenGroupSign}
-                          onOpenGroupEssence={handleOpenGroupEssence}
-                          onOpenGroupInfoDetail={handleOpenGroupInfoDetail}
-                          onRenameGroupMember={handleRenameGroupMember}
-                          onChangeGroupMemberTitle={handleChangeGroupMemberTitle}
-                          onKickGroupMember={handleKickGroupMember}
-                          onOpenConversationSettings={handleOpenConversationSettings}
-                          onOpenGroupBug={handleOpenGroupBug}
-                          onOpenGroupLeftMembers={handleOpenGroupLeftMembers}
-                          groupBugOnline={groupBugStatus.data?.online ?? false}
-                          onOpenGroupMember={handleOpenGroupMember}
-                          onAddMessage={handleAddMessage}
-                          onMergeForward={handleMergeForward}
-                          onAddToComposition={handleAddToComposition}
-                          onForwardMessages={(messages) => {
-                            const prepared = partitionForwardMessages(messages);
-                            if (!prepared.sendable.length) {
-                              pushToast({
-                                tone: 'warning',
-                                title: '没有可转发的消息',
-                                detail: prepared.ignored[0]?.reason,
+                            onSendFlash={sendFlashTransfer}
+                            onSendFlashPhoto={sendFlashPhoto}
+                            onSendBubbleVideo={sendBubbleVideo}
+                            onSendRedPacket={sendRedPacket}
+                            onDraftChange={updateDraft}
+                            onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
+                            onBackConversation={shell.backConversation}
+                            onEditRaw={handleEditRaw}
+                            onDeleteMessage={handleDeleteMessage}
+                            onDismissUnsentMessage={dismissUnsentOutgoing}
+                            onOpenGroupAlbums={handleOpenGroupAlbums}
+                            onOpenGroupFiles={handleOpenGroupFiles}
+                            onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
+                            groupSidebarFeature={activeGroupSidebarPopover?.kind}
+                            groupTodos={
+                              selectedConversation?.type === 'group' ? (
+                                <GroupTodos
+                                  key={`${noticeAccountKey}:${selectedConversation.id}`}
+                                  groupId={Number(selectedConversation.group.identityValue)}
+                                  groupName={selectedConversation.group.name}
+                                  onJumpToMessage={(sequence) =>
+                                    jumpToConvSeq('group', selectedConversation.id, sequence)
+                                  }
+                                  popoverOpen={activeGroupSidebarPopover?.kind === 'todos'}
+                                  onPopoverOpenChange={(open, anchor) => {
+                                    if (open && anchor)
+                                      toggleGroupSidebarPopover(
+                                        'todos',
+                                        selectedConversation,
+                                        anchor,
+                                      );
+                                    else
+                                      setGroupSidebarPopover((current) =>
+                                        current?.kind === 'todos' ? null : current,
+                                      );
+                                  }}
+                                  embedded
+                                />
+                              ) : undefined
+                            }
+                            onOpenGroupSign={handleOpenGroupSign}
+                            onOpenGroupEssence={handleOpenGroupEssence}
+                            onOpenGroupInfoDetail={handleOpenGroupInfoDetail}
+                            onRenameGroupMember={handleRenameGroupMember}
+                            onChangeGroupMemberTitle={handleChangeGroupMemberTitle}
+                            onKickGroupMember={handleKickGroupMember}
+                            onOpenConversationSettings={handleOpenConversationSettings}
+                            onOpenGroupBug={handleOpenGroupBug}
+                            onOpenGroupLeftMembers={handleOpenGroupLeftMembers}
+                            groupBugOnline={groupBugStatus.data?.online ?? false}
+                            onOpenGroupMember={handleOpenGroupMember}
+                            onAddMessage={handleAddMessage}
+                            onMergeForward={handleMergeForward}
+                            onAddToComposition={handleAddToComposition}
+                            onForwardMessages={(messages) => {
+                              const prepared = partitionForwardMessages(messages);
+                              if (!prepared.sendable.length) {
+                                pushToast({
+                                  tone: 'warning',
+                                  title: '没有可转发的消息',
+                                  detail: prepared.ignored[0]?.reason,
+                                });
+                                return;
+                              }
+                              setForwardBatch({
+                                account: user.identityValue,
+                                messages: structuredClone(messages),
+                                conversation: selectedConversation ?? undefined,
                               });
-                              return;
+                            }}
+                            onViewDeleted={handleViewDeleted}
+                            onViewRecalled={handleViewRecalled}
+                            onOpenGapMessages={handleOpenGapMessages}
+                            onLoadSelectionMessages={loadSelectionMessages}
+                            onSearchChatRecords={handleSearchChatRecords}
+                            onOpenRoamingBackfill={(conversation) => {
+                              const target = conversationRoamingTarget(conversation);
+                              if (target) handleRoamingTargets([target]);
+                            }}
+                            deletedIds={deletedIds}
+                            hiddenDeletedIds={hiddenDeletedIds}
+                            onRestoreMessage={(msgId) =>
+                              handleRestoreMessage(msgId, selectedConversation)
                             }
-                            setForwardBatch({
-                              account: user.identityValue,
-                              messages: structuredClone(messages),
-                              conversation: selectedConversation ?? undefined,
-                            });
-                          }}
-                          onViewDeleted={handleViewDeleted}
-                          onViewRecalled={handleViewRecalled}
-                          onOpenGapMessages={handleOpenGapMessages}
-                          onLoadSelectionMessages={loadSelectionMessages}
-                          onSearchChatRecords={handleSearchChatRecords}
-                          onOpenRoamingBackfill={(conversation) => {
-                            const target = conversationRoamingTarget(conversation);
-                            if (target) handleRoamingTargets([target]);
-                          }}
-                          deletedIds={deletedIds}
-                          hiddenDeletedIds={hiddenDeletedIds}
-                          onRestoreMessage={(msgId) =>
-                            handleRestoreMessage(msgId, selectedConversation)
-                          }
-                          unreadDock={unreadDock}
-                          missingJumpSeq={missingJumpSeq}
-                          resolvedGapIds={resolvedGaps}
-                        />
+                            unreadDock={unreadDock}
+                            missingJumpSeq={missingJumpSeq}
+                            resolvedGapIds={resolvedGaps}
+                          />
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </TabActivity>
                 </RetainedTabs>
               </WorkspaceContent>
             }
@@ -10065,8 +10219,6 @@ function MainWorkspace(): ReactElement {
                             showContactUnreadCount:
                               displaySettings.data?.showContactUnreadCount ?? false,
                             groupAssistantIds,
-                            showGroupAssistantMessageCount:
-                              displaySettings.data?.showGroupAssistantMessageCount ?? false,
                             loadingError: currentViewError,
                             virtual: virtualRows,
                             locate: conversationLocate,

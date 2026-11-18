@@ -32,6 +32,20 @@
   font-size: 13px;
   cursor: pointer;
 }
+.weq-conversation-actions-menu button > svg {
+  flex: none;
+}
+.weq-conversation-actions-menu button > .weq-menu-expand {
+  margin-left: auto;
+}
+.weq-conversation-actions-menu button[aria-expanded='true'] > .weq-menu-expand {
+  transform: rotate(180deg);
+}
+.weq-conversation-submenu {
+  display: grid;
+  padding-left: 16px;
+  margin-bottom: 4px;
+}
 .weq-conversation-actions-target {
   display: flex;
   align-items: center;

@@ -170,10 +170,7 @@ it.each([
     html: '<html>report-2025</html>',
     savePolicy: { mode: 'before', directory: '/fixture/export' },
   });
-  expect(state.toast.mock.calls[0]![0]).toMatchObject({
-    tone: 'info',
-    title: '报告保存任务已创建',
-  });
+  expect(state.toast).not.toHaveBeenCalled();
 });
 it('报告只保留保存按钮，取消位置选择不创建任务', async () => {
   const view = await mount();

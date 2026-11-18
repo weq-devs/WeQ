@@ -1,4 +1,5 @@
 import type { SettingsTarget } from './navigation';
+import type { NotificationConversation } from '../../lib/notificationSettingsNavigation';
 
 // 与 app-search.css 的淡出动画时长保持一致。
 export const SETTINGS_SEARCH_HIGHLIGHT_MS = 2000;
@@ -6,6 +7,7 @@ export const SETTINGS_SEARCH_HIGHLIGHT_MS = 2000;
 export interface SettingsSearchTarget extends SettingsTarget {
   revision: number;
   recordId?: string;
+  conversation?: NotificationConversation;
 }
 
 /** 只在当前设置正文内按界面标签定位，不匹配配置值，不触发按钮。 */

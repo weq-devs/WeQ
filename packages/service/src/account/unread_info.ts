@@ -245,6 +245,17 @@ export class UnreadInfoService {
     return this.important.list({ ...input, readSeq: snapshot?.readSeq });
   }
 
+  async directoryUnreadCount(
+    chatType: number,
+    uid: string,
+    latestSeq?: string,
+  ): Promise<number | undefined> {
+    const [snapshot] = await this.getUnreadInfos([{ chatType, uid }]);
+    if (!snapshot || snapshot.readError) return undefined;
+    return this.local.resolve({ ...snapshot, latestSeq: snapshot.latestSeq ?? latestSeq ?? null })
+      .unreadCount;
+  }
+
   async getUnreadInfos(
     targets: UnreadInfoTarget[],
     _watermarksOnly = false,

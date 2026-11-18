@@ -17,16 +17,19 @@ it('当前浏览器拒绝授权只显示本端授权结果，不关闭共享通�
   vi.stubGlobal('localStorage', new Storage());
   const request = vi.fn(async () => 'denied');
   vi.stubGlobal('Notification', { permission: 'denied', requestPermission: request });
-  useWebNotices.setState({ enabled: false });
+  useWebNotices.setState({ enabled: true });
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
   try {
     await act(async () => root.render(createElement(WebNotificationsSection)));
-    await act(async () => host.querySelector<HTMLButtonElement>('[role="switch"]')!.click());
-    await vi.waitFor(() => expect(rpc.patch).toHaveBeenCalledWith({ webNotifications: true }));
+    await act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('button')]
+        .find((button) => button.textContent?.includes('授权当前浏览器'))!
+        .click(),
+    );
     expect(useWebNotices.getState().enabled).toBe(true);
-    expect(host.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('true');
+    expect(host.querySelector('[role="switch"]')).toBeNull();
     expect(host.textContent).toContain('浏览器未允许通知');
     expect(request).toHaveBeenCalledTimes(1);
     expect(rpc.patch).not.toHaveBeenCalledWith({ webNotifications: false });

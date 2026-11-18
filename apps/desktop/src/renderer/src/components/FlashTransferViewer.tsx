@@ -39,6 +39,7 @@ import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { client } from '../trpc/client';
 import { fileIconUrl } from '../lib/resourceUrl';
 import { useToast } from './Toast.shared';
+import { taskNotificationSource } from '../lib/notificationNavigation.shared';
 import '../styles/flash-transfer.css';
 
 function EmbeddedTransfer({ children }: ComponentProps<typeof Modal>): ReactElement {
@@ -372,13 +373,17 @@ export function FlashTransferViewer({
       if (res.cancelled) return;
       setSelected(new Map());
       if (res.started > 0) {
-        pushToast({ tone: 'success', message: `已创建下载任务 · ${res.started} 个文件` });
         showTasks();
       } else {
         pushToast({ tone: 'warning', message: '没有可下载的文件' });
       }
       if (res.errors.length > 0) {
-        pushToast({ tone: 'warning', message: '部分文件无法解析', detail: res.errors[0] });
+        pushToast({
+          tone: 'warning',
+          message: '部分文件无法解析',
+          detail: res.errors[0],
+          source: res.taskId ? taskNotificationSource(res.taskId, 'flash') : undefined,
+        });
       }
     } catch (e) {
       pushToast({

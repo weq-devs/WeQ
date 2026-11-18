@@ -8,9 +8,9 @@ const scope = z.object({ uin: z.string(), configId: z.string().optional() }).nul
 const ref = z.object({ id: z.string().uuid(), scope });
 
 export const backgroundTasksRouter = router({
-  list: procedure.input(scope).query(({ input }) => {
+  list: procedure.input(scope).query(async ({ input }) => {
     if (input?.configId)
-      restoreAnalysisReportTasks({
+      await restoreAnalysisReportTasks({
         expectedAccountUin: input.uin,
         expectedAccountConfigId: input.configId,
       });

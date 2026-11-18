@@ -87,24 +87,6 @@ describe('设置重构的规范目标与旧入口分流', () => {
       settingId: 'typing-status',
     },
     { section: 'account', target: 'account' },
-    {
-      section: 'chat-messages',
-      item: '向 QQ 服务器上报已读位置',
-      target: 'chat-messages',
-      settingId: 'read-sync',
-    },
-    {
-      section: 'account',
-      item: '同步已读状态到 QQ',
-      target: 'chat-messages',
-      settingId: 'read-sync',
-    },
-    {
-      section: 'account',
-      item: '手动标记时上报已读位置',
-      target: 'chat-messages',
-      settingId: 'read-sync',
-    },
     { section: 'message-display', item: '显示消息序号（seq）', target: 'message-display' },
     { section: 'anti-recall', target: 'chat-interaction', settingId: 'anti-recall' },
     { section: 'media', target: 'resource-loading' },
@@ -125,7 +107,7 @@ describe('设置重构的规范目标与旧入口分流', () => {
     {
       section: 'database',
       item: '数据库异常时弹窗提醒',
-      target: 'database-management',
+      target: 'global',
       settingId: 'damage-reminder',
     },
     { section: 'database-status', target: 'database-management', settingId: 'database-repair' },

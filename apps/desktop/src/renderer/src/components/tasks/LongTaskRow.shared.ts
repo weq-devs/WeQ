@@ -12,11 +12,14 @@ export type LongTaskStatus =
 export interface LongTaskItem {
   id: string;
   name: string;
+  display?: import('@weq/service/task-display').TaskDisplay;
+  createdAt?: number;
   kind: string;
   status: LongTaskStatus;
   statusLabel?: string;
   progress?: number;
   note?: string;
+  metrics?: string;
   icon: ReactNode;
   detail: ReactNode;
   quickActions?: ReactNode;

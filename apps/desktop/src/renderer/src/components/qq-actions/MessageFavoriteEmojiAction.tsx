@@ -20,6 +20,18 @@ export function MessageFavoriteEmojiAction({
       async (binding) => {
         const result = await client.account.qqActions.favoriteFromMedia.mutate({ ...binding, url });
         emojiId = result.emojiId;
+        if (result.local) {
+          await utils.account.qqActions.favorites.cancel(binding);
+          utils.account.qqActions.favorites.setData(binding, (rows) => {
+            if (!rows) return undefined;
+            const existing = rows.find((row) => row.emojiId === emojiId);
+            if (existing)
+              return rows.map((row) => (row === existing ? { ...row, local: result.local } : row));
+            return [{ emojiId, desc: '', position: 1, local: result.local }, ...rows].map(
+              (row, index) => ({ ...row, position: index + 1 }),
+            );
+          });
+        }
         return result;
       },
       async () => {

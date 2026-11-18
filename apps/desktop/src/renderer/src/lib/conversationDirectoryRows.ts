@@ -88,6 +88,7 @@ export function feedConversationRow(
     avatarUrl?: string | null;
     sendTime: string;
     prompt: string | null;
+    unreadCount?: number;
   },
   kind: 'official' | 'service',
 ): Conversation {
@@ -110,7 +111,7 @@ export function feedConversationRow(
     members: [],
     updatedAt,
     preference: { pinned: false, muted: false, blocked: false },
-    unreadCount: 0,
+    unreadCount: item.unreadCount ?? 0,
     lastMessage: {
       id: `${id}:${item.sendTime}`,
       senderId: null,
@@ -124,6 +125,7 @@ export function assistantConversationRow(item: {
   title: string;
   updatedAt: number;
   running?: boolean;
+  unreadCount?: number;
 }): Conversation {
   return {
     id: `assistant:${item.id}`,
@@ -142,7 +144,7 @@ export function assistantConversationRow(item: {
     members: [],
     updatedAt: new Date(item.updatedAt).toISOString(),
     preference: { pinned: false, muted: false, blocked: false },
-    unreadCount: 0,
+    unreadCount: item.unreadCount ?? 0,
     lastMessage: {
       id: `assistant:${item.id}:preview`,
       senderId: null,
@@ -171,7 +173,7 @@ export function generatedAggregateRow(
     members: [],
     updatedAt: latest?.updatedAt ?? '',
     preference: { pinned: false, muted: false, blocked: false },
-    unreadCount: 0,
+    unreadCount: rows.reduce((count, row) => count + (row.unreadCount ?? 0), 0),
     lastMessage: latest
       ? {
           id: `merged:${kind}:preview`,

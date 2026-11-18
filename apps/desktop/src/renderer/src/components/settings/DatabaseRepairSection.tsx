@@ -1,6 +1,6 @@
 import { DatabaseZap } from 'lucide-react';
 import { Card, Row } from './controls';
-import { NotificationSettingsLink } from './NotificationSettingsLink';
+import { NotificationMethodSelect } from './NotificationMethodSelect';
 import { DataMaintenanceSection, type MaintenanceTool } from './DataMaintenanceSection';
 
 export function DatabaseRepairSection({ onOpen }: { onOpen: (tool: MaintenanceTool) => void }) {
@@ -9,9 +9,7 @@ export function DatabaseRepairSection({ onOpen }: { onOpen: (tool: MaintenanceTo
       <Row
         settingId="damage-reminder"
         label="数据库异常提醒"
-        control={
-          <NotificationSettingsLink settingId="damage-reminder">通知设置</NotificationSettingsLink>
-        }
+        control={<NotificationMethodSelect event="databaseDamage" />}
       />
       <DataMaintenanceSection title={null} onOpen={onOpen} tools={['db-repair']} />
     </Card>

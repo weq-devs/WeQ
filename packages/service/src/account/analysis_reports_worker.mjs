@@ -18,6 +18,15 @@ for (const row of db.prepare('SELECT id, meta FROM reports').all()) {
     db.prepare('UPDATE reports SET meta=? WHERE id=?').run(JSON.stringify(meta), String(row.id));
   }
 }
+// 旧记录的成功结果范围从已有版本元数据恢复，不解压结果或改写历史版本。
+function readMeta(row) {
+  const meta = JSON.parse(String(row.meta));
+  if (!meta.resultRequest && row.result_meta)
+    meta.resultRequest = JSON.parse(String(row.result_meta)).request;
+  return meta;
+}
+const reportJoin =
+  "FROM reports r LEFT JOIN result_versions v ON r.id=v.id AND json_extract(r.meta,'$.resultRevision')=v.revision";
 parentPort.on('message', ({ id, method, input }) => {
   try {
     let value;
@@ -53,15 +62,17 @@ parentPort.on('message', ({ id, method, input }) => {
         ? { ...JSON.parse(String(row.meta)), results: deserialize(inflateSync(row.payload)) }
         : null;
     } else if (method === 'get') {
-      const row = db.prepare('SELECT meta,payload FROM reports WHERE id=?').get(input.id);
-      value = row
-        ? { ...JSON.parse(String(row.meta)), ...deserialize(inflateSync(row.payload)) }
-        : null;
+      const row = db
+        .prepare(`SELECT r.meta,r.payload,v.meta AS result_meta ${reportJoin} WHERE r.id=?`)
+        .get(input.id);
+      value = row ? { ...readMeta(row), ...deserialize(inflateSync(row.payload)) } : null;
     } else if (method === 'list') {
       value = db
-        .prepare("SELECT meta FROM reports ORDER BY json_extract(meta,'$.updatedAt') DESC")
+        .prepare(
+          `SELECT r.meta,v.meta AS result_meta ${reportJoin} ORDER BY json_extract(r.meta,'$.updatedAt') DESC, r.id`,
+        )
         .all()
-        .map((row) => JSON.parse(String(row.meta)));
+        .map(readMeta);
     } else if (method === 'position') {
       const row = db.prepare('SELECT meta FROM reports WHERE id=?').get(input.id);
       if (row) {

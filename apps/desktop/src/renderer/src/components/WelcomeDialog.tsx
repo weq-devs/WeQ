@@ -168,6 +168,7 @@ export function WelcomeDialog(): ReactElement | null {
           <button
             type="button"
             className="weq-action-primary weq-welcome-cta"
+            data-weq-dialog-confirm
             onClick={() => void onConfirm()}
             disabled={acknowledge.isLoading}
           >

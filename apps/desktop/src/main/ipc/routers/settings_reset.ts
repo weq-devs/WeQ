@@ -64,6 +64,7 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   const shared = sharedSettingsRouter.createCaller(ctx);
   const r = remoteRouter.createCaller(ctx);
   const appWriters = {
+    notificationEvents: () => b.resetNotificationEvents(),
     home: () => b.setHomeSettings(defaults.home),
     contactCard: () => b.setContactCard(defaults.contactCard),
     startupPage: () => b.setStartupPage({ page: defaults.startupPage }),
@@ -86,9 +87,6 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
       b.setAutoFollowLatestMessages({ enabled: defaults.autoFollowLatestMessages }),
     showScrollToBottomButton: () =>
       b.setShowScrollToBottomButton({ enabled: defaults.showScrollToBottomButton }),
-    reportReadEnabled: () => b.setReportReadEnabled({ enabled: defaults.reportReadEnabled }),
-    manualReadReportEnabled: () =>
-      b.setManualReadReportEnabled({ enabled: defaults.manualReadReportEnabled }),
     showMessageSeq: () => b.setShowMessageSeq({ enabled: defaults.showMessageSeq }),
     showMessageDate: () => b.setShowMessageDate({ enabled: defaults.showMessageDate }),
     showMessageTime: () => b.setShowMessageTime({ enabled: defaults.showMessageTime }),
@@ -112,8 +110,6 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
       b.setQzonePublicRefreshCooldown({ minutes: defaults.qzonePublicRefreshCooldownMinutes }),
     realtimeEnabled: () => b.setRealtimeEnabled({ enabled: defaults.realtimeEnabled }),
     autoAttachQq: () => b.setAutoAttachQq({ enabled: defaults.autoAttachQq }),
-    restrictedModeBannerEnabled: () =>
-      b.setRestrictedModeBannerEnabled({ enabled: defaults.restrictedModeBannerEnabled }),
     restrictedModeIndicatorEnabled: () =>
       b.setRestrictedModeIndicatorEnabled({ enabled: defaults.restrictedModeIndicatorEnabled }),
     preferCdn: () => b.setPreferCdn({ enabled: defaults.preferCdn }),
@@ -345,11 +341,11 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
       );
     }
     const mail = sharedMailPreferences();
-    bind('mail:unread', mail.showUnread, true, async () => {
+    bind('notification-badges:unread', mail.showUnread, true, async () => {
       await shared.mail.patch({ showUnread: true });
     });
-    bind('mail:notifications', mail.notifications, false, async () => {
-      await shared.mail.patch({ notifications: false });
+    bind('mail:unread', mail.showUnread, true, async () => {
+      await shared.mail.patch({ showUnread: true });
     });
     bind(
       'mail:poll-interval',
@@ -359,20 +355,17 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
         await shared.mail.patch({ pollIntervalMinutes: DEFAULT_MAIL_POLL_INTERVAL_MINUTES });
       },
     );
-    if (selected.has('recall-scope')) {
+    if (selected.has('recall-scope') || selected.has('recall-notifications')) {
       const recall = await sharedAntiRecallStatus();
       bind('recall-scope:scope', recall.enabled ? recall.mode : 'off', 'off', async () =>
         shared.antiRecall.setScope({ scope: 'off' }),
-      );
-      bind('recall-scope:notify', recall.notifyEnabled, false, async () =>
-        shared.antiRecall.setNotify({ enabled: false }),
       );
       if (services)
         bind('recall-scope:targets', recall.targets, [], async () =>
           services.antiRecall.setTargets([]),
         );
       if (services)
-        bind('recall-scope:notify-targets', recall.notifyTargets, [], async () =>
+        bind('recall-notifications:notify-targets', recall.notifyTargets, [], async () =>
           services.antiRecall.setNotify({ targets: [] }),
         );
     }

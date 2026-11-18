@@ -166,7 +166,7 @@ function historyRoot(scope: DatabaseMaintenanceScope) {
       throw new Error('此数据源配置已经不存在，不能退回其他来源。');
     return boot.userConfig.cacheDir(join('db_repair', scope.configId));
   }
-  // 历史报告不依赖源库仍存在，也不跟随重建缓存位置移动或清理。
+  // 历史报告不依赖源库仍存在，也不跟随备份与修复工作区位置移动或清理。
   return dbRepairRoot(
     (...parts) => boot.userConfig.cacheDir(join(...parts)),
     scope.uin,
@@ -219,6 +219,7 @@ export const databaseMaintenance = new DatabaseMaintenance({
           nt.setDatabaseMaintenanceWriteBarrier!(id, [], false);
           releaseWrites();
           maintenanceLocks.delete(id);
+          service.endMaintenance(id);
         },
       };
     } catch (error) {
@@ -318,7 +319,7 @@ function assertCacheIdle() {
     service.isBusy() ||
     databaseMaintenance.active().some((snapshot) => snapshot.state === 'repairing')
   )
-    throw new Error('修复或备份正在使用重建缓存，暂不能更改位置。');
+    throw new Error('备份与修复工作区正在使用中，暂不能更改位置。');
 }
 function savedReport(scope: DatabaseMaintenanceScope, id: string) {
   const current = databaseMaintenance.current(scope);
@@ -433,14 +434,24 @@ export const dbRepairRouter = router({
   preflight: procedure
     .input(targetRef.extend({ backup: z.boolean().optional() }))
     .query(({ input }) => {
-      const { key: _key, ...budget } = service.preflight(input.uin, input.dbName, input.backup);
+      const { key: _key, ...budget } = service.preflight(
+        input.uin,
+        input.dbName,
+        input.backup,
+        databaseMaintenance.leaseId(input),
+      );
       return budget;
     }),
   repairStorage: procedure
     .input(accountRef.extend({ dbNames: z.array(z.string()), backup: z.boolean() }))
     .query(({ input }) =>
       input.dbNames.map((name) => {
-        const { cachePath, space } = service.preflight(input.uin, name, input.backup);
+        const { cachePath, space } = service.preflight(
+          input.uin,
+          name,
+          input.backup,
+          databaseMaintenance.leaseId(input),
+        );
         return { dbName: name, cachePath, space, phase: 'preparing' };
       }),
     ),
@@ -452,7 +463,7 @@ export const dbRepairRouter = router({
   })),
   pickCacheLocation: procedure.mutation(async () => {
     assertCacheIdle();
-    const picked = await getHost().pickDirectory({ title: '选择数据库修复缓存位置' });
+    const picked = await getHost().pickDirectory({ title: '选择备份与修复工作区位置' });
     assertCacheIdle();
     if (picked) requireBootstrap().userConfig.setDbRepairCacheDir(picked);
     return { override: requireBootstrap().userConfig.getDbRepairCacheDir() };

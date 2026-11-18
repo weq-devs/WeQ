@@ -37,12 +37,12 @@ describe('通用设置开关', () => {
     expect(change).toHaveBeenCalledWith(true);
   });
 
-  it('部分开启提供短横线标记，不只依靠颜色区分', () => {
+  it('部分开启保留独立可访问语义，装饰轨道不重复朗读', () => {
     const f = fixture();
     act(() =>
       f.root.render(h(Toggle, { checked: false, mixed: true, onChange: vi.fn(), label: '提醒' })),
     );
-    expect(f.host.querySelector('.weq-set-toggle.is-mixed .lucide-minus')).not.toBeNull();
+    expect(f.host.querySelector('[role="checkbox"]')?.getAttribute('aria-checked')).toBe('mixed');
     expect(f.host.querySelector('.weq-set-toggle-track')?.getAttribute('aria-hidden')).toBe('true');
   });
 

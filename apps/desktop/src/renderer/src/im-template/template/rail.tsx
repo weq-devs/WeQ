@@ -10,6 +10,8 @@ import '../../styles/rail-navigation.css';
 import { useWorkspaceActiveTitle } from '../../components/WorkspacePages.shared';
 import { preloadWorkspace } from '../../components/lazyWorkspaces.shared';
 import { ReminderCount, ReminderDot } from '../../components/ReminderBadge';
+import { useUnreadMarkers } from '../../lib/unreadMarkers';
+import { useDevelopmentDressTools } from '../../hooks/useDevelopmentDressTools';
 import { APP_NAVIGATION, activateNavigation, navigationEntries } from '../../lib/appNavigation';
 
 export function AppRail({
@@ -65,7 +67,9 @@ export function AppRail({
         ? 'settings'
         : undefined;
   const activeView = activePage ?? activeRailItem ?? view;
-  const updateAvailable = useUpdateStore((s) => s.available);
+  const markers = useUnreadMarkers();
+  const developmentDressTools = useDevelopmentDressTools();
+  const updateAvailable = useUpdateStore((s) => s.available || s.packsAvailable) && markers.updates;
   const settingsButton = (mobile = false) => (
     <button
       className={cn(
@@ -169,89 +173,91 @@ export function AppRail({
           aria-label="主导航"
           onMouseDown={(event) => event.stopPropagation()}
         >
-          {navigationEntries('rail').map(({ id, label, icon: Icon, target, workspace }) => {
-            if (id === 'settings') return <Fragment key={id}>{settingsButton(true)}</Fragment>;
-            const button = (
-              <button
-                key={id}
-                type="button"
-                className={cn(
-                  railButtonClass(activeView === id),
-                  'rail-tab',
-                  `rail-tab-${id === 'collections' ? 'collection' : id}`,
-                  id === 'tools' && 'rail-mobile-tool',
-                  id === 'tools' && !showTools && 'rail-desktop-hidden',
-                )}
-                title={label}
-                aria-current={activeView === id ? 'page' : undefined}
-                onPointerEnter={() => {
-                  if (workspace) preloadWorkspace(workspace);
-                }}
-                onFocus={() => {
-                  if (workspace) preloadWorkspace(workspace);
-                }}
-                onClick={() => {
-                  setProfileOpen(false);
-                  if (id === 'messages' && activeView === 'messages' && onMessageBadgeClick)
-                    onMessageBadgeClick();
-                  else
-                    activateNavigation(target, {
-                      onViewChange: selectView,
-                      onOpenCollection,
-                      onOpenDressUp,
-                      onOpenSettings,
-                      onOpenTool: () => {},
-                      onOpenNotice: () => {},
-                    });
-                }}
-              >
-                <span className="rail-tab-icon">
-                  <Icon size={22} strokeWidth={1.5} aria-hidden />
-                </span>
-                <span className="rail-label">{label}</span>
-                {id === 'contacts' && contactBadgeCount > 0 && (
-                  <ReminderDot
-                    overlay
-                    className="rail-badge rail-badge-dot"
-                    role="status"
-                    aria-label="有新的好友或群通知"
-                  />
-                )}
-                {id === 'mail' && mailBadgeCount > 0 && (
-                  <ReminderCount
-                    count={mailBadgeCount}
-                    overlay
-                    className="rail-badge rail-badge-mail"
-                    role="status"
-                    aria-label={`${mailBadgeCount} 封未读邮件`}
-                    title={`${mailBadgeCount} 封未读邮件`}
-                  />
-                )}
-              </button>
-            );
-            return id === 'messages' ? (
-              <div key={id} className="rail-message-entry">
-                {button}
-                {messageBadgeCount > 0 && (
-                  <ReminderCount
-                    as="button"
-                    count={messageBadgeCount}
-                    overlay
-                    className="rail-badge rail-message-badge"
-                    title="定位首条未读会话"
-                    aria-label={`定位首条未读会话，共 ${messageBadgeCount} 条未读消息`}
-                    onClick={() => {
-                      setProfileOpen(false);
-                      if (onMessageBadgeClick) onMessageBadgeClick();
-                      else selectView('messages');
-                    }}
-                  />
-                )}
-              </div>
-            ) : (
-              <Fragment key={id}>{button}</Fragment>
-            );
-          })}
+          {navigationEntries('rail', developmentDressTools).map(
+            ({ id, label, icon: Icon, target, workspace }) => {
+              if (id === 'settings') return <Fragment key={id}>{settingsButton(true)}</Fragment>;
+              const button = (
+                <button
+                  key={id}
+                  type="button"
+                  className={cn(
+                    railButtonClass(activeView === id),
+                    'rail-tab',
+                    `rail-tab-${id === 'collections' ? 'collection' : id}`,
+                    id === 'tools' && 'rail-mobile-tool',
+                    id === 'tools' && !showTools && 'rail-desktop-hidden',
+                  )}
+                  title={label}
+                  aria-current={activeView === id ? 'page' : undefined}
+                  onPointerEnter={() => {
+                    if (workspace) preloadWorkspace(workspace);
+                  }}
+                  onFocus={() => {
+                    if (workspace) preloadWorkspace(workspace);
+                  }}
+                  onClick={() => {
+                    setProfileOpen(false);
+                    if (id === 'messages' && activeView === 'messages' && onMessageBadgeClick)
+                      onMessageBadgeClick();
+                    else
+                      activateNavigation(target, {
+                        onViewChange: selectView,
+                        onOpenCollection,
+                        onOpenDressUp,
+                        onOpenSettings,
+                        onOpenTool: () => {},
+                        onOpenNotice: () => {},
+                      });
+                  }}
+                >
+                  <span className="rail-tab-icon">
+                    <Icon size={22} strokeWidth={1.5} aria-hidden />
+                  </span>
+                  <span className="rail-label">{label}</span>
+                  {id === 'contacts' && contactBadgeCount > 0 && (
+                    <ReminderDot
+                      overlay
+                      className="rail-badge rail-badge-dot"
+                      role="status"
+                      aria-label="有新的好友或群通知"
+                    />
+                  )}
+                  {id === 'mail' && mailBadgeCount > 0 && (
+                    <ReminderCount
+                      count={mailBadgeCount}
+                      overlay
+                      className="rail-badge rail-badge-mail"
+                      role="status"
+                      aria-label={`${mailBadgeCount} 封未读邮件`}
+                      title={`${mailBadgeCount} 封未读邮件`}
+                    />
+                  )}
+                </button>
+              );
+              return id === 'messages' ? (
+                <div key={id} className="rail-message-entry">
+                  {button}
+                  {messageBadgeCount > 0 && (
+                    <ReminderCount
+                      as="button"
+                      count={messageBadgeCount}
+                      overlay
+                      className="rail-badge rail-message-badge"
+                      title="定位首条未读会话"
+                      aria-label={`定位首条未读会话，共 ${messageBadgeCount} 条未读消息`}
+                      onClick={() => {
+                        setProfileOpen(false);
+                        if (onMessageBadgeClick) onMessageBadgeClick();
+                        else selectView('messages');
+                      }}
+                    />
+                  )}
+                </div>
+              ) : (
+                <Fragment key={id}>{button}</Fragment>
+              );
+            },
+          )}
         </nav>
       </div>
       <div className={cn('rail-footer')}>

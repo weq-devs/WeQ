@@ -1,7 +1,9 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { useNotificationPolicy } from '../src/renderer/src/lib/notificationPolicy';
 import { useMessageNotifications } from '../src/renderer/src/hooks/useMessageNotifications';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 import type { NewMessagesWire } from '../src/main/ipc/routers/account';
 
 const originalVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
@@ -16,6 +18,24 @@ const f = vi.hoisted(() => ({
   badge: vi.fn(async () => true),
   unsubscribe: vi.fn(),
 }));
+
+function setMessageNotifications(enabled: boolean) {
+  f.values.messageNotifications = enabled;
+  const events = useNotificationPolicy.getState().events;
+  act(() =>
+    useNotificationPolicy
+      .getState()
+      .setEvents(
+        Object.fromEntries(
+          Object.keys(events).map((event) => [event, { banner: false, system: enabled }]),
+        ) as typeof events,
+      ),
+  );
+}
+beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  setMessageNotifications(false);
+});
 vi.mock('../src/renderer/src/lib/browserNotifications', () => ({
   WEB_NOTICE_OPEN: 'weq:notice-open',
   browserNoticeChannel: () => ({ show: f.browserNotify, close() {} }),
@@ -37,6 +57,7 @@ vi.mock('../src/renderer/src/lib/clientPreferences', () => ({
   useClientPreferences: () => 0,
   preferenceValue: (key: keyof typeof f.values) => f.values[key],
   accountBinding: () => ({ expectedAccountUin: '10001', expectedAccountConfigId: 'fixture' }),
+  sharedAccountRecords: () => ({ mentionMe: { mode: 'all', targets: [] } }),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
@@ -62,7 +83,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   if (originalVisibility) Object.defineProperty(document, 'visibilityState', originalVisibility);
   else Reflect.deleteProperty(document, 'visibilityState');
-  f.values.messageNotifications = false;
+  setMessageNotifications(false);
   f.values.applicationBadge = true;
   f.values.privacyMode = false;
   f.locked = false;
@@ -126,7 +147,7 @@ const batch = (id = '1', patch = {}) =>
 it.each([false, true])('群通知保留群名并显示最后一条消息的发送者（Web=%s）', async (web) => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   f.web = web;
-  f.values.messageNotifications = true;
+  setMessageNotifications(true);
   const resolveGroupSenderName = vi.fn(async () => '本地群名片');
   const root = createRoot(document.createElement('div'));
   try {
@@ -159,7 +180,7 @@ it.each([false, true])('群通知保留群名并显示最后一条消息的发�
 });
 it('群发送者资料缺失时回退 QQ 号或 UID，空消息仍保留发送者', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  f.values.messageNotifications = true;
+  setMessageNotifications(true);
   const root = createRoot(document.createElement('div'));
   try {
     await act(async () => root.render(createElement(Probe)));
@@ -173,9 +194,71 @@ it('群发送者资料缺失时回退 QQ 号或 UID，空消息仍保留发送�
     await act(async () => root.unmount());
   }
 });
+
+it('乱序批次与缺失序号不改变第一条可定位消息的目标', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  setMessageNotifications(true);
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(createElement(Probe)));
+    const invalid = batch('missing-sequence', { msgSeq: '0' });
+    const latest = batch('51');
+    const first = batch('50');
+    await act(async () =>
+      f.receive?.({
+        ...first,
+        messages: [...invalid.messages, ...latest.messages, ...first.messages],
+      }),
+    );
+    expect(f.notify).toHaveBeenLastCalledWith(expect.objectContaining({ conv: 'peer', seq: '50' }));
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it('系统仅提醒 @我而横幅提醒普通消息时，各渠道定位自己的首个来源', async () => {
+  const events = useNotificationPolicy.getState().events;
+  const next = Object.fromEntries(
+    Object.keys(events).map((event) => [event, { banner: false, system: false }]),
+  ) as typeof events;
+  next.groupMessage.banner = true;
+  next.mentionMe.system = true;
+  act(() => useNotificationPolicy.getState().setEvents(next));
+  const root = createRoot(document.createElement('div'));
+  const opened = vi.fn();
+  window.addEventListener('weq:notice-open', opened);
+  try {
+    const groups = conversations.map((conversation) =>
+      conversation.id === '10003'
+        ? {
+            ...conversation,
+            highlights: [{ kind: 'atMe' as const, rawKind: 0, senderUid: 'peer', msgSeq: '61' }],
+          }
+        : conversation,
+    );
+    await act(async () => root.render(createElement(Probe, { conversations: groups })));
+    const ordinary = batch('60', { kind: 'group', conv: '10003' });
+    const mention = batch('61', { kind: 'group', conv: '10003' });
+    await act(async () =>
+      f.receive?.({ ...mention, messages: [...ordinary.messages, ...mention.messages] }),
+    );
+    expect(f.notify).toHaveBeenLastCalledWith(
+      expect.objectContaining({ conv: '10003', seq: '61' }),
+    );
+    act(() => useToast.getState().toasts.at(-1)!.action!.run());
+    expect(opened).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: expect.objectContaining({ target: { kind: 'group', conv: '10003', seq: '60' } }),
+      }),
+    );
+  } finally {
+    window.removeEventListener('weq:notice-open', opened);
+    await act(async () => root.unmount());
+  }
+});
 it('发送者解析期间锁定后不泄露群名、发送者或正文', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  f.values.messageNotifications = true;
+  setMessageNotifications(true);
   let finish!: (name: string) => void;
   const resolveGroupSenderName = vi.fn(() => new Promise<string>((resolve) => (finish = resolve)));
   const root = createRoot(document.createElement('div'));
@@ -194,7 +277,7 @@ it('发送者解析期间锁定后不泄露群名、发送者或正文', async (
 });
 it('发送者解析失败仍显示消息，长名称和正文不超过原生通知限制', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  f.values.messageNotifications = true;
+  setMessageNotifications(true);
   const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   const resolveGroupSenderName = vi.fn(async (): Promise<string> => {
     throw new Error('本地资料不可读');
@@ -228,7 +311,7 @@ it.each(['unmount', 'reading', 'disabled'])(
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.spyOn(Document.prototype, 'hasFocus').mockReturnValue(true);
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
-    f.values.messageNotifications = true;
+    setMessageNotifications(true);
     let finish!: (name: string) => void;
     const resolveGroupSenderName = () => new Promise<string>((resolve) => (finish = resolve));
     const root = createRoot(document.createElement('div'));
@@ -237,7 +320,7 @@ it.each(['unmount', 'reading', 'disabled'])(
     try {
       if (state === 'unmount') await act(async () => root.unmount());
       else {
-        if (state === 'disabled') f.values.messageNotifications = false;
+        if (state === 'disabled') setMessageNotifications(false);
         await act(async () =>
           root.render(
             createElement(Probe, {
@@ -254,7 +337,7 @@ it.each(['unmount', 'reading', 'disabled'])(
     }
   },
 );
-it('默认不开实时订阅，角标使用现成计数，开关互不影响', async () => {
+it('消息渠道全部关闭时不订阅，角标使用现成计数，开关互不影响', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const root = createRoot(document.createElement('div'));
   try {
@@ -273,7 +356,7 @@ it('去重、历史、免打扰、群助手、前台阅读与隐私状态共同�
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.spyOn(Document.prototype, 'hasFocus').mockReturnValue(true);
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
-  f.values.messageNotifications = true;
+  setMessageNotifications(true);
   const root = createRoot(document.createElement('div'));
   try {
     await act(async () => root.render(createElement(Probe)));
@@ -309,25 +392,4 @@ it('去重、历史、免打扰、群助手、前台阅读与隐私状态共同�
     await act(async () => root.unmount());
   }
   expect(f.unsubscribe).toHaveBeenCalledOnce();
-});
-
-it('乱序批次与缺失序号不改变第一条可定位消息的目标', async () => {
-  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  f.values.messageNotifications = true;
-  const root = createRoot(document.createElement('div'));
-  try {
-    await act(async () => root.render(createElement(Probe)));
-    const invalid = batch('missing-sequence', { msgSeq: '0' });
-    const latest = batch('51');
-    const first = batch('50');
-    await act(async () =>
-      f.receive?.({
-        ...first,
-        messages: [...invalid.messages, ...latest.messages, ...first.messages],
-      }),
-    );
-    expect(f.notify).toHaveBeenLastCalledWith(expect.objectContaining({ conv: 'peer', seq: '50' }));
-  } finally {
-    await act(async () => root.unmount());
-  }
 });

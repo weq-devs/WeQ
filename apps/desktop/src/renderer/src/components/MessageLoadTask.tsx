@@ -29,7 +29,13 @@ export async function runMessageLoadTask<T>(
       </span>
     </span>
   );
-  const id = toast.push({ title: content(), ttl: 0, dismissible: false, source });
+  const id = toast.push({
+    event: 'progress',
+    title: content(),
+    ttl: 0,
+    dismissible: false,
+    source,
+  });
   let rejectOnAbort!: () => void;
   // 在途 IPC 不一定响应取消；先结束前端等待，迟到页面仍由 signal 拦截。
   const stopped = new Promise<never>((_resolve, reject) => {
@@ -48,6 +54,7 @@ export async function runMessageLoadTask<T>(
     ]);
     controller.signal.throwIfAborted();
     toast.update(id, {
+      event: 'taskComplete',
       tone: 'success',
       title: `${label}完成 · 已加载 ${count} 条消息`,
       ttl: 0,
@@ -56,6 +63,7 @@ export async function runMessageLoadTask<T>(
     return result;
   } catch (error) {
     toast.update(id, {
+      event: controller.signal.aborted ? 'success' : 'taskFailure',
       tone: 'warning',
       durationKind: controller.signal.aborted ? 'success' : 'failure',
       title: `${controller.signal.aborted ? '已停止' : `${label}失败`} · 已加载 ${count} 条消息`,

@@ -47,6 +47,7 @@ const selections = new Set([
   'typing:selection',
   'recall-scope:targets',
   'recall-scope:notify-targets',
+  'recall-notifications:notify-targets',
 ]);
 
 /** 只显示产品用语，不把未知配置序列化后交给用户阅读。 */

@@ -14,10 +14,17 @@ import { ShieldAlert, X, Maximize2, Minimize2 } from 'lucide-react';
 import type { ExportAuthorizationIndicatorState } from '../views/export/authorization';
 import { Modal } from './Dialog';
 import { RetainedTabs } from './RetainedTabs';
-import { ExportTool, ExportViewer, AnalysisTool, RoamingBackfillPanel } from './lazyWorkspaces';
+import {
+  ExportTool,
+  ExportViewer,
+  AnalysisTool,
+  AnalysisReportsTool,
+  RoamingBackfillPanel,
+} from './lazyWorkspaces';
 import { preloadWorkspace } from './lazyWorkspaces.shared';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { summarizeWorkspaceTasks } from '../lib/workspaceIndicators';
+import { useTaskNotifications } from '../hooks/useTaskNotifications';
 import { trpc } from '../trpc/client';
 import {
   useContentExportRequest,
@@ -51,7 +58,7 @@ import {
   type WorkspaceContext,
 } from '../lib/toolTargets';
 
-type Tool = 'export' | 'viewer' | 'backfill' | 'analysis';
+type Tool = 'export' | 'viewer' | 'backfill' | 'analysis' | 'analysis-reports';
 
 export function WorkspaceTools({
   accountScope,
@@ -91,6 +98,10 @@ export function WorkspaceTools({
   const setTaskSummary = useWorkspaceMenu((state) => state.setTasks);
   const syncTasks = useWorkspaceMenu((state) => state.syncTasks);
   const [expanded, setExpanded] = useState(false);
+  const taskOpenRequest = useWorkspaceMenu((state) => state.taskOpenRequest);
+  const handledTaskOpenRequest = useRef(taskOpenRequest);
+  const taskListOpen =
+    !hidden && Boolean(anchor || expanded || taskOpenRequest !== handledTaskOpenRequest.current);
   const lastAnchor = useRef<HTMLElement | null>(null);
   if (anchor) lastAnchor.current = anchor;
   const [exportAuthorization, setExportAuthorization] =
@@ -200,6 +211,7 @@ export function WorkspaceTools({
     tasks.data !== undefined &&
     roamingTasks.data !== undefined &&
     flashTasks.data !== undefined &&
+    (!background.scope?.uin || Boolean(background.scope.configId)) &&
     background.query.data !== undefined;
   const { running, items: taskItems } = summarizeWorkspaceTasks({
     exports: tasks.data,
@@ -209,6 +221,7 @@ export function WorkspaceTools({
     flash: flashTasks.data,
     background: background.tasks.map((entry) => ({ ...entry.task, id: backgroundTaskId(entry) })),
   });
+  useTaskNotifications(accountScope, taskItems, taskDataReady, taskListOpen, hidden);
   useEffect(() => {
     if (accountScope && taskDataReady) syncTasks(accountScope, taskItems);
   }, [accountScope, taskItems, taskDataReady, syncTasks]);
@@ -332,8 +345,6 @@ export function WorkspaceTools({
     } else selectRef.current(next);
   }, [mobileToolRequest, closeMenu, onOpenComposition, onOpenAssistant]);
   const handledSearchRequest = useRef<typeof searchRequest>(null);
-  const taskOpenRequest = useWorkspaceMenu((state) => state.taskOpenRequest);
-  const handledTaskOpenRequest = useRef(taskOpenRequest);
   useEffect(() => {
     if (taskOpenRequest === handledTaskOpenRequest.current) return;
     handledTaskOpenRequest.current = taskOpenRequest;
@@ -379,6 +390,7 @@ export function WorkspaceTools({
           target.kind === 'tool' &&
           (target.tool === 'export' ||
             target.tool === 'analysis' ||
+            target.tool === 'analysis-reports' ||
             target.tool === 'viewer' ||
             target.tool === 'backfill')
         )
@@ -395,7 +407,7 @@ export function WorkspaceTools({
         centered={expanded}
         anchor={anchor}
         onClose={closeWorkspace}
-        width={expanded ? 1100 : 392}
+        width={expanded ? 1100 : 440}
         className={`weq-workspace-menu${expanded ? ' is-expanded' : ' is-compact'}`}
         labelledBy={expanded ? 'weq-workspace-menu-title' : undefined}
       >
@@ -469,26 +481,20 @@ export function WorkspaceTools({
         {!expanded ? (
           <>
             <nav className="weq-workspace-actions" aria-label="内容工具">
-              {[...items]
-                .sort(
-                  (a, b) =>
-                    ['analysis', 'export', 'viewer', 'composition'].indexOf(a.id) -
-                    ['analysis', 'export', 'viewer', 'composition'].indexOf(b.id),
-                )
-                .map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    title={item.id === 'export' ? entry.label : item.label}
-                    aria-label={item.label}
-                    onPointerEnter={() => preloadWorkspace(item.id)}
-                    onFocus={() => preloadWorkspace(item.id)}
-                    onClick={item.action}
-                  >
-                    {item.icon}
-                    <span>{item.label}</span>
-                  </button>
-                ))}
+              {items.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  title={item.id === 'export' ? entry.label : item.label}
+                  aria-label={item.label}
+                  onPointerEnter={() => preloadWorkspace(item.id)}
+                  onFocus={() => preloadWorkspace(item.id)}
+                  onClick={item.action}
+                >
+                  {item.icon}
+                  <span>{item.label}</span>
+                </button>
+              ))}
             </nav>
             {footerControls}
           </>
@@ -572,6 +578,8 @@ export function WorkspaceTools({
                 messageIds={analysisMessageIds}
                 onGenerate={(report) => leave(() => onOpenAnalysis(report))}
               />
+            ) : tool === 'analysis-reports' ? (
+              <AnalysisReportsTool onOpenReport={(report) => leave(() => onOpenAnalysis(report))} />
             ) : null
           ) : null}
         </RetainedTabs>

@@ -42,6 +42,7 @@ const state = vi.hoisted(() => ({
   ),
   cancel: vi.fn(async (_input: unknown) => true),
   toast: vi.fn(),
+  accepted: vi.fn(),
   open: vi.fn(),
   transcribe: vi.fn(),
   cacheEntries: [] as unknown[],
@@ -59,6 +60,9 @@ const state = vi.hoisted(() => ({
       },
     ],
   })),
+}));
+vi.mock('../src/renderer/src/lib/taskNotifications', () => ({
+  notifyTaskCreated: state.accepted,
 }));
 // 只替换缓存分页的数据边界，卡片、灯箱与公共保存控件走真实组件。
 vi.mock('../src/renderer/src/views/cache/CacheShared', async (importOriginal) => ({
@@ -214,6 +218,7 @@ beforeEach(() => {
   state.download.mockClear();
   state.cancel.mockClear();
   state.toast.mockClear();
+  state.accepted.mockClear();
   state.open.mockClear();
   state.transcribe.mockClear();
 });
@@ -310,10 +315,8 @@ it('主动作沿用公共偏好，排队只提示受理，不直接写盘或打�
   });
   expect(state.prepare).not.toHaveBeenCalled();
   expect(state.download).not.toHaveBeenCalled();
-  expect(state.toast.mock.calls[0]![0]).toMatchObject({
-    tone: 'info',
-    title: '媒体保存任务已创建',
-  });
+  expect(state.accepted).toHaveBeenCalledWith('media-task', '正在保存媒体');
+  expect(state.toast).not.toHaveBeenCalled();
 });
 it('Remote 原位保存默认下载到设备，不弹电脑目录或使用电脑预设', async () => {
   state.web = true;

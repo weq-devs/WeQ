@@ -1069,6 +1069,7 @@ export function ExportLightbox({
           <button
             type="button"
             className="weq-exp-btn is-primary"
+            data-weq-dialog-confirm={!embedded || undefined}
             onClick={confirm}
             disabled={
               submitting || disabled || confirming || requestingFormat || Boolean(selectionError)

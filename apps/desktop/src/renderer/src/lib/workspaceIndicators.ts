@@ -1,6 +1,8 @@
 import type { ExportTask, FlashDownloadTask, RoamingJobStatus } from '@weq/service';
 import type { CloneTask } from '../views/agentlab/cloneTaskStore';
 import type { BackgroundTask } from '../../../shared/background_task';
+import { backgroundTaskDisplay } from '../../../shared/background_task';
+import { roamingTaskDisplay, taskNoticeTitle } from '@weq/service/task-display';
 
 export type AssistantActivity = 'idle' | 'running' | 'finished';
 export interface WorkspaceTaskIndicator {
@@ -8,6 +10,11 @@ export interface WorkspaceTaskIndicator {
   activity: AssistantActivity;
   result: string;
   failed: boolean;
+  name?: string;
+  notificationName?: string;
+  paused?: boolean;
+  waiting?: boolean;
+  cancelled?: boolean;
   notificationHandled?: boolean;
   /** 记录与提醒照常保留，但后台步骤不抢占当前界面。 */
   autoOpenTaskList?: boolean;
@@ -42,18 +49,25 @@ export function summarizeWorkspaceTasks({
         ExportTask,
         | 'updatedAt'
         | 'resource'
+        | 'display'
         | 'autoOpenTaskList'
         | 'databaseRecovery'
         | 'databaseRecoveryRecords'
       >
     >)[];
-  clones?: Pick<CloneTask, 'personaId' | 'status'>[];
-  roaming?: { id: string; status: RoamingJobStatus; updatedAt?: number }[];
+  clones?: (Pick<CloneTask, 'personaId' | 'status'> &
+    Partial<Pick<CloneTask, 'name' | 'operation'>>)[];
+  roaming?: {
+    id: string;
+    status: RoamingJobStatus;
+    updatedAt?: number;
+    targets?: { name: string }[];
+  }[];
   scanning?: boolean;
   flash?: (Pick<FlashDownloadTask, 'id' | 'status'> &
-    Partial<Pick<FlashDownloadTask, 'finishedAt'>>)[];
+    Partial<Pick<FlashDownloadTask, 'finishedAt' | 'name'>> & { files?: readonly unknown[] })[];
   background?: (Pick<BackgroundTask, 'id' | 'status' | 'updatedAt'> &
-    Partial<Pick<BackgroundTask, 'destination'>>)[];
+    Partial<Pick<BackgroundTask, 'name' | 'kind' | 'destination' | 'subtasks' | 'display'>>)[];
 }) {
   const items: WorkspaceTaskIndicator[] = [];
   for (const task of exports) {
@@ -70,6 +84,11 @@ export function summarizeWorkspaceTasks({
       task.save?.status === 'interrupted';
     items.push({
       id: `export:${task.id}`,
+      name: '导出任务',
+      notificationName: task.display ? taskNoticeTitle(task.display) : undefined,
+      paused: task.status === 'paused',
+      waiting: Boolean(task.databaseRecovery),
+      cancelled: task.status === 'cancelled',
       activity: running ? 'running' : finished ? 'finished' : 'idle',
       result: `${task.status}:${task.save?.status ?? ''}:${task.updatedAt ?? ''}`,
       failed,
@@ -81,6 +100,13 @@ export function summarizeWorkspaceTasks({
   for (const task of clones) {
     items.push({
       id: `clone:${task.personaId}`,
+      name: '克隆构建',
+      notificationName: task.name
+        ? taskNoticeTitle({
+            action: task.operation === 'update' ? '更新好友克隆' : '创建好友克隆',
+            subject: task.name,
+          })
+        : undefined,
       activity: task.status === 'running' ? 'running' : 'finished',
       result: task.status,
       failed: task.status === 'error',
@@ -89,6 +115,12 @@ export function summarizeWorkspaceTasks({
   for (const task of roaming) {
     items.push({
       id: `roaming:${task.id}`,
+      name: '消息加载任务',
+      notificationName: task.targets
+        ? taskNoticeTitle(roamingTaskDisplay(task.targets))
+        : '拉取漫游消息',
+      paused: task.status === 'paused',
+      cancelled: task.status === 'cancelled',
       activity: ['running', 'pausing'].includes(task.status)
         ? 'running'
         : ['completed', 'failed', 'cancelled'].includes(task.status)
@@ -102,6 +134,7 @@ export function summarizeWorkspaceTasks({
   if (scanning)
     items.push({
       id: 'roaming:scanning',
+      notificationHandled: true,
       activity: 'running',
       result: '',
       failed: false,
@@ -110,6 +143,12 @@ export function summarizeWorkspaceTasks({
   for (const task of flash) {
     items.push({
       id: `flash:${task.id}`,
+      name: '闪传下载任务',
+      notificationName: taskNoticeTitle({
+        action: '下载闪传文件',
+        subject: (task.files?.length ?? 0) > 1 ? `${task.files!.length} 个文件` : task.name,
+      }),
+      cancelled: task.status === 'cancelled',
       activity: ['pending', 'resolving', 'downloading'].includes(task.status)
         ? 'running'
         : 'finished',
@@ -118,13 +157,29 @@ export function summarizeWorkspaceTasks({
     });
   }
   for (const task of background) {
+    const failed =
+      task.status === 'failed' || (task.subtasks?.some((part) => part.failed > 0) ?? false);
     items.push({
       id: task.id,
-      notificationHandled: task.destination === 'db-checkup',
+      name: task.name,
+      notificationName:
+        task.name && task.kind
+          ? taskNoticeTitle(
+              backgroundTaskDisplay({
+                kind: task.kind,
+                name: task.name,
+                destination: task.destination,
+                display: task.display,
+              }),
+            )
+          : undefined,
+      notificationHandled: task.kind === 'forward' || task.destination === 'db-checkup',
+      paused: task.status === 'paused',
+      cancelled: task.status === 'cancelled',
       activity:
         task.status === 'running' ? 'running' : task.status === 'paused' ? 'idle' : 'finished',
       result: `${task.status}:${task.updatedAt}`,
-      failed: task.status === 'failed',
+      failed,
       autoOpenTaskList: false,
     });
   }

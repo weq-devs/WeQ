@@ -1,9 +1,7 @@
-import { networkFetch } from '@weq/network';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { lstat } from 'node:fs/promises';
 import { z } from 'zod';
-import { getReleaseFeed } from './release_feed';
 
 const releaseSchema = z.object({
   tag_name: z.string(),
@@ -45,6 +43,11 @@ export async function fetchOfficialArchive(
   fileName: string,
   includePrerelease = false,
 ): Promise<OfficialArchive> {
+  // 安装助手只校验本地归档，不在其 ESM 启动路径初始化网络运行时。
+  const [{ networkFetch }, { getReleaseFeed }] = await Promise.all([
+    import('@weq/network'),
+    import('./release_feed'),
+  ]);
   const feed = getReleaseFeed('weq-devs/WeQ');
   let asset = await feed.archive(version, fileName);
   if (!asset) {

@@ -10,6 +10,7 @@ import '../../src/renderer/src/styles/backup.css';
 import '../../src/renderer/src/styles/cache.css';
 import '../../src/renderer/src/styles/message-context-menu.css';
 import '../../src/renderer/src/styles/conversation-actions.css';
+import '../../src/renderer/src/styles/mail.css';
 
 ensureThemeInitialized();
 Object.assign(window, { dangerActionsQa: useThemeStore });
@@ -21,12 +22,16 @@ createRoot(document.getElementById('root')!).render(
       main{max-width:760px;margin:0 auto;padding:24px}
       .danger-fixture-row{display:flex;flex-wrap:wrap;gap:12px;margin:16px 0}
       .danger-fixture-row>.message-context-menu{position:static}
+      .danger-fixture-row button,.weq-set button{transition-duration:0s}
     `}</style>
     <main>
       <div className="weq-set">
         <ClearReadRecordsSetting />
       </div>
       <div className="danger-fixture-row">
+        <button type="button" className="weq-set-iconbtn" aria-label="编辑单项">
+          <Undo2 size={16} />
+        </button>
         <button
           type="button"
           className="weq-set-btn"
@@ -67,6 +72,14 @@ createRoot(document.getElementById('root')!).render(
         >
           <Trash2 size={16} />
         </button>
+        <button
+          type="button"
+          className="weq-set-iconbtn weq-set-iconbtn-danger"
+          aria-label="删除旧版单项"
+          data-legacy
+        >
+          <Trash2 size={16} />
+        </button>
         <button type="button" className="weq-clean-go is-danger" data-danger="outline">
           清理可再生缓存
         </button>
@@ -74,7 +87,24 @@ createRoot(document.getElementById('root')!).render(
           清理不可再生媒体
         </button>
       </div>
+      <div className="danger-fixture-row weq-mail-workspace">
+        <div className="weq-mail-list-tools">
+          <button type="button">标为已读</button>
+          <button type="button" data-danger="outline">
+            移至已删除
+          </button>
+          <button type="button" data-danger="outline" disabled>
+            禁用邮件删除
+          </button>
+        </div>
+      </div>
       <div className="danger-fixture-row">
+        <button type="button" className="weq-set-btn" disabled>
+          禁用普通按钮
+        </button>
+        <button type="button" className="weq-action-primary" disabled>
+          禁用主按钮
+        </button>
         <button type="button" className="weq-set-btn" data-danger="outline" disabled>
           禁用局部恢复
         </button>
@@ -83,6 +113,12 @@ createRoot(document.getElementById('root')!).render(
         </button>
       </div>
       <div className="danger-fixture-row">
+        <div className="message-context-menu avatar-context-menu">
+          <button type="button">修改群昵称</button>
+          <button type="button" data-danger="outline">
+            踢出群聊
+          </button>
+        </div>
         <div className="message-menu-v2 message-context-menu">
           <div className="message-menu-group">
             <button type="button" data-danger="outline">

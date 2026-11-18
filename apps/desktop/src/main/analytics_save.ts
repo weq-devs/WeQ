@@ -63,6 +63,7 @@ export async function startAnalyticsSave(
   const taskId = await services.exportManager.startResourceExport({
     kind: 'analytics-report',
     name: output.name,
+    display: { action: '导出分析长图', subject: frozen.title, context: frozen.label },
     output,
     savePolicy: policy,
     run: async ({ directory, signal }) => {

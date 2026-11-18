@@ -103,9 +103,7 @@ export function GroupMemberRenameDialog({
             autoFocus
             onChange={(event) => setValue(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                onConfirm(value);
-              } else if (event.key === 'Escape') {
+              if (event.key === 'Escape') {
                 event.preventDefault();
                 onCancel();
               }
@@ -120,6 +118,7 @@ export function GroupMemberRenameDialog({
           <button
             type="button"
             className="is-primary"
+            data-weq-dialog-confirm
             onClick={() => onConfirm(value)}
             disabled={busy}
           >
@@ -162,6 +161,7 @@ export function GroupMemberKickDialog({
             data-danger="solid"
             type="button"
             className="is-danger"
+            data-weq-dialog-confirm
             onClick={onConfirm}
             disabled={busy}
           >

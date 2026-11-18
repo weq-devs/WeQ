@@ -49,9 +49,11 @@ const request = z
   );
 
 const stores = new WeakMap<AccountServices, AnalysisReportsService>();
+const taskRestorations = new WeakMap<AnalysisReportsService, () => Promise<void>>();
 let restoreStore: ((input: z.infer<typeof binding>) => AnalysisReportsService) | undefined;
-export function restoreAnalysisReportTasks(input: z.infer<typeof binding>) {
-  return restoreStore?.(input);
+export async function restoreAnalysisReportTasks(input: z.infer<typeof binding>) {
+  const service = restoreStore?.(input);
+  if (service) await taskRestorations.get(service)?.();
 }
 export async function hideAnalysisReportTask(id: string) {
   const services = getAppContext().services;
@@ -105,85 +107,109 @@ export function createAnalysisReportsRouter(
     const projected = new Map<string, number>();
     let sync = Promise.resolve();
     const project = () => {
-      sync = sync
-        .then(async () => {
-          const reports = await current.list();
-          const visible = new Set(
-            reports.filter((report) => !report.taskHidden).map((report) => report.request.id),
-          );
-          for (const [id, taskId] of taskIds) {
-            if (!visible.has(id)) {
-              backgroundTasks.finish(taskId, 'cancelled');
-              backgroundTasks.remove(taskId);
-              taskIds.delete(id);
-              projected.delete(id);
-            }
+      const pending = sync.then(async () => {
+        const reports = await current.list();
+        const visible = new Set(
+          reports.filter((report) => !report.taskHidden).map((report) => report.request.id),
+        );
+        for (const [id, taskId] of taskIds) {
+          if (!visible.has(id)) {
+            backgroundTasks.finish(taskId, 'cancelled');
+            backgroundTasks.remove(taskId);
+            taskIds.delete(id);
+            projected.delete(id);
           }
-          for (const report of reports.toReversed()) {
-            const id = report.request.id;
-            if (report.taskHidden || projected.get(id) === report.updatedAt) continue;
-            let taskId = taskIds.get(id);
-            if (!taskId) {
-              const hash = createHash('sha256').update(`${key}:${id}`).digest('hex');
-              taskId = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
-              taskIds.set(id, taskId);
-            }
-            const total = report.request.kind === 'group' ? 3 : 1;
-            const patch = {
-              progress: Math.round((report.completed.length / total) * 100),
-              note: report.error,
-              logs: report.logs.map((line, seq) => ({
-                ...line,
-                seq,
-                stage: 'analysis',
-                level: 'info' as const,
-              })),
-            };
-            backgroundTasks.project(
-              {
-                ...patch,
-                id: taskId,
-                kind: 'analysis',
-                reportId: id,
-                name: `${report.request.name} · 分析`,
-                scope: { uin: input.expectedAccountUin, configId: input.expectedAccountConfigId },
-                status: report.status,
-                startedAt: report.logs[0]?.ts ?? report.updatedAt,
-                updatedAt: report.updatedAt,
-                actions: [],
+        }
+        for (const report of reports.toReversed()) {
+          const id = report.request.id;
+          if (report.taskHidden || projected.get(id) === report.updatedAt) continue;
+          let taskId = taskIds.get(id);
+          if (!taskId) {
+            const hash = createHash('sha256').update(`${key}:${id}`).digest('hex');
+            taskId = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+            taskIds.set(id, taskId);
+          }
+          const total = report.request.kind === 'group' ? 3 : 1;
+          const patch = {
+            progress: Math.round((report.completed.length / total) * 100),
+            note: report.error,
+            logs: report.logs.map((line, seq) => ({
+              ...line,
+              seq,
+              stage: 'analysis',
+              level: 'info' as const,
+            })),
+          };
+          backgroundTasks.project(
+            {
+              ...patch,
+              id: taskId,
+              kind: 'analysis',
+              reportId: id,
+              name: `${report.request.name} · 分析`,
+              display: {
+                action: {
+                  buddy: '生成好友分析',
+                  group: '生成群聊分析',
+                  member: '生成群成员分析',
+                }[report.request.kind],
+                subject: report.request.name,
+                context: [report.request.groupName, report.request.period]
+                  .filter(Boolean)
+                  .join(' · '),
               },
-              [
-                { id: 'view-report', label: '查看报告', run: () => undefined },
-                ...(report.status === 'running'
-                  ? [{ id: 'cancel', label: '取消', run: () => current.cancel(id) }]
-                  : report.status !== 'completed'
-                    ? [
-                        {
-                          id: 'resume',
-                          label: report.status === 'failed' ? '重试' : '继续',
-                          run: () => current.resume(id),
-                        },
-                      ]
-                    : []),
-              ],
-            );
-            projected.set(id, report.updatedAt);
-          }
-        })
-        .catch((error: unknown) => console.error('[analysis-reports] 任务更新失败', error));
+              scope: { uin: input.expectedAccountUin, configId: input.expectedAccountConfigId },
+              status: report.status,
+              startedAt: report.logs[0]?.ts ?? report.updatedAt,
+              updatedAt: report.updatedAt,
+              actions: [],
+            },
+            [
+              { id: 'view-report', label: '查看报告', run: () => undefined },
+              ...(report.status === 'running'
+                ? [{ id: 'cancel', label: '取消', run: () => current.cancel(id) }]
+                : report.status !== 'completed'
+                  ? [
+                      {
+                        id: 'resume',
+                        label: report.status === 'failed' ? '重试' : '继续',
+                        run: () => current.resume(id),
+                      },
+                    ]
+                  : []),
+            ],
+          );
+          projected.set(id, report.updatedAt);
+        }
+      });
+      sync = pending.catch((error: unknown) =>
+        console.error('[analysis-reports] 任务更新失败', error),
+      );
+      return pending;
     };
-    current.on('changed', project);
+    const changed = () => void project();
+    current.on('changed', changed);
     current.on('storageError', (error: unknown) => {
       console.error('[analysis-reports] 报告保存失败', error);
       for (const taskId of taskIds.values())
         backgroundTasks.finish(taskId, 'failed', { note: '报告保存失败，请检查存储后重试' });
     });
-    project();
+    // 首次列表必须包含恢复的历史任务；失败时下次查询可重新恢复。
+    let restored: Promise<void> | undefined;
+    const restore = () => {
+      restored ??= project().catch((error: unknown) => {
+        restored = undefined;
+        throw error;
+      });
+      return restored;
+    };
+    taskRestorations.set(current, restore);
+    void restore().catch(() => undefined);
     const account = ctx.account;
     const closing = (target: unknown) => {
       if (target !== account) return;
       accountEventBus.off('closing', closing);
-      current.off('changed', project);
+      current.off('changed', changed);
       void sync
         .then(() => current.dispose())
         .catch((error: unknown) => console.error('[analysis-reports] 保存失败', error));

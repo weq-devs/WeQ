@@ -5,6 +5,7 @@ import { AccountBasicsSection } from '../src/renderer/src/components/settings/Ac
 import { useRestrictedMode } from '../src/renderer/src/state/restrictedMode';
 import { useViewState } from '../src/renderer/src/state/view';
 import type { OnlineAccess } from '../src/renderer/src/lib/restrictedMode';
+import { normalizeNotificationEvents } from '@weq/service/notification-settings';
 
 const ready: OnlineAccess = {
   qqOnline: true,
@@ -38,7 +39,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             return {
               data:
                 method === 'getSettings'
-                  ? mock.settings
+                  ? { ...mock.settings, notificationEvents: normalizeNotificationEvents(undefined) }
                   : method === 'getGroupAlbumAccessState'
                     ? mock.access
                     : undefined,

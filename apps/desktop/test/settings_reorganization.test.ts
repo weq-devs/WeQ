@@ -488,32 +488,10 @@ describe('设置归位后的实际页面', () => {
       expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
         '会话列表',
       );
-      expect(
-        [...f.body().querySelectorAll('.weq-set-row-label')]
-          .filter((node) => !node.closest('[data-setting-id^="all-conversations-"]'))
-          .map((node) => node.textContent),
-      ).toEqual([
-        '鼠标停留时保持会话位置',
-        '在消息图标上显示红点',
-        '在联系人界面显示未读消息数',
-        '群助手显示总消息数',
-        '向 QQ 服务器上报已读位置',
-        'WeQ 已读记录',
-      ]);
-      const readReportRow = f.body().querySelector('[data-setting-id="read-sync"]');
-      expect(
-        readReportRow?.closest('.weq-set-card')?.querySelector('.weq-set-card-title')?.textContent,
-      ).toBe('未读标记');
-      expect(
-        [...f.body().querySelectorAll('.weq-set-card-title')].map((node) => node.textContent),
-      ).toEqual(['全部会话视图', '列表排序', '未读标记']);
-      expect(
-        f.body().querySelector('[data-setting-id="clear-local-read-records"] .weq-set-btn-danger')
-          ?.textContent,
-      ).toContain('清除 WeQ 已读记录');
+      expect(f.body().querySelector('[data-setting-id="read-sync"]')).toBeNull();
+      expect(f.body().querySelector('[data-setting-id="clear-local-read-records"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="message-system-notifications"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="application-unread-badge"]')).toBeNull();
-      expect(f.body().querySelectorAll('[data-setting-id="read-sync"]')).toHaveLength(1);
       expect(f.body().querySelector('.weq-set-card .weq-set-card')).toBeNull();
       expect(f.body().querySelector('.weq-settings-appearance-card')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="anti-recall"]')).toBeNull();
@@ -640,8 +618,6 @@ describe('设置归位后的实际页面', () => {
   });
   it.each([
     ['global', '默认发送正在输入状态', 'typing-status', '互动与防撤回'],
-    ['account', '手动标记时上报已读位置', 'read-sync', '会话列表'],
-    ['chat-messages', '向 QQ 服务器上报已读位置', 'read-sync', '会话列表'],
     ['storage', '优先使用 CDN', 'prefer-cdn', '资源加载'],
     ['media', '允许使用外部安卓图片缓存', 'external-chatpic', '资源加载'],
     ['qq-accounts', 'QQ 登录记录管理', 'qq-accounts', 'QQ 高级工具'],
@@ -659,7 +635,7 @@ describe('设置归位后的实际页面', () => {
     ['maintenance', '导出明文数据库', 'database-export', 'QQ 数据库管理'],
     ['maintenance', '密钥扫描', 'key-scan', '凭据管理'],
     ['maintenance', '其它设备密钥', 'other-device-key', '凭据管理'],
-    ['message-display', '显示消息汇总红点', 'message-unread-badge', '会话列表'],
+    ['message-display', '显示消息汇总红点', 'message-unread-badge', '通知与提醒'],
     ['chat-messages', '纯文本消息自动渲染为 Markdown', 'text-markdown', '消息阅读'],
     ['chat-messages', '语音消息自动转文字', 'auto-transcribe-voice', '消息阅读'],
     ['chat-messages', '图片预览内存预算', 'chat-image-cache', '消息阅读'],
@@ -667,11 +643,11 @@ describe('设置归位后的实际页面', () => {
     ['reply-suggestions', '常驻显示', 'intent-persistent-display', '意图感知'],
     ['reply-suggestions', '悬停显示', 'intent-hover-display', '意图感知'],
     ['intent-models', '意图模型资源', 'intent-engine', '意图感知'],
-    ['database', '数据库异常时弹窗提醒', 'damage-reminder', 'QQ 数据库管理'],
-  ] as const)('旧 %s / %s 定位实际控件而不执行工具', (section, item, settingId, page) => {
+    ['database', '数据库异常时弹窗提醒', 'damage-reminder', '通知与提醒'],
+  ] as const)('旧 %s / %s 定位实际控件而不执行工具', async (section, item, settingId, page) => {
     const f = mount('appearance');
     try {
-      f.render(section, { section, item, revision: 1 });
+      await act(async () => f.render(section, { section, item, revision: 1 }));
       expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(page);
       expect(
         f.body().querySelector<HTMLElement>('[data-search-highlight]')?.dataset.settingId,
@@ -868,8 +844,12 @@ describe('设置归位后的实际页面', () => {
       expect(f.body().textContent).toContain('记录 UDP 流量');
       expect(f.body().querySelector('.weq-settings-scope')).toBeNull();
       f.render('mail');
-      expect(f.body().querySelector('[aria-label="在邮箱图标上显示红点"]')).not.toBeNull();
-      expect(f.body().querySelector('[aria-label="收到新邮件时横幅提醒"]')).not.toBeNull();
+      expect(f.body().querySelector('[aria-label="在邮箱图标上显示红点"]')).toBeNull();
+      expect(f.body().querySelector('[aria-label="收到新邮件时横幅提醒"]')).toBeNull();
+      expect(f.body().querySelector('select[aria-label="新邮件通知方式"]')).not.toBeNull();
+      expect(
+        f.body().querySelector('[role="switch"][aria-label="邮箱导航未读角标"]'),
+      ).not.toBeNull();
     } finally {
       f.close();
     }
@@ -1012,9 +992,7 @@ describe('设置归位后的实际页面', () => {
     const f = mount('global');
     try {
       expect(f.body().querySelector('h3')?.textContent).toBe('通知与提醒');
-      expect(
-        f.body().querySelector('[data-setting-id="message-system-notifications"]'),
-      ).not.toBeNull();
+      expect(f.body().querySelector('[data-setting-id="notification-events"]')).not.toBeNull();
       expect(f.body().querySelector('[data-setting-id="window-close-behavior"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="windows-style-controls"]')).toBeNull();
       f.render('appearance');
@@ -1119,7 +1097,7 @@ describe('设置归位后的实际页面', () => {
     }
   });
 
-  it('数据库页面在浏览后展示监听读取和容错修复，旧深链只定位不自动打开', () => {
+  it('数据库页面在浏览后展示监听读取和容错修复，旧深链只定位不自动打开', async () => {
     const f = mount('database');
     try {
       expect(f.body().textContent).not.toContain('容错级别');
@@ -1135,17 +1113,24 @@ describe('设置归位后的实际页面', () => {
       expect(entry.dataset.searchHighlight).toBe('true');
       expect(document.querySelector('.weq-tool-modal')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="tolerance-records"]')).toBeNull();
-      f.render('database-repair', {
-        section: 'database',
-        item: '数据库异常时弹窗提醒',
-        revision: 1,
-      });
+      await act(async () =>
+        f.render('database-repair', {
+          section: 'database',
+          item: '数据库异常时弹窗提醒',
+          revision: 1,
+        }),
+      );
       expect(
         f
           .body()
           .querySelector('[data-setting-id="damage-reminder"]')
           ?.getAttribute('data-search-highlight'),
       ).toBe('true');
+      expect(f.body().textContent).toContain('应用与任务');
+      expect(f.body().textContent).not.toContain('其他提醒');
+      expect(
+        f.body().querySelector('[aria-label="数据库异常提醒：应用内横幅通知"]'),
+      ).not.toBeNull();
       expect(f.body().textContent).not.toContain('容错级别');
     } finally {
       f.close();

@@ -22,6 +22,7 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { getLogger, logErrorContext, type GroupKeywordHit } from '@weq/service';
 import { getAppContext, type AccountServices } from './context/app_context';
+import { claimMessageSystemNotification } from './message_notification_dedupe';
 import { pushGroupKeywordJump } from './group_keyword_bus';
 import { getMainWindow } from './main_window';
 
@@ -55,7 +56,8 @@ async function handle(hit: GroupKeywordHit): Promise<void> {
   await writeHighlight(services, hit);
 
   // 2) 系统通知（群头像 + 点击跳转）。
-  await showNotification(services, hit);
+  if (ctx.bootstrap?.userConfig.getSettings().notificationEvents?.keyword.system !== false)
+    await showNotification(services, hit);
 }
 
 async function writeHighlight(services: AccountServices, hit: GroupKeywordHit): Promise<void> {
@@ -90,6 +92,15 @@ async function showNotification(services: AccountServices, hit: GroupKeywordHit)
     groupIconPath(services, hit.groupCode),
   ]);
 
+  if (
+    !claimMessageSystemNotification(
+      services.accountConfig.getRecord()?.configId ?? '',
+      'group',
+      hit.groupCode,
+      String(hit.msgSeq),
+    )
+  )
+    return;
   const notification = new Notification({
     title: groupName ? `${groupName} · 命中「${hit.keyword}」` : `命中「${hit.keyword}」`,
     body: senderName ? `${senderName}：${hit.text}` : hit.text,

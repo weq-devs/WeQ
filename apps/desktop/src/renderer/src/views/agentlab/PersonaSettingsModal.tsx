@@ -585,7 +585,6 @@ export function ExportTab({
       if (!save.isCurrent()) return;
       setTaskId(r.taskId);
       guard.reset(exportDraft);
-      dialog.success('机器人导出任务已创建', '可在任务列表查看进度、保存位置和完整结果。');
     } catch (e) {
       if (save.isCurrent()) dialog.error('导出失败', e instanceof Error ? e.message : String(e));
     } finally {

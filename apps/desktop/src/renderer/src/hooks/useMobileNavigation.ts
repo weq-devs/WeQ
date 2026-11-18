@@ -1,5 +1,9 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
-import { MobileBackStack, type MobileBackEntry } from '../lib/mobileNavigation';
+import {
+  MobileBackStack,
+  type MobileBackEntry,
+  type MobileNavigationChange,
+} from '../lib/mobileNavigation';
 import { compareMobileBackEntries } from '../lib/mobileBackSurface';
 import {
   isMobileClient,
@@ -23,8 +27,12 @@ export function isMobileNavigation() {
   return typeof window !== 'undefined' && (isSingleColumnLayout() || isMobileClient());
 }
 
-function signal(direction: 'forward' | 'back' | 'root') {
-  window.dispatchEvent(new CustomEvent('weq-mobile-navigate', { detail: direction }));
+function signal(direction: MobileNavigationChange['direction'], source?: HTMLElement | null) {
+  window.dispatchEvent(
+    new CustomEvent<MobileNavigationChange>('weq-mobile-navigate', {
+      detail: { direction, source },
+    }),
+  );
 }
 
 // 浏览器只保留一个返回哨兵；主标签切换不会不断增加浏览历史。
@@ -47,8 +55,9 @@ function syncHistory() {
 function consumeBack(expectedId?: string) {
   if (expectedId !== undefined && stack.top?.id !== expectedId) return false;
   blurMobileEditor();
+  const source = stack.top?.target?.();
   const consumed = stack.back();
-  if (consumed) signal('back');
+  if (consumed) signal('back', source);
   syncHistory();
   return consumed;
 }
@@ -76,13 +85,16 @@ export function mobileBackEntry() {
 
 export function registerMobileBack(entry: MobileBackEntry) {
   if (!isMobileNavigation()) return () => {};
+  // React 卸载时 ref 已可能清空，保留原节点以识别本次退出来自哪个页面或浮层。
+  const source = entry.target?.();
   const remove = stack.register(entry);
-  signal('forward');
+  signal('forward', source);
   syncHistory();
   return () => {
     const top = stack.top?.id === entry.id;
+    const departing = entry.target?.() ?? source;
     remove();
-    if (top) signal('back');
+    if (top) signal('back', departing);
     syncHistory();
   };
 }

@@ -57,7 +57,12 @@ export function startSequentialForward({
     let label = '正在转发';
     let finished = false;
     const startedAt = Date.now();
-    const taskId = localBackgroundTasks.start({ kind: 'forward', name: target.name, scope });
+    const taskId = localBackgroundTasks.start({
+      kind: 'forward',
+      name: target.name,
+      scope,
+      display: { action: '逐条转发消息', subject: target.name },
+    });
     const taskSource = taskNotificationSource(taskId, 'background:window');
     const conversationSource = notificationSource(
       { kind: 'local', open: () => onOpenTarget(target) },
@@ -140,12 +145,16 @@ export function startSequentialForward({
       );
     };
     const id = toast.push({
+      event: 'progress',
+      taskId: `background:window:${taskId}`,
       title: progress(),
       ttl: 0,
       dismissible: false,
       source: conversationSource,
       action: {
         label: conversationSource.label,
+        source: conversationSource,
+        icon: 'conversation',
         run: () => {
           void openNotificationSource(conversationSource);
         },
@@ -155,7 +164,7 @@ export function startSequentialForward({
       toast.update(id, { title: progress() });
       localBackgroundTasks.update(taskId, {
         progress: ((sent + failed) / messages.length) * 100,
-        note: `${label} · 已处理 ${sent + failed} / ${messages.length} · 成功 ${sent} · 失败 ${failed} · 已用时 ${formatForwardDuration(Date.now() - startedAt)}`,
+        note: `${label} · 已处理 ${sent + failed} / ${messages.length} · 成功 ${sent} · 失败 ${failed}`,
         details: [...failures],
       });
     };
@@ -217,10 +226,11 @@ export function startSequentialForward({
     );
     localBackgroundTasks.setActions(taskId, [openAction]);
     toast.update(id, {
+      event: failed ? 'taskFailure' : stopped ? 'success' : 'taskComplete',
+      source: failed ? taskSource : conversationSource,
       tone: stopped || failed ? 'warning' : 'success',
       durationKind: failed || (stopped && !local.signal.aborted) ? 'failure' : 'success',
       title: progress(),
-      source: failed ? taskSource : conversationSource,
       detail: [stopped, ...failures].filter(Boolean).join('\n') || undefined,
       ttl: 0,
       dismissible: true,

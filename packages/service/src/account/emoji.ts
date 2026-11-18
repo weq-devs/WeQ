@@ -11,6 +11,7 @@ import type { Platform } from '@weq/platform';
 import type { NtHelperBinding } from '@weq/native';
 import { scopedNetworkAllowed } from '../common/network_scope';
 import { developmentDressToolsEnabled } from '../common/development_dress';
+import { FavoriteEmojiCache } from './favorite_emoji_cache';
 import {
   AddCustomFace,
   DeleteCustomFace,
@@ -164,14 +165,14 @@ export interface PanelRecentItem extends PanelFaceItem {
 export interface PanelFavItem {
   id: string;
   hash: string;
-  /** `personal` / `recv`（对应 weq-media://cemoji 的 scope）。 */
+  /** `personal` / `recv` / `favorite`（WeQ 新增收藏缓存）。 */
   scope: string;
   /** recv 的月份桶，personal 为空串。 */
   bucket: string;
   /** 原图磁盘文件名（可能为空）。 */
   oriFile: string | null;
   /** 原图独立寻址；可能与缩略图不在同一目录。 */
-  original: { scope: 'personal' | 'recv'; bucket: string; file: string } | null;
+  original: { scope: 'personal' | 'recv' | 'favorite'; bucket: string; file: string } | null;
   /** 缩略图磁盘文件名（可能为空）。 */
   thumbFile: string | null;
   /** 在线 CDN 兜底（可空）。 */
@@ -217,8 +218,7 @@ export class EmojiService {
   private sysFaceRaw: SysEmoji[] | null = null;
   /** 本地商城表情包清单，一个账号会话内缓存一次。 */
   private marketPackages: MarketEmoticonPackage[] | null = null;
-  /** 收藏（我喜欢的自定义表情）缓存。 */
-  private favorites: PanelFavItem[] | null = null;
+  private readonly favoriteCache: FavoriteEmojiCache;
   private favoriteDetailTurn: Promise<void> = Promise.resolve();
   /** 关联 GIF 分组缓存。 */
   private relatedTags: PanelRelatedTag[] | null = null;
@@ -233,7 +233,10 @@ export class EmojiService {
     private readonly session: Pick<AccountSession, 'context'>,
     private readonly platform: Platform,
     private readonly online?: EmojiOnlineDeps,
-  ) {}
+    favoriteCacheDir?: string,
+  ) {
+    this.favoriteCache = new FavoriteEmojiCache(favoriteCacheDir);
+  }
 
   private requireOnline(): EmojiOnlineDeps {
     if (!this.online) throw new Error('该账号当前不在线，无法执行收藏表情写操作。');
@@ -435,43 +438,76 @@ export class EmojiService {
   /**
    * 面板「收藏」：读 fav_emoji_info_storage_table，拆好 weq-media://cemoji 的寻址字段。
    *
+   * 合并 WeQ 新增收藏原图；QQ 本地表每次刷新重新读取，不缓存尚未同步的旧快照。
    * 只保留「本地真的有文件」的条目 —— 收藏表里相当一部分条目对应的缓存早被清掉了
    * （实测 259 条里磁盘只剩 136 张），显示出来也发不出去。ori / thumb 各自独立判
    * 存在，页面用存在的那一个；`scope`/`bucket` 跟着实际选中的变体走，避免串位。
    */
   async listFavoriteEmojis(): Promise<PanelFavItem[]> {
-    if (this.favorites) return this.favorites;
+    const cached = (await this.favoriteCache.list()).map((file) => this.cachedFavoriteItem(file));
+    const hashes = new Set(cached.map((row) => row.hash));
     const dbPath = this.emojiDbPath();
-    if (!dbPath) return [];
+    if (!dbPath) return cached;
     try {
       const rows = await new FavEmojiDb(
         this.platform.native.ntHelper,
         this.emojiDbOptions(dbPath),
       ).listAll();
-      this.favorites = rows
-        .map((row): PanelFavItem | null => {
-          const oriInfo = parseEmojiDiskPath(row.oriPath);
-          const thumbInfo = parseEmojiDiskPath(row.thumbPath);
-          const ori = this.usableFavVariant(oriInfo, 'ori');
-          const thumb = this.usableFavVariant(thumbInfo, 'thumb');
-          const chosen = thumb ?? ori;
-          if (!chosen) return null;
-          return {
-            id: row.id,
-            hash: row.hash,
-            scope: chosen.scope,
-            bucket: chosen.bucket,
-            oriFile: ori?.file ?? null,
-            original: ori,
-            thumbFile: thumb?.file ?? null,
-            remoteUrl: row.remoteUrl,
-          };
-        })
-        .filter((x): x is PanelFavItem => x !== null);
-      return this.favorites;
+      return [
+        ...cached,
+        ...rows
+          .map((row): PanelFavItem | null => {
+            const oriInfo = parseEmojiDiskPath(row.oriPath);
+            const thumbInfo = parseEmojiDiskPath(row.thumbPath);
+            const ori = this.usableFavVariant(oriInfo, 'ori');
+            const thumb = this.usableFavVariant(thumbInfo, 'thumb');
+            const chosen = thumb ?? ori;
+            if (!chosen) return null;
+            return {
+              id: row.id,
+              hash: row.hash,
+              scope: chosen.scope,
+              bucket: chosen.bucket,
+              oriFile: ori?.file ?? null,
+              original: ori,
+              thumbFile: thumb?.file ?? null,
+              remoteUrl: row.remoteUrl,
+            };
+          })
+          .filter((x): x is PanelFavItem => x !== null && !hashes.has(x.hash.toLowerCase())),
+      ];
     } catch {
-      return [];
+      return cached;
     }
+  }
+
+  private cachedFavoriteItem(file: string): PanelFavItem {
+    const hash = file.slice(0, 32);
+    return {
+      id: `favorite:${hash}`,
+      hash,
+      scope: 'favorite',
+      bucket: '',
+      oriFile: file,
+      original: { scope: 'favorite', bucket: '', file },
+      thumbFile: null,
+      remoteUrl: '',
+    };
+  }
+
+  /** 已提交的原图可直接预览、发送，不等待 QQ 同步 emoji.db。 */
+  async rememberFavorite(bytes: Uint8Array): Promise<PanelFavItem | null> {
+    try {
+      const file = await this.favoriteCache.store(bytes);
+      return file ? this.cachedFavoriteItem(file) : null;
+    } catch (error) {
+      console.warn('收藏表情已提交，但 WeQ 原图缓存保存失败', error);
+      return null;
+    }
+  }
+
+  resolveCachedFavorite(file: string): string | null {
+    return this.favoriteCache.resolve(file);
   }
 
   /**
@@ -1031,7 +1067,11 @@ export class EmojiService {
       selfUin: this.session.context.uin,
       emojiId,
     });
-    this.favorites = null;
+    try {
+      await this.favoriteCache.remove(parseCustomFaceId(emojiId).md5);
+    } catch (error) {
+      console.warn('收藏表情已删除，但 WeQ 原图缓存清理失败', error);
+    }
   }
 
   /** 修改收藏表情备注（OIDB 0x902E_1 opType=3）。 */
@@ -1059,7 +1099,6 @@ export class EmojiService {
       await OrderCustomFace.invoke(nt, pid, { emojiId: target.emojiId, position: 1 });
       current();
       beforeSend?.();
-      this.favorites = null;
     });
   }
 
@@ -1080,7 +1119,8 @@ export class EmojiService {
       ...(log ? { log } : {}),
     };
     const emojiId = await AddCustomFace.invoke(nt, resolvePid(), params);
-    this.favorites = null;
+    beforeSend?.();
+    await this.rememberFavorite(imageBytes);
     return emojiId;
   }
 }

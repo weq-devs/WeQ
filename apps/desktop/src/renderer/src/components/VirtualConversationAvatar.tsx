@@ -8,13 +8,14 @@
  * 所有颜色走 design token，深浅模式各有一套值。
  */
 
-import { useState, type ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import { Users } from 'lucide-react';
 import { FEATURE_ICONS } from '../lib/featureIcons.shared';
 import type { VirtualConversation } from '../lib/conversationDirectory';
 import { GroupMosaicAvatar } from './GroupMosaicAvatar';
 import { qqAvatarUrl } from './QqAvatar.shared';
 import { useAvatarUrl } from '../hooks/useAvatarUrl';
+import { useAvatarImage } from '../hooks/useAvatarImage';
 import '../styles/virtual-conversation.css';
 
 function AvatarImg({
@@ -27,8 +28,8 @@ function AvatarImg({
   className?: string;
 }): ReactElement {
   const src = useAvatarUrl(qqAvatarUrl(uin));
-  const [failed, setFailed] = useState(false);
-  if (!src || failed)
+  const image = useAvatarImage(src);
+  if (!src || image.failed)
     return (
       <span className={`weq-virtual-avatar-fallback ${className}`} aria-hidden>
         <Users size={Math.round(size * 0.55)} strokeWidth={1.7} />
@@ -37,12 +38,13 @@ function AvatarImg({
   return (
     <img
       className={className}
-      src={src}
+      ref={image.ref}
+      src={image.src}
       alt=""
       width={size}
       height={size}
       loading="lazy"
-      onError={() => setFailed(true)}
+      onError={image.onError}
     />
   );
 }

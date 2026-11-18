@@ -43,6 +43,10 @@ export function handleRecallNotification(event: RecallNotifyEvent): void {
 }
 
 async function handle(event: RecallNotifyEvent): Promise<void> {
+  if (
+    getAppContext().bootstrap?.userConfig.getSettings().notificationEvents?.recall.system === false
+  )
+    return;
   if (!Notification.isSupported()) return;
   const ctx = getAppContext();
   const services = ctx.services;

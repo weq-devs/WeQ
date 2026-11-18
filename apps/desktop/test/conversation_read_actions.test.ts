@@ -24,7 +24,7 @@ it('底部工具栏只提供漫游、导出、名单和已读，操作中禁用�
     expect(button('标为未读')).toBeNull();
     expect(
       [...host.querySelectorAll('button')].map((node) => node.getAttribute('aria-label')),
-    ).toEqual(['拉取所选会话漫游消息', '导出所选会话', '导出名单', '标为已读']);
+    ).toEqual(['拉取所选会话漫游消息', '导出聊天记录', '导出群成员名单', '标为已读']);
     expect(button('撤销标记')).toBeNull();
     act(() =>
       root.render(

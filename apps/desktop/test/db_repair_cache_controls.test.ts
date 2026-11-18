@@ -109,6 +109,27 @@ it('扫描时不可切换模式，暂停后保留就绪库，切换深度体检�
   });
 });
 
+it('重新扫描需确认，取消保留结果和维护锁，确认后结束旧维护再开始扫描', async () => {
+  maintenanceQa.ready();
+  await mount();
+  const previous = maintenanceQa.snapshot();
+  await act(async () => button('重新扫描').click());
+  expect(maintenanceQa.calls.scan).toHaveLength(0);
+  expect(maintenanceQa.calls.end).toBe(0);
+  await confirm(false);
+  expect(maintenanceQa.snapshot()).toBe(previous);
+  expect(maintenanceQa.snapshot()?.locked).toBe(true);
+  expect(choice('nt_msg.db').checked).toBe(true);
+  await act(async () => button('深度体检').click());
+  await act(async () => button('重新扫描').click());
+  await confirm(true);
+  expect(maintenanceQa.calls.end).toBe(1);
+  expect(maintenanceQa.calls.scan).toEqual([
+    { uin: account.uin, configId: account.configId, kind: 'checkup' },
+  ]);
+  expect(maintenanceQa.snapshot()?.state).toBe('scanning');
+});
+
 it('界面卸载不取消扫描、不删除已有结果或结束维护', async () => {
   await mount();
   await act(async () => button('深度体检').click());
@@ -127,6 +148,12 @@ it('默认勾选支持修复的异常库，健康库可手选，不支持的库�
   expect(choice('profile.db').checked).toBe(false);
   expect(choice('profile.db').disabled).toBe(false);
   expect(host.querySelector('input[aria-label="修复 unsupported.db"]')).toBeNull();
+  await act(async () => iconButton('查看 profile.db 检查详情').click());
+  expect(host.querySelector('[aria-label="profile.db检查结果"]')).not.toBeNull();
+  expect(choice('profile.db').checked).toBe(false);
+  await act(async () => iconButton('查看 nt_msg.db 检查详情').click());
+  expect(host.querySelector('[aria-label="nt_msg.db检查结果"]')).not.toBeNull();
+  expect(choice('nt_msg.db').checked).toBe(true);
   await act(async () => choice('profile.db').click());
   await act(async () => button('修复所选数据库').click());
   expect(maintenanceQa.calls.repair).toHaveLength(0);
@@ -216,7 +243,7 @@ it('建议余量确认不沿用到取消后重新打开的修复', async () => {
   maintenanceQa.ready();
   await mount();
   const input = [...host.querySelectorAll('label')]
-    .find((label) => label.textContent?.includes('接受磁盘建议余量不足'))!
+    .find((label) => label.textContent?.includes('预留空间不足时仍尝试修复'))!
     .querySelector('input')!;
   await act(async () => input.click());
   await act(async () => button('修复所选数据库').click());
@@ -225,6 +252,35 @@ it('建议余量确认不沿用到取消后重新打开的修复', async () => {
   await act(async () => button('修复所选数据库').click());
   await confirm(true);
   expect(maintenanceQa.calls.repair[0]?.allowLowSpace).toBe(false);
+});
+
+it('修复选项内部点击不关闭，外部点击关闭但保留选项，Esc 仍可关闭', async () => {
+  maintenanceQa.ready();
+  await mount();
+  const summary = [...host.querySelectorAll('summary')].find((item) =>
+    item.textContent?.includes('修复选项'),
+  )!;
+  const options = summary.parentElement as HTMLDetailsElement;
+  const input = options.querySelector<HTMLInputElement>('input')!;
+  await act(async () => summary.click());
+  expect(options.open).toBe(true);
+  await act(async () => {
+    input.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    input.click();
+  });
+  expect(options.open).toBe(true);
+  expect(input.checked).toBe(false);
+  await act(async () => {
+    host.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+  });
+  expect(options.open).toBe(false);
+  await act(async () => summary.click());
+  expect(options.open).toBe(true);
+  expect(input.checked).toBe(false);
+  await act(async () => {
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  });
+  expect(options.open).toBe(false);
 });
 
 it('历史报告独立打开，删除需确认且不会结束维护或重扫', async () => {

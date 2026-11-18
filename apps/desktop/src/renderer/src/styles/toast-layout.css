@@ -38,7 +38,8 @@ html .weq-toast-host {
   min-height: 0;
   max-width: 100%;
 }
-.weq-toast-host .weq-toast-slot:has(> .weq-toast[hidden]) {
+.weq-toast-host .weq-toast-slot:has(> .weq-toast[hidden]),
+.weq-toast-host .weq-toast[hidden] {
   display: none;
 }
 

@@ -19,7 +19,10 @@ import {
   parseEnhancementCatalogForHost,
 } from '../src/shared/enhancement_release';
 import { backgroundTasks } from '../src/main/background_tasks';
-import { trackEnhancementPreparation } from '../src/main/enhancements/tasks';
+import {
+  startEnhancementDownloads,
+  trackEnhancementPreparation,
+} from '../src/main/enhancements/tasks';
 import { updateTransferPolicy } from '@weq/service/transfer-policy';
 import { networkCost } from '@weq/service/data-saver';
 import { enhancementEngineCompatibility } from '../src/shared/enhancement_manifest';
@@ -270,6 +273,21 @@ it('关闭自动安装时启动核对已有资源，不生成增强包已就绪�
   expect(f.ensure).not.toHaveBeenCalled();
   expect(f.fetcher).not.toHaveBeenCalled();
   expect(backgroundTasks.snapshot()).toEqual([]);
+});
+
+it('同步准备观察者与手动入口共用一条记录，创建意图在完成后仍保留', async () => {
+  const f = await fixture(false);
+  f.packs.observePreparations((id, name) => {
+    void trackEnhancementPreparation(f.packs, id, name).catch(() => {});
+  });
+  await startEnhancementDownloads(f.packs, ['dress']);
+  const tasks = backgroundTasks.snapshot();
+  expect(tasks).toHaveLength(1);
+  expect(tasks[0]?.display?.action).toBe('安装增强包');
+  await f.packs.wait();
+  await vi.waitFor(() => expect(backgroundTasks.snapshot()[0]?.status).not.toBe('running'));
+  expect(backgroundTasks.snapshot()).toHaveLength(1);
+  expect(backgroundTasks.snapshot()[0]?.display).toEqual(tasks[0]?.display);
 });
 
 it('同版统一清单存在但损坏时不改读旧格式或更旧版本', async () => {

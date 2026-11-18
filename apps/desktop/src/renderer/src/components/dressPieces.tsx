@@ -11,6 +11,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent, SyntheticEvent }
 import * as d3 from 'd3';
 import { refreshAvatarUrl } from '../lib/avatarCache';
 import { useAvatarUrl } from '../hooks/useAvatarUrl';
+import { useAvatarImage } from '../hooks/useAvatarImage';
 import { useTabActive } from './RetainedTabs.shared';
 import { boundTagPosition } from './dressPieces.shared';
 
@@ -46,6 +47,7 @@ export function AvatarOrb({
     freshAvatar?.source === resolved && freshAvatar.revision === revision
       ? freshAvatar.url
       : resolved;
+  const image = useAvatarImage(displayed);
   useEffect(() => {
     setFailedSource(null);
   }, [resolved]);
@@ -86,10 +88,11 @@ export function AvatarOrb({
   }, [active, refreshOnFocus, resolved, revision]);
   return (
     <span className={`weq-orb${widgetUrl ? ' has-widget' : ''}`}>
-      {resolved && failedSource !== resolved ? (
+      {resolved && failedSource !== resolved && !image.failed ? (
         <img
           key={displayed}
-          src={displayed ?? undefined}
+          ref={image.ref}
+          src={image.src}
           alt={nickname}
           className="weq-orb-img is-round"
           draggable={false}

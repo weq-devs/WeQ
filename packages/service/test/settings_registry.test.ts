@@ -25,7 +25,18 @@ describe('设置统一注册表', () => {
       const item = settingDefinition(field.settingId);
       const card = SETTINGS_RESET_CARDS.find(([, id]) => id === field.card);
       expect(card, field.id).toBeDefined();
-      expect(item.section, field.id).toBe(card?.[0]);
+      expect([item.section, ...item.from], field.id).toContain(card?.[0]);
+      // 共用开关可在多个页面原位恢复，但每个绑定都必须对应同源的主入口。
+      expect(
+        SETTINGS_FIELDS.some(
+          (binding) =>
+            binding.settingId === field.settingId &&
+            binding.source === field.source &&
+            binding.key === field.key &&
+            SETTINGS_RESET_CARDS.some(([page, id]) => page === item.section && id === binding.card),
+        ),
+        field.id,
+      ).toBe(true);
       expect(item.fields, field.id).toContain(field);
     }
     for (const id of Object.keys(SETTINGS_KEYWORDS))

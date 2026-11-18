@@ -5,9 +5,12 @@ import { TimeLabel } from '../TimeLabel';
 import { longTaskProgress, longTaskStatusLabel } from './LongTaskRow.shared';
 import type { LongTaskStatus } from './LongTaskRow';
 import { TaskProgressBar } from './TaskProgressBar';
+import { taskDisplayTitle, type TaskDisplay } from '@weq/service/task-display';
+import { TaskName, TaskOriginalName } from './TaskName';
 
 export function TaskProgressDetails({
   name,
+  display,
   status,
   statusLabel,
   progress: rawProgress,
@@ -16,6 +19,7 @@ export function TaskProgressDetails({
   finishedAt,
 }: {
   name: string;
+  display?: TaskDisplay;
   status: LongTaskStatus;
   statusLabel?: string;
   progress?: number;
@@ -33,11 +37,20 @@ export function TaskProgressDetails({
   const progress = longTaskProgress(rawProgress);
   const elapsed = startedAt && (finishedAt || (status === 'running' ? now : undefined));
   return (
-    <section className={`weq-task-progress-details is-${status}`} aria-label={`${name}进度详情`}>
+    <section
+      className={`weq-task-progress-details is-${status}`}
+      aria-label={`${display ? taskDisplayTitle(display) : name}进度详情`}
+    >
       <header>
-        <strong>{name}</strong>
+        <strong>{display ? <TaskName display={display} /> : name}</strong>
         <span>{statusLabel ?? longTaskStatusLabel(status)}</span>
       </header>
+      {display ? (
+        <>
+          <TaskOriginalName name={name} display={display} />
+          {display.context ? <p>{display.context}</p> : null}
+        </>
+      ) : null}
       <div className="weq-task-progress-metric">
         <span>任务进度</span>
         <strong>
@@ -52,7 +65,7 @@ export function TaskProgressDetails({
           )}
         </strong>
       </div>
-      <TaskProgressBar value={progress} label={`${name}进度`} status={status} />
+      <TaskProgressBar value={progress} label="任务进度" status={status} />
       {note ? <p role={status === 'failed' ? 'alert' : undefined}>{note}</p> : null}
       {startedAt ? (
         <div className="weq-task-progress-times">

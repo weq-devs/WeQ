@@ -101,7 +101,7 @@ function parseMultiMsgXml(xml: string): {
   //   - the occasional <hr> self-close mismatch.
   // We try strict XML first; if it produces no usable nodes we fall back to the
   // HTML parser, which is liberal enough to recover every shape we've seen.
-  const cleaned = xml.replace(/^�/, '').trim();
+  const cleaned = xml.replace(/^﻿/, '').trim();
 
   function extract(doc: Document): {
     titles: string[];

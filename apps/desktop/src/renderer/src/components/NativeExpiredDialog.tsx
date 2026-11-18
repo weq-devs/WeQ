@@ -98,7 +98,7 @@ export function NativeExpiredDialog({
             <div className="weq-set-row">
               <div className="weq-set-row-main">
                 <span className="weq-set-row-label">
-                  {phase === 'available' ? `发现新版本 v${latest}` : '软件更新'}
+                  {phase === 'available' ? '有可用更新' : '软件更新'}
                 </span>
                 <span className="weq-set-row-desc weq-number">
                   当前 v{current || '—'}
@@ -129,7 +129,7 @@ export function NativeExpiredDialog({
                 ) : phase === 'downloading' ? (
                   <button type="button" className="weq-set-btn weq-set-btn-primary" disabled>
                     <Loader2 size={14} strokeWidth={2} className="weq-spin" aria-hidden />
-                    下载中 <span className="weq-number weq-number-inherit">{pct}</span>%
+                    下载中…
                   </button>
                 ) : phase === 'available' ? (
                   <button
@@ -199,7 +199,7 @@ export function NativeExpiredDialog({
                 )}
                 <span>
                   已自动选择加速站 <b>{mirrorName}</b>
-                  {phase === 'downloading' ? ' · 正在下载' : '（已测速）'}
+                  {phase !== 'downloading' ? '（已测速）' : null}
                 </span>
               </div>
             ) : null}

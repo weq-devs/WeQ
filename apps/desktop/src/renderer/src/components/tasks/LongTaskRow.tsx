@@ -2,6 +2,8 @@ import { Ban, CircleAlert, CircleCheck, Clock, Loader2, Pause } from 'lucide-rea
 import '../../styles/long-tasks.css';
 import { TaskProgressBar } from './TaskProgressBar';
 import { NumericText } from '../NumericText';
+import { taskCreatedLabel } from '@weq/service/task-display';
+import { TaskName } from './TaskName';
 import { type LongTaskItem, longTaskProgress, LABELS } from './LongTaskRow.shared';
 
 export function LongTaskRow({
@@ -35,19 +37,22 @@ export function LongTaskRow({
         {task.icon}
       </span>
       <span className="weq-long-task-main">
-        <span className="weq-long-task-name">{task.name}</span>
+        <span className="weq-long-task-name">
+          {task.display ? <TaskName display={task.display} /> : task.name}
+        </span>
         <span className="weq-long-task-meta">
-          {task.kind}
-          {task.note ? (
-            <>
-              {' '}
-              · <NumericText>{task.note}</NumericText>
-            </>
-          ) : (
-            ''
-          )}
+          <NumericText>
+            {[task.kind, task.note, task.createdAt ? taskCreatedLabel(task.createdAt) : undefined]
+              .filter(Boolean)
+              .join(' · ')}
+          </NumericText>
         </span>
         <TaskProgressBar value={progress} label={`${task.name}进度`} status={task.status} />
+        {task.metrics ? (
+          <span className="weq-long-task-metrics">
+            <NumericText>{task.metrics}</NumericText>
+          </span>
+        ) : null}
       </span>
       <span className="weq-long-task-state">
         <span>

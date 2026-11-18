@@ -41,6 +41,7 @@ import {
 import type {
   MailAction,
   MailDetail,
+  MailEvent,
   MailFolder,
   MailPage as MailPageData,
   MailStatus,
@@ -50,11 +51,7 @@ import { SYSTEM_MAIL_FOLDERS } from '@weq/service/mail-wire';
 import { useDialog } from '../../components/Dialog.shared';
 import { CheckPill } from '../../components/settings/controls';
 import { useToastApi } from '../../components/Toast.shared';
-import {
-  notificationSource,
-  taskNotificationSource,
-} from '../../lib/notificationNavigation.shared';
-import { usePrivacyStore } from '../../state/privacy';
+import { notifyTaskCreated } from '../../lib/taskNotifications';
 import type { MailApi } from './api';
 import { MailBody } from './MailBody';
 import { MailComposer } from './MailComposer';
@@ -75,6 +72,7 @@ import { ServerSavePrompt } from '../../components/ServerSavePrompt';
 import { IS_WEB } from '../../lib/target.shared';
 import { isRemoteClient } from '../../lib/remoteClient';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
+import { useStableCallback } from '../../hooks/useStableCallback';
 import { readWithRetry } from '../../lib/autoRead';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useRequestContentExport } from '../../state/contentSelection.shared';
@@ -313,32 +311,22 @@ export function MailPage({
     }
   }, [api]);
 
+  const handleMailEvent = useStableCallback((event: MailEvent) => {
+    if (event.type === 'open') {
+      openRequested.current?.();
+      if (event.notice) {
+        chooseFolder(event.notice.folderId);
+        setSelectedId(event.notice.id);
+      }
+    }
+    if (event.type === 'status' && event.status) setStatus(event.status);
+    if (event.type !== 'status') setRevision((current) => current + 1);
+  });
   useEffect(() => {
     let alive = true;
     mounted.current = true;
     const unsubscribe = api.subscribe((event) => {
-      if (!alive) return;
-      if (event.type === 'open') {
-        openRequested.current?.();
-        if (event.notice) {
-          chooseFolder(event.notice.folderId);
-          setSelectedId(event.notice.id);
-        }
-      }
-      if (event.type === 'status' && event.status) setStatus(event.status);
-      if (event.type !== 'status') setRevision((current) => current + 1);
-      if (event.type === 'new-mail' && event.notice)
-        notificationToast.push({
-          tone: 'info',
-          title: '收到新邮件',
-          source: notificationSource(
-            { kind: 'mail', folderId: event.notice.folderId, mailId: event.notice.id },
-            '打开这封邮件',
-          ),
-          detail: usePrivacyStore.getState().effective
-            ? undefined
-            : `${event.notice.sender}${event.notice.subject ? `：${event.notice.subject}` : ''}`,
-        });
+      if (alive) handleMailEvent(event);
     });
     void api
       .status()
@@ -357,7 +345,7 @@ export function MailPage({
       api.dispose();
       download.current?.abort();
     };
-  }, [api, connect, chooseFolder, setSelectedId, notificationToast]);
+  }, [api, connect, handleMailEvent]);
   useEffect(() => {
     onUnreadChange?.(status.unread);
   }, [onUnreadChange, status.unread]);
@@ -600,13 +588,7 @@ export function MailPage({
         });
         if (!policy || controller.signal.aborted || !save.isCurrent()) return;
         const taskId = await api.save(id, policy, binding.expectedAccountConfigId);
-        if (mounted.current && save.isCurrent())
-          notificationToast.push({
-            tone: 'info',
-            title: '附件保存任务已创建',
-            source: taskNotificationSource(taskId),
-            message: '可在导出任务列表查看结果与保存位置',
-          });
+        if (mounted.current && save.isCurrent()) notifyTaskCreated(taskId, '正在保存邮件附件');
       }
     } catch (error) {
       if (mounted.current && save.isCurrent() && !controller.signal.aborted)

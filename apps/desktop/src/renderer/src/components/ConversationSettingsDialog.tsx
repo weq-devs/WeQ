@@ -2,13 +2,13 @@
  * 会话设置窗格 —— 在会话头部设置按钮附近原位打开。
  *
  * 紧凑窗格保留左侧分类导航与右侧内容。
- *   • 防撤回：把「这个会话」加/移出启用集，以及是否对它弹撤回通知。写操作是乐观的
+ *   • 防撤回：把「这个会话」加/移出启用集；通知方式就地修改统一设置，名单单独编辑。写操作是乐观的
  *     （服务层落配置后立刻返回期望状态），点击即生效，不需要 QQ 在线。防撤回处于
  *     「关闭」时，打开这里的「保护此会话」会自动把启用范围切到「按会话勾选」。
  *   • 群关键词（仅群聊）：把 GroupKeywordEditor 那套关键词 + 成员范围编辑器**内嵌**
  *     在这一页里直接编辑，不再另开灯箱。编辑器自己防抖落盘，关窗即保存。
  *
- * 启用范围 / 通知总开关仍在「更多 → 防撤回」面板里，这里只做单会话的粒度。
+ * 保护范围在防撤回设置，通知方式各入口共用，提醒名单在「常规 → 通知与提醒」。
  */
 
 import { useContext, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
@@ -23,12 +23,9 @@ import { Card, Row, Toggle } from './settings/controls';
 import { GroupKeywordEditor, type KeywordMember } from './GroupKeywordEditor';
 import { ConversationSettingsFrame } from './ConversationSettingsFrame';
 import { QQConversationControls } from './QQConversationControls';
+import { NotificationSettingsLink } from './settings/NotificationSettingsLink';
+import { NotificationMethodSelect } from './settings/NotificationMethodSelect';
 import '../styles/conversation-settings.css';
-
-/** 通知开关的会话 key（与后端 `notifyKey` 一致）。 */
-function notifyKeyOf(kind: string, id: string): string {
-  return `${kind}:${id}`;
-}
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -95,8 +92,7 @@ export function ConversationSettingsDialog({
 
   const setScope = trpc.account.antiRecall.setScope.useMutation();
   const setTargets = trpc.account.antiRecall.setTargets.useMutation();
-  const setNotify = trpc.account.antiRecall.setNotify.useMutation();
-  const busy = setScope.isLoading || setTargets.isLoading || setNotify.isLoading;
+  const busy = setScope.isLoading || setTargets.isLoading;
 
   // 意图感知：全局状态（同 key 共享缓存）+ 单会话覆盖写。
   const intentStatus = trpc.account.intentSense.getStatus.useQuery(undefined, {
@@ -116,8 +112,6 @@ export function ConversationSettingsDialog({
   const allProtected = scope === 'all';
   const targets = useMemo(() => status.data?.targets ?? [], [status.data?.targets]);
   const protectedHere = allProtected || targets.some((t) => t.id === conv && t.kind === kind);
-  const notifyHere = (status.data?.notifyTargets ?? []).includes(notifyKeyOf(kind, conv));
-  const notifyEnabled = status.data?.notifyEnabled ?? false;
 
   const groupKeywords = kind === 'group';
 
@@ -173,18 +167,6 @@ export function ConversationSettingsDialog({
     } catch (e) {
       void intentStatus.refetch();
       showError('意图感知设置失败', errMsg(e));
-    }
-  }
-
-  async function onToggleNotify(next: boolean): Promise<void> {
-    const key = notifyKeyOf(kind, conv);
-    const current = status.data?.notifyTargets ?? [];
-    const updated = next ? [...new Set([...current, key])] : current.filter((k) => k !== key);
-    try {
-      applyStatus(await setNotify.mutateAsync({ targets: updated, ...source.current }));
-    } catch (e) {
-      void status.refetch();
-      showError('通知设置失败', errMsg(e));
     }
   }
 
@@ -385,21 +367,21 @@ export function ConversationSettingsDialog({
                 label={
                   <span className="weq-set-row-icon">
                     <BellRing size={14} strokeWidth={1.8} aria-hidden />
-                    撤回时通知我
+                    撤回通知方式（全局）
                   </span>
                 }
-                desc={
-                  notifyEnabled
-                    ? '被拦下的撤回会弹系统通知。'
-                    : '通知总开关在「更多 → 防撤回」里打开。'
-                }
+                control={<NotificationMethodSelect event="recall" />}
+              />
+              <Row
+                label="提醒范围"
                 control={
-                  <Toggle
-                    checked={notifyHere}
-                    disabled={busy || status.isLoading || Boolean(status.error) || !notifyEnabled}
-                    onChange={(next) => void onToggleNotify(next)}
-                    label="撤回时通知我"
-                  />
+                  <NotificationSettingsLink
+                    settingId="recall-notifications"
+                    conversation={{ kind, conv, title }}
+                    onNavigate={onClose}
+                  >
+                    本会话撤回提醒
+                  </NotificationSettingsLink>
                 }
               />
               <Row

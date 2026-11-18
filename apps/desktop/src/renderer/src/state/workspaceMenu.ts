@@ -19,6 +19,8 @@ interface WorkspaceMenuState {
   assistantUnread: boolean;
   taskOpenRequest: number;
   taskFocusId: string | null;
+  taskPanelScope: string | null;
+  setTaskPanelScope: (scope: string | null) => void;
   focusTask: (id: string) => void;
   openTasks: () => void;
   mobileToolRequest: { tool: MobileWorkspaceTool } | null;
@@ -44,6 +46,9 @@ export const useWorkspaceMenu = create<WorkspaceMenuState>((set) => ({
   assistantUnread: false,
   taskOpenRequest: 0,
   taskFocusId: null,
+  taskPanelScope: null,
+  setTaskPanelScope: (taskPanelScope) =>
+    set((state) => (state.taskPanelScope === taskPanelScope ? state : { taskPanelScope })),
   focusTask: (id) =>
     set((state) => ({ taskFocusId: id, taskOpenRequest: state.taskOpenRequest + 1 })),
   openTasks: () =>

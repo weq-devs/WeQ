@@ -492,17 +492,7 @@ describe('主聊天区域的频道私聊', () => {
         [...f.host.querySelectorAll('.rail-nav .rail-tab:not(.rail-mobile-settings)')].map((b) =>
           b.getAttribute('title'),
         ),
-      ).toEqual([
-        '消息',
-        '联系人',
-        'QQ 空间',
-        'QQ 频道',
-        'QQ 邮箱',
-        '收藏',
-        '年度报告',
-        '个性装扮',
-        '应用',
-      ]);
+      ).toEqual(['消息', '联系人', 'QQ 空间', 'QQ 频道', 'QQ 邮箱', '收藏', '年度报告', '应用']);
       const settingsButton = f.host.querySelector<HTMLButtonElement>(
         '.rail-footer [aria-label="设置"]',
       )!;
@@ -516,11 +506,10 @@ describe('主聊天区域的频道私聊', () => {
       expect(settingsButton.title).toContain('有新版本可更新');
       expect(settingsButton.querySelector('[aria-label="有新版本可更新"]')).not.toBeNull();
       expect(f.host.querySelector('.rail-mobile-settings')).not.toBeNull();
-      for (const title of ['收藏', '个性装扮']) {
-        act(() => f.host.querySelector<HTMLButtonElement>(`[title="${title}"]`)!.click());
-      }
+      act(() => f.host.querySelector<HTMLButtonElement>('[title="收藏"]')!.click());
       expect(collection).toHaveBeenCalledOnce();
-      expect(dress).toHaveBeenCalledOnce();
+      expect(dress).not.toHaveBeenCalled();
+      expect(f.host.querySelector('[title="个性装扮"]')).toBeNull();
       const mail = f.host.querySelector<HTMLButtonElement>('[title="QQ 邮箱"]')!;
       expect(mail.querySelector('.rail-badge')?.textContent).toBe('2');
       act(() => mail.click());

@@ -115,11 +115,13 @@ describe('feature_search', () => {
         kind: 'tool',
         tool: 'backfill',
       });
-      expect(searchAppEntries('商城表情')[0]?.target).toEqual({
+      expect(searchAppEntries('商城表情')).toEqual([]);
+      expect(searchAppEntries('商城表情', true)[0]?.target).toEqual({
         kind: 'dressup',
         dressKind: 'emoji',
       });
-      expect(searchAppEntries('通话背景')[0]?.target).toEqual({
+      expect(searchAppEntries('通话背景')).toEqual([]);
+      expect(searchAppEntries('通话背景', true)[0]?.target).toEqual({
         kind: 'dressup',
         dressKind: 'callbg',
       });

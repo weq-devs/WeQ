@@ -47,14 +47,29 @@ it('时间线请求缩略图，打开灯箱仍请求原图', async () => {
   expect(original.searchParams.has('v')).toBe(false);
   expect(original.searchParams.get('token')).toBe('fixture');
 });
-it('动画表情不切换成静态缩略图，也不打开原图灯箱', async () => {
-  const host = await render({ fileName: 'fixture.gif', subType: 1 });
-  const image = host.querySelector('img')!;
-  expect(new URL(image.src).searchParams.get('recv')).toBe('1');
-  expect(new URL(image.src).searchParams.has('v')).toBe(false);
-  await act(async () => image.click());
-  expect(state.open).not.toHaveBeenCalled();
-});
+it.each(['fixture.gif', 'fixture.png'])(
+  '图片表情保留原始来源并可点击预览：%s',
+  async (fileName) => {
+    const host = await render({
+      fileName,
+      subType: 1,
+      fileToken: 'fixture',
+      imgWidth: 240,
+      imgHeight: 240,
+    });
+    const image = host.querySelector('img')!;
+    expect(new URL(image.src).searchParams.get('recv')).toBe('1');
+    expect(new URL(image.src).searchParams.has('v')).toBe(false);
+    await act(async () => image.click());
+    expect(state.open).toHaveBeenCalledTimes(1);
+    const item = state.open.mock.calls[0]![0].items[0];
+    const original = new URL(item.src);
+    expect(original.searchParams.get('recv')).toBe('1');
+    expect(original.searchParams.has('v')).toBe(false);
+    expect(original.searchParams.get('intent')).toBe('interactive');
+    expect(item.ocr).toBeNull();
+  },
+);
 it('编辑器本地预览仍优先使用本地资源', async () => {
   const host = await render({ localPath: '/synthetic/image.png', localPreviewUrl: 'blob:fixture' });
   expect(host.querySelector('img')!.src).toBe('blob:fixture');

@@ -10,6 +10,7 @@ interface PreparationTaskPort {
   resume?(id: EnhancementPackId): void;
 }
 const pending = new WeakMap<PreparationTaskPort, Map<EnhancementPackId, Promise<void>>>();
+const requestedActions = new WeakMap<PreparationTaskPort, Map<EnhancementPackId, string>>();
 
 export async function startEnhancementDownloads(
   packs: EnhancementPacks,
@@ -19,10 +20,31 @@ export async function startEnhancementDownloads(
   const ids = [...new Set(requested)].filter(
     (id) => !previous.find((pack) => pack.id === id)?.busy,
   );
-  packs.start(ids);
+  // start 会同步通知准备观察者，先固定本次操作意图，两个入口共用同一任务。
+  const actions = new Map(
+    ids.map((id) => {
+      const pack = previous.find((entry) => entry.id === id);
+      return [
+        id,
+        !pack
+          ? '准备增强包'
+          : pack.needsRepair
+            ? '补齐增强包'
+            : pack.installed
+              ? '更新增强包'
+              : '安装增强包',
+      ];
+    }),
+  );
+  requestedActions.set(packs, actions);
+  try {
+    packs.start(ids);
+  } finally {
+    requestedActions.delete(packs);
+  }
   for (const id of ids) {
     const pack = previous.find((entry) => entry.id === id)!;
-    void trackEnhancementPreparation(packs, id, pack.name).catch(() => {});
+    void trackEnhancementPreparation(packs, id, pack.name, actions.get(id)).catch(() => {});
   }
 }
 
@@ -31,6 +53,7 @@ export function trackEnhancementPreparation(
   packs: PreparationTaskPort,
   id: EnhancementPackId,
   name: string,
+  action = requestedActions.get(packs)?.get(id) ?? '准备增强包',
 ): Promise<void> {
   let tasks = pending.get(packs);
   if (!tasks) {
@@ -40,7 +63,12 @@ export function trackEnhancementPreparation(
   const existing = tasks.get(id);
   if (existing) return existing;
   const task = runBackgroundTask(
-    { kind: 'model', name, destination: 'enhancement-packs' },
+    {
+      kind: 'model',
+      name,
+      destination: 'enhancement-packs',
+      display: { action, subject: name, category: '增强包' },
+    },
     async (taskId) => {
       let polling = true;
       const update = async () => {

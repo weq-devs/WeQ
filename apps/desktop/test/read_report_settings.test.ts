@@ -3,8 +3,13 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountBasicsSection } from '../src/renderer/src/components/settings/AccountBasicsSection';
 import { Card } from '../src/renderer/src/components/settings/controls';
+import {
+  normalizeNotificationEvents,
+  type NotificationEvents,
+} from '@weq/service/notification-settings';
 
 const fixture = vi.hoisted(() => ({
+  notificationEvents: undefined as NotificationEvents | undefined,
   settings: {
     reportReadEnabled: false,
     manualReadReportEnabled: false,
@@ -30,7 +35,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               if (path.includes('getReadReportStatus')) fixture.readReportQuery();
               return {
                 data: path.includes('getSettings')
-                  ? fixture.settings
+                  ? { ...fixture.settings, notificationEvents: fixture.notificationEvents }
                   : path.includes('getReadReportStatus')
                     ? { state: fixture.state }
                     : path.includes('getAccountConfig')
@@ -70,6 +75,7 @@ vi.mock('../src/renderer/src/components/QqAvatar', () => ({ QqAvatar: () => null
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.clearAllMocks();
+  fixture.notificationEvents = normalizeNotificationEvents(undefined);
   fixture.settings = {
     reportReadEnabled: false,
     manualReadReportEnabled: false,
@@ -123,24 +129,34 @@ function mount(page: 'read' | 'account' = 'read') {
 }
 
 describe('设置中的已读上报开关', () => {
-  it('受限横幅偏好可独立保存，保存失败恢复原开关', async () => {
-    fixture.mutate.mockImplementation(async ({ enabled }: { enabled: boolean }) => {
-      fixture.settings = { ...fixture.settings, restrictedModeBannerEnabled: enabled };
-    });
+  it('受限通知方式写入统一配置，保存失败保留原方式', async () => {
+    fixture.mutate.mockImplementation(
+      async ({ channels }: { channels: NotificationEvents['runtime'] }) => {
+        fixture.notificationEvents = { ...fixture.notificationEvents!, runtime: channels };
+        return fixture.notificationEvents;
+      },
+    );
     const f = mount('account');
-    const toggle = () =>
-      f.host.querySelector<HTMLButtonElement>(
-        '[data-setting-id="restricted-mode-banner"] [role="switch"]',
-      )!;
+    const select = f.host.querySelector<HTMLSelectElement>(
+      '[aria-label="功能受限或运行异常通知方式"]',
+    )!;
+    const choose = (value: string) => {
+      select.value = value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    };
     try {
-      expect(toggle().getAttribute('aria-checked')).toBe('true');
-      await act(async () => toggle().click());
-      expect(toggle().getAttribute('aria-checked')).toBe('false');
-      expect(fixture.mutations).toContain('bootstrap.setRestrictedModeBannerEnabled');
+      expect(select.value).toBe('banner');
+      await act(async () => choose('off'));
+      expect(select.value).toBe('off');
+      expect(fixture.mutate).toHaveBeenCalledWith({
+        events: ['runtime'],
+        channels: { banner: false, system: false },
+      });
+      expect(fixture.settings.autoAttachQq).toBe(true);
       fixture.mutate.mockRejectedValueOnce(new Error('合成保存失败'));
-      await act(async () => toggle().click());
-      expect(toggle().getAttribute('aria-checked')).toBe('false');
-      expect(fixture.error).toHaveBeenCalled();
+      await act(async () => choose('banner'));
+      expect(select.value).toBe('off');
+      expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('合成保存失败');
     } finally {
       f.close();
     }

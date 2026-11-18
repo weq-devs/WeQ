@@ -33,6 +33,7 @@ import { MergeForwardComposer } from './MergeForwardComposer';
 import { MergeForwardTargets } from './MergeForwardTargets';
 import { SequentialForwardDialog } from '../SequentialForwardDialog';
 import { Modal } from '../Dialog';
+import { useDialog } from '../Dialog.shared';
 import { useToast } from '../Toast.shared';
 import { NotificationSourceProvider } from '../../lib/notificationNavigation';
 import { notificationSource } from '../../lib/notificationNavigation.shared';
@@ -680,7 +681,8 @@ function CompositionWorkspaceBody({
                       >
                         <CompositionButton
                           type="button"
-                          className="weq-composition-entry-title"
+                          className="weq-composition-entry-open"
+                          aria-label={entry.title || draftTitle(entry.nodes)}
                           aria-current={
                             kind === 'history' && entry.id === draft.id ? 'true' : undefined
                           }
@@ -693,22 +695,26 @@ function CompositionWorkspaceBody({
                               void perform(async () => insert(entry, kind));
                           }}
                         >
-                          {entry.title || draftTitle(entry.nodes)}
+                          <span className="weq-composition-entry-title">
+                            {entry.title || draftTitle(entry.nodes)}
+                          </span>
+                          <span className="weq-composition-entry-meta">
+                            {
+                              <span className="weq-number weq-number-inherit">
+                                {entry.nodes.length}
+                              </span>
+                            }{' '}
+                            条 ·{' '}
+                            {
+                              <span className="weq-number weq-number-inherit">
+                                {eventTimeFormatter.format(new Date(entry.updatedAt * 1000))}
+                              </span>
+                            }
+                          </span>
+                          <span className="weq-composition-entry-preview" data-privacy-sensitive>
+                            {compositionText(entry)}
+                          </span>
                         </CompositionButton>
-                        <span>
-                          {
-                            <span className="weq-number weq-number-inherit">
-                              {entry.nodes.length}
-                            </span>
-                          }{' '}
-                          条 ·{' '}
-                          {
-                            <span className="weq-number weq-number-inherit">
-                              {eventTimeFormatter.format(new Date(entry.updatedAt * 1000))}
-                            </span>
-                          }
-                        </span>
-                        <p data-privacy-sensitive>{compositionText(entry)}</p>
                         <div className="weq-composition-entry-actions">
                           <CompositionButton
                             type="button"
@@ -799,6 +805,16 @@ function CompositionWorkspaceBody({
                             disabledReason="正在处理当前操作，请稍后"
                             onClick={() =>
                               void perform(async () => {
+                                if (
+                                  !(await useDialog
+                                    .getState()
+                                    .confirm(
+                                      kind === 'history' ? '删除合成记录' : '删除素材',
+                                      `将删除「${entry.title || draftTitle(entry.nodes)}」，此操作无法撤销。`,
+                                      { okLabel: '删除', danger: 'solid', ownerDocument },
+                                    ))
+                                )
+                                  return;
                                 if (kind === 'history') {
                                   if (dirtyRef.current)
                                     await persist(structuredClone(working), binding);

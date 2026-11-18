@@ -334,24 +334,24 @@ describe('会话底部多选栏', () => {
       act(() => button(f.host, '多选会话').click());
       expect(button(f.host, '搜索会话')).toBeNull();
       expect(button(f.host, '反选当前结果')).not.toBeNull();
-      expect(button(f.host, '导出名单').disabled).toBe(true);
+      expect(button(f.host, '导出群成员名单').disabled).toBe(true);
       expect(button(f.host, '拉取所选会话漫游消息').disabled).toBe(true);
       act(() => f.host.querySelector<HTMLButtonElement>('[data-conversation-id="10001"]')!.click());
       expect(button(f.host, '拉取所选会话漫游消息').disabled).toBe(false);
-      expect(button(f.host, '导出名单').disabled).toBe(false);
-      act(() => button(f.host, '导出名单').click());
+      expect(button(f.host, '导出群成员名单').disabled).toBe(false);
+      act(() => button(f.host, '导出群成员名单').click());
       expect(JSON.parse(f.host.querySelector('output')!.textContent!).selection).toEqual({
         owner: { kind: 'contacts', container: 'group:10001' },
         scope: { type: 'all' },
       });
       act(() => button(f.host, '拉取所选会话漫游消息').click());
       expect(roaming).toHaveBeenCalledWith([{ kind: 'group', conv: '10001', name: '合成群聊' }]);
-      act(() => button(f.host, '导出所选会话').click());
+      act(() => button(f.host, '导出聊天记录').click());
       expect(exportBatch).toHaveBeenLastCalledWith([group]);
       expect(f.host.querySelectorAll('.is-multiselected')).toHaveLength(1);
       act(() => button(f.host, '全选当前结果').click());
       expect(button(f.host, '拉取所选会话漫游消息').disabled).toBe(false);
-      expect(button(f.host, '导出所选会话').disabled).toBe(false);
+      expect(button(f.host, '导出聊天记录').disabled).toBe(false);
       act(() => button(f.host, '拉取所选会话漫游消息').click());
       const dialog = document.querySelector('[role="dialog"]')!;
       expect(dialog.textContent).toContain('1 个会话不支持拉取漫游消息');
@@ -363,7 +363,7 @@ describe('会话底部多选栏', () => {
           .click(),
       );
       expect(roaming).toHaveBeenCalledTimes(2);
-      act(() => button(f.host, '导出所选会话').click());
+      act(() => button(f.host, '导出聊天记录').click());
       expect(document.querySelector('[role="dialog"]')).toBeNull();
       expect(exportBatch).toHaveBeenLastCalledWith([group, clone]);
       expect(f.host.querySelectorAll('.is-multiselected')).toHaveLength(2);
@@ -378,7 +378,7 @@ describe('会话底部多选栏', () => {
       expect(f.host.querySelectorAll('.is-multiselected')).toHaveLength(0);
       expect(f.host.querySelector('[aria-label="会话多选操作"]')).not.toBeNull();
       expect(button(f.host, '全选当前结果')).not.toBeNull();
-      expect(button(f.host, '导出所选会话').disabled).toBe(true);
+      expect(button(f.host, '导出聊天记录').disabled).toBe(true);
       act(() => button(f.host, '全选当前结果').click());
       expect(f.host.querySelectorAll('.is-multiselected')).toHaveLength(2);
       act(() => button(f.host, '退出多选').click());

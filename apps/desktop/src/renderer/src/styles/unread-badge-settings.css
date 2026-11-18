@@ -1,0 +1,10 @@
+.weq-badge-group-title {
+  margin: 20px 0 4px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.weq-badge-group-title:first-child {
+  margin-top: 4px;
+}

@@ -15,6 +15,7 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { exportTaskDisplay } from '../../common/task_display';
 import { randomUUID } from 'node:crypto';
 import {
   readFileSync,
@@ -376,6 +377,8 @@ export interface MediaExportOptions {
 }
 
 export interface ExportTask {
+  display?: import('../../common/task_display').TaskDisplay;
+  scheduleName?: string;
   databaseRecovery?: DatabaseRecoveryRequest;
   databaseRecoveryRecords?: DatabaseRecoveryRecord[];
   workBundleId?: string;
@@ -1206,6 +1209,7 @@ export class ExportTaskManager extends EventEmitter {
         delete view.generatedResourceReport;
         return {
           ...view,
+          display: exportTaskDisplay(task),
           generated: summary,
           ...(task.generatedResourceReport
             ? {
@@ -1313,6 +1317,7 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   async startTask(opts: {
+    scheduleName?: string;
     autoOpenTaskList?: boolean;
     extra?: import('../../common/export_content').ExportExtraOptions;
     content?: ExportContentPolicy;
@@ -1690,6 +1695,7 @@ export class ExportTaskManager extends EventEmitter {
       ...archiveSettings,
       content: opts.content ? structuredClone(opts.content) : undefined,
       resourceOnly,
+      scheduleName: opts.scheduleName,
       completeAvatar: opts.completeAvatar,
       id,
       kind: opts.kind,
@@ -1787,6 +1793,7 @@ export class ExportTaskManager extends EventEmitter {
 
   /** 既有独立下载器只写私有缓存，发布、另存、取消和回执沿用同一个任务管理器。 */
   async startResourceExport(opts: {
+    display?: import('../../common/task_display').TaskDisplay;
     resume?: ResumableResourceRequest;
     networkTransfer?: { batch?: boolean; bytes?: number };
     archive?: ArchiveOptions;
@@ -1827,6 +1834,7 @@ export class ExportTaskManager extends EventEmitter {
       kind: 'c2c',
       conv: opts.kind,
       name: opts.name,
+      display: opts.display ? structuredClone(opts.display) : undefined,
       format: opts.archive?.formats?.[0] ?? 'json',
       resource: {
         ...(opts.resume ? { resume: structuredClone(opts.resume) } : {}),

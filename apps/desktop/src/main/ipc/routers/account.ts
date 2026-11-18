@@ -112,6 +112,7 @@ import { groupAlbumReferences } from '../../../shared/content_selection';
 import { createContactMetricsRouter } from './contact_metrics';
 import { createNoticeReadRouter } from './notice_read';
 import { mergeNoticeSeen } from '../../../shared/notice_seen';
+import { messageReadPosition, newerReadPosition } from '@weq/service/client-preferences';
 import { createQQActionsRouter } from './qq_actions';
 import { dbExplorerRouter } from './db_explorer';
 import { annualReportRouter } from './annual_report';
@@ -2147,6 +2148,7 @@ export const accountRouter = router({
    */
   listAgentLabPersonas: procedure.query(async () => {
     const services = requireServices();
+    const readState = currentDraftState();
     const personas = services.agentLab.listPersonas();
     const uids = [
       ...new Set(
@@ -2163,12 +2165,40 @@ export const accountRouter = router({
         console.error('[agentlab] resolve sourceUin failed', error);
       }
     }
+    const histories = new Map(
+      personas.map((persona) => [persona.id, services.agentLab.getConversation(persona.id)]),
+    );
+    const reads = directoryReadPositions(
+      readState,
+      'persona',
+      Object.fromEntries(
+        [...histories].map(([id, turns]) => [
+          `persona:${id}`,
+          String(
+            Math.max(
+              0,
+              ...turns
+                .filter((turn) => turn.role === 'assistant' && turn.status !== 'running')
+                .map((turn) => turn.ts),
+            ),
+          ),
+        ]),
+      ),
+    );
     return personas.map((persona) => ({
       ...persona,
       sourceUin: uinByUid.get(persona.sourceId) ?? '',
       // 会话列表要显示「最近一句」并把虚拟会话按时间插回列表：
       // persona.updatedAt 只在编辑画像时变，聊天本身另有会话时间与末条消息。
       ...latestGeneratedActivity(services.agentLab, 'persona', persona.id),
+      unreadCount: histories
+        .get(persona.id)!
+        .filter(
+          (turn) =>
+            turn.role === 'assistant' &&
+            turn.status !== 'running' &&
+            turn.ts > Number(reads[`persona:${persona.id}`] ?? 0),
+        ).length,
     }));
   }),
 
@@ -2473,6 +2503,7 @@ export const accountRouter = router({
       const taskId = await services.exportManager.startResourceExport({
         kind: 'persona-bot',
         name: `${safeName}-bot`,
+        display: { action: '导出克隆机器人', subject: safeName },
         savePolicy: policy,
         includeIntegrityReport: input.includeIntegrityReport,
         run: async ({ directory, signal }) => {
@@ -2556,6 +2587,7 @@ export const accountRouter = router({
 
   listAgentLabGroups: procedure.query(async () => {
     const services = requireServices();
+    const readState = currentDraftState();
     const personas = services.agentLab.listPersonas();
     const personasById = new Map(personas.map((persona) => [persona.id, persona]));
     const sourceUids = [
@@ -2576,7 +2608,26 @@ export const accountRouter = router({
         console.error('[agentlab] resolve group member uin failed', error);
       }
     }
-    return services.agentLab.listGroups().map((group) => {
+    const groups = services.agentLab.listGroups();
+    const histories = new Map(
+      groups.map((group) => [group.id, services.agentLab.getGroupMessages(group.id)]),
+    );
+    const reads = directoryReadPositions(
+      readState,
+      'clone-group',
+      Object.fromEntries(
+        [...histories].map(([id, turns]) => [
+          `clone-group:${id}`,
+          String(
+            Math.max(
+              0,
+              ...turns.filter((turn) => turn.senderKind !== 'user').map((turn) => turn.ts),
+            ),
+          ),
+        ]),
+      ),
+    );
+    return groups.map((group) => {
       const members = services.agentLab
         .getGroupDetail(group.id)
         ?.members.filter((member) => member.kind === 'persona');
@@ -2591,6 +2642,12 @@ export const accountRouter = router({
         ...group,
         ...latestGeneratedActivity(services.agentLab, 'group', group.id),
         memberUins,
+        unreadCount: histories
+          .get(group.id)!
+          .filter(
+            (turn) =>
+              turn.senderKind !== 'user' && turn.ts > Number(reads[`clone-group:${group.id}`] ?? 0),
+          ).length,
       };
     });
   }),
@@ -2830,7 +2887,39 @@ export const accountRouter = router({
 
   /** WeQ 助手的会话列表（最近活跃倒序）。 */
   listAssistantSessions: procedure.query(() => {
-    return requireServices().assistant.listSessions();
+    const assistant = requireServices().assistant;
+    const sessions = assistant.listSessions();
+    const histories = new Map(
+      sessions.map((session) => [session.id, assistant.getConversation(session.id)]),
+    );
+    const reads = directoryReadPositions(
+      currentDraftState(),
+      'assistant',
+      Object.fromEntries(
+        [...histories].map(([id, turns]) => [
+          `assistant:${id}`,
+          String(
+            Math.max(
+              0,
+              ...turns
+                .filter((turn) => turn.role === 'assistant' && turn.status !== 'running')
+                .map((turn) => turn.ts),
+            ),
+          ),
+        ]),
+      ),
+    );
+    return sessions.map((session) => ({
+      ...session,
+      unreadCount: histories
+        .get(session.id)!
+        .filter(
+          (turn) =>
+            turn.role === 'assistant' &&
+            turn.status !== 'running' &&
+            turn.ts > Number(reads[`assistant:${session.id}`] ?? 0),
+        ).length,
+    }));
   }),
 
   /** 新建一个空会话，返回会话元数据（标题首轮对话后自动总结）。 */
@@ -3274,8 +3363,20 @@ export const accountRouter = router({
    * 供前端并入会话列表统一渲染、排序。
    */
   listHiddenSessions: directoryProcedure.query(async () => {
-    const hidden = await requireServices().hiddenSessions.listHiddenSessions();
-    return hidden.map(hiddenSessionToWire);
+    const services = requireServices();
+    const hidden = await services.hiddenSessions.listHiddenSessions();
+    return Promise.all(
+      hidden.map(async (row) => ({
+        ...hiddenSessionToWire(row),
+        unreadCount: row.resolvable
+          ? await services.unreadInfo.directoryUnreadCount(
+              classifyChatType(row.chatType) === 'group' ? 2 : 1,
+              row.targetUid,
+              row.latestSeq,
+            )
+          : 0,
+      })),
+    );
   }),
 
   /**
@@ -3389,16 +3490,44 @@ export const accountRouter = router({
    * 供前端在删除会话合并入口中显示。
    */
   listDeletedSessions: directoryProcedure.query(async () => {
-    const deleted = await requireServices().deletedSessions.listDeletedSessions();
-    return deleted.map(deletedSessionToWire);
+    const services = requireServices();
+    const deleted = await services.deletedSessions.listDeletedSessions();
+    return Promise.all(
+      deleted.map(async (row) => ({
+        ...deletedSessionToWire(row),
+        unreadCount: row.resolvable
+          ? await services.unreadInfo.directoryUnreadCount(
+              row.chatType,
+              row.targetUid,
+              row.latestSeq,
+            )
+          : 0,
+      })),
+    );
   }),
 
   /**
    * 官方号会话列表（chatType=103），保留全部消息类型的预览。
    */
   listOfficialAccounts: procedure.query(async () => {
-    const summaries = await requireServices().officialAccount.listAccounts();
-    return summaries.map(officialAccountSummaryToWire);
+    const service = requireServices().officialAccount;
+    const readState = currentDraftState();
+    const summaries = await service.listAccounts();
+    const reads = directoryReadPositions(
+      readState,
+      'official',
+      Object.fromEntries(
+        summaries.map((row) => [`official:${row.peerUid}`, row.latestReadPosition]),
+      ),
+    );
+    return Promise.all(
+      summaries.map(async (row) => ({
+        ...officialAccountSummaryToWire(row),
+        unreadCount: newerReadPosition(row.latestReadPosition, reads[`official:${row.peerUid}`])
+          ? await service.countUnread(row.peerUid, String(reads[`official:${row.peerUid}`] ?? '0'))
+          : 0,
+      })),
+    );
   }),
 
   /**
@@ -3406,8 +3535,22 @@ export const accountRouter = router({
    * 按最新消息时间排序。
    */
   listServiceAccounts: procedure.query(async () => {
-    const summaries = await requireServices().serviceAccount.listAccounts();
-    return summaries.map(serviceAccountSummaryToWire);
+    const service = requireServices().serviceAccount;
+    const readState = currentDraftState();
+    const summaries = await service.listAccounts();
+    const reads = directoryReadPositions(
+      readState,
+      'service',
+      Object.fromEntries(summaries.map((row) => [`service:${row.appId}`, row.latestReadPosition])),
+    );
+    return Promise.all(
+      summaries.map(async (row) => ({
+        ...serviceAccountSummaryToWire(row),
+        unreadCount: newerReadPosition(row.latestReadPosition, reads[`service:${row.appId}`])
+          ? await service.countUnread(row.appId, String(reads[`service:${row.appId}`] ?? '0'))
+          : 0,
+      })),
+    );
   }),
 
   readonlyConversationPage: procedure
@@ -4236,12 +4379,35 @@ export const accountRouter = router({
     ),
 
   /**
-   * QQ 频道私聊会话列表（direct_node_list_table）。只读会话表，绝不回扫
-   * guild_msg_table 补全；40051 最新消息预览一并返回。
+   * 目录只来自 direct_node_list_table；按 node 索引读取最新水位和未读，不回扫消息补目录。
    */
   guildDirectListSessions: procedure.query(async () => {
-    const sessions = await requireServices().guildDirect.listSessions();
-    return sessions.map(guildDirectSessionToWire);
+    const service = requireServices().guildDirect;
+    const readState = currentDraftState();
+    const sessions = await service.listSessions();
+    const positions = new Map(
+      await Promise.all(
+        sessions.map(async (row) => {
+          const [latest] = await service.getStableLatest(row.nodeId, 1);
+          return [row.nodeId, latest ? messageReadPosition(latest) : '0:0:0'] as const;
+        }),
+      ),
+    );
+    const reads = directoryReadPositions(
+      readState,
+      'guild',
+      Object.fromEntries(
+        sessions.map((row) => [`guild:${row.nodeId}`, positions.get(row.nodeId)!]),
+      ),
+    );
+    return Promise.all(
+      sessions.map(async (row) => ({
+        ...guildDirectSessionToWire(row),
+        unreadCount: newerReadPosition(positions.get(row.nodeId)!, reads[`guild:${row.nodeId}`])
+          ? await service.countUnread(row.nodeId, String(reads[`guild:${row.nodeId}`] ?? '0'))
+          : 0,
+      })),
+    );
   }),
 
   /** 频道私聊最新 N 条消息（seq 大到小）。nodeId = 会话 40027。 */
@@ -6666,6 +6832,7 @@ export const accountRouter = router({
         {
           listRows: () => services.emoji.listFavEmojiRows(),
           resolveFile: (...args) => services.customEmoji.resolveFile(...args),
+          resolveCachedFavorite: (file) => services.emoji.resolveCachedFavorite(file),
           checkCurrent,
         },
       );
@@ -7334,6 +7501,12 @@ export const accountRouter = router({
       return services.exportManager.startResourceExport({
         name,
         kind: 'database',
+        display: {
+          action: '导出明文数据库',
+          subject: single ? items[0]!.name : `${items.length} 个库`,
+          context: input.mode === 'safe' ? '安全保存' : '快速解密',
+          fileName: single,
+        },
         includeIntegrityReport: input.includeIntegrityReport,
         savePolicy: input.savePolicy,
         ...(single ? { output: { kind: 'file' as const, name, extension: 'db' } } : {}),
@@ -7839,6 +8012,12 @@ export const accountRouter = router({
       return services.exportManager.startResourceExport({
         kind: 'qzone-albums',
         name: selected.name,
+        display: {
+          action: '保存相册媒体',
+          subject: resolved ? resolved.fileName : `${selected.items.length} 项`,
+          context: 'QQ 空间相册',
+          fileName: Boolean(resolved),
+        },
         includeIntegrityReport: selected.includeIntegrityReport,
         savePolicy: policy,
         ...(output.kind === 'file' ? { output } : {}),
@@ -7895,6 +8074,24 @@ export const accountRouter = router({
       return services.exportManager.startResourceExport({
         kind: selected.every((item) => item.provider === 'qzone') ? 'qzone-albums' : 'group-albums',
         name: frozen.name,
+        display: {
+          action: selected.every((item) => item.provider === 'qzone')
+            ? '导出 QQ 空间相册'
+            : selected.every((item) => item.provider === 'group')
+              ? '导出群相册'
+              : '导出相册',
+          subject: `${selected.length} 个相册`,
+          context: [
+            ...new Set(
+              selected.map((item) => (item.provider === 'qzone' ? 'QQ 空间相册' : '群相册')),
+            ),
+          ].join('、'),
+          category:
+            selected.some((item) => item.provider === 'qzone') &&
+            selected.some((item) => item.provider === 'group')
+              ? '混合来源相册'
+              : undefined,
+        },
         savePolicy: policy,
         includeIntegrityReport: frozen.includeIntegrityReport,
         run: async (context) => {
@@ -8005,6 +8202,14 @@ export const accountRouter = router({
       return services.exportManager.startResourceExport({
         kind: 'qzone-albums',
         name: selected.name,
+        display: {
+          action: '导出 QQ 空间相册',
+          subject:
+            selected.albums.length === 1
+              ? selected.albums[0]!.title
+              : `${selected.albums.length} 个相册`,
+          context: selected.name,
+        },
         includeIntegrityReport: selected.includeIntegrityReport,
         savePolicy: policy,
         run: async (context) => {
@@ -8061,6 +8266,14 @@ export const accountRouter = router({
           },
         },
         name: selected.name,
+        display: {
+          action: '导出群相册',
+          subject:
+            selected.albums.length === 1
+              ? selected.albums[0]!.title
+              : `${selected.albums.length} 个相册`,
+          context: selected.name,
+        },
         includeIntegrityReport: selected.includeIntegrityReport,
         savePolicy: selected.savePolicy,
         run: async (context) => {
@@ -8637,6 +8850,7 @@ export const accountRouter = router({
         savePolicy: exportSavePolicyInput.optional(),
         includeIntegrityReport: z.boolean().optional(),
         scope: z.enum(['friends', 'group', 'groups']),
+        groupName: z.string().max(512).optional(),
         expectedAccountUin: z.string().min(1).optional(),
         expectedAccountConfigId: z.string().min(1).optional(),
         groupIds: z
@@ -8677,6 +8891,7 @@ export const accountRouter = router({
       ).exportManager.startTask({
         contacts: {
           scope: input.scope,
+          groupName: input.scope === 'group' ? input.groupName : undefined,
           ...(input.categoryIds ? { categoryIds: input.categoryIds } : {}),
           ...(input.uids ? { uids: input.uids } : {}),
           ...(input.groupIds ? { groupIds: input.groupIds } : {}),
@@ -9518,6 +9733,20 @@ export const accountRouter = router({
  * 这些数据不在 QQ 数据库里，只在 AgentLab 的 JSON 会话库里；不在这里投影出去，
  * 列表就只能显示画像更新时间、预览永远是空的。
  */
+function directoryReadPositions(
+  state: ReturnType<typeof currentDraftState>,
+  kind: string,
+  latest: Record<string, string>,
+): Record<string, string> {
+  const reads = state.snapshot().records.reads ?? {};
+  // 首次启用只建立当前历史基线；以后新增的消息按独立阅读水位计数。
+  if (!reads[`initialized:${kind}`]) {
+    state.records('reads', { ...latest, [`initialized:${kind}`]: '1' }, true);
+    return state.snapshot().records.reads as Record<string, string>;
+  }
+  return reads as Record<string, string>;
+}
+
 function latestGeneratedActivity(
   agentLab: import('@weq/service').AgentLabService,
   kind: 'persona' | 'group',

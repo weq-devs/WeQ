@@ -6,8 +6,8 @@ export interface WebNotice {
   kind: 'recall' | 'keyword' | 'mail' | 'message';
   title: string;
   body: string;
-  mail?: { folderId: number; id: string };
   target?: { kind: 'c2c' | 'group'; conv: string; seq: string };
+  mail?: { folderId: number; id: string };
 }
 export const webNotices = new EventEmitter();
 webNotices.setMaxListeners(0);

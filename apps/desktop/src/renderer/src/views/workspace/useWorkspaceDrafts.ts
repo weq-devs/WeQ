@@ -10,6 +10,10 @@ import {
 } from '../../lib/clientPreferences';
 import { client } from '../../trpc/client';
 import { useToast } from '../../components/Toast.shared';
+import {
+  notificationSource,
+  conversationNotificationSource,
+} from '../../lib/notificationNavigation.shared';
 import { localDraftToWrite, setLocalDraft } from '@weq/service/draft-edit';
 import { composerDraftRecovery } from '../../lib/composerDraftRecovery';
 import { composerAssetIds, shareComposerImages } from '../../lib/composerDraftMedia';
@@ -85,6 +89,7 @@ export function useWorkspaceDrafts(input: DraftInput) {
         key: 'composer-draft-storage',
         tone: 'error',
         title: '无法读取本机草稿',
+        source: notificationSource({ kind: 'app', target: { kind: 'view', view: 'messages' } }),
         detail: '恢复快照已保留，请勿清理应用数据；本次输入暂时只保存在内存中。',
       });
       draftRecoveryFailed.current = true;
@@ -124,6 +129,10 @@ export function useWorkspaceDrafts(input: DraftInput) {
             key: 'composer-draft-storage',
             tone: 'error',
             title: '草稿自动保存失败',
+            source: conversationNotificationSource({
+              id: conversationId,
+              type: resolveConversation(conversationId)?.type ?? 'direct',
+            }),
             detail: '当前输入仍在界面中，但本次修改未能持久保存，请先保留内容再重启。',
           });
         draftRecoveryFailed.current = true;

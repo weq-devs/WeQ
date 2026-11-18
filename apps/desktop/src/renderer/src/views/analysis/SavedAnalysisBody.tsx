@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Play, RefreshCw, Square } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
+import { analysisPeriod } from '@weq/service/analysis-report';
+import { eventTimeFormatter } from '@weq/time';
 import { BuddyAnalyticsDialog } from '../../components/BuddyAnalyticsDialog';
 import { GroupAnalyticsDialog } from '../../components/GroupAnalyticsDialog';
 import { MemberAnalyticsDialog } from '../../components/MemberAnalyticsDialog';
@@ -53,7 +55,9 @@ export function SavedAnalysisBody({
   const resultRevision =
     (version ? historical.data?.resultRevision : undefined) ?? saved?.resultRevision;
   const displayedRequest =
-    historical.data && version ? historical.data.request : (saved?.request ?? request);
+    historical.data && version
+      ? historical.data.request
+      : (saved?.resultRequest ?? saved?.request ?? request);
   useEffect(() => {
     if (resultRevision === undefined || restored.current === resultRevision) return;
     const body = root.current?.querySelector<HTMLElement>('.group-album-body');
@@ -132,6 +136,11 @@ export function SavedAnalysisBody({
       }}
     >
       <div className="weq-saved-analysis-status">
+        {saved?.resultRevision ? (
+          <span>已保存结果 · 版本 {resultRevision}</span>
+        ) : (
+          <span>暂无已保存结果</span>
+        )}
         {!saved || running || (version > 0 && historical.isFetching) ? (
           <Loader2
             size={16}
@@ -150,7 +159,7 @@ export function SavedAnalysisBody({
             ? {
                 running: '正在分析',
                 paused: '待继续',
-                completed: '已保存',
+                completed: '分析完成',
                 failed: '分析失败',
                 cancelled: '已取消',
               }[saved.status]
@@ -171,12 +180,13 @@ export function SavedAnalysisBody({
             value={version}
             onChange={(event) => setVersion(Number(event.target.value))}
           >
-            <option value={0}>当前结果 · 版本 {saved?.resultRevision}</option>
+            <option value={0}>最新结果 · 版本 {saved?.resultRevision}</option>
             {versions.data
               ?.filter((item) => item.resultRevision !== saved?.resultRevision)
               .map((item) => (
                 <option key={item.resultRevision} value={item.resultRevision}>
-                  版本 {item.resultRevision}
+                  版本 {item.resultRevision} · {analysisPeriod(item.request)} ·{' '}
+                  {eventTimeFormatter.format(new Date(item.updatedAt))}
                 </option>
               ))}
           </select>
@@ -203,6 +213,13 @@ export function SavedAnalysisBody({
           </button>
         )}
       </div>
+      <p className="weq-analysis-period">
+        {saved?.resultRevision ? '结果范围' : '分析范围'}：{analysisPeriod(displayedRequest)}
+      </p>
+      {saved?.resultRevision &&
+      analysisPeriod(displayedRequest) !== analysisPeriod(saved.request) ? (
+        <p className="weq-analysis-period">本次分析范围：{analysisPeriod(saved.request)}</p>
+      ) : null}
       {error || query.error || historyError || saved?.error || positionError ? (
         <p role="alert">
           {error || query.error?.message || historyError?.message || saved?.error || positionError}

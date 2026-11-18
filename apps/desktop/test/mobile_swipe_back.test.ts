@@ -14,7 +14,48 @@ let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 let closed: ReturnType<typeof vi.fn>;
 let categoryBack: ReturnType<typeof vi.fn>;
-let animations: Array<{ finish: () => void; cancel: ReturnType<typeof vi.fn> }>;
+let animations: Array<{
+  target: HTMLElement;
+  finish: () => void;
+  cancel: ReturnType<typeof vi.fn>;
+}>;
+
+function ChatOverlay({ open, close }: { open: boolean; close: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useSurfaceEscape(ref, close, open, true);
+  return createElement(
+    'div',
+    { ref, role: 'dialog', hidden: !open },
+    createElement('button', { onClick: close }, '关闭'),
+  );
+}
+
+function ChatFixture({ retained = false }: { retained?: boolean }) {
+  const shell = useRef<HTMLDivElement>(null);
+  const chat = useRef<HTMLElement>(null);
+  const [open, setOpen] = useState(false);
+  useMobileBack(true, closed, 10, () => chat.current);
+  return createElement(
+    'div',
+    { ref: shell },
+    createElement(MobileNavigationRuntime, { root: shell }),
+    createElement(
+      'div',
+      { className: 'app-shell' },
+      createElement('aside', { className: 'sidebar' }),
+      createElement(
+        'main',
+        { ref: chat, className: 'chat-main' },
+        createElement('button', { onClick: () => setOpen(true) }, '打开'),
+      ),
+    ),
+    (open || retained) &&
+      createPortal(
+        createElement(ChatOverlay, { open, close: () => setOpen(false) }),
+        document.body,
+      ),
+  );
+}
 
 function Fixture({ portal = false }: { portal?: boolean }) {
   const shell = useRef<HTMLDivElement>(null);
@@ -85,13 +126,13 @@ beforeEach(() => {
   );
   vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(390);
   animations = [];
-  vi.spyOn(HTMLElement.prototype, 'animate').mockImplementation(() => {
+  vi.spyOn(HTMLElement.prototype, 'animate').mockImplementation(function (this: HTMLElement) {
     let finish!: () => void;
     const finished = new Promise<void>((resolve) => {
       finish = resolve;
     });
     const cancel = vi.fn();
-    animations.push({ finish, cancel });
+    animations.push({ target: this, finish, cancel });
     return { finished, cancel } as unknown as Animation;
   });
   // 单测聚焦手势与页面提交，不依赖模拟 DOM 的浏览历史时序。
@@ -124,6 +165,39 @@ function touch(target: Element, type: string, x: number, y = 280, count = 1) {
   target.dispatchEvent(event);
   return event;
 }
+
+async function paintNavigation() {
+  await act(async () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+}
+
+it.each(['button', 'escape', 'back', 'retained'] as const)(
+  '%s 关闭浮层不让底层会话重播动画，正常进入与返回仍可用',
+  async (method) => {
+    await act(async () =>
+      root.render(createElement(ChatFixture, { retained: method === 'retained' })),
+    );
+    await paintNavigation();
+    expect(animations.map((animation) => animation.target)).toEqual([
+      host.querySelector('.chat-main'),
+    ]);
+    await act(async () => animations[0]!.finish());
+    animations = [];
+    await act(async () => host.querySelector<HTMLButtonElement>('.chat-main button')!.click());
+    await paintNavigation();
+    expect(animations).toHaveLength(0);
+    await act(async () => {
+      if (method === 'back') expect(mobileBack()).toBe(true);
+      else if (method === 'escape')
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      else document.querySelector<HTMLButtonElement>('[role="dialog"] button')!.click();
+    });
+    await paintNavigation();
+    expect(animations).toHaveLength(0);
+    expect(closed).not.toHaveBeenCalled();
+    await act(async () => expect(mobileBack()).toBe(true));
+    expect(closed).toHaveBeenCalledOnce();
+  },
+);
 
 it('工作区只登记一次返回，二级设置先退到分类而不是关闭整页', async () => {
   await act(async () => root.render(createElement(Fixture)));

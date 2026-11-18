@@ -5,8 +5,12 @@ import {
   DECORATION_DECODE_LIMITS,
 } from '../src/renderer/src/lib/decodedImageCache';
 import { readFrameBytes } from '../src/renderer/src/lib/frameImageSize';
+import { DECORATION_IMAGE_CACHE_SECONDS } from '../src/shared/decoration_image';
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 function pngHead(width: number, height: number) {
   const bytes = new Uint8Array([
     137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -114,5 +118,33 @@ it('同一资源有两个使用者时，只取消一方不影响另一方；都�
   for (let i = 0; i < 10; i++) await Promise.resolve();
   expect(cache.stats().totalPendingImages).toBe(0);
   finish();
+  cache.dispose();
+});
+
+it('离屏回收位图但复用已校验尺寸，过期后重新预检', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  const fetcher = vi.fn(async () => new Response(pngHead(8, 8)));
+  vi.stubGlobal('fetch', fetcher);
+  const cache = createDecodedImageCache(DECORATION_DECODE_LIMITS, () => ({
+    src: '',
+    naturalWidth: 0,
+    naturalHeight: 0,
+    async decode() {
+      this.naturalWidth = this.naturalHeight = 8;
+    },
+    removeAttribute() {},
+  }));
+  for (let i = 0; i < 2; i++) {
+    const lease = cache.pin(['frame']);
+    await cache.require('frame');
+    lease.release();
+    expect(cache.stats().retainedBytes).toBe(0);
+  }
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  vi.setSystemTime(Date.now() + DECORATION_IMAGE_CACHE_SECONDS * 1000 + 1);
+  const lease = cache.pin(['frame']);
+  await cache.require('frame');
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  lease.release();
   cache.dispose();
 });

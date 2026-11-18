@@ -268,6 +268,7 @@ export function DialogHost(): ReactElement | null {
                     </button>
                     <button
                       className="weq-action-primary"
+                      data-weq-dialog-confirm
                       data-danger={current.confirm.danger}
                       onClick={() => {
                         current.confirm?.resolve(true);
@@ -279,7 +280,11 @@ export function DialogHost(): ReactElement | null {
                   </>
                 ) : (
                   handleClose && (
-                    <button className="weq-action-soft" onClick={handleClose}>
+                    <button
+                      data-weq-dialog-confirm
+                      className="weq-action-soft"
+                      onClick={handleClose}
+                    >
                       我知道了
                     </button>
                   )
@@ -330,9 +335,6 @@ function PasswordDialogBody({
           placeholder={request.password?.placeholder ?? '请输入密码'}
           autoComplete="current-password"
           onChange={(event) => setValue(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') submit();
-          }}
         />
       </div>
       <div className="weq-dialog-foot">
@@ -344,7 +346,12 @@ function PasswordDialogBody({
         >
           {request.password?.cancelLabel ?? '取消'}
         </button>
-        <button className="weq-action-primary" disabled={!value} onClick={submit}>
+        <button
+          data-weq-dialog-confirm
+          className="weq-action-primary"
+          disabled={!value}
+          onClick={submit}
+        >
           {request.password?.okLabel ?? '确定'}
         </button>
       </div>

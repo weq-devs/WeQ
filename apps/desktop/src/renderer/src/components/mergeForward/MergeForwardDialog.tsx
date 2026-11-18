@@ -217,6 +217,7 @@ export function MergeForwardDialog({
               <CompositionButton
                 type="button"
                 className={cn('weq-mf-primary')}
+                data-weq-dialog-confirm
                 disabled={!sendAvailable || sending || selected.size === 0}
                 disabledReason={
                   sending

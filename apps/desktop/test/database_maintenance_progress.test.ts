@@ -85,6 +85,38 @@ it('长步骤只显示一处任务耗时，不展示更新间隔或重复的步�
   }
 });
 
+it('原生阶段回执让位于真实工作步骤，保留计数、异常和原始快照', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const tracker = new DatabaseProgressTracker('repair', 'synthetic.db');
+  const introduction = { step: 'Decrypt', message: '阶段引导' };
+  tracker.update('Decrypt', introduction);
+  const progress = tracker.update('Decrypt', {
+    step: 'decrypt',
+    message: '实际解密步骤',
+    completed: 250,
+    total: 1000,
+    unit: 'pages',
+  });
+  try {
+    await act(async () => root.render(h(DatabaseMaintenanceProgress, { progress })));
+    expect(progress.steps).toHaveLength(2);
+    expect(host.textContent).not.toContain(introduction.message);
+    expect(host.querySelector('progress')?.value).toBe(25);
+    expect(host.textContent).toContain('250 / 1,000 页');
+    const failure = { ...introduction, message: '阶段失败原因', status: 'failed' as const };
+    await act(async () =>
+      root.render(h(DatabaseMaintenanceProgress, { progress: tracker.update('Decrypt', failure) })),
+    );
+    expect(host.textContent).toContain(failure.message);
+    expect(host.textContent).toContain('250 / 1,000 页');
+    expect(progress.steps).toHaveLength(2);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 it('结构检查的记录阶段展示自身百分比与记录数，不把阶段完成当作整库完成', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
@@ -110,7 +142,7 @@ it('结构检查的记录阶段展示自身百分比与记录数，不把阶段�
     expect(host.querySelector('progress')?.getAttribute('value')).toBe('25');
     expect(host.textContent).toContain('500 / 2,000 条记录');
     expect(host.textContent).toContain('synthetic_table');
-    expect(host.querySelector('[aria-current="step"]')?.textContent).toContain(
+    expect(host.querySelector('[aria-current="step"]')?.closest('details')?.textContent).toContain(
       '检查记录与索引对应',
     );
     expect(host.querySelector('.is-pending')).toBeNull();
@@ -162,9 +194,9 @@ it('较早的失败步骤不随已完成步骤一起收起', async () => {
   const progress = tracker.update('checkup', { step: 'mapping', message: '归属分析' });
   try {
     await act(async () => root.render(h(DatabaseMaintenanceProgress, { progress })));
-    expect(host.querySelector('.weq-db-progress-entry.is-failed')?.textContent).toContain(
-      '结构检查未完成',
-    );
+    expect(
+      host.querySelector('.weq-db-progress-entry.is-failed')?.closest('details')?.textContent,
+    ).toContain('结构检查未完成');
     expect(host.textContent?.match(/归属分析/g)).toHaveLength(1);
   } finally {
     await act(async () => root.unmount());
@@ -245,7 +277,7 @@ it.each([
   });
   try {
     await act(async () => root.render(h(DatabaseMaintenanceProgress, { progress })));
-    expect(host.querySelector('.weq-db-progress-step strong')?.textContent).toBe(label);
+    expect(host.querySelector('summary strong')?.textContent).toBe(label);
     expect(host.textContent).toContain('合成检查结果');
     if (outcome !== 'normal') expect(host.querySelector('.lucide-check')).toBeNull();
   } finally {

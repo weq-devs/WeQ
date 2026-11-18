@@ -47,6 +47,29 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it('竖屏重复选择当前会话保留会话和筛选，不重复登记导航或增加返回层级', () => {
+  vi.stubGlobal('matchMedia', (media: string) =>
+    Object.assign(new EventTarget(), { matches: media.includes('max-width'), media }),
+  );
+  const p = mount();
+  act(() => p.state().selectConversation('fixture-conversation'));
+  act(() => p.state().setQuery('保留筛选'));
+  const navigate = vi.fn();
+  window.addEventListener('weq-mobile-navigate', navigate);
+  try {
+    act(() => p.state().selectConversation('fixture-conversation'));
+    expect(p.state().activeConversationId).toBe('fixture-conversation');
+    expect(p.state().view).toBe('messages');
+    expect(p.state().query).toBe('保留筛选');
+    expect(navigate).not.toHaveBeenCalled();
+    act(() => expect(mobileBack()).toBe(true));
+    expect(p.state().activeConversationId).toBeNull();
+    expect(mobileBack()).toBe(false);
+  } finally {
+    window.removeEventListener('weq-mobile-navigate', navigate);
+  }
+});
+
 it('手机从通知进入资料并连续查看其他资料，逐级返回原来源而非跳到联系人首页', () => {
   vi.stubGlobal('matchMedia', (media: string) =>
     Object.assign(new EventTarget(), { matches: media.includes('max-width'), media }),
