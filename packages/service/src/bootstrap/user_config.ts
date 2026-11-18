@@ -17,6 +17,10 @@
  */
 
 import {
+  normalizeNotificationEvents,
+  mergeNotificationEventOverrides,
+} from '../common/notification_settings';
+import {
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -744,6 +748,7 @@ export interface AppSettings {
   enhancementUpdates: { autoCheck: boolean; autoInstall: boolean };
   /** 横幅完成态停留秒数，-1 表示不自动关闭。 */
   toastDurations: ToastDurations;
+  notificationEvents: import('../common/notification_settings').NotificationEvents;
   exportSaveMode: import('../account/export/save_output').ExportSaveMode;
   realtimeEnabled: boolean;
   /**
@@ -881,10 +886,8 @@ export interface AppSettings {
    */
   suppressAttachHint: boolean;
   /**
-   * 数据库损坏弹窗是否不再提醒。用户点「不再提醒」后写入全局配置；之后健康检查
-   * 仍照常执行并生成报告，但不再弹出提醒。
-   *
-   * 设置页 数据库宽容 → 损坏提醒 里可以再打开（不然这是个单向的门）。
+   * 旧版数据库异常提醒开关；仅供迁移和旧客户端兼容。
+   * 当前双渠道选择保存在 notificationEvents.databaseDamage，健康检查和报告不受影响。
    */
   suppressDbDamageReminder: boolean;
   /**
@@ -1152,6 +1155,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   updateCheckIntervalMinutes: DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES,
   enhancementUpdates: { autoCheck: true, autoInstall: false },
   toastDurations: { ...DEFAULT_TOAST_DURATIONS },
+  notificationEvents: normalizeNotificationEvents(undefined),
   exportSaveMode: 'before',
   realtimeEnabled: true,
   // 默认关闭：是否扫描 QQ 内存由首次运行欢迎框征得同意后再打开，见
@@ -1947,6 +1951,13 @@ export class UserConfigService {
         autoInstall: s?.enhancementUpdates?.autoInstall === true,
       },
       toastDurations: normalizeToastDurations(s?.toastDurations),
+      notificationEvents: normalizeNotificationEvents(s?.notificationEvents, {
+        messageNotifications: s?.sharedPreferences?.client?.messageNotifications,
+        mailNotifications: s?.sharedPreferences?.mail?.mailNotifications,
+        recallNotifications: s?.sharedPreferences?.antiRecall?.notifyEnabled,
+        restrictedModeBannerEnabled: s?.restrictedModeBannerEnabled,
+        suppressDbDamageReminder: s?.suppressDbDamageReminder,
+      }),
       exportSaveMode:
         s?.exportSaveMode === 'before' || s?.exportSaveMode === 'preset'
           ? s.exportSaveMode
@@ -2126,6 +2137,9 @@ export class UserConfigService {
         ...patch.enhancementUpdates,
       },
       toastDurations: normalizeToastDurations(patch.toastDurations, current.toastDurations),
+      notificationEvents: normalizeNotificationEvents(
+        mergeNotificationEventOverrides(current.notificationEvents, patch.notificationEvents),
+      ),
       exportSaveMode: patch.exportSaveMode ?? current.exportSaveMode,
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
       autoAttachQq,
@@ -2293,7 +2307,19 @@ export class UserConfigService {
       },
       aiImages: normalizeImagePreferences({ ...current.aiImages, ...patch.aiImages }),
     };
-    this.write({ settings: next });
+    const stored: DeepPartial<AppSettings> = { ...next };
+    // 首次打开旧账号前的无关设置保存，不提前固化尚未迁入的通知值。
+    if (
+      patch.notificationEvents === undefined &&
+      this.read().settings?.notificationEvents === undefined
+    )
+      delete stored.notificationEvents;
+    else
+      stored.notificationEvents = mergeNotificationEventOverrides(
+        this.read().settings?.notificationEvents,
+        patch.notificationEvents,
+      );
+    this.write({ settings: stored });
     qzonePaginationLimiter.configure(next.qzonePagination);
     configureDatabaseReadConcurrency(next.databaseReadConcurrency);
     this.logger.info('updated app settings', {

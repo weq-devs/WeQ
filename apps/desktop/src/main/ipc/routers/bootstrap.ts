@@ -15,7 +15,11 @@
 import { OperationError, developmentDressToolsEnabled } from '@weq/service';
 
 import { observable } from '@trpc/server/observable';
-import { consumeNotificationClick, notificationClickEvents } from '../../notification_click_bus';
+import {
+  consumeNotificationClick,
+  notificationClickEvents,
+  pushNotificationClick,
+} from '../../notification_click_bus';
 import { reconcileLocalModelResources } from '../../context/local_model_resources';
 import { z } from 'zod';
 import { assertAccountBinding, optionalAccountBinding } from '../account_binding';
@@ -23,6 +27,7 @@ import { normalizeContactCard } from '@weq/service/contact-card';
 import { MAX_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
 import { MAX_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES } from '@weq/service/qzone-public-settings';
 import { isToastDuration } from '@weq/service/toast-settings';
+import { NOTIFICATION_EVENTS, type NotificationEvent } from '@weq/service/notification-settings';
 import {
   copyExportSavePolicy,
   resolveExportSaveDirectory,
@@ -943,6 +948,28 @@ export const bootstrapRouter = router({
       requireBootstrap().userConfig.setSettings({ windowsStyleControls: input.enabled });
       refreshWindowControls();
       return true;
+    }),
+
+  notifyConfiguredEvent: procedure
+    .input(
+      z.object({
+        event: z.custom<NotificationEvent>(
+          (value) =>
+            typeof value === 'string' && NOTIFICATION_EVENTS.includes(value as NotificationEvent),
+        ),
+        title: z.string().max(512),
+        body: z.string().max(2048),
+        clickId: z.string().uuid().optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      if (!requireBootstrap().userConfig.getSettings().notificationEvents[input.event].system)
+        return false;
+      return (
+        getHost().showMessageNotification?.({ title: input.title, body: input.body }, () => {
+          if (input.clickId) pushNotificationClick(input.clickId);
+        }) ?? false
+      );
     }),
 
   consumeNotificationClick: procedure.mutation(() => consumeNotificationClick()),

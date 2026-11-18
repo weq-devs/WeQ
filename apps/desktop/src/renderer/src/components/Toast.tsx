@@ -118,12 +118,13 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
   const visible = enabled && !presented;
   const copiedTimerRef = useRef<number | undefined>(undefined);
 
-  // 进场动画：挂载后下一帧加上 show
-  useEffect(() => {
   useEffect(() => {
     if (!visible && !toast.loading && toast.dismissible !== false && toast.durationKind !== 'long')
       remove(toast.id);
   }, [visible, toast.loading, toast.dismissible, toast.durationKind, toast.id, remove]);
+
+  // 进场动画：挂载后下一帧加上 show
+  useEffect(() => {
     const raf = requestAnimationFrame(() => setShown(true));
     return () => cancelAnimationFrame(raf);
   }, []);
@@ -209,6 +210,7 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
   return (
     <div className={`weq-toast-slot${leaving ? ' is-leaving' : ''}`}>
       <div
+        hidden={!visible}
         className={`weq-toast weq-toast-${toast.tone}${shown ? ' show' : ''}${leaving ? ' fade-out' : ''}${expanded ? ' expanded' : ''}`}
         role="status"
         onMouseEnter={() => setPaused(true)}
@@ -232,7 +234,6 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
         }}
         onFocus={() => setPaused(true)}
         onBlur={(e) => {
-        hidden={!visible}
           if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setPaused(false);
         }}
       >

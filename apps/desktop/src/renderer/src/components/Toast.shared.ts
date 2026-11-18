@@ -83,8 +83,8 @@ export type ToastPatch = Partial<
     | 'dismissible'
     | 'action'
     | 'source'
-  >
     | 'event'
+  >
 >;
 
 interface ToastStore {
@@ -217,7 +217,6 @@ const toastStore = create<ToastStore>((set, get) => ({
       action,
       source,
     };
-    set({
     if (
       !taskNotificationPresented(toast.event, source, undefined, toast.taskId) &&
       (!existing ||
@@ -245,6 +244,7 @@ const toastStore = create<ToastStore>((set, get) => ({
         textOf(actualDetail),
         source ? () => openNotificationSource(source) : action?.run,
       );
+    set({
       seq: Math.max(state.seq, id),
       toasts: existing
         ? state.toasts.map((item) => (item.id === id ? toast : item))
@@ -259,7 +259,6 @@ const toastStore = create<ToastStore>((set, get) => ({
       toasts: get().toasts.map((t) => {
         if (t.id !== id) return t;
         const next = { ...t, ...patch };
-        if (patch.tone !== undefined || patch.title !== undefined || patch.detail !== undefined)
         next.event =
           patch.event ??
           (t.event === 'progress' && patch.loading === false
@@ -281,6 +280,7 @@ const toastStore = create<ToastStore>((set, get) => ({
             textOf(next.detail),
             next.source ? () => openNotificationSource(next.source!) : next.action?.run,
           );
+        if (patch.tone !== undefined || patch.title !== undefined || patch.detail !== undefined)
           next.occurredAt = Date.now();
         const reset =
           patch.tone !== undefined ||
