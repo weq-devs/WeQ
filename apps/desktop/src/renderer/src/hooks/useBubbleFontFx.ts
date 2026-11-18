@@ -14,45 +14,67 @@
  * `.message-content` 本身 —— 行节点是 React 稳定持有的那个，内容节点会被
  * 重渲染换掉，而观察行也照样能收到内容变化引起的尺寸变化。
  *
- * 返回值直接就是 `data-fontfx` 的值（`<字体id>-<变体号>`，键里带 id 是为了让同一
- * 元素上「生效字体」与「逐条消息字体」两套规则不互相抢 `@keyframes`）。
+ * 返回 `data-fontfx` 并维护独立的绘制层，不占用气泡背景或气泡动画的伪元素。
  */
 
 import { useEffect, useState, type RefObject } from 'react';
-import { pickFontFxFariant, type FontFxSkin } from '../lib/dressSkin';
-
-/** 气泡内容层的选择器（与 lib/dressSkin 的 BUBBLE_CONTENT 一致）。 */
-const CONTENT_SELECTOR = '.message-content';
+import {
+  BUBBLE_CONTENT,
+  FONT_FX_LAYER_CLASS,
+  pickFontFxFariant,
+  type FontFxSkin,
+} from '../lib/dressSkin';
 
 export function useBubbleFontFx<T extends HTMLElement>(
   fx: FontFxSkin | null,
   lineRef: RefObject<T | null>,
-): string | undefined {
-  const [attr, setAttr] = useState<string | undefined>(undefined);
+) {
+  const [attr, setAttr] = useState<string>();
+  const frames = fx?.fx;
+  const fontId = fx?.itemId;
+  const version = fx?.deriveVersion;
 
   useEffect(() => {
     const line = lineRef.current;
-    if (!fx || !line) {
+    if (!frames || fontId === undefined || version === undefined || !line) {
       setAttr(undefined);
       return;
     }
 
+    let layer: HTMLSpanElement | undefined;
     const measure = () => {
-      const content = line.querySelector<HTMLElement>(CONTENT_SELECTOR);
-      if (!content) {
+      const content = line.querySelector<HTMLElement>(BUBBLE_CONTENT);
+      const variant =
+        content && pickFontFxFariant(frames, content.offsetWidth, content.offsetHeight);
+      if (!content || !variant) {
+        layer?.remove();
         setAttr(undefined);
         return;
       }
-      const variant = pickFontFxFariant(fx.fx, content.offsetWidth, content.offsetHeight);
-      setAttr(variant ? `${fx.itemId}-${variant}` : undefined);
+      // 正文是 React 自己维护的节点，装饰空层不加入它的 React 子树。
+      if (!layer) {
+        layer = document.createElement('span');
+        layer.className = FONT_FX_LAYER_CLASS;
+        layer.style.position = 'absolute';
+        layer.setAttribute('aria-hidden', 'true');
+      }
+      if (layer.parentElement !== content) content.append(layer);
+      setAttr(`${fontId}-${variant}`);
     };
 
     const observer = new ResizeObserver(measure);
     observer.observe(line);
+    // 正文可能原尺寸原位替换（如 Markdown 显示切换），只靠 ResizeObserver 不会重定向绘制层。
+    const mutations = new MutationObserver(measure);
+    mutations.observe(line, { childList: true, subtree: true });
     measure();
 
-    return () => observer.disconnect();
-  }, [fx, lineRef]);
+    return () => {
+      observer.disconnect();
+      mutations.disconnect();
+      layer?.remove();
+    };
+  }, [frames, fontId, version, lineRef]);
 
-  return attr;
+  return frames ? attr : undefined;
 }

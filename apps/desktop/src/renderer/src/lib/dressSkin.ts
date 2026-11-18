@@ -58,8 +58,8 @@
  * ## 字体自带的炫彩动画
  *
  * `eimg` 炫彩/场景字体（实测 20405 / 20268）里还夹着多帧 PNG：字体「出现之初」在
- * 气泡里放一次的光效/场景。做法是把帧图层画在气泡内容层的**伪元素**上（我方 `::before`、
- * 对方/转发行 `::after`，见 {@link fontFxRules}），**左上角对齐、原尺寸不缩放不拉伸**；
+ * 气泡里放一次的光效/场景。做法是在气泡内容层里放独立绘制层（见 {@link fontFxRules}），
+ * **左上角对齐、原尺寸不缩放不拉伸**；
  * 气泡比所有画布都大就不放 —— 放上去只会被裁掉一大块，只剩半个特效。
  *
  * 层级 = 负 `z-index` + 内容层上的 `isolation: isolate`。负层级只有被隔离在内容层自己的
@@ -163,14 +163,16 @@ const BUBBLE_CONTENT_EXCLUSIONS =
   ':not(.sticker-only):not(.markdown-image-only):not(.qq-card-only):not(.qq-voice-only)';
 
 /** 气泡本体(真正贴九宫格 / 排文字的那个元素,装扮属性都挂在它所在的行上)。 */
-const BUBBLE_CONTENT = `.message-content${BUBBLE_CONTENT_EXCLUSIONS}`;
+export const BUBBLE_CONTENT = `.message-content${BUBBLE_CONTENT_EXCLUSIONS}`;
+export const FONT_FX_LAYER_CLASS = 'weq-fontfx-layer';
+// Android 普通文本的前景 View 在内容 View 后加入；气泡帧盖在文字上方。
+export const BUBBLE_FRAME_Z_INDEX = 1;
 
 /**
  * 装扮生效的消息行选择器(不带 `.message-content`)。
  *
  * scope 决定作用到谁:`mine` 只管自己的消息(手 Q 语义),`all` 连对方的一起。
- * 渲染侧的 `data-fontfx` 就挂在这种行元素上:伪元素层的位置已经被气泡占着,炫彩要
- * 画在行内部的 `.message-content` 上,所以 CSS 得先选中行、再往下取内容层。
+ * `data-fontfx` 在行上，独立绘制层在 `.message-content` 内，样式从行限定作用范围。
  */
 function bubbleLineSelector(scope: DressScope, kind: 'bubble' | 'font' = 'bubble'): string {
   return scope === 'mine' ? '.message-line.mine' : `.message-line${scopeFilter(scope, kind)}`;
@@ -303,24 +305,7 @@ export function pickFontFxFariant(fx: FontFx, w: number, h: number): number | nu
 /**
  * 字体炫彩动画的 CSS：每个变体一套 `@keyframes`，靠 `[data-fontfx="<id>-<变体>"]` 选中。
  *
- * 四个关键决定：
- *
- *  1. **画在一个专属图层上（`::before` / `::after`），不是元素本体的 `background`。**
- *     元素本体的 `background` 会被它自己的 `border-image`（气泡底图）盖住 —— 这就是
- *     「动画被气泡遮住、只在气泡圆角外露一点」的原因。伪元素带负 `z-index` 时画在
- *     「元素自身背景/边框之上、文字之下」，正是「气泡里面、气泡底图之上」那一层。
- *  2. **挑当前空着的那个伪元素。** 气泡底图占着元素本体（我方）或 `::before`（对方
- *     镜像层），动效叠加层占着 `::after`（仅我方）—— 所以：
- *       - 我方行（`.mine`）→ `::before`（`::after` 留给气泡自己的动效叠加层）
- *       - 对方行 / 转发行 → `::after`（`::before` 被镜像底图占着）
- *     两张伪元素只有两个，凑不齐时由 {@link fxClipRingCss} 的说明收尾。
- *  3. **属性值带上字体 id**（`<id>-<变体>`，而不是裸变体号）。同一个元素上可能同时
- *     有「生效字体」和「逐条消息字体」两套规则，键里不带 id 后面注入的那款会把前面
- *     那款的 `@keyframes` 抢走。
- *  4. **只放一次（`1` + `forwards`）**。它模拟的是「字体出现之初」那一下，不是循环
- *     特效；帧序列自己会淡出，末帧归零后靠 `forwards` 停在「没有图」上，而不是弹回
- *     第一帧。`steps(1)` 同其他装扮动画：让每个关键帧撑满自己的时间段，而不是按离散
- *     属性默认的「过半才切」把每帧显示时长砍半。
+ * 独立的字体绘制层夹在气泡底图和正文之间，气泡帧不参与这层的动画或裁形。
  *
  * 挂不挂属性由渲染侧量完气泡尺寸决定（{@link pickFontFxFariant}），所以这段 CSS 对
  * 「气泡比动画大」的消息天然是空转的。
@@ -334,9 +319,9 @@ export interface FontFxSelectors {
 
 export function fontFxRules(skin: FontFxSkin, sels: FontFxSelectors): string {
   const { itemId, deriveVersion, fx } = skin;
-  const layers: { pseudo: '::before' | '::after'; sel: string; mirror?: boolean }[] = [
-    { pseudo: '::before', sel: sels.mine },
-    ...(sels.theirs ? [{ pseudo: '::after' as const, sel: sels.theirs, mirror: true }] : []),
+  const layers = [
+    { sel: sels.mine, mirror: false },
+    ...(sels.theirs ? [{ sel: sels.theirs, mirror: true }] : []),
   ];
   const rules: string[] = [
     // 帧图层是绝对定位 + 负层级，得让 `.message-content` 同时当**包含块**和**层叠
@@ -368,7 +353,7 @@ export function fontFxRules(skin: FontFxSkin, sels: FontFxSelectors): string {
     for (const layer of layers) {
       const target = appendToSelectors(
         layer.sel,
-        `[data-fontfx="${itemId}-${index + 1}"] ${BUBBLE_CONTENT}${layer.pseudo}`,
+        `[data-fontfx="${itemId}-${index + 1}"] ${BUBBLE_CONTENT} > .${FONT_FX_LAYER_CLASS}`,
       );
       rules.push(
         target,
@@ -396,11 +381,10 @@ export function fontFxRules(skin: FontFxSkin, sels: FontFxSelectors): string {
  * 帧图层的公共声明 —— 一个绝对定位、盖满气泡盒、压到文字下面的空盒子。
  *
  * `border-radius: inherit` 是给「没挂装扮气泡」的主题自带气泡兜底的：那种气泡没有
- * 九宫格可裁（见 {@link fxClipRingCss}），只能跟着元素自己的圆角走。
+ * 九宫格可裁（见 {@link fxClipMaskCss}），只能跟着元素自己的圆角走。
  */
 function fxLayerDecls(): string[] {
   return [
-    `  content: "";`,
     `  position: absolute;`,
     `  inset: 0;`,
     `  z-index: -1;`,
@@ -426,7 +410,7 @@ function fxLayerDecls(): string[] {
  *  - **`-webkit-mask-box-image-width` 不能省**。默认宽度取 slice 的**源图像素值**，
  *    而气泡底图是按 `BUBBLE_SCALE` 缩小画的；不给宽度，遮罩棱角会和气泡对不上。
  *
- * 只在该行真的挂了炫彩帧时才注入（调用方在选择器里带上 `[data-fontfx]`）。对方行的
+ * 只作用于该行独立的炫彩绘制层。对方行的
  * 帧图层整体被 `scaleX(-1)` 镜像（见 {@link fontFxRules}），遮罩也跟着翻 —— 而对方
  * 显示的气泡本来就是镜像底图，两者天然对齐。
  */
@@ -579,12 +563,8 @@ function frameOverlayUrl(itemId: number): string {
 /**
  * 一层九宫格贴图(静态底图 / 动效叠加层共用;两层几何完全一致,只是层级与贴图不同)。
  *
- * 静态底图直接写在元素本体的 border-image 上,这层只给伪元素用。层级用**负的**
- * `z-index`:元素本身开了 `isolation: isolate`,负层级子节点画在「元素自身背景/边框
- * 之上、文字之下」,正好是底图与文字之间的那一层(见文件头第 2 点)。
- *
- * 同一元素上的两层(`::before` 底图 + `::after` 动效)靠 z-index 排序,
- * 不依赖伪元素的树序。
+ * 不镜像的底图直接写在元素本体的 border-image；镜像底图在 ::before，气泡前景在
+ * ::after。z-index 锁在当前气泡的层叠上下文中，不覆盖其他消息或操作栏。
  */
 function ninePatchLayer(
   m: BubbleMetrics,
@@ -620,11 +600,10 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope, animated = true): s
 
   const rules = [m.frameAnim?.keyframes ?? '', baseBubbleRule(skin, m, sel)];
 
-  // 炫彩帧的裁形（见 fxClipMaskCss）：帧画在伪元素上，用同几何的九宫格遮罩把超出
-  // 气泡形状的部分裁掉。我方帧在 `::before`，对方的帧在 `::after`（遮罩跟着那层镜像）。
+  // 只遮罩字体绘制层；气泡动画可继续绘制气泡外的装饰。
   rules.push(
     fxClipMaskCss(
-      `.message-line.mine${scopeFilter(scope, 'bubble')}[data-fontfx] ${BUBBLE_CONTENT}::before`,
+      `${bubbleLineSelector(scope)}[data-fontfx] ${BUBBLE_CONTENT} > .${FONT_FX_LAYER_CLASS}`,
       {
         imageUrl: m.imageUrl,
         slice: m.slice,
@@ -632,22 +611,6 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope, animated = true): s
       },
     ),
   );
-  // 对方的帧与气泡动效叠加层**共用** `::after`：叠加层是贴在气泡外面的装饰，遮罩
-  // 会连它一起裁掉（而 `data-fontfx` 是一直挂在行上的，裁掉就不是一闪而过），所以
-  // 只有这个气泡自己没有动效时才给对方的帧加遮罩 —— 那种组合下帧会在九宫格圆角外
-  // 露出一小条，代价比永久削掉气泡装饰小。
-  if (theirsSel && !m.frameAnim) {
-    rules.push(
-      fxClipMaskCss(
-        `.message-line.theirs${scopeFilter(scope, 'bubble')}[data-fontfx] ${BUBBLE_CONTENT}::after`,
-        {
-          imageUrl: m.imageUrl,
-          slice: m.slice,
-          width: m.width,
-        },
-      ),
-    );
-  }
 
   // 动效叠加层:同一套九宫格、贴在静态底图之上。帧图(`bubbleframe/*.9.png`)中间是
   // 镂空的,只有上下两端的动效装饰,所以它只能「叠」不能「替」(见文件头第 2 点)。
@@ -655,7 +618,7 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope, animated = true): s
     rules.push(
       ninePatchLayer(m, `${sel}::after`, {
         imageUrl: frameOverlayUrl(skin.itemId),
-        zIndex: -1,
+        zIndex: BUBBLE_FRAME_Z_INDEX,
         animation: animated ? m.frameAnim.animation : undefined,
       }),
     );
@@ -664,7 +627,7 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope, animated = true): s
   // 对方消息镜像:同一张素材直接放左侧,尖角/装饰会朝外,看起来「反的」。QQ 自己
   // 就是把素材左右镜像后贴到对方消息上的。不能对整个 .message-content 做
   // scaleX(-1) —— 文字会跟着镜像;所以两层贴图都挪到伪元素上翻转,文字留在元素
-  // 自身不动:底图 `::before`(z-index -2)、动效层 `::after`(z-index -1)。
+  // 自身不动：底图 `::before` 在后，动效层 `::after` 在前。
   if (theirsSel) {
     rules.push(
       `${theirsSel} {`,
@@ -678,7 +641,7 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope, animated = true): s
       m.frameAnim
         ? ninePatchLayer(m, `${theirsSel}::after`, {
             imageUrl: frameOverlayUrl(skin.itemId),
-            zIndex: -1,
+            zIndex: BUBBLE_FRAME_Z_INDEX,
             mirror: true,
             animation: animated ? m.frameAnim.animation : undefined,
           })
@@ -796,7 +759,7 @@ export function fontRules(font: FontSkinCss, scope: DressScope, animated = true)
       fontFamilyFor(font.itemId),
     ),
     // 炫彩帧:属性挂在**行**上(渲染侧量完气泡尺寸才挂)。帧图层按我方/对方挑不同的
-    // 伪元素(见 fontFxRules),所以这里要分开传两套行选择器 —— scope=mine 时对方
+    // 绘制层(见 fontFxRules),所以这里要分开传两套行选择器 —— scope=mine 时对方
     // 行根本没换上这款字,不用给。
     fxSkin && animated
       ? fontFxRules(fxSkin, {
