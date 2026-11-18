@@ -1854,7 +1854,6 @@ function ExportToolBody({
       await client.account.runScheduleNow.mutate({ id: s.id });
       void utils.account.listExportTasks.invalidate();
       void utils.account.listSchedules.invalidate();
-      dialog.success('已触发', '本次导出任务已加入队列，可在「当前任务」查看。');
     } catch (e) {
       dialog.error('立即运行失败', e instanceof Error ? e.message : String(e));
     }

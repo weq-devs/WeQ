@@ -372,7 +372,6 @@ export function FlashTransferViewer({
       if (res.cancelled) return;
       setSelected(new Map());
       if (res.started > 0) {
-        pushToast({ tone: 'success', message: `已创建下载任务 · ${res.started} 个文件` });
         showTasks();
       } else {
         pushToast({ tone: 'warning', message: '没有可下载的文件' });

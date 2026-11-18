@@ -18,6 +18,7 @@ import { ExportTool, ExportViewer, AnalysisTool, RoamingBackfillPanel } from './
 import { preloadWorkspace } from './lazyWorkspaces.shared';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { summarizeWorkspaceTasks } from '../lib/workspaceIndicators';
+import { useTaskNotifications } from '../hooks/useTaskNotifications';
 import { trpc } from '../trpc/client';
 import {
   useContentExportRequest,
@@ -91,6 +92,10 @@ export function WorkspaceTools({
   const setTaskSummary = useWorkspaceMenu((state) => state.setTasks);
   const syncTasks = useWorkspaceMenu((state) => state.syncTasks);
   const [expanded, setExpanded] = useState(false);
+  const taskOpenRequest = useWorkspaceMenu((state) => state.taskOpenRequest);
+  const handledTaskOpenRequest = useRef(taskOpenRequest);
+  const taskListOpen =
+    !hidden && Boolean(anchor || expanded || taskOpenRequest !== handledTaskOpenRequest.current);
   const lastAnchor = useRef<HTMLElement | null>(null);
   if (anchor) lastAnchor.current = anchor;
   const [exportAuthorization, setExportAuthorization] =
@@ -209,6 +214,7 @@ export function WorkspaceTools({
     flash: flashTasks.data,
     background: background.tasks.map((entry) => ({ ...entry.task, id: backgroundTaskId(entry) })),
   });
+  useTaskNotifications(accountScope, taskItems, taskDataReady, taskListOpen, hidden);
   useEffect(() => {
     if (accountScope && taskDataReady) syncTasks(accountScope, taskItems);
   }, [accountScope, taskItems, taskDataReady, syncTasks]);
@@ -332,8 +338,6 @@ export function WorkspaceTools({
     } else selectRef.current(next);
   }, [mobileToolRequest, closeMenu, onOpenComposition, onOpenAssistant]);
   const handledSearchRequest = useRef<typeof searchRequest>(null);
-  const taskOpenRequest = useWorkspaceMenu((state) => state.taskOpenRequest);
-  const handledTaskOpenRequest = useRef(taskOpenRequest);
   useEffect(() => {
     if (taskOpenRequest === handledTaskOpenRequest.current) return;
     handledTaskOpenRequest.current = taskOpenRequest;

@@ -17,9 +17,15 @@
  *     the expandable detail
  */
 
-import { useContext, useMemo, type ReactNode } from 'react';
+import { useContext, useMemo, type ReactElement, type ReactNode } from 'react';
 import { create, useStore, type StoreApi } from 'zustand';
-import { NotificationSourceContext } from '../lib/notificationNavigation.shared';
+import type { NotificationEvent } from '@weq/service/notification-settings';
+import { publishNotificationSystem } from '../lib/notificationPolicy';
+import { taskNotificationPresented } from '../lib/taskNotificationPresentation';
+import {
+  NotificationSourceContext,
+  openNotificationSource,
+} from '../lib/notificationNavigation.shared';
 import type { NotificationSource } from '../lib/notificationNavigation';
 import {
   DEFAULT_TOAST_DURATIONS,
@@ -41,6 +47,9 @@ export interface ToastAction {
 export interface Toast {
   id: number;
   /** 同一状态或操作的稳定标识，用于替换旧横幅及恢复后清理。 */
+  event: NotificationEvent;
+  /** 任务身份独立于导航来源，专用进度可继续提供会话等快捷入口。 */
+  taskId?: string;
   key?: string;
   tone: ToastTone;
   occurredAt: number;
@@ -75,6 +84,7 @@ export type ToastPatch = Partial<
     | 'action'
     | 'source'
   >
+    | 'event'
 >;
 
 interface ToastStore {
@@ -87,6 +97,8 @@ interface ToastStore {
   /** 推一条 toast；相同 key 原地替换，返回 id 供 `update` 推进状态。 */
   push(input: {
     key?: string;
+    event?: NotificationEvent;
+    taskId?: string;
     tone?: ToastTone;
     durationKind?: ToastDurationKind;
     loading?: boolean;
@@ -158,6 +170,8 @@ const toastStore = create<ToastStore>((set, get) => ({
   seq: 0,
   push({
     key,
+    event,
+    taskId,
     tone = 'info',
     durationKind,
     loading,
@@ -179,6 +193,18 @@ const toastStore = create<ToastStore>((set, get) => ({
     const toast: Toast = {
       id,
       key,
+      taskId: taskId ?? (source?.target.kind === 'task' ? source.target.id : undefined),
+      event:
+        event ??
+        (loading
+          ? 'progress'
+          : existing?.event === 'progress'
+            ? kind === 'failure'
+              ? 'taskFailure'
+              : 'taskComplete'
+            : kind === 'failure'
+              ? 'failure'
+              : 'success'),
       tone,
       occurredAt: Date.now(),
       durationKind: kind,
@@ -192,6 +218,33 @@ const toastStore = create<ToastStore>((set, get) => ({
       source,
     };
     set({
+    if (
+      !taskNotificationPresented(toast.event, source, undefined, toast.taskId) &&
+      (!existing ||
+        existing.event !== toast.event ||
+        (!loading &&
+          !existing.loading &&
+          (textOf(existing.title) !== textOf(actualTitle) ||
+            textOf(existing.detail) !== textOf(actualDetail)))) &&
+      ![
+        'directMessage',
+        'groupMessage',
+        'specialCare',
+        'mentionMe',
+        'mentionAll',
+        'replyMe',
+        'redPacket',
+        'keyword',
+        'recall',
+        'mail',
+      ].includes(toast.event)
+    )
+      publishNotificationSystem(
+        toast.event,
+        textOf(actualTitle),
+        textOf(actualDetail),
+        source ? () => openNotificationSource(source) : action?.run,
+      );
       seq: Math.max(state.seq, id),
       toasts: existing
         ? state.toasts.map((item) => (item.id === id ? toast : item))
@@ -207,6 +260,27 @@ const toastStore = create<ToastStore>((set, get) => ({
         if (t.id !== id) return t;
         const next = { ...t, ...patch };
         if (patch.tone !== undefined || patch.title !== undefined || patch.detail !== undefined)
+        next.event =
+          patch.event ??
+          (t.event === 'progress' && patch.loading === false
+            ? (patch.durationKind ?? defaultDurationKind(next.tone, patch.ttl)) === 'failure'
+              ? 'taskFailure'
+              : 'taskComplete'
+            : t.event === 'success' || t.event === 'failure'
+              ? (patch.durationKind ?? defaultDurationKind(next.tone, patch.ttl)) === 'failure'
+                ? 'failure'
+                : 'success'
+              : t.event);
+        if (
+          next.event !== t.event &&
+          !taskNotificationPresented(next.event, next.source, undefined, next.taskId)
+        )
+          publishNotificationSystem(
+            next.event,
+            textOf(next.title),
+            textOf(next.detail),
+            next.source ? () => openNotificationSource(next.source!) : next.action?.run,
+          );
           next.occurredAt = Date.now();
         const reset =
           patch.tone !== undefined ||
@@ -303,4 +377,20 @@ export function useToastApi(
       setDurations,
     };
   }, [source]);
+}
+
+/** 尽量把 ReactNode 还原成纯文本，用于复制（拿不到字符串时返回空串）。 */
+export function textOf(node: ReactNode): string {
+  if (node == null || typeof node === 'boolean') return '';
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(textOf).join('');
+  if (typeof node === 'object' && 'props' in node) {
+    const element = node as ReactElement<{ children?: ReactNode }>;
+    if (element.type === 'br') return '\n';
+    const text = textOf(element.props.children);
+    return typeof element.type === 'string' && /^(p|div|pre|li)$/.test(element.type)
+      ? `${text}\n`
+      : text;
+  }
+  return '';
 }

@@ -11,6 +11,7 @@ import {
 } from '../src/renderer/src/components/WorkspaceMenuButton';
 import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
 import { useUpdateStore } from '../src/renderer/src/state/update';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 
 const fixture = vi.hoisted(() => ({
   mounts: 0,
@@ -54,6 +55,7 @@ vi.mock('../src/renderer/src/hooks/useQQAutoRefresh', () => ({
   useQQReadActivity: () => ({ enabled: true }),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
+  client: { bootstrap: { notifyConfiguredEvent: { mutate: async () => true } } },
   trpc: {
     backgroundTasks: { list: { useQuery: () => ({ data: [] }) } },
     useUtils: () => ({}),
@@ -105,6 +107,8 @@ vi.mock('../src/renderer/src/views/agentlab/AssistantMenuWorkspace', () => ({
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
+  vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+  useToast.setState({ toasts: [], leaving: [], seq: 0 });
   fixture.mounts = 0;
   fixture.exports = [];
   useWorkspaceMenu.setState({
@@ -115,13 +119,17 @@ beforeEach(() => {
     assistant: 'idle',
     assistantUnread: false,
     taskScope: null,
+    taskPanelScope: null,
     taskItems: [],
     readTaskResults: {},
     readTaskResultsByScope: {},
   });
   useUpdateStore.setState({ available: false });
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe('统一竖向工作菜单', () => {
   it('现行工具菜单支持 Escape 和外部点击关闭，关闭后焦点回到原入口', () => {
@@ -207,6 +215,7 @@ describe('统一竖向工作菜单', () => {
       fixture.exports = [{ id: 'new', status: 'running' }];
       render();
       expect(document.querySelector('[data-task-layout="split"]')).not.toBeNull();
+      expect(useToast.getState().toasts).toEqual([]);
       const taskPanel = document
         .querySelector('[data-task-layout="split"]')!
         .closest('.weq-workspace-menu')!;

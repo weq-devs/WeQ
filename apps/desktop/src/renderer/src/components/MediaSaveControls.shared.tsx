@@ -9,6 +9,7 @@ import { useRenderDocument } from '../lib/renderDocument';
 import { ServerSavePrompt } from './ServerSavePrompt';
 import { useToast } from './Toast.shared';
 import { taskNotificationSource } from '../lib/notificationNavigation.shared';
+import { notifyTaskCreated } from '../lib/taskNotifications';
 import '../styles/media-save.css';
 
 function sourceKey(source: MediaSaveSource): string {
@@ -121,18 +122,10 @@ export function useMediaSave() {
       if (op.cancelled && op.taskId) await stopTask(op);
       if (!op.taskId || !current()) return { taskId: op.taskId, cancelled: true };
       if (!browser) {
-        push({
-          tone: 'info',
-          title: '媒体保存任务已创建',
-          source: taskNotificationSource(op.taskId),
-        });
+        notifyTaskCreated(op.taskId, '正在保存媒体');
         return { taskId: op.taskId };
       }
-      push({
-        tone: 'info',
-        title: '媒体下载任务已创建',
-        source: taskNotificationSource(op.taskId),
-      });
+      notifyTaskCreated(op.taskId, '正在准备媒体下载');
       const deadline = Date.now() + 15 * 60_000;
       while (current() && Date.now() < deadline) {
         const receipt = await client.account.getExportOutputReceipt.query({

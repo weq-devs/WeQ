@@ -4,7 +4,6 @@ import type { EndPageData, ExportSavePolicy } from '@weq/service';
 import { isAllTimeYear, reportPeriodLabel } from '@weq/service/report-time';
 import { client } from '../../../trpc/client';
 import { useToast } from '../../../components/Toast.shared';
-import { taskNotificationSource } from '../../../lib/notificationNavigation.shared';
 import { PageFrame, type ReportPageProps } from '../pageFrame';
 import { useReportView } from '../reportContext';
 import { buildReportHtml, preloadReportAssets } from '../exportHtml';
@@ -146,18 +145,9 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
       const payload = html || (await buildHtmlWithAssets());
       if (!current()) return;
       const input = { ...selected, html: payload, savePolicy: policy };
-      const taskId =
-        kind === 'html'
-          ? await client.account.annualReport.exportHtml.mutate(input)
-          : kind === 'pdf'
-            ? await client.account.annualReport.exportPdf.mutate(input)
-            : await client.account.annualReport.exportLongImage.mutate(input);
-      if (taskId && current())
-        pushToast({
-          tone: 'info',
-          title: '报告保存任务已创建',
-          source: taskNotificationSource(taskId),
-        });
+      if (kind === 'html') await client.account.annualReport.exportHtml.mutate(input);
+      else if (kind === 'pdf') await client.account.annualReport.exportPdf.mutate(input);
+      else await client.account.annualReport.exportLongImage.mutate(input);
     } catch (error) {
       if (current())
         pushToast({

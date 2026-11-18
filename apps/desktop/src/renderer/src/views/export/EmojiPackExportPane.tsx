@@ -135,7 +135,6 @@ export function EmojiPackExportPane({
       }
       if (!isCurrent()) return;
       onStarted();
-      dialog.success('已开始导出', '已加入任务队列。');
     } catch (e) {
       dialog.error('启动导出失败', e instanceof Error ? e.message : String(e));
     } finally {

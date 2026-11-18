@@ -140,6 +140,8 @@ export function startSequentialForward({
       );
     };
     const id = toast.push({
+      event: 'progress',
+      taskId: `background:window:${taskId}`,
       title: progress(),
       ttl: 0,
       dismissible: false,
@@ -219,8 +221,9 @@ export function startSequentialForward({
     toast.update(id, {
       tone: stopped || failed ? 'warning' : 'success',
       durationKind: failed || (stopped && !local.signal.aborted) ? 'failure' : 'success',
-      title: progress(),
+      event: failed ? 'taskFailure' : stopped ? 'success' : 'taskComplete',
       source: failed ? taskSource : conversationSource,
+      title: progress(),
       detail: [stopped, ...failures].filter(Boolean).join('\n') || undefined,
       ttl: 0,
       dismissible: true,

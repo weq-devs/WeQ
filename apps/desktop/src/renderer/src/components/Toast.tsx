@@ -27,6 +27,9 @@ import {
   type ReactElement,
   type ReactNode,
 } from 'react';
+import { useNotificationPolicy } from '../lib/notificationPolicy';
+import { useWorkspaceMenu } from '../state/workspaceMenu';
+import { taskNotificationPresented } from '../lib/taskNotificationPresentation';
 import { openNotificationSource } from '../lib/notificationNavigation.shared';
 import { version } from '../../../../package.json';
 import { IS_WEB } from '../lib/target.shared';
@@ -108,10 +111,19 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
   const [timeLeft, setTimeLeft] = useState(toast.ttl);
   const [copied, setCopied] = useState(false);
   const timeLeftRef = useRef(toast.ttl);
+  const enabled = useNotificationPolicy((state) => state.events[toast.event ?? 'success'].banner);
+  const presented = useWorkspaceMenu((state) =>
+    taskNotificationPresented(toast.event, toast.source, state.taskPanelScope, toast.taskId),
+  );
+  const visible = enabled && !presented;
   const copiedTimerRef = useRef<number | undefined>(undefined);
 
   // 进场动画：挂载后下一帧加上 show
   useEffect(() => {
+  useEffect(() => {
+    if (!visible && !toast.loading && toast.dismissible !== false && toast.durationKind !== 'long')
+      remove(toast.id);
+  }, [visible, toast.loading, toast.dismissible, toast.durationKind, toast.id, remove]);
     const raf = requestAnimationFrame(() => setShown(true));
     return () => cancelAnimationFrame(raf);
   }, []);
@@ -220,6 +232,7 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
         }}
         onFocus={() => setPaused(true)}
         onBlur={(e) => {
+        hidden={!visible}
           if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setPaused(false);
         }}
       >

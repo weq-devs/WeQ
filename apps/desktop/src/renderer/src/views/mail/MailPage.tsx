@@ -51,10 +51,8 @@ import { SYSTEM_MAIL_FOLDERS } from '@weq/service/mail-wire';
 import { useDialog } from '../../components/Dialog.shared';
 import { CheckPill } from '../../components/settings/controls';
 import { useToastApi } from '../../components/Toast.shared';
-import {
-  notificationSource,
-  taskNotificationSource,
-} from '../../lib/notificationNavigation.shared';
+import { notificationSource } from '../../lib/notificationNavigation.shared';
+import { notifyTaskCreated } from '../../lib/taskNotifications';
 import { usePrivacyStore } from '../../state/privacy';
 import type { MailApi } from './api';
 import { MailBody } from './MailBody';
@@ -604,13 +602,7 @@ export function MailPage({
         });
         if (!policy || controller.signal.aborted || !save.isCurrent()) return;
         const taskId = await api.save(id, policy, binding.expectedAccountConfigId);
-        if (mounted.current && save.isCurrent())
-          notificationToast.push({
-            tone: 'info',
-            title: '附件保存任务已创建',
-            source: taskNotificationSource(taskId),
-            message: '可在导出任务列表查看结果与保存位置',
-          });
+        if (mounted.current && save.isCurrent()) notifyTaskCreated(taskId, '正在保存邮件附件');
       }
     } catch (error) {
       if (mounted.current && save.isCurrent() && !controller.signal.aborted)
