@@ -135,6 +135,21 @@ function requestOverrides(model: ModelForm): ModelRequestProperties | undefined 
   return entries.length ? Object.fromEntries(entries) : undefined;
 }
 
+function modelContextWindowSummary(model: ModelForm): string {
+  const draft = model.requestTokenDrafts?.contextWindowTokens;
+  const declared = readModelRequestProperties(model.metadata).contextWindowTokens;
+  const tokens =
+    draft === undefined
+      ? (model.overrides?.request?.contextWindowTokens ?? declared)
+      : draft.trim()
+        ? Number(draft)
+        : declared;
+  if (tokens === undefined) return '未声明';
+  return Number.isSafeInteger(tokens) && tokens > 0
+    ? `${tokens.toLocaleString('zh-CN')} Token`
+    : '无效';
+}
+
 function ModelRequestFields({
   model,
   update,
@@ -152,7 +167,6 @@ function ModelRequestFields({
         <Row
           key={key}
           label={label}
-          desc={key === 'maxOutputTokens' ? '仅约束显式设置的输出上限。' : undefined}
           control={
             <input
               className="weq-set-input weq-number"
@@ -255,6 +269,7 @@ export function AgentLabSection(): ReactElement {
   const [selectedId, setSelectedId] = useState('');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<ProviderForm>(emptyForm);
+  const [expandedModels, setExpandedModels] = useState(() => new Set<string>());
   const legacyOpen = usePageSnapshotReset('provider:open');
   const legacyForm = usePageSnapshotReset('provider:form');
   useEffect(() => {
@@ -370,6 +385,7 @@ export function AgentLabSection(): ReactElement {
     const next = withVendorTemplate(emptyForm(), DEFAULT_VENDOR);
     setForm(next);
     guard.reset(next);
+    setExpandedModels(new Set());
     setOpen(true);
   }
 
@@ -383,6 +399,7 @@ export function AgentLabSection(): ReactElement {
     setCheckedModelIds([]);
     fillFormFrom(current);
     setSelectedId(id);
+    setExpandedModels(new Set());
     setOpen(true);
   }
 
@@ -1221,6 +1238,43 @@ export function AgentLabSection(): ReactElement {
                         placeholder="模型 id，如 deepseek-ai/DeepSeek-V3"
                       />
                       <button
+                        type="button"
+                        className="weq-provider-model-summary"
+                        aria-label={`模型 ${index + 1} 能力与参数`}
+                        aria-describedby={`model-capabilities-${model.rowKey} model-context-${model.rowKey}`}
+                        aria-expanded={expandedModels.has(model.rowKey)}
+                        aria-controls={`model-parameters-${model.rowKey}`}
+                        aria-busy={detectingModel === index}
+                        onClick={() =>
+                          setExpandedModels((current) => {
+                            const next = new Set(current);
+                            if (!next.delete(model.rowKey)) next.add(model.rowKey);
+                            return next;
+                          })
+                        }
+                      >
+                        {detectingModel === index ? (
+                          <Loader2 size={13} className="weq-spin" aria-hidden />
+                        ) : (
+                          <ChevronDown
+                            size={13}
+                            className="weq-provider-model-chevron"
+                            aria-hidden
+                          />
+                        )}
+                        <span className="weq-provider-model-summary-copy">
+                          <span className="weq-provider-model-summary-title">能力与参数</span>
+                          <span id={`model-capabilities-${model.rowKey}`}>
+                            {CAPABILITIES.filter(({ value }) => model.capabilities.includes(value))
+                              .map(({ label }) => label)
+                              .join(' / ') || '未选择能力'}
+                          </span>
+                          <span id={`model-context-${model.rowKey}`} title="上下文窗口（Token）">
+                            <NumericText>{`上下文 ${modelContextWindowSummary(model)}`}</NumericText>
+                          </span>
+                        </span>
+                      </button>
+                      <button
                         data-danger="outline"
                         type="button"
                         className="weq-set-iconbtn weq-provider-model-remove"
@@ -1230,23 +1284,11 @@ export function AgentLabSection(): ReactElement {
                       >
                         <X size={14} />
                       </button>
-                      <details className="weq-set-details weq-provider-model-details">
-                        <summary aria-label={`模型 ${index + 1} 能力与参数`}>
-                          <ChevronDown size={13} aria-hidden />
-                          <span>
-                            能力与参数
-                            <span className="weq-provider-model-capability-summary">
-                              {CAPABILITIES.filter(({ value }) =>
-                                model.capabilities.includes(value),
-                              )
-                                .map(({ label }) => label)
-                                .join(' / ') || '未选择能力'}
-                            </span>
-                          </span>
-                          {detectingModel === index ? (
-                            <Loader2 size={12} className="weq-spin" aria-label="正在读取模型信息" />
-                          ) : null}
-                        </summary>
+                      <div
+                        className="weq-provider-model-details"
+                        id={`model-parameters-${model.rowKey}`}
+                        hidden={!expandedModels.has(model.rowKey)}
+                      >
                         <div className="weq-provider-model-controls">
                           <input
                             className="weq-set-input weq-provider-model-reasoning"
@@ -1358,7 +1400,7 @@ export function AgentLabSection(): ReactElement {
                           model={model}
                           update={(patch) => updateModel(index, patch)}
                         />
-                      </details>
+                      </div>
                     </div>
                   ))
                 )}
