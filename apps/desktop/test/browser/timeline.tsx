@@ -35,8 +35,12 @@ const unreadDock =
     ? buildUnreadDock({
         readSeq: unreadFrom - 1,
         unread: 1001 + entryCount - unreadFrom,
-        highlights: [],
-        loadedSeqs: Array.from({ length: entryCount }, (_, index) => String(1001 + index)),
+        highlights: (params.get('important-seqs')?.split(',') ?? []).map((msgSeq, index) => ({
+          kind: index === 0 ? 'atMe' : 'replyMe',
+          msgSeq,
+          senderUid: 'u_peer',
+          rawKind: 1,
+        })),
       })
     : undefined;
 const cachedBubble: MessageBubbleSkin | undefined = params.has('cached-bubbles')

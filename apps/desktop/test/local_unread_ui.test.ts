@@ -10,30 +10,20 @@ it('设备未读目标不归一成好友，兼容普通与临时私聊', () => {
 });
 
 it('跳转使用服务端未读数，不以序号差猜测，缺水位不伪造起点', () => {
-  expect(
-    buildUnreadDock({ readSeq: '5000', unread: 2, highlights: [], loadedSeqs: ['5020'] }),
-  ).toEqual({ unread: 2, stops: [{ kind: 'unread', seq: '5001' }] });
-  expect(
-    buildUnreadDock({ readSeq: null, unread: 2, highlights: [], loadedSeqs: ['5020'] }),
-  ).toBeNull();
+  expect(buildUnreadDock({ readSeq: '5000', unread: 2, highlights: [] })).toEqual({
+    unread: 2,
+    stops: [{ kind: 'unread', seq: '5001' }],
+  });
+  expect(buildUnreadDock({ readSeq: null, unread: 2, highlights: [] })).toBeNull();
 });
 
-it('安静基线不生成跳转，实时未读跳到首条，明确提醒在缺少 QQ 水位时仍可跳转', () => {
-  expect(
-    buildUnreadDock({ readSeq: '5000', unread: 0, highlights: [], loadedSeqs: ['5000'] }),
-  ).toBeNull();
-  const live = buildUnreadDock({
-    readSeq: '5000',
-    unread: 2,
-    highlights: [],
-    loadedSeqs: ['5000', '5001', '5003'],
-  });
-  expect(live?.stops).toEqual([{ kind: 'unread', seq: '5001' }]);
-  const reminder = buildUnreadDock({
-    readSeq: '4998',
-    unread: 1,
-    loadedSeqs: ['5000'],
-    highlights: [{ kind: 'atMe', msgSeq: '4999', senderUid: 'u_fixture', rawKind: 1, text: '' }],
-  });
-  expect(reminder?.stops.some((stop) => stop.kind === 'atMe' && stop.seq === '4999')).toBe(true);
+it('排除已读的重要消息，首条未读本身是重要消息时只保留一个跳转', () => {
+  const atMe = { kind: 'atMe' as const, msgSeq: '4999', senderUid: 'u_fixture', rawKind: 1 };
+  expect(buildUnreadDock({ readSeq: '4999', unread: 0, highlights: [atMe] })).toBeNull();
+  expect(buildUnreadDock({ readSeq: '4998', unread: 1, highlights: [atMe] })?.stops).toEqual([
+    { kind: 'atMe', seq: '4999' },
+  ]);
+  expect(buildUnreadDock({ readSeq: null, unread: 0, highlights: [atMe] })?.stops).toEqual([
+    { kind: 'atMe', seq: '4999' },
+  ]);
 });

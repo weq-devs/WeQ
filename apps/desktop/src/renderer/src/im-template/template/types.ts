@@ -158,7 +158,7 @@ export type UnreadDockStop = {
 /**
  * 打开会话时从 msg_unread_info_table 读进内存的未读快照 —— 数据库随即被标记
  * 为已读、高亮组清空，之后跳转坞完全靠这份内存副本驱动。
- * `stops` 是候选队列；普通未读在聊天视口中可见时不显示按钮。
+ * `stops` 是候选队列；进入聊天视口的目标不再提醒。
  */
 export type UnreadDock = {
   stops: UnreadDockStop[];

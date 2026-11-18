@@ -97,6 +97,22 @@ try {
     await page.evaluate((id) => window.timelineTest.jump(id), `row-${seq}`);
     await waitForViewport(newest, false);
     await assertDismissed(entryDock);
+
+    const important = newest - 10;
+    await page.goto(`${base}&unread-from=${seq}&important-seqs=${important},${newest}`);
+    const mentionDock = page.getByTitle('下一条：有人@我', { exact: true });
+    const replyDock = page.getByTitle('下一条：有人回复我', { exact: true });
+    await waitForViewport(newest, true);
+    await waitForViewport(important, false);
+    await mentionDock.waitFor();
+    assert.equal(await page.locator('.unread-dock-count').textContent(), '1');
+    await page.evaluate((id) => window.timelineTest.jump(id), `row-${important}`);
+    await waitForViewport(important, true);
+    await dock.waitFor();
+    await page.evaluate((id) => window.timelineTest.jump(id), `row-${seq}`);
+    await waitForViewport(seq, true);
+    await assertDismissed(mentionDock);
+    await assertDismissed(replyDock);
   }
   if (output) await mkdir(output, { recursive: true });
   const snapshot = () =>

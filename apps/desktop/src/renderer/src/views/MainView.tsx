@@ -5333,7 +5333,7 @@ function MainWorkspace(): ReactElement {
     if (!conv || (conv.type !== 'direct' && conv.type !== 'group')) {
       return undefined;
     }
-    // 等首批消息落地后记录未读快照；普通未读是否可见由聊天视口判断。
+    // 等首批消息落地后记录未读快照；跳转目标是否可见由聊天视口判断。
     if (messagesLoading || loaded.length === 0) return undefined;
     if (unreadDockConvRef.current === conv.id) return undefined;
 
@@ -5383,7 +5383,6 @@ function MainWorkspace(): ReactElement {
         highlights: info?.highlights ?? null,
         readSeq,
         unread,
-        loadedSeqs: loaded.map((m) => m.msgSeq),
       });
 
       // 打开即已读：哪怕一个跳转都不点，也要把 48902 的未读/高亮清掉，

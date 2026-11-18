@@ -1,9 +1,5 @@
 import { useVirtualTimeline } from '../../hooks/useVirtualTimeline';
-import {
-  messageElement,
-  revealTimelineMessage,
-  timelineViewport,
-} from '../../lib/timelineViewport';
+import { revealTimelineMessage, timelineViewport } from '../../lib/timelineViewport';
 import { firstUnreadMessage } from '../../lib/unreadNavigation';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReplyJumpTarget } from '../../components/QqMessageContent';
@@ -73,11 +69,13 @@ export function useChatTimelineNavigation({
   // 列表、跳转坞与视口共用本次快照的查看进度；滚出屏幕不会恢复完成的提醒。
   const [visited, setVisited] = useState<{ scope: typeof navigationKey; seqs: Set<string> }>();
   const visitedStops = visited?.scope === navigationKey ? visited.seqs : undefined;
-  const visitStop = useCallback((scope: typeof navigationKey, seq: string) => {
-    if (navigationScope.current !== scope) return;
+  const visitStops = useCallback((scope: typeof navigationKey, seqs: string[]) => {
+    if (navigationScope.current !== scope || !seqs.length) return;
     setVisited((current) => {
-      const seqs = current?.scope === scope ? current.seqs : undefined;
-      return seqs?.has(seq) ? current : { scope, seqs: new Set([...(seqs ?? []), seq]) };
+      const previous = current?.scope === scope ? current.seqs : undefined;
+      return seqs.every((seq) => previous?.has(seq))
+        ? current
+        : { scope, seqs: new Set([...(previous ?? []), ...seqs]) };
     });
   }, []);
   const locateTask = useRef<object | null>(null);
@@ -130,13 +128,13 @@ export function useChatTimelineNavigation({
         if (navigationScope.current !== started || locateTask.current !== task) return;
         const seq = target.seq == null ? null : String(target.seq);
         setLocatedSeq(seq);
-        if (seq && started.dock?.stops.some((stop) => stop.seq === seq)) visitStop(started, seq);
+        if (seq && started.dock?.stops.some((stop) => stop.seq === seq)) visitStops(started, [seq]);
       };
       const result = parentJumpToSeq(target);
       if (result) return result.then(complete);
       complete();
     },
-    [parentJumpToSeq, visitStop],
+    [parentJumpToSeq, visitStops],
   );
 
   const lastReadSignal = useRef({ key: '', at: 0 });
@@ -730,46 +728,63 @@ export function useChatTimelineNavigation({
     unreadDock?.stops.filter((stop) => stop.kind !== 'unread' && !visitedStops?.has(stop.seq))
       .length ?? 0;
 
-  const unreadSeq = unreadDock?.stops.find(
-    (stop) => stop.kind === 'unread' && !visitedStops?.has(stop.seq),
-  )?.seq;
-  const unreadTargetId = useMemo(() => {
-    if (!unreadSeq) return undefined;
-    const exact = messages.find((message) => message.msgSeq === unreadSeq);
-    if (exact) return exact.id;
-    const start = BigInt(unreadSeq);
-    // 缺号时沿用跳转的后继目标，但不能把尚未加载的更早未读当作缺号。
-    const covered = messages.some(
-      ({ msgSeq }) => msgSeq && /^[1-9]\d*$/.test(msgSeq) && BigInt(msgSeq) < start,
-    );
-    return covered ? firstUnreadMessage(messages, unreadSeq)?.id : undefined;
-  }, [messages, unreadSeq]);
+  const dockTargets = useMemo(() => {
+    const pending = unreadDock?.stops.filter((stop) => !visitedStops?.has(stop.seq));
+    if (!pending?.length) return undefined;
+    const pendingSeqs = new Set(pending.map(({ seq }) => seq));
+    const idsBySeq = new Map<string, string>();
+    for (const { id, msgSeq } of messages) {
+      if (msgSeq && pendingSeqs.has(msgSeq) && !idsBySeq.has(msgSeq)) idsBySeq.set(msgSeq, id);
+    }
+    const unreadSeq = pending.find((stop) => stop.kind === 'unread')?.seq;
+    if (unreadSeq && !idsBySeq.has(unreadSeq)) {
+      const start = BigInt(unreadSeq);
+      // 只为普通未读补缺号；重要消息必须看到对应原文。
+      const covered = messages.some(
+        ({ msgSeq }) => msgSeq && /^[1-9]\d*$/.test(msgSeq) && BigInt(msgSeq) < start,
+      );
+      const next = covered ? firstUnreadMessage(messages, unreadSeq) : undefined;
+      if (next) idsBySeq.set(unreadSeq, next.id);
+    }
+    const seqsById = new Map<string, string[]>();
+    for (const [seq, id] of idsBySeq) {
+      const seqs = seqsById.get(id);
+      if (seqs) seqs.push(seq);
+      else seqsById.set(id, [seq]);
+    }
+    return seqsById;
+  }, [messages, unreadDock, visitedStops]);
   const renderedTimelineItems = timeline.enabled ? timeline.items : null;
   useLayoutEffect(() => {
     const scroll = messageScrollRef.current;
-    if (!tabActive || loading || loadingNewer || !scroll || !unreadTargetId || !unreadSeq) return;
-    const target = messageElement(scroll, unreadTargetId);
-    if (!target) return;
-    // 首次检查在绘制前完成；之后只观察目标，虚拟列表预挂载不等于可见。
+    if (!tabActive || loading || loadingNewer || !scroll || !dockTargets?.size) return;
+    // 首次检查在绘制前完成；之后只观察候选目标，虚拟列表预挂载不等于可见。
     const bounds = scroll.getBoundingClientRect();
-    const rect = target.getBoundingClientRect();
-    if (
-      bounds.height > 0 &&
-      rect.height > 0 &&
-      rect.bottom > bounds.top &&
-      rect.top < bounds.bottom
-    ) {
-      visitStop(navigationKey, unreadSeq);
-      return;
+    if (bounds.height <= 0) return;
+    const seen: string[] = [];
+    const offscreen = new Map<Element, string[]>();
+    for (const target of scroll.querySelectorAll<HTMLElement>('[data-message-id]')) {
+      const seqs = dockTargets.get(target.dataset.messageId ?? '');
+      if (!seqs) continue;
+      const rect = target.getBoundingClientRect();
+      if (rect.height > 0 && rect.bottom > bounds.top && rect.top < bounds.bottom)
+        seen.push(...seqs);
+      else offscreen.set(target, seqs);
     }
-    if (typeof IntersectionObserver === 'undefined') return;
+    visitStops(navigationKey, seen);
+    if (!offscreen.size || typeof IntersectionObserver === 'undefined') return;
     const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry && entry.intersectionRatio > 0) visitStop(navigationKey, unreadSeq);
+      (entries) => {
+        visitStops(
+          navigationKey,
+          entries.flatMap((entry) =>
+            entry.intersectionRatio > 0 ? (offscreen.get(entry.target) ?? []) : [],
+          ),
+        );
       },
       { root: scroll, threshold: Number.EPSILON },
     );
-    observer.observe(target);
+    for (const target of offscreen.keys()) observer.observe(target);
     return () => {
       observer.disconnect();
       observer.takeRecords();
@@ -780,10 +795,9 @@ export function useChatTimelineNavigation({
     navigationKey,
     renderedTimelineItems,
     tabActive,
-    unreadSeq,
-    unreadTargetId,
+    dockTargets,
     visibleMessages,
-    visitStop,
+    visitStops,
   ]);
   const dockVisible = Boolean(dockStop);
 
