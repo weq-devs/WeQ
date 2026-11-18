@@ -226,11 +226,12 @@ import { unreadChatType } from '@weq/codec';
 import { replaceLoadedMembers, subscribeQQPeerUpdates } from '../lib/qqPeerUpdates';
 import { draftSortTimes } from '@weq/service/conversation-order';
 import {
-  applyObservedContactPreview,
+  canPreviewContactMessage,
   mergeRecentContactPages,
   observeContactPreview,
   latestContactPreviewMessage,
   recentContactPreviewIsBehind,
+  reconcileRecentContactPreviews,
   type ObservedContactPreview,
 } from '../lib/recentContacts';
 import {
@@ -792,11 +793,20 @@ function MainWorkspace(): ReactElement {
   const [observedContactPreviews, setObservedContactPreviews] = useState<
     ReadonlyMap<string, ObservedContactPreview>
   >(() => new Map());
-  const recentContactsData = useMemo(
+  const previousContactSummaries = useRef<ReadonlyMap<string, RecentContactWire>>(new Map());
+  const contactPreviews = useMemo(
     () =>
-      rawRecentContactsData.map((row) => applyObservedContactPreview(row, observedContactPreviews)),
+      reconcileRecentContactPreviews(
+        rawRecentContactsData,
+        previousContactSummaries.current,
+        observedContactPreviews,
+      ),
     [rawRecentContactsData, observedContactPreviews],
   );
+  useLayoutEffect(() => {
+    previousContactSummaries.current = contactPreviews.summaries;
+  }, [contactPreviews]);
+  const recentContactsData = contactPreviews.rows;
   const allGroups = trpc.account.listAllGroups.useQuery({ limit: 2000 }, groupOptions);
   // Official QQ setting: observed 4 → 2 when switching from muted to group helper.
   const previousGroupAssistantIds = useRef(new Set<string>());
@@ -5308,12 +5318,16 @@ function MainWorkspace(): ReactElement {
     if (!anchoredToLatest && !unplaced.length) return;
     const contact = rawRecentContactsData.find((row) => row.targetUid === trackedConversationId);
     if (!contact) return;
-    const latest = latestContactPreviewMessage(
-      contact,
-      unplaced.length ? [...loaded, ...unplaced] : loaded,
+    const candidates = unplaced.length ? [...loaded, ...unplaced] : loaded;
+    const newest = latestContactPreviewMessage(contact, candidates);
+    const latest =
+      newest && canPreviewContactMessage(newest)
+        ? newest
+        : latestContactPreviewMessage(contact, candidates, canPreviewContactMessage);
+    setObservedContactPreviews((previous) =>
+      observeContactPreview(previous, contact, latest, anchoredToLatest ? loaded : undefined),
     );
     if (!latest || !recentContactPreviewIsBehind(contact, latest)) return;
-    setObservedContactPreviews((previous) => observeContactPreview(previous, contact, latest));
     // 漫游摘要独立于 QQ 最近会话表，重读旧表不能补齐它。
     if (latest.source === 'roaming') return;
     const key = JSON.stringify([
