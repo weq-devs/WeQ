@@ -407,7 +407,7 @@ export function WorkspaceTools({
         centered={expanded}
         anchor={anchor}
         onClose={closeWorkspace}
-        width={expanded ? 1100 : 392}
+        width={expanded ? 1100 : 440}
         className={`weq-workspace-menu${expanded ? ' is-expanded' : ' is-compact'}`}
         labelledBy={expanded ? 'weq-workspace-menu-title' : undefined}
       >

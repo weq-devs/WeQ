@@ -127,11 +127,16 @@
   height: auto !important;
 }
 
-.weq-workspace-actions {
+.weq-workspace-actions,
+.weq-workspace-controls {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 6px;
   flex: none;
+  padding-inline: 8px;
+}
+
+.weq-workspace-actions {
   padding: 8px;
   border-block: 1px solid var(--weq-border-subtle);
 }
@@ -155,9 +160,12 @@
 }
 
 .weq-workspace-actions > button span {
+  max-width: 100%;
   min-height: 14px;
+  overflow: hidden;
   text-align: center;
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .weq-workspace-actions > button svg {
@@ -166,13 +174,10 @@
 }
 
 .weq-workspace-controls {
-  display: flex;
-  flex: none;
   align-items: center;
-  justify-content: space-around;
-  gap: 8px;
+  justify-items: center;
   min-height: 50px;
-  padding: 6px 14px;
+  padding-block: 6px;
 }
 
 .weq-workspace-controls > .weq-workspace-control {
