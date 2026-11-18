@@ -817,8 +817,7 @@ export function fontRules(font: FontSkinCss, scope: DressScope, animated = true)
 }
 
 /**
- * Android 9.3.85 正文基准资源 0x7f071625 为 17sp；内部仍以 17px 作默认近似，
- * 再连同气泡整体缩放回普通消息的 13.5px 视觉字号，不让装扮文字单独变大。
+ * 装扮文字使用当前布局的默认正文尺寸；不缩放整个内容盒，避免改变引用及媒体尺寸。
  * ETDrawable 在 padding.top 放置文字位图，不能再均分最小高度多出的垂直空间。
  * normal 保留多行间距；正文首行去掉浏览器在 em 上方增加的半份行间留白。
  * 这是手机截图叠图验证的近似，不等同于已恢复手机原生基线。
@@ -827,8 +826,6 @@ export function fontRules(font: FontSkinCss, scope: DressScope, animated = true)
 export function fontTextRules(sel: string, family: string): string {
   return `${sel} {
   font-family: "${family}", var(--im-font-body, Inter), ui-sans-serif, system-ui, sans-serif;
-  font-size: 17px;
-  zoom: ${13.5 / 17};
   --weq-dress-content-alignment: start;
   align-content: var(--weq-dress-content-alignment);
   line-height: normal;
