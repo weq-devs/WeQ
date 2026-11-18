@@ -6,7 +6,22 @@
  */
 
 import type { Element } from '@weq/codec';
+import { parseArkData } from '../common/arkCards';
+import { plainContentText } from '../common/message_plain_text';
 import type { RenderElement } from './msg_view';
+
+/** QQ 邮箱卡的 title 是发件人，subTitle 才是邮件主题。 */
+export function feedConversationPreview(elements: readonly RenderElement[]): string {
+  const ark = parseArkData(elements.find((el) => el.type === 'ark')?.data.arkData);
+  const mail = ark?.app === 'com.tencent.template.public' ? ark.meta?.mail : undefined;
+  if (mail) {
+    for (const value of [mail.subTitle, mail.content, mail.title, ark?.prompt]) {
+      const text = typeof value === 'string' ? value.trim() : '';
+      if (text) return text;
+    }
+  }
+  return plainContentText(elements);
+}
 
 /**
  * Extract the `.prompt` field from an ARK element's JSON payload, if present.

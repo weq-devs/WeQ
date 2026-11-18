@@ -7,11 +7,10 @@ import type { AccountSession } from '@weq/account';
 import type { RenderC2cMsg } from './msg';
 import type { C2cMsg } from '@weq/db';
 import { classifyChatType } from '@weq/codec';
-import { filterArkOnly } from './ark_feed';
+import { feedConversationPreview, filterArkOnly } from './ark_feed';
 import { toRenderElements } from './msg_view';
 import { resolveC2cPartition } from './c2c_partition';
 import { readonlyConversationPage, type ReadonlyPageRequest } from './readonly_conversation';
-import { plainContentText } from '../common/message_plain_text';
 import { messageReadPosition, messageReadCursor } from '../common/client_preferences';
 
 export interface OfficialAccountSummary {
@@ -74,7 +73,7 @@ export class OfficialAccountService {
         avatarUrl: null, // 前端用 targetUin 拼接
         targetUin,
         sendTime: first?.sendTime ?? c.sendTime,
-        prompt: first ? plainContentText(first.elements) : '',
+        prompt: first ? feedConversationPreview(first.elements) : '',
         latestReadPosition: first ? messageReadPosition(first) : '0:0:0',
       });
     }
