@@ -256,6 +256,122 @@ it('同一毫秒发送相同群消息时，首次推送就使用不同的持久�
   expect(service.getGroupMessages(group.id).map((message) => message.id)).toEqual(ids);
 });
 
+it('克隆私聊即时保存连续输入，新文本替换未交付的回复但保留已发段落', async () => {
+  const { open, persona } = fixture();
+  const service = open();
+  const target = { kind: 'persona', id: persona.id } as const;
+  const result = (...renderedTurns: string[]) => ({
+    renderedTurns,
+    result: {
+      text: renderedTurns.join('\n'),
+      segments: renderedTurns,
+      actions: [],
+      promptPreview: '',
+      matches: [],
+      usedMemoryIds: [],
+      willingness: 1,
+      replyDelayMs: 0,
+    },
+  });
+  let release!: () => void;
+  const generate = vi
+    .spyOn(AgentRuntime.prototype, 'generatePersonaTurns')
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(result('不该出现的旧回复'));
+        }),
+    )
+    .mockResolvedValueOnce(result('已发出的段落', '未发送的旧尾段'))
+    .mockResolvedValueOnce(result('接上最后一句'));
+  const states: boolean[] = [];
+  const receipt = vi.fn();
+  const send = (requestId: string, text: string) =>
+    service.submitCloneMessage({ ...target, requestId, text }, receipt);
+  const unsubscribe = service.subscribeCloneConversation(target, (event) => {
+    if (event.kind === 'typing') states.push(event.typing);
+    if (event.kind === 'persona-message' && event.message.text === '已发出的段落')
+      send('four', '又补一句');
+  });
+  try {
+    send('one', '今晚吃饭吗');
+    send('two', '七点');
+    send('two', '七点'); // 重到的请求不能重复插入或触发生成。
+    expect(service.getConversation(persona.id).map((turn) => turn.text)).toEqual([
+      '今晚吃饭吗',
+      '七点',
+    ]);
+    expect(generate).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(1), { timeout: 1800 });
+    expect(states.at(-1)).toBe(true);
+    expect(generate.mock.calls[0]?.[2].history.map((turn) => turn.text)).toEqual(['今晚吃饭吗']);
+    send('three', '改八点');
+    expect(generate.mock.calls[0]?.[2].chatEndpoint.signal?.aborted).toBe(true);
+    release();
+    await vi.waitFor(
+      () => {
+        expect(service.getConversation(persona.id).at(-1)?.text).toBe('接上最后一句');
+        expect(states.at(-1)).toBe(false);
+      },
+      { timeout: 2400 },
+    );
+    expect(service.getConversation(persona.id).map((turn) => turn.text)).toEqual([
+      '今晚吃饭吗',
+      '七点',
+      '改八点',
+      '已发出的段落',
+      '又补一句',
+      '接上最后一句',
+    ]);
+    expect(open().getConversation(persona.id)).toEqual(service.getConversation(persona.id));
+    expect(receipt.mock.calls.map(([reply]) => reply.text)).toEqual([
+      '已发出的段落',
+      '接上最后一句',
+    ]);
+  } finally {
+    release?.();
+    unsubscribe();
+    await service.close();
+  }
+});
+
+it('克隆群连续输入共享一轮上下文，并保留前一条的定向提及', async () => {
+  const { open, persona } = fixture();
+  const service = open();
+  const { group } = service.createGroup({ name: '合成群', personaIds: [persona.id] });
+  const target = { kind: 'group', id: group.id } as const;
+  const generation = vi.spyOn(AgentRuntime.prototype, 'generatePersonaTurns').mockResolvedValue({
+    renderedTurns: ['两个信息都收到了'],
+    result: {
+      text: '',
+      segments: [],
+      actions: [],
+      promptPreview: '',
+      matches: [],
+      usedMemoryIds: [],
+      willingness: 1,
+      replyDelayMs: 0,
+    },
+  });
+  const receive = vi.fn();
+  try {
+    service.submitCloneMessage(
+      { ...target, requestId: 'one', text: '@合成克隆 吃饭', mentions: [persona.id] },
+      receive,
+    );
+    service.submitCloneMessage({ ...target, requestId: 'two', text: '晚上八点' }, receive);
+    expect(service.getGroupMessages(group.id).map((message) => message.id)).toEqual(['one', 'two']);
+    await vi.waitFor(() => expect(receive).toHaveBeenCalledOnce(), { timeout: 2400 });
+    expect(generation).toHaveBeenCalledOnce();
+    const options = generation.mock.calls[0]![2];
+    expect(options.input).toBe('晚上八点');
+    expect(options.history.at(-1)?.text).toContain('吃饭');
+    expect(service.getGroupMessages(group.id).at(-1)?.text).toBe('两个信息都收到了');
+  } finally {
+    await service.close();
+  }
+});
+
 it('目标原件损坏时不清理旧桶或会话元数据', () => {
   const f = fixture();
   writeFileSync(join(f.root, 'groups.json'), '{damaged');

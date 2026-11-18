@@ -89,6 +89,7 @@ export function feedConversationRow(
     sendTime: string;
     prompt: string | null;
     unreadCount?: number;
+    directoryRead?: Conversation['directoryRead'];
   },
   kind: 'official' | 'service',
 ): Conversation {
@@ -112,6 +113,7 @@ export function feedConversationRow(
     updatedAt,
     preference: { pinned: false, muted: false, blocked: false },
     unreadCount: item.unreadCount ?? 0,
+    directoryRead: item.directoryRead,
     lastMessage: {
       id: `${id}:${item.sendTime}`,
       senderId: null,
@@ -128,6 +130,7 @@ export function assistantConversationRow(item: {
   preview?: string;
   draftPreview?: string;
   unreadCount?: number;
+  directoryRead?: Conversation['directoryRead'];
 }): Conversation {
   return {
     id: `assistant:${item.id}`,
@@ -148,6 +151,7 @@ export function assistantConversationRow(item: {
     updatedAt: new Date(item.updatedAt).toISOString(),
     preference: { pinned: false, muted: false, blocked: false },
     unreadCount: item.unreadCount ?? 0,
+    directoryRead: item.directoryRead,
     lastMessage: {
       id: `assistant:${item.id}:preview`,
       senderId: null,

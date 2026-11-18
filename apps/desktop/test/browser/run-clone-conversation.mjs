@@ -455,18 +455,21 @@ try {
       .last()
       .waitFor();
     const sent = await page.evaluate(() => window.cloneRequests());
-    const expected = kind === 'group' ? 'sendAgentLabGroupMessage' : 'chatWithAgentLabPersona';
-    if (!sent.some((call) => call.name === expected && call.input.text === '共用页面发送'))
+    if (
+      !sent.some(
+        (call) =>
+          call.name === 'submitCloneMessage' &&
+          call.input.kind === (kind === 'group' ? 'group' : 'persona') &&
+          call.input.text === '共用页面发送',
+      )
+    )
       throw new Error('发送未适配到克隆后端');
     if (
       sent.some(
         (call) =>
-          ![
-            'sendAgentLabGroupMessage',
-            'chatWithAgentLabPersona',
-            'addAgentLabGroupMember',
-            'removeAgentLabGroupMember',
-          ].includes(call.name),
+          !['submitCloneMessage', 'addAgentLabGroupMember', 'removeAgentLabGroupMember'].includes(
+            call.name,
+          ),
       )
     )
       throw new Error('克隆页面误调用未适配的写接口');

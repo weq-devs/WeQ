@@ -577,6 +577,13 @@ export class AgentRuntime {
     /** 仅由受信任的传输层提供；Bot 必传，桌面缺省兼容旧单用户作用域。 */
     privatePeerId?: string;
     signal?: AbortSignal;
+    /** 桌面实时对话已先保存用户消息，由宿主逐段交付回复。 */
+    live?: {
+      gateText: string;
+      onTyping: () => void;
+      deliver: (turns: ConversationTurnLike[], delayMs: number) => Promise<void>;
+      onImageOutcomes: (outcomes: AiImageOutcome[]) => void;
+    };
   }) {
     const record = this.store.getPersona(input.personaId);
     if (!record) throw new Error('找不到 persona');
@@ -598,7 +605,7 @@ export class AgentRuntime {
     const willing = record.persona.willing;
     if (willing?.gatePrivate) {
       const decision = scoreReplyGate({
-        text: input.text,
+        text: input.live?.gateText ?? input.text,
         personaName: record.persona.name,
         fromOwner: true,
         interestTerms: this.personaInterestTerms(record.persona),
@@ -608,9 +615,10 @@ export class AgentRuntime {
       });
       if (!decision.shouldReply) {
         const ts = Date.now();
-        this.conversations.append(bucket, [
-          { role: 'user', text: input.text, ts, images: input.images },
-        ]);
+        if (!input.live)
+          this.conversations.append(bucket, [
+            { role: 'user', text: input.text, ts, images: input.images },
+          ]);
         return {
           text: '',
           segments: [],
@@ -627,6 +635,7 @@ export class AgentRuntime {
       }
     }
 
+    input.live?.onTyping();
     const now = Date.now();
     const { result, renderedTurns } = await this.generatePersonaTurns(
       record.persona,
@@ -634,7 +643,8 @@ export class AgentRuntime {
       {
         chatEndpoint,
         embeddingEndpoint,
-        history: input.history.length ? input.history : this.conversations.get(bucket),
+        history:
+          input.live || input.history.length ? input.history : this.conversations.get(bucket),
         historyScope: bucket,
         input: input.text,
         images: input.images,
@@ -650,17 +660,21 @@ export class AgentRuntime {
       text,
       ts: now,
     }));
-    this.conversations.append(bucket, [
-      {
-        role: 'user',
-        text: input.text,
-        ts: now,
-        ...(input.images?.length
-          ? { images: result.imageRefs ?? input.images, imageOutcomes: result.imageOutcomes }
-          : {}),
-      },
-      ...assistantTurns,
-    ]);
+    if (input.live) {
+      if (result.imageOutcomes) input.live.onImageOutcomes(result.imageOutcomes);
+      await input.live.deliver(assistantTurns, result.replyDelayMs);
+    } else
+      this.conversations.append(bucket, [
+        {
+          role: 'user',
+          text: input.text,
+          ts: now,
+          ...(input.images?.length
+            ? { images: result.imageRefs ?? input.images, imageOutcomes: result.imageOutcomes }
+            : {}),
+        },
+        ...assistantTurns,
+      ]);
 
     // 每隔若干轮，从最近对话蒸馏记忆 + 反思扮演效果（都不阻塞本次回复）。
     this.startBackground(

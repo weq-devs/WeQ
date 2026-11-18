@@ -5,7 +5,7 @@ import { IS_WEB } from '../lib/target.shared';
 type Pending = { id: string; state: string; hostReceived?: boolean };
 type Setter<T> = Dispatch<SetStateAction<T[]>>;
 
-function receiptToken(): string {
+export function newOutgoingRequestId(): string {
   if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   bytes[6] = (bytes[6]! & 15) | 64;
@@ -29,7 +29,7 @@ export function useOutgoingReceipts<A extends Pending, B extends Pending, C exte
   useEffect(() => {
     if (!IS_WEB) return;
     pending.current.clear();
-    channel.current = receiptToken();
+    channel.current = newOutgoingRequestId();
     let active = true;
     const subscription = client.account.outgoing.onReceived.subscribe(
       { channel: channel.current },
@@ -71,7 +71,7 @@ export function useOutgoingReceipts<A extends Pending, B extends Pending, C exte
     if (!IS_WEB) return {};
     for (const [token, previous] of pending.current)
       if (previous === id) pending.current.delete(token);
-    const token = receiptToken();
+    const token = newOutgoingRequestId();
     pending.current.set(token, id);
     return { outgoingReceipt: { channel: channel.current, token } };
   }, []);

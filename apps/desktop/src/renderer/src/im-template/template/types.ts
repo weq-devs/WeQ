@@ -174,6 +174,7 @@ type ConversationBase = {
   draftPreview?: string;
   /** 目录来源与 QQ 归档状态用于视图和能力判定，不改变实际消息身份。 */
   directoryKind?: 'qq' | 'official' | 'service' | 'guild' | 'persona' | 'cloneGroup' | 'assistant';
+  directoryRead?: { key: string; position: string };
   deleted?: boolean;
   updatedAt: string;
   /** 仅用于会话列表排序：已落库草稿等活动的毫秒时间，不改写消息时间。 */

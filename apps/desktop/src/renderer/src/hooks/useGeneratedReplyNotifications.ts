@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
+import { generatedMuteKey } from '@weq/service/client-preferences';
 import { useToast } from '../components/Toast.shared';
-import { accountBinding, preferenceValue } from '../lib/clientPreferences';
+import { accountBinding, preferenceValue, sharedAccountRecords } from '../lib/clientPreferences';
 import { notificationSource, openNotificationSource } from '../lib/notificationNavigation.shared';
 import { notificationEnabled, publishNotificationSystem } from '../lib/notificationPolicy';
 import { IS_WEB } from '../lib/target.shared';
@@ -32,6 +33,7 @@ export function useGeneratedReplyNotifications(uin: string, configId: string, re
           reply.kind === 'assistant'
             ? `assistant:${reply.conversationId}`
             : `virtual:${reply.kind}:${reply.conversationId}`;
+        if (sharedAccountRecords('notifications')[generatedMuteKey(id)] === true) return;
         const locked = useAppLock.getState().locked;
         if (
           !locked &&

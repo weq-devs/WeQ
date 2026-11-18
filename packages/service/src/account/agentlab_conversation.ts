@@ -176,15 +176,12 @@ export class ConversationStore {
     this.store.save();
   }
 
-  upsert(agentId: string, turn: ConversationTurn & { id: string }): void {
+  upsert(agentId: string, turn: ConversationTurn & { id: string }, requireDurable = false): void {
     const current = this.get(agentId);
     const index = current.findIndex((row) => row.id === turn.id);
     if (index < 0) current.push(turn);
     else current[index] = { ...current[index], ...turn };
-    this.store.replace({
-      ...this.store.data,
-      [agentId]: current,
-    });
+    this.store.replace({ ...this.store.data, [agentId]: current }, requireDurable);
   }
   removeTurn(agentId: string, id: string): void {
     this.store.replace({

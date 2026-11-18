@@ -111,14 +111,32 @@ const clone = virtualConversationRow({
   kind: 'persona',
   ownerId: 'p1',
   name: '克隆同学',
+  directoryRead: { key: 'persona:p1', position: '10' },
 });
-const assistant = assistantConversationRow({ id: 's1', title: '会议整理', updatedAt: 12345 });
+const assistant = assistantConversationRow({
+  id: 's1',
+  title: '会议整理',
+  updatedAt: 12345,
+  directoryRead: { key: 'assistant:s1', position: '12' },
+});
 const official = feedConversationRow(
-  { id: 'u_official', name: '公众号甲', sendTime: '1000', prompt: '推文' },
+  {
+    id: 'u_official',
+    name: '公众号甲',
+    sendTime: '1000',
+    prompt: '推文',
+    directoryRead: { key: 'official:u_official', position: '1:2:3' },
+  },
   'official',
 );
 const service = feedConversationRow(
-  { id: '1000', name: '服务号甲', sendTime: '1000', prompt: '通知' },
+  {
+    id: '1000',
+    name: '服务号甲',
+    sendTime: '1000',
+    prompt: '通知',
+    directoryRead: { key: 'service:1000', position: '1:2:3' },
+  },
   'service',
 );
 const hidden = { ...direct('u_hidden', '隐藏同学'), hidden: true };
@@ -133,7 +151,13 @@ const directory: ConversationViewDirectory = {
   groupAssistant: [group],
   official: [official],
   service: [service],
-  guild: [{ ...direct('guild:n1'), directoryKind: 'guild' }],
+  guild: [
+    {
+      ...direct('guild:n1'),
+      directoryKind: 'guild',
+      directoryRead: { key: 'guild:n1', position: '1:2:3' },
+    },
+  ],
   hidden: [hidden],
   deleted: [deleted],
   clone: [clone],
@@ -208,8 +232,8 @@ describe('会话视图的平铺集合', () => {
 });
 describe('会话操作能力', () => {
   it('分类不支持的项目不展示，空选区不改变视图的项目集合', () => {
-    expect(conversationViewActions('official')).toEqual(['export']);
-    expect(conversationViewActions('assistant')).toEqual(['export', 'delete']);
+    expect(conversationViewActions('official')).toEqual(['export', 'read']);
+    expect(conversationViewActions('assistant')).toEqual(['export', 'read', 'delete']);
     expect(conversationViewActions('hidden')).not.toContain('read');
     expect(conversationViewActions('deleted')).not.toContain('read');
   });
@@ -219,7 +243,7 @@ describe('会话操作能力', () => {
     for (const row of [official, service, directory.guild[0]!]) {
       expect(conversationSupportsAction(row, 'export')).toBe(true);
       expect(conversationSupportsAction(row, 'roaming')).toBe(false);
-      expect(conversationSupportsAction(row, 'read')).toBe(false);
+      expect(conversationSupportsAction(row, 'read')).toBe(true);
       expect(conversationAnalysisTarget(row)).toBeNull();
       expect(conversationRoamingTarget(row)).toBeNull();
     }
@@ -235,7 +259,12 @@ describe('会话操作能力', () => {
       unsupported: [group, hidden, deleted, official],
     });
     expect(splitConversationAction(selection, 'roster').supported).toEqual([group]);
-    expect(splitConversationAction(selection, 'read').supported).toEqual([group]);
+    expect(splitConversationAction(selection, 'read').supported).toEqual([
+      group,
+      clone,
+      assistant,
+      official,
+    ]);
     expect(splitConversationAction(selection, 'export').supported).toHaveLength(selection.length);
   });
 });

@@ -497,6 +497,7 @@ export type ChatPaneProps = {
   loadError?: string;
   /** 数据源适配扩展入口，不替换聊天页面、输入区或消息列表。 */
   headerActions?: React.ReactNode;
+  peerTyping?: string;
   settingsLabel?: string;
   jumpRequest?: { messageId: string; revision: number };
   sendBlockedReason?: string;
@@ -787,6 +788,7 @@ export function ChatPane({
   missingJumpSeq,
   resolvedGapIds,
   headerActions,
+  peerTyping,
   settingsLabel = '会话设置',
   jumpRequest,
   sendBlockedReason,
@@ -6026,7 +6028,11 @@ export function ChatPane({
           </>
         }
         status={
-          !restrictedSource && !dataLine && conversation.type === 'direct' ? (
+          peerTyping ? (
+            <span className="weq-online-status" role="status">
+              {peerTyping}
+            </span>
+          ) : !restrictedSource && !dataLine && conversation.type === 'direct' ? (
             <OnlineStatus
               uid={conversation.otherUser.id}
               selfUin={
@@ -6038,7 +6044,11 @@ export function ChatPane({
           ) : null
         }
         mobileStatus={
-          !restrictedSource && !dataLine && conversation.type === 'direct' ? (
+          peerTyping ? (
+            <span className="weq-online-status" role="status">
+              {peerTyping}
+            </span>
+          ) : !restrictedSource && !dataLine && conversation.type === 'direct' ? (
             <OnlineStatus
               uid={conversation.otherUser.id}
               selfUin={

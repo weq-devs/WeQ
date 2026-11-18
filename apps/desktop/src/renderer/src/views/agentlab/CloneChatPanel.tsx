@@ -2,7 +2,7 @@
  * 克隆私聊的数据源适配：页面、输入区、消息与多选全部由普通 ChatPane 渲染。
  * 每个克隆角色始终读写同一段长期对话，旧子会话由服务层合并。
  */
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useMemo, useState, type ReactElement } from 'react';
 import type { AgentLabModelSelection } from '@weq/agentlab';
 import type { GeneratedSearchHit } from '../../components/search/types';
 import { ChatPane } from '../../im-template/template/chatPane';
@@ -13,7 +13,7 @@ import { AiImageComposer, AiImageGallery } from '../../components/AiImageCompose
 import { parseAiImageDraft, changeAiImageDraftText } from '../../lib/aiImageDraft';
 import { useSharedAssistantDraft } from '../../hooks/useSharedAssistantDraft';
 import type { AiImageRef, AiImageOutcome } from '@weq/agentlab';
-import { useAppDialog } from '../../lib/dialogUtils';
+import { useLiveCloneConversation } from './useLiveCloneConversation';
 import { AgentMessageContent, type FaceContext } from './ChatBubble';
 import { inputFaceContext } from './ChatBubble.shared';
 import {
@@ -22,8 +22,6 @@ import {
   cloneChatMessages,
   cloneChatInput,
 } from './cloneChatAdapter';
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /** 左栏克隆体列表项的子集（面板只读这几个字段）。 */
 export interface ClonePersonaLite {
@@ -81,17 +79,20 @@ export function CloneChatPanel({
   onNewSession?: () => void;
   onOpenSettings: (anchor?: HTMLElement) => void;
 }): ReactElement {
-  const dialog = useAppDialog();
   const userFaces = useMemo(() => (faces ? inputFaceContext(faces.descToId) : undefined), [faces]);
-  const utils = trpc.useUtils();
-  const chat = trpc.account.chatWithAgentLabPersona.useMutation();
   const legacy = readOnlyLegacy;
   const conversation = trpc.account.getAgentLabConversation.useQuery(
     { personaId },
     { staleTime: 0, refetchOnMount: 'always' },
   );
 
-  const [history, setHistory] = useState<ChatTurn[]>([]);
+  const { history, send, typing, ready } = useLiveCloneConversation<ChatTurn>(
+    'persona',
+    personaId,
+    conversation.data,
+    !legacy,
+    (event) => (event.kind === 'persona-message' ? event.message : undefined),
+  );
   useDirectoryReadPosition(
     `persona:${personaId}`,
     String(
@@ -100,9 +101,6 @@ export function CloneChatPanel({
   );
   const [input, setInput] = useState('');
   const [imageUploading, setImageUploading] = useState(false);
-  const [animating, setAnimating] = useState(false);
-  const seeded = useRef(false);
-  const lastPersisted = useRef(conversation.data);
   const [searchOpen, setSearchOpen] = useState(false);
   const [jumpRequest, setJumpRequest] = useState(
     searchTarget ? { messageId: searchTarget.messageId, revision: 0 } : undefined,
@@ -169,80 +167,16 @@ export function CloneChatPanel({
     [userFaces, faces, personaId, sourceMessages],
   );
 
-  // 首次加载持久化对话（真实会话）。
-  useEffect(() => {
-    if (
-      !animating &&
-      conversation.data &&
-      !conversation.isFetching &&
-      (!seeded.current || lastPersisted.current !== conversation.data)
-    ) {
-      setHistory(conversation.data.map((t) => ({ ...t })));
-      seeded.current = true;
-      lastPersisted.current = conversation.data;
-    }
-  }, [conversation.data, conversation.isFetching, searchTarget, animating]);
-
   async function onSend(body: string): Promise<void> {
-    if (legacy || !personaId || chat.isLoading || animating || imageUploading) return;
+    if (legacy || !ready || imageUploading) return;
     const text = cloneChatInput(body, faces?.descToId ?? new Map()).trim();
     const images = parseAiImageDraft(input).images;
     if (!text && !images.length) return;
-    const submitted = input;
-    const clearSubmittedDraft = sharedDraft.prepareSubmitted(submitted);
+    const clearSubmittedDraft = sharedDraft.prepareSubmitted(input);
     setJumpRequest(undefined);
-    setAnimating(true);
     setInput('');
-    const nextHistory = [...history, { role: 'user' as const, text, images, ts: Date.now() }];
-    setHistory(nextHistory);
-    try {
-      const result = await chat.mutateAsync({
-        personaId,
-        text,
-        images,
-        history: history.map(({ role, text }) => ({ role, text: text || '[图片]' })),
-      });
-      void clearSubmittedDraft().catch(() => {});
-      // 首句标题 / 时间刷新由后端落库，这里让列表跟上。
-      void utils.account.listAgentLabPersonas.invalidate();
-      // 发言意愿对私聊生效且这次「懒得回」：只保留用户这条，不加回复气泡。
-      if (result.silent) {
-        seeded.current = true;
-        void utils.account.getAgentLabConversation.invalidate({ personaId });
-        return;
-      }
-      const segments =
-        result.renderedTurns && result.renderedTurns.length > 0
-          ? [...result.renderedTurns]
-          : [
-              ...(result.segments ?? []),
-              ...(result.sticker ? [`[[sticker:${result.sticker.md5}]]`] : []),
-            ];
-      if (segments.length === 0) segments.push(result.text);
-      await sleep(Math.min(1800, result.replyDelayMs ?? 500));
-      let acc = nextHistory;
-      for (let i = 0; i < segments.length; i += 1) {
-        const seg = segments[i]!;
-        acc = [...acc, { role: 'assistant' as const, text: seg, ts: Date.now() }];
-        setHistory(acc);
-        if (i < segments.length - 1) {
-          await sleep(Math.min(1600, 320 + seg.length * 55));
-        }
-      }
-      // 让持久化对话缓存跟上（后端已逐条落库）；否则切走再切回会从陈旧缓存 reseed 丢消息。
-      seeded.current = true;
-      void utils.account.getAgentLabConversation.invalidate({ personaId });
-    } catch (error) {
-      // 生成失败前可能已经保存用户消息，主列表仍需读取实际活动时间。
-      void utils.account.listAgentLabPersonas.invalidate();
-      dialog.error('发送失败', error instanceof Error ? error.message : String(error));
-      setHistory(history);
-      setInput((current) => current || submitted);
-      throw error;
-    } finally {
-      setAnimating(false);
-      void utils.account.getAgentLabConversation.invalidate({ personaId });
-    }
+    await send(text, images, (id, ts) => ({ id, ts, role: 'user', text, images }));
+    void clearSubmittedDraft().catch(() => {});
   }
 
   return (
@@ -251,7 +185,7 @@ export function CloneChatPanel({
         fill
         value={input}
         setValue={setInput}
-        disabled={legacy || chat.isLoading || animating}
+        disabled={legacy || !ready}
         onBusyChange={setImageUploading}
         onSendImages={() => {
           void onSend(parseAiImageDraft(input).text).catch(() => {});
@@ -276,11 +210,12 @@ export function CloneChatPanel({
             onDraftClear={() => setInput('')}
             onSend={onSend}
             onBack={onBack}
-            sendAvailable={!legacy && !chat.isLoading && !animating && !imageUploading}
+            sendAvailable={!legacy && ready && !imageUploading}
             readOnly={legacy}
             sendBlockedReason={
-              legacy ? '旧版对话（只读）' : imageUploading ? '正在准备图片' : '克隆体正在回复'
+              legacy ? '旧版对话（只读）' : imageUploading ? '正在准备图片' : '账号尚未就绪'
             }
+            peerTyping={typing ? '对方正在输入…' : undefined}
             settingsLabel="克隆体设置"
             onOpenConversationSettings={(_conversation, anchor) => onOpenSettings(anchor)}
             onSearchChatRecords={() => setSearchOpen(true)}

@@ -157,9 +157,9 @@ export function conversationViewActions(
 ): readonly ConversationBatchAction[] {
   if (view === 'regular' || view === 'groupAssistant') return QQ_ACTIONS;
   if (view === 'hidden' || view === 'deleted') return ['export', 'roaming', 'roster'];
-  if (view === 'clone' || view === 'assistant') return ['export', 'delete'];
+  if (view === 'clone' || view === 'assistant') return ['export', 'read', 'delete'];
   if (view === 'all') return [...QQ_ACTIONS, 'delete'];
-  return ['export'];
+  return ['export', 'read'];
 }
 export function isGeneratedConversation(row: Conversation): boolean {
   return Boolean(row.generated) || row.id.startsWith('virtual:') || row.id.startsWith('assistant:');
@@ -172,6 +172,7 @@ export function conversationSupportsAction(
   const generated = isGeneratedConversation(row);
   if (action === 'delete') return generated;
   if (action === 'export') return true;
+  if (action === 'read' && row.directoryRead) return !row.hidden && !row.deleted;
   if (generated) return false;
   const special =
     row.directoryKind === 'official' ||

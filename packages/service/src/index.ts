@@ -410,7 +410,7 @@ export type { FileType, SearchResult } from './account/file_search';
 export { OnlineStatusService } from './account/online_status';
 export type { OnlineStatusOnlineDeps } from './account/online_status';
 export type { FormattedOnlineStatus } from './account/online_status';
-export { AgentLabService } from './account/agentlab';
+export { AgentLabService, type CloneConversationEvent } from './account/agentlab';
 export type {
   AgentLabMediaDeps,
   EndpointResolver,

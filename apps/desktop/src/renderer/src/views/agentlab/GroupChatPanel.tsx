@@ -1,24 +1,20 @@
 /**
  * 克隆群聊的数据源与设置适配：聊天页面唯一实现为普通 ChatPane。
  *
- * 发一条消息 → 后端让「被 @ 或全部」克隆体各回 → 每条回复经 account.onGroupChatEvent
- * 流式推来，投影为普通 Message / Conversation 后交给共用时间线。
  * @ 选择：输入 @ 弹出成员浮层，选中插入 @名字；发送时按文本里出现的 @名字 推出 mentions。
- *
- * 事件按 groupId 过滤（而非事后才拿到的
- * groupRunId），避免「用户那条消息比 mutation 响应更早到达」的竞态把它漏掉。
  */
 import { EmptyState } from '../../components/EmptyState';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Trash2, Users, UserMinus, UserPlus, Settings2, UsersRound } from 'lucide-react';
 import { ChatPane } from '../../im-template/template/chatPane';
 import { ChatRecordsModal } from '../../components/search/ChatRecordsModal';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
-import { trpc, client } from '../../trpc/client';
+import { trpc } from '../../trpc/client';
 import { AiImageComposer, AiImageGallery } from '../../components/AiImageComposer';
 import { parseAiImageDraft, changeAiImageDraftText } from '../../lib/aiImageDraft';
 import { useSharedAssistantDraft } from '../../hooks/useSharedAssistantDraft';
 import { useDirectoryReadPosition } from '../../hooks/useDirectoryReadPosition';
+import { useLiveCloneConversation } from './useLiveCloneConversation';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { ConversationSettingsFrame } from '../../components/ConversationSettingsFrame';
 import { QqAvatar } from '../../components/QqAvatar';
@@ -86,13 +82,23 @@ export function GroupChatPanel({
     { groupId },
     { refetchOnMount: 'always', staleTime: 0 },
   );
-  const send = trpc.account.sendAgentLabGroupMessage.useMutation();
   const clear = trpc.account.clearAgentLabGroupConversation.useMutation();
   const del = trpc.account.deleteAgentLabGroup.useMutation();
   const addMember = trpc.account.addAgentLabGroupMember.useMutation();
   const removeMember = trpc.account.removeAgentLabGroupMember.useMutation();
 
-  const [history, setHistory] = useState<AgentLabGroupMessage[]>([]);
+  const {
+    history,
+    send,
+    typing: busy,
+    ready,
+  } = useLiveCloneConversation<AgentLabGroupMessage>(
+    'group',
+    groupId,
+    conversation.data,
+    !legacy,
+    (event) => (event.kind === 'group-message' ? event.message : undefined),
+  );
   useDirectoryReadPosition(
     `clone-group:${groupId}`,
     String(
@@ -101,7 +107,6 @@ export function GroupChatPanel({
   );
   const [input, setInput] = useState('');
   const [imageUploading, setImageUploading] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [settingsAnchor, setSettingsAnchor] = useState<HTMLElement>();
   const [addingMembers, setAddingMembers] = useState(false);
@@ -109,7 +114,6 @@ export function GroupChatPanel({
   const addingMember = useRef(false);
   const removingMember = useRef(false);
   const [settingsSection, setSettingsSection] = useState<'members' | 'management'>('members');
-  const seenIds = useRef<Set<string>>(new Set());
   const [searchOpen, setSearchOpen] = useState(false);
   const [memberSearchKeyword, setMemberSearchKeyword] = useState('');
   const [jumpRequest, setJumpRequest] = useState(
@@ -149,103 +153,34 @@ export function GroupChatPanel({
     [members],
   );
 
-  // 把持久化群消息合并进本地历史：按 id 去重、只补不删（流式已在的不动）、按时间排序。
-  // 这样切走再切回 / 漏事件时都能从磁盘补齐，不会像「只 seed 一次」那样卡在陈旧缓存上。
-  useEffect(() => {
-    const data = conversation.data;
-    if (searchTarget && conversation.isFetching) return;
-    if (!data || data.length === 0) return;
-    const missing = data.filter((m) => !seenIds.current.has(m.id));
-    missing.forEach((m) => {
-      seenIds.current.add(m.id);
-    });
-    const incoming = new Map(
-      data
-        .slice(-16)
-        .filter((message) => message.imageOutcomes)
-        .map((message) => [message.id, message]),
-    );
-    setHistory((prev) => {
-      let updated = false;
-      const merged = prev.map((message) => {
-        const fresh = incoming.get(message.id);
-        if (!fresh || JSON.stringify(fresh.imageOutcomes) === JSON.stringify(message.imageOutcomes))
-          return message;
-        updated = true;
-        return { ...message, imageOutcomes: fresh.imageOutcomes };
-      });
-      return updated || missing.length ? [...merged, ...missing].sort((a, b) => a.ts - b.ts) : prev;
-    });
-  }, [conversation.data, conversation.isFetching, searchTarget]);
-
-  // 订阅处理器里要用 dialog / utils，但它们每次渲染都是新对象；直接进依赖会让订阅
-  // 每帧重建（unsubscribe + 重新 subscribe），事件恰好落在空窗期就丢了 → 用 ref 拿最新实现。
-  const dialogRef = useRef(dialog);
-  dialogRef.current = dialog;
-  const utilsRef = useRef(utils);
-  utilsRef.current = utils;
-
-  // 群聊事件流：按 groupId 过滤，逐条追加（id 去重防重复事件）。
-  useEffect(() => {
-    if (legacy) return undefined;
-    const sub = client.account.onGroupChatEvent.subscribe(undefined, {
-      onData: (ev) => {
-        if (ev.groupId !== groupId) return;
-        if (ev.kind === 'message') {
-          if (seenIds.current.has(ev.message.id)) return;
-          seenIds.current.add(ev.message.id);
-          setHistory((prev) => [...prev, ev.message]);
-          void utilsRef.current.account.listAgentLabGroups.invalidate();
-        } else if (ev.kind === 'done') {
-          setBusy(false);
-          // 让持久化群消息缓存跟上（后端已逐条落库）；否则切走再切回会从陈旧缓存 reseed 丢消息。
-          void utilsRef.current.account.getAgentLabGroupConversation.invalidate({
-            groupId,
-          });
-          // 首句标题 / 时间刷新由后端落库，这里让会话列表跟上。
-          void utilsRef.current.account.listAgentLabGroups.invalidate();
-        } else if (ev.kind === 'error') {
-          setBusy(false);
-          dialogRef.current.error('群聊出错', ev.message);
-        }
-      },
-      onError: (err) => console.error('[groupchat] event subscription error', err),
-    });
-    return () => sub.unsubscribe();
-    // 只按 groupId 过滤，其余状态全走 ref / 稳定 setter —— 订阅建一次即可，不随渲染重建。
-  }, [groupId, legacy]);
-
   async function onSend(body: string): Promise<void> {
-    if (legacy) return;
+    if (legacy || !ready || imageUploading) return;
     const text = cloneChatInput(body, faceDescToId).trim();
     const images = parseAiImageDraft(input).images;
-    if ((!text && !images.length) || busy || imageUploading) return;
-    const submitted = input;
-    const clearSubmittedDraft = sharedDraft.prepareSubmitted(submitted);
+    if (!text && !images.length) return;
+    const clearSubmittedDraft = sharedDraft.prepareSubmitted(input);
     setJumpRequest(undefined);
     // 文本里出现 @某克隆体名 → 定向 @；一个都没有 → 全体应答（后端逻辑）。
     const mentions = personaMembers
       .filter((m) => text.includes(`@${m.displayName}`))
       .map((m) => m.memberId);
     setInput('');
-    setBusy(true);
-    try {
-      await send.mutateAsync({ groupId, text, images, mentions });
-      void clearSubmittedDraft().catch(() => {});
-      // 用户消息与所有回复都由 onGroupChatEvent 流式送达，这里不做乐观插入（避免重复）。
-      // 发送完成后立刻从磁盘刷一次：漏掉的事件对应的消息已落库，合并 effect 会按 id 补齐。
-      void utils.account.getAgentLabGroupConversation.invalidate({
+    await send(
+      text,
+      images,
+      (id, ts) => ({
+        id,
+        ts,
         groupId,
-      });
-    } catch (e) {
-      setBusy(false);
-      dialog.error('发送失败', e instanceof Error ? e.message : String(e));
-      setInput((current) => current || submitted);
-      throw e;
-    } finally {
-      // 事件漏发或生成失败时，也从落库消息恢复主列表的活动时间和预览。
-      void utils.account.listAgentLabGroups.invalidate();
-    }
+        senderId: 'self',
+        senderKind: 'user',
+        text,
+        images,
+        mentions,
+      }),
+      mentions,
+    );
+    void clearSubmittedDraft().catch(() => {});
   }
 
   async function onClear(): Promise<void> {
@@ -261,8 +196,6 @@ export function GroupChatPanel({
       utils.account.getAgentLabGroupConversation.invalidate({ groupId }),
       utils.account.listAgentLabGroups.invalidate(),
     ]);
-    setHistory([]);
-    seenIds.current.clear();
   }
 
   async function onAddMembers(personaIds: string[]): Promise<AddGroupMembersResult> {
@@ -466,7 +399,7 @@ export function GroupChatPanel({
         fill
         value={input}
         setValue={setInput}
-        disabled={legacy || busy}
+        disabled={legacy || !ready}
         onBusyChange={setImageUploading}
         onSendImages={() => {
           void onSend(parseAiImageDraft(input).text).catch(() => {});
@@ -504,11 +437,12 @@ export function GroupChatPanel({
             onDraftClear={() => setInput('')}
             onSend={onSend}
             onBack={onBack}
-            sendAvailable={!legacy && !busy && !imageUploading}
+            sendAvailable={!legacy && ready && !imageUploading}
             readOnly={legacy}
             sendBlockedReason={
-              legacy ? '旧版对话（只读）' : imageUploading ? '正在准备图片' : '克隆体正在回复'
+              legacy ? '旧版对话（只读）' : imageUploading ? '正在准备图片' : '账号尚未就绪'
             }
+            peerTyping={busy ? '有成员正在输入…' : undefined}
             settingsLabel="克隆群聊设置"
             onOpenConversationSettings={(_conversation, anchor) => {
               setSettingsAnchor(anchor);

@@ -129,8 +129,18 @@ export class JsonGroupStore implements AgentLabGroupStore {
     this.persist();
   }
 
-  appendMessage(message: AgentLabGroupMessage): void {
+  appendMessage(message: AgentLabGroupMessage, requireDurable = false): void {
     const cur = this.data.messages[message.groupId] ?? [];
+    if (requireDurable) {
+      this.store.replace(
+        {
+          ...this.data,
+          messages: { ...this.data.messages, [message.groupId]: [...cur, message] },
+        },
+        true,
+      );
+      return;
+    }
     cur.push(message);
     this.data.messages[message.groupId] = cur;
     this.persist();

@@ -8,6 +8,9 @@ import {
   isRecord,
   validReadPosition,
   newerReadPosition,
+  isDirectoryReadKey,
+  directoryUnreadKey,
+  type DirectoryReadChange,
   validatePreferencePatch,
   type ClientStateSnapshot,
   type ClientStateChange,
@@ -21,6 +24,30 @@ interface State extends ClientStateSnapshot {
   versionedDrafts?: boolean;
   draftBytes?: Record<string, number>;
   restoredReceipts?: string[];
+}
+
+function directoryReadEntry(
+  rows: Record<string, unknown>,
+  key: string,
+): DirectoryReadChange['before'] {
+  const position = rows[key];
+  const marker = rows[directoryUnreadKey(key)];
+  return {
+    position: validReadPosition(position) ? position : undefined,
+    marker: typeof marker === 'string' ? marker : undefined,
+  };
+}
+
+function writeDirectoryReadEntry(
+  rows: Record<string, unknown>,
+  key: string,
+  entry: DirectoryReadChange['before'],
+) {
+  const marker = directoryUnreadKey(key);
+  if (entry.position === undefined) delete rows[key];
+  else rows[key] = entry.position;
+  if (entry.marker === undefined) delete rows[marker];
+  else rows[marker] = entry.marker;
 }
 export function validateClientState(value: unknown): asserts value is State {
   if (
@@ -262,22 +289,38 @@ export class ClientStateStore {
       if (namespace === 'pins' && value !== null && typeof value !== 'boolean')
         throw new Error('无效的置顶状态');
       if (namespace === 'reads') {
-        if (!validReadPosition(value)) throw new Error('无效的阅读位置');
-        const previous = rows[key];
-        if (typeof previous === 'string' && !newerReadPosition(value, previous)) continue;
+        const observation = !seed && isDirectoryReadKey(key) && isRecord(value) ? value : null;
+        const position = observation ? observation.position : value;
+        if (!validReadPosition(position) || key.startsWith('unread:'))
+          throw new Error('无效的阅读位置');
+        const { position: previous, marker } = directoryReadEntry(rows, key);
+        const newer = newerReadPosition(position, previous);
+        // 迟到的自动阅读不能清掉另一端随后留下的手动标记。
+        if (
+          marker &&
+          observation?.marker === marker &&
+          (!previous || previous === position || newer)
+        )
+          delete rows[directoryUnreadKey(key)];
+        if (!previous || (!seed && newer)) rows[key] = position;
+        continue;
       }
-      if (
-        namespace === 'notifications' &&
-        value !== null &&
-        (!['mentionMe', 'mentionAll', 'replyMe', 'redPacket'].includes(key) ||
-          !isRecord(value) ||
-          !['all', 'selected'].includes(String(value.mode)) ||
-          !Array.isArray(value.targets) ||
-          value.targets.some(
-            (target) => typeof target !== 'string' || !/^(c2c|group|dataline):.+/.test(target),
-          ))
-      )
-        throw new Error('无效的通知会话范围');
+      if (namespace === 'notifications') {
+        if (/^mute:(virtual:(?:persona|group)|assistant):.+$/.test(key)) {
+          if (typeof value !== 'boolean') throw new Error('无效的免打扰状态');
+        } else if (
+          value !== null &&
+          (!['mentionMe', 'mentionAll', 'replyMe', 'redPacket'].includes(key) ||
+            !isRecord(value) ||
+            !['all', 'selected'].includes(String(value.mode)) ||
+            !Array.isArray(value.targets) ||
+            value.targets.some(
+              (target) => typeof target !== 'string' || !/^(c2c|group|dataline):.+/.test(target),
+            ))
+        ) {
+          throw new Error('无效的通知会话范围');
+        }
+      }
       if (['tasks', 'assistant'].includes(namespace) && value !== null && typeof value !== 'string')
         throw new Error('无效的结果版本');
       if (
@@ -315,6 +358,47 @@ export class ClientStateStore {
     if (Object.keys(rows).length > 16384) throw new Error('账号状态超过容量限制');
     state.records[namespace] = rows;
     return this.commit(state, namespace);
+  }
+  setDirectoryReadState(targets: readonly { key: string; position: string }[], unread: boolean) {
+    const state = this.read();
+    const rows = { ...state.records.reads };
+    const changes: DirectoryReadChange[] = [];
+    for (const { key, position } of new Map(
+      targets.map((target) => [target.key, target]),
+    ).values()) {
+      if (!isDirectoryReadKey(key) || !validReadPosition(position))
+        throw new Error('无效的会话阅读位置');
+      const before = directoryReadEntry(rows, key);
+      const after: DirectoryReadChange['after'] = unread
+        ? { ...before, marker: String(state.revision + 1) }
+        : { position: newerReadPosition(position, before.position) ? position : before.position };
+      if (before.position !== after.position || before.marker !== after.marker) {
+        writeDirectoryReadEntry(rows, key, after);
+        changes.push({ key, before, after });
+      }
+    }
+    if (changes.length) this.commitDirectoryReads(state, rows);
+    return changes;
+  }
+
+  undoDirectoryReadState(changes: readonly DirectoryReadChange[]): number {
+    const state = this.read();
+    const rows = { ...state.records.reads };
+    let restored = 0;
+    for (const { key, before, after } of changes) {
+      const actual = directoryReadEntry(rows, key);
+      if (actual.position !== after.position || actual.marker !== after.marker) continue;
+      writeDirectoryReadEntry(rows, key, before);
+      restored += 1;
+    }
+    if (restored) this.commitDirectoryReads(state, rows);
+    return restored;
+  }
+
+  private commitDirectoryReads(state: State, rows: Record<string, unknown>) {
+    if (Object.keys(rows).length > 16384) throw new Error('账号状态超过容量限制');
+    state.records.reads = rows;
+    this.commit(state, 'reads');
   }
   draft(key: string): SharedDraft {
     return this.readDraft(this.read(), key);

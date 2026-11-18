@@ -5,6 +5,7 @@ import { ReminderCount } from '../../components/ReminderBadge';
 import { useUnreadMarkers } from '../../lib/unreadMarkers';
 import { occupationText } from '@weq/protocol/profile-values';
 import {
+  Bell,
   BellOff,
   Bot,
   PenLine,
@@ -832,12 +833,14 @@ export function ConversationList({
                 : [];
             // 免打扰：会话自带的 DB 值（41220）打底，本地手动偏好覆盖 ——
             // 与 shellController.countVisibleUnreadConversations 的 merge 顺序保持一致。
-            const muted = Boolean(
-              {
-                ...conversation.preference,
-                ...preferences[conversation.id],
-              }.muted,
-            );
+            const muted = conversation.generated
+              ? Boolean(conversation.preference?.muted)
+              : Boolean(
+                  {
+                    ...conversation.preference,
+                    ...preferences[conversation.id],
+                  }.muted,
+                );
             const pinned = isPinned(conversation, preferences);
             const virtualRow = directory?.virtual.find((item) => item.id === conversation.id);
             const canOpenContextMenu = conversation.type !== 'merged' || Boolean(directory?.onPin);
@@ -1102,9 +1105,31 @@ export function ConversationList({
               ...(!aggregateMenu && conversationViewActions(view).includes('read')
                 ? batch.readStateMenuActions(actionMenu.ids)
                 : []),
+              ...(directory?.onMuteGenerated &&
+              actionMenu.conversation.generated &&
+              actionMenu.ids.length === 1
+                ? [
+                    {
+                      label: actionMenu.conversation.preference?.muted
+                        ? '取消免打扰'
+                        : '消息免打扰',
+                      icon: actionMenu.conversation.preference?.muted ? (
+                        <Bell size={16} />
+                      ) : (
+                        <BellOff size={16} />
+                      ),
+                      action: () =>
+                        directory.onMuteGenerated?.(
+                          actionMenu.conversation,
+                          !actionMenu.conversation.preference?.muted,
+                        ),
+                    },
+                  ]
+                : []),
               ...(directory?.onPin &&
               (aggregateMenu ||
-                conversationSupportsAction(actionMenu.conversation, 'read') ||
+                (!actionMenu.conversation.directoryRead &&
+                  conversationSupportsAction(actionMenu.conversation, 'read')) ||
                 (actionMenu.conversation.generated &&
                   actionMenu.conversation.generated.kind !== 'assistant')) &&
               actionMenu.ids.length === 1

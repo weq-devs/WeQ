@@ -209,6 +209,16 @@ export function newerReadPosition(next: string, previous = '0'): boolean {
   }
   return false;
 }
+export const isDirectoryReadKey = (key: string) =>
+  /^(persona|clone-group|assistant|official|service|guild):.{1,960}$/.test(key);
+export const directoryUnreadKey = (key: string) => `unread:${key}`;
+export const generatedMuteKey = (id: string) => `mute:${id}`;
+
+export type DirectoryReadChange = {
+  key: string;
+  before: { position?: string; marker?: string };
+  after: { position?: string; marker?: string };
+};
 /** 与只读分页共用三字段顺序，保留零／重复序号及负消息 ID。 */
 export function messageReadPosition(row: {
   msgSeq: string | bigint;

@@ -12,7 +12,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ClientStateStore } from '../src/bootstrap/client_state';
-import { preferenceDefaults } from '../src/common/client_preferences';
+import {
+  directoryUnreadKey,
+  generatedMuteKey,
+  preferenceDefaults,
+} from '../src/common/client_preferences';
 
 const failure = vi.hoisted(() => ({ path: '', body: false }));
 vi.mock('../src/common/atomic_write', async (original) => {
@@ -39,6 +43,45 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 describe('跨端偏好与功能状态', () => {
+  it('生成会话的免打扰与其他通知范围独立持久化', () => {
+    const state = store();
+    const key = generatedMuteKey('virtual:persona:one');
+    const mentionMe = { mode: 'selected', targets: ['group:10001'] };
+    state.records('notifications', { [key]: true });
+    state.records('notifications', { mentionMe });
+    expect(new ClientStateStore(state.path).snapshot().records.notifications).toEqual({
+      [key]: true,
+      mentionMe,
+    });
+    state.records('notifications', { [key]: false });
+    expect(state.snapshot().records.notifications).toEqual({ [key]: false, mentionMe });
+  });
+  it('专类会话手动未读不倒退水位，迟到自动阅读和撤销不覆盖较新的状态', () => {
+    const state = store();
+    const assistant = { key: 'assistant:one', position: '20' };
+    const feed = { key: 'official:two', position: '9:5:-1' };
+    const marker = directoryUnreadKey(assistant.key);
+    state.records('reads', { [assistant.key]: '20', [feed.key]: '8:1:-1' });
+    const reminder = state.setDirectoryReadState([assistant], true);
+    state.records('reads', { [assistant.key]: '20' });
+    const reopened = new ClientStateStore(state.path);
+    expect(reopened.snapshot().records.reads).toMatchObject({
+      [assistant.key]: '20',
+      [marker]: reminder[0]?.after.marker,
+    });
+    reopened.records('reads', {
+      [assistant.key]: { position: '20', marker: reminder[0]?.after.marker },
+    });
+    expect(reopened.undoDirectoryReadState(reminder)).toBe(0);
+    expect(reopened.snapshot().records.reads?.[marker]).toBeUndefined();
+    const cleared = reopened.setDirectoryReadState([{ ...assistant, position: '30' }, feed], false);
+    reopened.records('reads', { [assistant.key]: '31' });
+    expect(reopened.undoDirectoryReadState(cleared)).toBe(1);
+    expect(reopened.snapshot().records.reads).toMatchObject({
+      [assistant.key]: '31',
+      [feed.key]: '8:1:-1',
+    });
+  });
   it('阅读水位单调递增，迟到写入及初始化不能覆盖较新阅读位置，重开后保留', () => {
     const state = store();
     state.records('reads', { 'guild:1': '9007199254740993', 'assistant:one': '10' });

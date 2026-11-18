@@ -28,12 +28,12 @@ export function useConversationBatchActions(conversations: Conversation[]) {
   const rows = useMemo(
     () =>
       new Map([
-        ...conversations.map((row) => [row.id, row] as const),
-        ...(directory?.real ?? []).map((row) => [row.id, row] as const),
-        ...(directory?.rows ?? []).map((row) => [row.id, row] as const),
         ...(directory?.virtual ?? []).map(
           (item) => [item.id, virtualConversationRow(item)] as const,
         ),
+        ...conversations.map((row) => [row.id, row] as const),
+        ...(directory?.real ?? []).map((row) => [row.id, row] as const),
+        ...(directory?.rows ?? []).map((row) => [row.id, row] as const),
       ]),
     [conversations, directory?.real, directory?.rows, directory?.virtual],
   );

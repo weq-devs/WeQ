@@ -117,7 +117,14 @@ import { createContactMetricsRouter } from './contact_metrics';
 import { createNoticeReadRouter } from './notice_read';
 import { readMessageHistoryPage } from './message_history_page';
 import { mergeNoticeSeen } from '../../../shared/notice_seen';
-import { messageReadPosition, newerReadPosition } from '@weq/service/client-preferences';
+import {
+  directoryUnreadKey,
+  isDirectoryReadKey,
+  messageReadPosition,
+  newerReadPosition,
+  validReadPosition,
+  type DirectoryReadChange,
+} from '@weq/service/client-preferences';
 import { createQQActionsRouter } from './qq_actions';
 import { dbExplorerRouter } from './db_explorer';
 import { annualReportRouter } from './annual_report';
@@ -483,6 +490,7 @@ const assistantSessionGenerationInput = z.object({
   reasoningEffort: z.string().min(1).max(64).nullish(),
 });
 const assistantSessionInput = generatedAccountInput.extend({ sessionId: z.string().min(1) });
+const liveCloneTarget = z.object({ kind: z.enum(['persona', 'group']), id: z.string().min(1) });
 
 function assistantRuntime(binding: {
   expectedAccountUin: string;
@@ -1959,6 +1967,15 @@ async function importantGroupPreviews(
   return { items, contentUnavailable };
 }
 
+const directoryReadUndo = new WeakMap<
+  ReturnType<typeof requireServices>,
+  {
+    token: string;
+    qqToken?: string;
+    changes: DirectoryReadChange[];
+  }
+>();
+
 export const accountRouter = router({
   outgoing: outgoingRouter,
   noticeRead: createNoticeReadRouter((input) => {
@@ -2230,22 +2247,11 @@ export const accountRouter = router({
       personas.map((persona) => [persona.id, services.agentLab.getConversation(persona.id)]),
     );
     const drafts = readState.draftTexts(personas.map(({ id }) => `virtual:clone:persona:${id}`));
-    const reads = directoryReadPositions(
+    const receipt = generatedDirectoryReadState(
       readState,
       'persona',
-      Object.fromEntries(
-        [...histories].map(([id, turns]) => [
-          `persona:${id}`,
-          String(
-            Math.max(
-              0,
-              ...turns
-                .filter((turn) => turn.role === 'assistant' && turn.status !== 'running')
-                .map((turn) => turn.ts),
-            ),
-          ),
-        ]),
-      ),
+      histories,
+      (turn) => turn.role === 'assistant' && turn.status !== 'running',
     );
     return personas.map((persona) => ({
       ...persona,
@@ -2254,14 +2260,7 @@ export const accountRouter = router({
       // persona.updatedAt 只在编辑画像时变，聊天本身另有会话时间与末条消息。
       ...latestGeneratedActivity(histories.get(persona.id)!),
       draftPreview: generatedDraftSummary(drafts.get(`virtual:clone:persona:${persona.id}`)),
-      unreadCount: histories
-        .get(persona.id)!
-        .filter(
-          (turn) =>
-            turn.role === 'assistant' &&
-            turn.status !== 'running' &&
-            turn.ts > Number(reads[`persona:${persona.id}`] ?? 0),
-        ).length,
+      ...receipt(persona.id),
     }));
   }),
 
@@ -2379,6 +2378,64 @@ export const accountRouter = router({
         }
       }
       return result;
+    }),
+
+  submitCloneMessage: procedure
+    .input(
+      generatedAccountInput.merge(liveCloneTarget).extend({
+        requestId: z.string().uuid(),
+        text: z.string(),
+        images: z
+          .array(
+            z.object({
+              id: z.string().min(1),
+              path: z.string().min(1),
+              name: z.string().optional(),
+            }),
+          )
+          .max(32)
+          .optional(),
+        mentions: z.array(z.string().min(1)).optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      if (!input.text.trim() && !input.images?.length) throw new Error('请输入消息或选择图片');
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      return services.agentLab.submitCloneMessage(input, (reply) => {
+        if (getAppContext().services !== services) return;
+        const group =
+          input.kind === 'group' ? services.agentLab.getGroupDetail(input.id) : undefined;
+        const sender = group?.members.find((member) => member.memberId === reply.senderId);
+        const preview = generatedMessageSummary(reply);
+        publishGeneratedReply(input.expectedAccountConfigId, {
+          kind: input.kind,
+          conversationId: input.id,
+          id: reply.id,
+          messageId: reply.id,
+          preview: sender && preview ? `${sender.displayName}：${preview}` : preview,
+          title:
+            group?.group.name ??
+            services.agentLab.getPersonaRecord(input.id)?.persona.name ??
+            '克隆会话',
+        });
+      });
+    }),
+
+  onCloneConversation: procedure
+    .input(generatedAccountInput.merge(liveCloneTarget))
+    .subscription(({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      return observable<import('@weq/service').CloneConversationEvent>((emit) =>
+        services.agentLab.subscribeCloneConversation(input, (event) => {
+          if (getAppContext().services === services) emit.next(event);
+        }),
+      );
     }),
 
   /** 克隆体会话（好友克隆多会话）列表，最近活跃倒序。 */
@@ -2710,20 +2767,11 @@ export const accountRouter = router({
       groups.map((group) => [group.id, services.agentLab.getGroupMessages(group.id)]),
     );
     const drafts = readState.draftTexts(groups.map(({ id }) => `virtual:clone:group:${id}`));
-    const reads = directoryReadPositions(
+    const receipt = generatedDirectoryReadState(
       readState,
       'clone-group',
-      Object.fromEntries(
-        [...histories].map(([id, turns]) => [
-          `clone-group:${id}`,
-          String(
-            Math.max(
-              0,
-              ...turns.filter((turn) => turn.senderKind !== 'user').map((turn) => turn.ts),
-            ),
-          ),
-        ]),
-      ),
+      histories,
+      (turn) => turn.senderKind !== 'user',
     );
     return groups.map((group) => {
       const members = services.agentLab
@@ -2746,12 +2794,7 @@ export const accountRouter = router({
         ),
         draftPreview: generatedDraftSummary(drafts.get(`virtual:clone:group:${group.id}`)),
         memberUins,
-        unreadCount: histories
-          .get(group.id)!
-          .filter(
-            (turn) =>
-              turn.senderKind !== 'user' && turn.ts > Number(reads[`clone-group:${group.id}`] ?? 0),
-          ).length,
+        ...receipt(group.id),
       };
     });
   }),
@@ -3064,35 +3107,17 @@ export const accountRouter = router({
     const histories = new Map(
       sessions.map((session) => [session.id, assistant.getConversation(session.id)]),
     );
-    const reads = directoryReadPositions(
+    const receipt = generatedDirectoryReadState(
       state,
       'assistant',
-      Object.fromEntries(
-        [...histories].map(([id, turns]) => [
-          `assistant:${id}`,
-          String(
-            Math.max(
-              0,
-              ...turns
-                .filter((turn) => turn.role === 'assistant' && turn.status !== 'running')
-                .map((turn) => turn.ts),
-            ),
-          ),
-        ]),
-      ),
+      histories,
+      (turn) => turn.role === 'assistant' && turn.status !== 'running',
     );
     return sessions.map((session) => ({
       ...session,
       ...latestGeneratedActivity(histories.get(session.id)!),
       draftPreview: generatedDraftSummary(drafts.get(`assistant:${session.id}`)),
-      unreadCount: histories
-        .get(session.id)!
-        .filter(
-          (turn) =>
-            turn.role === 'assistant' &&
-            turn.status !== 'running' &&
-            turn.ts > Number(reads[`assistant:${session.id}`] ?? 0),
-        ).length,
+      ...receipt(session.id),
     }));
   }),
 
@@ -3727,9 +3752,12 @@ export const accountRouter = router({
     return Promise.all(
       summaries.map(async (row) => ({
         ...officialAccountSummaryToWire(row),
-        unreadCount: newerReadPosition(row.latestReadPosition, reads[`official:${row.peerUid}`])
-          ? await service.countUnread(row.peerUid, String(reads[`official:${row.peerUid}`] ?? '0'))
-          : 0,
+        ...(await directoryUnread(
+          reads,
+          `official:${row.peerUid}`,
+          row.latestReadPosition,
+          (after) => service.countUnread(row.peerUid, after),
+        )),
       })),
     );
   }),
@@ -3750,9 +3778,9 @@ export const accountRouter = router({
     return Promise.all(
       summaries.map(async (row) => ({
         ...serviceAccountSummaryToWire(row),
-        unreadCount: newerReadPosition(row.latestReadPosition, reads[`service:${row.appId}`])
-          ? await service.countUnread(row.appId, String(reads[`service:${row.appId}`] ?? '0'))
-          : 0,
+        ...(await directoryUnread(reads, `service:${row.appId}`, row.latestReadPosition, (after) =>
+          service.countUnread(row.appId, after),
+        )),
       })),
     );
   }),
@@ -4095,26 +4123,69 @@ export const accountRouter = router({
 
   setConversationReadState: procedure
     .input(
-      z.object({
-        expectedAccountUin: z.string().min(1),
-        expectedAccountConfigId: z.string().min(1).optional(),
-        targets: z
-          .array(
-            z.object({
-              chatType: z.union([z.literal(1), z.literal(2), z.literal(8), z.literal(134)]),
-              uid: z.string().min(1),
-            }),
-          )
-          .min(1)
-          .max(4096),
-        unread: z.boolean(),
-      }),
+      z
+        .object({
+          expectedAccountUin: z.string().min(1),
+          expectedAccountConfigId: z.string().min(1).optional(),
+          targets: z
+            .array(
+              z.object({
+                chatType: z.union([z.literal(1), z.literal(2), z.literal(8), z.literal(134)]),
+                uid: z.string().min(1),
+              }),
+            )
+            .max(4096),
+          directoryTargets: z
+            .array(
+              z.object({
+                key: z.string().refine(isDirectoryReadKey),
+                position: z.string().refine(validReadPosition),
+              }),
+            )
+            .max(4096)
+            .default([]),
+          unread: z.boolean(),
+        })
+        .refine(
+          ({ targets, directoryTargets }) =>
+            targets.length + directoryTargets.length > 0 &&
+            targets.length + directoryTargets.length <= 4096,
+        ),
     )
     .mutation(async ({ input }) => {
-      const result = await requireExpectedAccount(
+      const services = requireExpectedAccount(
         input.expectedAccountUin,
         input.expectedAccountConfigId,
-      ).unreadInfo.setReadState(input.targets, input.unread);
+      );
+      if (input.directoryTargets.length) {
+        const state = currentDraftState();
+        let changes: DirectoryReadChange[] = [];
+        let failed = 0;
+        try {
+          changes = state.setDirectoryReadState(input.directoryTargets, input.unread);
+        } catch (error) {
+          if (!input.targets.length) throw error;
+          failed += input.directoryTargets.length;
+        }
+        const qq = input.targets.length
+          ? await services.unreadInfo
+              .setReadState(input.targets, input.unread)
+              .catch((error: unknown) => {
+                if (failed) throw error;
+                failed += input.targets.length;
+                return undefined;
+              })
+          : undefined;
+        const token = randomUUID();
+        directoryReadUndo.set(services, { token, qqToken: qq?.undoToken, changes });
+        return {
+          undoToken: token,
+          failed: failed + (qq?.failed ?? 0),
+          rows: qq?.rows.map(unreadInfoToWire) ?? [],
+        };
+      }
+      const result = await services.unreadInfo.setReadState(input.targets, input.unread);
+      directoryReadUndo.delete(services);
       return {
         undoToken: result.undoToken,
         failed: result.failed,
@@ -4125,9 +4196,22 @@ export const accountRouter = router({
   undoConversationReadState: procedure
     .input(z.object({ expectedAccountUin: z.string().min(1), undoToken: z.string().uuid() }))
     .mutation(async ({ input }) => {
-      const result = await requireExpectedAccount(
-        input.expectedAccountUin,
-      ).unreadInfo.undoReadState(input.undoToken);
+      const services = requireExpectedAccount(input.expectedAccountUin);
+      const local = directoryReadUndo.get(services);
+      if (local?.token === input.undoToken) {
+        const restored = currentDraftState().undoDirectoryReadState(local.changes);
+        local.changes = [];
+        const qq = local.qqToken
+          ? await services.unreadInfo.undoReadState(local.qqToken)
+          : undefined;
+        if (!qq?.pending) directoryReadUndo.delete(services);
+        return {
+          restored: restored + (qq?.restored ?? 0),
+          pending: qq?.pending ?? 0,
+          rows: qq?.rows.map(unreadInfoToWire) ?? [],
+        };
+      }
+      const result = await services.unreadInfo.undoReadState(input.undoToken);
       return {
         restored: result.restored,
         pending: result.pending,
@@ -4621,9 +4705,12 @@ export const accountRouter = router({
     return Promise.all(
       sessions.map(async (row) => ({
         ...guildDirectSessionToWire(row),
-        unreadCount: newerReadPosition(positions.get(row.nodeId)!, reads[`guild:${row.nodeId}`])
-          ? await service.countUnread(row.nodeId, String(reads[`guild:${row.nodeId}`] ?? '0'))
-          : 0,
+        ...(await directoryUnread(
+          reads,
+          `guild:${row.nodeId}`,
+          positions.get(row.nodeId)!,
+          (after) => service.countUnread(row.nodeId, after),
+        )),
       })),
     );
   }),
@@ -10021,6 +10108,47 @@ function directoryReadPositions(
     return state.snapshot().records.reads as Record<string, string>;
   }
   return reads as Record<string, string>;
+}
+
+async function directoryUnread(
+  reads: Record<string, string>,
+  key: string,
+  position: string,
+  countAfter: (after: string) => number | Promise<number>,
+) {
+  const after = reads[key] ?? '0';
+  const count = newerReadPosition(position, after) ? await countAfter(after) : 0;
+  return {
+    directoryRead: { key, position },
+    unreadCount: Math.max(count, reads[directoryUnreadKey(key)] ? 1 : 0),
+  };
+}
+
+function generatedDirectoryReadState<T extends { ts: number }>(
+  state: ReturnType<typeof currentDraftState>,
+  kind: string,
+  histories: ReadonlyMap<string, T[]>,
+  isReply: (turn: T) => boolean,
+) {
+  const latest = Object.fromEntries(
+    [...histories].map(([id, turns]) => [
+      `${kind}:${id}`,
+      String(turns.reduce((max, turn) => (isReply(turn) ? Math.max(max, turn.ts) : max), 0)),
+    ]),
+  );
+  const reads = directoryReadPositions(state, kind, latest);
+  return (id: string) => {
+    const key = `${kind}:${id}`;
+    const after = Number(reads[key] ?? 0);
+    const count =
+      histories
+        .get(id)
+        ?.reduce((total, turn) => total + Number(isReply(turn) && turn.ts > after), 0) ?? 0;
+    return {
+      directoryRead: { key, position: latest[key]! },
+      unreadCount: Math.max(count, reads[directoryUnreadKey(key)] ? 1 : 0),
+    };
+  };
 }
 
 import { retainAiImage } from '../../ai_images';

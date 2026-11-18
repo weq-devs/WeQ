@@ -387,7 +387,7 @@ import {
   readonlyConversationKind,
 } from '../lib/conversationActions';
 import { fetchMissingContext } from '../lib/missingMessageFetch';
-import { preferenceDefaults } from '@weq/service/client-preferences';
+import { generatedMuteKey, preferenceDefaults } from '@weq/service/client-preferences';
 import { createMediaId } from '../im-template/template/composerMedia';
 import type {
   ChatRecordSearchHit,
@@ -2760,17 +2760,6 @@ function MainWorkspace(): ReactElement {
     },
     [previewGroupNames, previewDisplayNames, profileByUid, messageBindingRef, groupMemberLookup],
   );
-  useMessageNotifications({
-    selfUin: user.identityValue,
-    selfUid: user.uid,
-    conversations,
-    preferences: conversationPrefs,
-    groupAssistantIds,
-    resolveGroupSenderName: resolveNoticeGroupSenderName,
-    badgeCount: shell.messageUnreadCount,
-    foregroundConversation:
-      messagesTabActive && !settingsOpen && !dressUpOpen ? selectedUid : undefined,
-  });
   const messagesTabActiveRef = useRef(messagesTabActive);
   messagesTabActiveRef.current = messagesTabActive;
   const isGroup = selectedConversation?.type === 'group';
@@ -5158,7 +5147,7 @@ function MainWorkspace(): ReactElement {
     const isCurrent = () =>
       messageScopeRef.current === source && useViewState.getState().openedUin === openedUin;
     const targets = rows.flatMap((row) =>
-      row.type === 'direct' || row.type === 'group'
+      !row.directoryRead && (row.type === 'direct' || row.type === 'group')
         ? [
             {
               chatType:
@@ -5168,11 +5157,12 @@ function MainWorkspace(): ReactElement {
           ]
         : [],
     );
-    if (targets.length !== rows.length || targets.length > 4096) {
+    const directoryTargets = rows.flatMap((row) => (row.directoryRead ? [row.directoryRead] : []));
+    if (targets.length + directoryTargets.length !== rows.length || rows.length > 4096) {
       pushToast({
         tone: 'warning',
         durationKind: 'success',
-        title: '请选择不超过 4096 个真实聊天会话',
+        title: '请选择不超过 4096 个具体会话',
       });
       return;
     }
@@ -5182,10 +5172,10 @@ function MainWorkspace(): ReactElement {
     for (const id of ids) manualReadPendingRef.current.add(id);
     const finish = unreadUpdateGuardRef.current.begin(ids);
     try {
-      if (unread && targets.length >= 10) {
+      if (unread && rows.length >= 10) {
         const confirmed = await confirmReadState(
           '批量标为未读',
-          `将 ${targets.length} 个会话标为未读，是否继续？`,
+          `将 ${rows.length} 个会话标为未读，是否继续？`,
           { okLabel: '标为未读', cancelLabel: '取消', tone: 'warning' },
         );
         if (!confirmed || !isCurrent()) return;
@@ -5204,6 +5194,7 @@ function MainWorkspace(): ReactElement {
         expectedAccountUin: openedUin,
         expectedAccountConfigId: binding.expectedAccountConfigId,
         targets,
+        directoryTargets,
         unread,
       });
       if (!isCurrent()) return;
@@ -5220,7 +5211,8 @@ function MainWorkspace(): ReactElement {
         tone: result.failed ? 'warning' : 'success',
         title: (
           <span>
-            已将 <span className="weq-number weq-number-inherit">{ids.length - result.failed}</span>{' '}
+            已将{' '}
+            <span className="weq-number weq-number-inherit">{rows.length - result.failed}</span>{' '}
             个会话标为{unread ? '未读' : '已读'}
             {result.failed ? `，${result.failed} 个保存失败` : ''}{' '}
             <button
@@ -7868,6 +7860,7 @@ function MainWorkspace(): ReactElement {
         name: item.name,
         uin: item.sourceUin,
         unreadCount: item.unreadCount,
+        directoryRead: item.directoryRead,
         updatedAt: item.updatedAt,
         draftPreview: item.draftPreview,
         ...(item.lastMessageTime ? { lastMessageTime: item.lastMessageTime } : {}),
@@ -7886,6 +7879,7 @@ function MainWorkspace(): ReactElement {
         // 九宫格头像用成员源好友的 QQ 号。
         memberUins: item.memberUins,
         unreadCount: item.unreadCount,
+        directoryRead: item.directoryRead,
       })),
     ],
     [directoryPersonas.data, directoryGroups.data],
@@ -7923,9 +7917,14 @@ function MainWorkspace(): ReactElement {
           : undefined
       : undefined,
   );
+  const accountNotifications = useAccountRecords('notifications', messageScope);
   const conversationViews = useMemo<ConversationViewDirectory>(() => {
-    const clone = virtualRows.map(virtualConversationRow);
-    const assistant = (directoryAssistant.data ?? []).map(assistantConversationRow);
+    const withMute = (row: Conversation): Conversation =>
+      accountNotifications[generatedMuteKey(row.id)] === true
+        ? { ...row, preference: { ...fallbackPreference, ...row.preference, muted: true } }
+        : row;
+    const clone = virtualRows.map(virtualConversationRow).map(withMute);
+    const assistant = (directoryAssistant.data ?? []).map(assistantConversationRow).map(withMute);
     const archivedIds = new Set([...hiddenUidSet, ...deletedUidSet]);
     const temporaryRows = Object.values(temporaryConversations).map((entry) => entry.conversation);
     for (const row of temporaryRows) if (row.hidden || row.deleted) archivedIds.add(row.id);
@@ -7955,6 +7954,7 @@ function MainWorkspace(): ReactElement {
             sendTime: item.sendTime,
             prompt: item.prompt,
             unreadCount: item.unreadCount,
+            directoryRead: item.directoryRead,
           },
           'official',
         ),
@@ -7968,6 +7968,7 @@ function MainWorkspace(): ReactElement {
             sendTime: item.sendTime,
             prompt: item.prompt,
             unreadCount: item.unreadCount,
+            directoryRead: item.directoryRead,
           },
           'service',
         ),
@@ -8000,17 +8001,21 @@ function MainWorkspace(): ReactElement {
           member,
         ]),
       );
+      const unreadMembers = [...members.values()].filter((member) => (member.unreadCount ?? 0) > 0);
+      const muted =
+        (row.mergedKind === 'clone' || row.mergedKind === 'assistant') &&
+        unreadMembers.length > 0 &&
+        unreadMembers.every((member) => member.preference?.muted);
       return {
         ...row,
-        unreadCount: [...members.values()].reduce(
-          (count, member) => count + (member.unreadCount ?? 0),
-          0,
-        ),
+        ...(muted ? { preference: { ...fallbackPreference, ...row.preference, muted: true } } : {}),
+        unreadCount: unreadMembers.reduce((count, member) => count + (member.unreadCount ?? 0), 0),
       };
     });
     return directory;
   }, [
     virtualRows,
+    accountNotifications,
     unreadByConv,
     directoryAssistant.data,
     sidebarConversations,
@@ -8026,6 +8031,30 @@ function MainWorkspace(): ReactElement {
     deletedUidSet,
     temporaryConversations,
   ]);
+  const directoryUnread = useMemo(
+    () =>
+      (['clone', 'assistant', 'official', 'service', 'guild'] as const).reduce(
+        (total, view) =>
+          conversationViews[view].reduce(
+            (count, row) => count + (row.preference?.muted ? 0 : (row.unreadCount ?? 0)),
+            total,
+          ),
+        0,
+      ),
+    [conversationViews],
+  );
+  const messageBadgeCount = shell.messageUnreadCount + directoryUnread;
+  useMessageNotifications({
+    selfUin: user.identityValue,
+    selfUid: user.uid,
+    conversations,
+    preferences: conversationPrefs,
+    groupAssistantIds,
+    resolveGroupSenderName: resolveNoticeGroupSenderName,
+    badgeCount: messageBadgeCount,
+    foregroundConversation:
+      messagesTabActive && !settingsOpen && !dressUpOpen ? selectedUid : undefined,
+  });
   conversationViewsRef.current = conversationViews;
   const currentViewRows = useMemo(() => {
     const rows = conversationViewRows(conversationViews, conversationView, allConversationOptions);
@@ -9099,13 +9128,13 @@ function MainWorkspace(): ReactElement {
                 (shell.view === 'agentlab' && Boolean(virtualOpen || cloneSearchTarget)))
             }
             messageBadgeCount={
-              displaySettings.data?.showMessageUnreadBadge === false ? 0 : shell.messageUnreadCount
+              displaySettings.data?.showMessageUnreadBadge === false ? 0 : messageBadgeCount
             }
             contactBadgeCount={unreadMarkers.requests ? friendNoticeCount + groupNoticeCount : 0}
             onMessageBadgeClick={() =>
               settingsNavigation.navigate(() => {
                 const target = firstUnreadConversation(
-                  sidebarConversations,
+                  conversationViews.regular,
                   regularViewPreferences,
                 );
                 if (!target) return;
@@ -10590,6 +10619,24 @@ function MainWorkspace(): ReactElement {
                             onAnalyze: handleAnalyzeConversation,
                             onOpenProfile: openConversationProfile,
                             onPreview: previewMenuConversation,
+                            onMuteGenerated: (conversation, muted) => {
+                              if (
+                                !conversation.generated ||
+                                !messageScope ||
+                                currentAccountScope() !== messageScope
+                              )
+                                return;
+                              void patchAccountRecords('notifications', {
+                                [generatedMuteKey(conversation.id)]: muted,
+                              }).catch((error) => {
+                                if (messageScopeRef.current !== messageScope) return;
+                                pushToast({
+                                  tone: 'error',
+                                  title: '免打扰保存失败',
+                                  detail: String(error),
+                                });
+                              });
+                            },
                             onPin: (conversation, pinned) => {
                               if (
                                 conversationView === 'groupAssistant' &&
