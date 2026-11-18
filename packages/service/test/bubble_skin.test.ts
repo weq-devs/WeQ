@@ -69,10 +69,14 @@ describe('手机气泡几何', () => {
     const pngPath = join(dir, 'bubble.png');
     writeFileSync(pngPath, ninePatch(128, 112, [63, 65], [55, 57]));
     expect(buildLocalBubbleSkin({ itemId: 1, pngPath, ...config })).toMatchObject({
+      configuredPatch: true,
       textColor: 'rgb(17 34 51)',
       linkColor: 'rgb(68 85 102)',
       slice: { left: 63, right: 64, top: 55, bottom: 56 },
     });
+    expect(
+      buildLocalBubbleSkin({ itemId: 1, pngPath, zoomPoint: [128, 55] })?.configuredPatch,
+    ).toBeUndefined();
     expect(
       bubbleConfigMetadata({ link_color: 'invalid', zoom_point: [-1, 2] }).linkColor,
     ).toBeUndefined();

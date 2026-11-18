@@ -31,11 +31,13 @@ export interface BubbleSlice {
 }
 
 /** 仅气泡几何派生号，不触发字体重解或修改产品版本。 */
-export const BUBBLE_GEOMETRY_VERSION = 2;
+export const BUBBLE_GEOMETRY_VERSION = 3;
 
 export interface BubbleGeometry {
   slice: BubbleSlice;
   imageSize: { w: number; h: number };
+  /** 由 zoom_point 生成，区别于有固有尺寸的 Android NinePatchDrawable。 */
+  configuredPatch?: true;
 }
 
 export function bubbleConfigMetadata(json: unknown): {
@@ -69,7 +71,7 @@ export function bubbleConfigMetadata(json: unknown): {
 }
 
 /** 一款气泡渲染所需的全部参数。 */
-export interface BubbleSkin {
+export interface BubbleSkin extends BubbleGeometry {
   itemId: number;
   /**
    * 商城里的款名(如「橘子汽水」)。装的时候由调用方从商城条目带进来 —— 商城只有
@@ -79,10 +81,6 @@ export interface BubbleSkin {
   name?: string;
   /** 商城的预览图外链。同 {@link name}，给「我的装扮」列表复用商城卡片。 */
   previewUrl?: string;
-  /** border-image-slice 的四个值。 */
-  slice: BubbleSlice;
-  /** 源图尺寸,渲染侧据此按 scale 换算 border-image-width。 */
-  imageSize: { w: number; h: number };
   /** 气泡内文字色(CSS 颜色串)。来源见 {@link buildLocalBubbleSkin}。 */
   textColor: string;
   /** config.json 的 link_color；未声明时沿用正文色与现有下划线。 */
@@ -192,7 +190,7 @@ export function readBubbleGeometry(
   };
   if (zoomPoint) {
     const geometry = fromDivs(zoomPoint[0], zoomPoint[0] + 1, zoomPoint[1], zoomPoint[1] + 1);
-    if (geometry) return geometry;
+    if (geometry) return { ...geometry, configuredPatch: true };
   }
   let i = 8;
   while (i + 12 <= png.length) {

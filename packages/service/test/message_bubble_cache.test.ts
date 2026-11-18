@@ -130,6 +130,7 @@ it('旧动画包的独立配置优先，不在时用 ZIP 内配置纠正已缓�
     const cache = new DressSharedCache({} as TrpcNative, {} as NtHelperBinding, dir, () => 0);
     await cache.prepareMessageRendering();
     expect(cache.messageBubble(2001)).toMatchObject({
+      configuredPatch: true,
       slice: { left: 68, right: 59, top: 56, bottom: 55 },
       linkColor: 'rgb(17 34 51)',
       animationFrameCount: 16,

@@ -94,6 +94,7 @@ export interface BubbleSkinCss {
   itemId: number;
   slice: { left: number; top: number; right: number; bottom: number };
   imageSize: { w: number; h: number };
+  configuredPatch?: true;
   textColor: string;
   linkColor?: string;
   /**
@@ -480,14 +481,22 @@ interface BubbleMetrics {
 export function bubbleMetrics(skin: BubbleSkinCss): BubbleMetrics {
   const { left, top, right, bottom } = skin.slice;
 
-  // 贴图向内绘制的厚度。slice 是源图像素,乘 scale 得到 CSS 像素。
-  const wTop = top * BUBBLE_SCALE;
-  const wRight = right * BUBBLE_SCALE;
-  const wBottom = bottom * BUBBLE_SCALE;
-  const wLeft = left * BUBBLE_SCALE;
-
+  // Skia 按各自轴压缩固定边；直接交给 CSS 的重叠处理会一起压缩四边。
+  const edge = (size: number, sum: number) => {
+    const nominal = px(size * BUBBLE_SCALE);
+    return skin.configuredPatch === true && size > 0
+      ? `min(${nominal}, ${(100 * size) / sum}%)`
+      : nominal;
+  };
   const slice = `${top} ${right} ${bottom} ${left} fill`;
-  const width = `${px(wTop)} ${px(wRight)} ${px(wBottom)} ${px(wLeft)}`;
+  const horizontal = left + right;
+  const vertical = top + bottom;
+  const width = [
+    edge(top, vertical),
+    edge(right, horizontal),
+    edge(bottom, vertical),
+    edge(left, horizontal),
+  ].join(' ');
 
   const frameAnim =
     validDecorationFrames(skin.animationFrameCount) && skin.animationFrameTimeMs
@@ -507,8 +516,8 @@ export function bubbleMetrics(skin: BubbleSkinCss): BubbleMetrics {
     rightPad: px(BUBBLE_TEXT_PADDING.horizontal),
     topPad: px(BUBBLE_TEXT_PADDING.vertical),
     bottomPad: px(BUBBLE_TEXT_PADDING.vertical),
-    minWidth: px((left + right) * BUBBLE_SCALE),
-    minHeight: px((top + bottom) * BUBBLE_SCALE),
+    minWidth: skin.configuredPatch === true ? '0px' : px(horizontal * BUBBLE_SCALE),
+    minHeight: skin.configuredPatch === true ? '0px' : px(vertical * BUBBLE_SCALE),
   };
 }
 

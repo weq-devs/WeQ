@@ -68,6 +68,7 @@ import {
   bubbleConfigMetadata,
   buildLocalBubbleSkin,
   readBubbleGeometry,
+  type BubbleGeometry,
   type BubbleSkin,
   type MessageBubbleSkin,
 } from './bubble_skin';
@@ -153,10 +154,8 @@ export interface FontDerived {
 }
 
 /** 气泡元数据 sidecar。 */
-export interface BubbleSidecar {
+export interface BubbleSidecar extends BubbleGeometry {
   itemId: number;
-  slice: { top: number; right: number; bottom: number; left: number };
-  imageSize: { w: number; h: number };
   textColor: string;
   linkColor?: string;
   zoomPoint?: [number, number];
@@ -234,6 +233,7 @@ export class DressSharedCache {
         itemId,
         slice: meta.slice,
         imageSize: meta.imageSize,
+        configuredPatch: meta.configuredPatch,
         textColor: meta.textColor,
         linkColor: meta.linkColor,
         localFile: join(this.bubblesDir, `${itemId}.png`),
@@ -352,6 +352,7 @@ export class DressSharedCache {
         itemId,
         slice: sidecar.slice,
         imageSize: sidecar.imageSize,
+        configuredPatch: sidecar.configuredPatch,
         textColor: sidecar.textColor,
         linkColor: sidecar.linkColor,
         localFile,
@@ -512,6 +513,7 @@ export class DressSharedCache {
       itemId,
       slice: skin.slice,
       imageSize: skin.imageSize,
+      configuredPatch: skin.configuredPatch,
       textColor: skin.textColor,
       linkColor: skin.linkColor,
       zoomPoint: config?.zoomPoint,
@@ -1295,6 +1297,7 @@ function refreshBubbleSidecar(
   return {
     ...sidecar,
     ...geometry,
+    configuredPatch: geometry.configuredPatch,
     zoomPoint,
     textColor: config?.color ? argbToCss(config.color) : sidecar.textColor,
     linkColor: config?.linkColor ? argbToCss(config.linkColor) : sidecar.linkColor,
