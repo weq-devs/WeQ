@@ -135,7 +135,7 @@ function requestOverrides(model: ModelForm): ModelRequestProperties | undefined 
   return entries.length ? Object.fromEntries(entries) : undefined;
 }
 
-function modelContextWindowSummary(model: ModelForm): string {
+function ModelContextWindowSummary({ model }: { model: ModelForm }) {
   const draft = model.requestTokenDrafts?.contextWindowTokens;
   const declared = readModelRequestProperties(model.metadata).contextWindowTokens;
   const tokens =
@@ -144,10 +144,15 @@ function modelContextWindowSummary(model: ModelForm): string {
       : draft.trim()
         ? Number(draft)
         : declared;
-  if (tokens === undefined) return '未声明';
-  return Number.isSafeInteger(tokens) && tokens > 0
-    ? `${tokens.toLocaleString('zh-CN')} Token`
-    : '无效';
+  if (tokens === undefined || !Number.isSafeInteger(tokens) || tokens <= 0) return null;
+  return (
+    <>
+      {' '}
+      <span aria-hidden="true">{'|\u00a0'}</span>
+      <span className="sr-only">上下文窗口 </span>
+      <NumericText>{`${tokens.toLocaleString('zh-CN')} Token`}</NumericText>
+    </>
+  );
 }
 
 function ModelRequestFields({
@@ -1241,7 +1246,7 @@ export function AgentLabSection(): ReactElement {
                         type="button"
                         className="weq-provider-model-summary"
                         aria-label={`模型 ${index + 1} 能力与参数`}
-                        aria-describedby={`model-capabilities-${model.rowKey} model-context-${model.rowKey}`}
+                        aria-describedby={`model-summary-${model.rowKey}`}
                         aria-expanded={expandedModels.has(model.rowKey)}
                         aria-controls={`model-parameters-${model.rowKey}`}
                         aria-busy={detectingModel === index}
@@ -1264,13 +1269,11 @@ export function AgentLabSection(): ReactElement {
                         )}
                         <span className="weq-provider-model-summary-copy">
                           <span className="weq-provider-model-summary-title">能力与参数</span>
-                          <span id={`model-capabilities-${model.rowKey}`}>
+                          <span id={`model-summary-${model.rowKey}`}>
                             {CAPABILITIES.filter(({ value }) => model.capabilities.includes(value))
                               .map(({ label }) => label)
                               .join(' / ') || '未选择能力'}
-                          </span>
-                          <span id={`model-context-${model.rowKey}`} title="上下文窗口（Token）">
-                            <NumericText>{`上下文 ${modelContextWindowSummary(model)}`}</NumericText>
+                            <ModelContextWindowSummary model={model} />
                           </span>
                         </span>
                       </button>
