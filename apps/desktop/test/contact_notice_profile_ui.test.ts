@@ -141,14 +141,20 @@ describe('通知头像名片入口', () => {
     },
   );
   it.each([ContactNoticeDialog, GroupNoticeDialog])(
-    '通知返回按钮位于标题左侧并关闭当前页',
+    '通知只在单栏提供返回按钮，点击后关闭当前页',
     (Dialog) => {
+      let narrow = false;
+      vi.stubGlobal('matchMedia', (media: string) =>
+        Object.assign(new EventTarget(), { matches: narrow && media.includes('max-width'), media }),
+      );
       const close = vi.fn();
       const host = fixture(h(Dialog, { open: true, requests: [], onClose: close }));
       const header = host.querySelector('header')!;
+      expect(header.querySelector('[aria-label="返回"]')).toBeNull();
+      narrow = true;
+      act(() => window.dispatchEvent(new Event('resize')));
       const back = header.querySelector<HTMLButtonElement>('[aria-label="返回"]')!;
       expect(header.firstElementChild).toBe(back);
-      expect(host.querySelector('.weq-profile-close')).toBeNull();
       act(() => back.click());
       expect(close).toHaveBeenCalledOnce();
     },

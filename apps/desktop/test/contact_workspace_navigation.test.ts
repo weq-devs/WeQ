@@ -293,12 +293,19 @@ it('旧现场没有独立详情分类时，首次切换目录仍保留原详情'
   expect(mount(storage, scope).state().selectedContact).toEqual(person);
 });
 
-it('直接进入联系人且尚未打开好友或群聊时，默认显示群交集', () => {
-  const p = mount();
-  act(() => p.state().switchView('contacts'));
+it('旧版默认群交集快照不会代替空资料，主动打开的页面仍可恢复', () => {
+  const storage = new Storage();
+  const scope = 'contact-overview-explicit';
+  mount(storage, scope);
+  pageSnapshots.write(JSON.stringify([scope, 'shell:view']), 'contacts');
+  pageSnapshots.write(JSON.stringify([scope, 'shell:contact-overview']), true);
+  const p = mount(storage, scope);
   expect(p.state().selectedContact).toBeUndefined();
   expect(p.state().selectedGroupConversation).toBeUndefined();
-  expect(p.state().contactOverviewOpen).toBe(true);
+  expect(p.state().contactOverviewOpen).toBe(false);
+  expect(p.state().mainOpen).toBe(false);
+  act(() => p.state().openContactOverview());
+  expect(mount(storage, scope).state().contactOverviewOpen).toBe(true);
 });
 
 it('横屏可从任意资料切换到群交集，不改变目录分类和查询', () => {
@@ -313,6 +320,28 @@ it('横屏可从任意资料切换到群交集，不改变目录分类和查询'
   expect(p.state().selectedGroupConversation).toBeUndefined();
   expect(p.state().contactNotice).toBeNull();
   expect(p.state().contactOverviewOpen).toBe(true);
+});
+
+it('横屏群交集内打开资料后回到群交集，另选目录对象后关闭则回到目录', () => {
+  const p = mount();
+  act(() => p.state().switchView('contacts'));
+  act(() => p.state().changeContactTab('groups'));
+  act(() => p.state().setQuery('保留筛选'));
+  act(() => p.state().openContactOverview());
+  act(() => p.state().openContactDetails(person));
+  expect(p.state().selectedContact).toEqual(person);
+  expect(p.state().contactTab).toBe('groups');
+  expect(p.state().query).toBe('保留筛选');
+  act(() => p.state().backContact());
+  expect(p.state().selectedContact).toBeUndefined();
+  expect(p.state().contactOverviewOpen).toBe(true);
+  act(() => p.state().openGroupDetails(group));
+  act(() => p.state().selectContact(person));
+  act(() => p.state().backContact());
+  expect(p.state().selectedContact).toBeUndefined();
+  expect(p.state().selectedGroupConversation).toBeUndefined();
+  expect(p.state().contactOverviewOpen).toBe(false);
+  expect(p.state().mainOpen).toBe(false);
 });
 
 it('竖屏群交集独立进入，资料返回图谱，再返回原目录且不残留旧返回层', () => {
@@ -334,12 +363,29 @@ it('竖屏群交集独立进入，资料返回图谱，再返回原目录且不�
   expect(p.state().contactTab).toBe('groups');
   act(() => p.state().backContactOverview());
   expect(p.state().mainOpen).toBe(false);
+  expect(p.state().contactOverviewOpen).toBe(false);
   expect(p.state().contactTab).toBe('groups');
   expect(p.state().query).toBe('保留筛选');
   expect(mobileBack()).toBe(false);
   act(() => p.state().openContactOverview());
   act(() => p.state().switchView('messages'));
   act(() => p.state().switchView('contacts'));
+  expect(p.state().mainOpen).toBe(false);
+  expect(mobileBack()).toBe(false);
+});
+
+it('使用手机返回栈时，侧栏直接选择联系人不会把旧群交集加入返回路径', () => {
+  vi.stubGlobal('matchMedia', (media: string) =>
+    Object.assign(new EventTarget(), { matches: media.includes('max-width'), media }),
+  );
+  const p = mount();
+  act(() => p.state().switchView('contacts'));
+  act(() => p.state().openContactOverview());
+  act(() => p.state().selectContact(person));
+  expect(p.state().selectedContact).toEqual(person);
+  act(() => expect(mobileBack()).toBe(true));
+  expect(p.state().selectedContact).toBeUndefined();
+  expect(p.state().contactOverviewOpen).toBe(false);
   expect(p.state().mainOpen).toBe(false);
   expect(mobileBack()).toBe(false);
 });
@@ -360,14 +406,14 @@ it.each(['home', 'messages', 'qzone', 'export', 'agentlab'] as const)(
   },
 );
 
-it('从联系人目录打开资料，关闭清空两类选择并回到群交集', () => {
+it('从联系人目录打开资料，关闭清空两类选择并回到目录', () => {
   const p = mount();
   act(() => p.state().switchView('contacts'));
   act(() => p.state().openContactDetails(person));
   act(() => p.state().openGroupDetails(group));
   act(() => p.state().backGroup());
   expect(p.state().view).toBe('contacts');
-  expect(p.state().contactOverviewOpen).toBe(true);
+  expect(p.state().contactOverviewOpen).toBe(false);
   act(() => p.state().changeContactTab('friends'));
   expect(p.state().selectedContact).toBeUndefined();
 });
@@ -380,25 +426,25 @@ it('主动离开资料页后，重新从联系人目录打开不沿用旧来源'
   act(() => p.state().selectContact(person));
   act(() => p.state().backContact());
   expect(p.state().view).toBe('contacts');
-  expect(p.state().contactOverviewOpen).toBe(true);
+  expect(p.state().contactOverviewOpen).toBe(false);
 });
 
-it('尚未选择对象时切换标签、离开后重进，都不显示联系人占位页', () => {
+it('尚未选择对象时切换标签或离开后重进，不会自动打开群交集', () => {
   const p = mount();
   act(() => p.state().changeContactTab('groups'));
   act(() => p.state().switchView('contacts'));
-  expect(p.state().contactOverviewOpen).toBe(true);
+  expect(p.state().contactOverviewOpen).toBe(false);
   act(() => p.state().changeContactTab('friends'));
-  expect(p.state().contactOverviewOpen).toBe(true);
+  expect(p.state().contactOverviewOpen).toBe(false);
   act(() => p.state().switchView('messages'));
   act(() => p.state().switchView('contacts'));
-  expect(p.state().contactOverviewOpen).toBe(true);
+  expect(p.state().contactOverviewOpen).toBe(false);
   expect(p.state().selectedContact).toBeUndefined();
   expect(p.state().selectedGroupConversation).toBeUndefined();
   expect(p.read).not.toHaveBeenCalled();
 });
 
-it('离开联系人再返回保留当前详情，主动返回群交集后仍可切换标签', () => {
+it('离开联系人再返回保留当前详情，关闭资料回到目录后仍可切换标签', () => {
   const p = mount();
   act(() => p.state().openContactDetails(person, 'portrait'));
   act(() => p.state().switchView('qzone'));
@@ -407,8 +453,8 @@ it('离开联系人再返回保留当前详情，主动返回群交集后仍可�
   expect(p.state().contactWorkspaceTab).toBe('portrait');
   expect(p.state().contactOverviewOpen).toBe(false);
   act(() => p.state().backContact());
-  expect(p.state().contactOverviewOpen).toBe(true);
+  expect(p.state().contactOverviewOpen).toBe(false);
   expect(p.state().selectedContact).toBeUndefined();
   act(() => p.state().changeContactTab('groups'));
-  expect(p.state().contactOverviewOpen).toBe(true);
+  expect(p.state().contactOverviewOpen).toBe(false);
 });

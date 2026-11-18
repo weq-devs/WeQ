@@ -24,7 +24,7 @@ export function ChatMainContent({
   view,
   contactTab,
   relationGraphSlot,
-  contactOverviewOpen = true,
+  contactOverviewOpen = false,
   onBackContactOverview,
   selectedContact,
   onPreviewContactChat,

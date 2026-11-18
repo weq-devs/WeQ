@@ -7,6 +7,7 @@
 import { ArrowLeft } from 'lucide-react';
 import { useRef } from 'react';
 import { cn } from '../im-template/template/classNames';
+import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
 import { Avatar, EmptyState } from '../im-template/template/primitives';
 import type { ContactRequest, GroupJoinRequest, User } from '../im-template/template/types';
 import { displayUserName } from '../im-template/template/user';
@@ -26,6 +27,16 @@ import { APP_NAVIGATION } from '../lib/appNavigation';
 
 const FriendNoticeIcon = APP_NAVIGATION['friend-notice'].icon;
 const GroupNoticeIcon = APP_NAVIGATION['group-notice'].icon;
+
+function ContactNoticeBackButton({ onBack }: { onBack: () => void }) {
+  const singleColumn = useMobileWebLayout();
+  if (!singleColumn) return null;
+  return (
+    <button className="weq-page-back" type="button" title="返回" aria-label="返回" onClick={onBack}>
+      <ArrowLeft size={18} aria-hidden />
+    </button>
+  );
+}
 
 export type NoticeProfileHandler = (
   user: User,
@@ -71,17 +82,7 @@ function ContactNoticeDialogBody({
       <PageShell
         title={APP_NAVIGATION['friend-notice'].label}
         icon={<FriendNoticeIcon size={15} aria-hidden />}
-        leading={
-          <button
-            className="weq-page-back"
-            type="button"
-            title="返回"
-            aria-label="返回"
-            onClick={onClose}
-          >
-            <ArrowLeft size={18} />
-          </button>
-        }
+        leading={<ContactNoticeBackButton onBack={onClose} />}
       >
         <div
           className={cn(
@@ -231,17 +232,7 @@ function GroupNoticeDialogBody({
       <PageShell
         title={APP_NAVIGATION['group-notice'].label}
         icon={<GroupNoticeIcon size={15} aria-hidden />}
-        leading={
-          <button
-            className="weq-page-back"
-            type="button"
-            title="返回"
-            aria-label="返回"
-            onClick={onClose}
-          >
-            <ArrowLeft size={18} />
-          </button>
-        }
+        leading={<ContactNoticeBackButton onBack={onClose} />}
       >
         <div
           className={cn(
