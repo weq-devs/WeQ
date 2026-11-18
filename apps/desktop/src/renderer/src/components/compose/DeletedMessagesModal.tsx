@@ -52,6 +52,8 @@ export function DeletedMessagesModal({
   messages,
   renderers,
   loading,
+  hasMore = false,
+  onLoadMore,
   error,
   onRetry,
   onRestore,
@@ -63,6 +65,8 @@ export function DeletedMessagesModal({
   messages: Message[];
   renderers?: MessageRenderer[];
   loading: boolean;
+  hasMore?: boolean;
+  onLoadMore?: () => void;
   error: string | null;
   onRetry: () => void;
   /** Restore one message; resolves once the DB row is un-hidden. */
@@ -205,7 +209,7 @@ export function DeletedMessagesModal({
         {filtering ? (
           <NumericText>{`${filtered.length} / ${rows.length} 条`}</NumericText>
         ) : (
-          <NumericText>{`共 ${rows.length} 条`}</NumericText>
+          <NumericText>{`${hasMore ? '已加载' : '共'} ${rows.length} 条`}</NumericText>
         )}
       </span>
     </div>
@@ -229,11 +233,25 @@ export function DeletedMessagesModal({
           </button>
         </p>
       ) : null}
-      {loading && !rows.length ? (
+      {hasMore && !error ? (
+        <button
+          type="button"
+          className="weq-important-more"
+          disabled={loading}
+          onClick={onLoadMore}
+        >
+          {loading ? '正在读取更早消息…' : '加载更早消息'}
+        </button>
+      ) : null}
+      {loading && !rows.length && !hasMore ? (
         <p role="status">正在读取已删除消息…</p>
       ) : !filtered.length && !error ? (
         <p role="status">
-          {filtering ? '没有符合条件的消息' : '没有已删除的消息'}
+          {hasMore
+            ? '已加载的记录中没有符合条件的消息'
+            : filtering
+              ? '没有符合条件的消息'
+              : '没有已删除的消息'}
           {filtering ? (
             <button type="button" className="weq-msglist-reset" onClick={resetFilters}>
               清除筛选

@@ -143,3 +143,36 @@ it('UID 分段读取跨稀疏负数及 64 位 rowid，跨分区和同序号排�
   expect(await db.listLatest({ uid: 'u_absent' }, 30)).toEqual([]);
   expect(await db.listLatest({ uid: 'u_peer' }, 0)).toEqual([]);
 });
+
+it('删除候选页用会话索引，按发送时间及完整 ID 续页，不读正文也不混入正常消息', async () => {
+  root = mkdtempSync(join(tmpdir(), 'weq-deleted-page-'));
+  const dbPath = join(root, 'msg.db');
+  const sql = fixtureDb(dbPath);
+  sql.exec(`CREATE TABLE c2c_msg_table (
+    "40001" INTEGER PRIMARY KEY, "40027" INTEGER, "40003" INTEGER, "40050" INTEGER,
+    "40011" INTEGER, "40012" INTEGER);
+    CREATE INDEX known_partition_seq ON c2c_msg_table("40027","40003");
+    INSERT INTO c2c_msg_table VALUES
+      (9007199254740993001,42,99,100,1,1),(9007199254740993002,42,1,100,1,1),
+      (4,42,2,200,2,1),(5,43,3,200,1,1),(6,42,20,NULL,1,1);`);
+  const nt = createSqliteStub();
+  const execute = vi.spyOn(nt, 'executeSql');
+  const db = new C2cMsgDb(nt, { dbPath });
+  const first = await db.listDeletedRefs({ sortNo: 42n }, 1);
+  expect(first).toEqual([{ msgId: '9007199254740993002', sendTime: '100' }]);
+  const [query, args] = execute.mock.calls.at(-1)!.slice(1) as [
+    string,
+    Parameters<typeof nt.executeSql>[2],
+  ];
+  expect(
+    sql
+      .prepare(`EXPLAIN QUERY PLAN ${query}`)
+      .all(...(args ?? []))
+      .map((row) => row.detail)
+      .join('\n'),
+  ).toContain('USING INDEX known_partition_seq');
+  expect(await db.listDeletedRefs({ sortNo: 42n }, 2, { time: 100, id: first[0]!.msgId })).toEqual([
+    { msgId: '9007199254740993001', sendTime: '100' },
+    { msgId: '6', sendTime: '0' },
+  ]);
+});

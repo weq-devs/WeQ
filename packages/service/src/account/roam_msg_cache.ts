@@ -355,8 +355,17 @@ export class RoamMsgCacheDb {
   }
 
   /** 全量读取正常消息，包含同序号的不同原生消息身份。 */
-  async allForExport(kind: 'c2c' | 'group', conv: string): Promise<GapFetchedMessage[]> {
+  async allForExport(
+    kind: 'c2c' | 'group',
+    conv: string,
+    keys?: readonly (readonly [string, string])[],
+  ): Promise<GapFetchedMessage[]> {
+    if (keys?.length === 0) return [];
     await this.ensureSchema();
+    const onlyKeys = keys
+      ? "AND (msg_seq, msg_id) IN (SELECT CAST(json_extract(value,'$[0]') AS INTEGER), json_extract(value,'$[1]') FROM json_each(?))"
+      : '';
+    const keyParams = keys ? [JSON.stringify(keys)] : [];
     const legacy: GapFetchedMessage[] = [],
       native: GapFetchedMessage[] = [];
     let seq = 0n;
@@ -364,9 +373,9 @@ export class RoamMsgCacheDb {
       const rows = await this.nt.executeSql(
         this.dbPath,
         `SELECT kind,conv,msg_id,msg_seq,sender_uid,sender_uin,send_time,elements,decoration,nt_seq_verified
-         FROM ${TABLE} WHERE kind = ? AND conv = ? AND msg_seq > ? ${kind === 'c2c' ? 'AND nt_seq_verified = 1' : ''}
+         FROM ${TABLE} WHERE kind = ? AND conv = ? AND msg_seq > ? ${kind === 'c2c' ? 'AND nt_seq_verified = 1' : ''} ${onlyKeys}
          ORDER BY msg_seq LIMIT 1000`,
-        [kind, conv, seq],
+        [kind, conv, seq, ...keyParams],
       );
       if (!rows.length) break;
       const page = rows.map(rowToMessage);
@@ -379,8 +388,8 @@ export class RoamMsgCacheDb {
       const rows = await this.nt.executeSql(
         this.dbPath,
         `SELECT payload FROM ${NATIVE_TABLE} WHERE kind = ? AND conv = ? AND accepted = 1
-         AND (msg_seq > ? OR (msg_seq = ? AND msg_id > ?)) ORDER BY msg_seq,msg_id LIMIT 250`,
-        [kind, conv, seq, seq, id],
+         AND (msg_seq > ? OR (msg_seq = ? AND msg_id > ?)) ${onlyKeys} ORDER BY msg_seq,msg_id LIMIT 250`,
+        [kind, conv, seq, seq, id, ...keyParams],
       );
       if (!rows.length) break;
       const page = rows.map(nativeRow);
@@ -399,8 +408,8 @@ export class RoamMsgCacheDb {
         this.dbPath,
         `SELECT payload FROM ${PROTOCOL_TABLE} WHERE kind=? AND conv=?
          ${kind === 'c2c' ? 'AND nt_seq_verified=1' : ''}
-         AND (msg_seq>? OR (msg_seq=? AND msg_id>?)) ORDER BY msg_seq,msg_id LIMIT 250`,
-        [kind, conv, seq, seq, id],
+         AND (msg_seq>? OR (msg_seq=? AND msg_id>?)) ${onlyKeys} ORDER BY msg_seq,msg_id LIMIT 250`,
+        [kind, conv, seq, seq, id, ...keyParams],
       );
       if (!rows.length) break;
       const page = rows.map((row) => parseJson<GapFetchedMessage>(String(row[0])));

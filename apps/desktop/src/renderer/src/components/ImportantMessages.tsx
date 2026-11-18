@@ -142,6 +142,16 @@ export function ImportantMessagesList({
   const source = `${binding.expectedAccountUin}:${binding.expectedAccountConfigId}:${groupCode}`;
   const scope = useRef(source);
   scope.current = source;
+  const previewScope = useRef({ source, kinds, open });
+  const previewRequests = useRef(new Map<string, Promise<string | undefined>>());
+  if (
+    previewScope.current.source !== source ||
+    previewScope.current.kinds !== kinds ||
+    previewScope.current.open !== open
+  ) {
+    previewScope.current = { source, kinds, open };
+    previewRequests.current.clear();
+  }
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -165,6 +175,7 @@ export function ImportantMessagesList({
   useEffect(() => {
     if (!open) return;
     let active = true;
+    const previewOwner = previewScope.current;
     const key = JSON.stringify([source, [...kinds], request]);
     const refresh = lastRequest.current === key;
     lastRequest.current = key;
@@ -183,6 +194,8 @@ export function ImportantMessagesList({
         groupCode,
         kinds: [...kinds],
         before: refresh ? undefined : request.before,
+        limit: 24,
+        deferPreviews: true,
       })
       .then((result) => {
         if (!active) return;
@@ -191,7 +204,16 @@ export function ImportantMessagesList({
             refresh &&
             result.items.some((row) => old.items.some((prior) => prior.msgSeq === row.msgSeq))
           ) {
-            const rows = new Map([...old.items, ...result.items].map((row) => [row.msgSeq, row]));
+            const rows = new Map(old.items.map((row) => [row.msgSeq, row]));
+            for (const row of result.items) {
+              const prior = rows.get(row.msgSeq);
+              rows.set(
+                row.msgSeq,
+                prior?.msgId && !row.msgId
+                  ? { ...prior, reasons: row.reasons, unread: row.unread }
+                  : row,
+              );
+            }
             return {
               ...result,
               nextBefore: old.nextBefore,
@@ -206,6 +228,38 @@ export function ImportantMessagesList({
           };
         });
         setPending(false);
+        const seqs = result.items.filter((row) => !row.msgId).map((row) => row.msgSeq);
+        if (!seqs.length) return;
+        const previews = client.account.importantGroupPreviews
+          .query({ expectedAccountUin, expectedAccountConfigId, groupCode, seqs })
+          .then(({ items, contentUnavailable }) => {
+            const bySeq = new Map(items.map((row) => [row.msgSeq, row]));
+            if (alive.current && previewScope.current === previewOwner) {
+              setPage((old) => ({
+                ...old,
+                contentUnavailable,
+                items: old.items.map((row) => {
+                  const patch = bySeq.get(row.msgSeq);
+                  return patch
+                    ? { ...row, ...patch, senderUid: patch.senderUid || row.senderUid }
+                    : row;
+                }),
+              }));
+            }
+            return bySeq;
+          })
+          .catch(() => {
+            if (alive.current && previewScope.current === previewOwner)
+              setPage((old) => ({ ...old, contentUnavailable: true }));
+            return undefined;
+          });
+        for (const seq of seqs) {
+          const request = previews.then((refs) => refs?.get(seq)?.msgId);
+          previewRequests.current.set(seq, request);
+          void request.then(() => {
+            if (previewRequests.current.get(seq) === request) previewRequests.current.delete(seq);
+          });
+        }
       })
       .catch((reason: unknown) => {
         if (!active) return;
@@ -254,7 +308,16 @@ export function ImportantMessagesList({
     setLocating(String(target.seq));
     setLocateError('');
     try {
-      await onLocate(target);
+      const owner = previewScope.current;
+      const msgId = target.msgId ?? (await previewRequests.current.get(String(target.seq)));
+      if (
+        !alive.current ||
+        scope.current !== started ||
+        previewScope.current !== owner ||
+        !owner.open
+      )
+        return;
+      await onLocate(msgId ? { ...target, msgId } : target);
       if (!alive.current || scope.current !== started) return;
       setSelected(String(target.seq));
       if (mobile) onClose();
@@ -273,6 +336,7 @@ export function ImportantMessagesList({
       title="重要消息"
       open={open}
       onClose={onClose}
+      filtered={kinds.size !== IMPORTANT_MESSAGE_KINDS.length}
       navigationAnchor={navigationAnchor}
       filters={
         <div
@@ -336,7 +400,6 @@ export function ImportantMessagesList({
       {page.nextBefore ? (
         <button
           type="button"
-      filtered={kinds.size !== IMPORTANT_MESSAGE_KINDS.length}
           className="weq-important-more"
           disabled={pending}
           onClick={() => {

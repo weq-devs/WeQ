@@ -39,4 +39,17 @@ it('私聊页合并撤回查询，正文返回前仍带齐数据线兼容标记'
   execute.mockClear();
   expect([...(await service.getRecallMap('group', 'u_peer', [1n, 3n])).keys()]).toEqual(['3']);
   expect(execute).toHaveBeenCalledTimes(2);
+
+  fixtureDb(dbPath).exec(`CREATE TABLE c2c_msg_table (
+    "40001" INTEGER PRIMARY KEY,"40003" INTEGER,"40002" INTEGER,"40020" TEXT,"40050" INTEGER);
+    INSERT INTO c2c_msg_table VALUES (1,1,11,'u_sender',5),(5,5,55,'u_sender',6),(6,6,66,'u_sender',7);
+    INSERT INTO weq_recall_log VALUES (5,'u_peer','c2c','u_sender','u_sender',5,10),
+      (6,'u_peer','c2c','u_sender','u_sender',6,10), (7,'u_peer','c2c','u_sender','u_sender',7,20)`);
+  const first = await service.listRecallRefs('c2c', 'u_peer', 1);
+  expect(first).toMatchObject([{ msgId: '6', recall: { recallTs: 10, sameSender: true } }]);
+  expect(
+    (await service.listRecallRefs('c2c', 'u_peer', 2, { time: 10, id: '6' })).map(
+      (row) => row.msgId,
+    ),
+  ).toEqual(['5', '1']);
 });

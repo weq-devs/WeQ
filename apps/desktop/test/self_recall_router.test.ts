@@ -10,6 +10,10 @@ const fixture = vi.hoisted(() => ({
   send: vi.fn(),
   cachedRecalls: vi.fn(),
   nativeRecalls: vi.fn(),
+  recallRefs: vi.fn(),
+  deletedRefs: vi.fn(),
+  recordBodies: vi.fn(),
+  cachedDeleted: vi.fn(),
   summaries: vi.fn(),
   logs: vi.fn(),
   switched: false,
@@ -28,8 +32,15 @@ vi.mock('../src/main/context/app_context', async () => {
     gapHistory: {
       withSelfRecallProtection: fixture.preserve,
       cachedRecalls: fixture.cachedRecalls,
+      cachedDeleted: fixture.cachedDeleted,
     },
-    msgs: { getRecalledMessages: fixture.nativeRecalls },
+    msgs: {
+      getRecalledMessages: fixture.nativeRecalls,
+      listRecallRefs: fixture.recallRefs,
+      listDeletedRefs: fixture.deletedRefs,
+      getDeletedMsgIds: () => [],
+      readHistoryRecordBodies: fixture.recordBodies,
+    },
   };
   const bootstrap = () => ({
     ocrModels: { listByKind: () => [] },
@@ -84,8 +95,68 @@ beforeEach(() => {
   });
   fixture.cachedRecalls.mockResolvedValue([recalled]);
   fixture.nativeRecalls.mockResolvedValue([]);
+  fixture.recallRefs.mockResolvedValue([]);
+  fixture.deletedRefs.mockResolvedValue([]);
+  fixture.recordBodies.mockResolvedValue([]);
+  fixture.cachedDeleted.mockResolvedValue([]);
   fixture.summaries.mockResolvedValue([]);
   fixture.logs.mockResolvedValue([]);
+});
+
+const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
+const nativeRecord = (id: bigint, type: 'recalled' | 'deleted') => ({
+  ...recalled,
+  msgId: id,
+  msgSeq: 33n,
+  msgRandom: id,
+  targetUid: params.conv,
+  sendTime: 1700000000n,
+  recall: type === 'recalled' ? { ...recalled.recall, recallTs: 1700000001 } : undefined,
+  deletedKind: type === 'deleted' ? 'qq' : undefined,
+});
+
+it('撤回缓存与原库按撤回时间合并，跨页替代旧原库副本且不取无关原文', async () => {
+  fixture.recallRefs.mockResolvedValue(
+    [
+      { ...recalled, msgId: '111', recall: { ...recalled.recall, recallTs: 1700000005 } },
+      {
+        ...recalled,
+        msgId: '222',
+        msgSeq: '33',
+        msgRandom: '222',
+        recall: { ...recalled.recall, recallTs: 1700000001 },
+      },
+    ].map(({ sourceFormat: _sourceFormat, localSent: _localSent, ...row }) => row),
+  );
+  fixture.recordBodies.mockImplementation(async (_kind, _conv, ids: bigint[]) =>
+    ids.map((id) => nativeRecord(id, 'recalled')),
+  );
+  const caller = accountRouter.createCaller({});
+  const input = { ...params, ...binding, record: 'recalled' as const, limit: 1 };
+  const first = await caller.messageHistoryPage(input);
+  expect(first.rows.map((row) => row.msgId)).toEqual([recalled.msgId]);
+  expect(first.nextBefore).not.toBeNull();
+  const second = await caller.messageHistoryPage({ ...input, before: first.nextBefore! });
+  expect(second.rows.map((row) => row.msgId)).toEqual(['222']);
+  expect(second.nextBefore).toBeNull();
+  expect(fixture.recordBodies.mock.calls.map((call) => call[2])).toEqual([[], [222n]]);
+});
+
+it('删除记录同一发送时间跨原库与缓存翻页，不漏同时间的两条消息', async () => {
+  fixture.deletedRefs
+    .mockResolvedValueOnce([{ msgId: '222', sendTime: recalled.sendTime }])
+    .mockResolvedValue([]);
+  fixture.cachedDeleted.mockResolvedValue([recalled]);
+  fixture.recordBodies.mockImplementation(async (_kind, _conv, ids: bigint[]) =>
+    ids.map((id) => nativeRecord(id, 'deleted')),
+  );
+  const caller = accountRouter.createCaller({});
+  const input = { ...params, ...binding, record: 'deleted' as const, limit: 1 };
+  const first = await caller.messageHistoryPage(input);
+  expect(first.rows.map((row) => [row.msgId, row.deletedKind])).toEqual([['222', 'qq']]);
+  const second = await caller.messageHistoryPage({ ...input, before: first.nextBefore! });
+  expect(second.rows.map((row) => [row.msgId, row.deletedKind])).toEqual([[recalled.msgId, 'weq']]);
+  expect(second.nextBefore).toBeNull();
 });
 
 describe('自撤缓存保护 IPC', () => {

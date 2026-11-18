@@ -2,9 +2,14 @@ import { act, createElement as h } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ImportantMessagesList } from '../src/renderer/src/components/ImportantMessages';
-const rpc = vi.hoisted(() => ({ query: vi.fn() }));
+const rpc = vi.hoisted(() => ({ query: vi.fn(), previews: vi.fn() }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
-  client: { account: { listImportantGroupMessages: { query: rpc.query } } },
+  client: {
+    account: {
+      listImportantGroupMessages: { query: rpc.query },
+      importantGroupPreviews: { query: rpc.previews },
+    },
+  },
 }));
 const row = (msgSeq: string) => ({
   msgSeq,
@@ -45,6 +50,26 @@ afterEach(() => {
 });
 const render = () => act(async () => root.render(h(ImportantMessagesList, props)));
 const hit = () => host.querySelector<HTMLButtonElement>('.weq-important-row')!;
+
+it('先显示索引，摘要未完成时点击仍使用随后查到的精确消息 ID', async () => {
+  let release!: (result: { items: ReturnType<typeof row>[]; contentUnavailable: boolean }) => void;
+  rpc.query.mockResolvedValue({
+    ...page([]),
+    items: [{ ...row('102'), msgId: undefined, preview: '' }],
+  });
+  rpc.previews.mockReturnValue(
+    new Promise((resolve) => {
+      release = resolve;
+    }),
+  );
+  await render();
+  expect(hit().textContent).toContain('消息 102');
+  await act(async () => hit().click());
+  expect(props.onLocate).not.toHaveBeenCalled();
+  await act(async () => release({ items: [row('102')], contentUnavailable: false }));
+  expect(hit().textContent).toContain('正文 102');
+  expect(props.onLocate).toHaveBeenCalledWith({ seq: '102', msgId: '900102' });
+});
 
 it('已读条目用多个类型图标定位，不重复类型名称；连续定位与失败重试均保留', async () => {
   rpc.query.mockResolvedValue(page(['102', '101']));

@@ -1648,29 +1648,58 @@ function MainWorkspace(): ReactElement {
     return { kind: 'c2c', conv: c.id }; // merged — should never actually be called
   }, []);
 
-  const readRecalledMessages = useCallback(
-    async (conversation: Conversation) => {
-      const rows = await client.account.recalledMessages.query(convFetchKey(conversation));
-      return rows.map(toMessageWire);
+  type RecordCursor = NonNullable<
+    Awaited<ReturnType<typeof client.account.messageHistoryPage.query>>['nextBefore']
+  >;
+  const readMessageRecords = useCallback(
+    async (record: 'recalled' | 'deleted', conversation: Conversation, before?: RecordCursor) => {
+      const binding = messageBindingRef.current;
+      if (!binding) throw new Error('账号或数据源尚未就绪');
+      const page = await client.account.messageHistoryPage.query({
+        ...convFetchKey(conversation),
+        ...binding,
+        record,
+        before,
+      });
+      return { ...page, rows: page.rows.map(toMessageWire) };
     },
-    [convFetchKey],
+    [convFetchKey, messageBindingRef],
+  );
+  const readRecalledMessages = useCallback(
+    (conversation: Conversation, before?: RecordCursor) =>
+      readMessageRecords('recalled', conversation, before),
+    [readMessageRecords],
   );
   const readDeletedMessages = useCallback(
-    async (conversation: Conversation) => {
-      const rows = await client.account.deletedMessages.query(convFetchKey(conversation));
-      return rows.map(toMessageWire);
+    (conversation: Conversation, before?: RecordCursor) =>
+      readMessageRecords('deleted', conversation, before),
+    [readMessageRecords],
+  );
+  const readRecordReplyMedia = useCallback(
+    async (conversation: Conversation, rows: MessageWire[]) => {
+      const binding = messageBindingRef.current;
+      const pending = new Map(rows.filter(needsReplyMedia).map((row) => [row.msgId, row]));
+      if (!binding || !pending.size) return;
+      const patches = await client.account.replyMedia.query({
+        ...convFetchKey(conversation),
+        ...binding,
+        msgIds: [...pending.keys()],
+      });
+      return (current: MessageWire[]) => applyReplyMedia(current, pending, patches);
     },
-    [convFetchKey],
+    [convFetchKey, messageBindingRef],
   );
   const recalls = useConversationMessageRecords(
     messageScope,
     messageScopeRef,
     readRecalledMessages,
+    readRecordReplyMedia,
   );
   const deletions = useConversationMessageRecords(
     messageScope,
     messageScopeRef,
     readDeletedMessages,
+    readRecordReplyMedia,
   );
   const { conversation: deletedConv, rows: deletedWires, loading: deletedLoading } = deletions;
   const { conversation: recalledConv, rows: recalledWires, loading: recalledLoading } = recalls;
@@ -2090,11 +2119,17 @@ function MainWorkspace(): ReactElement {
         });
       }
       const conversationId = conversation?.id ?? selectionRef.current?.id;
-      if (conversationId) void deletions.refresh(conversationId);
+      if (conversationId) {
+        const identity = deletionIdentity(msgId);
+        deletions.removeRows(
+          conversationId,
+          (row) => deletionIdentity(timelineRowKey(row)) === identity,
+        );
+      }
       void refreshWindow();
     },
     [
-      deletions.refresh,
+      deletions.removeRows,
       refreshWindow,
       convFetchKey,
       messageScopeRef,
@@ -8432,6 +8467,8 @@ function MainWorkspace(): ReactElement {
       messages={recalledTemplateMessages}
       renderers={messageRenderers}
       loading={recalledLoading}
+      hasMore={recalls.hasMore}
+      onLoadMore={recalls.loadMore}
       error={recalls.error}
       onRetry={() => void recalls.retry()}
       onClose={() => recalls.close()}
@@ -8451,6 +8488,8 @@ function MainWorkspace(): ReactElement {
       messages={deletedTemplateMessages}
       renderers={messageRenderers}
       loading={deletedLoading}
+      hasMore={deletions.hasMore}
+      onLoadMore={deletions.loadMore}
       error={deletions.error}
       onRetry={() => void deletions.retry()}
       onRestore={(msgId) => handleRestoreMessage(msgId, deletedConv)}

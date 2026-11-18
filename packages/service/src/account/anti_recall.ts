@@ -277,6 +277,10 @@ export class AntiRecallService {
     return map;
   }
 
+  listRecallRefs(...args: Parameters<AntiRecallDb['listRecallRefs']>) {
+    return this.openDb().listRecallRefs(...args);
+  }
+
   /** Flip the master switch, then reconcile triggers to match. Persists. */
   async setEnabled(enabled: boolean): Promise<AntiRecallStatus> {
     if (!this.opts.readOnly) assertDatabaseWritable(this.session.msgDbPath);

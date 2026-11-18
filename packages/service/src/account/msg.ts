@@ -849,6 +849,44 @@ export class MsgService {
     return msgs.map((m) => this.renderC2cWithState(m, recallMap));
   }
 
+  async listDeletedRefs(
+    kind: 'c2c' | 'group',
+    conv: string,
+    limit: number,
+    before?: { time: number; id?: string },
+  ) {
+    if (kind === 'group') return this.session.groupMsgs.listDeletedRefs(conv, limit, before);
+    return this.c2cDbFor(conv).listDeletedRefs(await this.c2cPagePartition(conv), limit, before);
+  }
+
+  async listRecallRefs(
+    kind: 'c2c' | 'group',
+    conv: string,
+    limit?: number,
+    before?: { time: number; id?: string },
+  ) {
+    const tableKind = kind === 'c2c' && isDatalineUid(conv) ? 'dataline' : kind;
+    return (await this.antiRecall?.listRecallRefs(tableKind, conv, limit, before)) ?? [];
+  }
+
+  async readHistoryRecordBodies(
+    kind: 'c2c' | 'group',
+    conv: string,
+    ids: bigint[],
+  ): Promise<RenderC2cMsg[] | RenderGroupMsg[]> {
+    if (!ids.length) return [];
+    const recalls = this.antiRecall?.getRecallMap(kind, conv, ids);
+    if (kind === 'group') {
+      const [rows, recallMap] = await Promise.all([
+        this.session.groupMsgs.listByMsgIds(ids),
+        recalls,
+      ]);
+      return rows.map((row) => this.renderGroupWithState(row, recallMap));
+    }
+    const [rows, recallMap] = await Promise.all([this.c2cDbFor(conv).listByMsgIds(ids), recalls]);
+    return rows.map((row) => this.renderC2cWithState(row, recallMap));
+  }
+
   /**
    * The msgIds WeQ deleted in one conversation — the lightweight signal the
    * chat view uses to draw the translucent "deleted" overlay over in-place

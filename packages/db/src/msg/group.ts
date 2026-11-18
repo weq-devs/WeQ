@@ -59,6 +59,7 @@ import {
 import { type SalvageStreamOptions, windowPlanFrom } from '../salvage';
 import { nativeHistoryCursor } from './history';
 import { directoryTimePage } from './directory_times';
+import { listDeletedRefs } from './deleted_refs';
 import { readMessageSourceRows } from './export_source';
 
 // 40002 (msgRandom) is appended LAST on purpose: every row mapper below indexes
@@ -636,6 +637,16 @@ export class GroupMsgDb {
       [targetGroupCode, BigInt(limit)],
     );
     return rows.map(rowToGroupMsg);
+  }
+
+  listDeletedRefs(groupCode: string, limit: number, before?: { time: number; id?: string }) {
+    return listDeletedRefs(
+      this.qq,
+      'group_msg_table',
+      { clause: '"40027" = ?', value: groupCode },
+      limit,
+      before,
+    );
   }
 
   /**

@@ -111,6 +111,7 @@ import { groupAlbumMediaKey, qzoneAlbumMediaKey } from '../../../shared/album_me
 import { groupAlbumReferences } from '../../../shared/content_selection';
 import { createContactMetricsRouter } from './contact_metrics';
 import { createNoticeReadRouter } from './notice_read';
+import { readMessageHistoryPage } from './message_history_page';
 import { mergeNoticeSeen } from '../../../shared/notice_seen';
 import { messageReadPosition, newerReadPosition } from '@weq/service/client-preferences';
 import { createQQActionsRouter } from './qq_actions';
@@ -1897,6 +1898,54 @@ const browserFiles = new FileUploadStaging(30 * 60000, {
   prefix: 'weq-browser-file-',
   fileName: 'attachment',
 });
+
+async function importantGroupPreviews(
+  account: NonNullable<ReturnType<typeof getAppContext>['account']>,
+  groupCode: string,
+  seqs: string[],
+) {
+  let contentUnavailable = false;
+  const bySeq = new Map<
+    string,
+    Awaited<ReturnType<typeof account.groupMsgs.listBySeqsInPartition>>[number]
+  >();
+  try {
+    if (seqs.length) {
+      for (const message of await account.groupMsgs.listBySeqsInPartition(
+        groupCode,
+        seqs.map(BigInt),
+      )) {
+        const key = String(message.msgSeq);
+        const prior = bySeq.get(key);
+        if (!prior || (prior.msgType === 1n && message.msgType !== 1n)) bySeq.set(key, message);
+      }
+    }
+  } catch {
+    contentUnavailable = true;
+  }
+  const items = [...bySeq].map(([msgSeq, message]) => {
+    const elements = toRenderElements(message.elements);
+    const picture = elements.find((element) => element.type === 'pic' && !element.data.isFlash);
+    return {
+      msgSeq,
+      msgId: String(message.msgId),
+      senderUid: message.senderUid,
+      sendTime: String(message.sendTime),
+      preview: plainContentText(elements).slice(0, 512),
+      thumbnail:
+        picture?.type === 'pic'
+          ? {
+              name: picture.data.fileName,
+              token: picture.data.fileToken,
+              orig: picture.data.originalUrl,
+              md5: picture.data.md5,
+              recv: picture.data.subType === 1 ? 1 : 0,
+            }
+          : undefined,
+    };
+  });
+  return { items, contentUnavailable };
+}
 
 export const accountRouter = router({
   outgoing: outgoingRouter,
@@ -3820,6 +3869,7 @@ export const accountRouter = router({
           .regex(/^[1-9]\d{0,19}$/)
           .optional(),
         limit: z.number().int().min(1).max(100).default(50),
+        deferPreviews: z.boolean().optional(),
       }),
     )
     .query(async ({ input }) => {
@@ -3829,59 +3879,64 @@ export const accountRouter = router({
       );
       const account = getAppContext().account;
       if (!account) throw new Error('账号已关闭');
+      const { deferPreviews, ...filter } = input;
       const page = await services.unreadInfo.listImportantMessages({
-        ...input,
+        ...filter,
         chatType: 2,
         uid: input.groupCode,
       });
-      // 只为当前页批量补摘要与缩图索引；不加载消息上下文或媒体本体。
-      let messages: Awaited<ReturnType<typeof account.groupMsgs.listBySeqsInPartition>> = [];
-      let contentUnavailable = false;
-      try {
-        if (page.items.length)
-          messages = await account.groupMsgs.listBySeqsInPartition(
+      const previews = deferPreviews
+        ? { items: [], contentUnavailable: false }
+        : await importantGroupPreviews(
+            account,
             input.groupCode,
-            page.items.map((row) => BigInt(row.msgSeq)),
+            page.items.map((row) => row.msgSeq),
           );
-      } catch {
-        contentUnavailable = true;
-      }
       if (
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
           services ||
         getAppContext().account !== account
       )
         throw new Error('账号数据源已切换');
+      const bySeq = new Map(previews.items.map((row) => [row.msgSeq, row]));
       return {
         ...page,
-        contentUnavailable,
+        contentUnavailable: previews.contentUnavailable,
         items: page.items.map((row) => {
-          const candidates = messages.filter((message) => String(message.msgSeq) === row.msgSeq);
-          const message = candidates.find((candidate) => candidate.msgType !== 1n) ?? candidates[0];
-          const elements = message ? toRenderElements(message.elements) : [];
-          const picture = elements.find(
-            (element) => element.type === 'pic' && !element.data.isFlash,
-          );
+          const preview = bySeq.get(row.msgSeq);
           return {
             ...row,
-            msgId: message ? String(message.msgId) : undefined,
-            senderUid: message?.senderUid || row.senderUid,
-            sendTime: message ? String(message.sendTime) : row.sendTime,
-            preview: plainContentText(elements).slice(0, 512),
-            thumbnail:
-              picture?.type === 'pic'
-                ? {
-                    name: picture.data.fileName,
-                    token: picture.data.fileToken,
-                    orig: picture.data.originalUrl,
-                    md5: picture.data.md5,
-                    recv: picture.data.subType === 1 ? 1 : 0,
-                  }
-                : undefined,
+            msgId: preview?.msgId,
+            senderUid: preview?.senderUid || row.senderUid,
+            sendTime: preview?.sendTime ?? row.sendTime,
+            preview: preview?.preview ?? '',
+            thumbnail: preview?.thumbnail,
           };
         }),
       };
     }),
+
+  importantGroupPreviews: procedure
+    .input(
+      exportAccountBindingInput.required().extend({
+        groupCode: z.string().regex(/^\d+$/),
+        seqs: z
+          .array(z.string().regex(/^[1-9]\d{0,19}$/))
+          .min(1)
+          .max(100),
+      }),
+    )
+    .query(({ input }) =>
+      readMessageScope(
+        input,
+        () => {
+          const account = getAppContext().account;
+          if (!account) throw new Error('账号已关闭');
+          return importantGroupPreviews(account, input.groupCode, input.seqs);
+        },
+        'background',
+      ),
+    ),
 
   setConversationReadState: procedure
     .input(
@@ -5716,6 +5771,20 @@ export const accountRouter = router({
     .input(z.object({ kind: z.enum(['c2c', 'group']), conv: z.string().min(1) }))
     .query(({ input }): string[] =>
       requireServices().msgs.getHiddenDeletedMsgIds(input.kind, input.conv),
+    ),
+
+  messageHistoryPage: procedure
+    .input(
+      convInput.merge(exportAccountBindingInput.required()).extend({
+        record: z.enum(['recalled', 'deleted']),
+        limit: z.number().int().min(1).max(80).default(24),
+        before: z
+          .object({ time: z.number().int(), id: z.string().min(1).max(120), roaming: z.boolean() })
+          .optional(),
+      }),
+    )
+    .query(({ input }) =>
+      readMessageScope(input, () => readMessageHistoryPage(requireServices(), input)),
     ),
 
   /**

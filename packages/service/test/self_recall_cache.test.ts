@@ -165,6 +165,18 @@ describe('WeQ 自撤缓存保护', () => {
   });
 });
 
+it('删除列表按会话及序号加 ID 读取缓存，不拉同序号的其他正文', async () => {
+  const { history, cache, sent } = setup();
+  await cache.store([
+    sent,
+    { ...sent, msgId: '5678', msgRandom: '5678' },
+    { ...sent, msgSeq: '43' },
+    { ...sent, conv: 'u_other' },
+  ]);
+  const rows = await history.cachedDeleted('c2c', sent.conv, ['roaming:native:42:1234', '468']);
+  expect(rows.map((row) => [row.conv, row.msgSeq, row.msgId])).toEqual([[sent.conv, '42', '1234']]);
+});
+
 it('QQ 自撤灰条的 47710 从 wire 恢复图文和提及，遇到未知元素不提供残缺原稿', () => {
   const original = {
     id: ProtoField(45001, ScalarType.UINT64),

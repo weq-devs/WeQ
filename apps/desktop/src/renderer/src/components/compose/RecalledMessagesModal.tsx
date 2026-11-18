@@ -69,6 +69,8 @@ export function RecalledMessagesModal({
   messages,
   renderers,
   loading,
+  hasMore = false,
+  onLoadMore,
   onClose,
   onJumpToMessage,
   embedded = false,
@@ -81,6 +83,8 @@ export function RecalledMessagesModal({
   messages: Message[];
   renderers?: MessageRenderer[];
   loading: boolean;
+  hasMore?: boolean;
+  onLoadMore?: () => void;
   onClose: () => void;
   onJumpToMessage?: (seq: string, messageId: string) => void;
   /** 设置工具已有唯一模态容器，只复用内容，不再叠加第二个窗口。 */
@@ -246,7 +250,7 @@ export function RecalledMessagesModal({
         {filtering ? (
           <NumericText>{`${filtered.length} / ${rows.length} 条`}</NumericText>
         ) : (
-          <NumericText>{`共 ${rows.length} 条`}</NumericText>
+          <NumericText>{`${hasMore ? '已加载' : '共'} ${rows.length} 条`}</NumericText>
         )}
       </span>
     </div>
@@ -278,7 +282,18 @@ export function RecalledMessagesModal({
       重试读取
     </button>
   ) : null;
-  const emptyLabel = filtering ? '没有符合条件的消息' : '没有被撤回的消息';
+  const more =
+    hasMore && !error ? (
+      <button type="button" className="weq-important-more" disabled={loading} onClick={onLoadMore}>
+        {loading ? '正在读取更早消息…' : '加载更早消息'}
+      </button>
+    ) : null;
+  const initialLoading = loading && !rows.length && !hasMore;
+  const emptyLabel = hasMore
+    ? '已加载的记录中没有符合条件的消息'
+    : filtering
+      ? '没有符合条件的消息'
+      : '没有被撤回的消息';
 
   if (!embedded) {
     return (
@@ -295,7 +310,8 @@ export function RecalledMessagesModal({
             {retry}
           </p>
         ) : null}
-        {loading ? (
+        {more}
+        {initialLoading ? (
           <p role="status">正在读取已撤回消息…</p>
         ) : !filtered.length && !error ? (
           <p role="status">
@@ -347,11 +363,11 @@ export function RecalledMessagesModal({
                 {retry}
               </div>
             ) : null}
-            {loading ? (
+            {initialLoading ? (
               <div className="weq-deleted-empty" role="status">
                 <LoadingIndicator />
               </div>
-            ) : rows.length === 0 && !error ? (
+            ) : rows.length === 0 && !hasMore && !error ? (
               <div className="weq-deleted-empty">
                 <RotateCcw size={26} />
                 <span>没有被撤回的消息</span>
@@ -408,6 +424,7 @@ export function RecalledMessagesModal({
                 ))}
               </div>
             ) : null}
+            {more}
           </div>
         </ConvContext.Provider>
       </ForwardKindContext.Provider>

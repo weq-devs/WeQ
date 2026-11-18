@@ -26,6 +26,7 @@ import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq
 import { readMessageSourceRows } from './export_source';
 import { nativeHistoryCursor } from './history';
 import { directoryTimePage } from './directory_times';
+import { listDeletedRefs } from './deleted_refs';
 import type {
   C2cInitiationTally,
   C2cMsg,
@@ -717,6 +718,10 @@ export class C2cMsgDb {
       [targetUid, BigInt(limit)],
     );
     return rows.map(rowToC2cMsg);
+  }
+
+  listDeletedRefs(part: C2cPartition, limit: number, before?: { time: number; id?: string }) {
+    return listDeletedRefs(this.qq, this.table, partitionWhere(part), limit, before);
   }
 
   /**
