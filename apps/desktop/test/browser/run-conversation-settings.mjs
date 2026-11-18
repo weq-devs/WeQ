@@ -88,8 +88,6 @@ try {
         theme,
       );
       assert.equal(await pane.evaluate((el) => el.scrollWidth > el.clientWidth + 1), false);
-      const link = page.getByRole('button', { name: '查看联系人资料', exact: true });
-      assert.equal(await link.isVisible(), true);
       if (output) await page.screenshot({ path: resolve(output, `${width}-${theme}.png`) });
     }
   await pane.getByRole('button', { name: '意图感知', exact: true }).click();
@@ -100,9 +98,8 @@ try {
     'true',
   );
   assert.equal(await pane.getByText('未生效：应用意图感知已关闭', { exact: true }).count(), 1);
-  await pane.getByRole('button', { name: '查看联系人资料', exact: true }).click();
-  await page.getByLabel('资料导航结果').filter({ hasText: 'u_fixture' }).waitFor();
-  assert.equal(await pane.count(), 0);
+  await pane.getByRole('button', { name: '关闭', exact: true }).click();
+  await pane.waitFor({ state: 'detached' });
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify({
@@ -113,7 +110,7 @@ try {
         'space-section',
         'pin-readback',
         'intent-state',
-        'profile-navigation',
+        'settings-close',
       ],
       errors,
     }),

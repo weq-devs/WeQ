@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { UserRound, UsersRound, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { WindowSurface } from './WindowSurface';
 import '../styles/conversation-settings.css';
 
@@ -12,8 +12,6 @@ export function ConversationSettingsFrame<T extends string>({
   onValueChange,
   onClose,
   anchor,
-  onOpenProfile,
-  profileKind = 'person',
   children,
 }: {
   title: string;
@@ -23,8 +21,6 @@ export function ConversationSettingsFrame<T extends string>({
   onValueChange: (value: T) => void;
   onClose: () => void;
   anchor?: HTMLElement;
-  onOpenProfile?: () => void;
-  profileKind?: 'person' | 'group';
   children: ReactNode;
 }) {
   return (
@@ -50,21 +46,6 @@ export function ConversationSettingsFrame<T extends string>({
           <div className="weq-cvs-nav-head">
             <strong>{title}</strong>
             <span title={subtitle}>{subtitle}</span>
-            {onOpenProfile ? (
-              <button
-                type="button"
-                className="weq-set-iconbtn weq-cvs-profile-link"
-                title={profileKind === 'group' ? '查看群资料' : '查看联系人资料'}
-                aria-label={profileKind === 'group' ? '查看群资料' : '查看联系人资料'}
-                onClick={onOpenProfile}
-              >
-                {profileKind === 'group' ? (
-                  <UsersRound size={16} aria-hidden />
-                ) : (
-                  <UserRound size={16} aria-hidden />
-                )}
-              </button>
-            ) : null}
           </div>
           <ul>
             {sections.map((section) => (

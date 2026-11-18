@@ -95,12 +95,7 @@ try {
         const pane = page.locator('.weq-conversation-settings-pane');
         await pane.waitFor();
         assert.equal(await page.evaluate(() => window.profileIdentityQa.closes), 0);
-        await pane
-          .getByRole('button', {
-            name: kind === 'friend' ? '查看联系人资料' : '查看群资料',
-            exact: true,
-          })
-          .click();
+        await pane.getByRole('button', { name: '关闭', exact: true }).click();
         await pane.waitFor({ state: 'detached' });
         assert.equal(await page.evaluate(() => window.profileIdentityQa.closes), 0);
         await page.keyboard.press('Escape');

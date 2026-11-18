@@ -9738,9 +9738,6 @@ function MainWorkspace(): ReactElement {
             <ConversationSettingsDialog
               key={`${convSettings.ownerKey}:${convSettings.kind}:${convSettings.conv}:${convSettings.initialSection ?? 'qq'}`}
               initialSection={convSettings.initialSection}
-              groupConversation={convSettings.groupConversation}
-              contact={convSettings.contact}
-              onOpenProfile={convSettings.onOpenProfile}
               kind={convSettings.kind}
               conv={convSettings.conv}
               title={convSettings.title}

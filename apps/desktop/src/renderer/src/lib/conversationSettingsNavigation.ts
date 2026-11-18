@@ -1,5 +1,5 @@
 import { createContext } from 'react';
-import type { Contact, GroupConversation } from '../im-template/template/types';
+import type { GroupConversation } from '../im-template/template/types';
 import type { GroupResourceRequest } from '../hooks/useGroupResourceWindows';
 
 export interface ConversationSettingsRequest {
@@ -9,8 +9,6 @@ export interface ConversationSettingsRequest {
   anchor?: HTMLElement;
   initialSection?: 'qq' | 'group-management';
   groupConversation?: GroupConversation;
-  contact?: Contact;
-  onOpenProfile?: () => void;
 }
 
 export const ConversationSettingsNavigationContext = createContext<

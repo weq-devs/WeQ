@@ -41,17 +41,12 @@ export function ProfileConversationSettingsButton({
       <ConversationSettingsButton
         className="icon-button group-header-info-action weq-profile-page-settings"
         onClick={(button) => {
-          if (navigate) navigate({ ...request, anchor: button, onOpenProfile: () => {} });
+          if (navigate) navigate({ ...request, anchor: button });
           else setAnchor(button);
         }}
       />
       {anchor ? (
-        <ConversationSettingsDialog
-          {...request}
-          anchor={anchor}
-          onOpenProfile={() => setAnchor(null)}
-          onClose={() => setAnchor(null)}
-        />
+        <ConversationSettingsDialog {...request} anchor={anchor} onClose={() => setAnchor(null)} />
       ) : null}
     </>
   );

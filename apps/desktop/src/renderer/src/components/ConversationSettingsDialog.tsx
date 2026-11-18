@@ -11,11 +11,8 @@
  * 保护范围在防撤回设置，通知方式各入口共用，提醒名单在「常规 → 通知与提醒」。
  */
 
-import { useContext, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import type { Contact, GroupConversation } from '../im-template/template/types';
-import { sharedGroupConversation } from './ark/groupShareCard';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { accountBinding } from '../lib/clientPreferences';
-import { ContactWorkspaceNavigationContext, profileTargetUser } from '../lib/profileNavigation';
 import { BellRing, BrainCircuit, Settings2, ShieldCheck, UsersRound } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog.shared';
@@ -42,9 +39,6 @@ export function ConversationSettingsDialog({
   onClose,
   anchor,
   initialSection,
-  groupConversation,
-  contact,
-  onOpenProfile,
 }: {
   /** 与后端 AntiRecallKind 对齐（数据线单独一张表，不能并到私聊）。 */
   kind: 'c2c' | 'group' | 'dataline';
@@ -57,13 +51,8 @@ export function ConversationSettingsDialog({
   onClose: () => void;
   anchor?: HTMLElement;
   initialSection?: 'qq' | 'group-management';
-  groupConversation?: GroupConversation;
-  contact?: Contact;
-  onOpenProfile?: () => void;
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
-  const openWorkspace = useContext(ContactWorkspaceNavigationContext);
-  const profileUser = kind === 'c2c' ? profileTargetUser({ identity: conv, name: title }) : null;
   const utils = trpc.useUtils();
   const source = useRef(accountBinding());
   const [section, setSection] = useState<SectionId>(
@@ -174,34 +163,8 @@ export function ConversationSettingsDialog({
     <ConversationSettingsFrame<SectionId>
       title="会话设置"
       subtitle={title}
-      profileKind={kind === 'group' ? 'group' : 'person'}
       anchor={anchor}
       onClose={onClose}
-      onOpenProfile={
-        kind !== 'dataline' &&
-        (onOpenProfile || (openWorkspace && (profileUser || kind === 'group')))
-          ? () => {
-              onClose();
-              if (onOpenProfile) {
-                onOpenProfile();
-                return;
-              }
-              if (kind === 'group') {
-                openWorkspace?.({
-                  kind: 'group',
-                  conversation:
-                    groupConversation ??
-                    sharedGroupConversation({ code: conv, name: title, avatar: '' }),
-                });
-              } else if (profileUser)
-                openWorkspace?.({
-                  kind: 'person',
-                  contact: contact ?? { ...profileUser, createdAt: '' },
-                  tab: 'profile',
-                });
-            }
-          : undefined
-      }
       value={section}
       onValueChange={setSection}
       sections={[

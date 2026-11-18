@@ -64,7 +64,6 @@ export function GroupProfileFeatures({
         groupConversation: target,
         anchor: anchor ?? undefined,
         initialSection: 'group-management',
-        onOpenProfile: () => {},
       });
     } else
       setFeature((previous) =>
@@ -132,10 +131,8 @@ export function GroupProfileFeatures({
           kind="group"
           conv={conversation.id}
           title={conversation.group.name}
-          groupConversation={conversation}
           initialSection="group-management"
           anchor={feature.anchor ?? undefined}
-          onOpenProfile={close}
           onClose={close}
         />
       ) : null}
