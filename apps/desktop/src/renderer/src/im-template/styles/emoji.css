@@ -52,12 +52,69 @@
 
 .emoji-panel .poke-combo-btn {
   min-width: 0;
+  height: 30px;
   overflow: hidden;
 }
 
 .emoji-panel .poke-combo-btn img {
   max-width: 100%;
+  max-height: 24px;
   object-fit: contain;
+}
+
+.emoji-panel .poke-head,
+.emoji-panel .poke-foot {
+  padding: 5px 12px;
+}
+.emoji-panel .poke-body {
+  gap: 5px;
+  padding: 5px 12px;
+}
+.emoji-panel .poke-stage {
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 10px;
+}
+.emoji-panel .poke-preview {
+  min-height: 58px;
+  height: 58px;
+  border-radius: 8px;
+  background: transparent;
+}
+.emoji-panel .poke-controls {
+  gap: 3px;
+}
+.emoji-panel .poke-combo,
+.emoji-panel .poke-combo.is-random {
+  grid-template-columns: repeat(auto-fit, minmax(26px, 1fr));
+}
+.emoji-panel .poke-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 4px;
+}
+.emoji-panel .poke-cell {
+  width: 100%;
+  height: 34px;
+}
+.emoji-panel .poke-cell img {
+  max-width: 28px;
+  max-height: 28px;
+}
+.emoji-panel .poke-random {
+  gap: 3px;
+  padding-top: 4px;
+}
+.emoji-panel .poke-random-grid {
+  grid-template-columns: repeat(auto-fill, minmax(46px, 1fr));
+  gap: 4px;
+}
+.emoji-panel .poke-random-cell {
+  grid-template-rows: 26px auto;
+  padding: 2px;
+  min-width: 0;
+}
+.emoji-panel .poke-random-cell img {
+  max-width: 26px;
+  max-height: 26px;
 }
 
 .emoji-panel-body::-webkit-scrollbar {
@@ -115,16 +172,30 @@
   white-space: nowrap;
 }
 
+.emoji-heading-note {
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
 .emoji-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, 36px);
   gap: 3px 4px;
 }
 
+.emoji-standard-grid {
+  grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
+}
+.emoji-standard-grid .emoji-cell {
+  width: 100%;
+  touch-action: pan-y;
+  -webkit-touch-callout: none;
+}
+
 .emoji-grid button,
 .kaomoji-grid button,
 .emoji-tabs button,
-.emoji-chip,
 .emoji-pack-card,
 .emoji-back-btn,
 .emoji-add-btn {
@@ -252,83 +323,6 @@
   font-size: 13px;
   font-weight: 600;
   line-height: 1.2;
-}
-
-.emoji-subgroup {
-  display: grid;
-  gap: 6px;
-}
-
-.emoji-subgroup h4 {
-  margin: 0;
-  color: var(--weq-fg-muted, #858585);
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 0.2px;
-  line-height: 1.2;
-}
-
-/* 「超级表情只能单独发送」的说明条 —— 贴在超级表情栏顶部，点之前就讲清楚它跟普通
-   表情的区别。 */
-.emoji-super-hint {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 9px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 8%, transparent);
-  color: color-mix(
-    in srgb,
-    var(--weq-accent-effective, #12a8ff) 82%,
-    var(--weq-fg-secondary, #666666)
-  );
-  font-size: 11.5px;
-  line-height: 1.4;
-}
-
-/* 分类 / 标签横滑片。 */
-.emoji-chip-row {
-  display: flex;
-  min-width: 0;
-  gap: 6px;
-  padding-bottom: 2px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.emoji-chip-row::-webkit-scrollbar {
-  display: none;
-}
-
-.emoji-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex: 0 0 auto;
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 10%, transparent);
-  color: var(--weq-fg-secondary, #666666);
-  font-size: 12px;
-  white-space: nowrap;
-  transition:
-    background 120ms ease,
-    color 120ms ease;
-}
-
-.emoji-chip:hover {
-  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 12%, transparent);
-}
-
-.emoji-chip.active {
-  background: var(--weq-accent-solid, #12a8ff);
-  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
-}
-
-.emoji-chip em {
-  font-size: 10px;
-  font-style: normal;
-  opacity: 0.7;
 }
 
 .emoji-back-btn {

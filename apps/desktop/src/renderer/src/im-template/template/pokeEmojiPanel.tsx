@@ -53,8 +53,8 @@ function comboThumbSize(step: number): number {
   return 18 + step * 6;
 }
 
-/** 随机表情预览的目标边长（沿用聊天气泡里的「大表情」尺寸量级）。 */
-const RANDOM_PREVIEW_SIZE = 150;
+/** 面板预览的目标边长。 */
+const RANDOM_PREVIEW_SIZE = 52;
 
 type Mode = 'poke' | 'random';
 
@@ -238,7 +238,6 @@ export function PokeEmojiPanel({
           <div className={cn('poke-random')}>
             <div className={cn('poke-random-head')}>
               <span className={cn('poke-label')}>随机表情</span>
-              <span className={cn('poke-random-tip')}>挑一个结果单独发送</span>
             </div>
             <div className={cn('poke-random-grid')} role="radiogroup" aria-label="选择随机表情">
               {randomFaces.map((face) => {

@@ -1,6 +1,15 @@
 import { NumericText } from '../NumericText';
 import { useEffect, useId, useRef, useState } from 'react';
-import { FileArchive, FolderOpen, ImageOff, Loader2, RefreshCw, Upload, X } from 'lucide-react';
+import {
+  FileArchive,
+  FolderOpen,
+  ImageOff,
+  ImagePlus,
+  Loader2,
+  RefreshCw,
+  Upload,
+  X,
+} from 'lucide-react';
 import type { FavoriteEmojiImportPreview, FavoriteEmojiImportState } from '@weq/service';
 import type { QQWriteBinding } from '../../hooks/useQQWriteSession';
 import { client, trpc } from '../../trpc/client';
@@ -28,12 +37,14 @@ export function FavoriteBundleImport({
   available,
   onBusyChange,
   onChanged,
+  onImportImage,
   showLabel = false,
 }: {
   binding: QQWriteBinding | null;
   available: boolean;
   onBusyChange: (busy: boolean) => void;
   onChanged: () => Promise<void>;
+  onImportImage?: () => Promise<void>;
   showLabel?: boolean;
 }) {
   const utils = trpc.useUtils();
@@ -244,9 +255,9 @@ export function FavoriteBundleImport({
     <>
       <ActionIcon
         text={showLabel ? (running ? '进度' : pending ? '处理中' : '导入') : undefined}
-        label={running ? '查看收藏导入进度' : '导入收藏表情包'}
+        label={running ? '查看收藏导入进度' : '导入收藏表情'}
         disabled={pending || state.isLoading || (!stage && !available)}
-        onClick={() => (stage ? setOpen(true) : void choose())}
+        onClick={() => (stage || onImportImage ? setOpen(true) : void choose())}
       >
         {running || pending ? <Loader2 className="weq-spin" size={16} /> : <Upload size={16} />}
       </ActionIcon>
@@ -275,11 +286,31 @@ export function FavoriteBundleImport({
               <span>
                 {stage ? (
                   <NumericText>{`${stage.items.length} 项 · 已选 ${selected.size} 项`}</NumericText>
+                ) : onImportImage ? (
+                  '导入来源'
                 ) : (
                   '选择收藏表情 ZIP'
                 )}
               </span>
               <div>
+                {onImportImage ? (
+                  <ActionIcon
+                    text="选择图片"
+                    label="导入图片到收藏表情"
+                    disabled={pending || running || !available}
+                    onClick={() => {
+                      if (inFlight.current) return;
+                      inFlight.current = true;
+                      setPending(true);
+                      void onImportImage().finally(() => {
+                        inFlight.current = false;
+                        if (mounted.current) setPending(false);
+                      });
+                    }}
+                  >
+                    <ImagePlus size={16} />
+                  </ActionIcon>
+                ) : null}
                 <ActionIcon
                   text="选择 ZIP"
                   label="选择收藏包"

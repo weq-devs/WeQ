@@ -1,13 +1,8 @@
 /**
  * 表情面板的两个新分栏：**自定义表情** 与 **QQ 秀表情**。
  *
- * 两者共用一个流程 —— 选一张本机图片、读成字节、直接发出去。差别只有一处：
- * QQ 秀表情还要先选一个 action（目录里的表情包），发送时把那套互动包定义
- * （`pic.11.35/36`）一起带上，收端才会渲染成 QQ 秀表情而不是普通图片。
- *
- * 为什么「直接发」而不是插进输入框：协议层的 `image` 元素必须先上传拿到 msgInfo
- * 才能拼成 `commonElem`，插入输入框意味着要在点发送键的那一刻才上传，失败也没法
- * 回退。面板里点选即发，失败就地提示，链路最短。
+ * 自定义表情把本机图片交给输入框；QQ 秀先选动作，再选图直接发送，
+ * 图片同时携带对应的互动包定义（`pic.11.35/36`）。
  */
 
 import { useCallback, useRef, useState } from 'react';
@@ -85,115 +80,49 @@ function useSendFailureToast(): (error: unknown) => void {
 
 // ─────────────────────────── 自定义表情 ───────────────────────────
 
-type RecentEntry = {
-  md5: string;
-  fileName: string;
-  fileSize: number;
-  width: number;
-  height: number;
-  picFormat: number;
-  usedAt: number;
-};
-
-export function CustomEmojiTab({ ctx, onSent }: { ctx: SendContext; onSent: () => void }) {
-  const utils = trpc.useUtils();
-  const recent = trpc.account.emojiPanel.customEmojiRecent.useQuery(undefined, {
-    staleTime: 10_000,
-  });
-  const [sending, setSending] = useState(false);
-  const sendCustom = trpc.account.emojiPanel.sendCustomEmoji.useMutation();
-  const toastFailure = useSendFailureToast();
-
-  const submit = useCallback(
-    async (file: File) => {
-      if (file.size > MAX_BYTES) {
-        toastFailure(new Error('图片超过 10 MB，请换一张。'));
-        return;
-      }
-      setSending(true);
-      try {
-        await sendCustom.mutateAsync({
-          peerType: ctx.peerType,
-          targetId: ctx.targetId,
-          ...(ctx.tempGroupCode ? { tempGroupCode: ctx.tempGroupCode } : {}),
-          source: await fileToBytes(file),
-          fileName: file.name,
-        });
-        await utils.account.emojiPanel.customEmojiRecent.invalidate();
-        onSent();
-      } catch (cause) {
-        toastFailure(cause);
-      } finally {
-        setSending(false);
-      }
-    },
-    [ctx, onSent, sendCustom, toastFailure, utils],
-  );
-
+export function CustomEmojiTab({
+  disabled,
+  disabledHint,
+  onInsert,
+}: {
+  disabled: boolean;
+  disabledHint?: string;
+  onInsert?: (file: File) => void;
+}) {
+  const [error, setError] = useState('');
   const picker = useImagePicker((file) => {
-    if (ctx.disabled) {
-      toastFailure(new Error(ctx.disabledHint));
-      return;
+    if (disabled) return;
+    if (!file.size || file.size > MAX_BYTES) {
+      setError(file.size ? '图片超过 10 MB，请换一张。' : '图片文件为空，请换一张。');
+    } else {
+      setError('');
+      onInsert?.(file);
     }
-    void submit(file);
   });
-
-  const entries = (recent.data ?? []) as RecentEntry[];
 
   return (
-    <div className={cn('show-emoji-tab')}>
+    <div className="show-emoji-tab show-emoji-custom">
+      <header className="emoji-section-head">
+        <h3>自定义表情</h3>
+      </header>
       {picker.element}
-
       <button
         type="button"
         className={cn('show-emoji-upload')}
         onClick={picker.open}
-        disabled={ctx.disabled || sending}
-        title={ctx.disabled ? ctx.disabledHint : '选择一张图片或 GIF 作为表情发送'}
+        disabled={disabled}
+        title={disabled ? disabledHint : undefined}
       >
-        {sending ? (
-          <Loader2 size={18} className={cn('show-emoji-spin')} />
-        ) : (
-          <ImagePlus size={18} />
-        )}
-        <span>{sending ? '发送中…' : '选择图片或 GIF'}</span>
+        <ImagePlus size={24} />
+        <span>选择图片或 GIF</span>
+        <span className="show-emoji-hint">将图片以表情形式放入输入框</span>
       </button>
-      <p className={cn('show-emoji-hint')}>支持 JPG / PNG / GIF / WebP，单张不超过 10 MB</p>
-
-      {entries.length > 0 ? (
-        <section className={cn('show-emoji-section')}>
-          <h4>最近上传</h4>
-          <div className={cn('show-emoji-recent-list')}>
-            {entries.map((entry) => (
-              <RecentCell key={entry.md5} entry={entry} onPick={() => picker.open()} />
-            ))}
-          </div>
-          <p className={cn('show-emoji-hint')}>点选历史记录会重新打开文件选择器</p>
-        </section>
+      {error ? (
+        <p role="alert" className="show-emoji-hint">
+          {error}
+        </p>
       ) : null}
     </div>
-  );
-}
-
-/**
- * 「最近上传」的一格。
- *
- * 索引只存元数据（md5 / 文件名 / 大小），不存字节 —— 原图可能几十 MB，复制进
- * 账号目录不划算。所以这里画的是**文件名 + 大小**的紧凑条目，点一下重新选文件；
- * 真正的重发走同一次「选图 → 上传」流程，确保发出去的一定是用户当下确认的那张。
- */
-function RecentCell({ entry, onPick }: { entry: RecentEntry; onPick: () => void }) {
-  const name = entry.fileName || entry.md5;
-  return (
-    <button
-      type="button"
-      className={cn('show-emoji-recent')}
-      title={`${name}（点选重新选择图片）`}
-      onClick={onPick}
-    >
-      <ImagePlus size={14} />
-      <span className={cn('show-emoji-recent-name')}>{name}</span>
-    </button>
   );
 }
 

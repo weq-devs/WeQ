@@ -13,6 +13,11 @@ import { scopedNetworkAllowed } from '../common/network_scope';
 import { developmentDressToolsEnabled } from '../common/development_dress';
 import { FavoriteEmojiCache } from './favorite_emoji_cache';
 import {
+  classicPanelFaces,
+  compareClassicPanelFaces,
+  unicodePanelGlyphs,
+} from './emoji_panel_catalog';
+import {
   AddCustomFace,
   DeleteCustomFace,
   FetchCustomFaceDetail,
@@ -333,8 +338,7 @@ export class EmojiService {
    * 面板用：按 `81266` 分类列出内置表情。字符表情（`81214` 非 0，id 是字形）
    * 单独成组（`unicode: true`），不与小黄脸等图片表情混排。失败/缺库返回空表。
    *
-   * 分组**保持按分类名**（前端「超级表情」栏就是靠 `label` 排除「小黄脸表情」），
-   * 但每项 / 每组额外带上 81216/81217 的贴纸信息，让上层不必再猜分类名。
+   * QQ 原目录优先，普通表情补齐有静态资源的缺项；大号能力只使用真实贴纸字段。
    */
   async listPanelFaces(): Promise<PanelFaceGroup[]> {
     const rows = await this.loadSysFaceRows();
@@ -368,7 +372,54 @@ export class EmojiService {
       });
       if (r.sticker) group.stickerCount += 1;
     }
-    return [...groups.values()].sort(compareFaceGroups);
+    const ids = new Set(rows.map((row) => row.id));
+    const classic = [...groups.values()].find((group) => group.label === '小黄脸表情');
+    if (classic) {
+      for (const [id, name] of classicPanelFaces) {
+        if (ids.has(id)) continue;
+        classic.items.push({
+          id,
+          desc: `/${name}`,
+          unicode: false,
+          glyph: '',
+          ...stickerFields(undefined),
+        });
+      }
+      classic.items.sort(compareClassicPanelFaces);
+    }
+    const unicode = [...groups.values()].filter((group) => group.unicode);
+    const glyphKey = (glyph: string) => glyph.replace(/[\uFE0E\uFE0F]/g, '');
+    const knownGlyphs = new Map(
+      unicode.flatMap((group) => group.items.map((item) => [glyphKey(item.glyph), item] as const)),
+    );
+    const orderedGlyphs = new Map<string, PanelFaceItem>();
+    for (const glyph of unicodePanelGlyphs.split(/\s+/)) {
+      const key = glyphKey(glyph);
+      if (!orderedGlyphs.has(key))
+        orderedGlyphs.set(
+          key,
+          knownGlyphs.get(key) ?? {
+            id: glyph,
+            desc: glyph,
+            unicode: true,
+            glyph,
+            ...stickerFields(undefined),
+          },
+        );
+    }
+    for (const [key, item] of knownGlyphs)
+      if (!orderedGlyphs.has(key)) orderedGlyphs.set(key, item);
+    return [
+      ...[...groups.values()].filter((group) => !group.unicode).sort(compareFaceGroups),
+      {
+        key: 'unicode',
+        label: '字符表情',
+        emojiType: 2,
+        unicode: true,
+        items: [...orderedGlyphs.values()],
+        stickerCount: 0,
+      },
+    ];
   }
 
   /** 原始短码表与当前系统目录在宿主合并一次，不按名称推导别名。 */
@@ -1165,8 +1216,8 @@ function findLocalPng(itemDir: string, hash: string): string | null {
 /** 分类展示顺序；未命中排在后面。字符表情统一置最后。 */
 const GROUP_ORDER = [
   '小黄脸表情',
-  '超级表情',
   'QQ黄脸',
+  '超级表情',
   '企鹅',
   '喜花妮',
   '噗噗星人',

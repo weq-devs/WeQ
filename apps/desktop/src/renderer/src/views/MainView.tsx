@@ -6294,6 +6294,7 @@ function MainWorkspace(): ReactElement {
       out.set(record.id, {
         packId: record.packId,
         stickerId: record.stickerId,
+        ...(typeof record.desc === 'string' ? { desc: record.desc } : {}),
         ...(typeof record.stickerType === 'number' ? { stickerType: record.stickerType } : {}),
       });
     }

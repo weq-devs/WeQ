@@ -51,6 +51,28 @@ it('设备文件计划保留 File 句柄，不要求整个文件预读成字节'
   });
 });
 
+it('独立大号表情使用当前目录中的贴纸字段和外显文字', () => {
+  expect(
+    buildComposerSendPlan({
+      body: '[[chat:face:324:big]]',
+      locals: [],
+      superStickers: new Map([
+        ['324', { packId: '1', stickerId: '12', stickerType: 1, desc: '/吃糖' }],
+      ]),
+    }),
+  ).toEqual({
+    kind: 'elements',
+    elements: [
+      {
+        kind: 'face',
+        faceId: 324,
+        faceText: '/吃糖',
+        superSticker: { packId: '1', stickerId: '12', stickerType: 1, text: '/吃糖' },
+      },
+    ],
+  });
+});
+
 it.each([
   ['<div><br></div><div><br></div>', '\n'],
   ['<div><br></div><div><br></div><div><br></div>', '\n\n'],

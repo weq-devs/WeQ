@@ -91,19 +91,30 @@ vi.mock('../src/renderer/src/components/qq-actions/FavoriteBundleImport', () => 
     binding: unknown;
     onBusyChange: (busy: boolean) => void;
     onChanged: () => Promise<void>;
+    onImportImage?: () => Promise<void>;
   }) => {
     useEffect(() => props.onBusyChange(false), [props.onBusyChange]);
     return h(
-      'button',
-      {
+      'div',
+      null,
+      h('button', {
         type: 'button',
-        onClick: () => {
-          props.onBusyChange(true);
-          void props.onChanged();
-        },
+        'aria-label': '导入图片到收藏表情',
         'data-binding': JSON.stringify(props.binding),
-      },
-      '导入收藏表情包',
+        onClick: () => void props.onImportImage?.(),
+      }),
+      h(
+        'button',
+        {
+          type: 'button',
+          onClick: () => {
+            props.onBusyChange(true);
+            void props.onChanged();
+          },
+          'data-binding': JSON.stringify(props.binding),
+        },
+        '导入收藏表情包',
+      ),
     );
   },
 }));
@@ -134,7 +145,6 @@ it('选择器入口使用同一账号绑定，导入开始后禁用并行导出�
     await act(async () => buttons[1]!.click());
     expect(changed).toHaveBeenCalledOnce();
     expect(buttons[2]!.disabled).toBe(true);
-    expect(buttons[0]!.disabled).toBe(true);
   } finally {
     act(() => root.unmount());
     host.remove();

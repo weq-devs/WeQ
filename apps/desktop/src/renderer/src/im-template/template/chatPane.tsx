@@ -3561,15 +3561,13 @@ export function ChatPane({
     setLocationCardOpen(false);
     setArkOpen(false);
     setAiVoiceOpen(false);
-    // 移动端长文展开态里没有卡片的位置，选完就把展开态收回去（正文会跟着搬回去）。
-    if (mobileComposerExpanded) {
-      closeMobileComposerExpanded();
-    }
+    setMentionMenu(null);
+    setSlashMenu(null);
   }
 
   function removePendingSuperEmoji() {
     setPendingSuperEmoji(null);
-    window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
+    window.requestAnimationFrame(() => focusComposerEnd(currentComposerEditor()));
   }
 
   /**
@@ -3729,7 +3727,7 @@ export function ChatPane({
         focused !== document.body
       )
         return;
-      focusComposerEnd(composerEditorRef.current);
+      focusComposerEnd(clearsBody ? composerEditorRef.current : currentComposerEditor());
     };
     const readAfterSend = atLatest && isScrolledToBottom(2);
     if (readAfterSend) requestReadAtBottom();
@@ -4218,7 +4216,7 @@ export function ChatPane({
       event.preventDefault();
       // 移动端长文展开、以及 QQ 未注入（发送按钮灰着）时，回车只当换行用，
       // 不能落到 submitMessage 上去。
-      if (event.shiftKey || mobileComposerExpanded || !sendAvailable) {
+      if (event.shiftKey || (mobileComposerExpanded && !pendingSuperEmoji) || !sendAvailable) {
         insertComposerLineBreak();
         return;
       }
@@ -4588,7 +4586,7 @@ export function ChatPane({
     window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
   }
 
-  function addFiles(files: File[], sendAs?: 'file') {
+  function addFiles(files: File[], sendAs?: 'file' | 'emoji') {
     const sourceConversation = conversation?.id;
     if (!files.length || currentPreference.blocked || sending || composerSendRef.current)
       return Promise.resolve();
@@ -4609,7 +4607,11 @@ export function ChatPane({
     return completed;
   }
 
-  async function prepareFiles(files: File[], sendAs?: 'file', sourceConversation?: string) {
+  async function prepareFiles(
+    files: File[],
+    sendAs?: 'file' | 'emoji',
+    sourceConversation?: string,
+  ) {
     const oversized: string[] = [];
     const usable = files.filter((file) => {
       if (file.size > MAX_ATTACHMENT_BYTES) {
@@ -4625,7 +4627,7 @@ export function ChatPane({
 
     // SVG 之类的「看起来是图、服务端不收」的文件按普通文件发：用户是拖着它 / 选了它
     // 要发出去，转成文件附件至少能到对面手里；直接当图片发只会在上传时失败。
-    const svgFiles = sendAs === 'file' ? [] : usable.filter(isUnsupportedImageFile);
+    const svgFiles = sendAs ? [] : usable.filter(isUnsupportedImageFile);
     if (svgFiles.length > 0) {
       pushToast({
         tone: 'warning',
@@ -4645,6 +4647,14 @@ export function ChatPane({
     const created = await Promise.all(
       usable.slice(0, room).map((file) => createAttachment(file, sendAs)),
     );
+    if (
+      sendAs === 'emoji' &&
+      created.some((item) => !item.width || !item.height || isUnsupportedImageFile(item.file))
+    ) {
+      for (const item of created) releaseAttachment(item);
+      setAttachmentError('无法读取这张表情图片，请换一张。');
+      return;
+    }
     const images = created.filter((item) => item.kind === 'image');
     const media = created.filter((item) => item.kind !== 'image');
     try {
@@ -6683,7 +6693,7 @@ export function ChatPane({
       {/* 收纳输入区的把手 —— 与群资料栏同一个交互：贴在两个区域的交界线上，
           平时隐形，压上去（或键盘聚焦）才浮出来；收起来以后整条输入区从布局里
           消失，只剩它在底边，负责把输入框再请回来。 */}
-      {composerVisible && !isMobileWebComposer() ? (
+      {composerVisible && !isMobileWebComposer() && !emojiOpen ? (
         <button
           className={cn('composer-toggle')}
           type="button"
@@ -7181,8 +7191,12 @@ export function ChatPane({
           ) : null}
           {mediaAttachments.length > 0 ? (
             <ComposerMediaStage attachments={mediaAttachments} onRemove={removeMediaAttachment} />
-          ) : pendingSuperEmoji ? (
-            <ComposerSuperEmojiStage item={pendingSuperEmoji} onRemove={removePendingSuperEmoji} />
+          ) : pendingSuperEmoji && !mobileComposerExpanded ? (
+            <ComposerSuperEmojiStage
+              item={pendingSuperEmoji}
+              onRemove={removePendingSuperEmoji}
+              onSend={() => void submitMessage()}
+            />
           ) : null}
           {pendingQuote ? <ComposerQuoteBar quote={pendingQuote} onRemove={removeQuote} /> : null}
           {emojiOpen && !mobileComposerExpanded ? (
@@ -7193,6 +7207,9 @@ export function ChatPane({
               {...specialEmojiProps}
               {...(emojiSendTarget ? { sendTarget: emojiSendTarget } : {})}
               onSentCustomEmoji={closeEmojiPanelAfterSend}
+              onInsertCustomEmoji={
+                emojiSendTarget ? (file) => void addFiles([file], 'emoji') : undefined
+              }
               textOnly={restrictedSource}
             />
           ) : null}
@@ -7450,12 +7467,15 @@ export function ChatPane({
       ) : null}
       {mobileComposerExpanded ? (
         <div className={cn('mobile-composer-expanded')}>
-          <section className={cn('mobile-composer-expanded-sheet')}>
+          <section
+            className={cn('mobile-composer-expanded-sheet', pendingSuperEmoji && 'has-super-emoji')}
+          >
             <button
               className={cn('mobile-composer-expanded-close')}
               type="button"
               title="收起输入"
               aria-label="收起输入"
+              disabled={emojiOpen}
               onClick={closeMobileComposerExpanded}
             >
               <ChevronDown size={27} />
@@ -7511,6 +7531,13 @@ export function ChatPane({
               onCopy={handleComposerCopy}
               onCut={handleComposerCopy}
             />
+            {pendingSuperEmoji ? (
+              <ComposerSuperEmojiStage
+                item={pendingSuperEmoji}
+                onRemove={removePendingSuperEmoji}
+                onSend={() => void submitMessage()}
+              />
+            ) : null}
             {mentionMenu ? (
               <MentionMenu
                 atAll={atAllMention}
@@ -7585,6 +7612,9 @@ export function ChatPane({
                 {...specialEmojiProps}
                 {...(emojiSendTarget ? { sendTarget: emojiSendTarget } : {})}
                 onSentCustomEmoji={closeEmojiPanelAfterSend}
+                onInsertCustomEmoji={
+                  emojiSendTarget ? (file) => void addFiles([file], 'emoji') : undefined
+                }
                 textOnly={restrictedSource}
               />
             ) : null}

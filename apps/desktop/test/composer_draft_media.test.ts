@@ -84,6 +84,7 @@ it('超过共享上限的图片在分段上传前拒绝，保留原素材', asyn
 });
 it('真实图片文件先保存，重建新地址后正文及素材可发送，账号和会话隔离', async () => {
   const f = fixture();
+  f.image.subType = 1;
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:new-process');
   await preserveComposerImages('account', 'conversation', [f.image], f.store);
   const token = attachmentToken(f.image);
@@ -97,6 +98,7 @@ it('真实图片文件先保存，重建新地址后正文及素材可发送，�
   expect(tokenToElement(nextToken)).toMatchObject({
     localPreviewUrl: 'blob:new-process',
     localDraftAssetId: 'fixture-image',
+    subType: 1,
   });
   expect(await restored.images[0]!.file.text()).toBe('pixels');
   await expect(

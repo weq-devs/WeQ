@@ -57,12 +57,14 @@ function parseCount(text: string): { count: number | null; error: string | null 
 
 export function BounceEmojiPanel({
   panelRef,
+  initialFace,
   disabled,
   disabledHint,
   onSend,
   onClose,
 }: {
   panelRef?: RefObject<HTMLDivElement | null>;
+  initialFace?: { id: string; name: string };
   /** QQ 未在线 / 完全离线等：面板照常填，只是发不出去。 */
   disabled: boolean;
   disabledHint: string;
@@ -70,7 +72,9 @@ export function BounceEmojiPanel({
   onClose: () => void;
 }) {
   const overview = trpc.account.emojiPanel.overview.useQuery(undefined, { staleTime: 30_000 });
-  const [pick, setPick] = useState<{ id: string; desc: string } | null>(null);
+  const [pick, setPick] = useState<{ id: string; desc: string } | null>(
+    initialFace ? { id: initialFace.id, desc: initialFace.name } : null,
+  );
   const [countText, setCountText] = useState('1');
   const [touched, setTouched] = useState(false);
   const [query, setQuery] = useState('');

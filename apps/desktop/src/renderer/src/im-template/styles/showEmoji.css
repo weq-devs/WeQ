@@ -12,6 +12,18 @@
   min-width: 0;
 }
 
+.show-emoji-custom {
+  min-height: 100%;
+}
+
+.show-emoji-custom .show-emoji-upload {
+  flex: 1;
+  flex-direction: column;
+  min-height: 110px;
+  padding: 12px;
+  border-radius: 8px;
+}
+
 /* 文件选择器只用来触发系统对话框，不占布局。 */
 .emoji-file-input {
   display: none;

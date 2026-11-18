@@ -243,6 +243,7 @@ export async function restoreComposerImages(
           url: URL.createObjectURL(file),
           width: Number(value.width) || 0,
           height: Number(value.height) || 0,
+          ...(value.subType === 1 ? { subType: 1 } : {}),
         };
         images.push(image);
       }

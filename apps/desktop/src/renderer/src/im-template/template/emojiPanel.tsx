@@ -3,43 +3,34 @@
  * 消息输入框表情面板。
  *
  * 一栏一个来源，互不混排（「最近使用」因此不会被 Unicode 字符表情污染）：
- *   最近    ← emoji_com_used_table（codec 解析，真实库）
- *   表情    ← base_sys_emoji_table 按 81266 分类，**全部**按小图展示（含大表情）：
- *             都能和文字合成一条消息
- *   超级表情 ← 同一份数据里除「小黄脸表情」外的全部，按大表情展示（同原先的超级
- *             表情块）；它们只能单独发，所以点选走 onSelectSuper，不落到输入框
+ *   表情／超级表情 ← 共用 QQ 目录，各自在开头展示相应的最近使用。
  *   字符    ← 81214 非 0 的 Unicode 字符表情，单独一栏
  *   商城    ← market_emoticon_package_table；点包看全部，右上「+」弹灯箱搜索目录
  *   收藏    ← fav_emoji_info_storage_table（我喜欢的自定义表情）
- *   GIF     ← related_emoji_emoji_table（标签 → 表情集合，标签栏常驻）
  *   颜文字  ← 内置静态列表
  *
  * 图片字节全部走协议（weq-asset / weq-media），不过 tRPC。
  */
 
 import { EmptyState } from '../../components/EmptyState';
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTabActive } from '../../components/RetainedTabs.shared';
 import { FavoriteBundleControls } from '../../components/qq-actions/FavoriteBundleControls';
 import { FavoritePickerTab } from '../../components/qq-actions/FavoritePickerTab';
 import {
   ArrowLeft,
-  Clock,
   Heart,
   Hand,
-  Image as ImageIcon,
   ImagePlus,
   MessageSquareQuote,
   Plus,
   Search,
-  Rocket,
   Smile,
   Sparkles,
   Store,
   Type,
   X,
-  Images,
   SearchX,
   Sticker,
 } from 'lucide-react';
@@ -50,45 +41,30 @@ import { cn } from './classNames';
 import { BounceEmojiPanel, type BounceEmojiDraft } from './bounceEmojiPanel';
 import { PokeEmojiPanel, type PokeEmojiDraft, type RandomFaceDraft } from './pokeEmojiPanel';
 import { CustomEmojiTab, ShowEmojiTab } from './showEmojiTabs';
-import {
-  marketFaceItem,
-  relatedEmojiItem,
-  systemFaceItem,
-  unicodeFaceItem,
-  type EmojiItem,
-} from './emojiPacks';
+import { marketFaceItem, systemFaceItem, unicodeFaceItem, type EmojiItem } from './emojiPacks';
 
 type TabId =
-  | 'recent'
   | 'face'
   | 'super'
   | 'unicode'
   | 'market'
   | 'fav'
-  | 'gif'
   | 'kaomoji'
-  | 'bounce'
   | 'poke'
   | 'custom'
   | 'qqshow';
 
 const TABS: Array<{ id: TabId; label: string; icon: typeof Smile }> = [
-  { id: 'recent', label: '最近', icon: Clock },
   { id: 'face', label: '表情', icon: Smile },
+  { id: 'super', label: '超级表情', icon: Sticker },
   { id: 'fav', label: '收藏', icon: Heart },
-  { id: 'super', label: '超级表情', icon: Sparkles },
-  { id: 'bounce', label: '弹射表情', icon: Rocket },
-  { id: 'poke', label: '互动表情', icon: Hand },
-  { id: 'custom', label: '自定义表情', icon: ImagePlus },
-  { id: 'qqshow', label: 'QQ 秀表情', icon: Sparkles },
-  { id: 'unicode', label: '字符表情', icon: Type },
   { id: 'market', label: '商城表情', icon: Store },
-  { id: 'gif', label: 'GIF 表情', icon: ImageIcon },
+  { id: 'poke', label: '互动表情', icon: Hand },
+  { id: 'qqshow', label: 'QQ 秀表情', icon: Sparkles },
+  { id: 'custom', label: '自定义表情', icon: ImagePlus },
+  { id: 'unicode', label: '字符表情', icon: Type },
   { id: 'kaomoji', label: '颜文字', icon: MessageSquareQuote },
 ];
-
-/** 系统表情里「小黄脸表情」不算超级表情，其余分类全部并进「超级表情」栏。 */
-const SMALL_FACE_LABEL = '小黄脸表情';
 
 const KAOMOJI_ITEMS: Array<[string, string]> = [
   ['开心', '(´▽`)'],
@@ -129,6 +105,7 @@ export function EmojiPanel({
   onSendRandom,
   sendTarget,
   onSentCustomEmoji,
+  onInsertCustomEmoji,
   textOnly = false,
 }: {
   panelRef: RefObject<HTMLDivElement | null>;
@@ -143,10 +120,7 @@ export function EmojiPanel({
   randomFaces?: React.ComponentProps<typeof PokeEmojiPanel>['randomFaces'];
   onSendRandom?: (draft: RandomFaceDraft) => void;
   /**
-   * 「自定义表情」与「QQ 秀表情」两栏的发送目标。
-   *
-   * 这两栏是**点选即发**（不像其它栏插进输入框），所以要知道发给谁。
-   * 缺省时两栏隐藏 —— 没有目标就没法发。
+   * 「QQ 秀表情」点选后直接发送，需要当前目标。
    */
   sendTarget?: {
     peerType: 'c2c' | 'group';
@@ -155,10 +129,14 @@ export function EmojiPanel({
   };
   /** 发送成功后回调（宿主用来关面板 / 清理状态）。 */
   onSentCustomEmoji?: () => void;
+  onInsertCustomEmoji?: (file: File) => void;
   /** 纯文本会话不展示必须携带 QQ 媒体元素的表情来源。 */
   textOnly?: boolean;
 }) {
   const [tab, setTab] = useState<TabId>('face');
+  const [bounceFace, setBounceFace] = useState<EmojiItem | null>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const bounceReturnScroll = useRef(0);
   const [marketPackId, setMarketPackId] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
 
@@ -170,12 +148,31 @@ export function EmojiPanel({
   const unicodeGroups = faces.filter((g) => g.unicode);
   const recent = overview.data?.recent ?? [];
   const favorites = overview.data?.favorites ?? [];
-  const tags = overview.data?.tags ?? [];
-
-  // 两栏吃的都是同一份系统表情（unicode 已经单独一栏了）：
-  //   「表情」= 全部，一律小图 —— 大表情在这里也只是普通表情，能和文字一起发；
-  //   「超级表情」= 除小黄脸外的全部，按大表情展示，点选只能单独发。
-  const superGroups = systemGroups.filter((g) => g.label !== SMALL_FACE_LABEL);
+  const large = tab === 'super';
+  const canBounce = onSendBounce && !textOnly;
+  const displayGroups = large
+    ? systemGroups
+        .map((g) => ({ ...g, items: g.items.filter((item) => item.sticker) }))
+        .filter((g) => g.items.length)
+    : systemGroups;
+  const displayRecent = recent.filter((item) => !item.unicode && (!large || item.sticker));
+  const selectFace = large ? (onSelectSuper ?? onSelect) : onSelect;
+  const openBounce =
+    !large && canBounce
+      ? (item: EmojiItem) => {
+          bounceReturnScroll.current = bodyRef.current?.scrollTop ?? 0;
+          setBounceFace(item);
+        }
+      : undefined;
+  useLayoutEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = bounceFace ? 0 : bounceReturnScroll.current;
+  }, [tab, bounceFace]);
+  const faceCells = (items: typeof displayRecent) =>
+    items.map((item) => ({
+      key: item.id,
+      title: item.desc,
+      item: faceItemToEmoji(item, large),
+    }));
 
   return (
     <div
@@ -191,13 +188,14 @@ export function EmojiPanel({
           }}
         />
       )}
-      <div className={cn('emoji-panel-body')}>
-        {tab === 'bounce' ? (
+      <div className="emoji-panel-body" ref={bodyRef}>
+        {bounceFace && onSendBounce ? (
           <BounceEmojiPanel
+            initialFace={bounceFace}
             disabled={disabled}
             disabledHint={disabledHint}
             onSend={onSendBounce}
-            onClose={() => setTab('face')}
+            onClose={() => setBounceFace(null)}
           />
         ) : tab === 'poke' ? (
           <PokeEmojiPanel
@@ -208,66 +206,39 @@ export function EmojiPanel({
             onSendRandom={onSendRandom}
             onClose={() => setTab('face')}
           />
-        ) : tab === 'recent' ? (
-          <FaceGrid
-            empty={recent.length === 0}
-            emptyText="还没有使用记录"
-            loading={overview.isLoading}
-            items={recent.map((it) => ({
-              key: `${it.unicode ? 'u' : 'f'}-${it.id}`,
-              title: it.desc,
-              item: faceItemToEmoji(it),
-            }))}
-            onSelect={onSelect}
-          />
-        ) : tab === 'face' ? (
+        ) : tab === 'face' || tab === 'super' ? (
           <div className={cn('emoji-section')}>
-            {overview.isLoading && systemGroups.length === 0 ? (
-              <div className={cn('emoji-state')}>加载中…</div>
+            <header className="emoji-section-head">
+              <h3>{large ? '超级表情' : '表情'}</h3>
+              {openBounce ? <span className="emoji-heading-note">弹射：右键 / 长按</span> : null}
+            </header>
+            {displayGroups.length === 0 ? (
+              <div className="emoji-state">
+                {overview.isLoading ? '加载中…' : large ? '没有超级表情' : '没有系统表情'}
+              </div>
             ) : null}
-            {!overview.isLoading && systemGroups.length === 0 ? (
-              <div className={cn('emoji-state')}>没有系统表情</div>
-            ) : null}
-            {systemGroups.map((group) => (
-              <section className={cn('emoji-group')} key={group.key}>
-                <h3>{group.label}</h3>
+            {displayRecent.length > 0 ? (
+              <section className="emoji-group">
+                <h3>最近使用</h3>
                 <FaceGrid
-                  items={group.items.map((it) => ({
-                    key: it.id,
-                    title: it.desc,
-                    item: faceItemToEmoji(it),
-                  }))}
-                  onSelect={onSelect}
+                  layout={large ? 'super' : 'default'}
+                  rows={large ? 1 : 2}
+                  items={faceCells(displayRecent)}
+                  onSelect={selectFace}
+                  onBounce={openBounce}
                 />
               </section>
-            ))}
-          </div>
-        ) : tab === 'super' ? (
-          <div className={cn('emoji-section')}>
-            {overview.isLoading && superGroups.length === 0 ? (
-              <div className={cn('emoji-state')}>加载中…</div>
             ) : null}
-            {!overview.isLoading && superGroups.length === 0 ? (
-              <div className={cn('emoji-state')}>没有超级表情</div>
-            ) : null}
-            {superGroups.length > 0 ? (
-              <div className={cn('emoji-super-hint')}>
-                超级表情只能单独发送，不会带上输入框里的文字
-              </div>
-            ) : null}
-            {superGroups.map((group) => (
-              <div className={cn('emoji-subgroup')} key={group.key}>
-                <h4>{group.label}</h4>
+            {displayGroups.map((group) => (
+              <section className="emoji-group" key={group.key}>
+                <h3>{group.label}</h3>
                 <FaceGrid
-                  layout="super"
-                  items={group.items.map((it) => ({
-                    key: it.id,
-                    title: `${it.desc}（超级表情，只能单独发送）`,
-                    item: faceItemToEmoji(it, true),
-                  }))}
-                  onSelect={onSelectSuper ?? onSelect}
+                  layout={large ? 'super' : 'default'}
+                  items={faceCells(group.items)}
+                  onSelect={selectFace}
+                  onBounce={openBounce}
                 />
-              </div>
+              </section>
             ))}
           </div>
         ) : tab === 'unicode' ? (
@@ -294,14 +265,9 @@ export function EmojiPanel({
           />
         ) : tab === 'custom' ? (
           <CustomEmojiTab
-            ctx={{
-              peerType: sendTarget?.peerType ?? 'c2c',
-              targetId: sendTarget?.targetId ?? '',
-              ...(sendTarget?.tempGroupCode ? { tempGroupCode: sendTarget.tempGroupCode } : {}),
-              disabled: Boolean(disabled) || !sendTarget,
-              disabledHint: sendTarget ? (disabledHint ?? '') : '请先选择一个会话',
-            }}
-            onSent={() => onSentCustomEmoji?.()}
+            disabled={Boolean(disabled) || !onInsertCustomEmoji}
+            disabledHint={disabledHint}
+            onInsert={onInsertCustomEmoji}
           />
         ) : tab === 'qqshow' ? (
           <ShowEmojiTab
@@ -314,8 +280,6 @@ export function EmojiPanel({
             }}
             onSent={() => onSentCustomEmoji?.()}
           />
-        ) : tab === 'gif' ? (
-          <GifTab tags={tags} loading={overview.isLoading} onSelect={onSelect} />
         ) : (
           <KaomojiGrid onSelect={onSelect} />
         )}
@@ -323,11 +287,11 @@ export function EmojiPanel({
 
       <div className={cn('emoji-tabs')}>
         {TABS.filter(({ id }) =>
-          id === 'bounce'
-            ? Boolean(onSendBounce)
-            : id === 'poke'
-              ? Boolean(onSendPoke)
-              : id === 'custom' || id === 'qqshow'
+          id === 'poke'
+            ? Boolean(onSendPoke)
+            : id === 'custom'
+              ? Boolean(onInsertCustomEmoji)
+              : id === 'qqshow'
                 ? Boolean(sendTarget)
                 : true,
         ).map(({ id, label, icon: Icon }) => (
@@ -340,7 +304,11 @@ export function EmojiPanel({
             disabled={textOnly && !['face', 'unicode', 'kaomoji'].includes(id)}
             aria-pressed={id === tab}
             onMouseDown={(event) => event.preventDefault()}
-            onClick={() => setTab(id)}
+            onClick={() => {
+              if (id !== tab) bounceReturnScroll.current = 0;
+              setTab(id);
+              setBounceFace(null);
+            }}
           >
             <Icon size={19} />
           </button>
@@ -365,6 +333,8 @@ function FaceGrid({
   empty,
   emptyText,
   layout = 'default',
+  rows,
+  onBounce,
 }: {
   items: GridCell[];
   onSelect: (item: EmojiItem) => void;
@@ -373,7 +343,21 @@ function FaceGrid({
   emptyText?: string;
   /** 网格尺寸：default 小图 / big 每行 4 个（贴纸）/ super 每行 5 个（超级表情）。 */
   layout?: 'default' | 'big' | 'super';
+  rows?: number;
+  onBounce?: (item: EmojiItem) => void;
 }) {
+  const grid = useRef<HTMLDivElement>(null);
+  const [columns, setColumns] = useState(0);
+  const hasItems = items.length > 0 && !empty;
+  useLayoutEffect(() => {
+    const node = grid.current;
+    if (!rows || !node) return;
+    const measure = () => setColumns(getComputedStyle(node).gridTemplateColumns.split(' ').length);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [rows, hasItems, layout]);
   if (loading && items.length === 0) {
     return <div className={cn('emoji-state')}>加载中…</div>;
   }
@@ -382,21 +366,38 @@ function FaceGrid({
   }
   return (
     <div
+      ref={grid}
       className={cn(
         'emoji-grid',
+        layout === 'default' && 'emoji-standard-grid',
         layout === 'big' && 'emoji-big-grid',
         layout === 'super' && 'emoji-super-grid',
       )}
     >
-      {items.map((cell) => (
-        <FaceCell key={cell.key} cell={cell} onSelect={onSelect} />
+      {(rows ? items.slice(0, columns * rows) : items).map((cell) => (
+        <FaceCell key={cell.key} cell={cell} onSelect={onSelect} onBounce={onBounce} />
       ))}
     </div>
   );
 }
 
-function FaceCell({ cell, onSelect }: { cell: GridCell; onSelect: (item: EmojiItem) => void }) {
+function FaceCell({
+  cell,
+  onSelect,
+  onBounce,
+}: {
+  cell: GridCell;
+  onSelect: (item: EmojiItem) => void;
+  onBounce?: (item: EmojiItem) => void;
+}) {
   const [broken, setBroken] = useState(false);
+  const press = useRef<{ timer: number; x: number; y: number } | null>(null);
+  const triggered = useRef(false);
+  function cancelPress() {
+    if (press.current) window.clearTimeout(press.current.timer);
+    press.current = null;
+  }
+  useEffect(() => cancelPress, []);
   const { item } = cell;
   const src = cell.previewSrc ?? item.src;
   return (
@@ -405,7 +406,45 @@ function FaceCell({ cell, onSelect }: { cell: GridCell; onSelect: (item: EmojiIt
       title={cell.title}
       className={cn('emoji-cell', item.large && 'is-sticker')}
       onMouseDown={(event) => event.preventDefault()}
-      onClick={() => onSelect(item)}
+      onPointerDown={(event) => {
+        triggered.current = false;
+        if (!onBounce || event.pointerType === 'mouse' || !event.isPrimary) return;
+        cancelPress();
+        press.current = {
+          x: event.clientX,
+          y: event.clientY,
+          timer: window.setTimeout(() => {
+            triggered.current = true;
+            cancelPress();
+            onBounce(item);
+          }, 500),
+        };
+      }}
+      onPointerMove={(event) => {
+        if (
+          press.current &&
+          Math.hypot(event.clientX - press.current.x, event.clientY - press.current.y) > 10
+        )
+          cancelPress();
+      }}
+      onPointerUp={cancelPress}
+      onPointerCancel={cancelPress}
+      onPointerLeave={cancelPress}
+      onContextMenu={
+        onBounce
+          ? (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              cancelPress();
+              if (!triggered.current) onBounce(item);
+              triggered.current = true;
+            }
+          : undefined
+      }
+      onClick={() => {
+        if (!triggered.current) onSelect(item);
+        triggered.current = false;
+      }}
     >
       {item.glyph ? (
         <span className={cn('emoji-glyph')}>{item.glyph}</span>
@@ -592,70 +631,6 @@ function MarketPackDetail({
 }
 
 // ── 收藏 ──────────────────────────────────────────────────────────────────────
-
-// ── GIF ───────────────────────────────────────────────────────────────────────
-
-function GifTab({
-  tags,
-  loading,
-  onSelect,
-}: {
-  tags: Array<{ keyword: string; dirHash: string; count: number; cover: string | null }>;
-  loading?: boolean;
-  onSelect: (item: EmojiItem) => void;
-}) {
-  const [picked, setPicked] = useState<string | null>(null);
-  // 没手动选就默认看第一个标签的内容（否则一进来空荡荡）；标签栏始终留在顶部，
-  // 点标签只是切换下方内容，不会把它清掉。
-  const active = tags.find((t) => t.keyword === picked) ?? tags[0] ?? null;
-  const gifs = trpc.account.emojiPanel.relatedGifs.useQuery(
-    { keyword: active?.keyword ?? '' },
-    { enabled: !!active },
-  );
-
-  if (loading && tags.length === 0) return <div className={cn('emoji-state')}>加载中…</div>;
-  if (tags.length === 0) return <EmptyState compact icon={<Images />} title="还没有 GIF 表情" />;
-
-  const list = gifs.data ?? [];
-  return (
-    <div className={cn('emoji-section')}>
-      <div className={cn('emoji-chip-row')}>
-        {tags.map((tag) => (
-          <button
-            key={tag.keyword}
-            type="button"
-            className={cn('emoji-chip', tag.keyword === active?.keyword && 'active')}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => setPicked(tag.keyword)}
-          >
-            {tag.keyword}
-            <em>
-              <span className="weq-number weq-number-inherit">{tag.count}</span>
-            </em>
-          </button>
-        ))}
-      </div>
-      {gifs.isLoading ? (
-        <div className={cn('emoji-state')}>加载中…</div>
-      ) : list.length === 0 ? (
-        <div className={cn('emoji-state')}>这个标签下没有表情</div>
-      ) : (
-        <div className={cn('emoji-grid emoji-big-grid')}>
-          {list.map((gif) => {
-            const item = relatedEmojiItem(gif.hash, gif.file, active?.keyword ?? '');
-            return (
-              <FaceCell
-                key={gif.file}
-                cell={{ key: gif.file, title: active?.keyword ?? '', item }}
-                onSelect={onSelect}
-              />
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── 搜索灯箱（商城目录） ───────────────────────────────────────────────────────
 

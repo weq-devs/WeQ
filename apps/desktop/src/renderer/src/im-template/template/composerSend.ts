@@ -76,6 +76,7 @@ export type SuperStickerEntry = {
   packId: string;
   stickerId: string;
   stickerType?: number;
+  desc?: string;
 };
 
 export type ComposerSendPlan =
@@ -179,16 +180,17 @@ function mapEmoji(item: EmojiItem, superStickers: Map<string, SuperStickerEntry>
           `找不到表情 ${item.id} 的贴纸目录信息，无法按超级表情发送（目录里这枚表情没有 packId/stickerId）。`,
         );
       }
+      const name = entry.desc || item.name;
       return {
         kind: 'face',
         faceId,
-        faceText: item.name,
+        faceText: name,
         superSticker: {
           packId: entry.packId,
           stickerId: entry.stickerId,
           ...(entry.stickerType !== undefined ? { stickerType: entry.stickerType } : {}),
           // QFaceExtra.text（抓包 324 → "/吃糖"）：收端靠它显示贴纸文字。
-          ...(item.name ? { text: item.name } : {}),
+          ...(name ? { text: name } : {}),
         },
       };
     }

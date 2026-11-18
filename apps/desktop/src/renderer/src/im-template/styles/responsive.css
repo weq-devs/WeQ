@@ -1118,6 +1118,16 @@
   color: #17191f;
 }
 
+:where(html[data-weq-layout='single'])
+  .mobile-composer-expanded-sheet.has-super-emoji
+  .mobile-composer-expanded-editor {
+  visibility: hidden;
+}
+
+:where(html[data-weq-layout='single']) .mobile-composer-expanded-sheet > .composer-single-stage {
+  grid-row: 1;
+}
+
 :where(html[data-weq-layout='single']) .mobile-composer-expanded-editor {
   grid-row: 1;
   height: 100%;
@@ -1354,12 +1364,11 @@ html:where([data-weq-layout='single'])[data-theme='dark']
 }
 
 :where(html[data-weq-layout='single']) .emoji-panel-body {
-  padding: 0;
+  padding: 8px 10px;
   background: #f8f8f9;
 }
 
 :where(html[data-weq-layout='single']) .emoji-grid {
-  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 10px 6px;
 }
 
@@ -1388,7 +1397,8 @@ html:where([data-weq-layout='single'])[data-theme='dark']
 }
 
 :where(html[data-weq-layout='single']) .emoji-tabs button {
-  width: 50px;
+  flex: 1 0 40px;
+  width: auto;
   height: 50px;
   border-radius: 0;
 }
