@@ -1281,6 +1281,12 @@ function MainWorkspace(): ReactElement {
   useEffect(
     () =>
       onOpenSettingsRequest((section) => {
+        if (section === 'weqAssistant') {
+          setSettingsSearchTarget(null);
+          setSettingsSection('weq-assistant');
+          setSettingsOpen(true);
+          return;
+        }
         if (section === 'dataSaver') {
           setSettingsSection('resource-loading');
           setSettingsSearchTarget({

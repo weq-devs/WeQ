@@ -487,6 +487,7 @@ export type ChatPaneProps = {
   composerAttachments?: React.ReactNode;
   hasExternalAttachments?: boolean;
   timelineNotice?: React.ReactNode;
+  emptyTimeline?: React.ReactNode;
   onLoadOlder?: (element: HTMLElement) => void | Promise<void>;
   onLoadNewer?: (element: HTMLElement) => void | Promise<void>;
   onTimelineElement?: (element: HTMLDivElement | null) => void;
@@ -796,6 +797,7 @@ export function ChatPane({
   composerAttachments,
   hasExternalAttachments = false,
   timelineNotice,
+  emptyTimeline,
   onLoadOlder,
   onLoadNewer,
   onTimelineElement,
@@ -6200,11 +6202,13 @@ export function ChatPane({
               <ChatMessagesSkeleton />
             </>
           ) : visibleMessages.length === 0 && !loadingNewer && !loadError ? (
-            <EmptyState
-              title="还没有消息"
-              body={composerVisible && !readOnly && sendAvailable ? '发出第一条消息。' : ''}
-              icon={<MessageSquareText />}
-            />
+            (emptyTimeline ?? (
+              <EmptyState
+                title="还没有消息"
+                body={composerVisible && !readOnly && sendAvailable ? '发出第一条消息。' : ''}
+                icon={<MessageSquareText />}
+              />
+            ))
           ) : (
             (() => {
               // 灰条分流 + 气泡组装统一走 messageRow 的 MessageRow —— 转发窗口与合成转发

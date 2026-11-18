@@ -169,6 +169,22 @@ export interface AssistantSession {
   title: string;
   createdAt: number;
   updatedAt: number;
+  generation?: AssistantSessionGeneration;
+}
+
+export type AssistantSessionGeneration = {
+  model?: AgentLabModelSelection | null;
+  reasoningEffort?: AssistantReasoningEffort | null;
+};
+
+function mergeSessionGeneration(
+  current: AssistantSessionGeneration | undefined,
+  patch: AssistantSessionGeneration,
+): AssistantSessionGeneration {
+  const model = normalizeModelSelection(patch.model === undefined ? current?.model : patch.model);
+  const reasoningEffort =
+    patch.reasoningEffort === undefined ? current?.reasoningEffort : patch.reasoningEffort;
+  return { ...(model ? { model } : {}), ...(reasoningEffort ? { reasoningEffort } : {}) };
 }
 
 /**
@@ -549,7 +565,10 @@ interface StreamChunk {
 
 export class AssistantService {
   private readonly taskConfig = new AsyncLocalStorage<AssistantConfig>();
-  private readonly taskEndpoint = new AsyncLocalStorage<{ endpoint?: AgentLabEndpoint }>();
+  private readonly taskEndpoint = new AsyncLocalStorage<{
+    endpoint?: AgentLabEndpoint;
+    inheritedEffort?: boolean;
+  }>();
   private readonly queue: AssistantQueue;
   private queueSink?: (event: AssistantTaskEvent) => void;
   private controllerSink?: (runId: string, controller: AbortController | null) => void;
@@ -647,6 +666,19 @@ export class AssistantService {
   getExecutionConfig(): AssistantConfig {
     return { ...this.config };
   }
+  private sessionRunConfig(sessionId: string): AssistantConfig {
+    const config = this.getConfig();
+    const selection = this.sessions.find((item) => item.id === sessionId)?.generation;
+    return structuredClone({
+      ...config,
+      model: selection?.model ?? config.model,
+      reasoningEffort: selection?.reasoningEffort ?? config.reasoningEffort,
+    });
+  }
+  private inheritsEffortForOverride(sessionId: string): boolean {
+    const selection = this.sessions.find((item) => item.id === sessionId)?.generation;
+    return Boolean(selection?.model && !selection.reasoningEffort);
+  }
   private resolveTaskEndpoint(): AgentLabEndpoint {
     const task = this.taskEndpoint.getStore();
     if (task?.endpoint) return task.endpoint;
@@ -680,17 +712,42 @@ export class AssistantService {
   }
 
   /** 新建一个空会话并返回（标题待首轮对话后自动总结）。 */
-  createSession(): AssistantSession {
+  createSession(generation: AssistantSessionGeneration = {}): AssistantSession {
     const now = Date.now();
+    const selection = mergeSessionGeneration(undefined, generation);
     const session: AssistantSession = {
       id: randomUUID(),
       title: DEFAULT_SESSION_TITLE,
       createdAt: now,
       updatedAt: now,
+      ...(Object.keys(selection).length ? { generation: selection } : {}),
     };
-    this.sessions.push(session);
-    this.persistSessions();
+    this.sessionsStore.replace([...this.sessions, session], true);
     return session;
+  }
+
+  getSessionGeneration(sessionId: string): AssistantSessionGeneration {
+    const session = this.sessions.find((item) => item.id === sessionId);
+    if (!session || this.deletingSessions.has(sessionId)) throw new Error('对话不存在。');
+    return session.generation ?? {};
+  }
+
+  setSessionGeneration(
+    sessionId: string,
+    patch: AssistantSessionGeneration,
+  ): AssistantSessionGeneration {
+    const generation = mergeSessionGeneration(this.getSessionGeneration(sessionId), patch);
+    // 保持正在生成的会话对象不变：任务结束时还要更新它的标题和活跃时间。
+    const session = this.sessions.find((item) => item.id === sessionId)!;
+    const previous = session.generation;
+    session.generation = Object.keys(generation).length ? generation : undefined;
+    try {
+      this.sessionsStore.replace(this.sessions, true);
+    } catch (error) {
+      session.generation = previous;
+      throw error;
+    }
+    return generation;
   }
 
   /** 仅停止所选会话，待全部写入收尾后再永久移除元数据、历史和断点。 */
@@ -1122,13 +1179,13 @@ export class AssistantService {
     signal?: AbortSignal,
     images?: AiImageRef[],
   ): Promise<{ text: string; steps: AssistantStep[] }> {
-    const config = structuredClone(this.getConfig());
+    const config = this.sessionRunConfig(sessionId);
     const run = () =>
       this.runForSession(sessionId, signal, (runSignal) =>
         this.chatRun(sessionId, text, onStep, runSignal, images),
       );
     return this.taskConfig.run(config, () =>
-      this.taskEndpoint.run({}, () =>
+      this.taskEndpoint.run({ inheritedEffort: this.inheritsEffortForOverride(sessionId) }, () =>
         this.tools?.withConfig ? this.tools.withConfig(config, run) : run(),
       ),
     );
@@ -1316,13 +1373,13 @@ export class AssistantService {
     onStep?: (step: AssistantStep) => void,
     signal?: AbortSignal,
   ): Promise<{ text: string; steps: AssistantStep[] }> {
-    const config = structuredClone(this.getConfig());
+    const config = this.sessionRunConfig(sessionId);
     const run = () =>
       this.runForSession(sessionId, signal, (runSignal) =>
         this.resumeRun(sessionId, onStep, runSignal),
       );
     return this.taskConfig.run(config, () =>
-      this.taskEndpoint.run({}, () =>
+      this.taskEndpoint.run({ inheritedEffort: this.inheritsEffortForOverride(sessionId) }, () =>
         this.tools?.withConfig ? this.tools.withConfig(config, run) : run(),
       ),
     );
@@ -2310,14 +2367,16 @@ export class AssistantService {
     emit: (step: AssistantStep) => void,
     signal?: AbortSignal,
   ): Promise<{ content: string; reasoning: string; toolCalls: ApiMessage['tool_calls'] }> {
-    const effort = this.config.reasoningEffort;
+    let effort = this.config.reasoningEffort;
     if (
       effort &&
       effort !== 'off' &&
       endpoint.reasoningEfforts &&
       !endpoint.reasoningEfforts.includes(effort)
-    )
-      throw new Error(`当前模型未声明思考档位 ${effort}，请在助手设置中重新选择`);
+    ) {
+      if (this.taskEndpoint.getStore()?.inheritedEffort) effort = 'off';
+      else throw new Error(`当前模型未声明思考档位 ${effort}，请重新选择思考强度`);
+    }
     const modelIdentity =
       endpoint.modelIdentity ?? JSON.stringify([endpoint.baseUrl, endpoint.model]);
     const withReasoning =

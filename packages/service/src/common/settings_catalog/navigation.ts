@@ -19,6 +19,7 @@ export const SETTINGS_PAGE_LABELS = {
   'model-usage': 'API 用量',
   'intent-sense': '意图感知',
   'interaction-profile': '互动画像',
+  'weq-assistant': 'WeQ 助手',
   'reply-suggestions': '推荐回复',
   'enhancement-packs': '增强包',
   recognition: '识别与转写',
@@ -98,6 +99,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
       'reply-suggestions',
       'intent-sense',
       'interaction-profile',
+      'weq-assistant',
     ],
   },
   {
@@ -381,6 +383,39 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       aliasesFrom: [item.section],
     }),
   ),
+  ...(
+    [
+      ['default-model', '助手默认聊天模型'],
+      ['default-effort', '助手默认思考强度'],
+      ['temperature', '温度'],
+      ['maxOutputTokens', '单次输出 Token 上限'],
+      ['maxRounds', '任务最大轮数'],
+      ['toolTimeoutMs', '单工具超时'],
+      ['taskTimeoutMs', '任务总时限'],
+      ['historyMessages', '带入历史消息条数'],
+      ['contextTokens', '上下文预算'],
+      ['compressionTrigger', '压缩触发比例'],
+      ['compressionTarget', '压缩目标比例'],
+      ['summaryTokens', '摘要 Token 上限'],
+      ['permission', '运行模式'],
+      ['customPrompt', '额外提示词'],
+      ['mcpServers', '外部 MCP 服务器'],
+      ['send-mode', '运行中默认发送方式'],
+    ] as const
+  ).map(
+    ([id, label]): ItemRedirect => ({
+      id: `weq-assistant-${id}`,
+      label,
+      section: 'weq-assistant',
+      from: ['weq-assistant'],
+    }),
+  ),
+  {
+    id: 'ai-images-assistant',
+    label: '图片处理偏好',
+    section: 'weq-assistant',
+    from: ['weq-assistant'],
+  },
   {
     id: 'ocr-prefilter-enabled',
     section: 'recognition',

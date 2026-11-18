@@ -211,6 +211,43 @@ it('当前任务使用参数快照，队列中的下一项独立任务读取新�
   expect(bodies[0]?.temperature).toBe(ASSISTANT_PARAMETER_DEFAULTS.temperature);
   expect(bodies[1]).toMatchObject({ temperature: 1.4, reasoning_effort: 'high', max_tokens: 1234 });
 });
+it('会话模型和思考强度随记录持久化，继承与不指定分别生效', async () => {
+  const f = fixture(undefined, (selection) => ({
+    baseUrl: 'https://fixture.invalid',
+    apiKey: 'fixture',
+    model: 'model' in selection ? selection.model : 'fallback',
+    reasoningEfforts: 'model' in selection && selection.model === 'alternate' ? ['low'] : ['high'],
+  }));
+  const override = f.service.createSession({
+    model: { providerId: 'fixture', model: 'alternate' },
+  });
+  f.service.renameSession(override.id, '指定模型');
+  const service = f.create();
+  service.setConfig({ reasoningEffort: 'high' });
+  const bodies: Record<string, unknown>[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: unknown, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return response('完成');
+    }),
+  );
+  await Promise.all([service.chat(override.id, '会话模型'), service.chat(f.sessionId, '全局默认')]);
+  expect(bodies.find((body) => body.model === 'alternate')).not.toHaveProperty('reasoning_effort');
+  expect(bodies.find((body) => body.model === 'fixture')).toMatchObject({
+    reasoning_effort: 'high',
+  });
+  service.setSessionGeneration(override.id, { reasoningEffort: 'low' });
+  await service.chat(override.id, '单独选择思考');
+  expect(bodies.at(-1)).toMatchObject({ model: 'alternate', reasoning_effort: 'low' });
+  service.setSessionGeneration(override.id, { model: null, reasoningEffort: 'off' });
+  await service.chat(override.id, '显式不指定');
+  expect(bodies.at(-1)).toMatchObject({ model: 'fixture' });
+  expect(bodies.at(-1)).not.toHaveProperty('reasoning_effort');
+  service.setSessionGeneration(override.id, { reasoningEffort: null });
+  await f.create().chat(override.id, '重新跟随默认');
+  expect(bodies.at(-1)).toMatchObject({ model: 'fixture', reasoning_effort: 'high' });
+});
 it('失败会暂停队列，重开保留待办，编辑和取消不会执行任务', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'weq-assistant-queue-'));
   dirs.push(dir);

@@ -1,6 +1,19 @@
 /** 助手数据与运行控制适配；可见界面全部由 ChatPane 提供。 */
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, Play, X } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
+  CalendarDays,
+  ChartNoAxesColumn,
+  MessagesSquare,
+  Play,
+  Sparkles,
+  Square,
+  Utensils,
+  X,
+} from 'lucide-react';
+import type { AssistantSessionGeneration } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { ChatPane } from '../../im-template/template/chatPane';
 import type { Message } from '../../im-template/template/types';
@@ -24,20 +37,21 @@ import { AssistantReplyContent, type AssistantReplyActions } from './AssistantRe
 import { useStableCallback } from '../../hooks/useStableCallback';
 import { useToastApi } from '../../components/Toast.shared';
 import { timeDate } from '@weq/time';
-import { AssistantSettingsPanel, AssistantQuickTools } from './AssistantSettingsPanel';
+import { AssistantGenerationControls } from './AssistantGenerationControls';
+import { WeqAssistantSettingsSection } from './AssistantSettingsPanel';
 import {
   applyAssistantStep,
   persistedAssistantTurn,
   type AssistantTurn,
 } from './assistantTranscript';
 import type { FlatModels } from './NewCloneModal';
-export { AssistantSettingsPanel as AssistantSettings } from './AssistantSettingsPanel';
+import '../../styles/assistant-conversation.css';
 
 const PRESETS = [
-  '我最近一周和谁聊得最火热？',
-  '看看我最活跃的群最近都在聊什么',
-  '帮我写一份我的聊天数据周报',
-  '找找最近有谁跟我约过「吃饭」',
+  { icon: MessagesSquare, text: '我最近一周和谁聊得最火热？' },
+  { icon: ChartNoAxesColumn, text: '看看我最活跃的群最近都在聊什么' },
+  { icon: CalendarDays, text: '帮我写一份我的聊天数据周报' },
+  { icon: Utensils, text: '找找最近有谁跟我约过「吃饭」' },
 ];
 
 interface AssistantViewMessage extends Message {
@@ -112,7 +126,10 @@ export function AssistantPanel({
   const stopPending = useRef(false);
   const request = useRef<{ raw: string; id: string } | undefined>(undefined);
   const [error, setError] = useState('');
-  const [settings, setSettings] = useState(false);
+  const [settings, setSettings] = useState<{ anchor?: HTMLElement } | null>(null);
+  const [draftGeneration, setDraftGeneration] = useState<AssistantSessionGeneration>({});
+  const [generationError, setGenerationError] = useState('');
+  const generationWrite = useRef(false);
   const [search, setSearch] = useState(false);
   const [jump, setJump] = useState(
     searchTarget ? { messageId: searchTarget.messageId, revision: 0 } : undefined,
@@ -128,6 +145,36 @@ export function AssistantPanel({
     : null;
   const bindingRef = useRef(binding);
   bindingRef.current = binding;
+  const generationKey = { ...binding!, sessionId: currentId ?? '' };
+  const sessionGeneration = trpc.account.getAssistantSessionGeneration.useQuery(generationKey, {
+    enabled: Boolean(binding && currentId && !headless),
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
+  const updateGeneration = trpc.account.setAssistantSessionGeneration.useMutation();
+  const sessionSettingsError = generationError || sessionGeneration.error?.message;
+  const changeGeneration = useStableCallback((generation: AssistantSessionGeneration) => {
+    if (sending || generationWrite.current) return;
+    setGenerationError('');
+    if (!currentId) {
+      setDraftGeneration((previous) => ({ ...previous, ...generation }));
+      return;
+    }
+    if (!binding) return;
+    generationWrite.current = true;
+    void updateGeneration
+      .mutateAsync({ ...generationKey, generation })
+      .then(
+        (saved) => utils.account.getAssistantSessionGeneration.setData(generationKey, saved),
+        (reason) =>
+          setGenerationError(
+            `会话设置未保存：${reason instanceof Error ? reason.message : String(reason)}`,
+          ),
+      )
+      .finally(() => {
+        generationWrite.current = false;
+      });
+  });
   const conversation = trpc.account.getAssistantConversation.useQuery(
     { ...binding, sessionId: currentId ?? '' },
     { enabled: Boolean(binding && currentId), staleTime: 0, refetchOnMount: 'always' },
@@ -344,7 +391,7 @@ export function AssistantPanel({
     void editQueuedMessage(id, { text: value });
   });
   async function send(body: string, preset = false) {
-    if (!binding || sending || imageUploading) return;
+    if (!binding || sending || imageUploading || generationWrite.current) return;
     const text = cloneChatInput(body, new Map());
     const images = preset ? [] : parseAiImageDraft(input).images;
     if (!text.trim() && !images.length) return;
@@ -357,8 +404,15 @@ export function AssistantPanel({
     try {
       let id = idRef.current;
       if (!id) {
-        const created = await client.account.createAssistantSession.mutate(binding);
+        const created = await client.account.createAssistantSession.mutate({
+          ...binding,
+          generation: draftGeneration,
+        });
         id = created.id;
+        utils.account.getAssistantSessionGeneration.setData(
+          { ...binding, sessionId: id },
+          created.generation ?? {},
+        );
         idRef.current = id;
         setCurrentId(id);
         onSessionCreated(id);
@@ -504,12 +558,51 @@ export function AssistantPanel({
             actions={(message as AssistantViewMessage).assistantActions}
           />
         ),
+        renderTrailing: ({ message }) => {
+          const actions = (message as AssistantViewMessage).assistantActions;
+          if (!actions?.onStop) return null;
+          const label = actions.stopping ? '正在停止输出' : '停止输出';
+          return (
+            <button
+              type="button"
+              className="weq-asst-stop"
+              title={label}
+              aria-label={label}
+              disabled={actions.stopping}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                actions.onStop?.();
+              }}
+            >
+              <Square size={12} fill="currentColor" aria-hidden />
+            </button>
+          );
+        },
       },
     ],
     [],
   );
   if (headless) return null;
   const waiting = queue.data?.items.filter((item) => item.status !== 'running') ?? [];
+  const generationControls = {
+    defaults: config.data,
+    selection: currentId ? (sessionGeneration.data ?? {}) : draftGeneration,
+    disabled:
+      !config.data ||
+      sending ||
+      updateGeneration.isLoading ||
+      Boolean(currentId && !sessionGeneration.data),
+    onChange: changeGeneration,
+  };
+  const canSend = Boolean(
+    binding &&
+      config.data &&
+      !sending &&
+      !stopping &&
+      !imageUploading &&
+      !updateGeneration.isLoading,
+  );
   return (
     <>
       <AiImageComposer
@@ -532,9 +625,7 @@ export function AssistantPanel({
             onDraftChange={(_id, text) => setInput((value) => changeAiImageDraftText(value, text))}
             onDraftClear={() => {}}
             onSend={(body) => send(body)}
-            sendAvailable={Boolean(
-              binding && config.data && !sending && !stopping && !imageUploading,
-            )}
+            sendAvailable={canSend}
             sendBlockedReason={
               stopping
                 ? '任务正在停止'
@@ -546,32 +637,40 @@ export function AssistantPanel({
                       ? '账号未就绪'
                       : !config.data
                         ? '参数读取中'
-                        : undefined
+                        : updateGeneration.isLoading
+                          ? '正在保存会话设置'
+                          : undefined
             }
             onBack={onBackToDirectory ?? onBack}
             hasExternalAttachments={parseAiImageDraft(input).images.length > 0}
             composerAttachments={attachments}
             composerToolbar={imageButton}
-            composerParameters={<AssistantQuickTools />}
-            onOpenConversationSettings={() => setSettings(true)}
+            composerParameters={<AssistantGenerationControls {...generationControls} />}
+            onOpenConversationSettings={(_conversation, anchor) => setSettings({ anchor })}
             settingsLabel="助手设置"
             onSearchChatRecords={() => setSearch(true)}
             jumpRequest={jump}
-            timelineNotice={
-              turns.length === 0 ? (
-                <div className="weq-conversation-notice">
-                  {PRESETS.map((text) => (
-                    <button
-                      key={text}
-                      type="button"
-                      className="weq-set-btn weq-set-btn-soft"
-                      onClick={() => void send(text, true).catch(() => {})}
-                    >
-                      {text}
-                    </button>
+            emptyTimeline={
+              <section className="weq-assistant-starters" aria-label="推荐提示词">
+                <h2>
+                  <Sparkles size={19} aria-hidden /> 新对话
+                </h2>
+                <ul>
+                  {PRESETS.map(({ icon: Icon, text }) => (
+                    <li key={text}>
+                      <button
+                        type="button"
+                        disabled={!canSend}
+                        onClick={() => void send(text, true).catch(() => {})}
+                      >
+                        <Icon size={16} aria-hidden />
+                        <span>{text}</span>
+                        <ArrowRight size={14} aria-hidden />
+                      </button>
+                    </li>
                   ))}
-                </div>
-              ) : null
+                </ul>
+              </section>
             }
             composerTools={
               <>
@@ -598,6 +697,7 @@ export function AssistantPanel({
                 {error || (!recoveryId && queue.data?.error) ? (
                   <p role="alert">{error || queue.data?.error}</p>
                 ) : null}
+                {sessionSettingsError ? <p role="alert">{sessionSettingsError}</p> : null}
                 {waiting.length ? (
                   <div className="weq-assistant-queue" aria-label="待处理消息">
                     {waiting.map((item, index) => (
@@ -656,7 +756,15 @@ export function AssistantPanel({
           />
         )}
       </AiImageComposer>
-      {settings ? <AssistantSettingsPanel onClose={() => setSettings(false)} /> : null}
+      {settings ? (
+        <WeqAssistantSettingsSection
+          conversation={{
+            title: workspaceTitle ?? 'WeQ 助手',
+            anchor: settings.anchor,
+            onClose: () => setSettings(null),
+          }}
+        />
+      ) : null}
       {search ? (
         <ChatRecordsModal
           fixed

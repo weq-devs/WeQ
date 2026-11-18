@@ -420,6 +420,7 @@ export function AgentLabView({
   }, [openTarget, openTargetKey, appliedOpenTarget, setAppliedOpenTarget, searchTarget, setSel]);
   const [groupOpen, setGroupOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsAnchor, setSettingsAnchor] = useState<HTMLElement>();
   const [memberSettingsId, setMemberSettingsId] = useState<string | null>(null);
   const [mobileListOpen, setMobileListOpen] = useState(false);
   useEffect(() => setMobileListOpen(false), [sel]);
@@ -805,6 +806,7 @@ export function AgentLabView({
               if (embedded) onBackToDirectory?.();
             }}
             onOpenPersonaSettings={(personaId) => {
+              setSettingsAnchor(undefined);
               setMemberSettingsId(personaId);
               setSettingsOpen(true);
             }}
@@ -825,7 +827,8 @@ export function AgentLabView({
               setSel({ kind: 'home' });
               if (embedded) onBackToDirectory?.();
             }}
-            onOpenSettings={() => {
+            onOpenSettings={(anchor) => {
+              setSettingsAnchor(anchor);
               setMemberSettingsId(null);
               setSettingsOpen(true);
             }}
@@ -862,6 +865,7 @@ export function AgentLabView({
         <PersonaSettingsModal
           key={settingsPersona.id}
           persona={settingsPersona}
+          anchor={settingsAnchor}
           fromGroup={!!memberSettingsId}
           onDelete={() => void onDeletePersona()}
           deleting={deletePersona.isLoading}

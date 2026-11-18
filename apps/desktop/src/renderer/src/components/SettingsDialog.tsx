@@ -52,6 +52,7 @@ import { SegmentedControl } from './SegmentedControl';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { IntentSenseSection } from './settings/IntentSenseSection';
 import { InteractionProfileSection } from './settings/InteractionProfileSection';
+import { WeqAssistantSettingsSection } from '../views/agentlab/AssistantSettingsPanel';
 import { ReplySuggestionsSection } from './settings/ReplySuggestionsSection';
 import { TtsProvidersCard } from './settings/VoiceTranscribeSection';
 import { RecognitionSettingsSection } from './settings/RecognitionSettingsSection';
@@ -277,6 +278,11 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
         </div>
       </>
     ),
+  },
+  {
+    id: 'weq-assistant',
+    label: 'WeQ 助手',
+    render: () => <WeqAssistantSettingsSection />,
   },
   {
     id: 'interaction-profile',

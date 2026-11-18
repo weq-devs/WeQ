@@ -432,6 +432,7 @@ export type {
   AssistantConfig,
   AssistantReasoningEffort,
   AssistantSession,
+  AssistantSessionGeneration,
   AssistantTools,
   AssistantToolSpec,
   AssistantStep,

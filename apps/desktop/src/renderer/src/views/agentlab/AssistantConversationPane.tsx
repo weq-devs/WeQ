@@ -13,7 +13,6 @@ import {
 import type { GeneratedSearchHit } from '../../components/search/types';
 import { AssistantPanel } from './AssistantPanel';
 import type { FlatModels } from './NewCloneModal';
-import '../../styles/assistant-conversation.css';
 
 const NO_DELETED_SESSIONS: readonly string[] = [];
 

@@ -768,6 +768,7 @@ function PersonaSettingsBody({
   profileContent,
   replyContent,
   fromGroup = false,
+  anchor,
   onClose,
   onSaved,
   onDelete,
@@ -790,6 +791,7 @@ function PersonaSettingsBody({
   profileContent?: ReactNode;
   replyContent: ReactNode;
   fromGroup?: boolean;
+  anchor?: HTMLElement;
   onClose: () => void;
   onSaved: () => void;
   onDelete?: () => void;
@@ -813,6 +815,7 @@ function PersonaSettingsBody({
         <ConversationSettingsFrame<Tab>
           title="克隆体设置"
           subtitle={persona.name}
+          anchor={anchor}
           value={tab}
           onClose={() =>
             void form.flush().then((ok) => {
@@ -826,10 +829,6 @@ function PersonaSettingsBody({
             setTab(id);
           }}
         >
-          <div className="weq-cvs-body-head">
-            <span className="weq-cvs-body-icon">{TABS.find((item) => item.id === tab)?.icon}</span>
-            <strong>{TABS.find((item) => item.id === tab)?.label}</strong>
-          </div>
           <div
             className="weq-cvs-body-scroll"
             onBlurCapture={() => {
@@ -901,23 +900,25 @@ function PersonaSettingsBody({
               ))}
             </fieldset>
           </div>
-          <footer className="weq-persona-savebar">
-            <span role="status">{form.valid ? form.status : '请检查配置值'}</span>
-            {form.error ? (
-              <>
-                <span role="alert">{form.error}</span>
-                <button
-                  type="button"
-                  className="weq-set-btn weq-set-btn-primary"
-                  disabled={!form.valid || form.saving || deleting}
-                  onClick={() => void form.flush()}
-                >
-                  <Save size={14} />
-                  重试保存
-                </button>
-              </>
-            ) : null}
-          </footer>
+          {!form.valid || form.saving || form.error ? (
+            <footer className="weq-persona-savebar">
+              <span role="status">{form.valid ? form.status : '请检查配置值'}</span>
+              {form.error ? (
+                <>
+                  <span role="alert">{form.error}</span>
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-primary"
+                    disabled={!form.valid || form.saving || deleting}
+                    onClick={() => void form.flush()}
+                  >
+                    <Save size={14} />
+                    重试保存
+                  </button>
+                </>
+              ) : null}
+            </footer>
+          ) : null}
         </ConversationSettingsFrame>
       </CloneSettingsDraftContext.Provider>
     </DraftCloseContext.Provider>

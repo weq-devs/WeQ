@@ -24,6 +24,7 @@ export type ConversationMenuAction = {
   reason?: string;
   separatorBefore?: boolean;
   keepOpen?: boolean;
+  checked?: boolean;
 };
 
 export function ConversationActionsMenu({
@@ -42,8 +43,8 @@ export function ConversationActionsMenu({
   onClose: () => void;
   label?: string;
   portalTarget?: Element | null;
-  /** 右对齐在触发器下方，短屏时滚动菜单而不覆盖标题栏。 */
-  dropdown?: boolean;
+  /** 右对齐到触发器，在指定的一侧留出可滚动空间。 */
+  dropdown?: boolean | 'above';
   /** 需要明确操作对象时展示，内含按钮沿用菜单键盘导航。 */
   target?: ReactNode;
 }) {
@@ -75,14 +76,20 @@ export function ConversationActionsMenu({
     const viewport = visibleViewport(window);
     const bottom = viewport.top + viewport.height - 8;
     const top = Math.max(viewport.top + 8, Math.min(y, bottom - 44));
+    const above = dropdown === 'above';
+    const edge = above ? Math.min(bottom, y) : bottom;
     menu.style.maxWidth = `${Math.max(1, viewport.width - 16)}px`;
-    menu.style.maxHeight = `${Math.max(1, dropdown ? bottom - top : viewport.height - 16)}px`;
+    menu.style.maxHeight = `${Math.max(1, above ? edge - viewport.top - 8 : dropdown ? bottom - top : viewport.height - 16)}px`;
     const rect = menu.getBoundingClientRect();
     menu.style.left = `${Math.max(viewport.left + 8, Math.min(dropdown ? x - rect.width : x, viewport.left + viewport.width - rect.width - 8))}px`;
-    menu.style.top = `${Math.max(viewport.top + 8, Math.min(top, bottom - rect.height))}px`;
+    menu.style.top = `${Math.max(viewport.top + 8, Math.min(top, edge - rect.height))}px`;
   }, [x, y, window, dropdown, expanded]);
   useLayoutEffect(() => {
-    ref.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+    const menu = ref.current;
+    (
+      menu?.querySelector<HTMLButtonElement>('button[aria-checked="true"]:not(:disabled)') ??
+      menu?.querySelector<HTMLButtonElement>('button:not(:disabled)')
+    )?.focus();
   }, [x, y, window, dropdown]);
   useLayoutEffect(() => {
     if (expanded && focusSubmenu.current) {
@@ -96,7 +103,8 @@ export function ConversationActionsMenu({
     <Fragment key={item.label}>
       <button
         type="button"
-        role="menuitem"
+        role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
+        aria-checked={item.checked}
         data-danger={item.danger}
         disabled={item.disabled}
         className={item.separatorBefore ? 'has-separator' : undefined}
@@ -150,7 +158,7 @@ export function ConversationActionsMenu({
         ref={ref}
         role="menu"
         aria-label={label}
-        className={`weq-conversation-actions-menu${dropdown ? ' is-header-dropdown' : ''}`}
+        className={`weq-conversation-actions-menu${dropdown === true ? ' is-header-dropdown' : ''}`}
         style={{ left: x, top: y }}
         onContextMenu={(event) => event.preventDefault()}
         onMouseDown={(event) => event.stopPropagation()}

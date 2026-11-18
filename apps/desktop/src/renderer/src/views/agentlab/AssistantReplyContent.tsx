@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Play, RotateCcw, Square } from 'lucide-react';
+import { Play, RotateCcw } from 'lucide-react';
 import { AiImageGallery } from '../../components/AiImageComposer';
 import { AssistantMessage } from './AssistantMessage';
 import { AssistantSteps } from './AssistantSteps';
@@ -43,11 +43,7 @@ export const AssistantReplyContent = memo(function AssistantReplyContent({
     <div className="message-content weq-asst-content">
       {plan?.kind === 'plan' ? <AssistantPlanPanel plan={plan.plan} /> : null}
       <AssistantSteps steps={steps} running={Boolean(turn.running)} reasoning={turn.reasoning} />
-      {body ? (
-        <AssistantMessage text={body} streaming={Boolean(turn.running)} />
-      ) : turn.running ? (
-        <span role="status">正在思考…</span>
-      ) : null}
+      {body ? <AssistantMessage text={body} streaming={Boolean(turn.running)} /> : null}
       {notes?.kind === 'notes' ? (
         <AssistantNotesPanel notes={notes.notes} running={Boolean(turn.running)} />
       ) : null}
@@ -63,21 +59,10 @@ export const AssistantReplyContent = memo(function AssistantReplyContent({
         ) : null,
       )}
       {turn.error ? <p role="alert">{turn.error}</p> : null}
-      {actions?.onStop || actions?.onContinue || turn.status === 'stopped' ? (
+      {actions?.onContinue || turn.status === 'stopped' ? (
         <div className="weq-asst-run-controls" aria-label="回复控制">
           {turn.status === 'stopped' && !turn.running ? <span role="status">已停止</span> : null}
-          {actions?.onStop ? (
-            <button
-              type="button"
-              className="weq-asst-run-button"
-              aria-label={actions.stopping ? '正在停止输出' : '停止输出'}
-              title={actions.stopping ? '正在停止输出' : '停止输出'}
-              disabled={actions.stopping}
-              onClick={actions.onStop}
-            >
-              <Square size={12} fill="currentColor" aria-hidden="true" />
-            </button>
-          ) : actions?.onContinue ? (
+          {actions?.onContinue ? (
             <button
               type="button"
               className="weq-asst-run-button"

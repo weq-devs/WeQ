@@ -49,14 +49,22 @@ it('助手实际控制器直接渲染共用页、编辑器和六组自动保存�
     expect(host.querySelector('.weq-agentlab-transcript')).toBeNull();
     expect(host.querySelector('.weq-asst-composer')).toBeNull();
     expect(host.querySelector('[aria-label="运行中发送方式"]')).toBeNull();
-    const effort = host.querySelector<HTMLSelectElement>('select[aria-label="思考等级"]')!;
-    expect(effort.classList.contains('weq-set-input')).toBe(true);
-    expect([...effort.options].map((option) => option.value)).toEqual(['off', 'minimal', 'high']);
-    expect([...effort.options].map((option) => option.textContent)).toEqual([
-      '不指定',
-      'minimal',
-      'high',
-    ]);
+    const effort = host.querySelector<HTMLButtonElement>('button[aria-label^="本会话思考强度"]')!;
+    act(() => effort.click());
+    const high = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find(
+      (option) => option.textContent === 'high',
+    )!;
+    await act(async () => high.click());
+    expect(
+      requests.findLast((call) => call.name === 'setAssistantSessionGeneration')?.input,
+    ).toEqual({
+      expectedAccountUin: '10000',
+      expectedAccountConfigId: 'synthetic',
+      sessionId: 'session',
+      generation: { reasoningEffort: 'high' },
+    });
+    expect(requests.some((call) => call.name === 'setAssistantConfig')).toBe(false);
+    expect(effort.textContent).toBe('high');
     await act(async () =>
       host.querySelector<HTMLButtonElement>('[aria-label="助手设置"]')!.click(),
     );

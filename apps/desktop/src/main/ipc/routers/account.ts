@@ -471,6 +471,11 @@ const generatedAccountInput = z.object({
   expectedAccountUin: z.string().min(1),
   expectedAccountConfigId: z.string().min(1),
 });
+const assistantSessionGenerationInput = z.object({
+  model: agentLabModelSelectionSchema.nullish(),
+  reasoningEffort: z.string().min(1).max(64).nullish(),
+});
+const assistantSessionInput = generatedAccountInput.extend({ sessionId: z.string().min(1) });
 
 function assistantRuntime(binding: {
   expectedAccountUin: string;
@@ -2973,15 +2978,37 @@ export const accountRouter = router({
 
   /** 新建一个空会话，返回会话元数据（标题首轮对话后自动总结）。 */
   createAssistantSession: procedure
-    .input(exportAccountBindingInput.optional())
+    .input(
+      exportAccountBindingInput
+        .extend({ generation: assistantSessionGenerationInput.optional() })
+        .optional(),
+    )
     .mutation(({ input }) => {
       const result = requireExpectedAccount(
         input?.expectedAccountUin,
         input?.expectedAccountConfigId,
-      ).assistant.createSession();
+      ).assistant.createSession(input?.generation);
       currentDraftState().announceDrafts();
       return result;
     }),
+
+  getAssistantSessionGeneration: procedure
+    .input(assistantSessionInput)
+    .query(({ input }) =>
+      requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).assistant.getSessionGeneration(input.sessionId),
+    ),
+
+  setAssistantSessionGeneration: procedure
+    .input(assistantSessionInput.extend({ generation: assistantSessionGenerationInput }))
+    .mutation(({ input }) =>
+      requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).assistant.setSessionGeneration(input.sessionId, input.generation),
+    ),
 
   /** 删除一个会话（含其对话内容）。 */
   deleteAssistantSession: procedure

@@ -103,6 +103,7 @@ export function GroupChatPanel({
   const [imageUploading, setImageUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
+  const [settingsAnchor, setSettingsAnchor] = useState<HTMLElement>();
   const [addingMembers, setAddingMembers] = useState(false);
   const [addingMembersBusy, setAddingMembersBusy] = useState(false);
   const addingMember = useRef(false);
@@ -506,7 +507,10 @@ export function GroupChatPanel({
               legacy ? '旧版对话（只读）' : imageUploading ? '正在准备图片' : '克隆体正在回复'
             }
             settingsLabel="克隆群聊设置"
-            onOpenConversationSettings={() => setMembersOpen(true)}
+            onOpenConversationSettings={(_conversation, anchor) => {
+              setSettingsAnchor(anchor);
+              setMembersOpen(true);
+            }}
             onSearchChatRecords={() => setSearchOpen(true)}
             jumpRequest={jumpRequest}
           />
@@ -558,6 +562,7 @@ export function GroupChatPanel({
         <ConversationSettingsFrame<'members' | 'management'>
           title="克隆群聊设置"
           subtitle={groupName}
+          anchor={settingsAnchor}
           value={settingsSection}
           onValueChange={setSettingsSection}
           onClose={() => setMembersOpen(false)}
@@ -566,12 +571,6 @@ export function GroupChatPanel({
             { id: 'management', label: '群聊管理', icon: <Settings2 size={16} /> },
           ]}
         >
-          <div className="weq-cvs-body-head">
-            <span className="weq-cvs-body-icon">
-              {settingsSection === 'members' ? <Users size={16} /> : <Settings2 size={16} />}
-            </span>
-            <strong>{settingsSection === 'members' ? '群成员' : '群聊管理'}</strong>
-          </div>
           <div className="weq-cvs-body-scroll">
             {settingsSection === 'members' ? (
               <div className="weq-agentlab-field">

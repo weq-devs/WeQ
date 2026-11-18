@@ -17,6 +17,7 @@ export type SettingsSection =
   | 'callRecording'
   | 'longTermAuthorization'
   | 'enhancementPacks'
+  | 'weqAssistant'
   | 'dataSaver';
 
 function isSettingsSection(section: unknown): section is SettingsSection {
@@ -24,6 +25,7 @@ function isSettingsSection(section: unknown): section is SettingsSection {
     section === 'callRecording' ||
     section === 'longTermAuthorization' ||
     section === 'enhancementPacks' ||
+    section === 'weqAssistant' ||
     section === 'dataSaver'
   );
 }

@@ -75,6 +75,7 @@ const data: Record<string, unknown> = {
     },
   ],
   getAssistantConversation: turns,
+  getAssistantSessionGeneration: {},
   assistantQueue: queue,
   getAssistantResumeState: { resumable: false },
   getSettings: { aiImages: { assistant: 'vision', cloneChat: 'vision' } },
@@ -171,6 +172,11 @@ function mutate(name: string, value: unknown) {
   }
   if (name === 'setAssistantConfig')
     data.getAssistantConfig = { ...(data.getAssistantConfig as object), ...input };
+  if (name === 'setAssistantSessionGeneration')
+    data.getAssistantSessionGeneration = {
+      ...(data.getAssistantSessionGeneration as object),
+      ...(input.generation as object),
+    };
   if (name === 'submitAssistantMessage') {
     const text = String(input.text);
     const mode = input.mode ?? (data.getAssistantConfig as { sendMode: string }).sendMode;
@@ -191,7 +197,7 @@ function mutate(name: string, value: unknown) {
       const answer: ConversationTurn = {
         id: 'running-answer',
         role: 'assistant',
-        text: '正在处理合成任务…',
+        text: '',
         ts: Date.now() + 1,
         status: 'running',
       };
@@ -219,9 +225,9 @@ function mutate(name: string, value: unknown) {
   if (name === 'editAssistantQueue')
     queue.items = queue.items.filter((item) => item.requestId !== input.requestId);
   notify();
-  return name === 'setAssistantConfig'
-    ? data.getAssistantConfig
-    : { messageId: input.requestId, status: 'pending' };
+  if (name === 'setAssistantConfig') return data.getAssistantConfig;
+  if (name === 'setAssistantSessionGeneration') return data.getAssistantSessionGeneration;
+  return { messageId: input.requestId, status: 'pending' };
 }
 function proxy(path: string[] = []): unknown {
   return new Proxy(() => proxy(path), {
@@ -289,9 +295,11 @@ function proxy(path: string[] = []): unknown {
           data[name] = next;
           notify();
         };
+      if (key === 'useUtils') return () => utils;
       return proxy([...path, String(key)]);
     },
   });
 }
 export const trpc = proxy();
 export const client = proxy();
+const utils = proxy();

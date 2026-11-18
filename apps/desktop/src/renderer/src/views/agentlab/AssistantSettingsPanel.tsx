@@ -1,6 +1,15 @@
-import { createContext, memo, useContext, useEffect, useId, useRef, useState } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import {
   Brain,
+  ChevronRight,
   Cpu,
   Image,
   ListOrdered,
@@ -14,15 +23,18 @@ import {
   ASSISTANT_PARAMETER_DEFAULTS,
   validateAssistantParameters,
 } from '@weq/service/assistant-config';
-import { isDefaultModelSelection } from '@weq/agentlab/model-selection';
 import { trpc } from '../../trpc/client';
 import { ApiModelSelect } from '../../components/settings/ApiModelSelect';
 import { AiImagePreferenceSetting } from '../../components/settings/AiImageSettings';
-import { Row } from '../../components/settings/controls';
-import { ConversationSettingsFrame } from '../../components/ConversationSettingsFrame';
+import { Card, Row, SectionHeader } from '../../components/settings/controls';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { useSettingsAutosave, type SettingsSection } from '../../hooks/useSettingsAutosave';
+import { useDraftProtection } from '../../lib/draftClose';
+import { settingsSaves } from '../../lib/settingsSaveQueue';
+import { AssistantEffortSelect } from './AssistantGenerationControls';
+import { ConversationSettingsFrame } from '../../components/ConversationSettingsFrame';
+import { requestOpenSettings } from '../../lib/callSettingsBridge';
 import '../../styles/assistant-settings.css';
 import { ASSISTANT_SEND_MODES } from './AssistantSettingsPanel.shared';
 
@@ -109,79 +121,9 @@ function useAssistantParameters() {
     save,
     settle: () => queue.current,
     retry: () => (failed.current ? save(failed.current) : Promise.resolve()),
+    reload: () => query.refetch(),
   };
 }
-function EffortSelect({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  disabled: boolean;
-}) {
-  const config = trpc.account.getAssistantConfig.useQuery();
-  const providers = trpc.bootstrap.listAgentLabProviders.useQuery();
-  const defaults = trpc.bootstrap.getAgentLabDefaultModel.useQuery();
-  const model = config.data?.model;
-  const ref = !model || isDefaultModelSelection(model) ? defaults.data?.ref : model;
-  const declared =
-    ref &&
-    providers.data
-      ?.find((provider) => provider.id === ref.providerId)
-      ?.models.find((item) => item.id === ref.model)?.reasoningEfforts;
-  const values = [
-    'off',
-    ...(declared ?? ['low', 'medium', 'high']).filter((item) => item !== 'off'),
-  ];
-  if (!values.includes(value)) values.push(value);
-  return (
-    <select
-      className="weq-set-input"
-      aria-label="思考等级"
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      disabled={disabled}
-    >
-      {values.map((effort) => (
-        <option value={effort} key={effort}>
-          {effort === 'off' ? '不指定' : effort}
-        </option>
-      ))}
-    </select>
-  );
-}
-export const AssistantQuickTools = memo(function AssistantQuickTools() {
-  const { data, save, saving, error } = useAssistantParameters();
-  return (
-    <div className="weq-conversation-tools">
-      <span className="weq-assistant-parameter">
-        <span>模型</span>
-        <ApiModelSelect
-          label="聊天模型"
-          value={data?.model ?? { useDefault: true }}
-          disabled={!data || saving}
-          onChange={(model) => {
-            if (model) void save({ model }).catch(() => {});
-          }}
-        />
-      </span>
-      <label className="weq-assistant-parameter">
-        <span>思考</span>
-        <EffortSelect
-          value={data?.reasoningEffort ?? 'off'}
-          onChange={(reasoningEffort) => void save({ reasoningEffort }).catch(() => {})}
-          disabled={!data || saving}
-        />
-      </label>
-      {error ? (
-        <span role="alert">{error}</span>
-      ) : saving ? (
-        <span role="status">保存中…</span>
-      ) : null}
-    </div>
-  );
-});
 function NumberSetting({
   name,
   label,
@@ -197,7 +139,6 @@ function NumberSetting({
 }) {
   const [draft, setDraft] = useState(value === null ? '' : String(value / scale));
   const [automatic, setAutomatic] = useState(value === null);
-  const focused = useRef(false);
   const prior = useRef(value);
   const lastValue = useRef(
     value ??
@@ -234,6 +175,7 @@ function NumberSetting({
   const immediate = () => setTimeout(() => void form?.flush(), 0);
   return (
     <Row
+      settingId={`weq-assistant-${name}`}
       label={label}
       control={
         <div className="weq-conversation-tools">
@@ -263,14 +205,8 @@ function NumberSetting({
               step="any"
               aria-label={label}
               value={draft}
-              onFocus={() => {
-                focused.current = true;
-              }}
               onChange={(event) => setDraft(event.target.value)}
-              onBlur={() => {
-                focused.current = false;
-                void form?.flush();
-              }}
+              onBlur={() => void form?.flush()}
             />
           ) : null}
           <button
@@ -321,7 +257,7 @@ function TextSetting({
     prior.current = value;
   }, [value]);
   return (
-    <div className="weq-agentlab-field">
+    <div className="weq-agentlab-field" data-setting-id={`weq-assistant-${name}`}>
       <div className="weq-setting-field-head">
         <label htmlFor={id}>{label}</label>
         <button
@@ -353,18 +289,63 @@ function TextSetting({
   );
 }
 
-export function AssistantSettingsPanel({ onClose }: { onClose: () => void }) {
-  const { data, save, saving, error, settle, retry } = useAssistantParameters();
+const GLOBAL_GROUPS = [
+  { id: 'model', label: '模型与生成', icon: <Cpu size={16} /> },
+  { id: 'execution', label: '任务执行', icon: <Settings2 size={16} /> },
+  { id: 'context', label: '上下文管理', icon: <Brain size={16} /> },
+  { id: 'tools', label: '提示与工具', icon: <SlidersHorizontal size={16} /> },
+  { id: 'images', label: '图片处理', icon: <Image size={16} /> },
+  { id: 'sending', label: '运行中发送', icon: <ListOrdered size={16} /> },
+] as const;
+type GlobalGroup = (typeof GLOBAL_GROUPS)[number]['id'];
+
+export function WeqAssistantSettingsSection({
+  conversation,
+}: {
+  conversation?: {
+    title: string;
+    anchor?: HTMLElement;
+    onClose: () => void;
+  };
+}) {
+  const [section, setSection] = useState<GlobalGroup>('model');
+  const { data, save, saving, error, settle, retry, reload } = useAssistantParameters();
   const form = useSettingsAutosave<AssistantConfig>(async (patch) => {
     validateAssistantParameters({ ...ASSISTANT_PARAMETER_DEFAULTS, ...data, ...patch });
     await save(patch);
   });
-  const [section, setSection] = useState('model');
+  const protection = useDraftProtection(form.dirty || (data && error) ? true : null, false);
+  if (!form.dirty && !(data && error)) protection.reset(null);
+  const saveState = useRef({ form, saving, error, settle });
+  saveState.current = { form, saving, error, settle };
+  useEffect(() => {
+    const entry = {
+      get pending() {
+        const { form, saving } = saveState.current;
+        return saving || form.saving || (form.dirty && form.valid && !form.error);
+      },
+      flush: async () => {
+        const { form, error, settle } = saveState.current;
+        if (form.error || error) return false;
+        return (
+          (await form.flush()) &&
+          (await settle().then(
+            () => true,
+            () => false,
+          ))
+        );
+      },
+    };
+    settingsSaves.add(entry);
+    return () => {
+      settingsSaves.delete(entry);
+    };
+  }, []);
   const config = { ...ASSISTANT_PARAMETER_DEFAULTS, ...data };
   const fields: Array<{
     name: keyof typeof ASSISTANT_PARAMETER_DEFAULTS;
     label: string;
-    section: string;
+    section: GlobalGroup;
     nullable?: boolean;
     scale?: number;
   }> = [
@@ -391,123 +372,148 @@ export function AssistantSettingsPanel({ onClose }: { onClose: () => void }) {
     { name: 'compressionTarget', label: '压缩目标比例（%）', section: 'context', scale: 0.01 },
     { name: 'summaryTokens', label: '摘要 Token 上限', section: 'context' },
   ];
-  return (
-    <AssistantFields.Provider value={{ register: form.register, flush: form.flush }}>
-      <ConversationSettingsFrame
-        title="助手设置"
-        subtitle="WeQ 助手"
-        value={section}
-        onValueChange={(next) => {
-          void form.flush();
-          setSection(next);
-        }}
-        onClose={() =>
-          void form.flush().then(async (ok) => {
-            if (ok) {
-              try {
-                await settle();
-                onClose();
-              } catch {
-                /* 保留失败草稿。 */
-              }
-            }
-          })
-        }
-        sections={[
-          { id: 'model', label: '模型与生成', icon: <Cpu size={16} /> },
-          { id: 'execution', label: '任务执行', icon: <Settings2 size={16} /> },
-          { id: 'context', label: '上下文管理', icon: <Brain size={16} /> },
-          { id: 'tools', label: '提示与工具', icon: <SlidersHorizontal size={16} /> },
-          { id: 'images', label: '图片处理', icon: <Image size={16} /> },
-          { id: 'sending', label: '运行中发送', icon: <ListOrdered size={16} /> },
-        ]}
-      >
-        <div className="weq-cvs-body-scroll">
-          <div role="status">
-            {saving ? (
-              '保存中…'
-            ) : error || form.error ? (
-              <span role="alert">
-                保存失败：{error || form.error}
-                <button
-                  type="button"
-                  disabled={saving || form.saving}
-                  onClick={() =>
-                    void (form.dirty || form.error ? form.flush() : retry()).catch(() => {})
-                  }
-                  className="weq-retry-button"
-                >
-                  <RefreshCw size={14} aria-hidden />
-                  重试保存
-                </button>
-              </span>
-            ) : data ? (
-              form.status
-            ) : (
-              '读取中…'
-            )}
-          </div>
-          <div hidden={section !== 'model'}>
-            <Row
-              label="聊天模型"
-              control={
-                <ApiModelSelect
-                  label="聊天模型"
-                  value={data?.model ?? { useDefault: true }}
-                  onChange={(model) => {
-                    if (model) void save({ model }).catch(() => {});
-                  }}
-                />
-              }
-            />
-            <Row
-              label="思考等级"
-              control={
-                <EffortSelect
-                  value={data?.reasoningEffort ?? 'off'}
-                  onChange={(reasoningEffort) => void save({ reasoningEffort }).catch(() => {})}
-                  disabled={!data || saving}
-                />
-              }
-            />
-          </div>
-          {fields.map((field) => (
-            <div key={field.name} hidden={field.section !== section}>
-              <NumberSetting {...field} value={config[field.name] as number | null} />
-            </div>
-          ))}
-          <div hidden={section !== 'tools'}>
-            <Row
-              label="运行模式"
-              control={
-                <div>
-                  <SegmentedControl
-                    label="运行模式"
-                    value={data?.permissionMode ?? 'sandbox'}
-                    onChange={(permissionMode) =>
-                      void save({
-                        permissionMode,
-                      }).catch(() => {})
-                    }
-                    options={[
-                      { value: 'sandbox', label: '沙箱模式' },
-                      { value: 'unrestricted', label: '任意权限' },
-                    ]}
+  const numbers = (section: GlobalGroup) =>
+    fields
+      .filter((field) => field.section === section)
+      .map((field) => (
+        <NumberSetting key={field.name} {...field} value={config[field.name] as number | null} />
+      ));
+  const group = (id: GlobalGroup, children: ReactNode) => {
+    const current = GLOBAL_GROUPS.find((item) => item.id === id)!;
+    return (
+      <div hidden={Boolean(conversation && section !== id)}>
+        <Card
+          title={conversation ? undefined : current.label}
+          icon={conversation ? undefined : current.icon}
+        >
+          {children}
+        </Card>
+      </div>
+    );
+  };
+  const closeConversation = async (afterClose?: () => void) => {
+    if (!conversation || !(await form.flush())) return;
+    try {
+      await settle();
+    } catch {
+      return;
+    }
+    conversation.onClose();
+    afterClose?.();
+  };
+  const contents = (
+    <>
+      {saving || form.saving || error || form.error || !data ? (
+        <div role="status">
+          {saving || form.saving ? (
+            '保存中…'
+          ) : error || form.error ? (
+            <span role="alert">
+              {data ? '保存失败' : '读取失败'}：{error || form.error}{' '}
+              <button
+                type="button"
+                disabled={saving || form.saving}
+                onClick={() =>
+                  void (!data ? reload() : form.dirty || form.error ? form.flush() : retry()).catch(
+                    () => {},
+                  )
+                }
+                className="weq-retry-button"
+              >
+                <RefreshCw size={14} aria-hidden />
+                {data ? '重试保存' : '重新读取'}
+              </button>
+            </span>
+          ) : (
+            '读取中…'
+          )}
+        </div>
+      ) : null}
+      {data ? (
+        <>
+          {group(
+            'model',
+            <>
+              <Row
+                settingId="weq-assistant-default-model"
+                label="默认聊天模型"
+                desc="在会话未单独选择模型时使用。"
+                control={
+                  <ApiModelSelect
+                    label="默认聊天模型"
+                    value={data?.model ?? { useDefault: true }}
+                    disabled={saving}
+                    onChange={(model) => {
+                      if (model) void save({ model }).catch(() => {});
+                    }}
                   />
-                  <small>
-                    {data?.permissionMode === 'unrestricted'
-                      ? '以当前系统用户权限执行操作。'
-                      : '在沙箱中执行任务。'}
-                  </small>
-                </div>
-              }
-            />
-            <TextSetting label="额外提示词" value={data?.customPrompt ?? ''} name="customPrompt" />
-            <TextSetting label="外部 MCP 服务器" value={data?.mcpServers ?? ''} name="mcpServers" />
-          </div>
-          {section === 'images' ? <AiImagePreferenceSetting feature="assistant" /> : null}
-          {section === 'sending' ? (
+                }
+              />
+              <Row
+                settingId="weq-assistant-default-effort"
+                label="默认思考强度"
+                desc="在会话未单独选择思考强度时使用。"
+                control={
+                  <AssistantEffortSelect
+                    label="默认思考强度"
+                    model={data.model}
+                    value={data?.reasoningEffort ?? 'off'}
+                    onChange={(reasoningEffort) => void save({ reasoningEffort }).catch(() => {})}
+                    disabled={!data || saving}
+                  />
+                }
+              />
+              {numbers('model')}
+            </>,
+          )}
+          {group('execution', numbers('execution'))}
+          {group('context', numbers('context'))}
+          {group(
+            'tools',
+            <>
+              <Row
+                settingId="weq-assistant-permission"
+                label="运行模式"
+                control={
+                  <div>
+                    <SegmentedControl
+                      label="运行模式"
+                      value={data?.permissionMode ?? 'sandbox'}
+                      onChange={(permissionMode) =>
+                        void save({
+                          permissionMode,
+                        }).catch(() => {})
+                      }
+                      options={[
+                        { value: 'sandbox', label: '沙箱模式' },
+                        { value: 'unrestricted', label: '任意权限' },
+                      ]}
+                    />
+                    <small>
+                      {data?.permissionMode === 'unrestricted'
+                        ? '以当前系统用户权限执行操作。'
+                        : '在沙箱中执行任务。'}
+                    </small>
+                  </div>
+                }
+              />
+              <TextSetting
+                label="额外提示词"
+                value={data?.customPrompt ?? ''}
+                name="customPrompt"
+              />
+              <TextSetting
+                label="外部 MCP 服务器"
+                value={data?.mcpServers ?? ''}
+                name="mcpServers"
+              />
+            </>,
+          )}
+          {group('images', <AiImagePreferenceSetting feature="assistant" />)}
+          {group(
+            'sending',
             <Row
+              settingId="weq-assistant-send-mode"
               label="运行中默认发送方式"
               control={
                 <div>
@@ -530,10 +536,45 @@ export function AssistantSettingsPanel({ onClose }: { onClose: () => void }) {
                   </small>
                 </div>
               }
-            />
-          ) : null}
+            />,
+          )}
+        </>
+      ) : null}
+    </>
+  );
+  return (
+    <AssistantFields.Provider value={{ register: form.register, flush: form.flush }}>
+      {conversation ? (
+        <ConversationSettingsFrame
+          title="助手设置"
+          subtitle={conversation.title}
+          anchor={conversation.anchor}
+          onClose={() => void closeConversation()}
+          sections={GLOBAL_GROUPS}
+          value={section}
+          sectionDescription="应用级设置，所有助手会话共用"
+          onValueChange={(next) => {
+            setSection(next);
+            if (form.dirty && !form.error) void form.flush();
+          }}
+        >
+          <div className="weq-cvs-body-scroll weq-assistant-settings">
+            {contents}
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-soft weq-assistant-open-settings"
+              onClick={() => void closeConversation(() => requestOpenSettings('weqAssistant'))}
+            >
+              在设置中打开 <ChevronRight size={14} aria-hidden />
+            </button>
+          </div>
+        </ConversationSettingsFrame>
+      ) : (
+        <div className="weq-set weq-assistant-settings">
+          <SectionHeader page="weq-assistant" title="WeQ 助手" pageReset={false} />
+          {contents}
         </div>
-      </ConversationSettingsFrame>
+      )}
     </AssistantFields.Provider>
   );
 }

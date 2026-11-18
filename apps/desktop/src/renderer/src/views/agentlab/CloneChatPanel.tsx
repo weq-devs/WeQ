@@ -81,7 +81,7 @@ export function CloneChatPanel({
   /** 切到同一克隆体的另一段会话（克隆体进了会话列表后，只剩这里能切）。 */
   onSwitchSession?: (sessionId: string) => void;
   onNewSession?: () => void;
-  onOpenSettings: () => void;
+  onOpenSettings: (anchor?: HTMLElement) => void;
 }): ReactElement {
   const dialog = useAppDialog();
   const notificationToast = useToastApi();
@@ -288,7 +288,7 @@ export function CloneChatPanel({
               legacy ? '旧版对话（只读）' : imageUploading ? '正在准备图片' : '克隆体正在回复'
             }
             settingsLabel="克隆体设置"
-            onOpenConversationSettings={onOpenSettings}
+            onOpenConversationSettings={(_conversation, anchor) => onOpenSettings(anchor)}
             onSearchChatRecords={() => setSearchOpen(true)}
             jumpRequest={jumpRequest}
           />

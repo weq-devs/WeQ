@@ -1,3 +1,29 @@
+.weq-asst-stop {
+  display: grid;
+  flex: none;
+  align-self: flex-end;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+.weq-asst-stop:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
+  color: var(--weq-fg-primary);
+}
+.weq-asst-stop:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+}
+.weq-asst-stop:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .weq-asst-run-controls {
   display: flex;
   align-items: center;
@@ -51,6 +77,10 @@ html[data-theme='dark'] .weq-asst-run-button:hover:not(:disabled) {
 }
 
 @media (pointer: coarse) {
+  .weq-asst-stop {
+    width: 40px;
+    height: 40px;
+  }
   .weq-asst-run-button {
     flex-basis: 44px;
     width: 44px;

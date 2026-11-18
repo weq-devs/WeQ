@@ -15,7 +15,11 @@ import {
   X,
 } from 'lucide-react';
 import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
-import { renderMessageWithRegistry, type MessageRenderer } from './messageRenderers';
+import {
+  defaultMessageRenderers,
+  renderDefaultMessageContent,
+  type MessageRenderer,
+} from './messageRenderers';
 import { Avatar } from './primitives';
 import { ChatQqShowEnabledContext, useChatQqShow } from '../../lib/chatQqShow';
 import { qqShowUrl } from '../../lib/resourceUrl';
@@ -470,6 +474,9 @@ function MessageBubbleBody({
   }
 
   const SelfAvatar = onAvatarClick ? 'button' : 'span';
+  const renderContext = { message, conversation, sender, mine };
+  const renderer = (renderers ?? defaultMessageRenderers).find((item) => item.match(renderContext));
+  const content = renderer?.render(renderContext) ?? renderDefaultMessageContent(message);
   return (
     <div
       className={cn(
@@ -607,7 +614,7 @@ function MessageBubbleBody({
         </div>
         {repeatAction || optimistic === 'sending' ? (
           <div className="weq-repeat-content">
-            {renderMessageWithRegistry({ message, conversation, sender, mine }, renderers)}
+            {content}
             {optimistic === 'sending' ? (
               <span
                 className={cn(
@@ -632,7 +639,7 @@ function MessageBubbleBody({
             )}
           </div>
         ) : (
-          renderMessageWithRegistry({ message, conversation, sender, mine }, renderers)
+          content
         )}
         {/* 贴表情：悬停某一枚会弹出回应人名单（靠在线 QQ 实时查，见 0x9083_1）；
             只有群聊 + 有会话内序号时才可查。 */}
@@ -805,6 +812,7 @@ function MessageBubbleBody({
           </div>
         ) : null}
       </div>
+      {selectionMode ? null : renderer?.renderTrailing?.(renderContext)}
       {mine ? (
         <SelfAvatar
           className={cn(onAvatarClick ? 'message-avatar-button' : 'message-avatar-wrap', 'is-self')}

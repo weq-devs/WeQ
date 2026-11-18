@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import { WindowSurface } from './WindowSurface';
 import '../styles/conversation-settings.css';
 
-/** 普通会话、克隆体与克隆群聊共用原位设置窗格和分类导航。 */
+/** 各类会话共用原位设置窗格、分类导航和分组标题。 */
 export function ConversationSettingsFrame<T extends string>({
   title,
   subtitle,
@@ -12,6 +12,8 @@ export function ConversationSettingsFrame<T extends string>({
   onValueChange,
   onClose,
   anchor,
+  sectionDescription,
+  sectionStatus,
   children,
 }: {
   title: string;
@@ -21,8 +23,11 @@ export function ConversationSettingsFrame<T extends string>({
   onValueChange: (value: T) => void;
   onClose: () => void;
   anchor?: HTMLElement;
+  sectionDescription?: ReactNode;
+  sectionStatus?: ReactNode;
   children: ReactNode;
 }) {
+  const activeSection = sections.find((section) => section.id === value);
   return (
     <WindowSurface
       mode="anchored"
@@ -53,6 +58,7 @@ export function ConversationSettingsFrame<T extends string>({
                 <button
                   type="button"
                   className={`weq-cvs-nav-item${value === section.id ? ' is-on' : ''}`}
+                  aria-current={value === section.id ? 'true' : undefined}
                   onClick={() => onValueChange(section.id)}
                 >
                   <span className="weq-cvs-nav-icon">{section.icon}</span>
@@ -62,7 +68,25 @@ export function ConversationSettingsFrame<T extends string>({
             ))}
           </ul>
         </nav>
-        <div className="weq-cvs-body">{children}</div>
+        <div className="weq-cvs-body">
+          {activeSection ? (
+            <header className="weq-cvs-body-head">
+              <span className="weq-cvs-body-icon" aria-hidden>
+                {activeSection.icon}
+              </span>
+              <strong>{activeSection.label}</strong>
+              {sectionDescription ? (
+                <span className="weq-cvs-body-desc">{sectionDescription}</span>
+              ) : null}
+              {sectionStatus ? (
+                <span className="weq-cvs-body-state" role="status">
+                  {sectionStatus}
+                </span>
+              ) : null}
+            </header>
+          ) : null}
+          {children}
+        </div>
       </section>
     </WindowSurface>
   );

@@ -328,7 +328,15 @@ function cloneData(value: unknown, path: string): void {
     return;
   }
   if (name === 'assistant_sessions.json') {
-    for (const entry of array(value, path)) session(entry, path);
+    for (const item of array(value, path)) {
+      session(item, path);
+      const { generation } = row(item, path);
+      if (generation === undefined) continue;
+      const selection = row(generation, `${path}.generation`);
+      if (selection.model !== undefined) ref(selection.model, `${path}.generation.model`);
+      if (selection.reasoningEffort !== undefined)
+        text(selection.reasoningEffort, `${path}.generation.reasoningEffort`);
+    }
     return;
   }
   if (name === 'usage.json') {
