@@ -28,7 +28,7 @@ import {
 import { AiImageGallery } from './AiImageComposer';
 import { GapMessagesModal } from './compose/GapMessagesModal';
 
-interface PreviewProps {
+export interface PreviewProps {
   conversation: ConcreteConversation;
   binding: QQWriteBinding;
   user: User;

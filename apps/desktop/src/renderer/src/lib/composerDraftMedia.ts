@@ -164,14 +164,14 @@ export async function preserveReeditImages(
       const local = locals.find((item) => item.key === url || item.previewUrl === url);
       if (!local?.bytes && !local?.file && !url.startsWith('blob:')) continue;
       signal.throwIfAborted();
-      const blob =
-        local?.file ??
-        (local?.bytes
-          ? new Blob([new Uint8Array(local.bytes)])
-          : await fetch(url, { signal }).then((response) => {
-              if (!response.ok) throw new Error('草稿图片读取失败');
-              return response.blob();
-            }));
+      let blob: Blob;
+      if (local?.file) blob = local.file;
+      else if (local?.bytes) blob = new Blob([new Uint8Array(local.bytes)]);
+      else {
+        const response = await fetch(url, { signal });
+        if (!response.ok) throw new Error('草稿图片读取失败');
+        blob = await response.blob();
+      }
       const file = new File([blob], String(data.fileName || local?.name || 'draft.png'), {
         type: blob.type || String(data.mimeType || 'image/png'),
       });
