@@ -1725,10 +1725,15 @@ export function initAppContext(fileRoot?: string): AppContext {
       antiRecall.startMonitor();
       // 商城表情：一个实例同时供 `emoji` 服务字段与 exportManager 的 marketpack
       // 解密下载依赖复用（避免两处各建一个、密钥/详情缓存不共享）。
-      const emojiService = new EmojiService(session, platform, {
-        nt: platform.native.ntHelper,
-        resolvePid: resolveOnlinePid,
-      });
+      const emojiService = new EmojiService(
+        session,
+        platform,
+        {
+          nt: platform.native.ntHelper,
+          resolvePid: resolveOnlinePid,
+        },
+        userConfig.cacheDir(join('favorite-emoji', exportConfigId)),
+      );
       const favoriteImportFiles = new FileResourceService(session, platform);
       // 内置表情补全：QQ 的 EmojiSystermResource 目录缺失时按需下 CDN 资源包。
       // 表情全账号通用，所以缓存不按账号分目录；资源浏览器与 weq-asset 协议
@@ -2669,7 +2674,12 @@ export function initAppContext(fileRoot?: string): AppContext {
 
       // 商城表情：一个实例同时供 `emoji` 服务字段与 exportManager 的 marketpack
       // 解密下载依赖复用（避免两处各建一个、密钥/详情缓存不共享）。
-      const emojiService = new EmojiService(session, staticPlatform);
+      const emojiService = new EmojiService(
+        session,
+        staticPlatform,
+        undefined,
+        userConfig.cacheDir(join('favorite-emoji', exportConfigId)),
+      );
       const favoriteImportFiles = new FileResourceService(session, staticPlatform);
       // 内置表情补全：QQ 的 EmojiSystermResource 目录缺失时按需下 CDN 资源包。
       // 表情全账号通用，所以缓存不按账号分目录；资源浏览器与 weq-asset 协议

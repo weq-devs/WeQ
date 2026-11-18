@@ -6667,6 +6667,7 @@ export const accountRouter = router({
         {
           listRows: () => services.emoji.listFavEmojiRows(),
           resolveFile: (...args) => services.customEmoji.resolveFile(...args),
+          resolveCachedFavorite: (file) => services.emoji.resolveCachedFavorite(file),
           checkCurrent,
         },
       );

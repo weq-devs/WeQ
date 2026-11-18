@@ -825,6 +825,7 @@ export function createQQActionsRouter(
       .input(binding.extend({ url: z.string().min(1).max(16_384) }))
       .mutation(async ({ input: i }) => {
         let emojiId = '';
+        let local: Awaited<ReturnType<QQActionServices['emoji']['rememberFavorite']>> = null;
         await write(i, async (s, current) => {
           const bytes = await readFavoriteEmojiMedia(i.url, current);
           current();
@@ -835,8 +836,10 @@ export function createQQActionsRouter(
           if (!emojiId) emojiId = await s.emoji.addFavorite(bytes, undefined, current);
           current();
           if (!emojiId) throw new Error('未取得表情标识，请刷新表情列表核对结果');
+          local = await s.emoji.rememberFavorite(bytes);
+          current();
         });
-        return { ...accepted, emojiId };
+        return { ...accepted, emojiId, local };
       }),
     favorite: procedure
       .input(
