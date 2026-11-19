@@ -82,7 +82,7 @@ describe('共用提醒组件', () => {
     }
   });
 
-  it('菜单仍优先展示进行中数量，结束结果使用与消息一致的提醒语义', () => {
+  it('菜单优先展示进行中数量，结束结果只显示红点', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');
     const root = createRoot(host);
@@ -91,8 +91,8 @@ describe('共用提醒组件', () => {
       expect(host.querySelector<HTMLElement>('.weq-reminder-count')?.dataset.tone).toBe('running');
       expect(host.textContent).toBe('2');
       act(() => root.render(h(WorkspaceStatusDot, { running: 0, finished: 105 })));
-      expect(host.querySelector<HTMLElement>('.weq-reminder-count')?.dataset.tone).toBe('notice');
-      expect(host.textContent).toBe('99+');
+      expect(host.querySelector('.weq-reminder-dot')).not.toBeNull();
+      expect(host.textContent).toBe('');
       act(() => root.render(h(WorkspaceStatusDot, { running: 0, finished: 0 })));
       expect(host.childElementCount).toBe(0);
     } finally {

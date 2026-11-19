@@ -27,14 +27,13 @@ describe('工作菜单状态汇总', () => {
     expect(summary.items.find((item) => item.id === 'backup')?.result).toBe('completed:2');
   });
   it.each([
-    [1, 0, 'running', '1'],
-    [3, 7, 'running', '3'],
-    [0, 5, 'finished', '5'],
-    [100, 3, 'running', '99+'],
-    [0, 120, 'finished', '99+'],
-  ] as const)('红蓝角标显示对应来源数（在途 %s，未读 %s）', (running, finished, status, text) => {
+    [1, 0, '1'],
+    [3, 7, '3'],
+    [0, 5, ''],
+    [100, 3, '99+'],
+    [0, 120, ''],
+  ] as const)('只为在途任务显示数字（在途 %s，未读 %s）', (running, finished, text) => {
     const markup = renderToStaticMarkup(createElement(WorkspaceStatusDot, { running, finished }));
-    expect(markup).toContain(`is-${status}`);
     expect(markup).toContain(`>${text}</span>`);
   });
   it('各类在途与结束任务逐项计数，部分完成的漫游计入结束，暂停和待执行不计入', () => {

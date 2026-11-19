@@ -1,16 +1,20 @@
 import { workspaceIndicator } from '../lib/workspaceIndicators';
-import { ReminderCount } from './ReminderBadge';
+import { ReminderCount, ReminderDot } from './ReminderBadge';
 
 export function WorkspaceStatusDot({ running, finished }: { running: number; finished: number }) {
   const status = workspaceIndicator(running, finished);
-  const count = status === 'running' ? running : finished;
-  return status ? (
-    <ReminderCount
-      count={count}
-      tone={status === 'running' ? 'running' : 'notice'}
-      overlay
-      className={`weq-workspace-dot weq-workspace-status-count is-${status}`}
-      aria-hidden
-    />
+  if (status === 'running') {
+    return (
+      <ReminderCount
+        count={running}
+        tone="running"
+        overlay
+        className="weq-workspace-dot weq-workspace-status-count is-running"
+        aria-hidden
+      />
+    );
+  }
+  return status === 'finished' ? (
+    <ReminderDot overlay className="weq-workspace-dot" aria-hidden />
   ) : null;
 }
