@@ -53,14 +53,17 @@ try {
   const output = process.env.WEQ_APPEARANCE_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
   const failures = [];
-  if (styles.map((style) => style.value).join(',') !== 'qqnt,classic,minimal,retro')
-    failures.push('QQ NT 默认风格必须排在首位，并保留经典、简约、复古预设');
+  if (styles.map((style) => style.value).join(',') !== 'qqnt,classic,retro')
+    failures.push('QQ NT 默认风格必须排在首位，后接简约、复古预设');
+  const quick = process.argv.includes('--quick');
   let cases = 0;
-  for (const width of [1280, 390, 320]) {
+  for (const width of quick ? [1280, 320] : [1280, 390, 320]) {
     await page.setViewportSize({ width, height: 920 });
     for (const theme of ['light', 'dark']) {
       await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
-      for (const background of ['plain', 'paper', 'grid', 'dots', 'wash', 'telegram']) {
+      for (const background of quick
+        ? ['plain']
+        : ['plain', 'paper', 'grid', 'dots', 'wash', 'telegram']) {
         await page.evaluate(
           ({ theme, background }) => {
             const store = window.appearanceQa.store.getState();
@@ -266,14 +269,12 @@ try {
                       pixel(css('.conversation-row.active .row-main strong').color),
                       compositeBackground('.conversation-row.active'),
                     ) >= 4.5,
-                  minimalContract:
-                    value !== 'minimal' ||
-                    (primary.borderTopWidth === '0px' &&
-                      primary.borderBottomWidth === '2px' &&
-                      primary.backgroundColor === 'rgba(0, 0, 0, 0)' &&
-                      css('.weq-input').borderTopWidth === '0px' &&
-                      css('.weq-input').borderBottomWidth === '1px' &&
-                      css('.weq-input').boxShadow === 'none'),
+                  mergedStyle:
+                    value !== 'classic' ||
+                    (primary.backgroundColor !== 'rgba(0, 0, 0, 0)' &&
+                      css('.conversation-row.active').backgroundColor !== 'rgba(0, 0, 0, 0)' &&
+                      css('.weq-settings-dialog .weq-set-card').borderTopWidth === '0px' &&
+                      css('.weq-settings-dialog .weq-set-card').borderBottomWidth === '1px'),
                   retroContract:
                     value !== 'retro' ||
                     (primary.borderTopWidth === '2px' &&
@@ -297,6 +298,15 @@ try {
                       node.getBoundingClientRect().height >= 120 &&
                       node.scrollWidth <= node.clientWidth,
                   ),
+                  optionsFit: [...document.querySelectorAll('.weq-style-option')].every(
+                    (option, _, options) => {
+                      const label = option.querySelector('.weq-style-option-label > span');
+                      return (
+                        option.offsetTop === options[0].offsetTop &&
+                        label.scrollWidth <= label.clientWidth
+                      );
+                    },
+                  ),
                   disabled: css('button:disabled').backgroundColor !== primary.backgroundColor,
                 };
               },
@@ -307,7 +317,7 @@ try {
                 failures.push(`${width}/${theme}/${background}/${value}/${density}: ${check}`);
             cases++;
           }
-          if (output && width === 1280 && background === 'telegram')
+          if (output && width === 1280 && background === (quick ? 'plain' : 'telegram'))
             await page.screenshot({
               path: resolve(output, `${theme}-${value}.png`),
               fullPage: true,

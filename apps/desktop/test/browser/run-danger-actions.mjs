@@ -167,7 +167,7 @@ try {
   for (const width of smoke ? [1180] : [1180, 390]) {
     await page.setViewportSize({ width, height: 900 });
     for (const theme of smoke ? ['light', 'dark'] : ['light', 'dark', 'system'])
-      for (const style of ['classic', 'qqnt', 'minimal', 'retro'])
+      for (const style of ['classic', 'qqnt', 'retro'])
         for (const accent of smoke ? ['#075c30'] : ['#075c30', '#ffffff', '#000000']) {
           await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
           await page.evaluate(

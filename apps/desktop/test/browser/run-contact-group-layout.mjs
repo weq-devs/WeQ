@@ -59,8 +59,8 @@ try {
         ['light', 'qqnt'],
         ['dark', 'qqnt'],
         ['system', 'classic'],
-        ['light', 'minimal'],
-        ['dark', 'minimal'],
+        ['light', 'classic'],
+        ['dark', 'classic'],
         ['dark', 'retro'],
       ]) {
         await page.setViewportSize({ width, height: 900 });

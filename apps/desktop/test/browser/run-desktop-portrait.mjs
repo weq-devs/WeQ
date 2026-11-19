@@ -77,7 +77,7 @@ try {
   const output = process.env.WEQ_PORTRAIT_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
   let cases = 0;
-  const variants = ['classic', 'minimal', 'retro', 'qqnt'].flatMap((preset) =>
+  const variants = ['classic', 'retro', 'qqnt'].flatMap((preset) =>
     ['light', 'dark'].map((theme) => ({ preset, theme })),
   );
   const sizes = [360, 440, 600, 760, 800, 1180].map((width) => ({ width, height: 900 }));

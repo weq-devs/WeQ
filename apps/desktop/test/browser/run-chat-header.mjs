@@ -91,9 +91,7 @@ try {
   if (!focused) {
     for (const width of [320, 390, 430, 760]) {
       await page.setViewportSize({ width, height: 844 });
-      for (const componentStyle of focused
-        ? ['classic']
-        : ['classic', 'minimal', 'retro', 'qqnt']) {
+      for (const componentStyle of focused ? ['classic'] : ['classic', 'retro', 'qqnt']) {
         for (const theme of focused ? ['light'] : ['light', 'dark']) {
           await page.evaluate(
             ({ componentStyle, theme }) => {

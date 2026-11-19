@@ -59,7 +59,7 @@ try {
     const sidebar = page.locator('.app-shell-root > .app-shell > .sidebar');
     const row = sidebar.locator('.sidebar-header .contact-notice-row');
     await row.waitFor();
-    for (const preset of ['classic', 'minimal', 'retro', 'qqnt'])
+    for (const preset of ['classic', 'retro', 'qqnt'])
       for (const theme of ['light', 'dark']) {
         await page.evaluate(
           ({ theme, preset }) => {

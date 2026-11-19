@@ -49,7 +49,7 @@ try {
   for (const width of quick ? [1280, 320] : [1280, 640, 390, 320]) {
     await page.setViewportSize({ width, height: width === 640 ? 540 : 900 });
     for (const theme of quick ? [width > 640 ? 'light' : 'dark'] : ['light', 'dark']) {
-      for (const style of quick ? ['qqnt'] : ['qqnt', 'classic', 'minimal', 'retro']) {
+      for (const style of quick ? ['qqnt'] : ['qqnt', 'classic', 'retro']) {
         await page.goto(
           `http://127.0.0.1:${server.httpServer.address().port}/test/browser/ai-model-settings.html`,
         );

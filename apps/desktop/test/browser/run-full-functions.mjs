@@ -134,7 +134,7 @@ try {
       ? ['setAutoAttachQq', 'setRestrictedModeIndicatorEnabled', 'setRestrictedModeBannerEnabled']
       : ['setAutoAttachQq', 'setRestrictedModeIndicatorEnabled'],
   );
-  for (const style of ['classic', 'minimal', 'retro', 'qqnt']) {
+  for (const style of ['classic', 'retro', 'qqnt']) {
     await page.evaluate(
       (style) => window.fullFunctionsQa.theme.getState().setComponentStyle(style),
       style,

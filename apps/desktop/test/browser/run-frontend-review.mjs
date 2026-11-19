@@ -108,7 +108,7 @@ try {
       await page.screenshot({ path: resolve(output, `assistant-${width}-${theme}.png`) });
       cases.push({ surface: 'assistant', width, theme });
     }
-  for (const style of ['qqnt', 'classic', 'minimal', 'retro']) {
+  for (const style of ['qqnt', 'classic', 'retro']) {
     await page.evaluate((style) => {
       document.documentElement.dataset.componentStyle = style;
     }, style);
@@ -141,7 +141,7 @@ try {
   }
   for (const width of [320, 390, 768, 1440])
     for (const theme of ['light', 'dark'])
-      for (const style of ['qqnt', 'classic', 'minimal', 'retro']) {
+      for (const style of ['qqnt', 'classic', 'retro']) {
         await page.setViewportSize({ width, height: 900 });
         await page.goto(`${base}/frontend-review.html`);
         await page.getByRole('button', { name: '打开会话', exact: true }).waitFor();

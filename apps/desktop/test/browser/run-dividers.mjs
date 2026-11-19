@@ -46,7 +46,7 @@ try {
   let cases = 0;
   for (const width of [1180, 390])
     for (const theme of ['light', 'dark', 'system'])
-      for (const style of ['classic', 'qqnt', 'minimal', 'retro'])
+      for (const style of ['classic', 'qqnt', 'retro'])
         for (const accent of ['#075c30', '#ffffff', '#000000'])
           for (const background of ['plain', 'paper', 'grid', 'dots', 'wash', 'telegram']) {
             await page.setViewportSize({ width, height: 1000 });

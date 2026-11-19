@@ -92,7 +92,7 @@ try {
   for (const width of [320, 390, 1180]) {
     await page.setViewportSize({ width, height: 850 });
     for (const theme of ['light', 'dark']) {
-      for (const style of ['classic', 'minimal', 'retro', 'qqnt']) {
+      for (const style of ['classic', 'retro', 'qqnt']) {
         await page.evaluate(
           ({ theme, style }) => {
             const store = window.compactDialogsQa.theme.getState();

@@ -158,7 +158,7 @@ try {
   const output = process.env.WEQ_FORM_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
   let cases = 0;
-  for (const skin of ['qqnt', 'classic', 'minimal', 'retro'])
+  for (const skin of ['qqnt', 'classic', 'retro'])
     for (const theme of ['light', 'dark'])
       for (const accent of ['#075c30', '#fff3a1'])
         for (const width of [1180, 390, 320]) {

@@ -143,7 +143,7 @@ if (serve) {
     for (const width of [1280, 390, 320]) {
       await page.setViewportSize({ width, height: 900 });
       for (const theme of ['light', 'dark']) {
-        for (const preset of ['classic', 'minimal', 'retro', 'qqnt']) {
+        for (const preset of ['classic', 'retro', 'qqnt']) {
           for (const density of ['comfortable', 'compact']) {
             await page.evaluate(
               ({ theme, preset, density }) => {

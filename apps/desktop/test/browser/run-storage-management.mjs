@@ -54,7 +54,7 @@ try {
   for (const width of [1280, 390, 320])
     for (const theme of ['light', 'dark', 'system'])
       for (const background of ['plain', 'telegram'])
-        for (const componentStyle of ['qqnt', 'classic', 'minimal', 'retro']) {
+        for (const componentStyle of ['qqnt', 'classic', 'retro']) {
           await page.setViewportSize({ width, height: 900 });
           await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
           await page.evaluate(

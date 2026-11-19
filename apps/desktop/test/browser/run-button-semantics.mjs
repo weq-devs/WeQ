@@ -104,7 +104,7 @@ try {
   for (const width of [390, 1180]) {
     await page.setViewportSize({ width, height: 1100 });
     for (const theme of ['light', 'dark']) {
-      for (const skin of ['classic', 'minimal', 'retro', 'qqnt']) {
+      for (const skin of ['classic', 'retro', 'qqnt']) {
         const neutrals = [];
         for (const accent of ['#075c30', '#fff3a1']) {
           await page.evaluate(
@@ -132,12 +132,7 @@ try {
           assert.notDeepEqual(disabled, primary, `${label}: 禁用主动作不保留强调`);
           const danger = await styles(page.getByTestId('danger-solid'));
           assert.notDeepEqual(danger, primary, `${label}: 危险操作独立于主题主动作`);
-          if (skin !== 'minimal') {
-            assert(
-              contrast(primary.background, primary.color) >= 4.5,
-              `${label}: 主动作文字对比度`,
-            );
-          }
+          assert(contrast(primary.background, primary.color) >= 4.5, `${label}: 主动作文字对比度`);
           neutrals.push({ background: cancel.background, color: cancel.color, danger });
           await save.click();
           await page.getByRole('button', { name: '已保存', exact: true }).waitFor();

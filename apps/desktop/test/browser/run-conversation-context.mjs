@@ -55,7 +55,7 @@ try {
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 800 });
     for (const theme of ['light', 'dark']) {
-      for (const style of ['qqnt', 'classic', 'minimal', 'retro']) {
+      for (const style of ['qqnt', 'classic', 'retro']) {
         await page.goto(
           `http://127.0.0.1:${server.httpServer.address().port}/test/browser/conversation-context.html`,
         );

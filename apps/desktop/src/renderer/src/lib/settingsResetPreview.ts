@@ -39,7 +39,7 @@ const labels: Record<string, string> = {
   wash: '淡洗染',
   telegram: '电报墙',
   qqnt: 'QQ NT',
-  classic: '经典',
+  classic: '简约',
   minimal: '简约',
   retro: '复古',
   ocr: 'OCR',

@@ -112,7 +112,7 @@ try {
         `http://127.0.0.1:${server.httpServer.address().port}/test/browser/identity-links.html?action=profile&mobile&status=${status}${status === 'custom' ? '&long-name' : ''}`,
       );
       await page.locator('.weq-mobile-account > strong').waitFor();
-      for (const preset of ['classic', 'minimal', 'retro', 'qqnt']) {
+      for (const preset of ['classic', 'retro', 'qqnt']) {
         for (const theme of ['light', 'dark']) {
           await page.evaluate(
             ({ preset, theme }) => {

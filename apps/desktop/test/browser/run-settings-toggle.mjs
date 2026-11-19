@@ -56,7 +56,7 @@ try {
     await page.setViewportSize({ width, height: 920 });
     for (const theme of ['light', 'dark']) {
       await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
-      for (const style of ['classic', 'minimal', 'retro', 'qqnt']) {
+      for (const style of ['classic', 'retro', 'qqnt']) {
         for (const accent of ['#075c30', '#ffffff', '#000000']) {
           const label = `${width}-${theme}-${style}-${accent}`;
           await page.evaluate(

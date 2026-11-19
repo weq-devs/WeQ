@@ -87,7 +87,7 @@ try {
     );
     await page.locator('.weq-conversation-directory .conversation-row').first().waitFor();
     for (const theme of ['light', 'dark']) {
-      for (const style of ['qqnt', 'classic', 'minimal', 'retro']) {
+      for (const style of ['qqnt', 'classic', 'retro']) {
         for (const density of ['comfortable', 'compact']) {
           await page.evaluate(
             (theme) => window.conversationStatesQa.store.getState().setPreference(theme),
@@ -239,7 +239,7 @@ try {
     );
     await touchPage.locator('.weq-conversation-directory .conversation-row').first().waitFor();
     for (const theme of ['light', 'dark']) {
-      for (const style of ['qqnt', 'classic', 'minimal', 'retro']) {
+      for (const style of ['qqnt', 'classic', 'retro']) {
         for (const density of ['comfortable', 'compact']) {
           await touchPage.evaluate(
             (theme) => window.conversationStatesQa.store.getState().setPreference(theme),
@@ -291,7 +291,7 @@ try {
         touchCases,
         widths: [1280, 390],
         themes: ['light', 'dark'],
-        styles: ['qqnt', 'classic', 'minimal', 'retro'],
+        styles: ['qqnt', 'classic', 'retro'],
         reducedMotion: true,
         errors,
       },

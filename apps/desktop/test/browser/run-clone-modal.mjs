@@ -57,7 +57,7 @@ try {
     ['dark', 1280, 800, 'qqnt', '#73cab8', 'grid'],
     ['light', 1280, 800, 'qqnt', '#075c30', 'plain'],
     ['dark', 390, 844, 'classic', '#fff3a1', 'dots'],
-    ['light', 390, 844, 'minimal', '#b73172', 'paper'],
+    ['light', 390, 844, 'classic', '#b73172', 'paper'],
     ['system', 844, 390, 'retro', '#73cab8', 'grid'],
     ['dark', 320, 568, 'qqnt', '#fff3a1', 'plain'],
   ]) {

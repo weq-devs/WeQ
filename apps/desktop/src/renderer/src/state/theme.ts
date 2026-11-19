@@ -11,8 +11,7 @@ export type ThemeResolved = 'light' | 'dark';
 export type ThemeBackground = 'plain' | 'paper' | 'grid' | 'dots' | 'wash' | 'telegram';
 export const componentStyles = [
   { value: 'qqnt', label: 'QQ NT（默认）' },
-  { value: 'classic', label: '经典' },
-  { value: 'minimal', label: '简约' },
+  { value: 'classic', label: '简约' },
   { value: 'retro', label: '复古' },
 ] as const;
 export type ThemeComponentStyle = (typeof componentStyles)[number]['value'];
@@ -124,6 +123,8 @@ function readComponentStyle(): ThemeComponentStyle {
       'componentStyle',
       window.localStorage.getItem(storageKeys.componentStyle) ?? 'qqnt',
     );
+    // 旧设备与备份仍可能同步旧「简约」；合并后沿用经典预设的标识。
+    if (value === 'minimal') return 'classic';
     return isThemeComponentStyle(value) ? value : DEFAULT_THEME_SETTINGS.componentStyle;
   } catch {
     return DEFAULT_THEME_SETTINGS.componentStyle;
