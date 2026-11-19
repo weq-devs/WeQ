@@ -134,7 +134,7 @@ it('收藏与后部页面入口按实际页面高亮，返回消息后清除旧�
       );
       act(() => host.querySelector<HTMLButtonElement>('.rail-tab-messages')!.click());
     }
-    expect(locate.mock.calls).toEqual([[false], [false], [false]]);
+    expect(locate).toHaveBeenCalledTimes(3);
     expect(navigate).toHaveBeenCalledOnce();
     expect(navigate).toHaveBeenCalledWith('messages');
     act(() =>

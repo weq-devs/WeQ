@@ -58,7 +58,7 @@ export function MobileWebNavigation({
   onSearchFocus?: () => void;
   searchPanel?: ReactNode;
   messageBadgeCount: number;
-  onMessageBadgeClick?: (fromOtherPage: boolean) => void;
+  onMessageBadgeClick?: () => void;
   contactBadgeCount: number;
   mailBadgeCount?: number;
   onViewChange: (view: MainView) => void;
@@ -103,6 +103,7 @@ export function MobileWebNavigation({
   const tabs = navigationEntries('mobile-tabs');
   const primary = tabs.some((entry) => entry.id === view && entry.id !== 'more');
   const active = moreOpen || !primary ? 'more' : view;
+  const locateUnread = active === 'messages' && !mobilePage ? onMessageBadgeClick : undefined;
   const select = (next: MainView) => {
     mobilePage?.close();
     if (next !== view) onViewChange(next);
@@ -208,10 +209,8 @@ export function MobileWebNavigation({
               aria-expanded={id === 'more' ? moreOpen : undefined}
               aria-label={badge > 0 ? `${label}，${badge} 条未读` : label}
               onClick={() => {
-                if (id === 'messages' && active === 'messages' && onMessageBadgeClick) {
-                  mobilePage?.close();
-                  onMessageBadgeClick(false);
-                } else activate(target);
+                if (id === 'messages' && locateUnread) locateUnread();
+                else activate(target);
               }}
             >
               <span className="weq-mobile-tab-icon">

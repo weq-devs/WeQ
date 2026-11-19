@@ -412,7 +412,7 @@ it.each([0, 123])('消息汇总数为 %s 时仅当前消息页点击可定位', 
     ),
   );
   await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[0]!.click());
-  expect(locateUnread.mock.calls).toEqual([[false]]);
+  expect(locateUnread).toHaveBeenCalledOnce();
   expect(props.onViewChange).toHaveBeenCalledOnce();
   expect(props.onViewChange).toHaveBeenCalledWith('messages');
 });

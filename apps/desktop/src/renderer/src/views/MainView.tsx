@@ -8298,6 +8298,10 @@ function MainWorkspace(): ReactElement {
     return targets;
   }, [overviewCalendar, currentViewRows]);
   const sidebarView = shell.view === 'agentlab' ? 'messages' : shell.view;
+  useLayoutEffect(() => {
+    // 离开消息页后只恢复列表现场，不在列表重新挂载时重放上一次定位。
+    if (sidebarView !== 'messages') setConversationLocate(null);
+  }, [sidebarView]);
   const qzonePageReady = useMobilePageSettled(
     shell.view === 'qzone' && !arkFeedState,
     user.identityValue,
@@ -9076,20 +9080,19 @@ function MainWorkspace(): ReactElement {
       shell.selectGroup(id);
     }),
   );
-  const locateUnreadConversation = useStableCallback((fromOtherPage: boolean) =>
+  const locateUnreadConversation = useStableCallback(() =>
     settingsNavigation.navigate(() => {
       const target = unreadConversationCycle.next(
         conversationViews.regular,
         regularViewPreferences,
         unreadMarkers.aggregates,
       );
-      if (!target && !fromOtherPage) return;
+      if (!target) return;
       setSurfaceNavigation((value) => value + 1);
       setSettingsOpen(false);
       setMaintenanceTool(null);
       setDressUpOpen(false);
       shell.switchView('messages');
-      if (!target) return;
       setArkFeedState(null);
       changeConversationView('regular');
       shell.setQuery('');

@@ -33,6 +33,7 @@ import type { QQWriteBinding } from '../src/renderer/src/hooks/useQQWriteSession
 import { ReplyJumpContext } from '../src/renderer/src/state/messageContext';
 import type { ReplyJumpTarget } from '../src/renderer/src/components/QqMessageContent';
 import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
+import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { elementToToken } from '../src/renderer/src/im-template/template/draftElements';
 
@@ -327,16 +328,20 @@ vi.mock('../src/renderer/src/im-template/template/chatShell', () => ({
     sidebarContent,
     children,
     onViewChange,
+    onMessageBadgeClick,
   }: {
     mainContent: ReactNode;
     sidebarContent: ReactNode;
     children: ReactNode;
-    onViewChange: (view: 'messages') => void;
+    onViewChange: (view: 'messages' | 'contacts') => void;
+    onMessageBadgeClick: () => void;
   }) =>
     h(
       'div',
       null,
       h('button', { 'data-messages': true, onClick: () => onViewChange('messages') }, '消息'),
+      h('button', { 'data-contacts': true, onClick: () => onViewChange('contacts') }, '联系人'),
+      h('button', { 'data-locate-unread': true, onClick: () => onMessageBadgeClick() }, '定位未读'),
       sidebarContent,
       mainContent,
       children,
@@ -347,6 +352,9 @@ vi.mock('../src/renderer/src/im-template/template/chatSidebarContent', () => ({
     h(
       'nav',
       null,
+      h('span', {
+        'data-list-locate': useContext(ConversationDirectoryContext)?.locate?.id ?? '',
+      }),
       h('span', { 'data-previews': true }, JSON.stringify(props.conversations)),
       ...f.recent.map((row) =>
         h(
@@ -1084,6 +1092,44 @@ it('等值删除标记迟到不重复贴底，真实标记增删和正文更新�
     act(() => root.unmount());
     finishDeleted?.([]);
     finishHidden?.([]);
+    client.clear();
+    host.remove();
+  }
+});
+
+it('返回消息页不重放上一次未读定位，下次点击继续定位下一项', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  f.unreadMode = true;
+  f.unreadCounts = { '10001': 3, '10002': 2 };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const click = (id: string) =>
+    act(async () => host.querySelector<HTMLButtonElement>(`[data-${id}]`)!.click());
+  const locateTarget = () =>
+    host.querySelector('[data-list-locate]')?.getAttribute('data-list-locate');
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await click('messages');
+    await act(async () => vi.advanceTimersByTimeAsync(200));
+    await click('locate-unread');
+    const first = locateTarget();
+    expect(['10001', '10002']).toContain(first);
+    await click('contacts');
+    await click('messages');
+    expect(locateTarget()).toBe('');
+    await click('locate-unread');
+    expect(locateTarget()).toBe(first === '10001' ? '10002' : '10001');
+  } finally {
+    await act(async () => root.unmount());
     client.clear();
     host.remove();
   }

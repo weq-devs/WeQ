@@ -7,7 +7,10 @@ import type { MainView, SettingsTab, User } from './types';
 import { displayUserName } from './user';
 import { useUpdateStore } from '../../state/update';
 import '../../styles/rail-navigation.css';
-import { useWorkspaceActiveTitle } from '../../components/WorkspacePages.shared';
+import {
+  useWorkspaceActiveTitle,
+  useWorkspaceMainPageOpen,
+} from '../../components/WorkspacePages.shared';
 import { preloadWorkspace } from '../../components/lazyWorkspaces.shared';
 import { ReminderCount, ReminderDot } from '../../components/ReminderBadge';
 import { useUnreadMarkers } from '../../lib/unreadMarkers';
@@ -48,7 +51,7 @@ export function AppRail({
   onOpenDbRepair: () => void;
   onOpenQzoneAlbum: () => void;
   messageBadgeCount?: number;
-  onMessageBadgeClick?: (fromOtherPage: boolean) => void;
+  onMessageBadgeClick?: () => void;
   contactBadgeCount?: number;
   mailBadgeCount?: number;
   showTools?: boolean;
@@ -59,6 +62,7 @@ export function AppRail({
   const [profileOpen, setProfileOpen] = useState(false);
   const railRef = useRef<HTMLElement | null>(null);
   const activeTitle = useWorkspaceActiveTitle();
+  const mainPageOpen = useWorkspaceMainPageOpen();
   const Settings = APP_NAVIGATION.settings.icon;
   const activePage =
     activeTitle === APP_NAVIGATION.dressup.label
@@ -67,6 +71,7 @@ export function AppRail({
         ? 'settings'
         : undefined;
   const activeView = activePage ?? activeRailItem ?? view;
+  const locateUnread = activeView === 'messages' && !mainPageOpen ? onMessageBadgeClick : undefined;
   const markers = useUnreadMarkers();
   const developmentDressTools = useDevelopmentDressTools();
   const updateAvailable = useUpdateStore((s) => s.available || s.packsAvailable) && markers.updates;
@@ -136,6 +141,13 @@ export function AppRail({
     onViewChange(nextView);
   }
 
+  function selectMessages() {
+    if (locateUnread) {
+      setProfileOpen(false);
+      locateUnread();
+    } else selectView('messages');
+  }
+
   return (
     <aside className={cn('app-rail', hideAvatar && 'hide-avatar')} ref={railRef}>
       {!hideAvatar && (
@@ -196,18 +208,16 @@ export function AppRail({
                     if (workspace) preloadWorkspace(workspace);
                   }}
                   onClick={() => {
+                    if (id === 'messages') return selectMessages();
                     setProfileOpen(false);
-                    if (id === 'messages' && activeView === 'messages' && onMessageBadgeClick)
-                      onMessageBadgeClick(false);
-                    else
-                      activateNavigation(target, {
-                        onViewChange: selectView,
-                        onOpenCollection,
-                        onOpenDressUp,
-                        onOpenSettings,
-                        onOpenTool: () => {},
-                        onOpenNotice: () => {},
-                      });
+                    activateNavigation(target, {
+                      onViewChange: selectView,
+                      onOpenCollection,
+                      onOpenDressUp,
+                      onOpenSettings,
+                      onOpenTool: () => {},
+                      onOpenNotice: () => {},
+                    });
                   }}
                 >
                   <span className="rail-tab-icon">
@@ -243,13 +253,9 @@ export function AppRail({
                       count={messageBadgeCount}
                       overlay
                       className="rail-badge rail-message-badge"
-                      title="定位未读会话"
-                      aria-label={`定位未读会话，共 ${messageBadgeCount} 条未读消息`}
-                      onClick={() => {
-                        setProfileOpen(false);
-                        if (onMessageBadgeClick) onMessageBadgeClick(activeView !== 'messages');
-                        else selectView('messages');
-                      }}
+                      title={locateUnread ? '定位未读会话' : label}
+                      aria-label={`${locateUnread ? '定位未读会话' : label}，共 ${messageBadgeCount} 条未读消息`}
+                      onClick={selectMessages}
                     />
                   )}
                 </div>
