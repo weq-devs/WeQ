@@ -28,6 +28,8 @@ node scripts/publish-announcements.mjs publish /path/to/announcements.json
 
 `level` 为 `normal` 或 `important`，只有后者填写 `remindUntil`。`platforms`、`versionRange` 各自可省略，表示不限；平台为 `macos`、`windows`、`linux`、`web`（仅独立 Web 部署）。连接桌面宿主的网页及 Remote 按该宿主匹配。修订保留 ID 和已读状态，需要重新提醒时使用新 ID。撤回从数组中移除该条，撤回全部则发布 `[]`；不要复用已撤回的 ID。
 
+版本发布公告可加 `"releaseVersion": "2.8.0"`，填正式发布标签中去掉 `v` 的版本号。更新索引可用后再发布公告；发布脚本会为正文补上该版本的官方 GitHub Release 链接，供不支持按钮的旧客户端使用。不要为了控制按钮给公告加 `<2.8.0` 的 `versionRange`：客户端会自行比较宿主版本，升级后只隐藏按钮、保留正文。
+
 `check` 只做本地校验。`publish` 先核已登录 `gh` 在官方仓库的角色（`MAINTAIN` 或 `ADMIN`），再使用现有 `WEQ_RELEASE_SIGNING_KEY`。未设置该变量时，macOS 读取 `~/Library/Application Support/WeQ-release/release-metadata-ed25519.pem`。脚本只更新 `weq-update-feed` 下的 `announcements-v1.json`，读回验签才报成功。一次只运行一个发布进程。
 
 替换前的签名文件保存在 `WEQ_ANNOUNCEMENT_BACKUP_DIR`，默认为 `~/Library/Application Support/WeQ-release/announcements`。如果脚本确认线上文件因替换失败而缺失，使用报告的备份路径执行 `gh release upload weq-update-feed /path/to/announcements-v1.json --repo weq-devs/WeQ` 恢复，再重新发布；线上文件仍在时不用旧修订覆盖。已运行的客户端每 15 分钟检查一次，也可在公告页手动刷新。

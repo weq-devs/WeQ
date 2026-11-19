@@ -965,6 +965,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   { id: 'builtin-components', section: 'version', label: '内置组件', from: ['daemon', 'version'] },
   {
+    id: 'software-update',
+    section: 'version',
+    label: '软件更新',
+    from: ['version'],
+    desktopOnly: true,
+  },
+  {
     id: 'update-check-interval',
     section: 'version',
     label: '自动检查更新频率',

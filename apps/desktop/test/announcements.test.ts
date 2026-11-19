@@ -135,6 +135,25 @@ describe('宿主官方公告', () => {
     expect(await restarted.list()).toMatchObject({ status: 'ready', entries: [] });
   });
 
+  it('升级后保留发布公告，只对低于公告版本的宿主返回更新入口', async () => {
+    origin = signed(1, [regular, { ...important, releaseVersion: '2.10.0' }]);
+    const older = host('macos', '2.9.9').instance;
+    await older.refresh();
+    expect(await older.detail(important.id)).toMatchObject({
+      body: important.body,
+      releasePageUrl: 'https://github.com/weq-devs/WeQ/releases/tag/v2.10.0',
+    });
+    expect(await older.detail(regular.id)).toMatchObject({ releasePageUrl: null });
+    for (const version of ['2.10.0', '2.11.0']) {
+      const current = host('macos', version).instance;
+      expect(await current.detail(important.id)).toMatchObject({
+        body: important.body,
+        releasePageUrl: null,
+      });
+      expect((await current.list()).entries.map(({ id }) => id)).toContain(important.id);
+    }
+  });
+
   it('只写入用户看到的已读项，多个订阅端同时收到变更', async () => {
     const { instance } = host();
     origin = signed(1, [regular]);

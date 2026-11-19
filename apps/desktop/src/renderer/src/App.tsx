@@ -295,7 +295,10 @@ export default function App(): ReactElement {
     </CdnProvider>
   );
   return (
-    <AnnouncementCenter active={!switching && (view === 'main' || homeStage !== 'booting')}>
+    <AnnouncementCenter
+      active={!switching && (view === 'main' || homeStage !== 'booting')}
+      canOpenUpdateSettings={!IS_WEB && !switching && view === 'main'}
+    >
       {workspace}
     </AnnouncementCenter>
   );

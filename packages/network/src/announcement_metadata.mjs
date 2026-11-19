@@ -8,6 +8,8 @@ export const ANNOUNCEMENT_URL = `https://github.com/${ANNOUNCEMENT_REPOSITORY}/r
 export const MAX_ANNOUNCEMENT_BYTES = 1024 * 1024;
 export const MAX_ANNOUNCEMENTS = 100;
 export const ANNOUNCEMENT_ID = /^[a-z0-9][a-z0-9-]{0,79}$/;
+export const announcementReleaseUrl = (version) =>
+  `https://github.com/${ANNOUNCEMENT_REPOSITORY}/releases/tag/v${encodeURIComponent(version)}`;
 const DOMAIN = Buffer.from('WeQ official announcements v1\0');
 const PLATFORMS = new Set(['macos', 'windows', 'linux', 'web']);
 const date = (value) => {
@@ -50,7 +52,10 @@ export function validateAnnouncementFeed(feed) {
           new Set(entry.platforms).size !== entry.platforms.length ||
           !entry.platforms.every((platform) => PLATFORMS.has(platform)))) ||
       (entry.versionRange !== undefined &&
-        (!text(entry.versionRange, 120) || semver.validRange(entry.versionRange) === null))
+        (!text(entry.versionRange, 120) || semver.validRange(entry.versionRange) === null)) ||
+      (entry.releaseVersion !== undefined &&
+        (typeof entry.releaseVersion !== 'string' ||
+          semver.valid(entry.releaseVersion) !== entry.releaseVersion))
     )
       throw new Error(`官方公告条目无效：${typeof entry?.id === 'string' ? entry.id : '缺少 ID'}`);
     ids.add(entry.id);

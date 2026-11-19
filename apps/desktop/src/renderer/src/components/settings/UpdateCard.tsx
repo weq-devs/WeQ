@@ -68,7 +68,11 @@ export function UpdateCard(): ReactElement {
   const label = hasNew ? '有可用更新' : phase === 'uptodate' ? '已是最新版本' : null;
 
   return (
-    <Card title="软件更新" icon={<Download size={15} strokeWidth={1.8} />}>
+    <Card
+      settingId="software-update"
+      title="软件更新"
+      icon={<Download size={15} strokeWidth={1.8} />}
+    >
       <Row
         settingId="update-check-interval"
         desc="单位：分钟；-1 表示永不"

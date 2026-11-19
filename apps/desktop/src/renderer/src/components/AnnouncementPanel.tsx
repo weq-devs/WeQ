@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
-import { ArrowLeft, ChevronRight, RefreshCw, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ChevronRight, ExternalLink, RefreshCw, X } from 'lucide-react';
 import { Streamdown } from 'streamdown';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../shared/router';
 import { APP_NAVIGATION } from '../lib/appNavigation';
 import { openExternalLink } from '../lib/openExternalLink';
+import { notificationSource, openNotificationSource } from '../lib/notificationNavigation.shared';
 import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
 import { trpc } from '../trpc/client';
 import { Modal } from './Dialog';
@@ -26,6 +27,14 @@ function httpsLink(value: string) {
   return '';
 }
 
+function openAnnouncementLink(url: string) {
+  void openExternalLink(url)
+    .then(({ ok, error }) => {
+      if (!ok) useDialog.getState().showError('无法打开链接', error ?? '请稍后重试');
+    })
+    .catch(() => useDialog.getState().showError('无法打开链接', '请稍后重试'));
+}
+
 const markdownComponents: NonNullable<React.ComponentProps<typeof Streamdown>['components']> = {
   a({ href, children }) {
     const url = href ? httpsLink(href) : '';
@@ -37,11 +46,7 @@ const markdownComponents: NonNullable<React.ComponentProps<typeof Streamdown>['c
         rel="noopener noreferrer"
         onClick={(event) => {
           event.preventDefault();
-          void openExternalLink(url)
-            .then(({ ok, error }) => {
-              if (!ok) useDialog.getState().showError('无法打开链接', error ?? '请稍后重试');
-            })
-            .catch(() => useDialog.getState().showError('无法打开链接', '请稍后重试'));
+          openAnnouncementLink(url);
         }}
       >
         {children}
@@ -54,12 +59,14 @@ export default function AnnouncementPanel({
   selected,
   onSelect,
   onClose,
+  canOpenUpdateSettings,
   list,
   listFailed,
 }: {
   selected: string | null;
   onSelect: (id: string | null) => void;
   onClose: () => void;
+  canOpenUpdateSettings: boolean;
   list?: AnnouncementList;
   listFailed: boolean;
 }) {
@@ -83,6 +90,7 @@ export default function AnnouncementPanel({
   const detailTitle = useRef<HTMLHeadingElement>(null);
   const visibleDetail = selected !== null && details.data?.id === selected ? details.data : null;
   const visibleId = visibleDetail?.id;
+  const releasePageUrl = visibleDetail?.releasePageUrl;
   const unreadIds = list?.entries.filter(({ unread }) => unread).map(({ id }) => id) ?? [];
 
   useEffect(() => {
@@ -113,6 +121,19 @@ export default function AnnouncementPanel({
     onSelect(id);
   };
   const closeOrBack = () => (selected ? visit(null) : onClose());
+  const openUpdateSettings = () => {
+    onClose();
+    openNotificationSource(
+      notificationSource(
+        {
+          kind: 'app',
+          target: { kind: 'setting', section: 'version', settingId: 'software-update' },
+        },
+        '前往更新',
+        null,
+      ),
+    );
+  };
 
   return (
     <Modal
@@ -201,6 +222,27 @@ export default function AnnouncementPanel({
                 </time>
                 {visibleDetail.level === 'important' && <span>重要</span>}
               </div>
+              {releasePageUrl && (
+                <button
+                  type="button"
+                  className="weq-set-btn mb-4"
+                  onClick={
+                    canOpenUpdateSettings
+                      ? openUpdateSettings
+                      : () => openAnnouncementLink(releasePageUrl)
+                  }
+                >
+                  {canOpenUpdateSettings ? (
+                    <>
+                      前往更新 <ArrowRight size={14} aria-hidden />
+                    </>
+                  ) : (
+                    <>
+                      查看发布页 <ExternalLink size={14} aria-hidden />
+                    </>
+                  )}
+                </button>
+              )}
               <Streamdown
                 mode="static"
                 skipHtml

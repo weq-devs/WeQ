@@ -8,6 +8,7 @@ import {
   ANNOUNCEMENT_ID,
   ANNOUNCEMENT_URL,
   MAX_ANNOUNCEMENT_BYTES,
+  announcementReleaseUrl,
   verifyAnnouncementFeed,
   type AnnouncementFeed,
   type AnnouncementPlatform,
@@ -152,7 +153,14 @@ export class Announcements {
   async detail(id: string) {
     await this.loaded;
     const entry = this.current?.feed.entries.find((row) => row.id === id);
-    return entry && this.matches(entry, this.now()) ? entry : null;
+    if (!entry || !this.matches(entry, this.now())) return null;
+    const releasePageUrl =
+      entry.releaseVersion &&
+      semver.valid(this.host.version) &&
+      semver.gt(entry.releaseVersion, this.host.version)
+        ? announcementReleaseUrl(entry.releaseVersion)
+        : null;
+    return { ...entry, releasePageUrl };
   }
 
   refresh(): Promise<void> {

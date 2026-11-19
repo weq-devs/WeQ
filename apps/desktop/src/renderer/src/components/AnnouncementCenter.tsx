@@ -32,7 +32,15 @@ const inForeground = () =>
   document.hasFocus() &&
   !document.body.classList.contains('weq-tool-window');
 
-export function AnnouncementCenter({ active, children }: { active: boolean; children: ReactNode }) {
+export function AnnouncementCenter({
+  active,
+  canOpenUpdateSettings,
+  children,
+}: {
+  active: boolean;
+  canOpenUpdateSettings: boolean;
+  children: ReactNode;
+}) {
   const [selection, setSelection] = useState<{ id?: string } | null>(null);
   const locked = useAppLock((state) => state.locked);
   const [focused, setFocused] = useState(inForeground);
@@ -159,6 +167,7 @@ export function AnnouncementCenter({ active, children }: { active: boolean; chil
             selected={selection.id ?? null}
             onSelect={(id) => setSelection({ id: id ?? undefined })}
             onClose={close}
+            canOpenUpdateSettings={canOpenUpdateSettings}
             list={query.data}
             listFailed={query.isError}
           />

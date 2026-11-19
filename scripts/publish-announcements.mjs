@@ -8,19 +8,29 @@ import {
   ANNOUNCEMENT_ASSET,
   ANNOUNCEMENT_REPOSITORY,
   MAX_ANNOUNCEMENT_BYTES,
+  announcementReleaseUrl,
   signAnnouncementFeed,
+  validateAnnouncementFeed,
   verifyAnnouncementFeed,
 } from '../packages/network/src/announcement_metadata.mjs';
 import { FEED_TAG } from '../packages/network/src/release_metadata.mjs';
 
+function withReleaseLink(entry) {
+  if (!entry.releaseVersion) return entry;
+  const url = announcementReleaseUrl(entry.releaseVersion);
+  if (entry.body.includes(`](${url})`) || entry.body.includes(`<${url}>`)) return entry;
+  return { ...entry, body: `${entry.body.trimEnd()}\n\n[查看发布页](${url})` };
+}
+
 function feed(entries, revision) {
-  return {
+  const data = validateAnnouncementFeed({
     schemaVersion: 1,
     kind: 'official-announcements',
     repository: ANNOUNCEMENT_REPOSITORY,
     revision,
     entries,
-  };
+  });
+  return { ...data, entries: data.entries.map(withReleaseLink) };
 }
 
 export async function publishAnnouncements({
@@ -36,7 +46,8 @@ export async function publishAnnouncements({
     throw new Error('只有 WeQ 官方仓库的维护者或管理员可发布公告');
   const previous = await read();
   const revision = (previous ? verifyAnnouncementFeed(previous, publicKeys).revision : 0) + 1;
-  const signed = signAnnouncementFeed(feed(entries, revision), await signingKey());
+  const next = feed(entries, revision);
+  const signed = signAnnouncementFeed(next, await signingKey());
   verifyAnnouncementFeed(signed, publicKeys);
   const previousPath = previous ? await backup(previous, revision - 1) : null;
   try {
@@ -61,7 +72,7 @@ export async function publishAnnouncements({
       { cause: error },
     );
   }
-  return feed(entries, revision);
+  return next;
 }
 
 async function main() {

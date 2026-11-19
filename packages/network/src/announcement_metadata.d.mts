@@ -4,6 +4,7 @@ export const ANNOUNCEMENT_URL: string;
 export const MAX_ANNOUNCEMENT_BYTES: number;
 export const MAX_ANNOUNCEMENTS: number;
 export const ANNOUNCEMENT_ID: RegExp;
+export function announcementReleaseUrl(version: string): string;
 
 export type AnnouncementPlatform = 'macos' | 'windows' | 'linux' | 'web';
 export interface OfficialAnnouncement {
@@ -15,6 +16,7 @@ export interface OfficialAnnouncement {
   remindUntil?: string;
   platforms?: AnnouncementPlatform[];
   versionRange?: string;
+  releaseVersion?: string;
 }
 export interface AnnouncementFeed {
   schemaVersion: 1;
