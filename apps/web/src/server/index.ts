@@ -19,7 +19,13 @@ import { randomBytes } from 'node:crypto';
 import { DEFAULT_SERVICE_PORTS } from '@weq/service/service-ports';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { setHost, initLogger, configureDevelopmentLogging, getLogger } from '@weq/service';
+import {
+  setHost,
+  initLogger,
+  configureDevelopmentLogging,
+  flushFileLogger,
+  getLogger,
+} from '@weq/service';
 import { initAppContext, getAppContext } from '@weq/desktop/main/context/app_context';
 import { assistantResourceServer } from '@weq/desktop/main/weq_assistant/server';
 import { appRouter } from '@weq/desktop/main/ipc/router';
@@ -144,7 +150,10 @@ async function main(): Promise<void> {
     void assistantResourceServer.shutdown();
     const monitorStopped = performanceMonitor.dispose();
     server.close(() => {
-      void monitorStopped.finally(() => process.exit(0));
+      void monitorStopped.finally(async () => {
+        await flushFileLogger();
+        process.exit(0);
+      });
     });
     setTimeout(() => process.exit(0), 3000).unref();
   };
@@ -152,7 +161,8 @@ async function main(): Promise<void> {
   process.on('SIGTERM', shutdown);
 }
 
-main().catch((e) => {
+main().catch(async (e) => {
   console.error('[web] failed to start:', e);
+  await flushFileLogger();
   process.exit(1);
 });

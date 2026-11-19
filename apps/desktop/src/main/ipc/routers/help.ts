@@ -16,7 +16,6 @@ import {
   existsSync,
   mkdirSync,
   openSync,
-  readdirSync,
   readFileSync,
   readSync,
   rmSync,
@@ -24,8 +23,19 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join, resolve, sep } from 'node:path';
-import { getHost, getLogDir, getLogger } from '@weq/service';
+import { basename, dirname, join, resolve } from 'node:path';
+import {
+  flushFileLogger,
+  getActiveLogPath,
+  getHost,
+  getLogDir,
+  getLogger,
+  logFileSource,
+  readLogFileChunk,
+  readLogFileInfo,
+  scanLogFiles,
+  type LogFileEntry,
+} from '@weq/service';
 import { getNativeLogRoot } from '@weq/native';
 import { resolveResource } from '../../resource';
 import { getAppContext } from '../../context/app_context';
@@ -33,53 +43,17 @@ import { procedure, router } from '../trpc';
 
 const logger = getLogger().child({ scope: 'help-router' });
 
-/** 日志文件种类。 */
-export type LogFileKind = 'weq' | 'nt_helper' | 'native' | 'other';
-
-export interface LogFileEntry {
-  name: string;
-  path: string;
-  kind: LogFileKind;
-  size: number;
-  mtime: number;
-}
-
-function kindOf(name: string): LogFileKind {
-  if (/^\d{4}-\d{2}-\d{2}\.log$/.test(name)) return 'weq';
-  if (/^nt_helper_\d{4}-\d{2}-\d{2}\.log$/.test(name)) return 'nt_helper';
-  if (/^native_loader_\d{4}-\d{2}-\d{2}\.log$/.test(name)) return 'native';
-  return 'other';
-}
-
-/** 收集一个目录下的日志文件（不递归）。 */
-function scanLogDir(dir: string): LogFileEntry[] {
-  try {
-    return readdirSync(dir)
-      .filter((name) => name.endsWith('.log'))
-      .map((name) => {
-        const path = join(dir, name);
-        try {
-          const st = statSync(path);
-          return { name, path, kind: kindOf(name), size: st.size, mtime: st.mtimeMs };
-        } catch {
-          return null;
-        }
-      })
-      .filter((e): e is LogFileEntry => e !== null);
-  } catch {
-    return [];
-  }
-}
+const logRootKey = (path: string): string =>
+  process.platform === 'win32' ? path.toLowerCase() : path;
 
 /** 归一化日志目录集合（WeQ 与原生可能指向同一目录；Windows 路径大小写不敏感）。 */
 function logRoots(): string[] {
   const seen = new Set<string>();
   const roots: string[] = [];
-  const key = (p: string): string => (process.platform === 'win32' ? p.toLowerCase() : p);
   const add = (p: string | null): void => {
     if (!p) return;
     const abs = resolve(p);
-    const k = key(abs);
+    const k = logRootKey(abs);
     if (seen.has(k)) return;
     seen.add(k);
     roots.push(abs);
@@ -98,10 +72,9 @@ function assertUnderLogRoot(filePath: string): string {
   const abs = resolve(filePath);
   const roots = logRoots();
   if (roots.length === 0) throw new Error('日志目录尚未初始化');
-  if (!roots.some((root) => abs === root || abs.startsWith(root + sep))) {
+  if (!roots.some((root) => logRootKey(dirname(abs)) === logRootKey(root))) {
     throw new Error('路径不在日志目录内');
   }
-  if (!existsSync(abs)) throw new Error('日志文件不存在');
   return abs;
 }
 
@@ -112,54 +85,52 @@ function stampParts(): { ts: string } {
   return { ts: `${date}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}` };
 }
 
-/** 最新的 WeQ 日志 / nt_helper 日志（反馈打包用）。 */
-function latestLogs(): { weq: string | null; ntHelper: string | null } {
-  const files = logRoots().flatMap(scanLogDir);
-  const pick = (kinds: LogFileKind[]): string | null => {
-    const hits = files.filter((f) => kinds.includes(f.kind)).sort((a, b) => b.mtime - a.mtime);
-    return hits[0]?.path ?? null;
+/** 当前段可能刚切换，反馈也带上数个相邻的分段，不复制多份旧版整日日志。 */
+function latestLogs(): { weq: LogFileEntry[]; ntHelper: LogFileEntry[] } {
+  const files = logRoots()
+    .flatMap(scanLogFiles)
+    .sort((a, b) => b.mtime - a.mtime);
+  const weq = files.filter((file) => file.kind === 'weq');
+  return {
+    weq: weq
+      .filter((file, index) => index === 0 || !/^\d{4}-\d{2}-\d{2}\.log(?:\.gz)?$/.test(file.name))
+      .slice(0, 3),
+    ntHelper: files.filter((file) => file.kind === 'nt_helper').slice(0, 1),
   };
-  return { weq: pick(['weq']), ntHelper: pick(['nt_helper']) };
 }
 
 /** 把文件尾部（最多 maxBytes）读成文本，用于贴进 issue。 */
-function tailText(path: string | null, maxBytes: number): string {
-  if (!path || !existsSync(path)) return '';
-  try {
-    const size = statSync(path).size;
-    const start = Math.max(0, size - maxBytes);
-    const fd = openSync(path, 'r');
-    const buf = Buffer.alloc(size - start);
+async function tailText(files: LogFileEntry[], maxBytes: number): Promise<string> {
+  const parts: string[] = [];
+  let remaining = maxBytes;
+  for (const { path } of files) {
+    if (remaining <= 0) break;
     try {
-      readSync(fd, buf, 0, buf.length, start);
-    } finally {
-      closeSync(fd);
+      const { text } = await readLogFileChunk(path, -remaining, remaining);
+      parts.unshift(text);
+      remaining -= Buffer.byteLength(text);
+    } catch {
+      // 不可读的归档不拦住反馈。
     }
-    // 可能包含二进制/损坏的 utf8，替换掉非法序列
-    return buf.toString('utf8').replace(/\uFFFD/g, '?');
-  } catch {
-    return '';
   }
+  return parts.join('');
 }
 
 export const helpRouter = router({
   // ── 日志查看 ─────────────────────────────────────────────────────────────
 
   /** 日志目录 + 全部日志文件（含种类 / 大小 / 修改时间）。 */
-  listLogFiles: procedure.query((): { dirs: string[]; files: LogFileEntry[] } => {
+  listLogFiles: procedure.query(() => {
     const dirs = logRoots();
-    const files = dirs.flatMap(scanLogDir).sort((a, b) => b.mtime - a.mtime);
-    return { dirs, files };
+    const files = dirs.flatMap(scanLogFiles).sort((a, b) => b.mtime - a.mtime);
+    const current = getActiveLogPath();
+    return { dirs, files, activePath: current ? resolve(current) : null };
   }),
 
   /** 单个日志文件的元信息（轮询尾部时用）。 */
   logFileInfo: procedure
     .input(z.object({ path: z.string().min(1) }))
-    .query(({ input }): { size: number; mtime: number } => {
-      const abs = assertUnderLogRoot(input.path);
-      const st = statSync(abs);
-      return { size: st.size, mtime: st.mtimeMs };
-    }),
+    .query(({ input }) => readLogFileInfo(assertUnderLogRoot(input.path))),
 
   /** 从绝对字节偏移读取一段日志文本。`offset<0` 表示距离文件尾部的偏移。 */
   readLogChunk: procedure
@@ -175,29 +146,9 @@ export const helpRouter = router({
           .default(256 * 1024),
       }),
     )
-    .query(({ input }): { text: string; nextOffset: number; eof: boolean; size: number } => {
-      const abs = assertUnderLogRoot(input.path);
-      const size = statSync(abs).size;
-      let start = input.offset;
-      if (start < 0) start = Math.max(0, size + start);
-      start = Math.min(start, size);
-      const length = Math.min(input.bytes, size - start);
-      const buf = Buffer.alloc(length);
-      if (length > 0) {
-        const fd = openSync(abs, 'r');
-        try {
-          readSync(fd, buf, 0, length, start);
-        } finally {
-          closeSync(fd);
-        }
-      }
-      return {
-        text: buf.toString('utf8').replace(/�/g, '?'),
-        nextOffset: start + length,
-        eof: start + length >= size,
-        size,
-      };
-    }),
+    .query(({ input }) =>
+      readLogFileChunk(assertUnderLogRoot(input.path), input.offset, input.bytes),
+    ),
 
   // ── 日志查看：底层调试模式（nt_helper）─────────────────────────────────
 
@@ -351,19 +302,22 @@ export const helpRouter = router({
     },
   ),
 
-  /** 用 gh 直接发起 issue：title + 用户 markdown，末尾附带两份最新日志。 */
+  /** 用 gh 直接发起 issue：title + 用户 markdown，末尾附带近期日志尾部。 */
   submitGithubIssue: procedure
     .input(z.object({ title: z.string().min(1).max(200), body: z.string().min(1) }))
     .mutation(async ({ input }): Promise<{ ok: boolean; url?: string; error?: string }> => {
+      await flushFileLogger();
       const logs = latestLogs();
       const parts: string[] = [input.body.trim()];
-      const weqTail = tailText(logs.weq, 150 * 1024);
-      const ntTail = tailText(logs.ntHelper, 150 * 1024);
+      const [weqTail, ntTail] = await Promise.all([
+        tailText(logs.weq, 150 * 1024),
+        tailText(logs.ntHelper, 150 * 1024),
+      ]);
       if (weqTail || ntTail) {
         parts.push('---', '## 日志（自动附带，如与本 bug 无关可忽略）');
         if (weqTail) {
           parts.push(
-            `<details><summary>WeQ 日志：${basename(logs.weq ?? '')}</summary>`,
+            `<details><summary>WeQ 日志：${logs.weq[0]?.name ?? ''}</summary>`,
             '',
             '```log',
             weqTail,
@@ -373,7 +327,7 @@ export const helpRouter = router({
         }
         if (ntTail) {
           parts.push(
-            `<details><summary>nt_helper 日志：${basename(logs.ntHelper ?? '')}</summary>`,
+            `<details><summary>nt_helper 日志：${logs.ntHelper[0]?.name ?? ''}</summary>`,
             '',
             '```log',
             ntTail,
@@ -423,7 +377,7 @@ export const helpRouter = router({
 
   // ── 反馈 bug：打包到缓存目录（QQ 群方案）────────────────────────────────
 
-  /** 把标题 + 正文 + 两份最新日志打包到缓存目录的新建文件夹，返回路径。 */
+  /** 把标题、正文和近期日志打包到缓存目录的新建文件夹。 */
   bundleFeedback: procedure
     .input(z.object({ title: z.string().min(1).max(200), body: z.string().min(1) }))
     .mutation(
@@ -435,13 +389,14 @@ export const helpRouter = router({
     ),
 });
 
-/** 把标题 + 正文 + 两份最新日志打包到缓存目录的新建文件夹（help / groupFeedback 共用）。 */
-export function bundleFeedbackFiles(input: { title: string; body: string }): {
+/** help / groupFeedback 共用。 */
+export async function bundleFeedbackFiles(input: { title: string; body: string }): Promise<{
   ok: boolean;
   folder?: string;
   files?: string[];
   errors?: string[];
-} {
+}> {
+  await flushFileLogger();
   const boot = getAppContext().bootstrap;
   if (!boot) return { ok: false, errors: ['原生组件未就绪'] };
   const cacheBase = boot.userConfig.cacheBaseDir();
@@ -464,21 +419,20 @@ export function bundleFeedbackFiles(input: { title: string; body: string }): {
   }
 
   const logs = latestLogs();
-  const copyLog = (src: string | null, label: string): void => {
-    if (!src || !existsSync(src)) {
-      errors.push(`${label}：未找到日志文件`);
-      return;
-    }
-    try {
-      const dest = join(folder, basename(src));
-      copyFileSync(src, dest);
-      files.push(dest);
-    } catch (e) {
-      errors.push(`${label}：${e instanceof Error ? e.message : String(e)}`);
+  const copyLogs = (entries: LogFileEntry[], label: string): void => {
+    if (entries.length === 0) errors.push(`${label}：未找到日志文件`);
+    for (const entry of entries) {
+      try {
+        const dest = join(folder, entry.name);
+        copyFileSync(logFileSource(entry), dest);
+        files.push(dest);
+      } catch (e) {
+        errors.push(`${label}：${e instanceof Error ? e.message : String(e)}`);
+      }
     }
   };
-  copyLog(logs.weq, 'WeQ 日志');
-  copyLog(logs.ntHelper, 'nt_helper 日志');
+  copyLogs(logs.weq, 'WeQ 日志');
+  copyLogs(logs.ntHelper, 'nt_helper 日志');
 
   logger.info('feedback bundle created', { event: 'feedback-bundled', folder });
   return { ok: true, folder, files, errors };

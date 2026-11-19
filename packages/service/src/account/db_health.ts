@@ -13,6 +13,7 @@ import { getNativeLogRoot } from '@weq/native';
 import type { Platform } from '@weq/platform';
 import { getLogDir, getLogger } from '../common/logger';
 import { getHost } from '../common/host';
+import { logFileSource, scanLogFiles, utcLogDay } from '../common/log_files';
 
 export const ACCOUNT_HEALTH_DATABASES = [
   'nt_msg.db',
@@ -335,21 +336,20 @@ export function collectDbDamageFeedback(input: DbDamageFeedbackInput): DbDamageF
   }
 
   // 今天的应用日志 + 原生（nt_helper / native_loader）日志。
-  const today = stampParts().date;
+  const today = utcLogDay();
+  const localToday = stampParts().date;
   const scannedDirs = new Set<string>();
   const copyTodayLogs = (dir: string | null): void => {
     if (!dir || scannedDirs.has(dir)) return;
     scannedDirs.add(dir);
-    let names: string[];
-    try {
-      names = readdirSync(dir);
-    } catch (e) {
-      errors.push(`读取日志目录失败（${dir}）：${e instanceof Error ? e.message : String(e)}`);
-      return;
-    }
-    for (const name of names) {
-      if (!name.startsWith(today) || !name.endsWith('.log')) continue;
-      const dest = tryCopy(join(dir, name), folder, errors, '日志');
+    for (const entry of scanLogFiles(dir)) {
+      const current =
+        entry.kind === 'weq'
+          ? entry.name.startsWith(today)
+          : (entry.kind === 'nt_helper' || entry.kind === 'native') &&
+            (entry.name.includes(today) || entry.name.includes(localToday));
+      if (!current) continue;
+      const dest = tryCopy(logFileSource(entry), folder, errors, '日志');
       if (dest) files.push(dest);
     }
   };

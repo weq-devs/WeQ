@@ -1,8 +1,11 @@
-import { appendFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, readdirSync, rmSync, lstatSync } from 'node:fs';
 import { EOL } from 'node:os';
 import { join } from 'node:path';
 import { createConsoleLogger, type ConsoleLoggerOptions } from './console_logger';
+import { LogFileWriter } from './log_file_writer';
+import { isWeqLogName, utcLogDay } from './log_files';
 import { currentOperationId } from './operation_log';
+import { RequestLogBatch } from './request_log_batch';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -21,9 +24,16 @@ export interface Logger {
   child(defaultContext: LoggerContext): Logger;
 }
 
-const state = {
-  baseDir: null as string | null,
-};
+let writer: LogFileWriter | undefined;
+let rolloverTimer: ReturnType<typeof setInterval> | undefined;
+let requestDetails = false;
+const requestBatch = new RequestLogBatch((summary) => {
+  if (!writer) return;
+  writeRecord(writer, new Date().toISOString(), 'debug', '请求完成汇总', {
+    ...summary,
+    event: 'request-complete-summary',
+  });
+});
 let terminal: ReturnType<typeof createConsoleLogger> | undefined;
 export function configureConsoleLogger(options: ConsoleLoggerOptions): void {
   terminal?.dispose();
@@ -32,15 +42,16 @@ export function configureConsoleLogger(options: ConsoleLoggerOptions): void {
 export function flushConsoleLogger(): void {
   terminal?.flush();
 }
-process.once('exit', flushConsoleLogger);
-
-function timestamp(): string {
-  return new Date().toISOString();
+export async function flushFileLogger(): Promise<void> {
+  requestBatch.flush(Date.now());
+  await writer?.flush();
 }
-
-function dayKey(): string {
-  return timestamp().slice(0, 10);
-}
+process.once('exit', () => {
+  flushConsoleLogger();
+  writer?.prepareExit();
+  requestBatch.flush(Date.now());
+  writer?.flushOnExit();
+});
 
 function normalizeContext(context: LoggerContext | undefined): Record<string, unknown> | undefined {
   if (!context) return undefined;
@@ -64,11 +75,29 @@ function normalizeContext(context: LoggerContext | undefined): Record<string, un
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-function filePath(): string | null {
-  if (!state.baseDir) return null;
-  const dir = join(state.baseDir, 'logs');
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  return join(dir, `${dayKey()}.log`);
+function writeRecord(
+  target: LogFileWriter,
+  ts: string,
+  level: LogLevel,
+  message: string,
+  context?: LoggerContext,
+): void {
+  try {
+    const normalized = normalizeContext(context);
+    const line = JSON.stringify({
+      ts,
+      level,
+      message,
+      ...(normalized ? { context: normalized } : {}),
+    });
+    target.record(
+      line + EOL,
+      ts.slice(0, 10),
+      level === 'warn' || level === 'error' || context?.event === 'request-failed',
+    );
+  } catch {
+    // 日志序列化失败不影响业务。
+  }
 }
 
 function write(level: LogLevel, message: string, context?: LoggerContext): void {
@@ -79,19 +108,26 @@ function write(level: LogLevel, message: string, context?: LoggerContext): void 
   } catch {
     /* 日志展示失败不影响落盘。 */
   }
-  try {
-    const target = filePath();
-    if (!target) return;
-    const normalized = normalizeContext(context);
-    const line = JSON.stringify({
-      ts: timestamp(),
-      level,
-      message,
-      ...(normalized ? { context: normalized } : {}),
-    });
-    appendFileSync(target, line + EOL, 'utf-8');
-  } catch {
-    // Logging must never break the app flow.
+  const target = writer;
+  if (!target) return;
+  const now = new Date();
+  const emit = () => writeRecord(target, now.toISOString(), level, message, context);
+  if (
+    !requestDetails &&
+    level === 'debug' &&
+    context?.event === 'request-complete' &&
+    context.outcome === 'ok' &&
+    (context.scope === 'mcp-server' || context.scope === 'trpc') &&
+    typeof context.path === 'string' &&
+    typeof context.type === 'string' &&
+    typeof context.durationMs === 'number' &&
+    context.durationMs >= 0 &&
+    context.durationMs < 1000
+  ) {
+    const { scope, path, type, durationMs } = context;
+    requestBatch.record({ scope, path, type, durationMs }, emit, now.getTime());
+  } else {
+    emit();
   }
 }
 
@@ -122,10 +158,9 @@ class FileLogger implements Logger {
 const rootLogger = new FileLogger();
 
 export function initLogger(baseDir: string): Logger {
-  state.baseDir = baseDir;
   const dir = join(baseDir, 'logs');
   try {
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    mkdirSync(dir, { recursive: true });
   } catch (error) {
     rootLogger.warn('日志目录暂不可用，终端输出继续工作', {
       scope: 'logger',
@@ -134,6 +169,12 @@ export function initLogger(baseDir: string): Logger {
       ...logErrorContext(error),
     });
     return rootLogger;
+  }
+  if (writer?.dir !== dir) {
+    void flushFileLogger();
+    writer = new LogFileWriter(dir);
+    requestDetails = process.env.WEQ_LOG_REQUEST_DETAILS === '1';
+    if (!rolloverTimer) rolloverTimer = setInterval(() => void writer?.flush(), 60_000).unref();
   }
   rootLogger.info('logger initialized', { scope: 'logger', event: 'init', logDir: dir });
   return rootLogger;
@@ -144,7 +185,15 @@ export function getLogger(): Logger {
 }
 
 export function getLogDir(): string | null {
-  return state.baseDir ? join(state.baseDir, 'logs') : null;
+  return writer?.dir ?? null;
+}
+
+export function getActiveLogPath(): string | null {
+  return writer?.activePath ?? null;
+}
+
+export function archiveHistoricalLogs(): void {
+  writer?.archiveHistorical();
 }
 
 export function logErrorContext(error: unknown): Record<string, unknown> {
@@ -160,10 +209,8 @@ export function logErrorContext(error: unknown): Record<string, unknown> {
 
 // ── 日志保留清理 ─────────────────────────────────────────────────────────────
 //
-// 日志按天拆成 `<YYYY-MM-DD>.log`（原生日志是 `nt_helper_<date>.log` /
-// `native_loader_<date>.log`），所以「过期」可以直接按**文件名里的日期**判断——
-// 不用 stat 每个文件的年龄，也不怕日志文件被 touch / 拷来拷去改了 mtime。
-// 没有日期的 `.log` 退回用修改时间。
+// WeQ 的明文分段、历史 gzip 和原生日志都优先按文件名日期清理，不受复制/触碰的影响。
+// 没有日期的日志退回用修改时间。
 
 /** 文件名里的 `YYYY-MM-DD`（取第一个像日期的段），取不到返回 null。 */
 function dateKeyInName(name: string): string | null {
@@ -205,17 +252,19 @@ export function planExpiredLogs(
   now: Date = new Date(),
 ): string[] {
   if (!Number.isFinite(retentionDays) || retentionDays <= 0) return [];
-  const cutoff = shiftedDateKey(now, -(Math.floor(retentionDays) - 1));
+  const days = Math.floor(retentionDays) - 1;
+  const cutoff = shiftedDateKey(now, -days);
+  const weqCutoff = utcLogDay(new Date(now.getTime() - days * 86_400_000));
   const expired: string[] = [];
   for (const file of files) {
     const key = dateKeyInName(file.name) ?? localDateKey(new Date(file.mtimeMs));
-    if (key < cutoff) expired.push(file.name);
+    if (key < (isWeqLogName(file.name) ? weqCutoff : cutoff)) expired.push(file.name);
   }
   return expired;
 }
 
 /**
- * 清理 `dir` 下过期的 `.log`，返回被删掉的文件名。
+ * 清理 `dir` 下过期的 `.log` / `.log.gz`，返回被删掉的文件名。
  *
  * 目录不存在 / 读不到就静默返回空——清理只是顺手做的家务，绝不能让读日志
  * （或启动）失败。单个文件删不掉（被占用等）也只跳过它，不影响其它文件。
@@ -225,7 +274,7 @@ export function pruneExpiredLogs(
   retentionDays: number,
   now: Date = new Date(),
 ): string[] {
-  if (!dir || retentionDays <= 0 || !existsSync(dir)) return [];
+  if (!dir || retentionDays <= 0) return [];
   let names: string[];
   try {
     names = readdirSync(dir);
@@ -234,9 +283,11 @@ export function pruneExpiredLogs(
   }
   const files: LogFileCandidate[] = [];
   for (const name of names) {
-    if (!name.endsWith('.log')) continue;
+    if (!name.endsWith('.log') && !name.endsWith('.log.gz')) continue;
+    const path = join(dir, name);
+    if (path === getActiveLogPath()) continue;
     try {
-      const st = statSync(join(dir, name));
+      const st = lstatSync(path);
       if (st.isFile()) files.push({ name, mtimeMs: st.mtimeMs });
     } catch {
       // 读不到元信息的跳过，下次再试

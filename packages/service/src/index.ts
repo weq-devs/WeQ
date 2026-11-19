@@ -1237,6 +1237,9 @@ export type {
   OcrCacheTextInput,
 } from './common/ocr_cache';
 export {
+  archiveHistoricalLogs,
+  flushFileLogger,
+  getActiveLogPath,
   getLogDir,
   getLogger,
   initLogger,
@@ -1244,6 +1247,8 @@ export {
   planExpiredLogs,
   pruneExpiredLogs,
 } from './common/logger';
+export { logFileSource, readLogFileChunk, readLogFileInfo, scanLogFiles } from './common/log_files';
+export type { LogFileEntry, LogFileKind } from './common/log_files';
 export type { LogFileCandidate } from './common/logger';
 export { configureConsoleLogger, flushConsoleLogger } from './common/logger';
 export { withLogOperation, currentOperationId } from './common/operation_log';

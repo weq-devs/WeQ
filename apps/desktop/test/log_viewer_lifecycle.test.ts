@@ -7,6 +7,7 @@ import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 const fixture = vi.hoisted(() => ({
   info: vi.fn(),
   chunk: vi.fn(),
+  activePath: null as string | null,
   enabled: new Map<string, boolean>(),
   text: new Map<string, string>(),
   files: [
@@ -30,7 +31,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             return {
               data:
                 name === 'listLogFiles'
-                  ? { files: fixture.files }
+                  ? { files: fixture.files, activePath: fixture.activePath }
                   : { enabled: false, available: true },
               isLoading: false,
               refetch: vi.fn(),
@@ -79,6 +80,7 @@ beforeEach(() => {
     toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
   });
   fixture.enabled.clear();
+  fixture.activePath = null;
   fixture.text = new Map([
     ['/synthetic/a.log', line('a-one')],
     ['/synthetic/b.log', line('b-one')],
@@ -116,6 +118,28 @@ function mount() {
   };
 }
 describe('日志页保留与活动读取', () => {
+  it('跟随当前分段时跨段，主动查看历史时不改所选文件', async () => {
+    fixture.activePath = '/synthetic/a.log';
+    const f = mount();
+    try {
+      await flush();
+      expect(f.host.textContent).toContain('a-one');
+      fixture.activePath = '/synthetic/b.log';
+      f.render();
+      await flush();
+      expect(f.host.textContent).toContain('b-one');
+      const select = f.host.querySelector<HTMLSelectElement>('select')!;
+      act(() => {
+        select.value = '/synthetic/a.log';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      await flush();
+      expect(f.host.textContent).toContain('a-one');
+      expect(select.value).toBe('/synthetic/a.log');
+    } finally {
+      f.dispose();
+    }
+  });
   it('已从文件头载入时，恢复后滚到顶部不会重复读取并追加同一段日志', async () => {
     const f = mount();
     try {

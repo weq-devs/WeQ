@@ -3,8 +3,8 @@ import { TimeLabel } from '../TimeLabel';
 /**
  * 设置 → 帮助 → 日志查看。
  *
- * 支持 WeQ 自身日志（`YYYY-MM-DD.log`，JSONL）与 nt_helper / 原生加载日志，
- * 也支持选择历史文件。打开默认定位到文件尾部；勾选「实时更新」时跟随尾部
+ * 支持 WeQ 分段日志（JSONL 与 gzip 归档）和 nt_helper / 原生加载日志。
+ * 打开默认定位到文件尾部；跟随最新时跟随当前分段的尾部
  * 自动追加；向上滚动可回溯旧内容（到达顶部自动加载更早的分块）。
  *
  * 读取按字节偏移分块进行（大文件安全），行解析按日志格式区分：
@@ -216,6 +216,7 @@ export function LogViewerPanel(): ReactElement {
   activity.current = active;
   const generation = useRef(0);
   const loadedPath = useRef('');
+  const followCurrentFile = useRef(true);
   const scrollFrame = useRef<number | null>(null);
   const pushToast = useToast((s) => s.push);
   const list = trpc.help.listLogFiles.useQuery(undefined, {
@@ -223,8 +224,10 @@ export function LogViewerPanel(): ReactElement {
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
+    refetchInterval: active ? 4000 : false,
   });
   const files = list.data?.files ?? [];
+  const activePath = list.data?.activePath;
 
   const [selectedPath, setSelectedPath] = useState<string>('');
   const [levels, setLevels] = useState<Record<LogLevel, boolean>>({
@@ -244,6 +247,8 @@ export function LogViewerPanel(): ReactElement {
   });
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [size, setSize] = useState(0);
+  const selectedFile = files.find((file) => file.path === selectedPath);
+  const archived = selectedFile?.archived ?? false;
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const seqRef = useRef({ n: 0 });
@@ -265,13 +270,17 @@ export function LogViewerPanel(): ReactElement {
     };
   }, [active, selectedPath, owner]);
 
-  // 首次列出后默认选最新一份 WeQ 日志
+  // 只在跟随当前 WeQ 分段时自动跨段，保留主动选择的历史文件。
   useEffect(() => {
-    if (selectedPath || files.length === 0) return;
-    const weq = files.filter((f) => f.kind === 'weq').sort((a, b) => b.mtime - a.mtime);
-    const fallback = weq[0] ?? files[0];
-    if (fallback) setSelectedPath(fallback.path);
-  }, [files, selectedPath]);
+    if (!active || files.length === 0) return;
+    const live = activePath ? files.find((file) => file.path === activePath) : undefined;
+    if (!selectedPath) {
+      const fallback = live ?? files.find((file) => file.kind === 'weq') ?? files[0];
+      if (fallback) setSelectedPath(fallback.path);
+    } else if (followCurrentFile.current && followTail && live && live.path !== selectedPath) {
+      setSelectedPath(live.path);
+    }
+  }, [active, activePath, files, followTail, selectedPath]);
 
   /** 载入文件尾部（初始 / 切换文件）。 */
   const loadTail = useCallback(
@@ -292,11 +301,14 @@ export function LogViewerPanel(): ReactElement {
         const info = await client.help.logFileInfo.query({ path });
         if (!current()) return;
         const start = Math.max(0, info.size - TAIL_BYTES);
-        const chunk = await client.help.readLogChunk.query({
-          path,
-          offset: start,
-          bytes: info.size - start,
-        });
+        const chunk =
+          info.size > 0
+            ? await client.help.readLogChunk.query({
+                path,
+                offset: start,
+                bytes: info.size - start,
+              })
+            : { text: '', nextOffset: 0 };
         if (!current()) return;
         const { lines, nextPartial } = chunkToLines(
           chunk.text,
@@ -343,7 +355,7 @@ export function LogViewerPanel(): ReactElement {
 
   /** 轮询追加尾部（跟随模式）。 */
   useEffect(() => {
-    if (!active || !selectedPath) return;
+    if (!active || !selectedPath || archived) return;
     let timer: number | undefined;
     const tick = async (): Promise<void> => {
       const path = selectedRef.current;
@@ -415,7 +427,7 @@ export function LogViewerPanel(): ReactElement {
     return () => {
       if (timer) owner.clearInterval(timer);
     };
-  }, [active, selectedPath, loadTail, owner]);
+  }, [active, selectedPath, archived, loadTail, owner]);
 
   // 让轮询回调能读到最新 buffer（ref 镜像）
   const bufferRef = useRef(buffer);
@@ -512,8 +524,6 @@ export function LogViewerPanel(): ReactElement {
     return buffer.lines.filter((l) => levels[l.level]);
   }, [buffer.lines, levels]);
 
-  const selectedFile = files.find((f) => f.path === selectedPath);
-
   const levelSelection = useMultiSelection({
     ids: LEVEL_ORDER,
     selected: new Set(LEVEL_ORDER.filter((level) => levels[level])),
@@ -540,7 +550,10 @@ export function LogViewerPanel(): ReactElement {
             ariaLabel="选择日志文件"
             placeholder={files.length === 0 ? '（暂无日志文件）' : '选择日志文件'}
             value={selectedPath}
-            onChange={setSelectedPath}
+            onChange={(path) => {
+              followCurrentFile.current = path === activePath;
+              setSelectedPath(path);
+            }}
             options={(() => {
               const opts: IconPickerOption[] = [];
               for (const kind of ['weq', 'nt_helper', 'native', 'other'] as const) {
@@ -571,11 +584,16 @@ export function LogViewerPanel(): ReactElement {
           />
         </div>
         <div className="weq-help-log-toolbar-right">
-          <span className="weq-help-log-meta" title={selectedFile?.path ?? ''}>
+          <span
+            className="weq-help-log-meta"
+            title={selectedFile ? (archived ? `${selectedFile.path}.gz` : selectedFile.path) : ''}
+          >
             {selectedFile ? (
               <>
-                <span className="weq-number weq-number-inherit">{fmtBytes(size)}</span> ·{' '}
-                {selectedFile.name}
+                <span className="weq-number weq-number-inherit">
+                  {fmtBytes(archived ? selectedFile.size : size)}
+                </span>{' '}
+                · {selectedFile.name}
               </>
             ) : (
               ''

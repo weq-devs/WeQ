@@ -115,4 +115,18 @@ describe('pruneExpiredLogs（真实目录）', () => {
     expect(pruneExpiredLogs(dir, 0, NOW)).toEqual([]);
     expect(readdirSync(dir)).toEqual(['2020-01-01.log']);
   });
+
+  it('明文分段、旧 gzip 和分段 gzip 按同一 UTC 保留窗口清理，临时档不参与', () => {
+    const dir = tmpDir();
+    const expired = ['2026-09-19.log.gz', '2026-09-19.123.123456abcdef.0001.log.gz'];
+    const stillCurrent = ['2026-09-20.log.gz', '2026-09-20.123.123456abcdef.0001.log'];
+    const notLogs = ['2026-09-19.log.gz.123.tmp'];
+    for (const name of [...expired, ...stillCurrent, ...notLogs])
+      writeFileSync(join(dir, name), 'fixture');
+    // 北京时间已经跨日，但写入中的 UTC 日文件仍属当前保留窗口。
+    const now = new Date('2026-09-20T17:00:00Z');
+    const removed = pruneExpiredLogs(dir, 1, now);
+    expect(removed.sort()).toEqual(expired.sort());
+    expect(readdirSync(dir).sort()).toEqual([...stillCurrent, ...notLogs].sort());
+  });
 });

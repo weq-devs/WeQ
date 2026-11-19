@@ -205,6 +205,7 @@ import {
   prepareFavoriteEmojiElements,
   checkAccountDatabaseHealth,
   collectDbDamageFeedback,
+  flushFileLogger,
   findLatestDbHealthReport,
   writeDbHealthReport,
   ocrCacheFor,
@@ -9398,6 +9399,7 @@ export const accountRouter = router({
           }
         }
 
+        await flushFileLogger();
         const result = collectDbDamageFeedback({
           uin,
           dbKey: session.context.dbKey,

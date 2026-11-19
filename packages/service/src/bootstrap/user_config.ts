@@ -910,7 +910,7 @@ export interface AppSettings {
   /**
    * 日志保留天数（设置 → 日志）。默认 {@link DEFAULT_LOG_RETENTION_DAYS} 天，
    * 0 = 永久保留。WeQ 自身的 `logs/` 与原生组件日志目录都按此清理，判断依据是
-   * 文件名里的日期（`2026-09-20.log` / `nt_helper_2026-09-20.log`）。
+   * 文件名里的日期（包括 WeQ 的 `.log.gz` 历史分段）。
    */
   logRetentionDays: number;
   /** 同一数据库的并行只读上限；宿主级设置，所有账号和客户端共用。 */

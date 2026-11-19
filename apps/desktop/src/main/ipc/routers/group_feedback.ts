@@ -174,7 +174,7 @@ export const groupFeedbackRouter = router({
         }
 
         // 打包正文 + 两份最新日志到缓存目录。
-        const bundle = bundleFeedbackFiles({ title: input.title, body: input.body });
+        const bundle = await bundleFeedbackFiles({ title: input.title, body: input.body });
         if (!bundle.ok || !bundle.folder) {
           return { ok: false, reason: 'bundle', message: bundle.errors?.join('\n') ?? '打包失败' };
         }

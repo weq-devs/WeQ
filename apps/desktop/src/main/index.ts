@@ -123,6 +123,7 @@ import { backgroundServicesRunning } from './background_services';
 import { registerElevationIpc } from './elevation_ipc';
 import { registerLongTermAuthorizationIpc } from './authorization/ipc';
 import {
+  flushFileLogger,
   getLogDir,
   getLogger,
   configureDevelopmentLogging,
@@ -1147,13 +1148,17 @@ if (hasSingleInstanceLock) {
   registerAppQuitCleanup(
     app,
     async () => {
-      await Promise.all([
-        flushConversationCalendarResults(),
-        databaseCheckups.cancelAll(),
-        databaseMaintenance.shutdown(),
-        assistantResourceServer.shutdown(),
-        getAppContext().services?.unreadInfo.dispose(),
-      ]);
+      try {
+        await Promise.all([
+          flushConversationCalendarResults(),
+          databaseCheckups.cancelAll(),
+          databaseMaintenance.shutdown(),
+          assistantResourceServer.shutdown(),
+          getAppContext().services?.unreadInfo.dispose(),
+        ]);
+      } finally {
+        await flushFileLogger();
+      }
     },
     (error) => {
       logger.warn('failed to stop assistant resources on quit', {
