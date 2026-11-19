@@ -10,6 +10,7 @@ export interface QzoneSpaceRequest {
 
 export type QzoneCardTarget =
   | { kind: 'space'; uin: string }
+  | { kind: 'posts'; uin: string }
   | {
       kind: 'post';
       uin: string;
@@ -68,7 +69,7 @@ export function qzoneCardTarget(value: string, depth = 0): QzoneCardTarget | nul
   }
 }
 
-export function qzoneDynamicTarget(meta?: string): QzoneCardTarget | null {
+export function qzoneDynamicTarget(meta?: string, dynamicType?: number): QzoneCardTarget | null {
   if (!meta || meta.length > 32768) return null;
   try {
     const data: unknown = JSON.parse(meta);
@@ -78,7 +79,10 @@ export function qzoneDynamicTarget(meta?: string): QzoneCardTarget | null {
       const target = typeof record[key] === 'string' ? qzoneCardTarget(record[key]) : null;
       return target ? [target] : [];
     });
-    return targets.find((target) => target.kind !== 'space') ?? targets[0] ?? null;
+    const target = targets.find((item) => item.kind !== 'space') ?? targets[0] ?? null;
+    return target?.kind === 'space' && dynamicType === 2
+      ? { kind: 'posts', uin: target.uin }
+      : target;
   } catch {
     return null;
   }

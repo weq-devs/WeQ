@@ -112,7 +112,21 @@ import {
   type RelatedKind,
 } from '../lib/qzoneRelated';
 
-type Tab = 'feeds' | 'posts' | 'space' | 'related' | 'public';
+type OwnerTab = 'space' | 'person-posts';
+type Tab = 'feeds' | 'posts' | OwnerTab | 'related' | 'public';
+
+function requestedOwnerTab(request: QzoneSpaceRequest): OwnerTab {
+  const kind = request.target?.kind;
+  return kind === 'post' || kind === 'posts' ? 'person-posts' : 'space';
+}
+
+function withoutOwner<T>(current: Record<string, T>, uin: string): Record<string, T> {
+  if (!Object.hasOwn(current, uin)) return current;
+  const next = { ...current };
+  delete next[uin];
+  return next;
+}
+
 const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : '加载失败，请重试。';
 
@@ -376,10 +390,15 @@ export function QzoneView({
   const activity = useQQReadActivity(active);
   const people = useQzonePeople(selfUin, activity.enabled);
   const initialSpace = spaceRequest?.accountUin === selfUin ? spaceRequest : null;
+  const initialSection = initialSpace ? requestedOwnerTab(initialSpace) : null;
+  const initialTab =
+    initialSection === 'space' && initialSpace?.uin === selfUin
+      ? 'posts'
+      : (initialSection ?? 'feeds');
   const [tab, setTab] = usePageState<Tab>(
     'tab',
-    initialSpace ? (initialSpace.uin === selfUin ? 'posts' : 'space') : 'feeds',
-    z.enum(['feeds', 'posts', 'space', 'related', 'public']),
+    initialTab,
+    z.enum(['feeds', 'posts', 'space', 'person-posts', 'related', 'public']),
   );
   const [handledRequest, setHandledRequest] = usePageState<string | null>(
     'handled-request',
@@ -398,11 +417,18 @@ export function QzoneView({
   }, [hostUin, onSpaceChange]);
   const [spaces, setSpaces] = usePageState<string[]>(
     'spaces',
-    initialSpace && initialSpace.uin !== selfUin ? [initialSpace.uin] : [],
+    initialSpace && initialTab === 'space' ? [initialSpace.uin] : [],
+    pageValue.strings,
+  );
+  const [postOwners, setPostOwners] = usePageState<string[]>(
+    'post-owners',
+    initialSpace && initialTab === 'person-posts' ? [initialSpace.uin] : [],
     pageValue.strings,
   );
   const [spaceNames, setSpaceNames] = useState<Record<string, string>>(
-    initialSpace ? { [initialSpace.uin]: initialSpace.nickname || initialSpace.uin } : {},
+    initialSpace?.nickname && initialSpace.nickname !== initialSpace.uin
+      ? { [initialSpace.uin]: initialSpace.nickname }
+      : {},
   );
   const [ownerNames, setOwnerNames] = useState<Record<string, string>>({});
   const rememberOwnerName = useCallback((uin: string, name: string) => {
@@ -416,9 +442,9 @@ export function QzoneView({
   >({});
   const rememberSpaceName = useCallback((uin: string, name: string) => {
     const value = name.trim();
-    if (!value) return;
+    if (!value || value === uin) return;
     setSpaceNames((current) =>
-      Object.hasOwn(current, uin) ? current : { ...current, [uin]: value },
+      current[uin] && current[uin] !== uin ? current : { ...current, [uin]: value },
     );
   }, []);
   const [inputUin, setInputUin] = usePageState('input', '', pageValue.string);
@@ -452,14 +478,15 @@ export function QzoneView({
     [active],
   );
   const openSpace = useCallback(
-    (uin: string, name?: string): void => {
+    (uin: string, name?: string, section: OwnerTab = 'space'): void => {
       const value = uin.trim();
       if (!/^[1-9]\d{4,19}$/.test(value)) {
         setTargetError('请输入有效的 QQ 号');
         return;
       }
       setTargetError('');
-      if (value !== hostUin || tab !== (value === selfUin ? 'posts' : 'space')) {
+      const nextTab = section === 'space' && value === selfUin ? 'posts' : section;
+      if (value !== hostUin || tab !== nextTab) {
         const previousTab = tab,
           previousHost = hostUin;
         const remove = pushMobileBack(
@@ -476,13 +503,23 @@ export function QzoneView({
       const firstName = name || people.names[value] || value;
       rememberSpaceName(value, firstName);
       setHostUin(value);
-      if (value === selfUin) setTab('posts');
-      else {
-        setSpaces((current) => (current.includes(value) ? current : [...current, value]));
-        setTab('space');
+      if (nextTab !== 'posts') {
+        const setOwners = nextTab === 'person-posts' ? setPostOwners : setSpaces;
+        setOwners((current) => (current.includes(value) ? current : [...current, value]));
       }
+      setTab(nextTab);
     },
-    [selfUin, hostUin, tab, people.names, rememberSpaceName, setTab, setSpaces, setHostUin],
+    [
+      selfUin,
+      hostUin,
+      tab,
+      people.names,
+      rememberSpaceName,
+      setTab,
+      setSpaces,
+      setPostOwners,
+      setHostUin,
+    ],
   );
   useEffect(() => {
     if (
@@ -493,24 +530,23 @@ export function QzoneView({
     )
       return;
     setHandledRequest(spaceRequest.revision);
-    openSpace(spaceRequest.uin, spaceRequest.nickname);
-    if (spaceRequest.target?.kind === 'album')
+    const target = spaceRequest.target;
+    openSpace(spaceRequest.uin, spaceRequest.nickname, requestedOwnerTab(spaceRequest));
+    if (target?.kind === 'album')
       setAlbumRequests((current) => ({
         ...current,
         [spaceRequest.uin]: {
           hostUin: spaceRequest.uin,
-          topicId: spaceRequest.target!.kind === 'album' ? spaceRequest.target!.topicId : '',
+          topicId: target.topicId,
           name: '',
           revision: spaceRequest.revision,
         },
       }));
-    if (spaceRequest.target?.kind === 'post') {
-      const tid = spaceRequest.target.tid;
-      const target = spaceRequest.target;
+    if (target?.kind === 'post') {
       setPostRequests((current) => ({
         ...current,
         [spaceRequest.uin]: {
-          tid,
+          tid: target.tid,
           revision: spaceRequest.revision,
           ...(target.commentId
             ? {
@@ -528,8 +564,28 @@ export function QzoneView({
             : {}),
         },
       }));
+    } else if (target?.kind === 'posts') {
+      setPostRequests((current) => withoutOwner(current, target.uin));
     }
   }, [active, selfUin, spaceRequest, openSpace, handledRequest, setHandledRequest]);
+  const currentOwner = tab === 'space' || tab === 'person-posts' ? hostUin : selfUin;
+  const closeOwnerTab = (section: OwnerTab, uin: string) => {
+    if (section === 'space') {
+      setSpaces((current) => current.filter((value) => value !== uin));
+      setAlbumRequests((current) => withoutOwner(current, uin));
+    } else {
+      setPostOwners((current) => current.filter((value) => value !== uin));
+      setPostRequests((current) => withoutOwner(current, uin));
+    }
+    if (!(section === 'space' ? postOwners : spaces).includes(uin)) {
+      setSpaceNames((current) => withoutOwner(current, uin));
+      setOwnerNames((current) => withoutOwner(current, uin));
+    }
+    if (tab === section && hostUin === uin) {
+      setHostUin(selfUin);
+      setTab('feeds');
+    }
+  };
   const workspace = (
     <QzonePeopleContext.Provider value={people}>
       <section
@@ -562,7 +618,7 @@ export function QzoneView({
               aria-label="导出说说"
               disabled={!requestExport}
               onClick={() => {
-                const uin = tab === 'space' ? hostUin : selfUin;
+                const uin = currentOwner;
                 requestExport?.(
                   contentSelection?.owner.kind === 'qzone-posts' &&
                     contentSelection.owner.container === uin
@@ -612,51 +668,46 @@ export function QzoneView({
             >
               空友爱看
             </button>
-            {spaces.map((uin) => (
-              <span className="weq-qzn-space-tab" key={uin}>
-                <button
-                  type="button"
-                  className="weq-qzn-space-title"
-                  aria-current={tab === 'space' && hostUin === uin ? 'page' : undefined}
-                  onClick={() => {
-                    setHostUin(uin);
-                    setTab('space');
-                  }}
-                >
-                  <span className="weq-qzn-space-label">
-                    <QzoneName content={spaceNames[uin] || uin} uin={uin} freezeLabel /> 的空间
+            {(['space', 'person-posts'] as const).flatMap((section) =>
+              (section === 'space' ? spaces : postOwners).map((uin) => {
+                const postsOnly = section === 'person-posts';
+                const name = postsOnly
+                  ? spaceNames[uin] || ownerNames[uin] || people.names[uin] || uin
+                  : spaceNames[uin] || uin;
+                const ownPosts = postsOnly && uin === selfUin;
+                const suffix = postsOnly ? '的说说' : '的空间';
+                return (
+                  <span className="weq-qzn-space-tab" key={`${section}:${uin}`}>
+                    <button
+                      type="button"
+                      className="weq-qzn-space-title"
+                      aria-current={tab === section && hostUin === uin ? 'page' : undefined}
+                      onClick={() => {
+                        setHostUin(uin);
+                        setTab(section);
+                      }}
+                    >
+                      <span className="weq-qzn-space-label">
+                        {ownPosts ? (
+                          '我的说说'
+                        ) : (
+                          <>
+                            <QzoneName content={name} uin={uin} freezeLabel /> {suffix}
+                          </>
+                        )}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={ownPosts ? '关闭我的说说' : `关闭 ${name} ${suffix}`}
+                      onClick={() => closeOwnerTab(section, uin)}
+                    >
+                      <X size={12} />
+                    </button>
                   </span>
-                </button>
-                <button
-                  type="button"
-                  aria-label={`关闭 ${spaceNames[uin] || uin} 的空间`}
-                  onClick={() => {
-                    setSpaces((current) => current.filter((value) => value !== uin));
-                    setSpaceNames((current) => {
-                      const next = { ...current };
-                      delete next[uin];
-                      return next;
-                    });
-                    setOwnerNames((current) => {
-                      const next = { ...current };
-                      delete next[uin];
-                      return next;
-                    });
-                    setAlbumRequests((current) => {
-                      const next = { ...current };
-                      delete next[uin];
-                      return next;
-                    });
-                    if (tab === 'space' && hostUin === uin) {
-                      setHostUin(selfUin);
-                      setTab('feeds');
-                    }
-                  }}
-                >
-                  <X size={12} />
-                </button>
-              </span>
-            ))}
+                );
+              }),
+            )}
           </nav>
           <form
             onSubmit={(event) => {
@@ -713,7 +764,6 @@ export function QzoneView({
             hostUin={selfUin}
             nickname={nickname}
             albumRequest={albumRequests[selfUin]}
-            postRequest={postRequests[selfUin]}
             onSpace={openSpace}
             onOwnerNickname={rememberOwnerName}
           />
@@ -728,11 +778,43 @@ export function QzoneView({
             nickname={spaceNames[uin] || uin}
             ownerNickname={ownerNames[uin]}
             albumRequest={albumRequests[uin]}
-            postRequest={postRequests[uin]}
             onSpace={openSpace}
             onOwnerNickname={rememberOwnerName}
           />
         ))}
+        {postOwners.map((uin) => {
+          const request = postRequests[uin];
+          const ownerName = uin === selfUin ? nickname : ownerNames[uin] || spaceNames[uin] || uin;
+          return (
+            <QzonePage
+              key={uin}
+              active={active && tab === 'person-posts' && hostUin === uin}
+              refreshKey={0}
+            >
+              <div className="weq-qzn-timeline">
+                {request ? (
+                  <LinkedPost
+                    key={request.revision}
+                    selfUin={selfUin}
+                    hostUin={uin}
+                    tid={request.tid}
+                    focusComment={request.focusComment}
+                    nickname={ownerName}
+                    onSpace={openSpace}
+                  />
+                ) : null}
+                <Posts
+                  selfUin={selfUin}
+                  hostUin={uin}
+                  nickname={ownerName}
+                  onSpace={openSpace}
+                  onOwnerNickname={rememberOwnerName}
+                  showSpaceStats={false}
+                />
+              </div>
+            </QzonePage>
+          );
+        })}
         {compose && active ? (
           <Composer
             selfUin={selfUin}
@@ -752,7 +834,8 @@ export function QzoneView({
     <QzonePersonContext.Provider
       value={{
         action: personClickAction,
-        spaceUin: tab === 'space' ? hostUin : tab === 'posts' ? selfUin : null,
+        spaceUin:
+          tab === 'space' || tab === 'person-posts' || tab === 'posts' ? currentOwner : null,
         onSpace: openSpace,
       }}
     >
@@ -805,7 +888,6 @@ function SpaceContent({
   nickname,
   ownerNickname,
   albumRequest,
-  postRequest,
   onSpace,
   onOwnerNickname,
 }: {
@@ -816,7 +898,6 @@ function SpaceContent({
   nickname: string;
   ownerNickname?: string;
   albumRequest?: QzoneAlbumRequest;
-  postRequest?: { tid: string; revision: string; focusComment?: RelatedComment };
   onSpace: (uin: string, nickname?: string) => void;
   onOwnerNickname: (uin: string, nickname: string) => void;
 }) {
@@ -832,9 +913,6 @@ function SpaceContent({
   );
   const [visitedAlbums, setVisitedAlbums] = useState(false);
   const [refreshes, setRefreshes] = useState({ posts: 0, albums: 0 });
-  useEffect(() => {
-    if (postRequest) setPane('posts');
-  }, [postRequest]);
   useEffect(() => {
     if (
       !albumRequest ||
@@ -882,17 +960,6 @@ function SpaceContent({
       </nav>
       <QzonePage active={active && pane === 'posts'} refreshKey={refreshes.posts}>
         <div className="weq-qzn-timeline">
-          {postRequest ? (
-            <LinkedPost
-              key={postRequest.revision}
-              selfUin={selfUin}
-              hostUin={hostUin}
-              tid={postRequest.tid}
-              focusComment={postRequest.focusComment}
-              nickname={ownerNickname || nickname}
-              onSpace={onSpace}
-            />
-          ) : null}
           <Posts
             selfUin={selfUin}
             hostUin={hostUin}
@@ -1115,12 +1182,14 @@ function Posts({
   nickname,
   onSpace,
   onOwnerNickname,
+  showSpaceStats = true,
 }: {
   selfUin: string;
   hostUin: string;
   nickname: string;
   onSpace: (uin: string, nickname?: string) => void;
   onOwnerNickname: (uin: string, nickname: string) => void;
+  showSpaceStats?: boolean;
 }) {
   const { active, refresh } = useContext(QzonePageContext);
   const dataCache = usePageDataCache();
@@ -1248,7 +1317,7 @@ function Posts({
   const pageCountLabel = `（已获取 ${fetchedPages.current.size} 页）`;
   return (
     <div {...multi.rootProps}>
-      <SpaceStats key={hostUin} selfUin={selfUin} hostUin={hostUin} />
+      {showSpaceStats ? <SpaceStats key={hostUin} selfUin={selfUin} hostUin={hostUin} /> : null}
       {loading && posts.length > 0 && headRequest.current ? (
         <LoadingStatus text={`正在刷新…${pageCountLabel}`} />
       ) : null}

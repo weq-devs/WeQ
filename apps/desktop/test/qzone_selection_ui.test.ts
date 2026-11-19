@@ -327,7 +327,7 @@ it('空间正文不显示重复按钮，修饰键多选仍可通过顶部导出�
     f.close();
   }
 });
-it('跳转说说详情和普通动态共用一列阅读布局，不嵌套两层时间线边距', async () => {
+it('精确说说跳转进入作者的说说标签，保留原帖和普通列表', async () => {
   const f = mount(
     createElement(QzoneView, {
       selfUin: '10001',
@@ -337,18 +337,25 @@ it('跳转说说详情和普通动态共用一列阅读布局，不嵌套两层�
         accountUin: '10001',
         uin: '10002',
         revision: 'fixture-linked',
-        target: { kind: 'post', tid: 'linked' },
+        target: { kind: 'post', uin: '10002', tid: 'linked' },
       },
     }),
   );
   try {
     await act(async () => {});
+    expect(f.host.querySelector('[aria-current="page"]')?.textContent).toBe('合成空间 的说说');
+    expect(f.host.querySelector('[aria-label="空间内容"]')).toBeNull();
     const linked = f.host.querySelector('.weq-qzn-linked-post');
     expect(linked?.textContent).toContain('fixture-linked');
     const timeline = linked?.closest('.weq-qzn-timeline');
     expect(timeline).not.toBeNull();
     expect(timeline?.querySelector('[data-qzone-tid="a"]')).not.toBeNull();
     expect(timeline?.querySelector('.weq-qzn-timeline')).toBeNull();
+    act(() =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="关闭 合成空间 的说说"]')!.click(),
+    );
+    expect(f.host.querySelector('[aria-current="page"]')?.textContent).toBe('好友动态');
+    expect(f.host.querySelector('.weq-qzn-linked-post')).toBeNull();
   } finally {
     f.close();
   }

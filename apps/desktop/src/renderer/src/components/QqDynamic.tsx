@@ -161,7 +161,7 @@ export function QqDynamic({
 
   const jump = extractDynamicLink(meta);
   const highlights = extractMetaHighlights(meta);
-  const target = qzoneDynamicTarget(meta);
+  const target = qzoneDynamicTarget(meta, dynamicType);
   const onOpen =
     target && navigate
       ? () => navigate(target)

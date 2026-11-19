@@ -10568,6 +10568,12 @@ function MainWorkspace(): ReactElement {
                           setQzoneSpaceRequest({
                             accountUin: user.identityValue,
                             uin: target.uin,
+                            nickname:
+                              target.uin === user.identityValue
+                                ? user.displayName
+                                : buddyContacts.find(
+                                    (person) => person.identityValue === target.uin,
+                                  )?.displayName,
                             target,
                             revision: crypto.randomUUID(),
                           });
