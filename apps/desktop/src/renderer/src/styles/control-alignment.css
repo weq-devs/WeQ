@@ -102,7 +102,7 @@ html :is(
   > :is(
     button:not([role='switch'], [role='checkbox'], [role='radio'], .icon-button),
     input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='hidden']),
-    select,
+    .weq-select-trigger,
     .weq-segmented,
     .weq-save-action-group
   ) {
@@ -118,7 +118,7 @@ html
     .weq-content-toolbar > div,
     .weq-conversation-notice:has(> input)
   )
-  > :is(button, input, select):where(:not(.icon-button)) {
+  > :is(button, input, .weq-select-trigger):where(:not(.icon-button)) {
   align-self: stretch;
   height: auto;
 }

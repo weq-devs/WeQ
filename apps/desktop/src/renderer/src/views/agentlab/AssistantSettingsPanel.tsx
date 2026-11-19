@@ -1,3 +1,4 @@
+import { FormSelect } from '../../components/FormSelect';
 import {
   createContext,
   useContext,
@@ -346,7 +347,7 @@ function AssistantSettingsFields({
                       : '中断当前模型请求，工具收尾后带补充继续。'
                 }
                 control={
-                  <select
+                  <FormSelect
                     className="weq-set-input"
                     aria-label="运行中默认发送方式"
                     value={sendMode}
@@ -361,7 +362,7 @@ function AssistantSettingsFields({
                         {label}
                       </option>
                     ))}
-                  </select>
+                  </FormSelect>
                 }
               />
             </ConversationModelSettings>,

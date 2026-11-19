@@ -1,3 +1,4 @@
+import { FormSelect } from '../FormSelect';
 import { NumericText } from '../NumericText';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { usePageSnapshotReset } from '../PageSnapshots.shared';
@@ -344,7 +345,7 @@ function ModelRequestFields({
       <Row
         label="温度参数"
         control={
-          <select
+          <FormSelect
             className="weq-set-input"
             aria-label="温度参数"
             value={
@@ -369,13 +370,13 @@ function ModelRequestFields({
             </option>
             <option value="true">支持</option>
             <option value="false">不发送</option>
-          </select>
+          </FormSelect>
         }
       />
       <Row
         label="输出上限参数"
         control={
-          <select
+          <FormSelect
             className="weq-set-input"
             aria-label="输出上限参数"
             value={request?.outputTokenParameter ?? ''}
@@ -392,7 +393,7 @@ function ModelRequestFields({
             </option>
             <option value="max_tokens">max_tokens</option>
             <option value="max_completion_tokens">max_completion_tokens</option>
-          </select>
+          </FormSelect>
         }
       />
     </div>
@@ -1180,7 +1181,7 @@ export function AgentLabSection(): ReactElement {
                 label="服务商模板"
                 desc="选模板自动带入 base_url 与推荐模型。"
                 control={
-                  <select
+                  <FormSelect
                     className="weq-set-input"
                     aria-label="API 服务商模板"
                     value={form.vendor}
@@ -1195,7 +1196,7 @@ export function AgentLabSection(): ReactElement {
                         {item.label}
                       </option>
                     ))}
-                  </select>
+                  </FormSelect>
                 }
               />
               <Row

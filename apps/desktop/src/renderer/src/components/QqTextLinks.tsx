@@ -16,7 +16,7 @@ export function QqTextLinks({ text }: { text: string }) {
             title={part.href}
             onClick={(event) => {
               event.stopPropagation();
-              void openLink(part.href);
+              void openLink(part.href, event.currentTarget.ownerDocument);
             }}
           >
             {part.text}

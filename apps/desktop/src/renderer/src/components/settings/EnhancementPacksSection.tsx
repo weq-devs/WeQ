@@ -1,4 +1,5 @@
 import { useContext, useState } from 'react';
+import { TaskProgressBar } from '../tasks/TaskProgressBar';
 import { formatDateTime, timeDate } from '@weq/time';
 import {
   AudioLines,
@@ -244,10 +245,9 @@ export function EnhancementPacksSection() {
                 </div>
                 {pack.busy ? (
                   <div className="weq-enhancement-progress">
-                    <progress
-                      max={100}
+                    <TaskProgressBar
                       value={operation?.phase === 'checking' ? undefined : percent}
-                      aria-label={`${pack.name}准备进度`}
+                      label={`${pack.name}准备进度`}
                     />
                     <span className="weq-number">
                       {operation?.total

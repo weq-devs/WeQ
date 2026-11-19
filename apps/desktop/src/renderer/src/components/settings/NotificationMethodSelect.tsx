@@ -1,3 +1,4 @@
+import { FormSelect } from '../FormSelect';
 import { useId, useRef, useState } from 'react';
 import { NOTIFICATION_LABELS, type NotificationEvent } from '@weq/service/notification-settings';
 import {
@@ -85,7 +86,7 @@ export function NotificationMethodSelect({ event }: { event: NotificationEvent }
 
   return (
     <div className="weq-notification-method">
-      <select
+      <FormSelect
         className="weq-set-input weq-notification-method-select"
         aria-label={label}
         aria-busy={pending !== null}
@@ -103,7 +104,7 @@ export function NotificationMethodSelect({ event }: { event: NotificationEvent }
             {method.label}
           </option>
         ))}
-      </select>
+      </FormSelect>
       {query.error ? (
         <div id={errorId}>
           <QueryError

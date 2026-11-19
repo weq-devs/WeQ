@@ -1,3 +1,4 @@
+import { FormSelect } from '../FormSelect';
 import type { WeqDefaultsChoice, WeqDefaultsPath, WeqDefaultsConnection } from '@weq/service';
 import { Row, Toggle } from './controls';
 import { DEFAULTS_DESCRIPTION } from './DefaultsOptions.shared';
@@ -78,7 +79,7 @@ export function DefaultsOptions({
                   <span className="weq-set-row-label">{item.label}</span>
                   <small className="weq-set-row-desc">{item.value}</small>
                 </span>
-                <select
+                <FormSelect
                   className="weq-set-input"
                   aria-label={item.label}
                   value={choice.resetPaths?.includes(item.id) ? 'reset' : 'keep'}
@@ -94,7 +95,7 @@ export function DefaultsOptions({
                 >
                   <option value="keep">保留当前</option>
                   <option value="reset">恢复默认</option>
-                </select>
+                </FormSelect>
               </label>
             ))}
             {choice.resetPaths?.length ? (

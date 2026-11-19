@@ -23,6 +23,136 @@ html[data-theme] :where(input:is([type='checkbox'], [type='radio'], [type='range
   accent-color: var(--weq-accent-solid);
 }
 
+html[data-theme] input:is([type='checkbox'], [type='radio'], [type='range']):focus-visible {
+  outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
+  outline-offset: 2px;
+}
+
+@media (forced-colors: none) {
+  html[data-theme] input:is([type='checkbox'], [type='radio']):not([hidden]) {
+    appearance: none;
+    display: inline-grid;
+    place-content: center;
+    inline-size: 15px;
+    block-size: 15px;
+    flex-shrink: 0;
+    vertical-align: middle;
+    border: 1px solid var(--weq-field-border);
+    border-radius: min(3px, var(--weq-skin-radius, 3px));
+    background: var(--weq-field-bg);
+    cursor: pointer;
+  }
+
+  html[data-theme] input[type='radio']:not([hidden]) {
+    border-radius: 50%;
+  }
+
+  html[data-theme]
+    input:is([type='checkbox'], [type='radio']):not([hidden]):is(:checked, :indeterminate) {
+    border-color: var(--weq-accent-solid);
+    background: var(--weq-accent-solid);
+  }
+
+  html[data-theme]
+    input:is([type='checkbox'], [type='radio']):not([hidden]):is(:checked, :indeterminate)::before {
+    content: '';
+    inline-size: 9px;
+    block-size: 9px;
+    background: var(--weq-accent-solid-foreground);
+  }
+
+  html[data-theme] input[type='radio']:checked::before {
+    border-radius: 50%;
+    inline-size: 5px;
+    block-size: 5px;
+  }
+
+  html[data-theme] input[type='checkbox']:checked::before {
+    clip-path: polygon(0 53%, 17% 36%, 39% 57%, 84% 12%, 100% 29%, 39% 90%);
+  }
+
+  html[data-theme] input[type='checkbox']:indeterminate::before {
+    clip-path: inset(39% 8%);
+  }
+
+  html[data-theme] input[type='range']:not([hidden]) {
+    --weq-range-direction: to right;
+    --weq-range-track: color-mix(in srgb, var(--weq-fg-primary) 16%, transparent);
+    --weq-range-background: linear-gradient(
+      var(--weq-range-direction),
+      var(--weq-accent-solid) 0 var(--weq-range-fill, 0%),
+      var(--weq-range-track) var(--weq-range-fill, 0%) 100%
+    );
+    appearance: none;
+    block-size: 22px;
+    min-inline-size: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  html[data-theme] input[type='range']:dir(rtl) {
+    --weq-range-direction: to left;
+  }
+
+  html[data-theme] input[type='range']::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: min(3px, var(--weq-skin-radius, 3px));
+    background: var(--weq-range-background);
+  }
+
+  html[data-theme] input[type='range']::-moz-range-track {
+    height: 4px;
+    border-radius: min(3px, var(--weq-skin-radius, 3px));
+    background: var(--weq-range-background);
+  }
+
+  html[data-theme] input[type='range']::-webkit-slider-thumb {
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    margin-top: -5px;
+    border: 1px solid var(--weq-accent-solid);
+    border-radius: var(--weq-skin-toggle-radius, 50%);
+    background: var(--weq-field-bg);
+  }
+
+  html[data-theme] input[type='range']::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border: 1px solid var(--weq-accent-solid);
+    border-radius: var(--weq-skin-toggle-radius, 50%);
+    background: var(--weq-field-bg);
+  }
+
+  html[data-theme] input:is([type='checkbox'], [type='radio'], [type='range']):disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}
+
+.weq-disclosure-summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.weq-disclosure-summary::-webkit-details-marker {
+  display: none;
+}
+
+.weq-disclosure-summary > .weq-disclosure-chevron {
+  flex: none;
+  color: var(--weq-fg-secondary);
+}
+
+details[open] > .weq-disclosure-summary > .weq-disclosure-chevron {
+  transform: rotate(90deg);
+}
+
 :where(input, textarea)::placeholder {
   color: var(--weq-field-placeholder, var(--weq-fg-muted));
   opacity: 1;
@@ -33,22 +163,19 @@ html[data-theme] :where(input:is([type='checkbox'], [type='radio'], [type='range
 html:root[data-theme][data-component-style] body
   :is(
     input,
-    select,
+    .weq-select-trigger,
     textarea,
     .weq-input,
     .weq-set-input,
     .weq-set-select,
     .form-field input,
-    .form-field select,
     .form-field textarea,
     .weq-set-row-ctrl input,
-    .weq-set-row-ctrl select,
     .weq-set-row-ctrl textarea,
     .weq-directory-toolbar input,
     .weq-password-input,
     .weq-static-input,
     .weq-record-filters input,
-    .weq-record-filters select,
     .weq-search-more-input,
     .weq-msglist-select,
     .weq-mf-textarea,
@@ -57,8 +184,6 @@ html:root[data-theme][data-component-style] body
     .group-keyword-input,
     .group-keyword-search input,
     .weq-qzn-navigation input,
-    .weq-qzn select,
-    .weq-qzn-composer select,
     .weq-qzn-composer textarea,
     .weq-cache-sql-input,
     .weq-blob-bulk-input,
@@ -119,56 +244,12 @@ html:root[data-theme][data-component-style] body
   }
 }
 
-/* 原生下拉的额外文字内缩随平台而变。只接管外观，菜单与键盘仍由浏览器处理。 */
-@media (forced-colors: none) {
-  html:root[data-theme][data-component-style]
-    body
-    select:is(
-      .weq-set-input,
-      .weq-set-select,
-      .form-field select,
-      .weq-set-row-ctrl select,
-      .weq-record-filters select,
-      .weq-msglist-select,
-      .weq-agentlab-field select,
-      .weq-qzn select,
-      .weq-qzn-composer select,
-      .weq-qq-action-form select,
-      .weq-qq-write-input,
-      .weq-self-field-inputs select,
-      .weq-member-inline-field select,
-      .weq-udp-select,
-      .voice-tts-voice select
-    ):not([hidden], [multiple], [size]:not([size='1'])):is(:enabled, :disabled) {
-    appearance: none;
-    padding-inline-end: 24px;
-    text-overflow: ellipsis;
-    background-image:
-      linear-gradient(45deg, transparent 40%, var(--weq-fg-secondary) 42% 58%, transparent 60%),
-      linear-gradient(-45deg, transparent 40%, var(--weq-fg-secondary) 42% 58%, transparent 60%);
-    background-position:
-      right 12px center,
-      right 7px center;
-    background-repeat: no-repeat;
-    background-size: 5px 5px;
-
-    &:dir(rtl) {
-      background-position:
-        left 7px center,
-        left 12px center;
-    }
-  }
-}
-
 /* 只淡化明确的空态；空字符串也可以是「自动」「全部」等有效选项。 */
 html:root[data-theme][data-component-style] body
-  select:enabled:not([hidden]):has(> option[data-placeholder]:checked) {
+  .weq-select-trigger:enabled[data-placeholder]
+  .weq-select-value {
   color: var(--weq-field-placeholder);
   -webkit-text-fill-color: currentColor;
-
-  :is(option:not([data-placeholder]), optgroup) {
-    color: var(--weq-field-fg);
-  }
 }
 
 /* 组合输入框由外层承载底色和焦点；按钮和图标不算输入字段。 */
@@ -196,7 +277,7 @@ html:root[data-theme][data-component-style] body
     .weq-keyfield-input,
     .weq-set-keyfield,
     .weq-onebot-token-input
-  ):has(input:not([type='hidden']), textarea, select):not([hidden]) {
+  ):has(input:not([type='hidden']), textarea, .weq-select-trigger):not([hidden]) {
   background: var(--weq-field-bg);
   color: var(--weq-fg-secondary);
   border-color: var(--weq-field-border);
@@ -209,21 +290,21 @@ html:root[data-theme][data-component-style] body
     background: var(--weq-field-readonly-bg);
   }
 
-  &:has(:disabled):not(:has(input:enabled, textarea:enabled, select:enabled)) {
+  &:has(:disabled):not(:has(input:enabled, textarea:enabled, .weq-select-trigger:enabled)) {
     background: var(--weq-field-disabled-bg);
     border-color: var(--weq-border-subtle);
     cursor: not-allowed;
   }
 
-  &:has(input:enabled:focus, textarea:enabled:focus, select:enabled:focus) {
+  &:has(input:enabled:focus, textarea:enabled:focus, .weq-select-trigger:enabled:focus) {
     border-color: var(--weq-accent-ink, var(--weq-accent-effective));
   }
 
-  &:has(:is(input, textarea, select):is(.is-error, [aria-invalid='true'])) {
+  &:has(:is(input, textarea, .weq-select-trigger):is(.is-error, [aria-invalid='true'])) {
     border-color: var(--weq-list-alert-ink, var(--destructive));
   }
 
-  & :is(input, textarea, select):is(:enabled, :disabled) {
+  & :is(input, textarea, .weq-select-trigger):is(:enabled, :disabled) {
     background: transparent;
     color: var(--weq-field-fg);
     border: 0;

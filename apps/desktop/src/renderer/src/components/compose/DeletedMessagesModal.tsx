@@ -1,3 +1,4 @@
+import { FormSelect } from '../FormSelect';
 import * as timeFormat from '@weq/time';
 import { useMemo, useState, type ReactElement } from 'react';
 import { RefreshCw, RotateCcw, Search } from 'lucide-react';
@@ -162,7 +163,7 @@ export function DeletedMessagesModal({
 
       <label className="weq-msglist-field">
         <span className="weq-msglist-field-label">删除的谁的消息</span>
-        <select
+        <FormSelect
           className="weq-msglist-select"
           value={senderFilter}
           onChange={(event) => setSenderFilter(event.target.value)}
@@ -174,7 +175,7 @@ export function DeletedMessagesModal({
               {label}
             </option>
           ))}
-        </select>
+        </FormSelect>
       </label>
 
       <div className="weq-msglist-search">

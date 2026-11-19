@@ -53,7 +53,7 @@ export function QqInlineKeyboard({
                 type="button"
                 className={`${BTN_BASE} weq-qq-inline-keyboard-link cursor-pointer`}
                 title={href}
-                onClick={() => openLink(href)}
+                onClick={(event) => void openLink(href, event.currentTarget.ownerDocument)}
               >
                 <ExternalLink size={13} className="shrink-0" />
                 <span className="truncate">{button.label}</span>

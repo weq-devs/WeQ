@@ -4,9 +4,12 @@ import tailwind from '@tailwindcss/vite';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir } from 'node:fs/promises';
+import assert from 'node:assert/strict';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
+const { chromium, webkit } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
+const formsOnly = process.argv.includes('--forms-only');
+const touch = process.argv.includes('--webkit-touch');
 const server = await createServer({
   configFile: false,
   root,
@@ -29,15 +32,93 @@ const server = await createServer({
   },
 });
 let browser;
+
+async function checkFormControls(page) {
+  const press = (item) => (touch ? item.tap() : item.click());
+  const open = page.getByRole('button', { name: '打开控件验证' });
+  await press(open);
+  const dialog = page.getByRole('dialog', { name: '表单控件验证' });
+  const choice = dialog.getByRole('combobox', { name: /^选一个分组/ });
+  const submit = dialog.getByRole('button', { name: '提交分组' });
+  await press(submit);
+  assert.equal(await choice.getAttribute('aria-invalid'), 'true');
+  const options = dialog.getByRole('listbox', { name: '选项' });
+  await options.waitFor();
+  assert.equal(
+    await options.getByRole('option', { name: '禁用分组' }).getAttribute('aria-disabled'),
+    'true',
+  );
+  if (touch) await press(options.getByRole('option', { name: '乙组' }));
+  else {
+    await choice.press('ArrowDown');
+    await choice.press('Enter');
+  }
+  assert.equal(await choice.getAttribute('data-value'), 'last');
+  assert.equal(await dialog.getByLabel('变更次数').textContent(), '1');
+  assert.equal(await dialog.getByLabel('提交结果').textContent(), '');
+  await press(submit);
+  assert.equal(await dialog.getByLabel('提交结果').textContent(), 'last');
+  await press(choice);
+  await choice.press('Escape');
+  assert.equal(await choice.getAttribute('aria-expanded'), 'false');
+  assert.equal(await dialog.isVisible(), true);
+
+  const sender = dialog.getByRole('combobox', { name: '发送者' });
+  await sender.fill('不在候选里的 UID');
+  assert.equal(await sender.inputValue(), '不在候选里的 UID');
+  await sender.fill('小明');
+  const senderOption = dialog.getByRole('option', { name: /小明/ });
+  if (touch) await press(senderOption);
+  else {
+    await sender.press('ArrowDown');
+    await sender.press('Enter');
+  }
+  assert.equal(await sender.inputValue(), '10001');
+
+  await press(dialog.getByRole('button', { name: /^筛选日期/ }));
+  const date = page.getByRole('dialog', { name: '筛选日期' });
+  const dateInput = date.getByRole('textbox', { name: '输入日期（年-月-日）' });
+  await dateInput.fill('2026-02-31');
+  assert.equal(await date.getByRole('button', { name: '确定', exact: true }).isEnabled(), false);
+  await press(date.getByRole('button', { name: '2026-02-08', exact: true }));
+  assert.equal(await date.isVisible(), false);
+  assert.equal(
+    await dialog.getByRole('button', { name: '筛选日期：2026-02-08' }).isVisible(),
+    true,
+  );
+
+  const slider = dialog.getByRole('slider', { name: '清晰度' });
+  await slider.press('ArrowRight');
+  assert.equal(await slider.inputValue(), '31');
+  assert.equal(
+    await dialog.getByRole('progressbar', { name: '已知进度' }).getAttribute('value'),
+    '30',
+  );
+  assert.equal(
+    await dialog.getByRole('progressbar', { name: '未知进度' }).getAttribute('value'),
+    null,
+  );
+  await press(dialog.getByRole('button', { name: '打开确认' }));
+  await page.getByRole('dialog', { name: '验证确认框' }).waitFor();
+  await page.keyboard.press('Enter');
+  await dialog.getByText('已确认', { exact: true }).waitFor();
+  await page.keyboard.press('Escape');
+  await dialog.waitFor({ state: 'hidden' });
+}
+
 try {
   await server.listen();
-  browser = await chromium.launch({
+  browser = await (touch ? webkit : chromium).launch({
     headless: true,
     ...(process.env.WEQ_BROWSER_EXECUTABLE
       ? { executablePath: process.env.WEQ_BROWSER_EXECUTABLE }
       : {}),
   });
-  const page = await browser.newPage({ reducedMotion: 'reduce' });
+  const page = await browser.newPage({
+    reducedMotion: 'reduce',
+    ...(touch ? { hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } } : {}),
+  });
+  page.setDefaultTimeout(7500);
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.route('**/*', (route) =>
@@ -49,6 +130,7 @@ try {
   const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/component-appearance.html`;
   await page.goto(url);
   await page.waitForSelector('.conversation-row');
+  await checkFormControls(page);
   const styles = await page.evaluate(() => window.appearanceQa.componentStyles);
   const output = process.env.WEQ_APPEARANCE_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
@@ -57,7 +139,7 @@ try {
     failures.push('QQ NT 默认风格必须排在首位，后接简约、立体预设');
   const quick = process.argv.includes('--quick');
   let cases = 0;
-  for (const width of quick ? [1280, 320] : [1280, 390, 320]) {
+  for (const width of formsOnly ? [] : quick ? [1280, 320] : [1280, 390, 320]) {
     await page.setViewportSize({ width, height: 920 });
     for (const theme of ['light', 'dark']) {
       await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
@@ -338,7 +420,10 @@ try {
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
   if (output) await page.screenshot({ path: resolve(output, 'mobile-qqnt.png'), fullPage: true });
   await page
-    .getByRole('radio', { name: styles.find((style) => style.value === 'retro').label, exact: true })
+    .getByRole('radio', {
+      name: styles.find((style) => style.value === 'retro').label,
+      exact: true,
+    })
     .click();
   const scope = page.getByRole('radiogroup', { name: '内容范围' });
   await scope.getByRole('radio', { name: '全部内容', exact: true }).focus();
@@ -351,7 +436,7 @@ try {
   // 同一套样式还需在真实聊天组件中成立，不能只对控件展示页生效。
   await page.goto(url.replace('component-appearance.html', 'qqnt-appearance.html'));
   await page.waitForSelector('.message-content');
-  for (const width of [1280, 390, 320]) {
+  for (const width of formsOnly ? [] : [1280, 390, 320]) {
     await page.setViewportSize({ width, height: 920 });
     for (const theme of ['light', 'dark']) {
       await page.evaluate(
@@ -425,7 +510,13 @@ try {
       cases++;
     }
   }
-  console.log(JSON.stringify({ cases, failures, errors }, null, 2));
+  console.log(
+    JSON.stringify(
+      { formControls: touch ? 'WebKit touch' : 'Chromium keyboard', cases, failures, errors },
+      null,
+      2,
+    ),
+  );
   if (failures.length || errors.length) throw new Error([...failures, ...errors].join('\n'));
 } finally {
   await browser?.close();

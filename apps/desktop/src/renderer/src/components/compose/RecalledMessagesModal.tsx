@@ -1,3 +1,4 @@
+import { FormSelect } from '../FormSelect';
 import { NumericText } from '../NumericText';
 import * as timeFormat from '@weq/time';
 /**
@@ -196,7 +197,7 @@ export function RecalledMessagesModal({
     <div className="weq-msglist-toolbar">
       <label className="weq-msglist-field">
         <span className="weq-msglist-field-label">撤回者</span>
-        <select
+        <FormSelect
           className="weq-msglist-select"
           value={revokerFilter}
           onChange={(event) => setRevokerFilter(event.target.value)}
@@ -208,12 +209,12 @@ export function RecalledMessagesModal({
               {label}
             </option>
           ))}
-        </select>
+        </FormSelect>
       </label>
 
       <label className="weq-msglist-field">
         <span className="weq-msglist-field-label">被撤回者</span>
-        <select
+        <FormSelect
           className="weq-msglist-select"
           value={senderFilter}
           onChange={(event) => setSenderFilter(event.target.value)}
@@ -225,7 +226,7 @@ export function RecalledMessagesModal({
               {label}
             </option>
           ))}
-        </select>
+        </FormSelect>
       </label>
 
       <div className="weq-msglist-search">

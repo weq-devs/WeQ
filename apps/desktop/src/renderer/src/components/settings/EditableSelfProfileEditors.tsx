@@ -1,3 +1,4 @@
+import { FormSelect } from '../FormSelect';
 import { useContext, useEffect, useRef, useState } from 'react';
 import { Check, Save, MapPin, Cake } from 'lucide-react';
 import { ProfileEditorRow, ProfileEditorAction } from '../ProfileFieldEditor';
@@ -60,7 +61,7 @@ export function RegionEditor({
       control={
         <div className="weq-profile-region-editor">
           {menus.map((nodes, index) => (
-            <select
+            <FormSelect
               key={['country', 'province', 'city', 'district'][index]}
               aria-label={`${label}${['国家', '省', '市', '区县'][index]}`}
               disabled={disabled || !nodes.length || (nodes.length === 1 && nodes[0]?.code === '0')}
@@ -87,7 +88,7 @@ export function RegionEditor({
                   {node.name || '未指定'}
                 </option>
               ))}
-            </select>
+            </FormSelect>
           ))}
           <ProfileEditorAction>
             <button

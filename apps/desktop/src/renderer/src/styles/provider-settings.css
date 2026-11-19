@@ -65,7 +65,7 @@ html[data-theme] .weq-provider-window > .weq-provider-modal {
   flex: 0 1 280px;
 }
 
-.weq-provider-window .weq-set-row-ctrl > :is(input, select) {
+.weq-provider-window .weq-set-row-ctrl > :is(input, .weq-select-trigger) {
   width: 100%;
 }
 

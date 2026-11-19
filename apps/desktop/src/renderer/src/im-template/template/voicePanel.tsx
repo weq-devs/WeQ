@@ -20,6 +20,7 @@
  * 发送只把结果交给上层（`onSendVoice` / `onSendTranscript`），本模块不碰协议。
  */
 
+import { FormSelect } from '../../components/FormSelect';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FileAudio,
@@ -1423,7 +1424,7 @@ export function TtsComposer({
       <div className={cn('voice-tts-row')}>
         <label className={cn('voice-tts-voice')}>
           <span>服务商</span>
-          <select
+          <FormSelect
             value={provider?.id ?? ''}
             disabled={providers.length === 0}
             onChange={(event) => setProviderId(event.target.value)}
@@ -1434,7 +1435,7 @@ export function TtsComposer({
                 {item.name}
               </option>
             ))}
-          </select>
+          </FormSelect>
         </label>
         <span className={cn('voice-tts-count')}>
           <span className="weq-number weq-number-inherit">{text.length}</span>/

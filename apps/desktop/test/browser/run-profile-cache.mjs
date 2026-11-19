@@ -1,3 +1,4 @@
+import { chooseFormOption } from './form-select.mjs';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
@@ -52,13 +53,13 @@ try {
   const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/profile-cache.html`;
   await page.goto(url);
   const directory = page.locator('[data-kind="directory"]');
-  await directory.getByLabel('分组依据').selectOption('none');
-  await directory.getByLabel('排序依据').selectOption('sigUpdateTime');
+  await chooseFormOption(directory.getByLabel('分组依据'), 'none');
+  await chooseFormOption(directory.getByLabel('排序依据'), 'sigUpdateTime');
   const names = () => directory.locator('.contact-row .row-title-text').allTextContents();
   assert.deepEqual(await names(), ['合成联系人b', '合成联系人a', '合成联系人c']);
   await directory.getByRole('button', { name: '改为升序', exact: true }).click();
   assert.deepEqual(await names(), ['合成联系人a', '合成联系人b', '合成联系人c']);
-  await directory.getByLabel('分组依据').selectOption('occupation');
+  await chooseFormOption(directory.getByLabel('分组依据'), 'occupation');
   assert.deepEqual(
     new Set(await directory.locator('.contact-cat-name').allTextContents()),
     new Set(['学生', '职业未知']),

@@ -1,3 +1,4 @@
+import { chooseFormOption } from './form-select.mjs';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
@@ -200,9 +201,10 @@ try {
           if (await page.getByLabel('运行中发送方式', { exact: true }).count())
             throw new Error('输入区不应提供逐条发送模式切换');
           await openAssistantSettings();
-          await page
-            .getByRole('combobox', { name: '运行中默认发送方式', exact: true })
-            .selectOption('queue');
+          await chooseFormOption(
+            page.getByRole('combobox', { name: '运行中默认发送方式', exact: true }),
+            'queue',
+          );
           await page.locator('.weq-cvs-close').click();
           await send('排队的问题');
           await page.getByLabel('待处理消息', { exact: true }).waitFor();

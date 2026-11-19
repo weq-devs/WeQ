@@ -1,3 +1,4 @@
+import { FormSelect } from '../FormSelect';
 import { NumericText } from '../NumericText';
 import { EmptyState } from '../EmptyState';
 import { useEffect, useState } from 'react';
@@ -69,7 +70,7 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
             <Row
               label="群分类"
               control={
-                <select
+                <FormSelect
                   key={category ?? 'unknown'}
                   aria-label="群分类"
                   defaultValue={category ?? ''}
@@ -82,7 +83,7 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
                       {info.data?.categoryName || `分类 ${category}`}
                     </option>
                   )}
-                </select>
+                </FormSelect>
               }
             />
             {info.error && <p role="alert">{info.error.message}</p>}

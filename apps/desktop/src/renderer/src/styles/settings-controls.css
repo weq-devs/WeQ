@@ -55,7 +55,7 @@ html[data-theme] .weq-settings-dialog .weq-settings-appearance-head span {
   padding-inline: 0;
 }
 
-.weq-set-row-ctrl :is(input, select, textarea) {
+.weq-set-row-ctrl :is(input, .weq-select-trigger, textarea) {
   min-width: 0;
   max-width: 100%;
 }

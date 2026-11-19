@@ -1,3 +1,5 @@
+import { FormSelect } from '../../components/FormSelect';
+import { CalendarDateField } from '../../components/CalendarDateField';
 import { TimeLabel } from '../../components/TimeLabel';
 import * as timeFormat from '@weq/time';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -193,7 +195,7 @@ function KindTabs({
   return (
     <div className="weq-analysis-kinds" role="tablist" aria-label="切换报告类型">
       {/* 隐藏的原生 select 只承担无障碍 / 键盘语义（读屏与自动化都按「报告类型」找它）。 */}
-      <select
+      <FormSelect
         className="weq-analysis-kind-native"
         aria-label="报告类型"
         value={value}
@@ -205,7 +207,7 @@ function KindTabs({
             {ANALYSIS_LABELS[kind]}
           </option>
         ))}
-      </select>
+      </FormSelect>
       {ANALYSIS_TOOL_KINDS.map((kind) => (
         <button
           key={kind}
@@ -525,7 +527,7 @@ function AnalysisToolForm({
                   { value: 'dates', label: '指定日期' },
                 ]}
               />
-              <select
+              <FormSelect
                 className="weq-analysis-kind-native"
                 aria-label="分析时间范围"
                 value={timeMode}
@@ -533,7 +535,7 @@ function AnalysisToolForm({
               >
                 <option value="all">全部本地历史</option>
                 <option value="dates">指定日期</option>
-              </select>
+              </FormSelect>
               {timeMode === 'dates' ? (
                 <>
                   <p className="weq-analysis-range">
@@ -545,21 +547,11 @@ function AnalysisToolForm({
                   <div className="weq-analysis-dates">
                     <label>
                       开始日期
-                      <input
-                        type="date"
-                        aria-label="开始日期"
-                        value={start}
-                        onChange={(event) => setStart(event.target.value)}
-                      />
+                      <CalendarDateField label="开始日期" value={start} onChange={setStart} />
                     </label>
                     <label>
                       结束日期
-                      <input
-                        type="date"
-                        aria-label="结束日期"
-                        value={end}
-                        onChange={(event) => setEnd(event.target.value)}
-                      />
+                      <CalendarDateField label="结束日期" value={end} onChange={setEnd} />
                     </label>
                   </div>
                   <MessageCalendar

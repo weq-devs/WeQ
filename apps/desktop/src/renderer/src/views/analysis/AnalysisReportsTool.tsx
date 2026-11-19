@@ -1,3 +1,4 @@
+import { FormSelect } from '../../components/FormSelect';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ContactRound, RefreshCw, Search, Trash2, UserRound, Users } from 'lucide-react';
 import { eventTimeFormatter } from '@weq/time';
@@ -124,15 +125,19 @@ export function AnalysisReportsTool({
             onChange={(event) => setSearch(event.target.value)}
           />
         </label>
-        <select aria-label="筛选报告类型" value={kind} onChange={(e) => setKind(e.target.value)}>
+        <FormSelect
+          aria-label="筛选报告类型"
+          value={kind}
+          onChange={(e) => setKind(e.target.value)}
+        >
           <option value="all">全部类型</option>
           {(['group', 'buddy', 'member'] as const).map((value) => (
             <option key={value} value={value}>
               {ANALYSIS_LABELS[value]}
             </option>
           ))}
-        </select>
-        <select
+        </FormSelect>
+        <FormSelect
           aria-label="筛选报告状态"
           value={status}
           onChange={(e) => setStatus(e.target.value)}
@@ -143,7 +148,7 @@ export function AnalysisReportsTool({
               {label}
             </option>
           ))}
-        </select>
+        </FormSelect>
         <button
           className="weq-set-iconbtn"
           type="button"

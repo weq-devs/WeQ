@@ -265,7 +265,7 @@ html[data-component-style='retro'][data-theme]
     .weq-wtools-rv-textarea,
     .weq-wtools-rv-json,
     .weq-schedule-settings input:not([type='checkbox']):not([type='radio']),
-    .weq-schedule-settings select,
+    .weq-schedule-settings .weq-select-trigger,
     .composer textarea
   ) {
   border: 2px solid var(--weq-skin-border);

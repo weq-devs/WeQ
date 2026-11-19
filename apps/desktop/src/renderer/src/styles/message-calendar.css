@@ -2,6 +2,28 @@
   min-width: 0;
   color: var(--weq-fg-primary);
 }
+.weq-date-filter {
+  min-width: max-content;
+  font-variant-numeric: tabular-nums;
+}
+.weq-date-filter-dialog {
+  padding: 12px;
+  font-size: 13px;
+}
+.weq-date-filter-entry {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  margin: 8px 0;
+}
+.weq-date-filter-entry input {
+  flex: 1;
+  min-width: 0;
+}
+.weq-date-filter-dialog .weq-density-calendar-grid > button,
+.weq-date-filter-dialog .weq-density-calendar-grid > span:not(.weq-density-weekday) {
+  height: 32px;
+}
 .weq-density-calendar-tools {
   display: flex;
   align-items: center;
@@ -9,20 +31,20 @@
   gap: 4px;
   margin-bottom: 8px;
 }
-.weq-density-calendar-tools button {
+.weq-density-calendar-tools button:not(.weq-select-trigger) {
   display: grid;
   place-items: center;
   width: 28px;
   height: 30px;
   flex: 0 0 28px;
 }
-.weq-density-calendar-tools :is(button, select) {
+.weq-density-calendar-tools button {
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--weq-fg-primary);
   background: var(--background);
 }
-.weq-density-calendar-tools select {
+.weq-density-calendar-tools .weq-select-trigger {
   min-width: 0;
   padding: 4px;
   font-size: 12px;

@@ -1,3 +1,4 @@
+import { FormSelect } from '../FormSelect';
 import type { AgentLabModelSelection } from '@weq/agentlab/model-selection';
 import { isDefaultModelSelection, modelSelectionKey } from '@weq/agentlab/model-selection';
 import { trpc } from '../../trpc/client';
@@ -84,7 +85,7 @@ export function ApiModelSelect({
   const defaultOptionLabel = `默认（当前：${defaultLabel}）`;
   return (
     <div className="weq-api-model-field">
-      <select
+      <FormSelect
         className="weq-set-input"
         aria-label={label}
         title={
@@ -128,7 +129,7 @@ export function ApiModelSelect({
             ))}
           </optgroup>
         ))}
-      </select>
+      </FormSelect>
       {providers.error ? (
         <QueryError
           message={`模型列表读取失败：${providers.error.message}`}

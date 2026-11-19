@@ -297,7 +297,13 @@ html[data-component-style='qqnt'][data-theme] body :is(.search-box, .weq-input):
 
 html[data-component-style='qqnt'][data-theme]
   body
-  :is(.weq-input, .weq-set-input, .weq-set-select, .form-field input, .form-field select) {
+  :is(
+    .weq-input,
+    .weq-set-input,
+    .weq-set-select,
+    .form-field input,
+    .form-field .weq-select-trigger
+  ) {
   border-radius: 8px;
 }
 

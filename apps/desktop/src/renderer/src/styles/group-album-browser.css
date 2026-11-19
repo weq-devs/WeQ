@@ -43,7 +43,7 @@
 .group-album-search:focus-within {
   border-color: var(--weq-accent-effective);
 }
-.group-album-browse-tools select {
+.group-album-browse-tools .weq-select-trigger {
   min-width: 0;
   max-width: 100%;
   height: 32px;
@@ -71,7 +71,7 @@
   cursor: pointer;
 }
 .group-album-browser button:focus-visible,
-.group-album-browser select:focus-visible,
+.group-album-browser .weq-select-trigger:focus-visible,
 .group-album-preview-details button:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;

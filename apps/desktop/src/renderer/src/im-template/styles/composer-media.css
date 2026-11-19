@@ -925,7 +925,7 @@ html[data-theme='dark'] .voice-panel-tabs button.active {
   font-size: 12px;
 }
 
-.voice-tts-voice select,
+.voice-tts-voice .weq-select-trigger,
 .voice-tts-voice input {
   min-width: 0;
   flex: 1 1 auto;

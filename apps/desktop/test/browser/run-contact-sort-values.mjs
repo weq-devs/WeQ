@@ -1,3 +1,4 @@
+import { chooseFormOption } from './form-select.mjs';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
@@ -52,9 +53,9 @@ try {
   );
   const friends = page.locator('[data-kind="friends"]');
   const groups = page.locator('[data-kind="groups"]');
-  for (const list of [friends, groups]) await list.getByLabel('分组依据').selectOption('none');
+  for (const list of [friends, groups]) await chooseFormOption(list.getByLabel('分组依据'), 'none');
   const choose = async (list, sort) => {
-    await list.getByLabel('排序依据').selectOption(sort);
+    await chooseFormOption(list.getByLabel('排序依据'), sort);
     const dialog = page.getByRole('dialog', { name: '更新好友/群信息缓存', exact: true });
     if (await dialog.count()) {
       await dialog.getByRole('radio', { name: '不更新', exact: true }).click();

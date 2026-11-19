@@ -1,4 +1,5 @@
 /** Qzone's known web capabilities, rendered in the local WeQ UI. */
+import { FormSelect } from '../components/FormSelect';
 import { NumericText } from '../components/NumericText';
 import { EmptyState } from '../components/EmptyState';
 import {
@@ -3169,7 +3170,7 @@ function FeedTimeline({
       <div className="weq-qzn-section-title">
         <h2>{title}</h2>
         {kind === 'friends' ? (
-          <select
+          <FormSelect
             aria-label="动态类型"
             value={filter}
             onChange={(event) => {
@@ -3184,7 +3185,7 @@ function FeedTimeline({
             <option value={2}>日志</option>
             <option value={4}>相册</option>
             <option value={-1}>其他动态</option>
-          </select>
+          </FormSelect>
         ) : null}
       </div>
       {kind === 'related' ? (
@@ -3904,7 +3905,7 @@ function Composer({
               }}
             />
           </label>
-          <select
+          <FormSelect
             aria-label="说说可见范围"
             disabled={busy}
             value={visibility}
@@ -3915,7 +3916,7 @@ function Composer({
                 {option.label}
               </option>
             ))}
-          </select>
+          </FormSelect>
           <button
             type="button"
             className="weq-qzn-primary"

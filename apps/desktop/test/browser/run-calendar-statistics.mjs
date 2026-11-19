@@ -66,7 +66,7 @@ try {
       .getAttribute('aria-expanded')) !== 'true'
   )
     throw new Error('任务日志未默认展开');
-  if ((await page.getByLabel('列表日期', { exact: true }).inputValue()) !== '2026-11-08')
+  if (!(await page.getByRole('button', { name: '列表日期：2026-11-08', exact: true }).isVisible()))
     throw new Error('列表日期被扫描日覆盖');
   await mkdir(output, { recursive: true });
   for (const width of [1100, 390, 320])

@@ -1,3 +1,4 @@
+import { FormSelect } from '../FormSelect';
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 import { usePageSnapshotReset } from '../PageSnapshots.shared';
 import { Loader2, Plus, Play, Save, Trash2, Volume2, X } from 'lucide-react';
@@ -389,7 +390,7 @@ export function TtsProvidersCard(): ReactElement {
                 label="服务商模板"
                 desc={vendorEntry?.note}
                 control={
-                  <select
+                  <FormSelect
                     className="weq-set-input"
                     aria-label="TTS 服务商模板"
                     value={form.vendor}
@@ -404,7 +405,7 @@ export function TtsProvidersCard(): ReactElement {
                         {item.label}
                       </option>
                     ))}
-                  </select>
+                  </FormSelect>
                 }
               />
               <Row

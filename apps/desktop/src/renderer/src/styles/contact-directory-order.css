@@ -31,7 +31,7 @@
 .weq-contact-directory .contact-cat-header[hidden] {
   display: none;
 }
-.weq-directory-order select,
+.weq-directory-order .weq-select-trigger,
 .weq-directory-order button {
   height: 30px;
   min-width: 0;
@@ -41,7 +41,7 @@
   color: var(--weq-fg-primary);
   font: inherit;
 }
-.weq-directory-order select {
+.weq-directory-order .weq-select-trigger {
   width: 100%;
   padding: 0 2px;
   font-size: 11px;
@@ -54,7 +54,7 @@
 .weq-directory-order button:hover {
   color: var(--weq-accent-effective);
 }
-.weq-directory-order :is(select, button):focus-visible {
+.weq-directory-order :is(.weq-select-trigger, button):focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
 }

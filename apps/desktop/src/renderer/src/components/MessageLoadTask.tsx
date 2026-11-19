@@ -1,5 +1,6 @@
 import { Square } from 'lucide-react';
 import { useToast } from './Toast.shared';
+import { TaskProgressBar } from './tasks/TaskProgressBar';
 import type { NotificationSource } from '../lib/notificationNavigation';
 import '../styles/message-load-task.css';
 
@@ -22,7 +23,7 @@ export async function runMessageLoadTask<T>(
         {label} · 已加载 <span className="weq-number weq-number-inherit">{count}</span> 条消息
       </span>
       <span className="weq-message-load-actions">
-        <progress aria-label="消息加载进度" />
+        <TaskProgressBar label="消息加载进度" />
         <button type="button" aria-label="停止消息加载" title="停止后续消息加载" onClick={abort}>
           <Square size={14} />
         </button>

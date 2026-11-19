@@ -210,7 +210,7 @@
   opacity: 0.45;
   cursor: default;
 }
-.weq-roaming-panel :is(input, button, select, summary):focus-visible {
+.weq-roaming-panel :is(input, button, .weq-select-trigger, summary):focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
 }

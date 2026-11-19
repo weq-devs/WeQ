@@ -1,3 +1,4 @@
+import { FormSelect } from './FormSelect';
 import { ArrowDownWideNarrow, ArrowUpWideNarrow } from 'lucide-react';
 import type { useContactDirectoryOrder } from '../hooks/useContactDirectoryOrder';
 import '../styles/contact-directory-order.css';
@@ -13,7 +14,7 @@ export function ContactDirectoryOrder({
       <div className="weq-directory-order">
         <label>
           分组依据
-          <select
+          <FormSelect
             className="weq-set-select"
             value={order.preferences.grouping}
             onChange={(event) => order.change({ grouping: event.target.value })}
@@ -23,11 +24,11 @@ export function ContactDirectoryOrder({
                 {name}
               </option>
             ))}
-          </select>
+          </FormSelect>
         </label>
         <label>
           排序依据
-          <select
+          <FormSelect
             className="weq-set-select"
             value={order.preferences.sort}
             title={order.sortOptions[order.preferences.sort as keyof typeof order.sortOptions]}
@@ -38,7 +39,7 @@ export function ContactDirectoryOrder({
                 {name}
               </option>
             ))}
-          </select>
+          </FormSelect>
         </label>
         <button
           type="button"

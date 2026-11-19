@@ -1,4 +1,5 @@
 import { NumericText } from '../../components/NumericText';
+import { CalendarDateField } from '../../components/CalendarDateField';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, Search, X } from 'lucide-react';
 import type { ExportOutputPlan, ExportSavePolicy } from '@weq/service';
@@ -161,20 +162,20 @@ export function MailExportPane({
       <div className="weq-mail-export-filters">
         <label>
           开始日期（北京时间）
-          <input
-            type="date"
+          <CalendarDateField
+            label="开始日期（北京时间）"
             value={start}
             disabled={busy}
-            onChange={(event) => setStart(event.target.value)}
+            onChange={setStart}
           />
         </label>
         <label>
           结束日期（含当天）
-          <input
-            type="date"
+          <CalendarDateField
+            label="结束日期（含当天）"
             value={end}
             disabled={busy}
-            onChange={(event) => setEnd(event.target.value)}
+            onChange={setEnd}
           />
         </label>
         <label>

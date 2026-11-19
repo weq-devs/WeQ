@@ -166,7 +166,8 @@ export function useSurfaceEscape(
     // 同次挂载时子层已领号但 DOM 层号尚未提交，父窗不能夺走子窗刚取得的焦点。
     const focusedAbove =
       (layerScope !== undefined && hasOverlayDescendant(layerScope)) ||
-      (previous instanceof HTMLElement &&
+      ((layerScope === undefined || element.style.zIndex !== '') &&
+        previous instanceof HTMLElement &&
         Boolean(
           previous.closest(
             '[aria-modal="true"], .weq-dialog-layer, .weq-overlay-layer, .weq-window-layer, .weq-forward-window',

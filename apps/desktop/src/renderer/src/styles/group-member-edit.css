@@ -59,13 +59,13 @@ html[data-theme='dark'] .weq-qq-member-edit-title {
   white-space: normal;
 }
 .weq-member-inline-field input,
-.weq-member-inline-field select {
+.weq-member-inline-field .weq-select-trigger {
   width: 0;
   flex: 1;
   min-width: 0;
 }
 .weq-member-inline-field input:focus-visible,
-.weq-member-inline-field select:focus-visible {
+.weq-member-inline-field .weq-select-trigger:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 1px;
 }
@@ -73,7 +73,7 @@ html[data-theme='dark'] .weq-qq-member-edit-title {
   flex-shrink: 0;
 }
 html[data-theme='dark'] .weq-member-inline-field input,
-html[data-theme='dark'] .weq-member-inline-field select {
+html[data-theme='dark'] .weq-member-inline-field .weq-select-trigger {
   background: var(--weq-bg-surface);
   border-color: var(--weq-border-strong);
 }

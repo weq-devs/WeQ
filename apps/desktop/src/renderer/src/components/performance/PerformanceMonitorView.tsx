@@ -1,3 +1,4 @@
+import { FormSelect } from '../FormSelect';
 import { NumericText } from '../NumericText';
 import { useEffect, useRef, useState } from 'react';
 import { formatDateTimeInput, parseDateTimeInput } from '@weq/time';
@@ -166,7 +167,7 @@ export default function PerformanceMonitorView() {
   return (
     <div className="weq-perf">
       <div className="weq-perf-toolbar" role="toolbar" aria-label="性能分析">
-        <select
+        <FormSelect
           aria-label="时间范围"
           value={live ? String(hours) : 'custom'}
           onChange={(event) => {
@@ -185,8 +186,8 @@ export default function PerformanceMonitorView() {
           <option value="24">最近一天</option>
           <option value="168">最近一周</option>
           <option value="custom">自定义时间</option>
-        </select>
-        <select
+        </FormSelect>
+        <FormSelect
           aria-label="进程"
           value={processGroup}
           onChange={(event) => {
@@ -202,7 +203,7 @@ export default function PerformanceMonitorView() {
               {label}
             </option>
           ))}
-        </select>
+        </FormSelect>
         <div className="weq-perf-tools">
           <button
             type="button"
@@ -416,7 +417,7 @@ export default function PerformanceMonitorView() {
               </div>
             ) : (
               <>
-                <select
+                <FormSelect
                   aria-label="明细类别"
                   value={category}
                   onChange={(event) => setCategory(event.target.value)}
@@ -435,7 +436,7 @@ export default function PerformanceMonitorView() {
                       {label}
                     </option>
                   ))}
-                </select>
+                </FormSelect>
                 {detail.isLoading ? (
                   <p>正在读取采样…</p>
                 ) : detail.error ? (

@@ -1,3 +1,4 @@
+import { FormSelect } from '../FormSelect';
 import type { ReactNode } from 'react';
 import type { AgentLabModelSelection } from '@weq/agentlab/model-selection';
 import { AiImagePreferenceSetting } from './AiImageSettings';
@@ -58,7 +59,7 @@ export function ConversationModelSettings({
             : undefined
         }
         control={
-          <select
+          <FormSelect
             className="weq-set-input"
             aria-label={label}
             value={effort}
@@ -75,7 +76,7 @@ export function ConversationModelSettings({
                 {effort}（{usesStoredEffort || !selectedModel ? '已保存' : '当前不适用'}）
               </option>
             ) : null}
-          </select>
+          </FormSelect>
         }
       />
       <AiImagePreferenceSetting

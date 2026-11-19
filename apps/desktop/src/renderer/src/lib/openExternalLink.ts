@@ -2,7 +2,10 @@ import { IS_WEB } from './target.shared';
 import { client } from '../trpc/client';
 
 /** 浏览器链接在点击栈里打开；不请求远端电脑启动浏览器。 */
-export function openExternalLink(url: string): Promise<{ ok: boolean; error?: string }> {
+export function openExternalLink(
+  url: string,
+  view?: Window,
+): Promise<{ ok: boolean; error?: string }> {
   if (!IS_WEB) return client.help.openExternal.mutate({ url });
   try {
     const parsed = new URL(url);
@@ -12,7 +15,7 @@ export function openExternalLink(url: string): Promise<{ ok: boolean; error?: st
       parsed.password
     )
       throw new Error('不允许打开的链接协议或地址');
-    window.open(parsed.href, '_blank', 'noopener,noreferrer');
+    (view ?? window).open(parsed.href, '_blank', 'noopener,noreferrer');
     return Promise.resolve({ ok: true });
   } catch (error) {
     return Promise.resolve({

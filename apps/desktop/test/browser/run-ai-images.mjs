@@ -1,3 +1,4 @@
+import { chooseFormOption } from './form-select.mjs';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -99,7 +100,7 @@ try {
         if (surface === 'settings') {
           const vision = page.getByLabel('默认视觉模型', { exact: true });
           await vision.waitFor();
-          await vision.selectOption(JSON.stringify(['fixture', 'visual-fixture']));
+          await chooseFormOption(vision, JSON.stringify(['fixture', 'visual-fixture']));
           for (const label of [
             'WeQ 助手',
             '克隆聊天',

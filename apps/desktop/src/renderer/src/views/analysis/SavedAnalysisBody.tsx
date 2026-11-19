@@ -1,3 +1,4 @@
+import { FormSelect } from '../../components/FormSelect';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Play, RefreshCw, Square } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
@@ -174,7 +175,7 @@ export function SavedAnalysisBody({
           </span>
         )}
         {saved && (versions.data?.length ?? 0) > 1 ? (
-          <select
+          <FormSelect
             className="weq-saved-analysis-version"
             aria-label="报告结果版本"
             value={version}
@@ -189,7 +190,7 @@ export function SavedAnalysisBody({
                   {eventTimeFormatter.format(new Date(item.updatedAt))}
                 </option>
               ))}
-          </select>
+          </FormSelect>
         ) : null}
         {saved && (
           <button

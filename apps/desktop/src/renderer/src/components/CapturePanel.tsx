@@ -1,3 +1,4 @@
+import { FormSelect } from './FormSelect';
 import { NumericText } from './NumericText';
 import * as timeFormat from '@weq/time';
 /**
@@ -986,7 +987,7 @@ export function CapturePanel({
 
         <label className="weq-cap-acct">
           <span>账号</span>
-          <select
+          <FormSelect
             value={selectedUin}
             disabled={busy || Boolean(session) || onlineAccounts.length === 0}
             onChange={(e) => setSelectedUin(e.target.value)}
@@ -1000,7 +1001,7 @@ export function CapturePanel({
                 </option>
               ))
             )}
-          </select>
+          </FormSelect>
         </label>
 
         <button

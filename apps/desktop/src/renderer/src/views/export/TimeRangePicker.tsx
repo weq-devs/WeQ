@@ -7,6 +7,7 @@
  * 'all' 时两端都为 null（不限）。月历自带上/下月切换，选中端点高亮、区间淡染。
  */
 
+import { FormSelect } from '../../components/FormSelect';
 import type { ReactElement } from 'react';
 import type { RangePreset, TimeRange } from './types';
 import { MessageCalendar } from '../../components/MessageCalendar';
@@ -138,7 +139,7 @@ export function TimeRangePicker({
         </p>
       ) : null}
       {/* 预设区间与别处的单选一样走共享分段控件，不再另写一排胶囊按钮。 */}
-      <select
+      <FormSelect
         className="weq-set-input"
         aria-label="时间范围"
         value={value.preset}
@@ -149,7 +150,7 @@ export function TimeRangePicker({
             {preset.label}
           </option>
         ))}
-      </select>
+      </FormSelect>
 
       {value.preset === 'all' ? (
         <p className="weq-exp-range-note">全部时间：统计已保存的本地记录，不限起止日期。</p>

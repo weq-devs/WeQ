@@ -230,28 +230,8 @@
   font-weight: 600;
 }
 
-.weq-favorite-import-progress progress {
-  appearance: none;
-  width: 100%;
+.weq-favorite-import-progress > .weq-task-progress-track {
   height: 7px;
-  overflow: hidden;
-  border: 0;
-  border-radius: 999px;
-  accent-color: var(--weq-accent-effective);
-}
-
-.weq-favorite-import-progress progress::-webkit-progress-bar {
-  background: var(--weq-border-subtle);
-}
-
-.weq-favorite-import-progress progress::-webkit-progress-value {
-  border-radius: inherit;
-  background: var(--weq-accent-effective);
-}
-
-.weq-favorite-import-progress progress::-moz-progress-bar {
-  border-radius: inherit;
-  background: var(--weq-accent-effective);
 }
 
 .weq-favorite-import-item:focus-visible {

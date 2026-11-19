@@ -1,3 +1,4 @@
+import { FormSelect, FormSuggestions } from '../FormSelect';
 import { EmptyState } from '../EmptyState';
 import { eventTimeFormatter } from '@weq/time';
 /** 会话消息搜索：全局搜索内嵌展示，会话顶栏入口使用单会话浮窗。 */
@@ -508,14 +509,11 @@ export function ChatRecordsModal({
           <div className="weq-record-filters">
             <label>
               发送者
-              <input
+              <FormSuggestions
                 placeholder="QQ 号或 UID"
-                list="weq-record-senders"
                 value={sender}
-                onChange={(e) => setSender(e.target.value)}
-              />
-              <datalist id="weq-record-senders">
-                {[
+                onValueChange={setSender}
+                options={[
                   ...new Map(
                     messages.map((m) => [
                       m.senderUin && m.senderUin !== '0' ? m.senderUin : m.senderUid,
@@ -524,10 +522,8 @@ export function ChatRecordsModal({
                   ).entries(),
                 ]
                   .filter(([id]) => !!id)
-                  .map(([id, name]) => (
-                    <option key={id} value={id} label={name} />
-                  ))}
-              </datalist>
+                  .map(([value, label]) => ({ value, label }))}
+              />
             </label>
             <label className="weq-record-self">
               <input
@@ -538,7 +534,7 @@ export function ChatRecordsModal({
               />
               我
             </label>
-            <select
+            <FormSelect
               aria-label="消息类型"
               disabled={Boolean(localSource)}
               value={category}
@@ -559,8 +555,8 @@ export function ChatRecordsModal({
                   {label}
                 </option>
               ))}
-            </select>
-            <select
+            </FormSelect>
+            <FormSelect
               aria-label="导出格式"
               disabled={Boolean(localSource)}
               value={exportFormat}
@@ -569,7 +565,7 @@ export function ChatRecordsModal({
               {['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html'].map((f) => (
                 <option key={f}>{f}</option>
               ))}
-            </select>
+            </FormSelect>
             <label className="weq-record-self">
               <input
                 type="checkbox"

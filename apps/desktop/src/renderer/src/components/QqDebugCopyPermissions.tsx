@@ -1,3 +1,4 @@
+import { FormSelect } from './FormSelect';
 import { useId, useRef, useState } from 'react';
 import { Copy, ExternalLink, FolderOpen, Play, X } from 'lucide-react';
 import { client } from '../trpc/client';
@@ -67,7 +68,7 @@ export function QqDebugCopyPermissions({
       </p>
       <label className="weq-qq-debug-permission-select" htmlFor={id}>
         按需设置
-        <select
+        <FormSelect
           id={id}
           value={permission}
           disabled={busy || pending}
@@ -85,7 +86,7 @@ export function QqDebugCopyPermissions({
               {item.label}
             </option>
           ))}
-        </select>
+        </FormSelect>
       </label>
       <ol className="weq-qq-debug-permission-steps">
         <li>

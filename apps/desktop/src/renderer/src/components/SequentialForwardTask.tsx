@@ -1,4 +1,5 @@
 import { Square } from 'lucide-react';
+import { TaskProgressBar } from './tasks/TaskProgressBar';
 import type { Message } from '../im-template/template/types';
 import type { MfTarget } from './mergeForward/model';
 import {
@@ -99,16 +100,11 @@ export function startSequentialForward({
             {label} · {target.name}
           </span>
           <span className="weq-forward-banner-progress">
-            <progress
-              max={Math.max(1, expected)}
+            <TaskProgressBar
               value={
-                finished
-                  ? Math.max(1, expected)
-                  : expected
-                    ? Math.min(elapsed, expected * 0.99)
-                    : undefined
+                finished ? 100 : expected ? Math.min((elapsed / expected) * 100, 99) : undefined
               }
-              aria-label="逐条转发时间进度"
+              label="逐条转发时间进度"
             />
             <span className="weq-forward-time">
               <span>

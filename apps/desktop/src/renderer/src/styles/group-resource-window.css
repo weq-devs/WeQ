@@ -3,7 +3,7 @@
   height: 100vh;
   overflow: hidden;
   color: var(--weq-fg-primary);
-  font-family: var(--weq-font-family, system-ui, sans-serif);
+  font-family: var(--font-sans);
 }
 .weq-group-resource-surface {
   display: flex;

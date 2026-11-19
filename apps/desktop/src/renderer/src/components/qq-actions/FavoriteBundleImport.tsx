@@ -1,4 +1,5 @@
 import { NumericText } from '../NumericText';
+import { TaskProgressBar } from '../tasks/TaskProgressBar';
 import { useEffect, useId, useRef, useState } from 'react';
 import {
   FileArchive,
@@ -355,7 +356,10 @@ export function FavoriteBundleImport({
                   · <span className="weq-number weq-number-inherit">{done}</span>/
                   <span className="weq-number weq-number-inherit">{total}</span>
                 </span>
-                <progress aria-label="收藏表情导入进度" max={Math.max(1, total)} value={done} />
+                <TaskProgressBar
+                  label="收藏表情导入进度"
+                  value={(done / Math.max(1, total)) * 100}
+                />
                 {stage.phase === 'finished' && (
                   <span>
                     已确认{' '}

@@ -310,7 +310,7 @@
 }
 
 .weq-profile-disclosure-trigger:focus-visible,
-.weq-profile-group-picker select:focus-visible,
+.weq-profile-group-picker .weq-select-trigger:focus-visible,
 .weq-profile-group-link:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 3px;
@@ -342,7 +342,7 @@
   flex-wrap: wrap;
 }
 
-.weq-profile-group-target select {
+.weq-profile-group-target .weq-select-trigger {
   /* 窄屏优先和「群名片」按钮同处一行：允许收缩，不强行换行成三行。 */
   flex: 1 1 200px;
   width: auto;
@@ -395,7 +395,7 @@
   border-color: var(--weq-accent-effective);
 }
 
-.weq-profile-group-picker select {
+.weq-profile-group-picker .weq-select-trigger {
   width: 100%;
   min-width: 0;
   min-height: 32px;
@@ -410,7 +410,7 @@
   color-scheme: light;
 }
 
-html[data-theme='dark'] .weq-profile-group-picker select {
+html[data-theme='dark'] .weq-profile-group-picker .weq-select-trigger {
   color-scheme: dark;
 }
 

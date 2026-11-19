@@ -8,7 +8,12 @@ html:root[data-theme][data-weq-input-modality='pointer'] body
     [role='button'],
     [role='tab'],
     [role='menuitem'],
-    [tabindex]:not(input, textarea, select, [contenteditable]:not([contenteditable='false'])),
+    [tabindex]:not(
+      input,
+      textarea,
+      .weq-select-trigger,
+      [contenteditable]:not([contenteditable='false'])
+    ),
     input:is([type='button'], [type='submit'], [type='reset'], [type='image'])
   ):focus {
   outline: none;
@@ -31,8 +36,7 @@ html[data-theme] body
         [type='image']
       )
     ),
-    textarea,
-    select
+    textarea
   ):is(:focus, :focus-visible) {
   outline: none;
   box-shadow: none;
@@ -56,8 +60,7 @@ html[data-theme]
       [type='month'],
       [type='week']
     ),
-    textarea,
-    select
+    textarea
   ):where(:not(.is-error, [aria-invalid='true'])):focus {
   border-color: var(--weq-accent-effective);
 }

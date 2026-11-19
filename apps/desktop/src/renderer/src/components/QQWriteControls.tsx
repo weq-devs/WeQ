@@ -1,3 +1,4 @@
+import { FormSelect } from './FormSelect';
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { MessageMenuFeedbackContext } from '../lib/messageMenuFeedback';
@@ -259,7 +260,7 @@ export function QQWriteSelectRow({
                   )}
                 </>
               ) : (
-                <select
+                <FormSelect
                   className="weq-qq-write-input"
                   aria-label={label}
                   value={value}
@@ -276,7 +277,7 @@ export function QQWriteSelectRow({
                       {option.label}
                     </option>
                   ))}
-                </select>
+                </FormSelect>
               )}
               {!autoSave && !editor ? (
                 <ProfileEditorAction>

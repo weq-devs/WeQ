@@ -1,3 +1,4 @@
+import { chooseFormOption } from './form-select.mjs';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
@@ -53,8 +54,8 @@ try {
   const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/contact-birth.html`;
   await page.goto(url);
   const directory = page.locator('[data-kind="directory"]');
-  await directory.getByLabel('分组依据').selectOption('none');
-  await directory.getByLabel('排序依据').selectOption('birthday');
+  await chooseFormOption(directory.getByLabel('分组依据'), 'none');
+  await chooseFormOption(directory.getByLabel('排序依据'), 'birthday');
   const names = () => directory.locator('.contact-row .row-title-text').allTextContents();
   assert.deepEqual(await names(), ['跨年摩羯座', '前一天', '缓存水瓶座', '准确生日', '后一天']);
   const range = directory.locator('.contact-row').filter({ hasText: '缓存水瓶座' });
@@ -64,14 +65,14 @@ try {
   assert.ok(hover.includes('1 月 20 日至2 月 18 日'));
   await directory.getByRole('button', { name: '改为降序', exact: true }).click();
   assert.deepEqual(await names(), ['后一天', '缓存水瓶座', '准确生日', '前一天', '跨年摩羯座']);
-  await directory.getByLabel('分组依据').selectOption('birthYear');
+  await chooseFormOption(directory.getByLabel('分组依据'), 'birthYear');
   assert.ok((await directory.locator('.contact-cat-name').allTextContents()).includes('2010 年'));
-  await directory.getByLabel('分组依据').selectOption('constellation');
+  await chooseFormOption(directory.getByLabel('分组依据'), 'constellation');
   assert.deepEqual(
     new Set(await directory.locator('.contact-cat-name').allTextContents()),
     new Set(['水瓶座', '摩羯座']),
   );
-  await directory.getByLabel('分组依据').selectOption('none');
+  await chooseFormOption(directory.getByLabel('分组依据'), 'none');
   const output = process.env.WEQ_BIRTH_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
   for (const width of [1180, 390, 320])

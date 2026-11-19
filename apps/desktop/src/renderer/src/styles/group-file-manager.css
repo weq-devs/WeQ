@@ -52,7 +52,7 @@
   color: var(--weq-fg-muted);
 }
 .weq-file-manager-search > input,
-.weq-file-manager-toolbar > select,
+.weq-file-manager-toolbar > .weq-select-trigger,
 .weq-file-upload-row > input {
   min-width: 0;
   border: 1px solid var(--weq-border-strong);

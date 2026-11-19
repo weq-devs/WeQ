@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { TaskProgressBar } from '../tasks/TaskProgressBar';
 import { Film, Upload, X } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
@@ -373,7 +374,7 @@ function GroupAlbumVideoUploadBody({
         />
       )}
       {error && <p role="alert">{error}</p>}
-      {progress !== null && <progress max={100} value={progress} aria-label="视频传到宿主的进度" />}
+      {progress !== null && <TaskProgressBar value={progress} label="视频传到宿主的进度" />}
       {submitted && !a.busy && (
         <p role="status">本次上传已尝试，请在相册中核对结果后再选择其他视频。</p>
       )}

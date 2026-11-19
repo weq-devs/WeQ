@@ -2,6 +2,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openLink, soleLink, splitLinks } from '../src/renderer/src/lib/linkify';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import { renderDefaultMessageContent } from '../src/renderer/src/im-template/template/messageRenderers';
 
 const target = vi.hoisted(() => ({ web: true, external: vi.fn() }));
@@ -21,6 +22,7 @@ beforeEach(() => {
   target.external.mockReset().mockResolvedValue({ ok: true });
 });
 afterEach(() => {
+  useDialog.getState().close();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -125,19 +127,28 @@ describe('聊天链接打开', () => {
 
   it('安装包与压缩包继续确认，取消时不打开', async () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null);
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
-    expect(await openLink('https://example.com/weq.zip')).toBe(false);
-    expect(confirm).toHaveBeenCalledOnce();
+    const declined = openLink('https://example.com/weq.zip', document);
+    expect(useDialog.getState().current).toMatchObject({
+      ownerDocument: document,
+      message: expect.stringContaining('文件：weq.zip'),
+    });
     expect(open).not.toHaveBeenCalled();
-    confirm.mockReturnValue(true);
-    expect(await openLink('https://example.com/weq.exe')).toBe(true);
+    useDialog.getState().close();
+    expect(await declined).toBe(false);
+    const accepted = openLink('https://example.com/weq.exe');
+    useDialog.getState().current?.confirm?.resolve(true);
+    useDialog.getState().close();
+    expect(await accepted).toBe(true);
     expect(open).toHaveBeenCalledOnce();
   });
 
   it('文件名含无效百分号编码时仍可确认打开', async () => {
     vi.spyOn(window, 'open').mockReturnValue(null);
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-    expect(await openLink('https://example.com/100%.zip')).toBe(true);
+    const accepted = openLink('https://example.com/100%.zip');
+    expect(useDialog.getState().current?.message).toContain('文件：100%.zip');
+    useDialog.getState().current?.confirm?.resolve(true);
+    useDialog.getState().close();
+    expect(await accepted).toBe(true);
   });
 
   it('没有 QQ 元素的普通消息保留正文和换行，点击裸域名可打开', async () => {

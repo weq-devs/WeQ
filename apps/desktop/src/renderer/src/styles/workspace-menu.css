@@ -326,7 +326,7 @@
   font-size: 13px;
 }
 
-.weq-schedule-settings :is(input:not([type='checkbox']), select) {
+.weq-schedule-settings :is(input:not([type='checkbox']), .weq-select-trigger) {
   min-width: 0;
   min-height: 36px;
   padding: 6px 8px;

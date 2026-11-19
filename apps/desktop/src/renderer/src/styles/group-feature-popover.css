@@ -107,11 +107,9 @@
   padding: 0 0 10px;
   background: var(--weq-bg-surface);
 }
-.weq-group-sign-tools input[type='date'] {
+.weq-group-sign-tools .weq-date-filter {
   min-width: 0;
   max-width: 100%;
-  font-variant-numeric: tabular-nums;
-  color-scheme: light;
 }
 .weq-group-sign-tools .weq-set-btn {
   flex-shrink: 0;
@@ -121,10 +119,7 @@
   color: var(--weq-fg-secondary);
   font-variant-numeric: tabular-nums;
 }
-html[data-theme='dark'] .weq-group-sign-tools input[type='date'] {
-  color-scheme: dark;
-}
-.weq-group-feature-layer :is(button, input, select, textarea):focus-visible {
+.weq-group-feature-layer :is(button, input, .weq-select-trigger, textarea):focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
 }

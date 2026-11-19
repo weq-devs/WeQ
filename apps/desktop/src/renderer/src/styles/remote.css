@@ -92,7 +92,7 @@
 .weq-remote .weq-remote-phone-choice .weq-set-row-main {
   flex: none;
 }
-.weq-remote-bootstrap select {
+.weq-remote-bootstrap .weq-select-trigger {
   min-width: 0;
   max-width: 100%;
   padding: 8px;

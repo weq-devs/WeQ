@@ -7,7 +7,7 @@
   color: var(--weq-fg-secondary);
 }
 
-.weq-epk-format select {
+.weq-epk-format .weq-select-trigger {
   min-width: 0;
   max-width: 220px;
   height: 32px;
@@ -47,7 +47,7 @@
   color: var(--weq-fg-primary);
 }
 
-html[data-theme='dark'] .weq-epk-format select {
+html[data-theme='dark'] .weq-epk-format .weq-select-trigger {
   border-color: var(--weq-border-strong);
   background: var(--weq-bg-surface);
   color: var(--weq-fg-primary);

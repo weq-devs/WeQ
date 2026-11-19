@@ -1,3 +1,4 @@
+import { FormSelect } from '../FormSelect';
 import { NumericText } from '../NumericText';
 import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -604,7 +605,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
                 .map((id) => (
                   <div key={id} className="weq-backup-map">
                     <label htmlFor={`backup-scope-${id}`}>数据域 {id}</label>
-                    <select
+                    <FormSelect
                       id={`backup-scope-${id}`}
                       value={choice.scopeMap?.[id] ?? id}
                       onChange={(e) =>
@@ -619,7 +620,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
                             {a.displayName} · {a.configId}
                           </option>
                         ))}
-                    </select>
+                    </FormSelect>
                   </div>
                 ))}
               <legend>同名数据处理</legend>

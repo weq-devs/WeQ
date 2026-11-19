@@ -229,7 +229,7 @@ html[data-theme='dark'] .auth-switch {
 
 html[data-theme='dark'] .search-box input,
 html[data-theme='dark'] .auth-form input,
-html[data-theme='dark'] .bot-group-join-row select,
+html[data-theme='dark'] .bot-group-join-row .weq-select-trigger,
 html[data-theme='dark'] .bot-token-panel input,
 html[data-theme='dark'] .composer-editor {
   color: #eef0f3;

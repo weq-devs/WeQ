@@ -1,3 +1,4 @@
+import { FormSelect } from '../components/FormSelect';
 import { NumericText } from '../components/NumericText';
 import { useDbRepairWindow } from '../state/dbRepairWindow';
 import * as timeFormat from '@weq/time';
@@ -2068,11 +2069,10 @@ function ExportToolBody({
             </header>
 
             {!modeLocked ? (
-              <div className="weq-exp-kinds" role="tablist" aria-label="内容种类">
-                {/* 隐藏的原生 select 只保留无障碍 / 自动化语义（沿用原来的 id 与标签）。 */}
-                <select
+              <div className="weq-exp-kinds">
+                <FormSelect
                   id="weq-export-content-kind"
-                  className="weq-exp-kind-native"
+                  className="weq-exp-kind-select"
                   aria-label="内容种类"
                   value={mode}
                   disabled={submitting || editingList}
@@ -2086,24 +2086,26 @@ function ExportToolBody({
                       {item.label}
                     </option>
                   ))}
-                </select>
-                {MODES.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={item.id === mode}
-                    className={item.id === mode ? 'is-active' : ''}
-                    disabled={submitting || editingList}
-                    title={`${item.label} · ${item.desc}`}
-                    onClick={() => setMode(item.id)}
-                  >
-                    <span className="weq-exp-kind-icon" aria-hidden>
-                      {item.icon}
-                    </span>
-                    {item.short}
-                  </button>
-                ))}
+                </FormSelect>
+                <div className="weq-exp-kind-tabs" role="tablist" aria-label="内容种类">
+                  {MODES.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={item.id === mode}
+                      className={item.id === mode ? 'is-active' : ''}
+                      disabled={submitting || editingList}
+                      title={`${item.label} · ${item.desc}`}
+                      onClick={() => setMode(item.id)}
+                    >
+                      <span className="weq-exp-kind-icon" aria-hidden>
+                        {item.icon}
+                      </span>
+                      {item.short}
+                    </button>
+                  ))}
+                </div>
               </div>
             ) : null}
 
@@ -2502,7 +2504,7 @@ function ExportToolBody({
                 ) : showFormatChips ? (
                   <div className="weq-exp-foot-format">
                     <span className="weq-exp-foot-label">格式</span>
-                    <select
+                    <FormSelect
                       className="weq-set-input"
                       aria-label="导出格式"
                       value={format}
@@ -2513,7 +2515,7 @@ function ExportToolBody({
                           {option.label}
                         </option>
                       ))}
-                    </select>
+                    </FormSelect>
                     <small>
                       {format === 'csv' || format === 'xlsx'
                         ? '适合表格查看和筛选。'

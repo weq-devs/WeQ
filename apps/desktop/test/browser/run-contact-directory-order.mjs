@@ -1,3 +1,4 @@
+import { chooseFormOption } from './form-select.mjs';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
@@ -60,11 +61,11 @@ try {
     const headers = () =>
       friends.locator('.contact-cat-header:not([hidden]) .contact-cat-name').allTextContents();
     assert.deepEqual(await headers(), ['特别关心', '我的好友']);
-    await friends.getByLabel('分组依据').selectOption('birthYear');
+    await chooseFormOption(friends.getByLabel('分组依据'), 'birthYear');
     assert.deepEqual(await headers(), ['2007 年', '2006 年', '2005 年']);
-    await friends.getByLabel('分组依据').selectOption('relation');
+    await chooseFormOption(friends.getByLabel('分组依据'), 'relation');
     assert.deepEqual(await headers(), ['特别关心', '死党', '无亲密关系']);
-    await friends.getByLabel('分组依据').selectOption('location');
+    await chooseFormOption(friends.getByLabel('分组依据'), 'location');
     assert.deepEqual(new Set(await headers()), new Set(['福建', '美国']));
     for (const basis of [
       'qq',
@@ -76,7 +77,7 @@ try {
       'direction',
       'none',
     ]) {
-      await friends.getByLabel('分组依据').selectOption(basis);
+      await chooseFormOption(friends.getByLabel('分组依据'), basis);
       const stale = page.getByRole('dialog', { name: '更新好友/群信息缓存', exact: true });
       if (await stale.count()) {
         await stale.getByRole('radio', { name: '不更新', exact: true }).click();
@@ -86,10 +87,10 @@ try {
       assert.equal(names.includes('亲密关系'), false);
       assert.equal(names.includes('特别关心'), basis === 'qq' || basis === 'relation');
     }
-    await friends.getByLabel('分组依据').selectOption('none');
+    await chooseFormOption(friends.getByLabel('分组依据'), 'none');
     assert.equal(await friends.locator('.contact-cat-header:not([hidden])').count(), 0);
     assert.equal(await friends.locator('.contact-row').count(), 3);
-    await friends.getByLabel('排序依据').selectOption('age');
+    await chooseFormOption(friends.getByLabel('排序依据'), 'age');
     assert.deepEqual(await friends.locator('.contact-row .row-title-text').allTextContents(), [
       '阿明',
       '白雪',
@@ -101,12 +102,12 @@ try {
       '白雪',
       '阿明',
     ]);
-    await groups.getByLabel('分组依据').selectOption('capacity');
+    await chooseFormOption(groups.getByLabel('分组依据'), 'capacity');
     assert.deepEqual(await groups.locator('.contact-cat-name').allTextContents(), [
       '200 人群',
       '500 人群',
     ]);
-    await groups.getByLabel('分组依据').selectOption('none');
+    await chooseFormOption(groups.getByLabel('分组依据'), 'none');
     assert.equal(await groups.locator('.contact-cat-header:not([hidden])').count(), 0);
     assert.equal(await groups.locator('.contact-row').count(), 3);
     const dismissRefresh = async () => {
@@ -115,7 +116,7 @@ try {
         await dialog.getByRole('button', { name: '取消', exact: true }).click();
     };
     for (const sort of ['energy', 'affinity', 'lastMessageAt']) {
-      await friends.getByLabel('排序依据').selectOption(sort);
+      await chooseFormOption(friends.getByLabel('排序依据'), sort);
       await dismissRefresh();
       assert.deepEqual(await friends.locator('.contact-row .row-title-text').allTextContents(), [
         '白雪',
@@ -123,13 +124,13 @@ try {
         '张同学',
       ]);
     }
-    await friends.getByLabel('分组依据').selectOption('school');
+    await chooseFormOption(friends.getByLabel('分组依据'), 'school');
     await dismissRefresh();
     assert.deepEqual(new Set(await headers()), new Set(['厦门大学', '实验中学', '学校未知']));
     const school = friends.locator('.contact-cat-header').filter({ hasText: '厦门大学' });
     if ((await school.getAttribute('aria-expanded')) === 'false') await school.click();
     assert.equal(await friends.locator('.contact-row').count(), 2);
-    await friends.getByLabel('分组依据').selectOption('source');
+    await chooseFormOption(friends.getByLabel('分组依据'), 'source');
     await dismissRefresh();
     const source = friends.locator('.contact-cat-header').filter({ hasText: 'QQ 群' });
     if ((await source.getAttribute('aria-expanded')) === 'false') await source.click();
@@ -143,19 +144,19 @@ try {
     await sourceDialog.waitFor();
     assert.ok((await sourceDialog.locator('.weq-profile-id').textContent()).includes('20001'));
     await sourceDialog.getByRole('button', { name: '关闭', exact: true }).click();
-    await friends.getByLabel('分组依据').selectOption('type');
+    await chooseFormOption(friends.getByLabel('分组依据'), 'type');
     assert.deepEqual(await headers(), ['当前好友']);
     for (const [basis, expected] of [
       ['grade', ['群等级：0', '群等级：5', '群等级未知']],
       ['freezeState', ['正常', '已冻结', '冻结状态未知']],
     ]) {
-      await groups.getByLabel('分组依据').selectOption(basis);
+      await chooseFormOption(groups.getByLabel('分组依据'), basis);
       await dismissRefresh();
       assert.deepEqual(await groups.locator('.contact-cat-name').allTextContents(), expected);
     }
-    await groups.getByLabel('分组依据').selectOption('none');
+    await chooseFormOption(groups.getByLabel('分组依据'), 'none');
     for (const sort of ['lastMessageAt', 'joinedAt']) {
-      await groups.getByLabel('排序依据').selectOption(sort);
+      await chooseFormOption(groups.getByLabel('排序依据'), sort);
       await dismissRefresh();
       assert.deepEqual(await groups.locator('.contact-row .row-title-text').allTextContents(), [
         '朋友们',
@@ -163,7 +164,7 @@ try {
         '长名称群聊用于检查窄屏显示',
       ]);
     }
-    await groups.getByLabel('排序依据').selectOption('lastSpokeAt');
+    await chooseFormOption(groups.getByLabel('排序依据'), 'lastSpokeAt');
     assert.equal(
       await groups.locator('.contact-row .row-title-text').first().textContent(),
       '自习组',
@@ -176,9 +177,9 @@ try {
         '阿明',
       ),
     );
-    await friends.getByLabel('分组依据').selectOption('school');
+    await chooseFormOption(friends.getByLabel('分组依据'), 'school');
     await dismissRefresh();
-    await groups.getByLabel('分组依据').selectOption('grade');
+    await chooseFormOption(groups.getByLabel('分组依据'), 'grade');
     await dismissRefresh();
     for (const width of [1180, 390, 320])
       for (const theme of ['light', 'dark']) {
@@ -254,7 +255,7 @@ try {
     await page.goto(
       `http://127.0.0.1:${server.httpServer.address().port}/test/browser/contact-directory-order.html?care=${state}`,
     );
-    await friends.getByLabel('分组依据').selectOption('qq');
+    await chooseFormOption(friends.getByLabel('分组依据'), 'qq');
     const header = friends.locator('.contact-cat-header').filter({ hasText: '特别关心' });
     if ((await header.getAttribute('aria-expanded')) === 'false') await header.click();
     await friends.getByText(description, { exact: true }).waitFor();
@@ -284,7 +285,7 @@ try {
       await page.goto(
         `http://127.0.0.1:${server.httpServer.address().port}/test/browser/contact-directory-order.html?count=${count}`,
       );
-      await friends.getByLabel('分组依据').selectOption('none');
+      await chooseFormOption(friends.getByLabel('分组依据'), 'none');
       await page.waitForFunction(
         (count) => document.querySelectorAll('[data-kind="friends"] .contact-row').length === count,
         count,
@@ -297,7 +298,7 @@ try {
         const samples = [];
         for (let i = 0; i < 5; i++) {
           const start = performance.now();
-          await friends.getByLabel('排序依据').selectOption(sort);
+          await chooseFormOption(friends.getByLabel('排序依据'), sort);
           const refresh = page.getByRole('dialog', { name: '更新好友/群信息缓存', exact: true });
           if (await refresh.count())
             await refresh.getByRole('button', { name: '取消', exact: true }).click();

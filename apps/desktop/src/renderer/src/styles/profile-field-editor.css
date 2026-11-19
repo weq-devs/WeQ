@@ -90,8 +90,8 @@
   min-width: 0;
   align-items: center;
 }
-.weq-self-field .weq-self-field-inputs :is(input, select, textarea),
-.weq-member-inline-field :is(input, select) {
+.weq-self-field .weq-self-field-inputs :is(input, .weq-select-trigger, textarea),
+.weq-member-inline-field :is(input, .weq-select-trigger) {
   box-sizing: border-box;
   min-width: 0;
   max-width: 100%;
@@ -107,7 +107,7 @@
   letter-spacing: 0;
   caret-color: var(--weq-accent-effective);
 }
-.weq-self-field-inputs :is(input, select, textarea):focus-visible {
+.weq-self-field-inputs :is(input, .weq-select-trigger, textarea):focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 1px;
 }
@@ -124,7 +124,7 @@
   min-width: 0;
   max-width: 400px;
 }
-.weq-self-field-inputs .weq-profile-region-editor :is(input, select) {
+.weq-self-field-inputs .weq-profile-region-editor :is(input, .weq-select-trigger) {
   width: 100%;
   max-width: none;
 }

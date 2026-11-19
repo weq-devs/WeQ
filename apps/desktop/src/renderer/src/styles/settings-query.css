@@ -34,7 +34,7 @@
   max-width: 100%;
 }
 
-.weq-api-model-field > select {
+.weq-api-model-field > .weq-select-trigger {
   width: 100%;
   min-width: 0;
   max-width: 100%;

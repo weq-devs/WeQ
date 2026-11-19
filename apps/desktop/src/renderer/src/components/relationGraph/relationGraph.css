@@ -449,46 +449,7 @@
 }
 
 .weq-graph-range {
-  --pct: 0%;
   width: 100%;
-  height: 22px;
-  appearance: none;
-  background: transparent;
-  cursor: pointer;
-}
-
-.weq-graph-range::-webkit-slider-runnable-track {
-  height: 6px;
-  border-radius: 999px;
-  background: linear-gradient(
-    to right,
-    #0099ff 0%,
-    #39adff var(--pct),
-    rgba(0, 153, 255, 0.16) var(--pct),
-    rgba(0, 153, 255, 0.16) 100%
-  );
-}
-
-.weq-graph-range::-webkit-slider-thumb {
-  appearance: none;
-  width: 18px;
-  height: 18px;
-  margin-top: -6px;
-  border-radius: 50%;
-  border: 3px solid #ffffff;
-  background: #0099ff;
-  box-shadow: 0 2px 7px rgba(0, 122, 204, 0.5);
-  cursor: pointer;
-  transition: transform 120ms ease;
-}
-
-.weq-graph-range:hover::-webkit-slider-thumb {
-  background: #0a8fee;
-  transform: scale(1.12);
-}
-
-.weq-graph-range:active::-webkit-slider-thumb {
-  transform: scale(1.18);
 }
 
 /* segmented */

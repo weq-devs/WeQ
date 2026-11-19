@@ -126,7 +126,7 @@
 }
 .contact-history button:focus-visible,
 .contact-history summary:focus-visible,
-.contact-history select:focus-visible {
+.contact-history .weq-select-trigger:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
 }

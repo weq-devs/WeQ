@@ -36,9 +36,9 @@
 .weq-qzn button:focus-visible,
 .weq-qzn-composer button:focus-visible,
 .weq-qzn input:focus-visible,
-.weq-qzn select:focus-visible,
+.weq-qzn .weq-select-trigger:focus-visible,
 .weq-qzn-composer textarea:focus-visible,
-.weq-qzn-composer select:focus-visible {
+.weq-qzn-composer .weq-select-trigger:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
@@ -115,8 +115,8 @@
   font-size: 12px;
   color: var(--muted-foreground);
 }
-.weq-qzn select,
-.weq-qzn-composer select {
+.weq-qzn .weq-select-trigger,
+.weq-qzn-composer .weq-select-trigger {
   padding: 6px 8px;
   background: var(--muted);
   border-radius: 5px;
@@ -478,7 +478,7 @@
   .weq-web-dialog-layer .weq-qzn-composer footer {
     flex-wrap: wrap;
   }
-  .weq-web-dialog-layer .weq-qzn-composer :is(textarea, select) {
+  .weq-web-dialog-layer .weq-qzn-composer :is(textarea, .weq-select-trigger) {
     font-size: 16px;
   }
 }
@@ -491,12 +491,12 @@
   padding: 12px;
   margin: 14px 0;
 }
-.weq-qzn-composer select {
+.weq-qzn-composer .weq-select-trigger {
   background: var(--weq-bg-elevated);
   color: var(--weq-fg-primary);
   border: 1px solid var(--weq-border-strong);
 }
-.weq-qzn-composer select option {
+.weq-qzn-composer .weq-select-trigger option {
   background: var(--weq-bg-surface);
   color: var(--weq-fg-primary);
 }

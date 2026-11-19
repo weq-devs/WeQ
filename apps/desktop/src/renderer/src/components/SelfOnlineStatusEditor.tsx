@@ -1,3 +1,4 @@
+import { FormSelect } from './FormSelect';
 import { useEffect, useId, useRef, useState } from 'react';
 import { ChevronDown, RefreshCw, Save, Smile } from 'lucide-react';
 import type { inferRouterOutputs } from '@trpc/server';
@@ -105,7 +106,7 @@ function StatusForm({
   const [error, setError] = useState('');
   const mounted = useRef(true);
   const running = useRef(false);
-  const first = useRef<HTMLSelectElement>(null);
+  const first = useRef<HTMLButtonElement>(null);
   const faceTrigger = useRef<HTMLButtonElement>(null);
   const facePicker = useRef<HTMLDivElement>(null);
   useSurfaceEscapeDismissal(
@@ -197,7 +198,7 @@ function StatusForm({
       <fieldset disabled={disabled}>
         <label>
           <span>在线状态</span>
-          <select
+          <FormSelect
             ref={first}
             aria-label="在线状态"
             className="weq-qq-write-input"
@@ -217,12 +218,12 @@ function StatusForm({
                 {option.label}
               </option>
             ))}
-          </select>
+          </FormSelect>
         </label>
         {base === 10 ? (
           <label>
             <span>扩展在线状态</span>
-            <select
+            <FormSelect
               aria-label="扩展在线状态"
               className="weq-qq-write-input"
               value={extended}
@@ -245,7 +246,7 @@ function StatusForm({
               !presets.data?.some((option) => option.value === extended) ? (
                 <option value={extended}>未识别（{extended}）</option>
               ) : null}
-            </select>
+            </FormSelect>
           </label>
         ) : null}
         {base === 10 && extended !== 0 && !isCustom ? (

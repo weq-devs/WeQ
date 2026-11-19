@@ -3382,7 +3382,7 @@ html[data-theme='dark'] .weq-mface-detail-nav {
   font-size: 12px;
 }
 .weq-record-filters input,
-.weq-record-filters select {
+.weq-record-filters .weq-select-trigger {
   max-width: 100%;
   min-width: 0;
   height: 30px;
@@ -5967,7 +5967,7 @@ html[data-theme='dark'] .weq-set-mono {
   background: #ffffff;
   outline: none;
 }
-:where(input, select).weq-set-input {
+:where(input, .weq-select-trigger).weq-set-input {
   min-height: 30px;
   line-height: normal;
 }
@@ -6104,7 +6104,7 @@ html[data-theme='dark'] .weq-set-agent-tag {
 }
 
 .weq-set-agent-path {
-  font-family: var(--weq-font-mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
   color: #8a93a0;
   overflow: hidden;
@@ -10324,7 +10324,7 @@ html[data-theme='dark'] .weq-forward-row-name:where(:not(.message-name)) {
   flex: none;
 }
 
-.weq-agentlab-field select,
+.weq-agentlab-field .weq-select-trigger,
 .weq-agentlab-field input,
 .weq-agentlab-field textarea {
   width: 100%;
@@ -10336,14 +10336,14 @@ html[data-theme='dark'] .weq-forward-row-name:where(:not(.message-name)) {
   font-size: 13px;
 }
 
-.weq-agentlab-field select,
+.weq-agentlab-field .weq-select-trigger,
 .weq-agentlab-field input {
   min-height: 40px;
   padding: 0 12px;
 }
 
 /* 选中输入框：边框统一走主题色（聊天 composer / 各配置面板 / 克隆体设置）。 */
-.weq-agentlab-field select:focus,
+.weq-agentlab-field .weq-select-trigger:focus,
 .weq-agentlab-field input:focus,
 .weq-agentlab-field textarea:focus {
   outline: none;
@@ -11645,7 +11645,7 @@ html[data-theme='dark'] .weq-forward-row-name:where(:not(.message-name)) {
 }
 .weq-clone-config input:focus,
 .weq-clone-config textarea:focus,
-.weq-clone-config select:focus {
+.weq-clone-config .weq-select-trigger:focus {
   outline: none;
   border-color: var(--weq-accent-effective);
 }
@@ -16653,7 +16653,7 @@ html[data-theme='dark'] .weq-cap {
   font-size: 11.5px;
   color: var(--weq-fg-muted);
 }
-.weq-cap-acct select {
+.weq-cap-acct .weq-select-trigger {
   height: 24px;
   max-width: 200px;
   padding: 0 6px;
@@ -16663,7 +16663,7 @@ html[data-theme='dark'] .weq-cap {
   color: var(--weq-fg-primary);
   font-size: 11.5px;
 }
-.weq-cap-acct select:focus {
+.weq-cap-acct .weq-select-trigger:focus {
   outline: none;
   border-color: var(--weq-accent-effective);
 }
@@ -26272,7 +26272,7 @@ html[data-theme='dark'] .weq-mf-mall-card {
   color: var(--weq-fg-secondary);
   font-size: 12px;
 }
-.weq-group-list-basis select {
+.weq-group-list-basis .weq-select-trigger {
   min-width: 0;
   padding: 5px 8px;
   border: 1px solid var(--weq-border-subtle);

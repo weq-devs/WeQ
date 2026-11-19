@@ -54,7 +54,7 @@ try {
           `http://127.0.0.1:${server.httpServer.address().port}/test/browser/ai-model-settings.html`,
         );
         await page.getByRole('button', { name: 'API 配置', exact: true }).click();
-        const defaults = page.locator('select[aria-label^="默认"]');
+        const defaults = page.getByRole('combobox', { name: /^默认/ });
         await defaults.first().waitFor();
         assert.deepEqual(
           await defaults.evaluateAll((nodes) =>
@@ -64,11 +64,13 @@ try {
         );
         for (const [index, label] of ['聊天', '视觉', '向量'].entries()) {
           const field = defaults.nth(index);
-          assert.equal(
-            await field.locator('option[value=""]').textContent(),
-            `未设置默认${label}模型`,
-          );
-          assert.equal(await field.locator('option[value="default"]').count(), 0);
+          assert.equal((await field.textContent())?.trim(), `未设置默认${label}模型`);
+          await field.click();
+          const menuId = await field.getAttribute('aria-controls');
+          const menu = page.locator(`[role="listbox"][id=${JSON.stringify(menuId)}]`);
+          await menu.waitFor();
+          assert.equal(await menu.locator('[role="option"][data-value="default"]').count(), 0);
+          await field.press('Escape');
         }
         await page.evaluate(
           ({ theme, style }) => {

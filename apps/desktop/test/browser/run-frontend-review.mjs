@@ -1,3 +1,4 @@
+import { chooseFormOption } from './form-select.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
@@ -154,7 +155,7 @@ try {
           (await page.evaluate(() => window.reviewQa.contrast())) >= 4.5,
           `${width}/${theme}/${style} 主按钮对比度`,
         );
-        await page.getByRole('combobox', { name: '时间范围', exact: true }).selectOption('7d');
+        await chooseFormOption(page.getByRole('combobox', { name: '时间范围', exact: true }), '7d');
         await page.getByRole('radio', { name: '精确选择', exact: true }).click();
         await page.getByRole('radio', { name: '按条件', exact: true }).click();
         await assertFits(`导出控件 ${width}/${theme}/${style}`);

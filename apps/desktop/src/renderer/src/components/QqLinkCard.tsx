@@ -98,7 +98,7 @@ export const QqLinkCard = memo(function QqLinkCard({
       className="weq-ark-container weq-link-card"
       role="link"
       title={card.url}
-      onClick={() => openLink(card.url)}
+      onClick={(event) => void openLink(card.url, event.currentTarget.ownerDocument)}
     >
       <div className="weq-ark-content">
         <div className="weq-ark-title">{card.title || card.url}</div>

@@ -207,7 +207,7 @@
   margin-bottom: 12px;
   font-size: 12px;
 }
-.weq-calendar-task-date input {
+.weq-calendar-task-date .weq-date-filter {
   min-width: 0;
   max-width: 100%;
   background: var(--weq-bg-surface);

@@ -1,4 +1,5 @@
 import { NumericText } from './NumericText';
+import { CalendarDateField } from './CalendarDateField';
 import {
   CALENDAR_SOURCE_ORDER,
   type CalendarTarget,
@@ -113,19 +114,17 @@ export function CalendarStatistics({
       {onDayChange && month ? (
         <label className="weq-calendar-task-date">
           列表日期
-          <input
-            type="date"
-            aria-label="列表日期"
+          <CalendarDateField
+            label="列表日期"
             value={day}
+            clearable={false}
             min={`${month}-01`}
             max={
               snapshot?.days.at(-1)?.day && snapshot.days.at(-1)!.day < beijingDay()
                 ? snapshot.days.at(-1)!.day
                 : beijingDay()
             }
-            onChange={(event) => {
-              if (event.target.value) onDayChange(event.target.value);
-            }}
+            onChange={onDayChange}
           />
         </label>
       ) : (

@@ -1,3 +1,4 @@
+import { FormSelect } from './FormSelect';
 import { NumericText } from './NumericText';
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
@@ -23,7 +24,9 @@ export const MessageCalendar = memo(function MessageCalendar({
   dayStatus,
   yearOptions,
   statusText,
+  minDay,
   maxDay,
+  dateOnly = false,
   fixedWeekCount = true,
 }: {
   days?: readonly MessageDay[];
@@ -41,7 +44,9 @@ export const MessageCalendar = memo(function MessageCalendar({
   dayStatus?: Record<string, { complete: boolean; reason?: string; paused?: boolean }>;
   yearOptions?: string[];
   statusText?: string;
+  minDay?: string;
   maxDay?: string;
+  dateOnly?: boolean;
   fixedWeekCount?: boolean;
 }) {
   const [localMonth, setLocalMonth] = useState((start || beijingDay()).slice(0, 7));
@@ -80,7 +85,7 @@ export const MessageCalendar = memo(function MessageCalendar({
         <button type="button" title="上个月" aria-label="上个月" onClick={() => move(-1)}>
           <ChevronLeft size={16} />
         </button>
-        <select
+        <FormSelect
           aria-label="年份"
           value={year}
           onChange={(e) => {
@@ -91,8 +96,8 @@ export const MessageCalendar = memo(function MessageCalendar({
           {years.map((y) => (
             <option key={y}>{y}</option>
           ))}
-        </select>
-        <select
+        </FormSelect>
+        <FormSelect
           aria-label="月份"
           value={mon}
           onChange={(e) => {
@@ -105,7 +110,7 @@ export const MessageCalendar = memo(function MessageCalendar({
               {monthNumber} 月
             </option>
           ))}
-        </select>
+        </FormSelect>
         <button type="button" title="下个月" aria-label="下个月" onClick={() => move(1)}>
           <ChevronRight size={16} />
         </button>
@@ -123,6 +128,9 @@ export const MessageCalendar = memo(function MessageCalendar({
           if (date < 1 || date > length) return <span key={key} />;
           const day = `${month}-${String(date).padStart(2, '0')}`;
           const future = Boolean(maxDay && day > maxDay);
+          const beforeStart = Boolean(minDay && day < minDay);
+          const outside = future || beforeStart;
+          const unavailable = beforeStart || (dateOnly && future);
           const reason = dayStatus?.[day]?.reason;
           const paused = dayStatus?.[day]?.paused;
           const count = counts.get(day) ?? 0;
@@ -134,35 +142,43 @@ export const MessageCalendar = memo(function MessageCalendar({
               type="button"
               key={key}
               data-density={messageDensity(count, maxCount)}
-              className={`${selected && !future ? 'is-selected' : ''} ${inRange && !future ? 'is-range' : ''} ${future ? 'is-future' : ''}`}
-              aria-pressed={selected && !future}
+              className={`${selected && !outside ? 'is-selected' : ''} ${inRange && !outside ? 'is-range' : ''} ${outside ? 'is-future' : ''}`}
+              aria-pressed={selected && !outside}
               aria-label={
-                future
-                  ? `${day}，未来日期不统计`
-                  : reason
-                    ? `${day}，${reason}`
-                    : paused
-                      ? `${day}，统计已暂停`
-                      : pending
-                        ? count > 0
-                          ? `${day}，已计 ${count} 条，尚未完成`
-                          : `${day}，消息数量统计中`
-                        : `${day}，${count} 条消息`
+                unavailable
+                  ? `${day}，不在可选范围内`
+                  : dateOnly
+                    ? day
+                    : future
+                      ? `${day}，未来日期不统计`
+                      : reason
+                        ? `${day}，${reason}`
+                        : paused
+                          ? `${day}，统计已暂停`
+                          : pending
+                            ? count > 0
+                              ? `${day}，已计 ${count} 条，尚未完成`
+                              : `${day}，消息数量统计中`
+                            : `${day}，${count} 条消息`
               }
               title={
-                future
-                  ? `${day}（北京时间）：未来日期不统计`
-                  : reason
-                    ? `${day}（北京时间）：${reason}`
-                    : paused
-                      ? `${day}（北京时间）：统计已暂停`
-                      : pending
-                        ? count > 0
-                          ? `${day}（北京时间）：已计 ${count.toLocaleString('zh-CN')} 条，尚未完成`
-                          : `${day}（北京时间）：消息数量统计中`
-                        : `${day}（北京时间）：${count.toLocaleString('zh-CN')} 条`
+                unavailable
+                  ? `${day}（北京时间）：不在可选范围内`
+                  : dateOnly
+                    ? `${day}（北京时间）`
+                    : future
+                      ? `${day}（北京时间）：未来日期不统计`
+                      : reason
+                        ? `${day}（北京时间）：${reason}`
+                        : paused
+                          ? `${day}（北京时间）：统计已暂停`
+                          : pending
+                            ? count > 0
+                              ? `${day}（北京时间）：已计 ${count.toLocaleString('zh-CN')} 条，尚未完成`
+                              : `${day}（北京时间）：消息数量统计中`
+                            : `${day}（北京时间）：${count.toLocaleString('zh-CN')} 条`
               }
-              disabled={future || busy || (!allowEmpty && (loading || !count))}
+              disabled={outside || busy || (!allowEmpty && (loading || !count))}
               onClick={() => {
                 initialized.current = true;
                 onPick(day);

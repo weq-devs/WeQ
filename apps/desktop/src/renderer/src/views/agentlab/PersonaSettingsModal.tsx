@@ -1,5 +1,7 @@
 /** 克隆体设置：配置统一保存，即时管理操作与配置分开。 */
 
+import { FormSelect } from '../../components/FormSelect';
+import { FormRange } from '../../components/FormRange';
 import {
   useEffect,
   useRef,
@@ -180,8 +182,7 @@ function WillingTab({
         <span>
           总体发言意愿：<span className="weq-number weq-number-inherit">{level}</span> · {levelHint}
         </span>
-        <input
-          type="range"
+        <FormRange
           min={0}
           max={100}
           step={5}
@@ -212,8 +213,7 @@ function WillingTab({
           <span>
             手滑频率：<span className="weq-number weq-number-inherit">{typoPct}</span>% · {typoHint}
           </span>
-          <input
-            type="range"
+          <FormRange
             min={0}
             max={30}
             step={1}
@@ -319,7 +319,7 @@ function VoiceTab({
         <>
           <label className="weq-agentlab-field">
             <span>TTS 服务商</span>
-            <select
+            <FormSelect
               className="weq-set-input"
               value={currentProvider?.id ?? ''}
               onChange={(e) => setProviderId(e.target.value)}
@@ -329,7 +329,7 @@ function VoiceTab({
                   {p.name}
                 </option>
               ))}
-            </select>
+            </FormSelect>
           </label>
           <label className="weq-agentlab-field">
             <span>音色方式</span>
