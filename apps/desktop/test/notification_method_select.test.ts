@@ -9,6 +9,7 @@ import {
 import { NotificationMethodSelect } from '../src/renderer/src/components/settings/NotificationMethodSelect';
 import { NotificationEventSettings } from '../src/renderer/src/components/settings/NotificationEventSettings';
 import { NOTIFICATION_METHODS, notificationEventPatch } from '../src/shared/notification_method';
+import { chooseFormOption, formOptions, formSelectSelector } from './support/form-controls';
 
 const state = vi.hoisted(() => ({
   settings: undefined as { notificationEvents: NotificationEvents } | undefined,
@@ -103,18 +104,17 @@ function mount(event: NotificationEvent = 'mail', table = false) {
     act(() => root.unmount());
     host.remove();
   });
-  const select = host.querySelector('select')!;
+  const select = host.querySelector<HTMLButtonElement>(formSelectSelector)!;
   const choose = (value: string) => {
-    select.value = value;
-    select.dispatchEvent(new Event('change', { bubbles: true }));
+    chooseFormOption(select, value);
   };
   return { host, select, choose, render };
 }
 it.each(NOTIFICATION_METHODS)('回显 $label，且只有四种选择', (method) => {
   state.settings!.notificationEvents.mail = { ...method.channels };
   const { select } = mount();
-  expect(select.value).toBe(method.value);
-  expect(select.options.length).toBe(4);
+  expect(select.dataset.value).toBe(method.value);
+  expect(formOptions(select).length).toBe(4);
   expect(select.getAttribute('aria-label')).toBe('新邮件通知方式');
 });
 it('一次请求保存两个渠道，保留其他事件及共享状态，不跳转', async () => {
@@ -129,7 +129,7 @@ it('一次请求保存两个渠道，保留其他事件及共享状态，不跳�
       events: ['mail'],
       channels: { banner: true, system: false },
     });
-    expect(select.value).toBe('banner');
+    expect(select.dataset.value).toBe('banner');
     expect(state.settings!.notificationEvents).toEqual({
       ...original,
       mail: { banner: true, system: false },
@@ -152,31 +152,31 @@ it('保存期间禁用，失败恢复原方式，能够重新选择并重试', a
   const { host, select, choose } = mount();
   act(() => choose('off'));
   expect(select.disabled).toBe(true);
-  expect(select.value).toBe('off');
+  expect(select.dataset.value).toBe('off');
   await act(async () => reject(new Error('合成写入失败')));
   expect(select.disabled).toBe(false);
-  expect(select.value).toBe('both');
+  expect(select.dataset.value).toBe('both');
   expect(host.querySelector('[role="alert"]')?.textContent).toContain('合成写入失败');
   await act(async () => choose('system'));
-  expect(select.value).toBe('system');
+  expect(select.dataset.value).toBe('system');
   expect(host.querySelector('[role="alert"]')).toBeNull();
 });
 it('未读到配置不冒充默认值，读取失败提供就地重试', () => {
   state.settings = undefined;
   const { host, select, render } = mount();
   expect(select.disabled).toBe(true);
-  expect(select.value).toBe('');
-  expect(select.selectedOptions[0].textContent).toBe('正在读取…');
+  expect(select.dataset.value).toBe('');
+  expect(select.textContent).toBe('正在读取…');
   state.error = new Error('合成读取失败');
   render();
-  expect(select.selectedOptions[0].textContent).toBe('读取失败');
-  act(() => host.querySelector('button')!.click());
+  expect(select.textContent).toBe('读取失败');
+  act(() => host.querySelector<HTMLButtonElement>('[role="alert"] button')!.click());
   expect(state.refetch).toHaveBeenCalledOnce();
   state.settings = { notificationEvents: normalizeNotificationEvents(undefined) };
   state.error = null;
   render();
   expect(select.disabled).toBe(false);
-  expect(select.value).toBe('both');
+  expect(select.dataset.value).toBe('both');
 });
 it('与统一设置表双向回显同一配置', async () => {
   const { host, select, choose, render } = mount('mail', true);
@@ -186,7 +186,7 @@ it('与统一设置表双向回显同一配置', async () => {
   expect(system.getAttribute('aria-checked')).toBe('false');
   await act(async () => system.click());
   render();
-  expect(select.value).toBe('both');
+  expect(select.dataset.value).toBe('both');
 });
 it.each(['denied', 'unsupported', 'rejected', 'throws', 'granted'])(
   '浏览器权限 %s 不丢失已保存方式',
@@ -204,7 +204,7 @@ it.each(['denied', 'unsupported', 'rejected', 'throws', 'granted'])(
     );
     const { host, select, choose } = mount();
     await act(async () => choose('both'));
-    expect(select.value).toBe('both');
+    expect(select.dataset.value).toBe('both');
     expect(state.settings!.notificationEvents.mail).toEqual({ banner: true, system: true });
     if (permission === 'granted') {
       expect(state.preference).toHaveBeenCalledWith('webNotifications', true);
@@ -234,7 +234,7 @@ it.each(['denied', 'granted'])(
     expect(select.getAttribute('aria-busy')).toBe('false');
     await act(async () => choose('off'));
     await act(async () => resolve(permission));
-    expect(select.value).toBe('off');
+    expect(select.dataset.value).toBe('off');
     expect(host.querySelector('[role="alert"]')).toBeNull();
     expect(state.preference).not.toHaveBeenCalled();
   },
@@ -246,7 +246,7 @@ it('浏览器授权成功但启用偏好返回失败时，不将其当作完全�
   state.preference.mockResolvedValueOnce(false);
   const { host, select, choose } = mount();
   await act(async () => choose('both'));
-  expect(select.value).toBe('both');
+  expect(select.dataset.value).toBe('both');
   expect(host.querySelector('[role="alert"]')?.textContent).toContain('通知方式已保存');
   expect(host.querySelector('[role="alert"]')?.textContent).toContain('未保存');
 });

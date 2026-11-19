@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { AnalysisReportsTool } from '../src/renderer/src/views/analysis/AnalysisReportsTool';
 import type { AnalysisReportSummary } from '../../../packages/service/src/account/analysis_reports';
+import { chooseFormOption } from './support/form-controls';
 const f = vi.hoisted(() => ({
   reports: [] as AnalysisReportSummary[],
   confirm: vi.fn(async () => false),
@@ -130,26 +131,23 @@ it('按类型、群归属和执行状态查找，失败记录仍显示可读旧�
   const root = createRoot(host);
   try {
     await act(async () => root.render(createElement(AnalysisReportsTool, { onOpenReport() {} })));
-    const type = host.querySelector<HTMLSelectElement>('[aria-label="筛选报告类型"]')!;
+    const type = host.querySelector<HTMLButtonElement>('[aria-label="筛选报告类型"]')!;
     await act(async () => {
-      type.value = 'member';
-      type.dispatchEvent(new Event('change', { bubbles: true }));
+      chooseFormOption(type, 'member');
     });
     expect(host.querySelectorAll('[aria-label^="查看报告 "]')).toHaveLength(1);
     expect(host.textContent).toContain('课程群（20001）');
     expect(host.textContent).toContain('结果范围：全部本地历史');
     expect(host.textContent).toContain('本次范围：2026-11-01 至 2026-11-01');
     expect(host.textContent).toContain('已保存 · 版本 1 · 分析失败');
-    const status = host.querySelector<HTMLSelectElement>('[aria-label="筛选报告状态"]')!;
+    const status = host.querySelector<HTMLButtonElement>('[aria-label="筛选报告状态"]')!;
     await act(async () => {
-      status.value = 'completed';
-      status.dispatchEvent(new Event('change', { bubbles: true }));
+      chooseFormOption(status, 'completed');
     });
     expect(host.textContent).toContain('没有匹配的分析报告');
     const search = host.querySelector<HTMLInputElement>('[aria-label="搜索分析报告"]')!;
     await act(async () => {
-      status.value = 'all';
-      status.dispatchEvent(new Event('change', { bubbles: true }));
+      chooseFormOption(status, 'all');
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
         search,
         '不存在',

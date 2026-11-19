@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { MailExportPane } from '../src/renderer/src/views/export/MailExportPane';
 import type { ContentSelection } from '../src/shared/content_selection';
 import type { MailSummary } from '@weq/service/mail';
+import { changeInput, chooseCalendarDate } from './support/form-controls';
 
 const state = vi.hoisted(() => ({
   current: true,
@@ -97,16 +98,14 @@ async function mount(selection?: ContentSelection) {
       if (confirm) await act(async () => confirm.click());
     },
     input: async (index: number, value: string) => {
-      const input = host.querySelectorAll<HTMLInputElement>('.weq-mail-export-filters input')[
-        index
-      ]!;
       await act(async () => {
-        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
-          input,
-          value,
-        );
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
+        const filters = host.querySelector('.weq-mail-export-filters')!;
+        if (index < 2) {
+          const date = filters.querySelectorAll<HTMLButtonElement>(
+            'button[aria-haspopup="dialog"]',
+          )[index]!;
+          chooseCalendarDate(date, value);
+        } else changeInput(filters.querySelectorAll('input')[index - 2]!, value);
       });
     },
     close: () => {

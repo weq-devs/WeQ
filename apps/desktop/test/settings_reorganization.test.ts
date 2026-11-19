@@ -870,7 +870,9 @@ describe('设置归位后的实际页面', () => {
       f.render('mail');
       expect(f.body().querySelector('[aria-label="在邮箱图标上显示红点"]')).toBeNull();
       expect(f.body().querySelector('[aria-label="收到新邮件时横幅提醒"]')).toBeNull();
-      expect(f.body().querySelector('select[aria-label="新邮件通知方式"]')).not.toBeNull();
+      expect(
+        f.body().querySelector('button[role="combobox"][aria-label="新邮件通知方式"]'),
+      ).not.toBeNull();
       expect(
         f.body().querySelector('[role="switch"][aria-label="邮箱导航未读角标"]'),
       ).not.toBeNull();

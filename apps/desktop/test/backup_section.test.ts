@@ -10,6 +10,7 @@ import {
   SettingsResetProvider,
 } from '../src/renderer/src/components/settings/SettingsReset';
 import type { SettingsResetItem, SettingsResetResult } from '../src/shared/settings_reset';
+import { chooseFormOption } from './support/form-controls';
 
 const reset = vi.hoisted(() => ({ preview: vi.fn(), restore: vi.fn(), snapshot: vi.fn() }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
@@ -306,15 +307,14 @@ it('全局恢复的 API、服务与目录仅在显式选择后重置，重新打
   const modal = document.querySelector('[role="dialog"]')!;
   const apiToggle = modal.querySelector<HTMLButtonElement>('[aria-label="清除 API 配置"]')!;
   const services = modal.querySelector<HTMLButtonElement>('[aria-label="清除 WeQ 服务配置"]')!;
-  const directory = modal.querySelector<HTMLSelectElement>('[aria-label="导出目录"]')!;
+  const directory = modal.querySelector<HTMLButtonElement>('[aria-label="导出目录"]')!;
   expect(apiToggle.getAttribute('aria-checked')).toBe('false');
   expect(services.getAttribute('aria-checked')).toBe('false');
-  expect(directory.value).toBe('keep');
+  expect(directory.dataset.value).toBe('keep');
   await act(async () => apiToggle.click());
   await act(async () => services.click());
   await act(async () => {
-    directory.value = 'reset';
-    directory.dispatchEvent(new Event('change', { bubbles: true }));
+    chooseFormOption(directory, 'reset');
   });
   expect(modal.textContent).toContain('断开');
   expect(modal.textContent).toContain('不迁移或删除已有文件');

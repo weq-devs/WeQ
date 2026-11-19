@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ExportSavePolicy } from '@weq/service';
 import { MediaSourceSave } from '../src/renderer/src/components/MediaSaveControls';
 import { useMediaSave } from '../src/renderer/src/components/MediaSaveControls.shared';
-import { TransferActivityProvider } from '../src/renderer/src/lib/transferActivity';
+import { TransferActivityProvider } from '../src/renderer/src/components/TransferActivityProvider';
 import { mediaTransferTarget, type ActiveTransfer } from '../src/shared/transfer_progress';
 import { QqFile, QqVoice } from '../src/renderer/src/components/QqMedia';
 import { GroupFileDialog } from '../src/renderer/src/components/GroupFileDialog';

@@ -687,9 +687,9 @@ describe('多 API provider 配置', () => {
     act(() => f.host.querySelector<HTMLButtonElement>('[role="alert"] button')!.click());
     expect(state.refetch).toHaveBeenCalledOnce();
     expect(
-      f.host.querySelector<HTMLSelectElement>(
+      f.host.querySelector<HTMLButtonElement>(
         `[aria-label="${tts ? 'TTS 服务商模板' : 'API 服务商模板'}"]`,
-      )!.value,
+      )!.dataset.value,
     ).toBe(tts ? 'cosyvoice' : 'siliconflow');
     expect(f.host.querySelector<HTMLInputElement>('input[type="password"]')!.value).toBe(
       tts ? 'synthetic-voice-first' : 'synthetic-first-key',

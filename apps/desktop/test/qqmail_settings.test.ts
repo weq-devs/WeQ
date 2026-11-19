@@ -92,7 +92,7 @@ describe('QQ 邮箱设置', () => {
     try {
       expect(view.toggle('邮箱导航未读角标').getAttribute('aria-checked')).toBe('false');
       expect(
-        view.host.querySelector<HTMLSelectElement>('[aria-label="新邮件通知方式"]')?.value,
+        view.host.querySelector<HTMLButtonElement>('[aria-label="新邮件通知方式"]')?.dataset.value,
       ).toBe('both');
       expect(view.navigate).not.toHaveBeenCalled();
     } finally {

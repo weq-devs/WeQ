@@ -7,6 +7,7 @@ import { TitleBar } from '../src/renderer/src/im-template/template/TitleBar';
 import type { User } from '../src/renderer/src/im-template/template/types';
 import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 import SelfOnlineStatusEditor from '../src/renderer/src/components/SelfOnlineStatusEditor';
+import { chooseFormOption } from './support/form-controls';
 
 vi.mock('../src/renderer/src/components/settings/EditableSelfProfile', () => ({
   useEditableSelfProfileFields: () => ({ fields: {}, feedback: null }),
@@ -196,10 +197,9 @@ function input(host: HTMLElement, name: string, value: string) {
   });
 }
 function selectExtended(host: HTMLElement, value: string) {
-  const select = host.querySelector<HTMLSelectElement>('[aria-label="扩展在线状态"]')!;
+  const select = host.querySelector<HTMLButtonElement>('[aria-label="扩展在线状态"]')!;
   act(() => {
-    select.value = value;
-    select.dispatchEvent(new Event('change', { bubbles: true }));
+    chooseFormOption(select, value);
   });
 }
 beforeEach(() => {
@@ -231,9 +231,9 @@ describe('个人资料编辑入口', () => {
       customStatus: { faceId: 14, faceType: 1, text: '迟到的完整状态' },
     };
     f.render();
-    expect(f.host.querySelector<HTMLSelectElement>('[aria-label="扩展在线状态"]')!.value).toBe(
-      '2000',
-    );
+    expect(
+      f.host.querySelector<HTMLButtonElement>('[aria-label="扩展在线状态"]')!.dataset.value,
+    ).toBe('2000');
     expect(f.host.querySelector<HTMLInputElement>('[aria-label="自定义状态文字"]')!.value).toBe(
       '迟到的完整状态',
     );
@@ -243,9 +243,8 @@ describe('个人资料编辑入口', () => {
     state.status = { type: 10, subType: 1018, customStatus: undefined };
     const f = fixture();
     act(() => {
-      const base = f.host.querySelector<HTMLSelectElement>('[aria-label="在线状态"]')!;
-      base.value = '30';
-      base.dispatchEvent(new Event('change', { bubbles: true }));
+      const base = f.host.querySelector<HTMLButtonElement>('[aria-label="在线状态"]')!;
+      chooseFormOption(base, '30');
     });
     expect(f.host.querySelector('[aria-label="扩展在线状态"]')).toBeNull();
     expect(state.mutate).not.toHaveBeenCalled();
@@ -298,7 +297,9 @@ describe('个人资料编辑入口', () => {
     await act(async () => reject(new Error('合成状态提交失败')));
     expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('合成状态提交失败');
     expect(save.disabled).toBe(false);
-    expect(f.host.querySelector<HTMLSelectElement>('[aria-label="在线状态"]')!.value).toBe('10');
+    expect(f.host.querySelector<HTMLButtonElement>('[aria-label="在线状态"]')!.dataset.value).toBe(
+      '10',
+    );
   });
   it.each([
     { label: '性别', value: '1', payload: { patch: { gender: 1 } } },
@@ -310,9 +311,8 @@ describe('个人资料编辑入口', () => {
       if (label === '性别') {
         f.host.querySelectorAll<HTMLButtonElement>('[aria-label="性别"] button')[1]!.click();
       } else {
-        const select = f.host.querySelector<HTMLSelectElement>(`[aria-label="${label}"]`)!;
-        select.value = value;
-        select.dispatchEvent(new Event('change', { bubbles: true }));
+        const select = f.host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
+        chooseFormOption(select, value);
       }
       expect(state.mutate).not.toHaveBeenCalled();
     });
@@ -354,11 +354,10 @@ describe('个人资料编辑入口', () => {
       customStatus: { faceId: 0, text: '测试状态', faceType: 1 },
     };
     const f = fixture();
-    expect(f.host.querySelector<HTMLSelectElement>('[aria-label="在线状态"]')!.value).toBe('10');
-    expect(
-      f.host.querySelector<HTMLSelectElement>('[aria-label="扩展在线状态"]')!.selectedOptions[0]
-        .textContent,
-    ).toBe('自定义状态');
+    expect(f.host.querySelector<HTMLButtonElement>('[aria-label="在线状态"]')!.dataset.value).toBe(
+      '10',
+    );
+    expect(f.host.querySelector('[aria-label="扩展在线状态"]')!.textContent).toBe('自定义状态');
     expect(f.host.querySelector<HTMLInputElement>('[aria-label="自定义状态文字"]')!.value).toBe(
       '测试状态',
     );
@@ -497,11 +496,10 @@ describe('个人资料编辑入口', () => {
   it('基础状态在扩展状态上方，预设扩展状态预览图标后确认提交', async () => {
     const f = fixture();
     const basic = f.host.querySelector('[aria-label="在线状态"]')!;
-    const extended = f.host.querySelector<HTMLSelectElement>('[aria-label="扩展在线状态"]')!;
+    const extended = f.host.querySelector<HTMLButtonElement>('[aria-label="扩展在线状态"]')!;
     expect(basic.compareDocumentPosition(extended) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await act(async () => {
-      extended.value = '1018';
-      extended.dispatchEvent(new Event('change', { bubbles: true }));
+      chooseFormOption(extended, '1018');
     });
     const preview = f.host.querySelector('[aria-label="扩展状态预览"]')!;
     expect(preview.textContent).toBe('学习中');
@@ -534,10 +532,9 @@ describe('个人资料编辑入口', () => {
     expect(f.host.querySelector('.weq-qq-live-status')).toBeNull();
     expect(f.host.querySelector('[aria-label="查询服务端在线状态"]')).toBeNull();
     expect(f.host.textContent).not.toContain('服务端状态');
-    const select = f.host.querySelector<HTMLSelectElement>('[aria-label="扩展在线状态"]')!;
+    const select = f.host.querySelector<HTMLButtonElement>('[aria-label="扩展在线状态"]')!;
     await act(async () => {
-      select.value = '1018';
-      select.dispatchEvent(new Event('change', { bubbles: true }));
+      chooseFormOption(select, '1018');
     });
     await act(async () =>
       f.host.querySelector<HTMLButtonElement>('[aria-label="保存在线状态"]')!.click(),

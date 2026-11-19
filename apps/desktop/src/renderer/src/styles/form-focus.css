@@ -11,6 +11,7 @@ html:root[data-theme][data-weq-input-modality='pointer'] body
     [tabindex]:not(
       input,
       textarea,
+      select,
       .weq-select-trigger,
       [contenteditable]:not([contenteditable='false'])
     ),

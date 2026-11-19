@@ -1,33 +1,9 @@
 import { Monitor } from 'lucide-react';
-import { useState, type ReactNode, type VideoHTMLAttributes } from 'react';
+import type { ReactNode } from 'react';
 import { transferPercent, type TransferProgress } from '../../../shared/transfer_progress';
 import { useTransferProgress } from '../lib/transferActivity';
+import { transferDetail, transferLabel } from '../lib/transferPresentation';
 import '../styles/transfer-progress.css';
-
-export function transferLabel(progress: TransferProgress): string {
-  switch (progress.phase) {
-    case 'to-host':
-      return '正在传给电脑';
-    case 'upload':
-      return '正在上传';
-    case 'download':
-      return '正在下载';
-    case 'confirming':
-      return '正在确认结果';
-    case 'failed':
-      return '上传失败';
-    default:
-      return '正在准备';
-  }
-}
-
-export function transferDetail(progress: TransferProgress): string | undefined {
-  const percent = transferPercent(progress);
-  if (percent !== undefined) return `${percent}%`;
-  if (progress.items) return `已处理 ${progress.processed ?? 0}/${progress.items} 项`;
-  if (progress.processed) return `已处理 ${progress.processed} 项`;
-  return undefined;
-}
 
 export function TransferRing({
   progress,
@@ -105,24 +81,4 @@ export function MediaTransferBadge({ target }: { target?: string }) {
       <TransferRing progress={progress} size={19} />
     </span>
   ) : null;
-}
-
-/** 使用播放器的等待状态；时间轴的缓冲比例不是文件字节进度。 */
-export function useVideoBuffering(key: string, active: boolean) {
-  const [state, setState] = useState({ key: '', waiting: false });
-  const start = () => {
-    if (active) setState({ key, waiting: true });
-  };
-  const stop = () =>
-    setState((old) => (old.key === key && old.waiting ? { key, waiting: false } : old));
-  const events = {
-    onLoadStart: start,
-    onWaiting: start,
-    onPlaying: stop,
-    onCanPlay: stop,
-    onPause: stop,
-    onEnded: stop,
-    onError: stop,
-  } satisfies VideoHTMLAttributes<HTMLVideoElement>;
-  return { events, waiting: active && state.key === key && state.waiting };
 }

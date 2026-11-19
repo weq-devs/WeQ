@@ -11,6 +11,7 @@ import type { LightboxResult } from '../src/renderer/src/views/export/ExportLigh
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import type { ExportTask, ExportSavePolicy } from '@weq/service';
 import type { UiTask } from '../src/renderer/src/views/export/TaskList';
+import { chooseFormOption, formOptions } from './support/form-controls';
 
 const fixture = vi.hoisted(() => ({
   realPicker: false,
@@ -349,7 +350,9 @@ afterEach(() => {
   fixture.startResource.mockClear();
 });
 function click(host: HTMLElement, text: string) {
-  const button = [...host.querySelectorAll('button')].find((item) => item.textContent === text)!;
+  const button = [...host.querySelectorAll('button:not([role="combobox"])')].find(
+    (item) => item.textContent === text,
+  )!;
   act(() => button.click());
 }
 
@@ -661,9 +664,9 @@ describe('统一导出实际界面', () => {
       await act(async () => {
         await vi.dynamicImportSettled();
       });
-      const modes = f.host.querySelector<HTMLSelectElement>('#weq-export-content-kind');
-      expect(modes?.value).toBe('full');
-      expect(modes!.options.length).toBeGreaterThan(1);
+      const modes = f.host.querySelector<HTMLButtonElement>('#weq-export-content-kind');
+      expect(modes?.dataset.value).toBe('full');
+      expect(formOptions(modes!).length).toBeGreaterThan(1);
       expect(f.host.querySelector('[data-selection]')?.getAttribute('data-selection')).toBe(
         'u_fixture',
       );
@@ -676,12 +679,11 @@ describe('统一导出实际界面', () => {
       expect(f.host.querySelector('[data-selection]')?.getAttribute('data-selection')).toBe(
         'u_fixture',
       );
-      const reopenedModes = f.host.querySelector<HTMLSelectElement>('#weq-export-content-kind')!;
+      const reopenedModes = f.host.querySelector<HTMLButtonElement>('#weq-export-content-kind')!;
       act(() => {
-        reopenedModes.value = 'guild';
-        reopenedModes.dispatchEvent(new Event('change', { bubbles: true }));
+        chooseFormOption(reopenedModes, 'guild');
       });
-      expect(reopenedModes.value).toBe('guild');
+      expect(reopenedModes.dataset.value).toBe('guild');
     } finally {
       f.close();
     }
@@ -749,9 +751,8 @@ describe('统一导出实际界面', () => {
     });
     const mode = (value: string) =>
       act(() => {
-        const select = f.host.querySelector<HTMLSelectElement>('#weq-export-content-kind')!;
-        select.value = value;
-        select.dispatchEvent(new Event('change', { bubbles: true }));
+        const select = f.host.querySelector<HTMLButtonElement>('#weq-export-content-kind')!;
+        chooseFormOption(select, value);
       });
     try {
       await act(async () => {
@@ -812,9 +813,9 @@ describe('统一导出实际界面', () => {
       await act(async () => {
         await vi.dynamicImportSettled();
       });
-      expect(f.host.querySelector<HTMLSelectElement>('#weq-export-content-kind')!.value).toBe(
-        'qzone',
-      );
+      expect(
+        f.host.querySelector<HTMLButtonElement>('#weq-export-content-kind')!.dataset.value,
+      ).toBe('qzone');
       expect(f.host.querySelector('[aria-label="当前空间说说范围"]')).not.toBeNull();
       click(f.host, '导出空间');
       expect(f.host.querySelector('[data-export-summary]')!.textContent).toContain(
@@ -877,9 +878,9 @@ describe('统一导出实际界面', () => {
       await act(async () => {
         await vi.dynamicImportSettled();
       });
-      expect(f.host.querySelector<HTMLSelectElement>('#weq-export-content-kind')!.value).toBe(
-        'guild',
-      );
+      expect(
+        f.host.querySelector<HTMLButtonElement>('#weq-export-content-kind')!.dataset.value,
+      ).toBe('guild');
       captureLayout(f.host, 'guild-precise');
       act(() => f.host.querySelector<HTMLButtonElement>('.weq-exp-primary')!.click());
       expect(f.host.querySelector('[data-export-summary]')!.textContent).toContain(
@@ -1022,9 +1023,9 @@ describe('统一导出实际界面', () => {
       await act(async () => {
         await vi.dynamicImportSettled();
       });
-      expect(f.host.querySelector<HTMLSelectElement>('#weq-export-content-kind')!.value).toBe(
-        'contacts',
-      );
+      expect(
+        f.host.querySelector<HTMLButtonElement>('#weq-export-content-kind')!.dataset.value,
+      ).toBe('contacts');
       expect(f.host.textContent).toContain('精确选中 1 位好友');
       click(f.host, '导出联系人');
       expect(f.host.querySelector('[data-export-summary]')?.textContent).toContain(
@@ -1241,19 +1242,17 @@ describe('统一导出实际界面', () => {
       await act(async () => {
         await vi.dynamicImportSettled();
       });
-      const select = f.host.querySelector<HTMLSelectElement>('#weq-export-content-kind')!;
-      expect([...select.options].map((option) => option.value)).not.toContain('scheduled');
+      const select = f.host.querySelector<HTMLButtonElement>('#weq-export-content-kind')!;
+      expect(formOptions(select).map((option) => option.value)).not.toContain('scheduled');
       expect(f.host.querySelector('[data-selection]')?.getAttribute('data-selection')).toBe(
         'u_fixture',
       );
       act(() => {
-        select.value = 'qzone';
-        select.dispatchEvent(new Event('change', { bubbles: true }));
+        chooseFormOption(select, 'qzone');
       });
       expect(f.host.querySelector('[data-selection]')?.getAttribute('data-selection')).toBe('');
       act(() => {
-        select.value = 'full';
-        select.dispatchEvent(new Event('change', { bubbles: true }));
+        chooseFormOption(select, 'full');
       });
       expect(f.host.querySelector('[data-selection]')?.getAttribute('data-selection')).toBe(
         'u_fixture',

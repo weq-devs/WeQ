@@ -1,16 +1,5 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useState,
-  useSyncExternalStore,
-  type ReactNode,
-} from 'react';
-import { client } from '../trpc/client';
+import { createContext, useCallback, useContext, useSyncExternalStore } from 'react';
 import type { ActiveTransfer, TransferProgress } from '../../../shared/transfer_progress';
-
-type Binding = { expectedAccountUin: string; expectedAccountConfigId: string };
 
 function equal(a: TransferProgress | undefined, b: TransferProgress) {
   return (
@@ -67,43 +56,10 @@ export class TransferActivity {
   }
 }
 
-const ActivityContext = createContext<TransferActivity | null>(null);
+export const TransferActivityContext = createContext<TransferActivity | null>(null);
 const noSubscription = () => () => {};
 
-export function TransferActivityProvider({
-  binding,
-  children,
-}: {
-  binding: Binding | null;
-  children?: ReactNode;
-}) {
-  const [activity] = useState(() => new TransferActivity());
-  const uin = binding?.expectedAccountUin;
-  const configId = binding?.expectedAccountConfigId;
-  useEffect(() => {
-    if (!uin || !configId) return;
-    let active = true;
-    const subscription = client.account.transfers.watch.subscribe(
-      { expectedAccountUin: uin, expectedAccountConfigId: configId },
-      {
-        onData: (data) => {
-          if (active) activity.replace(data);
-        },
-        onError: () => {
-          if (active) activity.replace([]);
-        },
-      },
-    );
-    return () => {
-      active = false;
-      subscription.unsubscribe();
-      activity.replace([]);
-    };
-  }, [activity, uin, configId]);
-  return <ActivityContext.Provider value={activity}>{children}</ActivityContext.Provider>;
-}
-
-export const useTransferActivity = () => useContext(ActivityContext);
+export const useTransferActivity = () => useContext(TransferActivityContext);
 
 function useTransferValue<T>(
   key: string | undefined,

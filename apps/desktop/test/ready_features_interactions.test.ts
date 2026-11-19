@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QQ_REGIONS } from '@weq/protocol';
+import { chooseFormOption } from './support/form-controls';
 vi.mock(
   '../src/renderer/src/hooks/useContactDirectoryOrder',
   () => import('./support/contact-order.stub'),
@@ -462,10 +463,9 @@ describe('可接入功能交互回归', () => {
     expect(f.host.querySelector('input, select')).toBeNull();
     act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="编辑职业"]')!.click());
     expect(f.host.querySelector('[aria-label="保存职业"]')).not.toBeNull();
-    const select = f.host.querySelector<HTMLSelectElement>('[aria-label="职业"]')!;
+    const select = f.host.querySelector<HTMLButtonElement>('[aria-label="职业"]')!;
     await act(async () => {
-      select.value = '14';
-      select.dispatchEvent(new Event('change', { bubbles: true }));
+      chooseFormOption(select, '14');
 
       await vi.dynamicImportSettled();
     });

@@ -7,6 +7,7 @@ import { WeqAssistantSettingsSection } from '../src/renderer/src/views/agentlab/
 import { DialogHost } from '../src/renderer/src/components/Dialog';
 import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import type { AssistantConfig } from '@weq/service';
+import { chooseFormOption, formOptions } from './support/form-controls';
 
 const f = vi.hoisted(() => ({
   config: { permissionMode: 'sandbox' } as AssistantConfig,
@@ -82,7 +83,7 @@ it('requires the real warning confirmation before persisting unrestricted permis
   try {
     act(() => root.render(h(Fragment, {}, h(WeqAssistantSettingsSection), h(DialogHost))));
     expect(
-      [...document.querySelectorAll<HTMLOptionElement>('[aria-label="默认思考强度"] option')].map(
+      formOptions(document.querySelector<HTMLButtonElement>('[aria-label="默认思考强度"]')!).map(
         (option) => option.value,
       ),
     ).toEqual(['off', 'medium', 'high']);
@@ -137,31 +138,28 @@ it('选择保存失败仍保留当前选择，重试成功后才清除失败状�
   const root = createRoot(host);
   try {
     await act(async () => root.render(h(WeqAssistantSettingsSection)));
-    const effort = document.querySelector<HTMLSelectElement>('[aria-label="默认思考强度"]')!;
+    const effort = document.querySelector<HTMLButtonElement>('[aria-label="默认思考强度"]')!;
     await act(async () => {
-      effort.value = 'high';
-      effort.dispatchEvent(new Event('change', { bubbles: true }));
+      chooseFormOption(effort, 'high');
     });
-    expect(effort.value).toBe('high');
+    expect(effort.dataset.value).toBe('high');
     expect(document.body.textContent).toContain('合成保存失败');
     await act(async () =>
       [...document.querySelectorAll<HTMLButtonElement>('button')]
         .find((button) => button.textContent === '重试保存')!
         .click(),
     );
-    expect(effort.value).toBe('high');
+    expect(effort.dataset.value).toBe('high');
     expect(document.body.textContent).not.toContain('合成保存失败');
     f.save.mockRejectedValueOnce(new Error('第二次合成失败'));
     await act(async () => {
-      effort.value = 'medium';
-      effort.dispatchEvent(new Event('change', { bubbles: true }));
+      chooseFormOption(effort, 'medium');
     });
     await act(async () => {
-      const sending = document.querySelector<HTMLSelectElement>(
+      const sending = document.querySelector<HTMLButtonElement>(
         '[aria-label="运行中默认发送方式"]',
       )!;
-      sending.value = 'queue';
-      sending.dispatchEvent(new Event('change', { bubbles: true }));
+      chooseFormOption(sending, 'queue');
     });
     expect(f.save).toHaveBeenLastCalledWith(
       expect.objectContaining({ reasoningEffort: 'medium', sendMode: 'queue' }),

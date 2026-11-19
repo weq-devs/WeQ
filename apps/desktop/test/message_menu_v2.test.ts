@@ -91,7 +91,7 @@ it('基础与扩展动作重新分组，不再使用固定四列格位', async (
     '+1',
     '多选',
     '添加到素材库',
-    '显示原文',
+    '显示 Markdown',
     '另存为',
     '在文件夹中显示',
     '查看装扮',
@@ -113,7 +113,7 @@ it('文字直接显示切换，撤回只显示当前消息操作且禁用原因�
     recallBlockedReason: '正在处理',
     onExport: vi.fn(),
   });
-  expect(labels('.message-menu-group')).toContain('显示原文');
+  expect(labels('.message-menu-group')).toContain('显示 Markdown');
   expect(document.querySelector('[data-submenu-panel]')).toBeNull();
   expect(labels('.message-menu-group')).not.toContain('添加到表情');
   const button = document.querySelector<HTMLButtonElement>('[aria-label="撤回"]')!;
@@ -230,7 +230,7 @@ it('方向键在三行按钮间移动，Esc 关闭并归还焦点', async () => 
   press('ArrowRight');
   expect(document.activeElement?.getAttribute('aria-label')).toBe('添加到素材库');
   press('ArrowDown');
-  expect(document.activeElement?.textContent).toBe('显示原文');
+  expect(document.activeElement?.textContent).toBe('显示 Markdown');
   press('Escape');
   expect(close).toHaveBeenCalledOnce();
   expect(document.activeElement).toBe(origin);

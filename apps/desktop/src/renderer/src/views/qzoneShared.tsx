@@ -13,11 +13,8 @@ import { CircleDot, Loader2, Pause, Play, VideoOff, Images, RefreshCw } from 'lu
 import { MediaPreview, type PreviewMedia } from '../components/MediaPreview';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { ShimmerImage } from '../components/ShimmerImage';
-import {
-  MediaLoadingRing,
-  MediaTransferBadge,
-  useVideoBuffering,
-} from '../components/TransferRing';
+import { MediaLoadingRing, MediaTransferBadge } from '../components/TransferRing';
+import { useVideoBuffering } from '../hooks/useVideoBuffering';
 import { mediaTransferTarget } from '../../../shared/transfer_progress';
 import { qzoneMediaSource } from '../lib/qzone';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';

@@ -220,7 +220,9 @@ describe('页内防撤回摘要与按需工具', () => {
       expect(f.host.querySelector('[role="tablist"]')).toBeNull();
       expect(f.host.querySelector('[aria-label="防撤回启用范围"]')).not.toBeNull();
       expect(f.host.querySelector('[aria-label="撤回时通知我"]')).toBeNull();
-      expect(f.host.querySelector('select[aria-label="撤回提醒通知方式"]')).not.toBeNull();
+      expect(
+        f.host.querySelector('button[role="combobox"][aria-label="撤回提醒通知方式"]'),
+      ).not.toBeNull();
       expect(f.host.textContent).toContain('选择提醒会话');
       expect(f.host.querySelector('.weq-set-picker')).toBeNull();
       expect(fixture.queryOptions.get('listConversationsWithCount')?.enabled).toBe(false);

@@ -59,13 +59,9 @@ import {
   transferPercent,
   type TransferProgress,
 } from '../../../shared/transfer_progress';
-import {
-  MediaLoadingRing,
-  MediaTransferBadge,
-  TransferRing,
-  transferLabel,
-  useVideoBuffering,
-} from './TransferRing';
+import { MediaLoadingRing, MediaTransferBadge, TransferRing } from './TransferRing';
+import { transferLabel } from '../lib/transferPresentation';
+import { useVideoBuffering } from '../hooks/useVideoBuffering';
 import '../styles/media-preview.css';
 
 type Data = Record<string, unknown>;

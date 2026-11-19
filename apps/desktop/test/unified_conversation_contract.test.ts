@@ -14,6 +14,7 @@ import { conversationBatchTargets } from '../src/shared/content_selection';
 import { feedConversationRow } from '../src/renderer/src/lib/conversationDirectoryRows';
 import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
 import { createTemplateDemoData } from './support/templateDemoData';
+import { chooseFormOption } from './support/form-controls';
 
 vi.mock('../src/renderer/src/trpc/client', () => import('./browser/unified-conversation.stub'));
 afterEach(() => vi.unstubAllGlobals());
@@ -74,11 +75,10 @@ it('助手控制器复用会话页，默认模型设置及会话覆盖独立保�
     expect(document.querySelector('.weq-cvs-nav-item[aria-current="true"]')?.textContent).toBe(
       '模型设置',
     );
-    const sending = document.querySelector<HTMLSelectElement>('[aria-label="运行中默认发送方式"]')!;
-    expect(sending.value).toBe('boundary');
+    const sending = document.querySelector<HTMLButtonElement>('[aria-label="运行中默认发送方式"]')!;
+    expect(sending.dataset.value).toBe('boundary');
     await act(async () => {
-      sending.value = 'queue';
-      sending.dispatchEvent(new Event('change', { bubbles: true }));
+      chooseFormOption(sending, 'queue');
     });
     expect(
       requests.some(

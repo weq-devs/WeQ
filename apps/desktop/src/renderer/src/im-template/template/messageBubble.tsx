@@ -14,7 +14,8 @@ import {
   X,
 } from 'lucide-react';
 import { MessageSelectionMark } from '../../components/MessageSelectionMark';
-import { TransferRing, transferLabel } from '../../components/TransferRing';
+import { TransferRing } from '../../components/TransferRing';
+import { transferLabel } from '../../lib/transferPresentation';
 import { useTransferProgress } from '../../lib/transferActivity';
 import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import {

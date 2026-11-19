@@ -6,6 +6,7 @@ import {
   normalizeNotificationEvents,
   type NotificationEvents,
 } from '@weq/service/notification-settings';
+import { chooseFormOption } from './support/form-controls';
 
 const fixture = vi.hoisted(() => ({
   notificationEvents: undefined as NotificationEvents | undefined,
@@ -125,17 +126,16 @@ describe('设置中的已读上报开关', () => {
       },
     );
     const f = mount();
-    const select = f.host.querySelector<HTMLSelectElement>(
+    const select = f.host.querySelector<HTMLButtonElement>(
       '[aria-label="功能受限或运行异常通知方式"]',
     )!;
     const choose = (value: string) => {
-      select.value = value;
-      select.dispatchEvent(new Event('change', { bubbles: true }));
+      chooseFormOption(select, value);
     };
     try {
-      expect(select.value).toBe('banner');
+      expect(select.dataset.value).toBe('banner');
       await act(async () => choose('off'));
-      expect(select.value).toBe('off');
+      expect(select.dataset.value).toBe('off');
       expect(fixture.mutate).toHaveBeenCalledWith({
         events: ['runtime'],
         channels: { banner: false, system: false },
@@ -143,7 +143,7 @@ describe('设置中的已读上报开关', () => {
       expect(fixture.settings.autoAttachQq).toBe(true);
       fixture.mutate.mockRejectedValueOnce(new Error('合成保存失败'));
       await act(async () => choose('banner'));
-      expect(select.value).toBe('off');
+      expect(select.dataset.value).toBe('off');
       expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('合成保存失败');
     } finally {
       f.close();

@@ -5,6 +5,13 @@ import { DefaultApiModelRow } from '../src/renderer/src/components/settings/Defa
 import { ApiModelSelect } from '../src/renderer/src/components/settings/ApiModelSelect';
 import { useModelSelectionLabel } from '../src/renderer/src/components/settings/useModelSelectionLabel';
 import { DEFAULT_MODEL_SELECTION_KEY } from '@weq/agentlab/model-selection';
+import { chooseFormOption, formOptions, formSelectSelector } from './support/form-controls';
+
+type ModelStatus = {
+  ref: { providerId: string; model: string } | null;
+  available: boolean;
+  error: string | null;
+};
 
 const f = vi.hoisted(() => ({
   status: {
@@ -13,12 +20,16 @@ const f = vi.hoisted(() => ({
     error: null as string | null,
   },
   queryError: null as Error | null,
-  visionStatus: { ref: { providerId: 'synthetic', model: 'vision' }, available: true, error: null },
+  visionStatus: {
+    ref: { providerId: 'synthetic', model: 'vision' },
+    available: true,
+    error: null,
+  } as ModelStatus,
   embeddingStatus: {
     ref: { providerId: 'synthetic', model: 'embedding' },
     available: true,
     error: null,
-  },
+  } as ModelStatus,
   saveVision: vi.fn(),
   saveEmbedding: vi.fn(),
   save: vi.fn(),
@@ -117,7 +128,7 @@ function mount(content: () => ReactElement = () => createElement(DefaultApiModel
   return {
     host,
     render,
-    select: () => host.querySelector<HTMLSelectElement>('select')!,
+    select: () => host.querySelector<HTMLButtonElement>(formSelectSelector)!,
     close: () => act(() => root.unmount()),
   };
 }
@@ -128,33 +139,37 @@ describe('LLM 默认聊天模型设置', () => {
     async (capability) => {
       const name = capability === 'vision' ? '视觉' : '向量';
       const save = capability === 'vision' ? f.saveVision : f.saveEmbedding;
+      f[capability === 'vision' ? 'visionStatus' : 'embeddingStatus'] = {
+        ref: null,
+        available: false,
+        error: null,
+      };
       const page = mount(() => createElement(DefaultApiModelRow, { capability }));
       try {
         expect(page.select().getAttribute('aria-label')).toBe(`默认${name}模型`);
-        expect([...page.select().options].map((option) => option.textContent)).toEqual([
+        expect(formOptions(page.select()).map((option) => option.textContent)).toEqual([
           `未设置默认${name}模型`,
           capability,
         ]);
         await act(async () => {
-          page.select().value = JSON.stringify(['synthetic', capability]);
-          page.select().dispatchEvent(new Event('change', { bubbles: true }));
+          chooseFormOption(page.select(), JSON.stringify(['synthetic', capability]));
         });
         expect(save).toHaveBeenLastCalledWith({
           ref: { providerId: 'synthetic', model: capability },
         });
+        page.render();
         await act(async () => {
-          page.select().value = '';
-          page.select().dispatchEvent(new Event('change', { bubbles: true }));
+          chooseFormOption(page.select(), '');
         });
         page.render();
         expect(save).toHaveBeenLastCalledWith({ ref: null });
-        expect(page.select().value).toBe('');
+        expect(page.select().dataset.value).toBe('');
         expect(f.save).not.toHaveBeenCalled();
         f.queryError = new Error('合成读取失败');
         page.render();
         expect(page.select().disabled).toBe(true);
         expect(page.host.textContent).toContain(`默认${name}模型读取失败`);
-        act(() => page.host.querySelector<HTMLButtonElement>('button')!.click());
+        act(() => page.host.querySelector<HTMLButtonElement>('[role="alert"] button')!.click());
         expect(f.refetch).toHaveBeenCalled();
       } finally {
         page.close();
@@ -182,7 +197,7 @@ describe('LLM 默认聊天模型设置', () => {
       }
       const page = mount(() => createElement(Content));
       try {
-        expect(page.select().selectedOptions[0]?.textContent).toBe(`默认（当前：${capability}）`);
+        expect(page.select().textContent).toBe(`默认（当前：${capability}）`);
         expect(page.host.querySelector('span')?.textContent).toBe(`默认（当前：${capability}）`);
       } finally {
         page.close();
@@ -215,23 +230,25 @@ describe('LLM 默认聊天模型设置', () => {
   it('消费入口移除未选择，空值显示默认，选择时提交独立标记', () => {
     f.status = { ref: { providerId: 'synthetic', model: 'chat' }, available: true, error: null };
     const change = vi.fn();
+    let value: Parameters<typeof ApiModelSelect>[0]['value'] = null;
     const page = mount(() =>
       createElement(ApiModelSelect, {
         allowDefault: true,
         label: '使用模型',
-        value: null,
+        value,
         onChange: change,
       }),
     );
     try {
-      expect(page.select().value).toBe(DEFAULT_MODEL_SELECTION_KEY);
-      expect(page.select().querySelector('option[value=""]')).toBeNull();
-      expect(page.select().selectedOptions[0]?.textContent).toBe('默认（当前：chat）');
+      expect(page.select().dataset.value).toBe(DEFAULT_MODEL_SELECTION_KEY);
+      expect(formOptions(page.select()).some((option) => option.value === '')).toBe(false);
+      expect(page.select().textContent).toBe('默认（当前：chat）');
       expect(page.select().title).toBe('默认（当前：chat）');
       expect(change).not.toHaveBeenCalled();
+      value = { providerId: 'synthetic', model: 'chat' };
+      page.render();
       act(() => {
-        page.select().value = DEFAULT_MODEL_SELECTION_KEY;
-        page.select().dispatchEvent(new Event('change', { bubbles: true }));
+        chooseFormOption(page.select(), DEFAULT_MODEL_SELECTION_KEY);
       });
       expect(change).toHaveBeenLastCalledWith({ useDefault: true });
     } finally {
@@ -250,13 +267,13 @@ describe('LLM 默认聊天模型设置', () => {
       }),
     );
     try {
-      expect(page.select().value).toBe(DEFAULT_MODEL_SELECTION_KEY);
+      expect(page.select().dataset.value).toBe(DEFAULT_MODEL_SELECTION_KEY);
       expect(page.host.textContent).toContain('默认（当前：未配置）');
       f.queryError = new Error('合成读取失败');
       page.render();
-      expect(page.select().value).toBe(DEFAULT_MODEL_SELECTION_KEY);
+      expect(page.select().dataset.value).toBe(DEFAULT_MODEL_SELECTION_KEY);
       expect(page.host.textContent).toContain('默认（当前：读取失败）');
-      act(() => page.host.querySelector<HTMLButtonElement>('button')!.click());
+      act(() => page.host.querySelector<HTMLButtonElement>('[role="alert"] button')!.click());
       expect(f.refetch).toHaveBeenCalled();
       expect(change).not.toHaveBeenCalled();
     } finally {
@@ -268,25 +285,23 @@ describe('LLM 默认聊天模型设置', () => {
     try {
       expect(page.host.textContent).toContain('默认聊天模型');
       expect(page.select().getAttribute('aria-label')).toBe('默认聊天模型');
-      expect(page.select().selectedOptions[0]?.textContent).toBe('未设置默认聊天模型');
-      expect(page.select().value).toBe('');
-      expect([...page.select().options].map((option) => option.textContent)).not.toContain(
+      expect(page.select().textContent).toBe('未设置默认聊天模型');
+      expect(page.select().dataset.value).toBe('');
+      expect(formOptions(page.select()).map((option) => option.textContent)).not.toContain(
         'embedding',
       );
       await act(async () => {
-        page.select().value = JSON.stringify(['synthetic', 'chat']);
-        page.select().dispatchEvent(new Event('change', { bubbles: true }));
+        chooseFormOption(page.select(), JSON.stringify(['synthetic', 'chat']));
       });
       page.render();
       expect(f.save).toHaveBeenLastCalledWith({ ref: { providerId: 'synthetic', model: 'chat' } });
-      expect(page.select().value).toBe(JSON.stringify(['synthetic', 'chat']));
+      expect(page.select().dataset.value).toBe(JSON.stringify(['synthetic', 'chat']));
       await act(async () => {
-        page.select().value = '';
-        page.select().dispatchEvent(new Event('change', { bubbles: true }));
+        chooseFormOption(page.select(), '');
       });
       page.render();
       expect(f.save).toHaveBeenLastCalledWith({ ref: null });
-      expect(page.select().value).toBe('');
+      expect(page.select().dataset.value).toBe('');
     } finally {
       page.close();
     }
@@ -298,14 +313,13 @@ describe('LLM 默认聊天模型设置', () => {
     f.save.mockRejectedValueOnce(new Error('合成写入失败'));
     const page = mount();
     try {
-      expect(page.select().selectedOptions[0]?.textContent).toContain('已保存但不可用');
+      expect(page.select().textContent).toContain('已保存但不可用');
       expect(page.host.textContent).toContain('provider 不可用');
       await act(async () => {
-        page.select().value = JSON.stringify(['synthetic', 'chat']);
-        page.select().dispatchEvent(new Event('change', { bubbles: true }));
+        chooseFormOption(page.select(), JSON.stringify(['synthetic', 'chat']));
       });
       page.render();
-      expect(page.select().value).toBe(JSON.stringify([saved.providerId, saved.model]));
+      expect(page.select().dataset.value).toBe(JSON.stringify([saved.providerId, saved.model]));
       expect(page.host.textContent).toContain('合成写入失败');
     } finally {
       page.close();
@@ -318,7 +332,7 @@ describe('LLM 默认聊天模型设置', () => {
     try {
       expect(page.select().disabled).toBe(true);
       expect(page.host.textContent).toContain('默认聊天模型读取失败');
-      act(() => page.host.querySelector<HTMLButtonElement>('button')!.click());
+      act(() => page.host.querySelector<HTMLButtonElement>('[role="alert"] button')!.click());
       expect(f.refetch).toHaveBeenCalled();
       expect(f.save).not.toHaveBeenCalled();
     } finally {

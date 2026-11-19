@@ -16,6 +16,7 @@ import { useViewState } from '../src/renderer/src/state/view';
 import { subscribeQQPeerUpdates, type QQPeerUpdate } from '../src/renderer/src/lib/qqPeerUpdates';
 import { ToastHost } from '../src/renderer/src/components/Toast';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
+import { chooseFormOption, formSelectSelector } from './support/form-controls';
 
 const mocked = vi.hoisted(() => ({
   config: { uin: '10001', configId: 'source-a' },
@@ -253,7 +254,7 @@ describe('QQ 写控件', () => {
             }),
       ),
     );
-    const button = f.host.querySelector<HTMLButtonElement>('button')!;
+    const button = f.host.querySelector<HTMLButtonElement>('button:not([role="combobox"])')!;
     expect(button.disabled).toBe(false);
     act(() => {
       button.click();
@@ -300,12 +301,9 @@ describe('QQ 写控件', () => {
           }),
         ),
       );
-      const select = f.host.querySelector('select')!;
-      const change = (value: string) => {
-        select.value = value;
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-      };
-      expect(f.host.querySelector('button')).toBeNull();
+      const select = f.host.querySelector<HTMLButtonElement>(formSelectSelector)!;
+      const change = (value: string) => chooseFormOption(select, value);
+      expect(f.host.querySelector('button:not([role="combobox"])')).toBeNull();
       act(() => change('2000'));
       expect(f.host.querySelector('[aria-label="自定义文字"]')).not.toBeNull();
       expect(save).not.toHaveBeenCalled();
@@ -320,11 +318,11 @@ describe('QQ 写控件', () => {
         if (failure === 'failure') finish(false);
         else reject(new Error('合成失败'));
       });
-      expect(select.value).toBe('10');
+      expect(select.dataset.value).toBe('10');
       expect(select.disabled).toBe(false);
       act(() => change('20'));
       await act(async () => finish(true));
-      expect(select.value).toBe('20');
+      expect(select.dataset.value).toBe('20');
       expect(save).toHaveBeenCalledTimes(2);
     },
   );
@@ -355,7 +353,9 @@ describe('QQ 写控件', () => {
         }),
       ),
     );
-    expect(f.host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(true);
+    expect(f.host.querySelector<HTMLButtonElement>('button:not([role="combobox"])')!.disabled).toBe(
+      true,
+    );
     act(() =>
       f.root.render(
         h(QQWriteTextRow, { label: '备注', initial: '原备注', disabled: true, onSave: save }),
@@ -406,13 +406,12 @@ describe('QQ 写控件', () => {
         }),
       ),
     );
-    const select = f.host.querySelector('select')!;
-    expect(select.value).toBe('8');
-    act(() => {
-      select.value = '3';
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    await act(async () => f.host.querySelector<HTMLButtonElement>('button')!.click());
+    const select = f.host.querySelector<HTMLButtonElement>(formSelectSelector)!;
+    expect(select.dataset.value).toBe('8');
+    act(() => chooseFormOption(select, '3'));
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('button:not([role="combobox"])')!.click(),
+    );
     expect(save).toHaveBeenCalledWith(3);
   });
 

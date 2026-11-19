@@ -40,7 +40,8 @@ import { client } from '../trpc/client';
 import { fileIconUrl } from '../lib/resourceUrl';
 import { useToast } from './Toast.shared';
 import { taskNotificationSource } from '../lib/notificationNavigation.shared';
-import { TransferRing, transferDetail } from './TransferRing';
+import { TransferRing } from './TransferRing';
+import { transferDetail } from '../lib/transferPresentation';
 import { useTransferProgress } from '../lib/transferActivity';
 import {
   flashFileTransferTarget,
