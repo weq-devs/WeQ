@@ -67,7 +67,7 @@ html[data-theme='dark'] [data-component-preview='retro'] {
     2px 2px 0 var(--weq-bg-app);
 }
 
-/* QQ NT 的按钮复用经典基础样式，其余控件仍使用当前预设。 */
+/* QQ NT 按钮复用经典基础样式；资料里的文字动作保留行内外观。 */
 html[data-component-style][data-theme]:not([data-component-style='classic']) body
   :is(
     .weq-action-primary,
@@ -110,7 +110,14 @@ html[data-component-style][data-theme]:not([data-component-style='classic']) bod
       [class*='-pill']
     ),
     .selection-action
-  ):not(:where(html[data-component-style='qqnt'] button)) {
+  ):not(
+    :where(
+      html[data-component-style='qqnt'] button,
+      .weq-profile-data-action,
+      .weq-profile-section-action,
+      .weq-group-text-action
+    )
+  ) {
   border-radius: var(--weq-control-radius, var(--weq-skin-radius));
   box-shadow: var(--weq-control-shadow, var(--weq-skin-shadow));
 }
@@ -141,7 +148,14 @@ html[data-component-style][data-theme]:not([data-component-style='classic']) bod
       [class*='-chip'],
       [class*='-pill']
     )
-  ):not(:where(html[data-component-style='qqnt'] button)) {
+  ):not(
+    :where(
+      html[data-component-style='qqnt'] button,
+      .weq-profile-data-action,
+      .weq-profile-section-action,
+      .weq-group-text-action
+    )
+  ) {
   border-style: solid;
   border-width: var(--weq-control-border-width, var(--weq-skin-border-width));
 }
