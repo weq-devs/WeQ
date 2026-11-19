@@ -78,6 +78,7 @@ export const SETTINGS_RESET_CARDS = [
   ['assistant', 'assistant', '推送与资源服务'],
   ['version', 'update', '软件更新'],
   ['logs', 'logs', '应用日志'],
+  ['logs', 'performance-recording', '性能记录'],
   ['database-management', 'database-read', '读取性能'],
 ] as const;
 export type SettingsResetCardId = (typeof SETTINGS_RESET_CARDS)[number][1];

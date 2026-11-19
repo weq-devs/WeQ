@@ -13,7 +13,11 @@ import { SETTINGS_RESET_CARDS } from '../src/shared/settings_reset';
 import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
 
 const conditional = vi.hoisted(() => ({
-  settings: undefined as { linkPreview: { enabled: boolean; screenshot: boolean } } | undefined,
+  settings: undefined as
+    | {
+        linkPreview: { enabled: boolean; autoFetch: boolean; screenshot: boolean };
+      }
+    | undefined,
   save: vi.fn(),
   platform: 'linux',
   sip: true as boolean | null,
@@ -133,7 +137,7 @@ function expectInnermostControlFocused(highlighted: HTMLElement | null) {
 
 describe('设置归位后的实际页面', () => {
   it('关闭链接卡片隐藏截图子项，搜索回到父项且重开保留截图偏好', async () => {
-    conditional.settings = { linkPreview: { enabled: false, screenshot: true } };
+    conditional.settings = { linkPreview: { enabled: false, autoFetch: true, screenshot: true } };
     conditional.save.mockResolvedValue(true);
     const f = mount('message-display');
     try {
@@ -516,6 +520,7 @@ describe('设置归位后的实际页面', () => {
         '语音消息自动转文字',
         '文本消息自动渲染为 Markdown',
         '链接预览卡片',
+        '自动联网补全链接预览',
         '无封面时网页截图',
         '图片预览内存预算',
       ]);
@@ -694,7 +699,7 @@ describe('设置归位后的实际页面', () => {
     }
   });
   it('从搜索打开设置时切换分区并定位真实项目，离开分区撤销高亮', () => {
-    conditional.settings = { linkPreview: { enabled: true, screenshot: true } };
+    conditional.settings = { linkPreview: { enabled: true, autoFetch: true, screenshot: true } };
     const f = mount('qzone');
     try {
       for (const [section, item] of [

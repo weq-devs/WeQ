@@ -1241,11 +1241,16 @@ export const bootstrapRouter = router({
     }),
 
   /**
-   * 聊天里裸链接的展示方式。`enabled` 关掉后只做蓝色下划线、不出网；`screenshot`
-   * 决定页面没有 og:image 时要不要用离屏窗口截一张。纯持久化。
+   * 链接卡片显示与自动联网补全分别保存；截图仅在联网补全时使用。
    */
   setLinkPreview: procedure
-    .input(z.object({ enabled: z.boolean().optional(), screenshot: z.boolean().optional() }))
+    .input(
+      z.object({
+        enabled: z.boolean().optional(),
+        autoFetch: z.boolean().optional(),
+        screenshot: z.boolean().optional(),
+      }),
+    )
     .mutation(({ input }) => {
       requireBootstrap().userConfig.setSettings({ linkPreview: input });
       return true;
@@ -1612,11 +1617,11 @@ export const bootstrapRouter = router({
    * body 根本不读）。结果按 URL 落盘缓存，命中不出网。不可预览返回 null。
    */
   linkPreview: procedure
-    .input(z.object({ url: z.string().trim().max(2048) }))
+    .input(z.object({ url: z.string().trim().max(2048), cacheOnly: z.boolean().optional() }))
     .query(async ({ input }) => {
       const boot = requireBootstrap();
       if (!boot.userConfig.getSettings().linkPreview.enabled) return null;
-      return boot.linkPreview.get(input.url);
+      return boot.linkPreview.get(input.url, input.cacheOnly);
     }),
 
   /**
@@ -1626,11 +1631,11 @@ export const bootstrapRouter = router({
    * 因为这个 URL 一样来自不可信的聊天消息。拿不到返回空串。
    */
   linkCover: procedure
-    .input(z.object({ url: z.string().trim().max(2048) }))
+    .input(z.object({ url: z.string().trim().max(2048), cacheOnly: z.boolean().optional() }))
     .query(async ({ input }) => {
       const boot = requireBootstrap();
       if (!boot.userConfig.getSettings().linkPreview.enabled) return '';
-      return boot.linkPreview.cacheCover(input.url);
+      return boot.linkPreview.cacheCover(input.url, input.cacheOnly);
     }),
 
   getOneBotStatus: procedure.query(() => {

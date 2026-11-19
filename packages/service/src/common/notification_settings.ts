@@ -156,7 +156,11 @@ export interface NotificationScope {
   mode: 'all' | 'selected';
   targets: string[];
 }
-export function normalizeNotificationScope(raw: unknown): NotificationScope {
+export function normalizeNotificationScope(
+  event: ScopedNotificationEvent,
+  raw: unknown,
+): NotificationScope {
+  if (raw === undefined) return { mode: event === 'redPacket' ? 'selected' : 'all', targets: [] };
   if (!raw || typeof raw !== 'object') return { mode: 'selected', targets: [] };
   return {
     mode: Reflect.get(raw, 'mode') === 'all' ? 'all' : 'selected',

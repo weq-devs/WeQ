@@ -871,8 +871,11 @@ function AppearanceSection({
   const utils = trpc.useUtils();
   const [readingError, setReadingError] = useState<string | null>(null);
   const [textMarkdown, setTextMarkdown] = useState(true);
-  const [linkCard, setLinkCard] = useState(true);
-  const [linkShot, setLinkShot] = useState(false);
+  const [linkPreview, setLinkPreviewDraft] = useState({
+    enabled: true,
+    autoFetch: false,
+    screenshot: false,
+  });
 
   useEffect(() => {
     const enabled = settings.data?.renderTextMarkdown;
@@ -881,8 +884,7 @@ function AppearanceSection({
 
   useEffect(() => {
     const cfg = settings.data?.linkPreview;
-    if (typeof cfg?.enabled === 'boolean') setLinkCard(cfg.enabled);
-    if (typeof cfg?.screenshot === 'boolean') setLinkShot(cfg.screenshot);
+    if (cfg) setLinkPreviewDraft(cfg);
   }, [settings.data?.linkPreview]);
 
   // 本地先翻转求手感，失败回滚 + 重新拉服务端值。
@@ -897,24 +899,13 @@ function AppearanceSection({
     await settings.refetch();
   }
 
-  async function onSetLinkCard(next: boolean): Promise<void> {
-    const prev = linkCard;
-    setLinkCard(next);
+  async function onSetLinkPreview(patch: Partial<typeof linkPreview>): Promise<void> {
+    const prev = linkPreview;
+    setLinkPreviewDraft({ ...prev, ...patch });
     try {
-      await setLinkPreview.mutateAsync({ enabled: next });
+      await setLinkPreview.mutateAsync(patch);
     } catch {
-      setLinkCard(prev);
-    }
-    await settings.refetch();
-  }
-
-  async function onSetLinkShot(next: boolean): Promise<void> {
-    const prev = linkShot;
-    setLinkShot(next);
-    try {
-      await setLinkPreview.mutateAsync({ screenshot: next });
-    } catch {
-      setLinkShot(prev);
+      setLinkPreviewDraft(prev);
     }
     await settings.refetch();
   }
@@ -1201,38 +1192,47 @@ function AppearanceSection({
               />
               <Row
                 settingId="link-preview"
-                desc={
-                  <>
-                    一条消息只有一个链接时，抓取网页标题、简介和封面渲染成卡片。会按链接访问
-                    对应网页（结果本地缓存），关掉后链接仍标蓝可点，但完全不出网。
-                  </>
-                }
+                desc="一条消息只有一个链接时，显示 QQ 已提供或本地已缓存的预览。关闭后，链接仍可点击。"
                 control={
-                  <span data-setting-fallback={!linkCard ? 'link-screenshot' : undefined}>
+                  <span
+                    data-setting-fallback={!linkPreview.enabled ? 'link-screenshot' : undefined}
+                  >
                     <Toggle
-                      checked={linkCard}
+                      checked={linkPreview.enabled}
                       disabled={settings.isLoading || setLinkPreview.isLoading}
-                      onChange={(next) => void onSetLinkCard(next)}
+                      onChange={(enabled) => void onSetLinkPreview({ enabled })}
                       label="链接预览卡片"
                     />
                   </span>
                 }
               />
-              {linkCard ? (
+              <Row
+                settingId="link-preview-auto-fetch"
+                indent
+                desc="允许在浏览消息时访问链接或封面地址，补齐本地缺失的标题、简介和图片。"
+                control={
+                  <Toggle
+                    checked={linkPreview.autoFetch}
+                    disabled={
+                      !linkPreview.enabled || settings.isLoading || setLinkPreview.isLoading
+                    }
+                    onChange={(autoFetch) => void onSetLinkPreview({ autoFetch })}
+                    label="自动联网补全链接预览"
+                  />
+                }
+              />
+              {linkPreview.enabled ? (
                 <Row
                   settingId="link-screenshot"
                   indent
-                  desc={
-                    <>
-                      网页没提供封面图时，在一个隔离的后台窗口里把它打开并截取首屏当封面。这会
-                      真正运行对方页面的脚本（沙盒内、不落盘、退出即清），默认关闭。
-                    </>
-                  }
+                  desc="联网补全时，如果网页没有封面图，可在隔离窗口中打开网页并截取首屏。"
                   control={
                     <Toggle
-                      checked={linkShot}
-                      disabled={!linkCard || settings.isLoading || setLinkPreview.isLoading}
-                      onChange={(next) => void onSetLinkShot(next)}
+                      checked={linkPreview.screenshot}
+                      disabled={
+                        !linkPreview.autoFetch || settings.isLoading || setLinkPreview.isLoading
+                      }
+                      onChange={(screenshot) => void onSetLinkPreview({ screenshot })}
                       label="无封面时网页截图"
                     />
                   }

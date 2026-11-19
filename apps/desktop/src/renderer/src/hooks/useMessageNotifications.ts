@@ -2,7 +2,13 @@ import { useEffect, useMemo, useRef } from 'react';
 import { NEW_CONV_FRESH_SEC } from '@weq/service/live-message';
 import { plainContentText, type PlainElement } from '@weq/service/message-plain-text';
 import { client } from '../trpc/client';
-import { accountBinding, preferenceValue, useClientPreferences } from '../lib/clientPreferences';
+import {
+  accountBinding,
+  isAccountStateReady,
+  preferenceValue,
+  sharedAccountRecords,
+  useClientPreferences,
+} from '../lib/clientPreferences';
 import { useAppLock } from '../state/lock';
 import { IS_WEB } from '../lib/target.shared';
 import { defaultConversationPreference } from '../im-template/template/preferences';
@@ -18,7 +24,6 @@ import {
   normalizeNotificationEvents,
   type NotificationEvent,
 } from '@weq/service/notification-settings';
-import { sharedAccountRecords } from '../lib/clientPreferences';
 import { useToast } from '../components/Toast.shared';
 
 function firstNoticeMessage(previous: ChatMsgWire | undefined, next: ChatMsgWire): ChatMsgWire {
@@ -174,7 +179,9 @@ export function useMessageNotifications(options: {
         if (highlight.msgSeq !== message.msgSeq || !(highlight.kind in mapping)) continue;
         const event = mapping[highlight.kind as keyof typeof mapping];
         if (event !== 'specialCare') {
+          if (!isAccountStateReady()) continue;
           const selection = normalizeNotificationScope(
+            event,
             sharedAccountRecords('notifications')[event],
           );
           if (selection.mode !== 'all' && !selection.targets.includes(convKey)) continue;

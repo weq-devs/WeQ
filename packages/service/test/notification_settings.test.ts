@@ -125,14 +125,22 @@ it('通知配置保存重开保留，单列更新不覆盖其他渠道，未触�
   expect(f.open().getSettings().notificationEvents.runtime.banner).toBe(false);
   expect(f.open().getSettings().notificationEvents.recall.system).toBe(true);
 });
-it('新增范围默认指定空名单，空名单不变为全部，关闭模式不清空名单', () => {
-  expect(normalizeNotificationScope(undefined)).toEqual({ mode: 'selected', targets: [] });
-  expect(normalizeNotificationScope({ mode: 'selected', targets: [] })).toEqual({
+it('未配置的提及和回复默认全部，红包及显式空名单维持原样', () => {
+  for (const event of ['mentionMe', 'mentionAll', 'replyMe'] as const)
+    expect(normalizeNotificationScope(event, undefined)).toEqual({ mode: 'all', targets: [] });
+  expect(normalizeNotificationScope('redPacket', undefined)).toEqual({
+    mode: 'selected',
+    targets: [],
+  });
+  expect(normalizeNotificationScope('mentionMe', { mode: 'selected', targets: [] })).toEqual({
     mode: 'selected',
     targets: [],
   });
   expect(
-    normalizeNotificationScope({ mode: 'all', targets: ['group:123', 'group:123', 123] }),
+    normalizeNotificationScope('replyMe', {
+      mode: 'all',
+      targets: ['group:123', 'group:123', 123],
+    }),
   ).toEqual({ mode: 'all', targets: ['group:123'] });
 });
 it('范围按数据源持久保存，写其他事件不覆盖已有名单，非法范围不写入', () => {

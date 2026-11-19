@@ -742,8 +742,10 @@ export interface AppLockConfig {
 
 /** 聊天里裸链接的展示方式（见 bootstrap/link_preview.ts）。 */
 export interface LinkPreviewConfig {
-  /** 整条消息只有一个链接时，抓取 og 元信息渲染成卡片。关掉则只做蓝色下划线。 */
+  /** 显示 QQ 随消息保存的元数据或本地预览。关掉则只显示可点击的链接。 */
   enabled: boolean;
+  /** 浏览消息时是否允许联网补齐未缓存的网页元数据及封面。 */
+  autoFetch: boolean;
   /** 页面没有 og:image 时，用离屏窗口截一张网页图当封面。默认关——它要真的把页面跑起来。 */
   screenshot: boolean;
 }
@@ -1179,7 +1181,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   reportReadEnabled: true,
   manualReadReportEnabled: true,
   autoLockMinutes: 0,
-  appLock: { enabled: true, method: 'totp' },
+  appLock: { enabled: false, method: 'totp' },
   modelResources: { voice: '', ocr: '', filter: '', intent: 'auto' },
   voiceTranscribe: { modelId: '', autoTranscribe: false, onlineConcurrency: 5, ttsProviders: [] },
   // 本地图片文字识别：两个用途各自独立选模型（都空 = 未启用）。
@@ -1217,7 +1219,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showAvatarPendant: true,
   showChatQqShow: true,
   qqShowCacheMinutes: 5,
-  linkPreview: { enabled: true, screenshot: false },
+  linkPreview: { enabled: true, autoFetch: false, screenshot: false },
   preferCdn: false,
   home: DEFAULT_HOME_SETTINGS,
   typingStatus: { mode: 'off', hidden: [] },
@@ -2053,6 +2055,7 @@ export class UserConfigService {
       callDisableP2P: typeof s?.callDisableP2P === 'boolean' ? s.callDisableP2P : d.callDisableP2P,
       linkPreview: {
         enabled: s?.linkPreview?.enabled ?? d.linkPreview.enabled,
+        autoFetch: s?.linkPreview?.autoFetch ?? d.linkPreview.autoFetch,
         screenshot: s?.linkPreview?.screenshot ?? d.linkPreview.screenshot,
       },
       modelResources: resources,
@@ -2269,6 +2272,7 @@ export class UserConfigService {
         typeof patch.callDisableP2P === 'boolean' ? patch.callDisableP2P : current.callDisableP2P,
       linkPreview: {
         enabled: patch.linkPreview?.enabled ?? current.linkPreview.enabled,
+        autoFetch: patch.linkPreview?.autoFetch ?? current.linkPreview.autoFetch,
         screenshot: patch.linkPreview?.screenshot ?? current.linkPreview.screenshot,
       },
       modelResources: resources,

@@ -9,6 +9,7 @@ import { SETTINGS_RESET_CARDS, resetCards } from '../src/shared/settings_reset';
 import { settingsResetRouter } from '../src/main/ipc/routers/settings_reset';
 import { SETTINGS_FIELDS } from '@weq/service/settings-catalog';
 import { preferenceDefaults } from '@weq/service/client-preferences';
+import { DEFAULT_MONITOR_SETTINGS, type MonitorSettings } from '@weq/service/performance';
 
 const state = vi.hoisted(() => ({
   settings: {} as AppSettings,
@@ -16,8 +17,23 @@ const state = vi.hoisted(() => ({
   fail: '',
   account: false,
   source: 'synthetic-source',
+  monitor: {} as MonitorSettings,
   intent: {} as Record<string, unknown>,
 }));
+vi.mock('@weq/service/performance', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@weq/service/performance')>();
+  return {
+    ...real,
+    getPerformanceMonitor: () => ({
+      ready: Promise.resolve(),
+      settings: state.monitor,
+      resetRecordingMode: async () => {
+        state.calls.push(['resetRecordingMode', null]);
+        state.monitor.mode = real.DEFAULT_MONITOR_SETTINGS.mode;
+      },
+    }),
+  };
+});
 vi.mock('../src/main/context/app_context', () => ({
   getActiveIntentSenseLocalEngine: () => null,
   requireBootstrap: () => ({
@@ -87,7 +103,10 @@ vi.mock('../src/main/ipc/routers/bootstrap', () => ({
             if (name === 'setCallRecording') Object.assign(state.settings.callRecording, input);
             if (name === 'setSsePushTuning') Object.assign(state.settings.ssePush, input);
             if (name === 'setAiImagePreference') {
-              const { feature, mode } = input as { feature: 'assistant'; mode: 'vision' };
+              const { feature, mode } = input as {
+                feature: keyof AppSettings['aiImages'];
+                mode: AppSettings['aiImages']['assistant'];
+              };
               state.settings.aiImages[feature] = mode;
             }
             return { enabled: false };
@@ -116,10 +135,31 @@ beforeEach(() => {
   state.fail = '';
   state.account = false;
   state.source = 'synthetic-source';
+  state.monitor = { ...DEFAULT_MONITOR_SETTINGS };
   state.intent = structuredClone(DEFAULT_INTENT_SENSE_CONFIG);
 });
 const caller = () => settingsResetRouter.createCaller({});
 describe('分级恢复默认', () => {
+  it('各 AI 页只恢复本功能的图片偏好，日志页复位性能记录档位', async () => {
+    Object.assign(state.settings.aiImages, {
+      intent: 'ocr',
+      suggestions: 'vision',
+      profile: 'ocr',
+    });
+    for (const [page, feature, previous] of [
+      ['intent-sense', 'intent', 'ocr'],
+      ['reply-suggestions', 'suggestions', 'vision'],
+      ['interaction-profile', 'profile', 'ocr'],
+    ] as const) {
+      expect(state.settings.aiImages[feature]).toBe(previous);
+      await caller().restore({ page, source: null });
+      expect(state.settings.aiImages[feature]).toBe(DEFAULT_APP_SETTINGS.aiImages[feature]);
+    }
+    state.monitor.mode = 'off';
+    await caller().restore({ page: 'logs', source: null });
+    expect(state.monitor.mode).toBe(DEFAULT_MONITOR_SETTINGS.mode);
+    expect(state.calls).toContainEqual(['resetRecordingMode', null]);
+  });
   it('助手页面成组恢复联动参数与图片偏好，预览不返回原始提示词和 MCP 配置', async () => {
     const defaults = mergeAssistantConfig({}, {});
     state.settings.sharedPreferences.assistant = {

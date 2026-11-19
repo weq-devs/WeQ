@@ -39,7 +39,7 @@ export function NotificationScopeEditor({ event }: { event: ScopedNotificationEv
   useEffect(() => {
     if (!active || locked || sourceKey !== JSON.stringify(source.current)) setOpen(false);
   }, [active, locked, sourceKey]);
-  const saved = normalizeNotificationScope(sharedAccountRecords('notifications')[event]);
+  const saved = normalizeNotificationScope(event, sharedAccountRecords('notifications')[event]);
   const query = trpc.account.listConversationsWithCount.useQuery(undefined, {
     enabled: open && hasAccount && active && !locked,
     refetchOnWindowFocus: false,

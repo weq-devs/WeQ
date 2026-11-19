@@ -32,7 +32,7 @@ export function DefaultsOptions({
         <div className="weq-defaults-toggles">
           <Row
             label="清除 API 配置"
-            desc="清除模型、TTS、MCP、OneBot、外部 rKey、SSE 的配置与凭据。"
+            desc="清除模型、TTS、MCP、助手的外部 MCP 服务器、OneBot、外部 rKey 和 SSE 的配置与凭据。"
             control={
               <Toggle
                 label="清除 API 配置"

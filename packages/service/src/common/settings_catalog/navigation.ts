@@ -174,6 +174,7 @@ function chatMessagePageFor(settingId: string): SettingsPageId {
       'chat-qqshow-days',
       'text-markdown',
       'link-preview',
+      'link-preview-auto-fetch',
       'link-screenshot',
       'auto-transcribe-voice',
       'chat-image-cache',
@@ -748,6 +749,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['message-font', '消息字体', '聊天字体'],
       ['text-markdown', '文本消息自动渲染为 Markdown', '纯文本消息自动渲染为 Markdown'],
       ['link-preview', '链接预览卡片'],
+      ['link-preview-auto-fetch', '自动联网补全链接预览'],
       ['link-screenshot', '无封面时网页截图'],
     ] as const
   ).map(

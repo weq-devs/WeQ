@@ -787,7 +787,7 @@ function QqMessageContentBody({
   const forwardKind = useContext(ForwardKindContext);
   const groupCode = useContext(ConvContext);
   const textMarkdownOn = useContext(TextMarkdownContext);
-  const linkPreviewOn = useContext(LinkPreviewContext);
+  const { enabled: linkPreviewOn } = useContext(LinkPreviewContext);
   /**
    * 通话气泡查录音要用的会话身份。`conversation` 没传时（转发窗口 / 导出预览）
    * 退回 `ConvContext`（那里只有群号），再拿不到就干脆不查 —— 宁可没有播放按钮，

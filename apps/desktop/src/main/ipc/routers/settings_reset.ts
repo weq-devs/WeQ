@@ -27,6 +27,7 @@ import { clientStateRouter } from './client_state';
 import { dataSaverBehaviorDefaults } from '@weq/service/data-saver';
 import { dataSaverSession } from '@weq/service/transfer-policy';
 import { preferenceDefaults } from '@weq/service/client-preferences';
+import { DEFAULT_MONITOR_SETTINGS, getPerformanceMonitor } from '@weq/service/performance';
 import {
   remoteResetCardAvailable,
   remoteSettingAvailable,
@@ -270,6 +271,21 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   bind('assistant-images:mode', current.aiImages.assistant, defaults.aiImages.assistant, () =>
     b.setAiImagePreference({ feature: 'assistant', mode: defaults.aiImages.assistant }),
   );
+  for (const [card, feature] of [
+    ['intent-basic', 'intent'],
+    ['suggestion-basic', 'suggestions'],
+    ['profile-basic', 'profile'],
+  ] as const)
+    bind(`${card}:imageMode`, current.aiImages[feature], defaults.aiImages[feature], () =>
+      b.setAiImagePreference({ feature, mode: defaults.aiImages[feature] }),
+    );
+  if (selected.has('performance-recording')) {
+    const monitor = getPerformanceMonitor();
+    await monitor.ready;
+    bind('performance-recording:mode', monitor.settings.mode, DEFAULT_MONITOR_SETTINGS.mode, () =>
+      monitor.resetRecordingMode(),
+    );
+  }
   for (const kind of ['voice', 'ocr'] as const) {
     const concurrency =
       kind === 'voice' ? current.voiceTranscribe.onlineConcurrency : current.ocr.onlineConcurrency;

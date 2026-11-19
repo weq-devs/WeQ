@@ -115,6 +115,10 @@ export function performanceWorker(load: NodeJS.Require) {
   async function dispatch(method: string, input: Record<string, unknown>): Promise<unknown> {
     if (method === 'settings')
       return db.prepare('SELECT data FROM settings WHERE id=1').get()?.data ?? null;
+    if (method === 'configure-mode') {
+      db.prepare('INSERT OR REPLACE INTO settings VALUES(1,?)').run(JSON.stringify(input.settings));
+      return null;
+    }
     if (method === 'configure') {
       const previous = db.prepare('SELECT data FROM settings WHERE id=1').get()?.data;
       if (input.confirmPrune === false && previewPrune(input.settings as Settings).needsPrune)

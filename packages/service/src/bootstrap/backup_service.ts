@@ -285,7 +285,8 @@ export class WeqBackupService {
         api.mcp.port !== DEFAULT_APP_SETTINGS.mcp.port ||
         JSON.stringify(api.oneBot) !== JSON.stringify(DEFAULT_APP_SETTINGS.oneBot) ||
         api.externalRkey.servers.length > 0 ||
-        api.ssePush.servers.length > 0,
+        api.ssePush.servers.length > 0 ||
+        Boolean(api.sharedAssistant?.mcpServers?.trim()),
       paths: weqDefaultsPaths(this.config.read()),
     };
   }

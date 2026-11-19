@@ -51,6 +51,7 @@ import { AppLockOverlay } from './components/AppLockOverlay';
 import {
   TextMarkdownContext,
   LinkPreviewContext,
+  DEFAULT_LINK_PREVIEW_DISPLAY,
   MsgDecorationEnabledContext,
 } from './state/messageAppearance';
 import { SelfBubbleContext, SelfPendantContext } from './hooks/useSelfPendant';
@@ -114,7 +115,9 @@ function TextMarkdownProvider({
   }, [settings.data?.toastDurations]);
   return (
     <TextMarkdownContext.Provider value={settings.data?.renderTextMarkdown ?? true}>
-      <LinkPreviewContext.Provider value={settings.data?.linkPreview?.enabled ?? true}>
+      <LinkPreviewContext.Provider
+        value={settings.data?.linkPreview ?? DEFAULT_LINK_PREVIEW_DISPLAY}
+      >
         <ChatQqShowEnabledContext.Provider value={settings.data?.showChatQqShow ?? true}>
           <MsgDecorationEnabledContext.Provider value={messageDecoration}>
             <ShowMessageSeqContext.Provider value={settings.data?.showMessageSeq ?? false}>

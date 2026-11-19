@@ -210,18 +210,23 @@ it('不同文件与已关闭预览的迟到确认不能使用别人的新源包'
   expect(f.service.inventory().restore.pending).toBeNull();
 });
 
-it('恢复默认暂存后经事务应用，保留 API、账号与本机锁密钥，界面偏好有单独回执', () => {
+it.each([false, true])('全局复位的助手外部 MCP 服从清除 API 选项=%s', (clearApi) => {
   const f = fixture();
+  f.config.setSettings({ agentLab: DEFAULT_APP_SETTINGS.agentLab, mcp: DEFAULT_APP_SETTINGS.mcp });
+  expect(f.service.defaultsInfo().hasApi).toBe(false);
+  const mcpServers = 'synthetic=https://example.invalid/synthetic-mcp-secret';
   f.config.patchSharedPreference('assistant', {
     customPrompt: '合成助手提示词',
-    mcpServers: 'synthetic=https://example.invalid',
+    mcpServers,
     model: { providerId: 'synthetic', model: 'other' },
     sendMode: 'queue',
   });
   f.config.setSettings({ aiImages: { assistant: 'ocr' } });
   const before = f.config.getSettings();
   const upload = f.service.beginUpload('abandoned.zip', 1);
-  const result = f.service.stageDefaults();
+  expect(f.service.defaultsInfo().hasApi).toBe(true);
+  expect(JSON.stringify(f.service.defaultsInfo())).not.toContain('synthetic-mcp-secret');
+  const result = f.service.stageDefaults(undefined, { clearApi });
   expect(() => f.service.finishUpload(upload)).toThrow('失效');
   expect(f.config.getSettings().renderTextMarkdown).toBe(false);
   expect(applyPendingWeqBackupRestore(f.root, f.cache)).toMatchObject({
@@ -234,7 +239,7 @@ it('恢复默认暂存后经事务应用，保留 API、账号与本机锁密钥
   expect(reopened.getSharedPreference('assistant')).toMatchObject({
     model: { useDefault: true },
     customPrompt: '',
-    mcpServers: '',
+    mcpServers: clearApi ? '' : mcpServers,
     sendMode: DEFAULT_ASSISTANT_SEND_MODE,
   });
   expect(reopened.getSettings().aiImages.assistant).toBe(DEFAULT_APP_SETTINGS.aiImages.assistant);

@@ -43,6 +43,7 @@ const labels: Record<string, string> = {
   minimal: '简约',
   retro: '复古',
   ocr: 'OCR',
+  placeholder: '文字占位',
   vision: '视觉模型',
   sandbox: '沙箱模式',
   unrestricted: '任意权限',
@@ -59,6 +60,10 @@ const selections = new Set([
 
 /** 只显示产品用语，不把未知配置序列化后交给用户阅读。 */
 export function formatResetValue(value: unknown, id = ''): string {
+  if (id === 'performance-recording:mode') {
+    if (value === 'light') return '轻量记录';
+    if (value === 'full') return '完整记录';
+  }
   if (selections.has(id) && Array.isArray(value))
     return value.length ? `已选择 ${value.length} 个会话` : '未选择会话';
   if (value === undefined) return '当前状态未知';
@@ -91,7 +96,7 @@ export function formatResetValue(value: unknown, id = ''): string {
     if ('showTags' in data)
       return `标签：${formatResetValue(data.showTags)}；问候语：${formatResetValue(data.showGreeting)}；一言：${formatResetValue(data.showHitokoto)}；屏蔽词：${formatResetValue(data.blockedWords)}`;
     if ('enabled' in data && 'screenshot' in data)
-      return `链接预览：${formatResetValue(data.enabled)}；网页截图：${formatResetValue(data.screenshot)}`;
+      return `链接预览：${formatResetValue(data.enabled)}；联网补全：${formatResetValue(data.autoFetch)}；网页截图：${formatResetValue(data.screenshot)}`;
     if (data.useDefault) return '使用默认聊天模型';
     if (typeof data.model === 'string') return data.model || '使用默认聊天模型';
     if (typeof data.name === 'string') return data.name;

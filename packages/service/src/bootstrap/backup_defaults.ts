@@ -34,7 +34,12 @@ export function weqDefaultsPaths(config: UserConfig) {
 export function weqDefaultsConfig(current: UserConfig, choice: WeqDefaultsChoice): UserConfig {
   const settings = globalSettingsDefaults(current.settings, DEFAULT_APP_SETTINGS, choice);
   const previous = current.settings;
-  settings.sharedPreferences.assistant = mergeAssistantConfig({}, {});
+  settings.sharedPreferences.assistant = mergeAssistantConfig(
+    {},
+    {
+      mcpServers: choice.clearApi ? undefined : previous?.sharedPreferences?.assistant?.mcpServers,
+    },
+  );
   settings.sharedPreferences.dress = normalizeDressConfig({
     ...previous?.sharedPreferences?.dress,
     localAppearanceVersion: 1,

@@ -133,6 +133,8 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
       if (cards.has('assistant')) refresh.push(utils.bootstrap.getWeqAssistantStatus.invalidate());
       if (cards.has('assistant-config'))
         refresh.push(utils.account.getAssistantConfig.invalidate());
+      if (cards.has('performance-recording'))
+        refresh.push(utils.performanceMonitor.status.invalidate());
       if (cards.has('onebot') || cards.has('onebot-servers'))
         refresh.push(utils.bootstrap.getOneBotStatus.invalidate());
       if (cards.has('sse-targets') || cards.has('sse-tuning'))

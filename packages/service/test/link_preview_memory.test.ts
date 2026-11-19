@@ -11,6 +11,7 @@ import {
   type LinkPreview,
 } from '../src/bootstrap/link_preview';
 import { UserConfigService } from '../src/bootstrap/user_config';
+import { networkScope } from '../src/common/network_scope';
 
 vi.mock('node:dns/promises', () => ({
   lookup: vi.fn(async () => [{ address: '127.0.0.1', family: 4 }]),
@@ -21,10 +22,11 @@ afterEach(() => {
   vi.clearAllMocks();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-function fixture(limits = { maxEntries: 3, maxBytes: 16_384 }) {
+function fixture(limits = { maxEntries: 3, maxBytes: 16_384 }, autoFetch = true) {
   const root = mkdtempSync(join(tmpdir(), 'weq-link-memory-'));
   roots.push(root);
   const config = new UserConfigService({ appDataRoot: () => root } as Platform);
+  if (autoFetch) config.setSettings({ linkPreview: { autoFetch } });
   const service = new LinkPreviewService(config, limits);
   const seed = (url: string, title = '合成预览', fetchedAt = Date.now()) => {
     const preview: LinkPreview = {
@@ -46,6 +48,30 @@ function fixture(limits = { maxEntries: 3, maxBytes: 16_384 }) {
   };
   return { service, seed, config };
 }
+
+it('默认及省流量模式都只读链接缓存，允许联网时网页和 QQ 封面均可补全', async () => {
+  const { service, seed, config } = fixture(undefined, false);
+  const cached = seed('https://synthetic.invalid/cached');
+  const page = 'https://synthetic.invalid/page';
+  const cover = 'https://synthetic.invalid/cover';
+  const dir = config.cacheDir('linkpreview');
+  const cachedCover = 'https://synthetic.invalid/cached-cover';
+  const cachedCoverId = `${createHash('sha1').update(cachedCover).digest('hex')}.png`;
+  writeFileSync(join(dir, cachedCoverId), 'cached cover');
+  const checkCacheOnly = async () => {
+    expect(await service.get(cached.url)).toEqual(cached);
+    expect(await service.cacheCover(cachedCover)).toBe(cachedCoverId);
+    expect(await service.get(page)).toBeNull();
+    expect(await service.cacheCover(cover)).toBe('');
+  };
+  await checkCacheOnly();
+  config.setSettings({ linkPreview: { autoFetch: true } });
+  await networkScope.run({ restricted: true, intent: 'prefetch' }, checkCacheOnly);
+  expect(lookup).not.toHaveBeenCalled();
+  await service.get(page);
+  await service.cacheCover(cover);
+  expect(lookup).toHaveBeenCalledTimes(2);
+});
 
 it('无效内存预算明确拒绝，不会意外成为无界缓存', () => {
   const { config } = fixture();

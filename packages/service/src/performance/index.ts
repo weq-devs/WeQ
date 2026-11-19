@@ -357,7 +357,16 @@ export class PerformanceMonitor {
   async configure(settings: MonitorSettings, confirmPrune = true) {
     return this.mutate(() => this.configureNow(settings, confirmPrune));
   }
-  private async configureNow(settings: MonitorSettings, confirmPrune: boolean) {
+  async resetRecordingMode() {
+    await this.ready;
+    return this.mutate(async () => {
+      const { mode, fullUntil } = DEFAULT_MONITOR_SETTINGS;
+      if (this.settings.mode === mode && this.settings.fullUntil === fullUntil)
+        return this.settings;
+      return this.configureNow({ ...this.settings, mode, fullUntil }, 'keep-policy');
+    });
+  }
+  private async configureNow(settings: MonitorSettings, confirmPrune: boolean | 'keep-policy') {
     const next = normalizeMonitorSettings(settings);
     if (next.mode === 'full' && next.fullUntil !== null && next.fullUntil <= Date.now()) {
       next.mode = 'light';
@@ -367,7 +376,10 @@ export class PerformanceMonitor {
     this.epoch++;
     await this.collecting;
     try {
-      await this.request('configure', { settings: next, confirmPrune });
+      await this.request(confirmPrune === 'keep-policy' ? 'configure-mode' : 'configure', {
+        settings: next,
+        confirmPrune,
+      });
     } catch (error) {
       this.reschedule();
       throw error;

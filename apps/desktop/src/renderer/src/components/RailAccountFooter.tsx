@@ -129,7 +129,8 @@ export function RailAccountFooter({
   /** 按钮禁用时的提示原因；null = 当前可上锁。 */
   function lockBlockReason(): string | null {
     if (IS_WEB) return '请在电脑端锁定 WeQ。';
-    if (appLock?.enabled === false) return '应用锁已关闭，请在 设置 → 常规 → 隐私 中开启。';
+    if (!appLock) return '应用锁设置尚未就绪。';
+    if (!appLock.enabled) return '应用锁已关闭，请在 设置 → 常规 → 隐私 中开启。';
     if (lockMethod === 'system') {
       return systemAuthQuery.data?.available === false
         ? (systemAuthQuery.data?.error ?? '当前设备系统认证不可用。')
@@ -146,7 +147,8 @@ export function RailAccountFooter({
     try {
       const fresh = await lockSettings.refetch();
       const cfg = fresh.data?.appLock;
-      if (cfg?.enabled === false) {
+      if (fresh.error || !cfg) throw new Error('应用锁设置尚未就绪。');
+      if (!cfg.enabled) {
         showError('无法上锁', '应用锁已关闭，请在 设置 → 常规 → 隐私 中开启。');
         return;
       }
@@ -166,8 +168,9 @@ export function RailAccountFooter({
           return;
         }
       }
-    } catch {
-      // 读取失败时照常上锁，解锁弹窗会自己校验当前配置。
+    } catch (reason) {
+      showError('无法上锁', reason instanceof Error ? reason.message : String(reason));
+      return;
     }
     setOpen(false);
     useWorkspaceMenu.getState().close();
