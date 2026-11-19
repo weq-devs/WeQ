@@ -36,6 +36,32 @@ describe('空间媒体按需补全', () => {
     });
     expect(read).toHaveBeenCalledTimes(2);
   });
+  it('投稿已受理但仍读到旧状态时补读，短暂读失败也不重发投稿', async () => {
+    const before = {
+      ...detail,
+      archive: { rawStatus: 0, tag: null },
+      archiveTarget: { feedId: 'native-feed-id', commonEligible: true, mediaKinds: [] },
+    };
+    const after = { ...before, archive: { rawStatus: 102, tag: null } };
+    const read = vi
+      .spyOn(GetQzoneFeedMediaDetail, 'invokeDetail')
+      .mockResolvedValueOnce(before)
+      .mockResolvedValueOnce(before)
+      .mockRejectedValueOnce(new Error('readback unavailable'))
+      .mockResolvedValueOnce(after);
+    const send = vi.spyOn(SetQzoneFeedStatus, 'invoke').mockResolvedValue({ accepted: true });
+    const service = create();
+    expect(await service.setArchive(target, target.ownerUin, 'contribute', () => {})).toMatchObject(
+      {
+        accepted: true,
+        confirmed: true,
+        detail: after,
+      },
+    );
+    expect(await service.readDetail(target)).toEqual(after);
+    expect(read).toHaveBeenCalledTimes(4);
+    expect(send).toHaveBeenCalledOnce();
+  });
   it('他人、缺字段和状态变化不发写包；已提交但读回失败不重发', async () => {
     const read = vi.spyOn(GetQzoneFeedMediaDetail, 'invokeDetail').mockResolvedValue(detail);
     const send = vi.spyOn(SetQzoneFeedStatus, 'invoke').mockResolvedValue({ accepted: true });
@@ -52,10 +78,11 @@ describe('空间媒体按需补全', () => {
         archive: { rawStatus: 102, tag: null },
         archiveTarget: { feedId: 'native', commonEligible: false, mediaKinds: [] },
       })
-      .mockRejectedValueOnce(new Error('readback unavailable'));
+      .mockRejectedValue(new Error('readback unavailable'));
     expect(
       await create().setArchive(target, target.ownerUin, 'uncontribute', () => {}),
     ).toMatchObject({ accepted: true, confirmed: false, detail: null });
+    expect(read).toHaveBeenCalledTimes(5);
     expect(send).toHaveBeenCalledOnce();
   });
   it('推预览与媒体共用同一详情缓存，调用方不能改写缓存中的用户', async () => {
